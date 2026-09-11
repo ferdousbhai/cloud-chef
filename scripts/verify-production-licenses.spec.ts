@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  createSpdxDocument,
-  createThirdPartyLicenseArtifact,
-  findLicenseNoticeErrors,
-  findLicensePolicyErrors,
-  isPlatformNeutralProductionPackage,
-} from './verify-production-licenses.mjs';
+import { createSpdxDocument, findLicenseNoticeErrors, findLicensePolicyErrors } from './verify-production-licenses.mjs';
 
 const policy = {
   schemaVersion: 1,
@@ -16,19 +10,12 @@ const policy = {
 };
 
 describe('production dependency license inventory', () => {
-  it('uses one platform-neutral inventory on macOS, Linux, and other build hosts', () => {
-    expect(isPlatformNeutralProductionPackage({ name: 'portable' })).toBe(true);
-    expect(isPlatformNeutralProductionPackage({ name: 'darwin-binding', os: ['darwin'], cpu: ['arm64'] })).toBe(false);
-    expect(isPlatformNeutralProductionPackage({ name: 'linux-binding', os: ['linux'], cpu: ['x64'] })).toBe(false);
-    expect(isPlatformNeutralProductionPackage({ name: 'musl-binding', libc: ['musl'] })).toBe(false);
-  });
-
   it('fails closed for unreviewed, inconsistent, and duplicate licenses', () => {
     expect(
       findLicensePolicyErrors(
         [
-          { name: 'unsafe', version: '1.0.0', reportedLicense: 'AGPL-3.0-only', packageLicense: 'AGPL-3.0-only' },
-          { name: 'unsafe', version: '1.0.0', reportedLicense: 'MIT', packageLicense: 'UNKNOWN' },
+          { name: 'unsafe', version: '1.0.0', license: 'AGPL-3.0-only', packageLicense: 'AGPL-3.0-only' },
+          { name: 'unsafe', version: '1.0.0', license: 'MIT', packageLicense: 'UNKNOWN' },
         ],
         policy,
       ),
@@ -52,7 +39,7 @@ describe('production dependency license inventory', () => {
           {
             name: '@journeyapps/wa-sqlite',
             version: '1.7.2',
-            reportedLicense: 'MIT',
+            license: 'MIT',
             packageLicense: undefined,
           },
         ],
@@ -63,8 +50,8 @@ describe('production dependency license inventory', () => {
 
   it('creates a deterministic SPDX 2.3 document with normalized license identifiers', () => {
     const packages = [
-      { name: 'buffer-builder', version: '0.2.0', reportedLicense: 'MIT/X11', packageLicense: 'MIT/X11' },
-      { name: 'example', version: '1.0.0', reportedLicense: 'Apache-2.0', packageLicense: 'Apache-2.0' },
+      { name: 'buffer-builder', version: '0.2.0', license: 'MIT/X11', packageLicense: 'MIT/X11' },
+      { name: 'example', version: '1.0.0', license: 'Apache-2.0', packageLicense: 'Apache-2.0' },
     ];
     const first = createSpdxDocument(packages, policy, 'lockfile');
     const second = createSpdxDocument(packages, policy, 'lockfile');
@@ -73,39 +60,6 @@ describe('production dependency license inventory', () => {
     expect(first).toMatchObject({ spdxVersion: 'SPDX-2.3', dataLicense: 'CC0-1.0' });
     expect(first.packages[0]).toMatchObject({ licenseDeclared: 'MIT', filesAnalyzed: false });
     expect(JSON.stringify(first)).not.toContain('/private/install');
-  });
-
-  it('creates a deterministic exact-version notice artifact and deduplicates verbatim text', () => {
-    const packages = [
-      {
-        name: 'example-a',
-        version: '1.0.0',
-        reportedLicense: 'Apache-2.0',
-        author: 'Example A',
-        repository: 'https://example.test/a',
-        homepage: undefined,
-        hasPackageLicenseEvidence: true,
-        licenseFiles: [{ path: 'LICENSE', content: 'exact license text\n' }],
-      },
-      {
-        name: 'example-b',
-        version: '2.0.0',
-        reportedLicense: 'Apache-2.0',
-        author: undefined,
-        repository: { type: 'git', url: 'https://example.test/b.git' },
-        homepage: 'https://example.test/b',
-        hasPackageLicenseEvidence: true,
-        licenseFiles: [{ path: 'NOTICE.txt', content: 'exact license text\n' }],
-      },
-    ];
-    const first = createThirdPartyLicenseArtifact(packages, policy, 'lockfile');
-    const second = createThirdPartyLicenseArtifact(packages, policy, 'lockfile');
-
-    expect(first).toBe(second);
-    expect(first).toContain('example-a@1.0.0');
-    expect(first).toContain('example-b@2.0.0');
-    expect(first.match(/----- BEGIN VERBATIM CONTENT -----/g)).toHaveLength(1);
-    expect(first).not.toContain('/private/install');
   });
 
   it('requires exact review for packages that publish no license file', () => {

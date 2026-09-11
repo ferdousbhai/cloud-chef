@@ -17,6 +17,7 @@ describe('generated-app production license artifact', () => {
     expect(isPlatformNeutralProductionPackage({ name: 'portable' })).toBe(true);
     expect(isPlatformNeutralProductionPackage({ os: ['darwin'], cpu: ['arm64'] })).toBe(false);
     expect(isPlatformNeutralProductionPackage({ os: ['linux'], cpu: ['x64'] })).toBe(false);
+    expect(isPlatformNeutralProductionPackage({ libc: ['musl'] })).toBe(false);
   });
 
   it('is exact-version, deterministic, and deduplicates verbatim texts', () => {
@@ -50,6 +51,11 @@ describe('generated-app production license artifact', () => {
     expect(first).toContain('a-package@1.0.0');
     expect(first).toContain('b-package@2.0.0');
     expect(first.match(/----- BEGIN VERBATIM CONTENT -----/g)).toHaveLength(1);
+    // An inventory must never leak the build host's absolute install paths.
+    expect(first).not.toContain('/private/install');
+    // The root verifier shares this builder and only supplies its own heading.
+    expect(first.split('\n')[0]).toBe('Ghostbuild Generated Application Third-Party Licenses');
+    expect(createLicenseArtifact(packages, policy, 'lockfile', 'Other Title').split('\n')[0]).toBe('Other Title');
   });
 
   it('fails closed for unreviewed licenses and metadata-only packages', () => {

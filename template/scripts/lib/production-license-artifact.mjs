@@ -232,7 +232,12 @@ export function findProductionLicenseErrors(packages, policy) {
   return errors;
 }
 
-export function createLicenseArtifact(packages, policy, lockfileContent) {
+export function createLicenseArtifact(
+  packages,
+  policy,
+  lockfileContent,
+  title = "Ghostbuild Generated Application Third-Party Licenses",
+) {
   const texts = new Map();
   const records = packages.map((entry) => {
     const files = entry.licenseFiles.map((file) => {
@@ -268,7 +273,7 @@ export function createLicenseArtifact(packages, policy, lockfileContent) {
     )}`,
   );
   const lines = [
-    "Ghostbuild Generated Application Third-Party Licenses",
+    title,
     "",
     "This generated artifact inventories every exact platform-neutral production package version.",
     "Published package license and notice files are reproduced verbatim and deduplicated by SHA-256.",

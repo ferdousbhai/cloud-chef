@@ -1,5 +1,5 @@
 {
-  "total": 1298,
+  "total": 1295,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -602,8 +602,7 @@
       "anti-slop/no-runtime-typeof": 3
     },
     "scripts/verify-production-licenses.mjs": {
-      "anti-slop/no-runtime-typeof": 5,
-      "oxc/only-used-in-recursion": 1
+      "anti-slop/no-runtime-typeof": 3
     },
     "scripts/verify-static-assets.mjs": {
       "anti-slop/no-runtime-typeof": 2

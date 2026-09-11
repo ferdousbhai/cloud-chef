@@ -1,18 +1,18 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+// The generated-application verifier owns the license-artifact implementation; the root inventory
+// is the same walk over the same published files, so it reads that library rather than forking it.
+import { createLicenseArtifact, readProductionPackages } from '../template/scripts/lib/production-license-artifact.mjs';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const policyPath = resolve(rootDir, 'scripts/production-license-policy.json');
 const lockfilePath = resolve(rootDir, 'pnpm-lock.yaml');
 const noticeArtifactPath = resolve(rootDir, 'public/THIRD_PARTY_LICENSES.txt');
 const nodeModulesPath = resolve(rootDir, 'node_modules');
-const licenseFilePattern = /^(?:licen[cs]e|copying|notice)(?:[._-].*)?$/i;
-const readmeFilePattern = /^readme(?:[._-].*)?$/i;
-const licenseTextMarker =
-  /(?:Permission is hereby granted|Apache License|ISC License|Mozilla Public License|Redistribution and use in source and binary forms|Creative Commons Attribution|Python Software Foundation License|The Unlicense|Blue Oak Model License)/i;
+const NOTICE_ARTIFACT_TITLE = 'Ghostbuild Third-Party Production Dependency Licenses';
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -20,240 +20,6 @@ function sha256(value) {
 
 function packageIdentity(name, version) {
   return `${name}@${version}`;
-}
-
-function normalizedMetadataValue(value) {
-  if (value === undefined || value === null || value === '') {
-    return '<not published>';
-  }
-  return typeof value === 'string' ? value : JSON.stringify(value);
-}
-
-function assertPackagePath(packagePath) {
-  const resolvedPath = resolve(packagePath);
-  const relativePath = relative(nodeModulesPath, resolvedPath);
-  if (
-    !relativePath ||
-    relativePath === '..' ||
-    relativePath.startsWith(`..${sep}`) ||
-    resolve(nodeModulesPath, relativePath) !== resolvedPath
-  ) {
-    throw new Error(`Production license inventory returned a path outside node_modules: ${packagePath}.`);
-  }
-  return resolvedPath;
-}
-
-export function isPlatformNeutralProductionPackage(metadata) {
-  return ![metadata?.os, metadata?.cpu, metadata?.libc].some(
-    (value) => (Array.isArray(value) && value.length > 0) || (typeof value === 'string' && value.length > 0),
-  );
-}
-
-function walkPackageFiles(directory, packageRoot, matches, depth = 0) {
-  if (depth > 12) {
-    throw new Error(
-      `Production package notice traversal exceeded its depth limit in ${relative(packageRoot, directory)}.`,
-    );
-  }
-  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
-    left.name.localeCompare(right.name),
-  )) {
-    if (entry.name === 'node_modules' || entry.name.startsWith('.')) {
-      continue;
-    }
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      walkPackageFiles(path, packageRoot, matches, depth + 1);
-    } else if (entry.isFile() && licenseFilePattern.test(entry.name)) {
-      matches.push(path);
-    }
-  }
-}
-
-function walkReadmeLicenseFallbacks(directory, packageRoot, matches, depth = 0) {
-  if (depth > 12) {
-    return;
-  }
-  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
-    left.name.localeCompare(right.name),
-  )) {
-    if (entry.name === 'node_modules' || entry.name.startsWith('.')) {
-      continue;
-    }
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      walkReadmeLicenseFallbacks(path, packageRoot, matches, depth + 1);
-    } else if (entry.isFile() && readmeFilePattern.test(entry.name)) {
-      const content = readFileSync(path);
-      if (content.length <= 2 * 1024 * 1024 && licenseTextMarker.test(content.toString('utf8'))) {
-        matches.push(path);
-      }
-    }
-  }
-}
-
-function readExactTextFile(path, packageId) {
-  const bytes = readFileSync(path);
-  const content = bytes.toString('utf8');
-  if (!Buffer.from(content, 'utf8').equals(bytes)) {
-    throw new Error(`${packageId} publishes a non-UTF-8 license or notice file at ${path}.`);
-  }
-  return content;
-}
-
-function collectPackageLicenseFiles(packagePath, packageId) {
-  const licenseMatches = [];
-  walkPackageFiles(packagePath, packagePath, licenseMatches);
-  const hasTopLevelLicense = licenseMatches.some((path) => !relative(packagePath, path).includes(sep));
-  const readmeMatches = [];
-  if (!hasTopLevelLicense) {
-    walkReadmeLicenseFallbacks(packagePath, packagePath, readmeMatches);
-  }
-  const hasTopLevelReadmeLicense = readmeMatches.some((path) => !relative(packagePath, path).includes(sep));
-  const files = [...new Set([...licenseMatches, ...readmeMatches])]
-    .sort((left, right) => relative(packagePath, left).localeCompare(relative(packagePath, right)))
-    .map((path) => ({
-      path: relative(packagePath, path).split(sep).join('/'),
-      content: readExactTextFile(path, packageId),
-    }));
-  return { files, hasPackageLicenseEvidence: hasTopLevelLicense || hasTopLevelReadmeLicense };
-}
-
-export function readNoticePackages(report) {
-  const packages = [];
-  for (const [reportedLicense, entries] of Object.entries(report ?? {})) {
-    if (!Array.isArray(entries)) {
-      continue;
-    }
-    for (const entry of entries) {
-      if (
-        !Array.isArray(entry?.versions) ||
-        !Array.isArray(entry?.paths) ||
-        entry.versions.length !== entry.paths.length
-      ) {
-        throw new Error(`pnpm returned mismatched versions and package paths for ${entry?.name ?? '<unknown>'}.`);
-      }
-      for (let index = 0; index < entry.versions.length; index += 1) {
-        const version = entry.versions[index];
-        const packagePath = assertPackagePath(entry.paths[index]);
-        const metadata = JSON.parse(readFileSync(join(packagePath, 'package.json'), 'utf8'));
-        const packageId = packageIdentity(entry.name, version);
-        if (metadata.name !== entry.name || metadata.version !== version) {
-          throw new Error(`${packageId} does not match the package metadata installed at ${packagePath}.`);
-        }
-        // OS/CPU/libc-restricted optional binaries are local build-tool
-        // implementations. They are neither bundled into nor distributed with
-        // the platform-neutral Worker/client release, and including the host's
-        // selected binary would make the checked-in artifact platform-specific.
-        if (!isPlatformNeutralProductionPackage(metadata)) {
-          continue;
-        }
-        const licenseEvidence = collectPackageLicenseFiles(packagePath, packageId);
-        packages.push({
-          name: entry.name,
-          version,
-          reportedLicense,
-          packageLicense: metadata.license,
-          author: metadata.author,
-          repository: metadata.repository,
-          homepage: metadata.homepage,
-          licenseFiles: licenseEvidence.files,
-          hasPackageLicenseEvidence: licenseEvidence.hasPackageLicenseEvidence,
-        });
-      }
-    }
-  }
-  return packages.sort(
-    (left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version),
-  );
-}
-
-export function createThirdPartyLicenseArtifact(packages, policy, lockfileContent) {
-  const textByDigest = new Map();
-  const packageRecords = packages.map((entry) => {
-    const files = entry.licenseFiles.map((file) => {
-      const digest = sha256(file.content);
-      const existing = textByDigest.get(digest);
-      if (existing && existing.content !== file.content) {
-        throw new Error(`SHA-256 collision while inventorying ${packageIdentity(entry.name, entry.version)}.`);
-      }
-      const use = `${packageIdentity(entry.name, entry.version)}:${file.path}`;
-      if (existing) {
-        existing.uses.push(use);
-      } else {
-        textByDigest.set(digest, { content: file.content, uses: [use] });
-      }
-      return { path: file.path, digest };
-    });
-    return {
-      name: entry.name,
-      version: entry.version,
-      license: entry.reportedLicense,
-      author: normalizedMetadataValue(entry.author),
-      repository: normalizedMetadataValue(entry.repository),
-      homepage: normalizedMetadataValue(entry.homepage),
-      hasPackageLicenseEvidence: entry.hasPackageLicenseEvidence,
-      files,
-    };
-  });
-  const inventoryDigest = sha256(
-    `${sha256(lockfileContent)}\n${JSON.stringify(
-      packageRecords.map(({ name, version, license, files }) => [
-        name,
-        version,
-        license,
-        files.map(({ path, digest }) => [path, digest]),
-      ]),
-    )}`,
-  );
-
-  const lines = [
-    'Ghostbuild Third-Party Production Dependency Licenses',
-    '',
-    'This generated artifact inventories every exact platform-neutral production package version.',
-    'Published package license and notice files are reproduced verbatim and deduplicated by SHA-256.',
-    'Host-restricted native build-tool binaries are excluded because they are not distributed in the Worker or client artifact.',
-    'A package whose package-level evidence is <not published> remains exact-version allowlisted for legal review; nested component notices are still reproduced.',
-    'This automated artifact supports diligence but does not replace legal review.',
-    '',
-    `Policy reviewed: ${policy.reviewedAt}`,
-    `Production packages: ${packageRecords.length}`,
-    `Inventory SHA-256: ${inventoryDigest}`,
-    '',
-    'PACKAGE INVENTORY',
-    '=================',
-  ];
-  for (const entry of packageRecords) {
-    lines.push(
-      '',
-      packageIdentity(entry.name, entry.version),
-      `Declared license: ${entry.license}`,
-      `Author: ${entry.author}`,
-      `Repository: ${entry.repository}`,
-      `Homepage: ${entry.homepage}`,
-      `Package-level license evidence: ${entry.hasPackageLicenseEvidence ? 'published' : '<not published>'}`,
-    );
-    if (entry.files.length === 0) {
-      lines.push('Published license/notice files: <not published>');
-    } else {
-      lines.push('Published license/notice files:');
-      for (const file of entry.files) {
-        lines.push(`- ${file.path} (SHA-256 ${file.digest})`);
-      }
-    }
-  }
-
-  lines.push('', 'VERBATIM LICENSE AND NOTICE TEXTS', '=================================', '');
-  for (const [digest, entry] of [...textByDigest.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-    lines.push(`SHA-256 ${digest}`, 'Used by:');
-    for (const use of entry.uses.sort()) {
-      lines.push(`- ${use}`);
-    }
-    lines.push('----- BEGIN VERBATIM CONTENT -----');
-    lines.push(entry.content);
-    lines.push('----- END VERBATIM CONTENT -----', '');
-  }
-  return `${lines.join('\n')}\n`;
 }
 
 export function findLicenseNoticeErrors(packages, policy) {
@@ -308,16 +74,13 @@ export function findLicensePolicyErrors(packages, policy) {
     }
     packageIds.add(packageId);
     packagesById.set(packageId, entry);
-    if (
-      entry.packageLicense !== entry.reportedLicense &&
-      missingMetadataOverrides.get(packageId) !== entry.reportedLicense
-    ) {
+    if (entry.packageLicense !== entry.license && missingMetadataOverrides.get(packageId) !== entry.license) {
       errors.push(
-        `${packageId} license grouping ${JSON.stringify(entry.reportedLicense)} does not match package metadata ${JSON.stringify(entry.packageLicense)}.`,
+        `${packageId} license grouping ${JSON.stringify(entry.license)} does not match package metadata ${JSON.stringify(entry.packageLicense)}.`,
       );
     }
-    if (!allowed.has(entry.reportedLicense)) {
-      errors.push(`${packageId} declares unreviewed production license ${JSON.stringify(entry.reportedLicense)}.`);
+    if (!allowed.has(entry.license)) {
+      errors.push(`${packageId} declares unreviewed production license ${JSON.stringify(entry.license)}.`);
     }
   }
   for (const [packageId, license] of missingMetadataOverrides) {
@@ -326,9 +89,9 @@ export function findLicensePolicyErrors(packages, policy) {
       errors.push(`${packageId} is a stale missingLicenseMetadataOverrides entry.`);
     } else if (entry.packageLicense !== undefined && entry.packageLicense !== null) {
       errors.push(`${packageId} now publishes license metadata; remove its missingLicenseMetadataOverrides entry.`);
-    } else if (entry.reportedLicense !== license) {
+    } else if (entry.license !== license) {
       errors.push(
-        `${packageId} missing-license-metadata override ${JSON.stringify(license)} does not match inventory grouping ${JSON.stringify(entry.reportedLicense)}.`,
+        `${packageId} missing-license-metadata override ${JSON.stringify(license)} does not match inventory grouping ${JSON.stringify(entry.license)}.`,
       );
     }
   }
@@ -337,7 +100,7 @@ export function findLicensePolicyErrors(packages, policy) {
 
 export function createSpdxDocument(packages, policy, lockfileContent) {
   const normalized = packages.map((entry) => {
-    const license = policy.spdxLicenseNormalizations?.[entry.reportedLicense] ?? entry.reportedLicense;
+    const license = policy.spdxLicenseNormalizations?.[entry.license] ?? entry.license;
     const identity = `${entry.name}@${entry.version}`;
     return {
       SPDXID: `SPDXRef-Package-${sha256(identity).slice(0, 24)}`,
@@ -394,15 +157,15 @@ export function readProductionLicenseInventory({ spawn = spawnSync } = {}) {
 export function verifyProductionLicenses() {
   const policy = JSON.parse(readFileSync(policyPath, 'utf8'));
   const report = readProductionLicenseInventory();
-  const noticePackages = readNoticePackages(report);
-  const packages = noticePackages.map(({ name, version, reportedLicense, packageLicense }) => ({
+  const noticePackages = readProductionPackages(report, nodeModulesPath);
+  const packages = noticePackages.map(({ name, version, license, packageLicense }) => ({
     name,
     version,
-    reportedLicense,
+    license,
     packageLicense,
   }));
   const lockfileContent = readFileSync(lockfilePath, 'utf8');
-  const expectedNoticeArtifact = createThirdPartyLicenseArtifact(noticePackages, policy, lockfileContent);
+  const expectedNoticeArtifact = createLicenseArtifact(noticePackages, policy, lockfileContent, NOTICE_ARTIFACT_TITLE);
   const errors = [...findLicensePolicyErrors(packages, policy), ...findLicenseNoticeErrors(noticePackages, policy)];
   if (!existsSync(noticeArtifactPath)) {
     errors.push('public/THIRD_PARTY_LICENSES.txt is missing; run pnpm run licenses:generate.');
