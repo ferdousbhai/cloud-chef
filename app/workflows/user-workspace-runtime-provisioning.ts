@@ -240,7 +240,10 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
       }),
     );
     return { status: 'ready' };
-  } catch {
+  } catch (error) {
+    // Only the message is logged: the thrown messages on this path are fixed, while the error
+    // object can carry a `cause` from parsing a decrypted credential, which must not reach a log.
+    console.error('Workspace runtime provisioning failed', error instanceof Error ? error.message : 'Unknown error');
     return { status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null };
   }
 }
