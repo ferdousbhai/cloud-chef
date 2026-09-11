@@ -3,7 +3,6 @@ export type ConversationCompactionAction = 'none' | 'background' | 'blocking';
 type ConversationCompactionPolicy = Readonly<{
   proactiveTokens: number;
   hardLimitTokens: number;
-  headroomTokens?: number;
 }>;
 
 export function decideConversationCompaction(
@@ -15,11 +14,10 @@ export function decideConversationCompaction(
 ): ConversationCompactionAction {
   assertPolicy(input.policy);
   const estimated = nonNegativeInteger(input.estimatedTokens, 'estimatedTokens');
-  const projected = saturatingAdd(estimated, input.policy.headroomTokens ?? 0);
-  if (projected >= input.policy.hardLimitTokens) {
+  if (estimated >= input.policy.hardLimitTokens) {
     return 'blocking';
   }
-  if (projected >= input.policy.proactiveTokens && !input.pending) {
+  if (estimated >= input.policy.proactiveTokens && !input.pending) {
     return 'background';
   }
   return 'none';
@@ -61,7 +59,6 @@ export function canApplyConversationCompaction(
 function assertPolicy(policy: ConversationCompactionPolicy): void {
   const proactive = nonNegativeInteger(policy.proactiveTokens, 'proactiveTokens');
   const hard = nonNegativeInteger(policy.hardLimitTokens, 'hardLimitTokens');
-  nonNegativeInteger(policy.headroomTokens ?? 0, 'headroomTokens');
   if (proactive < 1 || hard <= proactive) {
     throw new Error('Compaction policy requires 0 < proactiveTokens < hardLimitTokens');
   }
@@ -72,10 +69,6 @@ function nonNegativeInteger(value: number, name: string): number {
     throw new Error(`${name} must be a non-negative safe integer`);
   }
   return value;
-}
-
-function saturatingAdd(left: number, right: number): number {
-  return left > Number.MAX_SAFE_INTEGER - right ? Number.MAX_SAFE_INTEGER : left + right;
 }
 
 function requiredKeyPart(value: string, name: string): string {
