@@ -22,8 +22,7 @@ The launch funnel is:
 `landing_viewed → cloudflare_connect_started → prompt_submitted → first_tool_completed → validation_succeeded → preview_ready → deployment_succeeded`
 
 Explicit deployment approval was retired from the product, so the funnel has no approval stage and no event is declared
-for one. `app/lib/client-telemetry-events.test.ts` fails the build if a declared event has no production emitter, or if
-an emitted event is missing from the accepted enum.
+for one.
 
 When browser telemetry is enabled, operational failures use the existing typed event names, an error level, a generic
 failure reason where available, and an opaque per-event ID. Each funnel stage is claimed once per journey in memory as
