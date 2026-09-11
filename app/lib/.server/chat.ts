@@ -20,9 +20,6 @@ const logger = createScopedLogger('api.chat');
 
 export type ChatRequestBody = {
   messages?: Messages;
-  chatInitialId: string;
-  subchatIndex: number;
-  turnContext?: ChatTurnContext;
   modelId: WorkersAiModelId;
 };
 
@@ -43,7 +40,7 @@ export async function createChatResponseFromBody({
   onSettled,
 }: {
   abortSignal?: AbortSignal;
-  body: Pick<ChatRequestBody, 'messages' | 'modelId'>;
+  body: ChatRequestBody;
   model: WorkersAiModel;
   compaction: {
     current: ContextCompaction | null;
