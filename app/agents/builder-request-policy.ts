@@ -15,6 +15,19 @@ export type BuilderTranscriptBinding = {
   parentAgentName: string | null;
 };
 
+export function builderTranscriptBindingsEqual(
+  left: BuilderTranscriptBinding,
+  right: BuilderTranscriptBinding,
+): boolean {
+  return (
+    left.agentName === right.agentName &&
+    left.chatInitialId === right.chatInitialId &&
+    left.generation === right.generation &&
+    left.subchatIndex === right.subchatIndex &&
+    left.parentAgentName === right.parentAgentName
+  );
+}
+
 type BuilderTranscriptRow = {
   agent_name: string;
   initial_id: string;

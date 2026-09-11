@@ -6,7 +6,7 @@ import {
 } from 'ghostbuild-agent/cloudflare-mcp';
 import { sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareMcpRuntimeIdentity } from '~/lib/.server/cloudflare/cloudflare-mcp-runtime-controls';
-import type { BuilderTranscriptBinding } from './builder-request-policy';
+import { builderTranscriptBindingsEqual, type BuilderTranscriptBinding } from './builder-request-policy';
 import { z } from 'zod';
 
 type CloudflareExecutionStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
@@ -460,11 +460,7 @@ function executionBindingsEqual(left: CloudflareExecutionBinding, right: Cloudfl
     left.connectionId === right.connectionId &&
     left.connectionGeneration === right.connectionGeneration &&
     left.oauthScopeGrantStatus === right.oauthScopeGrantStatus &&
-    left.transcript.agentName === right.transcript.agentName &&
-    left.transcript.chatInitialId === right.transcript.chatInitialId &&
-    left.transcript.generation === right.transcript.generation &&
-    left.transcript.subchatIndex === right.transcript.subchatIndex &&
-    left.transcript.parentAgentName === right.transcript.parentAgentName
+    builderTranscriptBindingsEqual(left.transcript, right.transcript)
   );
 }
 

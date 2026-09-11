@@ -60,6 +60,7 @@ import {
 import { createWorkersAiSessionAffinity } from '~/lib/.server/llm/workers-ai-prompt-cache';
 import {
   boundBuilderMessageForPersistence,
+  builderTranscriptBindingsEqual,
   loadBuilderTranscriptBinding,
   requireBuilderRequestScope,
   requireBuilderTranscriptIdentity,
@@ -1861,16 +1862,6 @@ function parseTurnContext(value: unknown): ChatTurnContext | undefined {
 
 function deploymentErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Deployment failed.';
-}
-
-function builderTranscriptBindingsEqual(left: BuilderTranscriptBinding, right: BuilderTranscriptBinding): boolean {
-  return (
-    left.agentName === right.agentName &&
-    left.chatInitialId === right.chatInitialId &&
-    left.generation === right.generation &&
-    left.subchatIndex === right.subchatIndex &&
-    left.parentAgentName === right.parentAgentName
-  );
 }
 
 function cloudflareRuntimeIdentitiesEqual(

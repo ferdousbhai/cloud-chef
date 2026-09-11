@@ -1,4 +1,4 @@
-import type { BuilderTranscriptBinding } from './builder-request-policy';
+import { builderTranscriptBindingsEqual, type BuilderTranscriptBinding } from './builder-request-policy';
 
 type BuilderIdentityStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
 
@@ -82,11 +82,7 @@ export function builderAgentIdentitiesEqual(
   return (
     left.ownerId === right.ownerId &&
     left.userId === right.userId &&
-    left.transcript.agentName === right.transcript.agentName &&
-    left.transcript.chatInitialId === right.transcript.chatInitialId &&
-    left.transcript.generation === right.transcript.generation &&
-    left.transcript.subchatIndex === right.transcript.subchatIndex &&
-    left.transcript.parentAgentName === right.transcript.parentAgentName
+    builderTranscriptBindingsEqual(left.transcript, right.transcript)
   );
 }
 
