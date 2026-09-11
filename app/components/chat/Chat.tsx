@@ -282,12 +282,7 @@ const AuthenticatedChat = memo(
       presentationId,
       transcript,
     });
-    const parsedMessages = useChatHistoryProcessing({
-      messages,
-      initialMessages,
-      partCache,
-      streamStatus,
-    });
+    const parsedMessages = useChatHistoryProcessing({ messages, partCache });
 
     useEffect(() => {
       chatStore.setKey('started', chatStarted);

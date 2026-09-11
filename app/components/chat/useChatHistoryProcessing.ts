@@ -2,23 +2,15 @@ import { useEffect, useMemo } from 'react';
 import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
 import { createSampler } from '~/utils/sampler';
 import { useProcessedMessages, type PartCache } from '~/lib/hooks/useProcessedMessages';
-import type { StreamStatus } from '~/lib/common/types';
 
 interface ProcessMessagesOptions {
   messages: GhostbuildMessage[];
-  initialMessages: GhostbuildMessage[];
   processMessages: (messages: GhostbuildMessage[]) => void;
-  streamStatus: StreamStatus;
 }
 
-export function useChatHistoryProcessing(args: {
-  messages: GhostbuildMessage[];
-  initialMessages: GhostbuildMessage[];
-  partCache: PartCache;
-  streamStatus: StreamStatus;
-}) {
+export function useChatHistoryProcessing(args: { messages: GhostbuildMessage[]; partCache: PartCache }) {
   const { parsedMessages, processMessages } = useProcessedMessages(args.partCache);
-  const { messages, initialMessages, streamStatus } = args;
+  const { messages } = args;
   const processSampledMessages = useMemo(
     () =>
       createSampler((options: ProcessMessagesOptions) => {
@@ -28,13 +20,8 @@ export function useChatHistoryProcessing(args: {
   );
 
   useEffect(() => {
-    processSampledMessages({
-      messages,
-      initialMessages,
-      streamStatus,
-      processMessages,
-    });
-  }, [initialMessages, messages, processMessages, processSampledMessages, streamStatus]);
+    processSampledMessages({ messages, processMessages });
+  }, [messages, processMessages, processSampledMessages]);
 
   useEffect(() => () => processSampledMessages.cancel(), [processSampledMessages]);
 
