@@ -140,7 +140,7 @@ export function useEditChatDescription({
       }
 
       const submission = Symbol('description-submission');
-      const submittedDescription = currentDescription;
+      const submittedDescription = currentDescription.trim();
       inFlightDescriptionSubmissions.set(resourceKey, submission);
       submittingRef.current = submission;
       interactionVersionRef.current++;
