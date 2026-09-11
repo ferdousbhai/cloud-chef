@@ -73,7 +73,8 @@ describe('workspace runtime provisioning Workflow', () => {
     const createBatch = vi
       .fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch']>()
       .mockResolvedValueOnce([instance])
-      .mockResolvedValueOnce([]);
+      // The binding throws on a duplicate id; it never reports one as an empty batch.
+      .mockRejectedValueOnce(new Error('instance with id workspace-... already exists'));
     const get = vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>().mockResolvedValue(instance);
     const env = workflowEnv(createBatch, get);
 
@@ -93,7 +94,9 @@ describe('workspace runtime provisioning Workflow', () => {
       }),
     );
     const env = workflowEnv(
-      vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch']>().mockResolvedValue([]),
+      vi
+        .fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch']>()
+        .mockRejectedValue(new Error('instance with id workspace-... already exists')),
       vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>().mockResolvedValue(instance),
     );
 
