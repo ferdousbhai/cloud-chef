@@ -22,14 +22,6 @@ describe('user-owned workspace D1 schema', () => {
       .map((row) => String(row.name));
 
     expect(tables).toEqual(workloadTables);
-    expect(tables).not.toEqual(
-      expect.arrayContaining([
-        'user',
-        'cloudflare_connections',
-        'deployment_security_inventory',
-        'object_gc_candidates',
-      ]),
-    );
   });
 
   test('stores a workspace reference without retaining a build artifact or connection copy', () => {
@@ -109,9 +101,11 @@ describe('user-owned workspace D1 schema', () => {
       .prepare('PRAGMA table_info(chat_transcripts)')
       .all()
       .map((row) => String(row.name));
-    expect(columns).not.toEqual(
-      expect.arrayContaining(['head_revision', 'head_digest', 'head_message_count', 'last_message_rank', 'part_index']),
-    );
+    // Per column: `not.toEqual(arrayContaining([...]))` passes as soon as one listed column is
+    // absent, so it would keep passing with four of the five still there.
+    for (const column of ['head_revision', 'head_digest', 'head_message_count', 'last_message_rank', 'part_index']) {
+      expect(columns).not.toContain(column);
+    }
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   });
 
