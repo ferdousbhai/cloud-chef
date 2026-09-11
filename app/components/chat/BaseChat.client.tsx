@@ -62,153 +62,149 @@ interface BaseChatProps {
   onSubchatTitleChange?: (subchatIndex: number, title: string) => void;
 }
 
-export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
-  (
-    {
-      messageRef,
-      scrollRef,
-      showChat = true,
-      chatStarted = false,
-      streamStatus = 'ready',
-      currentError,
-      onSend,
-      onStop,
-      sendMessageInProgress,
-      messages,
-      isRecovering,
-      buildProgress,
-      disabledReason,
-      runtimeNotice,
-      deployment,
-      publication,
-      onDeploy,
-      cloudflareExecutions,
-      onCloudflareExecutionDecision,
-      subchats,
-      onSubchatTitleChange,
-    },
-    ref,
-  ) => {
-    const isStreaming = isRecovering || isStreamStatusActive(streamStatus);
-    const currentSubchatIndex = useStore(subchatIndexStore) ?? 0;
-    const createSubchat = useMutation(api.subchats.create);
-    const setSubchatDescription = useMutation(api.subchats.setDescription);
-    const isSubchatLoaded = useIsSubchatLoaded();
-    const chatId = useChatId();
-    const userId = useUserIdOrNullOrLoading();
-    const activeChatContextRef = React.useRef<{ chatId: string; userId: string | null | undefined } | null>(null);
-    const createSubchatPendingRef = React.useRef<symbol | null>(null);
+export function BaseChat({
+  messageRef,
+  scrollRef,
+  showChat,
+  chatStarted,
+  streamStatus,
+  currentError,
+  onSend,
+  onStop,
+  sendMessageInProgress,
+  messages,
+  isRecovering,
+  buildProgress,
+  disabledReason,
+  runtimeNotice,
+  deployment,
+  publication,
+  onDeploy,
+  cloudflareExecutions,
+  onCloudflareExecutionDecision,
+  subchats,
+  onSubchatTitleChange,
+}: BaseChatProps) {
+  const isStreaming = isRecovering || isStreamStatusActive(streamStatus);
+  const currentSubchatIndex = useStore(subchatIndexStore) ?? 0;
+  const createSubchat = useMutation(api.subchats.create);
+  const setSubchatDescription = useMutation(api.subchats.setDescription);
+  const isSubchatLoaded = useIsSubchatLoaded();
+  const chatId = useChatId();
+  const userId = useUserIdOrNullOrLoading();
+  const activeChatContextRef = React.useRef<{ chatId: string; userId: string | null | undefined } | null>(null);
+  const createSubchatPendingRef = React.useRef<symbol | null>(null);
 
-    React.useLayoutEffect(() => {
-      const context = { chatId, userId };
-      activeChatContextRef.current = context;
+  React.useLayoutEffect(() => {
+    const context = { chatId, userId };
+    activeChatContextRef.current = context;
+    createSubchatPendingRef.current = null;
+    return () => {
+      if (activeChatContextRef.current === context) {
+        activeChatContextRef.current = null;
+      }
       createSubchatPendingRef.current = null;
-      return () => {
-        if (activeChatContextRef.current === context) {
-          activeChatContextRef.current = null;
-        }
-        createSubchatPendingRef.current = null;
-      };
-    }, [chatId, userId]);
+    };
+  }, [chatId, userId]);
 
-    const handleCreateSubchat = useCallback(async (): Promise<boolean> => {
-      const context = activeChatContextRef.current;
-      if (!userId || context?.chatId !== chatId || context.userId !== userId || createSubchatPendingRef.current) {
+  const handleCreateSubchat = useCallback(async (): Promise<boolean> => {
+    const context = activeChatContextRef.current;
+    if (!userId || context?.chatId !== chatId || context.userId !== userId || createSubchatPendingRef.current) {
+      return false;
+    }
+    const attempt = Symbol('create-subchat');
+    createSubchatPendingRef.current = attempt;
+    const isActiveChat = () => activeChatContextRef.current === context;
+    try {
+      let subchatIndex: number;
+      try {
+        subchatIndex = await createSubchat({ chatId, sessionId: userId });
+      } catch (error) {
+        if (isActiveChat()) {
+          toast.error(error instanceof Error ? error.message : 'Unable to create a new chat.');
+        }
         return false;
       }
-      const attempt = Symbol('create-subchat');
-      createSubchatPendingRef.current = attempt;
-      const isActiveChat = () => activeChatContextRef.current === context;
+      if (!isActiveChat()) {
+        return true;
+      }
       try {
-        let subchatIndex: number;
-        try {
-          subchatIndex = await createSubchat({ chatId, sessionId: userId });
-        } catch (error) {
-          if (isActiveChat()) {
-            toast.error(error instanceof Error ? error.message : 'Unable to create a new chat.');
-          }
-          return false;
-        }
+        await refreshSubchats({ chatId, sessionId: userId });
         if (!isActiveChat()) {
           return true;
         }
-        try {
-          await refreshSubchats({ chatId, sessionId: userId });
-          if (!isActiveChat()) {
-            return true;
-          }
-        } catch (error) {
-          if (isActiveChat()) {
-            toast.error(
-              error instanceof Error
-                ? `The chat was created, but its history could not refresh: ${error.message}`
-                : 'The chat was created, but its history could not refresh. Reload to continue.',
-            );
-          }
-          return true;
-        }
-        subchatIndexStore.set(subchatIndex);
-        setMessageInput('');
-        return true;
-      } finally {
-        if (createSubchatPendingRef.current === attempt) {
-          createSubchatPendingRef.current = null;
-        }
-      }
-    }, [createSubchat, chatId, userId]);
-    const handleRenameSubchat = useCallback(
-      async (title: string): Promise<boolean> => {
-        const context = activeChatContextRef.current;
-        if (!userId || context?.chatId !== chatId || context.userId !== userId) {
-          return false;
-        }
-        const isActiveChat = () =>
-          activeChatContextRef.current === context && (subchatIndexStore.get() ?? 0) === currentSubchatIndex;
-        try {
-          await setSubchatDescription({
-            chatId,
-            sessionId: userId,
-            subchatIndex: currentSubchatIndex,
-            description: title,
-          });
-        } catch (error) {
-          if (isActiveChat()) {
-            toast.error(error instanceof Error ? error.message : 'Unable to rename this chat.');
-          }
-          return false;
-        }
-
-        try {
-          await refreshSubchats({ chatId, sessionId: userId });
-        } catch (error) {
-          if (isActiveChat()) {
-            toast.error(
-              error instanceof Error
-                ? `The chat was renamed, but its history could not refresh: ${error.message}`
-                : 'The chat was renamed, but its history could not refresh. Reload to see the new title.',
-            );
-          }
-        }
+      } catch (error) {
         if (isActiveChat()) {
-          onSubchatTitleChange?.(currentSubchatIndex, title);
+          toast.error(
+            error instanceof Error
+              ? `The chat was created, but its history could not refresh: ${error.message}`
+              : 'The chat was created, but its history could not refresh. Reload to continue.',
+          );
         }
         return true;
-      },
-      [chatId, currentSubchatIndex, userId, setSubchatDescription, onSubchatTitleChange],
-    );
-
-    const lastUserMessage = messages.findLast((message) => message.role === 'user');
-    const resendMessage = useCallback(async () => {
-      if (lastUserMessage) {
-        await onSend(messageText(lastUserMessage));
       }
-    }, [lastUserMessage, onSend]);
-    const isSmallViewport = useViewport(1024);
-    const swipeEnabled = isSmallViewport && chatStarted;
-    const workspaceSwipe = useWorkspaceSwipe(swipeEnabled);
-    const content = (
+      subchatIndexStore.set(subchatIndex);
+      setMessageInput('');
+      return true;
+    } finally {
+      if (createSubchatPendingRef.current === attempt) {
+        createSubchatPendingRef.current = null;
+      }
+    }
+  }, [createSubchat, chatId, userId]);
+  const handleRenameSubchat = useCallback(
+    async (title: string): Promise<boolean> => {
+      const context = activeChatContextRef.current;
+      if (!userId || context?.chatId !== chatId || context.userId !== userId) {
+        return false;
+      }
+      const isActiveChat = () =>
+        activeChatContextRef.current === context && (subchatIndexStore.get() ?? 0) === currentSubchatIndex;
+      try {
+        await setSubchatDescription({
+          chatId,
+          sessionId: userId,
+          subchatIndex: currentSubchatIndex,
+          description: title,
+        });
+      } catch (error) {
+        if (isActiveChat()) {
+          toast.error(error instanceof Error ? error.message : 'Unable to rename this chat.');
+        }
+        return false;
+      }
+
+      try {
+        await refreshSubchats({ chatId, sessionId: userId });
+      } catch (error) {
+        if (isActiveChat()) {
+          toast.error(
+            error instanceof Error
+              ? `The chat was renamed, but its history could not refresh: ${error.message}`
+              : 'The chat was renamed, but its history could not refresh. Reload to see the new title.',
+          );
+        }
+      }
+      if (isActiveChat()) {
+        onSubchatTitleChange?.(currentSubchatIndex, title);
+      }
+      return true;
+    },
+    [chatId, currentSubchatIndex, userId, setSubchatDescription, onSubchatTitleChange],
+  );
+
+  const lastUserMessage = messages.findLast((message) => message.role === 'user');
+  const resendMessage = useCallback(async () => {
+    if (lastUserMessage) {
+      await onSend(messageText(lastUserMessage));
+    }
+  }, [lastUserMessage, onSend]);
+  const isSmallViewport = useViewport(1024);
+  const swipeEnabled = isSmallViewport && chatStarted;
+  const workspaceSwipe = useWorkspaceSwipe(swipeEnabled);
+  return (
+    <MotionConfig reducedMotion="user">
       <div
-        ref={ref}
         className={classNames(styles.BaseChat, 'relative flex h-full w-full overflow-hidden')}
         data-chat-visible={showChat}
       >
@@ -331,8 +327,6 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
           </div>
         </div>
       </div>
-    );
-    return <MotionConfig reducedMotion="user">{content}</MotionConfig>;
-  },
-);
-BaseChat.displayName = 'BaseChat';
+    </MotionConfig>
+  );
+}
