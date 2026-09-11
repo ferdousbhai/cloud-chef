@@ -34,7 +34,7 @@ export function findBuildApprovalErrors(workspace, label) {
 
   let containsUnsafeNode = false;
   visit(document, (_key, node) => {
-    if (isAlias(node) || node.anchor || node.tag) {
+    if (isAlias(node) || node?.anchor || node?.tag) {
       containsUnsafeNode = true;
       return visit.BREAK;
     }
