@@ -1,15 +1,10 @@
 import { z } from 'zod';
-import { clearAuthSessionCookie, getAuthSession } from '~/lib/.server/auth';
+import { clearAuthSessionCookie } from '~/lib/.server/auth';
+import { requireRecentlyAuthenticatedSession } from '~/lib/.server/account-reauthentication';
 import { eraseControlPlaneAccount } from '~/lib/.server/cloudflare/account-deletion';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
 
-/**
- * Erasure is irreversible, so it is accepted only from a session that was created
- * by a fresh Cloudflare sign-in. Reconnecting Cloudflare issues a new session,
- * which is the re-authentication proof this window checks.
- */
-export const ACCOUNT_DELETION_REAUTHENTICATION_WINDOW_MS = 10 * 60_000;
 const MAX_ACCOUNT_DELETION_BYTES = 1024;
 const accountDeletionSchema = z
   .object({
@@ -19,21 +14,13 @@ const accountDeletionSchema = z
   .strict();
 
 export async function deleteAccountAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
-  if (request.headers.get('origin') !== new URL(request.url).origin) {
-    return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
-  }
-  const session = await getAuthSession(env, request);
-  if (!session) {
-    return Response.json({ error: 'Cloudflare authentication required.' }, { status: 401 });
-  }
-  if (Date.now() - session.session.createdAt > ACCOUNT_DELETION_REAUTHENTICATION_WINDOW_MS) {
-    return Response.json(
-      {
-        code: 'reauthentication_required',
-        error: 'Reconnect Cloudflare to confirm it is you, then delete your Ghostbuild account data.',
-      },
-      { status: 401, headers: { 'Cache-Control': 'no-store' } },
-    );
+  const session = await requireRecentlyAuthenticatedSession(
+    env,
+    request,
+    'Reconnect Cloudflare to confirm it is you, then delete your Ghostbuild account data.',
+  );
+  if (session instanceof Response) {
+    return session;
   }
   const confirmation = accountDeletionSchema.safeParse(
     await readJsonBodyWithLimit(request, MAX_ACCOUNT_DELETION_BYTES, 'Account deletion request').catch(() => null),

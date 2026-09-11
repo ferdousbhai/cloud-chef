@@ -10,7 +10,8 @@ vi.mock('~/lib/.server/cloudflare/account-export', () => ({
   exportControlPlaneAccount: mocks.exportControlPlaneAccount,
 }));
 
-import { ACCOUNT_EXPORT_REAUTHENTICATION_WINDOW_MS, exportAccountAction } from './account-export';
+import { ACCOUNT_REAUTHENTICATION_WINDOW_MS } from '~/lib/.server/account-reauthentication';
+import { exportAccountAction } from './account-export';
 
 const env = {} as Env;
 
@@ -70,7 +71,7 @@ describe('exportAccountAction', () => {
   });
 
   it('requires a recent Cloudflare re-authentication before disclosing the account in bulk', async () => {
-    mocks.getAuthSession.mockResolvedValue(freshSession(Date.now() - ACCOUNT_EXPORT_REAUTHENTICATION_WINDOW_MS - 1));
+    mocks.getAuthSession.mockResolvedValue(freshSession(Date.now() - ACCOUNT_REAUTHENTICATION_WINDOW_MS - 1));
 
     const response = await exportAccountAction({ request: exportRequest(), env });
 

@@ -15,7 +15,8 @@ vi.mock('~/lib/.server/cloudflare/account-deletion', () => ({
 }));
 
 import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
-import { ACCOUNT_DELETION_REAUTHENTICATION_WINDOW_MS, deleteAccountAction } from './account-deletion';
+import { ACCOUNT_REAUTHENTICATION_WINDOW_MS } from '~/lib/.server/account-reauthentication';
+import { deleteAccountAction } from './account-deletion';
 
 const env = {} as Env;
 const validBody = {
@@ -76,7 +77,7 @@ describe('deleteAccountAction', () => {
   });
 
   it('requires a recent Cloudflare re-authentication', async () => {
-    mocks.getAuthSession.mockResolvedValue(freshSession(Date.now() - ACCOUNT_DELETION_REAUTHENTICATION_WINDOW_MS - 1));
+    mocks.getAuthSession.mockResolvedValue(freshSession(Date.now() - ACCOUNT_REAUTHENTICATION_WINDOW_MS - 1));
 
     const response = await deleteAccountAction({ request: deletionRequest(validBody), env });
 
