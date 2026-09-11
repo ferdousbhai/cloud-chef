@@ -366,13 +366,13 @@ function computerWorkspaceTool(
 
         if (toolName === 'validate') {
           const validation = await validateWorkspace(workspace, context, options.toolCallId, options.abortSignal);
-          return attachValidation({}, validation);
+          return { validation };
         }
 
         if (toolName === 'exec' && isExecInput(input)) {
           if (isFullValidationCommand(input.command)) {
             const validation = await validateWorkspace(workspace, context, options.toolCallId, options.abortSignal);
-            return attachValidation({ command: input.command }, validation);
+            return { command: input.command, validation };
           }
           const rejection = rejectedWorkspaceCommand(input.command);
           if (rejection) {
@@ -483,19 +483,8 @@ async function derivedValidationToolCallId(toolCallId: string): Promise<string> 
   return `validation:${await sha256Hex(toolCallId)}`;
 }
 
-function attachValidation(result: unknown, validation: unknown): AutoValidatedResult {
-  if (isRecord(result)) {
-    return { ...result, validation };
-  }
-  return { result, validation };
-}
-
 function markDependencyMutation(result: unknown): AutoValidatedResult {
-  return { ...attachValidationMarker(result), dependencyMutation: true };
-}
-
-function attachValidationMarker(result: unknown): AutoValidatedResult {
-  return isRecord(result) ? { ...result } : { result };
+  return isRecord(result) ? { ...result, dependencyMutation: true } : { result, dependencyMutation: true };
 }
 
 function isExecInput(input: unknown): input is { command: string } {
