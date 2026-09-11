@@ -25,6 +25,19 @@ import { fileURLToPath } from 'node:url';
 
 const BASELINE_PATH = fileURLToPath(new URL('oxlint-baseline.json', import.meta.url));
 
+const RULE_CODE = /^(?<plugin>[a-z-]+)\((?<name>[a-z-]+)\)$/;
+
+/**
+ * Errors Oxlint could not attribute to a rule: a file it failed to parse, or a plugin that failed
+ * to load. The baseline is keyed by (file, rule), so an uncoded finding has nowhere to be recorded
+ * and used to be dropped from the tally entirely — and because `lint:oxlint` is a pipeline, the
+ * pipeline's status is this script's, so Oxlint's own non-zero exit was swallowed with it. A file
+ * nothing could lint then passed the gate. These fail the build and cannot be baselined away.
+ */
+function uncodedErrors(diagnostics) {
+  return diagnostics.filter((diagnostic) => diagnostic.severity === 'error' && !RULE_CODE.test(diagnostic.code ?? ''));
+}
+
 /**
  * Every rule Oxlint reports, not just the vendored plugin's.
  *
@@ -35,7 +48,7 @@ const BASELINE_PATH = fileURLToPath(new URL('oxlint-baseline.json', import.meta.
 export function tallyDiagnostics(diagnostics) {
   const counts = {};
   for (const diagnostic of diagnostics) {
-    const rule = /^(?<plugin>[a-z-]+)\((?<name>[a-z-]+)\)$/.exec(diagnostic.code ?? '')?.groups;
+    const rule = RULE_CODE.exec(diagnostic.code ?? '')?.groups;
     if (!rule || typeof diagnostic.filename !== 'string') {
       continue;
     }
@@ -105,7 +118,21 @@ function readBaseline() {
 }
 
 async function main() {
-  const current = tallyDiagnostics(await readReport());
+  const diagnostics = await readReport();
+  const uncoded = uncodedErrors(diagnostics);
+  if (uncoded.length > 0) {
+    console.error(`Oxlint reported ${uncoded.length} error(s) carrying no rule code:\n`);
+    for (const diagnostic of uncoded) {
+      console.error(`  ${diagnostic.filename ?? '<unknown file>'}  ${diagnostic.message ?? ''}`);
+    }
+    console.error(
+      '\nThese cannot be baselined: a file Oxlint cannot parse is linted by nothing. Fix the file,\n' +
+        'or the plugin that failed to load.',
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const current = tallyDiagnostics(diagnostics);
 
   if (process.argv.includes('--update')) {
     const baseline = readBaseline();
