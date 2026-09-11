@@ -41,8 +41,13 @@ export function projectContentDigestInput(
  * The same aggregate, computed inside the container over an isolated root.
  *
  * `LC_ALL=C` so the sort collates by byte exactly as the JavaScript comparison does, and `-print0`
- * so a path containing whitespace or a newline cannot forge a line. Emits only the digest, so the
- * check costs one line of exec output regardless of project size.
+ * so a path containing whitespace or a newline cannot forge a line. The checksum records stay
+ * NUL-delimited (`sha256sum --zero`) until the very end: given a name holding a backslash or a
+ * newline, plain `sha256sum` escapes it and prefixes the line with `\`, which the JavaScript side
+ * never does — the two digests could then never agree, and both guards that consume this
+ * comparison fail closed, wedging exec and validation for the life of that file. Converting to the
+ * canonical newline text only after the rewrite keeps both sides byte-identical. Emits only the
+ * digest, so the check costs one line of exec output regardless of project size.
  */
 export function isolatedContentDigestCommand(args: {
   root: string;
@@ -58,9 +63,10 @@ export function isolatedContentDigestCommand(args: {
     `cd ${args.quote(args.root)}`,
     `find . ${prunes} -type f -print0 \\`,
     '  | LC_ALL=C sort -z \\',
-    '  | xargs -0 -r sha256sum \\',
+    '  | xargs -0 -r sha256sum --zero \\',
     // `find .` prints "./a/b"; the VFS side has "a/b".
-    "  | sed 's|  \\./|  |' \\",
+    "  | sed -z 's|  \\./|  |' \\",
+    "  | tr '\\0' '\\n' \\",
     '  | sha256sum \\',
     "  | cut -d' ' -f1",
   ].join('\n');

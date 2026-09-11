@@ -71,6 +71,16 @@ describe('project content digest', () => {
     expect(fromContainer).toBe(fromVfs);
   });
 
+  it('agrees for a path a checksum tool would escape', async () => {
+    // `sha256sum` escapes a backslash or newline in the name and marks the line with a leading
+    // `\`; the VFS side never does. A single such file used to wedge the workspace for good.
+    const { fromVfs, fromContainer } = await digests('escaped', {
+      'a/b\\c.txt': 'hello\n',
+      'plain.txt': 'x\n',
+    });
+    expect(fromContainer).toBe(fromVfs);
+  });
+
   it('diverges when a single byte of one file differs', async () => {
     // This is the #139 shape: the mount serves pre-edit content while the VFS holds the new file.
     const { root, vfs } = tree('drift', { 'src/index.ts': 'export const a = 1;\n' });
