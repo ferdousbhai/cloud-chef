@@ -560,15 +560,33 @@ export function getValidatedBuildCompletion(
   return 'Done. I built and validated the app. The hosted preview is publishing now, and deployment follows automatically.';
 }
 
+/** Tools whose result proves the workspace changed after whatever validated it last. */
+const VALIDATION_INVALIDATING_TOOL_NAMES: ReadonlySet<string> = new Set(['write', 'edit', 'exec']);
+
 function latestSuccessfulValidation(results: ReadonlyArray<ToolResultEvent>): unknown | undefined {
   for (let index = results.length - 1; index >= 0; index -= 1) {
-    const result = results[index]?.result;
-    const candidate = validationResult(result);
+    const event = results[index];
+    const result = event?.result;
     if (isRecord(result) && 'validation' in result) {
+      const candidate = validationResult(result);
       return isSuccessfulValidationResult(candidate) ? candidate : undefined;
+    }
+    // A mutation reached after the receipt means the receipt describes older content. Walking past
+    // it let a pre-steering validation vouch for a post-steering write, and the turn then claimed
+    // it had "built and validated the app" while deployment — which matches the validation record
+    // against the current revision — shipped nothing.
+    if (event && isWorkspaceMutationResult(event)) {
+      return undefined;
     }
   }
   return undefined;
+}
+
+function isWorkspaceMutationResult(event: ToolResultEvent): boolean {
+  return (
+    VALIDATION_INVALIDATING_TOOL_NAMES.has(event.toolName) ||
+    (isRecord(event.result) && event.result.dependencyMutation === true)
+  );
 }
 
 function validationResult(result: unknown): unknown {

@@ -549,6 +549,23 @@ describe('minimal Workers AI tool surface', () => {
     ).toBeUndefined();
   });
 
+  it('discards a validation receipt that a later mutation outlived', () => {
+    // The receipt describes the revision it validated, not the one the turn ends on.
+    for (const mutation of [
+      { toolName: 'write', result: { path: '/home/project/src/index.ts' } },
+      { toolName: 'edit', result: { path: '/home/project/src/index.ts' } },
+      { toolName: 'exec', result: { exitCode: 0 } },
+      { toolName: 'exec', result: { dependencyMutation: true } },
+    ]) {
+      expect(
+        getValidatedBuildCompletion(
+          [user('Build it')],
+          [{ toolName: 'validate', result: { validation: validationResult() } }, mutation],
+        ),
+      ).toBeUndefined();
+    }
+  });
+
   it('serializes stateful work and keeps read-only work outside the queue', async () => {
     const events: string[] = [];
     let finishWrite: (() => void) | undefined;
