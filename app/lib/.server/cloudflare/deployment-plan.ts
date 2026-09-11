@@ -114,7 +114,7 @@ export function isCurrentDeploymentPlan(plan: unknown): plan is DeploymentPlan {
   // Every database the plan requires must be named, and no two of them may share a name: a
   // preview that resolved to the production database would write to it.
   const databaseNames = [
-    ...(current.project.bindings.d1 || current.project.bindings.appAgent ? ['DB', 'DB_PREVIEW'] : []),
+    ...(current.project.bindings.d1 ? ['DB', 'DB_PREVIEW'] : []),
     ...(current.project.bindings.appAgent ? ['AGENT_SECURITY_DB', 'AGENT_SECURITY_DB_PREVIEW'] : []),
   ].map((logicalName) => deploymentPlanResourceName(current, 'd1', logicalName));
   return databaseNames.every(Boolean) && new Set(databaseNames).size === databaseNames.length;
