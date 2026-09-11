@@ -8,7 +8,6 @@ type ChatSummary = {
   description?: string;
   timestamp: string;
   subchatIndex: number;
-  transcript: TranscriptIdentity;
 };
 
 export type ChatHistorySummary = {

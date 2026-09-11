@@ -1,7 +1,7 @@
 import { ensureInitialChat, findChat, requireChat } from './chat-repository.server';
 import { transcriptAgentName } from 'ghostbuild-agent/transcript';
-import { prepareInsertChatTranscript, requireChatTranscript, transcriptIdentity } from './transcript-repository.server';
-import { prepareChatAgentGcCandidatesStatement, prepareEmptyChatAgentGcCandidatesStatement } from './agent-gc.server';
+import { prepareInsertChatTranscript, requireChatTranscript } from './transcript-repository.server';
+import { prepareAgentGcCandidatesStatement } from './agent-gc.server';
 import {
   boundedDataPageSize,
   MAX_SUBCHAT_INDEX,
@@ -22,7 +22,7 @@ export async function initializeChat(
 
 export async function discardEmptyChat(db: D1Database, args: { sessionId: string; id: string }): Promise<null> {
   await db.batch([
-    prepareEmptyChatAgentGcCandidatesStatement(db, { ownerId: args.sessionId, initialId: args.id }),
+    prepareAgentGcCandidatesStatement(db, { ownerId: args.sessionId, initialId: args.id, requireEmpty: true }),
     prepareAppResourceGcCandidateStatement(db, {
       ownerId: args.sessionId,
       initialId: args.id,
@@ -40,19 +40,16 @@ export async function discardEmptyChat(db: D1Database, args: { sessionId: string
   return null;
 }
 
-export async function getChat(db: D1Database, args: { id: string; sessionId: string; subchatIndex?: number }) {
+export async function getChat(db: D1Database, args: { id: string; sessionId: string }) {
   const chat = await findChat(db, args);
   if (!chat) {
     return null;
   }
-  const selectedSubchatIndex = args.subchatIndex ?? chat.last_subchat_index;
-  const transcript = await requireChatTranscript(db, { chatId: chat.id, subchatIndex: selectedSubchatIndex });
   return {
     initialId: chat.initial_id,
     description: chat.description ?? undefined,
     timestamp: chat.timestamp,
     subchatIndex: chat.last_subchat_index,
-    transcript: transcriptIdentity(transcript),
   };
 }
 
@@ -238,7 +235,7 @@ export async function setSubchatDescription(
 
 export async function removeChat(db: D1Database, args: { sessionId: string; id: string }) {
   await db.batch([
-    prepareChatAgentGcCandidatesStatement(db, { initialId: args.id, ownerId: args.sessionId }),
+    prepareAgentGcCandidatesStatement(db, { initialId: args.id, ownerId: args.sessionId }),
     prepareAppResourceGcCandidateStatement(db, { initialId: args.id, ownerId: args.sessionId }),
     db
       .prepare(

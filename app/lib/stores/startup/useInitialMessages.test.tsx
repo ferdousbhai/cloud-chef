@@ -101,21 +101,32 @@ describe('useInitialMessages', () => {
     const subchatLoad = new Promise<void>((resolve) => {
       finishSubchatLoad = resolve;
     });
-    executeDataOperationMock.mockImplementation(async (_operation: unknown, args: { subchatIndex?: number }) => {
-      if (args.subchatIndex === 1) {
-        await subchatLoad;
-      }
-      return {
-        initialId: 'project-id',
-        description: 'Project',
-        subchatIndex: args.subchatIndex ?? 0,
-        transcript: {
-          agentName: args.subchatIndex === 1 ? 'project-id--transcript-1-0' : 'project-id',
-          generation: 0,
-          subchatIndex: args.subchatIndex ?? 0,
-        },
-      };
+    executeDataOperationMock.mockResolvedValue({
+      initialId: 'project-id',
+      description: 'Project',
+      subchatIndex: 0,
     });
+    // The chat-info read is not subchat-specific, so the transcript fetch is what a
+    // subchat navigation actually waits on.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        // SAFETY: this stub only ever serves the transcript request this test issues, whose body
+        // the production caller builds with exactly these two fields.
+        const body = JSON.parse(String(init?.body)) as { chatId: string; subchatIndex: number };
+        if (body.subchatIndex === 1) {
+          await subchatLoad;
+        }
+        return new Response(null, {
+          status: 204,
+          headers: {
+            'X-Ghostbuild-Transcript-Agent': `${body.chatId}--transcript-${body.subchatIndex}-0`,
+            'X-Ghostbuild-Transcript-Generation': '0',
+            'X-Ghostbuild-Transcript-Subchat': body.subchatIndex.toString(),
+          },
+        });
+      }),
+    );
 
     const states: string[] = [];
     const container = document.createElement('div');

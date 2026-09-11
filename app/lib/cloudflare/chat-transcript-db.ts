@@ -13,7 +13,7 @@ import {
 } from 'ghostbuild-agent/transcript';
 import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
 import { executeDataOperation, UserRuntimeRequestError } from './client';
-import { api, type DataOperationArgs } from './data-api';
+import { api } from './data-api';
 import { queryClient } from '~/lib/stores/reactQueryClient';
 import { registerClientCollectionDisposer } from './client-collections';
 import { fetchUserRuntime } from './runtime-session';
@@ -194,11 +194,7 @@ async function loadChatTranscript(
   signal: AbortSignal,
 ): Promise<CachedChatTranscript> {
   signal.throwIfAborted();
-  const chatArgs: DataOperationArgs<'messages.get'> = { id: request.chatId, sessionId };
-  if (request.subchatIndex !== undefined) {
-    chatArgs.subchatIndex = request.subchatIndex;
-  }
-  const chatInfo = await executeDataOperation(api.messages.get, chatArgs, { signal });
+  const chatInfo = await executeDataOperation(api.messages.get, { id: request.chatId, sessionId }, { signal });
   signal.throwIfAborted();
   if (chatInfo === null) {
     return { requestKey, status: 'missing' };
