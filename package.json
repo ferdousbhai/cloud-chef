@@ -41,7 +41,7 @@
     "lint": "pnpm run lint:code && prettier -c . && pnpm run lint:oxlint",
     "lint:oxlint": "oxlint --format=json | node scripts/check-oxlint-baseline.mjs",
     "lint:oxlint:update": "oxlint --format=json | node scripts/check-oxlint-baseline.mjs --update",
-    "lint:fix-code": "pnpm run lint:code -- --fix",
+    "lint:fix-code": "pnpm run lint:code --fix",
     "lint:fix": "pnpm run lint:fix-code && prettier --write .",
     "typecheck": "pnpm run generate && pnpm run typecheck:check",
     "typecheck:check": "tsc",
