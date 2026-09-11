@@ -107,7 +107,10 @@ export class WorkbenchStore {
     }
     this.#workspaceId = workspaceId;
     this.#workspaceGeneration += 1;
-    this.#flushPendingEditorChange = null;
+    // The flusher belongs to the mounted editor, not to the workspace: the editor survives a
+    // workspace switch and re-registers nothing, so clearing it here left every later flush a
+    // no-op and silently dropped the editor's buffered keystrokes for the rest of the page's life.
+    // Its own unregister closure tears it down when the editor unmounts.
     this.#editVersions.clear();
     this.#pendingSaveCounts.clear();
     this.#filesStore.setWorkspaceChangeListener(null);
