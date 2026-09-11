@@ -70,21 +70,10 @@ function restoreDocumentPosition(
     }
     const newLeft = document.scroll?.left ?? 0;
     const newTop = document.scroll?.top ?? 0;
-    const needsScrolling = view.scrollDOM.scrollLeft !== newLeft || view.scrollDOM.scrollTop !== newTop;
     if (autoFocus) {
-      if (needsScrolling) {
-        view.scrollDOM.addEventListener(
-          'scroll',
-          () => {
-            if (isCurrentDocument()) {
-              view.focus();
-            }
-          },
-          { once: true },
-        );
-      } else {
-        view.focus();
-      }
+      // Focusing before the scroll is safe: EditorView.focus() prevents the browser's scroll-into-view,
+      // and deferring it to a scroll event leaks the listener when scrollTo is clamped to a no-op.
+      view.focus();
     }
     view.scrollDOM.scrollTo(newLeft, newTop);
   });
