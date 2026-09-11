@@ -54,7 +54,8 @@ export const ToolUseContents = memo(function ToolUseContents({
   return invocation.toolName === 'read' ||
     invocation.toolName === 'write' ||
     invocation.toolName === 'edit' ||
-    invocation.toolName === 'exec' ? (
+    invocation.toolName === 'exec' ||
+    invocation.toolName === 'search_cloudflare_docs' ? (
     <StructuredResultTool invocation={invocation} />
   ) : (
     <pre className="overflow-x-auto whitespace-pre-wrap">{JSON.stringify(invocation, null, 2)}</pre>

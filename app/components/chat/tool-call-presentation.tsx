@@ -21,7 +21,8 @@ const STOPPED_TOOL_TITLES = new Map<string, string>([
   ['edit', 'File edit stopped'],
   ['exec', 'Command stopped'],
   ['validate', 'Validation stopped'],
-  ['cloudflare_docs', 'Cloudflare docs search stopped'],
+  ['search_cloudflare_docs', 'Cloudflare docs search stopped'],
+  ['cloudflare_docs', 'Cloudflare MCP docs search stopped'],
   ['cloudflare_search', 'Cloudflare account search stopped'],
   ['cloudflare_execute', 'Cloudflare proposal stopped'],
 ]);
@@ -105,6 +106,11 @@ export function toolTitle(invocation: GhostbuildToolInvocation, status: ToolActi
         <CheckIcon className="text-content-secondary" />,
       );
     }
+    case 'search_cloudflare_docs':
+      return titleRow(
+        status === 'running' ? 'Searching Cloudflare docs' : 'Searched Cloudflare docs',
+        <MagnifyingGlassIcon className="text-content-secondary" />,
+      );
     case 'cloudflare_docs':
       return titleRow(
         status === 'running' ? 'Searching Cloudflare MCP docs' : 'Searched Cloudflare MCP docs',
