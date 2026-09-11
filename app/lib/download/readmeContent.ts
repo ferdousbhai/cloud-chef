@@ -6,7 +6,10 @@ This Cloudflare Workers project was built with Ghostbuild.
 \`\`\`sh
 pnpm run dev
 pnpm run preview
-pnpm run validate
+pnpm run verify:stack
+pnpm run typecheck
+pnpm run build
+pnpm run lint
 \`\`\`
 
 ## Deployment
