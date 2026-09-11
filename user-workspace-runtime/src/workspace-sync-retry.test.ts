@@ -92,6 +92,29 @@ describe('DurableWorkspaceSyncRetryScheduler', () => {
     expect(restartWake).toHaveBeenCalledWith({ backend: 'container-shell', attempt: 2, notBefore: 2_000 });
   });
 
+  it('round-trips the runtime identity a retry must still be talking to', async () => {
+    // Computer only asserts the pull reaches the runtime that ran the command when the intent
+    // carries its id. Dropping it lets a retry against a replacement container report an
+    // interrupted command as durably synced.
+    const storage = new TestStorage();
+    const wake = vi.fn(async () => undefined);
+    // SAFETY: TestStorage stands in for the two Durable Object storage members the scheduler uses.
+    const scheduler = new DurableWorkspaceSyncRetryScheduler(storage as never, wake, () => 100);
+    scheduler.initialize();
+
+    await scheduler.schedule({ backend: 'container-shell', runtimeId: 'runtime-1', attempt: 1, notBefore: 1_100 });
+    const intent = { backend: 'container-shell', runtimeId: 'runtime-1', attempt: 1, notBefore: 1_100 };
+
+    await expect(scheduler.get('container-shell')).resolves.toEqual(intent);
+    expect(scheduler.state('container-shell')).toMatchObject({ runtimeId: 'runtime-1' });
+
+    // Re-reading it from storage is the proof: `schedule` hands its own argument to the wake.
+    await scheduler.reconcile();
+    expect(wake).toHaveBeenLastCalledWith(intent);
+    await scheduler.rearm('container-shell');
+    expect(wake).toHaveBeenLastCalledWith(intent);
+  });
+
   it('never re-arms terminal exhaustion after duplicate wakes or Durable Object restarts', async () => {
     const storage = new TestStorage();
     const wake = vi.fn(async () => undefined);
@@ -205,6 +228,7 @@ type Row = {
   updated_at: number;
   last_error: string | null;
   exhausted: number;
+  runtime_id: string | null;
 };
 
 class TestStorage {
@@ -230,6 +254,7 @@ class TestStorage {
           updated_at: Number(bindings[4]),
           last_error: row?.last_error ?? null,
           exhausted: 0,
+          runtime_id: bindings[5] === null || bindings[5] === undefined ? null : String(bindings[5]),
         };
         this.rows = [...this.rows.filter((candidate) => candidate.backend !== backend), next];
       } else if (normalized.startsWith('DELETE FROM ghostbuild_workspace_sync_retries')) {

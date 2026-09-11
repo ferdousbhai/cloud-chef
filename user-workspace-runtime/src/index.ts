@@ -479,7 +479,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     }
     const now = Date.now();
     if (state.notBefore > now) {
-      await this.#syncRetries.schedule({ backend, attempt: state.attempt, notBefore: state.notBefore });
+      await this.#syncRetries.rearm(backend);
       return;
     }
     const result = await this.#workspace.retryPendingSync(backend);
@@ -496,6 +496,17 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     }
     if (result.status === 'complete' || result.status === 'idle') {
       this.finishPendingCommand(backend);
+      await this.cleanupReadinessRoot().catch(() => undefined);
+    } else if (result.status === 'lost') {
+      // The runtime that ran the command is gone, so its output can never be pulled and the durable
+      // VFS never received those mutations. Completing the continuation here would report a command
+      // that did not land as durably synced, so it terminalizes as a failure instead. Computer has
+      // already cleared its intent; failing the journal row stops the continuation from being
+      // finished by reconcilePendingCommands' "no retry row" pull.
+      this.failPendingCommand(
+        backend,
+        `The workspace command cannot be confirmed: the container that ran it is gone (${result.error}).`,
+      );
       await this.cleanupReadinessRoot().catch(() => undefined);
     } else if (result.status === 'exhausted') {
       const recovered = await this.recoverExhaustedComputerSync(backend);
@@ -2606,6 +2617,14 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       return;
     }
     this.#toolOperations.completePending(backend, continuation.result);
+  }
+
+  private failPendingCommand(backend: string, error: string): void {
+    const continuation = this.#toolOperations.pending().find((operation) => operation.backend === backend);
+    if (!continuation) {
+      return;
+    }
+    this.#toolOperations.fail({ toolCallId: continuation.toolCallId, error });
   }
 
   private async recoverExhaustedComputerSync(backend: string): Promise<boolean> {

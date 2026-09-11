@@ -14,12 +14,10 @@ type SyncRetryRow = {
   updated_at: number;
   last_error: string | null;
   exhausted: number;
+  runtime_id: string | null;
 };
 
-type WorkspaceSyncRetryState = {
-  backend: string;
-  attempt: number;
-  notBefore: number;
+type WorkspaceSyncRetryState = SyncRetryIntent & {
   createdAt: number;
   updatedAt: number;
   lastError: string | null;
@@ -108,14 +106,25 @@ export class DurableWorkspaceSyncRetryScheduler implements SyncRetryScheduler {
          created_at INTEGER NOT NULL,
          updated_at INTEGER NOT NULL,
          last_error TEXT,
-         exhausted INTEGER NOT NULL DEFAULT 0
+         exhausted INTEGER NOT NULL DEFAULT 0,
+         runtime_id TEXT
        )`,
     );
+    // CREATE TABLE IF NOT EXISTS will not add the column to an already-provisioned workspace, and
+    // without it the retry loses the identity of the runtime that ran the command: Computer then
+    // skips its stale-runtime assertion and a pull from a replacement container reports the
+    // interrupted command as durably synced.
+    const columns = [
+      ...this.storage.sql.exec<{ name: string }>('PRAGMA table_info(ghostbuild_workspace_sync_retries)'),
+    ];
+    if (!columns.some((column) => column.name === 'runtime_id')) {
+      this.storage.sql.exec('ALTER TABLE ghostbuild_workspace_sync_retries ADD COLUMN runtime_id TEXT');
+    }
   }
 
   async get(backend: string): Promise<SyncRetryIntent | undefined> {
     const row = this.read(backend);
-    return row ? { backend: row.backend, attempt: row.attempt, notBefore: row.not_before } : undefined;
+    return row ? intentOf(row) : undefined;
   }
 
   async schedule(intent: SyncRetryIntent): Promise<void> {
@@ -124,21 +133,35 @@ export class DurableWorkspaceSyncRetryScheduler implements SyncRetryScheduler {
       const existing = this.read(intent.backend);
       this.storage.sql.exec(
         `INSERT INTO ghostbuild_workspace_sync_retries (
-           backend, attempt, not_before, created_at, updated_at, last_error, exhausted
-         ) VALUES (?, ?, ?, ?, ?, NULL, 0)
+           backend, attempt, not_before, created_at, updated_at, last_error, exhausted, runtime_id
+         ) VALUES (?, ?, ?, ?, ?, NULL, 0, ?)
          ON CONFLICT(backend) DO UPDATE SET
            attempt = excluded.attempt,
            not_before = excluded.not_before,
            updated_at = excluded.updated_at,
-           exhausted = 0`,
+           exhausted = 0,
+           runtime_id = excluded.runtime_id`,
         intent.backend,
         intent.attempt,
         intent.notBefore,
         existing?.created_at ?? now,
         now,
+        intent.runtimeId ?? null,
       );
     });
     await this.wake(intent);
+  }
+
+  /**
+   * Re-arm the wake for an already-stored intent. Rewriting it through `schedule` would have to
+   * reconstruct the intent from the read state, and dropping its runtime identity there is exactly
+   * what lets a later retry pull from a container that never ran the command.
+   */
+  async rearm(backend: string): Promise<void> {
+    const row = this.read(backend);
+    if (row) {
+      await this.wake(intentOf(row));
+    }
   }
 
   async clear(backend: string): Promise<void> {
@@ -150,7 +173,7 @@ export class DurableWorkspaceSyncRetryScheduler implements SyncRetryScheduler {
       if (row.exhausted === 1) {
         continue;
       }
-      await this.wake({ backend: row.backend, attempt: row.attempt, notBefore: row.not_before });
+      await this.wake(intentOf(row));
     }
   }
 
@@ -170,9 +193,7 @@ export class DurableWorkspaceSyncRetryScheduler implements SyncRetryScheduler {
     const row = this.read(backend);
     return row
       ? {
-          backend: row.backend,
-          attempt: row.attempt,
-          notBefore: row.not_before,
+          ...intentOf(row),
           createdAt: row.created_at,
           updatedAt: row.updated_at,
           lastError: row.last_error,
@@ -184,7 +205,7 @@ export class DurableWorkspaceSyncRetryScheduler implements SyncRetryScheduler {
   private read(backend: string): SyncRetryRow | undefined {
     return first(
       this.storage.sql.exec<SyncRetryRow>(
-        `SELECT backend, attempt, not_before, created_at, updated_at, last_error, exhausted
+        `SELECT backend, attempt, not_before, created_at, updated_at, last_error, exhausted, runtime_id
          FROM ghostbuild_workspace_sync_retries WHERE backend = ?`,
         backend,
       ),
@@ -194,11 +215,20 @@ export class DurableWorkspaceSyncRetryScheduler implements SyncRetryScheduler {
   private readAll(): SyncRetryRow[] {
     return [
       ...this.storage.sql.exec<SyncRetryRow>(
-        `SELECT backend, attempt, not_before, created_at, updated_at, last_error, exhausted
+        `SELECT backend, attempt, not_before, created_at, updated_at, last_error, exhausted, runtime_id
          FROM ghostbuild_workspace_sync_retries ORDER BY backend`,
       ),
     ];
   }
+}
+
+/** Computer treats a present `runtimeId` as the identity the retry's pull must still be talking to. */
+function intentOf(row: SyncRetryRow): SyncRetryIntent {
+  const intent: SyncRetryIntent = { backend: row.backend, attempt: row.attempt, notBefore: row.not_before };
+  if (row.runtime_id !== null) {
+    intent.runtimeId = row.runtime_id;
+  }
+  return intent;
 }
 
 function first<T>(rows: Iterable<T>): T | undefined {
