@@ -4,8 +4,6 @@ const AGENT_CONNECTION_LOST_MESSAGE = 'Ghostbuild lost its builder connection. P
 
 export type AgentSocketLike = {
   OPEN?: number;
-  identified?: boolean;
-  ready?: Promise<unknown>;
   readyState?: number;
   connectionError?: Error | null;
   addEventListener?(type: 'open' | 'close' | 'error', listener: EventListener, options?: AddEventListenerOptions): void;
@@ -15,71 +13,29 @@ export type AgentSocketLike = {
 export async function waitForAgentSocketOpen(
   agent: AgentSocketLike,
   timeoutMs = AGENT_SOCKET_OPEN_TIMEOUT_MS,
-  options: { requireIdentity?: boolean } = {},
 ): Promise<void> {
-  const requireIdentity = options.requireIdentity ?? true;
   if (agent.connectionError) {
     throw agent.connectionError;
   }
 
-  const startedAt = Date.now();
-  const remainingTimeoutMs = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
-
+  // A transport that exposes no socket state, or no listeners to wait on, is the chat transport
+  // rather than a socket: there is nothing to wait for and nothing to report.
   if (agent.readyState === undefined) {
-    if (requireIdentity && !isAgentIdentified(agent)) {
-      await waitForAgentIdentity(agent, remainingTimeoutMs());
-    }
     return;
   }
 
   const openReadyState = agent.OPEN ?? 1;
   if (agent.readyState !== openReadyState) {
     if (!agent.addEventListener || !agent.removeEventListener) {
-      if (requireIdentity) {
-        await waitForAgentIdentity(agent, remainingTimeoutMs());
-      }
       return;
     }
 
-    await waitForSocketOpen(agent, remainingTimeoutMs());
+    await waitForSocketOpen(agent, timeoutMs);
   }
 
   if (agent.connectionError) {
     throw agent.connectionError;
   }
-
-  if (!requireIdentity || isAgentIdentified(agent)) {
-    return;
-  }
-
-  await waitForAgentIdentity(agent, remainingTimeoutMs());
-}
-
-function isAgentIdentified(agent: AgentSocketLike): boolean {
-  return agent.identified === true;
-}
-
-function waitForAgentIdentity(agent: AgentSocketLike, timeoutMs: number): Promise<void> {
-  if (!agent.ready) {
-    return Promise.resolve();
-  }
-
-  return new Promise<void>((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      reject(new Error(AGENT_CONNECT_ERROR_MESSAGE));
-    }, timeoutMs);
-
-    agent.ready?.then(
-      () => {
-        clearTimeout(timeoutId);
-        resolve();
-      },
-      (error) => {
-        clearTimeout(timeoutId);
-        reject(error);
-      },
-    );
-  });
 }
 
 function waitForSocketOpen(agent: AgentSocketLike, timeoutMs: number): Promise<void> {

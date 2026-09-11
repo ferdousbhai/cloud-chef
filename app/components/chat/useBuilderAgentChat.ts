@@ -307,7 +307,7 @@ export function useBuilderAgentChat(args: {
       try {
         for (let attempt = 0; ; attempt += 1) {
           try {
-            await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS, { requireIdentity: false });
+            await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
             if (!isCurrentPresentation()) {
               return;
             }
@@ -411,7 +411,7 @@ export function useBuilderAgentChat(args: {
       await Promise.all([workspaceGate.promise, stopBarrierRef.current]);
       assertCurrentPresentation();
       try {
-        await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS, { requireIdentity: false });
+        await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
       } catch (error) {
         logger.warn('Builder connection was not ready before send', error);
         captureMessage('Builder connection was not ready before send', {
@@ -498,7 +498,7 @@ export function useBuilderAgentChat(args: {
       };
       await workspaceGate.promise;
       assertCurrentPresentation();
-      await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS, { requireIdentity: false });
+      await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
       assertCurrentPresentation();
       await builderAgent.call('steerActiveTurn', [input]);
     },
