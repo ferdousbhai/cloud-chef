@@ -127,13 +127,15 @@ correlation, containment, dashboard alerts, rollback, and customer communication
 `@cloudflare/computer` is pinned exactly and is marked preview-only upstream. Two upgrade hazards are canaried rather
 than assumed:
 
-- `patches/@cloudflare__computer@0.1.1.patch` patches the published dist bundle, reducing `PROBE_BATCH` from 256 to 64
-  for the Durable Object SQLite bind-variable limit. Any version bump must re-derive it; the canary fails if upstream
-  reflows that region.
+- `patches/@cloudflare__computer@0.2.1.patch` patches the published dist bundle in two places, and any version bump must
+  re-derive both; the canary fails if upstream reflows either region. It reduces `PROBE_BATCH` from 100 to 64 for the
+  Durable Object SQLite bind-variable limit, and it replaces the nested branch of `Database.transactionSync` — the
+  `SAVEPOINT` / `RELEASE` / `ROLLBACK TO` path — with an inline call to the closure, because Durable Objects reject that
+  SQL outright and every write nested inside an outer `transactionSync` would otherwise throw.
 - The contract canaries assert the runtime surfaces Ghostbuild actually calls — `Workspace`, `WorkspaceFilesystem`,
   `WorkspaceRuntime`, and `SyncRetryScheduler` — rather than the `createAITools` tool schemas, which production does not
   execute. Only one exec backend is configured, `container-shell`.
 
 The `minimumReleaseAgeExclude` exception for the pinned release has been removed now that the release is well past the
 24-hour gate, and that pnpm-workspace key is now forbidden outright, so reintroducing it requires a reviewed policy
-change. Upstream `0.2.0` and `0.2.1` now exist and are the go/no-go review candidates.
+change. Upstream `0.2.1` is the pinned and patched version.
