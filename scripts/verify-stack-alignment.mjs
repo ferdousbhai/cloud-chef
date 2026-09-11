@@ -261,13 +261,15 @@ function verifyRootMigrations(errors) {
 
 export function findRootMigrationErrors(sql) {
   const errors = [];
+  // The trailing boundary keeps the name an exact match: without it `user` matched the first four
+  // characters of `user_computer_runtimes`, so the required-table check passed vacuously.
   for (const table of requiredMigrationTables) {
-    if (!new RegExp(`CREATE TABLE(?: IF NOT EXISTS)? ["']?${table}["']?`, 'i').test(sql)) {
+    if (!new RegExp(`CREATE TABLE(?: IF NOT EXISTS)? ["']?${table}["']?(?![A-Za-z0-9_])`, 'i').test(sql)) {
       errors.push(`root migrations must create the ${table} table.`);
     }
   }
   for (const table of forbiddenCentralWorkloadTables) {
-    if (new RegExp(`CREATE TABLE(?: IF NOT EXISTS)? ["']?${table}["']?`, 'i').test(sql)) {
+    if (new RegExp(`CREATE TABLE(?: IF NOT EXISTS)? ["']?${table}["']?(?![A-Za-z0-9_])`, 'i').test(sql)) {
       errors.push(`root migrations must not create the user-owned ${table} workload table.`);
     }
   }
