@@ -20,7 +20,13 @@ const inlineBootstrapCode = stripIndents`
   installAssetLoadRecovery();
 
   function setGhostbuildTheme() {
-    let theme = localStorage.getItem('ghostbuild_theme');
+    let theme = null;
+
+    try {
+      theme = localStorage.getItem('ghostbuild_theme');
+    } catch (storageUnavailable) {
+      // Storage can be unavailable in privacy-restricted browser contexts; fall back to the media query.
+    }
 
     if (!theme) {
       theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -32,7 +38,11 @@ const inlineBootstrapCode = stripIndents`
   function installAssetLoadRecovery() {
     var recoveryKey = 'ghostbuild:asset-load-recovery';
     window.setTimeout(function clearAssetLoadRecovery() {
-      sessionStorage.removeItem(recoveryKey);
+      try {
+        sessionStorage.removeItem(recoveryKey);
+      } catch (storageUnavailable) {
+        // Storage can be unavailable in privacy-restricted browser contexts.
+      }
     }, 30000);
     window.addEventListener('error', function recoverAssetLoad(event) {
       var target = event.target;
@@ -44,12 +54,22 @@ const inlineBootstrapCode = stripIndents`
       if (!source.includes('/assets/')) {
         return;
       }
-      var attempts = Number(sessionStorage.getItem(recoveryKey) || '0');
+      var attempts;
+      try {
+        attempts = Number(sessionStorage.getItem(recoveryKey) || '0');
+      } catch (storageUnavailable) {
+        // Without storage the retry count cannot be bounded, so do not reload at all.
+        return;
+      }
       if (!Number.isFinite(attempts) || attempts >= 3) {
         return;
       }
       attempts += 1;
-      sessionStorage.setItem(recoveryKey, String(attempts));
+      try {
+        sessionStorage.setItem(recoveryKey, String(attempts));
+      } catch (storageUnavailable) {
+        return;
+      }
       window.setTimeout(function reloadForCurrentAssets() {
         window.location.reload();
       }, attempts * 500);
@@ -209,13 +229,25 @@ function recoverFromDynamicImportError(error: unknown) {
     return false;
   }
 
-  sessionStorage.setItem(dynamicImportRecoveryKey, getDynamicImportRecoveryToken());
+  try {
+    window.sessionStorage?.setItem(dynamicImportRecoveryKey, getDynamicImportRecoveryToken());
+  } catch {
+    // Storage can be unavailable in privacy-restricted browser contexts; without a recorded attempt
+    // the reload cannot be bounded, so surface the error instead.
+    return false;
+  }
+
   window.location.reload();
   return true;
 }
 
 function hasRecoveredDynamicImportForCurrentBuild() {
-  return sessionStorage.getItem(dynamicImportRecoveryKey) === getDynamicImportRecoveryToken();
+  try {
+    return window.sessionStorage?.getItem(dynamicImportRecoveryKey) === getDynamicImportRecoveryToken();
+  } catch {
+    // Treat an unreadable store as recovery already spent so the page cannot reload forever.
+    return true;
+  }
 }
 
 function getDynamicImportRecoveryToken() {
