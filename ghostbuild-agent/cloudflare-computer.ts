@@ -1,6 +1,6 @@
 import type { CreateAIToolsOptions } from '@cloudflare/computer/tools';
 
-// Computer 0.1.1 declares itself preview-only. Keep the exact pin, the local
+// Computer 0.2.1 declares itself preview-only. Keep the exact pin, the local
 // dist patch, and the durable workspace surfaces reviewed together.
 export const CLOUDFLARE_COMPUTER_VERSION = '0.2.1';
 export const GENERATED_PROJECT_PNPM_VERSION = '11.14.0';

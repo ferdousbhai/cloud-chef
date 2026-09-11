@@ -202,13 +202,13 @@ verification consume that same data rather than maintaining separate security ov
 
 ## Cloudflare Computer Dependency
 
-Ghostbuild intentionally pins `@cloudflare/computer` to `0.1.1`. Cloudflare labels this release preview-only, describes
+Ghostbuild intentionally pins `@cloudflare/computer` to `0.2.1`. Cloudflare labels this release preview-only, describes
 its API as unstable, and says it is not suitable for production use. The repository therefore treats every upgrade as
 an architecture review: tests pin the installed version, tool names, complete AI SDK input schemas, result fields used by
 the build lifecycle, read-only behavior, backend selector, and backend capability description. Tool configuration
-explicitly disables Computer's optional `publish` capability and pins the reviewed default limits: 2,000 lines or 256
-KiB per read, 2 MiB per write/edit, and 64 KiB for each exec output stream. These gates detect drift; they cannot turn a
-preview dependency into a stable production contract. Computer 0.1.1's published write executor does not forward `ToolExecutionOptions.abortSignal`, so an in-flight vendor
+explicitly disables Computer's optional `publish` capability and pins the reviewed default limits: 10,000 lines or 1
+MiB per read, 2 MiB per write/edit, and 256 KiB for each exec output stream. These gates detect drift; they cannot turn a
+preview dependency into a stable production contract. Computer 0.2.1's published write executor does not forward `ToolExecutionOptions.abortSignal`, so an in-flight vendor
 write still relies on the workspace runtime's bounded operation. Ghostbuild's custom streamed `exec` adapter does forward
 cancellation to its Container process.
 

@@ -1,6 +1,6 @@
 ---
 name: platform-status
-description: Report the operational state of the Ghostbuild platform - connected Cloudflare accounts, workspace runtime staleness, the app-resource reconciliation sweep, whether the daily maintenance jobs are still firing, and whether the control-plane Worker is serving without throwing. Use whenever asked for a platform update, a production status report, whether anything is broken or needs attention, or how Ghostbuild is doing. Replaces the retired admin.ghostbuild.dev dashboard.
+description: Report the operational state of the Ghostbuild platform - whether the control-plane Worker is serving without throwing, connected Cloudflare accounts, workspace runtime staleness, users, and sign-in sessions. Use whenever asked for a platform update, a production status report, whether anything is broken or needs attention, or how Ghostbuild is doing. Replaces the retired admin.ghostbuild.dev dashboard.
 ---
 
 # Platform status
@@ -13,7 +13,7 @@ pnpm run ops
 
 Add `pnpm run ops:json` when you need to reason over the result structurally rather than quote it.
 
-It takes a few seconds; it spawns Wrangler once per table group against production D1.
+It takes a few seconds; it runs one combined read-only D1 statement against production plus the Workers analytics read.
 
 ## Reading the output
 
@@ -27,12 +27,7 @@ The first line after the header is the whole answer. Everything below it is grou
 | `HEALTHY`           | Nothing to do.                                                 |
 
 A `COULD NOT BE READ` entry naming a table that "does not exist in production yet" means that migration has not been
-applied. Report it as unknown, not as zero orphans.
-
-Three readings are easy to get wrong, so the tool words them explicitly and you should quote it rather than
-paraphrase: a sweep whose resource listing "could not be read" **under-reports** and its orphan count is a floor, not
-an answer; the orphan count comes from `orphans_found` while `detail.orphans` is only a bounded sample; and a sweep
-still marked running long after it started has crashed rather than being in flight.
+applied. Report it as unknown.
 
 The `Control-plane Worker` check counts invocation **outcomes**, not log lines. "None of them failed inside the Worker"
 means no invocation ended in `scriptThrew`, `exceededCpu`, or any other non-benign status in the last 24 hours; it says
@@ -64,7 +59,7 @@ of the current checkout. If that generated file is absent the report says stalen
 
 ## When it is not the right tool
 
-- Acting on a finding - upgrading a user's runtime, deleting an orphaned resource. This tool only
-  reports. Those actions live in the control plane under `app/lib/.server/`.
+- Acting on a finding - upgrading a user's runtime, for instance. This tool only reports. Those actions live in the
+  control plane under `app/lib/.server/`.
 - Deployment or configuration verification. Use `pnpm run verify:production-config`, `pnpm run verify:stack`, or
   `pnpm run validate`.
