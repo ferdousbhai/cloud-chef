@@ -8,6 +8,10 @@
  * the model back at productive work.
  */
 
+import { WORK_DIR } from './constants.js';
+import { path } from './utils/path.js';
+import { getAbsolutePath } from './utils/workDir.js';
+
 const SERVER_REJECTION =
   'Rejected: long-running servers are not available in this workspace. Ghostbuild publishes the hosted preview ' +
   'automatically after validation. Finish the change, then validate the project.';
@@ -89,9 +93,16 @@ export function rejectedWorkspaceCommand(command: string): string | null {
   return null;
 }
 
-/** Why a model write/edit of this project file must not apply, or null when it may. */
-export function rejectedWorkspaceFileMutation(path: string, content: string): string | null {
-  if (path.replace(/^\/home\/project\//, '') !== 'wrangler.jsonc') {
+/**
+ * Why a model write/edit of this project file must not apply, or null when it may.
+ *
+ * The path is canonicalized first because every layer below this one canonicalizes too: the
+ * workspace runtime folds `\` to `/` and collapses repeated slashes, and Computer drops `.`
+ * segments before the write lands. A raw string compare would let `/home/project/./wrangler.jsonc`
+ * past the guard and onto the real config, dropping the bindings this exists to protect.
+ */
+export function rejectedWorkspaceFileMutation(pathString: string, content: string): string | null {
+  if (path.normalize(getAbsolutePath(pathString.replaceAll('\\', '/'))) !== `${WORK_DIR}/wrangler.jsonc`) {
     return null;
   }
   return REQUIRED_BINDING_PATTERNS.every((pattern) => pattern.test(content)) ? null : REQUIRED_BINDING_REJECTION;

@@ -99,6 +99,19 @@ describe('rejectedWorkspaceFileMutation', () => {
     );
   });
 
+  it.each([
+    '/home/project/./wrangler.jsonc',
+    '/home/project//wrangler.jsonc',
+    '/home/project/src/../wrangler.jsonc',
+    '/home/project\\wrangler.jsonc',
+    'wrangler.jsonc',
+    './wrangler.jsonc',
+  ])('rejects a binding-dropping write addressed as %s', (path) => {
+    // Every layer below this one canonicalizes, so a non-canonical spelling still lands on the
+    // real config.
+    expect(rejectedWorkspaceFileMutation(path, '{ "name": "app" }')).toMatch(/required DB, APP_STORAGE/);
+  });
+
   it('ignores files other than the project wrangler config', () => {
     expect(rejectedWorkspaceFileMutation('/home/project/src/index.ts', 'export {};')).toBeNull();
     expect(rejectedWorkspaceFileMutation('/home/project/docs/wrangler.jsonc.md', '{}')).toBeNull();
