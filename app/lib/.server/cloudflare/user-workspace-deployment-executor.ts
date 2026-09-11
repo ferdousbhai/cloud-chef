@@ -13,6 +13,7 @@ import { validatePreparedDeploymentArtifact, type PreparedDeploymentArtifact } f
 import type { DeploymentProjectProfile } from './deployment-project-profile';
 import { UserCloudflareAccountApi, type ManagedWorkerVersionArgs } from './user-account-api';
 import { GHOSTBUILD_CONTROL_PLANE_ENDPOINT } from './user-workspace-runtime-policy';
+import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 
 type UserOwnedDeploymentArgs = {
   env: Env;
@@ -466,7 +467,13 @@ export async function resolveFreshCloudflareAccessToken(
   if (!containsNoStore(cacheControl)) {
     throw new Error('Cloudflare connection is unavailable.');
   }
-  const body = await readBoundedCredentialResponse(response);
+  let body: Record<string, unknown> | null;
+  try {
+    const parsed = await readJsonBodyWithLimit(response, 8 * 1024, 'Cloudflare runtime credential');
+    body = isCredentialResponseBody(parsed) ? parsed : null;
+  } catch {
+    body = null;
+  }
   if (
     !response.ok ||
     !body ||
@@ -498,47 +505,6 @@ export async function createUserAccountApi(
   return new UserCloudflareAccountApi(env.CLOUDFLARE_ACCOUNT_ID, accessToken, request, undefined, () =>
     resolveFreshCloudflareAccessToken(env, request, true),
   );
-}
-
-async function readBoundedCredentialResponse(response: Response): Promise<Record<string, unknown> | null> {
-  const contentLength = Number(response.headers.get('Content-Length') ?? 0);
-  if (Number.isFinite(contentLength) && contentLength > 8 * 1024) {
-    return null;
-  }
-  if (!response.body) {
-    return null;
-  }
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      total += value.byteLength;
-      if (total > 8 * 1024) {
-        await reader.cancel().catch(() => undefined);
-        return null;
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    return isCredentialResponseBody(value) ? value : null;
-  } catch {
-    return null;
-  }
 }
 
 function isCredentialResponseBody(value: unknown): value is Record<string, unknown> {
