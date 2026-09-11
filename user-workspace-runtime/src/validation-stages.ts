@@ -22,11 +22,18 @@ type ValidationStage = {
 };
 
 /**
- * Bytes of a failed stage's log to surface. Four stages at this size stay inside Computer's
- * reviewed 64 KiB exec output stream, so a runaway build log cannot truncate the failure that
- * explains it.
+ * Bytes of a failed stage's log to surface.
+ *
+ * The budget that governs this path is not Computer's exec stream — the group runs through
+ * `runTransientCommand`, i.e. native Sandbox exec. Two caps apply in series: `SANDBOX_OUTPUT_BYTES`
+ * (8,000 bytes in `tracked-command.ts`) is one combined stdout+stderr budget that keeps the *head*
+ * of the stream, and `sandboxCommandFailureMessage` then keeps the *tail* within
+ * `MAX_SANDBOX_FAILURE_MESSAGE_LENGTH` (4,000 chars). A per-stage tail as large as the whole
+ * retained budget therefore loses the end of the failing stage's log and the heading above it, and
+ * with both stages failing the second stage's log entirely. At this size both headings and both
+ * tails survive the head cap and still fit in the failure message.
  */
-export const STAGE_LOG_TAIL_BYTES = 8_000;
+export const STAGE_LOG_TAIL_BYTES = 1_500;
 
 const STAGE_NAME = /^[a-z][a-z0-9_]*$/;
 
