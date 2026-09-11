@@ -127,7 +127,6 @@ function ReadyWorkbench({ isStreaming }: Pick<WorkbenchProps, 'isStreaming'>) {
             )}
             <IconButton
               icon={<ReloadIcon />}
-              size="xl"
               title="Reload preview frame"
               disabled={!presentation.canReload}
               onClick={() => setPreviewReloadKey((value) => value + 1)}
@@ -247,13 +246,7 @@ function WorkbenchFrame({
                 {headerActions}
               </div>
               {!isSmallViewport && (
-                <IconButton
-                  icon={<Cross2Icon />}
-                  className="-mr-1"
-                  size="xl"
-                  title="Close workbench"
-                  onClick={onClose}
-                />
+                <IconButton icon={<Cross2Icon />} className="-mr-1" title="Close workbench" onClick={onClose} />
               )}
             </div>
             <div className="relative flex-1 overflow-hidden">
