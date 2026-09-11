@@ -212,7 +212,11 @@ export async function scanProjectFiles(
       filesSkipped += 1;
       continue;
     }
-    const content = await fs.readFile(entry.path, 'utf8');
+    const content = await readFileOrNull(fs, entry.path);
+    if (content === null) {
+      filesSkipped += 1;
+      continue;
+    }
     // A decoded NUL is the signature of a binary blob the lenient utf8 decoder replaced rather
     // than rejected. Scanning it burns the byte budget and returns unreadable "lines".
     if (content.includes('\0')) {
@@ -323,6 +327,18 @@ async function readdirOrEmptyRoot(fs: DiscoveryFilesystem, scope: DiscoveryScope
   } catch (error) {
     if (directory === scope.root && isMissingPath(error)) {
       return [];
+    }
+    throw error;
+  }
+}
+
+/** A file that vanished between the stat and the read is skipped on the same terms as one that vanished before it. */
+async function readFileOrNull(fs: DiscoveryFilesystem, path: string): Promise<string | null> {
+  try {
+    return await fs.readFile(path, 'utf8');
+  } catch (error) {
+    if (isMissingPath(error)) {
+      return null;
     }
     throw error;
   }
