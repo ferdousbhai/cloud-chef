@@ -130,13 +130,14 @@ describe('generated app production module security', () => {
   });
 
   test('carries the prototype-chain lockdown into a production bundle before indirect mutations', () => {
-    const files = runSuccessfulProductionBuild(
+    const { files } = runProductionBuild(
       [
         'const inherited = (value: object) => Object.getPrototypeOf(value);',
         'inherited(crypto).getRandomValues = (value: Uint8Array) => value.fill(0);',
         'inherited(crypto.subtle).digest = async () => new ArrayBuffer(32);',
         'console.info("ghostbuild-prototype-lockdown-production-probe");',
       ].join('\n'),
+      true,
     );
     const lockdown = files.find(([path]) => path.includes('_virtual_ghostbuild-security-intrinsics-lockdown'));
     expect(lockdown?.[1]).toContain('getPrototypeOf = Object.getPrototypeOf');
@@ -247,7 +248,7 @@ describe('generated app production module security', () => {
   ])(
     'rejects $label in a real production build',
     ({ source, expected, identity }) => {
-      const output = runAdversarialProductionBuild(source);
+      const { output } = runProductionBuild(source, false);
       expect(output).toContain(expected);
       expect(output).toContain('project:src/untrusted-helper.ts');
       expect(output).toContain(identity);
@@ -266,7 +267,7 @@ function templateViteBin(): string {
   return resolve('template', 'node_modules', 'vite', 'bin', 'vite.js');
 }
 
-function runAdversarialProductionBuild(untrustedHelperSource: string): string {
+function runProductionBuild(untrustedHelperSource: string, expectSuccess: boolean) {
   const templateDir = resolve('template');
   const projectDir = mkdtempSync(join(resolve('.'), '.ghostbuild-runtime-security-'));
   try {
@@ -289,38 +290,13 @@ function runAdversarialProductionBuild(untrustedHelperSource: string): string {
       timeout: 60_000,
     });
     const output = `${result.stdout}\n${result.stderr}`;
-    expect(result.status, output).not.toBe(0);
-    return output;
-  } finally {
-    rmSync(projectDir, { recursive: true, force: true });
-  }
-}
-
-function runSuccessfulProductionBuild(untrustedHelperSource: string): Array<[string, string]> {
-  const templateDir = resolve('template');
-  const projectDir = mkdtempSync(join(resolve('.'), '.ghostbuild-runtime-security-'));
-  try {
-    cpSync(templateDir, projectDir, {
-      recursive: true,
-      filter(source) {
-        const sourceRelative = relative(templateDir, source).split(sep);
-        return !['node_modules', 'dist', '.wrangler'].includes(sourceRelative[0] ?? '');
-      },
-    });
-    symlinkSync(resolve(templateDir, 'node_modules'), join(projectDir, 'node_modules'), 'dir');
-    writeFileSync(join(projectDir, 'src/untrusted-helper.ts'), untrustedHelperSource);
-    const routePath = join(projectDir, 'src/routes/index.tsx');
-    writeFileSync(routePath, `import "../untrusted-helper";\n${readFileSync(routePath, 'utf8')}`);
-
-    const result = spawnSync(process.execPath, [templateViteBin(), 'build'], {
-      cwd: projectDir,
-      encoding: 'utf8',
-      env: { ...processEnvironment, GHOSTBUILD_PREVIEW: '0' },
-      timeout: 60_000,
-    });
-    const output = `${result.stdout}\n${result.stderr}`;
-    expect(result.status, output).toBe(0);
-    return readTextFiles(join(projectDir, 'dist/server'));
+    if (expectSuccess) {
+      expect(result.status, output).toBe(0);
+    } else {
+      expect(result.status, output).not.toBe(0);
+    }
+    // The bundle has to be read before the finally deletes the project tree.
+    return { output, files: expectSuccess ? readTextFiles(join(projectDir, 'dist/server')) : [] };
   } finally {
     rmSync(projectDir, { recursive: true, force: true });
   }
