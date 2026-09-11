@@ -741,14 +741,7 @@ function buildRuntimesCheck(core, { now, desiredRuntimeVersion }) {
       connected: rows.length,
       current: healthy,
       desiredRuntimeVersion,
-      entries: described.map(({ email, status, runtimeVersion, at, level: entryLevel, sentence: entrySentence }) => ({
-        email,
-        status,
-        runtimeVersion,
-        at,
-        level: entryLevel,
-        sentence: entrySentence,
-      })),
+      entries: described,
     },
   });
 }
