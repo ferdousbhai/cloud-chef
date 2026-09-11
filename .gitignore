@@ -77,3 +77,6 @@ temp_envars
 
 # Generated container image build context
 user-workspace-container/.build/
+
+# Temporary project trees the production-build security tests create in the repository root.
+.ghostbuild-runtime-security-*

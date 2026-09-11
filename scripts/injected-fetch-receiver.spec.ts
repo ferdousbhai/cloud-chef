@@ -26,7 +26,9 @@ const SKIPPED_DIRECTORIES = new Set([
 function productionSources(directory: string): string[] {
   const found: string[] = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (SKIPPED_DIRECTORIES.has(entry.name)) {
+    // The production-build security tests stage full template copies under this prefix in the
+    // repository root and delete them again; walking one mid-run would fail on a vanished path.
+    if (SKIPPED_DIRECTORIES.has(entry.name) || entry.name.startsWith('.ghostbuild-runtime-security-')) {
       continue;
     }
     const path = join(directory, entry.name);
