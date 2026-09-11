@@ -54,10 +54,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
   const list = history.projects;
   const [deleteTarget, setDeleteTarget] = useState<ChatHistorySummary | null>(null);
 
-  const { filteredItems: filteredList, handleSearchChange } = useSearchFilter({
-    items: list,
-    searchFields: ['description'],
-  });
+  const { filteredItems: filteredList, handleSearchChange } = useSearchFilter({ items: list });
 
   const deleteItem = async (item: ChatHistorySummary) => {
     if (!accountUserId) {
