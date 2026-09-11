@@ -266,4 +266,9 @@ function deploymentErrorResponse(error: unknown): Response {
 }
 
 class DeploymentConnectionRequiredError extends Error {}
-class DeploymentChatNotFoundError extends Error {}
+class DeploymentChatNotFoundError extends Error {
+  constructor() {
+    super('Chat not found.');
+    this.name = 'DeploymentChatNotFoundError';
+  }
+}
