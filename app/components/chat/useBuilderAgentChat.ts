@@ -10,7 +10,6 @@ import { captureMessage } from '~/lib/telemetry.client';
 import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
 import type { UIMessage } from 'ai';
 import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
-import { STATUS_MESSAGES } from './StreamingIndicator';
 import { recordChatFailure, resetChatRetryState } from './chat-retry';
 import { subchatIndexStore } from '~/lib/stores/subchats';
 import { waitForAgentSocketOpen } from './agent-connection';
@@ -205,7 +204,9 @@ export function useBuilderAgentChat(args: {
       }
       captureMessage('Failed to process chat request', { level: 'error' });
       logger.error('Chat request failed', error);
-      recordChatFailure(error.message.includes(STATUS_MESSAGES.error));
+      // A failure that arrived with nothing to say gives the user nothing to act on, so it is the
+      // one that gets backed off; a provider that named its reason is reported and retried at will.
+      recordChatFailure(error.message.trim().length === 0);
       toolActivityStore.abortActive();
       toolProgressStore.clear();
       if (error.message.includes(WORKERS_PAID_REQUIRED_MARKER)) {
