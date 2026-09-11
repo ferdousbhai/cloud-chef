@@ -83,7 +83,17 @@ export function createEditorState(
             return false;
           }
           view.dispatch({ effects: [readOnlyTooltipEffect.of(event.key !== 'Escape')] });
-          return true;
+          // Swallow only the keys that would edit the document. A blanket `true` also calls
+          // preventDefault() and stops the rest of the handler chain, which took copy, find and
+          // caret movement with it for the whole streaming window. The edits themselves are
+          // already impossible: the view ignores DOM-originated changes while read-only, rejects
+          // paste and drop, and every editing command in the keymap checks `state.readOnly`.
+          return (
+            (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1) ||
+            event.key === 'Backspace' ||
+            event.key === 'Delete' ||
+            event.key === 'Enter'
+          );
         },
       }),
       getTheme(theme),
@@ -96,7 +106,12 @@ export function createEditorState(
         {
           key: 'Mod-s',
           preventDefault: true,
-          run: () => {
+          run: (view) => {
+            // Saving publishes a preview, which the UI disables while the agent streams. Read-only
+            // is how that state reaches the editor, so the binding stays inert rather than firing.
+            if (view.state.readOnly) {
+              return true;
+            }
             callbacks.onSave.current?.();
             return true;
           },
