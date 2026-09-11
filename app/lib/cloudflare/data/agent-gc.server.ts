@@ -20,31 +20,9 @@ type AgentGcCandidateRow = {
   attempts: number;
 };
 
-export function prepareChatAgentGcCandidatesStatement(
+export function prepareAgentGcCandidatesStatement(
   db: D1Database,
-  args: { initialId: string; ownerId: string; now?: number },
-): D1PreparedStatement {
-  const now = args.now ?? Date.now();
-  const notBefore = now + AGENT_GC_GRACE_PERIOD_MS;
-  return db
-    .prepare(
-      `INSERT INTO agent_gc_candidates (
-         chat_id, initial_id, subchat_index, next_generation, max_generation, not_before, created_at, attempts
-       )
-       SELECT chats.id, chats.initial_id, transcripts.subchat_index, 0, transcripts.generation, ?, ?, 0
-       FROM chats
-       JOIN chat_transcripts AS transcripts ON transcripts.chat_id = chats.id
-       WHERE chats.initial_id = ? AND chats.creator_id = ? AND chats.is_deleted = 0
-       ON CONFLICT(chat_id, subchat_index) DO UPDATE SET
-         max_generation = MAX(agent_gc_candidates.max_generation, excluded.max_generation),
-         not_before = MIN(agent_gc_candidates.not_before, excluded.not_before)`,
-    )
-    .bind(notBefore, now, args.initialId, args.ownerId);
-}
-
-export function prepareEmptyChatAgentGcCandidatesStatement(
-  db: D1Database,
-  args: { ownerId: string; initialId: string; now?: number },
+  args: { initialId: string; ownerId: string; now?: number; requireEmpty?: boolean },
 ): D1PreparedStatement {
   const now = args.now ?? Date.now();
   const notBefore = now + AGENT_GC_GRACE_PERIOD_MS;
@@ -57,7 +35,7 @@ export function prepareEmptyChatAgentGcCandidatesStatement(
        FROM chats
        JOIN chat_transcripts AS transcripts ON transcripts.chat_id = chats.id
        WHERE chats.creator_id = ? AND chats.initial_id = ?
-         AND ${EMPTY_CHAT_DISCARD_PREDICATE}
+         AND ${args.requireEmpty ? EMPTY_CHAT_DISCARD_PREDICATE : 'chats.is_deleted = 0'}
        ON CONFLICT(chat_id, subchat_index) DO UPDATE SET
          max_generation = MAX(agent_gc_candidates.max_generation, excluded.max_generation),
          not_before = MIN(agent_gc_candidates.not_before, excluded.not_before)`,
