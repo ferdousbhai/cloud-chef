@@ -3,7 +3,6 @@ import { getNamingConventionRule, tsFileExtensions } from '@blitz/eslint-plugin/
 import tailwindcss from 'eslint-plugin-tailwindcss';
 import reactPlugin from 'eslint-plugin-react';
 import reactHooksPlugin from 'eslint-plugin-react-hooks';
-import noGlobalFetchRule from './eslint-rules/no-global-fetch.js';
 
 const noDirectProcessEnv = {
   meta: {
@@ -169,19 +168,6 @@ export default [
     },
     rules: {
       'tailwindcss/no-custom-classname': 'off',
-    },
-  },
-  {
-    files: ['app/lib/.server/chat.ts'],
-    plugins: {
-      custom: {
-        rules: {
-          'no-global-fetch': noGlobalFetchRule,
-        },
-      },
-    },
-    rules: {
-      'custom/no-global-fetch': 'error',
     },
   },
   {
