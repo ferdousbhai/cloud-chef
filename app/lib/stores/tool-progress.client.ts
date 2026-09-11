@@ -15,18 +15,7 @@ class ToolProgressStore {
     this.#bumpRevision();
   }
 
-  clear(toolCallId?: string): void {
-    if (toolCallId) {
-      const current = this.progress.get();
-      if (!(toolCallId in current)) {
-        return;
-      }
-      const next = { ...current };
-      delete next[toolCallId];
-      this.progress.set(next);
-      this.#bumpRevision();
-      return;
-    }
+  clear(): void {
     if (Object.keys(this.progress.get()).length === 0) {
       return;
     }
