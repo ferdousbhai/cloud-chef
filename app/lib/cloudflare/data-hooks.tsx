@@ -55,39 +55,29 @@ function createSubchatCollection(args: SubchatQueryArgs) {
 type SubchatCollection = ReturnType<typeof createSubchatCollection>;
 
 const subchatCollections = new Map<string, SubchatCollection>();
-const activeSubchatCollections = new Map<string, SubchatCollection>();
 const MAX_SUBCHAT_COLLECTIONS = 32;
 
 registerClientCollectionDisposer(async () => {
   const collections = new Set(subchatCollections.values());
   subchatCollections.clear();
-  activeSubchatCollections.clear();
   await Promise.allSettled([...collections].map((collection) => collection.cleanup()));
 });
 
 function getSubchatCollection(args: SubchatQueryArgs) {
   const scopeKey = `${args.sessionId}:${args.chatId}`;
-  const key = scopeKey;
-  const existing = subchatCollections.get(key);
+  const existing = subchatCollections.get(scopeKey);
   if (existing) {
-    subchatCollections.delete(key);
-    subchatCollections.set(key, existing);
-    activeSubchatCollections.set(scopeKey, existing);
+    subchatCollections.delete(scopeKey);
+    subchatCollections.set(scopeKey, existing);
     return existing;
   }
   const collection = createSubchatCollection(args);
-  subchatCollections.set(key, collection);
-  activeSubchatCollections.set(scopeKey, collection);
+  subchatCollections.set(scopeKey, collection);
   if (subchatCollections.size > MAX_SUBCHAT_COLLECTIONS) {
     const [oldestKey] = subchatCollections.keys();
     if (oldestKey) {
       const oldest = subchatCollections.get(oldestKey);
       subchatCollections.delete(oldestKey);
-      for (const [activeKey, activeCollection] of activeSubchatCollections) {
-        if (activeCollection === oldest) {
-          activeSubchatCollections.delete(activeKey);
-        }
-      }
       void oldest?.cleanup().catch(() => undefined);
     }
   }
@@ -95,7 +85,7 @@ function getSubchatCollection(args: SubchatQueryArgs) {
 }
 
 export async function refreshSubchats(args: SubchatQueryArgs): Promise<void> {
-  const collection = activeSubchatCollections.get(`${args.sessionId}:${args.chatId}`);
+  const collection = subchatCollections.get(`${args.sessionId}:${args.chatId}`);
   if (collection) {
     await collection.utils.refetch({ throwOnError: true });
     return;
