@@ -968,7 +968,15 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         transcript: activeTranscript,
       })
     ) {
-      this.rejectIdentity(`${args.reason}_stale`, args.incidentId);
+      // Throwing here for a non-required hydration makes `onStart` throw, and the SDK rethrows that
+      // from every native RPC entry point — including `_cf_scheduleDestroy`. A soft-deleted chat has
+      // no active transcript by definition, so the GC sweep could never condemn its Durable Object:
+      // it retried forever, re-running the project deletion each round. Startup leaves the identity
+      // unset instead; every operational entry point hydrates with `required: true`.
+      if (args.required) {
+        this.rejectIdentity(`${args.reason}_stale`, args.incidentId);
+      }
+      return null;
     }
     this.applyIdentity(stored);
     return stored;
