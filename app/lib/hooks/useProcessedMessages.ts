@@ -3,7 +3,7 @@ import { makePartId, type PartId } from 'ghostbuild-agent/partId';
 import { getToolInvocation, isToolPart, type GhostbuildMessage, type GhostbuildPart } from 'ghostbuild-agent/ai-compat';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 
-export type PartCache = Map<PartId, { original: Part; parsed: Part }>;
+export type PartCache = Map<PartId, Part>;
 
 type Part = GhostbuildPart;
 
@@ -32,43 +32,32 @@ function recordToolPart(partId: PartId, part: Part): void {
   toolActivityStore.record(partId, toolInvocation);
 }
 
-type ProcessedMessage = {
-  message: GhostbuildMessage;
-  /** `[cache hits, parts examined]` for the message just processed. */
-  hitRate: [number, number];
-};
-
-export function processMessage(message: GhostbuildMessage, previousParts: PartCache): ProcessedMessage {
+export function processMessage(message: GhostbuildMessage, previousParts: PartCache): GhostbuildMessage {
   if (message.role === 'user') {
-    return { message, hitRate: [0, 0] };
+    return message;
   }
   if (!message.parts) {
     throw new Error('Message has no parts');
   }
   const parsedParts = [];
-  let hits = 0;
   for (let i = 0; i < message.parts.length; i++) {
     const part = message.parts[i];
     const partId = makePartId(message.id, i);
+    // Reuse the cached part object so its reference stays stable for the parsed-message comparison.
     const cacheEntry = previousParts.get(partId);
-    if (cacheEntry && isPartMaybeEqual(cacheEntry.original, part)) {
-      parsedParts.push(cacheEntry.parsed);
-      hits++;
+    if (cacheEntry && isPartMaybeEqual(cacheEntry, part)) {
+      parsedParts.push(cacheEntry);
       continue;
     }
     if (isToolPart(part)) {
       recordToolPart(partId, part);
     }
-    const newPart = part;
-    parsedParts.push(newPart);
-    previousParts.set(partId, { original: part, parsed: newPart });
+    parsedParts.push(part);
+    previousParts.set(partId, part);
   }
   return {
-    message: {
-      ...message,
-      parts: parsedParts,
-    },
-    hitRate: [hits, message.parts.length],
+    ...message,
+    parts: parsedParts,
   };
 }
 
@@ -85,16 +74,11 @@ export function useProcessedMessages(partCache: PartCache) {
     for (let i = 0; i < messages.length; i++) {
       const prev = prevMessages[i];
       const message = messages[i];
-      if (!prev) {
-        const { message: parsed } = processMessage(message, previousParts.current);
-        nextPrevMessages.push({ original: message, parsed });
-        continue;
-      }
-      if (prev.original === message) {
+      if (prev && prev.original === message) {
         nextPrevMessages.push(prev);
         continue;
       }
-      const { message: parsed } = processMessage(message, previousParts.current);
+      const parsed = processMessage(message, previousParts.current);
       nextPrevMessages.push({ original: message, parsed });
     }
 
