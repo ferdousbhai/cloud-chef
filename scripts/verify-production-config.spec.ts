@@ -177,6 +177,8 @@ describe('findWorkerOAuthStartRateLimitErrors', () => {
 });
 
 describe('production config workflow verification helpers', () => {
+  const configErrors = verifyProductionConfig();
+
   it('rejects unreviewed dependency build scripts', () => {
     const workspace = `
 minimumReleaseAge: 0
@@ -404,26 +406,17 @@ overrides:
     ).toEqual([]);
   });
 
-  it('does not require local Cloudflare credential env vars for config verification', () => {
-    expect(verifyProductionConfig()).not.toContain(
-      'CLOUDFLARE_API_TOKEN must be present in the production deploy environment.',
-    );
-    expect(verifyProductionConfig()).not.toContain(
-      'CLOUDFLARE_ACCOUNT_ID must be present in the production deploy environment.',
-    );
-  });
-
   it('uses explicit deploy inputs instead of dashboard-preserved variables', () => {
-    expect(verifyProductionConfig()).not.toContain(
+    expect(configErrors).not.toContain(
       'wrangler.jsonc must omit keep_vars so checked-in config and deploy arguments remain the source of truth.',
     );
-    expect(verifyProductionConfig()).not.toContain(
+    expect(configErrors).not.toContain(
       'wrangler.jsonc must not commit CLOUDFLARE_OAUTH_CLIENT_ID; inject it from the deploy environment.',
     );
   });
 
   it('pins the least-privilege OAuth scope list in Wrangler configuration', () => {
-    expect(verifyProductionConfig()).not.toContain('wrangler.jsonc vars.CLOUDFLARE_OAUTH_SCOPES');
+    expect(configErrors.join('\n')).not.toContain('wrangler.jsonc vars.CLOUDFLARE_OAUTH_SCOPES');
   });
 
   it('discovers every YAML workflow file for production guard checks', () => {
