@@ -81,40 +81,25 @@ describe('useWorkbenchController preview requests', () => {
     workbenchStore.activateWorkspace('account:chat--transcript-0-0');
     workbenchStore.connectPreview({ request: () => oldPreview.promise });
 
-    let controller: ReturnType<typeof useWorkbenchController> | undefined;
-    function Harness() {
-      controller = useWorkbenchController();
-      return null;
-    }
-
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-    await act(async () =>
-      root?.render(
-        <ChatIdProvider chatId="chat">
-          <Harness />
-        </ChatIdProvider>,
-      ),
-    );
+    const controller = await mountController();
 
     let request: Promise<void> | undefined;
     await act(async () => {
-      request = controller!.onPreviewRequest();
+      request = controller()!.onPreviewRequest();
       await Promise.resolve();
     });
-    expect(controller?.previewRequesting).toBe(true);
+    expect(controller()?.previewRequesting).toBe(true);
 
     await act(async () => workbenchStore.activateWorkspace('account:chat--transcript-1-0'));
 
-    expect(controller?.projectId).toBe('chat');
-    expect(controller?.previewRequesting).toBe(false);
+    expect(controller()?.projectId).toBe('chat');
+    expect(controller()?.previewRequesting).toBe(false);
 
     await act(async () => {
       oldPreview.resolve(idleBuilderPreviewState());
       await request;
     });
-    expect(controller?.previewRequesting).toBe(false);
+    expect(controller()?.previewRequesting).toBe(false);
   });
 
   it('invalidates a pending manual preview request on unmount', async () => {
@@ -122,26 +107,11 @@ describe('useWorkbenchController preview requests', () => {
     workbenchStore.activateWorkspace('account:chat--transcript-0-0');
     workbenchStore.connectPreview({ request: () => pendingPreview.promise });
 
-    let controller: ReturnType<typeof useWorkbenchController> | undefined;
-    function Harness() {
-      controller = useWorkbenchController();
-      return null;
-    }
-
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-    await act(async () =>
-      root?.render(
-        <ChatIdProvider chatId="chat">
-          <Harness />
-        </ChatIdProvider>,
-      ),
-    );
+    const controller = await mountController();
 
     let request!: Promise<void>;
     act(() => {
-      request = controller!.onPreviewRequest();
+      request = controller()!.onPreviewRequest();
     });
     await act(async () => root?.unmount());
     root = undefined;
@@ -159,24 +129,9 @@ describe('useWorkbenchController preview requests', () => {
     workbenchStore.activateWorkspace('account:chat--transcript-0-0');
     workbenchStore.connectPreview({ request: requestPreview });
 
-    let controller: ReturnType<typeof useWorkbenchController> | undefined;
-    function Harness() {
-      controller = useWorkbenchController();
-      return null;
-    }
+    const controller = await mountController();
 
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-    await act(async () =>
-      root?.render(
-        <ChatIdProvider chatId="chat">
-          <Harness />
-        </ChatIdProvider>,
-      ),
-    );
-
-    act(() => controller!.onFileSave());
+    act(() => controller()!.onFileSave());
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -193,24 +148,9 @@ describe('useWorkbenchController preview requests', () => {
     workbenchStore.connectPreview({ request: requestPreview });
     vi.mocked(workbenchStore.saveCurrentDocument).mockReturnValueOnce(pendingSave.promise);
 
-    let controller: ReturnType<typeof useWorkbenchController> | undefined;
-    function Harness() {
-      controller = useWorkbenchController();
-      return null;
-    }
+    const controller = await mountController();
 
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-    await act(async () =>
-      root?.render(
-        <ChatIdProvider chatId="chat">
-          <Harness />
-        </ChatIdProvider>,
-      ),
-    );
-
-    act(() => controller!.onFileSave());
+    act(() => controller()!.onFileSave());
     await act(async () => root?.unmount());
     root = undefined;
     await act(async () => {
@@ -223,6 +163,27 @@ describe('useWorkbenchController preview requests', () => {
     expect(workbenchStore.updatePreview).not.toHaveBeenCalled();
   });
 });
+
+/** Mounts the hook and returns an accessor, since the harness reassigns on every render. */
+async function mountController() {
+  let controller: ReturnType<typeof useWorkbenchController> | undefined;
+  function Harness() {
+    controller = useWorkbenchController();
+    return null;
+  }
+
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  root = createRoot(container);
+  await act(async () =>
+    root?.render(
+      <ChatIdProvider chatId="chat">
+        <Harness />
+      </ChatIdProvider>,
+    ),
+  );
+  return () => controller;
+}
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => undefined;
