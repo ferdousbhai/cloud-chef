@@ -100,8 +100,7 @@ export const MessageInput = memo(function MessageInput({
             {HOME_COMPOSER_TITLE}
           </p>
         )}
-        {/* Only where the picker it points at is actually on screen. */}
-        {chatStarted && modelSelector ? <NewModelsNotice /> : null}
+        {modelSelector ? <NewModelsNotice /> : null}
         <div
           className={classNames(
             'ghost-message-input__surface rounded-lg bg-bolt-elements-background-depth-1 shadow-panel',
@@ -135,6 +134,7 @@ export const MessageInput = memo(function MessageInput({
           </div>
           {!chatStarted && (
             <div className="ghost-message-input__footer flex flex-wrap items-center gap-2 rounded-b-lg border border-t-0 border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-1.5 text-sm">
+              {modelSelector}
               <div className="ml-auto flex items-center gap-1">{actions}</div>
             </div>
           )}
