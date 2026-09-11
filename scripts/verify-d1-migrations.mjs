@@ -31,6 +31,8 @@ const migrationPolicies = [
       '0015_workspace_runtime_image_digest.sql': '215c693d9dfb3c726559a6dc218f0cdf6f22d5eec8788dd376853c4868dc2748',
       '0016_cloudflare_oauth_grants.sql': '6e5ef8504184115c70e344f2fdd86c8adc3dfb78becb50cddfe5bf315ff174f9',
       '0017_drop_granted_scopes_json.sql': 'afd3fdd37bc396fea58da077118a9da38d99aaab764994910ab1141829f2501f',
+      '0018_remove_user_workspace_runtime_resources.sql':
+        'd7f9e902632e82e7750e6bfd4cd986d981a14b4199188f1bdc00f17e79664918',
     },
     contractAllowlist: {
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -45,6 +47,10 @@ const migrationPolicies = [
       // The legacy capability column: 0016 split capabilities from OAuth scopes and the pre-launch
       // dual-write was removed, so nothing reads or writes it.
       '0017_drop_granted_scopes_json.sql': 'afd3fdd37bc396fea58da077118a9da38d99aaab764994910ab1141829f2501f',
+      // Workspace resource names are derived from the account and user, so the record this table
+      // kept is recomputable and its writer and reclamation path are gone.
+      '0018_remove_user_workspace_runtime_resources.sql':
+        'd7f9e902632e82e7750e6bfd4cd986d981a14b4199188f1bdc00f17e79664918',
     },
   },
   {

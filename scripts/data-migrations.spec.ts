@@ -11,7 +11,6 @@ const controlPlaneTables = [
   'daily_maintenance_jobs',
   'user',
   'user_computer_runtimes',
-  'user_workspace_runtime_resources',
 ];
 
 function applyControlPlaneMigrations(db: DatabaseSync): void {
