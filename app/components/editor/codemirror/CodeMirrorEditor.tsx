@@ -173,6 +173,8 @@ export const CodeMirrorEditor = memo(
       const isFileChange = currentDocument.value.length < 50 || !simpleAppend;
       if (isFileChange) {
         view.setState(state);
+        // Cached states keep the theme they were created with, so re-apply the current one.
+        view.dispatch({ effects: [reconfigureTheme(currentTheme)] });
       }
       setEditorDocument({
         view,
