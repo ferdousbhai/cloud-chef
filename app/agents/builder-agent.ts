@@ -400,8 +400,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       const error = new Error('Deployment was interrupted. Retry to reconcile the exact revision.');
       try {
         await this.retry(() => this.terminalizeDeployment(job));
-      } catch (recoveryError) {
-        logger.error('Unable to terminalize the interrupted deployment', recoveryError);
+      } catch {
+        logger.error('Unable to terminalize the interrupted deployment');
         this.failDeployment(job, new Error('Interrupted deployment recovery is pending. Retry to continue.'));
         return { status: 'error', error: 'Interrupted deployment recovery did not settle safely.' };
       }
@@ -1733,8 +1733,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!this.isCurrentPreviewJob(job.previewId)) {
       return;
     }
-    const refreshed = await this.workspace.refresh().catch((refreshError) => {
-      logger.warn('Unable to refresh workspace revision for preview failure', refreshError);
+    const refreshed = await this.workspace.refresh().catch(() => {
+      logger.warn('Unable to refresh workspace revision for preview failure');
       return null;
     });
     const revision = refreshed?.revision ?? this.workspace.getState().revision;

@@ -12,7 +12,7 @@ describe('runtime log privacy', () => {
     expect(logArguments.length).toBeGreaterThan(0);
     for (const args of logArguments) {
       expect(args).not.toMatch(/\b(?:agentName|chatInitialId|requestId)\b/);
-      expect(args).not.toMatch(/\b(?:error|message)\b|\bString\s*\(/);
+      expect(args).not.toMatch(/\b(?:error|message)\b|Error\b|\bString\s*\(/);
     }
   });
 });
