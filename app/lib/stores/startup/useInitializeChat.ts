@@ -3,7 +3,7 @@ import { waitForUserId } from '~/lib/stores/userId';
 import { useCallback } from 'react';
 import { api } from '~/lib/cloudflare/data-api';
 
-export function useHomepageInitializeChat(chatId: string, setChatInitialized: (chatInitialized: boolean) => void) {
+export function useInitializeChat(chatId: string, onInitialized?: (initialized: boolean) => void) {
   return useCallback(async () => {
     const userId = await waitForUserId('useInitializeChat');
 
@@ -11,19 +11,9 @@ export function useHomepageInitializeChat(chatId: string, setChatInitialized: (c
       id: chatId,
       sessionId: userId,
     });
-    setChatInitialized(true);
+    onInitialized?.(true);
     return result;
-  }, [chatId, setChatInitialized]);
-}
-
-export function useExistingInitializeChat(chatId: string) {
-  return useCallback(async () => {
-    const userId = await waitForUserId('useInitializeChat');
-    return executeDataOperation(api.messages.initializeChat, {
-      id: chatId,
-      sessionId: userId,
-    });
-  }, [chatId]);
+  }, [chatId, onInitialized]);
 }
 
 export function useDiscardEmptyChat(chatId: string) {

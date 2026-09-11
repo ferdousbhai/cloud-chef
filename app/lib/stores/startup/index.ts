@@ -1,4 +1,4 @@
-import { useDiscardEmptyChat, useExistingInitializeChat, useHomepageInitializeChat } from './useInitializeChat';
+import { useDiscardEmptyChat, useInitializeChat } from './useInitializeChat';
 import { useInitialMessages, useInitialMessagesState } from './useInitialMessages';
 import { useChatSelectionSync } from './history';
 import { useCallback, useEffect, useState } from 'react';
@@ -16,7 +16,7 @@ const EMPTY_INITIAL_MESSAGES: GhostbuildMessage[] = [];
 export function useChatHomepage(chatId: string) {
   const navigateToChat = useNavigateToChat();
   const [chatInitialized, setChatInitialized] = useState(false);
-  const initializeChat = useHomepageInitializeChat(chatId, setChatInitialized);
+  const initializeChat = useInitializeChat(chatId, setChatInitialized);
   const discardEmptyChat = useDiscardEmptyChat(chatId);
   const loaded = useInitialMessages(chatInitialized ? chatId : undefined);
   useChatSelectionSync(loaded?.loadedSubchatIndex ?? (chatInitialized ? 0 : undefined));
@@ -45,7 +45,7 @@ export function useChatHomepage(chatId: string) {
 
 export function useExistingChat(chatId: string) {
   const navigateToChat = useNavigateToChat();
-  const initializeChat = useExistingInitializeChat(chatId);
+  const initializeChat = useInitializeChat(chatId);
   const discardEmptyChat = useDiscardEmptyChat(chatId);
   const initialMessageState = useInitialMessagesState(chatId);
   const initialMessages = initialMessageState.initialMessages;
