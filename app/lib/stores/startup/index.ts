@@ -19,7 +19,7 @@ export function useChatHomepage(chatId: string) {
   const initializeChat = useHomepageInitializeChat(chatId, setChatInitialized);
   const discardEmptyChat = useDiscardEmptyChat(chatId);
   const loaded = useInitialMessages(chatInitialized ? chatId : undefined);
-  useChatSelectionSync(chatId, loaded?.loadedSubchatIndex ?? (chatInitialized ? 0 : undefined));
+  useChatSelectionSync(loaded?.loadedSubchatIndex ?? (chatInitialized ? 0 : undefined));
   const subchatState = useSubchats(chatId, chatInitialized);
   const subchats = subchatState.subchats;
   const subchatIndex = useStore(subchatIndexStore) ?? 0;
@@ -54,7 +54,7 @@ export function useExistingChat(chatId: string) {
       void navigateToChat(initialMessages.loadedChatId);
     }
   }, [chatId, initialMessages?.loadedChatId, navigateToChat]);
-  useChatSelectionSync(chatId, initialMessages?.loadedSubchatIndex);
+  useChatSelectionSync(initialMessages?.loadedSubchatIndex);
   const subchatState = useSubchats(chatId);
   const subchats = subchatState.subchats;
   const onBuilderRequestStart = useCallback(() => undefined, []);

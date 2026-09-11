@@ -1,4 +1,4 @@
-import { skipToken, useMutation as useTanStackMutation, useQuery as useTanStackQuery } from '@tanstack/react-query';
+import { useMutation as useTanStackMutation } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { createCollection } from '@tanstack/db';
 import { queryCollectionOptions } from '@tanstack/query-db-collection';
@@ -19,24 +19,6 @@ import { registerClientCollectionDisposer } from './client-collections';
 import { useQueryCacheError } from './use-query-cache-error';
 
 type SubchatQueryArgs = { chatId: string; sessionId: string };
-
-export function useQuery<Path extends DataOperationPath>(
-  path: Path,
-  args: DataOperationArgs<Path> | 'skip',
-): DataOperationResult<Path> | undefined {
-  const query = useTanStackQuery({
-    queryKey: ['ghostbuild-data', path, args],
-    queryFn: args === 'skip' ? skipToken : ({ signal }) => executeDataOperation(path, args, { signal }),
-  });
-
-  if (args === 'skip') {
-    return undefined;
-  }
-  if (query.error) {
-    throw query.error;
-  }
-  return query.data;
-}
 
 export function useMutation<Path extends DataOperationPath>(path: Path) {
   const { mutateAsync } = useTanStackMutation<DataOperationResult<Path>, Error, DataOperationArgs<Path>>({

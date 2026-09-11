@@ -1,5 +1,5 @@
 {
-  "total": 1300,
+  "total": 1298,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -331,7 +331,6 @@
     },
     "app/lib/cloudflare/data-hooks.test.ts": {
       "anti-slop/no-module-mocking": 1,
-      "anti-slop/no-unknown-parameters": 2,
       "anti-slop/require-safety-comment-for-type-assertion": 1
     },
     "app/lib/cloudflare/data-page-loader.test.ts": {

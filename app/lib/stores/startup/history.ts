@@ -1,16 +1,8 @@
-import { useStore } from '@nanostores/react';
 import { useEffect } from 'react';
-import { api } from '~/lib/cloudflare/data-api';
-import { useQuery } from '~/lib/cloudflare/data-hooks';
-import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { loadedSubchatIndexStore, subchatIndexStore } from '~/lib/stores/subchats';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 
-export function useChatSelectionSync(chatId: string, loadedSubchatIndex?: number): void {
-  const subchatIndex = useStore(subchatIndexStore);
-  const userId = useUserIdOrNullOrLoading();
-  const chatInfo = useQuery(api.messages.get, userId ? { id: chatId, sessionId: userId } : 'skip');
-
+export function useChatSelectionSync(loadedSubchatIndex?: number): void {
   useEffect(() => {
     if (loadedSubchatIndex === undefined) {
       return undefined;
@@ -27,8 +19,11 @@ export function useChatSelectionSync(chatId: string, loadedSubchatIndex?: number
   }, [loadedSubchatIndex]);
 
   useEffect(() => {
-    if (chatInfo && chatInfo.subchatIndex > 0) {
+    // The loaded index is the same number the chat-info read would report; it is already resolved
+    // from it upstream. Reading it again here cost a second request whose failure threw during
+    // render, past the inline load-error retry the chat surface builds for exactly this case.
+    if (loadedSubchatIndex !== undefined && loadedSubchatIndex > 0) {
       workbenchStore.showWorkbench.set(true);
     }
-  }, [chatInfo, subchatIndex]);
+  }, [loadedSubchatIndex]);
 }
