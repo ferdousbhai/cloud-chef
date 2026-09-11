@@ -1,3 +1,5 @@
+import { bytesToBase64Url } from '~/lib/hex-digest';
+
 const RUNTIME_SECRET_BYTES = 32;
 const RUNTIME_SECRET_SALT = new TextEncoder().encode('ghostbuild-user-workspace-runtime-control-v1');
 
@@ -28,7 +30,7 @@ export async function deriveUserWorkspaceRuntimeSecret(args: {
     key,
     RUNTIME_SECRET_BYTES * 8,
   );
-  return base64Url(new Uint8Array(bits));
+  return bytesToBase64Url(new Uint8Array(bits));
 }
 
 function decodeBase64(value: string): Uint8Array<ArrayBuffer> {
@@ -42,12 +44,4 @@ function decodeBase64(value: string): Uint8Array<ArrayBuffer> {
   } catch {
     throw new Error('Cloudflare credential encryption key is not valid base64.');
   }
-}
-
-function base64Url(value: Uint8Array): string {
-  let binary = '';
-  for (const byte of value) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }

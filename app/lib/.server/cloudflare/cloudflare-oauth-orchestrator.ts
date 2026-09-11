@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { bytesToBase64Url } from '~/lib/hex-digest';
 import {
   BROAD_CLOUDFLARE_OAUTH_SCOPES,
   capabilitiesFromOAuthScopes,
@@ -90,7 +91,7 @@ export class CloudflareOAuthOrchestrator implements CloudflareOrchestrator {
     }
     returnUrl.search = '';
     const verifier = randomBase64Url(48);
-    const challenge = base64Url(
+    const challenge = bytesToBase64Url(
       new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))),
     );
     const authorizationUrl = new URL(AUTHORIZE_URL);
@@ -235,13 +236,5 @@ function parseSession(value: string): OAuthSession {
 }
 
 function randomBase64Url(bytes: number): string {
-  return base64Url(crypto.getRandomValues(new Uint8Array(bytes)));
-}
-
-function base64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return bytesToBase64Url(crypto.getRandomValues(new Uint8Array(bytes)));
 }

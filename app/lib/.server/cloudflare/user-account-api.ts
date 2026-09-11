@@ -1,10 +1,5 @@
 import { deploymentPlanResourceName, type DeploymentPlan, type DeploymentResourceType } from './deployment-plan';
-import {
-  bytesToBase64,
-  deploymentAssetExtension,
-  deploymentAssetHash,
-  type DeploymentArtifactFile,
-} from './deployment-artifact';
+import { deploymentAssetExtension, deploymentAssetHash, type DeploymentArtifactFile } from './deployment-artifact';
 import {
   APP_AGENT_DECLARATIVE_EXPORT,
   DEPLOYMENT_COMPATIBILITY_DATE,
@@ -20,7 +15,7 @@ import {
   PROJECT_WORKSPACE_CONTAINER_MAX_INSTANCES,
 } from './project-workspace-container-policy';
 import { GHOSTBUILD_CONTROL_PLANE_ENDPOINT, USER_WORKSPACE_RUNTIME_GC_CRON } from './user-workspace-runtime-policy';
-import { sha256Hex } from '~/lib/hex-digest';
+import { bytesToBase64, sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareOAuthScopeGrantStatus } from './cloudflare-oauth-scope-manifest';
 
 const API_ROOT = 'https://api.cloudflare.com/client/v4';

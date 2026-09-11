@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { bytesToBase64 } from '~/lib/hex-digest';
 const AES_GCM_IV_BYTES = 12;
 const AES_256_KEY_BYTES = 32;
 /** Bounds both client-authenticated OAuth calls: the refresh and the revocation. */
@@ -366,14 +367,6 @@ async function importEncryptionKey(value: string, usages: KeyUsage[]): Promise<C
     throw new Error('CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY must contain exactly 32 bytes.');
   }
   return crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, usages);
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary);
 }
 
 function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {

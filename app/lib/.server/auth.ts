@@ -1,5 +1,5 @@
 const SESSION_COOKIE = 'ghostbuild_session';
-import { sha256Hex } from '~/lib/hex-digest';
+import { bytesToBase64Url, sha256Hex } from '~/lib/hex-digest';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 export type CloudflareAuthUser = {
@@ -351,10 +351,5 @@ async function isExactAuthSessionCommitted(db: D1Database, session: PreparedAuth
 }
 
 function randomToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  let binary = '';
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
 }
