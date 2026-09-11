@@ -31,7 +31,7 @@ import { LinkButton } from '~/components/ui/LinkButton';
 import { buttonClassNames } from '~/components/ui/primitives/Button';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { WORKERS_PAID_URL } from '~/lib/workers-paid.client';
-import { initializeBuilderModelPreference } from '~/lib/stores/builder-model.client';
+import { initializeBuilderModelPreference, loadBuilderModelCatalog } from '~/lib/stores/builder-model.client';
 
 const logger = createScopedLogger('Chat');
 
@@ -238,6 +238,7 @@ const AuthenticatedChat = memo(
     const presentationId = workspacePresentationId(accountId, transcript.agentName);
     useLayoutEffect(() => {
       initializeBuilderModelPreference();
+      void loadBuilderModelCatalog();
     }, []);
     useLayoutEffect(() => {
       workbenchStore.activateWorkspace(presentationId);

@@ -18,6 +18,13 @@ const BUILDER_SEEN_MODELS_STORAGE_KEY = 'ghostbuild_seen_builder_models_v1';
 /** One more than the catalog payload's own ceiling, so a full catalog always fits. */
 const MAX_SEEN_MODEL_IDS = 101;
 let pendingCatalog: Promise<void> | null = null;
+/**
+ * Until the live catalog arrives, `builderModelsStore` holds only the pinned default, so a
+ * membership test would discard every other saved preference — including on the opening turn of a
+ * homepage-started build. Before that point a shape-valid saved id is trusted; the server is the
+ * authority on which ids are usable and rejects an unknown one.
+ */
+let catalogInstalled = false;
 
 /**
  * Reading is required; writing is optional so an existing caller that only stubs `getItem` keeps
@@ -80,6 +87,7 @@ export function loadBuilderModelCatalog(
 export function installBuilderModelCatalog(payload: WorkersAiModelCatalogPayload, storage?: BuilderModelStorage): void {
   builderModelsStore.set(payload.models);
   builderDefaultModelStore.set(payload.defaultModelId);
+  catalogInstalled = true;
   applyStoredModelPreference(storage);
   applyUnseenModels(payload.models, storage);
 }
@@ -195,7 +203,9 @@ function applyStoredModelPreference(storage?: BuilderModelStorage): void {
   try {
     const persisted = (storage ?? localStorage).getItem(BUILDER_MODEL_STORAGE_KEY);
     builderModelStore.set(
-      isWorkersAiModelId(persisted) && models.some(({ id }) => id === persisted) ? persisted : defaultModel,
+      isWorkersAiModelId(persisted) && (!catalogInstalled || models.some(({ id }) => id === persisted))
+        ? persisted
+        : defaultModel,
     );
   } catch {
     builderModelStore.set(defaultModel);
