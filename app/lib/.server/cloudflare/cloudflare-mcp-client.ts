@@ -817,67 +817,49 @@ function insufficientScopeOutcome(
   };
 }
 
+/** A provider status is reported as one provider failure; every other reason keeps its own code. */
+const FAILURE_CODES = {
+  aborted: 'aborted',
+  authentication_rejected: 'authentication_failed',
+  malformed_response: 'malformed_response',
+  provider_4xx: 'provider_failure',
+  provider_5xx: 'provider_failure',
+  redirect_rejected: 'redirect_rejected',
+  request_too_large: 'request_too_large',
+  response_too_large: 'response_too_large',
+  timeout: 'timeout',
+  transport_failure: 'transport_failure',
+} satisfies Record<RequestFailureReason, CloudflareMcpFailureCode>;
+
 function failureCode(reason: RequestFailureReason): CloudflareMcpFailureCode {
-  if (reason === 'aborted') {
-    return 'aborted';
-  }
-  if (reason === 'authentication_rejected') {
-    return 'authentication_failed';
-  }
-  if (reason === 'malformed_response') {
-    return 'malformed_response';
-  }
-  if (reason === 'redirect_rejected') {
-    return 'redirect_rejected';
-  }
-  if (reason === 'request_too_large') {
-    return 'request_too_large';
-  }
-  if (reason === 'response_too_large') {
-    return 'response_too_large';
-  }
-  if (reason === 'timeout') {
-    return 'timeout';
-  }
-  if (reason === 'transport_failure') {
-    return 'transport_failure';
-  }
-  return 'provider_failure';
+  return FAILURE_CODES[reason];
 }
 
 function requestFailureMessage(reason: RequestFailureReason): string {
   return safeFailureMessage(failureCode(reason));
 }
 
+/**
+ * What a failure is allowed to say to the user. The Record is exhaustive so a code added to the
+ * union has to be given wording here rather than silently inheriting another failure's sentence.
+ */
+const FAILURE_MESSAGES = {
+  aborted: 'The Cloudflare MCP operation was aborted.',
+  authentication_failed: 'Cloudflare rejected the refreshed credential.',
+  compatibility_drift: 'The official Cloudflare MCP tool contract is incompatible.',
+  credential_unavailable: 'The Cloudflare credential is unavailable.',
+  invalid_invocation: 'The Cloudflare MCP invocation is invalid.',
+  malformed_response: 'Cloudflare returned a malformed MCP response.',
+  provider_failure: 'Cloudflare could not complete the MCP operation.',
+  redirect_rejected: 'The Cloudflare MCP endpoint attempted a redirect.',
+  request_too_large: 'The Cloudflare MCP request exceeds its size limit.',
+  response_too_large: 'The Cloudflare MCP response exceeds its size limit.',
+  timeout: 'The Cloudflare MCP operation timed out.',
+  transport_failure: 'The Cloudflare MCP transport failed.',
+} satisfies Record<CloudflareMcpFailureCode, string>;
+
 function safeFailureMessage(code: CloudflareMcpFailureCode): string {
-  if (code === 'aborted') {
-    return 'The Cloudflare MCP operation was aborted.';
-  }
-  if (code === 'authentication_failed') {
-    return 'Cloudflare rejected the refreshed credential.';
-  }
-  if (code === 'credential_unavailable') {
-    return 'The Cloudflare credential is unavailable.';
-  }
-  if (code === 'malformed_response') {
-    return 'Cloudflare returned a malformed MCP response.';
-  }
-  if (code === 'redirect_rejected') {
-    return 'The Cloudflare MCP endpoint attempted a redirect.';
-  }
-  if (code === 'request_too_large') {
-    return 'The Cloudflare MCP request exceeds its size limit.';
-  }
-  if (code === 'response_too_large') {
-    return 'The Cloudflare MCP response exceeds its size limit.';
-  }
-  if (code === 'timeout') {
-    return 'The Cloudflare MCP operation timed out.';
-  }
-  if (code === 'provider_failure') {
-    return 'Cloudflare could not complete the MCP operation.';
-  }
-  return 'The Cloudflare MCP transport failed.';
+  return FAILURE_MESSAGES[code];
 }
 
 async function raceAgainstAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
