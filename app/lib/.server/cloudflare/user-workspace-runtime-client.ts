@@ -672,7 +672,11 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       throw new WorkspaceToolOperationIndeterminateError(started.error);
     }
     if (this.#activeTool) {
-      throw new Error('ProjectWorkspace tools are serialized; a second mutation cannot start concurrently.');
+      // beginToolOperation already opened a durable `running` row; settle it before throwing so the
+      // guard cannot leak a row that counts against the journal's indeterminate-operation ceiling.
+      const serializationError = 'ProjectWorkspace tools are serialized; a second mutation cannot start concurrently.';
+      await stub.failToolOperation({ toolCallId, error: serializationError }).catch(() => undefined);
+      throw new Error(serializationError);
     }
     this.#activeTool = { toolCallId, toolName };
     let executionStarted = false;
