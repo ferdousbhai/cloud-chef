@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /** Unrecognized members pass through untouched so rewriting dependencies preserves the manifest. */
 const packageManifestSchema = z.looseObject({
-  dependencies: z.record(z.string(), z.string()).optional().catch(undefined),
+  dependencies: z.record(z.string(), z.string()).optional(),
 });
 
 export function addRequestedDependencies(packageJson: string, packageSpecs: string[]): string {
