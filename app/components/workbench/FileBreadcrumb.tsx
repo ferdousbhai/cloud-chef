@@ -1,6 +1,6 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { AnimatePresence, motion, type Variants } from 'framer-motion';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useState } from 'react';
 import type { FileMap } from 'ghostbuild-agent/types';
 import { classNames } from '~/utils/classNames';
 import { WORK_DIR } from 'ghostbuild-agent/constants';
@@ -49,29 +49,6 @@ export const FileBreadcrumb = memo<FileBreadcrumbProps>(function FileBreadcrumb(
 
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
-  const contextMenuRef = useRef<HTMLDivElement | null>(null);
-  const segmentRefs = useRef<(HTMLButtonElement | null)[]>([]);
-
-  useEffect(() => {
-    const handleOutsideClick = (event: MouseEvent) => {
-      const target = event.target;
-      if (
-        activeIndex !== null &&
-        target instanceof Node &&
-        !contextMenuRef.current?.contains(target) &&
-        !segmentRefs.current.some((ref) => ref?.contains(target))
-      ) {
-        setActiveIndex(null);
-      }
-    };
-
-    document.addEventListener('mousedown', handleOutsideClick);
-
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
-    };
-  }, [activeIndex]);
-
   if (files === undefined || pathSegments.length === 0) {
     return null;
   }
@@ -101,9 +78,6 @@ export const FileBreadcrumb = memo<FileBreadcrumbProps>(function FileBreadcrumb(
               <DropdownMenu.Trigger asChild>
                 <button
                   type="button"
-                  ref={(ref) => {
-                    segmentRefs.current[index] = ref;
-                  }}
                   className={classNames('flex shrink-0 cursor-pointer items-center gap-1.5 rounded bg-transparent', {
                     'text-content-tertiary hover:text-content-primary': !isActive,
                     'text-content-primary underline': isActive,
@@ -126,13 +100,7 @@ export const FileBreadcrumb = memo<FileBreadcrumbProps>(function FileBreadcrumb(
                       side="bottom"
                       avoidCollisions={false}
                     >
-                      <motion.div
-                        ref={contextMenuRef}
-                        initial="close"
-                        animate="open"
-                        exit="close"
-                        variants={contextMenuVariants}
-                      >
+                      <motion.div initial="close" animate="open" exit="close" variants={contextMenuVariants}>
                         <div className="overflow-hidden rounded-lg">
                           <div className="max-h-[50vh] min-w-[300px] overflow-scroll rounded-lg border bg-bolt-elements-background-depth-1 shadow-sm">
                             <FileTree
