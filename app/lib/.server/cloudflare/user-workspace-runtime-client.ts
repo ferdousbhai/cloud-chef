@@ -501,19 +501,21 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     await this.#cancelValidation(toolCallId);
   }
 
-  async #cancelValidation(toolCallId?: string): Promise<void> {
+  /**
+   * Retries `attempt` until it reports the operation settled or the overall deadline passes.
+   * A non-retryable failure and an exhausted deadline both surface as an indeterminate
+   * settlement, so the caller never mistakes an unknown outcome for a settled one.
+   */
+  async #settleWithRetries(description: string, attempt: (deadline: number) => Promise<boolean>): Promise<void> {
     const deadline = Date.now() + SETTLEMENT_OVERALL_TIMEOUT_MS;
     while (Date.now() < deadline) {
       try {
-        await this.#settlementRpcAttempt(
-          () => this.#stub().then((stub) => stub.cancelValidation(toolCallId ? { toolCallId } : {})),
-          deadline,
-          'workspace validation cancellation',
-        );
-        return;
+        if (await attempt(deadline)) {
+          return;
+        }
       } catch (error) {
         if (!isRetryableSettlementError(error)) {
-          throw indeterminateSettlementError('workspace validation cancellation', error);
+          throw indeterminateSettlementError(description, error);
         }
       }
       if (Date.now() >= deadline) {
@@ -521,7 +523,19 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       }
       await delay(Math.min(SETTLEMENT_RETRY_DELAY_MS, deadline - Date.now()));
     }
-    throw indeterminateSettlementError('workspace validation cancellation', new SettlementDeadlineError());
+    throw indeterminateSettlementError(description, new SettlementDeadlineError());
+  }
+
+  async #cancelValidation(toolCallId?: string): Promise<void> {
+    const description = 'workspace validation cancellation';
+    await this.#settleWithRetries(description, async (deadline) => {
+      await this.#settlementRpcAttempt(
+        () => this.#stub().then((stub) => stub.cancelValidation(toolCallId ? { toolCallId } : {})),
+        deadline,
+        description,
+      );
+      return true;
+    });
   }
 
   #cancelExecutionUntilSettled(operationKey: string): Promise<void> {
@@ -539,51 +553,27 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
   }
 
   async #performExecutionCancellation(operationKey: string): Promise<void> {
-    const deadline = Date.now() + SETTLEMENT_OVERALL_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      try {
-        await this.#settlementRpcAttempt(
-          () => this.#stub().then((stub) => stub.cancelExecution({ operationKey })),
-          deadline,
-          'workspace command cancellation',
-        );
-        return;
-      } catch (error) {
-        if (!isRetryableSettlementError(error)) {
-          throw indeterminateSettlementError('workspace command cancellation', error);
-        }
-      }
-      if (Date.now() >= deadline) {
-        break;
-      }
-      await delay(Math.min(SETTLEMENT_RETRY_DELAY_MS, deadline - Date.now()));
-    }
-    throw indeterminateSettlementError('workspace command cancellation', new SettlementDeadlineError());
+    const description = 'workspace command cancellation';
+    await this.#settleWithRetries(description, async (deadline) => {
+      await this.#settlementRpcAttempt(
+        () => this.#stub().then((stub) => stub.cancelExecution({ operationKey })),
+        deadline,
+        description,
+      );
+      return true;
+    });
   }
 
   async #terminalizeToolOperationAfterExecution(toolCallId: string, error: string): Promise<void> {
-    const deadline = Date.now() + SETTLEMENT_OVERALL_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      try {
-        const result = await this.#settlementRpcAttempt(
-          () => this.#stub().then((stub) => stub.cancelToolOperation({ toolCallId, error })),
-          deadline,
-          'workspace tool settlement',
-        );
-        if (result.status === 'settled') {
-          return;
-        }
-      } catch (settlementError) {
-        if (!isRetryableSettlementError(settlementError)) {
-          throw indeterminateSettlementError('workspace tool settlement', settlementError);
-        }
-      }
-      if (Date.now() >= deadline) {
-        break;
-      }
-      await delay(Math.min(SETTLEMENT_RETRY_DELAY_MS, deadline - Date.now()));
-    }
-    throw indeterminateSettlementError('workspace tool settlement', new SettlementDeadlineError());
+    const description = 'workspace tool settlement';
+    await this.#settleWithRetries(description, async (deadline) => {
+      const result = await this.#settlementRpcAttempt(
+        () => this.#stub().then((stub) => stub.cancelToolOperation({ toolCallId, error })),
+        deadline,
+        description,
+      );
+      return result.status === 'settled';
+    });
   }
 
   async #settlementRpcAttempt<T>(operation: () => Promise<T>, deadline: number, description: string): Promise<T> {
