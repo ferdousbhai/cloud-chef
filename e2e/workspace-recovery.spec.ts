@@ -148,7 +148,7 @@ test('recovers a project whose data operations fail', async ({ page }, testInfo)
 
   await page.goto('/chat/recovery-fixture-project');
 
-  await expect(page.getByRole('heading', { name: 'This page could not load.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Ghostbuild could not load this project.' })).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('The workspace runtime is unavailable.');
   const requestsBeforeRetry = attempts;
   await page.getByRole('button', { name: 'Try again' }).click();
