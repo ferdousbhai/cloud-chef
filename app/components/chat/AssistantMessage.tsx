@@ -2,12 +2,7 @@ import { lazy, memo, Suspense, useEffect, useRef } from 'react';
 import { ToolCall } from './ToolCall';
 import { ReasoningPart } from './ReasoningPart';
 import { makePartId, type PartId } from 'ghostbuild-agent/partId.js';
-import {
-  getToolInvocation,
-  messageText,
-  type GhostbuildMessage,
-  type GhostbuildPart,
-} from 'ghostbuild-agent/ai-compat';
+import { getToolInvocation, type GhostbuildMessage, type GhostbuildPart } from 'ghostbuild-agent/ai-compat';
 import { captureMessage } from '~/lib/telemetry.client';
 import type {
   CloudflareExecutionDecisionHandler,
@@ -27,16 +22,6 @@ export const AssistantMessage = memo(function AssistantMessage({
   cloudflareExecutions,
   onCloudflareExecutionDecision,
 }: AssistantMessageProps) {
-  if (!message.parts) {
-    return (
-      <div className="w-full overflow-hidden">
-        <Suspense fallback={null}>
-          <Markdown>{messageText(message)}</Markdown>
-        </Suspense>
-      </div>
-    );
-  }
-
   return (
     <div className="w-full overflow-hidden text-sm">
       <div className="flex flex-col gap-2">

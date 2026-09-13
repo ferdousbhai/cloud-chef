@@ -5,19 +5,15 @@ import { BrandLink } from '~/components/BrandLink';
 import { HomeHeroCopy } from '~/components/HomeHeroCopy';
 import { Loading } from '~/components/Loading';
 
-type MaybeComponent<TProps> = ComponentType<TProps> | undefined;
 type EmptyProps = Record<string, never>;
 
 function createClientComponent<TProps extends object>(
-  getComponent: () => MaybeComponent<TProps>,
+  getComponent: () => ComponentType<TProps>,
   renderFallback: (props: TProps) => ReactNode = () => null,
 ) {
   function HydratedClientComponent(props: TProps) {
     const Component = getComponent();
     const fallback = renderFallback(props);
-    if (!Component) {
-      return fallback;
-    }
     return (
       <Suspense fallback={fallback}>
         <Component {...props} />

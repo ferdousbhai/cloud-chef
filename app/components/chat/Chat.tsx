@@ -55,14 +55,14 @@ export const Chat = memo(
       code: UserRuntimeErrorCode | null;
       upgradeUrl: string | null;
     } | null>(null);
-    const [runtimeConnectionAttempt, setRuntimeConnectionAttempt] = useState({ id: 0, retryProvisioning: false });
+    const [retryCount, setRetryCount] = useState(0);
     useEffect(() => {
       if (userId === null || userId === undefined || runtimeEndpoint) {
         return undefined;
       }
       let canceled = false;
       setRuntimeConnectionError(null);
-      void getUserRuntimeSession({ retryProvisioning: runtimeConnectionAttempt.retryProvisioning }).catch((error) => {
+      void getUserRuntimeSession({ retryProvisioning: retryCount > 0 }).catch((error) => {
         if (!canceled) {
           logger.error('Unable to connect to the user-owned runtime', error);
           setRuntimeConnectionError({
@@ -75,7 +75,7 @@ export const Chat = memo(
       return () => {
         canceled = true;
       };
-    }, [runtimeConnectionAttempt, runtimeEndpoint, userId]);
+    }, [retryCount, runtimeEndpoint, userId]);
     if (userId === null || userId === undefined) {
       return (
         <UnauthenticatedChat initialMessages={initialMessages} subchats={subchats} authLoading={userId === undefined} />
@@ -87,9 +87,7 @@ export const Chat = memo(
           message={runtimeConnectionError.message}
           code={runtimeConnectionError.code}
           upgradeUrl={runtimeConnectionError.upgradeUrl}
-          onRetry={() => {
-            setRuntimeConnectionAttempt((attempt) => ({ id: attempt.id + 1, retryProvisioning: true }));
-          }}
+          onRetry={() => setRetryCount((count) => count + 1)}
         />
       ) : (
         <Loading message={WORKSPACE_PREPARING_MESSAGE} />
@@ -254,8 +252,6 @@ const AuthenticatedChat = memo(
     const [chatStarted, setChatStarted] = useState(
       initialMessages.length > 0 || hasMultipleSubchats || pendingInitialMessage !== null,
     );
-    const disabledReason = null;
-
     const { showChat } = useStore(chatStore);
 
     const {
@@ -358,7 +354,7 @@ const AuthenticatedChat = memo(
         currentError={error}
         buildProgress={buildProgress}
         messages={visibleMessages}
-        disabledReason={disabledReason}
+        disabledReason={null}
         deployment={deployment}
         publication={publication}
         onDeploy={deployValidatedRevision}

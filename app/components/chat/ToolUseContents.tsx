@@ -258,7 +258,7 @@ function CloudflareExecuteContents({
   const code = proposal?.code ?? input?.code ?? '';
   const accountId = proposal?.accountId ?? execution?.accountId ?? '';
   const digest = proposal?.proposalSha256 ?? execution?.proposalSha256 ?? '';
-  const status = execution?.status ?? (expired ? 'expired' : 'awaiting_approval');
+  const status = execution?.status ?? 'awaiting_approval';
   const effectiveStatus = status === 'awaiting_approval' && expired ? 'expired' : status;
   const canDecide = effectiveStatus === 'awaiting_approval' && Boolean(onDecision) && pendingDecision === null;
 

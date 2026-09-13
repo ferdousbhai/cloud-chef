@@ -41,7 +41,7 @@ export const MessageInput = memo(function MessageInput({
   const primaryActionLabel = getMessageInputPrimaryActionLabel(authState.kind, isStreaming, input.trim().length > 0);
   const hasActiveSession = authState.kind === 'fullyLoggedIn';
   const modelSelector = shouldOfferBuilderModelSelector(authState.kind) && (
-    <BuilderModelSelector compact disabled={disabled || isStreaming || sendMessageInProgress} />
+    <BuilderModelSelector disabled={disabled || isStreaming || sendMessageInProgress} />
   );
   const placeholder = chatStarted
     ? isStreaming

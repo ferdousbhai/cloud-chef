@@ -137,9 +137,7 @@ export function useMessageInputController({
     }
   }, [authState.kind, input, isStreaming, onStop, send, signIn]);
 
-  const handleButtonClick = useCallback(() => {
-    runPrimaryAction();
-  }, [runPrimaryAction]);
+  const handleButtonClick = runPrimaryAction;
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = useCallback(
     (event) => {
@@ -359,7 +357,7 @@ export function clearPromptIfUnchanged(sourceInput: string, expectedRevision: nu
     return false;
   }
   cachePrompt.cancel();
-  removePendingPrompt();
+  storePendingPrompt('');
   return true;
 }
 
@@ -393,14 +391,6 @@ function storePendingPrompt(prompt: string): void {
     }
   } catch {
     // Prompt handoff remains best-effort when browser storage is unavailable.
-  }
-}
-
-function removePendingPrompt(): void {
-  try {
-    window.sessionStorage.removeItem(PENDING_PROMPT_STORAGE_KEY);
-  } catch {
-    // Browser storage can be unavailable in privacy-restricted contexts.
   }
 }
 

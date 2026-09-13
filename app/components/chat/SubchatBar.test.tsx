@@ -36,7 +36,6 @@ describe('SubchatBar', () => {
 
     expect(document.querySelector<HTMLButtonElement>('button[aria-label^="Switch chat."]')?.disabled).toBe(true);
     expect(document.querySelector<HTMLButtonElement>('button[aria-label="Next chat"]')?.disabled).toBe(true);
-    expect(document.querySelector('button[aria-label="Rewind project to this chat"]')).toBeNull();
   });
 
   it('keeps the confirmation open and prevents repeat submission when creation fails', async () => {

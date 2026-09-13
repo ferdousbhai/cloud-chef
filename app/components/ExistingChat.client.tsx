@@ -23,7 +23,7 @@ export function ExistingChat({ chatId }: { chatId: string }) {
     <>
       <GhostbuildAuthProvider>
         <UserProvider>
-          <ExistingChatWrapper chatId={chatId} />
+          <ExistingChatSessionView chatId={chatId} />
         </UserProvider>
       </GhostbuildAuthProvider>
       <Toaster />
@@ -31,12 +31,8 @@ export function ExistingChat({ chatId }: { chatId: string }) {
   );
 }
 
-function ExistingChatWrapper({ chatId }: { chatId: string }) {
+function ExistingChatSessionView({ chatId }: { chatId: string }) {
   const userId = useUserIdOrNullOrLoading();
-  return <ExistingChatSessionView chatId={chatId} userId={userId} />;
-}
-
-function ExistingChatSessionView({ chatId, userId }: { chatId: string; userId: string | null | undefined }) {
   if (userId === undefined) {
     return <Loading message="Checking your Cloudflare session…" />;
   }

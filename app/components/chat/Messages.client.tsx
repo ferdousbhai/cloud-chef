@@ -13,21 +13,20 @@ import type {
 } from 'ghostbuild-agent/cloudflare-mcp';
 
 interface MessagesProps {
-  id?: string;
   className?: string;
-  messages?: GhostbuildMessage[];
+  messages: GhostbuildMessage[];
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 }
 
 export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messages(
-  { id, messages = [], className, cloudflareExecutions, onCloudflareExecutionDecision }: MessagesProps,
+  { messages, className, cloudflareExecutions, onCloudflareExecutionDecision }: MessagesProps,
   ref: ForwardedRef<HTMLDivElement> | undefined,
 ) {
   const profile = useStore(profileStore);
 
   return (
-    <div id={id} className={className} ref={ref}>
+    <div className={className} ref={ref}>
       {messages.length > 0 ? (
         messages.map((message) => {
           const { role } = message;

@@ -305,8 +305,7 @@ export class UserCloudflareAccountApi {
     return this.ensureR2Bucket(resourceName);
   }
 
-  async ensureR2Bucket(resourceName: string): Promise<{ id: string; name: string }> {
-    requireR2BucketName(resourceName);
+  private async readR2Bucket(resourceName: string): Promise<{ id: string; name: string } | null> {
     const existing = await this.callOptional<{ name?: string }>(`/r2/buckets/${encodeURIComponent(resourceName)}`, {
       method: 'GET',
     });
@@ -316,20 +315,24 @@ export class UserCloudflareAccountApi {
     if (existing) {
       return { id: resourceName, name: resourceName };
     }
+    return null;
+  }
+
+  async ensureR2Bucket(resourceName: string): Promise<{ id: string; name: string }> {
+    requireR2BucketName(resourceName);
+    const existing = await this.readR2Bucket(resourceName);
+    if (existing) {
+      return existing;
+    }
     try {
       return await this.createR2Bucket(resourceName);
     } catch (error) {
       if (!(error instanceof CloudflareAccountApiError)) {
         throw error;
       }
-      const raced = await this.callOptional<{ name?: string }>(`/r2/buckets/${encodeURIComponent(resourceName)}`, {
-        method: 'GET',
-      });
-      if (raced !== null && raced.name !== resourceName) {
-        throw new CloudflareAccountApiError('Cloudflare returned an invalid R2 resource.');
-      }
+      const raced = await this.readR2Bucket(resourceName);
       if (raced) {
-        return { id: resourceName, name: resourceName };
+        return raced;
       }
       throw error;
     }

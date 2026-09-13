@@ -10,7 +10,6 @@ interface CodeBlockProps {
   code: string;
   language?: string;
   theme?: CodeTheme;
-  disableCopy?: boolean;
 }
 
 export const CodeBlock = memo(function CodeBlock({
@@ -18,7 +17,6 @@ export const CodeBlock = memo(function CodeBlock({
   code,
   language = 'plaintext',
   theme = 'dark-plus',
-  disableCopy = false,
 }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const highlighted = useHighlightedCode(code, language, theme);
@@ -50,14 +48,12 @@ export const CodeBlock = memo(function CodeBlock({
           'opacity-100': copied,
         })}
       >
-        {!disableCopy && (
-          <Button
-            variant="neutral"
-            icon={copied ? <CheckIcon className="text-util-success" /> : <ClipboardIcon />}
-            onClick={() => void copyToClipboard()}
-            tip="Copy Code"
-          />
-        )}
+        <Button
+          variant="neutral"
+          icon={copied ? <CheckIcon className="text-util-success" /> : <ClipboardIcon />}
+          onClick={() => void copyToClipboard()}
+          tip="Copy Code"
+        />
       </div>
       <pre className="shiki" style={{ backgroundColor: highlighted?.bg, color: highlighted?.fg }}>
         <code>

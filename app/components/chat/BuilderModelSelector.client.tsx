@@ -28,11 +28,9 @@ function formatModelAddedDate(createdAt: string | undefined): string | null {
 }
 
 export function BuilderModelSelector({
-  compact = false,
   disabled = false,
   catalogLoader = loadBuilderModelCatalog,
 }: {
-  compact?: boolean;
   disabled?: boolean;
   catalogLoader?: () => void | Promise<void>;
 }) {
@@ -84,7 +82,7 @@ export function BuilderModelSelector({
           aria-label={`Builder model. Current: ${model.label}${disabled ? '. Stop or wait for the current response to finish before switching models.' : ''}`}
           className={classNames(
             'group inline-flex min-h-8 min-w-0 items-center gap-1.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 py-1 pl-3 pr-2 text-xs font-medium text-content-secondary outline-none transition-[color,background-color,border-color,box-shadow] hover:border-border-selected hover:bg-bolt-elements-background-depth-3 hover:text-content-primary focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50',
-            compact ? 'w-36' : 'w-44 sm:w-auto sm:max-w-56',
+            'w-36',
           )}
           title={
             disabled
