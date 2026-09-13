@@ -11,6 +11,7 @@ const MAX_TOOL_RESULT_BYTES = 2 * 1024 * 1024;
 const MAX_TOOL_ERROR_LENGTH = 4_000;
 
 import { acknowledgeMutationReceipt, isMutationReceipt, type MutationReceipt } from './mutation-receipt';
+import { first } from './sql-rows';
 
 type ToolOperationStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
 
@@ -347,7 +348,7 @@ export class ToolOperationJournal {
       throw new Error(existing.error);
     }
     if (existing.status === 'failed') {
-      throw new Error(existing.error ?? 'The workspace tool operation failed.');
+      throw new Error('The workspace tool operation failed.');
     }
     throw new Error('The workspace tool operation already completed.');
   }
@@ -463,9 +464,3 @@ function encodeResult(result: unknown): string {
   return resultJson;
 }
 
-function first<T>(rows: Iterable<T>): T | undefined {
-  for (const row of rows) {
-    return row;
-  }
-  return undefined;
-}

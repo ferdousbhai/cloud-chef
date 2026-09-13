@@ -99,6 +99,7 @@ import {
   requiredDirectories,
 } from './isolated-materialization';
 import { shellQuote } from './shell-quote';
+import { first } from './sql-rows';
 import { stableWorkspaceRead } from './stable-workspace-read';
 import {
   isolatedContentDigestCommand,
@@ -126,7 +127,6 @@ import {
   COMPUTERD_ENV,
   COMPUTERD_PROCESS_ROLE,
   ComputerSandboxBase,
-  computerWorkspaceOptions,
 } from './computer-sandbox';
 import {
   createContainerDirectoryCommand,
@@ -325,7 +325,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         .catch((error) => console.error('Unable to reconcile persisted Computer sync retries', error)),
     );
     this.#admission = new ComputerAdmissionControl(env.DB);
-    this.#workspace = new Workspace(computerWorkspaceOptions(this, this.#syncRetries));
+    this.#workspace = new Workspace(this.createComputerWorkspaceOptions(this.#syncRetries));
     this.#toolOperations = new ToolOperationJournal(ctx.storage);
     this.#toolOperations.initialize();
     if (this.#toolOperations.pending().length > 0 || this.#syncRetries.state('container-shell')?.exhausted === true) {
@@ -2320,7 +2320,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     ]);
     // Workspace.close() invalidates transport handles but intentionally retains its serialized mutation queues.
     // A fresh coordinator prevents an interrupted sync from blocking the replacement container indefinitely.
-    this.#workspace = new Workspace(computerWorkspaceOptions(this, this.#syncRetries));
+    this.#workspace = new Workspace(this.createComputerWorkspaceOptions(this.#syncRetries));
     this.ctx.storage.transactionSync(() => {
       this.ctx.storage.sql.exec('DELETE FROM ghostbuild_sandbox_processes');
     });
@@ -3629,13 +3629,6 @@ async function sha256Bytes(value: Uint8Array): Promise<string> {
 
 function sha256Text(value: string): Promise<string> {
   return sha256Bytes(new TextEncoder().encode(value));
-}
-
-function first<T>(rows: Iterable<T>): T | undefined {
-  for (const row of rows) {
-    return row;
-  }
-  return undefined;
 }
 
 function isMissingPath(error: unknown): boolean {

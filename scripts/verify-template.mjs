@@ -10,27 +10,22 @@ import { listTemplateSourceFiles } from './template-source.mjs';
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sourceDir = resolve(rootDir, 'template');
 
-function runExecutable(command, cwd, args, env = process.env) {
-  const result = spawnSync(command, args, {
+function run(cwd, args) {
+  const result = spawnSync('pnpm', args, {
     cwd,
     encoding: 'utf8',
     stdio: 'inherit',
-    env,
   });
   if (result.error) {
     throw result.error;
   }
   if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(' ')} failed with exit code ${result.status}.`);
+    throw new Error(`pnpm ${args.join(' ')} failed with exit code ${result.status}.`);
   }
 }
 
-function run(cwd, args, env = process.env) {
-  runExecutable('pnpm', cwd, args, env);
-}
-
 function requireFailure(cwd, args) {
-  const result = spawnSync('pnpm', args, { cwd, encoding: 'utf8', stdio: 'pipe', env: process.env });
+  const result = spawnSync('pnpm', args, { cwd, encoding: 'utf8', stdio: 'pipe' });
   if (result.error) {
     throw result.error;
   }

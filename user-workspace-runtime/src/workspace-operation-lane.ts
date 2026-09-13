@@ -2,6 +2,7 @@ import {
   WORKSPACE_OPERATION_CONFLICT_ERROR_CODE,
   workspaceOperationConflictMessage,
 } from '../../ghostbuild-agent/cloudflare-computer';
+import { first } from './sql-rows';
 
 const WORKSPACE_OPERATION_LEASE_MS = 15 * 60_000;
 
@@ -239,11 +240,4 @@ export class WorkspaceOperationLane {
       }
     );
   }
-}
-
-function first<T>(rows: Iterable<T>): T | undefined {
-  for (const row of rows) {
-    return row;
-  }
-  return undefined;
 }

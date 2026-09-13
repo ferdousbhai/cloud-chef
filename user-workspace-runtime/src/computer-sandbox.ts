@@ -22,6 +22,7 @@ import {
   terminateTrackedSandboxProcess,
   type TrackedSandboxProcess,
 } from './tracked-command';
+import { first } from './sql-rows';
 
 export const COMPUTERD_PROCESS_ROLE = 'computerd';
 const WORKSPACE_CONTAINER_SLEEP_AFTER = '10m';
@@ -265,20 +266,7 @@ class SandboxComputerHost implements IWorkspaceContainerAPI {
   }
 }
 
-export function computerWorkspaceOptions(
-  self: ComputerSandboxBase<unknown>,
-  retryScheduler: SyncRetryScheduler,
-): WorkspaceOptions {
-  return self.createComputerWorkspaceOptions(retryScheduler);
-}
-
 function sandboxShellCommand(command: string): SandboxCommand {
   return ['sh', '-lc', command];
 }
 
-function first<T>(rows: Iterable<T>): T | undefined {
-  for (const row of rows) {
-    return row;
-  }
-  return undefined;
-}

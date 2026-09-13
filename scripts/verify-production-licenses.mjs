@@ -61,18 +61,16 @@ export function findLicensePolicyErrors(packages, policy) {
     errors.push('The production dependency inventory must not be empty.');
   }
 
-  const packageIds = new Set();
   const packagesById = new Map();
   for (const entry of packages) {
-    const packageId = `${entry.name}@${entry.version}`;
+    const packageId = packageIdentity(entry.name, entry.version);
     if (typeof entry.name !== 'string' || !entry.name || typeof entry.version !== 'string' || !entry.version) {
       errors.push('Every production dependency must have a name and version.');
       continue;
     }
-    if (packageIds.has(packageId)) {
+    if (packagesById.has(packageId)) {
       errors.push(`Production dependency inventory contains duplicate ${packageId}.`);
     }
-    packageIds.add(packageId);
     packagesById.set(packageId, entry);
     if (entry.packageLicense !== entry.license && missingMetadataOverrides.get(packageId) !== entry.license) {
       errors.push(
@@ -101,7 +99,7 @@ export function findLicensePolicyErrors(packages, policy) {
 export function createSpdxDocument(packages, policy, lockfileContent) {
   const normalized = packages.map((entry) => {
     const license = policy.spdxLicenseNormalizations?.[entry.license] ?? entry.license;
-    const identity = `${entry.name}@${entry.version}`;
+    const identity = packageIdentity(entry.name, entry.version);
     return {
       SPDXID: `SPDXRef-Package-${sha256(identity).slice(0, 24)}`,
       name: entry.name,
@@ -137,8 +135,8 @@ export function createSpdxDocument(packages, policy, lockfileContent) {
   };
 }
 
-export function readProductionLicenseInventory({ spawn = spawnSync } = {}) {
-  const result = spawn('pnpm', ['licenses', 'list', '--prod', '--json'], {
+function readProductionLicenseInventory() {
+  const result = spawnSync('pnpm', ['licenses', 'list', '--prod', '--json'], {
     cwd: rootDir,
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,

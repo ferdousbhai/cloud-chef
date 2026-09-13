@@ -3,6 +3,7 @@ import {
   COMPUTER_SYNC_EXHAUSTED_ERROR_CODE,
   COMPUTER_SYNC_PENDING_ERROR_CODE,
 } from '../../ghostbuild-agent/cloudflare-computer';
+import { first } from './sql-rows';
 
 type SyncRetryStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
 
@@ -129,26 +130,23 @@ export class DurableWorkspaceSyncRetryScheduler implements SyncRetryScheduler {
 
   async schedule(intent: SyncRetryIntent): Promise<void> {
     const now = this.now();
-    this.storage.transactionSync(() => {
-      const existing = this.read(intent.backend);
-      this.storage.sql.exec(
-        `INSERT INTO ghostbuild_workspace_sync_retries (
-           backend, attempt, not_before, created_at, updated_at, last_error, exhausted, runtime_id
-         ) VALUES (?, ?, ?, ?, ?, NULL, 0, ?)
-         ON CONFLICT(backend) DO UPDATE SET
-           attempt = excluded.attempt,
-           not_before = excluded.not_before,
-           updated_at = excluded.updated_at,
-           exhausted = 0,
-           runtime_id = excluded.runtime_id`,
-        intent.backend,
-        intent.attempt,
-        intent.notBefore,
-        existing?.created_at ?? now,
-        now,
-        intent.runtimeId ?? null,
-      );
-    });
+    this.storage.sql.exec(
+      `INSERT INTO ghostbuild_workspace_sync_retries (
+         backend, attempt, not_before, created_at, updated_at, last_error, exhausted, runtime_id
+       ) VALUES (?, ?, ?, ?, ?, NULL, 0, ?)
+       ON CONFLICT(backend) DO UPDATE SET
+         attempt = excluded.attempt,
+         not_before = excluded.not_before,
+         updated_at = excluded.updated_at,
+         exhausted = 0,
+         runtime_id = excluded.runtime_id`,
+      intent.backend,
+      intent.attempt,
+      intent.notBefore,
+      now,
+      now,
+      intent.runtimeId ?? null,
+    );
     await this.wake(intent);
   }
 
@@ -231,9 +229,3 @@ function intentOf(row: SyncRetryRow): SyncRetryIntent {
   return intent;
 }
 
-function first<T>(rows: Iterable<T>): T | undefined {
-  for (const row of rows) {
-    return row;
-  }
-  return undefined;
-}
