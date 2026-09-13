@@ -80,7 +80,7 @@ export type CloudflareExecuteFinalResult = {
   outcome: CloudflareExecutionSafeOutcome;
 };
 
-export type CloudflareExecuteProposalCandidate = Pick<CloudflareExecuteProposal, 'kind'>;
+type CloudflareExecuteProposalCandidate = Pick<CloudflareExecuteProposal, 'kind'>;
 export type CloudflareMcpResultCandidate = { kind: string; status?: string };
 
 export function isCloudflareExecuteProposal(

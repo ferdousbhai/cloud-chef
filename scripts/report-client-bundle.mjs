@@ -7,14 +7,14 @@ const DEFAULT_ASSET_DIRECTORY = fileURLToPath(new URL('../dist/client/assets', i
 const REPORTABLE_EXTENSIONS = new Set(['.css', '.js', '.wasm']);
 const SOURCE_MAP_EXTENSION = '.map';
 
-export function collectExcludedSourceMaps(directory = DEFAULT_ASSET_DIRECTORY) {
+function collectExcludedSourceMaps(directory) {
   return walkFiles(directory)
     .filter((path) => path.endsWith(SOURCE_MAP_EXTENSION))
     .map((path) => relative(directory, path))
     .sort();
 }
 
-export function collectBundleAssets(directory = DEFAULT_ASSET_DIRECTORY) {
+function collectBundleAssets(directory) {
   return (
     walkFiles(directory)
       // Source maps are intentionally excluded from static deployment by the
@@ -34,7 +34,7 @@ export function collectBundleAssets(directory = DEFAULT_ASSET_DIRECTORY) {
   );
 }
 
-export function summarizeBundleAssets(assets) {
+function summarizeBundleAssets(assets) {
   return assets.reduce(
     (totals, asset) => ({
       rawBytes: totals.rawBytes + asset.rawBytes,
@@ -45,7 +45,7 @@ export function summarizeBundleAssets(assets) {
   );
 }
 
-export function assetsOverRawLimit(assets, maxRawKilobytes) {
+function assetsOverRawLimit(assets, maxRawKilobytes) {
   const maxRawBytes = maxRawKilobytes * 1000;
 
   return assets.filter((asset) => asset.rawBytes > maxRawBytes);
@@ -55,7 +55,7 @@ export function assetsOverRawLimit(assets, maxRawKilobytes) {
  * @param {{ brotliBytes: number, gzipBytes: number }} totals
  * @param {{ maxTotalBrotliKilobytes?: number | null, maxTotalGzipKilobytes?: number | null }} limits
  */
-export function totalSizeLimitErrors(totals, { maxTotalBrotliKilobytes = null, maxTotalGzipKilobytes = null }) {
+function totalSizeLimitErrors(totals, { maxTotalBrotliKilobytes = null, maxTotalGzipKilobytes = null }) {
   const errors = [];
   if (maxTotalGzipKilobytes !== null && totals.gzipBytes > maxTotalGzipKilobytes * 1000) {
     errors.push(`total gzip size exceeds ${maxTotalGzipKilobytes} kB`);

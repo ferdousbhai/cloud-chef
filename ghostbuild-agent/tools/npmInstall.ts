@@ -5,15 +5,6 @@ import {
   packageNameFromInstallSpec,
 } from '../utils/stackPolicy.js';
 
-const packagesDescription = `
-Space separated list of packages to install. This will be passed directly to \`pnpm add\`.
-
-Examples:
-- 'date-fns'
-- 'chart.js react-chartjs-2'
-- 'motion'
-`;
-
 export function splitPackageSpecs(packages: string) {
   return packages.trim().split(/\s+/).filter(Boolean);
 }
@@ -31,7 +22,7 @@ function findInvalidNpmInstallSpecs(packages: string) {
 export const npmInstallToolParameters = z
   .object({
     mode: z.enum(['add', 'sync-lockfile']).optional(),
-    packages: z.string().trim().max(2_000).optional().describe(packagesDescription),
+    packages: z.string().trim().max(2_000).optional(),
   })
   .superRefine((input, ctx) => {
     const mode = input.mode ?? 'add';

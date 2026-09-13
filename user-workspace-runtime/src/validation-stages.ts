@@ -1,14 +1,10 @@
 /**
  * Run independent validation stages concurrently inside one container command.
  *
- * Validation used to walk its checks in series: typecheck, stack verification, lint, the preview
- * database migration, then the preview build. Only the first of those actually feeds the others —
- * `pnpm run typecheck` runs `tsr generate` and `wrangler types`, so the route tree and binding
- * types it writes are inputs to lint and to the build. Everything after it was serialized for no
- * reason, on a container that now has four cores to spend.
- *
- * The migration is safe to overlap with the build for the same reason it was safe to run before
- * it: its consumer is the preview *server*, which does not start until every stage has finished.
+ * Validation runs typecheck first, then stack verification and lint in parallel. Only typecheck
+ * actually feeds the others — `pnpm run typecheck` runs `tsr generate` and `wrangler types`, so
+ * the route tree and binding types it writes are inputs to lint. Everything after it was
+ * serialized for no reason, on a container that now has four cores to spend.
  *
  * This has to be one command rather than concurrent `runTransientCommand` calls, because that
  * helper tracks a single transient process role and terminates the previous occupant — two

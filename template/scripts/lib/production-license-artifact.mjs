@@ -258,7 +258,6 @@ export function createLicenseArtifact(
       author: metadataValue(entry.author),
       repository: metadataValue(entry.repository),
       homepage: metadataValue(entry.homepage),
-      hasPackageLicenseEvidence: entry.hasPackageLicenseEvidence,
       files,
     };
   });

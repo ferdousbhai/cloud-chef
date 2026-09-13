@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-export const LINE_EDIT_BASE_TAG_HEX_LENGTH = 24;
-export const LINE_EDIT_MAX_OPERATIONS = 100;
+const LINE_EDIT_BASE_TAG_HEX_LENGTH = 24;
+const LINE_EDIT_MAX_OPERATIONS = 100;
 
 const replacementSchema = z
   .object({
@@ -26,7 +26,7 @@ const insertionSchema = z
   })
   .strict();
 
-export const lineEditOperationSchema = z.union([replacementSchema, insertionSchema]);
+const lineEditOperationSchema = z.union([replacementSchema, insertionSchema]);
 export type LineEditOperation = z.infer<typeof lineEditOperationSchema>;
 
 export const lineEditToolParameters = z.object({
@@ -54,7 +54,7 @@ type LineAnchoredReadOptions = {
   maxBytes: number;
 };
 
-export type LineAnchoredReadResult = {
+type LineAnchoredReadResult = {
   path: string;
   base: string;
   content: string;
@@ -65,7 +65,7 @@ export type LineAnchoredReadResult = {
   nextOffset?: number;
 };
 
-export type AppliedLineEdits = {
+type AppliedLineEdits = {
   content: string;
   editsApplied: number;
   firstChangedLine: number;

@@ -1,8 +1,6 @@
 import { isAlias, isMap, isScalar, isSeq, parseDocument, visit } from "yaml";
 import generatedProjectDependencyPolicy from "./generated-project-dependency-policy.json" with { type: "json" };
 
-export const GENERATED_PROJECT_DEPENDENCY_POLICY =
-  generatedProjectDependencyPolicy;
 export const APPROVED_BUILD_DEPENDENCIES =
   generatedProjectDependencyPolicy.approvedBuildDependencies;
 

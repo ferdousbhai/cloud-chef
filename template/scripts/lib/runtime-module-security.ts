@@ -471,12 +471,12 @@ export function findRuntimeModuleSecurityViolations(
         add(node.expression, "shared-intrinsic-mutation");
       }
       if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-        if (!isStaticDynamicImport(node)) {
+        if (!isStaticModuleSpecifierCall(node)) {
           add(node.expression, "dynamic-import");
         }
       } else {
         const called = dangerousCallee(node.expression);
-        if (called && !(called === "require-call" && isStaticRequire(node))) {
+        if (called && !(called === "require-call" && isStaticModuleSpecifierCall(node))) {
           add(node.expression, called);
         }
       }
@@ -676,17 +676,7 @@ function unwrapExpression(expression: ts.Expression): ts.Expression {
   return value;
 }
 
-function isStaticRequire(node: ts.CallExpression): boolean {
-  if (
-    node.arguments.length !== 1 ||
-    !ts.isStringLiteralLike(node.arguments[0])
-  ) {
-    return false;
-  }
-  return node.arguments[0].text !== AMBIENT_WORKERS_MODULE;
-}
-
-function isStaticDynamicImport(node: ts.CallExpression): boolean {
+function isStaticModuleSpecifierCall(node: ts.CallExpression): boolean {
   return (
     node.arguments.length === 1 &&
     ts.isStringLiteralLike(node.arguments[0]) &&
@@ -730,10 +720,7 @@ function staticString(node: ts.Expression | undefined): string | null {
   if (!node) {
     return null;
   }
-  if (
-    ts.isStringLiteralLike(node) ||
-    ts.isNoSubstitutionTemplateLiteral(node)
-  ) {
+  if (ts.isStringLiteralLike(node)) {
     return node.text;
   }
   if (ts.isParenthesizedExpression(node)) {
