@@ -1,7 +1,6 @@
 type Debounced<Args extends unknown[]> = ((...args: Args) => void) & {
   cancel: () => void;
   flush: () => void;
-  pending: () => boolean;
 };
 
 export function debounce<Args extends unknown[]>(func: (...args: Args) => void, wait: number): Debounced<Args> {
@@ -40,8 +39,6 @@ export function debounce<Args extends unknown[]>(func: (...args: Args) => void, 
     clearTimeout(timeout);
     invoke();
   };
-
-  debounced.pending = () => timeout !== undefined;
 
   return debounced;
 }

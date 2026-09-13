@@ -4,29 +4,25 @@ import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
 import { genericMemo } from '~/utils/react';
 
-interface SliderOption<T> {
+export interface SliderOption<T> {
   value: T;
   text: ReactNode;
 }
 
-export interface SliderOptions<T> {
-  options: SliderOption<T>[];
-}
-
 interface SliderProps<T> {
   selected: T;
-  options: SliderOptions<T>;
-  setSelected?: (selected: T) => void;
+  options: SliderOption<T>[];
+  setSelected: (selected: T) => void;
 }
 
 export const Slider = genericMemo(function Slider<T>({ selected, options, setSelected }: SliderProps<T>) {
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-1 overflow-hidden rounded bg-bolt-elements-background-depth-1 p-1">
-      {options.options.map((option) => (
+      {options.map((option) => (
         <SliderButton
           key={String(option.value)}
           selected={selected === option.value}
-          setSelected={() => setSelected?.(option.value)}
+          setSelected={() => setSelected(option.value)}
         >
           {option.text}
         </SliderButton>

@@ -2,7 +2,7 @@ import { useStore } from '@nanostores/react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
-import type { TranscriptCheckpoint, TranscriptIdentity } from 'ghostbuild-agent/transcript';
+import type { TranscriptIdentity } from 'ghostbuild-agent/transcript';
 import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
 import {
   useCachedChatTranscript,
@@ -28,7 +28,6 @@ interface InitialMessages {
   deserialized: GhostbuildMessage[];
   loadedSubchatIndex: number;
   transcript: TranscriptIdentity;
-  checkpoint: TranscriptCheckpoint | null;
 }
 
 type TranscriptSelection = {
@@ -118,7 +117,6 @@ export function useInitialMessagesState(chatId: string | undefined): InitialMess
       deserialized,
       loadedSubchatIndex: transcript.loadedSubchatIndex,
       transcript: transcript.transcript,
-      checkpoint: transcript.checkpoint,
     };
   }, [activeSelection, cached.isLoading, cached.transcript, chatId, userId]);
 

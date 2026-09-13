@@ -107,12 +107,10 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
 const ChatActionButton = ({
   toolTipContent,
   icon,
-  className,
   onClick,
 }: {
   toolTipContent: string;
   icon: React.ReactNode;
-  className?: string;
   onClick: () => void;
 }) => {
   return (
@@ -123,7 +121,6 @@ const ChatActionButton = ({
       size="xs"
       tip={toolTipContent}
       aria-label={toolTipContent}
-      className={className}
       onClick={onClick}
     />
   );

@@ -17,6 +17,5 @@ export function createEditorChangeBuffer(wait: number) {
     queue: (pending: PendingEditorUpdate) => deliver(pending),
     flush: deliver.flush,
     cancel: deliver.cancel,
-    pending: deliver.pending,
   };
 }

@@ -31,7 +31,7 @@ function createClientComponent<TProps extends object>(
   };
 }
 
-const LazyHeader = lazy(() => import('~/components/header/Header.client').then((mod) => ({ default: mod.Header })));
+const LazyHeader = lazy(() => import('~/components/header/Header').then((mod) => ({ default: mod.Header })));
 const LazyHomepage = lazy(() => import('~/components/Homepage.client').then((mod) => ({ default: mod.Homepage })));
 const LazyExistingChat = lazy(() =>
   import('~/components/ExistingChat.client').then((mod) => ({ default: mod.ExistingChat })),

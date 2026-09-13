@@ -15,12 +15,6 @@ const accountDeletionPayloadSchema = z.looseObject({
   cloudflareAuthorizationRevoked: z.boolean().optional().catch(undefined),
 });
 
-type AccountExportPayload = {
-  code?: string;
-  error?: string;
-  unavailableSections?: string[];
-};
-
 type DeletionPhase = 'idle' | 'confirming' | 'deleting' | 'reauthenticate' | 'deleted';
 type ExportPhase = 'idle' | 'downloading' | 'reauthenticate' | 'downloaded';
 
@@ -301,7 +295,7 @@ const accountExportPayloadSchema = z.looseObject({
   unavailableSections: z.array(z.string()).optional().catch(undefined),
 });
 
-function parseExportPayload(exportDocument: string): AccountExportPayload | null {
+function parseExportPayload(exportDocument: string) {
   try {
     return accountExportPayloadSchema.safeParse(JSON.parse(exportDocument)).data ?? null;
   } catch {

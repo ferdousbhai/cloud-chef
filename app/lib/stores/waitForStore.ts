@@ -7,14 +7,6 @@ interface WaitForStoreOptions {
   signal?: AbortSignal;
 }
 
-export async function waitForStoreCondition<T>(
-  store: ReadableStore<T>,
-  condition: (value: T) => boolean,
-  options: WaitForStoreOptions = {},
-): Promise<void> {
-  await waitForStoreValue(store, (value) => (condition(value) ? true : null), options);
-}
-
 export async function waitForStoreValue<T, TResult>(
   store: ReadableStore<T>,
   selectValue: (value: T) => TResult | null | undefined,

@@ -75,9 +75,6 @@ export const DEFAULT_WORKERS_AI_MODEL: WorkersAiModel = {
   vision: true,
 };
 
-/** Safe startup fallback while the connected account's live Workers AI catalog is loading. */
-export const WORKERS_AI_MODELS: readonly WorkersAiModel[] = [DEFAULT_WORKERS_AI_MODEL];
-
 export const workersAiModelIdSchema: z.ZodType<WorkersAiModelId> = z
   .templateLiteral(['@cf/', z.string(), '/', z.string()])
   .refine((modelId) => WORKERS_AI_MODEL_ID_PATTERN.test(modelId));
@@ -118,9 +115,6 @@ export function validateWorkersAiModelCatalogPayload(
   return { defaultModelId, models };
 }
 
-export function getWorkersAiModel(
-  modelId: WorkersAiModelId,
-  models: readonly WorkersAiModel[] = WORKERS_AI_MODELS,
-): WorkersAiModel {
+export function getWorkersAiModel(modelId: WorkersAiModelId, models: readonly WorkersAiModel[]): WorkersAiModel {
   return models.find(({ id }) => id === modelId) ?? DEFAULT_WORKERS_AI_MODEL;
 }

@@ -24,11 +24,7 @@ export function HeaderActionButtons() {
         <Button
           disabled={!canHideChat}
           tip={!canHideChat ? 'Cannot hide chat while code is closed' : showChat ? 'Hide chat' : 'Show chat'}
-          onClick={() => {
-            if (canHideChat) {
-              chatStore.setKey('showChat', !showChat);
-            }
-          }}
+          onClick={() => chatStore.setKey('showChat', !showChat)}
           variant="neutral"
           className="!size-11 !min-h-11 rounded-r-none border-r-0 !px-0 sm:!size-auto sm:!min-h-9 sm:!px-3"
           icon={<ChatBubbleIcon className="my-px" />}

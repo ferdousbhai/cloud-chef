@@ -3,7 +3,6 @@ import { classNames } from '~/utils/classNames';
 
 interface PanelHeaderButtonProps {
   className?: string;
-  disabledClassName?: string;
   disabled?: boolean;
   /** Hover and assistive-technology explanation for a button whose label alone is ambiguous. */
   title?: string;
@@ -13,7 +12,6 @@ interface PanelHeaderButtonProps {
 
 export const PanelHeaderButton = memo(function PanelHeaderButton({
   className,
-  disabledClassName,
   disabled = false,
   title,
   children,
@@ -25,7 +23,7 @@ export const PanelHeaderButton = memo(function PanelHeaderButton({
       className={classNames(
         'gb-icon-button flex items-center shrink-0 gap-1.5 px-1.5 rounded-md py-0.5 text-content-secondary bg-transparent enabled:hover:text-bolt-elements-item-contentActive enabled:hover:bg-bolt-elements-item-backgroundActive disabled:cursor-not-allowed',
         {
-          [classNames('opacity-30', disabledClassName)]: disabled,
+          'opacity-30': disabled,
         },
         className,
       )}

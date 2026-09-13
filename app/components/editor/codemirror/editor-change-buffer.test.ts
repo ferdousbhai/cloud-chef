@@ -25,23 +25,20 @@ describe('editor change buffer', () => {
     ]);
   });
 
-  it.each(['document switch', 'project switch', 'manual save', 'component teardown'])(
-    'flushes the original edit once at the %s boundary',
-    async () => {
-      vi.useFakeTimers();
-      const callback = vi.fn();
-      const buffer = createEditorChangeBuffer(150);
-      const original = update('original-project', '/original.ts', 'latest visible content');
+  it('flushes the original edit exactly once at a flush boundary', async () => {
+    vi.useFakeTimers();
+    const callback = vi.fn();
+    const buffer = createEditorChangeBuffer(150);
+    const original = update('original-project', '/original.ts', 'latest visible content');
 
-      buffer.queue({ callback, update: original });
-      buffer.flush();
-      buffer.flush();
-      await vi.advanceTimersByTimeAsync(150);
+    buffer.queue({ callback, update: original });
+    buffer.flush();
+    buffer.flush();
+    await vi.advanceTimersByTimeAsync(150);
 
-      expect(callback).toHaveBeenCalledOnce();
-      expect(callback).toHaveBeenCalledWith(original);
-    },
-  );
+    expect(callback).toHaveBeenCalledOnce();
+    expect(callback).toHaveBeenCalledWith(original);
+  });
 
   it('can discard an invalid pending transition without a stale write', async () => {
     vi.useFakeTimers();

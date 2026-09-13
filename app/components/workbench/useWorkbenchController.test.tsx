@@ -49,7 +49,6 @@ vi.mock('~/lib/stores/workbench.client', async () => {
       setDocuments: vi.fn(),
       setDocumentContent: vi.fn(),
       setCurrentDocumentScrollPosition: vi.fn(),
-      stopFollowingStreamedCode: vi.fn(),
       setSelectedFile: vi.fn(),
       resetCurrentDocument: vi.fn(),
     },

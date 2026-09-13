@@ -8,7 +8,6 @@ import {
   isWorkersAiModelId,
   MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS,
   validateWorkersAiModelCatalogPayload,
-  WORKERS_AI_MODELS,
   workersAiModelCatalogPayloadSchema,
   type WorkersAiModel,
 } from './workers-ai-model';
@@ -25,11 +24,10 @@ const alternativeModel: WorkersAiModel = {
 describe('Workers AI model catalog', () => {
   it('pins the owner-selected GLM 5.3 Flash as the safe startup default', () => {
     expect(CLOUDFLARE_WORKERS_AI_MODEL).toBe('@cf/zai-org/glm-5.3-flash');
-    expect(WORKERS_AI_MODELS).toEqual([DEFAULT_WORKERS_AI_MODEL]);
     expect(DEFAULT_WORKERS_AI_MODEL.contextTokens).toBeGreaterThanOrEqual(MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS);
     expect(DEFAULT_WORKERS_AI_MODEL.contextTokens).toBe(1_048_576);
     expect(DEFAULT_WORKERS_AI_MODEL).toMatchObject({ label: 'GLM 5.3 Flash', reasoning: true, vision: true });
-    expect(getWorkersAiModel(CLOUDFLARE_WORKERS_AI_MODEL)).toBe(DEFAULT_WORKERS_AI_MODEL);
+    expect(getWorkersAiModel(CLOUDFLARE_WORKERS_AI_MODEL, [DEFAULT_WORKERS_AI_MODEL])).toBe(DEFAULT_WORKERS_AI_MODEL);
   });
 
   it('accepts a catalog entry with or without the publication date', () => {

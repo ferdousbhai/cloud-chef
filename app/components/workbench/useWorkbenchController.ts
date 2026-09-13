@@ -92,7 +92,7 @@ export function useWorkbenchController(isStreaming?: boolean) {
     (position) => workbenchStore.setCurrentDocumentScrollPosition(position),
     [],
   );
-  const onEditorWheel = useCallback<OnEditorWheel>(() => workbenchStore.stopFollowingStreamedCode(), []);
+  const onEditorWheel = useCallback<OnEditorWheel>(() => workbenchStore.followingStreamedCode.set(false), []);
   const onFileSelect = useCallback((filePath: string | undefined) => {
     workbenchStore.flushPendingEditorChange();
     workbenchStore.followingStreamedCode.set(false);

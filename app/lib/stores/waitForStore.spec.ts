@@ -1,6 +1,6 @@
 import { atom } from 'nanostores';
 import { describe, expect, it, vi } from 'vitest';
-import { waitForStoreCondition, waitForStoreValue } from './waitForStore';
+import { waitForStoreValue } from './waitForStore';
 
 describe('waitForStore', () => {
   it('waits for a selected value', async () => {
@@ -17,7 +17,9 @@ describe('waitForStore', () => {
     const listen = vi.fn(() => unlisten);
     const store = { get: () => 'waiting', listen };
     const controller = new AbortController();
-    const promise = waitForStoreCondition(store, (value) => value === 'ready', { signal: controller.signal });
+    const promise = waitForStoreValue(store, (value) => (value === 'ready' ? value : null), {
+      signal: controller.signal,
+    });
 
     controller.abort();
 

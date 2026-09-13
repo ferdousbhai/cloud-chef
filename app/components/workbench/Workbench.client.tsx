@@ -11,7 +11,7 @@ import {
 } from 'react';
 import { IconButton } from '~/components/ui/IconButton';
 import { PanelHeaderButton } from '~/components/ui/PanelHeaderButton';
-import { Slider, type SliderOptions } from '~/components/ui/Slider';
+import { Slider, type SliderOption } from '~/components/ui/Slider';
 import type { WorkbenchViewType } from '~/lib/stores/workbench.client';
 import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
@@ -36,18 +36,16 @@ interface WorkbenchProps {
 
 const viewTransition = { duration: 0.3, ease: cubicEasingFn };
 const Preview = lazy(() => import('./Preview').then((module) => ({ default: module.Preview })));
-const sliderOptions: SliderOptions<WorkbenchViewType> = {
-  options: [
-    {
-      value: 'code',
-      text: 'Code',
-    },
-    {
-      value: 'preview',
-      text: 'Preview',
-    },
-  ],
-};
+const sliderOptions: SliderOption<WorkbenchViewType>[] = [
+  {
+    value: 'code',
+    text: 'Code',
+  },
+  {
+    value: 'preview',
+    text: 'Preview',
+  },
+];
 
 const workbenchVariants = {
   closed: {

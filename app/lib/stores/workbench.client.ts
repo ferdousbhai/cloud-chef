@@ -48,10 +48,6 @@ export class WorkbenchStore {
     return this.#editorStore.followingStreamedCode;
   }
 
-  stopFollowingStreamedCode(): void {
-    this.#editorStore.followingStreamedCode.set(false);
-  }
-
   get previewState() {
     return this.#previewsStore.state;
   }
