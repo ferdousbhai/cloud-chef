@@ -68,9 +68,7 @@ export default {
         },
         util: {
           accent: 'rgb(122 162 247 / <alpha-value>)',
-          info: 'rgb(125 207 255 / <alpha-value>)',
           success: 'rgb(158 206 106 / <alpha-value>)',
-          danger: 'rgb(247 118 142 / <alpha-value>)',
           warning: 'rgb(224 175 104 / <alpha-value>)',
         },
         bolt: {
@@ -185,19 +183,6 @@ export default {
           900: '#171717',
           950: '#0A0A0A',
         },
-        green: {
-          50: '#F0FDF4',
-          100: '#DCFCE7',
-          200: '#BBF7D0',
-          300: '#86EFAC',
-          400: '#4ADE80',
-          500: '#22C55E',
-          600: '#16A34A',
-          700: '#15803D',
-          800: '#166534',
-          900: '#14532D',
-          950: '#052E16',
-        },
         orange: {
           50: '#FFFAEB',
           100: '#FEEFC7',
@@ -226,9 +211,6 @@ export default {
         macosScrollbar: {
           thumb: 'rgba(155, 155, 155, 0.5)',
         },
-      },
-      transitionTimingFunction: {
-        'bolt-cubic-bezier': 'cubic-bezier(0.4,0,0.2,1)',
       },
       maxWidth: {
         chat: 'var(--chat-max-width)',

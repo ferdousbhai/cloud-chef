@@ -67,7 +67,10 @@ export const MessageInput = memo(function MessageInput({
       )}
       <Button
         disabled={
-          (!isStreaming && input.length === 0) || authState.kind === 'loading' || sendMessageInProgress || disabled
+          (!isStreaming && input.trim().length === 0) ||
+          authState.kind === 'loading' ||
+          sendMessageInProgress ||
+          disabled
         }
         tip={authState.kind === 'unauthenticated' ? 'Connect Cloudflare to continue' : undefined}
         onClick={controller.handleButtonClick}

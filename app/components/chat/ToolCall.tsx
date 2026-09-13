@@ -52,7 +52,6 @@ export const ToolCall = memo(function ToolCall({
         </div>
       }
       onToggle={toggleAction}
-      toggleDisabled={false}
       body={
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
           <div className="space-y-2.5">

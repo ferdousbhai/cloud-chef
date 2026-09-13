@@ -332,7 +332,7 @@ overrides:
   it('keeps GitHub deployment Actions disabled', () => {
     // The browser gate is the only release check GitHub Actions owns; the
     // Workers Builds image cannot install Chromium.
-    expect(readdirSync('.github/workflows')).toEqual(['browser-gate.yml', 'runtime-artifacts.yml']);
+    expect(readdirSync('.github/workflows').sort()).toEqual(['browser-gate.yml', 'runtime-artifacts.yml']);
     expect(existsSync('.github/actions/setup-and-build/action.yaml')).toBe(false);
   });
 

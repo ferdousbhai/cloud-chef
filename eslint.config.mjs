@@ -41,7 +41,6 @@ export default [
       '**/.history',
       'scripts/fixtures/**',
       'template/**',
-      '**/*.bundled.*',
       'app/generated/**',
     ],
   },
@@ -133,7 +132,6 @@ export default [
   },
   {
     files: ['app/**/*.{js,jsx,ts,tsx}'],
-    ignores: ['functions/*'],
     rules: {
       'no-restricted-imports': [
         'error',

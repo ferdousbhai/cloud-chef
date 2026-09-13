@@ -11,7 +11,7 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 const fromRoot = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 const CLIENT_ASSETS_IGNORE_PATH = fromRoot('./dist/client/.assetsignore');
 
-export function withPrivateClientSourceMaps(content: string): string {
+function withPrivateClientSourceMaps(content: string): string {
   const lines = content.split(/\r?\n/).filter(Boolean);
   if (!lines.includes('*.map')) {
     lines.push('*.map');

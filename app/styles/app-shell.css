@@ -1,4 +1,5 @@
 :root {
+  line-height: 1.55;
   font-family: var(--gb-font-mono);
   font-synthesis: none;
   /* Deliberate for a coding face: no `!=`/`=>` ligatures anywhere. */
@@ -14,7 +15,6 @@ body {
   background: var(--gb-background-primary);
   color: var(--gb-content-primary);
   font-family: inherit;
-  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

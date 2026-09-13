@@ -34,7 +34,6 @@ export function getSubchatNavigation(subchatCount: number, currentSubchatIndex: 
     canNavigateNext: hasMultipleSubchats && currentSubchatIndex < latestSubchatIndex,
     canNavigatePrev: hasMultipleSubchats && currentSubchatIndex > 0,
     hasMultipleSubchats,
-    latestSubchatIndex,
   };
 }
 

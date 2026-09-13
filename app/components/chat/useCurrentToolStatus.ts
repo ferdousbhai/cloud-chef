@@ -17,12 +17,12 @@ export function useCurrentToolStatus(messages: GhostbuildMessage[]): {
   const activityRevision = useStore(toolActivityStore.revision);
   const progressRevision = useStore(toolProgressStore.revision);
   return useMemo(
-    () => ({ ...currentToolStatus(messages, activities, activityRevision), progressRevision }),
+    () => ({ activeToolNames: currentToolStatus(messages, activities), activityRevision, progressRevision }),
     [activities, activityRevision, messages, progressRevision],
   );
 }
 
-export function currentToolStatus(messages: GhostbuildMessage[], activities: ToolActivities, activityRevision = 0) {
+export function currentToolStatus(messages: GhostbuildMessage[], activities: ToolActivities) {
   const currentPartIds = new Set<string>();
   for (const message of messages) {
     message.parts?.forEach((_part, index) => currentPartIds.add(makePartId(message.id, index)));
@@ -36,5 +36,5 @@ export function currentToolStatus(messages: GhostbuildMessage[], activities: Too
       activeToolNames.add(activity.invocation.toolName);
     }
   }
-  return { activeToolNames: [...activeToolNames], activityRevision };
+  return [...activeToolNames];
 }

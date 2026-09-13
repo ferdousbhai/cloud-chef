@@ -168,7 +168,7 @@ export function useBuilderAgentChat(args: {
     },
   });
   const workspaceControllerRef = useRef<BuilderWorkspaceSyncController | null>(null);
-  const workspaceGateRef = useMemo(() => ({ current: createAsyncGate(args.presentationId) }), [args.presentationId]);
+  const workspaceGateRef = useMemo(() => ({ current: createAsyncGate() }), [args.presentationId]);
   const chat = useAgentChat<BuilderAgentState, UIMessage>({
     agent: builderAgent,
     getInitialMessages: null,
@@ -289,11 +289,11 @@ export function useBuilderAgentChat(args: {
 
   useEffect(() => {
     const previousGate = workspaceGateRef.current;
-    const gate = previousGate.started ? createAsyncGate(args.presentationId) : previousGate;
+    const gate = previousGate.started ? createAsyncGate() : previousGate;
     workspaceGateRef.current = gate;
     setWorkspacePresentation((presentation) => (presentation?.gate === gate ? presentation : null));
     const settleSupersededGate = () => {
-      gate.error ??= new Error('The durable workspace initialization was superseded.');
+      gate.error ??= new Error(WORKSPACE_SUPERSEDED_MESSAGE);
       gate.resolve();
     };
     gate.started = true;
@@ -392,6 +392,15 @@ export function useBuilderAgentChat(args: {
   const workspacePresentationState: WorkspacePresentationState =
     workspacePresentation?.gate === workspaceGateRef.current ? workspacePresentation.state : 'connecting';
 
+  const assertCurrentPresentation = useCallback(
+    (gate: AsyncGate) => {
+      if (activePresentationRef.current !== args.presentationId || workspaceGateRef.current !== gate || gate.error) {
+        throw gate.error ?? new Error(WORKSPACE_SUPERSEDED_MESSAGE);
+      }
+    },
+    [args.presentationId, workspaceGateRef],
+  );
+
   const sendMessage = useCallback(
     async (
       message: Parameters<typeof chat.sendMessage>[0],
@@ -399,17 +408,8 @@ export function useBuilderAgentChat(args: {
       onRequestStart?: () => void,
     ) => {
       const workspaceGate = workspaceGateRef.current;
-      const assertCurrentPresentation = () => {
-        if (
-          activePresentationRef.current !== args.presentationId ||
-          workspaceGateRef.current !== workspaceGate ||
-          workspaceGate.error
-        ) {
-          throw workspaceGate.error ?? new Error('The durable workspace initialization was superseded.');
-        }
-      };
       await Promise.all([workspaceGate.promise, stopBarrierRef.current]);
-      assertCurrentPresentation();
+      assertCurrentPresentation(workspaceGate);
       try {
         await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
       } catch (error) {
@@ -419,16 +419,16 @@ export function useBuilderAgentChat(args: {
         });
         throw error;
       }
-      assertCurrentPresentation();
+      assertCurrentPresentation(workspaceGate);
       if (message !== undefined) {
         const snapshot = await readAuthoritativeTranscript();
-        assertCurrentPresentation();
+        assertCurrentPresentation(workspaceGate);
         const localMessages = messagesRef.current;
         const reconciledMessages = await reconcileMessagesForSend({
           snapshot,
           localMessages,
         });
-        assertCurrentPresentation();
+        assertCurrentPresentation(workspaceGate);
         if (reconciledMessages !== localMessages) {
           setMessagesRef.current(asUiMessages(reconciledMessages));
         }
@@ -451,7 +451,7 @@ export function useBuilderAgentChat(args: {
       onRequestStart?.();
       return request;
     },
-    [args.presentationId, builderAgent, chat, readAuthoritativeTranscript, workspaceGateRef],
+    [assertCurrentPresentation, builderAgent, chat, readAuthoritativeTranscript, workspaceGateRef],
   );
 
   const deployValidatedRevision = useCallback(
@@ -487,22 +487,13 @@ export function useBuilderAgentChat(args: {
   const steerMessage = useCallback(
     async (input: BuilderSteeringInput) => {
       const workspaceGate = workspaceGateRef.current;
-      const assertCurrentPresentation = () => {
-        if (
-          activePresentationRef.current !== args.presentationId ||
-          workspaceGateRef.current !== workspaceGate ||
-          workspaceGate.error
-        ) {
-          throw workspaceGate.error ?? new Error('The durable workspace initialization was superseded.');
-        }
-      };
       await workspaceGate.promise;
-      assertCurrentPresentation();
+      assertCurrentPresentation(workspaceGate);
       await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
-      assertCurrentPresentation();
+      assertCurrentPresentation(workspaceGate);
       await builderAgent.call('steerActiveTurn', [input]);
     },
-    [args.presentationId, builderAgent, workspaceGateRef],
+    [assertCurrentPresentation, builderAgent, workspaceGateRef],
   );
 
   const stop = useCallback(() => {
@@ -592,29 +583,21 @@ function delay(durationMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, durationMs));
 }
 
+const WORKSPACE_SUPERSEDED_MESSAGE = 'The durable workspace initialization was superseded.';
+
 type AsyncGate = {
-  key: string | null;
   promise: Promise<void>;
   resolve: () => void;
   error: unknown;
   started: boolean;
 };
 
-function createAsyncGate(key: string | null): AsyncGate {
-  if (key === null) {
-    return {
-      key,
-      promise: Promise.resolve(),
-      resolve: () => undefined,
-      error: null,
-      started: false,
-    };
-  }
+function createAsyncGate(): AsyncGate {
   let resolve: () => void = () => undefined;
   const promise = new Promise<void>((complete) => {
     resolve = complete;
   });
-  return { key, promise, resolve, error: null, started: false };
+  return { promise, resolve, error: null, started: false };
 }
 
 function asUiMessages(messages: GhostbuildMessage[]): UIMessage[] {
