@@ -1,5 +1,5 @@
 {
-  "total": 1282,
+  "total": 1278,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -109,7 +109,7 @@
     },
     "app/lib/.server/chat.test.ts": {
       "anti-slop/no-module-mocking": 2,
-      "anti-slop/require-safety-comment-for-type-assertion": 6
+      "anti-slop/require-safety-comment-for-type-assertion": 2
     },
     "app/lib/.server/cloudflare/account-deletion.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,

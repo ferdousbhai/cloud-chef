@@ -25,24 +25,7 @@ describe('chat provider error boundary', () => {
       }),
     );
 
-    await expect(
-      createChatResponseFromBody({
-        body: { messages: [], modelId: DEFAULT_WORKERS_AI_MODEL.id },
-        model: DEFAULT_WORKERS_AI_MODEL,
-        compaction: {
-          current: null,
-          pending: false,
-          summarize: vi.fn(),
-          save: vi.fn(),
-        },
-        firstUserMessage: true,
-        accountCredentials: { binding: {} as Ai },
-        sessionAffinity: 'session',
-        workspace: {} as never,
-        runWithKeepAlive: (operation) => operation(),
-        ...steering(),
-      }),
-    ).rejects.toMatchObject({ status: 500 });
+    await expect(createResponse()).rejects.toMatchObject({ status: 500 });
 
     expect(logger.error).toHaveBeenCalledWith('Workers AI chat request failed', { kind: 'Error' });
     expect(JSON.stringify(logger.error.mock.calls)).not.toContain('SECRET_PROVIDER_PROMPT');
@@ -62,31 +45,16 @@ describe('chat provider error boundary', () => {
     piAgentRunner.mockResolvedValueOnce(new ReadableStream());
     const model = testModel('@cf/openai/gpt-oss-120b');
 
-    await createChatResponseFromBody({
-      body: { messages: [], modelId: model.id },
-      model,
-      compaction: {
-        current: null,
-        pending: false,
-        summarize: vi.fn(),
-        save: vi.fn(),
-      },
-      firstUserMessage: true,
-      accountCredentials: { binding: {} as Ai },
-      sessionAffinity: 'session',
-      workspace: {} as never,
-      runWithKeepAlive: (operation) => operation(),
-      ...steering(),
-    });
+    await createResponse(model);
 
     expect(piAgentRunner).toHaveBeenCalledWith(expect.objectContaining({ model }));
   });
 });
 
-function createResponse() {
+function createResponse(model: WorkersAiModel = DEFAULT_WORKERS_AI_MODEL) {
   return createChatResponseFromBody({
-    body: { messages: [], modelId: DEFAULT_WORKERS_AI_MODEL.id },
-    model: DEFAULT_WORKERS_AI_MODEL,
+    body: { messages: [], modelId: model.id },
+    model,
     compaction: { current: null, pending: false, summarize: vi.fn(), save: vi.fn() },
     firstUserMessage: true,
     accountCredentials: { binding: {} as Ai },

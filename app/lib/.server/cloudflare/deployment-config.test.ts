@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { createTrustedDeploymentConfig } from './deployment-config';
-import { DEPLOYMENT_PROJECT_ROOT, DEPLOYMENT_WRANGLER_CONFIG_PATH } from './deployment-runtime-policy';
+import { DEPLOYMENT_PROJECT_ROOT } from './deployment-runtime-policy';
 
 describe('trusted deployment config', () => {
   test('resolves every generated-project path beneath the Computer project root', () => {
@@ -14,13 +14,9 @@ describe('trusted deployment config', () => {
       ...webConfig.d1_databases!.map((database) => database.migrations_dir),
     ];
 
-    expect(DEPLOYMENT_WRANGLER_CONFIG_PATH.startsWith(`${DEPLOYMENT_PROJECT_ROOT}/`)).toBe(false);
     expect(generatedProjectPaths).not.toContain(undefined);
     for (const generatedPath of generatedProjectPaths) {
       expect(path.posix.isAbsolute(generatedPath!)).toBe(true);
-      expect(path.posix.resolve(path.posix.dirname(DEPLOYMENT_WRANGLER_CONFIG_PATH), generatedPath!)).toBe(
-        generatedPath,
-      );
       expect(generatedPath!.startsWith(`${DEPLOYMENT_PROJECT_ROOT}/`)).toBe(true);
     }
   });

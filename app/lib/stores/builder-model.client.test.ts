@@ -13,7 +13,6 @@ import {
   builderModelsStore,
   builderModelStore,
   builderNewModelsStore,
-  initializeBuilderModelPreference,
   installBuilderModelCatalog,
   loadBuilderModelCatalog,
   loadBuilderModelPreference,
@@ -56,7 +55,7 @@ describe('builder model preference', () => {
   });
 
   it('uses the pinned GLM 5.3 Flash default before discovery', () => {
-    initializeBuilderModelPreference({ getItem: () => null });
+    loadBuilderModelPreference({ getItem: () => null });
 
     expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
     expect(builderDefaultModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);

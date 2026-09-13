@@ -13,8 +13,8 @@ import {
 import {
   builderModelStore,
   builderNewModelsStore,
-  initializeBuilderModelPreference,
   installBuilderModelCatalog,
+  loadBuilderModelPreference,
 } from '~/lib/stores/builder-model.client';
 import { BuilderModelSelector } from './BuilderModelSelector.client';
 
@@ -43,7 +43,7 @@ beforeEach(() => {
     { defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] },
     { getItem: () => null },
   );
-  initializeBuilderModelPreference({ getItem: () => null });
+  loadBuilderModelPreference({ getItem: () => null });
 });
 
 afterEach(async () => {

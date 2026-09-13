@@ -1,6 +1,6 @@
 import { blake3 } from '@noble/hashes/blake3.js';
 import { extname } from 'node:path';
-import { bytesToBase64, bytesToHex } from '~/lib/hex-digest';
+import { bytesToBase64, bytesToHex, sha256Hex } from '~/lib/hex-digest';
 
 export const MAX_DEPLOYMENT_ARTIFACT_FILES = 20_000;
 // Stay below Cloudflare's 25 MiB per-asset product limit so multipart overhead
@@ -173,9 +173,7 @@ function isSafeRelativePath(value: string): boolean {
 }
 
 async function sha256Bytes(value: Uint8Array): Promise<string> {
-  const input = new Uint8Array(value).buffer;
-  const digest = await crypto.subtle.digest('SHA-256', input);
-  return bytesToHex(new Uint8Array(digest));
+  return sha256Hex(new Uint8Array(value));
 }
 
 async function migrationInventory(

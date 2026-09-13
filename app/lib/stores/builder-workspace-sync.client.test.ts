@@ -197,10 +197,13 @@ describe('BuilderWorkspaceSyncController', () => {
     await controller.push([localChange]);
 
     expect(applyRequests).toEqual([{ baseRevision: 1, changes: [localChange] }]);
-    expect(workbench.replaceWorkspaceSnapshot).toHaveBeenLastCalledWith([
-      expect.objectContaining({ path: '/home/project/src/local.ts', content: 'server-version' }),
-      expect.objectContaining({ path: '/home/project/src/remote.ts', content: 'remote-change' }),
-    ]);
+    expect(workbench.replaceWorkspaceSnapshot).toHaveBeenLastCalledWith(
+      [
+        expect.objectContaining({ path: '/home/project/src/local.ts', content: 'server-version' }),
+        expect.objectContaining({ path: '/home/project/src/remote.ts', content: 'remote-change' }),
+      ],
+      undefined,
+    );
     expect(controller.revision).toBe(2);
   });
 
@@ -427,10 +430,13 @@ describe('BuilderWorkspaceSyncController', () => {
 
     await controller.pull();
 
-    expect(workbench.replaceWorkspaceSnapshot).toHaveBeenLastCalledWith([
-      expect.objectContaining({ path: '/home/project/src/one.ts', content: 'one' }),
-      expect.objectContaining({ path: '/home/project/src/two.ts', content: 'two' }),
-    ]);
+    expect(workbench.replaceWorkspaceSnapshot).toHaveBeenLastCalledWith(
+      [
+        expect.objectContaining({ path: '/home/project/src/one.ts', content: 'one' }),
+        expect.objectContaining({ path: '/home/project/src/two.ts', content: 'two' }),
+      ],
+      undefined,
+    );
     expect(workbench.replaceWorkspaceSnapshot).not.toHaveBeenLastCalledWith([
       expect.objectContaining({ path: '/home/project/src/stale.ts' }),
     ]);

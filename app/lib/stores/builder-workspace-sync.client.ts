@@ -105,7 +105,7 @@ export class BuilderWorkspaceSyncController {
       throw new Error('The durable workspace connection was closed.');
     }
     if (changes.length === 0) {
-      return { ok: true, state: await this.#call('getWorkspaceState', []), changedPaths: [] };
+      return { ok: true, state: await callAgent(this.agent, 'getWorkspaceState', []), changedPaths: [] };
     }
     let resolveResult: (result: BuilderWorkspaceApplyResult) => void = () => undefined;
     let rejectResult: (error: unknown) => void = () => undefined;
@@ -115,7 +115,7 @@ export class BuilderWorkspaceSyncController {
     });
     this.#enqueue(async () => {
       try {
-        const applied = await this.#call<BuilderWorkspaceApplyResult>('applyWorkspaceClientChanges', [
+        const applied = await callAgent<BuilderWorkspaceApplyResult>(this.agent, 'applyWorkspaceClientChanges', [
           { baseRevision: this.#revision, changes },
         ]);
         if (applied.ok) {
@@ -174,15 +174,7 @@ export class BuilderWorkspaceSyncController {
       return;
     }
     const snapshot = workspaceCollectionSnapshot(this.collection);
-    if (preservedPaths) {
-      workbenchStore.replaceWorkspaceSnapshot(snapshot, preservedPaths);
-    } else {
-      workbenchStore.replaceWorkspaceSnapshot(snapshot);
-    }
-  }
-
-  async #call<T>(method: string, args: unknown[]): Promise<T> {
-    return callAgent<T>(this.agent, method, args);
+    workbenchStore.replaceWorkspaceSnapshot(snapshot, preservedPaths);
   }
 
   #enqueue(operation: () => Promise<void>): Promise<void> {

@@ -107,6 +107,15 @@ export async function activateCloudflareConnection(args: {
   const capabilitiesJson = JSON.stringify(args.grantedCapabilities);
   const requestedScopesJson = JSON.stringify(args.requestedOAuthScopes);
   const grantedScopesJson = JSON.stringify(args.grantedOAuthScopes);
+  const verifyCommitted = () =>
+    isExactActivatedCloudflareConnection({
+      ...args,
+      connectionId,
+      capabilitiesJson,
+      requestedScopesJson,
+      grantedScopesJson,
+      now,
+    }).catch(() => false);
   let row: CloudflareConnectionRow | null;
   try {
     row =
@@ -169,29 +178,13 @@ export async function activateCloudflareConnection(args: {
             )
             .first<CloudflareConnectionRow>();
   } catch (error) {
-    const committed = await isExactActivatedCloudflareConnection({
-      ...args,
-      connectionId,
-      capabilitiesJson,
-      requestedScopesJson,
-      grantedScopesJson,
-      now,
-    }).catch(() => false);
-    if (committed) {
+    if (await verifyCommitted()) {
       return;
     }
     throw error;
   }
   if (!row) {
-    const committed = await isExactActivatedCloudflareConnection({
-      ...args,
-      connectionId,
-      capabilitiesJson,
-      requestedScopesJson,
-      grantedScopesJson,
-      now,
-    }).catch(() => false);
-    if (committed) {
+    if (await verifyCommitted()) {
       return;
     }
     throw new CloudflareConnectionChangedError();

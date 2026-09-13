@@ -18,7 +18,6 @@ export const CLOUDFLARE_MCP_EXPECTED_TOOL_CONTRACT = [
   { name: 'execute', requiredInputProperties: ['code'], optionalInputProperties: ['account_id'] },
 ] as const;
 
-type CloudflareMcpToolName = (typeof CLOUDFLARE_MCP_EXPECTED_TOOL_CONTRACT)[number]['name'];
 export type CloudflareMcpFailureCode =
   | 'aborted'
   | 'authentication_failed'
@@ -199,7 +198,6 @@ const timeoutErrorSchema = z.looseObject({ name: z.literal('TimeoutError') });
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder('utf-8', { fatal: true });
 const bearerTokenPattern = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/giu;
-const expectedToolNames: readonly CloudflareMcpToolName[] = ['docs', 'search', 'execute'];
 
 type RequestStage = 'connect' | 'list' | 'call';
 type RequestFailureReason =
@@ -599,12 +597,12 @@ function validateToolCatalog(result: z.infer<typeof jsonRpcEnvelopeSchema>['resu
   if (
     !parsed.success ||
     parsed.data.nextCursor !== undefined ||
-    parsed.data.tools.length !== expectedToolNames.length
+    parsed.data.tools.length !== CLOUDFLARE_MCP_EXPECTED_TOOL_CONTRACT.length
   ) {
     throw new CloudflareMcpCompatibilityError();
   }
   const toolsByName = new Map(parsed.data.tools.map((tool) => [tool.name, tool]));
-  if (toolsByName.size !== expectedToolNames.length) {
+  if (toolsByName.size !== CLOUDFLARE_MCP_EXPECTED_TOOL_CONTRACT.length) {
     throw new CloudflareMcpCompatibilityError();
   }
   for (const contract of CLOUDFLARE_MCP_EXPECTED_TOOL_CONTRACT) {

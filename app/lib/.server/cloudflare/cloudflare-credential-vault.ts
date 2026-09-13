@@ -184,6 +184,12 @@ export class D1CloudflareCredentialVault {
     };
     const encrypted = await this.encrypt(JSON.stringify(refreshed));
     const rotatedAt = Date.now();
+    const expectedRotation = {
+      handle: credentialHandle,
+      ...encrypted,
+      createdAt: stored.created_at,
+      rotatedAt,
+    };
     try {
       const result = await this.db
         .prepare(
@@ -204,12 +210,7 @@ export class D1CloudflareCredentialVault {
         return refreshed.accessToken;
       }
     } catch (error) {
-      const committed = await this.isExactCredentialStored({
-        handle: credentialHandle,
-        ...encrypted,
-        createdAt: stored.created_at,
-        rotatedAt,
-      }).catch((readError) => {
+      const committed = await this.isExactCredentialStored(expectedRotation).catch((readError) => {
         console.warn('Unable to verify credential rotation commit', readError);
         return false;
       });
@@ -222,14 +223,7 @@ export class D1CloudflareCredentialVault {
       }
       throw error;
     }
-    if (
-      await this.isExactCredentialStored({
-        handle: credentialHandle,
-        ...encrypted,
-        createdAt: stored.created_at,
-        rotatedAt,
-      })
-    ) {
+    if (await this.isExactCredentialStored(expectedRotation)) {
       return refreshed.accessToken;
     }
     const concurrent = await this.readConcurrentRefreshSafely(credentialHandle, stored, encrypted);

@@ -230,12 +230,7 @@ export async function claimApprovedDeployment(args: {
       .run();
   } catch (error) {
     const committed = await requireDeploymentForUser(args.db, expected.id, expected.userId).catch(() => null);
-    if (
-      committed?.status === 'provisioning' &&
-      committed.updatedAt === now &&
-      committed.executionGeneration === expected.executionGeneration &&
-      sameDeploymentIdentity(committed, expected)
-    ) {
+    if (committed && isExactDeploymentClaim(committed, expected, now)) {
       return committed;
     }
     throw error;
@@ -252,12 +247,7 @@ export async function claimApprovedDeployment(args: {
       throw new DeploymentConcurrencyLimitError();
     }
     const committed = await requireDeploymentForUser(args.db, expected.id, expected.userId);
-    if (
-      committed.status === 'provisioning' &&
-      committed.updatedAt === now &&
-      committed.executionGeneration === expected.executionGeneration &&
-      sameDeploymentIdentity(committed, expected)
-    ) {
+    if (isExactDeploymentClaim(committed, expected, now)) {
       return committed;
     }
     throw new DeploymentStateConflictError(committed.status);
@@ -442,6 +432,15 @@ function isExactDeploymentTransition(
     deployment.errorCode === (args.errorCode ?? null) &&
     deployment.errorMessage === (args.errorMessage ?? null) &&
     deployment.updatedAt === now
+  );
+}
+
+function isExactDeploymentClaim(deployment: Deployment, expected: Deployment, now: number): boolean {
+  return (
+    deployment.status === 'provisioning' &&
+    deployment.updatedAt === now &&
+    deployment.executionGeneration === expected.executionGeneration &&
+    sameDeploymentIdentity(deployment, expected)
   );
 }
 

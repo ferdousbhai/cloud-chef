@@ -30,7 +30,7 @@ export async function resolveUserWorkspaceCloudflareAccessToken(
     redirect: 'manual',
     signal: AbortSignal.timeout(RUNTIME_CREDENTIAL_TIMEOUT_MS),
   });
-  if (!response.ok || response.status < 200 || response.status >= 300) {
+  if (!response.ok) {
     await response.body?.cancel().catch(() => undefined);
     throw new Error('The Cloudflare credential broker rejected this runtime.');
   }

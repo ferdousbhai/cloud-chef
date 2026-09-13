@@ -46,10 +46,6 @@ export const builderModelCatalogStatusStore = atom<'idle' | 'loading' | 'ready' 
  */
 export const builderNewModelsStore = atom<readonly WorkersAiModel[]>([]);
 
-export function initializeBuilderModelPreference(storage?: BuilderModelStorage): void {
-  applyStoredModelPreference(storage);
-}
-
 export function loadBuilderModelPreference(storage?: BuilderModelStorage): void {
   applyStoredModelPreference(storage);
 }

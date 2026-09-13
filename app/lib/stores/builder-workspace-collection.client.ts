@@ -151,10 +151,6 @@ class BuilderWorkspaceCollectionSource {
     },
   };
 
-  get revision(): number {
-    return this.#revision;
-  }
-
   get initialPull(): Promise<BuilderWorkspacePullResult> {
     return this.#initialPull.promise;
   }

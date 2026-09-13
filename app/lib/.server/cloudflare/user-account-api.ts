@@ -1032,7 +1032,7 @@ export class UserCloudflareAccountApi {
     ) {
       throw new CloudflareAccountApiError('Cloudflare did not read back the deployed Worker.');
     }
-    const { fullyRoutedVersions } = newestWorkerDeployment(
+    const fullyRoutedVersions = fullyRoutedWorkerVersions(
       requireWorkerDeployments(
         await this.call<unknown>(`/workers/scripts/${encodeURIComponent(workerName)}/deployments`, { method: 'GET' }),
       ),
@@ -1697,13 +1697,10 @@ function existingD1DatabaseId(value: unknown, resourceName: string): string | nu
   return existing.uuid;
 }
 
-/** The newest deployment Cloudflare lists, and the versions it routes all production traffic to. */
-function newestWorkerDeployment(deployments: WorkerDeploymentRow[]) {
+/** The versions of the newest deployment Cloudflare lists that route all production traffic. */
+function fullyRoutedWorkerVersions(deployments: WorkerDeploymentRow[]) {
   const deployment = deployments.sort((left, right) => right.created_on.localeCompare(left.created_on))[0];
-  return {
-    deployment,
-    fullyRoutedVersions: deployment?.versions.filter((version) => version.percentage === 100) ?? [],
-  };
+  return deployment?.versions.filter((version) => version.percentage === 100) ?? [];
 }
 
 type WorkerDeploymentRow = {
@@ -1885,5 +1882,3 @@ function requireProviderResourceId(value: string): void {
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
   return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
 }
-
-/** Parse a Cloudflare ISO-8601 timestamp into epoch millis, or null when it is absent or invalid. */
