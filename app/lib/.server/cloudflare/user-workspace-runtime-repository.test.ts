@@ -58,9 +58,6 @@ function runtimeDatabase(): D1Database {
       last_error TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      provisioning_attempt_id TEXT,
-      provisioning_lease_expires_at INTEGER,
-      upgrade_deferred_since INTEGER,
       image_digest TEXT
     );
   `);

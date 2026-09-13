@@ -1,3 +1,5 @@
+import { shellQuote } from './shell-quote';
+
 export const ISOLATED_PROJECT_ROOT = '/tmp/ghostbuild-projects';
 
 type DeploymentConfigPaths = {
@@ -6,12 +8,8 @@ type DeploymentConfigPaths = {
   d1_databases?: Array<{ migrations_dir: string }>;
 };
 
-export function createContainerDirectoryCommand(args: {
-  directory: string;
-  command: string;
-  quote: (value: string) => string;
-}): string {
-  return `cd ${args.quote(args.directory)} &&\n${args.command}`;
+export function createContainerDirectoryCommand(args: { directory: string; command: string }): string {
+  return `cd ${shellQuote(args.directory)} &&\n${args.command}`;
 }
 
 export function rebaseDeploymentConfigPaths<T extends DeploymentConfigPaths>(

@@ -1,5 +1,6 @@
 import { GENERATED_PROJECT_PNPM_VERSION } from '../../ghostbuild-agent/cloudflare-computer';
 import { CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS } from './operation-lease-policy';
+import { shellQuote } from './shell-quote';
 
 /**
  * Where the bootstrap installs computerd on the stock Sandbox image. `/opt` rather than `/tmp` so
@@ -179,8 +180,4 @@ export function computerdBootstrapCommand(): string {
 
 export function strictSubshellCommand(lines: readonly string[]): string {
   return ['(', 'set -eu', ...lines, ')'].join('\n');
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
 }

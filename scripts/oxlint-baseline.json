@@ -1,5 +1,5 @@
 {
-  "total": 1290,
+  "total": 1282,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -494,7 +494,7 @@
     "ghostbuild-agent/ai-compat.ts": {
       "anti-slop/no-runtime-typeof": 10,
       "anti-slop/no-unknown-parameters": 2,
-      "anti-slop/no-unsafe-dictionary-type": 3
+      "anti-slop/no-unsafe-dictionary-type": 2
     },
     "ghostbuild-agent/cloudflare-computer.test.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 1
@@ -709,11 +709,6 @@
     },
     "user-workspace-runtime/src/readiness-route.test.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 3
-    },
-    "user-workspace-runtime/src/schedule-once-dedupe.test.ts": {
-      "anti-slop/no-chained-type-assertions": 1,
-      "anti-slop/no-unknown-parameters": 4,
-      "anti-slop/require-safety-comment-for-type-assertion": 2
     },
     "user-workspace-runtime/src/scheduled-maintenance.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,

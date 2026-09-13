@@ -1,4 +1,5 @@
 import { sha256Hex } from '../../app/lib/hex-digest';
+import { shellQuote } from './shell-quote';
 
 /**
  * Prove that an isolated build root actually contains the revision it claims to.
@@ -49,18 +50,14 @@ export function projectContentDigestInput(
  * canonical newline text only after the rewrite keeps both sides byte-identical. Emits only the
  * digest, so the check costs one line of exec output regardless of project size.
  */
-export function isolatedContentDigestCommand(args: {
-  root: string;
-  excludedRoots: ReadonlySet<string>;
-  quote: (value: string) => string;
-}): string {
+export function isolatedContentDigestCommand(args: { root: string; excludedRoots: ReadonlySet<string> }): string {
   const prunes = [...args.excludedRoots]
     .sort()
-    .map((root) => `-path ${args.quote(`./${root}`)} -prune -o`)
+    .map((root) => `-path ${shellQuote(`./${root}`)} -prune -o`)
     .join(' ');
   return [
     'set -eu',
-    `cd ${args.quote(args.root)}`,
+    `cd ${shellQuote(args.root)}`,
     `find . ${prunes} -type f -print0 \\`,
     '  | LC_ALL=C sort -z \\',
     '  | xargs -0 -r sha256sum --zero \\',

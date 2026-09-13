@@ -4,14 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
+import { shellQuote } from './shell-quote';
 import { STAGE_LOG_TAIL_BYTES, parallelValidationStagesCommand } from './validation-stages';
 
-const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 const scratch = mkdtempSync(join(tmpdir(), 'ghostbuild-stages-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
 function run(stages: { name: string; command: string }[]) {
-  const command = parallelValidationStagesCommand(stages, { logRoot: join(scratch, 'logs'), quote: shellQuote });
+  const command = parallelValidationStagesCommand(stages, { logRoot: join(scratch, 'logs') });
   return spawnSync('/bin/sh', ['-c', command], { encoding: 'utf8' });
 }
 
@@ -63,12 +63,7 @@ describe('parallel validation stages', () => {
 
   it('refuses a stage name that would not be a safe log file or shell word', () => {
     for (const name of ['../escape', 'has space', 'Upper', '']) {
-      expect(() =>
-        parallelValidationStagesCommand([{ name, command: 'true' }], {
-          logRoot: '/tmp/x',
-          quote: shellQuote,
-        }),
-      ).toThrow();
+      expect(() => parallelValidationStagesCommand([{ name, command: 'true' }], { logRoot: '/tmp/x' })).toThrow();
     }
   });
 
@@ -79,7 +74,7 @@ describe('parallel validation stages', () => {
           { name: 'lint', command: 'true' },
           { name: 'lint', command: 'false' },
         ],
-        { logRoot: '/tmp/x', quote: shellQuote },
+        { logRoot: '/tmp/x' },
       ),
     ).toThrow(/Duplicate/);
   });

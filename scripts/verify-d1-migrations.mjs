@@ -33,6 +33,7 @@ const migrationPolicies = [
       '0017_drop_granted_scopes_json.sql': 'afd3fdd37bc396fea58da077118a9da38d99aaab764994910ab1141829f2501f',
       '0018_remove_user_workspace_runtime_resources.sql':
         'd7f9e902632e82e7750e6bfd4cd986d981a14b4199188f1bdc00f17e79664918',
+      '0019_remove_dead_control_plane_schema.sql': 'cf136090e98b908ec89166f224a7416381d4d67feffe8f12058f041c3d35073a',
     },
     contractAllowlist: {
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -51,6 +52,10 @@ const migrationPolicies = [
       // kept is recomputable and its writer and reclamation path are gone.
       '0018_remove_user_workspace_runtime_resources.sql':
         'd7f9e902632e82e7750e6bfd4cd986d981a14b4199188f1bdc00f17e79664918',
+      // The daily-maintenance receipts, the reconcile-sweep receipts and the provisioning-lease and
+      // upgrade-deferral columns all lost their last reader and writer with the workspace-lifecycle
+      // simplification.
+      '0019_remove_dead_control_plane_schema.sql': 'cf136090e98b908ec89166f224a7416381d4d67feffe8f12058f041c3d35073a',
     },
   },
   {

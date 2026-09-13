@@ -15,6 +15,8 @@
  * parallel callers would kill each other.
  */
 
+import { shellQuote } from './shell-quote';
+
 type ValidationStage = {
   /** Shell-safe identifier used for this stage's log file and failure heading. */
   readonly name: string;
@@ -39,7 +41,7 @@ const STAGE_NAME = /^[a-z][a-z0-9_]*$/;
 
 export function parallelValidationStagesCommand(
   stages: readonly ValidationStage[],
-  options: { logRoot: string; quote: (value: string) => string },
+  options: { logRoot: string },
 ): string {
   if (stages.length === 0) {
     throw new Error('A parallel validation group needs at least one stage.');
@@ -55,7 +57,7 @@ export function parallelValidationStagesCommand(
     names.add(stage.name);
   }
 
-  const logs = options.quote(options.logRoot);
+  const logs = shellQuote(options.logRoot);
   const lines = [
     'set -u',
     `LOGS=${logs}`,
@@ -66,7 +68,7 @@ export function parallelValidationStagesCommand(
     "trap 'kill 0' TERM INT",
   ];
   for (const [index, stage] of stages.entries()) {
-    lines.push(`sh -c ${options.quote(stage.command)} >"$LOGS/${stage.name}.log" 2>&1 &`, `stage_pid_${index}=$!`);
+    lines.push(`sh -c ${shellQuote(stage.command)} >"$LOGS/${stage.name}.log" 2>&1 &`, `stage_pid_${index}=$!`);
   }
   lines.push('failed=');
   for (const [index, stage] of stages.entries()) {

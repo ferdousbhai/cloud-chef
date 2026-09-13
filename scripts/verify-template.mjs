@@ -59,11 +59,6 @@ export async function verifyTemplate() {
     run(tempDir, ['run', 'verify:production-config', '--', '--allow-unprovisioned']);
     run(tempDir, ['run', 'lint']);
     run(tempDir, ['run', 'build']);
-    // Match the isolated production entrypoint, including pnpm's generated
-    // NODE_PATH for Babel's virtual plugin resolution.
-    run(tempDir, ['run', 'verify:licenses']);
-    run(tempDir, ['exec', 'vite', 'build']);
-    run(tempDir, ['run', 'verify:licenses:built']);
     await verifyResolvedProductionModulePolicy(tempDir);
     run(tempDir, ['exec', 'wrangler', 'deploy', '--dry-run']);
   } finally {

@@ -34,7 +34,6 @@ describe('isolated project command', () => {
       createContainerDirectoryCommand({
         directory: '/tmp/ghostbuild projects/validation-id',
         command: 'pnpm run build',
-        quote: (value) => `'${value}'`,
       }),
     ).toBe("cd '/tmp/ghostbuild projects/validation-id' &&\npnpm run build");
   });
@@ -162,6 +161,21 @@ describe('isolated project command', () => {
     expect(applyChanges).toContain('assertMutationAllowed');
     expect(applyChanges).not.toContain('workspace.fs.rm');
     expect(applyChanges).not.toContain('writeWorkspaceFile(workspace');
+  });
+
+  it('collapses repeated container schedules onto one pending row per callback', () => {
+    // Container.schedule mints a fresh row id per call, so without the delete the retry sweeps
+    // stack alarm rows instead of replacing the pending one.
+    const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
+    const scheduleOnce = source.slice(
+      source.indexOf('private async scheduleOnce('),
+      source.indexOf('private async cleanupReadinessRoot('),
+    );
+
+    expect(scheduleOnce).toContain('this.deleteSchedules(callback)');
+    expect(scheduleOnce.indexOf('this.deleteSchedules(callback)')).toBeLessThan(
+      scheduleOnce.indexOf('await this.schedule('),
+    );
   });
 
   it('stages dependency updates away from the live project before atomic publication', () => {

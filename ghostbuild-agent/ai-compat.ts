@@ -1,75 +1,19 @@
 // Pi-native ghost message — kept structurally compatible with UIMessage parts shapes used by chat UI.
-export type GhostbuildPart =
-  | { type: 'text'; text: string }
-  | {
-      type: 'tool-read';
-      toolCallId: string;
-      toolName: string;
-      state: string;
-      input?: unknown;
-      output?: unknown;
-      errorText?: string;
-    }
-  | {
-      type: 'tool-write';
-      toolCallId: string;
-      toolName: string;
-      state: string;
-      input?: unknown;
-      output?: unknown;
-      errorText?: string;
-    }
-  | {
-      type: 'tool-edit';
-      toolCallId: string;
-      toolName: string;
-      state: string;
-      input?: unknown;
-      output?: unknown;
-      errorText?: string;
-    }
-  | {
-      type: 'tool-exec';
-      toolCallId: string;
-      toolName: string;
-      state: string;
-      input?: unknown;
-      output?: unknown;
-      errorText?: string;
-    }
-  | {
-      type: 'tool-cloudflare_docs' | 'tool-cloudflare_search' | 'tool-cloudflare_execute';
-      toolCallId: string;
-      toolName: 'cloudflare_docs' | 'cloudflare_search' | 'cloudflare_execute';
-      state: string;
-      input?: unknown;
-      output?: unknown;
-      errorText?: string;
-    }
-  | ({
-      type: 'dynamic-tool';
-      toolName: string;
-      toolCallId: string;
-      state: string;
-      input?: unknown;
-      output?: unknown;
-      errorText?: string;
-    } & Record<string, unknown>)
-  | ({
-      type: string;
-      text?: string;
-      toolName?: string;
-      toolCallId?: string;
-      state?: string;
-      input?: unknown;
-      output?: unknown;
-      errorText?: string;
-      approval?: unknown;
-      data?: unknown;
-      url?: unknown;
-      mediaType?: unknown;
-      title?: unknown;
-    } & Record<string, unknown>);
+export type GhostbuildPart = {
+  type: string;
+  text?: string;
+  toolName?: string;
+  toolCallId?: string;
+  state?: string;
+  input?: unknown;
+  output?: unknown;
+  errorText?: string;
+  approval?: unknown;
+  data?: unknown;
+  url?: unknown;
+  mediaType?: unknown;
+  title?: unknown;
+} & Record<string, unknown>;
 
 export type GhostbuildToolInvocation = {
   type: 'dynamic-tool';

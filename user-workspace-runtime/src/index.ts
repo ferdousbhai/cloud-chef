@@ -18,6 +18,7 @@ import {
 import { BuilderAgent } from '../../app/agents/builder-agent';
 import { COMPUTER_TOOL_LIMITS } from '../../ghostbuild-agent/cloudflare-computer';
 import {
+  type BuilderWorkspaceState as WorkspaceState,
   BUILDER_WORKSPACE_MAX_FILE_BYTES,
   BUILDER_WORKSPACE_MAX_FILES,
   BUILDER_WORKSPACE_MAX_TOTAL_BYTES,
@@ -97,6 +98,7 @@ import {
   isolatedTargetPath,
   requiredDirectories,
 } from './isolated-materialization';
+import { shellQuote } from './shell-quote';
 import { stableWorkspaceRead } from './stable-workspace-read';
 import {
   isolatedContentDigestCommand,
@@ -258,15 +260,6 @@ type WorkspaceFile = {
   size: number;
   mode: number;
   sha256: string;
-};
-
-type WorkspaceState = {
-  initialized: boolean;
-  revision: number;
-  resetRevision: number;
-  fileCount: number;
-  totalBytes: number;
-  seeding: boolean;
 };
 
 type PreparedValidationRow = {
@@ -1555,7 +1548,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
             isolatedRoot,
             parallelValidationStagesCommand(PARALLEL_VALIDATION_STAGES, {
               logRoot: VALIDATION_STAGE_LOG_ROOT,
-              quote: shellQuote,
             }),
             parallelStagesTimeoutMs(PARALLEL_VALIDATION_STAGES),
             cancellation,
@@ -2237,7 +2229,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         isolatedContentDigestCommand({
           root: isolatedRoot,
           excludedRoots: CHECKPOINT_EXCLUDED_ROOTS,
-          quote: shellQuote,
         }),
       ),
       timeout: 2 * 60_000,
@@ -2261,7 +2252,9 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     // The container-side filesystem is in memory. After a container lifecycle transition, a stale Computer
     // connection can retain its sync watermark even though the native Sandbox no longer sees the FUSE mount.
     // Reconnect through a fresh computerd generation so Computer performs a full durable-to-container sync.
-    console.warn('ProjectWorkspace container project is missing after Computer sync; rematerializing it');
+    // `forced` distinguishes the two reasons this runs: an absent mount, or one observed serving
+    // stale bytes. Only the first is a missing project.
+    console.warn('ProjectWorkspace is rematerializing the container project', { forced: force });
     await this.#workspace.close();
     await this.restartComputerd(COMPUTERD_ENV);
     await this.#workspace.push('container-shell');
@@ -2281,7 +2274,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     let process: TrackedSandboxProcess | undefined;
     try {
       await runTrackedSandboxCommand({
-        command: sandboxShellCommand(createContainerDirectoryCommand({ directory, command, quote: shellQuote })),
+        command: sandboxShellCommand(createContainerDirectoryCommand({ directory, command })),
         timeout,
         // Validation has no TTY. Every pnpm invocation, including the dependency-status preflight
         // that `pnpm run` performs before a script, must inherit CI mode so an incompatible modules
@@ -2818,8 +2811,8 @@ async function handleUserRequest(
   return withCors(response, capability.origin);
 }
 
-/** Paths only. The copy reads one file at a time, so it must not pull every byte up front. */
-async function readProjectFilePaths(workspace: WorkspaceClient): Promise<string[]> {
+/** The one enumeration policy - which roots are excluded and how many files may be enumerated. */
+async function projectFileEntries(workspace: WorkspaceClient) {
   try {
     await workspace.fs.stat(PROJECT_ROOT);
   } catch (error) {
@@ -2835,25 +2828,16 @@ async function readProjectFilePaths(workspace: WorkspaceClient): Promise<string[
   if (entries.length > MAX_FILES) {
     throw new Error('The project workspace has too many files.');
   }
-  return entries.map((entry) => entry.path);
+  return entries;
+}
+
+/** Paths only. The copy reads one file at a time, so it must not pull every byte up front. */
+async function readProjectFilePaths(workspace: WorkspaceClient): Promise<string[]> {
+  return (await projectFileEntries(workspace)).map((entry) => entry.path);
 }
 
 async function readProjectFiles(workspace: WorkspaceClient): Promise<WorkspaceFile[]> {
-  try {
-    await workspace.fs.stat(PROJECT_ROOT);
-  } catch (error) {
-    if (isMissingPath(error)) {
-      return [];
-    }
-    throw error;
-  }
-  const entries = (await workspace.fs.find(PROJECT_ROOT)).filter(
-    (entry) =>
-      entry.type === 'file' && !CHECKPOINT_EXCLUDED_ROOTS.has(relativeProjectPath(entry.path).split('/')[0] ?? ''),
-  );
-  if (entries.length > MAX_FILES) {
-    throw new Error('The project workspace has too many files.');
-  }
+  const entries = await projectFileEntries(workspace);
   const files: WorkspaceFile[] = [];
   let totalBytes = 0;
   for (const entry of entries) {
@@ -2945,18 +2929,14 @@ async function writeWorkspaceFile(
   pathValue: unknown,
   bytes: Uint8Array,
   projectOnly = true,
-  mode?: number,
-  beforeMutation?: () => void,
 ): Promise<void> {
   const path = projectOnly ? requireProjectPath(pathValue) : requireAbsolutePath(pathValue);
   if (bytes.byteLength > MAX_FILE_BYTES) {
     throw new Error(`Workspace file exceeds ${MAX_FILE_BYTES} bytes.`);
   }
   const slash = path.lastIndexOf('/');
-  beforeMutation?.();
   await workspace.fs.mkdir(path.slice(0, slash) || '/', { recursive: true });
-  beforeMutation?.();
-  await workspace.fs.writeFile(path, bytes, mode === undefined ? undefined : { mode });
+  await workspace.fs.writeFile(path, bytes);
 }
 
 const EXEC_STREAM_MAX_LIVE_BYTES = 1024 * 1024;
@@ -3640,10 +3620,6 @@ function assertDeploymentSessionIdentity(
 
 function sandboxShellCommand(command: string): SandboxCommand {
   return ['/bin/bash', '-lc', command];
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 async function sha256Bytes(value: Uint8Array): Promise<string> {

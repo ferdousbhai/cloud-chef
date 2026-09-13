@@ -67,7 +67,11 @@ export function findWorkersBuildsConfigErrors({
     for (const [name, value] of Object.entries(EXPECTED_BUILD_VARIABLES)) {
       requireEqual(errors, `workers-builds.production.json buildVariables.${name}`, config.buildVariables[name], value);
     }
-    const unexpected = Object.keys(config.buildVariables).filter((name) => !(name in EXPECTED_BUILD_VARIABLES));
+    // `hasOwn`, not `in`: `in` walks Object.prototype, so a build variable literally named
+    // `constructor` or `toString` would be treated as reviewed and never reported.
+    const unexpected = Object.keys(config.buildVariables).filter(
+      (name) => !Object.hasOwn(EXPECTED_BUILD_VARIABLES, name),
+    );
     if (unexpected.length > 0) {
       errors.push(
         `workers-builds.production.json buildVariables must not contain unreviewed variables: ${unexpected.join(', ')}.`,

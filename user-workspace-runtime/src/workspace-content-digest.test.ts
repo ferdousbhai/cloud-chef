@@ -12,7 +12,6 @@ import {
 } from './workspace-content-digest';
 
 const EXCLUDED = new Set(['node_modules', 'dist', '.output', '.tanstack', '.wrangler']);
-const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 const scratch = mkdtempSync(join(tmpdir(), 'ghostbuild-digest-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
@@ -44,11 +43,9 @@ function vfsDigest(vfs: readonly VfsFile[]) {
 
 /** The container side: run the shell pipeline over a real tree, exactly as the workspace does. */
 function containerDigest(root: string) {
-  const result = spawnSync(
-    '/bin/sh',
-    ['-c', isolatedContentDigestCommand({ root, excludedRoots: EXCLUDED, quote: shellQuote })],
-    { encoding: 'utf8' },
-  );
+  const result = spawnSync('/bin/sh', ['-c', isolatedContentDigestCommand({ root, excludedRoots: EXCLUDED })], {
+    encoding: 'utf8',
+  });
   expect(result.status, result.stderr).toBe(0);
   return result.stdout.trim();
 }

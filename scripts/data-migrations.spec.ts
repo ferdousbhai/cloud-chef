@@ -3,12 +3,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, test } from 'vitest';
 
 const controlPlaneTables = [
-  'app_resource_reconcile_runs',
   'cloudflare_auth_sessions',
   'cloudflare_connections',
   'cloudflare_credentials',
   'cloudflare_oauth_states',
-  'daily_maintenance_jobs',
   'user',
   'user_computer_runtimes',
 ];
