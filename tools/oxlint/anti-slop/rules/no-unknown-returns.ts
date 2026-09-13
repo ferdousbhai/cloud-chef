@@ -2,7 +2,8 @@ import { defineRule } from "@oxlint/plugins";
 
 import type { ESTree } from "@oxlint/plugins";
 
-import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
+import { shadowedTypeNames } from "../shared/shadowed-type-names.ts";
+import { referencedAliasName } from "../shared/type-nodes.ts";
 
 type FunctionWithReturnType =
   | ESTree.ArrowFunctionExpression
@@ -13,17 +14,6 @@ type FunctionWithReturnType =
   | ESTree.TSFunctionType
   | ESTree.TSMethodSignature;
 
-function referencedAliasName(type: ESTree.TSType): string | null {
-  if (type.type === "TSParenthesizedType") return referencedAliasName(type.typeAnnotation);
-  if (type.type !== "TSTypeReference" || type.typeName.type !== "Identifier") return null;
-  return type.typeArguments === null ||
-    type.typeArguments === undefined ||
-    type.typeArguments.params.length === 0
-    ? type.typeName.name
-    : null;
-}
-
-/** Ban function contracts that return unknown instead of a parsed domain type. */
 export const noUnknownReturnsRule = defineRule({
   meta: {
     type: "problem",
@@ -81,7 +71,7 @@ export const noUnknownReturnsRule = defineRule({
       if (
         !resolvesToUnknown(
           annotation.typeAnnotation,
-          lexicalTypeParameterNames(node, context.sourceCode.visitorKeys),
+          shadowedTypeNames(node, context.sourceCode.visitorKeys),
         )
       ) {
         return;

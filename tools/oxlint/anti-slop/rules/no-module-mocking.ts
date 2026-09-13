@@ -1,21 +1,10 @@
 import { defineRule } from "@oxlint/plugins";
 
-import type { ESTree, Scope, SourceCode, Variable } from "@oxlint/plugins";
+import { resolveVariable } from "../shared/scope.ts";
+
+import type { ESTree, SourceCode } from "@oxlint/plugins";
 
 const moduleMockMethods = new Set(["doMock", "mock", "unstable_mockModule"]);
-
-function resolveVariable(
-  sourceCode: SourceCode,
-  identifier: ESTree.IdentifierReference,
-): Variable | null {
-  let scope: Scope | null = sourceCode.getScope(identifier);
-  while (scope !== null) {
-    const variable = scope.set.get(identifier.name);
-    if (variable !== undefined) return variable;
-    scope = scope.upper;
-  }
-  return null;
-}
 
 function importedName(node: ESTree.Node): string | null {
   if (node.type !== "ImportSpecifier") return null;
@@ -53,10 +42,7 @@ function moduleMockCall(sourceCode: SourceCode, callee: ESTree.Expression): bool
   if (!isTestFrameworkObject(sourceCode, callee.object)) return false;
   const property = callee.property;
   const method = callee.computed
-    ? property.type === "Literal" &&
-      (property.value === "doMock" ||
-        property.value === "mock" ||
-        property.value === "unstable_mockModule")
+    ? property.type === "Literal" && typeof property.value === "string"
       ? property.value
       : null
     : property.type === "Identifier"
@@ -65,7 +51,6 @@ function moduleMockCall(sourceCode: SourceCode, callee: ESTree.Expression): bool
   return method !== null && moduleMockMethods.has(method);
 }
 
-/** Ban test framework module mocking in favor of real dependency seams. */
 export const noModuleMockingRule = defineRule({
   meta: {
     type: "problem",

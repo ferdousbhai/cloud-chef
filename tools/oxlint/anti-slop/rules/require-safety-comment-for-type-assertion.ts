@@ -1,50 +1,38 @@
 import { defineRule } from "@oxlint/plugins";
 
+import { isConstAssertion, type TypeAssertion } from "../shared/type-nodes.ts";
+
 import type { ESTree, SourceCode } from "@oxlint/plugins";
 
-type TypeAssertion = ESTree.TSAsExpression | ESTree.TSTypeAssertion;
+const SAFETY_COMMENT = /\bSAFETY\s*:/u;
 
-const commentOwnerKinds = new Set([
-  "ExpressionStatement",
-  "PropertyDefinition",
-  "ReturnStatement",
-  "ThrowStatement",
-  "VariableDeclaration",
+// The walk must stop at the statement list holding the assertion's own statement:
+// climbing further would let one comment above a function justify every assertion
+// inside it.
+const statementListContainers = new Set([
+  "BlockStatement",
+  "ClassBody",
+  "Program",
+  "StaticBlock",
+  "SwitchCase",
+  "TSModuleBlock",
 ]);
 
-function isConstAssertion(node: TypeAssertion): boolean {
-  return (
-    node.typeAnnotation.type === "TSTypeReference" &&
-    node.typeAnnotation.typeName.type === "Identifier" &&
-    node.typeAnnotation.typeName.name === "const"
-  );
-}
-
 function hasSafetyComment(sourceCode: SourceCode, node: TypeAssertion): boolean {
+  const hasSafetyCommentBefore = (target: ESTree.Node) =>
+    sourceCode
+      .getCommentsBefore(target)
+      .some((comment) => comment.end <= node.start && SAFETY_COMMENT.test(comment.value));
+
   let current: ESTree.Node = node;
   while (true) {
-    if (
-      sourceCode
-        .getCommentsBefore(current)
-        .some((comment) => comment.end <= node.start && /\bSAFETY\s*:/u.test(comment.value))
-    ) {
-      return true;
-    }
-    if (commentOwnerKinds.has(current.type)) {
-      const { parent } = current;
-      if (parent.type === "ExportNamedDeclaration" || parent.type === "ExportDefaultDeclaration") {
-        return sourceCode
-          .getCommentsBefore(parent)
-          .some((comment) => comment.end <= node.start && /\bSAFETY\s*:/u.test(comment.value));
-      }
-      return false;
-    }
-    if (current.parent.type === "Program") return false;
-    current = current.parent;
+    if (hasSafetyCommentBefore(current)) return true;
+    const parent: ESTree.Node | null = current.parent;
+    if (parent === null || statementListContainers.has(parent.type)) return false;
+    current = parent;
   }
 }
 
-/** Require every non-const type assertion to state the invariant TypeScript cannot express. */
 export const requireSafetyCommentForTypeAssertionRule = defineRule({
   meta: {
     type: "problem",
