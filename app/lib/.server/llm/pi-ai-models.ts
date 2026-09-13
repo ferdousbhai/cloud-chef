@@ -141,7 +141,6 @@ type HandleArgs = {
   model: Model<Api>;
   apiKey?: string;
   fetch?: FetchFunction;
-  headers?: ProviderHeaders;
   sessionAffinity?: string;
 };
 
@@ -156,7 +155,7 @@ function makeHandle(args: HandleArgs): ModelHandle {
       recordPiStage('stream_created', model.id);
       handle.lastResponse = undefined;
       const streamOptions = { ...options };
-      const headers: ProviderHeaders = { ...args.headers, ...streamOptions.headers };
+      const headers: ProviderHeaders = { ...streamOptions.headers };
       const merged: SimpleStreamOptions = {
         ...streamOptions,
         maxTokens: requestOutputTokens(model, context, streamOptions.maxTokens),

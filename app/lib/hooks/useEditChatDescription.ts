@@ -34,13 +34,6 @@ type EditChatDescriptionHook = {
  * Offers functions to:
  * - Switch between edit and view modes.
  * - Manage input changes, blur, and form submission events.
- * - Save updates to IndexedDB and optionally to the global application state.
- *
- * @param {Object} options
- * @param {string} options.initialDescription - The current chat description.
- * @param {string} options.customChatId - Optional ID for updating the description via the sidebar.
- * @param {boolean} options.syncWithGlobalStore - Flag to indicate global description store synchronization.
- * @returns {EditChatDescriptionHook} Methods and state for managing description edits.
  */
 export function useEditChatDescription({
   initialDescription = descriptionStore.get() ?? '',
@@ -139,31 +132,26 @@ export function useEditChatDescription({
         return;
       }
 
-      const submission = Symbol('description-submission');
       const submittedDescription = currentDescription.trim();
-      inFlightDescriptionSubmissions.set(resourceKey, submission);
-      submittingRef.current = submission;
       interactionVersionRef.current++;
 
       const validationResult = validateDescription(submittedDescription, initialDescription);
       if (validationResult === 'unchanged') {
-        inFlightDescriptionSubmissions.delete(resourceKey);
-        submittingRef.current = null;
         setEditingState({ scope: editScope, value: false });
         return;
       }
       if (validationResult === 'invalidLength') {
-        inFlightDescriptionSubmissions.delete(resourceKey);
-        submittingRef.current = null;
         toast.error('Description must be between 1 and 100 characters.');
         return;
       }
       if (validationResult === 'invalidCharacters') {
-        inFlightDescriptionSubmissions.delete(resourceKey);
-        submittingRef.current = null;
         toast.error('Description can only contain letters, numbers, spaces, basic punctuation, and inline Markdown.');
         return;
       }
+
+      const submission = Symbol('description-submission');
+      inFlightDescriptionSubmissions.set(resourceKey, submission);
+      submittingRef.current = submission;
 
       try {
         if (!chatId || !userId) {

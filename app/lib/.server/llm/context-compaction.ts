@@ -201,8 +201,8 @@ async function summarizeBatches(
   serializedMessages: string[],
   previousSummary: string | undefined,
   summarize: Summarize,
-  signal?: AbortSignal,
-  fileOperations?: FileOperations,
+  signal: AbortSignal | undefined,
+  fileOperations: FileOperations,
 ): Promise<string> {
   let summary = previousSummary;
   for (const batch of batches(serializedMessages)) {
@@ -216,7 +216,7 @@ async function summarizeBatches(
   if (!summary) {
     throw new Error('Context compaction had no messages to summarize.');
   }
-  return fileOperations ? appendFileOperations(summary, fileOperations) : summary;
+  return appendFileOperations(summary, fileOperations);
 }
 
 function batches(messages: string[]): string[][] {

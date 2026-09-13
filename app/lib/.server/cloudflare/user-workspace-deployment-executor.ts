@@ -496,12 +496,11 @@ export async function createUserAccountApi(
     CLOUDFLARE_ACCOUNT_ID?: string;
   },
   request: typeof fetch,
-  forceRefresh = false,
 ): Promise<UserCloudflareAccountApi> {
   if (!env.CLOUDFLARE_ACCOUNT_ID) {
     throw new Error('Cloudflare connection is unavailable.');
   }
-  const accessToken = await resolveFreshCloudflareAccessToken(env, request, forceRefresh);
+  const accessToken = await resolveFreshCloudflareAccessToken(env, request);
   return new UserCloudflareAccountApi(env.CLOUDFLARE_ACCOUNT_ID, accessToken, request, undefined, () =>
     resolveFreshCloudflareAccessToken(env, request, true),
   );

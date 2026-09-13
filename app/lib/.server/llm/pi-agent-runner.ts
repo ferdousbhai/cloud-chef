@@ -73,14 +73,9 @@ import type { PiSteeringQueue } from './pi-steering';
 import type { CloudflareMcpModelToolContext } from './cloudflare-mcp-model-tools';
 import { isCloudflareExecuteProposal } from 'ghostbuild-agent/cloudflare-mcp';
 import type { CloudflareMcpResultCandidate } from 'ghostbuild-agent/cloudflare-mcp';
-import { z } from 'zod';
 
 type Messages = GhostbuildMessage[];
 type UIMessageChunk = PiStreamChunk;
-
-const cloudflareExecuteProposalCandidateSchema = z
-  .object({ kind: z.literal('cloudflare_execute_proposal') })
-  .passthrough();
 
 /** Tools whose execution durably changes the project, for telemetry and the end-of-turn validation guarantee. */
 const DURABLE_MUTATION_TOOL_NAMES: ReadonlySet<string> = new Set(['write', 'edit', 'exec']);
@@ -435,7 +430,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       currentRunToolResults.push({ toolName: event.toolName, result });
       cloudflareApprovalPending ||= cloudflareExecutePausesTurn(
         event.toolName,
-        cloudflareExecuteProposalCandidateSchema.safeParse(result).data ?? null,
+        isRecord(result) && typeof result.kind === 'string' ? { kind: result.kind } : null,
       );
       if (event.isError && !hasStructuredToolResult(event.result)) {
         await writer.write({
@@ -691,12 +686,9 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       logProviderFailure(logger, 'Pi agent runner failed.', error);
       if (
         (error instanceof BuilderTurnBudgetExceededError ||
-          error instanceof WorkspaceToolOperationIndeterminateError) &&
-        !abortSignal?.aborted
-      ) {
-        await writer.write({ type: 'error', errorText: error.message });
-      } else if (
-        (error instanceof ContextCompactionUnavailableError || error instanceof HiddenReasoningExhaustionError) &&
+          error instanceof WorkspaceToolOperationIndeterminateError ||
+          error instanceof ContextCompactionUnavailableError ||
+          error instanceof HiddenReasoningExhaustionError) &&
         !abortSignal?.aborted
       ) {
         await writer.write({ type: 'error', errorText: error.message });
@@ -808,12 +800,16 @@ function hasStructuredToolResult(result: unknown): boolean {
   return isRecord(details) && Object.keys(details).length > 0;
 }
 
+function firstTextBlock(blocks: readonly unknown[]): string | undefined {
+  return blocks.find(
+    (block): block is { type: 'text'; text: string } =>
+      isRecord(block) && block.type === 'text' && typeof block.text === 'string',
+  )?.text;
+}
+
 function piToolResultError(result: unknown): string {
   if (isRecord(result) && Array.isArray(result.content)) {
-    const text = result.content.find(
-      (block): block is { type: 'text'; text: string } =>
-        isRecord(block) && block.type === 'text' && typeof block.text === 'string',
-    )?.text;
+    const text = firstTextBlock(result.content);
     if (text) {
       return text;
     }
@@ -840,10 +836,7 @@ function toolErrorPayload(result: unknown): { code?: unknown; error?: unknown; r
   if (!isRecord(result) || !Array.isArray(result.content)) {
     return undefined;
   }
-  const text = result.content.find(
-    (block): block is { type: 'text'; text: string } =>
-      isRecord(block) && block.type === 'text' && typeof block.text === 'string',
-  )?.text;
+  const text = firstTextBlock(result.content);
   if (!text) {
     return undefined;
   }

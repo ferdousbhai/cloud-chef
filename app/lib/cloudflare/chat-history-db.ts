@@ -44,25 +44,21 @@ function createChatHistoryCollection(sessionId: string) {
 type ChatHistoryCollection = ReturnType<typeof createChatHistoryCollection>;
 
 const chatHistoryCollections = new Map<string, ChatHistoryCollection>();
-const activeChatHistoryCollections = new Map<string, ChatHistoryCollection>();
 
 registerClientCollectionDisposer(async () => {
   const collections = new Set(chatHistoryCollections.values());
   chatHistoryCollections.clear();
-  activeChatHistoryCollections.clear();
   await Promise.allSettled([...collections].map((collection) => collection.cleanup()));
 });
 
 function getChatHistoryCollection(sessionId: string) {
   const existing = chatHistoryCollections.get(sessionId);
   if (existing) {
-    activeChatHistoryCollections.set(sessionId, existing);
     return existing;
   }
 
   const collection = createChatHistoryCollection(sessionId);
   chatHistoryCollections.set(sessionId, collection);
-  activeChatHistoryCollections.set(sessionId, collection);
   return collection;
 }
 
@@ -82,7 +78,7 @@ export function useChatHistory(sessionId: string | null | undefined) {
 }
 
 export async function removeChatHistoryItem(sessionId: string, initialId: string) {
-  const collection = activeChatHistoryCollections.get(sessionId) ?? getChatHistoryCollection(sessionId);
+  const collection = getChatHistoryCollection(sessionId);
   const tx = collection.delete(initialId, {
     metadata: { source: 'sidebar' },
   });

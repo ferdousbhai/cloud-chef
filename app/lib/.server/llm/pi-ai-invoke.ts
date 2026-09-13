@@ -21,14 +21,13 @@ export async function completeText(
   handle: ModelHandle,
   args: {
     systemPrompt?: string;
-    prompt?: string;
-    messages?: Message[];
+    prompt: string;
     maxTokens?: number;
     temperature?: number;
     signal?: AbortSignal;
   },
 ): Promise<string> {
-  const messages: Message[] = args.messages ?? [{ role: 'user', content: args.prompt ?? '', timestamp: Date.now() }];
+  const messages: Message[] = [{ role: 'user', content: args.prompt, timestamp: Date.now() }];
   const stream = await handle.stream(
     handle.model,
     { systemPrompt: args.systemPrompt, messages },

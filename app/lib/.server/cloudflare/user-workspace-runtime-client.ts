@@ -669,7 +669,6 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       throw new Error(serializationError);
     }
     this.#activeTool = { toolCallId, toolName };
-    let executionStarted = false;
     let cancellation: Promise<void> | undefined;
     const cancel = () => {
       cancellation ??= this.#cancelStartedToolOperation(
@@ -685,7 +684,6 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     }
     try {
       abortSignal?.throwIfAborted();
-      executionStarted = true;
       const result = await execute();
       abortSignal?.throwIfAborted();
       const syncError = computerSyncUnconfirmedError(result);
@@ -729,11 +727,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
         await cancellation;
       } else if (!isComputerSyncUnconfirmedError(error)) {
         const message = error instanceof Error ? error.message : String(error);
-        if (executionStarted) {
-          await this.#terminalizeToolOperationAfterExecution(toolCallId, message);
-        } else {
-          await stub.failToolOperation({ toolCallId, error: message }).catch(() => undefined);
-        }
+        await this.#terminalizeToolOperationAfterExecution(toolCallId, message);
       }
       throw error;
     } finally {
@@ -945,7 +939,7 @@ const BUSY_RETRY_MAX_DELAY_MS = 250;
  */
 const BUSY_RETRY_ACTIVE_KINDS = new Set(['write']);
 
-export function shouldRetryWhileWorkspaceIsBusy(error: unknown): boolean {
+function shouldRetryWhileWorkspaceIsBusy(error: unknown): boolean {
   return error instanceof WorkspaceBusyError && BUSY_RETRY_ACTIVE_KINDS.has(error.activeKind);
 }
 

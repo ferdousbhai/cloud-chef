@@ -1,7 +1,6 @@
 import {
   TRANSCRIPT_HISTORY_FORMAT_VERSION,
   transcriptIdentitiesEqual,
-  type TranscriptCheckpoint,
   type TranscriptIdentity,
 } from 'ghostbuild-agent/transcript';
 import { z } from 'zod';
@@ -91,7 +90,7 @@ export async function userRuntimeInitialMessagesAction(args: {
       return new Response(null, { status: 204, headers: transcriptResponseHeaders(transcript) });
     }
     if (!transcriptIdentitiesEqual(durable.checkpoint, transcriptIdentity(transcript))) {
-      return transcriptConflictResponse(durable.checkpoint);
+      return transcriptConflictResponse();
     }
     return Response.json(
       { version: TRANSCRIPT_HISTORY_FORMAT_VERSION, transcript: durable.checkpoint, messages: durable.messages },
@@ -102,19 +101,11 @@ export async function userRuntimeInitialMessagesAction(args: {
   }
 }
 
-type TranscriptConflictBody = {
-  error: string;
-  checkpoint?: TranscriptCheckpoint | null;
-};
-
-function transcriptConflictResponse(checkpoint?: TranscriptCheckpoint | null): Response {
-  const body: TranscriptConflictBody = {
-    error: 'The Agent transcript identity no longer matches this catalog entry. Reload the latest transcript.',
-  };
-  if (checkpoint !== undefined) {
-    body.checkpoint = checkpoint;
-  }
-  return Response.json(body, { status: 409 });
+function transcriptConflictResponse(): Response {
+  return Response.json(
+    { error: 'The Agent transcript identity no longer matches this catalog entry. Reload the latest transcript.' },
+    { status: 409 },
+  );
 }
 
 function getBuilderTranscriptSnapshot(
