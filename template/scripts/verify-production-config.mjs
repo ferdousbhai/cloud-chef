@@ -286,7 +286,7 @@ function verifyPackage(errors) {
 
 function verifyProvisioner(errors) {
   const result = spawnSync(
-    process.execPath || process.argv0 || "node",
+    process.execPath,
     [
       resolve(rootDir, "scripts/provision-cloudflare-production.mjs"),
       "--dry-run",

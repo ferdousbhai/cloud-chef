@@ -10,7 +10,7 @@ export const ACCOUNT_EXPORT_SCHEMA_VERSION = 1;
  * Per-section ceiling on rows. Sign-in sessions and OAuth state are the only
  * records an account accumulates without a natural limit, so each returns its most
  * recent page and reports the untruncated count beside it. Every other section
- * holds at most one row, so a whole export is bounded at 402 records.
+ * holds at most one row, so a whole export is bounded at 404 records.
  */
 export const ACCOUNT_EXPORT_ROW_LIMIT = 200;
 

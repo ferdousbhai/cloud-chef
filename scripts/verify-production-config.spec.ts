@@ -1,9 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  findBuildApprovalErrors,
   findDurableObjectLifecycleErrors,
-  findMissingProvisionScriptPatternErrors,
   findWorkerObservabilityErrors,
   findWorkerOAuthStartRateLimitErrors,
   findWorkerGcScheduleErrors,
@@ -14,6 +12,10 @@ import {
   verifyProductionConfig,
   workflowPathsFromDirectoryEntries,
 } from './verify-production-config.mjs';
+import {
+  findBuildApprovalErrors,
+  findMissingProvisionScriptPatternErrors,
+} from '../template/scripts/lib/project-policy.mjs';
 
 describe('findDurableObjectLifecycleErrors', () => {
   const classNames = ['BuilderAgent', 'DeploymentSandbox'];

@@ -8,8 +8,6 @@ const DEFAULT_CONSECUTIVE_CHECKS = 5;
 const DEFAULT_MAX_LOCAL_ATTEMPTS = 15;
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
 
-const waitFor = (delayMs) => wait(delayMs);
-
 function headerValue(headers, name) {
   if (headers instanceof Headers) {
     return headers.get(name);
@@ -103,7 +101,7 @@ export async function verifyLocalDeployment({
   checkIntervalMs = DEFAULT_CHECK_INTERVAL_MS,
   consecutiveChecks = DEFAULT_CONSECUTIVE_CHECKS,
   maxAttempts = DEFAULT_MAX_LOCAL_ATTEMPTS,
-  waitImplementation = waitFor,
+  waitImplementation = wait,
   log = console.log,
 } = {}) {
   expectedSha = validateExpectedSha(expectedSha);

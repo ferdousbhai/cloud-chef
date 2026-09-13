@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { verifyLocalDeployment } from './verify-live-deployment.mjs';
 
 const CLIENT_ID_ENV = 'CLOUDFLARE_OAUTH_CLIENT_ID';
@@ -298,14 +297,7 @@ export async function deployAndVerifyProduction({
   return deployedSha;
 }
 
-function isMainModule() {
-  return (
-    Boolean(process.argv[1]) &&
-    pathToFileURL(resolve(process.argv[1])).href === pathToFileURL(fileURLToPath(import.meta.url)).href
-  );
-}
-
-if (isMainModule()) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const main = async () => {
     const [command, ...extraArgs] = process.argv.slice(2);
     const allowed = new Set([undefined, '--check-workers-builds', '--local']);

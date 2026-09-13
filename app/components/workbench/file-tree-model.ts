@@ -3,7 +3,7 @@ import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
 
 const logger = createScopedLogger('FileTreeModel');
 
-export const DEFAULT_HIDDEN_FILES = [/\/node_modules\//, /\/\.next/, /\/\.astro/];
+const DEFAULT_HIDDEN_FILES = [/\/node_modules\//, /\/\.next/, /\/\.astro/];
 
 type BaseNode = {
   depth: number;
@@ -15,12 +15,7 @@ export type FileNode = BaseNode & { kind: 'file' };
 export type FolderNode = BaseNode & { kind: 'folder' };
 type FileTreeNode = FileNode | FolderNode;
 
-export function buildFileList(
-  files: FileMap,
-  rootFolder = '/',
-  hideRoot: boolean,
-  hiddenFiles: Array<string | RegExp>,
-): FileTreeNode[] {
+export function buildFileList(files: FileMap, rootFolder = '/', hideRoot: boolean): FileTreeNode[] {
   const folderPaths = new Set<string>();
   const nodes: FileTreeNode[] = [];
   let defaultDepth = 0;
@@ -33,7 +28,7 @@ export function buildFileList(
   for (const [filePath, dirent] of Object.entries(files)) {
     const segments = filePath.split('/').filter(Boolean);
     const fileName = segments.at(-1);
-    if (!fileName || isHiddenFile(filePath, fileName, hiddenFiles)) {
+    if (!fileName || isHiddenFile(filePath, fileName)) {
       continue;
     }
 
@@ -83,8 +78,8 @@ export function visibleFileList(nodes: FileTreeNode[], collapsedFolders: Set<str
   return visible;
 }
 
-function isHiddenFile(filePath: string, fileName: string, hiddenFiles: Array<string | RegExp>): boolean {
-  return hiddenFiles.some((pathOrRegex) =>
+function isHiddenFile(filePath: string, fileName: string): boolean {
+  return DEFAULT_HIDDEN_FILES.some((pathOrRegex) =>
     pathOrRegex instanceof RegExp ? pathOrRegex.test(filePath) : fileName === pathOrRegex,
   );
 }

@@ -4,9 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse, printParseErrorCode } from 'jsonc-parser';
 import {
-  findBuildApprovalErrors,
   findMissingCommandSteps,
-  findMissingProvisionScriptPatternErrors,
   findWorkerObservabilityErrors,
   findWorkerRuntimeSecretErrors,
   loadsLocalEnvFiles,
@@ -17,13 +15,7 @@ import {
 import { runVerifierIfMain } from './run-verifier.mjs';
 import { findUnexpectedGithubWorkflowPaths } from './workers-builds-config.mjs';
 
-export {
-  findBuildApprovalErrors,
-  findMissingProvisionScriptPatternErrors,
-  findWorkerObservabilityErrors,
-  findWorkerRuntimeSecretErrors,
-  workflowPathsFromDirectoryEntries,
-};
+export { findWorkerObservabilityErrors, findWorkerRuntimeSecretErrors, workflowPathsFromDirectoryEntries };
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REQUIRED_COMPATIBILITY_DATE = '2026-07-21';
@@ -39,7 +31,6 @@ const workerTargets = [
     databaseName: 'ghostbuild',
     durableObjects: [],
     customDomains: ['ghostbuild.dev', 'www.ghostbuild.dev'],
-    allowPlaceholderDatabase: false,
   },
 ];
 
@@ -200,7 +191,7 @@ function verifyWorker(errors, config, target) {
   } else {
     requireEqual(errors, `${label} D1 database_name`, d1.database_name, target.databaseName);
     requireEqual(errors, `${label} D1 migrations_dir`, d1.migrations_dir, 'migrations');
-    if (!target.allowPlaceholderDatabase && (!d1.database_id || d1.database_id === PLACEHOLDER_D1_ID)) {
+    if (!d1.database_id || d1.database_id === PLACEHOLDER_D1_ID) {
       errors.push(`${label} must contain a provisioned D1 database_id.`);
     }
   }
@@ -287,7 +278,7 @@ function verifyScripts(errors, pkg, label) {
 }
 
 function verifyProvisionScript(errors, path) {
-  const result = spawnSync(process.execPath || process.argv0 || 'node', [resolve(rootDir, path), '--dry-run'], {
+  const result = spawnSync(process.execPath, [resolve(rootDir, path), '--dry-run'], {
     cwd: rootDir,
     encoding: 'utf8',
   });

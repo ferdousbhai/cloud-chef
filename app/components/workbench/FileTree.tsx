@@ -4,7 +4,7 @@ import { renderLogger } from 'ghostbuild-agent/utils/logger';
 import { DEFAULT_COLLAPSED_FOLDERS } from '~/utils/constants';
 import { classNames } from '~/utils/classNames';
 import { FileTreeNode } from './FileTreeNodes';
-import { DEFAULT_HIDDEN_FILES, buildFileList, folderPathsFromFileList, visibleFileList } from './file-tree-model';
+import { buildFileList, folderPathsFromFileList, visibleFileList } from './file-tree-model';
 
 interface Props {
   files?: FileMap;
@@ -14,7 +14,6 @@ interface Props {
   hideRoot?: boolean;
   collapsed?: boolean;
   allowFolderSelection?: boolean;
-  hiddenFiles?: Array<string | RegExp>;
   unsavedFiles?: Set<string>;
   className?: string;
 }
@@ -27,16 +26,11 @@ export const FileTree = memo(function FileTree({
   hideRoot = false,
   collapsed = false,
   allowFolderSelection = false,
-  hiddenFiles,
   className,
   unsavedFiles,
 }: Props) {
   renderLogger.trace('FileTree');
-  const computedHiddenFiles = useMemo(() => [...DEFAULT_HIDDEN_FILES, ...(hiddenFiles ?? [])], [hiddenFiles]);
-  const fileList = useMemo(
-    () => buildFileList(files, rootFolder, hideRoot, computedHiddenFiles),
-    [files, rootFolder, hideRoot, computedHiddenFiles],
-  );
+  const fileList = useMemo(() => buildFileList(files, rootFolder, hideRoot), [files, rootFolder, hideRoot]);
   const [collapsedFolders, setCollapsedFolders] = useState(() => initialCollapsedFolders(fileList, collapsed));
 
   useEffect(() => {
