@@ -5,7 +5,6 @@ import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
 import { editableEffect } from './editor-config';
 import { getLanguage } from './languages';
 
-type TextEditorDocument = EditorDocument & { value: string };
 const logger = createScopedLogger('EditorDocument');
 
 interface SetEditorDocumentOptions {
@@ -13,7 +12,7 @@ interface SetEditorDocumentOptions {
   editable: boolean;
   languageCompartment: Compartment;
   autoFocus: boolean;
-  document: TextEditorDocument;
+  document: EditorDocument;
   isCurrentDocument: () => boolean;
   isFileChange: boolean;
   scrollToBottom: boolean;
@@ -60,7 +59,7 @@ export function setEditorDocument({
 
 function restoreDocumentPosition(
   view: EditorView,
-  document: TextEditorDocument,
+  document: EditorDocument,
   autoFocus: boolean,
   isCurrentDocument: () => boolean,
 ): void {

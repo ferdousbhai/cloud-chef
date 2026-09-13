@@ -150,7 +150,7 @@ export const CodeMirrorEditor = memo(
       }
       const callbacks = { onScroll: onScrollRef, onWheel: onWheelRef, onSave: onSaveWithFlushRef };
       if (!currentDocument) {
-        view.setState(createEditorState('', currentTheme, { tabSize: 2 }, callbacks, [languageCompartment.of([])]));
+        view.setState(createEditorState('', currentTheme, callbacks, [languageCompartment.of([])]));
         view.scrollDOM.scrollTo(0, 0);
         return;
       }
@@ -164,9 +164,7 @@ export const CodeMirrorEditor = memo(
       const editorStates = editorStatesRef.current;
       let state = editorStates.get(currentDocument.filePath);
       if (!state) {
-        state = createEditorState(currentDocument.value, currentTheme, { tabSize: 2 }, callbacks, [
-          languageCompartment.of([]),
-        ]);
+        state = createEditorState(currentDocument.value, currentTheme, callbacks, [languageCompartment.of([])]);
         editorStates.set(currentDocument.filePath, state);
       }
       const simpleAppend = currentDocument.value.startsWith(view.state.doc.toString());

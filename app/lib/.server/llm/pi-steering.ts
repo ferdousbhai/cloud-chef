@@ -5,12 +5,6 @@ import { cleanupAssistantMessages } from './message-conversion';
 import { modelMessagesToPi } from './pi-message-conversion';
 import { injectTurnContext } from './turn-context';
 
-type PendingSteeringMessage = {
-  promise: Promise<AgentMessage>;
-  resolve: (message: AgentMessage) => void;
-  reject: (error: unknown) => void;
-};
-
 type PiSteeringReservation = {
   commit(): void;
   reject(error: unknown): void;
@@ -18,7 +12,7 @@ type PiSteeringReservation = {
 
 /** Pi's one-at-a-time steering queue, with persistence committed before delivery. */
 export class PiSteeringQueue {
-  #pending: PendingSteeringMessage[] = [];
+  #pending: Promise<AgentMessage>[] = [];
   #closed = false;
 
   reserve(message: GhostbuildMessage, turnContext?: ChatTurnContext): PiSteeringReservation | null {
@@ -33,7 +27,7 @@ export class PiSteeringQueue {
       reject = rejectMessage;
     });
     void promise.catch(() => undefined);
-    this.#pending.push({ promise, resolve, reject });
+    this.#pending.push(promise);
     return {
       commit: () => resolve(piMessage),
       reject,
@@ -42,7 +36,7 @@ export class PiSteeringQueue {
 
   async drain(): Promise<AgentMessage[]> {
     const next = this.#pending.shift();
-    return next ? [await next.promise] : [];
+    return next ? [await next] : [];
   }
 
   hasPending(): boolean {

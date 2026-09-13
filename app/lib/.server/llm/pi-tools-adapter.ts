@@ -45,10 +45,6 @@ export function createPiToolBundle(
   return tools;
 }
 
-export function piToolsToList(tools: Record<string, AgentTool>): AgentTool[] {
-  return Object.values(tools);
-}
-
 function adaptTool(name: ModelToolName, definition: Tool, label: string): AgentTool {
   const { inputSchema } = definition;
   if (!(inputSchema instanceof ZodType)) {

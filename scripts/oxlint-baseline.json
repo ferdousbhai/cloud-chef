@@ -1,5 +1,5 @@
 {
-  "total": 1278,
+  "total": 1272,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -245,7 +245,6 @@
     "app/lib/.server/llm/pi-agent-runner.test.ts": {
       "anti-slop/no-conditional-empty-object-spread": 1,
       "anti-slop/no-module-mocking": 8,
-      "anti-slop/no-object-parameters": 1,
       "anti-slop/no-unknown-parameters": 38,
       "anti-slop/require-safety-comment-for-type-assertion": 4
     },
@@ -273,7 +272,7 @@
       "anti-slop/no-runtime-typeof": 1
     },
     "app/lib/.server/llm/pi-steering.ts": {
-      "anti-slop/no-unknown-parameters": 3
+      "anti-slop/no-unknown-parameters": 2
     },
     "app/lib/.server/llm/pi-tools-adapter.test.ts": {
       "anti-slop/no-module-mocking": 1,
@@ -305,8 +304,8 @@
     },
     "app/lib/.server/llm/workers-ai-tools.ts": {
       "anti-slop/no-runtime-typeof": 4,
-      "anti-slop/no-unknown-parameters": 8,
-      "anti-slop/no-unknown-returns": 2,
+      "anti-slop/no-unknown-parameters": 5,
+      "anti-slop/no-unknown-returns": 1,
       "anti-slop/no-unsafe-dictionary-type": 2
     },
     "app/lib/bounded-body.test.ts": {

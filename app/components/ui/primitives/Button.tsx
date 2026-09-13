@@ -1,5 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 import { classNames } from '~/utils/classNames';
+import { Spinner } from './Spinner';
 
 export type ButtonVariant = 'primary' | 'neutral' | 'danger' | 'ghost';
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
@@ -12,7 +13,6 @@ export type ButtonVisualProps = {
   variant?: ButtonVariant;
   size?: ButtonSize;
   inline?: boolean;
-  focused?: boolean;
   loading?: boolean;
   disabled?: boolean;
   type?: ButtonHTMLAttributes<HTMLButtonElement>['type'];
@@ -43,14 +43,12 @@ export function buttonClassNames({
   variant = 'primary',
   size = 'md',
   inline,
-  focused,
-}: Pick<ButtonVisualProps, 'className' | 'variant' | 'size' | 'inline' | 'focused'>) {
+}: Pick<ButtonVisualProps, 'className' | 'variant' | 'size' | 'inline'>) {
   return classNames(
     'gb-button inline-flex shrink-0 items-center justify-center gap-1.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50',
     inline ? 'w-auto' : '',
     variantClasses[variant],
     sizeClasses[size],
-    focused ? 'ring-2 ring-accent-500' : '',
     className,
   );
 }
@@ -63,24 +61,16 @@ export function Button({
   variant = 'primary',
   size = 'md',
   inline,
-  focused,
   loading,
   disabled,
   type = 'button',
   ref,
   ...props
 }: ButtonProps) {
-  const classes = buttonClassNames({ className, variant, size, inline, focused });
+  const classes = buttonClassNames({ className, variant, size, inline });
   const content = (
     <>
-      {loading ? (
-        <span
-          className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-          aria-hidden="true"
-        />
-      ) : (
-        icon
-      )}
+      {loading ? <Spinner /> : icon}
       {children}
     </>
   );

@@ -5,13 +5,11 @@ import type { Tool } from 'ghostbuild-agent/tool';
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   createWorkersAiTools: vi.fn(),
-  /** The mocked module's tool list and the stub tools it returns have to name the same tools. */
   toolNames: ['read', 'ls', 'grep', 'write', 'edit', 'exec', 'search_cloudflare_docs'] as const,
 }));
 
 vi.mock('./workers-ai-tools', () => ({
   createWorkersAiTools: mocks.createWorkersAiTools,
-  MODEL_TOOL_NAMES: mocks.toolNames,
 }));
 
 import { BUILDER_TURN_TIMEOUTS, BuilderTurnBudgetExceededError } from './builder-turn-budget';

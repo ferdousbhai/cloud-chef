@@ -4,10 +4,7 @@ import { buttonClassNames, type ButtonVisualProps } from './Button';
 
 type MenuProps = {
   children: ReactNode;
-  buttonProps?: Pick<
-    ButtonVisualProps,
-    'children' | 'className' | 'focused' | 'icon' | 'inline' | 'size' | 'tip' | 'variant'
-  > & {
+  buttonProps?: Pick<ButtonVisualProps, 'children' | 'className' | 'icon' | 'inline' | 'size' | 'tip' | 'variant'> & {
     'aria-label'?: string;
     title?: string;
   };
@@ -29,7 +26,6 @@ export function Menu({ children, buttonProps }: MenuProps) {
             variant: buttonProps?.variant,
             size: buttonProps?.size,
             inline: buttonProps?.inline,
-            focused: buttonProps?.focused,
           })}
         >
           {buttonProps?.icon}

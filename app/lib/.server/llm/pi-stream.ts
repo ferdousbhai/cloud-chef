@@ -20,7 +20,6 @@ export type PiStreamChunk =
     }
   | { type: 'finish'; finishReason: 'stop' | 'error' | 'tool-calls' | 'length' }
   | { type: 'error'; errorText: string }
-  | { type: 'data-deployment-approval'; data: unknown }
   | { type: 'start' };
 
 // Keep the established AI SDK UI stream wire protocol while the model/tool loop runs on Pi.

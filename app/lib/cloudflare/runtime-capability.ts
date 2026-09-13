@@ -60,8 +60,8 @@ export async function verifyRuntimeCapability(
       return null;
     }
     const capability = parsed.data;
+    requireOrigin(capability.origin);
     if (
-      requireOrigin(capability.origin) !== capability.origin ||
       capability.expiresAt <= (options.now ?? Date.now()) ||
       (options.origin !== undefined && options.origin !== null && capability.origin !== options.origin)
     ) {

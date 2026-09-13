@@ -352,9 +352,6 @@ function computerWorkspaceTool(
   context: BuilderOperationContext,
   coordinateStatefulTool: TurnStatefulToolCoordinator,
 ): Tool {
-  if (definition.type === 'provider') {
-    throw new TypeError(`Computer tool ${toolName} must be executed by Ghostbuild, not by the model provider.`);
-  }
   return {
     ...definition,
     description:
@@ -557,8 +554,7 @@ function latestSuccessfulValidation(results: ReadonlyArray<ToolResultEvent>): un
     const event = results[index];
     const result = event?.result;
     if (isRecord(result) && 'validation' in result) {
-      const candidate = validationResult(result);
-      return isSuccessfulValidationResult(candidate) ? candidate : undefined;
+      return isSuccessfulValidationResult(result.validation) ? result.validation : undefined;
     }
     // A mutation reached after the receipt means the receipt describes older content. Walking past
     // it let a pre-steering validation vouch for a post-steering write, and the turn then claimed
@@ -576,10 +572,6 @@ function isWorkspaceMutationResult(event: ToolResultEvent): boolean {
     VALIDATION_INVALIDATING_TOOL_NAMES.has(event.toolName) ||
     (isRecord(event.result) && event.result.dependencyMutation === true)
   );
-}
-
-function validationResult(result: unknown): unknown {
-  return isRecord(result) ? result.validation : undefined;
 }
 
 function collectToolResults(messages: GhostbuildMessage[]): Array<{
@@ -604,20 +596,7 @@ function isSuccessfulValidationResult(result: unknown): boolean {
     result.ok &&
     isRecord(result.data) &&
     result.data.level === 'full' &&
-    validationRevision(result) !== undefined &&
-    validationNextAction(result) !== undefined
+    typeof result.data.revision === 'string' &&
+    result.data.nextAction === 'prepare-deployment'
   );
-}
-
-function validationRevision(result: unknown): string | undefined {
-  if (!isGhostbuildToolResult(result) || !isRecord(result.data)) {
-    return undefined;
-  }
-  return typeof result.data.revision === 'string' ? result.data.revision : undefined;
-}
-
-function validationNextAction(result: unknown): 'prepare-deployment' | undefined {
-  return isGhostbuildToolResult(result) && isRecord(result.data) && result.data.nextAction === 'prepare-deployment'
-    ? 'prepare-deployment'
-    : undefined;
 }

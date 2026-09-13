@@ -99,7 +99,6 @@ vi.mock('./pi-tools-adapter', () => ({
       execute: mocks.validateExecute,
     },
   })),
-  piToolsToList: vi.fn((tools: object) => Object.values(tools)),
 }));
 vi.mock('./workers-ai-tools', () => ({
   createWorkersAiTools: vi.fn(() => ({})),

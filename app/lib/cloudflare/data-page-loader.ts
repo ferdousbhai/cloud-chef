@@ -179,15 +179,7 @@ const chatHistoryCursorSchema = z.strictObject({
 const subchatCursorSchema = z.strictObject({ subchatIndex: subchatIndexSchema });
 
 function stableCursorKey<Cursor>(cursor: Cursor): string {
-  try {
-    const key = JSON.stringify(cursor);
-    if (key === undefined) {
-      throw new Error();
-    }
-    return key;
-  } catch {
-    throw new Error('Data pagination returned a malformed cursor');
-  }
+  return JSON.stringify(cursor);
 }
 
 function isDescendingBy<Item>(items: Item[], select: (item: Item) => string): boolean {

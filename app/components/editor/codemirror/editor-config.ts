@@ -21,7 +21,7 @@ import type { Theme } from '~/lib/stores/theme';
 import { debounce } from '~/utils/debounce';
 import { getTheme } from './cm-theme';
 import { indentKeyBinding } from './indent';
-import type { EditorSettings, OnSaveCallback, OnScrollCallback, OnWheelCallback } from './editor-types';
+import type { OnSaveCallback, OnScrollCallback, OnWheelCallback } from './editor-types';
 
 const SCROLL_DEBOUNCE_MS = 100;
 const readOnlyTooltipEffect = StateEffect.define<boolean>();
@@ -64,7 +64,6 @@ interface EditorCallbackRefs {
 export function createEditorState(
   content: string,
   theme: Theme,
-  settings: EditorSettings,
   callbacks: EditorCallbackRefs,
   extensions: Extension[],
 ): EditorState {
@@ -134,7 +133,7 @@ export function createEditorState(
       dropCursor(),
       drawSelection(),
       bracketMatching(),
-      EditorState.tabSize.of(settings.tabSize ?? 2),
+      EditorState.tabSize.of(2),
       indentOnInput(),
       editableTooltipField,
       editableField,

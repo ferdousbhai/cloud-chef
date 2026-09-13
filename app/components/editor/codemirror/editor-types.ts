@@ -1,10 +1,6 @@
 import type { EditorSelection } from '@codemirror/state';
 import type { ScrollPosition } from 'ghostbuild-agent/types';
 
-export interface EditorSettings {
-  tabSize?: number;
-}
-
 export interface EditorUpdate {
   selection: EditorSelection;
   content: string;

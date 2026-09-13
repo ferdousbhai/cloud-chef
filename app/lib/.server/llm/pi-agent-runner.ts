@@ -59,7 +59,7 @@ import {
   recordWorkersAiFinish,
 } from './workers-ai-telemetry';
 import { getValidatedBuildCompletion } from './workers-ai-tools';
-import { createPiToolBundle, piToolsToList } from './pi-tools-adapter';
+import { createPiToolBundle } from './pi-tools-adapter';
 import { createBuilderSkillContext } from './builder-skills';
 import {
   cloudflareAiFundingRequiredMessage,
@@ -234,7 +234,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       signal: loopSignal,
       contextWindow: handle.model.contextWindow,
       systemPrompt: instructions,
-      tools: piToolsToList(piTools),
+      tools: Object.values(piTools),
       logger,
     }),
   );
@@ -463,7 +463,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   let context: AgentContext = {
     systemPrompt: instructions,
     messages: piMessages,
-    tools: piToolsToList(piTools),
+    tools: Object.values(piTools),
   };
 
   const compactRuntimeContext = async (source: AgentContext): Promise<AgentContext | undefined> => {

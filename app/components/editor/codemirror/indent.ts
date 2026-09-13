@@ -1,6 +1,6 @@
 import { indentLess } from '@codemirror/commands';
 import { indentUnit } from '@codemirror/language';
-import type { EditorState, Line } from '@codemirror/state';
+import type { EditorState } from '@codemirror/state';
 import { EditorSelection, type ChangeSpec } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { type KeyBinding } from '@codemirror/view';
@@ -30,7 +30,7 @@ function indentMore({ state, dispatch }: EditorView) {
 
 function changeBySelectedLine(
   state: EditorState,
-  cb: (from: number, to: number | undefined, changes: ChangeSpec[], line: Line) => void,
+  cb: (from: number, to: number | undefined, changes: ChangeSpec[]) => void,
 ) {
   return state.changeByRange((range) => {
     const changes: ChangeSpec[] = [];
@@ -40,17 +40,17 @@ function changeBySelectedLine(
     const isSingleLineSelection = !isCursor && range.to <= selectionStartLine.to;
 
     if (isCursor) {
-      cb(range.from, undefined, changes, selectionStartLine);
+      cb(range.from, undefined, changes);
     } else if (isSingleLineSelection) {
-      cb(range.from, range.to, changes, selectionStartLine);
+      cb(range.from, range.to, changes);
     } else {
       let atLine = -1;
 
       for (let pos = range.from; pos <= range.to;) {
         const line = state.doc.lineAt(pos);
 
-        if (line.number > atLine && (range.empty || range.to > line.from)) {
-          cb(line.from, undefined, changes, line);
+        if (line.number > atLine && range.to > line.from) {
+          cb(line.from, undefined, changes);
           atLine = line.number;
         }
 
