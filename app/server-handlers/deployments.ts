@@ -31,9 +31,10 @@ export async function createOrReplayDeploymentPlanForUser(args: {
   workspaceRevision?: number;
   project?: DeploymentProjectProfile;
 }) {
+  const workspaceArgs = requireWorkspaceDeploymentArgs(args);
   try {
     const existing = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId);
-    if (existing.workspaceReference === workspaceReference(requireWorkspaceDeploymentArgs(args))) {
+    if (existing.workspaceReference === workspaceReference(workspaceArgs)) {
       return publicDeployment(existing);
     }
   } catch (error) {
@@ -41,7 +42,6 @@ export async function createOrReplayDeploymentPlanForUser(args: {
       throw error;
     }
   }
-  const workspaceArgs = requireWorkspaceDeploymentArgs(args);
   const connection = runtimeCloudflareIdentity(workspaceArgs.env, workspaceArgs.userId);
   const chat = await findChat(workspaceArgs.env.DB, { id: workspaceArgs.chatId, sessionId: workspaceArgs.userId });
   if (!chat) {

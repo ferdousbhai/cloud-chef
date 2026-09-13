@@ -39,5 +39,4 @@ export function toggleTheme() {
 
   themeStore.set(newTheme);
   localStorage.setItem(THEME_KEY, newTheme);
-  document.documentElement.setAttribute('class', newTheme);
 }

@@ -1,5 +1,5 @@
 {
-  "total": 1272,
+  "total": 1269,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -482,7 +482,7 @@
     },
     "app/server.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
-      "anti-slop/no-module-mocking": 12
+      "anti-slop/no-module-mocking": 9
     },
     "app/utils/classNames.ts": {
       "anti-slop/no-runtime-typeof": 2

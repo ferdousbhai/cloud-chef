@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const tanstackFetch = vi.hoisted(() => vi.fn<(request: Request, env: Env) => Promise<Response>>());
 const getAuthSession = vi.hoisted(() => vi.fn());
-const ensureInitialChat = vi.hoisted(() => vi.fn());
-const routeAgentRequest = vi.hoisted(() => vi.fn());
 const healthAction = vi.hoisted(() => vi.fn());
 const completeCloudflareConnectionAction = vi.hoisted(() => vi.fn());
 const cloudflareConnectionStatusAction = vi.hoisted(() => vi.fn());
@@ -13,10 +11,7 @@ const runtimeCredentialAction = vi.hoisted(() => vi.fn());
 const clientTelemetryAction = vi.hoisted(() => vi.fn());
 
 vi.mock('@tanstack/react-start/server-entry', () => ({ default: { fetch: tanstackFetch } }));
-vi.mock('agents', () => ({ routeAgentRequest }));
-vi.mock('./agents/builder-agent', () => ({ BuilderAgent: class {} }));
 vi.mock('./lib/.server/auth', () => ({ getAuthSession }));
-vi.mock('./lib/cloudflare/data/chat-repository.server', () => ({ ensureInitialChat }));
 vi.mock('./server-handlers/auth', () => ({ authSessionAction: vi.fn(), signOutAction: vi.fn() }));
 vi.mock('./server-handlers/cloudflare-integration', () => ({
   CLOUDFLARE_CONNECTION_CALLBACK_METHOD: 'GET',
@@ -49,8 +44,6 @@ describe('server Agent routing boundary', () => {
     tanstackFetch.mockReset();
     tanstackFetch.mockResolvedValue(new Response('application', { headers: { 'Content-Type': 'text/html' } }));
     getAuthSession.mockReset();
-    ensureInitialChat.mockReset();
-    routeAgentRequest.mockReset();
     healthAction.mockReset().mockResolvedValue(Response.json({ status: 'ok' }));
     completeCloudflareConnectionAction.mockReset().mockImplementation(async () => {
       const headers = new Headers({ Location: 'https://ghostbuild.dev/' });
@@ -73,7 +66,6 @@ describe('server Agent routing boundary', () => {
 
     expect(response.status).toBe(200);
     expect(getAuthSession).not.toHaveBeenCalled();
-    expect(routeAgentRequest).not.toHaveBeenCalled();
     expect(tanstackFetch).toHaveBeenCalledOnce();
   });
 
@@ -92,7 +84,6 @@ describe('server Agent routing boundary', () => {
     expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
     expect(response.headers.get('X-Frame-Options')).toBe('DENY');
     expect(response.headers.get('Cache-Control')).toBe('no-store');
-    expect(routeAgentRequest).not.toHaveBeenCalled();
     expect(tanstackFetch).toHaveBeenCalledOnce();
   });
 

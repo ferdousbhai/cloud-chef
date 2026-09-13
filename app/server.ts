@@ -78,11 +78,7 @@ function applyHstsFloor(headers: Headers) {
 function withApplicationSecurityHeaders(response: Response, pathname: string, nonce?: string) {
   const headers = new Headers(response.headers);
   const isHtml = headers.get('Content-Type')?.toLowerCase().includes('text/html') ?? false;
-  if (isHtml) {
-    applyContentSecurityPolicyBaseline(headers, nonce);
-  } else {
-    applyContentSecurityPolicyBaseline(headers);
-  }
+  applyContentSecurityPolicyBaseline(headers, isHtml ? nonce : undefined);
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   applyHstsFloor(headers);
   headers.set('X-Content-Type-Options', 'nosniff');
@@ -177,17 +173,19 @@ export default {
     }
     const pathname = url.pathname;
     const nonce = crypto.randomUUID();
-    return withApplicationSecurityHeaders(await routeApplicationRequest(request, env, nonce), pathname, nonce);
+    return withApplicationSecurityHeaders(
+      await routeApplicationRequest(request, env, nonce, pathname),
+      pathname,
+      nonce,
+    );
   },
   scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(pruneCloudflareAuthDataBestEffort(env.DB));
   },
 } satisfies ExportedHandler<Env>;
 
-async function routeApplicationRequest(request: Request, env: Env, nonce: string): Promise<Response> {
-  const url = new URL(request.url);
-
-  const route = exactRoutes.get(url.pathname);
+async function routeApplicationRequest(request: Request, env: Env, nonce: string, pathname: string): Promise<Response> {
+  const route = exactRoutes.get(pathname);
   if (route) {
     return requireMethod(request, route.method, () => route.handler(request, env));
   }

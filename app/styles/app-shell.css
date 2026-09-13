@@ -234,12 +234,6 @@ button,
   letter-spacing: 0.02em;
 }
 
-.app-card-copy {
-  color: var(--gb-content-secondary);
-  font-size: 13.5px;
-  line-height: 1.7;
-}
-
 .app-status-badge {
   display: inline-flex;
   align-items: center;

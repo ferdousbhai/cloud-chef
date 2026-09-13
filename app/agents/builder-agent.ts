@@ -292,10 +292,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   async onStart(props?: BuilderAgentProps) {
     if (props) {
       await this.initializeIdentity(props);
-      this.refreshCloudflareExecutionState();
-      return;
+    } else {
+      await this.hydrateDurableIdentity({ required: false, reason: 'agent_start' });
     }
-    await this.hydrateDurableIdentity({ required: false, reason: 'agent_start' });
     this.refreshCloudflareExecutionState();
   }
 
@@ -885,7 +884,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   @callable()
   async getTranscriptCheckpoint(identityValue: TranscriptIdentity): Promise<TranscriptCheckpoint | null> {
-    const identity = this.requireTranscriptIdentity(identityValue);
+    const identity = requireBuilderTranscriptIdentity(identityValue, this.transcriptBinding);
     if (this.messages.length > 0) {
       return this.advanceTranscriptCheckpoint(identity);
     }
@@ -910,10 +909,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Error('This transcript changed in another session. Reload the latest messages before sending.');
     }
     return boundBuilderMessageForPersistence(sanitized);
-  }
-
-  private requireTranscriptIdentity(value: TranscriptIdentity, subchatIndex?: number): TranscriptIdentity {
-    return requireBuilderTranscriptIdentity(value, this.transcriptBinding, subchatIndex);
   }
 
   private async initializeIdentity(props: BuilderAgentProps): Promise<void> {

@@ -30,11 +30,15 @@ const promptRefinementTool: Tool = {
   parameters: z.toJSONSchema(promptRefinementResultSchema) as Tool['parameters'],
 };
 
-export async function userRuntimeEnhancePromptAction(args: { request: Request; env: Env; userId: string }) {
-  return enhancePromptForUser(args);
-}
-
-async function enhancePromptForUser({ request, env, userId }: { request: Request; env: Env; userId: string }) {
+export async function userRuntimeEnhancePromptAction({
+  request,
+  env,
+  userId,
+}: {
+  request: Request;
+  env: Env;
+  userId: string;
+}) {
   try {
     const parsedRequest = promptRefinementRequestSchema.safeParse(
       await readJsonBodyWithLimit(request, MAX_ENHANCE_PROMPT_REQUEST_BYTES, 'Prompt enhancement request'),

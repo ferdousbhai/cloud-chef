@@ -99,7 +99,6 @@ html.light {
   --bolt-elements-editor-gutter-activeLineTextColor: rgb(var(--content-primary-rgb));
   --bolt-elements-editor-foldGutter-textColorHover: rgb(var(--content-primary-rgb));
   --bolt-elements-editor-activeLineBackgroundColor: rgb(50 53 63 / 5%);
-  --bolt-elements-editor-tooltip-backgroundColorSelected: theme('colors.gray.500/0.2');
   --bolt-elements-editor-search-button-backgroundColor: theme('colors.gray.100');
   --bolt-elements-editor-search-button-backgroundColorHover: theme('colors.gray.900/0.1');
 }
@@ -108,7 +107,6 @@ html.dark {
   --cm-backgroundColor: var(--bolt-elements-bg-depth-2);
   --bolt-elements-editor-gutter-textColor: rgb(var(--content-tertiary-rgb));
   --bolt-elements-editor-gutter-activeLineTextColor: rgb(var(--content-secondary-rgb));
-  --bolt-elements-editor-selection-inactiveBackgroundOpacity: 0.3;
   --bolt-elements-editor-activeLineBackgroundColor: rgb(50 53 63 / 50%);
   --bolt-elements-editor-foldGutter-textColorHover: rgb(var(--content-primary-rgb));
   --bolt-elements-editor-matchingBracketBackgroundColor: rgba(66, 180, 255, 0.3);

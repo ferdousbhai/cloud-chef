@@ -113,7 +113,6 @@ export async function deployValidatedRevisionForBuilder(args: {
   workspace: BuilderDeploymentWorkspace;
   toolCallId: string;
   validatedRevision: string;
-  abortSignal?: AbortSignal;
   /** Called once the plan exists, so the caller can follow the stages it is about to record. */
   onPlanned?: (deploymentId: string) => void;
 }): Promise<BuilderDeploymentState> {
@@ -163,7 +162,6 @@ async function planValidatedRevision(args: {
   toolCallId: string;
   validatedRevision: string;
   publication: 'Deployment' | 'Preview';
-  abortSignal?: AbortSignal;
 }): Promise<string> {
   const snapshot = await args.workspace.checkpoint();
   if (snapshot.revision !== args.validatedRevision) {
@@ -172,7 +170,6 @@ async function planValidatedRevision(args: {
   if (!(await args.workspace.hasSuccessfulValidation(snapshot.revision))) {
     throw new Error(`${args.publication} requires full validation for this exact revision.`);
   }
-  args.abortSignal?.throwIfAborted();
   const source = await args.workspace.prepareDeployment(snapshot.revision);
   const deploymentId = await publicationDeploymentId(args.workspace.projectId, args.toolCallId, snapshot.revision);
   await createOrReplayDeploymentPlanForUser({

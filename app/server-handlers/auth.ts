@@ -6,8 +6,7 @@ export async function authSessionAction({ request, env }: { request: Request; en
 }
 
 export async function signOutAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
-  const origin = request.headers.get('origin');
-  if (!origin || origin !== new URL(request.url).origin) {
+  if (request.headers.get('origin') !== new URL(request.url).origin) {
     return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
   }
   await deleteAuthSession(env, request);
