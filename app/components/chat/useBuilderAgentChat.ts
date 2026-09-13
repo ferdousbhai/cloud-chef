@@ -168,6 +168,9 @@ export function useBuilderAgentChat(args: {
     },
   });
   const workspaceControllerRef = useRef<BuilderWorkspaceSyncController | null>(null);
+  // presentationId is the key, not an input: changing presentation must hand out a fresh gate.
+  // createAsyncGate stopped taking it as an argument, which is why the rule now reads it as unused.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate re-key
   const workspaceGateRef = useMemo(() => ({ current: createAsyncGate() }), [args.presentationId]);
   const chat = useAgentChat<BuilderAgentState, UIMessage>({
     agent: builderAgent,
