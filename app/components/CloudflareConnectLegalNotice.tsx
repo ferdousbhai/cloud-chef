@@ -9,7 +9,7 @@ export function CloudflareConnectLegalNotice({ className = '' }: { className?: s
         Ghostbuild runs your workspace on Cloudflare Containers, which requires the Workers Paid plan on the account you
         connect.
       </p>
-      <p className="mt-2">
+      <p className="mt-1">
         By connecting, you authorize Ghostbuild to create and use project resources in this Cloudflare account as
         described in the{' '}
         <Link to="/privacy" className="underline underline-offset-4">

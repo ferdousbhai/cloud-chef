@@ -57,7 +57,12 @@ html.light {
 /* Faint terminal grid, the way a tiled character cell reads on a CRT. */
 .ghost-home-shell {
   position: relative;
-  min-height: 100%;
+  /* Not `min-height: 100%`: this sits in a flex column beside the header and the footer, so a
+     full-height shell pushed both of them past the viewport and the page scrolled by exactly their
+     combined height no matter how short the copy was. `grow` already gives it the leftover space. */
+  min-height: 0;
+  display: flex;
+  align-items: center;
   overflow-x: hidden;
   isolation: isolate;
   background-color: var(--ghost-home-bg);
@@ -70,9 +75,25 @@ html.light {
 
 .ghost-home-copy {
   width: 100%;
-  max-width: 860px;
+  max-width: 1080px;
   margin: 0 auto;
-  padding-top: clamp(20px, 6vh, 60px);
+  padding-top: clamp(8px, 2.5vh, 28px);
+}
+
+.ghost-home-hero {
+  display: grid;
+  gap: 20px;
+  align-items: center;
+}
+
+/* Beside, not above: the mascot's thirteen rows are the tallest block on the page,
+   and a laptop is short and wide. Below this width there is no room to place it
+   alongside, so it stacks and the grid gap does the spacing. */
+@media (min-width: 900px) {
+  .ghost-home-hero {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 44px;
+  }
 }
 
 .ghost-home-ascii {
@@ -81,10 +102,10 @@ html.light {
   width: max-content;
   max-width: 100%;
   overflow: hidden;
-  margin: 0 0 20px;
+  margin: 0;
   background: var(--ghost-home-bg);
   color: var(--ghost-home-accent);
-  font-size: clamp(6px, 1.35vw, 11px);
+  font-size: clamp(6px, 1.5vw, 13px);
   font-weight: 700;
   line-height: 1.08;
   white-space: pre;
@@ -143,17 +164,17 @@ html.light {
 }
 
 .ghost-home-lede {
-  max-width: 640px;
-  margin-top: 20px;
+  max-width: 620px;
+  margin-top: 12px;
   color: var(--ghost-home-muted);
-  font-size: 15px;
+  font-size: 14.5px;
   font-style: italic;
-  line-height: 1.7;
+  line-height: 1.6;
 }
 
 .ghost-home-ownership {
   max-width: 640px;
-  margin-top: 10px;
+  margin-top: 8px;
   color: var(--ghost-home-soft);
   font-size: 12.5px;
   line-height: 1.6;
@@ -165,8 +186,8 @@ html.light {
 }
 
 .ghost-home-composer-stack {
-  max-width: 800px;
-  margin-top: 28px;
+  max-width: 760px;
+  margin-top: 18px;
   animation-delay: 80ms;
 }
 

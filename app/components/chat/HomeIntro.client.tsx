@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { HomeHeroCopy } from '~/components/HomeHeroCopy';
+import { HomeGhostMark, HomeHeroCopy } from '~/components/HomeHeroCopy';
 import { MessageInput } from './MessageInput';
 
 const DisabledChatMessageSheet = lazy(() =>
@@ -24,25 +24,30 @@ export function HomeIntro({
   sendMessageInProgress,
 }: HomeIntroProps) {
   return (
-    <div className="ghost-home-shell grow p-4 sm:px-6 lg:px-8 lg:py-5">
+    <div className="ghost-home-shell grow px-4 py-4 sm:px-6 lg:px-8">
       <section className="ghost-home-copy min-w-0" aria-labelledby="intro">
-        <HomeHeroCopy headingId="intro" reveal />
+        <div className="ghost-home-hero">
+          <HomeGhostMark />
+          <div className="ghost-home-main min-w-0">
+            <HomeHeroCopy headingId="intro" reveal />
 
-        <div className="ghost-home-reveal ghost-home-composer-stack">
-          <MessageInput
-            chatStarted={false}
-            isStreaming={isStreaming}
-            sendMessageInProgress={sendMessageInProgress}
-            disabled={disabledReason !== null}
-            onStop={onStop}
-            onSend={onSend}
-            numMessages={messagesLength}
-          />
-          {disabledReason && (
-            <Suspense fallback={null}>
-              <DisabledChatMessageSheet message={disabledReason} />
-            </Suspense>
-          )}
+            <div className="ghost-home-reveal ghost-home-composer-stack">
+              <MessageInput
+                chatStarted={false}
+                isStreaming={isStreaming}
+                sendMessageInProgress={sendMessageInProgress}
+                disabled={disabledReason !== null}
+                onStop={onStop}
+                onSend={onSend}
+                numMessages={messagesLength}
+              />
+              {disabledReason && (
+                <Suspense fallback={null}>
+                  <DisabledChatMessageSheet message={disabledReason} />
+                </Suspense>
+              )}
+            </div>
+          </div>
         </div>
       </section>
     </div>

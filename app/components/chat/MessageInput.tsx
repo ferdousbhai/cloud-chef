@@ -143,7 +143,12 @@ export const MessageInput = memo(function MessageInput({
           )}
         </div>
         {authState.kind === 'unauthenticated' && (
-          <CloudflareConnectLegalNotice className="mx-auto mt-2 max-w-2xl px-2 text-center text-[11px] leading-relaxed text-content-tertiary" />
+          <CloudflareConnectLegalNotice
+            // Left-aligned and set to the composer's own measure: centred prose inside a
+            // left-aligned column reads as a separate island rather than a footnote to the field
+            // it belongs to.
+            className="mt-2 px-1 text-[11px] leading-snug text-content-tertiary"
+          />
         )}
       </div>
       {controller.refinement && (

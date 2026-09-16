@@ -87,7 +87,9 @@ export function BuilderModelSelector({
           aria-label={`Builder model. Current: ${model.label}${disabled ? '. Stop or wait for the current response to finish before switching models.' : ''}`}
           className={classNames(
             'group inline-flex min-h-8 min-w-0 items-center gap-1.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 py-1 pl-3 pr-2 text-xs font-medium text-content-secondary outline-none transition-[color,background-color,border-color,box-shadow] hover:border-border-selected hover:bg-bolt-elements-background-depth-3 hover:text-content-primary focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50',
-            'w-36',
+            // Sized to its label. A fixed width here truncated the one value this control
+            // exists to display.
+            'max-w-[13rem]',
           )}
           title={
             disabled
@@ -96,7 +98,6 @@ export function BuilderModelSelector({
           }
         >
           <span className="truncate">{model.label}</span>
-          {model.id === defaultModelId && <span className="shrink-0 text-content-tertiary">· default</span>}
           <ChevronDownIcon
             className="ml-auto size-3.5 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180"
             aria-hidden="true"

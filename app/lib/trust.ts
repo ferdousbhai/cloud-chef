@@ -18,7 +18,7 @@ export const TRUST_DOCUMENT_STATUS =
 export const TRUST_CHANNEL_STATUS =
   'Ghostbuild aims to review and acknowledge requests submitted through its published support form within two weekdays and private security reports within one weekday. These public-beta targets are not guarantees or contractual service levels. Channels are not monitored continuously, and Ghostbuild does not provide 24/7 or real-time emergency response.';
 export const HOME_HERO_LEDE =
-  'Describe the app. Ghostbuild writes, runs, and deploys your app inside your own Cloudflare account. The code, data, and infrastructure stay yours.';
+  'Describe the app. Ghostbuild writes, runs, and deploys it inside your own Cloudflare account — the code, data, and infrastructure stay yours.';
 
 // The browser gate asserts these exact headings, so the pages and the suite
 // read one definition instead of drifting apart.

@@ -22,8 +22,11 @@ export function TrustLinks({ className = '' }: { className?: string }) {
 
 export function TrustFooter({ className = '' }: { className?: string }) {
   return (
-    <footer className={`border-t border-bolt-elements-borderColor p-4 sm:px-6 ${className}`}>
-      <div className="mx-auto flex w-full max-w-[880px] flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <footer className={`border-t border-bolt-elements-borderColor px-4 py-2.5 sm:px-6 ${className}`}>
+      {/* One row, and no prose: "your Cloudflare account controls generated resources" said the
+          same thing the hero lede already says, and a claim made twice reads as noise rather than
+          reassurance. */}
+      <div className="mx-auto flex w-full max-w-[1080px] flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <p className="text-xs text-content-tertiary">
           <a className="underline underline-offset-4" href="https://github.com/ferdousbhai/ghost-build">
             Open source
@@ -34,8 +37,7 @@ export function TrustFooter({ className = '' }: { className?: string }) {
             href="https://github.com/sponsors/ferdousbhai?metadata_campaign=ghostbuild-app"
           >
             Sponsor
-          </a>{' '}
-          · Your Cloudflare account controls generated resources.
+          </a>
         </p>
         <TrustLinks />
       </div>
