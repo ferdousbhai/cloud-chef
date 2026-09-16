@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { TRUST_PAGE_HEADINGS } from '~/lib/trust';
+import { HOME_HERO_LEDE, TRUST_PAGE_HEADINGS } from '~/lib/trust';
 import { collectBrowserDiagnostics } from './browser-diagnostics';
 
 test('hydrates the built landing page without replacing meaningful SSR content', async ({ page }, testInfo) => {
@@ -10,9 +10,10 @@ test('hydrates the built landing page without replacing meaningful SSR content',
 
   await expect(page).toHaveTitle(/Ghostbuild/);
   await expect(page.getByRole('heading', { name: /If you can dream it/i })).toBeVisible();
-  await expect(
-    page.getByText(/Ghostbuild writes, runs, and deploys your app inside your own Cloudflare account/i),
-  ).toBeVisible();
+  // Asserted against the constant, not a copy of it: this gate exists to prove SSR content
+  // survives hydration, and a transcribed sentence turns every wording change into a red build
+  // that `validate` cannot see, because the browser gate runs outside it.
+  await expect(page.getByText(HOME_HERO_LEDE, { exact: false })).toBeVisible();
   await expect(page.getByPlaceholder(/Describe the app, workflow, and data/i)).toBeVisible();
   // The builder model selector belongs to a connected session, so the signed-out
   // landing page must offer the connect action instead.

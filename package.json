@@ -56,12 +56,13 @@
     "verify:built-ssr": "node scripts/verify-built-ssr.mjs",
     "verify:built-browser": "pnpm run d1:migrations:apply:local && playwright test --project=chromium --project=mobile-chromium",
     "verify:static-assets": "node scripts/verify-static-assets.mjs",
-    "validate:root": "pnpm run generate && pnpm run verify:stack && pnpm run verify:production-config && pnpm run verify:workers-builds-config && pnpm run verify:licenses && pnpm run audit:dependencies && pnpm run typecheck:check && pnpm run lint && pnpm run test && pnpm run test:workerd && pnpm run knip && pnpm run build:check && pnpm run verify:built-ssr && pnpm run verify:static-assets && pnpm run bundle:check",
+    "validate:root": "pnpm run generate && pnpm run verify:stack && pnpm run verify:production-config && pnpm run verify:workers-builds-config && pnpm run verify:copy-assertions && pnpm run verify:licenses && pnpm run audit:dependencies && pnpm run typecheck:check && pnpm run lint && pnpm run test && pnpm run test:workerd && pnpm run knip && pnpm run build:check && pnpm run verify:built-ssr && pnpm run verify:static-assets && pnpm run bundle:check",
     "validate:agent": "pnpm --dir ghostbuild-agent run typecheck && pnpm --dir ghostbuild-agent run test",
     "validate:template": "node scripts/verify-template.mjs",
     "validate:public-beta": "pnpm run validate && pnpm run verify:built-browser",
     "validate": "pnpm run validate:root && pnpm run validate:agent && pnpm run validate:template",
-    "knip": "knip --treat-config-hints-as-errors && knip --config knip.production.jsonc --treat-config-hints-as-errors"
+    "knip": "knip --treat-config-hints-as-errors && knip --config knip.production.jsonc --treat-config-hints-as-errors",
+    "verify:copy-assertions": "node scripts/verify-copy-assertions.mjs"
   },
   "engines": {
     "node": ">=26.0.0"
