@@ -23,7 +23,7 @@ function SupportPage() {
   return (
     <TrustPage
       title={TRUST_PAGE_HEADINGS.support}
-      summary="One public GitHub form handles product, Ghostbuild sign-in, privacy, and abuse requests. Everyone can read it, so never include credentials, account details, or private project data."
+      summary="One public GitHub form handles product, Ghostbuild sign-in, privacy, and abuse requests. Everyone can read it, so post nothing you would not publish."
     >
       <TrustSection title="Open a support request">
         <p>
@@ -31,9 +31,12 @@ function SupportPage() {
             Create a GitHub support request
           </a>
         </p>
+        {/* The one place the rule is stated. The sections below each used to restate it in their
+            own words, which is how one instruction became four and the unique item in each got
+            buried in the repetition. */}
         <p>Before posting, remove:</p>
         <ul>
-          <li>personal data</li>
+          <li>personal data and identity documents</li>
           <li>prompts and source code</li>
           <li>tokens and credentials</li>
           <li>Cloudflare account identifiers</li>
@@ -44,17 +47,16 @@ function SupportPage() {
       <TrustSection title="Account and privacy requests">
         <p>
           Post only the request type and your GitHub handle. There is no verified confidential support or privacy inbox
-          yet, so keep identity documents, account details, and other private information out of the issue; if a private
-          method can be arranged, a maintainer will name it there. Statutory deadlines govern privacy-rights requests
-          whatever the target above says.
+          yet; if a private method can be arranged, a maintainer will name it there. Statutory deadlines govern
+          privacy-rights requests whatever the target above says.
         </p>
       </TrustSection>
       <TrustSection title="Report abuse">
         <p>
           Abuse reports use the same form — there is no separate abuse address. Choose the abuse category, describe the
           prohibited use under the <Link to="/terms">Terms</Link>, and identify the affected Ghostbuild-generated site
-          by its public URL only. Attach no evidence containing personal data, credentials, or another person’s private
-          content; a maintainer will ask for what is needed.
+          by its public URL only. Attach no evidence containing another person’s private content; a maintainer will ask
+          for what is needed.
         </p>
         <p>
           Ghostbuild can act only on the service it operates. A deployed application’s content and behaviour live in the
