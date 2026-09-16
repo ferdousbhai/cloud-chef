@@ -12,10 +12,12 @@ export const Route = createFileRoute('/terms')({
   component: TermsPage,
 });
 
+// Operative wording is untouched here. Only the presentation changed: the clause series that state
+// eligibility, billable charges, prohibited uses, and publisher responsibilities are rendered as the
+// lists they already were, so a reader checking one clause no longer parses a sentence to find it.
 function TermsPage() {
   return (
     <TrustPage
-      eyebrow="Terms"
       title={TRUST_PAGE_HEADINGS.terms}
       summary="These terms govern the Ghostbuild public beta. The service can generate, validate, and deploy project code inside the Cloudflare account you authorize."
     >
@@ -24,17 +26,29 @@ function TermsPage() {
           Ghostbuild is operated by {GHOSTBUILD_OPERATOR.legalName}, an {GHOSTBUILD_OPERATOR.legalForm} (Ontario
           Corporation No. {GHOSTBUILD_OPERATOR.registrationNumber}), with a business correspondence address at{' '}
           {GHOSTBUILD_OPERATOR.correspondenceAddress}. These Terms form an agreement between you and the operator. By
-          connecting Cloudflare or using the signed-in service, you agree to these Terms. You must be at least 18, able
-          to form a binding agreement, and authorized to act for any organization or Cloudflare account you use.
+          connecting Cloudflare or using the signed-in service, you agree to these Terms.
         </p>
+        <p>You must be:</p>
+        <ul>
+          <li>at least 18</li>
+          <li>able to form a binding agreement</li>
+          <li>authorized to act for any organization or Cloudflare account you use</li>
+        </ul>
       </TrustSection>
       <TrustSection title="Public-beta service, availability, and costs">
         <p>
           Ghostbuild currently charges no fee for access during the public beta. Using it requires a compatible
-          Cloudflare account, Workers Paid, and Containers. You are responsible for charges from Cloudflare, including
-          inference or prepaid AI Gateway credits, storage, Container compute, builds, network use, and deployed
-          infrastructure. Ghostbuild does not purchase credits or automatically change your Cloudflare plan.
+          Cloudflare account, Workers Paid, and Containers. You are responsible for charges from Cloudflare, including:
         </p>
+        <ul>
+          <li>inference or prepaid AI Gateway credits</li>
+          <li>storage</li>
+          <li>Container compute</li>
+          <li>builds</li>
+          <li>network use</li>
+          <li>deployed infrastructure</li>
+        </ul>
+        <p>Ghostbuild does not purchase credits or automatically change your Cloudflare plan.</p>
         <p>
           Ghostbuild uses AI and preview Cloudflare technology to generate, validate, preview, and deploy applications.
           It is pre-release software provided on an as-available basis and depends on Cloudflare and other third-party
@@ -65,19 +79,35 @@ function TermsPage() {
           resources are created in, controlled through, and billed to your Cloudflare account, subject to Cloudflare’s
           terms and third-party licenses.
         </p>
+        <p>You are responsible for the applications you publish, including their:</p>
+        <ul>
+          <li>content</li>
+          <li>users</li>
+          <li>security</li>
+          <li>monitoring</li>
+          <li>legal notices</li>
+          <li>data handling</li>
+          <li>compliance</li>
+        </ul>
         <p>
-          You are responsible for the applications you publish, including their content, users, security, monitoring,
-          legal notices, data handling, and compliance. Removing a project schedules cleanup of the generated resources
-          associated with that project. Cleanup depends on your Cloudflare authorization remaining available and may be
-          delayed or retried as described in the <Link to="/privacy">Privacy notice</Link>.
+          Removing a project schedules cleanup of the generated resources associated with that project. Cleanup depends
+          on your Cloudflare authorization remaining available and may be delayed or retried as described in the{' '}
+          <Link to="/privacy">Privacy notice</Link>.
         </p>
       </TrustSection>
       <TrustSection title="Acceptable use">
+        <p>Do not use Ghostbuild to:</p>
+        <ul>
+          <li>violate applicable law or third-party rights</li>
+          <li>create or distribute malware</li>
+          <li>access systems without authorization</li>
+          <li>evade safeguards or rate limits</li>
+          <li>expose credentials or personal data you are not authorized to process</li>
+          <li>abuse Cloudflare or GitHub services</li>
+        </ul>
         <p>
-          Do not use Ghostbuild to violate applicable law or third-party rights; create or distribute malware; access
-          systems without authorization; evade safeguards or rate limits; expose credentials or personal data you are
-          not authorized to process; or abuse Cloudflare or GitHub services. Do not use it to build systems whose
-          purpose is fraud, impersonation, harassment, exploitation, or facilitating physical harm.
+          Do not use it to build systems whose purpose is fraud, impersonation, harassment, exploitation, or
+          facilitating physical harm.
         </p>
         <p>
           Report prohibited use through the public <Link to="/support">Support</Link> form, which is also the abuse
@@ -131,11 +161,16 @@ function TermsPage() {
         <p>
           Changes apply prospectively. When reasonably practical, material changes will be published on this page with
           an updated version, effective date, and advance notice before they take effect. Urgent changes needed for
-          security, safety, legal compliance, or third-party platform requirements may take effect sooner. You may stop
-          using Ghostbuild and revoke its Cloudflare authorization before a later effective date. Continued signed-in
-          use after that date accepts the updated Terms where applicable law permits. If any provision is unenforceable,
-          the rest remains effective, and a failure to enforce a provision is not a waiver. Use{' '}
+          security, safety, legal compliance, or third-party platform requirements may take effect sooner.
+        </p>
+        <p>
+          You may stop using Ghostbuild and revoke its Cloudflare authorization before a later effective date. Continued
+          signed-in use after that date accepts the updated Terms where applicable law permits. Use{' '}
           <Link to="/support">Support</Link> for notices or questions.
+        </p>
+        <p>
+          If any provision is unenforceable, the rest remains effective, and a failure to enforce a provision is not a
+          waiver.
         </p>
       </TrustSection>
     </TrustPage>

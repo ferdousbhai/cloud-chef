@@ -15,8 +15,11 @@ export const TRUST_DOCUMENT_EFFECTIVE_ISO_DATE = '2026-08-14';
 export const TRUST_DOCUMENT_EFFECTIVE_DATE = 'August 14, 2026';
 export const TRUST_DOCUMENT_STATUS =
   'These pages describe the current service, its public-beta limitations, and the channels that are actually available.';
-export const TRUST_CHANNEL_STATUS =
-  'Ghostbuild aims to review and acknowledge requests submitted through its published support form within two weekdays and private security reports within one weekday. These public-beta targets are not guarantees or contractual service levels. Channels are not monitored continuously, and Ghostbuild does not provide 24/7 or real-time emergency response.';
+// A response target is data. The sentence this replaced recited both channels' numbers on both
+// pages, next to each page's own restatement of its own number, so the same fact was on screen
+// three times. Each page now renders its own rows and shares only the caveat.
+export const TRUST_RESPONSE_CAVEAT =
+  'Public-beta targets, not guarantees or contractual service levels. Channels are not monitored continuously, and Ghostbuild does not provide 24/7 or real-time emergency response.';
 export const HOME_HERO_LEDE =
   'Describe the app. Ghostbuild writes, runs, and deploys it inside your own Cloudflare account.';
 

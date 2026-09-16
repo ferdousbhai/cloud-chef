@@ -1,3 +1,6 @@
+/* These are reference documents. The rhythm is tuned for scanning — a reader arrives looking for
+   one clause — so headings sit close to the text they label and sections are separated by a rule
+   rather than by empty space. */
 .trust-page {
   --trust-rule: color-mix(in srgb, var(--ghost-home-accent-2) 24%, var(--ghost-home-border));
   overflow-x: hidden;
@@ -9,7 +12,7 @@
   display: flex;
   width: min(1120px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 24px 0;
+  padding: 18px 0;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
@@ -20,104 +23,133 @@
   display: grid;
   width: min(1120px, calc(100% - 32px));
   margin: 0 auto;
-  padding: clamp(48px, 8vw, 104px) 0 96px;
-  grid-template-columns: minmax(150px, 0.32fr) minmax(0, 1fr);
-  gap: clamp(32px, 8vw, 112px);
+  padding: clamp(28px, 4vw, 48px) 0 64px;
+  grid-template-columns: minmax(132px, 0.24fr) minmax(0, 1fr);
+  gap: clamp(24px, 5vw, 64px);
 }
 
 .trust-page__rail {
   align-self: start;
   position: sticky;
-  top: 32px;
-  padding-left: 16px;
+  top: 24px;
+  padding-left: 14px;
   border-left: 3px solid var(--ghost-home-accent);
   color: var(--ghost-home-soft);
   font-size: 11px;
   font-weight: 750;
-  line-height: 1.6;
+  line-height: 1.5;
   letter-spacing: 0.055em;
   text-transform: uppercase;
 }
 
-.trust-page__rail time {
-  display: block;
+.trust-page__rail dd {
+  margin: 0 0 8px;
   color: var(--ghost-home-ink);
   letter-spacing: 0;
   text-transform: none;
 }
 
+.trust-page__rail dd:last-child {
+  margin-bottom: 0;
+}
+
 .trust-page__article {
   min-width: 0;
-  max-width: 780px;
+  max-width: 760px;
 }
 
 .trust-page__article > h1 {
-  max-width: 740px;
-  margin-top: 12px;
-  font-size: clamp(28px, 4.2vw, 44px);
+  max-width: 24ch;
+  font-size: clamp(24px, 3.2vw, 34px);
   font-weight: 700;
-  line-height: 1.15;
+  line-height: 1.2;
   letter-spacing: -0.02em;
 }
 
 .trust-page__summary {
-  max-width: 68ch;
-  margin-top: 24px;
+  max-width: 70ch;
+  margin-top: 10px;
   color: var(--ghost-home-muted);
-  font-size: clamp(15px, 1.5vw, 17px);
-  font-style: italic;
-  line-height: 1.7;
+  font-size: clamp(15px, 1.4vw, 16px);
+  line-height: 1.6;
 }
 
 .trust-page__notice {
-  margin-top: 32px;
-  padding: 16px 18px;
-  border: 1px solid color-mix(in srgb, var(--ghost-home-accent-3) 52%, var(--ghost-home-border));
-  border-radius: var(--gb-radius);
-  background: color-mix(in srgb, var(--ghost-home-accent-3) 9%, var(--ghost-home-surface));
-  color: var(--ghost-home-muted);
+  max-width: 70ch;
+  margin-top: 10px;
+  color: var(--ghost-home-soft);
   font-size: 13px;
   line-height: 1.55;
 }
 
 .trust-page__notice strong {
-  color: var(--ghost-home-ink);
+  color: var(--ghost-home-muted);
 }
 
 .trust-page__prose {
-  margin-top: 56px;
+  margin-top: 28px;
 }
 
 .trust-page__prose section {
-  padding: 32px 0;
+  padding: 18px 0;
   border-top: 1px solid var(--trust-rule);
 }
 
 .trust-page__prose h2 {
-  margin-bottom: 14px;
+  margin-bottom: 8px;
   color: var(--ghost-home-ink);
-  font-size: clamp(22px, 3vw, 30px);
-  font-weight: 850;
-  letter-spacing: -0.025em;
+  font-size: clamp(17px, 1.6vw, 20px);
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
 }
 
 .trust-page__prose p,
-.trust-page__prose li {
-  max-width: 76ch;
+.trust-page__prose li,
+.trust-page__prose dd {
+  max-width: 70ch;
   color: var(--ghost-home-muted);
   font-size: 15px;
-  line-height: 1.75;
+  line-height: 1.6;
 }
 
-.trust-page__prose p + p {
-  margin-top: 14px;
+.trust-page__prose p + p,
+.trust-page__prose ul + p,
+.trust-page__prose dl + p {
+  margin-top: 10px;
 }
 
 .trust-page__prose ul {
   display: grid;
-  gap: 10px;
-  padding-left: 20px;
+  gap: 5px;
+  margin-top: 8px;
+  padding-left: 18px;
   list-style: square;
+}
+
+.trust-page__prose li::marker {
+  color: var(--ghost-home-soft);
+}
+
+/* Two columns so the term and its value line up down the page; a term that has to wrap still
+   keeps its own row. */
+.trust-page__pairs {
+  display: grid;
+  margin-top: 8px;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  column-gap: 20px;
+  row-gap: 4px;
+}
+
+.trust-page__pairs dt {
+  color: var(--ghost-home-ink);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.trust-page__pairs dd {
+  margin: 0;
 }
 
 .trust-page__prose strong,
@@ -150,14 +182,42 @@
   .trust-page__header {
     align-items: flex-start;
     flex-direction: column;
+    gap: 10px;
   }
 
   .trust-page__layout {
     grid-template-columns: 1fr;
-    gap: 28px;
+    gap: 20px;
   }
 
   .trust-page__rail {
     position: static;
+  }
+
+  .trust-page__rail dl {
+    display: grid;
+    grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+    gap: 2px 12px;
+  }
+
+  .trust-page__rail dd {
+    margin-bottom: 0;
+  }
+}
+
+/* Below the single-column breakpoint a term column wide enough to hold its longest term would
+   leave the value nothing to sit in, so the rows stack instead. */
+@media (max-width: 600px) {
+  .trust-page__pairs {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 2px;
+  }
+
+  .trust-page__pairs dt {
+    margin-top: 6px;
+  }
+
+  .trust-page__pairs dt:first-of-type {
+    margin-top: 0;
   }
 }

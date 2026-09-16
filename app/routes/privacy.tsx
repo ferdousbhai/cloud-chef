@@ -13,21 +13,35 @@ export const Route = createFileRoute('/privacy')({
   component: PrivacyPage,
 });
 
+// Operative wording is untouched here. Only the presentation changed: the record inventories and
+// retention windows are rendered as the lists they already were, and the retention section — nine
+// paragraphs answering four separate questions — is split under headings that name each question.
 function PrivacyPage() {
   return (
     <TrustPage
-      eyebrow="Privacy"
       title={TRUST_PAGE_HEADINGS.privacy}
       summary="Ghostbuild’s own account stores only the records needed to authenticate you, connect Cloudflare, locate your user-owned runtime, and operate the service, plus narrow product telemetry if you opt in. Project and conversation data stays in the Cloudflare account you connect; the browser keeps only rebuildable in-memory views."
     >
       <TrustSection title="What Ghostbuild stores in its own account">
-        <p>
-          The operator control plane stores your Cloudflare user identity and account details, hashed authentication
-          sessions, encrypted OAuth credentials, granted scopes and connection status, user-runtime names and endpoints,
-          provisioning status, and narrow operational records. It also holds sampled service logs and, only if you opt
-          in, allowlisted product telemetry. The control-plane database does not store prompt or transcript bodies,
-          project source, deployment plans, generated application data, or raw AI responses.
-        </p>
+        <p>The operator control plane stores:</p>
+        <ul>
+          <li>your Cloudflare user identity and account details</li>
+          <li>hashed authentication sessions</li>
+          <li>encrypted OAuth credentials</li>
+          <li>granted scopes and connection status</li>
+          <li>user-runtime names and endpoints</li>
+          <li>provisioning status</li>
+          <li>narrow operational records</li>
+        </ul>
+        <p>It also holds sampled service logs and, only if you opt in, allowlisted product telemetry.</p>
+        <p>The control-plane database does not store:</p>
+        <ul>
+          <li>prompt or transcript bodies</li>
+          <li>project source</li>
+          <li>deployment plans</li>
+          <li>generated application data</li>
+          <li>raw AI responses</li>
+        </ul>
         <p>
           Chat catalogs, transcripts, generated files, workspace state, deployment records, and generated Cloudflare
           resources are stored in the connected Cloudflare account. Ghostbuild accesses them to perform your requests,
@@ -157,34 +171,69 @@ function PrivacyPage() {
         </p>
       </TrustSection>
 
-      <TrustSection title="Retention, removal, and deletion">
+      <TrustSection title="Retention in the operator control plane">
+        <p>In the operator control plane:</p>
+        <ul>
+          <li>OAuth authorization state expires after 10 minutes</li>
+          <li>authentication sessions after 30 days</li>
+          <li>unreferenced encrypted credential records become eligible for removal after 24 hours</li>
+        </ul>
         <p>
-          In the operator control plane, OAuth authorization state expires after 10 minutes, authentication sessions
-          after 30 days, and unreferenced encrypted credential records become eligible for removal after 24 hours.
           Maintenance runs every 15 minutes in bounded batches, so backlog or retries can delay physical removal.
           Account, connection, and runtime-locator records remain while the account and service are active or until they
           are no longer needed or a verified request is fulfilled. There is no automatic inactive-account purge.
         </p>
         <p>
-          Settings contains a self-service control that erases every record the operator holds for your account:
-          identity and profile, authentication sessions, encrypted Cloudflare credentials, connection metadata and
-          granted scopes, and your runtime locator. It also asks Cloudflare to revoke Ghostbuild’s authorization, and
-          tells you when Cloudflare did not confirm that revocation so you can remove it yourself. Because erasure is
-          irreversible it requires a Cloudflare sign-in completed in the last ten minutes, an exact typed confirmation,
-          and an explicit acknowledgement of what is retained. Repeating it is harmless. If you have already revoked
-          Ghostbuild’s authorization you can no longer sign in, so use the request path below instead.
+          The operator’s current Cloudflare plan retains sampled control-plane Workers Logs and traces for seven days.
+          Ghostbuild does not copy them to another log or trace store. Cloudflare may retain aggregate control-plane
+          Worker metrics for up to three months; those metrics are not a user-addressable event ledger.
+        </p>
+        <p>
+          <a href="https://developers.cloudflare.com/d1/reference/time-travel/">Cloudflare D1 Time Travel</a> keeps
+          control-plane database changes recoverable for up to 30 days under the current plan. User-owned D1 recovery
+          windows depend on the user’s Cloudflare plan. Ghostbuild will not intentionally restore erased records from
+          recovery history. If broader disaster recovery reintroduces them, the erasure must be reapplied unless a
+          lawful retention exception governs.
+        </p>
+      </TrustSection>
+
+      <TrustSection title="Erasing and exporting operator-held records">
+        <p>Settings contains a self-service control that erases every record the operator holds for your account:</p>
+        <ul>
+          <li>identity and profile</li>
+          <li>authentication sessions</li>
+          <li>encrypted Cloudflare credentials</li>
+          <li>connection metadata and granted scopes</li>
+          <li>your runtime locator</li>
+        </ul>
+        <p>
+          It also asks Cloudflare to revoke Ghostbuild’s authorization, and tells you when Cloudflare did not confirm
+          that revocation so you can remove it yourself. Because erasure is irreversible it requires a Cloudflare
+          sign-in completed in the last ten minutes, an exact typed confirmation, and an explicit acknowledgement of
+          what is retained. Repeating it is harmless. If you have already revoked Ghostbuild’s authorization you can no
+          longer sign in, so use the request path below instead.
         </p>
         <p>
           Settings also contains a self-service export of those same operator-held records. It saves a JSON file,
-          carrying a schema version and an export timestamp, containing your identity and profile, your Cloudflare
-          connection metadata and granted scopes, the existence, storage time, and key version of your encrypted
-          credential record, your runtime locator, and your authentication-session and OAuth-state records. Encrypted
-          credential material, initialisation vectors, credential handles, and session token hashes are never exported.
-          Because a single file discloses your whole account record, the export requires the same Cloudflare sign-in
-          completed in the last ten minutes that erasure requires. Each section is bounded at 200 records and reports
-          the untruncated count beside them, and a section that could not be read is named in the file, which reports
-          itself incomplete rather than looking whole.
+          carrying a schema version and an export timestamp, containing:
         </p>
+        <ul>
+          <li>your identity and profile</li>
+          <li>your Cloudflare connection metadata and granted scopes</li>
+          <li>the existence, storage time, and key version of your encrypted credential record</li>
+          <li>your runtime locator</li>
+          <li>your authentication-session and OAuth-state records</li>
+        </ul>
+        <p>
+          Encrypted credential material, initialisation vectors, credential handles, and session token hashes are never
+          exported. Because a single file discloses your whole account record, the export requires the same Cloudflare
+          sign-in completed in the last ten minutes that erasure requires. Each section is bounded at 200 records and
+          reports the untruncated count beside them, and a section that could not be read is named in the file, which
+          reports itself incomplete rather than looking whole.
+        </p>
+      </TrustSection>
+
+      <TrustSection title="What removal does not delete">
         <p>
           That control deliberately deletes nothing inside your own Cloudflare account.{' '}
           <strong>
@@ -199,22 +248,10 @@ function PrivacyPage() {
           from the server and are in no export; Settings lists exactly what to clear.
         </p>
         <p>
-          The operator’s current Cloudflare plan retains sampled control-plane Workers Logs and traces for seven days.
-          Ghostbuild does not copy them to another log or trace store. Cloudflare may retain aggregate control-plane
-          Worker metrics for up to three months; those metrics are not a user-addressable event ledger.
-        </p>
-        <p>
           Workspace Worker and Computer container logs, and generated-application Worker logs and traces, remain in your
           connected Cloudflare account. Their access and retention follow that account’s permissions, plan, product
           settings, and Cloudflare controls. Ghostbuild does not copy them into the operator’s log or trace store, and
           removing a project does not immediately erase provider-retained observability.
-        </p>
-        <p>
-          <a href="https://developers.cloudflare.com/d1/reference/time-travel/">Cloudflare D1 Time Travel</a> keeps
-          control-plane database changes recoverable for up to 30 days under the current plan. User-owned D1 recovery
-          windows depend on the user’s Cloudflare plan. Ghostbuild will not intentionally restore erased records from
-          recovery history. If broader disaster recovery reintroduces them, the erasure must be reapplied unless a
-          lawful retention exception governs.
         </p>
         <p>
           Removing a project hides it from the active project list and makes its Agent and workspace eligible for
