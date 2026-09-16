@@ -8,7 +8,7 @@ This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-02
 Production packages: 117
-Inventory SHA-256: 307075f7f98979efcf7b9664c0a4108af97744a3fddeff51d440e30e101ae203
+Inventory SHA-256: b380c668ad1c5ceae3caac348e8c9ae85c09d1509a7f76416103918d4e2a851b
 
 PACKAGE INVENTORY
 =================
@@ -703,7 +703,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 2213d91c606205c71eb051a199478cdc2adde945893404d7f1421436dd6d5cc1)
 
-js-yaml@4.3.1
+js-yaml@4.3.2
 Declared license: MIT
 Author: Vladimir Zapparov <dervus.grim@gmail.com>
 Repository: nodeca/js-yaml
@@ -4750,7 +4750,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 SHA-256 a07bc24468b9654ce76a547d47a2db282d07733b715db4c73a98bd63961f9550
 Used by:
-- js-yaml@4.3.1:LICENSE
+- js-yaml@4.3.2:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 (The MIT License)
 

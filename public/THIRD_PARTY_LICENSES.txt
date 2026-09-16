@@ -8,7 +8,7 @@ This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
 Production packages: 699
-Inventory SHA-256: f5e30668252b52f9f2aec27c4d3eee44f80fef5c5567fc5237a2e26c9a12dd1e
+Inventory SHA-256: 617bb9383db8961cb6b6f79fb1436c64661566b6d0be064d08a6ddf8d00ee558
 
 PACKAGE INVENTORY
 =================
@@ -3643,7 +3643,7 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb)
 
-hono@4.12.34
+hono@4.13.5
 Declared license: MIT
 Author: Yusuke Wada <yusuke@kamawada.com> (https://github.com/yusukebe)
 Repository: {"type":"git","url":"git+https://github.com/honojs/hono.git"}
@@ -3949,7 +3949,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 2213d91c606205c71eb051a199478cdc2adde945893404d7f1421436dd6d5cc1)
 
-js-yaml@4.3.1
+js-yaml@4.3.2
 Declared license: MIT
 Author: Vladimir Zapparov <dervus.grim@gmail.com>
 Repository: nodeca/js-yaml
@@ -5555,7 +5555,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 d4c2065e2b936e62a4eb400efb4576edec9ca1388a9f78aa288e147275e7bc8b)
 
-smol-toml@1.7.0
+smol-toml@1.8.0
 Declared license: BSD-3-Clause
 Author: Cynthia Rey <cynthia@cynthia.dev>
 Repository: {"type":"git","url":"github:squirrelchat/smol-toml"}
@@ -17817,7 +17817,7 @@ SOFTWARE.
 
 SHA-256 a07bc24468b9654ce76a547d47a2db282d07733b715db4c73a98bd63961f9550
 Used by:
-- js-yaml@4.3.1:LICENSE
+- js-yaml@4.3.2:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 (The MIT License)
 
@@ -18436,7 +18436,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 SHA-256 a6ab98e5c77b9070c443eaff2ff81034a6f8cc05a7524d5098eb0f24defa0115
 Used by:
-- hono@4.12.34:LICENSE
+- hono@4.13.5:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -24348,7 +24348,7 @@ Repository: https://github.com/yargs/yargs-parser.git
 
 SHA-256 fa5659948374d4f555594f47f6da073b40dc503e921aeeece30df4362b3051a5
 Used by:
-- smol-toml@1.7.0:LICENSE
+- smol-toml@1.8.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (c) Squirrel Chat et al., All rights reserved.
 

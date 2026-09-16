@@ -264,13 +264,14 @@ overrides:
   '@hono/node-server@<2.0.10': '2.0.10'
   'browserslist@<=4.28.6': '4.28.8'
   'fast-uri@>=3.0.0 <3.1.6': '3.1.6'
-  'hono@<4.12.34': '4.12.34'
+  'hono@<4.13.5': '4.13.5'
   'ip-address@<=10.3.0': '10.3.1'
-  'js-yaml@>=4.0.0 <4.3.1': '4.3.1'
+  'js-yaml@>=4.0.0 <4.3.2': '4.3.2'
   'nanoid@<3.3.18': '3.3.18'
   'postcss@<=8.5.22': '8.5.25'
   'qs@<6.16.0': '6.16.0'
-  'sharp@<0.35.0': '0.35.3'
+  'smol-toml@<1.7.1': '1.8.0'
+  'sharp@<0.35.4': '0.35.4'
   'undici@>=7.0.0 <7.29.0': '7.29.0'
 `;
     expect(findBuildApprovalErrors(reviewed, 'pnpm-workspace.yaml')).toEqual([]);
@@ -290,13 +291,14 @@ overrides:
         'pnpm-workspace.yaml overrides must pin @hono/node-server@<2.0.10 to 2.0.10.',
         'pnpm-workspace.yaml overrides must pin browserslist@<=4.28.6 to 4.28.8.',
         'pnpm-workspace.yaml overrides must pin fast-uri@>=3.0.0 <3.1.6 to 3.1.6.',
-        'pnpm-workspace.yaml overrides must pin hono@<4.12.34 to 4.12.34.',
+        'pnpm-workspace.yaml overrides must pin hono@<4.13.5 to 4.13.5.',
         'pnpm-workspace.yaml overrides must pin ip-address@<=10.3.0 to 10.3.1.',
-        'pnpm-workspace.yaml overrides must pin js-yaml@>=4.0.0 <4.3.1 to 4.3.1.',
+        'pnpm-workspace.yaml overrides must pin js-yaml@>=4.0.0 <4.3.2 to 4.3.2.',
         'pnpm-workspace.yaml overrides must pin nanoid@<3.3.18 to 3.3.18.',
         'pnpm-workspace.yaml overrides must pin postcss@<=8.5.22 to 8.5.25.',
         'pnpm-workspace.yaml overrides must pin qs@<6.16.0 to 6.16.0.',
-        'pnpm-workspace.yaml overrides must pin sharp@<0.35.0 to 0.35.3.',
+        'pnpm-workspace.yaml overrides must pin smol-toml@<1.7.1 to 1.8.0.',
+        'pnpm-workspace.yaml overrides must pin sharp@<0.35.4 to 0.35.4.',
         'pnpm-workspace.yaml overrides must pin undici@>=7.0.0 <7.29.0 to 7.29.0.',
       ]),
     );
