@@ -199,7 +199,7 @@ describe('builder model pin', () => {
 
     expect(described.level).toBe('attention');
     expect(described.sentence).toContain('@cf/example/newer');
-    expect(described.sentence).toContain('narrower test');
+    expect(described.sentence).toContain('not a recommendation');
   });
 
   it('treats a pin missing from a readable catalog as broken, not merely stale', () => {

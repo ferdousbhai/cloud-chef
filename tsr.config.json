@@ -1,9 +1,0 @@
-{
-  "routesDirectory": "./app/routes",
-  "generatedRouteTree": "./app/routeTree.gen.ts",
-  "quoteStyle": "single",
-  "semicolons": true,
-  "routeTreeFileFooter": [
-    "import type { getRouter } from './router.tsx'\nimport type { createStart } from '@tanstack/react-start'\ndeclare module '@tanstack/react-start' {\n  interface Register {\n    ssr: true\n    router: Awaited<ReturnType<typeof getRouter>>\n  }\n}"
-  ]
-}

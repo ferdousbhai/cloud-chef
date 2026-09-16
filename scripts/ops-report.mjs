@@ -653,12 +653,12 @@ function catalogPublishedTime(entry) {
 /**
  * Whether the pinned builder model is still the one to run.
  *
- * Deliberately coarser than the runtime's own rule: `isEligibleBuilderDefault` additionally
- * requires that Ghostbuild knows how to serialize a reasoning model's thinking, and that knowledge
- * lives in TypeScript this script cannot import. Re-implementing it here would put a second copy of
- * a safety-relevant predicate somewhere it could drift from the one that actually selects models,
- * so this names candidates worth a reference build and says in its own sentence that the runtime
- * applies a narrower test.
+ * The filter below is the same one `readWorkersAiBuilderModelCatalog` applies — native source,
+ * text generation, function calling, and a window at or above the builder's floor — because that
+ * is now the whole of what makes a model a failover candidate. What this report deliberately does
+ * not reproduce is the *ordering* beneath the pin, which is a human judgement about which families
+ * have been run end to end rather than a property test. So these are candidates worth a reference
+ * build before re-pinning, not a prediction of what the runtime would choose.
  */
 export function describeBuilderModel(catalog, pin) {
   const usable = catalog.filter(
@@ -688,7 +688,7 @@ export function describeBuilderModel(catalog, pin) {
   let sentence = `The pinned builder model ${bounded(pin.id, 120)} is current; nothing newer has been published to this account's catalog.`;
   if (candidates.length > 0) {
     level = 'attention';
-    sentence = `${candidates.length} builder-capable ${plural(candidates.length, 'model')} published since the pinned ${bounded(pin.id, 120)}: ${bounded(candidates.join(', '), 400)}. Worth a reference build before re-pinning; the runtime applies a narrower test than this report does.`;
+    sentence = `${candidates.length} builder-capable ${plural(candidates.length, 'model')} published since the pinned ${bounded(pin.id, 120)}: ${bounded(candidates.join(', '), 400)}. Worth a reference build before re-pinning; this report ranks nothing, so being listed here is not a recommendation.`;
   }
   return { level, sentence, detail: { pinned: pin.id, listed: true, candidates } };
 }

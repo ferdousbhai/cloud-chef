@@ -6,7 +6,6 @@ import {
   MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS,
   newestPreferredFallbackWorkersAiModel,
   workersAiModelPublishedTime,
-  workersAiThinkingFormat,
   type WorkersAiModel,
   type WorkersAiModelCatalogPayload,
   type WorkersAiModelId,
@@ -112,16 +111,28 @@ export async function requireWorkersAiBuilderModel(
  * `pi-ai-models.ts`. The DeepSeek family answered the builder's request shape with a 200 and real
  * reasoning. See `newestPreferredFallbackWorkersAiModel`.
  * The heuristic stays as the layer below, for the day the account offers neither.
+ *
+ * Nothing narrows the candidates beyond what catalog membership already proves — function calling
+ * and `MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS`, both enforced in `readWorkersAiBuilderModelCatalog`.
+ * There used to be a further gate that refused any reasoning model outside a short list of family
+ * prefixes, justified as knowing how to serialize that family's thinking. That justification did
+ * not survive measurement: Workers AI ignores every vendor-native thinking dialect, so the prefix
+ * named a set this repository had looked at rather than a capability it had. Its one concrete
+ * effect was to exclude `@cf/openai/gpt-oss-120b` — the fastest builder model this project has
+ * verified end to end, 17m13s against the pin's 26m26s — from ever being promoted. The protection
+ * that does real work is the ordering above it: the human pin first, then a family measured against
+ * the builder's own request shape, and only then a guess.
  */
 export function resolveBuilderDefaultModel(models: readonly WorkersAiModel[]): WorkersAiModel {
   const pinned = models.find(({ id }) => id === CLOUDFLARE_WORKERS_AI_MODEL);
   if (pinned) {
     return pinned;
   }
-  const eligible = models.filter(isEligibleBuilderDefault);
-  const preferred = newestPreferredFallbackWorkersAiModel(eligible);
-  const replacement = preferred ?? eligible.sort(byBuilderDefaultPreference)[0];
-  // No eligible candidate at all: the reviewed literal is still the best-understood configuration,
+  const preferred = newestPreferredFallbackWorkersAiModel(models);
+  // Copied before sorting: `models` belongs to the caller, and the picker reads the same array to
+  // build its rows, so ranking must not reorder it underneath them.
+  const replacement = preferred ?? [...models].sort(byBuilderDefaultPreference)[0];
+  // Nothing discovered at all: the reviewed literal is still the best-understood configuration,
   // and letting the request reach the binding surfaces a named provider error rather than an
   // invented substitute nobody reviewed.
   const chosen = replacement ?? DEFAULT_WORKERS_AI_MODEL;
@@ -145,28 +156,6 @@ export function resolveBuilderDefaultModel(models: readonly WorkersAiModel[]): W
     rule,
   });
   return chosen;
-}
-
-/**
- * Catalog membership and default eligibility are deliberately different tests. Membership is what
- * the picker offers, and a user hand-picking a model is making a choice they can see and undo, so
- * it stays as broad as function calling and a usable window allow. Becoming the default
- * automatically is a choice nobody makes or sees, so it asks for one more thing.
- *
- * Read the extra condition as "a family this repository has looked at", not as a capability claim.
- * It used to be justified as knowing how to serialize the model's reasoning; that justification is
- * gone, because `workersAiThinkingFormat`'s dialects are measurably inert on Workers AI. What the
- * prefix still correlates with is human attention, which is the honest thing to gate an unattended
- * promotion on.
- *
- * Its cost is real and worth stating: `@cf/openai/gpt-oss-120b` is a reasoning model outside these
- * prefixes, so this excludes it — and it is the fastest builder model this project has verified end
- * to end (17m13s against the pin's 26m26s). The gate is therefore conservative in the wrong
- * direction for at least one known model, and only ever applies when the pin and the whole preferred
- * family are gone at once. Removing it is a live option; it should be a decision, not a drive-by.
- */
-function isEligibleBuilderDefault(model: WorkersAiModel): boolean {
-  return !model.reasoning || workersAiThinkingFormat(model.id) !== undefined;
 }
 
 /**

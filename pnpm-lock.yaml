@@ -227,9 +227,6 @@ importers:
       '@playwright/test':
         specifier: 1.62.1
         version: 1.62.1
-      '@tanstack/router-cli':
-        specifier: ^1.167.22
-        version: 1.167.22
       '@types/file-saver':
         specifier: ^2.0.7
         version: 2.0.7

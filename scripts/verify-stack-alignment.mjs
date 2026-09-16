@@ -37,6 +37,18 @@ export {
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const runtimeEnvAccessAllowlist = [{ pathSuffix: 'app/components/ErrorComponent.tsx', snippet: 'import.meta.env.DEV' }];
 const agentRequiredPackages = ['ai', 'zod'];
+/**
+ * The control plane's stack, which is the app stack minus the route-tree CLI.
+ *
+ * `app/routeTree.gen.ts` here is written by the TanStack Start vite plugin and nothing else —
+ * `scripts/generate-route-tree.mjs` resolves this repository's own vite config to run that plugin's
+ * codegen outside a build, so `typecheck` still sees a route added a moment ago. A second generator
+ * would only be a second thing to drift.
+ *
+ * A generated application is a different program: its own `typecheck` shells out to `tsr generate`,
+ * so `@tanstack/router-cli` stays required by the shared app policy and is subtracted only here.
+ */
+const rootRequiredPackages = APP_REQUIRED_PACKAGES.filter((name) => name !== '@tanstack/router-cli');
 const forbiddenLockfiles = ['package-lock.json'];
 const blockedRootBuildEntries = new Map([
   ['@google/genai', "  '@google/genai': false"],
@@ -283,7 +295,7 @@ export function verifyStackAlignment() {
   const templatePackage = readJson('template/package.json');
   const sandboxPackage = readJson('node_modules/@cloudflare/sandbox/package.json');
 
-  verifyPackage(errors, rootPackage, 'package.json', APP_REQUIRED_PACKAGES, true);
+  verifyPackage(errors, rootPackage, 'package.json', rootRequiredPackages, true);
   verifyPackage(errors, agentPackage, 'ghostbuild-agent/package.json', agentRequiredPackages);
   verifyPackage(errors, templatePackage, 'template/package.json', APP_REQUIRED_PACKAGES, true);
   errors.push(

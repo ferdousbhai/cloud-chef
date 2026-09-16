@@ -125,36 +125,6 @@ export function validateWorkersAiModelCatalogPayload(
 }
 
 /**
- * How a model family serializes reasoning, for the families Pi's own Workers AI catalog does not
- * cover (glm-5.3-flash is absent from it).
- *
- * What it buys is narrower than this comment used to claim. It once said that without the right
- * format a model reasons unboundedly and returns empty content at the token limit; measured against
- * production, Cloudflare ignores the `thinking` block these formats produce. Toggling
- * `thinking: { type: 'disabled' }` moved the returned reasoning not at all — glm-5.3-flash 43ch
- * against a 43ch baseline, qwen3.8-27b 108 against 150, deepseek-v4-pro 103 against 97 — while
- * `chat_template_kwargs.enable_thinking = false` took all three to 0ch. So a known format is
- * evidence Ghostbuild has looked at a family, not a lever over how much that family thinks.
- *
- * It lives here, beside the model type and away from the Pi SDK, because two callers need it from
- * opposite sides of the bundle: the request path turns it into Pi compat flags, and catalog
- * discovery uses it to decide whether Ghostbuild could actually drive a model it has never been
- * configured for.
- */
-export function workersAiThinkingFormat(modelId: string): 'zai' | 'qwen' | 'deepseek' | undefined {
-  if (modelId.startsWith('@cf/zai-org/')) {
-    return 'zai';
-  }
-  if (modelId.startsWith('@cf/qwen/')) {
-    return 'qwen';
-  }
-  if (modelId.startsWith('@cf/deepseek-ai/')) {
-    return 'deepseek';
-  }
-  return undefined;
-}
-
-/**
  * The second model the owner stands behind, expressed as a family rather than an id. When the
  * pinned GLM default is gone — retired by Cloudflare, or absent from an account's catalog — the
  * builder falls to the newest DeepSeek the account can currently serve.

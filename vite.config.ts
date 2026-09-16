@@ -73,13 +73,9 @@ export default defineConfig((config) => {
           await writeFile(CLIENT_ASSETS_IGNORE_PATH, withPrivateClientSourceMaps(generatedIgnore));
         },
       },
-      // This plugin's codegen also writes `app/routeTree.gen.ts`, and it always appends a
-      // `declare module '@tanstack/react-start'` footer that it builds itself — there is no option
-      // to suppress it (`router.routeTreeFileFooter` only appends *after* it). `tsr generate`, the
-      // other writer of that file, knows nothing about Start and would otherwise strip the footer
-      // on every run, so `tsr.config.json` mirrors it verbatim under `routeTreeFileFooter`. Keep
-      // the two in sync: if a TanStack upgrade changes the footer, the committed route tree starts
-      // flip-flopping again and `validate` fails on a dirty tree.
+      // This plugin's codegen is the only writer of `app/routeTree.gen.ts`. Its route-tree hook
+      // runs on vite's `configResolved`, so `scripts/generate-route-tree.mjs` can refresh the tree
+      // outside a build by resolving this very config — see that script.
       !isTest &&
         tanstackStart({
           srcDirectory: 'app',

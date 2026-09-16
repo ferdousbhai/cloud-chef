@@ -16,7 +16,7 @@ const eligibleProperties = [
   { property_id: 'vision', value: 'false' },
 ];
 
-/** A reasoning model Ghostbuild does know how to drive, so failover ranking is what is under test. */
+/** A plain builder-capable catalog entry, so failover ranking is the only thing under test. */
 const eligibleModel: WorkersAiModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
   id: '@cf/qwen/qwen3-coder-480b',
@@ -157,23 +157,30 @@ describe('Workers AI live model catalog', () => {
     warn.mockRestore();
   });
 
-  it('never fails over to a reasoning model whose thinking Ghostbuild cannot direct', () => {
+  /**
+   * Failover used to apply an extra gate that refused any reasoning model outside a short list of
+   * family prefixes. It is gone, and this is the case it cost: `@cf/openai/gpt-oss-120b` reasons
+   * and is in none of those families, so the gate could never promote it — while it is the fastest
+   * builder model this project has verified end to end, 17m13s against the pin's 26m26s. The
+   * fixture states `reasoning: true` deliberately, because that was the flag the old test had to
+   * falsify to get this model past the gate at all.
+   */
+  it('promotes a reasoning model from a family no prefix list ever named', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    // Bigger, newer, and reasoning — but no known thinking format, so it would reason unboundedly
-    // and return empty content instead of building anything.
-    const undirectable = {
+    const gptOss = {
       ...eligibleModel,
-      id: '@cf/mistralai/undirectable' as const,
+      id: '@cf/openai/gpt-oss-120b' as const,
+      reasoning: true,
       contextTokens: 1_048_576,
       createdAt: '2026-09-01T00:00:00.000Z',
     };
-    const plain = { ...eligibleModel, id: '@cf/openai/gpt-oss-120b' as const, reasoning: false };
+    const narrower = { ...eligibleModel, id: '@cf/mistralai/narrower' as const, contextTokens: 131_072 };
 
-    expect(resolveBuilderDefaultModel([undirectable, plain])).toBe(plain);
+    expect(resolveBuilderDefaultModel([narrower, gptOss])).toBe(gptOss);
     expect(warn).toHaveBeenCalledWith({
       event: 'workers_ai_default_model_retired',
       pinned: CLOUDFLARE_WORKERS_AI_MODEL,
-      replacement: plain.id,
+      replacement: gptOss.id,
       rule: 'ranked_preference',
     });
     warn.mockRestore();
@@ -232,11 +239,14 @@ describe('Workers AI live model catalog', () => {
     warn.mockRestore();
   });
 
-  it('keeps the reviewed literal when nothing discovered is eligible to replace the pin', () => {
+  /**
+   * The only way to reach the reviewed literal now that candidates are exactly catalog membership:
+   * an account whose catalog offers no builder-capable model at all.
+   */
+  it('keeps the reviewed literal when discovery offers nothing to replace the pin', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const undirectable = { ...eligibleModel, id: '@cf/mistralai/undirectable' as const };
 
-    expect(resolveBuilderDefaultModel([undirectable])).toBe(DEFAULT_WORKERS_AI_MODEL);
+    expect(resolveBuilderDefaultModel([])).toBe(DEFAULT_WORKERS_AI_MODEL);
     expect(warn).toHaveBeenCalledWith({
       event: 'workers_ai_default_model_retired',
       pinned: CLOUDFLARE_WORKERS_AI_MODEL,
@@ -248,13 +258,7 @@ describe('Workers AI live model catalog', () => {
 
   it('fails the builder over to a replacement when the pin is absent from a successful read', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const binding = {
-      models: vi.fn(async () => [
-        model('@cf/openai/gpt-oss-120b', {
-          properties: [...eligibleProperties, { property_id: 'reasoning', value: 'false' }],
-        }),
-      ]),
-    };
+    const binding = { models: vi.fn(async () => [model('@cf/openai/gpt-oss-120b')]) };
 
     await expect(requireWorkersAiBuilderModel(binding, CLOUDFLARE_WORKERS_AI_MODEL)).resolves.toMatchObject({
       id: '@cf/openai/gpt-oss-120b',

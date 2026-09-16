@@ -5,7 +5,6 @@ import {
   CLOUDFLARE_CONTEXT_SUMMARY_MODEL,
   CLOUDFLARE_PROJECT_TITLE_MODEL,
   DEFAULT_WORKERS_AI_MODEL,
-  workersAiThinkingFormat,
   type WorkersAiModel,
 } from '~/lib/workers-ai-model';
 import { getPiModel, type ModelStreamOptions } from './pi-ai-models';
@@ -50,88 +49,47 @@ describe('pinned title and summary models in the pi-ai catalog', () => {
 });
 
 /**
- * Reasoning models whose serialization format nobody has characterised: Pi's catalog supplies no
- * `compat.thinkingFormat` for them and `workersAiThinkingFormat` matches none of their prefixes.
- * Ghostbuild therefore cannot direct their thinking, and must never auto-select one —
- * `isEligibleBuilderDefault` already refuses exactly this set, so the list is about awareness
- * rather than safety. A user hand-picking one from the catalog is still making a visible, undoable
- * choice, which is why membership stays broader than eligibility.
+ * Ghostbuild names no thinking dialect of its own: `workersAiCompat` spreads Pi's catalog entry and
+ * adds nothing, so whatever `compat.thinkingFormat` a request carries is Pi's opinion, and where Pi
+ * has none, Pi's own provider detection resolves the Cloudflare base URL to its `"openai"` default
+ * — a bare `reasoning_effort`, which is sent only when a caller asks for an effort.
  *
- * Every id here is a deliberate acknowledgement, not an oversight. The point of pinning them is the
- * inverse case: when a Pi upgrade or a catalog change introduces a reasoning family nobody has
- * characterised, the assertion below turns `validate` red and forces a decision, instead of
- * silently widening the set of models Ghostbuild does not understand. Cloudflare's own catalog
- * cannot close this gap — it publishes a `reasoning` flag but nothing describing how a model
- * serializes reasoning — so the knowledge has to be stated somewhere, and this is where its absence
- * is stated.
+ * Today that spread carries nothing: Pi ships these entries with a compat block that omits the key
+ * entirely, reasoning models included. That is an assumption about a dependency rather than about
+ * this repository, and it is the assumption the deletion of Ghostbuild's own prefix map rests on.
+ * If a Pi upgrade starts characterising a Workers AI model, every request for it silently changes
+ * shape — a `thinking` block, an `enable_thinking` flag, a `chat_template_kwargs` — without anyone
+ * deciding to send one. This turns that upgrade into a red `validate` and a decision.
  */
-const UNCHARACTERISED_REASONING_MODELS: readonly string[] = [
-  '@cf/google/gemma-4-26b-a4b-it',
-  '@cf/moonshotai/kimi-k2.6',
-  '@cf/moonshotai/kimi-k2.7-code',
-  '@cf/nvidia/nemotron-3-120b-a12b',
-  '@cf/openai/gpt-oss-120b',
-  '@cf/openai/gpt-oss-20b',
-];
+describe('Pi Workers AI catalog thinking formats', () => {
+  const entries = Object.entries(CLOUDFLARE_WORKERS_AI_MODELS);
 
-describe('reasoning models Ghostbuild knows how to direct', () => {
-  const reasoningEntries = Object.entries(CLOUDFLARE_WORKERS_AI_MODELS).filter(([, model]) => model.reasoning);
+  it('leaves the thinking format to Pi, which characterises none of its Workers AI entries', () => {
+    expect(entries.filter(([, model]) => model.reasoning).length).toBeGreaterThan(0);
 
-  it('characterises every reasoning model Pi ships, or names it as an acknowledged unknown', () => {
-    expect(reasoningEntries.length).toBeGreaterThan(0);
-
-    const uncharacterised = reasoningEntries
-      .filter(([modelId, model]) => model.compat?.thinkingFormat === undefined && !workersAiThinkingFormat(modelId))
-      .map(([modelId]) => modelId);
-
-    expect(uncharacterised).toEqual([...UNCHARACTERISED_REASONING_MODELS]);
-  });
-
-  /**
-   * Keeps the acknowledgement list from outliving the gap it documents: an id that has since gained
-   * a format, or left the catalog, must be removed rather than left standing as a stale claim that
-   * Ghostbuild still cannot drive it.
-   */
-  it('keeps no stale acknowledgements', () => {
-    const catalogIds = new Set(reasoningEntries.map(([modelId]) => modelId));
-
-    expect(UNCHARACTERISED_REASONING_MODELS.filter((modelId) => !catalogIds.has(modelId))).toEqual([]);
+    expect(
+      entries.filter(([, model]) => model.compat?.thinkingFormat !== undefined).map(([modelId]) => modelId),
+    ).toEqual([]);
   });
 });
 
 describe('Pi Workers AI model binding', () => {
   /**
-   * The merge that decides a model's thinking format, pinned from both sides. Pi lists these three
-   * and characterises none of them, so the format can only come from Ghostbuild's family map — and
-   * it has to survive the spread of Pi's own `compat`, which sits in front of it. A future Pi entry
-   * that writes `thinkingFormat: undefined` explicitly would erase the value under a plain
-   * spread-ordering scheme; this asserts it does not.
+   * No model gets a thinking format Ghostbuild invented — not one Pi lists (`glm-4.7-flash`), not
+   * the pinned default, which Pi's catalog does not list at all. The key has to be absent outright
+   * rather than present-and-undefined, because Pi's `getCompat` reads `model.compat.thinkingFormat`
+   * before falling back to its own detection, and the shape of every request depends on which
+   * branch that lands in.
    */
-  it.each(['@cf/zai-org/glm-4.7-flash', '@cf/zai-org/glm-5.2', '@cf/qwen/qwen3-30b-a3b-fp8'] as const)(
-    'keeps its own thinking format for %s, which Pi lists but does not characterise',
+  it.each(['@cf/zai-org/glm-4.7-flash', '@cf/qwen/qwen3-30b-a3b-fp8', '@cf/zai-org/glm-5.3-flash'] as const)(
+    'sends no thinking format of its own for %s',
     (modelId) => {
       const { binding } = recordingBinding(modelId);
 
-      expect(CLOUDFLARE_WORKERS_AI_MODELS[modelId].compat?.thinkingFormat).toBeUndefined();
-      expect(getPiModel(binding, modelId).model.compat).toMatchObject({
-        thinkingFormat: workersAiThinkingFormat(modelId),
-        sendSessionAffinityHeaders: true,
-      });
+      expect(getPiModel(binding, modelId).model.compat).not.toHaveProperty('thinkingFormat');
+      expect(getPiModel(binding, modelId).model.compat).toMatchObject({ sendSessionAffinityHeaders: true });
     },
   );
-
-  /**
-   * The other half of the merge: an acknowledged unknown must stay unknown. Pi sets no format for
-   * gpt-oss and neither does the family map, so `thinkingFormat` has to be absent outright rather
-   * than present-and-undefined — Pi reads the key, not its value.
-   */
-  it('leaves a model Ghostbuild has not characterised without an invented format', () => {
-    const modelId = '@cf/openai/gpt-oss-120b';
-    const { binding } = recordingBinding(modelId);
-
-    expect(UNCHARACTERISED_REASONING_MODELS).toContain(modelId);
-    expect(getPiModel(binding, modelId).model.compat).not.toHaveProperty('thinkingFormat');
-  });
 
   it.each(['@cf/zai-org/glm-5.3-flash', '@cf/openai/gpt-oss-120b'] as const)(
     'routes %s directly through the user-owned AI binding',
@@ -314,6 +272,12 @@ describe('Pi Workers AI model binding', () => {
    * loudly when the two are not bridged: the request simply goes out with thinking disabled, which
    * is the configuration that makes GLM reason until `length` and return empty content. This asserts
    * the body the binding actually receives, since that is the only place the difference is visible.
+   *
+   * It goes out as a plain `reasoning_effort` and nothing else. With no thinking dialect named, Pi
+   * resolves the Cloudflare base URL to its `"openai"` default, which is the documented shape for
+   * the three models measured answering it with a 200 and bounded reasoning — gpt-oss-120b,
+   * kimi-k2.7-code and nemotron-3-120b. The vendor-native `thinking` block that used to ride along
+   * is gone because Cloudflare ignored it.
    */
   it('sends the thinking directive the builder asked for rather than a disabled one', async () => {
     const model: WorkersAiModel = { ...DEFAULT_WORKERS_AI_MODEL, reasoning: true };
@@ -324,11 +288,8 @@ describe('Pi Workers AI model binding', () => {
       .stream(handle.model, { messages: [{ role: 'user', content: 'Hi', timestamp: 1 }] }, { reasoning: 'high' })
       .result();
 
-    // The exact shape probed against production Workers AI for glm-5.3-flash.
-    expect(run.mock.calls[0]?.[1]).toMatchObject({
-      thinking: { type: 'enabled', clear_thinking: false },
-      reasoning_effort: 'high',
-    });
+    expect(run.mock.calls[0]?.[1]).toMatchObject({ reasoning_effort: 'high' });
+    expect(run.mock.calls[0]?.[1]).not.toHaveProperty('thinking');
   });
 
   /**

@@ -16,7 +16,7 @@ import {
 } from '@earendil-works/pi-ai/api/openai-completions';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { modelTokenEstimateSafetyTokens } from 'ghostbuild-agent/context-limits';
-import { workersAiThinkingFormat, type WorkersAiModel, type WorkersAiRuntimeModelId } from '~/lib/workers-ai-model';
+import type { WorkersAiModel, WorkersAiRuntimeModelId } from '~/lib/workers-ai-model';
 import { recordPiStage } from './pi-telemetry';
 
 // Keep the runtime on the Workers-AI-only catalog; importing unrelated provider SDKs would
@@ -53,27 +53,32 @@ function catalogModel(modelId: string): WorkersAiCatalogModel | undefined {
   return WORKERS_AI_CATALOG.get(modelId);
 }
 
-function workersAiCompat(modelId: string, catalog: WorkersAiCatalogModel | undefined): OpenAICompletionsCompat {
-  const compat: OpenAICompletionsCompat = {
+/**
+ * Ghostbuild states only what the binding path requires, and Pi's own catalog entry supplies the
+ * rest — `compat.thinkingFormat` included, which today every Workers AI entry omits.
+ *
+ * Ghostbuild used to name a thinking dialect itself, by model-id prefix, for the families Pi does
+ * not characterise. That is gone because it was measured to do nothing: Cloudflare ignores every
+ * vendor-native thinking block those dialects produce. Toggling `thinking: { type: 'disabled' }`
+ * moved the returned reasoning not at all — glm-5.3-flash 43ch against a 43ch baseline,
+ * qwen3.8-27b 108 against 150, deepseek-v4-pro 103 against 97 — while only the documented
+ * `chat_template_kwargs.enable_thinking = false` took all three to 0ch.
+ *
+ * With no dialect named, Pi resolves the format from its own provider detection, which for a
+ * Cloudflare base URL is the `"openai"` default: a bare `reasoning_effort`, and not even that
+ * unless a caller asks for an effort (`builderThinkingLevel` in `pi-agent-runner.ts` currently
+ * sends none) or the model carries a `thinkingLevelMap.off` string, which the model built below
+ * never does. So no thinking directive reaches the provider at all, which is what was already
+ * happening in substance.
+ */
+function workersAiCompat(catalog: WorkersAiCatalogModel | undefined): OpenAICompletionsCompat {
+  return {
     supportsStore: false,
     supportsDeveloperRole: false,
     supportsLongCacheRetention: false,
     ...catalog?.compat,
     sendSessionAffinityHeaders: true,
   };
-  // Pi's own catalog wins wherever it has an opinion, and Ghostbuild's family map fills the gaps —
-  // which today is every Workers AI reasoning model, since Pi characterises none of the entries it
-  // ships. Resolved and assigned after the spread rather than ordered before it: spread order only
-  // protects a known format while every upstream entry *omits* the key, and "no entry ever writes
-  // `thinkingFormat: undefined` explicitly" is an invariant of a dependency, not of this
-  // repository. What losing it costs is smaller than it looks: measured against production, Workers
-  // AI ignores every dialect this selects, so the observable difference today is none. The guard is
-  // here so the value stops depending on a dependency's habit, not because the value does work.
-  const thinkingFormat = catalog?.compat?.thinkingFormat ?? workersAiThinkingFormat(modelId);
-  if (thinkingFormat !== undefined) {
-    compat.thinkingFormat = thinkingFormat;
-  }
-  return compat;
 }
 
 const ESTIMATED_CHARACTERS_PER_TOKEN = 4;
@@ -219,7 +224,7 @@ export function getPiModel(
     // real provider limits (it lists 16,384 for gpt-oss-120b, which accepted 131,072 in
     // production), and the request's actual ceiling is computed per request in `makeHandle`.
     maxTokens: settings?.model?.contextTokens ?? catalog?.contextWindow ?? 128_000,
-    compat: workersAiCompat(modelId, catalog),
+    compat: workersAiCompat(catalog),
   };
   return makeHandle({
     model,
