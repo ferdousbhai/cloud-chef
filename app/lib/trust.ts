@@ -13,8 +13,6 @@ export const GHOSTBUILD_OPERATOR = {
 export const TRUST_DOCUMENT_VERSION = '1.7 public beta';
 export const TRUST_DOCUMENT_EFFECTIVE_ISO_DATE = '2026-08-14';
 export const TRUST_DOCUMENT_EFFECTIVE_DATE = 'August 14, 2026';
-export const TRUST_DOCUMENT_STATUS =
-  'These pages describe the current service, its public-beta limitations, and the channels that are actually available.';
 // A response target is data. The sentence this replaced recited both channels' numbers on both
 // pages, next to each page's own restatement of its own number, so the same fact was on screen
 // three times. Each page now renders its own rows and shares only the caveat.

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { ClientTelemetryPreference } from '~/components/ClientRouteComponents';
-import { TrustPage, TrustSection } from '~/components/trust/TrustPage';
+import { TrustPage, TrustPairs, TrustSection } from '~/components/trust/TrustPage';
 import { GHOSTBUILD_OPERATOR, TRUST_PAGE_HEADINGS, createPublicBetaTrustPageHead } from '~/lib/trust';
 
 export const Route = createFileRoute('/privacy')({
@@ -79,18 +79,30 @@ function PrivacyPage() {
             <strong>Projects and conversations:</strong> chat metadata, transcripts, generated files, revisions,
             validation receipts, deployment plans, approvals, and deployment status. These are processed and stored in
             the connected Cloudflare account to generate, recover, validate, and deploy your project under the service
-            agreement. The operator’s control-plane database does not store prompt or transcript bodies, project source,
-            or deployment plans. You choose what project content to provide, but Ghostbuild cannot perform a requested
-            build without the content needed for that request.
+            agreement. You choose what project content to provide, but Ghostbuild cannot perform a requested build
+            without the content needed for that request.
           </li>
           <li>
             <strong>Service and security logs:</strong> sampled Worker invocation, Container, and trace metadata can
             include request method and path, Cloudflare request metadata, response status, timing, binding activity, and
-            exception or diagnostic metadata. The Ghostbuild control plane samples 60% of Worker logs and 5% of traces.
-            In your connected Cloudflare account, the workspace runtime samples 60% of Worker logs and enables Computer
-            container logs; generated applications sample 60% of Worker logs and 5% of traces. These settings support
-            operation, troubleshooting, and security under the operator’s legitimate interests. Prompts, source code,
-            credentials, and raw tool output are not intended log fields.
+            exception or diagnostic metadata.
+            <TrustPairs
+              items={[
+                { term: 'Ghostbuild control plane', detail: '60% of Worker logs and 5% of traces' },
+                {
+                  term: 'Workspace runtime, in your connected Cloudflare account',
+                  detail: '60% of Worker logs, and Computer container logs enabled',
+                },
+                {
+                  term: 'Generated applications, in your connected Cloudflare account',
+                  detail: '60% of Worker logs and 5% of traces',
+                },
+              ]}
+            />
+            <p>
+              These settings support operation, troubleshooting, and security under the operator’s legitimate interests.
+              Prompts, source code, credentials, and raw tool output are not intended log fields.
+            </p>
           </li>
           <li>
             <strong>Support, privacy, and legal records:</strong> contact details, message contents, attachments, case
@@ -140,12 +152,10 @@ function PrivacyPage() {
 
       <TrustSection title="Where data is held and disclosed">
         <p>
-          The operator’s Cloudflare D1 stores account, authentication, encrypted Cloudflare-connection, and runtime
-          locator records. It does not store prompts, chat transcripts, project source, deployment plans, or generated
-          application data. Workspace metadata, Agent transcripts, project files, Computer state, previews, and
-          generated infrastructure remain in the connected Cloudflare account. Your browser may keep account-local
-          transcript and project-file replicas. Data is disclosed only as needed to operate the service, follow your
-          instructions, protect the service, or comply with law.
+          Workspace metadata, Agent transcripts, project files, Computer state, previews, and generated infrastructure
+          remain in the connected Cloudflare account. Your browser may keep account-local transcript and project-file
+          replicas. Data is disclosed only as needed to operate the service, follow your instructions, protect the
+          service, or comply with law.
         </p>
         <p>
           Cloudflare provides authentication integration, Workers, D1, R2, Durable Objects, Containers, Computer,

@@ -1,11 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
 import { BrandLink } from '~/components/BrandLink';
-import {
-  TRUST_DOCUMENT_EFFECTIVE_DATE,
-  TRUST_DOCUMENT_EFFECTIVE_ISO_DATE,
-  TRUST_DOCUMENT_STATUS,
-  TRUST_DOCUMENT_VERSION,
-} from '~/lib/trust';
+import { TRUST_DOCUMENT_EFFECTIVE_DATE, TRUST_DOCUMENT_EFFECTIVE_ISO_DATE, TRUST_DOCUMENT_VERSION } from '~/lib/trust';
 import { TrustLinks } from './TrustLinks';
 
 export function TrustPage({ title, summary, children }: { title: string; summary: string; children: ReactNode }) {
@@ -32,11 +27,6 @@ export function TrustPage({ title, summary, children }: { title: string; summary
         <article className="trust-page__article">
           <h1>{title}</h1>
           <p className="trust-page__summary">{summary}</p>
-          {/* Small print rather than a boxed callout: the same sentence appears on all four pages
-              and is never what the reader came for. */}
-          <p className="trust-page__notice" role="note">
-            <strong>Public beta.</strong> {TRUST_DOCUMENT_STATUS}
-          </p>
           <div className="trust-page__prose">{children}</div>
         </article>
       </div>

@@ -102,7 +102,6 @@ html.light {
   width: max-content;
   max-width: 100%;
   overflow: hidden;
-  margin: 0;
   background: var(--ghost-home-bg);
   color: var(--ghost-home-accent);
   font-size: clamp(6px, 1.5vw, 13px);

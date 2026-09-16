@@ -104,11 +104,10 @@ function TermsPage() {
           <li>evade safeguards or rate limits</li>
           <li>expose credentials or personal data you are not authorized to process</li>
           <li>abuse Cloudflare or GitHub services</li>
+          <li>
+            build systems whose purpose is fraud, impersonation, harassment, exploitation, or facilitating physical harm
+          </li>
         </ul>
-        <p>
-          Do not use it to build systems whose purpose is fraud, impersonation, harassment, exploitation, or
-          facilitating physical harm.
-        </p>
         <p>
           Report prohibited use through the public <Link to="/support">Support</Link> form, which is also the abuse
           channel; there is no separate abuse address. Report a vulnerability in Ghostbuild through{' '}

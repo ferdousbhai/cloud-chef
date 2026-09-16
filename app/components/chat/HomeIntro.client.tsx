@@ -24,11 +24,11 @@ export function HomeIntro({
   sendMessageInProgress,
 }: HomeIntroProps) {
   return (
-    <div className="ghost-home-shell grow px-4 py-4 sm:px-6 lg:px-8">
+    <div className="ghost-home-shell grow p-4 sm:px-6 lg:px-8">
       <section className="ghost-home-copy min-w-0" aria-labelledby="intro">
         <div className="ghost-home-hero">
           <HomeGhostMark />
-          <div className="ghost-home-main min-w-0">
+          <div className="min-w-0">
             <HomeHeroCopy headingId="intro" reveal />
 
             <div className="ghost-home-reveal ghost-home-composer-stack">

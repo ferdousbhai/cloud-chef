@@ -10,6 +10,12 @@
  * The gate itself cannot run here, but this can: a transcribed sentence is detectable from the
  * source alone, without a browser. So the class of break is caught at validate time even though
  * the test that would have failed is not run.
+ *
+ * What it guarantees, precisely: no browser-gate file may contain a literal that matches copy the
+ * app currently defines. It is a prevention, not a staleness detector — once the wording has
+ * drifted, the stale literal no longer matches the constant and nothing but the browser can tell.
+ * That is the point: the transcription is refused at the moment it is written, so it is never
+ * around to go stale.
  */
 import { readFile } from 'node:fs/promises';
 import { readdirSync } from 'node:fs';
@@ -24,12 +30,17 @@ const MIN_WORDS = 4;
 
 function proseLiterals(source) {
   const found = [];
-  // Quoted strings and regex literals alike — a transcribed sentence is equally brittle either way.
-  for (const match of source.matchAll(/'([^'\\\n]{16,})'|"([^"\\\n]{16,})"|\/([^/\\\n]{16,})\//g)) {
-    const raw = match[1] ?? match[2] ?? match[3];
+  // Quoted strings, template literals, and regex literals alike — a transcribed sentence is equally
+  // brittle in any of them. Backslashes stay inside the bodies on purpose: excluding them skipped
+  // every regex that escapes a character, which is most of them, including `/deploys your app\./`.
+  // `(?!\*)` keeps a single-line `/* … */` comment from reading as a regex literal.
+  const pattern = /'([^'\n]{16,})'|"([^"\n]{16,})"|`([^`\n]{16,})`|\/(?!\*)([^/\n]{16,})\//g;
+  for (const match of source.matchAll(pattern)) {
+    const raw = match[1] ?? match[2] ?? match[3] ?? match[4];
     if (!raw) {
       continue;
     }
+    // Unescaped so the violation prints the sentence a reader recognises, not the pattern.
     const text = raw.replace(/\\([.*+?^${}()|[\]\\/])/g, '$1').trim();
     if (text.split(/\s+/).filter((word) => /[A-Za-z]/.test(word)).length >= MIN_WORDS) {
       found.push({ text, index: match.index ?? 0 });
@@ -38,10 +49,13 @@ function proseLiterals(source) {
   return found;
 }
 
+// Punctuation, dash flavour, and quote flavour are all noise here: `operator’s` and `operator's`
+// are the same sentence, and collapsing every non-alphanumeric run to one space is what makes them
+// compare equal. Letters and digits survive untouched, so two sentences that differ in any word or
+// number stay different.
 const normalize = (value) =>
   value
     .toLowerCase()
-    .replace(/[—–—–]/g, '-')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
