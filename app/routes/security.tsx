@@ -1,7 +1,9 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { TrustPage, TrustPairs, TrustSection } from '~/components/trust/TrustPage';
 import {
+  CLOUDFLARE_SUPPORT_URL,
   GHOSTBUILD_SECURITY_URL,
+  TRUST_EMERGENCY_PAIR,
   TRUST_PAGE_HEADINGS,
   TRUST_RESPONSE_CAVEAT,
   createPublicBetaTrustPageHead,
@@ -76,13 +78,9 @@ function SecurityPage() {
           items={[
             {
               term: 'Compromised Cloudflare account',
-              detail: (
-                <a href="https://developers.cloudflare.com/support/contacting-cloudflare-support/">
-                  Cloudflare support
-                </a>
-              ),
+              detail: <a href={CLOUDFLARE_SUPPORT_URL}>Cloudflare support</a>,
             },
-            { term: 'Immediate danger', detail: 'Local emergency services' },
+            TRUST_EMERGENCY_PAIR,
             { term: 'Everything else about Ghostbuild', detail: <Link to="/support">Support</Link> },
           ]}
         />

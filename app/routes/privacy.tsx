@@ -125,10 +125,9 @@ function PrivacyPage() {
           The user-owned workspace runtime sends the prompt, conversation context, and project files needed for a
           request to the configured builder model through Cloudflare AI in the connected account. The in-chat model
           selector loads the current Cloudflare-hosted catalog from that account and offers models compatible with the
-          builder’s function-calling and context requirements. Ghostbuild does not place prompt or source payloads in
-          optional product telemetry. Paid-model calls are routed through the account’s default AI Gateway so accounts
-          configured for Unified Billing can use prepaid credits; per-request controls skip AI Gateway caching and log
-          collection. Cloudflare describes its handling of Workers AI content in its{' '}
+          builder’s function-calling and context requirements. Paid-model calls are routed through the account’s default
+          AI Gateway so accounts configured for Unified Billing can use prepaid credits; per-request controls skip AI
+          Gateway caching and log collection. Cloudflare describes its handling of Workers AI content in its{' '}
           <a href="https://developers.cloudflare.com/workers-ai/platform/data-usage/">Workers AI data-usage notice</a>.
           Ghostbuild does not use AI to make decisions that produce legal or similarly significant effects about you.
         </p>
@@ -153,9 +152,8 @@ function PrivacyPage() {
       <TrustSection title="Where data is held and disclosed">
         <p>
           Workspace metadata, Agent transcripts, project files, Computer state, previews, and generated infrastructure
-          remain in the connected Cloudflare account. Your browser may keep account-local transcript and project-file
-          replicas. Data is disclosed only as needed to operate the service, follow your instructions, protect the
-          service, or comply with law.
+          remain in the connected Cloudflare account. Data is disclosed only as needed to operate the service, follow
+          your instructions, protect the service, or comply with law.
         </p>
         <p>
           Cloudflare provides authentication integration, Workers, D1, R2, Durable Objects, Containers, Computer,
@@ -270,8 +268,7 @@ function PrivacyPage() {
           buckets from your connected Cloudflare account. R2 objects are emptied in bounded batches before the bucket is
           deleted; provider failures or revoked authorization can delay cleanup and are retried while access remains
           available. It is not complete erasure: catalog, transcript, deployment, provider-retained observability, and
-          browser records remain under their applicable retention boundaries. You can download individual project source
-          before removal, and browser data remains until you clear it.
+          browser records remain under their applicable retention boundaries. Browser data remains until you clear it.
         </p>
         <p>
           GitHub retains public support issues and private security reports according to its policies and repository
@@ -304,8 +301,8 @@ function PrivacyPage() {
         <p>
           Controls include encrypted Cloudflare credentials, hashed session and capability tokens, same-origin checks,
           short-lived runtime capabilities, tenant binding, bounded request sizes, deployment approval, and security
-          readback. No system is risk-free. Ghostbuild is for adults and is not directed to anyone under 18; do not use
-          the service if you are under 18.
+          readback. No system is risk-free. Ghostbuild is for adults and is not directed to anyone under 18, who must
+          not use the service.
         </p>
       </TrustSection>
 

@@ -3,6 +3,10 @@ import { createSocialPageHead } from './social-meta';
 const GHOSTBUILD_REPOSITORY_URL = 'https://github.com/ferdousbhai/ghost-build';
 export const GHOSTBUILD_SUPPORT_URL = `${GHOSTBUILD_REPOSITORY_URL}/issues/new?template=support_request.yml`;
 export const GHOSTBUILD_SECURITY_URL = `${GHOSTBUILD_REPOSITORY_URL}/security/advisories/new`;
+export const CLOUDFLARE_SUPPORT_URL = 'https://developers.cloudflare.com/support/contacting-cloudflare-support/';
+// Support and Security both open their escalation table with this row. One definition, so the two
+// pages cannot answer "who do I call" differently.
+export const TRUST_EMERGENCY_PAIR = { term: 'Immediate danger', detail: 'Local emergency services' } as const;
 export const GHOSTBUILD_OPERATOR = {
   legalName: 'DOUS SOFTWARE INC.',
   legalForm: 'Ontario corporation',

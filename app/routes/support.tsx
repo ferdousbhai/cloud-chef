@@ -1,7 +1,9 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { TrustPage, TrustPairs, TrustSection } from '~/components/trust/TrustPage';
 import {
+  CLOUDFLARE_SUPPORT_URL,
   GHOSTBUILD_SUPPORT_URL,
+  TRUST_EMERGENCY_PAIR,
   TRUST_PAGE_HEADINGS,
   TRUST_RESPONSE_CAVEAT,
   createPublicBetaTrustPageHead,
@@ -57,22 +59,19 @@ function SupportPage() {
         <p>
           Ghostbuild can act only on the service it operates. A deployed application’s content and behaviour live in the
           Cloudflare account that owns it, so serious cases may also need{' '}
-          <a href="https://developers.cloudflare.com/support/contacting-cloudflare-support/">Cloudflare support</a> or
-          law enforcement.
+          <a href={CLOUDFLARE_SUPPORT_URL}>Cloudflare support</a> or law enforcement.
         </p>
       </TrustSection>
       <TrustSection title="Not an emergency channel">
         <TrustPairs
           items={[
-            { term: 'Immediate danger', detail: 'Local emergency services' },
+            TRUST_EMERGENCY_PAIR,
             {
               term: 'Compromised Cloudflare account',
               detail: (
                 <>
-                  <a href="https://developers.cloudflare.com/support/contacting-cloudflare-support/">
-                    Cloudflare support
-                  </a>
-                  , which also handles an active Cloudflare platform incident
+                  <a href={CLOUDFLARE_SUPPORT_URL}>Cloudflare support</a>, which also handles an active Cloudflare
+                  platform incident
                 </>
               ),
             },
