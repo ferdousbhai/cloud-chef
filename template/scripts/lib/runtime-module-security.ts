@@ -476,7 +476,10 @@ export function findRuntimeModuleSecurityViolations(
         }
       } else {
         const called = dangerousCallee(node.expression);
-        if (called && !(called === "require-call" && isStaticModuleSpecifierCall(node))) {
+        if (
+          called &&
+          !(called === "require-call" && isStaticModuleSpecifierCall(node))
+        ) {
           add(node.expression, called);
         }
       }

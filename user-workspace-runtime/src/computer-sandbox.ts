@@ -269,4 +269,3 @@ class SandboxComputerHost implements IWorkspaceContainerAPI {
 function sandboxShellCommand(command: string): SandboxCommand {
   return ['sh', '-lc', command];
 }
-

@@ -463,4 +463,3 @@ function encodeResult(result: unknown): string {
   }
   return resultJson;
 }
-

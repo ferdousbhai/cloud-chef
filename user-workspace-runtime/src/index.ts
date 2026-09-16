@@ -123,11 +123,7 @@ import {
   type TrackedSandboxProcess,
 } from './tracked-command';
 import { ValidationCancellation } from './validation-cancellation';
-import {
-  COMPUTERD_ENV,
-  COMPUTERD_PROCESS_ROLE,
-  ComputerSandboxBase,
-} from './computer-sandbox';
+import { COMPUTERD_ENV, COMPUTERD_PROCESS_ROLE, ComputerSandboxBase } from './computer-sandbox';
 import {
   createContainerDirectoryCommand,
   ISOLATED_PROJECT_ROOT,

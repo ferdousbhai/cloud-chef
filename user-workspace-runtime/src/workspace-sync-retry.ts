@@ -228,4 +228,3 @@ function intentOf(row: SyncRetryRow): SyncRetryIntent {
   }
   return intent;
 }
-
