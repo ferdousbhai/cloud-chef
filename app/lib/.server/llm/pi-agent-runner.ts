@@ -113,18 +113,34 @@ interface PiAgentOptions {
 type PiPreparationStage = 'tool_setup' | 'model_input' | 'prompt_metrics' | 'message_conversion';
 
 /**
- * Every reasoning model thinks at full effort — Ghostbuild builds software, which is exactly the
- * work reasoning is for, and no model family is throttled below the others. Passing a level at all
- * still matters: it serializes to `reasoning_effort` plus the family's thinking parameter, and
- * verified against production Workers AI, GLM 5.3 Flash with no directive (or `thinking: disabled`,
- * which it ignores) reasons until `length` and returns EMPTY content, while `thinking: enabled` +
- * `reasoning_effort` answers with real content. The earlier per-family downgrade to `low` was a
- * workaround for the 24,576-token output cap that no longer exists: a request now gets the whole
- * remainder of the context window, so reasoning and the answer no longer compete for a few
- * thousand tokens.
+ * The reasoning directive every builder turn carries, or `undefined` to send none.
+ *
+ * Measured twice against production Workers AI on GLM 5.3 Flash — same prompt, independent runs,
+ * characters of reasoning returned:
+ *
+ *     no directive   1392 / 2300        medium   1556 / 2682
+ *     low             156 /  229        high      507 /  626
+ *
+ * `high` is not "more effort" on this provider. It returns roughly a third of the reasoning that
+ * sending nothing does, and `medium` is the only value that beats the no-directive baseline, so the
+ * `'high'` this used to send would have made the builder think *less* — the opposite of what its
+ * name, and the comment that stood here, both claimed.
+ *
+ * That comment also claimed a bare `thinking: disabled` makes GLM reason until `length` and return
+ * empty content. It does not: Cloudflare ignores `thinking` altogether — toggling it moves the
+ * reasoning volume not at all, while the documented `chat_template_kwargs.enable_thinking` takes it
+ * to zero — and until the `options.reasoning` → `reasoningEffort` wiring was repaired, no effort
+ * value reached the provider at all. Both halves of the mechanism it described were inert, which
+ * means the 26m26s end-to-end build on 2026-09-02 ran with no directive of any kind.
+ *
+ * So no directive is what stays, because it is the only configuration a real build has verified.
+ * `medium` is the candidate worth a reference build rather than a blind change: a one-prompt probe
+ * measures how much a model thinks, never whether it builds better software.
  */
-function builderThinkingLevel(model: { reasoning: boolean }): 'high' | undefined {
-  return model.reasoning ? 'high' : undefined;
+const BUILDER_THINKING_LEVEL: 'medium' | undefined = undefined;
+
+function builderThinkingLevel(model: { reasoning: boolean }): 'medium' | undefined {
+  return model.reasoning ? BUILDER_THINKING_LEVEL : undefined;
 }
 
 /**

@@ -3,6 +3,7 @@ import type { WorkersAiAccountCredentials } from './pi-ai-models';
 import { AgentTurnError, completeText } from './pi-ai-invoke';
 import { isWorkersAiFreeAllocationError, workersPaidRequiredMessage } from '~/lib/workers-paid';
 import { CLOUDFLARE_CONTEXT_SUMMARY_MODEL } from '~/lib/workers-ai-model';
+import { readWorkersAiBuilderModelCatalog } from './workers-ai-model-catalog';
 
 /**
  * A checkpoint replaces the whole conversation before it, so it is the one place where brevity
@@ -83,6 +84,30 @@ export async function summarizeBuilderContext(
     if (isWorkersAiFreeAllocationError(error)) {
       throw new Error(workersPaidRequiredMessage());
     }
-    throw new Error('Context compaction generation failed.');
+    throw new Error(await contextSummaryFailureMessage(accountCredentials));
   }
+}
+
+const GENERIC_CONTEXT_SUMMARY_FAILURE = 'Context compaction generation failed.';
+
+/**
+ * Compaction only runs once a build has outgrown its window, so this message is usually the only
+ * evidence an operator gets, on the longest builds, late. A retired summary pin reads exactly like
+ * a transient provider error, which makes it the worst-diagnosing failure in this area — so the
+ * one cause that will never fix itself is named. The check runs on the error path alone: the happy
+ * path must not pay for a catalog read, and a failed read is told nothing about the pin, so the
+ * real failure stands rather than being replaced by a story about the diagnostic.
+ */
+async function contextSummaryFailureMessage(accountCredentials: WorkersAiAccountCredentials): Promise<string> {
+  try {
+    const models = await readWorkersAiBuilderModelCatalog(accountCredentials.binding);
+    if (models.some(({ id }) => id === CLOUDFLARE_CONTEXT_SUMMARY_MODEL)) {
+      return GENERIC_CONTEXT_SUMMARY_FAILURE;
+    }
+  } catch {
+    return GENERIC_CONTEXT_SUMMARY_FAILURE;
+  }
+  // Scoped to what was actually checked: this catalog read is the builder-compatible view, so the
+  // claim is that the pin is no longer listed there, not that Cloudflare deleted the model.
+  return `${GENERIC_CONTEXT_SUMMARY_FAILURE} The pinned summary model ${CLOUDFLARE_CONTEXT_SUMMARY_MODEL} is no longer listed in this account's Workers AI catalog.`;
 }

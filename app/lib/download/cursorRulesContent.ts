@@ -1,4 +1,5 @@
 import projectStackSkill from '~/lib/guidance/project-stack/SKILL.md?raw';
+import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 
 /* The builder reads the same skill in every workspace; only the frontmatter is skill-specific. */
 const stackSelectionRules = projectStackSkill.replace(/^---\n[\s\S]*?\n---\n+/, '').trim();
@@ -12,7 +13,7 @@ ${stackSelectionRules}
 - In generated TanStack routes and server functions, call getAppBindings() from @/app-bindings for application DB/R2 access.
 - Do not import cloudflare:workers from generated source. AI, AppAgent, and AGENT_SECURITY_DB bindings are intentionally unavailable to generated routes.
 - When the AppAgent capability is enabled, automatically deployed projects do not allow dynamic import(), require(), eval(), or Function constructors in generated source.
-- When AI is needed, use Workers AI only through the reviewed AppAgent and prefer @cf/zai-org/glm-5.3-flash for coding-agent features.
+- When AI is needed, use Workers AI only through the reviewed AppAgent and prefer ${CLOUDFLARE_WORKERS_AI_MODEL} for coding-agent features.
 - For a durable AI feature, enable the protected Cloudflare Agents capability instead of assembling bindings and security state by hand. For chat UI, prefer the template AIChatAgent with useAgentChat from @cloudflare/ai-chat/react.
 - Set static override options = { sendIdentityOnConnect: false } when Agent instance names can contain chat IDs, user IDs, or session IDs, and use state updates rather than agent.identified for readiness.
 - Treat client-supplied Agent instance names as routing hints, not authorization. Before public production use, authenticate and rate-limit Agent routes and derive tenant or user instance names from verified server-side identity.

@@ -21,6 +21,16 @@ const DATABASE_NAME = 'ghostbuild';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RUNTIME_BUNDLE_PATH = resolve(ROOT, 'app/generated/user-workspace-runtime.generated.ts');
 const RUNTIME_SHA_PATTERN = /USER_WORKSPACE_RUNTIME_SHA256 = "([a-f0-9]{64})"/;
+/**
+ * The builder model pin, read from the module that declares it rather than copied here. A second
+ * copy of the id is exactly the drift this check exists to catch, so it must not be one more.
+ */
+const WORKERS_AI_MODEL_PATH = resolve(ROOT, 'app/lib/workers-ai-model.ts');
+const PINNED_BUILDER_MODEL_PATTERN = /CLOUDFLARE_WORKERS_AI_MODEL = '(@cf\/[^']+)'/;
+const BUILDER_CONTEXT_FLOOR_PATTERN = /MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS = ([\d_]+)/;
+const MODEL_CATALOG_ENDPOINT = 'https://api.cloudflare.com/client/v4/accounts';
+/** One page covers the Workers AI text-generation catalog with room to spare. */
+const MODEL_CATALOG_PAGE_SIZE = 100;
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -100,6 +110,18 @@ function formatDuration(ms) {
 /** Collapse whitespace and bound a provider string before it reaches a terminal. */
 function bounded(value, limit = 240) {
   return String(value).replaceAll(/\s+/g, ' ').trim().slice(0, limit);
+}
+
+/**
+ * Whatever a Cloudflare REST or GraphQL envelope says about why it refused, joined into one string,
+ * or `''` when it said nothing. Both operator reads quote it: the status code alone names a class of
+ * failure, never which scope or account the credential is actually missing.
+ */
+function cloudflareErrorMessages(payload) {
+  return (Array.isArray(payload?.errors) ? payload.errors : [])
+    .map((entry) => entry?.message)
+    .filter((message) => typeof message === 'string')
+    .join('; ');
 }
 
 /** A generation or content hash is unreadable in full and unambiguous at twelve characters. */
@@ -439,11 +461,17 @@ async function readOperatorCredential({ run }) {
 /**
  * Read the control-plane Worker's invocations as the authenticated operator.
  *
+ * `account` and `headers` accept the resolution `main` shares between the two operator reads, as
+ * values or as promises; omitting them resolves a private pair, which is what every standalone
+ * caller does.
+ *
  * @param {{
  *   now?: number;
  *   run?: typeof execFileAsync;
  *   fetchImpl?: typeof fetch;
  *   env?: Record<string, string | undefined>;
+ *   account?: string | Promise<string>;
+ *   headers?: Record<string, string> | Promise<Record<string, string>>;
  * }} [options]
  * @returns {Promise<Array<Record<string, unknown>>>} one group per invocation status
  */
@@ -452,10 +480,12 @@ export async function readWorkerInvocations({
   run = execFileAsync,
   fetchImpl = fetch,
   env = process.env,
+  account: sharedAccount,
+  headers: sharedHeaders,
 } = {}) {
   const [account, headers] = await Promise.all([
-    resolveAnalyticsAccount({ run, env }),
-    readOperatorCredential({ run }),
+    sharedAccount ?? resolveAnalyticsAccount({ run, env }),
+    sharedHeaders ?? readOperatorCredential({ run }),
   ]);
   const response = await fetchImpl(GRAPHQL_ENDPOINT, {
     method: 'POST',
@@ -486,11 +516,9 @@ function readInvocationGroups(payload, httpStatus) {
   if (payload === null) {
     throw new Error(`Cloudflare analytics answered HTTP ${httpStatus} with no readable body.`);
   }
-  const messages = (Array.isArray(payload?.errors) ? payload.errors : [])
-    .map((entry) => entry?.message)
-    .filter((message) => typeof message === 'string');
-  if (messages.length > 0) {
-    throw new Error(bounded(`Cloudflare analytics refused the read: ${messages.join('; ')}`, 400));
+  const messages = cloudflareErrorMessages(payload);
+  if (messages !== '') {
+    throw new Error(bounded(`Cloudflare analytics refused the read: ${messages}`, 400));
   }
   const groups = payload?.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive;
   if (!Array.isArray(groups)) {
@@ -556,13 +584,146 @@ async function readDesiredRuntimeVersion(readFileImpl = readFile) {
 }
 
 /**
+ * The pinned builder model and the context floor it is judged against, both read from
+ * `app/lib/workers-ai-model.ts`.
+ *
+ * @param {typeof readFile} [readFileImpl]
+ * @returns {Promise<{ id: string; minimumContextTokens: number } | null>}
+ */
+export async function readPinnedBuilderModel(readFileImpl = readFile) {
+  try {
+    const source = await readFileImpl(WORKERS_AI_MODEL_PATH, 'utf8');
+    const id = PINNED_BUILDER_MODEL_PATTERN.exec(source)?.[1];
+    const floor = BUILDER_CONTEXT_FLOOR_PATTERN.exec(source)?.[1];
+    return id && floor ? { id, minimumContextTokens: Number(floor.replaceAll('_', '')) } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The account-visible Workers AI text-generation catalog, read as the authenticated operator.
+ *
+ * `account` and `headers` accept the resolution `main` shares between the two operator reads, as
+ * values or as promises; omitting them resolves a private pair, which is what every standalone
+ * caller does.
+ *
+ * @param {{
+ *   run?: typeof execFileAsync;
+ *   fetchImpl?: typeof fetch;
+ *   env?: Record<string, string | undefined>;
+ *   account?: string | Promise<string>;
+ *   headers?: Record<string, string> | Promise<Record<string, string>>;
+ * }} [options]
+ * @returns {Promise<Array<Record<string, unknown>>>}
+ */
+export async function readWorkersAiCatalog({
+  run = execFileAsync,
+  fetchImpl = fetch,
+  env = process.env,
+  account: sharedAccount,
+  headers: sharedHeaders,
+} = {}) {
+  const [account, headers] = await Promise.all([
+    sharedAccount ?? resolveAnalyticsAccount({ run, env }),
+    sharedHeaders ?? readOperatorCredential({ run }),
+  ]);
+  const url = `${MODEL_CATALOG_ENDPOINT}/${account}/ai/models/search?task=Text+Generation&hide_experimental=true&per_page=${MODEL_CATALOG_PAGE_SIZE}`;
+  const response = await fetchImpl(url, { headers });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(payload?.result)) {
+    // Cloudflare names the reason — a credential without the AI scope answers 403 saying exactly
+    // that — and a bare status code sends an operator looking in the wrong place.
+    const reason = bounded(cloudflareErrorMessages(payload), 200);
+    const detail = reason === '' ? '.' : `: ${reason}`;
+    throw new Error(`The Workers AI catalog could not be read (HTTP ${response.status})${detail}`);
+  }
+  return payload.result;
+}
+
+function catalogProperty(entry, id) {
+  return entry?.properties?.find((property) => property.property_id === id)?.value;
+}
+
+function catalogPublishedTime(entry) {
+  const parsed = Date.parse(entry?.created_at ?? '');
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
+
+/**
+ * Whether the pinned builder model is still the one to run.
+ *
+ * Deliberately coarser than the runtime's own rule: `isEligibleBuilderDefault` additionally
+ * requires that Ghostbuild knows how to serialize a reasoning model's thinking, and that knowledge
+ * lives in TypeScript this script cannot import. Re-implementing it here would put a second copy of
+ * a safety-relevant predicate somewhere it could drift from the one that actually selects models,
+ * so this names candidates worth a reference build and says in its own sentence that the runtime
+ * applies a narrower test.
+ */
+export function describeBuilderModel(catalog, pin) {
+  const usable = catalog.filter(
+    (entry) =>
+      entry.source === 1 &&
+      entry.task?.name === 'Text Generation' &&
+      catalogProperty(entry, 'function_calling') === 'true' &&
+      Number(catalogProperty(entry, 'context_window')) >= pin.minimumContextTokens,
+  );
+  const pinned = usable.find((entry) => entry.name === pin.id);
+  if (!pinned) {
+    return {
+      level: 'error',
+      sentence: `The pinned builder model ${bounded(pin.id, 120)} is no longer listed in this account's Workers AI catalog, so every build is running on the failover model instead of the reviewed one.`,
+      detail: { pinned: pin.id, listed: false, candidates: [] },
+    };
+  }
+  const pinnedPublished = catalogPublishedTime(pinned);
+  // An undated pin gives nothing to measure "since" from, and an unknown date is not a claim to be old.
+  const candidates =
+    pinnedPublished === Number.NEGATIVE_INFINITY
+      ? []
+      : usable
+          .filter((entry) => entry.name !== pin.id && catalogPublishedTime(entry) > pinnedPublished)
+          .map((entry) => entry.name);
+  let level = 'ok';
+  let sentence = `The pinned builder model ${bounded(pin.id, 120)} is current; nothing newer has been published to this account's catalog.`;
+  if (candidates.length > 0) {
+    level = 'attention';
+    sentence = `${candidates.length} builder-capable ${plural(candidates.length, 'model')} published since the pinned ${bounded(pin.id, 120)}: ${bounded(candidates.join(', '), 400)}. Worth a reference build before re-pinning; the runtime applies a narrower test than this report does.`;
+  }
+  return { level, sentence, detail: { pinned: pin.id, listed: true, candidates } };
+}
+
+const BUILDER_MODEL_CHECK_HINT =
+  "Read from the Workers AI model search API with the operator's own Wrangler authentication.";
+
+function buildBuilderModelCheck(catalogAttempt, pin) {
+  if (!pin) {
+    return unknownCheck(
+      'builder-model',
+      'Builder model',
+      { ok: false, error: 'The pinned builder model could not be read from app/lib/workers-ai-model.ts.' },
+      BUILDER_MODEL_CHECK_HINT,
+    );
+  }
+  if (!catalogAttempt.ok) {
+    return unknownCheck('builder-model', 'Builder model', catalogAttempt, BUILDER_MODEL_CHECK_HINT);
+  }
+  const described = describeBuilderModel(catalogAttempt.value, pin);
+  return check('builder-model', 'Builder model', described.level, described.sentence, {
+    detail: described.detail,
+  });
+}
+
+/**
  * Read the platform and build the report.
  *
  * @param {{
  *   query: (sql: string) => Promise<Array<Array<Record<string, unknown>>>>;
  *   readInvocations?: (options: { now: number }) => Promise<Array<Record<string, unknown>>>;
+ *   readModelCatalog?: () => Promise<Array<Record<string, unknown>>>;
  *   now?: number;
  *   desiredRuntimeVersion?: string | null;
+ *   pinnedBuilderModel?: { id: string; minimumContextTokens: number } | null;
  * }} options
  */
 export async function collectReport({
@@ -572,16 +733,23 @@ export async function collectReport({
   readInvocations = () => {
     throw new Error('No Workers analytics reader was supplied to this report.');
   },
+  // Same contract as `readInvocations`: a caller that supplies no reader gets a check saying so.
+  readModelCatalog = () => {
+    throw new Error('No Workers AI catalog reader was supplied to this report.');
+  },
   now = Date.now(),
   desiredRuntimeVersion = null,
+  pinnedBuilderModel = null,
 }) {
   const statements = coreStatements(now);
-  const [core, invocations] = await Promise.all([
+  const [core, invocations, catalog] = await Promise.all([
     attempt(() => query(statements.join(';\n'))),
     attempt(() => readInvocations({ now })),
+    attempt(() => readModelCatalog()),
   ]);
   const checks = [
     buildWorkerCheck(invocations, now),
+    buildBuilderModelCheck(catalog, pinnedBuilderModel),
     buildAccountsCheck(core),
     buildRuntimesCheck(core, { now, desiredRuntimeVersion }),
     buildUsersCheck(core),
@@ -841,10 +1009,23 @@ async function main(argv) {
     console.log(USAGE);
     return 0;
   }
+  const desiredRuntimeVersion = await readDesiredRuntimeVersion();
+  const pinnedBuilderModel = await readPinnedBuilderModel();
+  // Both operator reads need the same account and the same credential, so they are resolved once
+  // rather than twice: two concurrent `wrangler auth token` calls point two processes at the same
+  // OAuth login state, where one can race the other's token refresh. Handed over unawaited so a
+  // Wrangler failure still lands in each reader's own check instead of aborting the whole report,
+  // with a catch attached so the shared rejection is never an unhandled one.
+  const account = resolveAnalyticsAccount({ run: execFileAsync, env: process.env });
+  const headers = readOperatorCredential({ run: execFileAsync });
+  void account.catch(() => undefined);
+  void headers.catch(() => undefined);
   const report = await collectReport({
     query: queryProduction,
-    readInvocations: ({ now }) => readWorkerInvocations({ now }),
-    desiredRuntimeVersion: await readDesiredRuntimeVersion(),
+    readInvocations: ({ now }) => readWorkerInvocations({ now, account, headers }),
+    readModelCatalog: () => readWorkersAiCatalog({ account, headers }),
+    desiredRuntimeVersion,
+    pinnedBuilderModel,
   });
   console.log(argv.includes('--json') ? JSON.stringify(report, null, 2) : renderReport(report));
   return report.controlPlaneReadable ? 0 : 1;

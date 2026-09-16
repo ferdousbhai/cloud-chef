@@ -2,7 +2,12 @@ import { useStore } from '@nanostores/react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { CheckIcon, ChevronDownIcon } from '@radix-ui/react-icons';
 import { useEffect, useMemo, useState } from 'react';
-import { getWorkersAiModel, isWorkersAiModelId, type WorkersAiModel } from '~/lib/workers-ai-model';
+import {
+  getWorkersAiModel,
+  isWorkersAiModelId,
+  workersAiModelPublishedTime,
+  type WorkersAiModel,
+} from '~/lib/workers-ai-model';
 import {
   builderDefaultModelStore,
   builderModelCatalogStatusStore,
@@ -19,12 +24,12 @@ import {
 import { classNames } from '~/utils/classNames';
 
 /** The catalog dates entries to the day, so the day is all the picker claims. */
-function formatModelAddedDate(createdAt: string | undefined): string | null {
-  const parsed = createdAt === undefined ? Number.NaN : Date.parse(createdAt);
-  if (Number.isNaN(parsed)) {
+function formatModelAddedDate(model: WorkersAiModel): string | null {
+  const published = workersAiModelPublishedTime(model);
+  if (published === Number.NEGATIVE_INFINITY) {
     return null;
   }
-  return new Date(parsed).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return new Date(published).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 export function BuilderModelSelector({
@@ -150,7 +155,7 @@ function ModelGroup({
         Cloudflare Workers AI
       </DropdownMenu.Label>
       {models.map((model) => {
-        const addedOn = formatModelAddedDate(model.createdAt);
+        const addedOn = formatModelAddedDate(model);
         return (
           <DropdownMenu.RadioItem
             key={model.id}

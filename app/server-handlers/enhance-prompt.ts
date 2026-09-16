@@ -2,6 +2,7 @@ import type { Tool } from '@earendil-works/pi-ai';
 import { z } from 'zod';
 import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
 import { getPiModel } from '~/lib/.server/llm/pi-ai-models';
+import { requireWorkersAiBuilderModel } from '~/lib/.server/llm/workers-ai-model-catalog';
 import { completeToolCall } from '~/lib/.server/llm/pi-ai-invoke';
 import { PROMPT_REFINEMENT_SYSTEM_PROMPT } from './enhance-prompt-prompt';
 import { getUserWorkersAiCredentials } from '~/lib/.server/cloudflare/workers-ai-billing-context';
@@ -48,7 +49,14 @@ export async function userRuntimeEnhancePromptAction({
     }
     const { prompt, answers } = parsedRequest.data;
     const accountCredentials = await getUserWorkersAiCredentials(env, userId);
-    const handle = getPiModel(accountCredentials, CLOUDFLARE_WORKERS_AI_MODEL);
+    // Prompt refinement runs the builder's own pinned model, and pi-ai's static catalog does not
+    // list it. Without the discovered metadata `getPiModel` falls back to its own defaults and
+    // drives a million-token reasoning model as a 128k non-reasoning one — and a falsy
+    // `requiresPaid` also skips the gateway routing the identical model gets on the builder path.
+    // Resolving it through the catalog is what keeps the two paths the same model, and it inherits
+    // the pin's retirement failover for free.
+    const model = await requireWorkersAiBuilderModel(accountCredentials.binding, CLOUDFLARE_WORKERS_AI_MODEL);
+    const handle = getPiModel(accountCredentials, model.id, { model });
     const result = promptRefinementResultSchema.safeParse(
       await completeToolCall(handle, {
         systemPrompt: PROMPT_REFINEMENT_SYSTEM_PROMPT,

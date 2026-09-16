@@ -10,10 +10,13 @@ import type {
   SimpleStreamOptions,
   StreamFunction,
 } from '@earendil-works/pi-ai';
-import { stream as openaiCompletionsStream } from '@earendil-works/pi-ai/api/openai-completions';
+import {
+  stream as openaiCompletionsStream,
+  type OpenAICompletionsOptions,
+} from '@earendil-works/pi-ai/api/openai-completions';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { modelTokenEstimateSafetyTokens } from 'ghostbuild-agent/context-limits';
-import type { WorkersAiModel, WorkersAiRuntimeModelId } from '~/lib/workers-ai-model';
+import { workersAiThinkingFormat, type WorkersAiModel, type WorkersAiRuntimeModelId } from '~/lib/workers-ai-model';
 import { recordPiStage } from './pi-telemetry';
 
 // Keep the runtime on the Workers-AI-only catalog; importing unrelated provider SDKs would
@@ -32,8 +35,13 @@ export type ModelHandle = {
 };
 
 // SAFETY: `makeHandle` refuses any model whose `api` is not `openai-completions`, so every model this
-// stream ever receives matches the narrower signature the OpenAI Completions adapter declares.
-const WORKERS_AI_STREAM = openaiCompletionsStream as StreamFunction<Api, SimpleStreamOptions>;
+// stream ever receives matches the narrower signature the OpenAI Completions adapter declares. The
+// options type is that adapter's own, not the generic `SimpleStreamOptions`, because this calls the
+// adapter's api-level entry point directly (see `builderReasoningEffort`).
+const WORKERS_AI_STREAM = openaiCompletionsStream as StreamFunction<
+  Api,
+  OpenAICompletionsOptions & SimpleStreamOptions
+>;
 
 const ZERO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
@@ -46,33 +54,26 @@ function catalogModel(modelId: string): WorkersAiCatalogModel | undefined {
 }
 
 function workersAiCompat(modelId: string, catalog: WorkersAiCatalogModel | undefined): OpenAICompletionsCompat {
-  return {
+  const compat: OpenAICompletionsCompat = {
     supportsStore: false,
     supportsDeveloperRole: false,
     supportsLongCacheRetention: false,
-    ...familyThinkingCompat(modelId),
     ...catalog?.compat,
     sendSessionAffinityHeaders: true,
   };
-}
-
-/**
- * Reasoning serialization by model family, for models Pi's Workers AI catalog does not cover
- * (glm-5.3-flash is absent from it). Without the right `thinkingFormat`, Pi cannot direct a
- * model's thinking at all: GLM then reasons unboundedly and returns empty content at the token
- * limit — the failure that produced 8-minute silent builder turns.
- */
-function familyThinkingCompat(modelId: string): Pick<OpenAICompletionsCompat, 'thinkingFormat'> {
-  if (modelId.startsWith('@cf/zai-org/')) {
-    return { thinkingFormat: 'zai' };
+  // Pi's own catalog wins wherever it has an opinion, and Ghostbuild's family map fills the gaps —
+  // which today is every Workers AI reasoning model, since Pi characterises none of the entries it
+  // ships. Resolved and assigned after the spread rather than ordered before it: spread order only
+  // protects a known format while every upstream entry *omits* the key, and "no entry ever writes
+  // `thinkingFormat: undefined` explicitly" is an invariant of a dependency, not of this
+  // repository. What losing it costs is smaller than it looks: measured against production, Workers
+  // AI ignores every dialect this selects, so the observable difference today is none. The guard is
+  // here so the value stops depending on a dependency's habit, not because the value does work.
+  const thinkingFormat = catalog?.compat?.thinkingFormat ?? workersAiThinkingFormat(modelId);
+  if (thinkingFormat !== undefined) {
+    compat.thinkingFormat = thinkingFormat;
   }
-  if (modelId.startsWith('@cf/qwen/')) {
-    return { thinkingFormat: 'qwen' };
-  }
-  if (modelId.startsWith('@cf/deepseek-ai/')) {
-    return { thinkingFormat: 'deepseek' };
-  }
-  return {};
+  return compat;
 }
 
 const ESTIMATED_CHARACTERS_PER_TOKEN = 4;
@@ -156,7 +157,7 @@ function makeHandle(args: HandleArgs): ModelHandle {
       handle.lastResponse = undefined;
       const streamOptions = { ...options };
       const headers: ProviderHeaders = { ...streamOptions.headers };
-      const merged: SimpleStreamOptions = {
+      const merged: OpenAICompletionsOptions & SimpleStreamOptions = {
         ...streamOptions,
         maxTokens: requestOutputTokens(model, context, streamOptions.maxTokens),
         sessionId: streamOptions.sessionId ?? args.sessionAffinity,
@@ -165,6 +166,24 @@ function makeHandle(args: HandleArgs): ModelHandle {
           await streamOptions.onResponse?.(response, responseModel);
         },
       };
+      // Pi's two entry points read the thinking directive from different fields: `streamSimple`
+      // accepts `reasoning` and hands the adapter `reasoningEffort`, while the api-level `stream`
+      // this calls reads only `reasoningEffort`. Every caller here speaks the `reasoning` spelling —
+      // `builderThinkingLevel` in `pi-agent-runner.ts`, and the agent loop that forwards it — so
+      // without this one assignment the field is silently dropped and every request goes out with
+      // `thinking: { type: 'disabled' }` and no effort at all. The mapping is done here rather than
+      // by switching to `streamSimple`, because that entry point re-clamps `maxTokens` with Pi's own
+      // estimator and would quietly undo `requestOutputTokens` — including the
+      // `MINIMUM_OUTPUT_TOKENS` floor that exists to keep Workers AI's 256-token default from
+      // truncating a full-window request.
+      //
+      // Forwarded verbatim rather than through `clampThinkingLevel`: that clamp reads a
+      // `thinkingLevelMap` no Workers AI model here has, so it can only ever downgrade, and a
+      // model's real vocabulary is settled by the provider's own rejection in
+      // `retryWithinSupportedReasoningEffort` — which needs to see what was actually asked for.
+      if (streamOptions.reasoning !== undefined) {
+        merged.reasoningEffort = streamOptions.reasoning;
+      }
       if (args.apiKey !== undefined) {
         merged.apiKey = args.apiKey;
       }
@@ -213,7 +232,11 @@ export function getPiModel(
 }
 
 /** The OpenAI-compatible body Pi serialises, forwarded to the binding verbatim apart from `model`. */
-type WorkersAiBindingInputs = Record<string, unknown> & { model?: string; max_completion_tokens?: number };
+type WorkersAiBindingInputs = Record<string, unknown> & {
+  model?: string;
+  max_completion_tokens?: number;
+  reasoning_effort?: string;
+};
 
 type WorkersAiRawRunOptions = {
   returnRawResponse: true;
@@ -256,7 +279,17 @@ function createWorkersAiBindingFetch(
     if (response.status !== 400) {
       return response;
     }
-    const retried = await retryWithinProviderOutputCap(rawBinding, modelId, payload, options, response);
+    // Both replays read the same rejection for a different provider string, so the body is consumed
+    // once here and handed over as text. Each helper replays at most once and `??` stops at the
+    // first one that fires, so a rejection that could be read two ways still costs exactly one
+    // replay.
+    const rejectionBody = await response
+      .clone()
+      .text()
+      .catch(() => '');
+    const retried =
+      (await retryWithinProviderOutputCap(rawBinding, modelId, payload, options, rejectionBody)) ??
+      (await retryWithinSupportedReasoningEffort(rawBinding, modelId, payload, options, rejectionBody));
     if (!retried) {
       return response;
     }
@@ -279,20 +312,83 @@ async function retryWithinProviderOutputCap(
   modelId: WorkersAiRuntimeModelId,
   payload: WorkersAiBindingInputs,
   options: WorkersAiRawRunOptions,
-  rejection: Response,
+  body: string,
 ): Promise<Response | undefined> {
   const requested = payload.max_completion_tokens;
   if (requested === undefined) {
     return undefined;
   }
-  const body = await rejection
-    .clone()
-    .text()
-    .catch(() => '');
   const cap = Number(PROVIDER_OUTPUT_CAP_PATTERN.exec(body)?.[1]);
   if (!Number.isFinite(cap) || cap <= 0 || cap >= requested) {
     return undefined;
   }
   recordPiStage('binding_output_cap_retry', modelId);
   return binding.run(modelId, { ...payload, max_completion_tokens: cap }, options);
+}
+
+/**
+ * The same shape as the output-cap replay, for the other request field Workers AI validates per
+ * model. This is the single place that records what Workers AI does with a reasoning effort; the
+ * other sites that care point here rather than repeating the provider's wording.
+ *
+ * Pi only translates a directive into a model's own vocabulary when its static catalog carries a
+ * `thinkingLevelMap` for it, which pi-ai 0.83.0 does not for most of the Workers AI catalog, so the
+ * value goes out as written. Measured against production, `@cf/qwen/qwen3.8-27b` rejects `high`
+ * outright with `Unexpected reasoning effort high. Supported types are xhigh (default), medium, and
+ * low.` Were `builderThinkingLevel` sending `high`, a user selecting that model would 400 on every
+ * single request, and a GLM retirement that failed over to it would break every build at once.
+ *
+ * The lane is dormant as it stands: `BUILDER_THINKING_LEVEL` in `pi-agent-runner.ts` is `undefined`,
+ * so no builder request carries `reasoning_effort` at all and nothing ever reaches this replay. It
+ * stays because that is one constant away from changing, and the repair has to exist before the
+ * directive comes back rather than after the first account-wide 400.
+ *
+ * The rejection names the supported set verbatim, so it is read rather than guessed, and the
+ * strongest offered value wins: the builder writes software, which is the work reasoning is for, so
+ * a downgrade below what the model can do is a real loss. Hard-coding a per-model table instead
+ * would re-fail the day Cloudflare adds a family nobody has probed; reading the provider's own
+ * answer keeps working for models this repository has never seen.
+ */
+const REASONING_EFFORT_MENTION_PATTERN = /reasoning[ _]effort/i;
+const SUPPORTED_REASONING_EFFORT_PATTERN = /supported types are ([^.]+)/i;
+/** Strongest first, which is the order the replacement is chosen in. */
+const REASONING_EFFORT_PREFERENCE = ['xhigh', 'high', 'medium', 'low'] as const;
+
+async function retryWithinSupportedReasoningEffort(
+  binding: WorkersAiRawBinding,
+  modelId: WorkersAiRuntimeModelId,
+  payload: WorkersAiBindingInputs,
+  options: WorkersAiRawRunOptions,
+  body: string,
+): Promise<Response | undefined> {
+  const requested = payload.reasoning_effort;
+  if (requested === undefined) {
+    return undefined;
+  }
+  // Both halves are required before anything is replayed. The wording is a provider string that may
+  // change, and a body this cannot read must fall through to the original rejection unchanged —
+  // exactly as the output-cap replay does — rather than resend the request with an invented value.
+  if (!REASONING_EFFORT_MENTION_PATTERN.test(body)) {
+    return undefined;
+  }
+  const offered = SUPPORTED_REASONING_EFFORT_PATTERN.exec(body)?.[1];
+  if (offered === undefined) {
+    return undefined;
+  }
+  const supported = REASONING_EFFORT_PREFERENCE.find((effort) => namesReasoningEffort(offered, effort));
+  // Replaying the value the provider just refused would only spend a second request on the same 400.
+  if (supported === undefined || supported === requested) {
+    return undefined;
+  }
+  recordPiStage('binding_reasoning_effort_retry', modelId);
+  return binding.run(modelId, { ...payload, reasoning_effort: supported }, options);
+}
+
+/**
+ * Word-bounded so the list `xhigh (default), medium, and low` is not read as offering `high`: the
+ * two are different values to the provider, and the substring match would replay the same rejected
+ * effort under a different name.
+ */
+function namesReasoningEffort(offered: string, effort: string): boolean {
+  return new RegExp(`\\b${effort}\\b`, 'i').test(offered);
 }

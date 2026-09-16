@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
+import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import { MAX_USER_MESSAGE_CHARACTERS } from 'ghostbuild-agent/context-limits';
 
 const mocks = vi.hoisted(() => ({
@@ -25,6 +25,28 @@ function testEnv(): Env {
 function testAiBinding(): Ai {
   // SAFETY: the pi provider is mocked, so the binding is only ever passed through by identity.
   return {} as Ai;
+}
+
+/** A binding that answers the catalog read with the pinned model as Cloudflare describes it. */
+function discoveringAiBinding(): Ai {
+  const pinnedEntry: AiModelsSearchObject = {
+    id: CLOUDFLARE_WORKERS_AI_MODEL,
+    source: 1,
+    name: CLOUDFLARE_WORKERS_AI_MODEL,
+    description: 'Fast GLM model.',
+    task: { id: 'text-generation', name: 'Text Generation', description: 'Text generation' },
+    tags: [],
+    properties: [
+      { property_id: 'context_window', value: '1048576' },
+      { property_id: 'function_calling', value: 'true' },
+      { property_id: 'require_workers_paid', value: 'true' },
+      { property_id: 'reasoning', value: 'true' },
+      { property_id: 'vision', value: 'true' },
+    ],
+  };
+  // SAFETY: the handler reaches only `models()` on this binding; the pi provider is mocked, so the
+  // binding is otherwise passed through by identity.
+  return { models: async () => [pinnedEntry] } as Ai;
 }
 
 function request(body: Record<string, unknown> = { prompt: 'Build a calendar' }) {
@@ -62,7 +84,25 @@ describe('userRuntimeEnhancePromptAction billing', () => {
     mocks.getCredentials.mockResolvedValue(credentials);
     const response = await userRuntimeEnhPrompt({ request: request(), env: testEnv() });
     expect(response.status).toBe(200);
-    expect(mocks.getPiModel).toHaveBeenCalledWith(credentials, CLOUDFLARE_WORKERS_AI_MODEL);
+    // This binding cannot answer a catalog read, which is the discovery-unavailable path: the
+    // pinned model still runs, from its reviewed literal.
+    expect(mocks.getPiModel).toHaveBeenCalledWith(credentials, CLOUDFLARE_WORKERS_AI_MODEL, {
+      model: DEFAULT_WORKERS_AI_MODEL,
+    });
+  });
+
+  it('drives the pinned model with its discovered metadata, not pi-ai defaults', async () => {
+    const credentials = { binding: discoveringAiBinding() };
+    mocks.getCredentials.mockResolvedValue(credentials);
+
+    const response = await userRuntimeEnhPrompt({ request: request(), env: testEnv() });
+
+    expect(response.status).toBe(200);
+    // Without this, `getPiModel` would size the builder's own million-token reasoning model as a
+    // 128k non-reasoning one and skip the gateway routing the builder path gives it.
+    expect(mocks.getPiModel).toHaveBeenCalledWith(credentials, CLOUDFLARE_WORKERS_AI_MODEL, {
+      model: expect.objectContaining({ contextTokens: 1_048_576, reasoning: true, requiresPaid: true }),
+    });
   });
 
   it('asks for explicit Workers Paid authorization when the connected free allocation is exhausted', async () => {

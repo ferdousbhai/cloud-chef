@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   collectReport,
+  describeBuilderModel,
+  readPinnedBuilderModel,
   coreStatements,
   parseD1Response,
   readWorkerInvocations,
@@ -105,17 +107,20 @@ describe('production report', () => {
     const report = await collectReport({
       query: fixtureQuery(healthyRows()),
       readInvocations: healthyInvocations,
+      readModelCatalog: healthyCatalog,
       now: NOW,
       desiredRuntimeVersion: CURRENT_RUNTIME,
+      pinnedBuilderModel: PIN,
     });
 
     expect(report).toMatchObject({
       controlPlaneReadable: true,
       status: 'ok',
-      headline: 'Everything is healthy: all 5 checks passed.',
+      headline: 'Everything is healthy: all 6 checks passed.',
     });
     expect(report.checks.map((item: { id: string }) => item.id)).toEqual([
       'control-plane-worker',
+      'builder-model',
       'cloudflare-accounts',
       'workspace-runtimes',
       'users',
@@ -134,8 +139,10 @@ describe('production report', () => {
     const report = await collectReport({
       query: fixtureQuery(rows),
       readInvocations: healthyInvocations,
+      readModelCatalog: healthyCatalog,
       now: NOW,
       desiredRuntimeVersion: CURRENT_RUNTIME,
+      pinnedBuilderModel: PIN,
     });
     const rendered = renderReport(report);
 
@@ -151,8 +158,10 @@ describe('production report', () => {
         throw new Error('You are not authenticated.');
       },
       readInvocations: healthyInvocations,
+      readModelCatalog: healthyCatalog,
       now: NOW,
       desiredRuntimeVersion: CURRENT_RUNTIME,
+      pinnedBuilderModel: PIN,
     });
 
     expect(report).toMatchObject({
@@ -168,6 +177,76 @@ describe('production report', () => {
     expect(renderReport(report)).not.toContain('Everything is healthy');
   });
 });
+
+describe('builder model pin', () => {
+  it('reads the pin from the module that declares it, not from a copy', async () => {
+    const pin = await readPinnedBuilderModel();
+
+    // Whatever the pin currently is, the report must agree with the source of truth.
+    expect(pin?.id).toMatch(/^@cf\//);
+    expect(pin?.minimumContextTokens).toBeGreaterThan(0);
+  });
+
+  it('calls the pin current when nothing newer is published', () => {
+    expect(describeBuilderModel([catalogEntry(PIN.id, '2026-05-01')], PIN)).toMatchObject({ level: 'ok' });
+  });
+
+  it('names newer builder-capable models without claiming the runtime would pick them', () => {
+    const described = describeBuilderModel(
+      [catalogEntry(PIN.id, '2026-05-01'), catalogEntry('@cf/example/newer', '2026-09-01')],
+      PIN,
+    );
+
+    expect(described.level).toBe('attention');
+    expect(described.sentence).toContain('@cf/example/newer');
+    expect(described.sentence).toContain('narrower test');
+  });
+
+  it('treats a pin missing from a readable catalog as broken, not merely stale', () => {
+    const described = describeBuilderModel([catalogEntry('@cf/example/other', '2026-09-01')], PIN);
+
+    expect(described).toMatchObject({ level: 'error', detail: { listed: false } });
+  });
+
+  it('ignores models the builder could never run', () => {
+    const entries = [
+      catalogEntry(PIN.id, '2026-05-01'),
+      {
+        ...catalogEntry('@cf/example/no-tools', '2026-09-01'),
+        properties: [{ property_id: 'context_window', value: '131072' }],
+      },
+      { ...catalogEntry('@cf/example/partner', '2026-09-01'), source: 2 },
+      catalogEntry('@cf/example/tiny', '2026-09-01', '16384'),
+    ];
+
+    expect(describeBuilderModel(entries, PIN)).toMatchObject({ level: 'ok' });
+  });
+
+  it('stays quiet when the pin itself is undated, since there is no "since" to measure', () => {
+    const entries = [catalogEntry(PIN.id, undefined), catalogEntry('@cf/example/newer', '2026-09-01')];
+
+    expect(describeBuilderModel(entries, PIN)).toMatchObject({ level: 'ok' });
+  });
+});
+
+const PIN = { id: '@cf/zai-org/glm-5.3-flash', minimumContextTokens: 32_768 };
+
+function catalogEntry(name: string, createdAt: string | undefined, contextWindow = '1048576') {
+  return {
+    name,
+    source: 1,
+    created_at: createdAt,
+    task: { name: 'Text Generation' },
+    properties: [
+      { property_id: 'context_window', value: contextWindow },
+      { property_id: 'function_calling', value: 'true' },
+    ],
+  };
+}
+
+async function healthyCatalog() {
+  return [catalogEntry(PIN.id, '2026-05-01')];
+}
 
 type Row = Record<string, string | number | null>;
 type Rows = Row[][];

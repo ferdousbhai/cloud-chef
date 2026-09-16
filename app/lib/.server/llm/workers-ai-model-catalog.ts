@@ -4,6 +4,9 @@ import {
   DEFAULT_WORKERS_AI_MODEL,
   isWorkersAiModelId,
   MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS,
+  newestPreferredFallbackWorkersAiModel,
+  workersAiModelPublishedTime,
+  workersAiThinkingFormat,
   type WorkersAiModel,
   type WorkersAiModelCatalogPayload,
   type WorkersAiModelId,
@@ -69,32 +72,130 @@ export async function requireWorkersAiBuilderModel(
   binding: WorkersAiCatalogBinding,
   modelId: WorkersAiModelId,
 ): Promise<WorkersAiModel> {
-  // Keep the normal path independent from catalog availability. This pinned model was reviewed with
-  // Ghostbuild's tool protocol and remains the safe fallback when discovery itself is unavailable.
+  let models: WorkersAiModel[];
+  try {
+    models = await readWorkersAiBuilderModelCatalog(binding);
+  } catch (error) {
+    // Discovery being down must not change which model a build runs on. The pinned model was
+    // reviewed against Ghostbuild's tool protocol, so it still runs from its reviewed literal;
+    // any other id is a claim only the catalog can confirm, so the outage surfaces instead.
+    if (error instanceof WorkersAiModelCatalogUnavailableError && modelId === CLOUDFLARE_WORKERS_AI_MODEL) {
+      return DEFAULT_WORKERS_AI_MODEL;
+    }
+    throw error;
+  }
+  const model = models.find(({ id }) => id === modelId);
+  if (model) {
+    return model;
+  }
+  // A successful read that omits the pin is a retirement, not an outage. Returning the reviewed
+  // literal here would send every build to a model the account can no longer serve, and the first
+  // sign of it would be an invoke-time failure in every user's build at once.
   if (modelId === CLOUDFLARE_WORKERS_AI_MODEL) {
-    return DEFAULT_WORKERS_AI_MODEL;
+    return resolveBuilderDefaultModel(models);
   }
-  const model = (await readWorkersAiBuilderModelCatalog(binding)).find(({ id }) => id === modelId);
-  if (!model) {
-    throw new Response('The selected Workers AI model is not compatible with the Ghostbuild builder.', {
-      status: 400,
-    });
+  throw new Response('The selected Workers AI model is not compatible with the Ghostbuild builder.', {
+    status: 400,
+  });
+}
+
+/**
+ * The default the builder actually runs, given what the account can currently serve. The pin wins
+ * whenever discovery still offers it: the catalog can say what a model is, never what a Ghostbuild
+ * build needs from it, so the choice stays human.
+ *
+ * Below the pin the order is deliberate — the owner's stated second choice first, the ranked
+ * heuristic only after it. The heuristic reasons from catalog properties, and properties are not
+ * evidence a model can serve a Ghostbuild turn: measured against production it would choose
+ * `@cf/qwen/qwen3.8-27b` on its vision flag, which is the one model known to reject the reasoning
+ * effort a builder request would carry — see `retryWithinSupportedReasoningEffort` in
+ * `pi-ai-models.ts`. The DeepSeek family answered the builder's request shape with a 200 and real
+ * reasoning. See `newestPreferredFallbackWorkersAiModel`.
+ * The heuristic stays as the layer below, for the day the account offers neither.
+ */
+export function resolveBuilderDefaultModel(models: readonly WorkersAiModel[]): WorkersAiModel {
+  const pinned = models.find(({ id }) => id === CLOUDFLARE_WORKERS_AI_MODEL);
+  if (pinned) {
+    return pinned;
   }
-  return model;
+  const eligible = models.filter(isEligibleBuilderDefault);
+  const preferred = newestPreferredFallbackWorkersAiModel(eligible);
+  const replacement = preferred ?? eligible.sort(byBuilderDefaultPreference)[0];
+  // No eligible candidate at all: the reviewed literal is still the best-understood configuration,
+  // and letting the request reach the binding surfaces a named provider error rather than an
+  // invented substitute nobody reviewed.
+  const chosen = replacement ?? DEFAULT_WORKERS_AI_MODEL;
+  let rule: 'newest_preferred_family' | 'ranked_preference' | 'reviewed_literal';
+  if (preferred) {
+    rule = 'newest_preferred_family';
+  } else if (replacement) {
+    rule = 'ranked_preference';
+  } else {
+    rule = 'reviewed_literal';
+  }
+  // Retirement is rare and consequential, and nothing else in the request tells an operator that
+  // the reviewed pin is gone — the build simply runs on a model nobody chose. The model that is
+  // actually returned is logged unconditionally, because a build always runs on one; the rule is
+  // logged beside it because "which model" alone does not say whether a reviewed second choice was
+  // available, the ranking had to invent one, or the literal had to stand in.
+  console.warn({
+    event: 'workers_ai_default_model_retired',
+    pinned: CLOUDFLARE_WORKERS_AI_MODEL,
+    replacement: chosen.id,
+    rule,
+  });
+  return chosen;
+}
+
+/**
+ * Catalog membership and default eligibility are deliberately different tests. Membership is what
+ * the picker offers, and a user hand-picking a model is making a choice they can see and undo, so
+ * it stays as broad as function calling and a usable window allow. Becoming the default
+ * automatically is a choice nobody makes or sees, so it asks for one more thing.
+ *
+ * Read the extra condition as "a family this repository has looked at", not as a capability claim.
+ * It used to be justified as knowing how to serialize the model's reasoning; that justification is
+ * gone, because `workersAiThinkingFormat`'s dialects are measurably inert on Workers AI. What the
+ * prefix still correlates with is human attention, which is the honest thing to gate an unattended
+ * promotion on.
+ *
+ * Its cost is real and worth stating: `@cf/openai/gpt-oss-120b` is a reasoning model outside these
+ * prefixes, so this excludes it — and it is the fastest builder model this project has verified end
+ * to end (17m13s against the pin's 26m26s). The gate is therefore conservative in the wrong
+ * direction for at least one known model, and only ever applies when the pin and the whole preferred
+ * family are gone at once. Removing it is a live option; it should be a decision, not a drive-by.
+ */
+function isEligibleBuilderDefault(model: WorkersAiModel): boolean {
+  return !model.reasoning || workersAiThinkingFormat(model.id) !== undefined;
+}
+
+/**
+ * Ranked by what a Ghostbuild build actually consumes: images first, because a builder that cannot
+ * read a screenshot loses a whole class of work; then window, because it bounds the transcript
+ * before compaction; then publication date, since a newer model of equal shape is the closer
+ * replacement. Undated entries rank last — an unknown date is not a claim to be old, but it is not
+ * a claim to be new either — and `sort` being stable leaves catalog order as the final tiebreak.
+ */
+function byBuilderDefaultPreference(left: WorkersAiModel, right: WorkersAiModel): number {
+  if (left.vision !== right.vision) {
+    return left.vision ? -1 : 1;
+  }
+  if (left.contextTokens !== right.contextTokens) {
+    return right.contextTokens - left.contextTokens;
+  }
+  const leftPublished = workersAiModelPublishedTime(left);
+  const rightPublished = workersAiModelPublishedTime(right);
+  return leftPublished === rightPublished ? 0 : rightPublished - leftPublished;
 }
 
 export function workersAiModelCatalogPayload(models: WorkersAiModel[]): WorkersAiModelCatalogPayload {
-  // The pinned entry's own metadata is reviewed, not discovered, so only the one fact discovery
-  // knows better — when Cloudflare published it — is carried across.
-  const discoveredCreatedAt = models.find(({ id }) => id === CLOUDFLARE_WORKERS_AI_MODEL)?.createdAt;
+  // The default's label, window, and capabilities are Cloudflare's current truth about it, not a
+  // hand-written copy that drifts. It stays first so the picker's top row does not move whenever
+  // Cloudflare publishes something newer.
+  const defaultModel = resolveBuilderDefaultModel(models);
   return {
-    defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
-    models: [
-      discoveredCreatedAt === undefined
-        ? DEFAULT_WORKERS_AI_MODEL
-        : { ...DEFAULT_WORKERS_AI_MODEL, createdAt: discoveredCreatedAt },
-      ...models.filter(({ id }) => id !== CLOUDFLARE_WORKERS_AI_MODEL),
-    ],
+    defaultModelId: defaultModel.id,
+    models: [defaultModel, ...models.filter(({ id }) => id !== defaultModel.id)],
   };
 }
 
@@ -120,9 +221,6 @@ function boundedDescription(value: string): string {
 }
 
 function workersAiModelLabel(modelId: WorkersAiModelId): string {
-  if (modelId === CLOUDFLARE_WORKERS_AI_MODEL) {
-    return DEFAULT_WORKERS_AI_MODEL.label;
-  }
   return modelId
     .slice(modelId.lastIndexOf('/') + 1)
     .split('-')

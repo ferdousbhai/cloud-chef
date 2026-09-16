@@ -4,8 +4,10 @@ import {
   CLOUDFLARE_WORKERS_AI_MODEL,
   DEFAULT_WORKERS_AI_MODEL,
   isWorkersAiModelId,
+  newestPreferredFallbackWorkersAiModel,
   validateWorkersAiModelCatalogPayload,
   workersAiModelCatalogPayloadSchema,
+  workersAiModelPublishedTime,
   type WorkersAiModel,
   type WorkersAiModelCatalogPayload,
   type WorkersAiModelId,
@@ -15,7 +17,7 @@ import { fetchUserRuntime } from '~/lib/cloudflare/runtime-session';
 const BUILDER_MODEL_STORAGE_KEY = 'ghostbuild_builder_model_v2';
 /** Namespaced beside the model preference: same owner, same lifetime, same browser-only scope. */
 const BUILDER_SEEN_MODELS_STORAGE_KEY = 'ghostbuild_seen_builder_models_v1';
-/** One more than the catalog payload's own ceiling, so a full catalog always fits. */
+/** One more than the catalog payload's 100-model ceiling, so a full catalog always fits. */
 const MAX_SEEN_MODEL_IDS = 101;
 let pendingCatalog: Promise<void> | null = null;
 /**
@@ -104,31 +106,43 @@ export function markBuilderModelsSeen(storage?: BuilderModelStorage): void {
 }
 
 /**
- * Newest first, with the pinned default always first regardless of its date: it is the choice
- * Ghostbuild stands behind, and a picker whose first row moves whenever Cloudflare publishes a
- * model is a picker nobody can learn. Undated models keep their catalog order, after the dated
- * ones, because an unknown date is not a claim to be old.
+ * Newest first, with the two models Ghostbuild stands behind pinned to the top two rows regardless
+ * of their dates: the current default, then the newest model of the preferred fallback family — the
+ * same model `resolveBuilderDefaultModel` would promote if Cloudflare retired the default. Those
+ * are the only two choices anyone here has verified end to end, so they are the two a user should
+ * reach for without reading dates, and a picker whose top rows move whenever Cloudflare publishes
+ * something is a picker nobody can learn. Everything below them is newest first, and undated models
+ * keep their catalog order after the dated ones, because an unknown date is not a claim to be old.
  */
 export function orderBuilderModelsForDisplay(
   models: readonly WorkersAiModel[],
   defaultModelId: WorkersAiModelId,
 ): readonly WorkersAiModel[] {
-  return models
-    .map((model, index) => ({ model, index }))
-    .sort((left, right) => {
-      if (left.model.id === defaultModelId || right.model.id === defaultModelId) {
-        return left.model.id === defaultModelId ? (right.model.id === defaultModelId ? 0 : -1) : 1;
-      }
-      const leftTime = modelPublishedTime(left.model);
-      const rightTime = modelPublishedTime(right.model);
-      return leftTime === rightTime ? left.index - right.index : rightTime - leftTime;
-    })
-    .map(({ model }) => model);
-}
-
-function modelPublishedTime(model: WorkersAiModel): number {
-  const parsed = model.createdAt === undefined ? Number.NaN : Date.parse(model.createdAt);
-  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+  // Computed over everything except the default, so a default that is itself in the preferred
+  // family gives the second row to a genuinely different model rather than to itself.
+  const preferredFallbackId = newestPreferredFallbackWorkersAiModel(
+    models.filter(({ id }) => id !== defaultModelId),
+  )?.id;
+  function pinnedRank({ id }: WorkersAiModel): number {
+    if (id === defaultModelId) {
+      return 0;
+    }
+    if (id === preferredFallbackId) {
+      return 1;
+    }
+    return 2;
+  }
+  return [...models].sort((left, right) => {
+    const rankDifference = pinnedRank(left) - pinnedRank(right);
+    if (rankDifference !== 0) {
+      return rankDifference;
+    }
+    const leftTime = workersAiModelPublishedTime(left);
+    const rightTime = workersAiModelPublishedTime(right);
+    // Two undated entries are both `-Infinity`, whose difference is `NaN`; equal times compare equal
+    // instead, and `sort` being stable since ES2019 leaves them in catalog order.
+    return leftTime === rightTime ? 0 : rightTime - leftTime;
+  });
 }
 
 export function setBuilderModel(modelId: WorkersAiModelId, storage?: Pick<Storage, 'setItem'>): void {

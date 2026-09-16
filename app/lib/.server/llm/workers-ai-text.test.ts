@@ -18,7 +18,16 @@ const mocks = vi.hoisted(() => {
 vi.mock('./pi-ai-invoke', () => ({ AgentTurnError: mocks.AgentTurnError, completeText: mocks.completeText }));
 vi.mock('./pi-ai-models', () => ({ getPiModel: mocks.getPiModel }));
 
+import { CLOUDFLARE_CONTEXT_SUMMARY_MODEL } from '~/lib/workers-ai-model';
 import { summarizeBuilderContext } from './workers-ai-text';
+
+/**
+ * Only the failure path reads the catalog, so this is the one binding member these tests exercise.
+ */
+function cataloguingBinding(models: Ai['models']): Ai {
+  // SAFETY: the pi provider is mocked, so nothing in this module reaches any other member of `Ai`.
+  return { models } as Ai;
+}
 
 describe('summarizeBuilderContext', () => {
   const credentials = { binding: {} as Ai };
@@ -58,6 +67,25 @@ describe('summarizeBuilderContext', () => {
     mocks.completeText.mockRejectedValue(new Error('provider detail'));
     await expect(summarizeBuilderContext('conversation', credentials)).rejects.toThrow(
       'Context compaction generation failed.',
+    );
+  });
+
+  test('names the pinned summary model when the account no longer lists it', async () => {
+    mocks.completeText.mockRejectedValue(new Error('provider detail'));
+
+    await expect(
+      summarizeBuilderContext('conversation', { binding: cataloguingBinding(async () => []) }),
+    ).rejects.toThrow(`The pinned summary model ${CLOUDFLARE_CONTEXT_SUMMARY_MODEL} is no longer listed`);
+  });
+
+  test('keeps the generic failure when the diagnostic read itself fails', async () => {
+    mocks.completeText.mockRejectedValue(new Error('provider detail'));
+    const binding = cataloguingBinding(async () => Promise.reject(new Error('catalog down')));
+
+    // A diagnostic that cannot reach the catalog knows nothing about the pin, so the real failure
+    // must not be relabelled as a retirement.
+    await expect(summarizeBuilderContext('conversation', { binding })).rejects.toThrow(
+      /^Context compaction generation failed\.$/,
     );
   });
 });

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   CLOUDFLARE_CONTEXT_SUMMARY_MODEL,
@@ -28,6 +29,23 @@ describe('Workers AI model catalog', () => {
     expect(DEFAULT_WORKERS_AI_MODEL.contextTokens).toBe(1_048_576);
     expect(DEFAULT_WORKERS_AI_MODEL).toMatchObject({ label: 'GLM 5.3 Flash', reasoning: true, vision: true });
     expect(getWorkersAiModel(CLOUDFLARE_WORKERS_AI_MODEL, [DEFAULT_WORKERS_AI_MODEL])).toBe(DEFAULT_WORKERS_AI_MODEL);
+  });
+
+  /**
+   * The generated application carries its own copy of this id, and that copy is not the same risk
+   * as the pins above. Re-pinning a control-plane constant fixes every Ghostbuild build at the next
+   * deploy; the template's literal is copied into each generated app and deployed into the user's
+   * own Cloudflare account, where there is no catalog discovery and no failover. Apps already out
+   * there stay frozen on whatever it said, so re-pinning the builder and leaving the template behind
+   * ships new apps on a model Ghostbuild itself has already moved off. Matched as text because the
+   * template is a separate deployable, not a module this control plane imports.
+   */
+  it('keeps the generated application pinned to the same model as the builder', () => {
+    const templateSource = readFileSync(new URL('../../template/src/workers-ai.shared.ts', import.meta.url), 'utf8');
+
+    expect(/WORKERS_AI_CODING_MODEL\s*=\s*["']([^"']+)["']/.exec(templateSource)?.[1]).toBe(
+      CLOUDFLARE_WORKERS_AI_MODEL,
+    );
   });
 
   it('accepts a catalog entry with or without the publication date', () => {
