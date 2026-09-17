@@ -11,20 +11,17 @@ export function TrustPage({ title, summary, children }: { title: string; summary
         <TrustLinks />
       </header>
       <div className="trust-page__layout">
-        {/* Version and effective date are a labelled pair, not three loose lines. The eyebrow that
-            used to sit above the title is gone: it repeated the page's own name from the nav
-            directly above it. */}
-        <aside className="trust-page__rail" aria-label="Document status">
-          <dl>
-            <dt>Version</dt>
-            <dd>{TRUST_DOCUMENT_VERSION}</dd>
-            <dt>Effective</dt>
-            <dd>
-              <time dateTime={TRUST_DOCUMENT_EFFECTIVE_ISO_DATE}>{TRUST_DOCUMENT_EFFECTIVE_DATE}</time>
-            </dd>
-          </dl>
-        </aside>
         <article className="trust-page__article">
+          {/* Version and date as one line above the title, not a column beside it. As a rail they
+              were 205px wide and 74px tall on a page over a thousand pixels long, so the column was
+              empty for the whole document and the article was narrowed to make room for the gap. */}
+          <p className="trust-page__meta">
+            <span>{TRUST_DOCUMENT_VERSION}</span>
+            <span aria-hidden="true">·</span>
+            <span>
+              Effective <time dateTime={TRUST_DOCUMENT_EFFECTIVE_ISO_DATE}>{TRUST_DOCUMENT_EFFECTIVE_DATE}</time>
+            </span>
+          </p>
           <h1>{title}</h1>
           <p className="trust-page__summary">{summary}</p>
           <div className="trust-page__prose">{children}</div>
