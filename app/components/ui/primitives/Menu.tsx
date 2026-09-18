@@ -36,8 +36,9 @@ export function Menu({ children, buttonProps }: MenuProps) {
         <DropdownMenu.Content
           align="end"
           sideOffset={8}
+          collisionPadding={8}
           aria-label={triggerLabel ?? triggerTitle}
-          className="z-50 min-w-52 overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-none backdrop-blur-xl"
+          className="z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-52 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-none backdrop-blur-xl"
         >
           {children}
         </DropdownMenu.Content>

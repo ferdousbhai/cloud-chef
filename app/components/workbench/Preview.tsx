@@ -39,7 +39,7 @@ export function Preview({
           className="flex items-center gap-3 border-b border-red-500/20 bg-red-500/10 px-4 py-2 text-xs text-content-error"
           role="status"
         >
-          <span className="min-w-0 flex-1">{error ?? 'The latest preview failed.'}</span>
+          <span className="min-w-0 flex-1 break-words">{error ?? 'The latest preview failed.'}</span>
           <Button size="xs" variant="neutral" disabled={requesting} onClick={onRequest}>
             Retry
           </Button>
@@ -88,8 +88,8 @@ function PreviewEmpty({
   const stage = updating && publication?.lane === 'preview' ? publicationStageLabel(publication) : null;
   const message = status === 'failed' ? error : updating ? stage : 'Build the current revision.';
   return (
-    <div className="flex size-full items-center justify-center p-6 text-center">
-      <div className="max-w-sm">
+    <div className="flex size-full flex-col overflow-y-auto p-6 text-center">
+      <div className="m-auto w-full max-w-sm shrink-0 break-words">
         <p className="font-medium text-content-primary">{title}</p>
         {message && (
           <p className="mt-2 text-sm text-content-secondary" aria-live="polite">

@@ -81,7 +81,7 @@ export function ReauthorizeInterstitial() {
         This Cloudflare connection was made before CloudChef recorded which permissions it holds. Reauthorize to confirm
         your permissions and enable the full agent. Your existing projects and builds keep working in the meantime.
       </p>
-      <div className="mt-5 flex justify-end gap-2">
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
         <Button variant="neutral" size="sm" onClick={defer}>
           Later
         </Button>

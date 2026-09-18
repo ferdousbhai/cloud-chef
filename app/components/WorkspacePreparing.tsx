@@ -12,7 +12,7 @@ export const WORKSPACE_PREPARING_MESSAGE = 'Preparing your Cloudflare workspace.
 export function WorkspacePreparingPanel({ onKeepWaiting }: { onKeepWaiting: () => void }) {
   return (
     <section
-      className="app-card w-full max-w-lg p-5 text-center"
+      className="app-card m-auto w-full max-w-lg shrink-0 p-5 text-center"
       aria-labelledby="workspace-preparing-heading"
       role="status"
     >

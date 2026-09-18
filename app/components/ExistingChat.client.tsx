@@ -108,14 +108,17 @@ export function ProjectLoadError({ error, onRetry }: { error: unknown; onRetry: 
   };
   if (isWorkspacePreparingError(error)) {
     return (
-      <div className="flex h-full items-center justify-center p-5">
+      <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto p-5">
         <WorkspacePreparingPanel onKeepWaiting={retry} />
       </div>
     );
   }
   return (
-    <div className="flex h-full items-center justify-center p-5">
-      <section className="app-card w-full max-w-lg p-5 text-center" aria-labelledby="project-load-heading">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto p-5">
+      <section
+        className="app-card m-auto w-full max-w-lg shrink-0 p-5 text-center"
+        aria-labelledby="project-load-heading"
+      >
         <h1 id="project-load-heading" className="font-display text-2xl font-bold text-content-primary">
           CloudChef could not load this project.
         </h1>
@@ -132,8 +135,11 @@ export function ProjectLoadError({ error, onRetry }: { error: unknown; onRetry: 
 
 function NotFound() {
   return (
-    <div className="flex h-full items-center justify-center p-5">
-      <section className="app-card w-full max-w-lg p-5 text-center" aria-labelledby="project-not-found-heading">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto p-5">
+      <section
+        className="app-card m-auto w-full max-w-lg shrink-0 p-5 text-center"
+        aria-labelledby="project-not-found-heading"
+      >
         <h1
           id="project-not-found-heading"
           className="font-display text-2xl font-bold tracking-tight text-content-primary"

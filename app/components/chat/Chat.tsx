@@ -128,14 +128,17 @@ function WorkspaceRuntimeConnectionError({
   // Preparation that outran the readiness deadline is still preparation, not a refusal.
   if (code === 'workspace_preparing') {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center p-5">
+      <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto p-5">
         <WorkspacePreparingPanel onKeepWaiting={onRetry} />
       </div>
     );
   }
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center p-5">
-      <section className="app-card w-full max-w-lg p-5 text-center" aria-labelledby="workspace-connection-heading">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto p-5">
+      <section
+        className="app-card m-auto w-full max-w-lg shrink-0 p-5 text-center"
+        aria-labelledby="workspace-connection-heading"
+      >
         <h1 id="workspace-connection-heading" className="font-display text-2xl font-bold text-content-primary">
           CloudChef could not prepare your workspace.
         </h1>

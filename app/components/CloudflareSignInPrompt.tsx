@@ -30,8 +30,8 @@ export function CloudflareSignInPrompt({
   };
 
   return (
-    <div className="app-page-shell flex min-h-full items-center px-4 py-6">
-      <section className="app-error-card app-card mx-auto" aria-labelledby="cloudflare-sign-in-heading">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6">
+      <section className="app-error-card app-card m-auto shrink-0" aria-labelledby="cloudflare-sign-in-heading">
         <BrandLink />
         <h1 id="cloudflare-sign-in-heading" className="app-page-title mt-4 !text-2xl">
           {title}

@@ -257,11 +257,6 @@ button,
   content: '';
 }
 
-.app-loading-state {
-  min-height: min(100%, 520px);
-  color: var(--cc-content-secondary);
-}
-
 .app-loading-mark {
   display: grid;
   width: 44px;
