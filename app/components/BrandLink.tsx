@@ -15,12 +15,12 @@ export function BrandLink({
       to="/"
       reloadDocument={variant === 'header'}
       className={classNames({ 'app-brand-lockup': variant === 'page' }, className)}
-      aria-label="Ghostbuild home"
+      aria-label="CloudChef home"
     >
-      <span className="ghostbuild-brand-mark" aria-hidden>
-        <span className="ghostbuild-brand-mark__glyph">👻</span>
+      <span className="cloudchef-brand-mark" aria-hidden>
+        <span className="cloudchef-brand-mark__glyph">👻</span>
       </span>
-      <span className={nameClassName}>Ghostbuild</span>
+      <span className={nameClassName}>CloudChef</span>
     </Link>
   );
 }

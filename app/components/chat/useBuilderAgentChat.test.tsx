@@ -3,18 +3,18 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 
 type ChatCallbacks = {
   onData: (part: { type: string; data?: unknown }) => void;
   onError: (error: Error) => void;
-  onFinish: (result: { finishReason: string; message: GhostbuildMessage }) => void;
+  onFinish: (result: { finishReason: string; message: CloudChefMessage }) => void;
 };
 
 const mocks = vi.hoisted(() => {
   const controller = { dispose: vi.fn(), pull: vi.fn() };
   const chat = {
-    messages: [] as GhostbuildMessage[],
+    messages: [] as CloudChefMessage[],
     status: 'ready' as const,
     isRecovering: false,
     isStreaming: false,
@@ -39,7 +39,7 @@ const mocks = vi.hoisted(() => {
     loadSnapshot: vi.fn(async (args: { read: () => Promise<unknown> }) => args.read()),
     recordChatFailure: vi.fn(),
     recordToolProgress: vi.fn(),
-    reconcileMessages: vi.fn(async (args: { localMessages: GhostbuildMessage[] }) => args.localMessages),
+    reconcileMessages: vi.fn(async (args: { localMessages: CloudChefMessage[] }) => args.localMessages),
     resetChatRetryState: vi.fn(),
     abortToolActivity: vi.fn(),
     clearToolProgress: vi.fn(),
@@ -141,9 +141,7 @@ beforeEach(() => {
   mocks.recordChatFailure.mockClear();
   mocks.recordToolProgress.mockClear();
   mocks.reconcileMessages.mockReset();
-  mocks.reconcileMessages.mockImplementation(
-    async (args: { localMessages: GhostbuildMessage[] }) => args.localMessages,
-  );
+  mocks.reconcileMessages.mockImplementation(async (args: { localMessages: CloudChefMessage[] }) => args.localMessages);
   mocks.resetChatRetryState.mockClear();
   mocks.abortToolActivity.mockClear();
   mocks.clearToolProgress.mockClear();
@@ -403,13 +401,13 @@ describe('useBuilderAgentChat stale presentation operations', () => {
       messageCount: 1,
       revision: 1,
     };
-    const localMessages: GhostbuildMessage[] = [
+    const localMessages: CloudChefMessage[] = [
       { id: 'local-1', role: 'user', parts: [{ type: 'text', text: 'local' }] },
     ];
-    const durableMessages: GhostbuildMessage[] = [
+    const durableMessages: CloudChefMessage[] = [
       { id: 'durable-1', role: 'user', parts: [{ type: 'text', text: 'durable' }] },
     ];
-    const reconciliation = deferred<GhostbuildMessage[]>();
+    const reconciliation = deferred<CloudChefMessage[]>();
     mocks.chat.messages = localMessages;
     mocks.agent.state = { transcript: checkpoint };
     mocks.reconcileMessages.mockImplementationOnce(async () => reconciliation.promise);
@@ -445,7 +443,7 @@ describe('useBuilderAgentChat stale presentation operations', () => {
   });
 
   it('does not send after the presentation switches during transcript reconciliation', async () => {
-    const oldSnapshot = deferred<{ checkpoint: null; messages: GhostbuildMessage[] }>();
+    const oldSnapshot = deferred<{ checkpoint: null; messages: CloudChefMessage[] }>();
     mocks.agent.call.mockImplementation(async (method: string) => {
       if (method === 'getPreviewState') {
         return {};

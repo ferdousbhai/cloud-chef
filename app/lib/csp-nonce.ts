@@ -1,7 +1,7 @@
 import { createIsomorphicFn } from '@tanstack/react-start';
 import { getRequestHeader } from '@tanstack/react-start/server';
 
-export const CSP_NONCE_REQUEST_HEADER = 'X-Ghostbuild-CSP-Nonce';
+export const CSP_NONCE_REQUEST_HEADER = 'X-CloudChef-CSP-Nonce';
 const CSP_NONCE_PATTERN = /^[0-9a-f-]{36}$/i;
 
 export const contentSecurityPolicyNonce = createIsomorphicFn()

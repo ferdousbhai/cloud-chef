@@ -3,7 +3,7 @@ import {
   type CloudflareExecutionPublicState,
   type CloudflareExecutionSafeOutcome,
   type CloudflareExecutionStatus,
-} from 'ghostbuild-agent/cloudflare-mcp';
+} from 'cloudchef-agent/cloudflare-mcp';
 import { sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareMcpRuntimeIdentity } from '~/lib/.server/cloudflare/cloudflare-mcp-runtime-controls';
 import { builderTranscriptBindingsEqual, type BuilderTranscriptBinding } from './builder-request-policy';
@@ -302,7 +302,7 @@ export class BuilderCloudflareExecutionRepository {
     const outcome: CloudflareExecutionSafeOutcome = {
       status: 'indeterminate',
       summary:
-        'The approved Cloudflare execution was interrupted. Ghostbuild will not replay it; reconcile with a read before proposing another mutation.',
+        'The approved Cloudflare execution was interrupted. CloudChef will not replay it; reconcile with a read before proposing another mutation.',
     };
     return this.storage.transactionSync(() => {
       this.storage.sql.exec(

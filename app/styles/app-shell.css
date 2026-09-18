@@ -104,7 +104,7 @@ button,
   transform: translateY(0);
 }
 
-.ghostbuild-header {
+.cloudchef-header {
   z-index: 30;
   height: var(--header-height);
   min-height: var(--header-height);
@@ -114,12 +114,12 @@ button,
   color: var(--gb-content-primary);
 }
 
-.ghostbuild-header a,
-.ghostbuild-header a:visited {
+.cloudchef-header a,
+.cloudchef-header a:visited {
   color: var(--gb-content-primary);
 }
 
-.ghostbuild-header__menu-button {
+.cloudchef-header__menu-button {
   display: inline-flex;
   width: 34px;
   height: 34px;
@@ -137,13 +137,13 @@ button,
     transform 120ms ease;
 }
 
-.ghostbuild-header__menu-button:hover {
+.cloudchef-header__menu-button:hover {
   border-color: var(--gb-content-accent);
   background: var(--gb-background-tertiary);
   color: var(--gb-content-accent);
 }
 
-.ghostbuild-header__menu-button:active {
+.cloudchef-header__menu-button:active {
   transform: translateY(1px);
 }
 
@@ -293,7 +293,7 @@ button,
 }
 
 @media (max-width: 720px) {
-  .ghostbuild-header {
+  .cloudchef-header {
     padding-right: 12px;
     padding-left: 12px;
   }
@@ -313,7 +313,7 @@ button,
 }
 
 @media (max-width: 1023px) {
-  .ghostbuild-header[data-chat-started='true'] .ghostbuild-brand-name {
+  .cloudchef-header[data-chat-started='true'] .cloudchef-brand-name {
     display: none;
   }
 }
@@ -321,7 +321,7 @@ button,
 @media (pointer: coarse) {
   .gb-button,
   .gb-icon-button,
-  .ghostbuild-header__menu-button {
+  .cloudchef-header__menu-button {
     min-width: 44px;
     min-height: 44px;
   }

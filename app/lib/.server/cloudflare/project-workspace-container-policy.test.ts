@@ -7,7 +7,7 @@ import {
 
 /**
  * Cloudflare instance types reviewed for the Computer workspace runtime. A tier
- * outside this set has never been sized against Ghostbuild's install, typecheck,
+ * outside this set has never been sized against CloudChef's install, typecheck,
  * build, validation, and preview workloads and must not reach an account.
  */
 const REVIEWED_INSTANCE_TYPES = ['basic', 'standard-1', 'standard-2', 'standard-3', 'standard-4'] as const;

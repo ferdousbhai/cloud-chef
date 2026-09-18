@@ -19,13 +19,13 @@ function testEnv(): Env {
 describe('auth handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.clearAuthSessionCookie.mockReturnValue('ghostbuild_session=; Path=/; HttpOnly; Max-Age=0');
+    mocks.clearAuthSessionCookie.mockReturnValue('cloudchef_session=; Path=/; HttpOnly; Max-Age=0');
     mocks.deleteAuthSession.mockResolvedValue(undefined);
     mocks.getAuthSession.mockResolvedValue(null);
   });
 
   it('returns session state without allowing it to be cached', async () => {
-    const request = new Request('https://ghostbuild.dev/api/auth/session');
+    const request = new Request('https://cloudchef.build/api/auth/session');
     const env = testEnv();
     const response = await authSessionAction({ request, env });
 
@@ -37,7 +37,7 @@ describe('auth handlers', () => {
 
   it('rejects sign-out requests from another origin', async () => {
     const response = await signOutAction({
-      request: new Request('https://ghostbuild.dev/api/auth/sign-out', {
+      request: new Request('https://cloudchef.build/api/auth/sign-out', {
         method: 'POST',
         headers: { Origin: 'https://attacker.example' },
       }),
@@ -49,9 +49,9 @@ describe('auth handlers', () => {
   });
 
   it('deletes the server session and expires the browser cookie', async () => {
-    const request = new Request('https://ghostbuild.dev/api/auth/sign-out', {
+    const request = new Request('https://cloudchef.build/api/auth/sign-out', {
       method: 'POST',
-      headers: { Origin: 'https://ghostbuild.dev' },
+      headers: { Origin: 'https://cloudchef.build' },
     });
     const env = testEnv();
     const response = await signOutAction({ request, env });

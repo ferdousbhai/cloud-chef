@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COMPUTER_TOOL_LIMITS } from '../../ghostbuild-agent/cloudflare-computer';
+import { COMPUTER_TOOL_LIMITS } from '../../cloudchef-agent/cloudflare-computer';
 import { acknowledgeMutationReceipt, createCommittedMutationReceipt } from './mutation-receipt';
 
 describe('bounded Computer mutation receipts', () => {

@@ -1,5 +1,5 @@
-import { transcriptIdentitySchema, type TranscriptIdentity } from 'ghostbuild-agent/transcript';
-import { MAX_USER_MESSAGE_CHARACTERS } from 'ghostbuild-agent/context-limits';
+import { transcriptIdentitySchema, type TranscriptIdentity } from 'cloudchef-agent/transcript';
+import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import type { UIMessage } from 'ai';
 import { workersAiModelIdSchema, type WorkersAiModelId } from '~/lib/workers-ai-model';
 import { z } from 'zod';

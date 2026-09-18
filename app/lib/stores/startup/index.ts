@@ -4,14 +4,14 @@ import { useChatSelectionSync } from './history';
 import { useCallback, useEffect, useState } from 'react';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { useAllSubchatsState } from '~/lib/cloudflare/data-hooks';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { subchatIndexStore } from '~/lib/stores/subchats';
 import { useStore } from '@nanostores/react';
-import { transcriptAgentName } from 'ghostbuild-agent/transcript';
+import { transcriptAgentName } from 'cloudchef-agent/transcript';
 import { useNavigateToChat } from '~/lib/stores/chatId';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 
-const EMPTY_INITIAL_MESSAGES: GhostbuildMessage[] = [];
+const EMPTY_INITIAL_MESSAGES: CloudChefMessage[] = [];
 
 export function useChatHomepage(chatId: string) {
   const navigateToChat = useNavigateToChat();

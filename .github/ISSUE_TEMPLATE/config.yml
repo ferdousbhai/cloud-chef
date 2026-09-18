@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
-    url: https://github.com/ferdousbhai/ghost-build/security/advisories/new
+    url: https://github.com/ferdousbhai/cloud-chef/security/advisories/new
     about: Send vulnerability details privately according to SECURITY.md.
   - name: Product support
-    url: https://github.com/ferdousbhai/ghost-build/issues/new?template=support_request.yml
-    about: Ask a non-sensitive product, Ghostbuild sign-in, or privacy question.
+    url: https://github.com/ferdousbhai/cloud-chef/issues/new?template=support_request.yml
+    about: Ask a non-sensitive product, CloudChef sign-in, or privacy question.

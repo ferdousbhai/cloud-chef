@@ -1,5 +1,5 @@
 {
-  "name": "ghostbuild-cloudflare-template",
+  "name": "cloudchef-cloudflare-template",
   "private": true,
   "version": "0.0.0",
   "type": "module",

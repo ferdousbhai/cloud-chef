@@ -27,7 +27,7 @@ describe('Workers Paid consent boundary', () => {
     expect(cloudflareAiFundingRequiredMessage()).toContain('AI Gateway Unified Billing');
     expect(cloudflareAiFundingRequiredMessage()).toContain('Credits Available');
     expect(cloudflareAiFundingRequiredMessage()).toContain('Top-up credits');
-    expect(cloudflareAiFundingRequiredMessage()).toContain('Ghostbuild did not make a purchase');
+    expect(cloudflareAiFundingRequiredMessage()).toContain('CloudChef did not make a purchase');
   });
 
   test('recognizes the misleading Workers AI binding wrapper for an unfunded partner model', () => {

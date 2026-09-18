@@ -24,7 +24,7 @@ describe('D1 Time Travel bookmark recording', () => {
       commitSha,
       provider: 'cloudflare-workers-builds',
     });
-    expect(summary).toContain('`pnpm exec wrangler d1 time-travel restore ghostbuild --bookmark=bookmark-1`');
+    expect(summary).toContain('`pnpm exec wrangler d1 time-travel restore cloudchef --bookmark=bookmark-1`');
     expect(summary).toContain(`- Commit: \`${commitSha}\``);
     expect(summary).toContain('- Build: `11111111-2222-3333-8444-555555555555`');
     expect(summary).toContain('- Provider: `cloudflare-workers-builds`');

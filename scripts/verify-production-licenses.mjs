@@ -12,7 +12,7 @@ const policyPath = resolve(rootDir, 'scripts/production-license-policy.json');
 const lockfilePath = resolve(rootDir, 'pnpm-lock.yaml');
 const noticeArtifactPath = resolve(rootDir, 'public/THIRD_PARTY_LICENSES.txt');
 const nodeModulesPath = resolve(rootDir, 'node_modules');
-const NOTICE_ARTIFACT_TITLE = 'Ghostbuild Third-Party Production Dependency Licenses';
+const NOTICE_ARTIFACT_TITLE = 'CloudChef Third-Party Production Dependency Licenses';
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -119,12 +119,12 @@ export function createSpdxDocument(packages, policy, lockfileContent) {
     spdxVersion: 'SPDX-2.3',
     dataLicense: 'CC0-1.0',
     SPDXID: 'SPDXRef-DOCUMENT',
-    name: 'ghostbuild-production-dependencies',
-    documentNamespace: `https://ghostbuild.dev/.well-known/sbom/production/${namespaceDigest}`,
+    name: 'cloudchef-production-dependencies',
+    documentNamespace: `https://cloudchef.build/.well-known/sbom/production/${namespaceDigest}`,
     creationInfo: {
       // A fixed timestamp keeps lockfile-identical inventories byte-for-byte reproducible.
       created: '1970-01-01T00:00:00Z',
-      creators: ['Tool: ghostbuild-production-license-inventory'],
+      creators: ['Tool: cloudchef-production-license-inventory'],
     },
     packages: normalized,
     relationships: normalized.map((entry) => ({

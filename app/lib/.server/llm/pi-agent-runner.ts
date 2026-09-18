@@ -14,12 +14,12 @@ import {
   type Usage,
 } from '@earendil-works/pi-ai';
 import type { PiStreamChunk } from './pi-stream';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
-import { calculatePromptCharacterCounts } from 'ghostbuild-agent/context-message-metrics';
-import { systemPrompt } from 'ghostbuild-agent/prompts/system';
-import { toolResultSucceeded } from 'ghostbuild-agent/tool-result';
-import type { ChatTurnContext } from 'ghostbuild-agent/turn-context';
-import { logger } from 'ghostbuild-agent/utils/logger';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
+import { calculatePromptCharacterCounts } from 'cloudchef-agent/context-message-metrics';
+import { systemPrompt } from 'cloudchef-agent/prompts/system';
+import { toolResultSucceeded } from 'cloudchef-agent/tool-result';
+import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
+import { logger } from 'cloudchef-agent/utils/logger';
 import type { WorkersAiModel } from '~/lib/workers-ai-model';
 import {
   WORKSPACE_TOOL_OPERATION_INDETERMINATE_CODE,
@@ -71,10 +71,10 @@ import { logProviderFailure } from './provider-error-logging';
 import { ProviderStopError, providerStopDiagnosticCode } from './provider-stop-error';
 import type { PiSteeringQueue } from './pi-steering';
 import type { CloudflareMcpModelToolContext } from './cloudflare-mcp-model-tools';
-import { isCloudflareExecuteProposal } from 'ghostbuild-agent/cloudflare-mcp';
-import type { CloudflareMcpResultCandidate } from 'ghostbuild-agent/cloudflare-mcp';
+import { isCloudflareExecuteProposal } from 'cloudchef-agent/cloudflare-mcp';
+import type { CloudflareMcpResultCandidate } from 'cloudchef-agent/cloudflare-mcp';
 
-type Messages = GhostbuildMessage[];
+type Messages = CloudChefMessage[];
 type UIMessageChunk = PiStreamChunk;
 
 /** Tools whose execution durably changes the project, for telemetry and the end-of-turn validation guarantee. */

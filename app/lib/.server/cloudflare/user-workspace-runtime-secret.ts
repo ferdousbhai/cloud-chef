@@ -1,7 +1,7 @@
 import { bytesToBase64Url } from '~/lib/hex-digest';
 
 const RUNTIME_SECRET_BYTES = 32;
-const RUNTIME_SECRET_SALT = new TextEncoder().encode('ghostbuild-user-workspace-runtime-control-v1');
+const RUNTIME_SECRET_SALT = new TextEncoder().encode('cloudchef-user-workspace-runtime-control-v1');
 
 export async function deriveUserWorkspaceRuntimeSecret(args: {
   encryptionKeyBase64: string;

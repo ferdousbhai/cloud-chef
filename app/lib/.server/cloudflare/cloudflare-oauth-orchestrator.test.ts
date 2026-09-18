@@ -9,13 +9,14 @@ describe('CloudflareOAuthOrchestrator', () => {
   test('starts authorization code + PKCE with server-owned state and no secret in the browser URL', async () => {
     const orchestrator = new CloudflareOAuthOrchestrator(config);
     const result = await orchestrator.startConnection({
-      returnUrl: 'https://ghostbuild.dev/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
+      returnUrl:
+        'https://cloudchef.build/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
     });
     const url = new URL(result.authorizationUrl);
     expect(url.origin + url.pathname).toBe('https://dash.cloudflare.com/oauth2/auth');
     expect(url.searchParams.get('response_mode')).toBeNull();
     expect(url.searchParams.get('state')).toBe('00000000-0000-4000-8000-000000000001');
-    expect(url.searchParams.get('redirect_uri')).toBe('https://ghostbuild.dev/api/cloudflare/connection/callback');
+    expect(url.searchParams.get('redirect_uri')).toBe('https://cloudchef.build/api/cloudflare/connection/callback');
     expect(url.searchParams.get('code_challenge_method')).toBe('S256');
     expect(url.searchParams.get('scope')).toBe(`${scopes} offline_access`);
     expect(url.searchParams.get('scope')).not.toContain('openid');
@@ -23,7 +24,7 @@ describe('CloudflareOAuthOrchestrator', () => {
     expect(url.searchParams.get('scope')).not.toContain('email');
     expect(result.authorizationUrl).not.toContain('client-secret');
     expect(JSON.parse(result.sessionId)).toMatchObject({
-      redirectUri: 'https://ghostbuild.dev/api/cloudflare/connection/callback',
+      redirectUri: 'https://cloudchef.build/api/cloudflare/connection/callback',
     });
   });
 
@@ -35,7 +36,7 @@ describe('CloudflareOAuthOrchestrator', () => {
     await expect(
       orchestrator.startConnection({
         returnUrl:
-          'https://ghostbuild.dev/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
+          'https://cloudchef.build/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
       }),
     ).rejects.toThrow('workers-r2.write');
   });
@@ -55,13 +56,14 @@ describe('CloudflareOAuthOrchestrator', () => {
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ id: 'account-1', name: 'User account' }] }));
     const orchestrator = new CloudflareOAuthOrchestrator(config, request);
     const challenge = await orchestrator.startConnection({
-      returnUrl: 'https://ghostbuild.dev/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
+      returnUrl:
+        'https://cloudchef.build/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
     });
     await expect(
       orchestrator.completeConnection({
         providerSessionId: challenge.sessionId,
         callbackUrl:
-          'https://ghostbuild.dev/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001&code=code-1',
+          'https://cloudchef.build/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001&code=code-1',
       }),
     ).resolves.toEqual({
       user: {
@@ -114,12 +116,13 @@ describe('CloudflareOAuthOrchestrator', () => {
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ id: 'one' }, { id: 'two' }] }));
     const orchestrator = new CloudflareOAuthOrchestrator(config, request);
     const challenge = await orchestrator.startConnection({
-      returnUrl: 'https://ghostbuild.dev/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
+      returnUrl:
+        'https://cloudchef.build/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
     });
     await expect(
       orchestrator.completeConnection({
         providerSessionId: challenge.sessionId,
-        callbackUrl: 'https://ghostbuild.dev/api/cloudflare/connection/callback?code=code-1',
+        callbackUrl: 'https://cloudchef.build/api/cloudflare/connection/callback?code=code-1',
       }),
     ).rejects.toBeInstanceOf(CloudflareOAuthError);
   });
@@ -128,12 +131,13 @@ describe('CloudflareOAuthOrchestrator', () => {
     const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ access_token: 'oauth-access-token' }));
     const orchestrator = new CloudflareOAuthOrchestrator(config, request);
     const challenge = await orchestrator.startConnection({
-      returnUrl: 'https://ghostbuild.dev/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
+      returnUrl:
+        'https://cloudchef.build/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
     });
     await expect(
       orchestrator.completeConnection({
         providerSessionId: challenge.sessionId,
-        callbackUrl: 'https://ghostbuild.dev/api/cloudflare/connection/callback?code=code-1',
+        callbackUrl: 'https://cloudchef.build/api/cloudflare/connection/callback?code=code-1',
       }),
     ).rejects.toThrow('refresh token');
   });
@@ -147,13 +151,14 @@ describe('CloudflareOAuthOrchestrator', () => {
       .mockResolvedValueOnce(Response.json({ success: false, result: null }, { status: 403 }));
     const orchestrator = new CloudflareOAuthOrchestrator(config, request);
     const challenge = await orchestrator.startConnection({
-      returnUrl: 'https://ghostbuild.dev/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
+      returnUrl:
+        'https://cloudchef.build/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
     });
 
     await expect(
       orchestrator.completeConnection({
         providerSessionId: challenge.sessionId,
-        callbackUrl: 'https://ghostbuild.dev/api/cloudflare/connection/callback?code=code-1',
+        callbackUrl: 'https://cloudchef.build/api/cloudflare/connection/callback?code=code-1',
       }),
     ).rejects.toBeInstanceOf(CloudflareOAuthError);
   });

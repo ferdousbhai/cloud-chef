@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { WORKSPACE_READ_ONLY_TOOL_NAMES } from 'ghostbuild-agent/model-tool-inputs';
+import { WORKSPACE_READ_ONLY_TOOL_NAMES } from 'cloudchef-agent/model-tool-inputs';
 import {
   BUILDER_MUTATION_TOOL_TIMEOUT_MS,
   BUILDER_TURN_BUDGET_ERROR_CODE,

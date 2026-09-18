@@ -28,13 +28,13 @@ export function TrustFooter({ className = '' }: { className?: string }) {
           reassurance. */}
       <div className="mx-auto flex w-full max-w-[1080px] flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <p className="text-xs text-content-tertiary">
-          <a className="underline underline-offset-4" href="https://github.com/ferdousbhai/ghost-build">
+          <a className="underline underline-offset-4" href="https://github.com/ferdousbhai/cloud-chef">
             Open source
           </a>{' '}
           ·{' '}
           <a
             className="underline underline-offset-4"
-            href="https://github.com/sponsors/ferdousbhai?metadata_campaign=ghostbuild-app"
+            href="https://github.com/sponsors/ferdousbhai?metadata_campaign=cloudchef-app"
           >
             Sponsor
           </a>

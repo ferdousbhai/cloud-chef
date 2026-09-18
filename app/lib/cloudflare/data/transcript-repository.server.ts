@@ -2,7 +2,7 @@ import {
   CURRENT_TRANSCRIPT_GENERATION,
   transcriptAgentName,
   type TranscriptIdentity,
-} from 'ghostbuild-agent/transcript';
+} from 'cloudchef-agent/transcript';
 import type { ChatTranscriptRow } from './types';
 
 export async function requireChatTranscript(

@@ -9,7 +9,7 @@ function Home() {
     <main className="min-h-screen bg-slate-950 px-5 py-8 text-slate-100 sm:px-8 lg:px-12">
       <div className="mx-auto grid max-w-6xl gap-12 border-t border-slate-700 pt-8 lg:grid-cols-[15rem_1fr]">
         <aside className="text-sm text-slate-300">
-          <p className="font-mono text-xs text-cyan-300">ghostbuild / worker</p>
+          <p className="font-mono text-xs text-cyan-300">cloudchef / worker</p>
           <p className="mt-3 leading-6">TanStack Start on Cloudflare</p>
         </aside>
 

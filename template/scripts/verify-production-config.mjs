@@ -49,7 +49,7 @@ function verifyWorker(errors, config) {
     errors,
     "wrangler.jsonc name",
     config?.name,
-    "ghostbuild-cloudflare-app",
+    "cloudchef-cloudflare-app",
   );
   if (
     config?.main !== "src/plain-server.ts" &&
@@ -93,7 +93,7 @@ function verifyWorker(errors, config) {
       errors,
       "wrangler.jsonc D1 database_name",
       d1.database_name,
-      "ghostbuild-cloudflare-app",
+      "cloudchef-cloudflare-app",
     );
     requireEqual(
       errors,
@@ -132,7 +132,7 @@ function verifyWorker(errors, config) {
       errors,
       "wrangler.jsonc AGENT_SECURITY_DB database_name",
       agentSecurityD1.database_name,
-      "ghostbuild-cloudflare-app-agent-security",
+      "cloudchef-cloudflare-app-agent-security",
     );
     requireEqual(
       errors,
@@ -209,7 +209,7 @@ function verifyWorker(errors, config) {
     errors,
     "wrangler.jsonc R2 bucket_name",
     r2?.bucket_name,
-    "ghostbuild-cloudflare-app-storage",
+    "cloudchef-cloudflare-app-storage",
   );
   const kv = config?.kv_namespaces?.find(
     (item) => item?.binding === "APP_CACHE",

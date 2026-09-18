@@ -1,7 +1,7 @@
 /**
- * Read-only operational report for the Ghostbuild platform.
+ * Read-only operational report for the CloudChef platform.
  *
- * This replaces the deployed `admin.ghostbuild.dev` dashboard. It reads the production
+ * This replaces the deployed `admin.cloudchef.build` dashboard. It reads the production
  * control-plane D1 database and the control-plane Worker's own invocation analytics through the
  * operator's own Wrangler authentication, so there is nothing to deploy and no secret to hold.
  * Every statement it issues is a `SELECT` and every API call it makes is a read.
@@ -17,7 +17,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-const DATABASE_NAME = 'ghostbuild';
+const DATABASE_NAME = 'cloudchef';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RUNTIME_BUNDLE_PATH = resolve(ROOT, 'app/generated/user-workspace-runtime.generated.ts');
 const RUNTIME_SHA_PATTERN = /USER_WORKSPACE_RUNTIME_SHA256 = "([a-f0-9]{64})"/;
@@ -41,7 +41,7 @@ const WEEK = 7 * DAY;
 const RUNTIME_ROW_LIMIT = 200;
 
 /** The control-plane Worker this repository deploys, as named in `wrangler.jsonc`. */
-const WORKER_SCRIPT_NAME = 'ghostbuild';
+const WORKER_SCRIPT_NAME = 'cloudchef';
 /** How far back the invocation read looks. */
 const WORKER_INVOCATION_WINDOW_MS = DAY;
 /**
@@ -243,8 +243,8 @@ function readInvocationGroup(row) {
 /**
  * The control-plane Worker's own invocations, as a status and a sentence.
  *
- * This is the one part of the platform Ghostbuild can observe without asking anybody for
- * anything: `ghostbuild` is its own Worker in its own account. It answers "is it serving, and is
+ * This is the one part of the platform CloudChef can observe without asking anybody for
+ * anything: `cloudchef` is its own Worker in its own account. It answers "is it serving, and is
  * it throwing" from invocation outcomes. It deliberately does not claim to answer "what did it
  * throw" — the message text lives in Workers Logs, which needs an observability grant this
  * credential does not carry, so the sentence says that out loud rather than implying the counts
@@ -284,9 +284,9 @@ function describeWorkerInvocations(rows, { windowMs = WORKER_INVOCATION_WINDOW_M
   if (groups.length === 0) {
     return {
       level: 'attention',
-      // Zero groups is not zero traffic: this Worker serves ghostbuild.dev and fires a cron
+      // Zero groups is not zero traffic: this Worker serves cloudchef.build and fires a cron
       // every 15 minutes, so an empty window means it stopped or the dataset is behind.
-      sentence: `${WORKER_SCRIPT_NAME} recorded no invocations at all in the last ${window}, though it serves ghostbuild.dev and runs a cron every 15 minutes.`,
+      sentence: `${WORKER_SCRIPT_NAME} recorded no invocations at all in the last ${window}, though it serves cloudchef.build and runs a cron every 15 minutes.`,
       detail,
     };
   }
@@ -368,7 +368,7 @@ const GRAPHQL_ENDPOINT = 'https://api.cloudflare.com/client/v4/graphql';
  * credential is refused by `workers/observability/telemetry/query`, which needs an observability
  * permission Wrangler's OAuth grant does not include.
  */
-export const WORKER_INVOCATIONS_QUERY = `query GhostbuildInvocations($account: string!, $script: string!, $from: Time!, $to: Time!) {
+export const WORKER_INVOCATIONS_QUERY = `query CloudChefInvocations($account: string!, $script: string!, $from: Time!, $to: Time!) {
   viewer {
     accounts(filter: { accountTag: $account }) {
       workersInvocationsAdaptive(
@@ -954,7 +954,7 @@ const GROUPS = [
  */
 export function renderReport(report) {
   const lines = [
-    `Ghostbuild platform — ${report.generatedAtIso.replace('T', ' ').slice(0, 16)} UTC`,
+    `CloudChef platform — ${report.generatedAtIso.replace('T', ' ').slice(0, 16)} UTC`,
     `read-only from control-plane D1 "${report.database}" and Workers analytics, via wrangler`,
     '',
     report.headline,
@@ -994,7 +994,7 @@ function expandCheck(item) {
 
 const USAGE = `Usage: pnpm run ops [-- --json]
 
-Reports the operational state of the Ghostbuild platform by reading production
+Reports the operational state of the CloudChef platform by reading production
 control-plane D1 and the control-plane Worker's own invocation analytics with the
 operator's own Wrangler authentication. Read-only.
 

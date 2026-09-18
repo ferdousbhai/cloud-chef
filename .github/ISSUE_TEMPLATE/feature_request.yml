@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a focused improvement to Ghostbuild
+description: Propose a focused improvement to CloudChef
 title: '[Feature]: '
 labels:
   - enhancement
@@ -30,5 +30,5 @@ body:
       options:
         - label: I searched existing issues for this request.
           required: true
-        - label: This request stays within Ghostbuild's Cloudflare and TanStack product scope.
+        - label: This request stays within CloudChef's Cloudflare and TanStack product scope.
           required: true

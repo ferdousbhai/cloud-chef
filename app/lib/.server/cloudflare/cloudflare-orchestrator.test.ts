@@ -6,13 +6,13 @@ describe('UnavailableCloudflareOrchestrator', () => {
     const orchestrator = new UnavailableCloudflareOrchestrator();
     await expect(
       orchestrator.startConnection({
-        returnUrl: 'https://ghostbuild.dev/cloudflare/callback',
+        returnUrl: 'https://cloudchef.build/cloudflare/callback',
       }),
     ).rejects.toBeInstanceOf(CloudflareOrchestratorUnavailableError);
     await expect(
       orchestrator.completeConnection({
         providerSessionId: 'provider-session',
-        callbackUrl: 'https://ghostbuild.dev/api/cloudflare/connection/callback?state=state',
+        callbackUrl: 'https://cloudchef.build/api/cloudflare/connection/callback?state=state',
       }),
     ).rejects.toBeInstanceOf(CloudflareOrchestratorUnavailableError);
   });

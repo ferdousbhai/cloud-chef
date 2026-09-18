@@ -3,7 +3,7 @@ import { PayloadTooLargeError, readBodyBytesWithLimit, readJsonBodyWithLimit } f
 
 describe('readBodyBytesWithLimit', () => {
   it('rejects an oversized declared body from its headers', async () => {
-    const request = new Request('https://ghostbuild.dev/upload', {
+    const request = new Request('https://cloudchef.build/upload', {
       method: 'POST',
       headers: { 'Content-Length': '10' },
       body: new ReadableStream({
@@ -35,7 +35,7 @@ describe('readBodyBytesWithLimit', () => {
 
 describe('readJsonBodyWithLimit', () => {
   it('rejects chunked JSON when streamed bytes cross the ceiling', async () => {
-    const request = new Request('https://ghostbuild.dev/api/data', {
+    const request = new Request('https://cloudchef.build/api/data', {
       method: 'POST',
       body: new ReadableStream({
         start(controller) {

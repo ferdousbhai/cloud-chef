@@ -1,15 +1,15 @@
 {
-  "name": "ghostbuild",
+  "name": "cloudchef",
   "description": "AI project builder for Cloudflare with TanStack Start as the default web framework",
   "private": true,
   "license": "Apache-2.0",
-  "homepage": "https://ghostbuild.dev",
+  "homepage": "https://cloudchef.build",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ferdousbhai/ghost-build.git"
+    "url": "git+https://github.com/ferdousbhai/cloud-chef.git"
   },
   "bugs": {
-    "url": "https://github.com/ferdousbhai/ghost-build/issues"
+    "url": "https://github.com/ferdousbhai/cloud-chef/issues"
   },
   "type": "module",
   "version": "0.0.7",
@@ -26,9 +26,9 @@
     "sbom:production": "node scripts/verify-production-licenses.mjs --spdx",
     "licenses:generate": "node scripts/verify-production-licenses.mjs --write-notices",
     "d1:bookmark:production": "node scripts/record-d1-time-travel-bookmark.mjs",
-    "d1:migrations:apply:local": "wrangler d1 migrations apply ghostbuild --local",
+    "d1:migrations:apply:local": "wrangler d1 migrations apply cloudchef --local",
     "cf-typegen": "wrangler types",
-    "d1:migrations:apply:production": "wrangler d1 migrations apply ghostbuild --remote",
+    "d1:migrations:apply:production": "wrangler d1 migrations apply cloudchef --remote",
     "generate": "node scripts/generate-route-tree.mjs && pnpm run cf-typegen && pnpm run generate:artifacts",
     "generate:artifacts": "node scripts/generate-artifacts.mjs",
     "test": "vitest run",
@@ -36,7 +36,7 @@
     "test:e2e:install": "playwright install --with-deps chromium",
     "test:e2e:critical": "playwright test e2e/launch-critical-journey.spec.ts --project=launch-critical-chromium --reporter=line",
     "test:watch": "vitest",
-    "lint:code": "eslint --cache --cache-location ./node_modules/.cache/eslint app ghostbuild-agent scripts make-bootstrap-snapshot.js",
+    "lint:code": "eslint --cache --cache-location ./node_modules/.cache/eslint app cloudchef-agent scripts make-bootstrap-snapshot.js",
     "lint": "pnpm run lint:code && prettier -c . && pnpm run lint:oxlint",
     "lint:oxlint": "oxlint --format=json | node scripts/check-oxlint-baseline.mjs",
     "lint:oxlint:update": "oxlint --format=json | node scripts/check-oxlint-baseline.mjs --update",
@@ -57,7 +57,7 @@
     "verify:built-browser": "pnpm run d1:migrations:apply:local && playwright test --project=chromium --project=mobile-chromium",
     "verify:static-assets": "node scripts/verify-static-assets.mjs",
     "validate:root": "pnpm run generate && pnpm run verify:stack && pnpm run verify:production-config && pnpm run verify:workers-builds-config && pnpm run verify:copy-assertions && pnpm run verify:licenses && pnpm run audit:dependencies && pnpm run typecheck:check && pnpm run lint && pnpm run test && pnpm run test:workerd && pnpm run knip && pnpm run build:check && pnpm run verify:built-ssr && pnpm run verify:static-assets && pnpm run bundle:check",
-    "validate:agent": "pnpm --dir ghostbuild-agent run typecheck && pnpm --dir ghostbuild-agent run test",
+    "validate:agent": "pnpm --dir cloudchef-agent run typecheck && pnpm --dir cloudchef-agent run test",
     "validate:template": "node scripts/verify-template.mjs",
     "validate:public-beta": "pnpm run validate && pnpm run verify:built-browser",
     "validate": "pnpm run validate:root && pnpm run validate:agent && pnpm run validate:template",
@@ -91,7 +91,7 @@
     "@earendil-works/pi-agent-core": "0.83.0",
     "@earendil-works/pi-ai": "0.83.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
-    "@ghostbuild/user-workspace-runtime": "workspace:*",
+    "@cloudchef/user-workspace-runtime": "workspace:*",
     "@heroicons/react": "^2.2.0",
     "@nanostores/react": "^0.8.4",
     "@noble/hashes": "2.2.0",
@@ -112,7 +112,7 @@
     "date-fns": "^3.6.0",
     "file-saver": "^2.0.5",
     "framer-motion": "^11.18.2",
-    "ghostbuild-agent": "workspace:*",
+    "cloudchef-agent": "workspace:*",
     "jszip": "^3.10.1",
     "nanostores": "^0.11.4",
     "react": "^19.2.8",

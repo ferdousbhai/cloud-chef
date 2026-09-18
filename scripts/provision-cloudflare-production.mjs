@@ -17,7 +17,7 @@ const provisionerPath = resolve(rootDir, 'template/scripts/provision-cloudflare-
 export function main() {
   const result = spawnSync(process.execPath, [provisionerPath, ...process.argv.slice(2)], {
     cwd: rootDir,
-    env: { ...process.env, GHOSTBUILD_PROVISION_ROOT: rootDir },
+    env: { ...process.env, CLOUDCHEF_PROVISION_ROOT: rootDir },
     stdio: 'inherit',
   });
   if (result.error) {

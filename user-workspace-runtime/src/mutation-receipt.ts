@@ -1,4 +1,4 @@
-import { COMPUTER_TOOL_LIMITS } from '../../ghostbuild-agent/cloudflare-computer';
+import { COMPUTER_TOOL_LIMITS } from '../../cloudchef-agent/cloudflare-computer';
 
 export type MutationReceiptFile = {
   path: string;

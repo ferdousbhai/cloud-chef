@@ -164,8 +164,8 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
     const accessToken = await dependencies.resolveCredential(args.env, connection.credentialHandle);
     const accountApi = dependencies.createAccountApi(connection.accountId, accessToken);
     const suffix = (await sha256Hex(`${connection.accountId}:${params.userId}`)).slice(0, 16);
-    const workerName = `ghostbuild-workspace-${suffix}`;
-    const databaseName = `ghostbuild-data-${suffix}`;
+    const workerName = `cloudchef-workspace-${suffix}`;
+    const databaseName = `cloudchef-data-${suffix}`;
 
     const inspection = await args.step.do('inspect account', STEP_CONFIG, async () => {
       const entitlement = await accountApi.readWorkspaceContainersEntitlement();

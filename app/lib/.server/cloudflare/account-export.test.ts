@@ -100,7 +100,7 @@ describe('control-plane account export', () => {
       expect({ secret, present: serialized.includes(secret) }).toEqual({ secret, present: false });
     }
     // The credential is still reported as existing, so the omission cannot be read
-    // as "Ghostbuild holds nothing here".
+    // as "CloudChef holds nothing here".
     expect(serialized).toContain('"keyVersion":3');
   });
 
@@ -152,7 +152,7 @@ describe('control-plane account export', () => {
     expect(exported.unavailableSections).toEqual(['authSessions']);
     expect(exported.sections.authSessions).toEqual({
       status: 'unavailable',
-      error: 'Ghostbuild could not read this section, so it is missing from this export.',
+      error: 'CloudChef could not read this section, so it is missing from this export.',
     });
     // The sections that did read are still there, and the account section is not
     // quietly downgraded because a neighbour failed.

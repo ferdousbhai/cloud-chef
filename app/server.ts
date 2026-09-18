@@ -20,7 +20,7 @@ import { CSP_NONCE_REQUEST_HEADER } from './lib/csp-nonce';
 
 const APPLICATION_CSP_BASELINE = "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'";
 const HSTS_MIN_AGE_SECONDS = '31536000';
-const PRODUCTION_HOSTNAME = 'ghostbuild.dev';
+const PRODUCTION_HOSTNAME = 'cloudchef.build';
 
 function methodNotAllowed(allowedMethod: string) {
   return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: allowedMethod } });

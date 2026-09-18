@@ -1,11 +1,11 @@
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import {
   transcriptCheckpointSchema,
   transcriptCheckpointMatchesMessages,
   type TranscriptCheckpoint,
   type TranscriptIdentity,
   transcriptIdentitiesEqual,
-} from 'ghostbuild-agent/transcript';
+} from 'cloudchef-agent/transcript';
 import { z } from 'zod';
 
 const transcriptMessageSchema = z
@@ -24,7 +24,7 @@ export const transcriptSnapshotSchema = z.object({
 
 export type AuthoritativeTranscriptSnapshot = {
   checkpoint: TranscriptCheckpoint | null;
-  messages: GhostbuildMessage[];
+  messages: CloudChefMessage[];
 };
 
 export async function loadAuthoritativeTranscriptSnapshot(args: {
@@ -53,8 +53,8 @@ export async function loadAuthoritativeTranscriptSnapshot(args: {
 
 export async function reconcileMessagesForSend(args: {
   snapshot: AuthoritativeTranscriptSnapshot;
-  localMessages: GhostbuildMessage[];
-}): Promise<GhostbuildMessage[]> {
+  localMessages: CloudChefMessage[];
+}): Promise<CloudChefMessage[]> {
   if (await transcriptCheckpointMatchesMessages(args.snapshot.checkpoint, args.localMessages)) {
     return args.localMessages;
   }

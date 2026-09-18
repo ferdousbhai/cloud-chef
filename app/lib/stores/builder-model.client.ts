@@ -14,9 +14,9 @@ import {
 } from '~/lib/workers-ai-model';
 import { fetchUserRuntime } from '~/lib/cloudflare/runtime-session';
 
-const BUILDER_MODEL_STORAGE_KEY = 'ghostbuild_builder_model_v2';
+const BUILDER_MODEL_STORAGE_KEY = 'cloudchef_builder_model_v2';
 /** Namespaced beside the model preference: same owner, same lifetime, same browser-only scope. */
-const BUILDER_SEEN_MODELS_STORAGE_KEY = 'ghostbuild_seen_builder_models_v1';
+const BUILDER_SEEN_MODELS_STORAGE_KEY = 'cloudchef_seen_builder_models_v1';
 /** One more than the catalog payload's 100-model ceiling, so a full catalog always fits. */
 const MAX_SEEN_MODEL_IDS = 101;
 let pendingCatalog: Promise<void> | null = null;
@@ -106,7 +106,7 @@ export function markBuilderModelsSeen(storage?: BuilderModelStorage): void {
 }
 
 /**
- * Newest first, with the two models Ghostbuild stands behind pinned to the top two rows regardless
+ * Newest first, with the two models CloudChef stands behind pinned to the top two rows regardless
  * of their dates: the current default, then the newest model of the preferred fallback family — the
  * same model `resolveBuilderDefaultModel` would promote if Cloudflare retired the default. Those
  * are the only two choices anyone here has verified end to end, so they are the two a user should

@@ -8,7 +8,7 @@ repeatability that the project does not provide.
 
 Two small live samples on 2026-07-16 showed lower latency with stable session affinity, but Workers AI reported zero
 cached input tokens. Production keeps an opaque transcript affinity and privacy-safe hit/miss telemetry because both
-match Cloudflare's supported automatic prefix-caching contract. Ghostbuild claims no cached-token or cost saving without
+match Cloudflare's supported automatic prefix-caching contract. CloudChef claims no cached-token or cost saving without
 positive provider telemetry.
 
 ## Read-only child agents
@@ -25,7 +25,7 @@ real build tasks demonstrate a material retrieval gap and an isolated, revision-
 
 ## Container provisioning
 
-No Ghostbuild staging measurements compare Cloudflare container tiers. `basic` and a maximum of 10 instances are
+No CloudChef staging measurements compare Cloudflare container tiers. `basic` and a maximum of 10 instances are
 provisioning defaults, not benchmark conclusions. Any launch capacity or tier claim still requires measured staging
 load against the exact release candidate and retained provider telemetry outside this source tree.
 
@@ -33,7 +33,7 @@ load against the exact release candidate and retained provider telemetry outside
 
 Do not add `@cloudflare/think` to this release. Think owns a SQLite workspace and automatically adds filesystem tools,
 which would create a second project filesystem beside the authoritative user-owned Computer workspace. Reconsider only
-if Think can disable all local workspace state or accept the existing remote workspace while preserving Ghostbuild's
+if Think can disable all local workspace state or accept the existing remote workspace while preserving CloudChef's
 revision, authorization, validation, recovery, and deployment-approval invariants.
 
 ## Builder loop: Pi versus AI SDK
@@ -42,7 +42,7 @@ Reviewed on 2026-08-22 against the installed `@earendil-works/pi-agent-core` 0.8
 builder loop. AI SDK's `ToolLoopAgent` has step preparation, stop conditions, tool lifecycle callbacks, streaming, and
 abort support, so ordinary tool execution is close. It does not have Pi's `getSteeringMessages` contract: a committed
 message can be delivered one at a time between turns, clear a previously validated completion, and cause continuation
-even after the model's preceding response would otherwise be final. Ghostbuild also has tested Pi adapters for partial
+even after the model's preceding response would otherwise be final. CloudChef also has tested Pi adapters for partial
 tool-call argument streaming, transient execution progress, failed-result reclassification, live context compaction,
 one invisible overflow retry, inactivity/wall-clock budgets, and cancellation accounting.
 

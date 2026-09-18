@@ -2,18 +2,18 @@ import { lazy, memo, Suspense, useEffect, useRef } from 'react';
 import { ToolCall } from './ToolCall';
 import { FileToolGroup, groupMessageParts } from './FileToolGroup';
 import { ReasoningPart } from './ReasoningPart';
-import { makePartId, type PartId } from 'ghostbuild-agent/partId.js';
-import { getToolInvocation, type GhostbuildMessage, type GhostbuildPart } from 'ghostbuild-agent/ai-compat';
+import { makePartId, type PartId } from 'cloudchef-agent/partId.js';
+import { getToolInvocation, type CloudChefMessage, type CloudChefPart } from 'cloudchef-agent/ai-compat';
 import { captureMessage } from '~/lib/telemetry.client';
 import type {
   CloudflareExecutionDecisionHandler,
   CloudflareExecutionPublicState,
-} from 'ghostbuild-agent/cloudflare-mcp';
+} from 'cloudchef-agent/cloudflare-mcp';
 
 const Markdown = lazy(() => import('./Markdown').then((module) => ({ default: module.Markdown })));
 
 interface AssistantMessageProps {
-  message: GhostbuildMessage;
+  message: CloudChefMessage;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 }
@@ -56,7 +56,7 @@ function AssistantMessagePart({
   cloudflareExecutions,
   onCloudflareExecutionDecision,
 }: {
-  part: GhostbuildPart;
+  part: CloudChefPart;
   partId: PartId;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;

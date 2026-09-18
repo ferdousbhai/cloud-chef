@@ -1,4 +1,4 @@
-const SESSION_COOKIE = 'ghostbuild_session';
+const SESSION_COOKIE = 'cloudchef_session';
 import { bytesToBase64Url, sha256Hex } from '~/lib/hex-digest';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 

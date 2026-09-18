@@ -1,4 +1,4 @@
-const APP_RESOURCE_PREFIX = 'ghostbuild-';
+const APP_RESOURCE_PREFIX = 'cloudchef-';
 
 /**
  * Suffix per logical binding name. The Worker anchors the deployment and carries no suffix, and

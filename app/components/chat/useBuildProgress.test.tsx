@@ -3,13 +3,13 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { BuildProgress } from './build-progress';
 import { useBuildProgress } from './useBuildProgress';
 
 let progress: BuildProgress | null = null;
 
-function Harness({ messages }: { messages: GhostbuildMessage[] }) {
+function Harness({ messages }: { messages: CloudChefMessage[] }) {
   progress = useBuildProgress({
     streamStatus: 'streaming',
     isRecovering: false,
@@ -43,7 +43,7 @@ describe('useBuildProgress', () => {
     vi.useRealTimers();
   });
 
-  const render = async (messages: GhostbuildMessage[]) => {
+  const render = async (messages: CloudChefMessage[]) => {
     await act(async () => root.render(<Harness messages={messages} />));
   };
 
@@ -77,7 +77,7 @@ describe('useBuildProgress', () => {
   });
 });
 
-function reasoningMessage(text: string, state: 'streaming' | 'done'): GhostbuildMessage {
+function reasoningMessage(text: string, state: 'streaming' | 'done'): CloudChefMessage {
   return {
     id: 'assistant-1',
     role: 'assistant',

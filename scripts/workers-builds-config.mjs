@@ -1,5 +1,5 @@
-const EXPECTED_WORKER = 'ghostbuild';
-const EXPECTED_REPOSITORY = 'ferdousbhai/ghost-build';
+const EXPECTED_WORKER = 'cloudchef';
+const EXPECTED_REPOSITORY = 'ferdousbhai/cloud-chef';
 const EXPECTED_BRANCH = 'main';
 const EXPECTED_BUILD_COMMAND = 'pnpm run workers-builds:build';
 const EXPECTED_DEPLOY_COMMAND = 'pnpm run workers-builds:deploy';
@@ -55,10 +55,10 @@ export function findWorkersBuildsConfigErrors({
     EXPECTED_REQUIRED_BUILD_VARIABLES,
   );
   if (config?.containerImage !== undefined) {
-    errors.push('workers-builds.production.json must not build a Ghostbuild-owned Sandbox image.');
+    errors.push('workers-builds.production.json must not build a CloudChef-owned Sandbox image.');
   }
   if (Array.isArray(workerConfig?.containers) && workerConfig.containers.length > 0) {
-    errors.push('wrangler.jsonc must not bind Ghostbuild-owned Containers.');
+    errors.push('wrangler.jsonc must not bind CloudChef-owned Containers.');
   }
 
   if (!isRecord(config?.buildVariables)) {

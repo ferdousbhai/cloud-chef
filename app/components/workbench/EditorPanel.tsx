@@ -10,11 +10,11 @@ import {
 } from '~/components/editor/codemirror/CodeMirrorEditor';
 import { PanelHeader } from '~/components/ui/PanelHeader';
 import { PanelHeaderButton } from '~/components/ui/PanelHeaderButton';
-import type { EditorDocument, FileMap } from 'ghostbuild-agent/types';
+import type { EditorDocument, FileMap } from 'cloudchef-agent/types';
 import { themeStore } from '~/lib/stores/theme';
 import { workbenchStore } from '~/lib/stores/workbench.client';
-import { WORK_DIR } from 'ghostbuild-agent/constants';
-import { renderLogger } from 'ghostbuild-agent/utils/logger';
+import { WORK_DIR } from 'cloudchef-agent/constants';
+import { renderLogger } from 'cloudchef-agent/utils/logger';
 import { isMobile } from '~/utils/mobile';
 import { FileBreadcrumb } from './FileBreadcrumb';
 import { FileTree } from './FileTree';

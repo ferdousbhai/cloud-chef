@@ -10,8 +10,8 @@ import {
   transcriptIdentitySchema,
   type TranscriptCheckpoint,
   type TranscriptIdentity,
-} from 'ghostbuild-agent/transcript';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+} from 'cloudchef-agent/transcript';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { executeDataOperation, UserRuntimeRequestError } from './client';
 import { api } from './data-api';
 import { queryClient } from '~/lib/stores/reactQueryClient';
@@ -19,10 +19,10 @@ import { registerClientCollectionDisposer } from './client-collections';
 import { fetchUserRuntime } from './runtime-session';
 import { useQueryCacheError } from './use-query-cache-error';
 
-const TRANSCRIPT_QUERY_KEY_PREFIX = ['ghostbuild-local', 'transcripts'] as const;
+const TRANSCRIPT_QUERY_KEY_PREFIX = ['cloudchef-local', 'transcripts'] as const;
 const TRANSCRIPT_FETCH_TIMEOUT_MS = 30_000;
 
-export type SerializedMessage = Omit<GhostbuildMessage, 'createdAt'> & { createdAt: number | undefined };
+export type SerializedMessage = Omit<CloudChefMessage, 'createdAt'> & { createdAt: number | undefined };
 
 const serializedMessageFields = z
   .object({
@@ -250,10 +250,10 @@ export async function projectMessagesRequestError(response: Response): Promise<U
 }
 
 export function transcriptIdentityFromHeaders(headers: Headers): TranscriptIdentity {
-  const generation = headers.get('X-Ghostbuild-Transcript-Generation');
-  const subchatIndex = headers.get('X-Ghostbuild-Transcript-Subchat');
+  const generation = headers.get('X-CloudChef-Transcript-Generation');
+  const subchatIndex = headers.get('X-CloudChef-Transcript-Subchat');
   const result = transcriptIdentitySchema.safeParse({
-    agentName: headers.get('X-Ghostbuild-Transcript-Agent'),
+    agentName: headers.get('X-CloudChef-Transcript-Agent'),
     generation: parseTranscriptHeaderInteger(generation),
     subchatIndex: parseTranscriptHeaderInteger(subchatIndex),
   });

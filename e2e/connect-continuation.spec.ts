@@ -12,7 +12,7 @@ const authSession = {
 };
 
 /**
- * Authorizing at Cloudflare is a full page navigation back to Ghostbuild with a session, so
+ * Authorizing at Cloudflare is a full page navigation back to CloudChef with a session, so
  * the connect start returns the origin itself and the session stub flips at the same moment.
  */
 async function stubCloudflareAuthorization(page: Page) {
@@ -29,7 +29,7 @@ async function stubCloudflareAuthorization(page: Page) {
   await page.route('**/api/cloudflare/runtime-session', (route) =>
     route.fulfill({
       status: 409,
-      json: { code: 'workspace_preparing', error: 'Ghostbuild is still preparing your workspace.' },
+      json: { code: 'workspace_preparing', error: 'CloudChef is still preparing your workspace.' },
     }),
   );
   return connection;

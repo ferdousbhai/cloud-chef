@@ -1,5 +1,5 @@
 import type { EditorSelection } from '@codemirror/state';
-import type { ScrollPosition } from 'ghostbuild-agent/types';
+import type { ScrollPosition } from 'cloudchef-agent/types';
 
 export interface EditorUpdate {
   selection: EditorSelection;

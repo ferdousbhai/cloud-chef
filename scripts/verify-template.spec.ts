@@ -6,7 +6,7 @@ import { copyCanonicalTemplateSource } from './verify-template.mjs';
 
 describe('standalone template verification source', () => {
   test('starts from the canonical snapshot source and generates bindings before stack verification', async () => {
-    const tempDir = mkdtempSync(join(tmpdir(), 'ghostbuild-template-source-'));
+    const tempDir = mkdtempSync(join(tmpdir(), 'cloudchef-template-source-'));
     try {
       await copyCanonicalTemplateSource(tempDir, [resolve('template/package.json')]);
 
@@ -36,7 +36,7 @@ describe('standalone template verification source', () => {
     expect(server).toContain('handler.fetch(request)');
     expect(server).toContain('routeAppAgentRequest');
     expect(plainServer).toContain('handler.fetch(request)');
-    expect(server).not.toContain('GHOSTBUILD_ISOLATED_PREVIEW');
+    expect(server).not.toContain('CLOUDCHEF_ISOLATED_PREVIEW');
     expect(server).not.toContain('isAgentRoute');
     expect(viteConfig).toContain('cloudflare({ viteEnvironment: { name: "ssr" } })');
     expect(viteConfig).toContain('tanstackStart()');

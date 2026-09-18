@@ -9,7 +9,7 @@ describe('user workspace runtime readiness', () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(
       Response.json({
         ok: true,
-        service: 'ghostbuild-user-workspace-runtime',
+        service: 'cloudchef-user-workspace-runtime',
         runtimeVersion,
       }),
     );
@@ -48,7 +48,7 @@ describe('user workspace runtime readiness', () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(
       Response.json({
         ok: true,
-        service: 'ghostbuild-user-workspace-runtime',
+        service: 'cloudchef-user-workspace-runtime',
         runtimeVersion: 'b'.repeat(64),
       }),
     );

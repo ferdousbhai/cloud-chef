@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { ModelInputBudgetExceededError, modelCompactionPolicy, prepareModelInput } from './model-input';
 import type { ContextCompactionUnavailableError } from './model-input';
 
@@ -17,15 +17,15 @@ const tools = [
 const TEST_CONTEXT_WINDOW = 128_000;
 const hardLimitTokens = modelCompactionPolicy(TEST_CONTEXT_WINDOW).hardLimitTokens;
 
-function message(id: string, text: string): GhostbuildMessage {
+function message(id: string, text: string): CloudChefMessage {
   return { id, role: 'user', parts: [{ type: 'text', text }] };
 }
 
-function largeHistory(count = 48): GhostbuildMessage[] {
+function largeHistory(count = 48): CloudChefMessage[] {
   return Array.from({ length: count }, (_, index) => message(`m-${index}`, 'x'.repeat(20_000)));
 }
 
-function prepare(messages: GhostbuildMessage[], options: Partial<Parameters<typeof prepareModelInput>[0]> = {}) {
+function prepare(messages: CloudChefMessage[], options: Partial<Parameters<typeof prepareModelInput>[0]> = {}) {
   return prepareModelInput({
     messages,
     summarize: async () => '## Current State\nCompacted.',

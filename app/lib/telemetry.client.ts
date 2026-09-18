@@ -34,8 +34,8 @@ type TelemetryEnvelope = {
 };
 
 const TELEMETRY_ENDPOINT = '/api/client-telemetry';
-const JOURNEY_STORAGE_KEY = 'ghostbuild:telemetry:journey';
-const TELEMETRY_PREFERENCE_STORAGE_KEY = 'ghostbuild:telemetry:preference';
+const JOURNEY_STORAGE_KEY = 'cloudchef:telemetry:journey';
+const TELEMETRY_PREFERENCE_STORAGE_KEY = 'cloudchef:telemetry:preference';
 // Every funnel stage is counted once per journey. Only prompt submission is a
 // repeated action rather than a stage, so it is named as the exception and a new
 // funnel event is claimed once by default.
@@ -49,7 +49,7 @@ const claimedStages = new Set<ProductTelemetryEvent>();
 
 /**
  * The correlation ID the control plane minted for this browser's runtime session.
- * Ghostbuild never sends the browser-owned journey ID to the server as a join key;
+ * CloudChef never sends the browser-owned journey ID to the server as a join key;
  * the server mints its own opaque ID and the browser echoes this one back.
  */
 function correlationId(): string | null {
@@ -169,7 +169,7 @@ function journeyId(): string {
 }
 
 function claimOncePerJourney(event: ProductTelemetryEvent): boolean {
-  const key = `ghostbuild:telemetry:once:${event}`;
+  const key = `cloudchef:telemetry:once:${event}`;
   if (claimedStages.has(event) || safeSessionStorageGet(key) === 'true') {
     return false;
   }

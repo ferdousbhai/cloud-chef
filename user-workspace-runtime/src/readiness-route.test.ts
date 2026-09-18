@@ -26,7 +26,7 @@ describe('user workspace runtime control-plane readiness route', () => {
     ).resolves.toBeUndefined();
 
     expect(request).toHaveBeenCalledOnce();
-    expect(idFromName).toHaveBeenCalledWith('ghostbuild-runtime-readiness');
+    expect(idFromName).toHaveBeenCalledWith('cloudchef-runtime-readiness');
     expect(get).toHaveBeenCalledWith('readiness-id');
     expect(runReadinessProbe).toHaveBeenCalledOnce();
   });
@@ -60,7 +60,7 @@ describe('user workspace runtime control-plane readiness route', () => {
 function runtimeEnv(projectWorkspace: { idFromName: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn> }) {
   return {
     CONTROL_PLANE_SECRET: controlPlaneSecret,
-    GHOSTBUILD_RUNTIME_VERSION: runtimeVersion,
+    CLOUDCHEF_RUNTIME_VERSION: runtimeVersion,
     DB: {
       prepare: vi.fn(() => ({ first: vi.fn(async () => ({ ok: 1 })) })),
     },

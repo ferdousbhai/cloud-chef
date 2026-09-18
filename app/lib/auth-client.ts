@@ -149,11 +149,11 @@ export function createCloudflareReturnURL(returnURL = window.location.href, orig
   return `${expectedOrigin}/`;
 }
 
-export async function signOutOfGhostbuild(callbackURL = window.location.origin) {
+export async function signOutOfCloudChef(callbackURL = window.location.origin) {
   const response = await fetch('/api/auth/sign-out', { method: 'POST', credentials: 'same-origin' });
   if (!response.ok) {
     const parsed = requestErrorSchema.safeParse(await response.json().catch(() => null));
-    throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Unable to sign out of Ghostbuild.');
+    throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Unable to sign out of CloudChef.');
   }
   setState({ data: null, isPending: false });
   await disposeClientCollections();

@@ -1,6 +1,6 @@
 import type { z } from 'zod';
-import type { CloudflareExecuteProposal, CloudflareMcpImmediateResult } from 'ghostbuild-agent/cloudflare-mcp';
-import type { MODEL_TOOL_INPUT_SCHEMAS } from 'ghostbuild-agent/model-tool-inputs';
+import type { CloudflareExecuteProposal, CloudflareMcpImmediateResult } from 'cloudchef-agent/cloudflare-mcp';
+import type { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
 
 export type ModelToolExecutionOptions = {
   toolCallId: string;

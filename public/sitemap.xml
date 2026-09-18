@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://ghostbuild.dev/</loc>
+    <loc>https://cloudchef.build/</loc>
   </url>
   <url>
-    <loc>https://ghostbuild.dev/privacy</loc>
+    <loc>https://cloudchef.build/privacy</loc>
   </url>
   <url>
-    <loc>https://ghostbuild.dev/terms</loc>
+    <loc>https://cloudchef.build/terms</loc>
   </url>
   <url>
-    <loc>https://ghostbuild.dev/support</loc>
+    <loc>https://cloudchef.build/support</loc>
   </url>
   <url>
-    <loc>https://ghostbuild.dev/security</loc>
+    <loc>https://cloudchef.build/security</loc>
   </url>
 </urlset>

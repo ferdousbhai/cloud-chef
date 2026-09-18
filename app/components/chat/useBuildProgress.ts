@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getToolInvocation, type GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import { getToolInvocation, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { StreamStatus } from '~/lib/common/types';
 import { getBuildProgress } from './build-progress';
 import { streamedToolInput } from './streaming-tool-input';
@@ -22,7 +22,7 @@ export function useBuildProgress(args: {
   validationStage: BuilderValidationStage | null;
   toolActivityRevision: number;
   toolProgressRevision: number;
-  messages: GhostbuildMessage[];
+  messages: CloudChefMessage[];
 }) {
   const activeToolActivity = args.activeToolNames.toSorted().join(',');
   const activityKey = useMemo(
@@ -89,7 +89,7 @@ export function useBuildProgress(args: {
  * arguments of a tool call still being written. Any of them growing means the turn is alive, so the
  * quiet clock restarts and the user is never told there is "no new update" while tokens arrive.
  */
-function messageActivityKey(messages: GhostbuildMessage[]): string {
+function messageActivityKey(messages: CloudChefMessage[]): string {
   const lastMessage = messages.at(-1);
   if (!lastMessage) {
     return 'empty';
@@ -117,7 +117,7 @@ function messageActivityKey(messages: GhostbuildMessage[]): string {
 }
 
 /** Identity of the reasoning part still streaming in the newest message, if the model is thinking. */
-function streamingReasoningKey(messages: GhostbuildMessage[]): string | null {
+function streamingReasoningKey(messages: CloudChefMessage[]): string | null {
   const lastMessage = messages.at(-1);
   if (!lastMessage?.parts) {
     return null;

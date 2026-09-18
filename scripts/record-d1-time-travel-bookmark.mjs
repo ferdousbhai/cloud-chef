@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-const DATABASE_NAME = 'ghostbuild';
+const DATABASE_NAME = 'cloudchef';
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
 const BUILD_UUID_PATTERN = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
-export const D1_RESTORE_RECEIPT_MARKER = 'GHOSTBUILD_D1_RESTORE_RECEIPT';
+export const D1_RESTORE_RECEIPT_MARKER = 'CLOUDCHEF_D1_RESTORE_RECEIPT';
 
 export function parseD1TimeTravelBookmark(output) {
   const result = JSON.parse(output);

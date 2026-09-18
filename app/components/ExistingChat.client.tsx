@@ -1,6 +1,6 @@
 import { useExistingChat } from '~/lib/stores/startup';
 import { Chat } from './chat/Chat';
-import { GhostbuildAuthProvider } from './chat/GhostbuildAuthWrapper';
+import { CloudChefAuthProvider } from './chat/CloudChefAuthWrapper';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { Loading } from './Loading';
 import { useReloadMessages } from '~/lib/stores/startup/reloadMessages';
@@ -21,11 +21,11 @@ import { WORKSPACE_PREPARING_MESSAGE, WorkspacePreparingPanel } from '~/componen
 export function ExistingChat({ chatId }: { chatId: string }) {
   return (
     <>
-      <GhostbuildAuthProvider>
+      <CloudChefAuthProvider>
         <UserProvider>
           <ExistingChatSessionView chatId={chatId} />
         </UserProvider>
-      </GhostbuildAuthProvider>
+      </CloudChefAuthProvider>
       <Toaster />
     </>
   );
@@ -118,7 +118,7 @@ export function ProjectLoadError({ error, onRetry }: { error: unknown; onRetry: 
       <section className="app-card w-full max-w-xl p-6 text-center sm:p-8" aria-labelledby="project-load-heading">
         <p className="app-page-eyebrow">Project unavailable</p>
         <h1 id="project-load-heading" className="mt-2 font-display text-4xl font-black text-content-primary">
-          Ghostbuild could not load this project.
+          CloudChef could not load this project.
         </h1>
         <p className="mx-auto mt-4 max-w-md break-words text-content-secondary" role="alert">
           {message}

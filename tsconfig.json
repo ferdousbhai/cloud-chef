@@ -31,5 +31,5 @@
     "**/.client/**/*.ts",
     "**/.client/**/*.tsx"
   ],
-  "exclude": ["template", "ghostbuild-agent"]
+  "exclude": ["template", "cloudchef-agent"]
 }

@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
-import { MAX_EPHEMERAL_CONTEXT_CHARACTERS } from 'ghostbuild-agent/context-limits';
-import { chatTurnContextSchema } from 'ghostbuild-agent/turn-context';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
+import { MAX_EPHEMERAL_CONTEXT_CHARACTERS } from 'cloudchef-agent/context-limits';
+import { chatTurnContextSchema } from 'cloudchef-agent/turn-context';
 import { injectTurnContext } from './turn-context';
 
 describe('injectTurnContext', () => {
   test('prepends context to the latest user message without changing the transcript', () => {
-    const messages: GhostbuildMessage[] = [
+    const messages: CloudChefMessage[] = [
       { id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Build it' }] },
       { id: 'assistant-1', role: 'assistant', parts: [{ type: 'text', text: 'Working' }] },
     ];

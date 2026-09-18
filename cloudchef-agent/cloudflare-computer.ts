@@ -108,7 +108,7 @@ function syncUnconfirmedMessage(value: unknown, code: ComputerSyncUnconfirmedCod
 }
 
 export const COMPUTER_EXEC_APPLICATION_POLICY =
-  'Run finite commands only; do not start development, preview, watch, or other long-running servers. Ghostbuild manages previews after validation. Dependency changes support pnpm add <packages> and pnpm install --lockfile-only.';
+  'Run finite commands only; do not start development, preview, watch, or other long-running servers. CloudChef manages previews after validation. Dependency changes support pnpm add <packages> and pnpm install --lockfile-only.';
 
 export const COMPUTER_TOOL_LIMITS = {
   readMaxBytes: 1024 * 1024,

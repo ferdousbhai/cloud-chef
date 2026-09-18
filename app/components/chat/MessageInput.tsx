@@ -5,7 +5,7 @@ import { KeyboardShortcut } from '@ui/KeyboardShortcut';
 import { Spinner } from '@ui/Spinner';
 import { CloudflareConnectLegalNotice } from '~/components/CloudflareConnectLegalNotice';
 import { classNames } from '~/utils/classNames';
-import { MAX_USER_MESSAGE_CHARACTERS } from 'ghostbuild-agent/context-limits';
+import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { EnhancePromptButton } from './EnhancePromptButton.client';
 import {
   getMessageInputPrimaryActionLabel,
@@ -45,7 +45,7 @@ export const MessageInput = memo(function MessageInput({
   );
   const placeholder = chatStarted
     ? isStreaming
-      ? 'Add guidance while Ghostbuild works…'
+      ? 'Add guidance while CloudChef works…'
       : numMessages !== undefined && numMessages > 0
         ? 'What would you like to do next?'
         : 'Start this chat with a prompt…'

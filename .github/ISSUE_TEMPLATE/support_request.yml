@@ -12,7 +12,7 @@ body:
         This issue is public. Do not include prompts, source code, Cloudflare account IDs, credentials, tokens,
         personal data, or vulnerability details. For an account or privacy request, include only the request type and
         your GitHub handle. If a private method can be arranged, a maintainer will identify it in the issue; until then,
-        do not provide sensitive information. Ghostbuild aims to review and acknowledge reports within two weekdays,
+        do not provide sensitive information. CloudChef aims to review and acknowledge reports within two weekdays,
         but this is not a guarantee or contractual service level. For immediate danger contact local emergency
         services. For a compromised Cloudflare account use
         https://developers.cloudflare.com/support/contacting-cloudflare-support/.
@@ -25,7 +25,7 @@ body:
         - Cloudflare connection
         - Cloudflare billing boundary
         - Account or privacy request (request type only)
-        - Abuse report (prohibited use of Ghostbuild)
+        - Abuse report (prohibited use of CloudChef)
         - Other non-sensitive question
     validations:
       required: true

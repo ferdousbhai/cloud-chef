@@ -17,7 +17,7 @@ export async function deleteAccountAction({ request, env }: { request: Request; 
   const session = await requireRecentlyAuthenticatedSession(
     env,
     request,
-    'Reconnect Cloudflare to confirm it is you, then delete your Ghostbuild account data.',
+    'Reconnect Cloudflare to confirm it is you, then delete your CloudChef account data.',
   );
   if (session instanceof Response) {
     return session;

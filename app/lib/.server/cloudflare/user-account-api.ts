@@ -14,7 +14,7 @@ import {
   PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE,
   PROJECT_WORKSPACE_CONTAINER_MAX_INSTANCES,
 } from './project-workspace-container-policy';
-import { GHOSTBUILD_CONTROL_PLANE_ENDPOINT, USER_WORKSPACE_RUNTIME_GC_CRON } from './user-workspace-runtime-policy';
+import { CLOUDCHEF_CONTROL_PLANE_ENDPOINT, USER_WORKSPACE_RUNTIME_GC_CRON } from './user-workspace-runtime-policy';
 import { bytesToBase64, sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareOAuthScopeGrantStatus } from './cloudflare-oauth-scope-manifest';
 
@@ -31,7 +31,7 @@ const ASSET_HASH_PATTERN = /^[a-f0-9]{32}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const R2_BUCKET_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
 const R2_CLEANUP_BATCH_SIZE = 100;
-const R2_CLEANUP_LIFECYCLE_ID = 'ghostbuild-project-deletion';
+const R2_CLEANUP_LIFECYCLE_ID = 'cloudchef-project-deletion';
 const R2_CLEANUP_MAX_AGE_SECONDS = 24 * 60 * 60;
 const CONTAINER_ROLLOUT_DEADLINE_MS = 20 * 60_000;
 const CONTAINER_ROLLOUT_POLL_INTERVAL_MS = 5_000;
@@ -214,7 +214,7 @@ export class UserCloudflareAccountApi {
   async applyD1Migrations(databaseId: string, migrations: readonly { name: string; sql: string }[]): Promise<void> {
     await this.executeD1(
       databaseId,
-      `CREATE TABLE IF NOT EXISTS ghostbuild_runtime_migrations (
+      `CREATE TABLE IF NOT EXISTS cloudchef_runtime_migrations (
          name TEXT PRIMARY KEY NOT NULL,
          applied_at INTEGER NOT NULL,
          digest TEXT
@@ -225,7 +225,7 @@ export class UserCloudflareAccountApi {
     // cannot change migration N+1's receipt, so the extra round trips bought nothing — and this
     // path runs on every runtime upgrade for every existing account, where the answer is always
     // "all of them are already applied" and the reads were the entire cost.
-    const receipts = await this.executeD1(databaseId, 'SELECT name, digest FROM ghostbuild_runtime_migrations');
+    const receipts = await this.executeD1(databaseId, 'SELECT name, digest FROM cloudchef_runtime_migrations');
     for (const migration of migrations) {
       if (!/^\d{4}_.+\.sql$/.test(migration.name) || !migration.sql.trim()) {
         throw new CloudflareAccountApiError('Invalid user-runtime D1 migration.');
@@ -245,7 +245,7 @@ export class UserCloudflareAccountApi {
         await this.executeD1Batch(databaseId, [
           { sql: migration.sql },
           {
-            sql: 'INSERT INTO ghostbuild_runtime_migrations (name, applied_at, digest) VALUES (?, ?, ?)',
+            sql: 'INSERT INTO cloudchef_runtime_migrations (name, applied_at, digest) VALUES (?, ?, ?)',
             params: [migration.name, Date.now(), digest],
           },
         ]);
@@ -255,7 +255,7 @@ export class UserCloudflareAccountApi {
         // transactional marker before surfacing the original failure.
         const committed = await this.executeD1(
           databaseId,
-          'SELECT name, digest FROM ghostbuild_runtime_migrations WHERE name = ?',
+          'SELECT name, digest FROM cloudchef_runtime_migrations WHERE name = ?',
           [migration.name],
         ).catch((readError) => {
           console.warn('Unable to verify D1 migration commit', readError);
@@ -274,11 +274,11 @@ export class UserCloudflareAccountApi {
   }
 
   private async ensureD1MigrationDigestColumn(databaseId: string): Promise<void> {
-    const columns = await this.executeD1(databaseId, 'PRAGMA table_info(ghostbuild_runtime_migrations)');
+    const columns = await this.executeD1(databaseId, 'PRAGMA table_info(cloudchef_runtime_migrations)');
     if (d1ResultsContain(columns, (row) => row.name === 'digest')) {
       return;
     }
-    await this.executeD1(databaseId, 'ALTER TABLE ghostbuild_runtime_migrations ADD COLUMN digest TEXT');
+    await this.executeD1(databaseId, 'ALTER TABLE cloudchef_runtime_migrations ADD COLUMN digest TEXT');
   }
 
   async ensureD1ForPlan(
@@ -382,7 +382,7 @@ export class UserCloudflareAccountApi {
     return { id: match.id, name: resourceName };
   }
 
-  /** Remove a Ghostbuild-managed Worker and its script-owned Durable Objects. */
+  /** Remove a CloudChef-managed Worker and its script-owned Durable Objects. */
   async deleteManagedWorker(workerName: string): Promise<void> {
     requireWorkerName(workerName);
     await this.deleteOptional(`/workers/scripts/${encodeURIComponent(workerName)}?force=true`);
@@ -598,7 +598,7 @@ export class UserCloudflareAccountApi {
       bindings,
       observability: DEPLOYMENT_OBSERVABILITY,
       annotations: {
-        'workers/message': `Ghostbuild approved revision ${args.sourceSha256.slice(0, 12)}`,
+        'workers/message': `CloudChef approved revision ${args.sourceSha256.slice(0, 12)}`,
         'workers/tag': args.sourceSha256,
       },
     };
@@ -839,7 +839,7 @@ export class UserCloudflareAccountApi {
         body: JSON.stringify({
           strategy: 'percentage',
           versions: [{ percentage: 100, version_id: workerVersionId }],
-          annotations: { 'workers/message': `Ghostbuild approved revision ${sourceSha256.slice(0, 12)}` },
+          annotations: { 'workers/message': `CloudChef approved revision ${sourceSha256.slice(0, 12)}` },
         }),
       },
     );
@@ -955,22 +955,22 @@ export class UserCloudflareAccountApi {
         { type: 'ai', name: 'AI' },
         { type: 'secret_text', name: 'CONTROL_PLANE_SECRET', text: args.controlPlaneSecret },
         { type: 'plain_text', name: 'CLOUDFLARE_ACCOUNT_ID', text: this.accountId },
-        { type: 'plain_text', name: 'GHOSTBUILD_USER_ID', text: args.userId },
-        { type: 'plain_text', name: 'GHOSTBUILD_CONNECTION_ID', text: args.connectionId },
+        { type: 'plain_text', name: 'CLOUDCHEF_USER_ID', text: args.userId },
+        { type: 'plain_text', name: 'CLOUDCHEF_CONNECTION_ID', text: args.connectionId },
         {
           type: 'plain_text',
-          name: 'GHOSTBUILD_CONNECTION_GENERATION',
+          name: 'CLOUDCHEF_CONNECTION_GENERATION',
           text: String(args.connectionGeneration),
         },
         {
           type: 'plain_text',
-          name: 'GHOSTBUILD_OAUTH_SCOPE_GRANT_STATUS',
+          name: 'CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS',
           text: args.oauthScopeGrantStatus,
         },
-        { type: 'plain_text', name: 'GHOSTBUILD_USER_RUNTIME_ENDPOINT', text: args.endpoint },
-        { type: 'plain_text', name: 'GHOSTBUILD_CONTROL_PLANE_ENDPOINT', text: GHOSTBUILD_CONTROL_PLANE_ENDPOINT },
-        { type: 'plain_text', name: 'GHOSTBUILD_USER_RUNTIME', text: '1' },
-        { type: 'plain_text', name: 'GHOSTBUILD_RUNTIME_VERSION', text: args.runtimeVersion },
+        { type: 'plain_text', name: 'CLOUDCHEF_USER_RUNTIME_ENDPOINT', text: args.endpoint },
+        { type: 'plain_text', name: 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT', text: CLOUDCHEF_CONTROL_PLANE_ENDPOINT },
+        { type: 'plain_text', name: 'CLOUDCHEF_USER_RUNTIME', text: '1' },
+        { type: 'plain_text', name: 'CLOUDCHEF_RUNTIME_VERSION', text: args.runtimeVersion },
       ],
       exports: {
         ProjectWorkspace: {
@@ -984,7 +984,7 @@ export class UserCloudflareAccountApi {
       },
       observability: { enabled: true, logs: { enabled: true, head_sampling_rate: 0.6 } },
       annotations: {
-        'workers/message': `Ghostbuild user-owned workspace runtime ${args.runtimeVersion.slice(0, 12)}`,
+        'workers/message': `CloudChef user-owned workspace runtime ${args.runtimeVersion.slice(0, 12)}`,
         'workers/tag': args.runtimeVersion.slice(0, 64),
       },
     };
@@ -1144,7 +1144,7 @@ export class UserCloudflareAccountApi {
       {
         method: 'POST',
         body: JSON.stringify({
-          description: `Ghostbuild workspace runtime update for ${applicationName}`,
+          description: `CloudChef workspace runtime update for ${applicationName}`,
           // A single 100% step is the direct-API equivalent of Wrangler's required --containers-rollout=immediate
           // cutover. Stable and @next Sandbox control protocols cannot coexist during a gradual rollout.
           strategy: 'rolling',
@@ -1228,7 +1228,7 @@ export class UserCloudflareAccountApi {
     }
   }
 
-  /** Replace every trigger with Ghostbuild's single deterministic runtime-GC schedule. */
+  /** Replace every trigger with CloudChef's single deterministic runtime-GC schedule. */
   async configureWorkspaceRuntimeGcSchedule(workerName: string): Promise<void> {
     requireWorkerName(workerName);
     const result = await this.call<unknown>(`/workers/scripts/${encodeURIComponent(workerName)}/schedules`, {
@@ -1425,7 +1425,7 @@ function workersPlanUpgradeUrl(message: string): string | null {
 }
 
 /**
- * The evidence an entitlement verdict Ghostbuild could not classify has to carry.
+ * The evidence an entitlement verdict CloudChef could not classify has to carry.
  *
  * Cloudflare answers a missing Containers scope and an ineligible plan on the same endpoint with
  * the same 401, and only the wording separates them, so `isWorkspacePlanRequiredMessage` is a

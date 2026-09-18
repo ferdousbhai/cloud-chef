@@ -1,7 +1,7 @@
 import { CaretDownIcon, CaretUpIcon } from '@radix-ui/react-icons';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import type { GhostbuildPart } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefPart } from 'cloudchef-agent/ai-compat';
 import { formatDuration } from './build-progress';
 
 /** Characters of the tail kept for the collapsed preview; the rest only renders when expanded. */
@@ -25,7 +25,7 @@ type ReasoningPartView = {
 };
 
 /** What the transcript's reasoning part actually holds: its text, and whether it is still growing. */
-export function reasoningPartView(part: GhostbuildPart): ReasoningPartView {
+export function reasoningPartView(part: CloudChefPart): ReasoningPartView {
   const parsed = reasoningPartSchema.safeParse(part).data;
   return { text: parsed?.text ?? '', streaming: parsed?.state === 'streaming' };
 }
@@ -34,7 +34,7 @@ export function reasoningPartView(part: GhostbuildPart): ReasoningPartView {
  * The model's own reasoning, shown while it streams so a long silent think is legible, and quiet
  * once it ends. It never grows past two lines collapsed, and scrolls inside itself when expanded.
  */
-export function ReasoningPart({ part }: { part: GhostbuildPart }) {
+export function ReasoningPart({ part }: { part: CloudChefPart }) {
   const { text, streaming } = reasoningPartView(part);
   const [expanded, setExpanded] = useState(false);
   const startedAtRef = useRef<number | null>(null);

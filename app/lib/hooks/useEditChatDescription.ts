@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { description as descriptionStore } from '~/lib/stores/description';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { useChatId } from '~/lib/stores/chatId';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 
 const logger = createScopedLogger('useEditChatDescription');
 const inFlightDescriptionSubmissions = new Map<string, symbol>();

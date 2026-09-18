@@ -47,7 +47,7 @@ export function CloudflareSignInPrompt({
             Connect Cloudflare
           </Button>
           <LinkButton to="/" variant="neutral" icon={<ArrowLeftIcon aria-hidden />}>
-            Back to Ghostbuild
+            Back to CloudChef
           </LinkButton>
         </div>
         <CloudflareConnectLegalNotice className="mt-6 text-xs leading-relaxed text-content-tertiary" />

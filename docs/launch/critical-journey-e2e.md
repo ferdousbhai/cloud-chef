@@ -34,7 +34,7 @@ the redacted line report and operator checklist.
 `pnpm run test:e2e:critical` is the authenticated launch journey. It intentionally fails rather than skips when these
 isolated-staging inputs are absent:
 
-- `E2E_BASE_URL`: a dedicated HTTPS staging candidate; the suite rejects `ghostbuild.dev`.
+- `E2E_BASE_URL`: a dedicated HTTPS staging candidate; the suite rejects `cloudchef.build`.
 - `E2E_AUTH_STORAGE_STATE`: a Playwright storage-state file for the test user. Store an in-repository file only under
   ignored `playwright/.auth/`; never commit or upload it.
 - `E2E_STAGING_ACCOUNT`: the exact 32-character Cloudflare account ID. The suite reads the authenticated connection and
@@ -43,7 +43,7 @@ isolated-staging inputs are absent:
   to continue against any other deployment.
 - Optional `E2E_BUILD_PROMPT`: a deterministic prompt maintained with the staging fixture.
 
-Before prompting, the journey opens a runtime session. Ghostbuild automatically creates or reconciles the isolated
+Before prompting, the journey opens a runtime session. CloudChef automatically creates or reconciles the isolated
 Computer runtime when needed, then verifies it before the build starts.
 
 The candidate journey has a one-hour whole-test budget because validation, preview, and deployment each cross isolated

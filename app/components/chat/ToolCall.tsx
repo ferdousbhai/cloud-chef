@@ -1,8 +1,8 @@
 import { useStore } from '@nanostores/react';
 import { motion } from 'framer-motion';
 import { memo, useMemo, useState } from 'react';
-import type { GhostbuildToolInvocation } from 'ghostbuild-agent/ai-compat';
-import type { PartId } from 'ghostbuild-agent/partId';
+import type { CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
+import type { PartId } from 'cloudchef-agent/partId';
 import { ToolUseContents } from './ToolUseContents';
 import { normalizeToolInvocation, statusIcon, toolTitle } from './tool-call-presentation';
 import { ExpandableToolCard } from './ExpandableToolCard';
@@ -11,7 +11,7 @@ import { toolProgressStore } from '~/lib/stores/tool-progress.client';
 import type {
   CloudflareExecutionDecisionHandler,
   CloudflareExecutionPublicState,
-} from 'ghostbuild-agent/cloudflare-mcp';
+} from 'cloudchef-agent/cloudflare-mcp';
 
 export const ToolCall = memo(function ToolCall({
   partId,
@@ -20,7 +20,7 @@ export const ToolCall = memo(function ToolCall({
   onCloudflareExecutionDecision,
 }: {
   partId: PartId;
-  invocation: GhostbuildToolInvocation;
+  invocation: CloudChefToolInvocation;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 }) {

@@ -16,13 +16,13 @@ export const Route = createRootRoute({
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "Ghostbuild Cloudflare App",
+        title: "CloudChef Cloudflare App",
       },
       {
         name: "description",
         content: "A TanStack Start app running on Cloudflare Workers.",
       },
-      { property: "og:title", content: "Ghostbuild Cloudflare App" },
+      { property: "og:title", content: "CloudChef Cloudflare App" },
       {
         property: "og:description",
         content: "A TanStack Start app running on Cloudflare Workers.",
@@ -30,17 +30,17 @@ export const Route = createRootRoute({
       { property: "og:type", content: "website" },
       {
         property: "og:image",
-        content: "https://ghostbuild.dev/social-preview-share-v2.png",
+        content: "https://cloudchef.build/social-preview-share-v2.png",
       },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "Ghostbuild Cloudflare App" },
+      { name: "twitter:title", content: "CloudChef Cloudflare App" },
       {
         name: "twitter:description",
         content: "A TanStack Start app running on Cloudflare Workers.",
       },
       {
         name: "twitter:image",
-        content: "https://ghostbuild.dev/social-preview-share-v2.png",
+        content: "https://cloudchef.build/social-preview-share-v2.png",
       },
     ],
     links: [{ rel: "stylesheet", href: appCss }],

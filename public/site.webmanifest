@@ -1,6 +1,6 @@
 {
-  "name": "Ghostbuild",
-  "short_name": "Ghostbuild",
+  "name": "CloudChef",
+  "short_name": "CloudChef",
   "description": "Build and ship Cloudflare apps with a full-stack AI coding agent.",
   "start_url": "/",
   "display": "standalone",
@@ -8,7 +8,7 @@
   "theme_color": "#18101e",
   "icons": [
     {
-      "src": "/ghostbuild-logo.svg",
+      "src": "/cloudchef-logo.svg",
       "sizes": "any",
       "type": "image/svg+xml"
     }

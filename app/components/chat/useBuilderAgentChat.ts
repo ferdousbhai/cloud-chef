@@ -7,9 +7,9 @@ import type { BuilderAgent, BuilderAgentState, BuilderSteeringInput } from '~/ag
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { isAuthenticated } from '~/lib/stores/userId';
 import { captureMessage } from '~/lib/telemetry.client';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import type { UIMessage } from 'ai';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { recordChatFailure, resetChatRetryState } from './chat-retry';
 import { subchatIndexStore } from '~/lib/stores/subchats';
 import { waitForAgentSocketOpen } from './agent-connection';
@@ -24,7 +24,7 @@ import {
   stripTranscriptBaseMetadata,
   TRANSCRIPT_BASE_METADATA_KEY,
   type TranscriptIdentity,
-} from 'ghostbuild-agent/transcript';
+} from 'cloudchef-agent/transcript';
 import { BuilderWorkspaceSyncController } from '~/lib/stores/builder-workspace-sync.client';
 import type { BuilderWorkspaceAgent } from '~/lib/stores/builder-workspace-collection.client';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
@@ -37,7 +37,7 @@ import { builderModelStore } from '~/lib/stores/builder-model.client';
 import { workersAiModelIdSchema } from '~/lib/workers-ai-model';
 import { loadAuthoritativeTranscriptSnapshot, reconcileMessagesForSend } from './chat-send-reconciliation';
 import { BUILDER_AGENT_QUERY_CACHE_TTL_MS, loadBuilderAgentCapability } from './builder-agent-auth';
-import type { CloudflareExecutionDecisionHandler } from 'ghostbuild-agent/cloudflare-mcp';
+import type { CloudflareExecutionDecisionHandler } from 'cloudchef-agent/cloudflare-mcp';
 
 const logger = createScopedLogger('BuilderAgentChat');
 
@@ -101,7 +101,7 @@ export function workspacePresentationId(accountId: string, agentName: string): s
 export function useBuilderAgentChat(args: {
   accountId: string;
   chatInitialId: string;
-  initialMessages: GhostbuildMessage[];
+  initialMessages: CloudChefMessage[];
   onSubchatTitle: (subchatIndex: number, title: string) => void;
   presentationId: string;
   transcript: TranscriptIdentity;
@@ -246,7 +246,7 @@ export function useBuilderAgentChat(args: {
     },
   });
   const setMessagesRef = useRef(chat.setMessages);
-  const messagesRef = useRef<GhostbuildMessage[]>(chat.messages);
+  const messagesRef = useRef<CloudChefMessage[]>(chat.messages);
   const chatTerminalStateRef = useRef({ status: chat.status, isRecovering: chat.isRecovering });
   const builderTranscriptRef = useRef(builderAgent.state?.transcript);
   const stopBarrierRef = useRef<Promise<void>>(Promise.resolve());
@@ -569,7 +569,7 @@ export function useBuilderAgentChat(args: {
     stop,
     sendMessage,
     steerMessage,
-    messages: chat.messages satisfies GhostbuildMessage[],
+    messages: chat.messages satisfies CloudChefMessage[],
     streamStatus: chat.isRecovering ? ('submitted' as const) : chat.isStreaming ? ('streaming' as const) : chat.status,
     validationStage: builderAgent.state?.validationProgress?.stage ?? null,
     deployment: builderAgent.state?.deployment ?? null,
@@ -603,9 +603,9 @@ function createAsyncGate(): AsyncGate {
   return { promise, resolve, error: null, started: false };
 }
 
-function asUiMessages(messages: GhostbuildMessage[]): UIMessage[] {
-  // SAFETY: `GhostbuildMessage` is the AI SDK `UIMessage` shape with a deliberately open part union
-  // (see `ghostbuild-agent/ai-compat`). Every message reaching this bridge came out of the AI SDK
+function asUiMessages(messages: CloudChefMessage[]): UIMessage[] {
+  // SAFETY: `CloudChefMessage` is the AI SDK `UIMessage` shape with a deliberately open part union
+  // (see `cloudchef-agent/ai-compat`). Every message reaching this bridge came out of the AI SDK
   // chat store, or out of the durable transcript the agent persisted from that same store.
   return messages as UIMessage[];
 }

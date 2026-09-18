@@ -13,7 +13,7 @@
         "!e2e/**",
         // Development tooling, not production source: the vendored anti-slop Oxlint plugin.
         "!tools/**",
-        "!.ghostbuild-runtime-security-*/**",
+        "!.cloudchef-runtime-security-*/**",
       ],
       "ignore": ["template/**", "app/test/cloudflare-workers-shim.ts"],
     },

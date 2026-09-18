@@ -7,7 +7,7 @@ import type { Plugin } from "vite";
 const AMBIENT_WORKERS_MODULE = "cloudflare:workers";
 const SOURCE_EXTENSION = /\.[cm]?[jt]sx?$/i;
 const INTRINSIC_LOCKDOWN_MODULE =
-  "virtual:ghostbuild-security-intrinsics-lockdown";
+  "virtual:cloudchef-security-intrinsics-lockdown";
 const RESOLVED_INTRINSIC_LOCKDOWN_MODULE = `\0${INTRINSIC_LOCKDOWN_MODULE}`;
 
 export const RUNTIME_INTRINSIC_LOCKDOWN_SOURCE = `
@@ -246,7 +246,7 @@ const REVIEWED_PRIVILEGED_IMPORTERS = new Set([
 export function productionModuleSecurityPlugin(projectDir: string): Plugin {
   const canonicalProjectDir = resolve(projectDir);
   return {
-    name: "ghostbuild-production-module-security",
+    name: "cloudchef-production-module-security",
     enforce: "pre",
     async resolveId(source, importer, options) {
       if (source === INTRINSIC_LOCKDOWN_MODULE) {
@@ -309,7 +309,7 @@ export function productionModuleSecurityPlugin(projectDir: string): Plugin {
         this.error(
           `Production module ${identity} uses forbidden ${first.capability} capability at ` +
             `${first.line}:${first.column}. Generated application code and unreviewed dependencies ` +
-            "must use the protected Ghostbuild binding broker.",
+            "must use the protected CloudChef binding broker.",
         );
       }
       const runtimeCode = options?.ssr

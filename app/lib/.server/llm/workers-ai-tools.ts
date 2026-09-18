@@ -1,30 +1,30 @@
-import { getToolInvocation, type GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import { getToolInvocation, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import {
   COMPUTER_AI_TOOL_OPTIONS,
   COMPUTER_DEFAULT_SHELL_BACKEND,
   COMPUTER_EXEC_APPLICATION_POLICY,
   computerSyncUnconfirmedToolResult,
-} from 'ghostbuild-agent/cloudflare-computer';
-import type { GhostbuildToolSet } from 'ghostbuild-agent/types';
+} from 'cloudchef-agent/cloudflare-computer';
+import type { CloudChefToolSet } from 'cloudchef-agent/types';
 import {
   applyLineEdits,
   lineAnchoredRead,
   lineEditBaseTag,
   lineEditToolParameters,
   type LineEditToolInput,
-} from 'ghostbuild-agent/line-edit';
+} from 'cloudchef-agent/line-edit';
 import {
   isWorkspaceReadOnlyToolName,
   MODEL_TOOL_INPUT_SCHEMAS,
   WORKSPACE_TOOL_NAMES,
   type WorkspaceToolName,
-} from 'ghostbuild-agent/model-tool-inputs';
-import { parseNpmInstallCommand } from 'ghostbuild-agent/tools/npmInstall';
-import { rejectedWorkspaceCommand, rejectedWorkspaceFileMutation } from 'ghostbuild-agent/workspace-boundary';
-import { isGhostbuildToolResult, toolFailure } from 'ghostbuild-agent/tool-result';
+} from 'cloudchef-agent/model-tool-inputs';
+import { parseNpmInstallCommand } from 'cloudchef-agent/tools/npmInstall';
+import { rejectedWorkspaceCommand, rejectedWorkspaceFileMutation } from 'cloudchef-agent/workspace-boundary';
+import { isCloudChefToolResult, toolFailure } from 'cloudchef-agent/tool-result';
 import { isWorkspaceToolOperationIndeterminateError, type BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
-import type { Tool } from 'ghostbuild-agent/tool';
+import type { Tool } from 'cloudchef-agent/tool';
 import { type BuilderSkillReader, isBuilderSkillPath } from './builder-skills';
 import { cloudflareDocsSearchTool } from './cloudflare-docs-search';
 import { sha256Hex } from '~/lib/hex-digest';
@@ -52,9 +52,9 @@ export function createWorkersAiTools(
   operationContext: BuilderOperationContext,
   skillReader?: BuilderSkillReader,
   cloudflareMcp?: CloudflareMcpModelToolContext,
-): GhostbuildToolSet {
+): CloudChefToolSet {
   const coordinateStatefulTool = createTurnStatefulToolCoordinator(operationContext.runWithKeepAlive);
-  const tools: GhostbuildToolSet = {
+  const tools: CloudChefToolSet = {
     read: lineAnchoredReadTool(workspace, skillReader),
     ls: projectListingTool(workspace),
     grep: projectSearchTool(workspace),
@@ -69,7 +69,7 @@ export function createWorkersAiTools(
   if (cloudflareMcp) {
     tools.cloudflare_docs = {
       description:
-        'Search the official Cloudflare MCP documentation. Use this before generating API code. The authenticated account is fixed by Ghostbuild and cannot be supplied by the model.',
+        'Search the official Cloudflare MCP documentation. Use this before generating API code. The authenticated account is fixed by CloudChef and cannot be supplied by the model.',
       inputSchema: MODEL_TOOL_INPUT_SCHEMAS.cloudflare_docs,
       execute: async (input, options) =>
         cloudflareMcp.docs(MODEL_TOOL_INPUT_SCHEMAS.cloudflare_docs.parse(input), options),
@@ -262,7 +262,7 @@ function canonicalValidationTool(): Tool {
   return {
     description:
       'Run the complete canonical project validation (typecheck, lint, stack verification, and production build). ' +
-      'A passing run marks the exact current revision deployable; Ghostbuild then publishes the hosted preview and ' +
+      'A passing run marks the exact current revision deployable; CloudChef then publishes the hosted preview and ' +
       'deployment automatically. Call it once after finishing changes instead of running typecheck, lint, or build ' +
       'individually.',
     inputSchema: MODEL_TOOL_INPUT_SCHEMAS.validate,
@@ -526,7 +526,7 @@ export function createTurnStatefulToolCoordinator(
 }
 
 export function getValidatedBuildCompletion(
-  messages: GhostbuildMessage[],
+  messages: CloudChefMessage[],
   currentStepResults: ReadonlyArray<ToolResultEvent> = [],
 ): string | undefined {
   const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
@@ -574,7 +574,7 @@ function isWorkspaceMutationResult(event: ToolResultEvent): boolean {
   );
 }
 
-function collectToolResults(messages: GhostbuildMessage[]): Array<{
+function collectToolResults(messages: CloudChefMessage[]): Array<{
   messageIndex: number;
   toolName: string;
   result: unknown;
@@ -592,7 +592,7 @@ function collectToolResults(messages: GhostbuildMessage[]): Array<{
 
 function isSuccessfulValidationResult(result: unknown): boolean {
   return (
-    isGhostbuildToolResult(result) &&
+    isCloudChefToolResult(result) &&
     result.ok &&
     isRecord(result.data) &&
     result.data.level === 'full' &&

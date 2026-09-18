@@ -15,7 +15,7 @@ import { Slider, type SliderOption } from '~/components/ui/Slider';
 import type { WorkbenchViewType } from '~/lib/stores/workbench.client';
 import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
-import { renderLogger } from 'ghostbuild-agent/utils/logger';
+import { renderLogger } from 'cloudchef-agent/utils/logger';
 import { EditorPanel } from './EditorPanel';
 import { Cross2Icon, ReloadIcon } from '@radix-ui/react-icons';
 import { useWorkbenchController } from './useWorkbenchController';

@@ -46,7 +46,7 @@ export const APP_REQUIRED_PACKAGES = [
 export const WORKER_REQUIRED_PACKAGES = ["typescript", "wrangler"];
 
 export function projectType(pkg) {
-  return pkg?.ghostbuild?.projectType === "worker" ? "worker" : "web_app";
+  return pkg?.cloudchef?.projectType === "worker" ? "worker" : "web_app";
 }
 
 export function dependencyNames(pkg) {

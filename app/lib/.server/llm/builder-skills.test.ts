@@ -17,7 +17,7 @@ describe('builder skills', () => {
 
     await expect(reader.read('/__skills__/project-stack/SKILL.md')).resolves.toEqual({
       kind: 'file',
-      content: expect.stringContaining('ghostbuild.projectType to "worker"'),
+      content: expect.stringContaining('cloudchef.projectType to "worker"'),
     });
     await expect(reader.read('/__skills__/frontend-design/SKILL.md')).resolves.toEqual({
       kind: 'file',

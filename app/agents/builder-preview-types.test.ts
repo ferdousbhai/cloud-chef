@@ -9,7 +9,7 @@ import {
 
 const successful: BuilderPreviewSuccess = {
   id: 'preview-a',
-  url: 'https://12345678-ghostbuild-app.account.workers.dev',
+  url: 'https://12345678-cloudchef-app.account.workers.dev',
   workspaceRevision: 4,
   snapshotRevision: 'snapshot-sha',
   readyAt: '2026-07-30T10:00:00.000Z',

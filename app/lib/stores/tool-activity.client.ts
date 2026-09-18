@@ -1,10 +1,10 @@
 import { atom, map } from 'nanostores';
-import { getToolInvocation, type GhostbuildMessage, type GhostbuildToolInvocation } from 'ghostbuild-agent/ai-compat';
-import { makePartId, type PartId } from 'ghostbuild-agent/partId';
+import { getToolInvocation, type CloudChefMessage, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
+import { makePartId, type PartId } from 'cloudchef-agent/partId';
 import { isToolActivityStatusActive, type ToolActivityStatus } from '~/lib/common/types';
 
 type ToolActivity = {
-  invocation: GhostbuildToolInvocation;
+  invocation: CloudChefToolInvocation;
   status: ToolActivityStatus;
 };
 
@@ -30,7 +30,7 @@ export class ToolActivityStore {
     }
   }
 
-  record(partId: PartId, invocation: GhostbuildToolInvocation): void {
+  record(partId: PartId, invocation: CloudChefToolInvocation): void {
     const activities = this.activities.get();
     const current = activities[partId];
     const status = invocationStatus(invocation);
@@ -68,7 +68,7 @@ export class ToolActivityStore {
     this.#turnHandoffPending = this.#turnActive;
   }
 
-  finishTurn(message: GhostbuildMessage): void {
+  finishTurn(message: CloudChefMessage): void {
     message.parts?.forEach((part, index) => {
       const invocation = getToolInvocation(part);
       if (invocation) {
@@ -101,7 +101,7 @@ export class ToolActivityStore {
   }
 }
 
-export function invocationStatus(invocation: GhostbuildToolInvocation): ToolActivityStatus {
+export function invocationStatus(invocation: CloudChefToolInvocation): ToolActivityStatus {
   switch (invocation.state) {
     case 'input-streaming':
       return 'pending';

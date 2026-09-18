@@ -57,7 +57,7 @@ export default defineConfig((config) => {
     plugins: [
       !isTest && agents(),
       {
-        name: 'ghostbuild-strip-local-dev-vars',
+        name: 'cloudchef-strip-local-dev-vars',
         apply: 'build',
         async closeBundle() {
           await rm(fromRoot('./dist/server/.dev.vars'), { force: true });
@@ -65,7 +65,7 @@ export default defineConfig((config) => {
       },
       !isTest && cloudflare({ viteEnvironment: { name: 'ssr' } }),
       {
-        name: 'ghostbuild-private-client-source-maps',
+        name: 'cloudchef-private-client-source-maps',
         apply: 'build',
         enforce: 'post',
         async closeBundle() {

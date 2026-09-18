@@ -4,7 +4,7 @@ import type { PluggableList } from 'unified';
 import rehypeSanitize, { defaultSchema, type Options as RehypeSanitizeOptions } from 'rehype-sanitize';
 import { visit } from 'unist-util-visit';
 import type { Node as UnistNode } from 'unist';
-import { allowedHTMLElements } from 'ghostbuild-agent/allowed-html-elements';
+import { allowedHTMLElements } from 'cloudchef-agent/allowed-html-elements';
 
 type HtmlNode = UnistNode & {
   type: 'html';
@@ -20,7 +20,7 @@ function remarkThinkRawContent() {
     visit(tree, (node: UnistNode) => {
       if (isHtmlNode(node) && node.value?.startsWith('<think>')) {
         const cleanedContent = node.value.slice(7);
-        node.value = `<div class="__ghostbuildThought__">${cleanedContent}`;
+        node.value = `<div class="__cloudchefThought__">${cleanedContent}`;
 
         return;
       }
@@ -38,7 +38,7 @@ const rehypeSanitizeOptions: RehypeSanitizeOptions = {
   tagNames: allowedHTMLElements,
   attributes: {
     ...defaultSchema.attributes,
-    div: [...(defaultSchema.attributes?.div ?? []), 'data*', ['className', '__ghostbuildThought__']],
+    div: [...(defaultSchema.attributes?.div ?? []), 'data*', ['className', '__cloudchefThought__']],
   },
   strip: [],
 };

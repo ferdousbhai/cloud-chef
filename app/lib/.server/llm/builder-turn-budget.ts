@@ -1,4 +1,4 @@
-import type { ModelToolName } from 'ghostbuild-agent/model-tool-inputs';
+import type { ModelToolName } from 'cloudchef-agent/model-tool-inputs';
 
 export const BUILDER_MUTATION_TOOL_TIMEOUT_MS = 35 * 60_000;
 

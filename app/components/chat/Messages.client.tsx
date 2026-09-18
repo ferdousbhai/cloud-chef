@@ -5,16 +5,16 @@ import { UserMessage } from './UserMessage';
 import { useStore } from '@nanostores/react';
 import { profileStore } from '~/lib/stores/profile';
 import { ChatBubbleIcon, PersonIcon } from '@radix-ui/react-icons';
-import { messageText, type GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import { messageText, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import styles from './BaseChat.module.css';
 import type {
   CloudflareExecutionDecisionHandler,
   CloudflareExecutionPublicState,
-} from 'ghostbuild-agent/cloudflare-mcp';
+} from 'cloudchef-agent/cloudflare-mcp';
 
 interface MessagesProps {
   className?: string;
-  messages: GhostbuildMessage[];
+  messages: CloudChefMessage[];
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 }
@@ -72,7 +72,7 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messa
           <div className="mb-4 flex size-12 shrink-0 items-center justify-center text-gray-600 dark:text-gray-500">
             <ChatBubbleIcon className="size-6" />
           </div>
-          <h3 className="text-content-primary text-lg font-semibold">What should Ghostbuild change?</h3>
+          <h3 className="text-content-primary text-lg font-semibold">What should CloudChef change?</h3>
         </div>
       )}
     </div>

@@ -6,7 +6,7 @@ export type ToolResultCoverage = {
   nextCursor?: string;
 };
 
-export type GhostbuildToolResult<T = unknown> = {
+export type CloudChefToolResult<T = unknown> = {
   version: 1;
   ok: boolean;
   summary: string;
@@ -14,16 +14,16 @@ export type GhostbuildToolResult<T = unknown> = {
   coverage?: ToolResultCoverage;
 };
 
-export function toolSuccess<T>(summary: string, data?: T, coverage?: ToolResultCoverage): GhostbuildToolResult<T> {
+export function toolSuccess<T>(summary: string, data?: T, coverage?: ToolResultCoverage): CloudChefToolResult<T> {
   return toolResult(true, summary, data, coverage);
 }
 
-export function toolFailure<T>(summary: string, data?: T, coverage?: ToolResultCoverage): GhostbuildToolResult<T> {
+export function toolFailure<T>(summary: string, data?: T, coverage?: ToolResultCoverage): CloudChefToolResult<T> {
   return toolResult(false, summary, data, coverage);
 }
 
-function toolResult<T>(ok: boolean, summary: string, data?: T, coverage?: ToolResultCoverage): GhostbuildToolResult<T> {
-  const result: GhostbuildToolResult<T> = { version: 1, ok, summary };
+function toolResult<T>(ok: boolean, summary: string, data?: T, coverage?: ToolResultCoverage): CloudChefToolResult<T> {
+  const result: CloudChefToolResult<T> = { version: 1, ok, summary };
   if (data !== undefined) {
     result.data = data;
   }
@@ -33,7 +33,7 @@ function toolResult<T>(ok: boolean, summary: string, data?: T, coverage?: ToolRe
   return result;
 }
 
-export function isGhostbuildToolResult(value: unknown): value is GhostbuildToolResult {
+export function isCloudChefToolResult(value: unknown): value is CloudChefToolResult {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -47,14 +47,14 @@ export function isGhostbuildToolResult(value: unknown): value is GhostbuildToolR
 }
 
 export function toolResultSummary(value: unknown): string {
-  if (isGhostbuildToolResult(value)) {
+  if (isCloudChefToolResult(value)) {
     return value.summary;
   }
   return typeof value === 'string' ? value : (JSON.stringify(value) ?? String(value));
 }
 
 export function toolResultSucceeded(value: unknown): boolean {
-  if (isGhostbuildToolResult(value)) {
+  if (isCloudChefToolResult(value)) {
     return value.ok;
   }
   if (typeof value === 'object' && value !== null) {

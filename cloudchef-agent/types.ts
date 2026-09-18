@@ -24,7 +24,7 @@ interface Folder {
   type: 'folder';
 }
 
-export type GhostbuildToolSet = Record<AlwaysAvailableModelToolName, Tool> &
+export type CloudChefToolSet = Record<AlwaysAvailableModelToolName, Tool> &
   Partial<Record<CloudflareMcpModelToolName, Tool>>;
 
 export type Dirent = File | Folder;

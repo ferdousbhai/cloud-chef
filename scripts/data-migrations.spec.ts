@@ -19,7 +19,7 @@ function applyControlPlaneMigrations(db: DatabaseSync): void {
   }
 }
 
-describe('Ghostbuild control-plane D1 schema', () => {
+describe('CloudChef control-plane D1 schema', () => {
   test('ends with only the current control-plane and Computer locator schema', () => {
     const db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys = ON');

@@ -221,11 +221,11 @@ type RuntimeCloudflareIdentity = {
 };
 
 function runtimeCloudflareIdentity(env: Env, userId: string): RuntimeCloudflareIdentity {
-  const connectionId = getOptionalBinding(env, 'GHOSTBUILD_CONNECTION_ID');
-  const generation = Number(getOptionalBinding(env, 'GHOSTBUILD_CONNECTION_GENERATION'));
+  const connectionId = getOptionalBinding(env, 'CLOUDCHEF_CONNECTION_ID');
+  const generation = Number(getOptionalBinding(env, 'CLOUDCHEF_CONNECTION_GENERATION'));
   if (
-    getOptionalBinding(env, 'GHOSTBUILD_USER_RUNTIME') !== '1' ||
-    getOptionalBinding(env, 'GHOSTBUILD_USER_ID') !== userId ||
+    getOptionalBinding(env, 'CLOUDCHEF_USER_RUNTIME') !== '1' ||
+    getOptionalBinding(env, 'CLOUDCHEF_USER_ID') !== userId ||
     !connectionId ||
     !Number.isSafeInteger(generation) ||
     generation < 1

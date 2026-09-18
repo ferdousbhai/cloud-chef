@@ -29,7 +29,7 @@ describe('launch route states', () => {
   it('replaces a failed cold project load with a retryable error instead of an endless spinner', () => {
     const html = renderToStaticMarkup(<ProjectLoadError error={new Error('Runtime unavailable')} onRetry={vi.fn()} />);
 
-    expect(html).toContain('Ghostbuild could not load this project');
+    expect(html).toContain('CloudChef could not load this project');
     expect(html).toContain('Runtime unavailable');
     expect(html).toContain('Try again');
     expect(html).not.toContain('Loading project');
@@ -40,7 +40,7 @@ describe('launch route states', () => {
       <ProjectLoadError error={new WorkspacePreparingError('messages.get')} onRetry={vi.fn()} />,
     );
 
-    expect(preparing).toContain('Ghostbuild is still preparing your workspace');
+    expect(preparing).toContain('CloudChef is still preparing your workspace');
     expect(preparing).toContain('takes a few minutes');
     expect(preparing).toContain('Keep waiting');
     // "Try again" restarts the same wait, so the preparing state must not offer it.
@@ -51,13 +51,13 @@ describe('launch route states', () => {
   it('never reports a workspace that is not ready yet as a page that could not load', () => {
     const preparing = renderToStaticMarkup(<ErrorDisplay error={new WorkspacePreparingError('messages.get')} />);
 
-    expect(preparing).toContain('Ghostbuild is still preparing your workspace');
+    expect(preparing).toContain('CloudChef is still preparing your workspace');
     expect(preparing).toContain('Keep waiting');
     expect(preparing).not.toContain('This page could not load');
     expect(preparing).not.toContain('Try again');
 
     const unreachable = renderToStaticMarkup(
-      <ErrorDisplay error={new Error('Ghostbuild timed out while running messages.get. Please try again.')} />,
+      <ErrorDisplay error={new Error('CloudChef timed out while running messages.get. Please try again.')} />,
     );
 
     expect(unreachable).toContain('This page could not load');

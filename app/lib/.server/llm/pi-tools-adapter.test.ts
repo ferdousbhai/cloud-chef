@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MODEL_TOOL_INPUT_SCHEMAS } from 'ghostbuild-agent/model-tool-inputs';
-import type { Tool } from 'ghostbuild-agent/tool';
+import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
+import type { Tool } from 'cloudchef-agent/tool';
 
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),

@@ -1,4 +1,4 @@
-Ghostbuild includes material derived from the following projects.
+CloudChef includes material derived from the following projects.
 
 Production npm dependencies are inventoried from the frozen pnpm lockfile and installed package metadata. Run
 `pnpm run verify:licenses` to enforce the reviewed license policy and `pnpm run sbom:production` to generate the
@@ -9,7 +9,7 @@ Generated applications ship their independent dependency inventory from
 `template/public/THIRD_PARTY_LICENSES.txt`.
 
 The reviewed policy permits permissive licenses, attribution licenses, and weak file-level copyleft licenses compatible
-with this distribution. For dual-license expressions, Ghostbuild relies on the permissive option. Any new or changed
+with this distribution. For dual-license expressions, CloudChef relies on the permissive option. Any new or changed
 license expression fails validation until it is reviewed and explicitly added to the policy.
 
 --------------------------------------------------------------------------------

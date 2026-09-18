@@ -1,10 +1,10 @@
 import { readUserWorkspaceRuntimeHealth } from '../../app/lib/.server/cloudflare/user-workspace-runtime-health';
 
-const READINESS_WORKSPACE_NAME = 'ghostbuild-runtime-readiness';
+const READINESS_WORKSPACE_NAME = 'cloudchef-runtime-readiness';
 
 type RuntimeReadinessEnv = {
   CONTROL_PLANE_SECRET: string;
-  GHOSTBUILD_RUNTIME_VERSION: string;
+  CLOUDCHEF_RUNTIME_VERSION: string;
   DB: Pick<D1Database, 'prepare'>;
   PROJECT_WORKSPACE: {
     idFromName(name: string): DurableObjectId;
@@ -30,7 +30,7 @@ export async function routeUserWorkspaceRuntimeControlPlaneRequest(
     return Response.json(health, { headers: noStoreHeaders() });
   } catch {
     return Response.json(
-      { ok: false, runtimeVersion: env.GHOSTBUILD_RUNTIME_VERSION },
+      { ok: false, runtimeVersion: env.CLOUDCHEF_RUNTIME_VERSION },
       { status: 503, headers: noStoreHeaders() },
     );
   }

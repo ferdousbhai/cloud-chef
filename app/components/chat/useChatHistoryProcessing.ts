@@ -1,14 +1,14 @@
 import { useEffect, useMemo } from 'react';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { createSampler } from '~/utils/sampler';
 import { useProcessedMessages, type PartCache } from '~/lib/hooks/useProcessedMessages';
 
 interface ProcessMessagesOptions {
-  messages: GhostbuildMessage[];
-  processMessages: (messages: GhostbuildMessage[]) => void;
+  messages: CloudChefMessage[];
+  processMessages: (messages: CloudChefMessage[]) => void;
 }
 
-export function useChatHistoryProcessing(args: { messages: GhostbuildMessage[]; partCache: PartCache }) {
+export function useChatHistoryProcessing(args: { messages: CloudChefMessage[]; partCache: PartCache }) {
   const { parsedMessages, processMessages } = useProcessedMessages(args.partCache);
   const { messages } = args;
   const processSampledMessages = useMemo(

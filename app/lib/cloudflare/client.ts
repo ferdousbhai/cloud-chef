@@ -53,7 +53,7 @@ export class DataOperationError extends UserRuntimeRequestError {
  */
 export class WorkspacePreparingError extends DataOperationError {
   constructor(path: DataOperationPath) {
-    super(`Ghostbuild is still preparing your workspace, so ${path} could not run yet.`, undefined, true);
+    super(`CloudChef is still preparing your workspace, so ${path} could not run yet.`, undefined, true);
     this.name = 'WorkspacePreparingError';
   }
 }
@@ -137,5 +137,5 @@ function dataOperationTimeoutError(path: DataOperationPath): Error {
   if (userWorkspacePreparingStore.get()) {
     return new WorkspacePreparingError(path);
   }
-  return new DataOperationError(`Ghostbuild timed out while running ${path}. Please try again.`, undefined, true);
+  return new DataOperationError(`CloudChef timed out while running ${path}. Please try again.`, undefined, true);
 }

@@ -5,4 +5,4 @@ Disallow: /chat/
 Disallow: /connect/
 Disallow: /settings
 
-Sitemap: https://ghostbuild.dev/sitemap.xml
+Sitemap: https://cloudchef.build/sitemap.xml

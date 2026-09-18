@@ -6,7 +6,7 @@ const RUNTIME_CREDENTIAL_TIMEOUT_MS = 30_000;
 const MAX_RUNTIME_CREDENTIAL_RESPONSE_BYTES = 8 * 1024;
 const runtimeCredentialResponseSchema = z.object({ accessToken: z.string().min(1).max(4_096) }).strict();
 
-type RuntimeCredentialEnv = Pick<Env, 'GHOSTBUILD_CONTROL_PLANE_ENDPOINT' | 'CONTROL_PLANE_SECRET'>;
+type RuntimeCredentialEnv = Pick<Env, 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT' | 'CONTROL_PLANE_SECRET'>;
 
 /** Resolve an access token through the authenticated control-plane broker without retaining it. */
 export async function resolveUserWorkspaceCloudflareAccessToken(
@@ -14,7 +14,7 @@ export async function resolveUserWorkspaceCloudflareAccessToken(
   identity: CloudflareMcpIdentity,
   options: CloudflareMcpAccessTokenResolution = {},
 ): Promise<string> {
-  const endpoint = runtimeCredentialEndpoint(env.GHOSTBUILD_CONTROL_PLANE_ENDPOINT);
+  const endpoint = runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT);
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -48,10 +48,10 @@ function runtimeCredentialEndpoint(value: string): URL {
   try {
     endpoint = new URL('/api/cloudflare/runtime-credential', value);
   } catch {
-    throw new Error('The Ghostbuild control-plane endpoint is invalid.');
+    throw new Error('The CloudChef control-plane endpoint is invalid.');
   }
   if (endpoint.protocol !== 'https:' && endpoint.hostname !== 'localhost' && endpoint.hostname !== '127.0.0.1') {
-    throw new Error('The Ghostbuild control-plane endpoint must use HTTPS.');
+    throw new Error('The CloudChef control-plane endpoint must use HTTPS.');
   }
   return endpoint;
 }

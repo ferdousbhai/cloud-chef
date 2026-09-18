@@ -16,7 +16,7 @@
         "make-bootstrap-snapshot.js",
         "scripts/build-user-workspace-runtime.mjs",
       ],
-      "project": ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!", "!.ghostbuild-runtime-security-*/**"],
+      "project": ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!", "!.cloudchef-runtime-security-*/**"],
       "ignore": [
         "template/**",
         "app/test/cloudflare-workers-shim.ts",
@@ -26,7 +26,7 @@
         "tools/oxlint/anti-slop/**",
       ],
     },
-    "ghostbuild-agent": {
+    "cloudchef-agent": {
       "entry": ["**/*.test.ts"],
       "project": ["**/*.{ts,mts}"],
     },

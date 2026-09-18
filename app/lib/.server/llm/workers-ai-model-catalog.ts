@@ -76,7 +76,7 @@ export async function requireWorkersAiBuilderModel(
     models = await readWorkersAiBuilderModelCatalog(binding);
   } catch (error) {
     // Discovery being down must not change which model a build runs on. The pinned model was
-    // reviewed against Ghostbuild's tool protocol, so it still runs from its reviewed literal;
+    // reviewed against CloudChef's tool protocol, so it still runs from its reviewed literal;
     // any other id is a claim only the catalog can confirm, so the outage surfaces instead.
     if (error instanceof WorkersAiModelCatalogUnavailableError && modelId === CLOUDFLARE_WORKERS_AI_MODEL) {
       return DEFAULT_WORKERS_AI_MODEL;
@@ -93,19 +93,19 @@ export async function requireWorkersAiBuilderModel(
   if (modelId === CLOUDFLARE_WORKERS_AI_MODEL) {
     return resolveBuilderDefaultModel(models);
   }
-  throw new Response('The selected Workers AI model is not compatible with the Ghostbuild builder.', {
+  throw new Response('The selected Workers AI model is not compatible with the CloudChef builder.', {
     status: 400,
   });
 }
 
 /**
  * The default the builder actually runs, given what the account can currently serve. The pin wins
- * whenever discovery still offers it: the catalog can say what a model is, never what a Ghostbuild
+ * whenever discovery still offers it: the catalog can say what a model is, never what a CloudChef
  * build needs from it, so the choice stays human.
  *
  * Below the pin the order is deliberate — the owner's stated second choice first, the ranked
  * heuristic only after it. The heuristic reasons from catalog properties, and properties are not
- * evidence a model can serve a Ghostbuild turn: measured against production it would choose
+ * evidence a model can serve a CloudChef turn: measured against production it would choose
  * `@cf/qwen/qwen3.8-27b` on its vision flag, which is the one model known to reject the reasoning
  * effort a builder request would carry — see `retryWithinSupportedReasoningEffort` in
  * `pi-ai-models.ts`. The DeepSeek family answered the builder's request shape with a 200 and real
@@ -159,7 +159,7 @@ export function resolveBuilderDefaultModel(models: readonly WorkersAiModel[]): W
 }
 
 /**
- * Ranked by what a Ghostbuild build actually consumes: images first, because a builder that cannot
+ * Ranked by what a CloudChef build actually consumes: images first, because a builder that cannot
  * read a screenshot loses a whole class of work; then window, because it bounds the transcript
  * before compaction; then publication date, since a newer model of equal shape is the closer
  * replacement. Undated entries rank last — an unknown date is not a claim to be old, but it is not

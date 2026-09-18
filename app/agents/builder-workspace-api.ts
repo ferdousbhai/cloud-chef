@@ -1,4 +1,4 @@
-import type { GhostbuildToolResult } from 'ghostbuild-agent/tool-result';
+import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import type { CreateAIToolsOptions } from '@cloudflare/computer/tools';
 import type { DeploymentProjectProfile } from '~/lib/.server/cloudflare/deployment-project-profile';
 import type { PreparedDeploymentArtifact } from '~/lib/.server/cloudflare/deployment-artifact';
@@ -285,11 +285,11 @@ export interface ProjectWorkspaceRpc extends Rpc.DurableObjectBranded {
   executeStream(value: WorkspaceCommandRequest): Promise<ReadableStream<Uint8Array>>;
   cancelExecution(value: WorkspaceCancelExecutionRequest): Promise<void>;
   checkpoint(): Promise<BuilderWorkspaceCheckpoint>;
-  installDependenciesTool(value: WorkspaceInstallDependenciesRequest): Promise<GhostbuildToolResult>;
+  installDependenciesTool(value: WorkspaceInstallDependenciesRequest): Promise<CloudChefToolResult>;
   validateTool(
     value: WorkspaceValidateRequest,
     onStage?: WorkspaceValidationStageReporter,
-  ): Promise<GhostbuildToolResult>;
+  ): Promise<CloudChefToolResult>;
   cancelValidation(value: WorkspaceCancelValidationRequest): Promise<void>;
   validationStatus(revision: string): { valid: boolean } | Promise<{ valid: boolean }>;
   deploymentPlan(revision: string): Promise<BuilderWorkspaceDeploymentPlan>;
@@ -302,7 +302,7 @@ export interface ProjectWorkspaceRpc extends Rpc.DurableObjectBranded {
 }
 
 /**
- * Project workspace operations available to the Ghostbuild control plane.
+ * Project workspace operations available to the CloudChef control plane.
  *
  * The Cloudflare Computer VFS remains the sole source of truth. This facade
  * exposes product operations without exposing the underlying DO storage.
@@ -341,10 +341,10 @@ export interface BuilderWorkspaceApi {
   ): Promise<T>;
   installDependencies(
     args: WorkspaceInstallDependenciesRequest & { abortSignal?: AbortSignal },
-  ): Promise<GhostbuildToolResult>;
+  ): Promise<CloudChefToolResult>;
   validate(
     args: WorkspaceValidateRequest & { abortSignal?: AbortSignal; onStage?: WorkspaceValidationStageReporter },
-  ): Promise<GhostbuildToolResult>;
+  ): Promise<CloudChefToolResult>;
   cancelActiveValidation(): Promise<void>;
   hasSuccessfulValidation(revision: string): Promise<boolean>;
   prepareDeployment(revision: string): Promise<BuilderWorkspaceDeploymentPlan>;

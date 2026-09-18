@@ -9,7 +9,7 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 const mocks = vi.hoisted(() => ({
-  createCloudflareReturnURL: vi.fn(() => 'https://ghostbuild.dev/settings'),
+  createCloudflareReturnURL: vi.fn(() => 'https://cloudchef.build/settings'),
   signInWithCloudflare: vi.fn(),
   disposeClientCollections: vi.fn(async () => undefined),
   resetUserRuntimeSession: vi.fn(),
@@ -74,7 +74,7 @@ function readBlob(blob: Blob): Promise<string> {
 }
 
 async function openDeletionPanel() {
-  await act(async () => button('Delete my Ghostbuild account data').click());
+  await act(async () => button('Delete my CloudChef account data').click());
 }
 
 async function fillConfirmation() {
@@ -103,10 +103,10 @@ describe('AccountDataCard', () => {
       expect.objectContaining({ method: 'POST', credentials: 'same-origin' }),
     );
     const [blob, filename] = mocks.saveAs.mock.calls[0] as [Blob, string];
-    expect(filename).toBe('ghostbuild-account-export.json');
+    expect(filename).toBe('cloudchef-account-export.json');
     expect(blob.type).toBe('application/json');
     await expect(readBlob(blob)).resolves.toBe(exported);
-    expect(document.body.textContent).toContain('Saved ghostbuild-account-export.json');
+    expect(document.body.textContent).toContain('Saved cloudchef-account-export.json');
   });
 
   it('warns that a partial export is not a complete copy and names the section that failed', async () => {
@@ -122,7 +122,7 @@ describe('AccountDataCard', () => {
     expect(alert?.textContent).toContain('not a complete copy');
     // The partial file is still saved, because it is still the user's data.
     expect(mocks.saveAs).toHaveBeenCalledOnce();
-    expect(document.body.textContent).not.toContain('Saved ghostbuild-account-export.json.');
+    expect(document.body.textContent).not.toContain('Saved cloudchef-account-export.json.');
   });
 
   it('offers a Cloudflare reconnect before exporting when the session is not freshly re-authenticated', async () => {
@@ -148,7 +148,7 @@ describe('AccountDataCard', () => {
     await act(async () => button('Download my account data').click());
 
     expect(mocks.saveAs).not.toHaveBeenCalled();
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain('Unable to reach Ghostbuild');
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('Unable to reach CloudChef');
   });
 
   it('requires the exact phrase and the retained-resources acknowledgement before deleting', async () => {

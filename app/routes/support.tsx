@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { TrustPage, TrustPairs, TrustSection } from '~/components/trust/TrustPage';
 import {
   CLOUDFLARE_SUPPORT_URL,
-  GHOSTBUILD_SUPPORT_URL,
+  CLOUDCHEF_SUPPORT_URL,
   TRUST_EMERGENCY_PAIR,
   TRUST_PAGE_HEADINGS,
   TRUST_RESPONSE_CAVEAT,
@@ -12,8 +12,8 @@ import {
 export const Route = createFileRoute('/support')({
   head: () =>
     createPublicBetaTrustPageHead({
-      title: 'Support | Ghostbuild',
-      description: 'Get product, account, and privacy help for Ghostbuild.',
+      title: 'Support | CloudChef',
+      description: 'Get product, account, and privacy help for CloudChef.',
       path: '/support',
     }),
   component: SupportPage,
@@ -23,11 +23,11 @@ function SupportPage() {
   return (
     <TrustPage
       title={TRUST_PAGE_HEADINGS.support}
-      summary="One public GitHub form handles product, Ghostbuild sign-in, privacy, and abuse requests. Everyone can read it, so post nothing you would not publish."
+      summary="One public GitHub form handles product, CloudChef sign-in, privacy, and abuse requests. Everyone can read it, so post nothing you would not publish."
     >
       <TrustSection title="Open a support request">
         <p>
-          <a className="trust-page__cta" href={GHOSTBUILD_SUPPORT_URL}>
+          <a className="trust-page__cta" href={CLOUDCHEF_SUPPORT_URL}>
             Create a GitHub support request
           </a>
         </p>
@@ -54,12 +54,12 @@ function SupportPage() {
       <TrustSection title="Report abuse">
         <p>
           Abuse reports use the same form — there is no separate abuse address. Choose the abuse category, describe the
-          prohibited use under the <Link to="/terms">Terms</Link>, and identify the affected Ghostbuild-generated site
-          by its public URL only. Attach no evidence containing another person’s private content; a maintainer will ask
-          for what is needed.
+          prohibited use under the <Link to="/terms">Terms</Link>, and identify the affected CloudChef-generated site by
+          its public URL only. Attach no evidence containing another person’s private content; a maintainer will ask for
+          what is needed.
         </p>
         <p>
-          Ghostbuild can act only on the service it operates. A deployed application’s content and behaviour live in the
+          CloudChef can act only on the service it operates. A deployed application’s content and behaviour live in the
           Cloudflare account that owns it, so serious cases may also need{' '}
           <a href={CLOUDFLARE_SUPPORT_URL}>Cloudflare support</a> or law enforcement.
         </p>
@@ -78,7 +78,7 @@ function SupportPage() {
               ),
             },
             {
-              term: 'A vulnerability in Ghostbuild',
+              term: 'A vulnerability in CloudChef',
               detail: (
                 <>
                   <Link to="/security">Security</Link>, so exploit details stay out of a public issue

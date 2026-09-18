@@ -33,7 +33,7 @@ describe('executeDataOperation', () => {
       id: 'chat-1',
       sessionId: 'session-1',
     });
-    const rejection = expect(request).rejects.toThrow('Ghostbuild timed out while running messages.initializeChat');
+    const rejection = expect(request).rejects.toThrow('CloudChef timed out while running messages.initializeChat');
 
     await vi.advanceTimersByTimeAsync(15_000);
 
@@ -67,7 +67,7 @@ describe('executeDataOperation', () => {
     const request = executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' });
     const rejection = expect(request).rejects.toMatchObject({
       name: 'WorkspacePreparingError',
-      message: 'Ghostbuild is still preparing your workspace, so messages.initializeChat could not run yet.',
+      message: 'CloudChef is still preparing your workspace, so messages.initializeChat could not run yet.',
       retryable: true,
     });
     await vi.advanceTimersByTimeAsync(15_000);
@@ -88,7 +88,7 @@ describe('executeDataOperation', () => {
     const request = executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' });
     const rejection = expect(request).rejects.toMatchObject({
       name: 'DataOperationError',
-      message: 'Ghostbuild timed out while running messages.initializeChat. Please try again.',
+      message: 'CloudChef timed out while running messages.initializeChat. Please try again.',
     });
     await vi.advanceTimersByTimeAsync(15_000);
 
@@ -99,7 +99,7 @@ describe('executeDataOperation', () => {
   it('classifies a preparation that outran the readiness deadline as preparing, not as a fault', () => {
     expect(
       isWorkspacePreparingError(
-        new UserRuntimeSessionError('Ghostbuild is still preparing your workspace.', 'workspace_preparing'),
+        new UserRuntimeSessionError('CloudChef is still preparing your workspace.', 'workspace_preparing'),
       ),
     ).toBe(true);
     expect(

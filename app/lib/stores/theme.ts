@@ -2,7 +2,7 @@ import { atom } from 'nanostores';
 
 export type Theme = 'dark' | 'light';
 
-const THEME_KEY = 'ghostbuild_theme';
+const THEME_KEY = 'cloudchef_theme';
 
 const DEFAULT_THEME = 'light';
 

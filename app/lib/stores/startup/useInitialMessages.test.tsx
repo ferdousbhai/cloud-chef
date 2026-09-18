@@ -30,9 +30,9 @@ describe('useInitialMessages', () => {
         return new Response(null, {
           status: 204,
           headers: {
-            'X-Ghostbuild-Transcript-Agent': `${body.chatId}--transcript-${body.subchatIndex}-0`,
-            'X-Ghostbuild-Transcript-Generation': '0',
-            'X-Ghostbuild-Transcript-Subchat': body.subchatIndex.toString(),
+            'X-CloudChef-Transcript-Agent': `${body.chatId}--transcript-${body.subchatIndex}-0`,
+            'X-CloudChef-Transcript-Generation': '0',
+            'X-CloudChef-Transcript-Subchat': body.subchatIndex.toString(),
           },
         });
       }),
@@ -120,9 +120,9 @@ describe('useInitialMessages', () => {
         return new Response(null, {
           status: 204,
           headers: {
-            'X-Ghostbuild-Transcript-Agent': `${body.chatId}--transcript-${body.subchatIndex}-0`,
-            'X-Ghostbuild-Transcript-Generation': '0',
-            'X-Ghostbuild-Transcript-Subchat': body.subchatIndex.toString(),
+            'X-CloudChef-Transcript-Agent': `${body.chatId}--transcript-${body.subchatIndex}-0`,
+            'X-CloudChef-Transcript-Generation': '0',
+            'X-CloudChef-Transcript-Subchat': body.subchatIndex.toString(),
           },
         });
       }),
@@ -200,7 +200,7 @@ describe('useInitialMessages', () => {
     latestSubchatIndex = 1;
     await act(async () => {
       await queryClient.invalidateQueries({
-        queryKey: ['ghostbuild-local', 'transcripts', 'signed-in-revalidation-user'],
+        queryKey: ['cloudchef-local', 'transcripts', 'signed-in-revalidation-user'],
       });
       await vi.waitFor(() => expect(container.textContent).toBe('ready-1'));
     });

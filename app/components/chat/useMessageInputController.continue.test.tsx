@@ -27,8 +27,8 @@ vi.mock('~/lib/stores/userId', () => ({
   isAuthenticated: () => true,
 }));
 
-vi.mock('./GhostbuildAuthWrapper', () => ({
-  useGhostbuildAuth: () => ({ kind: session.kind }),
+vi.mock('./CloudChefAuthWrapper', () => ({
+  useCloudChefAuth: () => ({ kind: session.kind }),
 }));
 
 type OnSend = (message: string, onAccepted?: () => void) => Promise<boolean>;

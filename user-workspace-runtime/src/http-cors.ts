@@ -1,7 +1,7 @@
 const TRANSCRIPT_IDENTITY_HEADERS = [
-  'X-Ghostbuild-Transcript-Agent',
-  'X-Ghostbuild-Transcript-Generation',
-  'X-Ghostbuild-Transcript-Subchat',
+  'X-CloudChef-Transcript-Agent',
+  'X-CloudChef-Transcript-Generation',
+  'X-CloudChef-Transcript-Subchat',
 ] as const;
 
 export function withCors(response: Response, origin: string | null): Response {

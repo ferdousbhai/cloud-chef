@@ -4,7 +4,7 @@ import { createCollection } from '@tanstack/db';
 import { queryCollectionOptions } from '@tanstack/query-db-collection';
 import { useLiveQuery } from '@tanstack/react-db';
 import { z } from 'zod';
-import { transcriptIdentitySchema } from 'ghostbuild-agent/transcript';
+import { transcriptIdentitySchema } from 'cloudchef-agent/transcript';
 import { executeDataOperation } from './client';
 import {
   api,
@@ -22,7 +22,7 @@ type SubchatQueryArgs = { chatId: string; sessionId: string };
 
 export function useMutation<Path extends DataOperationPath>(path: Path) {
   const { mutateAsync } = useTanStackMutation<DataOperationResult<Path>, Error, DataOperationArgs<Path>>({
-    mutationKey: ['ghostbuild-data', path],
+    mutationKey: ['cloudchef-data', path],
     mutationFn: (args) => executeDataOperation(path, args),
   });
   return mutateAsync;
@@ -36,7 +36,7 @@ const subchatSummarySchema = z.object({
 }) satisfies z.ZodType<SubchatSummary>;
 
 export function subchatQueryKey(args: SubchatQueryArgs | 'skip') {
-  return ['ghostbuild-data', api.subchats.get, args] as const;
+  return ['cloudchef-data', api.subchats.get, args] as const;
 }
 
 function createSubchatCollection(args: SubchatQueryArgs) {

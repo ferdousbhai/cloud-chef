@@ -1,5 +1,5 @@
 /**
- * Headroom held back from a model's context window because every token count Ghostbuild computes
+ * Headroom held back from a model's context window because every token count CloudChef computes
  * is a ~4-characters-per-token heuristic rather than the provider's own tokenizer. Workers AI
  * rejects any request whose input tokens plus requested output exceed the context window, so a
  * budget built on an over-confident estimate fails the whole turn. A tenth of the window, never

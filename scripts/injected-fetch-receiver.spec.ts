@@ -28,7 +28,7 @@ function productionSources(directory: string): string[] {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     // The production-build security tests stage full template copies under this prefix in the
     // repository root and delete them again; walking one mid-run would fail on a vanished path.
-    if (SKIPPED_DIRECTORIES.has(entry.name) || entry.name.startsWith('.ghostbuild-runtime-security-')) {
+    if (SKIPPED_DIRECTORIES.has(entry.name) || entry.name.startsWith('.cloudchef-runtime-security-')) {
       continue;
     }
     const path = join(directory, entry.name);

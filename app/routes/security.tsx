@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { TrustPage, TrustPairs, TrustSection } from '~/components/trust/TrustPage';
 import {
   CLOUDFLARE_SUPPORT_URL,
-  GHOSTBUILD_SECURITY_URL,
+  CLOUDCHEF_SECURITY_URL,
   TRUST_EMERGENCY_PAIR,
   TRUST_PAGE_HEADINGS,
   TRUST_RESPONSE_CAVEAT,
@@ -12,8 +12,8 @@ import {
 export const Route = createFileRoute('/security')({
   head: () =>
     createPublicBetaTrustPageHead({
-      title: 'Security | Ghostbuild',
-      description: 'Privately report a Ghostbuild vulnerability.',
+      title: 'Security | CloudChef',
+      description: 'Privately report a CloudChef vulnerability.',
       path: '/security',
     }),
   component: SecurityPage,
@@ -27,7 +27,7 @@ function SecurityPage() {
     >
       <TrustSection title="Report privately">
         <p>
-          <a className="trust-page__cta" href={GHOSTBUILD_SECURITY_URL}>
+          <a className="trust-page__cta" href={CLOUDCHEF_SECURITY_URL}>
             Report a vulnerability privately
           </a>
         </p>
@@ -55,11 +55,11 @@ function SecurityPage() {
       <TrustSection title="Scope">
         <TrustPairs
           items={[
-            { term: 'Covered', detail: 'Ghostbuild’s code repository and the service at ghostbuild.dev.' },
+            { term: 'Covered', detail: 'CloudChef’s code repository and the service at cloudchef.build.' },
             {
               term: 'Not covered',
               detail:
-                'Testing Cloudflare, GitHub, customer-controlled deployments, or other third-party systems is not authorized. Ghostbuild cannot bind third parties or law enforcement.',
+                'Testing Cloudflare, GitHub, customer-controlled deployments, or other third-party systems is not authorized. CloudChef cannot bind third parties or law enforcement.',
             },
           ]}
         />
@@ -73,7 +73,7 @@ function SecurityPage() {
         <p>Stop and report if you encounter sensitive data.</p>
       </TrustSection>
       <TrustSection title="Not an incident channel">
-        <p>Contain the incident first: revoke exposed credentials and Ghostbuild’s Cloudflare authorization.</p>
+        <p>Contain the incident first: revoke exposed credentials and CloudChef’s Cloudflare authorization.</p>
         <TrustPairs
           items={[
             {
@@ -81,7 +81,7 @@ function SecurityPage() {
               detail: <a href={CLOUDFLARE_SUPPORT_URL}>Cloudflare support</a>,
             },
             TRUST_EMERGENCY_PAIR,
-            { term: 'Everything else about Ghostbuild', detail: <Link to="/support">Support</Link> },
+            { term: 'Everything else about CloudChef', detail: <Link to="/support">Support</Link> },
           ]}
         />
       </TrustSection>

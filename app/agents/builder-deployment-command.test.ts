@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { toolFailure, toolSuccess } from 'ghostbuild-agent/tool-result';
+import { toolFailure, toolSuccess } from 'cloudchef-agent/tool-result';
 import type { BuilderWorkspaceDeploymentPlan } from './builder-workspace-api';
 
 const mocks = vi.hoisted(() => ({
@@ -42,7 +42,7 @@ describe('builder deployment command', () => {
     });
     mocks.previewForUser.mockResolvedValue({
       id: '22222222-2222-4222-8222-222222222222',
-      url: 'https://22222222-ghostbuild-app.account.workers.dev',
+      url: 'https://22222222-cloudchef-app.account.workers.dev',
       workspaceRevision: 7,
       snapshotRevision: 'a'.repeat(64),
       readyAt: '2026-08-30T00:00:00.000Z',

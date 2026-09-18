@@ -25,7 +25,7 @@ export type WorkersAiModel = {
  * own metadata, but it never changes which model a build runs on while the pin is still offered —
  * and when Cloudflare retires it, the failover is logged rather than silent (see
  * `resolveBuilderDefaultModel`). The owner pins GLM 5.3 Flash: it is the fastest Workers AI model
- * that reasons, reads images, and holds a million-token window, which is the shape a Ghostbuild
+ * that reasons, reads images, and holds a million-token window, which is the shape a CloudChef
  * build actually needs.
  *
  * The earlier canary failures no longer describe the runtime that drives it. Those runs asked for
@@ -40,7 +40,7 @@ export const CLOUDFLARE_WORKERS_AI_MODEL = '@cf/zai-org/glm-5.3-flash' satisfies
 
 /**
  * Titles must come from a model that speaks the OpenAI completions response shape, because every
- * Ghostbuild request goes through the Pi `openai-completions` adapter, which reads only
+ * CloudChef request goes through the Pi `openai-completions` adapter, which reads only
  * `choices[].delta`. Small Workers AI models such as `@cf/meta/llama-3.2-1b-instruct` answer in
  * Cloudflare's native `{ response, usage }` shape instead: the adapter parses no text, the title
  * comes back empty, and every chat silently keeps its heuristic prompt-derived name. Do not move
@@ -61,7 +61,7 @@ export const CLOUDFLARE_CONTEXT_SUMMARY_MODEL = '@cf/meta/llama-4-scout-17b-16e-
 export type WorkersAiRuntimeModelId = WorkersAiModelId;
 
 /**
- * The smallest context window Ghostbuild will drive a builder model with. An explicit floor, not a
+ * The smallest context window CloudChef will drive a builder model with. An explicit floor, not a
  * derived one: the input budget and the per-request output ceiling both scale with whatever window
  * a model actually has, so this only has to exclude windows too small to hold the system prompt,
  * the tool schemas, and a working transcript at once.

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const TRANSCRIPT_HISTORY_FORMAT_VERSION = 2 as const;
-export const TRANSCRIPT_BASE_METADATA_KEY = 'ghostbuildTranscriptBase' as const;
+export const TRANSCRIPT_BASE_METADATA_KEY = 'cloudchefTranscriptBase' as const;
 /** New transcripts remain generation zero; nonzero values identify deployed rewind-era objects. */
 export const CURRENT_TRANSCRIPT_GENERATION = 0 as const;
 

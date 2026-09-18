@@ -1,5 +1,5 @@
 import { ensureInitialChat, findChat, requireChat } from './chat-repository.server';
-import { transcriptAgentName } from 'ghostbuild-agent/transcript';
+import { transcriptAgentName } from 'cloudchef-agent/transcript';
 import { prepareInsertChatTranscript, requireChatTranscript } from './transcript-repository.server';
 import { prepareAgentGcCandidatesStatement } from './agent-gc.server';
 import {

@@ -43,12 +43,12 @@ type RuntimeControlRow = {
 type CloudflareMcpRuntimeEnv = Pick<
   Env,
   | 'DB'
-  | 'GHOSTBUILD_USER_RUNTIME'
-  | 'GHOSTBUILD_USER_ID'
+  | 'CLOUDCHEF_USER_RUNTIME'
+  | 'CLOUDCHEF_USER_ID'
   | 'CLOUDFLARE_ACCOUNT_ID'
-  | 'GHOSTBUILD_CONNECTION_ID'
-  | 'GHOSTBUILD_CONNECTION_GENERATION'
-  | 'GHOSTBUILD_OAUTH_SCOPE_GRANT_STATUS'
+  | 'CLOUDCHEF_CONNECTION_ID'
+  | 'CLOUDCHEF_CONNECTION_GENERATION'
+  | 'CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS'
 >;
 
 /**
@@ -93,13 +93,13 @@ export async function readCloudflareMcpRuntimeAdmission(
 }
 
 function runtimeIdentity(env: CloudflareMcpRuntimeEnv): CloudflareMcpRuntimeIdentity | null {
-  const connectionGeneration = Number(env.GHOSTBUILD_CONNECTION_GENERATION);
-  const oauthScopeGrantStatus = env.GHOSTBUILD_OAUTH_SCOPE_GRANT_STATUS;
+  const connectionGeneration = Number(env.CLOUDCHEF_CONNECTION_GENERATION);
+  const oauthScopeGrantStatus = env.CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS;
   if (
-    env.GHOSTBUILD_USER_RUNTIME !== '1' ||
-    !env.GHOSTBUILD_USER_ID ||
+    env.CLOUDCHEF_USER_RUNTIME !== '1' ||
+    !env.CLOUDCHEF_USER_ID ||
     !env.CLOUDFLARE_ACCOUNT_ID ||
-    !env.GHOSTBUILD_CONNECTION_ID ||
+    !env.CLOUDCHEF_CONNECTION_ID ||
     !Number.isSafeInteger(connectionGeneration) ||
     connectionGeneration < 1 ||
     (oauthScopeGrantStatus !== 'core' && oauthScopeGrantStatus !== 'partial' && oauthScopeGrantStatus !== 'full')
@@ -107,9 +107,9 @@ function runtimeIdentity(env: CloudflareMcpRuntimeEnv): CloudflareMcpRuntimeIden
     return null;
   }
   return {
-    userId: env.GHOSTBUILD_USER_ID,
+    userId: env.CLOUDCHEF_USER_ID,
     accountId: env.CLOUDFLARE_ACCOUNT_ID,
-    connectionId: env.GHOSTBUILD_CONNECTION_ID,
+    connectionId: env.CLOUDCHEF_CONNECTION_ID,
     connectionGeneration,
     oauthScopeGrantStatus,
   };

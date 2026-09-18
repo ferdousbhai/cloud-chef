@@ -4,7 +4,7 @@ import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 /* The builder reads the same skill in every workspace; only the frontmatter is skill-specific. */
 const stackSelectionRules = projectStackSkill.replace(/^---\n[\s\S]*?\n---\n+/, '').trim();
 
-export const cursorRulesContent = `# Ghostbuild Cloudflare App Rules
+export const cursorRulesContent = `# CloudChef Cloudflare App Rules
 
 ${stackSelectionRules}
 - Keep pnpm run dev and pnpm run preview available for local and isolated remote preview.
@@ -21,7 +21,7 @@ ${stackSelectionRules}
 - For production Agent observability, use Agents diagnostics-channel events and attach a Cloudflare Tail Worker when structured Agent RPC, chat, recovery, state, schedule, workflow, or MCP events need collection.
 - Update wrangler.jsonc when adding bindings, Durable Object exports, D1 migrations, D1, R2, KV, Queues, or Vectorize. Use declarative exports with SQLite storage for new Durable Object classes.
 - Keep wrangler.jsonc production observability explicit: observability.enabled, observability.logs.enabled, and observability.traces.enabled should be true, with logs head_sampling_rate 0.6 and traces head_sampling_rate 0.05 unless production volume requires different sampling.
-- Keep secret values out of project files. For an app-specific credential, declare its name with secrets.required and configure a per-Worker secret with wrangler secret put NAME or the Worker's dashboard settings. For a credential intentionally reused across Workers or AI Gateway, an exported project can bind an existing account secret with secrets_store_secrets; Worker access requires workers scope and reads it asynchronously with await env.BINDING.get(), while AI Gateway uses ai-gateway scope. Deploying the Worker binding requires Account Secrets Store Edit permission or an equivalent role. Ghostbuild managed deployment does not currently support Secrets Store bindings.
+- Keep secret values out of project files. For an app-specific credential, declare its name with secrets.required and configure a per-Worker secret with wrangler secret put NAME or the Worker's dashboard settings. For a credential intentionally reused across Workers or AI Gateway, an exported project can bind an existing account secret with secrets_store_secrets; Worker access requires workers scope and reads it asynchronously with await env.BINDING.get(), while AI Gateway uses ai-gateway scope. Deploying the Worker binding requires Account Secrets Store Edit permission or an equivalent role. CloudChef managed deployment does not currently support Secrets Store bindings.
 - Keep CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN as production deploy credentials only; do not use them as Worker runtime secrets.
 - Keep backend code on Cloudflare Workers and Cloudflare developer platform primitives.
 - Validate changes with pnpm run verify:stack, pnpm run typecheck, pnpm run build, and pnpm run lint.

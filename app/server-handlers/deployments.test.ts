@@ -56,7 +56,7 @@ describe('deployment handlers', () => {
     mocks.executeUserOwnedDeployment.mockResolvedValue(deployment('succeeded'));
     mocks.executeUserOwnedPreview.mockResolvedValue({
       id: 'version-1',
-      url: 'https://12345678-ghostbuild-app.account.workers.dev',
+      url: 'https://12345678-cloudchef-app.account.workers.dev',
       workspaceRevision: 7,
       snapshotRevision: revision,
       readyAt: '2026-08-30T00:00:00.000Z',
@@ -127,9 +127,9 @@ function activeChatDb(): D1Database {
 function runtimeEnv(db: D1Database): Env {
   return {
     DB: db,
-    GHOSTBUILD_USER_RUNTIME: '1',
-    GHOSTBUILD_USER_ID: 'user-1',
-    GHOSTBUILD_CONNECTION_ID: 'connection-1',
-    GHOSTBUILD_CONNECTION_GENERATION: '1',
+    CLOUDCHEF_USER_RUNTIME: '1',
+    CLOUDCHEF_USER_ID: 'user-1',
+    CLOUDCHEF_CONNECTION_ID: 'connection-1',
+    CLOUDCHEF_CONNECTION_GENERATION: '1',
   } as unknown as Env;
 }

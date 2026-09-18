@@ -1,13 +1,13 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { ClientTelemetryPreference } from '~/components/ClientRouteComponents';
 import { TrustPage, TrustPairs, TrustSection } from '~/components/trust/TrustPage';
-import { GHOSTBUILD_OPERATOR, TRUST_PAGE_HEADINGS, createPublicBetaTrustPageHead } from '~/lib/trust';
+import { CLOUDCHEF_OPERATOR, TRUST_PAGE_HEADINGS, createPublicBetaTrustPageHead } from '~/lib/trust';
 
 export const Route = createFileRoute('/privacy')({
   head: () =>
     createPublicBetaTrustPageHead({
-      title: 'Privacy | Ghostbuild',
-      description: 'How Ghostbuild handles account, workspace, deployment, and product data.',
+      title: 'Privacy | CloudChef',
+      description: 'How CloudChef handles account, workspace, deployment, and product data.',
       path: '/privacy',
     }),
   component: PrivacyPage,
@@ -20,9 +20,9 @@ function PrivacyPage() {
   return (
     <TrustPage
       title={TRUST_PAGE_HEADINGS.privacy}
-      summary="Ghostbuild’s own account stores only the records needed to authenticate you, connect Cloudflare, locate your user-owned runtime, and operate the service, plus narrow product telemetry if you opt in. Project and conversation data stays in the Cloudflare account you connect; the browser keeps only rebuildable in-memory views."
+      summary="CloudChef’s own account stores only the records needed to authenticate you, connect Cloudflare, locate your user-owned runtime, and operate the service, plus narrow product telemetry if you opt in. Project and conversation data stays in the Cloudflare account you connect; the browser keeps only rebuildable in-memory views."
     >
-      <TrustSection title="What Ghostbuild stores in its own account">
+      <TrustSection title="What CloudChef stores in its own account">
         <p>The operator control plane stores:</p>
         <ul>
           <li>your Cloudflare user identity and account details</li>
@@ -44,17 +44,17 @@ function PrivacyPage() {
         </ul>
         <p>
           Chat catalogs, transcripts, generated files, workspace state, deployment records, and generated Cloudflare
-          resources are stored in the connected Cloudflare account. Ghostbuild accesses them to perform your requests,
+          resources are stored in the connected Cloudflare account. CloudChef accesses them to perform your requests,
           but does not copy them into the operator control-plane database.
         </p>
       </TrustSection>
 
       <TrustSection title="Operator, scope, and roles">
         <p>
-          {GHOSTBUILD_OPERATOR.legalName}, an {GHOSTBUILD_OPERATOR.legalForm} (Ontario Corporation No.{' '}
-          {GHOSTBUILD_OPERATOR.registrationNumber}), operates Ghostbuild and is the controller for personal data
-          Ghostbuild processes to operate the service. Its business correspondence address is{' '}
-          {GHOSTBUILD_OPERATOR.correspondenceAddress}. This includes account, authentication, Cloudflare-connection,
+          {CLOUDCHEF_OPERATOR.legalName}, an {CLOUDCHEF_OPERATOR.legalForm} (Ontario Corporation No.{' '}
+          {CLOUDCHEF_OPERATOR.registrationNumber}), operates CloudChef and is the controller for personal data CloudChef
+          processes to operate the service. Its business correspondence address is{' '}
+          {CLOUDCHEF_OPERATOR.correspondenceAddress}. This includes account, authentication, Cloudflare-connection,
           requested AI-building workflow, support, security, and optional product-telemetry processing. Persistent
           server-side project and conversation state remains in the connected Cloudflare account. You control that
           account and are responsible for processing performed by applications you publish. Cloudflare and GitHub also
@@ -68,7 +68,7 @@ function PrivacyPage() {
             <strong>Account and authentication:</strong> Cloudflare identity, name, email, avatar, session records,
             OAuth state, and connection status. These are used to authenticate you and provide the service you request,
             including steps taken before and during the service agreement. The identity and authorization fields are
-            required to use signed-in features; without them, Ghostbuild cannot provide those features.
+            required to use signed-in features; without them, CloudChef cannot provide those features.
           </li>
           <li>
             <strong>Cloudflare connection:</strong> account identifiers, granted scopes, runtime locators, and encrypted
@@ -79,7 +79,7 @@ function PrivacyPage() {
             <strong>Projects and conversations:</strong> chat metadata, transcripts, generated files, revisions,
             validation receipts, deployment plans, approvals, and deployment status. These are processed and stored in
             the connected Cloudflare account to generate, recover, validate, and deploy your project under the service
-            agreement. You choose what project content to provide, but Ghostbuild cannot perform a requested build
+            agreement. You choose what project content to provide, but CloudChef cannot perform a requested build
             without the content needed for that request.
           </li>
           <li>
@@ -88,7 +88,7 @@ function PrivacyPage() {
             exception or diagnostic metadata.
             <TrustPairs
               items={[
-                { term: 'Ghostbuild control plane', detail: '60% of Worker logs and 5% of traces' },
+                { term: 'CloudChef control plane', detail: '60% of Worker logs and 5% of traces' },
                 {
                   term: 'Workspace runtime, in your connected Cloudflare account',
                   detail: '60% of Worker logs, and Computer container logs enabled',
@@ -112,7 +112,7 @@ function PrivacyPage() {
           </li>
           <li>
             <strong>Optional product telemetry:</strong> allowlisted events, opaque journey or error-event identifiers,
-            status values, and bounded numeric metrics. Consent is requested before Ghostbuild sends this telemetry.
+            status values, and bounded numeric metrics. Consent is requested before CloudChef sends this telemetry.
             Prompts, source code, credentials, URLs, and direct user identifiers are excluded. The request omits browser
             credentials; a client IP supplied by Cloudflare is used transiently as a rate-limit key and is not included
             in the application event log.
@@ -129,7 +129,7 @@ function PrivacyPage() {
           AI Gateway so accounts configured for Unified Billing can use prepaid credits; per-request controls skip AI
           Gateway caching and log collection. Cloudflare describes its handling of Workers AI content in its{' '}
           <a href="https://developers.cloudflare.com/workers-ai/platform/data-usage/">Workers AI data-usage notice</a>.
-          Ghostbuild does not use AI to make decisions that produce legal or similarly significant effects about you.
+          CloudChef does not use AI to make decisions that produce legal or similarly significant effects about you.
         </p>
       </TrustSection>
 
@@ -141,7 +141,7 @@ function PrivacyPage() {
           reload. Preferences remain until replaced or cleared in your browser.
         </p>
         <p>
-          Optional product telemetry is off until you allow it. Your choice is stored locally. Ghostbuild also honors
+          Optional product telemetry is off until you allow it. Your choice is stored locally. CloudChef also honors
           Global Privacy Control and Do Not Track. Disabling telemetry stops future telemetry but does not remove events
           already received. You may withdraw telemetry consent at any time without affecting processing that occurred
           before withdrawal.
@@ -160,14 +160,14 @@ function PrivacyPage() {
           Workers AI, the Cloudflare AI model catalog, observability, and related infrastructure. GitHub processes
           information submitted through public support issues or private security reports. Control-plane observability
           is held in the operator’s Cloudflare account; workspace, Computer, and generated-application observability is
-          held in your connected Cloudflare account. Ghostbuild does not sell personal data, share it for cross-context
+          held in your connected Cloudflare account. CloudChef does not sell personal data, share it for cross-context
           behavioral advertising, or use it for targeted advertising.
         </p>
       </TrustSection>
 
       <TrustSection title="International processing">
         <p>
-          Cloudflare and GitHub operate globally, so data may be processed outside your country. Ghostbuild does not
+          Cloudflare and GitHub operate globally, so data may be processed outside your country. CloudChef does not
           currently offer a selectable residency region. Cloudflare describes its transfer safeguards, including
           Standard Contractual Clauses where applicable, in its{' '}
           <a href="https://www.cloudflare.com/cloudflare-customer-dpa/">Data Processing Addendum</a>. Review{' '}
@@ -193,13 +193,13 @@ function PrivacyPage() {
         </p>
         <p>
           The operator’s current Cloudflare plan retains sampled control-plane Workers Logs and traces for seven days.
-          Ghostbuild does not copy them to another log or trace store. Cloudflare may retain aggregate control-plane
+          CloudChef does not copy them to another log or trace store. Cloudflare may retain aggregate control-plane
           Worker metrics for up to three months; those metrics are not a user-addressable event ledger.
         </p>
         <p>
           <a href="https://developers.cloudflare.com/d1/reference/time-travel/">Cloudflare D1 Time Travel</a> keeps
           control-plane database changes recoverable for up to 30 days under the current plan. User-owned D1 recovery
-          windows depend on the user’s Cloudflare plan. Ghostbuild will not intentionally restore erased records from
+          windows depend on the user’s Cloudflare plan. CloudChef will not intentionally restore erased records from
           recovery history. If broader disaster recovery reintroduces them, the erasure must be reapplied unless a
           lawful retention exception governs.
         </p>
@@ -215,10 +215,10 @@ function PrivacyPage() {
           <li>your runtime locator</li>
         </ul>
         <p>
-          It also asks Cloudflare to revoke Ghostbuild’s authorization, and tells you when Cloudflare did not confirm
+          It also asks Cloudflare to revoke CloudChef’s authorization, and tells you when Cloudflare did not confirm
           that revocation so you can remove it yourself. Because erasure is irreversible it requires a Cloudflare
           sign-in completed in the last ten minutes, an exact typed confirmation, and an explicit acknowledgement of
-          what is retained. Repeating it is harmless. If you have already revoked Ghostbuild’s authorization you can no
+          what is retained. Repeating it is harmless. If you have already revoked CloudChef’s authorization you can no
           longer sign in, so use the request path below instead.
         </p>
         <p>
@@ -246,8 +246,8 @@ function PrivacyPage() {
           That control deliberately deletes nothing inside your own Cloudflare account.{' '}
           <strong>
             Workers and their unpromoted preview versions, production and preview D1 databases, R2 buckets, KV
-            namespaces, Containers, Durable Objects, and Agents that Ghostbuild deployed are retained, keep running,
-            keep billing to your account, and are yours to remove.
+            namespaces, Containers, Durable Objects, and Agents that CloudChef deployed are retained, keep running, keep
+            billing to your account, and are yours to remove.
           </strong>{' '}
           Chats, transcripts, project files, and deployment records also stay there under that account’s controls, and
           the account export does not contain them: download individual project source with Download code in the project
@@ -259,20 +259,20 @@ function PrivacyPage() {
         <p>
           Workspace Worker and Computer container logs, and generated-application Worker logs and traces, remain in your
           connected Cloudflare account. Their access and retention follow that account’s permissions, plan, product
-          settings, and Cloudflare controls. Ghostbuild does not copy them into the operator’s log or trace store, and
+          settings, and Cloudflare controls. CloudChef does not copy them into the operator’s log or trace store, and
           removing a project does not immediately erase provider-retained observability.
         </p>
         <p>
           Removing a project hides it from the active project list and makes its Agent and workspace eligible for
-          teardown no earlier than 30 minutes later. Ghostbuild also schedules deletion of the project’s generated
-          Worker and all of its versions and Durable Objects, production and preview D1 databases, KV namespaces, and R2
+          teardown no earlier than 30 minutes later. CloudChef also schedules deletion of the project’s generated Worker
+          and all of its versions and Durable Objects, production and preview D1 databases, KV namespaces, and R2
           buckets from your connected Cloudflare account. R2 objects are emptied in bounded batches before the bucket is
           deleted; provider failures or revoked authorization can delay cleanup and are retried while access remains
           available. It is not complete erasure: catalog, transcript, deployment, provider-retained observability, and
           browser records remain under their applicable retention boundaries. Browser data remains until you clear it.
-          Delete projects and allow this cleanup to finish before deleting your Ghostbuild account data: account
-          deletion revokes the authorization cleanup needs, so a project deleted inside this window keeps running and
-          billing until you remove its resources in your Cloudflare account.
+          Delete projects and allow this cleanup to finish before deleting your CloudChef account data: account deletion
+          revokes the authorization cleanup needs, so a project deleted inside this window keeps running and billing
+          until you remove its resources in your Cloudflare account.
         </p>
         <p>
           GitHub retains public support issues and private security reports according to its policies and repository
@@ -290,10 +290,10 @@ function PrivacyPage() {
           objection, data the operator does not hold, or a case the Settings controls cannot reach — start with the
           public <Link to="/support">Support</Link> form and include only the request type and your GitHub handle. If a
           private method can be arranged, a maintainer will identify it in the issue; until then, do not provide
-          sensitive information. Ghostbuild does not yet provide a verified confidential privacy inbox.
+          sensitive information. CloudChef does not yet provide a verified confidential privacy inbox.
         </p>
         <p>
-          Ghostbuild may request proportionate information to verify control of the relevant Cloudflare identity before
+          CloudChef may request proportionate information to verify control of the relevant Cloudflare identity before
           disclosing or deleting data. Public-beta response targets are not legal deadlines; where privacy law sets a
           deadline, including the GDPR’s usual one-month period, that deadline governs. Some rights and deletion
           requests are subject to lawful exceptions, and current technical limits are described above rather than
@@ -305,8 +305,8 @@ function PrivacyPage() {
         <p>
           Controls include encrypted Cloudflare credentials, hashed session and capability tokens, same-origin checks,
           short-lived runtime capabilities, tenant binding, bounded request sizes, deployment approval, and security
-          readback. No system is risk-free. Ghostbuild is for adults and is not directed to anyone under 18, who must
-          not use the service.
+          readback. No system is risk-free. CloudChef is for adults and is not directed to anyone under 18, who must not
+          use the service.
         </p>
       </TrustSection>
 

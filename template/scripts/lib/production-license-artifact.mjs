@@ -236,7 +236,7 @@ export function createLicenseArtifact(
   packages,
   policy,
   lockfileContent,
-  title = "Ghostbuild Generated Application Third-Party Licenses",
+  title = "CloudChef Generated Application Third-Party Licenses",
 ) {
   const texts = new Map();
   const records = packages.map((entry) => {

@@ -21,7 +21,7 @@ const plan: DeploymentPlan = {
   deploymentId: 'deployment-1',
   sourceSha256,
   project: { type: 'web_app', bindings: { ai: false, d1: false, r2: false, kv: false, appAgent: false } },
-  resources: [{ type: 'worker', logicalName: 'app', proposedName: 'ghostbuild-deployment-1' }],
+  resources: [{ type: 'worker', logicalName: 'app', proposedName: 'cloudchef-deployment-1' }],
 };
 
 let sqlite: DatabaseSync;

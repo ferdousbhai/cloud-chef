@@ -9,7 +9,7 @@ export type CloudflareConnection = {
   accountName: string | null;
   status: CloudflareConnectionStatus;
   credentialHandle: string | null;
-  /** Ghostbuild product capabilities (workers, d1, ...), never OAuth scope IDs. */
+  /** CloudChef product capabilities (workers, d1, ...), never OAuth scope IDs. */
   grantedCapabilities: string[];
   /** Exact scope IDs the authorization request asked Cloudflare for. */
   requestedOAuthScopes: string[];

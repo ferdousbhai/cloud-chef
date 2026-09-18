@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const logger = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn() }));
 const piAgentRunner = vi.hoisted(() => vi.fn());
 
-vi.mock('ghostbuild-agent/utils/logger', () => ({ createScopedLogger: () => logger }));
+vi.mock('cloudchef-agent/utils/logger', () => ({ createScopedLogger: () => logger }));
 vi.mock('~/lib/.server/llm/pi-agent-runner', () => ({ piAgentRunner }));
 
 import { createChatResponseFromBody } from './chat';

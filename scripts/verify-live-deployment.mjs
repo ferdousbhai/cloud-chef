@@ -1,7 +1,7 @@
 import { setTimeout as wait } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 
-const VERSION_URL = 'https://ghostbuild.dev/api/version';
+const VERSION_URL = 'https://cloudchef.build/api/version';
 const DEFAULT_STABILIZATION_MS = 60_000;
 const DEFAULT_CHECK_INTERVAL_MS = 5_000;
 const DEFAULT_CONSECUTIVE_CHECKS = 5;

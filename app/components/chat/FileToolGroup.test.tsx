@@ -3,12 +3,12 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { GhostbuildPart, GhostbuildToolInvocation } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefPart, CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { AssistantMessage } from './AssistantMessage';
 import { describeFileGroup, groupMessageParts } from './FileToolGroup';
 
-function filePart(toolName: 'read' | 'write' | 'edit', toolCallId: string, path: string): GhostbuildPart {
+function filePart(toolName: 'read' | 'write' | 'edit', toolCallId: string, path: string): CloudChefPart {
   return {
     type: 'dynamic-tool',
     toolName,
@@ -16,10 +16,10 @@ function filePart(toolName: 'read' | 'write' | 'edit', toolCallId: string, path:
     state: 'output-available',
     input: toolName === 'write' ? { path, content: 'hello' } : { path },
     output: { summary: 'done' },
-  } as unknown as GhostbuildPart;
+  } as unknown as CloudChefPart;
 }
 
-function invocation(toolName: string): GhostbuildToolInvocation {
+function invocation(toolName: string): CloudChefToolInvocation {
   return {
     type: 'dynamic-tool',
     state: 'output-available',
@@ -49,7 +49,13 @@ describe('groupMessageParts', () => {
     const parts = [
       filePart('read', 'r1', 'src/a.css'),
       filePart('edit', 'e1', 'src/a.css'),
-      { type: 'dynamic-tool', toolName: 'validate', toolCallId: 'v1', state: 'output-available', input: {} } as unknown as GhostbuildPart,
+      {
+        type: 'dynamic-tool',
+        toolName: 'validate',
+        toolCallId: 'v1',
+        state: 'output-available',
+        input: {},
+      } as unknown as CloudChefPart,
       filePart('write', 'w1', 'src/b.css'),
     ];
     const blocks = groupMessageParts(parts);
@@ -61,7 +67,11 @@ describe('groupMessageParts', () => {
   });
 
   it('does not group across text parts', () => {
-    const parts = [filePart('read', 'r1', 'src/a.css'), { type: 'text', text: 'hello' }, filePart('read', 'r2', 'src/b.css')];
+    const parts = [
+      filePart('read', 'r1', 'src/a.css'),
+      { type: 'text', text: 'hello' },
+      filePart('read', 'r2', 'src/b.css'),
+    ];
     expect(groupMessageParts(parts).every((block) => block.kind === 'single')).toBe(true);
   });
 });
@@ -102,7 +112,7 @@ describe('AssistantMessage file grouping', () => {
                 state: 'output-available',
                 input: {},
                 output: { summary: 'ok' },
-              } as unknown as GhostbuildPart,
+              } as unknown as CloudChefPart,
             ],
           }}
         />,

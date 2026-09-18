@@ -90,7 +90,7 @@ export class D1CloudflareCredentialVault {
 
   /**
    * Ask Cloudflare to revoke the stored grant so erasing the ciphertext also ends
-   * Ghostbuild's access. Returns false when there is nothing to revoke or the
+   * CloudChef's access. Returns false when there is nothing to revoke or the
    * provider declined; callers treat that as an outcome to report, not a failure.
    */
   async revokeOAuthCredential(credentialHandle: string): Promise<boolean> {

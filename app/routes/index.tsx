@@ -9,11 +9,11 @@ export const Route = createFileRoute('/')({
   loader: () => ({ initialId: crypto.randomUUID() }),
   head: () =>
     createSocialPageHead({
-      title: 'Ghostbuild | Build and ship Cloudflare apps',
-      description: 'Build and ship Cloudflare apps with Ghostbuild, the full-stack AI coding agent.',
+      title: 'CloudChef | Build and ship Cloudflare apps',
+      description: 'Build and ship Cloudflare apps with CloudChef, the full-stack AI coding agent.',
       path: '/',
       imagePath: '/social-preview-home-v2.png',
-      imageAlt: 'Ghostbuild — build and ship Cloudflare apps',
+      imageAlt: 'CloudChef — build and ship Cloudflare apps',
     }),
   component: Index,
 });

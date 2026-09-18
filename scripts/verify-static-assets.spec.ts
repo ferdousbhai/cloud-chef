@@ -6,7 +6,7 @@ import { findDeployedLicenseArtifactErrors, findStaticAssetExposureErrors } from
 
 describe('static asset deployment policy', () => {
   it('keeps Worker source maps private and excludes every client source map', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'ghostbuild-assets-'));
+    const directory = mkdtempSync(join(tmpdir(), 'cloudchef-assets-'));
     try {
       mkdirSync(join(directory, 'assets'));
       writeFileSync(join(directory, 'assets/app.js.map'), '{}');
@@ -24,7 +24,7 @@ describe('static asset deployment policy', () => {
   });
 
   it('reports deployable maps, disabled private upload, and re-inclusions', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'ghostbuild-assets-'));
+    const directory = mkdtempSync(join(tmpdir(), 'cloudchef-assets-'));
     try {
       writeFileSync(join(directory, 'app.js.map'), '{}');
 

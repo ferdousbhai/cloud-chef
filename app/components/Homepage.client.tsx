@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { GhostbuildAuthProvider } from './chat/GhostbuildAuthWrapper';
+import { CloudChefAuthProvider } from './chat/CloudChefAuthWrapper';
 import { HomeIntro } from './chat/HomeIntro.client';
 import { Toaster } from '~/components/ui/Toaster';
 import { UserProvider } from '~/components/UserProvider';
@@ -35,7 +35,7 @@ export function Homepage({ initialId }: { initialId: string }) {
 
   return (
     <>
-      <GhostbuildAuthProvider>
+      <CloudChefAuthProvider>
         <UserProvider>
           {initialPrompt === null ? (
             homeIntro
@@ -45,7 +45,7 @@ export function Homepage({ initialId }: { initialId: string }) {
             </Suspense>
           )}
         </UserProvider>
-      </GhostbuildAuthProvider>
+      </CloudChefAuthProvider>
       <Toaster />
     </>
   );

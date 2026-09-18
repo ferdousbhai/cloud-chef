@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TRANSCRIPT_HISTORY_FORMAT_VERSION } from 'ghostbuild-agent/transcript';
+import { TRANSCRIPT_HISTORY_FORMAT_VERSION } from 'cloudchef-agent/transcript';
 import { parseMessageHistory, projectMessagesRequestError, transcriptIdentityFromHeaders } from './chat-transcript-db';
 
 const checkpoint = {
@@ -44,9 +44,9 @@ describe('transcriptIdentityFromHeaders', () => {
     expect(
       transcriptIdentityFromHeaders(
         new Headers({
-          'X-Ghostbuild-Transcript-Agent': 'agent-1',
-          'X-Ghostbuild-Transcript-Generation': '2',
-          'X-Ghostbuild-Transcript-Subchat': '3',
+          'X-CloudChef-Transcript-Agent': 'agent-1',
+          'X-CloudChef-Transcript-Generation': '2',
+          'X-CloudChef-Transcript-Subchat': '3',
         }),
       ),
     ).toEqual({ agentName: 'agent-1', generation: 2, subchatIndex: 3 });
@@ -55,18 +55,18 @@ describe('transcriptIdentityFromHeaders', () => {
     expect(() =>
       transcriptIdentityFromHeaders(
         new Headers({
-          'X-Ghostbuild-Transcript-Agent': 'agent-1',
-          'X-Ghostbuild-Transcript-Generation': 'invalid',
-          'X-Ghostbuild-Transcript-Subchat': '3',
+          'X-CloudChef-Transcript-Agent': 'agent-1',
+          'X-CloudChef-Transcript-Generation': 'invalid',
+          'X-CloudChef-Transcript-Subchat': '3',
         }),
       ),
     ).toThrow('invalid transcript identity headers');
     expect(() =>
       transcriptIdentityFromHeaders(
         new Headers({
-          'X-Ghostbuild-Transcript-Agent': 'agent-1',
-          'X-Ghostbuild-Transcript-Generation': '',
-          'X-Ghostbuild-Transcript-Subchat': '3',
+          'X-CloudChef-Transcript-Agent': 'agent-1',
+          'X-CloudChef-Transcript-Generation': '',
+          'X-CloudChef-Transcript-Subchat': '3',
         }),
       ),
     ).toThrow('invalid transcript identity headers');

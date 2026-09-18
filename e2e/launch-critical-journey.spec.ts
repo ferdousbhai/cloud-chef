@@ -54,7 +54,7 @@ test('authenticated build, edit, preview, approval, and production journey', asy
   await page.getByRole('button', { name: 'Save' }).first().click();
 
   // The saved edit is a new durable revision, so production must be asked for it
-  // again: Ghostbuild never deploys a revision it has not validated.
+  // again: CloudChef never deploys a revision it has not validated.
   await page
     .getByPlaceholder(/What would you like to do next\?/i)
     .fill('Deploy the saved editor change to production.');
@@ -110,10 +110,10 @@ function requireCriticalJourneyEnvironment() {
     baseUrl.protocol !== 'https:' ||
     baseUrl.username ||
     baseUrl.password ||
-    baseUrl.hostname === 'ghostbuild.dev' ||
-    baseUrl.hostname === 'www.ghostbuild.dev'
+    baseUrl.hostname === 'cloudchef.build' ||
+    baseUrl.hostname === 'www.cloudchef.build'
   ) {
-    throw new Error('E2E_BASE_URL must be a dedicated HTTPS staging origin and must never be ghostbuild.dev.');
+    throw new Error('E2E_BASE_URL must be a dedicated HTTPS staging origin and must never be cloudchef.build.');
   }
   const stagingAccountId = process.env.E2E_STAGING_ACCOUNT!;
   if (!/^[a-f0-9]{32}$/i.test(stagingAccountId)) {

@@ -23,9 +23,9 @@ describe('clientTelemetryAction', () => {
 
   it('accepts and logs a bounded allowlisted event', async () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
-    const request = new Request('https://ghostbuild.dev/api/client-telemetry', {
+    const request = new Request('https://cloudchef.build/api/client-telemetry', {
       method: 'POST',
-      headers: { origin: 'https://ghostbuild.dev', 'sec-fetch-site': 'same-origin' },
+      headers: { origin: 'https://cloudchef.build', 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify(validTelemetry),
     });
 
@@ -41,13 +41,13 @@ describe('clientTelemetryAction', () => {
     ['prompt', 'private prompt'],
     ['generatedCode', 'export default secret'],
     ['rawToolOutput', 'credential'],
-    ['url', 'https://ghostbuild.dev/chat/private'],
+    ['url', 'https://cloudchef.build/chat/private'],
   ])('rejects the unapproved %s field', async (field, value) => {
     const response = await clientTelemetryAction({
       env,
-      request: new Request('https://ghostbuild.dev/api/client-telemetry', {
+      request: new Request('https://cloudchef.build/api/client-telemetry', {
         method: 'POST',
-        headers: { origin: 'https://ghostbuild.dev' },
+        headers: { origin: 'https://cloudchef.build' },
         body: JSON.stringify({ ...validTelemetry, [field]: value }),
       }),
     });
@@ -58,9 +58,9 @@ describe('clientTelemetryAction', () => {
   it('requires an opaque event identifier for error events', async () => {
     const response = await clientTelemetryAction({
       env,
-      request: new Request('https://ghostbuild.dev/api/client-telemetry', {
+      request: new Request('https://cloudchef.build/api/client-telemetry', {
         method: 'POST',
-        headers: { origin: 'https://ghostbuild.dev' },
+        headers: { origin: 'https://cloudchef.build' },
         body: JSON.stringify({ ...validTelemetry, level: 'error' }),
       }),
     });
@@ -73,9 +73,9 @@ describe('clientTelemetryAction', () => {
     const submit = (correlationId: string) =>
       clientTelemetryAction({
         env,
-        request: new Request('https://ghostbuild.dev/api/client-telemetry', {
+        request: new Request('https://cloudchef.build/api/client-telemetry', {
           method: 'POST',
-          headers: { origin: 'https://ghostbuild.dev' },
+          headers: { origin: 'https://cloudchef.build' },
           body: JSON.stringify({ ...validTelemetry, correlationId }),
         }),
       });
@@ -87,7 +87,7 @@ describe('clientTelemetryAction', () => {
   it('rejects cross-origin browser submissions', async () => {
     const response = await clientTelemetryAction({
       env,
-      request: new Request('https://ghostbuild.dev/api/client-telemetry', {
+      request: new Request('https://cloudchef.build/api/client-telemetry', {
         method: 'POST',
         headers: { origin: 'https://attacker.example', 'sec-fetch-site': 'cross-site' },
         body: JSON.stringify(validTelemetry),
@@ -100,7 +100,7 @@ describe('clientTelemetryAction', () => {
   it('rejects non-browser submissions that omit the Origin header', async () => {
     const response = await clientTelemetryAction({
       env,
-      request: new Request('https://ghostbuild.dev/api/client-telemetry', {
+      request: new Request('https://cloudchef.build/api/client-telemetry', {
         method: 'POST',
         body: JSON.stringify(validTelemetry),
       }),
@@ -116,9 +116,9 @@ describe('clientTelemetryAction', () => {
 
     const response = await clientTelemetryAction({
       env,
-      request: new Request('https://ghostbuild.dev/api/client-telemetry', {
+      request: new Request('https://cloudchef.build/api/client-telemetry', {
         method: 'POST',
-        headers: { origin: 'https://ghostbuild.dev', 'CF-Connecting-IP': '192.0.2.5' },
+        headers: { origin: 'https://cloudchef.build', 'CF-Connecting-IP': '192.0.2.5' },
         body: '{invalid',
       }),
     });

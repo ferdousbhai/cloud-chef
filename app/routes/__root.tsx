@@ -7,7 +7,7 @@ import { BrandLink } from '~/components/BrandLink';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { queryClient } from '~/lib/stores/reactQueryClient';
 import { themeStore } from '~/lib/stores/theme';
-import { stripIndents } from 'ghostbuild-agent/utils/stripIndent';
+import { stripIndents } from 'cloudchef-agent/utils/stripIndent';
 import globalStyles from '~/styles/index.css?url';
 import latinMonoFont from '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url';
 
@@ -16,14 +16,14 @@ type RootSearch = {
 };
 
 const inlineBootstrapCode = stripIndents`
-  setGhostbuildTheme();
+  setCloudChefTheme();
   installAssetLoadRecovery();
 
-  function setGhostbuildTheme() {
+  function setCloudChefTheme() {
     let theme = null;
 
     try {
-      theme = localStorage.getItem('ghostbuild_theme');
+      theme = localStorage.getItem('cloudchef_theme');
     } catch (storageUnavailable) {
       // Storage can be unavailable in privacy-restricted browser contexts; fall back to the media query.
     }
@@ -36,7 +36,7 @@ const inlineBootstrapCode = stripIndents`
   }
 
   function installAssetLoadRecovery() {
-    var recoveryKey = 'ghostbuild:asset-load-recovery';
+    var recoveryKey = 'cloudchef:asset-load-recovery';
     window.setTimeout(function clearAssetLoadRecovery() {
       try {
         sessionStorage.removeItem(recoveryKey);
@@ -77,7 +77,7 @@ const inlineBootstrapCode = stripIndents`
   }
 `;
 
-const dynamicImportRecoveryKey = 'ghostbuild:dynamic-import-recovery';
+const dynamicImportRecoveryKey = 'cloudchef:dynamic-import-recovery';
 
 export const Route = createRootRoute({
   validateSearch: (search: Record<string, unknown>): RootSearch =>
@@ -86,19 +86,19 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'Ghostbuild' },
+      { title: 'CloudChef' },
       {
         name: 'description',
-        content: 'Build and ship Cloudflare apps with Ghostbuild, the full-stack AI coding agent.',
+        content: 'Build and ship Cloudflare apps with CloudChef, the full-stack AI coding agent.',
       },
-      { name: 'application-name', content: 'Ghostbuild' },
+      { name: 'application-name', content: 'CloudChef' },
       { name: 'color-scheme', content: 'light dark' },
       { name: 'theme-color', content: '#1a1b26' },
     ],
     links: [
       {
         rel: 'icon',
-        href: '/ghostbuild-logo.svg',
+        href: '/cloudchef-logo.svg',
         type: 'image/svg+xml',
       },
       { rel: 'manifest', href: '/site.webmanifest' },
@@ -180,7 +180,7 @@ function RootNotFoundComponent() {
           This page does not exist.
         </h1>
         <div className="mt-7">
-          <LinkButton to="/">Back to Ghostbuild</LinkButton>
+          <LinkButton to="/">Back to CloudChef</LinkButton>
         </div>
       </section>
     </div>

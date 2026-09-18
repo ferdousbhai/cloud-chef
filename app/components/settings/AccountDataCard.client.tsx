@@ -21,7 +21,7 @@ type DeletionPhase = 'idle' | 'confirming' | 'deleting' | 'reauthenticate' | 'de
 type ExportPhase = 'idle' | 'downloading' | 'reauthenticate' | 'downloaded';
 
 /** The file the account export is saved as. */
-const ACCOUNT_EXPORT_FILENAME = 'ghostbuild-account-export.json';
+const ACCOUNT_EXPORT_FILENAME = 'cloudchef-account-export.json';
 
 export function AccountDataCard() {
   const [phase, setPhase] = useState<DeletionPhase>('idle');
@@ -41,7 +41,7 @@ export function AccountDataCard() {
     try {
       const response = await fetch('/api/account/export', { method: 'POST', credentials: 'same-origin' });
       // The saved file is the server's own bytes rather than a re-serialization, so
-      // what the user keeps is exactly what Ghostbuild said it held.
+      // what the user keeps is exactly what CloudChef said it held.
       const exportDocument = await response.text();
       const payload = parseExportPayload(exportDocument);
       if (!response.ok) {
@@ -57,7 +57,7 @@ export function AccountDataCard() {
       setExportPhase('downloaded');
     } catch {
       setExportPhase('idle');
-      setExportError('Unable to reach Ghostbuild. Check your connection and try again.');
+      setExportError('Unable to reach CloudChef. Check your connection and try again.');
     }
   };
 
@@ -86,7 +86,7 @@ export function AccountDataCard() {
       setPhase('deleted');
     } catch {
       setPhase('confirming');
-      setError('Unable to reach Ghostbuild. Check your connection and try again.');
+      setError('Unable to reach CloudChef. Check your connection and try again.');
     }
   };
 
@@ -105,10 +105,10 @@ export function AccountDataCard() {
         Your data
       </h2>
       <p className="mt-2 max-w-2xl text-sm text-content-secondary">
-        Ghostbuild’s own database holds your Cloudflare identity and email, your sign-in sessions, your encrypted
+        CloudChef’s own database holds your Cloudflare identity and email, your sign-in sessions, your encrypted
         Cloudflare credentials and granted scopes, and the address of your workspace runtime. Your chats, project files,
         deployment records, and every Worker, D1 database, R2 bucket, KV namespace, Container, Durable Object, and Agent
-        Ghostbuild created live in your own Cloudflare account, not here. See the{' '}
+        CloudChef created live in your own Cloudflare account, not here. See the{' '}
         <Link to="/privacy">Privacy notice</Link> for the full inventory.
       </p>
 
@@ -121,15 +121,15 @@ export function AccountDataCard() {
 
       <h3 className="mt-5 text-sm font-medium text-content-primary">Download your account data</h3>
       <p className="mt-1 max-w-2xl text-sm text-content-secondary">
-        Save a JSON file of everything Ghostbuild’s own database holds for your account: your identity and email, your
+        Save a JSON file of everything CloudChef’s own database holds for your account: your identity and email, your
         Cloudflare connection metadata and granted scopes, the fact that an encrypted credential exists and when it was
         stored, your workspace runtime address, and your sign-in and authorization session records. Encrypted
         credentials, their initialisation vectors, credential handles, and session tokens are never included.
       </p>
       <p className="mt-1 max-w-2xl text-sm text-content-secondary">
         It does <strong>not</strong> contain your chats, transcripts, project files, or deployment records. Those live
-        in your own Cloudflare account, not in Ghostbuild’s database — use <strong>Download code</strong> above for
-        project source and your Cloudflare account’s own tools for the rest. Ghostbuild asks you to reconnect Cloudflare
+        in your own Cloudflare account, not in CloudChef’s database — use <strong>Download code</strong> above for
+        project source and your Cloudflare account’s own tools for the rest. CloudChef asks you to reconnect Cloudflare
         first, because the file is a complete copy of your account record.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -155,7 +155,7 @@ export function AccountDataCard() {
       ) : null}
       {unavailableSections.length > 0 ? (
         <p className="mt-2 max-w-2xl text-sm text-bolt-elements-icon-error" role="alert">
-          Ghostbuild could not read {unavailableSections.join(', ')}, so <code>{ACCOUNT_EXPORT_FILENAME}</code> is not a
+          CloudChef could not read {unavailableSections.join(', ')}, so <code>{ACCOUNT_EXPORT_FILENAME}</code> is not a
           complete copy and says so inside. Try again, and if it keeps failing use the request path below.
         </p>
       ) : exportPhase === 'downloaded' ? (
@@ -171,11 +171,11 @@ export function AccountDataCard() {
 
       <h3 className="mt-5 text-sm font-medium text-content-primary">Clear this browser</h3>
       <p className="mt-1 max-w-2xl text-sm text-content-secondary">
-        Logging out disposes this browser’s in-memory project cache. To remove everything Ghostbuild kept on this
-        device, clear site data for this site in your browser settings. That removes the <code>ghostbuild_session</code>{' '}
-        cookie, the <code>ghostbuild_theme</code> and <code>ghostbuild_builder_model</code> preferences, the telemetry
-        preference and tab-scoped session state. Repeat this in every browser and profile you have used; no server-side
-        request can reach them.
+        Logging out disposes this browser’s in-memory project cache. To remove everything CloudChef kept on this device,
+        clear site data for this site in your browser settings. That removes the <code>cloudchef_session</code> cookie,
+        the <code>cloudchef_theme</code> and <code>cloudchef_builder_model</code> preferences, the telemetry preference
+        and tab-scoped session state. Repeat this in every browser and profile you have used; no server-side request can
+        reach them.
       </p>
 
       <h3 className="mt-5 text-sm font-medium text-content-primary">Ask for a copy or an erasure</h3>
@@ -185,20 +185,20 @@ export function AccountDataCard() {
         or other private information in the public issue.
       </p>
 
-      <h3 className="mt-6 text-sm font-medium text-content-primary">Delete your Ghostbuild account data</h3>
+      <h3 className="mt-6 text-sm font-medium text-content-primary">Delete your CloudChef account data</h3>
       {phase === 'deleted' ? (
         <div className="mt-2 max-w-2xl text-sm text-content-secondary" role="status">
           <p>
-            Ghostbuild erased your account identity, sessions, encrypted credentials, connection metadata, and runtime
+            CloudChef erased your account identity, sessions, encrypted credentials, connection metadata, and runtime
             address from its own database.
           </p>
           <p className="mt-2">
             {revoked ? (
-              'Cloudflare confirmed that Ghostbuild’s authorization was revoked.'
+              'Cloudflare confirmed that CloudChef’s authorization was revoked.'
             ) : (
               <>
-                Cloudflare did not confirm the revocation. Remove the Ghostbuild authorization yourself in the
-                Cloudflare dashboard under <strong>Profile → Manage OAuth authorizations</strong> (
+                Cloudflare did not confirm the revocation. Remove the CloudChef authorization yourself in the Cloudflare
+                dashboard under <strong>Profile → Manage OAuth authorizations</strong> (
                 <a className="underline" href={CLOUDFLARE_OAUTH_AUTHORIZATIONS_URL}>
                   open OAuth authorizations
                 </a>
@@ -207,12 +207,12 @@ export function AccountDataCard() {
             )}
           </p>
           <p className="mt-2">
-            Resources Ghostbuild deployed are still in your Cloudflare account and still billed to it. Clear this
+            Resources CloudChef deployed are still in your Cloudflare account and still billed to it. Clear this
             browser’s site data to remove its cookie, preferences, and tab-session state.
           </p>
           <p className="mt-3">
             <a className="underline" href="/">
-              Return to Ghostbuild
+              Return to CloudChef
             </a>
           </p>
         </div>
@@ -220,26 +220,26 @@ export function AccountDataCard() {
         <>
           <p className="mt-2 max-w-2xl text-sm text-content-secondary">
             This erases your account identity, sign-in sessions, encrypted Cloudflare credentials, connection metadata
-            and granted scopes, and your runtime address from Ghostbuild’s database, and asks Cloudflare to revoke
-            Ghostbuild’s authorization. It cannot be undone.
+            and granted scopes, and your runtime address from CloudChef’s database, and asks Cloudflare to revoke
+            CloudChef’s authorization. It cannot be undone.
           </p>
           <p className="mt-2 max-w-2xl text-sm text-content-secondary">
             It does <strong>not</strong> delete anything inside your Cloudflare account. Workers and their unpromoted
             preview versions, production and preview D1 databases, R2 buckets, KV namespaces, Containers, Durable
-            Objects, and Agents that Ghostbuild deployed stay exactly where they are, keep serving traffic, keep costing
+            Objects, and Agents that CloudChef deployed stay exactly where they are, keep serving traffic, keep costing
             money, and remain yours to remove. It does not clear this browser, and signing in again creates a new, empty
-            Ghostbuild account.
+            CloudChef account.
           </p>
           <p className="mt-2 max-w-2xl text-sm text-content-secondary">
             To remove a deployed app, delete its project first and allow its scheduled cleanup to finish — project
             resources are removed no earlier than 30 minutes after deletion. Project deletion removes that project’s
             generated Worker and versions, Durable Objects, D1 databases, KV namespaces, and R2 buckets; it does not
             remove the shared workspace runtime or anything outside that project. Once this account is deleted the
-            authorization is gone, so Ghostbuild can no longer clean up anything on your behalf.
+            authorization is gone, so CloudChef can no longer clean up anything on your behalf.
           </p>
           {phase === 'idle' ? (
             <Button className="mt-3" size="sm" variant="danger" onClick={() => setPhase('confirming')}>
-              Delete my Ghostbuild account data
+              Delete my CloudChef account data
             </Button>
           ) : (
             <div className="mt-3 grid max-w-2xl gap-3">

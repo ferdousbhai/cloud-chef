@@ -1,4 +1,4 @@
-const GHOSTBUILD_ORIGIN = 'https://ghostbuild.dev';
+const CLOUDCHEF_ORIGIN = 'https://cloudchef.build';
 const SOCIAL_IMAGE_WIDTH = '1200';
 const SOCIAL_IMAGE_HEIGHT = '630';
 
@@ -11,8 +11,8 @@ interface SocialPageHeadOptions {
 }
 
 export function createSocialPageHead({ title, description, path, imagePath, imageAlt }: SocialPageHeadOptions) {
-  const url = new URL(path, GHOSTBUILD_ORIGIN).toString();
-  const image = new URL(imagePath, GHOSTBUILD_ORIGIN).toString();
+  const url = new URL(path, CLOUDCHEF_ORIGIN).toString();
+  const image = new URL(imagePath, CLOUDCHEF_ORIGIN).toString();
 
   return {
     meta: [
@@ -21,7 +21,7 @@ export function createSocialPageHead({ title, description, path, imagePath, imag
       { property: 'og:title', content: title },
       { property: 'og:description', content: description },
       { property: 'og:type', content: 'website' },
-      { property: 'og:site_name', content: 'Ghostbuild' },
+      { property: 'og:site_name', content: 'CloudChef' },
       { property: 'og:url', content: url },
       { property: 'og:image', content: image },
       { property: 'og:image:type', content: 'image/png' },

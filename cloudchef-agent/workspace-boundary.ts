@@ -13,22 +13,22 @@ import { path } from './utils/path.js';
 import { getAbsolutePath } from './utils/workDir.js';
 
 const SERVER_REJECTION =
-  'Rejected: long-running servers are not available in this workspace. Ghostbuild publishes the hosted preview ' +
+  'Rejected: long-running servers are not available in this workspace. CloudChef publishes the hosted preview ' +
   'automatically after validation. Finish the change, then validate the project.';
 
 const PROCESS_REJECTION =
-  'Rejected: process management is handled by the Ghostbuild platform. Do not kill or signal processes; if a ' +
+  'Rejected: process management is handled by the CloudChef platform. Do not kill or signal processes; if a ' +
   'command appears stuck, stop and report the failure instead.';
 
 const PLATFORM_STATE_REJECTION =
-  'Rejected: platform runtime state (.wrangler, workerd, computerd) is managed by Ghostbuild and must not be ' +
+  'Rejected: platform runtime state (.wrangler, workerd, computerd) is managed by CloudChef and must not be ' +
   'modified. Work only on project source files.';
 
 const REQUIRED_BINDING_REJECTION =
-  'Rejected: wrangler.jsonc must keep the required DB, APP_STORAGE, and APP_CACHE bindings. Ghostbuild provisions ' +
+  'Rejected: wrangler.jsonc must keep the required DB, APP_STORAGE, and APP_CACHE bindings. CloudChef provisions ' +
   'these Cloudflare resources for every generated app; removing a binding breaks validation and deployment.';
 
-/** Every binding Ghostbuild provisions, as it appears in the generated wrangler config. */
+/** Every binding CloudChef provisions, as it appears in the generated wrangler config. */
 const REQUIRED_BINDING_PATTERNS = ['DB', 'APP_STORAGE', 'APP_CACHE'].map(
   (binding) => new RegExp(`"binding"\\s*:\\s*"${binding}"`),
 );

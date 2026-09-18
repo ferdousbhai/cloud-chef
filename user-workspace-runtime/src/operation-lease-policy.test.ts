@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { WORKSPACE_READ_ONLY_TOOL_NAMES } from '../../ghostbuild-agent/model-tool-inputs';
+import { WORKSPACE_READ_ONLY_TOOL_NAMES } from '../../cloudchef-agent/model-tool-inputs';
 import { BUILDER_TURN_TIMEOUTS } from '../../app/lib/.server/llm/builder-turn-budget';
 import {
   CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS,

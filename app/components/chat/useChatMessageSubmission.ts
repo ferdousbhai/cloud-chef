@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { formatDistanceStrict } from 'date-fns';
 import { toast } from 'sonner';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { workspaceHintsToTurnContext } from '~/utils/fileUtils';
 import { captureMessage, captureProductEvent } from '~/lib/telemetry.client';
 import { isStreamStatusActive, type StreamStatus } from '~/lib/common/types';
@@ -10,7 +10,7 @@ import { chatStore } from '~/lib/stores/chatId';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { getMessageInputRevision, messageInputStore, setMessageInput } from '~/lib/stores/messageInput';
 import { getChatRetryState, MAX_CHAT_RETRIES } from './chat-retry';
-import type { ChatTurnContext } from 'ghostbuild-agent/turn-context';
+import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { builderModelStore } from '~/lib/stores/builder-model.client';
 import type { WorkersAiModelId } from '~/lib/workers-ai-model';
@@ -28,7 +28,7 @@ type SendChatMessage = (
 const logger = createScopedLogger('ChatMessageSubmission');
 
 export function useChatMessageSubmission(args: {
-  messages: GhostbuildMessage[];
+  messages: CloudChefMessage[];
   chatStarted: boolean;
   streamStatus: StreamStatus;
   initializeChat: () => Promise<{ created: boolean }>;
@@ -55,13 +55,13 @@ export function useChatMessageSubmission(args: {
     if (retries.numFailures >= MAX_CHAT_RETRIES || Date.now() < retries.nextRetry) {
       const retryMessage =
         retries.numFailures >= MAX_CHAT_RETRIES
-          ? 'Ghostbuild is too busy building right now. Please try again later.'
-          : `Ghostbuild is too busy building right now. Please try again in ${formatDistanceStrict(
+          ? 'CloudChef is too busy building right now. Please try again later.'
+          : `CloudChef is too busy building right now. Please try again in ${formatDistanceStrict(
               Date.now(),
               retries.nextRetry,
             )}.`;
       toast.error(retryMessage);
-      captureMessage('User tried to send message but Ghostbuild is too busy');
+      captureMessage('User tried to send message but CloudChef is too busy');
       return false;
     }
     const admissionRef = steering ? steeringInProgressRef : turnSubmissionInProgressRef;
@@ -110,7 +110,7 @@ export function useChatMessageSubmission(args: {
       return true;
     } catch (error) {
       logger.error('Failed to submit chat message', error);
-      const message = error instanceof Error ? error.message : 'Ghostbuild could not start building. Please try again.';
+      const message = error instanceof Error ? error.message : 'CloudChef could not start building. Please try again.';
       toast.error(message);
       captureMessage('Failed to submit chat message', { level: 'error' });
       return false;
@@ -189,9 +189,9 @@ export interface PendingUserMessage {
 }
 
 export function appendPendingUserMessage(
-  messages: GhostbuildMessage[],
+  messages: CloudChefMessage[],
   pendingMessage: PendingUserMessage | null,
-): GhostbuildMessage[] {
+): CloudChefMessage[] {
   if (
     !pendingMessage ||
     messages.filter((message) => message.role === 'user').length > pendingMessage.previousUserMessageCount

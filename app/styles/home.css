@@ -26,7 +26,7 @@ html.light {
   --ghost-home-input: rgb(244, 245, 248);
 }
 
-.ghostbuild-brand-mark {
+.cloudchef-brand-mark {
   position: relative;
   display: inline-flex;
   flex-shrink: 0;
@@ -42,13 +42,13 @@ html.light {
   box-shadow: var(--gb-shadow-raised);
 }
 
-.ghostbuild-brand-mark__glyph {
+.cloudchef-brand-mark__glyph {
   font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
   line-height: 1;
   font-size: 17px;
 }
 
-.ghostbuild-brand-name {
+.cloudchef-brand-name {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;

@@ -37,7 +37,7 @@
     "app/components/chat/AssistantMessage.tsx": {
       "anti-slop/no-runtime-typeof": 1
     },
-    "app/components/chat/GhostbuildAuthWrapper.tsx": {
+    "app/components/chat/CloudChefAuthWrapper.tsx": {
       "anti-slop/no-runtime-typeof": 1
     },
     "app/components/chat/SubchatBar.test.tsx": {
@@ -490,47 +490,47 @@
     "e2e/launch-critical-journey.spec.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 2
     },
-    "ghostbuild-agent/ai-compat.ts": {
+    "cloudchef-agent/ai-compat.ts": {
       "anti-slop/no-runtime-typeof": 10,
       "anti-slop/no-unknown-parameters": 2,
       "anti-slop/no-unsafe-dictionary-type": 2
     },
-    "ghostbuild-agent/cloudflare-computer.test.ts": {
+    "cloudchef-agent/cloudflare-computer.test.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 1
     },
-    "ghostbuild-agent/cloudflare-computer.ts": {
+    "cloudchef-agent/cloudflare-computer.ts": {
       "anti-slop/no-runtime-typeof": 5,
       "anti-slop/no-unknown-parameters": 8,
       "anti-slop/no-unknown-returns": 1
     },
-    "ghostbuild-agent/context-message-metrics.ts": {
+    "cloudchef-agent/context-message-metrics.ts": {
       "anti-slop/no-runtime-typeof": 1,
       "anti-slop/no-unknown-parameters": 2
     },
-    "ghostbuild-agent/line-edit.test.ts": {
+    "cloudchef-agent/line-edit.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 2
     },
-    "ghostbuild-agent/line-edit.ts": {
+    "cloudchef-agent/line-edit.ts": {
       "anti-slop/no-runtime-typeof": 2
     },
-    "ghostbuild-agent/model-tool-inputs.ts": {
+    "cloudchef-agent/model-tool-inputs.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 1
     },
-    "ghostbuild-agent/tool-result.ts": {
+    "cloudchef-agent/tool-result.ts": {
       "anti-slop/no-runtime-typeof": 7,
       "anti-slop/no-unknown-parameters": 3
     },
-    "ghostbuild-agent/tool.ts": {
+    "cloudchef-agent/tool.ts": {
       "anti-slop/no-unknown-parameters": 2,
       "anti-slop/no-unknown-returns": 1
     },
-    "ghostbuild-agent/transcript.ts": {
+    "cloudchef-agent/transcript.ts": {
       "anti-slop/no-runtime-typeof": 1,
       "anti-slop/no-unknown-parameters": 1,
       "anti-slop/no-unsafe-dictionary-type": 1
     },
-    "ghostbuild-agent/utils/stripIndent.ts": {
+    "cloudchef-agent/utils/stripIndent.ts": {
       "anti-slop/no-runtime-typeof": 1
     },
     "playwright.config.ts": {

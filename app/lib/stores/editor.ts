@@ -1,8 +1,8 @@
 import { atom, computed, map, type MapStore, type WritableAtom } from 'nanostores';
-import type { EditorDocument, ScrollPosition } from 'ghostbuild-agent/types';
-import type { AbsolutePath } from 'ghostbuild-agent/utils/workDir';
-import { getAbsolutePath } from 'ghostbuild-agent/utils/workDir';
-import type { FileMap } from 'ghostbuild-agent/types';
+import type { EditorDocument, ScrollPosition } from 'cloudchef-agent/types';
+import type { AbsolutePath } from 'cloudchef-agent/utils/workDir';
+import { getAbsolutePath } from 'cloudchef-agent/utils/workDir';
+import type { FileMap } from 'cloudchef-agent/types';
 
 type EditorDocuments = Record<string, EditorDocument>;
 

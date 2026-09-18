@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mintRuntimeCapability, verifyRuntimeCapability } from './runtime-capability';
 
 const secret = 'runtime-capability-secret-that-is-long-enough';
-const origin = 'https://ghostbuild.dev';
+const origin = 'https://cloudchef.build';
 
 describe('user runtime capabilities', () => {
   it('binds a short-lived token to its user and browser origin', async () => {
@@ -25,7 +25,7 @@ describe('user runtime capabilities', () => {
 
     await expect(verifyRuntimeCapability(secret, tampered, { origin })).resolves.toBeNull();
     await expect(
-      mintRuntimeCapability({ secret, subject: 'user-1', origin: 'http://ghostbuild.example' }),
+      mintRuntimeCapability({ secret, subject: 'user-1', origin: 'http://cloudchef.example' }),
     ).rejects.toThrow('Invalid runtime capability origin');
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
-import { advanceTranscriptCheckpoint } from 'ghostbuild-agent/transcript';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
+import { advanceTranscriptCheckpoint } from 'cloudchef-agent/transcript';
 import { loadAuthoritativeTranscriptSnapshot, reconcileMessagesForSend } from './chat-send-reconciliation';
 
 describe('reconcileMessagesForSend', () => {
@@ -72,6 +72,6 @@ describe('reconcileMessagesForSend', () => {
 
 const identity = { agentName: 'agent', generation: 0, subchatIndex: 0 } as const;
 
-function message(id: string): GhostbuildMessage {
+function message(id: string): CloudChefMessage {
   return { id, role: 'user', parts: [{ type: 'text', text: id }] };
 }

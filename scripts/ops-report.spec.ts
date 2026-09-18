@@ -64,7 +64,7 @@ describe('read-only production access', () => {
       query: WORKER_INVOCATIONS_QUERY,
       variables: {
         account: 'account-1',
-        script: 'ghostbuild',
+        script: 'cloudchef',
         from: new Date(NOW - DAY).toISOString(),
         to: new Date(NOW).toISOString(),
       },

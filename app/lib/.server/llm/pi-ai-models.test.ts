@@ -49,14 +49,14 @@ describe('pinned title and summary models in the pi-ai catalog', () => {
 });
 
 /**
- * Ghostbuild names no thinking dialect of its own: `workersAiCompat` spreads Pi's catalog entry and
+ * CloudChef names no thinking dialect of its own: `workersAiCompat` spreads Pi's catalog entry and
  * adds nothing, so whatever `compat.thinkingFormat` a request carries is Pi's opinion, and where Pi
  * has none, Pi's own provider detection resolves the Cloudflare base URL to its `"openai"` default
  * — a bare `reasoning_effort`, which is sent only when a caller asks for an effort.
  *
  * Today that spread carries nothing: Pi ships these entries with a compat block that omits the key
  * entirely, reasoning models included. That is an assumption about a dependency rather than about
- * this repository, and it is the assumption the deletion of Ghostbuild's own prefix map rests on.
+ * this repository, and it is the assumption the deletion of CloudChef's own prefix map rests on.
  * If a Pi upgrade starts characterising a Workers AI model, every request for it silently changes
  * shape — a `thinking` block, an `enable_thinking` flag, a `chat_template_kwargs` — without anyone
  * deciding to send one. This turns that upgrade into a red `validate` and a decision.
@@ -75,7 +75,7 @@ describe('Pi Workers AI catalog thinking formats', () => {
 
 describe('Pi Workers AI model binding', () => {
   /**
-   * No model gets a thinking format Ghostbuild invented — not one Pi lists (`glm-4.7-flash`), not
+   * No model gets a thinking format CloudChef invented — not one Pi lists (`glm-4.7-flash`), not
    * the pinned default, which Pi's catalog does not list at all. The key has to be absent outright
    * rather than present-and-undefined, because Pi's `getCompat` reads `model.compat.thinkingFormat`
    * before falling back to its own detection, and the shape of every request depends on which

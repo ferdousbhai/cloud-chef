@@ -37,7 +37,7 @@ test('retries a workspace runtime that failed to prepare', async ({ page }, test
 
   await startProject(page);
 
-  await expect(page.getByRole('heading', { name: 'Ghostbuild could not prepare your workspace.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'CloudChef could not prepare your workspace.' })).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('Cloudflare could not create your workspace.');
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect.poll(() => attempts).toBeGreaterThan(1);
@@ -72,14 +72,14 @@ test('explains the Cloudflare action each typed workspace failure needs', async 
   );
   await expect(page.getByRole('link', { name: 'Reauthorize Cloudflare' })).toHaveCount(0);
 
-  // An eligibility answer Ghostbuild could not read must not be dressed up as a plan refusal.
+  // An eligibility answer CloudChef could not read must not be dressed up as a plan refusal.
   await page.unroute(RUNTIME_SESSION_ROUTE);
   await page.route(RUNTIME_SESSION_ROUTE, (route) =>
     route.fulfill({
       status: 503,
       json: {
         code: 'workspace_eligibility_unknown',
-        error: 'Ghostbuild could not reach Cloudflare to confirm that this account can run Containers.',
+        error: 'CloudChef could not reach Cloudflare to confirm that this account can run Containers.',
       },
     }),
   );
@@ -95,7 +95,7 @@ test('explains the Cloudflare action each typed workspace failure needs', async 
       status: 409,
       json: {
         code: 'cloudflare_reauthorization_required',
-        error: 'Ghostbuild needs updated Cloudflare permissions for this workspace.',
+        error: 'CloudChef needs updated Cloudflare permissions for this workspace.',
       },
     }),
   );
@@ -114,7 +114,7 @@ test('keeps waiting for the workspace after a reload during preparation', async 
     attempts += 1;
     return route.fulfill({
       status: 409,
-      json: { code: 'workspace_preparing', error: 'Ghostbuild is still preparing your workspace.' },
+      json: { code: 'workspace_preparing', error: 'CloudChef is still preparing your workspace.' },
     });
   });
 
@@ -128,7 +128,7 @@ test('keeps waiting for the workspace after a reload during preparation', async 
   await expect.poll(() => attempts).toBeGreaterThan(attemptsBeforeReload);
   await expect(page.getByText('Preparing your Cloudflare workspace. This takes a few minutes.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Ghostbuild could not prepare your workspace.' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'CloudChef could not prepare your workspace.' })).toHaveCount(0);
   await assertClean();
 });
 
@@ -148,7 +148,7 @@ test('recovers a project whose data operations fail', async ({ page }, testInfo)
 
   await page.goto('/chat/recovery-fixture-project');
 
-  await expect(page.getByRole('heading', { name: 'Ghostbuild could not load this project.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'CloudChef could not load this project.' })).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('The workspace runtime is unavailable.');
   const requestsBeforeRetry = attempts;
   await page.getByRole('button', { name: 'Try again' }).click();

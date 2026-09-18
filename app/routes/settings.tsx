@@ -1,4 +1,4 @@
-import { GhostbuildAuthProvider, useGhostbuildAuth } from '~/components/chat/GhostbuildAuthWrapper';
+import { CloudChefAuthProvider, useCloudChefAuth } from '~/components/chat/CloudChefAuthWrapper';
 import { createFileRoute } from '@tanstack/react-router';
 import { ClientSettingsContent } from '~/components/ClientRouteComponents';
 import { createPrivatePageHead } from '~/lib/social-meta';
@@ -19,20 +19,20 @@ export const Route = createFileRoute('/settings')({
     typeof search[CLOUDFLARE_AUTHORIZATION_ERROR_PARAM] === 'string'
       ? { cloudflare_authorization: search[CLOUDFLARE_AUTHORIZATION_ERROR_PARAM] }
       : {},
-  head: () => createPrivatePageHead('Settings | Ghostbuild', 'Manage your Ghostbuild and Cloudflare connection.'),
+  head: () => createPrivatePageHead('Settings | CloudChef', 'Manage your CloudChef and Cloudflare connection.'),
   component: Settings,
 });
 
 function Settings() {
   return (
-    <GhostbuildAuthProvider>
+    <CloudChefAuthProvider>
       <SettingsRouteContent />
-    </GhostbuildAuthProvider>
+    </CloudChefAuthProvider>
   );
 }
 
 function SettingsRouteContent() {
-  const auth = useGhostbuildAuth();
+  const auth = useCloudChefAuth();
   const search = Route.useSearch();
   const authorizationError =
     search.cloudflare_authorization === CLOUDFLARE_AUTHORIZATION_ERROR_VALUE

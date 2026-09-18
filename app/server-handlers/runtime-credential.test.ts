@@ -65,7 +65,7 @@ describe('runtimeCredentialAction', () => {
     const env = testEnv();
     const response = await runtimeCredentialAction({
       env,
-      request: new Request('https://ghostbuild.dev/api/cloudflare/runtime-credential', {
+      request: new Request('https://cloudchef.build/api/cloudflare/runtime-credential', {
         method: 'POST',
         headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -128,7 +128,7 @@ function request(
     connectionGeneration: 3,
   },
 ): Request {
-  return new Request('https://ghostbuild.dev/api/cloudflare/runtime-credential', {
+  return new Request('https://cloudchef.build/api/cloudflare/runtime-credential', {
     method: 'POST',
     headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

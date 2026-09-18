@@ -16,7 +16,7 @@ import {
   WORKSPACE_RESTART_INDETERMINATE_MESSAGE,
 } from './execution-reattach';
 import { BuilderAgent } from '../../app/agents/builder-agent';
-import { COMPUTER_TOOL_LIMITS } from '../../ghostbuild-agent/cloudflare-computer';
+import { COMPUTER_TOOL_LIMITS } from '../../cloudchef-agent/cloudflare-computer';
 import {
   type BuilderWorkspaceState as WorkspaceState,
   BUILDER_WORKSPACE_MAX_FILE_BYTES,
@@ -54,12 +54,12 @@ import {
   workersAiModelCatalogPayload,
 } from '../../app/lib/.server/llm/workers-ai-model-catalog';
 import {
-  isGhostbuildToolResult,
+  isCloudChefToolResult,
   toolFailure,
   toolSuccess,
-  type GhostbuildToolResult,
-} from '../../ghostbuild-agent/tool-result';
-import { rejectedWorkspaceCommand } from '../../ghostbuild-agent/workspace-boundary';
+  type CloudChefToolResult,
+} from '../../cloudchef-agent/tool-result';
+import { rejectedWorkspaceCommand } from '../../cloudchef-agent/workspace-boundary';
 import { applyAtomicWorkspaceChanges, type AtomicWorkspaceChange } from './atomic-workspace-changes';
 import { ComputerAdmissionControl } from './computer-admission';
 import { isComputerContainerCallback } from './container-fetch-routing';
@@ -140,13 +140,13 @@ interface RuntimeEnv {
   AI: Ai;
   CONTROL_PLANE_SECRET: string;
   CLOUDFLARE_ACCOUNT_ID: string;
-  GHOSTBUILD_USER_ID: string;
-  GHOSTBUILD_CONNECTION_ID: string;
-  GHOSTBUILD_CONNECTION_GENERATION: string;
-  GHOSTBUILD_OAUTH_SCOPE_GRANT_STATUS: string;
-  GHOSTBUILD_USER_RUNTIME: string;
-  GHOSTBUILD_CONTROL_PLANE_ENDPOINT: string;
-  GHOSTBUILD_RUNTIME_VERSION: string;
+  CLOUDCHEF_USER_ID: string;
+  CLOUDCHEF_CONNECTION_ID: string;
+  CLOUDCHEF_CONNECTION_GENERATION: string;
+  CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS: string;
+  CLOUDCHEF_USER_RUNTIME: string;
+  CLOUDCHEF_CONTROL_PLANE_ENDPOINT: string;
+  CLOUDCHEF_RUNTIME_VERSION: string;
 }
 
 /** Payload carried by the Durable Object alarms this class schedules for itself. */
@@ -157,7 +157,7 @@ interface ScheduledRetryPayload {
 }
 
 const PROJECT_ROOT = DEPLOYMENT_PROJECT_ROOT;
-const READINESS_ROOT = '/home/.ghostbuild-readiness';
+const READINESS_ROOT = '/home/.cloudchef-readiness';
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 const MAX_FILE_BYTES = BUILDER_WORKSPACE_MAX_FILE_BYTES;
 const MAX_TOTAL_BYTES = BUILDER_WORKSPACE_MAX_TOTAL_BYTES;
@@ -182,8 +182,8 @@ const WEB_APP_BUNDLE_SCRIPT = [
   "await build({ entryPoints: [process.argv[1]], bundle: true, minify: true, format: 'esm', platform: 'node', external: ['cloudflare:*'], outfile: process.argv[2] });",
 ].join('');
 const PREPARED_VALIDATION_ROOT = `${ISOLATED_PROJECT_ROOT}/validated-artifact`;
-const PREPARED_VALIDATION_CONFIG = `${PREPARED_VALIDATION_ROOT}/.ghostbuild-deploy.json`;
-const PREPARED_VALIDATION_ARTIFACT_ROOT = `${PREPARED_VALIDATION_ROOT}/.ghostbuild-artifact`;
+const PREPARED_VALIDATION_CONFIG = `${PREPARED_VALIDATION_ROOT}/.cloudchef-deploy.json`;
+const PREPARED_VALIDATION_ARTIFACT_ROOT = `${PREPARED_VALIDATION_ROOT}/.cloudchef-artifact`;
 /**
  * Per-stage validation ceilings. These run through the native Sandbox exec
  * path (`runTransientCommand`), where `timeout` is a remote process-lifetime
@@ -247,7 +247,7 @@ type ActiveValidation = {
   toolCallId: string;
   inputJson: string;
   cancellation: ValidationCancellation;
-  promise: Promise<GhostbuildToolResult>;
+  promise: Promise<CloudChefToolResult>;
 };
 
 type WorkspaceFile = {
@@ -334,13 +334,13 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     );
     this.#operationLane.initialize();
     this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS ghostbuild_sandbox_processes (
+      `CREATE TABLE IF NOT EXISTS cloudchef_sandbox_processes (
          role TEXT PRIMARY KEY,
          process_id TEXT NOT NULL
        )`,
     );
     this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS ghostbuild_workspace_state (
+      `CREATE TABLE IF NOT EXISTS cloudchef_workspace_state (
          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
          initialized INTEGER NOT NULL DEFAULT 0,
          seed_id TEXT,
@@ -348,18 +348,18 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
        )`,
     );
     this.ctx.storage.sql.exec(
-      `INSERT OR IGNORE INTO ghostbuild_workspace_state (singleton, initialized, reset_revision)
+      `INSERT OR IGNORE INTO cloudchef_workspace_state (singleton, initialized, reset_revision)
        VALUES (1, 0, 0)`,
     );
     this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS ghostbuild_validations (
+      `CREATE TABLE IF NOT EXISTS cloudchef_validations (
          revision TEXT PRIMARY KEY,
          workspace_revision INTEGER NOT NULL,
          validated_at INTEGER NOT NULL
       )`,
     );
     this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS ghostbuild_prepared_validation (
+      `CREATE TABLE IF NOT EXISTS cloudchef_prepared_validation (
          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
          revision TEXT NOT NULL,
          workspace_revision INTEGER NOT NULL,
@@ -368,13 +368,13 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
        )`,
     );
     const preparedColumns = [
-      ...this.ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(ghostbuild_prepared_validation)'),
+      ...this.ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(cloudchef_prepared_validation)'),
     ];
     if (!preparedColumns.some((column) => column.name === 'artifact_digest')) {
-      this.ctx.storage.sql.exec('ALTER TABLE ghostbuild_prepared_validation ADD COLUMN artifact_digest TEXT');
+      this.ctx.storage.sql.exec('ALTER TABLE cloudchef_prepared_validation ADD COLUMN artifact_digest TEXT');
     }
     this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS ghostbuild_workspace_identity (
+      `CREATE TABLE IF NOT EXISTS cloudchef_workspace_identity (
          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
          project_id TEXT NOT NULL,
          user_id TEXT NOT NULL,
@@ -382,7 +382,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
        )`,
     );
     this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS ghostbuild_deployment_sessions (
+      `CREATE TABLE IF NOT EXISTS cloudchef_deployment_sessions (
          operation_id TEXT PRIMARY KEY,
          owner TEXT NOT NULL,
          idempotency_key TEXT NOT NULL UNIQUE,
@@ -397,10 +397,10 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     // Runtime schema migration: previews are now immutable Worker versions in the user's account,
     // so no process, tunnel, cancellation, or expiry state belongs in this container Durable Object.
     for (const table of [
-      'ghostbuild_active_preview',
-      'ghostbuild_pending_previews',
-      'ghostbuild_preview_results',
-      'ghostbuild_preview_cancellations',
+      'cloudchef_active_preview',
+      'cloudchef_pending_previews',
+      'cloudchef_preview_results',
+      'cloudchef_preview_cancellations',
     ]) {
       this.ctx.storage.sql.exec(`DROP TABLE IF EXISTS ${table}`);
     }
@@ -422,13 +422,13 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     const input = record(value);
     const projectId = requireString(input.projectId, 'projectId', 256);
     const userId = requireString(input.userId, 'userId', 256);
-    if (userId !== this.env.GHOSTBUILD_USER_ID) {
+    if (userId !== this.env.CLOUDCHEF_USER_ID) {
       throw new Error('ProjectWorkspace user isolation check failed.');
     }
     this.ctx.storage.transactionSync(() => {
       const existing = first(
         this.ctx.storage.sql.exec<{ project_id: string; user_id: string }>(
-          `SELECT project_id, user_id FROM ghostbuild_workspace_identity WHERE singleton = 1`,
+          `SELECT project_id, user_id FROM cloudchef_workspace_identity WHERE singleton = 1`,
         ),
       );
       if (existing && (existing.project_id !== projectId || existing.user_id !== userId)) {
@@ -436,7 +436,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       }
       if (!existing) {
         this.ctx.storage.sql.exec(
-          `INSERT INTO ghostbuild_workspace_identity (singleton, project_id, user_id, initialized_at)
+          `INSERT INTO cloudchef_workspace_identity (singleton, project_id, user_id, initialized_at)
            VALUES (1, ?, ?, ?)`,
           projectId,
           userId,
@@ -704,7 +704,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         await workspace.fs.mkdir(PROJECT_ROOT, { recursive: true });
       });
       this.ctx.storage.sql.exec(
-        `UPDATE ghostbuild_workspace_state
+        `UPDATE cloudchef_workspace_state
          SET initialized = 0, seed_id = ?, reset_revision = ?
          WHERE singleton = 1`,
         seedId,
@@ -746,7 +746,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       }
       const revision = this.currentRevision();
       this.ctx.storage.sql.exec(
-        `UPDATE ghostbuild_workspace_state
+        `UPDATE cloudchef_workspace_state
          SET initialized = 1, seed_id = NULL, reset_revision = ?
          WHERE singleton = 1`,
         revision,
@@ -761,7 +761,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       if (this.workspaceRow().seed_id === seedId) {
         await this.withComputer((workspace) => workspace.fs.rm(PROJECT_ROOT, { recursive: true, force: true }));
         this.ctx.storage.sql.exec(
-          `UPDATE ghostbuild_workspace_state SET initialized = 0, seed_id = NULL, reset_revision = ? WHERE singleton = 1`,
+          `UPDATE cloudchef_workspace_state SET initialized = 0, seed_id = NULL, reset_revision = ? WHERE singleton = 1`,
           this.currentRevision(),
         );
       }
@@ -1352,7 +1352,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     return { workspaceRevision: initialRevision, revision };
   }
 
-  async installDependenciesTool(value: unknown): Promise<GhostbuildToolResult> {
+  async installDependenciesTool(value: unknown): Promise<CloudChefToolResult> {
     const input = record(value);
     const toolCallId = requireString(input.toolCallId, 'toolCallId', 512);
     const mode = input.mode === 'sync-lockfile' ? 'sync-lockfile' : input.mode === 'add' ? 'add' : null;
@@ -1463,7 +1463,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     });
   }
 
-  async validateTool(value: unknown, onStage?: WorkspaceValidationStageReporter): Promise<GhostbuildToolResult> {
+  async validateTool(value: unknown, onStage?: WorkspaceValidationStageReporter): Promise<CloudChefToolResult> {
     const input = record(value);
     const toolCallId = requireString(input.toolCallId, 'toolCallId', 512);
     const reportStage = validationStageReporter(onStage);
@@ -1510,7 +1510,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     input: unknown,
     cancellation: ValidationCancellation,
     reportStage: (stage: BuilderValidationStage) => void = () => undefined,
-  ): Promise<GhostbuildToolResult> {
+  ): Promise<CloudChefToolResult> {
     return this.runToolOperation(toolCallId, 'validation', input, () =>
       this.withStatefulOperation('validate', `tool:${toolCallId}`, async (liveness) => {
         cancellation.requireActive();
@@ -1578,7 +1578,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
           }
           this.ctx.storage.transactionSync(() => {
             this.ctx.storage.sql.exec(
-              `INSERT INTO ghostbuild_validations (revision, workspace_revision, validated_at)
+              `INSERT INTO cloudchef_validations (revision, workspace_revision, validated_at)
                VALUES (?, ?, ?)
                ON CONFLICT(revision) DO UPDATE SET workspace_revision = excluded.workspace_revision,
                  validated_at = excluded.validated_at`,
@@ -1672,7 +1672,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       const lease = this.#operationLane.find(existing.idempotency_key, existing.owner);
       if (!lease || lease.deadline <= Date.now()) {
         this.ctx.storage.sql.exec(
-          `UPDATE ghostbuild_deployment_sessions SET status = 'indeterminate', updated_at = ?
+          `UPDATE cloudchef_deployment_sessions SET status = 'indeterminate', updated_at = ?
            WHERE operation_id = ? AND status = 'active'`,
           Date.now(),
           operationId,
@@ -1691,7 +1691,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       leaseMs: OPERATION_LEASE_MS.deployment,
     });
     this.ctx.storage.sql.exec(
-      `INSERT INTO ghostbuild_deployment_sessions (
+      `INSERT INTO cloudchef_deployment_sessions (
          operation_id, owner, idempotency_key, expected_workspace_revision,
          expected_snapshot_revision, acquired_at, deadline, status, updated_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
@@ -1724,7 +1724,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       const lease = this.deploymentSessionLease(session);
       const renewed = this.#operationLane.renew(lease, OPERATION_LEASE_MS.deployment);
       this.ctx.storage.sql.exec(
-        `UPDATE ghostbuild_deployment_sessions SET deadline = ?, updated_at = ?
+        `UPDATE cloudchef_deployment_sessions SET deadline = ?, updated_at = ?
          WHERE operation_id = ? AND status = 'active'`,
         renewed.deadline,
         Date.now(),
@@ -1760,7 +1760,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     this.#activeOperationOwners.delete(session.owner);
     if (session.status !== 'completed' && session.status !== 'failed') {
       this.ctx.storage.sql.exec(
-        `UPDATE ghostbuild_deployment_sessions SET status = 'failed', updated_at = ?
+        `UPDATE cloudchef_deployment_sessions SET status = 'failed', updated_at = ?
          WHERE operation_id = ? AND status IN ('active', 'indeterminate')`,
         Date.now(),
         sessionId,
@@ -1797,7 +1797,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       this.#operationLane.release(lease);
     }
     this.ctx.storage.sql.exec(
-      `UPDATE ghostbuild_deployment_sessions SET status = ?, updated_at = ?
+      `UPDATE cloudchef_deployment_sessions SET status = ?, updated_at = ?
        WHERE operation_id = ? AND status = 'active'`,
       status,
       Date.now(),
@@ -1969,10 +1969,10 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   async deleteProject() {
     await this.withStatefulOperation('delete', 'delete:project', async () => {
       await this.withComputer((workspace) => workspace.fs.rm(PROJECT_ROOT, { recursive: true, force: true }));
-      this.ctx.storage.sql.exec('DELETE FROM ghostbuild_validations');
-      this.ctx.storage.sql.exec('DELETE FROM ghostbuild_prepared_validation');
+      this.ctx.storage.sql.exec('DELETE FROM cloudchef_validations');
+      this.ctx.storage.sql.exec('DELETE FROM cloudchef_prepared_validation');
       this.ctx.storage.sql.exec(
-        `UPDATE ghostbuild_workspace_state
+        `UPDATE cloudchef_workspace_state
          SET initialized = 0, seed_id = NULL, reset_revision = ?
          WHERE singleton = 1`,
         this.currentRevision(),
@@ -1987,8 +1987,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       this.readText(`${PROJECT_ROOT}/wrangler.jsonc`),
     ]);
     const packageJson: unknown = JSON.parse(packageFile.content);
-    const ghostbuild = isRecord(packageJson) ? packageJson.ghostbuild : undefined;
-    const configuredType = isRecord(ghostbuild) ? ghostbuild.projectType : undefined;
+    const cloudchef = isRecord(packageJson) ? packageJson.cloudchef : undefined;
+    const configuredType = isRecord(cloudchef) ? cloudchef.projectType : undefined;
     if (configuredType !== undefined && configuredType !== 'web_app' && configuredType !== 'worker') {
       throw new Error('The generated project type is invalid.');
     }
@@ -2041,7 +2041,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       // upload cannot acknowledge a multipart request while omitting a generated module.
       const builtMainPath = `${args.isolatedRoot}/dist/server/index.js`;
       const mainPath = `${args.artifactRoot}/index.js`;
-      const bundledPath = `${args.isolatedRoot}/.ghostbuild-worker.js`;
+      const bundledPath = `${args.isolatedRoot}/.cloudchef-worker.js`;
       await args.activity?.(35, 'Bundling Worker modules');
       await this.runTransientCommand(
         args.isolatedRoot,
@@ -2099,7 +2099,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     artifactDigest: string,
   ): void {
     this.ctx.storage.sql.exec(
-      `INSERT INTO ghostbuild_prepared_validation (
+      `INSERT INTO cloudchef_prepared_validation (
          singleton, revision, workspace_revision, snapshot_root, artifact_digest
        ) VALUES (1, ?, ?, ?, ?)
        ON CONFLICT(singleton) DO UPDATE SET revision = excluded.revision,
@@ -2318,7 +2318,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     // A fresh coordinator prevents an interrupted sync from blocking the replacement container indefinitely.
     this.#workspace = new Workspace(this.createComputerWorkspaceOptions(this.#syncRetries));
     this.ctx.storage.transactionSync(() => {
-      this.ctx.storage.sql.exec('DELETE FROM ghostbuild_sandbox_processes');
+      this.ctx.storage.sql.exec('DELETE FROM cloudchef_sandbox_processes');
     });
   }
 
@@ -2326,7 +2326,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     return (
       first(
         this.ctx.storage.sql.exec<{ found: number }>(
-          'SELECT 1 AS found FROM ghostbuild_validations WHERE revision = ? LIMIT 1',
+          'SELECT 1 AS found FROM cloudchef_validations WHERE revision = ? LIMIT 1',
           revision,
         ),
       )?.found === 1
@@ -2338,7 +2338,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       first(
         this.ctx.storage.sql.exec<PreparedValidationRow>(
           `SELECT revision, workspace_revision, snapshot_root, artifact_digest
-           FROM ghostbuild_prepared_validation WHERE singleton = 1`,
+           FROM cloudchef_prepared_validation WHERE singleton = 1`,
         ),
       ) ?? null
     );
@@ -2350,7 +2350,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         this.ctx.storage.sql.exec<DeploymentSessionRow>(
           `SELECT operation_id, owner, idempotency_key, expected_workspace_revision,
                   expected_snapshot_revision, acquired_at, deadline, status
-           FROM ghostbuild_deployment_sessions WHERE operation_id = ?`,
+           FROM cloudchef_deployment_sessions WHERE operation_id = ?`,
           operationId,
         ),
       ) ?? null
@@ -2389,7 +2389,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         reset_revision: number;
       }>(
         `SELECT initialized, seed_id, reset_revision
-         FROM ghostbuild_workspace_state WHERE singleton = 1`,
+         FROM cloudchef_workspace_state WHERE singleton = 1`,
       ),
     );
     if (!row) {
@@ -2424,8 +2424,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     toolCallId: string,
     toolName: string,
     args: unknown,
-    operation: () => Promise<GhostbuildToolResult>,
-  ): Promise<GhostbuildToolResult> {
+    operation: () => Promise<CloudChefToolResult>,
+  ): Promise<CloudChefToolResult> {
     try {
       this.requireCompletedComputerSync();
     } catch (error) {
@@ -2588,7 +2588,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   private async releaseContainerKeepAliveIfIdle(): Promise<void> {
     const deploymentActive = first(
       this.ctx.storage.sql.exec<{ active: number }>(
-        `SELECT 1 AS active FROM ghostbuild_deployment_sessions WHERE status = 'active' LIMIT 1`,
+        `SELECT 1 AS active FROM cloudchef_deployment_sessions WHERE status = 'active' LIMIT 1`,
       ),
     );
     if (this.#containerKeepAliveOperations === 0 && !deploymentActive) {
@@ -2753,7 +2753,7 @@ async function handleUserRequest(
   }
   const token = bearerToken(request) ?? url.searchParams.get('capability');
   const capability = token ? await verifyRuntimeCapability(env.CONTROL_PLANE_SECRET, token, { origin }) : null;
-  if (!capability || capability.subject !== env.GHOSTBUILD_USER_ID) {
+  if (!capability || capability.subject !== env.CLOUDCHEF_USER_ID) {
     return withCors(Response.json({ error: 'Unauthorized' }, { status: 401 }), origin);
   }
   const sharedEnv = sharedHandlerEnv(env);
@@ -3235,14 +3235,14 @@ function commandFailureMessage(result: Pick<WorkspaceRuntimeResult<'utf8'>, 'std
  * The tool operation journal stores results as JSON, so a replayed or committed result comes back
  * untyped. Every value the journal holds for these operations was written by `runToolOperation`.
  */
-function requireToolResult(value: unknown): GhostbuildToolResult {
-  if (!isGhostbuildToolResult(value)) {
+function requireToolResult(value: unknown): CloudChefToolResult {
+  if (!isCloudChefToolResult(value)) {
     throw new Error('The durable workspace tool operation did not record a tool result.');
   }
   return value;
 }
 
-function pendingComputerSyncToolResult(error: WorkspaceSyncPendingError): GhostbuildToolResult {
+function pendingComputerSyncToolResult(error: WorkspaceSyncPendingError): CloudChefToolResult {
   return toolFailure(
     error.code === 'workspace_sync_exhausted'
       ? 'Cloudflare Computer could not confirm the durable project filesystem. The execution backend is being recovered; retry this operation.'
@@ -3292,21 +3292,21 @@ function validationDeploymentConfig(project: DeploymentProjectProfile): Deployme
   const nullHexId = '00000000000000000000000000000000';
   const config: DeploymentConfigInput = {
     accountId: nullHexId,
-    workerName: 'ghostbuild-validation',
+    workerName: 'cloudchef-validation',
     projectType: project.type,
     workersAi: project.bindings.ai,
     appAgent: project.bindings.appAgent,
   };
   if (project.bindings.d1) {
     config.d1DatabaseId = nullUuid;
-    config.d1DatabaseName = 'ghostbuild-validation-db';
+    config.d1DatabaseName = 'cloudchef-validation-db';
   }
   if (project.bindings.appAgent) {
     config.agentSecurityD1DatabaseId = nullUuid;
-    config.agentSecurityD1DatabaseName = 'ghostbuild-validation-agent';
+    config.agentSecurityD1DatabaseName = 'cloudchef-validation-agent';
   }
   if (project.bindings.r2) {
-    config.r2BucketName = 'ghostbuild-validation-storage';
+    config.r2BucketName = 'cloudchef-validation-storage';
   }
   if (project.bindings.kv) {
     config.kvNamespaceId = nullHexId;

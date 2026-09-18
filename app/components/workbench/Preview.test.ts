@@ -6,7 +6,7 @@ import { PREVIEW_SANDBOX } from './Preview';
 
 const success: BuilderPreviewSuccess = {
   id: '12345678-1234-1234-1234-123456789abc',
-  url: 'https://12345678-ghostbuild-app.account.workers.dev',
+  url: 'https://12345678-cloudchef-app.account.workers.dev',
   workspaceRevision: 1,
   snapshotRevision: 'snapshot-1',
   readyAt: '2026-08-06T19:00:00.000Z',
@@ -27,10 +27,10 @@ describe('previewFrameUrl', () => {
   it.each([
     'https://workers.dev',
     'https://workers.dev.example.com',
-    'https://ghostbuild.dev',
-    'http://12345678-ghostbuild-app.account.workers.dev',
-    'https://user:password@12345678-ghostbuild-app.account.workers.dev',
-    'https://12345678-ghostbuild-app.account.workers.dev:8443',
+    'https://cloudchef.build',
+    'http://12345678-cloudchef-app.account.workers.dev',
+    'https://user:password@12345678-cloudchef-app.account.workers.dev',
+    'https://12345678-cloudchef-app.account.workers.dev:8443',
     '/relative-preview',
     'not a url',
   ])('rejects an untrusted preview URL: %s', (url) => {

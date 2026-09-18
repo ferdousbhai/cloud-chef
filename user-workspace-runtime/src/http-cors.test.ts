@@ -6,19 +6,19 @@ describe('user runtime CORS', () => {
     const response = withCors(
       new Response(null, {
         headers: {
-          'X-Ghostbuild-Transcript-Agent': 'agent-1',
-          'X-Ghostbuild-Transcript-Generation': '2',
-          'X-Ghostbuild-Transcript-Subchat': '3',
+          'X-CloudChef-Transcript-Agent': 'agent-1',
+          'X-CloudChef-Transcript-Generation': '2',
+          'X-CloudChef-Transcript-Subchat': '3',
         },
       }),
-      'https://ghostbuild.dev',
+      'https://cloudchef.build',
     );
 
-    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://ghostbuild.dev');
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://cloudchef.build');
     expect(response.headers.get('Access-Control-Expose-Headers')?.split(', ')).toEqual([
-      'X-Ghostbuild-Transcript-Agent',
-      'X-Ghostbuild-Transcript-Generation',
-      'X-Ghostbuild-Transcript-Subchat',
+      'X-CloudChef-Transcript-Agent',
+      'X-CloudChef-Transcript-Generation',
+      'X-CloudChef-Transcript-Subchat',
     ]);
   });
 });

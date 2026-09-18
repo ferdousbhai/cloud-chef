@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { ConfirmationDialog } from '@ui/ConfirmationDialog';
 import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
 import { cubicEasingFn } from '~/utils/easings';
-import { logger } from 'ghostbuild-agent/utils/logger';
+import { logger } from 'cloudchef-agent/utils/logger';
 import { HistoryItem } from './HistoryItem';
 import { binDates } from './date-binning';
 import { useSearchFilter } from '~/lib/hooks/useSearchFilter';

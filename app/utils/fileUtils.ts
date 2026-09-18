@@ -1,4 +1,4 @@
-import { MAX_EPHEMERAL_CONTEXT_CHARACTERS } from 'ghostbuild-agent/context-limits';
+import { MAX_EPHEMERAL_CONTEXT_CHARACTERS } from 'cloudchef-agent/context-limits';
 
 export function workspaceHintsToTurnContext(
   {

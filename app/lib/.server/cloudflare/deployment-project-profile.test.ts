@@ -25,7 +25,7 @@ describe('managed deployment capability boundary', () => {
     (key) => {
       expect(() =>
         deploymentProjectProfileFromConfig({ ...supportedConfig, [key]: [{ binding: 'EXTRA' }] }, 'web_app'),
-      ).toThrow(`Ghostbuild managed deployment does not support these Wrangler capabilities: ${key}.`);
+      ).toThrow(`CloudChef managed deployment does not support these Wrangler capabilities: ${key}.`);
     },
   );
 
@@ -35,7 +35,7 @@ describe('managed deployment capability boundary', () => {
         { ...supportedConfig, kv_namespaces: [{ binding: 'OTHER_CACHE' }] },
         'web_app',
       ),
-    ).toThrow('Ghostbuild managed deployment supports only these KV bindings: APP_CACHE.');
+    ).toThrow('CloudChef managed deployment supports only these KV bindings: APP_CACHE.');
   });
 
   test('rejects unknown binding names on otherwise supported products', () => {
@@ -44,7 +44,7 @@ describe('managed deployment capability boundary', () => {
         { ...supportedConfig, d1_databases: [...supportedConfig.d1_databases, { binding: 'ANALYTICS' }] },
         'web_app',
       ),
-    ).toThrow('Ghostbuild managed deployment supports only these D1 bindings: DB, AGENT_SECURITY_DB.');
+    ).toThrow('CloudChef managed deployment supports only these D1 bindings: DB, AGENT_SECURITY_DB.');
   });
 
   test('requires AppAgent, its security database, export, and cleanup cron as one capability', () => {

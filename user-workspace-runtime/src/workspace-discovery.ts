@@ -1,5 +1,5 @@
-import { COMPUTER_TOOL_LIMITS } from '../../ghostbuild-agent/cloudflare-computer';
-import { logicalLines } from '../../ghostbuild-agent/line-edit';
+import { COMPUTER_TOOL_LIMITS } from '../../cloudchef-agent/cloudflare-computer';
+import { logicalLines } from '../../cloudchef-agent/line-edit';
 
 /**
  * Project discovery answered from the Durable Object's SQLite VFS.

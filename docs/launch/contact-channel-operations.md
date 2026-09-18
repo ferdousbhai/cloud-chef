@@ -1,15 +1,15 @@
 # Contact-channel operations
 
-This is the operating record for Ghostbuild's public-beta contact channels. It is not an uptime or response-time
+This is the operating record for CloudChef's public-beta contact channels. It is not an uptime or response-time
 service-level agreement.
 
 ## Channel map
 
-| Concern                | Published route                 | Provisioned or private route                                   | Primary owner | Coverage                                                  |
-| ---------------------- | ------------------------------- | -------------------------------------------------------------- | ------------- | --------------------------------------------------------- |
-| Product support        | GitHub support issue            | `support@ghostbuild.dev` (enabled, unpublished; drill pending) | `ferdousbhai` | Twice each weekday; no 24/7 coverage                      |
-| Privacy rights         | Sanitized GitHub request start  | `privacy@ghostbuild.dev` (enabled, unpublished; drill pending) | `ferdousbhai` | Twice each weekday; statutory deadlines govern            |
-| Security vulnerability | `/security` (no report details) | GitHub private vulnerability reporting                         | `ferdousbhai` | One-weekday acknowledgement target; no emergency response |
+| Concern                | Published route                 | Provisioned or private route                                    | Primary owner | Coverage                                                  |
+| ---------------------- | ------------------------------- | --------------------------------------------------------------- | ------------- | --------------------------------------------------------- |
+| Product support        | GitHub support issue            | `support@cloudchef.build` (enabled, unpublished; drill pending) | `ferdousbhai` | Twice each weekday; no 24/7 coverage                      |
+| Privacy rights         | Sanitized GitHub request start  | `privacy@cloudchef.build` (enabled, unpublished; drill pending) | `ferdousbhai` | Twice each weekday; statutory deadlines govern            |
+| Security vulnerability | `/security` (no report details) | GitHub private vulnerability reporting                          | `ferdousbhai` | One-weekday acknowledgement target; no emergency response |
 
 The email aliases use Cloudflare Email Routing and forward to an already-verified HEY destination. Catch-all routing is
 disabled. The destination address is private operational configuration and must not be committed or exposed in reports.
@@ -22,7 +22,7 @@ recovery codes, identity documents, exploit payloads, or unnecessary project con
 
 On August 4, 2026:
 
-- Cloudflare reported Email Routing `enabled` and `ready` for `ghostbuild.dev`.
+- Cloudflare reported Email Routing `enabled` and `ready` for `cloudchef.build`.
 - Exact enabled forwarding rules existed for `support@` and `privacy@`; catch-all remained disabled/drop.
 - Both Cloudflare authoritative nameservers, 1.1.1.1, and 8.8.8.8 returned all three Cloudflare MX records. SPF and
   Cloudflare DKIM records were also present.
@@ -47,7 +47,7 @@ The email-specific steps below apply only after the relevant alias has been acti
 2. Remove or avoid collecting material that is not needed to handle the request. Never request credentials or recovery
    codes.
 3. For an access, portability, correction, or deletion request, verify the requester against the email on the relevant
-   Cloudflare-authenticated Ghostbuild account. If the sender differs, send a minimal challenge to the stored address.
+   Cloudflare-authenticated CloudChef account. If the sender differs, send a minimal challenge to the stored address.
    Escalate uncertain or high-risk identity cases rather than disclosing data.
 4. Acknowledge against the published target, state what happens next, and track the controlling statutory deadline
    separately. The public-beta target never extends a legal deadline.

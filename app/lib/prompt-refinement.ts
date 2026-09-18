@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAX_USER_MESSAGE_CHARACTERS } from 'ghostbuild-agent/context-limits';
+import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 
 const MAX_PROMPT_REFINEMENT_QUESTIONS_PER_ROUND = 8;
 export const MAX_PROMPT_REFINEMENT_ANSWER_CHARACTERS = 2_000;

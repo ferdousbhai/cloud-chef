@@ -1,7 +1,7 @@
 import { map, type MapStore } from 'nanostores';
-import type { File, FileMap } from 'ghostbuild-agent/types';
-import type { AbsolutePath } from 'ghostbuild-agent/utils/workDir';
-import { getAbsolutePath } from 'ghostbuild-agent/utils/workDir';
+import type { File, FileMap } from 'cloudchef-agent/types';
+import type { AbsolutePath } from 'cloudchef-agent/utils/workDir';
+import { getAbsolutePath } from 'cloudchef-agent/utils/workDir';
 import { assertNotLocalSecretFilePath } from '~/utils/secretFiles';
 import { assertValidGeneratedPackageJson } from '~/utils/generatedPackageManifest';
 import type {

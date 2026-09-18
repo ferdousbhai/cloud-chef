@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makePartId, type PartId } from 'ghostbuild-agent/partId';
+import { makePartId, type PartId } from 'cloudchef-agent/partId';
 import { ToolActivityStore } from './tool-activity.client';
 
 describe('ToolActivityStore', () => {

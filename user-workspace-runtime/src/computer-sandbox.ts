@@ -148,7 +148,7 @@ export class ComputerSandboxBase<Env = unknown> extends Sandbox<Env> {
   protected async processForRole(role: string) {
     const row = first(
       this.ctx.storage.sql.exec<{ process_id: string }>(
-        'SELECT process_id FROM ghostbuild_sandbox_processes WHERE role = ?',
+        'SELECT process_id FROM cloudchef_sandbox_processes WHERE role = ?',
         role,
       ),
     );
@@ -164,7 +164,7 @@ export class ComputerSandboxBase<Env = unknown> extends Sandbox<Env> {
 
   protected setProcessForRole(role: string, processId: string): void {
     this.ctx.storage.sql.exec(
-      `INSERT INTO ghostbuild_sandbox_processes (role, process_id) VALUES (?, ?)
+      `INSERT INTO cloudchef_sandbox_processes (role, process_id) VALUES (?, ?)
        ON CONFLICT(role) DO UPDATE SET process_id = excluded.process_id`,
       role,
       processId,
@@ -174,13 +174,13 @@ export class ComputerSandboxBase<Env = unknown> extends Sandbox<Env> {
   protected clearProcessForRole(role: string, processId?: string): void {
     if (processId) {
       this.ctx.storage.sql.exec(
-        'DELETE FROM ghostbuild_sandbox_processes WHERE role = ? AND process_id = ?',
+        'DELETE FROM cloudchef_sandbox_processes WHERE role = ? AND process_id = ?',
         role,
         processId,
       );
       return;
     }
-    this.ctx.storage.sql.exec('DELETE FROM ghostbuild_sandbox_processes WHERE role = ?', role);
+    this.ctx.storage.sql.exec('DELETE FROM cloudchef_sandbox_processes WHERE role = ?', role);
   }
 
   interceptWorkspaceOutbound(host: string, ref: WorkspaceRef): Promise<void> {

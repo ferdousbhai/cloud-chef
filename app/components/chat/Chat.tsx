@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState, type 
 import { useSnapScroll } from '~/lib/hooks/useSnapScroll';
 import { chatStore } from '~/lib/stores/chatId';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { BaseChat } from './BaseChat.client';
 import { useChatId } from '~/lib/stores/chatId';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
@@ -137,7 +137,7 @@ function WorkspaceRuntimeConnectionError({
     <div className="flex min-h-0 flex-1 items-center justify-center p-5">
       <section className="app-card w-full max-w-lg p-6 text-center" aria-labelledby="workspace-connection-heading">
         <h1 id="workspace-connection-heading" className="font-display text-3xl font-black text-content-primary">
-          Ghostbuild could not prepare your workspace.
+          CloudChef could not prepare your workspace.
         </h1>
         <p className="mt-3 break-words text-sm text-content-secondary" role="alert">
           {message}
@@ -152,7 +152,7 @@ function WorkspaceRuntimeConnectionError({
         {reauthorizationRequired ? (
           <ol className="mx-auto mt-5 max-w-md list-decimal space-y-2 pl-5 text-left text-sm text-content-secondary">
             <li>Open your Cloudflare account settings below.</li>
-            <li>Reauthorize Ghostbuild and approve the updated permissions.</li>
+            <li>Reauthorize CloudChef and approve the updated permissions.</li>
             <li>Return to the builder and select “Try again”.</li>
           </ol>
         ) : null}
@@ -201,7 +201,7 @@ function workspaceSyncNotice(
   if (state === 'unavailable') {
     return (
       <span className="inline-flex flex-wrap items-center gap-2">
-        <span>Ghostbuild could not reach your workspace. Chat is paused until it reconnects.</span>
+        <span>CloudChef could not reach your workspace. Chat is paused until it reconnects.</span>
         <Button variant="neutral" size="xs" onClick={onRetry}>
           Reconnect
         </Button>

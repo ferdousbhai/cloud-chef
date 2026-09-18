@@ -1,11 +1,11 @@
 import { useCallback, useRef, useState } from 'react';
-import { makePartId, type PartId } from 'ghostbuild-agent/partId';
-import { getToolInvocation, isToolPart, type GhostbuildMessage, type GhostbuildPart } from 'ghostbuild-agent/ai-compat';
+import { makePartId, type PartId } from 'cloudchef-agent/partId';
+import { getToolInvocation, isToolPart, type CloudChefMessage, type CloudChefPart } from 'cloudchef-agent/ai-compat';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 
 export type PartCache = Map<PartId, Part>;
 
-type Part = GhostbuildPart;
+type Part = CloudChefPart;
 
 function isPartMaybeEqual(a: Part, b: Part): boolean {
   if (a.type === 'text' && b.type === 'text') {
@@ -32,7 +32,7 @@ function recordToolPart(partId: PartId, part: Part): void {
   toolActivityStore.record(partId, toolInvocation);
 }
 
-export function processMessage(message: GhostbuildMessage, previousParts: PartCache): GhostbuildMessage {
+export function processMessage(message: CloudChefMessage, previousParts: PartCache): CloudChefMessage {
   if (message.role === 'user') {
     return message;
   }
@@ -62,13 +62,13 @@ export function processMessage(message: GhostbuildMessage, previousParts: PartCa
 }
 
 export function useProcessedMessages(partCache: PartCache) {
-  const [parsedMessages, setParsedMessages] = useState<GhostbuildMessage[]>([]);
+  const [parsedMessages, setParsedMessages] = useState<CloudChefMessage[]>([]);
 
-  const previousMessages = useRef<{ original: GhostbuildMessage; parsed: GhostbuildMessage }[]>([]);
+  const previousMessages = useRef<{ original: CloudChefMessage; parsed: CloudChefMessage }[]>([]);
   const previousParts = useRef<PartCache>(partCache);
 
-  const processMessages = useCallback((messages: GhostbuildMessage[]) => {
-    const nextPrevMessages: { original: GhostbuildMessage; parsed: GhostbuildMessage }[] = [];
+  const processMessages = useCallback((messages: CloudChefMessage[]) => {
+    const nextPrevMessages: { original: CloudChefMessage; parsed: CloudChefMessage }[] = [];
     const prevMessages = previousMessages.current;
 
     for (let i = 0; i < messages.length; i++) {

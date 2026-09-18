@@ -1,17 +1,17 @@
 import { useStore } from '@nanostores/react';
 import { atom } from 'nanostores';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { waitForStoreValue } from './waitForStore';
 
 const logger = createScopedLogger('UserIdStore');
 
-type GhostbuildUserId = string;
+type CloudChefUserId = string;
 
-export function useUserIdOrNullOrLoading(): GhostbuildUserId | null | undefined {
+export function useUserIdOrNullOrLoading(): CloudChefUserId | null | undefined {
   return useStore(userIdStore);
 }
 
-export async function waitForUserId(caller?: string): Promise<GhostbuildUserId> {
+export async function waitForUserId(caller?: string): Promise<CloudChefUserId> {
   const currentUserId = userIdStore.get();
   if (currentUserId !== null && currentUserId !== undefined) {
     return currentUserId;
@@ -24,7 +24,7 @@ export async function waitForUserId(caller?: string): Promise<GhostbuildUserId> 
   return waitForStoreValue(userIdStore, (userId) => userId);
 }
 
-export const userIdStore = atom<GhostbuildUserId | null | undefined>(undefined);
+export const userIdStore = atom<CloudChefUserId | null | undefined>(undefined);
 
 export function isAuthenticated(): boolean {
   const userId = userIdStore.get();

@@ -1015,8 +1015,8 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     };
     const client = new UserWorkspaceRuntimeClient(
       {
-        GHOSTBUILD_USER_RUNTIME: '1',
-        GHOSTBUILD_USER_ID: 'user-1',
+        CLOUDCHEF_USER_RUNTIME: '1',
+        CLOUDCHEF_USER_ID: 'user-1',
         PROJECT_WORKSPACE: namespace,
       } as unknown as Env,
       'project-1',
@@ -1102,8 +1102,8 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     const { namespace } = harness(() => undefined, 'different-user');
     const client = new UserWorkspaceRuntimeClient(
       {
-        GHOSTBUILD_USER_RUNTIME: '1',
-        GHOSTBUILD_USER_ID: 'user-1',
+        CLOUDCHEF_USER_RUNTIME: '1',
+        CLOUDCHEF_USER_ID: 'user-1',
         PROJECT_WORKSPACE: namespace,
       } as unknown as Env,
       'project-1',
@@ -1138,8 +1138,8 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
       };
       const client = new UserWorkspaceRuntimeClient(
         {
-          GHOSTBUILD_USER_RUNTIME: '1',
-          GHOSTBUILD_USER_ID: 'user-1',
+          CLOUDCHEF_USER_RUNTIME: '1',
+          CLOUDCHEF_USER_ID: 'user-1',
           PROJECT_WORKSPACE: namespace,
         } as unknown as Env,
         'project-1',
@@ -1188,8 +1188,8 @@ function harness(respond: (operation: string, value: unknown) => unknown, userId
     get: vi.fn(() => stub),
   };
   const env = {
-    GHOSTBUILD_USER_RUNTIME: '1',
-    GHOSTBUILD_USER_ID: userId,
+    CLOUDCHEF_USER_RUNTIME: '1',
+    CLOUDCHEF_USER_ID: userId,
     PROJECT_WORKSPACE: namespace,
   } as unknown as Env;
   return {

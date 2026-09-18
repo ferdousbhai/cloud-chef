@@ -129,10 +129,10 @@ describe('user runtime session', () => {
     const repeatedHeaders = new Headers(request.mock.calls[1]?.[1]?.headers);
     const retryHeaders = new Headers(request.mock.calls[2]?.[1]?.headers);
     expect(initialHeaders.get('Accept')).toBe('application/json');
-    expect(initialHeaders.has('Ghostbuild-Runtime-Provisioning-Retry')).toBe(false);
-    expect(repeatedHeaders.has('Ghostbuild-Runtime-Provisioning-Retry')).toBe(false);
+    expect(initialHeaders.has('CloudChef-Runtime-Provisioning-Retry')).toBe(false);
+    expect(repeatedHeaders.has('CloudChef-Runtime-Provisioning-Retry')).toBe(false);
     expect(retryHeaders.get('Accept')).toBe('application/json');
-    expect(retryHeaders.get('Ghostbuild-Runtime-Provisioning-Retry')).toBe('1');
+    expect(retryHeaders.get('CloudChef-Runtime-Provisioning-Retry')).toBe('1');
   });
 
   it('carries the upgrade destination Cloudflare named alongside the plan code', async () => {
@@ -190,7 +190,7 @@ describe('user runtime session', () => {
         Response.json(
           {
             code: 'workspace_eligibility_unknown',
-            error: 'Ghostbuild could not reach Cloudflare to confirm that this account can run Containers.',
+            error: 'CloudChef could not reach Cloudflare to confirm that this account can run Containers.',
           },
           { status: 503 },
         ),
@@ -199,7 +199,7 @@ describe('user runtime session', () => {
 
     await expect(getUserRuntimeSession()).rejects.toEqual(
       new UserRuntimeSessionError(
-        'Ghostbuild could not reach Cloudflare to confirm that this account can run Containers.',
+        'CloudChef could not reach Cloudflare to confirm that this account can run Containers.',
         'workspace_eligibility_unknown',
       ),
     );
@@ -230,7 +230,7 @@ describe('user runtime session', () => {
       .fn()
       .mockResolvedValueOnce(
         Response.json(
-          { code: 'workspace_preparing', error: 'Ghostbuild is still preparing your workspace.' },
+          { code: 'workspace_preparing', error: 'CloudChef is still preparing your workspace.' },
           { status: 409 },
         ),
       )

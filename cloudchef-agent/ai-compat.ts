@@ -1,5 +1,5 @@
 // Pi-native ghost message — kept structurally compatible with UIMessage parts shapes used by chat UI.
-export type GhostbuildPart = {
+export type CloudChefPart = {
   type: string;
   text?: string;
   toolName?: string;
@@ -15,7 +15,7 @@ export type GhostbuildPart = {
   title?: unknown;
 } & Record<string, unknown>;
 
-export type GhostbuildToolInvocation = {
+export type CloudChefToolInvocation = {
   type: 'dynamic-tool';
   toolName: string;
   toolCallId: string;
@@ -26,28 +26,28 @@ export type GhostbuildToolInvocation = {
   approval?: { id?: string; approved?: boolean; reason?: string };
 } & Record<string, unknown>;
 
-export type GhostbuildMessage = {
+export type CloudChefMessage = {
   id: string;
   role: 'user' | 'assistant' | 'system';
-  parts: GhostbuildPart[];
+  parts: CloudChefPart[];
   metadata?: unknown;
   createdAt?: Date | number | string;
 };
 
-export function messageText(message: Pick<GhostbuildMessage, 'parts'>): string {
+export function messageText(message: Pick<CloudChefMessage, 'parts'>): string {
   return message.parts.map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : '')).join('');
 }
 
-export function isToolPart(part: GhostbuildPart): boolean {
+export function isToolPart(part: CloudChefPart): boolean {
   return typeof part.type === 'string' && (part.type.startsWith('tool-') || part.type === 'dynamic-tool');
 }
 
-export function getToolInvocation(part: GhostbuildPart): GhostbuildToolInvocation | null {
+export function getToolInvocation(part: CloudChefPart): CloudChefToolInvocation | null {
   if (!isToolPart(part)) {
     return null;
   }
   const fields: ToolInvocationFields = part;
-  const invocation: GhostbuildToolInvocation = {
+  const invocation: CloudChefToolInvocation = {
     ...part,
     type: 'dynamic-tool',
     toolName: typeof fields.toolName === 'string' ? fields.toolName : part.type.replace(/^tool-/, ''),
@@ -61,7 +61,7 @@ export function getToolInvocation(part: GhostbuildPart): GhostbuildToolInvocatio
   return invocation;
 }
 
-export function isToolInvocationInProgress(invocation: Pick<GhostbuildToolInvocation, 'state'>): boolean {
+export function isToolInvocationInProgress(invocation: Pick<CloudChefToolInvocation, 'state'>): boolean {
   return (
     invocation.state === 'input-streaming' ||
     invocation.state === 'input-available' ||
@@ -80,7 +80,7 @@ type ToolInvocationFields = {
   approval?: unknown;
 };
 
-type ToolApproval = NonNullable<GhostbuildToolInvocation['approval']>;
+type ToolApproval = NonNullable<CloudChefToolInvocation['approval']>;
 
 function toolApproval(value: unknown): ToolApproval | undefined {
   if (!isApprovalFields(value)) {

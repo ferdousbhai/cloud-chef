@@ -5,7 +5,7 @@ export const CLIENT_TELEMETRY_EVENTS = [
   'Failed to start Cloudflare authorization',
   'Failed to submit chat message',
   'Unknown assistant message part',
-  'User tried to send message but Ghostbuild is too busy',
+  'User tried to send message but CloudChef is too busy',
 ] as const;
 
 export type ClientTelemetryEvent = (typeof CLIENT_TELEMETRY_EVENTS)[number];

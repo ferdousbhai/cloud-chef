@@ -15,7 +15,7 @@ import {
 } from './cloudflare-computer.js';
 
 /**
- * Ghostbuild does not use the published AI SDK tools; every model tool is hand
+ * CloudChef does not use the published AI SDK tools; every model tool is hand
  * written. The upstream blast radius is the durable workspace surface the
  * ProjectWorkspace runtime calls directly, so that is what the canary pins.
  * `readdir`, `stat`, and the utf8 `readFile` carry the VFS-only discovery tools
@@ -169,7 +169,7 @@ describe('Cloudflare Computer preview contract', () => {
     expect(COMPUTER_SHELL_TOOL_OPTIONS.backends['container-shell'].description).toContain('public network access');
     expect(COMPUTER_SHELL_TOOL_OPTIONS.backends['container-shell'].description).toContain('pnpm');
     expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('do not start development, preview, watch');
-    expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('Ghostbuild manages previews after validation');
+    expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('CloudChef manages previews after validation');
   });
 });
 

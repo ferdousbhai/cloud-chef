@@ -4,7 +4,7 @@ import { createPrivatePageHead } from '~/lib/social-meta';
 import { ChatIdProvider } from '~/lib/stores/chatId';
 
 export const Route = createFileRoute('/chat/$id')({
-  head: () => createPrivatePageHead('Project | Ghostbuild', 'Open a private Ghostbuild project workspace.'),
+  head: () => createPrivatePageHead('Project | CloudChef', 'Open a private CloudChef project workspace.'),
   component: ChatRoute,
 });
 

@@ -1,4 +1,4 @@
-import { GENERATED_PROJECT_PNPM_VERSION } from '../../ghostbuild-agent/cloudflare-computer';
+import { GENERATED_PROJECT_PNPM_VERSION } from '../../cloudchef-agent/cloudflare-computer';
 import { CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS } from './operation-lease-policy';
 import { shellQuote } from './shell-quote';
 
@@ -7,7 +7,7 @@ import { shellQuote } from './shell-quote';
  * it cannot be shadowed by a tmpfs mount. Container disk is wiped on every sleep, so the bootstrap
  * re-fetches the layer on each cold container.
  */
-export const COMPUTERD_ROOT = '/opt/ghostbuild/computer';
+export const COMPUTERD_ROOT = '/opt/cloudchef/computer';
 // Immutable linux/amd64 layer published by
 // ghcr.io/cloudflare/computer-computerd-linux-x64:0.2.1. Keep in lockstep with the
 // @cloudflare/computer client version in package.json so the capnweb protocols match.
@@ -22,7 +22,7 @@ const COMPUTERD_INSTALLATION_STALE = 'stale';
  * install command rather than left to config discovery, so every install lands on the same store
  * and a second install in the same container reuses the first one's downloads.
  */
-export const CONTAINER_PNPM_STORE_DIR = '/opt/ghostbuild/pnpm-store';
+export const CONTAINER_PNPM_STORE_DIR = '/opt/cloudchef/pnpm-store';
 
 /**
  * The toolchain bootstrap is a network package installation into the same

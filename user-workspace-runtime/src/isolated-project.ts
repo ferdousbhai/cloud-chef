@@ -1,6 +1,6 @@
 import { shellQuote } from './shell-quote';
 
-export const ISOLATED_PROJECT_ROOT = '/tmp/ghostbuild-projects';
+export const ISOLATED_PROJECT_ROOT = '/tmp/cloudchef-projects';
 
 type DeploymentConfigPaths = {
   main: string;

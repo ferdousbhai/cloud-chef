@@ -1,13 +1,13 @@
 import { memo, useEffect, useState } from 'react';
 import { z } from 'zod';
-import { isToolInvocationInProgress, type GhostbuildToolInvocation } from 'ghostbuild-agent/ai-compat';
-import { isGhostbuildToolResult, toolResultSucceeded, toolResultSummary } from 'ghostbuild-agent/tool-result';
+import { isToolInvocationInProgress, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
+import { isCloudChefToolResult, toolResultSucceeded, toolResultSummary } from 'cloudchef-agent/tool-result';
 import { ToolResultFrame } from './ToolResultFrame';
 import { captureProductEvent } from '~/lib/telemetry.client';
 import type {
   CloudflareExecutionDecisionHandler,
   CloudflareExecutionPublicState,
-} from 'ghostbuild-agent/cloudflare-mcp';
+} from 'cloudchef-agent/cloudflare-mcp';
 import { Button } from '~/components/ui/primitives/Button';
 import { isToolActivityStatusActive, type ToolActivityStatus } from '~/lib/common/types';
 
@@ -18,7 +18,7 @@ export const ToolUseContents = memo(function ToolUseContents({
   cloudflareExecution,
   onCloudflareExecutionDecision,
 }: {
-  invocation: GhostbuildToolInvocation;
+  invocation: CloudChefToolInvocation;
   status: ToolActivityStatus;
   progress?: unknown;
   cloudflareExecution?: CloudflareExecutionPublicState;
@@ -68,7 +68,7 @@ function unfinishedToolSummary(status: ToolActivityStatus): string {
     : 'This tool call ended without a recorded result.';
 }
 
-function RunningToolContents({ invocation, progress }: { invocation: GhostbuildToolInvocation; progress?: unknown }) {
+function RunningToolContents({ invocation, progress }: { invocation: CloudChefToolInvocation; progress?: unknown }) {
   const input = runningToolInputSchema.safeParse(invocation.input).data;
   const progressRecord = runningToolProgressSchema.safeParse(progress).data;
   const details = runningToolProgressSchema.safeParse(progressRecord?.details).data ?? progressRecord;
@@ -139,7 +139,7 @@ function CloudflareMcpToolContents({
   execution,
   onDecision,
 }: {
-  invocation: GhostbuildToolInvocation;
+  invocation: CloudChefToolInvocation;
   running: boolean;
   execution?: CloudflareExecutionPublicState;
   onDecision?: CloudflareExecutionDecisionHandler;
@@ -209,7 +209,7 @@ function CloudflareExecuteContents({
   execution,
   onDecision,
 }: {
-  invocation: GhostbuildToolInvocation;
+  invocation: CloudChefToolInvocation;
   running: boolean;
   execution?: CloudflareExecutionPublicState;
   onDecision?: CloudflareExecutionDecisionHandler;
@@ -402,7 +402,7 @@ const validationReportSchema = z.looseObject({
  * what makes a failure actionable, so it is rendered when the result carries one and skipped
  * silently when it does not.
  */
-function ValidationToolContents({ invocation }: { invocation: GhostbuildToolInvocation }) {
+function ValidationToolContents({ invocation }: { invocation: CloudChefToolInvocation }) {
   if (invocation.state === 'output-error') {
     return <ToolResultFrame>{invocation.errorText ?? 'Project validation failed.'}</ToolResultFrame>;
   }
@@ -410,9 +410,9 @@ function ValidationToolContents({ invocation }: { invocation: GhostbuildToolInvo
     return <ToolResultFrame>{invocation.approval?.reason ?? 'Project validation was denied.'}</ToolResultFrame>;
   }
   const attached = validationOutputSchema.safeParse(invocation.output).data?.validation;
-  const result = isGhostbuildToolResult(attached)
+  const result = isCloudChefToolResult(attached)
     ? attached
-    : isGhostbuildToolResult(invocation.output)
+    : isCloudChefToolResult(invocation.output)
       ? invocation.output
       : null;
   if (!result) {
@@ -455,14 +455,14 @@ function ValidationToolContents({ invocation }: { invocation: GhostbuildToolInvo
   );
 }
 
-function StructuredResultTool({ invocation }: { invocation: GhostbuildToolInvocation }) {
+function StructuredResultTool({ invocation }: { invocation: CloudChefToolInvocation }) {
   const complete = !isToolInvocationInProgress(invocation);
   const succeeded = invocation.state === 'output-available' && toolResultSucceeded(invocation.output);
   const validation =
     invocation.state === 'output-available'
       ? validationOutputSchema.safeParse(invocation.output).data?.validation
       : undefined;
-  const validationSucceeded = isGhostbuildToolResult(validation) && validation.ok;
+  const validationSucceeded = isCloudChefToolResult(validation) && validation.ok;
   useEffect(() => {
     if (!complete) {
       return;
@@ -483,7 +483,7 @@ function StructuredResultTool({ invocation }: { invocation: GhostbuildToolInvoca
   if (invocation.state === 'output-denied') {
     return <ToolResultFrame>{invocation.approval?.reason ?? 'Tool execution was denied.'}</ToolResultFrame>;
   }
-  if (!isGhostbuildToolResult(invocation.output)) {
+  if (!isCloudChefToolResult(invocation.output)) {
     return <ToolResultFrame>{toolResultSummary(invocation.output)}</ToolResultFrame>;
   }
   return (

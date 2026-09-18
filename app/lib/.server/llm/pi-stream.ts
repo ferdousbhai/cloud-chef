@@ -24,7 +24,7 @@ export type PiStreamChunk =
 
 // Keep the established AI SDK UI stream wire protocol while the model/tool loop runs on Pi.
 export function createPiStreamResponse(stream: ReadableStream<PiStreamChunk>): Response {
-  // SAFETY: `PiStreamChunk` enumerates exactly the AI SDK UI chunks Ghostbuild emits, so every chunk
+  // SAFETY: `PiStreamChunk` enumerates exactly the AI SDK UI chunks CloudChef emits, so every chunk
   // on this stream is already a `UIMessageChunk`; only the declared element type has to be restated.
   return createUIMessageStreamResponse({
     stream: stream as ReadableStream<UIMessageChunk>,

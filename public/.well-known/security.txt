@@ -1,5 +1,5 @@
-Contact: https://github.com/ferdousbhai/ghost-build/security/advisories/new
+Contact: https://github.com/ferdousbhai/cloud-chef/security/advisories/new
 Expires: 2027-02-04T00:00:00Z
 Preferred-Languages: en
-Canonical: https://ghostbuild.dev/.well-known/security.txt
-Policy: https://ghostbuild.dev/security
+Canonical: https://cloudchef.build/.well-known/security.txt
+Policy: https://cloudchef.build/security

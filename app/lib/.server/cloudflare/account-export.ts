@@ -31,15 +31,15 @@ type SectionName = (typeof SECTION_NAMES)[number];
  * empty. The database's own message can carry statement text, so it goes to the
  * log and this fixed sentence goes to the user.
  */
-const SECTION_UNAVAILABLE = 'Ghostbuild could not read this section, so it is missing from this export.';
+const SECTION_UNAVAILABLE = 'CloudChef could not read this section, so it is missing from this export.';
 
 const EXPORT_COVERS =
-  'Every record the Ghostbuild control plane — the operator-held database — stores for this account, and nothing else.';
+  'Every record the CloudChef control plane — the operator-held database — stores for this account, and nothing else.';
 
 const EXPORT_OMITS = [
   'Chats, transcripts, project files, and deployment records. These live in the connected Cloudflare account, not in the control plane. Download individual project source with Download code in the project header.',
-  'Workers and their unpromoted preview versions, production and preview D1 databases, R2 buckets, KV namespaces, Containers, Durable Objects, and Agents that Ghostbuild deployed, and the logs and traces they produce. These live in the connected Cloudflare account and are readable with that account’s own tools.',
-  'Copies held by the browser. No server request can reach them; clear Ghostbuild site data in every browser and profile you have used.',
+  'Workers and their unpromoted preview versions, production and preview D1 databases, R2 buckets, KV namespaces, Containers, Durable Objects, and Agents that CloudChef deployed, and the logs and traces they produce. These live in the connected Cloudflare account and are readable with that account’s own tools.',
+  'Copies held by the browser. No server request can reach them; clear CloudChef site data in every browser and profile you have used.',
   'Encrypted credential material, initialisation vectors, credential handles, and session tokens. These are never exported.',
 ];
 
@@ -108,7 +108,7 @@ type BoundedList<T extends object> = { total: number; truncated: boolean } & T;
 
 /**
  * The operator's whole record of one account, covering exactly the rows
- * `eraseControlPlaneAccount` deletes. Everything else Ghostbuild touches lives in
+ * `eraseControlPlaneAccount` deletes. Everything else CloudChef touches lives in
  * the user's own Cloudflare account or in their browser, so this operation
  * deliberately reaches neither.
  */

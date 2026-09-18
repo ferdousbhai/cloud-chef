@@ -36,7 +36,7 @@ license diligence but do not replace legal review.
 authentication, encrypted Cloudflare credentials, connection metadata, and user-runtime discovery. Configure the two
 declared secret values in Cloudflare; never store them in source or local environment files.
 
-The checked-in D1 ID belongs to Ghostbuild production. Before provisioning a fork in another account, replace it with
+The checked-in D1 ID belongs to CloudChef production. Before provisioning a fork in another account, replace it with
 `00000000-0000-0000-0000-000000000000`. The provisioner refuses to replace an unknown non-placeholder ID.
 
 Builder references are not mirrored. Cloudflare's documentation is retrieved live by the `search_cloudflare_docs`
@@ -46,13 +46,13 @@ into the Worker, and maintained by hand — edit it like any other source file. 
 are what the system prompt catalogs, so keep them accurate.
 
 The OAuth callback is `https://<deployment-origin>/connect/return`. Keep its permissions aligned with
-`CLOUDFLARE_OAUTH_SCOPES` in `wrangler.jsonc`. Those permissions let Ghostbuild create a workspace runtime in the
-connected user's account; they do not add customer storage or compute to the Ghostbuild account.
+`CLOUDFLARE_OAUTH_SCOPES` in `wrangler.jsonc`. Those permissions let CloudChef create a workspace runtime in the
+connected user's account; they do not add customer storage or compute to the CloudChef account.
 
 `workers-builds.production.json` is the reviewed contract for Cloudflare dashboard build settings. Cloudflare does not
-read it automatically. Mirror it in the `ghostbuild` Worker's Builds settings:
+read it automatically. Mirror it in the `cloudchef` Worker's Builds settings:
 
-- connect `ferdousbhai/ghost-build`, production branch `main`, with non-production builds enabled
+- connect `ferdousbhai/cloud-chef`, production branch `main`, with non-production builds enabled
 - set the build command to `pnpm run workers-builds:build` and deploy command to `pnpm run workers-builds:deploy`
 - set non-production deploys to `pnpm run workers-builds:preview`
 - use `/` as the root, include all paths, and enable build caching
@@ -95,20 +95,20 @@ The control plane deploys that bundle into each connected user's Cloudflare acco
 is retained for generated applications that request an R2 binding; project workspace bytes do not use an R2 backup
 bucket.
 
-There is intentionally no migration path from retired Ghostbuild-owned project or chat storage. A new deployment of
+There is intentionally no migration path from retired CloudChef-owned project or chat storage. A new deployment of
 the control plane bootstraps its current D1 schema; each newly provisioned user runtime bootstraps the current
 `user-workspace-migrations/` schema. Existing user runtimes are replaced when their recorded bundle digest differs from
 the current digest.
 
 Cloudflare Computer's SQLite VFS in `ProjectWorkspace` owns the current project. Its container backend projects the
 same files through FUSE for shell commands, dependency installation, validation, preview, and generated-app deployment.
-No ZIP, `DirectoryBackup`, or project copy passes through Ghostbuild.
+No ZIP, `DirectoryBackup`, or project copy passes through CloudChef.
 
 ## Deployment
 
 Cloudflare Workers Builds validates every push. Non-production branches upload an undeployed Worker version. A push to
 `main` runs the production deploy command only from the exact Workers Builds checkout, applies control-plane D1
-migrations, publishes with the exact 40-character commit ID, and then probes `https://ghostbuild.dev/api/version` until
+migrations, publishes with the exact 40-character commit ID, and then probes `https://cloudchef.build/api/version` until
 five consecutive responses report that commit, a live Worker version ID, configured OAuth bindings, and
 `Cache-Control: no-store`.
 
@@ -116,8 +116,8 @@ Production source deploys are intentionally accepted only from Cloudflare Worker
 from a clean checkout of current `main`, inspect and promote an immutable version:
 
 ```bash
-pnpm exec wrangler versions view '<version-id>' --name ghostbuild --json
-pnpm exec wrangler rollback '<version-id>' --name ghostbuild --message '<reason>'
+pnpm exec wrangler versions view '<version-id>' --name cloudchef --json
+pnpm exec wrangler rollback '<version-id>' --name cloudchef --message '<reason>'
 ```
 
 Rollback changes the Worker version but not D1 data. If a release also changed control-plane data, use the recovery
@@ -125,7 +125,7 @@ bookmark recorded by the release pipeline. Run `pnpm run provision:production` s
 control-plane D1 or intentionally reconciling its checked-in identifier.
 
 Generated applications deploy independently inside the user workspace runtime. AppAgent projects provision `DB` for
-application data and `AGENT_SECURITY_DB` for Agent sessions, retention, and inference accounting. Ghostbuild validates
+application data and `AGENT_SECURITY_DB` for Agent sessions, retention, and inference accounting. CloudChef validates
 the artifact, supplies the trusted bindings, and promotes the exact uploaded Worker version.
 
 ## Platform Status
@@ -137,7 +137,7 @@ pnpm run ops        # Worker health, users, sessions, connected accounts, and ru
 pnpm run ops:json   # the same report, structured for a coding agent
 ```
 
-`scripts/ops-report.mjs` reads production control-plane D1 with `wrangler d1 execute ghostbuild --remote --json` under
+`scripts/ops-report.mjs` reads production control-plane D1 with `wrangler d1 execute cloudchef --remote --json` under
 your existing Cloudflare authentication. It issues only `SELECT` statements and holds no secret of its own. Problems
 are printed first; a check the tool could not answer is reported as unknown together with the reason, rather than as a
 zero that reads as healthy. Runtime staleness is measured against `app/generated/user-workspace-runtime.generated.ts`,

@@ -92,4 +92,4 @@ export type BuilderPreviewSuccess = {
   readyAt: string;
 };
 
-export const USER_WORKSPACE_RUNTIME_SERVICE = 'ghostbuild-user-workspace-runtime';
+export const USER_WORKSPACE_RUNTIME_SERVICE = 'cloudchef-user-workspace-runtime';

@@ -33,7 +33,7 @@ describe('waitForAgentSocketOpen', () => {
     vi.useFakeTimers();
     const agent = new FakeAgentSocket();
     const ready = waitForAgentSocketOpen(agent, 100);
-    const rejection = expect(ready).rejects.toThrow('Ghostbuild could not connect to the builder');
+    const rejection = expect(ready).rejects.toThrow('CloudChef could not connect to the builder');
 
     await vi.advanceTimersByTimeAsync(100);
 

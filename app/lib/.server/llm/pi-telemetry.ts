@@ -4,7 +4,7 @@ type PiStageLogEntry = { event: string; stage: string; modelId: string; status?:
 
 export function recordPiStage(stage: string, modelId: string, status?: number): void {
   const entry: PiStageLogEntry = {
-    event: 'ghostbuild_pi_stage',
+    event: 'cloudchef_pi_stage',
     stage,
     modelId,
   };
@@ -15,5 +15,5 @@ export function recordPiStage(stage: string, modelId: string, status?: number): 
 }
 
 export function recordPiTurnBudget(modelId: string, budget: BuilderTurnBudgetReport): void {
-  console.info({ event: 'ghostbuild_pi_turn_budget', modelId, ...budget });
+  console.info({ event: 'cloudchef_pi_turn_budget', modelId, ...budget });
 }

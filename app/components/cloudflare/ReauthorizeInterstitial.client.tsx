@@ -6,13 +6,13 @@ import { createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-clie
 
 /**
  * A grant status of `unknown` means the connection predates provider-confirmed OAuth scopes
- * (migration 0016), so Ghostbuild cannot tell which Cloudflare permissions it actually holds and
+ * (migration 0016), so CloudChef cannot tell which Cloudflare permissions it actually holds and
  * every scope-gated feature stays disabled. This interstitial makes the reconnect unavoidable on
  * a workspace without breaking it: the owner can reauthorize now or defer with "Later", and
  * builds keep working either way. Deferral is remembered for the browser session so it does not
  * reappear on every render.
  */
-const DEFERRED_STORAGE_KEY = 'ghostbuild:cloudflare-reauthorize-deferred';
+const DEFERRED_STORAGE_KEY = 'cloudchef:cloudflare-reauthorize-deferred';
 
 const connectionSchema = z.looseObject({
   oauthScopeGrantStatus: z.enum(['unknown', 'core', 'partial', 'full']).nullish(),
@@ -78,9 +78,8 @@ export function ReauthorizeInterstitial() {
   return (
     <Modal title="Reauthorize Cloudflare" onClose={defer}>
       <p className="text-sm text-content-secondary">
-        This Cloudflare connection was made before Ghostbuild recorded which permissions it holds. Reauthorize to
-        confirm your permissions and enable the full agent. Your existing projects and builds keep working in the
-        meantime.
+        This Cloudflare connection was made before CloudChef recorded which permissions it holds. Reauthorize to confirm
+        your permissions and enable the full agent. Your existing projects and builds keep working in the meantime.
       </p>
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="neutral" size="sm" onClick={defer}>

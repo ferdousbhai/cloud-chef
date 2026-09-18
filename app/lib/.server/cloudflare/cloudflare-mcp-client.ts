@@ -351,7 +351,7 @@ async function discoverExpectedTools(
     params: {
       protocolVersion: CLOUDFLARE_MCP_PROTOCOL_VERSION,
       capabilities: {},
-      clientInfo: { name: 'ghostbuild', version: 'phase-4' },
+      clientInfo: { name: 'cloudchef', version: 'phase-4' },
     },
   });
   const initialized = await postJsonRpc(request, {
@@ -715,7 +715,7 @@ function normalizeToolResult(result: z.infer<typeof callToolResultSchema>, acces
   }
   const suffix = providerTruncated
     ? `\n\n${CLOUDFLARE_MCP_PROVIDER_TRUNCATION_MARKER}`
-    : '\n\n[Ghostbuild truncated the MCP response.]';
+    : '\n\n[CloudChef truncated the MCP response.]';
   const suffixBytes = textEncoder.encode(suffix).byteLength;
   const prefix = utf8Prefix(redacted, CLOUDFLARE_MCP_MAX_NORMALIZED_CONTENT_BYTES - suffixBytes);
   const text = prefix.includes(CLOUDFLARE_MCP_PROVIDER_TRUNCATION_MARKER) ? prefix : `${prefix}${suffix}`;
@@ -792,7 +792,7 @@ function failureOutcome(invocation: CloudflareMcpInvocation, cause: unknown): Cl
       error: {
         code,
         message:
-          'Cloudflare may have executed this operation, but Ghostbuild could not confirm the result. Reconcile with a read before retrying.',
+          'Cloudflare may have executed this operation, but CloudChef could not confirm the result. Reconcile with a read before retrying.',
       },
       metadata,
     };

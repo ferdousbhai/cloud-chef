@@ -26,8 +26,8 @@ const builtServerPath = resolve(rootDir, 'dist/server/index.js');
 
 const routeCases = [
   { path: '/', status: 200, content: 'If you can dream it' },
-  { path: '/settings', status: 200, content: 'Settings | Ghostbuild' },
-  { path: '/chat/ssr-smoke-project', status: 200, content: 'Project | Ghostbuild' },
+  { path: '/settings', status: 200, content: 'Settings | CloudChef' },
+  { path: '/chat/ssr-smoke-project', status: 200, content: 'Project | CloudChef' },
   { path: '/does-not-exist', status: 404, content: 'This page does not exist' },
 ];
 
@@ -46,7 +46,7 @@ async function verifyBuiltSsr() {
   for (const routeCase of routeCases) {
     try {
       const response = await worker.fetch(
-        new Request(`https://ghostbuild.dev${routeCase.path}`, { headers: { accept: 'text/html' } }),
+        new Request(`https://cloudchef.build${routeCase.path}`, { headers: { accept: 'text/html' } }),
         {},
       );
       const body = await response.text();

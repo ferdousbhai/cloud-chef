@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible problem in Ghostbuild
+description: Report a reproducible problem in CloudChef
 title: '[Bug]: '
 labels:
   - bug
@@ -36,7 +36,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Include the Ghostbuild app version or commit, browser, operating system, and relevant Cloudflare context.
+      description: Include the CloudChef app version or commit, browser, operating system, and relevant Cloudflare context.
     validations:
       required: true
   - type: checkboxes

@@ -1,5 +1,5 @@
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
-import { transcriptAgentName } from 'ghostbuild-agent/transcript';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
+import { transcriptAgentName } from 'cloudchef-agent/transcript';
 import { EMPTY_CHAT_DISCARD_PREDICATE } from './empty-chat.server';
 
 export const AGENT_GC_SWEEP_LIMIT = 4;

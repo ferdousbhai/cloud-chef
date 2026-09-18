@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for improving Ghostbuild. By participating, you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+Thank you for improving CloudChef. By participating, you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 Follow [DEVELOPMENT.md](DEVELOPMENT.md) for setup, configuration, generated artifacts, and deployment.
 

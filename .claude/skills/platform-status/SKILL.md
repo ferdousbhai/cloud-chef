@@ -1,6 +1,6 @@
 ---
 name: platform-status
-description: Report the operational state of the Ghostbuild platform - whether the control-plane Worker is serving without throwing, connected Cloudflare accounts, workspace runtime staleness, users, and sign-in sessions. Use whenever asked for a platform update, a production status report, whether anything is broken or needs attention, or how Ghostbuild is doing. Replaces the retired admin.ghostbuild.dev dashboard.
+description: Report the operational state of the CloudChef platform - whether the control-plane Worker is serving without throwing, connected Cloudflare accounts, workspace runtime staleness, users, and sign-in sessions. Use whenever asked for a platform update, a production status report, whether anything is broken or needs attention, or how CloudChef is doing. Replaces the retired admin.cloudchef.build dashboard.
 ---
 
 # Platform status
@@ -34,7 +34,7 @@ means no invocation ended in `scriptThrew`, `exceededCpu`, or any other non-beni
 nothing about handled errors, logged warnings, or anything a request logged on its way to a 200. The exception text
 lives in Workers Logs, which needs an observability grant Wrangler's own OAuth token does not carry
 (`detail.logsAvailable` is `false` for exactly that reason), so do not report this check as "no errors in the logs". A
-window with no invocations at all is reported as needing attention, because this Worker serves ghostbuild.dev and fires
+window with no invocations at all is reported as needing attention, because this Worker serves cloudchef.build and fires
 a cron every 15 minutes.
 
 The JSON mode carries the same information as `status` (`ok` / `attention` / `unknown` / `error`), `headline`, and a
@@ -47,7 +47,7 @@ code.
 ## What it is
 
 `scripts/ops-report.mjs`, a plain ESM Node script with no dependencies. It reads production control-plane D1 with
-`wrangler d1 execute ghostbuild --remote --json` under the operator's existing Cloudflare authentication, and reads the
+`wrangler d1 execute cloudchef --remote --json` under the operator's existing Cloudflare authentication, and reads the
 control-plane Worker's invocations from the Workers analytics GraphQL API with the credential `wrangler auth token`
 hands back. Every statement is a `SELECT` and every API call is a read; the tool never writes, deletes, or upgrades
 anything, and holds no credential of its own. If Wrangler is authenticated against more than one account, set

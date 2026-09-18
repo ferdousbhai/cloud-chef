@@ -3,10 +3,10 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GhostbuildPart } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefPart } from 'cloudchef-agent/ai-compat';
 import { ReasoningPart } from './ReasoningPart';
 
-function reasoningPart(text: string, state: 'streaming' | 'done'): GhostbuildPart {
+function reasoningPart(text: string, state: 'streaming' | 'done'): CloudChefPart {
   return { type: 'reasoning', text, state };
 }
 

@@ -1,6 +1,6 @@
 /* A chat's immutable initial ID is its route, persistence, and agent identity. */
 import { useNavigate, useParams, type HistoryState } from '@tanstack/react-router';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { createContext, useCallback, useContext, type ReactNode } from 'react';
 import { map } from 'nanostores';
 
@@ -32,7 +32,7 @@ export function maskedChatNavigation(chatId: string) {
     to: '/' as const,
     state: (previous: HistoryState) => ({
       ...previous,
-      ghostbuildChatMaskId: chatId,
+      cloudchefChatMaskId: chatId,
     }),
     mask: chatUrlMask(chatId),
     replace: true,

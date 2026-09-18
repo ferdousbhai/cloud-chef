@@ -1,9 +1,9 @@
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { transcriptSnapshotSchema, type AuthoritativeTranscriptSnapshot } from './chat-send-reconciliation';
 
 export async function settleBuilderStop(args: {
   cancel: () => Promise<unknown>;
-  reconcileMessages: (messages: GhostbuildMessage[]) => void;
+  reconcileMessages: (messages: CloudChefMessage[]) => void;
   refreshWorkspace: () => Promise<void>;
 }): Promise<AuthoritativeTranscriptSnapshot> {
   const parsed = transcriptSnapshotSchema.safeParse(await args.cancel());

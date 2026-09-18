@@ -1,7 +1,7 @@
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 import { z, ZodType } from 'zod';
-import { MODEL_TOOL_NAMES, type ModelToolName } from 'ghostbuild-agent/model-tool-inputs';
-import type { Tool } from 'ghostbuild-agent/tool';
+import { MODEL_TOOL_NAMES, type ModelToolName } from 'cloudchef-agent/model-tool-inputs';
+import type { Tool } from 'cloudchef-agent/tool';
 import { isWorkspaceToolOperationIndeterminateError, type BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import type { BuilderSkillReader } from './builder-skills';

@@ -1,7 +1,7 @@
 import type { Compartment } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
-import type { EditorDocument } from 'ghostbuild-agent/types';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import type { EditorDocument } from 'cloudchef-agent/types';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { editableEffect } from './editor-config';
 import { getLanguage } from './languages';
 

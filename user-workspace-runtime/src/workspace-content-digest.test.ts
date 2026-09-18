@@ -12,7 +12,7 @@ import {
 } from './workspace-content-digest';
 
 const EXCLUDED = new Set(['node_modules', 'dist', '.output', '.tanstack', '.wrangler']);
-const scratch = mkdtempSync(join(tmpdir(), 'ghostbuild-digest-'));
+const scratch = mkdtempSync(join(tmpdir(), 'cloudchef-digest-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
 const sha = (content: string) => createHash('sha256').update(content).digest('hex');

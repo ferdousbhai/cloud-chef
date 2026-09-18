@@ -63,21 +63,21 @@ describe('findWorkerRoutingErrors', () => {
         {
           workers_dev: false,
           routes: [
-            { pattern: 'ghostbuild.dev', custom_domain: true },
-            { pattern: 'www.ghostbuild.dev', custom_domain: true },
+            { pattern: 'cloudchef.build', custom_domain: true },
+            { pattern: 'www.cloudchef.build', custom_domain: true },
           ],
         },
         'wrangler.jsonc',
-        ['ghostbuild.dev', 'www.ghostbuild.dev'],
+        ['cloudchef.build', 'www.cloudchef.build'],
       ),
     ).toEqual([]);
   });
 
   it('rejects a missing custom domain and public workers.dev endpoint', () => {
-    expect(findWorkerRoutingErrors({}, 'wrangler.jsonc', ['ghostbuild.dev', 'www.ghostbuild.dev'])).toEqual([
+    expect(findWorkerRoutingErrors({}, 'wrangler.jsonc', ['cloudchef.build', 'www.cloudchef.build'])).toEqual([
       'wrangler.jsonc workers_dev must be false so production is served only from the custom domain.',
-      'wrangler.jsonc must configure "ghostbuild.dev" as a custom domain.',
-      'wrangler.jsonc must configure "www.ghostbuild.dev" as a custom domain.',
+      'wrangler.jsonc must configure "cloudchef.build" as a custom domain.',
+      'wrangler.jsonc must configure "www.cloudchef.build" as a custom domain.',
     ]);
   });
 });
@@ -117,14 +117,14 @@ describe('findWorkerOperationsSecretErrors', () => {
             {
               binding: 'OPS_AUTH_SECRET',
               store_id: 'a436a6cefedc4acd8bb920cdbc202c1c',
-              secret_name: 'ghostbuild-ops-auth',
+              secret_name: 'cloudchef-ops-auth',
             },
           ],
         },
         'wrangler.jsonc',
       ),
     ).toEqual([
-      'wrangler.jsonc must not bind the retired operations secret (ghostbuild-ops-auth); private operations are authorized by the OperationsService Service binding.',
+      'wrangler.jsonc must not bind the retired operations secret (cloudchef-ops-auth); private operations are authorized by the OperationsService Service binding.',
     ]);
   });
 
@@ -248,7 +248,7 @@ ${weakening}
   it('accepts different safe in-tree workspace package shapes', () => {
     expect(
       findBuildApprovalErrors(
-        workspacePolicyFixture(['ghostbuild-agent', 'template', 'packages/*', '!packages/legacy/**']),
+        workspacePolicyFixture(['cloudchef-agent', 'template', 'packages/*', '!packages/legacy/**']),
         'pnpm-workspace.yaml',
       ),
     ).toEqual([]);
@@ -256,7 +256,7 @@ ${weakening}
   });
 
   it('allows only the reviewed transitive vulnerability overrides', () => {
-    const reviewed = `${workspacePolicyFixture(['ghostbuild-agent', 'template'])}
+    const reviewed = `${workspacePolicyFixture(['cloudchef-agent', 'template'])}
 overrides:
   'brace-expansion@<1.1.18': '1.1.18'
   'brace-expansion@>=2.0.0 <2.1.4': '2.1.4'
@@ -276,7 +276,7 @@ overrides:
 `;
     expect(findBuildApprovalErrors(reviewed, 'pnpm-workspace.yaml')).toEqual([]);
 
-    const unreviewed = `${workspacePolicyFixture(['ghostbuild-agent', 'template'])}
+    const unreviewed = `${workspacePolicyFixture(['cloudchef-agent', 'template'])}
 overrides:
   'brace-expansion@<1.1.18': '1.1.17'
   'malicious-package@*': 'file:../outside'

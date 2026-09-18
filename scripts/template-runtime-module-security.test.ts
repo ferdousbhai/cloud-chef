@@ -121,8 +121,8 @@ describe('generated app production module security', () => {
       '/workspace/src/routes/index.tsx',
       { ssr: true } as never,
     ) as { code: string };
-    expect(transformed.code).toMatch(/^import "virtual:ghostbuild-security-intrinsics-lockdown";/);
-    const loaded = plugin.load.call({} as never, '\0virtual:ghostbuild-security-intrinsics-lockdown') as {
+    expect(transformed.code).toMatch(/^import "virtual:cloudchef-security-intrinsics-lockdown";/);
+    const loaded = plugin.load.call({} as never, '\0virtual:cloudchef-security-intrinsics-lockdown') as {
       code: string;
       moduleSideEffects: boolean;
     };
@@ -135,19 +135,19 @@ describe('generated app production module security', () => {
         'const inherited = (value: object) => Object.getPrototypeOf(value);',
         'inherited(crypto).getRandomValues = (value: Uint8Array) => value.fill(0);',
         'inherited(crypto.subtle).digest = async () => new ArrayBuffer(32);',
-        'console.info("ghostbuild-prototype-lockdown-production-probe");',
+        'console.info("cloudchef-prototype-lockdown-production-probe");',
       ].join('\n'),
       true,
     );
-    const lockdown = files.find(([path]) => path.includes('_virtual_ghostbuild-security-intrinsics-lockdown'));
+    const lockdown = files.find(([path]) => path.includes('_virtual_cloudchef-security-intrinsics-lockdown'));
     expect(lockdown?.[1]).toContain('getPrototypeOf = Object.getPrototypeOf');
     expect(lockdown?.[1]).toContain('current !== objectPrototype');
 
-    const probe = files.find(([, source]) => source.includes('ghostbuild-prototype-lockdown-production-probe'));
+    const probe = files.find(([, source]) => source.includes('cloudchef-prototype-lockdown-production-probe'));
     expect(probe, 'The indirect mutation probe was omitted from the production bundle.').toBeDefined();
-    expect(probe?.[1]).toContain('init__virtual_ghostbuild_security_intrinsics_lockdown();');
-    expect(probe?.[1].indexOf('init__virtual_ghostbuild_security_intrinsics_lockdown();')).toBeLessThan(
-      probe?.[1].indexOf('ghostbuild-prototype-lockdown-production-probe') ?? -1,
+    expect(probe?.[1]).toContain('init__virtual_cloudchef_security_intrinsics_lockdown();');
+    expect(probe?.[1].indexOf('init__virtual_cloudchef_security_intrinsics_lockdown();')).toBeLessThan(
+      probe?.[1].indexOf('cloudchef-prototype-lockdown-production-probe') ?? -1,
     );
   }, 70_000);
 
@@ -269,7 +269,7 @@ function templateViteBin(): string {
 
 function runProductionBuild(untrustedHelperSource: string, expectSuccess: boolean) {
   const templateDir = resolve('template');
-  const projectDir = mkdtempSync(join(resolve('.'), '.ghostbuild-runtime-security-'));
+  const projectDir = mkdtempSync(join(resolve('.'), '.cloudchef-runtime-security-'));
   try {
     cpSync(templateDir, projectDir, {
       recursive: true,
@@ -286,7 +286,7 @@ function runProductionBuild(untrustedHelperSource: string, expectSuccess: boolea
     const result = spawnSync(process.execPath, [templateViteBin(), 'build'], {
       cwd: projectDir,
       encoding: 'utf8',
-      env: { ...processEnvironment, GHOSTBUILD_PREVIEW: '0' },
+      env: { ...processEnvironment, CLOUDCHEF_PREVIEW: '0' },
       timeout: 60_000,
     });
     const output = `${result.stdout}\n${result.stderr}`;

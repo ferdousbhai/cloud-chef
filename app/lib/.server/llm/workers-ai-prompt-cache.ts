@@ -1,4 +1,4 @@
-import type { TranscriptIdentity } from 'ghostbuild-agent/transcript';
+import type { TranscriptIdentity } from 'cloudchef-agent/transcript';
 import type { WorkersAiModelId } from '~/lib/workers-ai-model';
 import { sha256Hex } from '~/lib/hex-digest';
 

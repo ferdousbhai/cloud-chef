@@ -1,7 +1,7 @@
 import { atom, type ReadableAtom, type WritableAtom } from 'nanostores';
-import type { EditorDocument, File, FileMap, ScrollPosition } from 'ghostbuild-agent/types';
-import type { AbsolutePath } from 'ghostbuild-agent/utils/workDir';
-import { getAbsolutePath } from 'ghostbuild-agent/utils/workDir';
+import type { EditorDocument, File, FileMap, ScrollPosition } from 'cloudchef-agent/types';
+import type { AbsolutePath } from 'cloudchef-agent/utils/workDir';
+import { getAbsolutePath } from 'cloudchef-agent/utils/workDir';
 import type {
   BuilderWorkspaceApplyResult,
   BuilderWorkspaceClientChange,

@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { Chat } from './chat/Chat';
 import type { PartCache } from '~/lib/hooks/useProcessedMessages';
 import { useChatHomepage } from '~/lib/stores/startup';
 
-const EMPTY_MESSAGES: GhostbuildMessage[] = [];
+const EMPTY_MESSAGES: CloudChefMessage[] = [];
 
 export function HomepageChat({ initialId, initialPrompt }: { initialId: string; initialPrompt: string }) {
   const [partCache] = useState<PartCache>(() => new Map());

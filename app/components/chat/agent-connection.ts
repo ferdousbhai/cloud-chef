@@ -1,6 +1,6 @@
 const AGENT_SOCKET_OPEN_TIMEOUT_MS = 30_000;
-const AGENT_CONNECT_ERROR_MESSAGE = 'Ghostbuild could not connect to the builder. Please try again.';
-const AGENT_CONNECTION_LOST_MESSAGE = 'Ghostbuild lost its builder connection. Please try again.';
+const AGENT_CONNECT_ERROR_MESSAGE = 'CloudChef could not connect to the builder. Please try again.';
+const AGENT_CONNECTION_LOST_MESSAGE = 'CloudChef lost its builder connection. Please try again.';
 
 export type AgentSocketLike = {
   OPEN?: number;

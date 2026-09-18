@@ -1,6 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
-import type { ChatTurnContext } from 'ghostbuild-agent/turn-context';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
+import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { cleanupAssistantMessages } from './message-conversion';
 import { modelMessagesToPi } from './pi-message-conversion';
 import { injectTurnContext } from './turn-context';
@@ -15,7 +15,7 @@ export class PiSteeringQueue {
   #pending: Promise<AgentMessage>[] = [];
   #closed = false;
 
-  reserve(message: GhostbuildMessage, turnContext?: ChatTurnContext): PiSteeringReservation | null {
+  reserve(message: CloudChefMessage, turnContext?: ChatTurnContext): PiSteeringReservation | null {
     if (this.#closed) {
       return null;
     }
@@ -48,7 +48,7 @@ export class PiSteeringQueue {
   }
 }
 
-function toPiSteeringMessage(message: GhostbuildMessage, turnContext?: ChatTurnContext): AgentMessage {
+function toPiSteeringMessage(message: CloudChefMessage, turnContext?: ChatTurnContext): AgentMessage {
   const [converted] = modelMessagesToPi(cleanupAssistantMessages(injectTurnContext([message], turnContext)));
   if (!converted || converted.role !== 'user') {
     throw new TypeError('Pi steering requires a user message.');

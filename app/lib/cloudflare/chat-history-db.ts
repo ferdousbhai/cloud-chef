@@ -18,7 +18,7 @@ const chatHistorySummarySchema = z.object({
 }) satisfies z.ZodType<ChatHistorySummary>;
 
 function chatHistoryQueryKey(sessionId: string) {
-  return ['ghostbuild-data', api.messages.getAll, { sessionId }] as const;
+  return ['cloudchef-data', api.messages.getAll, { sessionId }] as const;
 }
 
 function createChatHistoryCollection(sessionId: string) {

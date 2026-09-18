@@ -7,7 +7,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { shellQuote } from './shell-quote';
 import { STAGE_LOG_TAIL_BYTES, parallelValidationStagesCommand } from './validation-stages';
 
-const scratch = mkdtempSync(join(tmpdir(), 'ghostbuild-stages-'));
+const scratch = mkdtempSync(join(tmpdir(), 'cloudchef-stages-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
 function run(stages: { name: string; command: string }[]) {

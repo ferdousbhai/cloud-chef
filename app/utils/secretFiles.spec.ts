@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { WORK_DIR } from 'ghostbuild-agent/constants';
+import { WORK_DIR } from 'cloudchef-agent/constants';
 import { assertNotLocalSecretFilePath, isLocalSecretFilePath } from './secretFiles';
 
 describe('local secret file paths', () => {

@@ -1,6 +1,6 @@
-import { toolFailure, toolSuccess } from 'ghostbuild-agent/tool-result';
-import { MODEL_TOOL_INPUT_SCHEMAS } from 'ghostbuild-agent/model-tool-inputs';
-import type { Tool } from 'ghostbuild-agent/tool';
+import { toolFailure, toolSuccess } from 'cloudchef-agent/tool-result';
+import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
+import type { Tool } from 'cloudchef-agent/tool';
 
 /**
  * Cloudflare's own documentation search, the single useful tool exposed by the

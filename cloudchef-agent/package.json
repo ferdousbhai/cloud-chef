@@ -1,5 +1,5 @@
 {
-  "name": "ghostbuild-agent",
+  "name": "cloudchef-agent",
   "private": true,
   "version": "1.0.0",
   "type": "module",

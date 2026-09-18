@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, type ReactNode, type RefCallback, useCallback } from 'react';
-import { messageText, type GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import { messageText, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { isStreamStatusActive, type StreamStatus } from '~/lib/common/types';
 import { MessageInput } from './MessageInput';
 import { Messages } from './Messages.client';
@@ -29,7 +29,7 @@ import { DeploymentStatus } from './DeploymentStatus.client';
 import type {
   CloudflareExecutionDecisionHandler,
   CloudflareExecutionPublicState,
-} from 'ghostbuild-agent/cloudflare-mcp';
+} from 'cloudchef-agent/cloudflare-mcp';
 
 const Workbench = lazy(() =>
   import('~/components/workbench/Workbench.client').then((module) => ({ default: module.Workbench })),
@@ -49,7 +49,7 @@ interface BaseChatProps {
   isRecovering: boolean;
   currentError: Error | undefined;
   buildProgress: BuildProgress | null;
-  messages: GhostbuildMessage[];
+  messages: CloudChefMessage[];
   disabledReason: ReactNode | null;
   runtimeNotice: ReactNode;
   deployment?: BuilderDeploymentState | null;

@@ -1,6 +1,6 @@
 {
-  "worker": "ghostbuild",
-  "repository": "ferdousbhai/ghost-build",
+  "worker": "cloudchef",
+  "repository": "ferdousbhai/cloud-chef",
   "productionBranch": "main",
   "rootDirectory": "/",
   "buildCommand": "pnpm run workers-builds:build",

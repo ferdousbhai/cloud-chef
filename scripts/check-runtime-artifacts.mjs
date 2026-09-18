@@ -8,7 +8,7 @@ const MANIFEST_ACCEPT = [
   'application/vnd.docker.distribution.manifest.v2+json',
 ].join(', ');
 
-const ISSUE_MARKER = '<!-- ghostbuild-runtime-artifact-watch -->';
+const ISSUE_MARKER = '<!-- cloudchef-runtime-artifact-watch -->';
 const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const REGISTRY_TIMEOUT_MS = 30_000;

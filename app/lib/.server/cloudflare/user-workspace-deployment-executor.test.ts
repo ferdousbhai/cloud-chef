@@ -3,11 +3,11 @@ import { readFileSync } from 'node:fs';
 import { resolveFreshCloudflareAccessToken } from './user-workspace-deployment-executor';
 
 const runtimeEnv = {
-  GHOSTBUILD_CONTROL_PLANE_ENDPOINT: 'https://ghostbuild.dev',
+  CLOUDCHEF_CONTROL_PLANE_ENDPOINT: 'https://cloudchef.build',
   CONTROL_PLANE_SECRET: 'runtime-secret-that-is-long-enough',
-  GHOSTBUILD_USER_ID: 'user-1',
-  GHOSTBUILD_CONNECTION_ID: 'connection-1',
-  GHOSTBUILD_CONNECTION_GENERATION: '3',
+  CLOUDCHEF_USER_ID: 'user-1',
+  CLOUDCHEF_CONNECTION_ID: 'connection-1',
+  CLOUDCHEF_CONNECTION_GENERATION: '3',
 };
 
 describe('resolveFreshCloudflareAccessToken', () => {
@@ -20,7 +20,7 @@ describe('resolveFreshCloudflareAccessToken', () => {
 
     await expect(resolveFreshCloudflareAccessToken(runtimeEnv, request)).resolves.toBe('fresh-access-token');
     expect(request).toHaveBeenCalledWith(
-      'https://ghostbuild.dev/api/cloudflare/runtime-credential',
+      'https://cloudchef.build/api/cloudflare/runtime-credential',
       expect.objectContaining({
         method: 'POST',
         redirect: 'manual',
@@ -51,8 +51,8 @@ describe('resolveFreshCloudflareAccessToken', () => {
   });
 
   it.each([
-    ['a redirectable endpoint', { ...runtimeEnv, GHOSTBUILD_CONTROL_PLANE_ENDPOINT: 'https://attacker.example' }],
-    ['a stale generation', { ...runtimeEnv, GHOSTBUILD_CONNECTION_GENERATION: '0' }],
+    ['a redirectable endpoint', { ...runtimeEnv, CLOUDCHEF_CONTROL_PLANE_ENDPOINT: 'https://attacker.example' }],
+    ['a stale generation', { ...runtimeEnv, CLOUDCHEF_CONNECTION_GENERATION: '0' }],
     ['a missing runtime secret', { ...runtimeEnv, CONTROL_PLANE_SECRET: undefined }],
   ])('rejects %s before making a request', async (_label, env) => {
     const request = vi.fn<typeof fetch>();

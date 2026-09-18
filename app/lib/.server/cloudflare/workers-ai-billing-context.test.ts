@@ -6,7 +6,7 @@ describe('getUserWorkersAiCredentials', () => {
     const binding = {} as Ai;
 
     await expect(
-      getUserWorkersAiCredentials({ GHOSTBUILD_USER_RUNTIME: '1', AI: binding } as unknown as Env, 'user-1'),
+      getUserWorkersAiCredentials({ CLOUDCHEF_USER_RUNTIME: '1', AI: binding } as unknown as Env, 'user-1'),
     ).resolves.toEqual({ binding });
   });
 

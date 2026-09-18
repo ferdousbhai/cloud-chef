@@ -39,10 +39,10 @@ describe('app resource garbage collection', () => {
 
     await expect(sweepAppResourceGcCandidates(database.env, { now: 100, accountApi })).resolves.toBeUndefined();
 
-    expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('ghostbuild-deployment-1');
+    expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-deployment-1');
     expect(accountApi.deleteD1Database).toHaveBeenCalledTimes(4);
-    expect(accountApi.deleteKvNamespace).toHaveBeenCalledWith('ghostbuild-deployment-1-cache');
-    expect(accountApi.deleteR2Bucket).toHaveBeenCalledWith('ghostbuild-deployment-1-storage');
+    expect(accountApi.deleteKvNamespace).toHaveBeenCalledWith('cloudchef-deployment-1-cache');
+    expect(accountApi.deleteR2Bucket).toHaveBeenCalledWith('cloudchef-deployment-1-storage');
     expect(database.candidates).toEqual([]);
   });
 
@@ -59,19 +59,19 @@ describe('app resource garbage collection', () => {
 
   it('deletes what provisioning recorded, by provider id, without reading the plan', async () => {
     const database = new AppResourceGcDatabase([JSON.stringify({ version: 999 })], 0, [
-      { deployment_id: 'deployment-1', resource_type: 'worker', provider_resource_id: 'ghostbuild-app-1' },
+      { deployment_id: 'deployment-1', resource_type: 'worker', provider_resource_id: 'cloudchef-app-1' },
       { deployment_id: 'deployment-1', resource_type: 'd1', provider_resource_id: 'db-id-1' },
       { deployment_id: 'deployment-1', resource_type: 'kv', provider_resource_id: 'kv-id-1' },
-      { deployment_id: 'deployment-1', resource_type: 'r2', provider_resource_id: 'ghostbuild-app-1-storage' },
+      { deployment_id: 'deployment-1', resource_type: 'r2', provider_resource_id: 'cloudchef-app-1-storage' },
     ]);
     const accountApi = cleanupApi(true);
 
     await expect(sweepAppResourceGcCandidates(database.env, { now: 100, accountApi })).resolves.toBeUndefined();
 
-    expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('ghostbuild-app-1');
+    expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-app-1');
     expect(accountApi.deleteD1DatabaseById).toHaveBeenCalledWith('db-id-1');
     expect(accountApi.deleteKvNamespaceById).toHaveBeenCalledWith('kv-id-1');
-    expect(accountApi.deleteR2Bucket).toHaveBeenCalledWith('ghostbuild-app-1-storage');
+    expect(accountApi.deleteR2Bucket).toHaveBeenCalledWith('cloudchef-app-1-storage');
     expect(accountApi.deleteManagedWorker.mock.invocationCallOrder[0]).toBeLessThan(
       accountApi.deleteD1DatabaseById.mock.invocationCallOrder[0]!,
     );
@@ -80,7 +80,7 @@ describe('app resource garbage collection', () => {
 
   it('retries the receipt while a recorded R2 bucket is still draining', async () => {
     const database = new AppResourceGcDatabase([JSON.stringify({ version: 999 })], 0, [
-      { deployment_id: 'deployment-1', resource_type: 'r2', provider_resource_id: 'ghostbuild-app-1-storage' },
+      { deployment_id: 'deployment-1', resource_type: 'r2', provider_resource_id: 'cloudchef-app-1-storage' },
     ]);
     const accountApi = cleanupApi(false);
 

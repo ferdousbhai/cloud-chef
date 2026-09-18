@@ -18,8 +18,8 @@ async function file(path: string, contents: string): Promise<DeploymentArtifactF
 
 describe('deployment artifact boundary', () => {
   it.each([
-    ['assets/app.js', 'console.log("ghostbuild")', 'c89ae0281fe3955d5f7b3b1253872615'],
-    ['index.html', '<h1>Ghostbuild</h1>', 'f0108258ba2064adf7e62086116e9bdd'],
+    ['assets/app.js', 'console.log("cloudchef")', '5ca2b008d319d8d6c1f5ad3a5d8c1cb6'],
+    ['index.html', '<h1>CloudChef</h1>', '8cc74b7ba69fed67b2314fa923e48abf'],
     ['assets/empty.css', '', '9e7a27539226d700e116522ee435029d'],
     ['folder.with-dot/README', 'same', '326e42311d122dad1520039b805a8305'],
   ])('matches the Wrangler 4.118.0 Workers Assets hash for %s', async (path, contents, expected) => {
@@ -38,7 +38,7 @@ describe('deployment artifact boundary', () => {
 
   it('rejects path traversal, byte tampering, and Worker-only static assets', async () => {
     const main = await file('server.js', 'export default {}');
-    const asset = await file('index.html', '<h1>Ghostbuild</h1>');
+    const asset = await file('index.html', '<h1>CloudChef</h1>');
     await expect(
       validatePreparedDeploymentArtifact(
         {

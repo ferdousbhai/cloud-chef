@@ -54,7 +54,7 @@ describe('generated-app production license artifact', () => {
     // An inventory must never leak the build host's absolute install paths.
     expect(first).not.toContain('/private/install');
     // The root verifier shares this builder and only supplies its own heading.
-    expect(first.split('\n')[0]).toBe('Ghostbuild Generated Application Third-Party Licenses');
+    expect(first.split('\n')[0]).toBe('CloudChef Generated Application Third-Party Licenses');
     expect(createLicenseArtifact(packages, policy, 'lockfile', 'Other Title').split('\n')[0]).toBe('Other Title');
   });
 

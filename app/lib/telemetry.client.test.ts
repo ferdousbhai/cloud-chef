@@ -10,12 +10,12 @@ describe('privacy-safe client telemetry', () => {
     vi.resetModules();
     sessionStorage.clear();
     localStorage.clear();
-    localStorage.set('ghostbuild:telemetry:preference', 'enabled');
+    localStorage.set('cloudchef:telemetry:preference', 'enabled');
     fetchMock.mockResolvedValue(new Response(null, { status: 202 }));
     vi.stubGlobal('navigator', { doNotTrack: '0', globalPrivacyControl: false });
     vi.stubGlobal('window', {
       location: {
-        href: 'https://ghostbuild.dev/chat/private-project?token=credential',
+        href: 'https://cloudchef.build/chat/private-project?token=credential',
         pathname: '/chat/private-project',
       },
       sessionStorage: {
@@ -83,7 +83,7 @@ describe('privacy-safe client telemetry', () => {
   });
 
   it('requires an explicit product telemetry opt-in', async () => {
-    localStorage.delete('ghostbuild:telemetry:preference');
+    localStorage.delete('cloudchef:telemetry:preference');
     const { captureProductEvent } = await import('./telemetry.client');
 
     await captureProductEvent('landing_viewed');

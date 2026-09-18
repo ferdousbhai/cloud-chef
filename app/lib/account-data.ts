@@ -3,4 +3,4 @@
  * It lives here because those two sides span the client/server boundary and the
  * phrase has to be identical on both.
  */
-export const ACCOUNT_DELETION_CONFIRMATION = 'delete my Ghostbuild account';
+export const ACCOUNT_DELETION_CONFIRMATION = 'delete my CloudChef account';

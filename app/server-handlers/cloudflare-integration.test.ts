@@ -60,7 +60,7 @@ describe('Cloudflare-only authentication', () => {
       tokenHash: 'f'.repeat(64),
       expiresAt: 2_592_000_100,
       createdAt: 100,
-      cookie: 'ghostbuild_session=opaque; HttpOnly; Secure',
+      cookie: 'cloudchef_session=opaque; HttpOnly; Secure',
     });
     mocks.createAuthSession.mockImplementation(async (_env, session) => session.cookie);
     mocks.upsertCloudflareUser.mockResolvedValue({
@@ -95,7 +95,7 @@ describe('Cloudflare-only authentication', () => {
   it('requires Cloudflare authentication for connection status', async () => {
     mocks.getAuthSession.mockResolvedValue(null);
     const response = await cloudflareConnectionStatusAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection'),
+      request: new Request('https://cloudchef.build/api/cloudflare/connection'),
       env: { DB: {} } as Env,
     });
     expect(response.status).toBe(401);
@@ -103,7 +103,7 @@ describe('Cloudflare-only authentication', () => {
 
   it('rejects runtime preparation without a same-origin browser request', async () => {
     const response = await cloudflareRuntimeSessionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/runtime-session', { method: 'POST' }),
+      request: new Request('https://cloudchef.build/api/cloudflare/runtime-session', { method: 'POST' }),
       env: { DB: {} } as Env,
     });
 
@@ -116,7 +116,7 @@ describe('Cloudflare-only authentication', () => {
     mocks.findConnection.mockResolvedValue(activeConnection());
 
     const response = await cloudflareConnectionStatusAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection'),
+      request: new Request('https://cloudchef.build/api/cloudflare/connection'),
       env: { DB: {} } as Env,
     });
 
@@ -176,7 +176,7 @@ describe('Cloudflare-only authentication', () => {
     expect(body).toEqual({
       code: 'workspace_plan_required',
       error:
-        'Cloudflare Containers requires the Workers Paid plan. Enable Workers Paid in Cloudflare, then return here and try again. Ghostbuild does not change your plan automatically.',
+        'Cloudflare Containers requires the Workers Paid plan. Enable Workers Paid in Cloudflare, then return here and try again. CloudChef does not change your plan automatically.',
       upgradeUrl: 'https://dash.cloudflare.com/?to=/:account/workers/plans',
     });
     expect(JSON.stringify(body)).not.toContain('private provider detail');
@@ -284,7 +284,7 @@ describe('Cloudflare-only authentication', () => {
     await expect(response.json()).resolves.toEqual({
       code: 'cloudflare_reauthorization_required',
       error:
-        'Ghostbuild needs updated Cloudflare permissions for this workspace. Reauthorize Cloudflare, approve the requested permissions, then try again.',
+        'CloudChef needs updated Cloudflare permissions for this workspace. Reauthorize Cloudflare, approve the requested permissions, then try again.',
     });
     expect(provision).not.toHaveBeenCalled();
   });
@@ -293,20 +293,20 @@ describe('Cloudflare-only authentication', () => {
     const database = oauthDatabase();
     const orchestrator = fakeOrchestrator();
     const response = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Origin: 'https://ghostbuild.dev',
+          Origin: 'https://cloudchef.build',
           'CF-Connecting-IP': '192.0.2.10',
         },
-        body: JSON.stringify({ callbackURL: 'https://ghostbuild.dev/create/example?tab=code' }),
+        body: JSON.stringify({ callbackURL: 'https://cloudchef.build/create/example?tab=code' }),
       }),
       env: database.env,
       orchestrator,
     });
     expect(response.status).toBe(201);
-    expect(response.headers.get('set-cookie')).toContain('ghostbuild_oauth_state=');
+    expect(response.headers.get('set-cookie')).toContain('cloudchef_oauth_state=');
     expect(response.headers.get('set-cookie')).toContain('HttpOnly');
     expect(response.headers.get('set-cookie')).toContain('SameSite=Lax');
     expect(database.limit).toHaveBeenCalledWith({ key: '192.0.2.10' });
@@ -320,7 +320,7 @@ describe('Cloudflare-only authentication', () => {
     const orchestrator = fakeOrchestrator();
     const database = oauthDatabase();
     const response = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Origin: 'https://attacker.example' },
         body: '{}',
@@ -338,11 +338,11 @@ describe('Cloudflare-only authentication', () => {
     const database = oauthDatabase({ rateLimitSuccess: false });
     const orchestrator = fakeOrchestrator();
     const response = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Origin: 'https://ghostbuild.dev',
+          Origin: 'https://cloudchef.build',
           'CF-Connecting-IP': '192.0.2.11',
         },
         body: '{not-valid-json',
@@ -362,10 +362,10 @@ describe('Cloudflare-only authentication', () => {
   it('rejects an oversized OAuth initiation before parsing or provider work', async () => {
     const orchestrator = fakeOrchestrator();
     const response = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
-        body: JSON.stringify({ callbackURL: `https://ghostbuild.dev/${'a'.repeat(5_000)}` }),
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
+        body: JSON.stringify({ callbackURL: `https://cloudchef.build/${'a'.repeat(5_000)}` }),
       }),
       env: oauthDatabase().env,
       orchestrator,
@@ -378,9 +378,9 @@ describe('Cloudflare-only authentication', () => {
   it('classifies an invalid OAuth initiation payload as a client request error', async () => {
     const orchestrator = fakeOrchestrator();
     const response = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: JSON.stringify({ callbackURL: 'not-a-url' }),
       }),
       env: oauthDatabase().env,
@@ -394,10 +394,10 @@ describe('Cloudflare-only authentication', () => {
   it('rejects a same-origin callback path that would resolve as a scheme-relative redirect', async () => {
     const database = oauthDatabase();
     const response = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
-        body: JSON.stringify({ callbackURL: 'https://ghostbuild.dev//attacker.example/landing' }),
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
+        body: JSON.stringify({ callbackURL: 'https://cloudchef.build//attacker.example/landing' }),
       }),
       env: database.env,
       orchestrator: fakeOrchestrator(),
@@ -410,9 +410,9 @@ describe('Cloudflare-only authentication', () => {
   it('revalidates a persisted return path before constructing the completion redirect', async () => {
     const database = oauthDatabase();
     const start = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: '{}',
       }),
       env: database.env,
@@ -422,7 +422,7 @@ describe('Cloudflare-only authentication', () => {
     const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
 
     const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${database.state!.id}&code=code-1`, {
+      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
         headers: { cookie: stateCookie },
       }),
       env: database.env,
@@ -430,16 +430,16 @@ describe('Cloudflare-only authentication', () => {
     });
 
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe('https://ghostbuild.dev/');
+    expect(response.headers.get('location')).toBe('https://cloudchef.build/');
   });
 
   it('completes OAuth, activates the selected account, and creates the app session', async () => {
     const database = oauthDatabase();
     const start = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
-        body: JSON.stringify({ callbackURL: 'https://ghostbuild.dev/settings' }),
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
+        body: JSON.stringify({ callbackURL: 'https://cloudchef.build/settings' }),
       }),
       env: database.env,
       orchestrator: fakeOrchestrator(),
@@ -448,7 +448,7 @@ describe('Cloudflare-only authentication', () => {
     const state = database.state!.id;
     const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
     const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${state}&code=code-1`, {
+      request: new Request(`https://cloudchef.build/connect/return?state=${state}&code=code-1`, {
         headers: { cookie: stateCookie },
       }),
       env: database.env,
@@ -456,8 +456,8 @@ describe('Cloudflare-only authentication', () => {
     });
 
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe('https://ghostbuild.dev/settings');
-    expect(response.headers.get('set-cookie')).toContain('ghostbuild_session=opaque');
+    expect(response.headers.get('location')).toBe('https://cloudchef.build/settings');
+    expect(response.headers.get('set-cookie')).toContain('cloudchef_session=opaque');
     expect(mocks.upsertCloudflareUser).toHaveBeenCalledWith(
       database.env.DB,
       expect.objectContaining({ subject: 'cf-user-1', email: 'person@example.com' }),
@@ -479,7 +479,7 @@ describe('Cloudflare-only authentication', () => {
     expect(database.state?.status).toBe('completed');
 
     const replay = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${state}&code=code-1`, {
+      request: new Request(`https://cloudchef.build/connect/return?state=${state}&code=code-1`, {
         headers: { cookie: stateCookie },
       }),
       env: database.env,
@@ -492,16 +492,16 @@ describe('Cloudflare-only authentication', () => {
     const database = oauthDatabase();
     const orchestrator = fakeOrchestrator();
     const start = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
-        body: JSON.stringify({ callbackURL: 'https://ghostbuild.dev/chat/project?panel=code#preview' }),
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
+        body: JSON.stringify({ callbackURL: 'https://cloudchef.build/chat/project?panel=code#preview' }),
       }),
       env: database.env,
       orchestrator,
     });
     const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
-    const callback = new URL('https://ghostbuild.dev/connect/return');
+    const callback = new URL('https://cloudchef.build/connect/return');
     callback.searchParams.set('state', database.state!.id);
     callback.searchParams.set('error', 'invalid_scope');
     callback.searchParams.set('error_description', '<script>steal()</script>');
@@ -514,10 +514,10 @@ describe('Cloudflare-only authentication', () => {
 
     expect(response.status).toBe(303);
     expect(response.headers.get('location')).toBe(
-      'https://ghostbuild.dev/settings?continue=%2Fchat%2Fproject%3Fpanel%3Dcode%23preview&cloudflare_authorization=failed#cloudflare',
+      'https://cloudchef.build/settings?continue=%2Fchat%2Fproject%3Fpanel%3Dcode%23preview&cloudflare_authorization=failed#cloudflare',
     );
     expect(response.headers.get('location')).not.toContain('script');
-    expect(response.headers.get('set-cookie')).toContain('ghostbuild_oauth_state=');
+    expect(response.headers.get('set-cookie')).toContain('cloudchef_oauth_state=');
     expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
     expect(database.state?.status).toBe('error');
     expect(orchestrator.completeConnection).not.toHaveBeenCalled();
@@ -528,9 +528,9 @@ describe('Cloudflare-only authentication', () => {
     const database = oauthDatabase();
     const orchestrator = fakeOrchestrator();
     await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: '{}',
       }),
       env: database.env,
@@ -538,7 +538,7 @@ describe('Cloudflare-only authentication', () => {
     });
 
     const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${database.state!.id}&error=access_denied`),
+      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&error=access_denied`),
       env: database.env,
       orchestrator,
     });
@@ -555,9 +555,9 @@ describe('Cloudflare-only authentication', () => {
     const database = oauthDatabase({ providerErrorAfterCommit: new Error('D1 acknowledgement lost') });
     const orchestrator = fakeOrchestrator();
     const start = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: '{}',
       }),
       env: database.env,
@@ -566,7 +566,7 @@ describe('Cloudflare-only authentication', () => {
     const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
 
     const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${database.state!.id}&error=access_denied`, {
+      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&error=access_denied`, {
         headers: { cookie: stateCookie },
       }),
       env: database.env,
@@ -582,9 +582,9 @@ describe('Cloudflare-only authentication', () => {
     const database = oauthDatabase();
     const orchestrator = fakeOrchestrator();
     const start = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: '{}',
       }),
       env: database.env,
@@ -594,7 +594,7 @@ describe('Cloudflare-only authentication', () => {
 
     const response = await completeCloudflareConnectionAction({
       request: new Request(
-        `https://ghostbuild.dev/connect/return?state=${database.state!.id}&code=${'a'.repeat(4_097)}`,
+        `https://cloudchef.build/connect/return?state=${database.state!.id}&code=${'a'.repeat(4_097)}`,
         { headers: { cookie: stateCookie } },
       ),
       env: database.env,
@@ -613,9 +613,9 @@ describe('Cloudflare-only authentication', () => {
     });
     const orchestrator = fakeOrchestrator();
     const start = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: '{}',
       }),
       env: database.env,
@@ -624,7 +624,7 @@ describe('Cloudflare-only authentication', () => {
     const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
 
     const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${database.state!.id}&code=code-1`, {
+      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
         headers: { cookie: stateCookie },
       }),
       env: database.env,
@@ -644,9 +644,9 @@ describe('Cloudflare-only authentication', () => {
     });
     const orchestrator = fakeOrchestrator();
     const start = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: '{}',
       }),
       env: database.env,
@@ -655,7 +655,7 @@ describe('Cloudflare-only authentication', () => {
     const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
 
     const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${database.state!.id}&code=code-1`, {
+      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
         headers: { cookie: stateCookie },
       }),
       env: database.env,
@@ -675,9 +675,9 @@ describe('Cloudflare-only authentication', () => {
     });
     const orchestrator = fakeOrchestrator();
     const start = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: '{}',
       }),
       env: database.env,
@@ -686,7 +686,7 @@ describe('Cloudflare-only authentication', () => {
     const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
 
     const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${database.state!.id}&code=code-1`, {
+      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
         headers: { cookie: stateCookie },
       }),
       env: database.env,
@@ -706,9 +706,9 @@ describe('Cloudflare-only authentication', () => {
     });
     const orchestrator = fakeOrchestrator();
     const start = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: '{}',
       }),
       env: database.env,
@@ -717,7 +717,7 @@ describe('Cloudflare-only authentication', () => {
     const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
 
     const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${database.state!.id}&code=code-1`, {
+      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
         headers: { cookie: stateCookie },
       }),
       env: database.env,
@@ -751,9 +751,9 @@ describe('Cloudflare-only authentication', () => {
       generation: 1,
     });
     const start = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: '{}',
       }),
       env: database.env,
@@ -763,7 +763,7 @@ describe('Cloudflare-only authentication', () => {
     mocks.createAuthSession.mockRejectedValueOnce(new Error('session persistence failed'));
 
     const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${database.state!.id}&code=code-1`, {
+      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
         headers: { cookie: stateCookie },
       }),
       env: database.env,
@@ -777,7 +777,7 @@ describe('Cloudflare-only authentication', () => {
     expect(orchestrator.completeConnection).toHaveBeenCalledTimes(1);
 
     const retry = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${database.state!.id}&code=code-1`, {
+      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
         headers: { cookie: stateCookie },
       }),
       env: database.env,
@@ -793,9 +793,9 @@ describe('Cloudflare-only authentication', () => {
   it('rejects a callback that was not initiated by the same browser', async () => {
     const database = oauthDatabase();
     await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: '{}',
       }),
       env: database.env,
@@ -804,7 +804,7 @@ describe('Cloudflare-only authentication', () => {
     const state = database.state!.id;
 
     const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${state}&code=code-1`),
+      request: new Request(`https://cloudchef.build/connect/return?state=${state}&code=code-1`),
       env: database.env,
       orchestrator: fakeOrchestrator(),
     });
@@ -817,9 +817,9 @@ describe('Cloudflare-only authentication', () => {
   it('fails a competing callback and cleans up only through a reference-aware credential delete', async () => {
     const database = oauthDatabase();
     const start = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: '{}',
       }),
       env: database.env,
@@ -849,7 +849,7 @@ describe('Cloudflare-only authentication', () => {
     mocks.activateConnection.mockRejectedValueOnce(new mocks.CloudflareConnectionChangedError());
 
     const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${state}&code=code-1`, {
+      request: new Request(`https://cloudchef.build/connect/return?state=${state}&code=code-1`, {
         headers: { cookie: stateCookie },
       }),
       env: database.env,
@@ -867,9 +867,9 @@ describe('Cloudflare-only authentication', () => {
   it('adopts an equivalent concurrent connection winner after a raced user callback', async () => {
     const database = oauthDatabase();
     const start = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: '{}',
       }),
       env: database.env,
@@ -902,7 +902,7 @@ describe('Cloudflare-only authentication', () => {
     mocks.activateConnection.mockRejectedValueOnce(new mocks.CloudflareConnectionChangedError());
 
     const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${database.state!.id}&code=code-1`, {
+      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
         headers: { cookie: stateCookie },
       }),
       env: database.env,
@@ -919,9 +919,9 @@ describe('Cloudflare-only authentication', () => {
   it('cleans up a superseded callback credential only after the new handle is active', async () => {
     const database = oauthDatabase();
     const start = await startCloudflareConnectionAction({
-      request: new Request('https://ghostbuild.dev/api/cloudflare/connection/start', {
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://ghostbuild.dev' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
         body: '{}',
       }),
       env: database.env,
@@ -948,7 +948,7 @@ describe('Cloudflare-only authentication', () => {
     });
 
     const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://ghostbuild.dev/connect/return?state=${database.state!.id}&code=code-1`, {
+      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
         headers: { cookie: stateCookie },
       }),
       env: database.env,
@@ -998,7 +998,7 @@ function runtimeRow(
     user_id: 'user-1',
     connection_id: 'connection-1',
     connection_generation: overrides.connectionGeneration ?? 1,
-    worker_name: 'ghostbuild-workspace-test',
+    worker_name: 'cloudchef-workspace-test',
     endpoint: 'https://workspace.example',
     runtime_version: overrides.runtimeVersion ?? USER_WORKSPACE_RUNTIME_SHA256,
     image_digest: overrides.imageDigest === undefined ? USER_WORKSPACE_SANDBOX_BASE_IMAGE : overrides.imageDigest,
@@ -1008,9 +1008,9 @@ function runtimeRow(
 }
 
 function runtimeSessionRequest() {
-  return new Request('https://ghostbuild.dev/api/cloudflare/runtime-session', {
+  return new Request('https://cloudchef.build/api/cloudflare/runtime-session', {
     method: 'POST',
-    headers: { Origin: 'https://ghostbuild.dev' },
+    headers: { Origin: 'https://cloudchef.build' },
   });
 }
 

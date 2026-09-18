@@ -170,7 +170,7 @@ export class CloudflareOAuthOrchestrator implements CloudflareOrchestrator {
     const accountsPayload = accountsSchema.safeParse(await accountsResponse.json().catch(() => null)).data;
     const accounts = accountsPayload?.result ?? [];
     if (!accountsResponse.ok || accountsPayload?.success !== true || accounts.length !== 1) {
-      throw new CloudflareOAuthError('Select exactly one Cloudflare account when authorizing Ghostbuild.');
+      throw new CloudflareOAuthError('Select exactly one Cloudflare account when authorizing CloudChef.');
     }
     const account = accounts[0];
     if (!account.id) {
@@ -215,7 +215,7 @@ function resolveGrantedScopes(reported: string | undefined, requestedScopes: str
   const parsed = parseReportedOAuthScopes(reported);
   if ('unknownScopes' in parsed) {
     throw new CloudflareOAuthError(
-      `Cloudflare granted permissions Ghostbuild does not recognize: ${parsed.unknownScopes.join(', ')}.`,
+      `Cloudflare granted permissions CloudChef does not recognize: ${parsed.unknownScopes.join(', ')}.`,
     );
   }
   const missingCore = missingCoreOAuthScopes(parsed.granted);

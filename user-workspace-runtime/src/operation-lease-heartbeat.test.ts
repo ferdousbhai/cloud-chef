@@ -173,7 +173,7 @@ class TestStorage {
       if (normalized.startsWith('SELECT owner')) {
         return [{ ...this.row }] as T[];
       }
-      if (normalized.startsWith('UPDATE ghostbuild_operation_lane SET owner = ?')) {
+      if (normalized.startsWith('UPDATE cloudchef_operation_lane SET owner = ?')) {
         this.row = {
           owner: String(bindings[0]),
           idempotency_key: String(bindings[1]),
@@ -181,11 +181,11 @@ class TestStorage {
           acquired_at: Number(bindings[3]),
           deadline: Number(bindings[4]),
         };
-      } else if (normalized.startsWith('UPDATE ghostbuild_operation_lane SET owner = NULL')) {
+      } else if (normalized.startsWith('UPDATE cloudchef_operation_lane SET owner = NULL')) {
         if (this.row.owner === bindings[0]) {
           this.row = { ...this.row, owner: null, idempotency_key: null, kind: null, acquired_at: null, deadline: null };
         }
-      } else if (normalized.startsWith('UPDATE ghostbuild_operation_lane SET deadline = ?')) {
+      } else if (normalized.startsWith('UPDATE cloudchef_operation_lane SET deadline = ?')) {
         if (this.row.owner === bindings[1] && this.row.idempotency_key === bindings[2]) {
           this.row = { ...this.row, deadline: Number(bindings[0]) };
         }

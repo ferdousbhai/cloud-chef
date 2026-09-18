@@ -42,22 +42,22 @@ type WorkspacePreparationFailure = {
 };
 
 export const CLOUDFLARE_CONNECTION_CALLBACK_METHOD = 'GET' as const;
-const OAUTH_STATE_COOKIE = 'ghostbuild_oauth_state';
+const OAUTH_STATE_COOKIE = 'cloudchef_oauth_state';
 const OAUTH_STATE_COOKIE_MAX_AGE_SECONDS = 10 * 60;
 const OAUTH_START_RATE_LIMIT_RETRY_SECONDS = 60;
 const MAX_OAUTH_START_REQUEST_BYTES = 4 * 1024;
 const MAX_OAUTH_CALLBACK_CODE_LENGTH = 4_096;
 const MAX_OAUTH_CALLBACK_TEXT_LENGTH = 2_048;
 const AI_GATEWAY_CREDIT_CHECK_TIMEOUT_MS = 5_000;
-const RUNTIME_PROVISIONING_RETRY_HEADER = 'Ghostbuild-Runtime-Provisioning-Retry';
+const RUNTIME_PROVISIONING_RETRY_HEADER = 'CloudChef-Runtime-Provisioning-Retry';
 const WORKSPACE_PLAN_REQUIRED_MESSAGE =
-  'Cloudflare Containers requires the Workers Paid plan. Enable Workers Paid in Cloudflare, then return here and try again. Ghostbuild does not change your plan automatically.';
+  'Cloudflare Containers requires the Workers Paid plan. Enable Workers Paid in Cloudflare, then return here and try again. CloudChef does not change your plan automatically.';
 const WORKSPACE_PREPARATION_FAILED_MESSAGE =
   'Cloudflare could not create your workspace. Check the Workers settings for this Cloudflare account, then try again.';
 const WORKSPACE_ELIGIBILITY_UNKNOWN_MESSAGE =
-  'Ghostbuild could not reach Cloudflare to confirm that this account can run Containers, so it did not start creating your workspace. Nothing changed in your Cloudflare account. Try again in a moment.';
+  'CloudChef could not reach Cloudflare to confirm that this account can run Containers, so it did not start creating your workspace. Nothing changed in your Cloudflare account. Try again in a moment.';
 const CLOUDFLARE_REAUTHORIZATION_REQUIRED_MESSAGE =
-  'Ghostbuild needs updated Cloudflare permissions for this workspace. Reauthorize Cloudflare, approve the requested permissions, then try again.';
+  'CloudChef needs updated Cloudflare permissions for this workspace. Reauthorize Cloudflare, approve the requested permissions, then try again.';
 const startPayloadSchema = z.object({ callbackURL: z.string().url().max(2_048).optional() });
 const callbackPayloadSchema = z
   .object({
@@ -183,7 +183,7 @@ export async function cloudflareRuntimeSessionAction({
     return Response.json(
       {
         code: 'workspace_preparing',
-        error: 'Ghostbuild is still preparing your workspace.',
+        error: 'CloudChef is still preparing your workspace.',
       },
       {
         status: 409,

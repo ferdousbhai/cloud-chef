@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { UIMessage } from 'ai';
-import { MAX_USER_MESSAGE_CHARACTERS } from 'ghostbuild-agent/context-limits';
+import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import {
   boundBuilderMessageForPersistence,
   loadBuilderTranscriptBinding,

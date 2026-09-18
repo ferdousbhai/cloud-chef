@@ -60,7 +60,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     });
     mocks.accountApi.previewManagedWorker.mockResolvedValue({
       workerVersionId: '22222222-2222-4222-8222-222222222222',
-      previewUrl: 'https://22222222-ghostbuild-deployment-1.user-subdomain.workers.dev',
+      previewUrl: 'https://22222222-cloudchef-deployment-1.user-subdomain.workers.dev',
     });
     mocks.findDeploymentResource.mockResolvedValue(null);
     mocks.accountApi.configureManagedWorkerSchedule.mockResolvedValue(undefined);
@@ -168,7 +168,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
         type: 'worker',
         bindings: { ai: false, d1: false, r2: false, kv: false, appAgent: false },
       },
-      resources: [{ type: 'worker', logicalName: 'app', proposedName: 'ghostbuild-deployment-1' }],
+      resources: [{ type: 'worker', logicalName: 'app', proposedName: 'cloudchef-deployment-1' }],
     };
     const deployment = {
       id: 'deployment-1',
@@ -232,13 +232,13 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     await executeUserOwnedDeployment({
       env: {
         DB: {} as D1Database,
-        GHOSTBUILD_USER_RUNTIME: '1',
-        GHOSTBUILD_CONTROL_PLANE_ENDPOINT: 'https://ghostbuild.dev',
+        CLOUDCHEF_USER_RUNTIME: '1',
+        CLOUDCHEF_CONTROL_PLANE_ENDPOINT: 'https://cloudchef.build',
         CONTROL_PLANE_SECRET: 'runtime-secret-that-is-long-enough',
         CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
-        GHOSTBUILD_USER_ID: 'user-1',
-        GHOSTBUILD_CONNECTION_ID: 'connection-1',
-        GHOSTBUILD_CONNECTION_GENERATION: '3',
+        CLOUDCHEF_USER_ID: 'user-1',
+        CLOUDCHEF_CONNECTION_ID: 'connection-1',
+        CLOUDCHEF_CONNECTION_GENERATION: '3',
         PROJECT_WORKSPACE: projectNamespace,
       } as unknown as Env,
       deploymentId: 'deployment-1',
@@ -252,7 +252,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     const projectInput = prepareDeploymentArtifact.mock.calls[0]?.[0];
     expect(projectInput).toMatchObject({
       revision,
-      workerName: 'ghostbuild-deployment-1',
+      workerName: 'cloudchef-deployment-1',
       projectType: 'worker',
       sessionId: 'deployment-1:4',
     });
@@ -266,7 +266,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     );
     expect(request).toHaveBeenCalledTimes(2);
     expect(
-      request.mock.calls.every(([url]) => url === 'https://ghostbuild.dev/api/cloudflare/runtime-credential'),
+      request.mock.calls.every(([url]) => url === 'https://cloudchef.build/api/cloudflare/runtime-credential'),
     ).toBe(true);
     expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toMatchObject({ forceRefresh: false });
     expect(beginDeploymentSession).toHaveBeenCalledWith({
@@ -295,18 +295,18 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
         bindings: { ai: false, d1: true, r2: false, kv: false, appAgent: true },
       },
       resources: [
-        { type: 'worker', logicalName: 'app', proposedName: 'ghostbuild-deployment-1' },
-        { type: 'd1', logicalName: 'DB', proposedName: 'ghostbuild-deployment-1' },
-        { type: 'd1', logicalName: 'DB_PREVIEW', proposedName: 'ghostbuild-deployment-1-preview' },
+        { type: 'worker', logicalName: 'app', proposedName: 'cloudchef-deployment-1' },
+        { type: 'd1', logicalName: 'DB', proposedName: 'cloudchef-deployment-1' },
+        { type: 'd1', logicalName: 'DB_PREVIEW', proposedName: 'cloudchef-deployment-1-preview' },
         {
           type: 'd1',
           logicalName: 'AGENT_SECURITY_DB',
-          proposedName: 'ghostbuild-deployment-1-agent-security',
+          proposedName: 'cloudchef-deployment-1-agent-security',
         },
         {
           type: 'd1',
           logicalName: 'AGENT_SECURITY_DB_PREVIEW',
-          proposedName: 'ghostbuild-deployment-1-preview-agent',
+          proposedName: 'cloudchef-deployment-1-preview-agent',
         },
         { type: 'durable_object', logicalName: 'AppAgent', proposedName: 'AppAgent' },
       ],
@@ -362,8 +362,8 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     mocks.requireDeployment.mockResolvedValue(deployment);
     mocks.accountApi.ensureD1ForPlan.mockImplementation(async (_plan, logicalName) =>
       logicalName === 'AGENT_SECURITY_DB_PREVIEW'
-        ? { id: 'preview-agent-database-id', name: 'ghostbuild-deployment-1-preview-agent' }
-        : { id: 'preview-database-id', name: 'ghostbuild-deployment-1-preview' },
+        ? { id: 'preview-agent-database-id', name: 'cloudchef-deployment-1-preview-agent' }
+        : { id: 'preview-database-id', name: 'cloudchef-deployment-1-preview' },
     );
     const request = vi
       .fn<typeof fetch>()
@@ -373,13 +373,13 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     // SAFETY: this test double supplies every user-runtime binding read by the preview executor.
     const previewEnv = Object.assign({} as Env, {
       DB: {},
-      GHOSTBUILD_USER_RUNTIME: '1',
-      GHOSTBUILD_CONTROL_PLANE_ENDPOINT: 'https://ghostbuild.dev',
+      CLOUDCHEF_USER_RUNTIME: '1',
+      CLOUDCHEF_CONTROL_PLANE_ENDPOINT: 'https://cloudchef.build',
       CONTROL_PLANE_SECRET: 'runtime-secret-that-is-long-enough',
       CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
-      GHOSTBUILD_USER_ID: 'user-1',
-      GHOSTBUILD_CONNECTION_ID: 'connection-1',
-      GHOSTBUILD_CONNECTION_GENERATION: '3',
+      CLOUDCHEF_USER_ID: 'user-1',
+      CLOUDCHEF_CONNECTION_ID: 'connection-1',
+      CLOUDCHEF_CONNECTION_GENERATION: '3',
       PROJECT_WORKSPACE: projectNamespace,
     });
 
@@ -407,9 +407,9 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
       expect.objectContaining({
         operationId: 'preview:deployment-1:4:preview-1',
         d1DatabaseId: 'preview-database-id',
-        d1DatabaseName: 'ghostbuild-deployment-1-preview',
+        d1DatabaseName: 'cloudchef-deployment-1-preview',
         agentSecurityD1DatabaseId: 'preview-agent-database-id',
-        agentSecurityD1DatabaseName: 'ghostbuild-deployment-1-preview-agent',
+        agentSecurityD1DatabaseName: 'cloudchef-deployment-1-preview-agent',
       }),
     );
     expect(mocks.accountApi.applyD1Migrations).toHaveBeenCalledWith('preview-database-id', [

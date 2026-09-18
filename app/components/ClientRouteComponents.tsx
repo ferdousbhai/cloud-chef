@@ -69,11 +69,11 @@ export const ClientTelemetryPreference = createClientComponent<EmptyProps>(getCl
 
 function HeaderLoadingFallback() {
   return (
-    <header className="ghostbuild-header flex h-[var(--header-height)] items-center border-b px-3 py-1.5 sm:px-5 sm:py-3">
+    <header className="cloudchef-header flex h-[var(--header-height)] items-center border-b px-3 py-1.5 sm:px-5 sm:py-3">
       <BrandLink
         variant="header"
         className="flex items-center gap-2 rounded-md text-content-primary no-underline"
-        nameClassName="ghostbuild-brand-name font-display text-lg font-black leading-none text-content-primary"
+        nameClassName="cloudchef-brand-name font-display text-lg font-black leading-none text-content-primary"
       />
       <span className="sr-only" role="status">
         Loading navigation…

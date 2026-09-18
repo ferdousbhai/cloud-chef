@@ -101,7 +101,7 @@ export function PromptRefinementDialog({
           </div>
         </div>
       }
-      description="Answer the product decisions that materially affect the app. Ghostbuild will use the complete batch to prepare a final brief for review before building."
+      description="Answer the product decisions that materially affect the app. CloudChef will use the complete batch to prepare a final brief for review before building."
     >
       <form onSubmit={continueOrSubmit}>
         <section aria-labelledby={`prompt-refinement-${question.id}`}>

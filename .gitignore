@@ -15,7 +15,7 @@ playwright-report/
 test-results/
 /playwright/.auth/
 .tanstack
-ghostbuild-system-prompts.txt
+cloudchef-system-prompts.txt
 *.local
 
 .vscode/*
@@ -47,7 +47,7 @@ app/agents/builder-template.generated.ts
 app/generated/*.generated.ts
 
 # Owner-controlled upstream Agent Skills are published to R2 and never bundled from Git.
-.ghostbuild/docs/
+.cloudchef/docs/
 
 package-lock.json
 vite.config.ts.timestamp-*.mjs
@@ -61,4 +61,4 @@ vite.config.ts.timestamp-*.mjs
 user-workspace-container/.build/
 
 # Temporary project trees the production-build security tests create in the repository root.
-.ghostbuild-runtime-security-*
+.cloudchef-runtime-security-*

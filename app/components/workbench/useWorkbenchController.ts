@@ -1,7 +1,7 @@
 import { useStore } from '@nanostores/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getAbsolutePath } from 'ghostbuild-agent/utils/workDir';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import { getAbsolutePath } from 'cloudchef-agent/utils/workDir';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { toast } from 'sonner';
 import type {
   OnChangeCallback as OnEditorChange,

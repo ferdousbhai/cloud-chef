@@ -18,12 +18,12 @@ Lower layers receive narrow capabilities instead of importing application-wide s
 
 ## Account Boundary
 
-Ghostbuild is a control plane, not the host for customer projects. Its Worker and D1 retain identity, encrypted
+CloudChef is a control plane, not the host for customer projects. Its Worker and D1 retain identity, encrypted
 Cloudflare authorization, authentication state, connection metadata, runtime locators, and privacy-filtered operational
 events. The root deployment has no Container or application Durable Object binding. Its one Workflow binding durably
 provisions user-owned workspace runtimes without holding the browser's runtime-session request open.
 
-It holds exactly one R2 bucket, and only for a build artifact Ghostbuild itself publishes: the OCI blobs of the user
+It holds exactly one R2 bucket, and only for a build artifact CloudChef itself publishes: the OCI blobs of the user
 workspace container image. Cloudflare's registry is account-scoped — repository names are `<account_id>/<image>`,
 anonymous reads are refused on every path, and there is no shared namespace or server-side copy API — so the image has
 to be pushed into each user's own registry by a client, and that client needs somewhere to read the bytes from. No
@@ -41,7 +41,7 @@ requires them. Cloudflare meters those resources to the user's account.
 
 | State                                                                                             | Authoritative owner                                  |
 | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Identity, OAuth credentials, sessions, connection metadata, runtime locators                      | Ghostbuild control-plane D1                          |
+| Identity, OAuth credentials, sessions, connection metadata, runtime locators                      | CloudChef control-plane D1                           |
 | Chat catalog, transcript identity, deployment plans and resources, Agent garbage-collection queue | User workspace D1                                    |
 | Agent messages, turn state, compaction, and resumable execution                                   | User-owned `BuilderAgent` DO SQLite                  |
 | Project bytes, numeric revision, change index, tool journal, and validation receipts              | User-owned `ProjectWorkspace` Computer VFS/DO SQLite |
@@ -90,7 +90,7 @@ duplicate project blob in the control plane.
 
 The model receives six workspace primitives, split by what they cost. `read`, `ls`, and `grep` are answered from the
 Durable Object's SQLite VFS alone; `write`, `edit`, and `exec` change the project or run in its Container. `write` and
-`exec` adapt the reviewed `@cloudflare/computer/tools` contracts; Ghostbuild's `read` returns numbered lines with a
+`exec` adapt the reviewed `@cloudflare/computer/tools` contracts; CloudChef's `read` returns numbered lines with a
 compact tag bound to the full file SHA-256, and `edit` applies non-overlapping line operations only when that exact
 snapshot is still current.
 
@@ -111,7 +111,7 @@ Reference guidance is retrieved rather than mirrored. Cloudflare's own documenta
 `search_cloudflare_docs` tool, one stateless request to the public `docs.mcp.cloudflare.com` endpoint that returns
 ranked excerpts with their source URLs; a full page is read by appending `/index.md` to any documentation URL.
 Framework references are read from the packages the project itself installed, so they always match the version it
-builds against. The one skill Ghostbuild maintains ships in this repository and is bundled into the Worker, exposed
+builds against. The one skill CloudChef maintains ships in this repository and is bundled into the Worker, exposed
 through the existing `read` tool under `/__skills__/<skill>/`; no activation or separate resource-reader tool is
 added. That namespace is a read-only control-plane overlay: it never enters the project VFS, revision, or deployment
 artifact, project files cannot shadow it, and it never appears in `ls` or `grep`, which are asked only about the
@@ -125,7 +125,7 @@ compare-and-swap against the numeric revision the browser loaded; a conflict ref
 overwrites newer state. TanStack DB collections are in-memory presentation caches rebuilt from the user runtime. The
 browser has no second SQLite or OPFS copy of chats, transcripts, or workspace files.
 
-The user workspace is a separate workspace package, `@ghostbuild/user-workspace-runtime`. Its `./protocol` export is
+The user workspace is a separate workspace package, `@cloudchef/user-workspace-runtime`. Its `./protocol` export is
 the only shared source for sync limits, request/result types, preview results, and readiness contracts. The runtime owns
 the `ProjectWorkspace` implementation; `computer-sandbox.ts` contains the Cloudflare Computer/Sandbox adapter and
 container-process lifecycle. Browser, control-plane, and Agent code import the protocol instead of reaching into that
@@ -166,7 +166,7 @@ OAuth credentials and control-plane secrets never enter generated project proces
 Deployment state and resource intent are recorded in the user workspace D1. Execution verifies that Computer's current
 content checkpoint still matches the validated revision, reuses the revision-keyed validation artifact, provisions the
 requested resources through the user's Cloudflare API authorization, applies migrations, uploads an immutable Worker
-version, and promotes that exact version. Ghostbuild stores no deployment archive outside the user-owned runtime's
+version, and promotes that exact version. CloudChef stores no deployment archive outside the user-owned runtime's
 recoverable artifact cache.
 
 The deployment executor derives resource names and security-sensitive configuration on the server. It records managed
@@ -176,7 +176,7 @@ Ambiguous publish outcomes remain visible for owner review rather than being sil
 The workspace Worker never stores the user's OAuth access token as a binding. At deployment time it exchanges its
 derived, generation-specific runtime secret at the control plane for a freshly resolved token. The broker rechecks the
 active user, connection, generation, and credential handle; returns `Cache-Control: no-store`; and never follows an
-alternate origin. Production pins that broker to `https://ghostbuild.dev` in
+alternate origin. Production pins that broker to `https://cloudchef.build` in
 `user-workspace-runtime-policy.ts`. An open-source fork must change that constant to its own HTTPS control-plane origin,
 regenerate the user runtime, and re-provision existing user runtimes. Redirecting the configured endpoint is
 intentionally unsupported because it would disclose the runtime secret.
@@ -202,21 +202,21 @@ verification consume that same data rather than maintaining separate security ov
 
 ## Cloudflare Computer Dependency
 
-Ghostbuild intentionally pins `@cloudflare/computer` to `0.2.1`. Cloudflare labels this release preview-only, describes
+CloudChef intentionally pins `@cloudflare/computer` to `0.2.1`. Cloudflare labels this release preview-only, describes
 its API as unstable, and says it is not suitable for production use. The repository therefore treats every upgrade as
 an architecture review: tests pin the installed version, tool names, complete AI SDK input schemas, result fields used by
 the build lifecycle, read-only behavior, backend selector, and backend capability description. Tool configuration
 explicitly disables Computer's optional `publish` capability and pins the reviewed default limits: 10,000 lines or 1
 MiB per read, 2 MiB per write/edit, and 256 KiB for each exec output stream. These gates detect drift; they cannot turn a
 preview dependency into a stable production contract. Computer 0.2.1's published write executor does not forward `ToolExecutionOptions.abortSignal`, so an in-flight vendor
-write still relies on the workspace runtime's bounded operation. Ghostbuild's custom streamed `exec` adapter does forward
+write still relies on the workspace runtime's bounded operation. CloudChef's custom streamed `exec` adapter does forward
 cancellation to its Container process.
 
 ## Model Context and Prefix Caching
 
 The browser sends open, recently used, and locally modified file context as a bounded turn attachment. The server adds
 that attachment only to the current model view; it never persists the generated context as a transcript message.
-Ghostbuild derives compaction thresholds from the selected model window while reserving its full output budget. It
+CloudChef derives compaction thresholds from the selected model window while reserving its full output budget. It
 summarizes old turns into a branch-anchored checkpoint, retains about 20K recent tokens, and leaves the authoritative
 transcript unchanged. Long tool loops can also compact their in-memory Pi context before another model step; an invisible
 provider context-overflow response is compacted and retried once. After the response is durably persisted, the existing
@@ -230,15 +230,15 @@ Pi's one-at-a-time, persistence-before-delivery steering queue or a continuation
 when steering is pending. Replacing Pi would therefore remove a tested runtime behavior or require another custom loop,
 which would not simplify this architecture. The parity review is recorded in `scripts/evaluations/DECISIONS.md`.
 
-Workers AI prefix caching is automatic for supported models. Ghostbuild sends an opaque, stable session-affinity value
+Workers AI prefix caching is automatic for supported models. CloudChef sends an opaque, stable session-affinity value
 per transcript generation through either the REST header or binding `extraHeaders`, keeps system instructions at the
 front of the prompt, and leaves dynamic project context in the latest user turn. Cache availability never changes the model-visible input or correctness path. Finish telemetry aggregates Pi's native
 `usage.cacheRead` across model turns and reports cache hits or misses without logging prompt contents. Small historical samples observed lower affinity
-latency but reported zero cached tokens, so Ghostbuild claims no verified cached-token cost savings. The retained
+latency but reported zero cached tokens, so CloudChef claims no verified cached-token cost savings. The retained
 decision record is `scripts/evaluations/DECISIONS.md`.
 
 ## Trust Boundaries
 
 User input, generated code, model output, and repository context are untrusted. Secrets remain in server-side
-Cloudflare bindings; generated-project actions reject secret files. Generated code never executes in the Ghostbuild
+Cloudflare bindings; generated-project actions reject secret files. Generated code never executes in the CloudChef
 control-plane Worker. Runtime capabilities are short-lived and bound to the authenticated user and browser origin.

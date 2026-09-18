@@ -2,7 +2,7 @@ import {
   TRANSCRIPT_HISTORY_FORMAT_VERSION,
   transcriptIdentitiesEqual,
   type TranscriptIdentity,
-} from 'ghostbuild-agent/transcript';
+} from 'cloudchef-agent/transcript';
 import { z } from 'zod';
 import type { BuilderAgent } from '~/agents/builder-agent';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
@@ -120,9 +120,9 @@ function getBuilderTranscriptSnapshot(
 
 function transcriptResponseHeaders(transcript: ChatTranscriptRow): Headers {
   return new Headers({
-    'X-Ghostbuild-Transcript-Agent': transcript.agent_name,
-    'X-Ghostbuild-Transcript-Generation': transcript.generation.toString(),
-    'X-Ghostbuild-Transcript-Subchat': transcript.subchat_index.toString(),
+    'X-CloudChef-Transcript-Agent': transcript.agent_name,
+    'X-CloudChef-Transcript-Generation': transcript.generation.toString(),
+    'X-CloudChef-Transcript-Subchat': transcript.subchat_index.toString(),
   });
 }
 

@@ -12,7 +12,7 @@ import {
 import { validatePreparedDeploymentArtifact, type PreparedDeploymentArtifact } from './deployment-artifact';
 import type { DeploymentProjectProfile } from './deployment-project-profile';
 import { UserCloudflareAccountApi, type ManagedWorkerVersionArgs } from './user-account-api';
-import { GHOSTBUILD_CONTROL_PLANE_ENDPOINT } from './user-workspace-runtime-policy';
+import { CLOUDCHEF_CONTROL_PLANE_ENDPOINT } from './user-workspace-runtime-policy';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 
 type UserOwnedDeploymentArgs = {
@@ -423,36 +423,36 @@ function activity(args: UserOwnedDeploymentArgs, sequence: number, message: stri
 
 export async function resolveFreshCloudflareAccessToken(
   env: {
-    GHOSTBUILD_CONTROL_PLANE_ENDPOINT?: string;
+    CLOUDCHEF_CONTROL_PLANE_ENDPOINT?: string;
     CONTROL_PLANE_SECRET?: string;
-    GHOSTBUILD_USER_ID?: string;
-    GHOSTBUILD_CONNECTION_ID?: string;
-    GHOSTBUILD_CONNECTION_GENERATION?: string;
+    CLOUDCHEF_USER_ID?: string;
+    CLOUDCHEF_CONNECTION_ID?: string;
+    CLOUDCHEF_CONNECTION_GENERATION?: string;
   },
   request: typeof fetch = fetch,
   forceRefresh = false,
 ): Promise<string> {
   if (
-    env.GHOSTBUILD_CONTROL_PLANE_ENDPOINT !== GHOSTBUILD_CONTROL_PLANE_ENDPOINT ||
+    env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT !== CLOUDCHEF_CONTROL_PLANE_ENDPOINT ||
     !env.CONTROL_PLANE_SECRET ||
-    !env.GHOSTBUILD_USER_ID ||
-    !env.GHOSTBUILD_CONNECTION_ID
+    !env.CLOUDCHEF_USER_ID ||
+    !env.CLOUDCHEF_CONNECTION_ID
   ) {
     throw new Error('Cloudflare connection is unavailable.');
   }
-  const connectionGeneration = Number(env.GHOSTBUILD_CONNECTION_GENERATION);
+  const connectionGeneration = Number(env.CLOUDCHEF_CONNECTION_GENERATION);
   if (!Number.isSafeInteger(connectionGeneration) || connectionGeneration < 1) {
     throw new Error('Cloudflare connection is unavailable.');
   }
-  const response = await request(`${GHOSTBUILD_CONTROL_PLANE_ENDPOINT}/api/cloudflare/runtime-credential`, {
+  const response = await request(`${CLOUDCHEF_CONTROL_PLANE_ENDPOINT}/api/cloudflare/runtime-credential`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`,
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      userId: env.GHOSTBUILD_USER_ID,
-      connectionId: env.GHOSTBUILD_CONNECTION_ID,
+      userId: env.CLOUDCHEF_USER_ID,
+      connectionId: env.CLOUDCHEF_CONNECTION_ID,
       connectionGeneration,
       forceRefresh,
     }),
@@ -488,11 +488,11 @@ export async function resolveFreshCloudflareAccessToken(
 
 export async function createUserAccountApi(
   env: {
-    GHOSTBUILD_CONTROL_PLANE_ENDPOINT?: string;
+    CLOUDCHEF_CONTROL_PLANE_ENDPOINT?: string;
     CONTROL_PLANE_SECRET?: string;
-    GHOSTBUILD_USER_ID?: string;
-    GHOSTBUILD_CONNECTION_ID?: string;
-    GHOSTBUILD_CONNECTION_GENERATION?: string;
+    CLOUDCHEF_USER_ID?: string;
+    CLOUDCHEF_CONNECTION_ID?: string;
+    CLOUDCHEF_CONNECTION_GENERATION?: string;
     CLOUDFLARE_ACCOUNT_ID?: string;
   },
   request: typeof fetch,
@@ -561,15 +561,15 @@ function requirePreviewExecutionIdentity(
 
 function requireUserOwnedRuntimeContext(args: UserOwnedDeploymentArgs): UserOwnedRuntimeContext {
   const runtimeEnv = args.env;
-  const connectionGeneration = Number(runtimeEnv.GHOSTBUILD_CONNECTION_GENERATION);
+  const connectionGeneration = Number(runtimeEnv.CLOUDCHEF_CONNECTION_GENERATION);
   if (
-    runtimeEnv.GHOSTBUILD_USER_RUNTIME !== '1' ||
-    runtimeEnv.GHOSTBUILD_USER_ID !== args.userId ||
-    runtimeEnv.GHOSTBUILD_CONNECTION_ID !== args.connectionId ||
+    runtimeEnv.CLOUDCHEF_USER_RUNTIME !== '1' ||
+    runtimeEnv.CLOUDCHEF_USER_ID !== args.userId ||
+    runtimeEnv.CLOUDCHEF_CONNECTION_ID !== args.connectionId ||
     !Number.isSafeInteger(connectionGeneration) ||
     connectionGeneration < 1 ||
     !runtimeEnv.CLOUDFLARE_ACCOUNT_ID ||
-    runtimeEnv.GHOSTBUILD_CONTROL_PLANE_ENDPOINT !== GHOSTBUILD_CONTROL_PLANE_ENDPOINT ||
+    runtimeEnv.CLOUDCHEF_CONTROL_PLANE_ENDPOINT !== CLOUDCHEF_CONTROL_PLANE_ENDPOINT ||
     !runtimeEnv.CONTROL_PLANE_SECRET ||
     !runtimeEnv.PROJECT_WORKSPACE
   ) {

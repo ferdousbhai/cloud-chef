@@ -19,7 +19,7 @@ beforeAll(async () => {
 
 describe('root Worker in workerd', () => {
   it('dispatches the health route with application security headers', async () => {
-    const response = await rootWorker.default.fetch('https://ghostbuild.test/api/health');
+    const response = await rootWorker.default.fetch('https://cloudchef.test/api/health');
 
     expect(response.status).toBe(200);
     expect(response.headers.has('Cross-Origin-Opener-Policy')).toBe(false);
@@ -29,7 +29,7 @@ describe('root Worker in workerd', () => {
   });
 
   it('enforces route methods and API cache policy', async () => {
-    const response = await rootWorker.default.fetch('https://ghostbuild.test/api/health', { method: 'POST' });
+    const response = await rootWorker.default.fetch('https://cloudchef.test/api/health', { method: 'POST' });
 
     expect(response.status).toBe(405);
     expect(response.headers.get('Allow')).toBe('GET');
@@ -47,7 +47,7 @@ describe('root Worker in workerd', () => {
   });
 
   it('exposes deployment metadata through the Worker entrypoint', async () => {
-    const response = await rootWorker.default.fetch('https://ghostbuild.test/api/version');
+    const response = await rootWorker.default.fetch('https://cloudchef.test/api/version');
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({

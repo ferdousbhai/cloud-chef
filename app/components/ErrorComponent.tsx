@@ -41,14 +41,14 @@ export function ErrorDisplay({ error, resetErrorBoundary }: ErrorDisplayProps) {
 
         <ExclamationTriangleIcon className="mb-4 size-7 text-[var(--gb-content-warning)]" aria-hidden />
         <h1 className="app-page-title !text-[clamp(34px,6vw,52px)]">This page could not load.</h1>
-        <p className="app-page-lede break-words">{message || 'Ghostbuild encountered an unexpected error.'}</p>
+        <p className="app-page-lede break-words">{message || 'CloudChef encountered an unexpected error.'}</p>
 
         <div className="mt-7 flex flex-wrap gap-3">
           <Button onClick={retry} icon={<ReloadIcon aria-hidden />}>
             Try again
           </Button>
           <LinkButton to="/" variant="neutral">
-            Back to Ghostbuild
+            Back to CloudChef
           </LinkButton>
         </div>
 

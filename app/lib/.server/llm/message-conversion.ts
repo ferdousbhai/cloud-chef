@@ -1,4 +1,4 @@
-import { getToolInvocation, type GhostbuildMessage, type GhostbuildToolInvocation } from 'ghostbuild-agent/ai-compat';
+import { getToolInvocation, type CloudChefMessage, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 
 export type ModelTextPart = { type: 'text'; text: string };
 
@@ -24,11 +24,11 @@ export type ModelMessage =
   | { role: 'tool'; content: ModelToolResultPart[] };
 
 /** Convert the authoritative UI transcript into the text/tool protocol consumed by Pi. */
-export function cleanupAssistantMessages(messages: GhostbuildMessage[]): ModelMessage[] {
+export function cleanupAssistantMessages(messages: CloudChefMessage[]): ModelMessage[] {
   return messages.flatMap(toModelMessages);
 }
 
-function toModelMessages(message: GhostbuildMessage): ModelMessage[] {
+function toModelMessages(message: CloudChefMessage): ModelMessage[] {
   if (message.role !== 'assistant') {
     const text = message.parts.map(partText).join('');
     return text || message.role === 'user' ? [{ role: message.role, content: text }] : [];
@@ -87,15 +87,15 @@ function toModelMessages(message: GhostbuildMessage): ModelMessage[] {
 }
 
 /** Tool-call inputs arrive as decoded JSON from the transcript; anything but an object carries no arguments. */
-function toolCallInput(input: GhostbuildToolInvocation['input']): Record<string, unknown> {
+function toolCallInput(input: CloudChefToolInvocation['input']): Record<string, unknown> {
   return isArgumentObject(input) ? input : {};
 }
 
-function isArgumentObject(value: GhostbuildToolInvocation['input']): value is Record<string, unknown> {
+function isArgumentObject(value: CloudChefToolInvocation['input']): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function partText(part: GhostbuildMessage['parts'][number]): string {
+function partText(part: CloudChefMessage['parts'][number]): string {
   return part.type === 'text' && typeof part.text === 'string' ? stripHiddenReasoning(part.text) : '';
 }
 
@@ -105,6 +105,6 @@ function isTerminalToolState(state: string): boolean {
 
 function stripHiddenReasoning(message: string): string {
   return message
-    .replace(/<div\s+class=["']__ghostbuildThought__["'][^>]*>[\s\S]*?<\/div>/gi, '')
+    .replace(/<div\s+class=["']__cloudchefThought__["'][^>]*>[\s\S]*?<\/div>/gi, '')
     .replace(/<think(?:\s[^>]*)?>[\s\S]*?<\/think>/gi, '');
 }

@@ -1,8 +1,8 @@
 import {
   getToolInvocation,
-  type GhostbuildMessage,
-  type GhostbuildPart,
-  type GhostbuildToolInvocation,
+  type CloudChefMessage,
+  type CloudChefPart,
+  type CloudChefToolInvocation,
 } from './ai-compat.js';
 
 export type PromptCharacterCounts = {
@@ -11,10 +11,7 @@ export type PromptCharacterCounts = {
   totalPromptChars: number;
 };
 
-export function calculatePromptCharacterCounts(
-  messages: GhostbuildMessage[],
-  systemPrompt = '',
-): PromptCharacterCounts {
+export function calculatePromptCharacterCounts(messages: CloudChefMessage[], systemPrompt = ''): PromptCharacterCounts {
   const currentTurnIndex = messages.at(-1)?.role === 'user' ? messages.length - 1 : -1;
   let messageHistoryChars = 0;
   let currentTurnChars = 0;
@@ -35,11 +32,11 @@ export function calculatePromptCharacterCounts(
   };
 }
 
-function messageCharacterCount(message: GhostbuildMessage): number {
+function messageCharacterCount(message: CloudChefMessage): number {
   return message.parts.reduce((total, part) => total + partCharacterCount(part), 0);
 }
 
-function partCharacterCount(part: GhostbuildPart): number {
+function partCharacterCount(part: CloudChefPart): number {
   switch (part.type) {
     case 'text':
     case 'reasoning':
@@ -63,7 +60,7 @@ function partCharacterCount(part: GhostbuildPart): number {
 }
 
 /** Only a settled tool call carries a terminal payload; in-progress states contribute nothing. */
-function terminalCharacterCount(invocation: GhostbuildToolInvocation): number {
+function terminalCharacterCount(invocation: CloudChefToolInvocation): number {
   switch (invocation.state) {
     case 'output-available':
       return stringifyLength(invocation.output);

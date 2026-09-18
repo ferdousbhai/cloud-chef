@@ -5,15 +5,15 @@ Method: read-only inspection of the Cloudflare dashboard (Manage account → OAu
 by the account operator's browser session. Nothing was changed or saved; the edit wizard
 was abandoned without touching "Save changes".
 
-## Ghostbuild OAuth client (verified live configuration)
+## CloudChef OAuth client (verified live configuration)
 
 - Client ID: `b18c394ddf1a34600f65da6f1e475873`
-- Name: Ghostbuild — Public, Verified (DNS TXT `cloudflare_oauth_client_publisher=…` present)
+- Name: CloudChef — Public, Verified (DNS TXT `cloudflare_oauth_client_publisher=…` present)
 - Response type: Code
 - Grant types: Authorization Code, Refresh Token
 - Token endpoint auth: Client Secret Basic
-- Redirect (callback) URL: `https://ghostbuild.dev/connect/return` (exactly one)
-- Client URL: `https://ghostbuild.dev`
+- Redirect (callback) URL: `https://cloudchef.build/connect/return` (exactly one)
+- Client URL: `https://cloudchef.build`
 
 ## Configured scopes (9)
 
@@ -79,15 +79,15 @@ requested permissions across 13 categories with a REQUIRED section (User Read, B
 Access) and an ADDITIONAL ACCESS section with per-category expansion and an Edit Permissions
 control - the consent UX the plan's Phase 3 copy must anticipate.
 
-## Still unverified (needs a staging consent run with the Ghostbuild client)
+## Still unverified (needs a staging consent run with the CloudChef client)
 
-1. Whether Ghostbuild's token response or callback carries the granted `scope` string once
+1. Whether CloudChef's token response or callback carries the granted `scope` string once
    optional scopes exist, and its exact contents in Full access / Read only / custom-partial
    consent modes.
 2. Authorize-URL size with the full catalog requested.
-3. A Ghostbuild-issued access token as direct bearer auth against
+3. A CloudChef-issued access token as direct bearer auth against
    `https://mcp.cloudflare.com/mcp` (the Claude Code MCP client authenticated successfully with
-   the server's own client, which proves the endpoint and flow but not Ghostbuild's token).
+   the server's own client, which proves the endpoint and flow but not CloudChef's token).
 4. Refresh behaviour and `insufficient_scope` reporting for partial grants.
 
 ## Staging consent runs (2026-08-31, ephemeral PKCE client, now deleted)
@@ -121,8 +121,8 @@ request scope 'offline_access'`. The production client already lists it (part 1)
    offline_access granted returned no refresh_token; the production confidential client does (part 1
    requires it). Nothing contradicts the manifest.
 
-Every Phase 0 open item from the 2026-08-30 report is now closed except one: a Ghostbuild-issued
+Every Phase 0 open item from the 2026-08-30 report is now closed except one: a CloudChef-issued
 token used as bearer against mcp.cloudflare.com/mcp under the real grant. The Phase 4 gateway targets
 that endpoint and the MCP server's own client authenticated there fine (proving endpoint + transport),
-but Ghostbuild's own token as bearer is currently validated only by the gateway's tests against a
+but CloudChef's own token as bearer is currently validated only by the gateway's tests against a
 mock, not yet against the live server - that verification belongs to Phase 5 integration.

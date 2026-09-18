@@ -2,7 +2,7 @@ import type { SyncRetryIntent, SyncRetryScheduler, WorkspaceRuntimeResult } from
 import {
   COMPUTER_SYNC_EXHAUSTED_ERROR_CODE,
   COMPUTER_SYNC_PENDING_ERROR_CODE,
-} from '../../ghostbuild-agent/cloudflare-computer';
+} from '../../cloudchef-agent/cloudflare-computer';
 import { first } from './sql-rows';
 
 type SyncRetryStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;

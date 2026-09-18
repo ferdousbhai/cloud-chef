@@ -38,7 +38,7 @@ describe('generated app agent security', () => {
   });
 
   test('enables the complete Agent capability idempotently', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ghostbuild-agent-capability-'));
+    const root = mkdtempSync(join(tmpdir(), 'cloudchef-agent-capability-'));
     try {
       for (const path of [
         'package.json',
@@ -120,7 +120,7 @@ describe('generated app agent security', () => {
     );
     expect(response.status).toBe(204);
     expect(response.headers.get('Set-Cookie')).toMatch(
-      /^__Host-ghostbuild_agent_session=[A-Za-z0-9_-]+; Path=\/; HttpOnly; Secure; SameSite=Strict;/,
+      /^__Host-cloudchef_agent_session=[A-Za-z0-9_-]+; Path=\/; HttpOnly; Secure; SameSite=Strict;/,
     );
     expect(db.insertedSession).toMatchObject({
       expiresAt: 604_801_000,
@@ -136,7 +136,7 @@ describe('generated app agent security', () => {
       resolveAgentSession(
         new Request('https://app.example/agent', {
           headers: {
-            Cookie: `other=value; __Host-ghostbuild_agent_session=${'a'.repeat(43)}`,
+            Cookie: `other=value; __Host-cloudchef_agent_session=${'a'.repeat(43)}`,
           },
         }),
         db.database,
@@ -153,7 +153,7 @@ describe('generated app agent security', () => {
     await expect(
       resolveAgentSession(
         new Request('https://app.example/agent', {
-          headers: { Cookie: '__Host-ghostbuild_agent_session=short' },
+          headers: { Cookie: '__Host-cloudchef_agent_session=short' },
         }),
         db.database,
       ),

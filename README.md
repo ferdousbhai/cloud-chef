@@ -1,10 +1,10 @@
-# Ghostbuild
+# CloudChef
 
-Ghostbuild is an AI builder for applications on the Cloudflare developer platform. Its Durable Object workspace and
+CloudChef is an AI builder for applications on the Cloudflare developer platform. Its Durable Object workspace and
 isolated Cloudflare build runtime work from desktop and mobile browsers, generate Cloudflare-native projects, and
 deploy them to the user's own Cloudflare account.
 
-Try it at [ghostbuild.dev](https://ghostbuild.dev).
+Try it at [cloudchef.build](https://cloudchef.build).
 
 ## Requirements
 
@@ -43,8 +43,8 @@ Use [AGENTS.md](AGENTS.md) as the source index, [ARCHITECTURE.md](ARCHITECTURE.m
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Report suspected vulnerabilities privately as
 described in [SECURITY.md](SECURITY.md).
 
-Ghostbuild began as a substantially modified derivative of
+CloudChef began as a substantially modified derivative of
 [Chef](https://github.com/get-convex/chef), which itself was based on
-[bolt.diy](https://github.com/stackblitz-labs/bolt.diy). Ghostbuild is licensed under the
+[bolt.diy](https://github.com/stackblitz-labs/bolt.diy). CloudChef is licensed under the
 [Apache License 2.0](LICENSE); retained third-party notices are in [NOTICE](NOTICE) and
 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).

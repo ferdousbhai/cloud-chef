@@ -7,7 +7,7 @@ import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type WorkersAiMo
 import { builderNewModelsStore, installBuilderModelCatalog } from '~/lib/stores/builder-model.client';
 import { NewModelsNotice } from './NewModelsNotice.client';
 
-const SEEN_KEY = 'ghostbuild_seen_builder_models_v1';
+const SEEN_KEY = 'cloudchef_seen_builder_models_v1';
 const kimi: WorkersAiModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
   id: '@cf/moonshotai/kimi-k2.7-code',

@@ -4,20 +4,19 @@ import { userIdStore, useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 
 const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
-type GhostbuildAuthState =
-  { kind: 'loading' } | { kind: 'unauthenticated' } | { kind: 'fullyLoggedIn'; userId: string };
+type CloudChefAuthState = { kind: 'loading' } | { kind: 'unauthenticated' } | { kind: 'fullyLoggedIn'; userId: string };
 
-const GhostbuildAuthContext = createContext<{ state: GhostbuildAuthState } | null>(null);
+const CloudChefAuthContext = createContext<{ state: CloudChefAuthState } | null>(null);
 
-export function useGhostbuildAuth() {
-  const context = useContext(GhostbuildAuthContext);
+export function useCloudChefAuth() {
+  const context = useContext(CloudChefAuthContext);
   if (context === null) {
-    throw new Error('useGhostbuildAuth must be used within a GhostbuildAuthProvider');
+    throw new Error('useCloudChefAuth must be used within a CloudChefAuthProvider');
   }
   return context.state;
 }
 
-export function GhostbuildAuthProvider({ children }: { children: React.ReactNode }) {
+export function CloudChefAuthProvider({ children }: { children: React.ReactNode }) {
   const storedUserId = useUserIdOrNullOrLoading();
   const { data: authSession, isPending } = authClient.useSession();
   const userId = authSession?.user.id ?? null;
@@ -26,12 +25,12 @@ export function GhostbuildAuthProvider({ children }: { children: React.ReactNode
     userIdStore.set(isPending ? undefined : userId);
   }, [isPending, userId]);
 
-  const state: GhostbuildAuthState =
+  const state: CloudChefAuthState =
     isPending || storedUserId === undefined
       ? { kind: 'loading' }
       : userId
         ? { kind: 'fullyLoggedIn', userId }
         : { kind: 'unauthenticated' };
 
-  return <GhostbuildAuthContext.Provider value={{ state }}>{children}</GhostbuildAuthContext.Provider>;
+  return <CloudChefAuthContext.Provider value={{ state }}>{children}</CloudChefAuthContext.Provider>;
 }

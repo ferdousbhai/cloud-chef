@@ -1,6 +1,6 @@
 import type { Tool } from '@earendil-works/pi-ai';
 import { z } from 'zod';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { getPiModel } from '~/lib/.server/llm/pi-ai-models';
 import { requireWorkersAiBuilderModel } from '~/lib/.server/llm/workers-ai-model-catalog';
 import { completeToolCall } from '~/lib/.server/llm/pi-ai-invoke';
@@ -15,7 +15,7 @@ import {
   recommendedOptionFirst,
 } from '~/lib/prompt-refinement';
 import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
-import { MAX_USER_MESSAGE_CHARACTERS } from 'ghostbuild-agent/context-limits';
+import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 
 const logger = createScopedLogger('EnhancePrompt');
 const ENHANCE_PROMPT_MAX_OUTPUT_TOKENS = 2_048;

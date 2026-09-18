@@ -11,14 +11,14 @@ const plan: DeploymentPlan = {
   sourceSha256: 'a'.repeat(64),
   project: { type: 'web_app', bindings: { ai: true, d1: true, r2: true, kv: true, appAgent: true } },
   resources: [
-    { type: 'd1', logicalName: 'DB', proposedName: 'ghostbuild-deployment-1' },
+    { type: 'd1', logicalName: 'DB', proposedName: 'cloudchef-deployment-1' },
     {
       type: 'd1',
       logicalName: 'AGENT_SECURITY_DB',
-      proposedName: 'ghostbuild-deployment-1-agent-security',
+      proposedName: 'cloudchef-deployment-1-agent-security',
     },
-    { type: 'r2', logicalName: 'APP_STORAGE', proposedName: 'ghostbuild-deployment-1-storage' },
-    { type: 'kv', logicalName: 'APP_CACHE', proposedName: 'ghostbuild-deployment-1-cache' },
+    { type: 'r2', logicalName: 'APP_STORAGE', proposedName: 'cloudchef-deployment-1-storage' },
+    { type: 'kv', logicalName: 'APP_CACHE', proposedName: 'cloudchef-deployment-1-cache' },
   ],
 };
 
@@ -192,13 +192,13 @@ describe('UserCloudflareAccountApi', () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ success: true, result: [] }))
       .mockResolvedValueOnce(
-        Response.json({ success: true, result: { uuid: 'd1-id', name: 'ghostbuild-deployment-1' } }),
+        Response.json({ success: true, result: { uuid: 'd1-id', name: 'cloudchef-deployment-1' } }),
       )
       .mockResolvedValueOnce(Response.json({ success: true, result: { subdomain: 'user-subdomain' } }));
     const authorizeRequest = vi.fn(async () => undefined);
     const api = new UserCloudflareAccountApi('account-1', 'user-token', request, authorizeRequest);
 
-    await expect(api.ensureD1ForPlan(plan)).resolves.toEqual({ id: 'd1-id', name: 'ghostbuild-deployment-1' });
+    await expect(api.ensureD1ForPlan(plan)).resolves.toEqual({ id: 'd1-id', name: 'cloudchef-deployment-1' });
     await expect(api.getWorkersSubdomain()).resolves.toBe('user-subdomain');
 
     expect(request).toHaveBeenNthCalledWith(
@@ -207,7 +207,7 @@ describe('UserCloudflareAccountApi', () => {
       expect.objectContaining({
         method: 'POST',
         redirect: 'manual',
-        body: JSON.stringify({ name: 'ghostbuild-deployment-1' }),
+        body: JSON.stringify({ name: 'cloudchef-deployment-1' }),
         signal: expect.any(AbortSignal),
         headers: expect.objectContaining({ authorization: 'Bearer user-token' }),
       }),
@@ -231,7 +231,7 @@ describe('UserCloudflareAccountApi', () => {
       new UserCloudflareAccountApi('account-1', 'user-token', request).ensureD1ForPlan(plan),
     ).rejects.toThrow('Cloudflare API request redirected unexpectedly.');
     expect(request).toHaveBeenCalledWith(
-      'https://api.cloudflare.com/client/v4/accounts/account-1/d1/database?name=ghostbuild-deployment-1',
+      'https://api.cloudflare.com/client/v4/accounts/account-1/d1/database?name=cloudchef-deployment-1',
       expect.objectContaining({ redirect: 'manual' }),
     );
   });
@@ -245,7 +245,7 @@ describe('UserCloudflareAccountApi', () => {
           success: true,
           result: {
             uuid: 'agent-security-d1-id',
-            name: 'ghostbuild-deployment-1-agent-security',
+            name: 'cloudchef-deployment-1-agent-security',
           },
         }),
       );
@@ -254,14 +254,14 @@ describe('UserCloudflareAccountApi', () => {
       new UserCloudflareAccountApi('account-1', 'token', request).ensureD1ForPlan(plan, 'AGENT_SECURITY_DB'),
     ).resolves.toEqual({
       id: 'agent-security-d1-id',
-      name: 'ghostbuild-deployment-1-agent-security',
+      name: 'cloudchef-deployment-1-agent-security',
     });
     expect(request).toHaveBeenNthCalledWith(
       2,
       'https://api.cloudflare.com/client/v4/accounts/account-1/d1/database',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ name: 'ghostbuild-deployment-1-agent-security' }),
+        body: JSON.stringify({ name: 'cloudchef-deployment-1-agent-security' }),
       }),
     );
   });
@@ -285,23 +285,21 @@ describe('UserCloudflareAccountApi', () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
-      .mockResolvedValueOnce(
-        Response.json({ success: true, result: [{ uuid: d1Id, name: 'ghostbuild-deployment-1' }] }),
-      )
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ uuid: d1Id, name: 'cloudchef-deployment-1' }] }))
       .mockResolvedValueOnce(Response.json({ success: true, result: {} }))
       .mockResolvedValueOnce(
-        Response.json({ success: true, result: [{ id: kvId, title: 'ghostbuild-deployment-1-cache' }] }),
+        Response.json({ success: true, result: [{ id: kvId, title: 'cloudchef-deployment-1-cache' }] }),
       )
       .mockResolvedValueOnce(new Response(null, { status: 404 }));
     const api = new UserCloudflareAccountApi('account-1', 'token', request);
 
-    await api.deleteManagedWorker('ghostbuild-deployment-1');
-    await api.deleteD1Database('ghostbuild-deployment-1');
-    await api.deleteKvNamespace('ghostbuild-deployment-1-cache');
+    await api.deleteManagedWorker('cloudchef-deployment-1');
+    await api.deleteD1Database('cloudchef-deployment-1');
+    await api.deleteKvNamespace('cloudchef-deployment-1-cache');
 
     expect(request).toHaveBeenNthCalledWith(
       1,
-      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-deployment-1?force=true',
+      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-deployment-1?force=true',
       expect.objectContaining({ method: 'DELETE' }),
     );
     expect(request).toHaveBeenNthCalledWith(
@@ -317,7 +315,7 @@ describe('UserCloudflareAccountApi', () => {
   });
 
   test('empties R2 in bounded batches before deleting the bucket', async () => {
-    const bucket = 'ghostbuild-deployment-1-storage';
+    const bucket = 'cloudchef-deployment-1-storage';
     const present = () => Response.json({ success: true, result: { name: bucket } });
     const request = vi
       .fn<typeof fetch>()
@@ -349,7 +347,7 @@ describe('UserCloudflareAccountApi', () => {
       `https://api.cloudflare.com/client/v4/accounts/account-1/r2/buckets/${bucket}/lifecycle`,
       expect.objectContaining({
         method: 'PUT',
-        body: expect.stringContaining('ghostbuild-project-deletion'),
+        body: expect.stringContaining('cloudchef-project-deletion'),
       }),
     );
     expect(request).toHaveBeenLastCalledWith(
@@ -362,17 +360,17 @@ describe('UserCloudflareAccountApi', () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
-        Response.json({ success: true, result: [{ uuid: 'existing-d1', name: 'ghostbuild-deployment-1' }] }),
+        Response.json({ success: true, result: [{ uuid: 'existing-d1', name: 'cloudchef-deployment-1' }] }),
       )
-      .mockResolvedValueOnce(Response.json({ success: true, result: { name: 'ghostbuild-deployment-1-storage' } }));
+      .mockResolvedValueOnce(Response.json({ success: true, result: { name: 'cloudchef-deployment-1-storage' } }));
     const api = new UserCloudflareAccountApi('account-1', 'token', request);
     await expect(api.ensureD1ForPlan(plan)).resolves.toEqual({
       id: 'existing-d1',
-      name: 'ghostbuild-deployment-1',
+      name: 'cloudchef-deployment-1',
     });
     await expect(api.ensureR2ForPlan(plan)).resolves.toEqual({
-      id: 'ghostbuild-deployment-1-storage',
-      name: 'ghostbuild-deployment-1-storage',
+      id: 'cloudchef-deployment-1-storage',
+      name: 'cloudchef-deployment-1-storage',
     });
     expect(request).toHaveBeenCalledTimes(2);
     expect(request.mock.calls.every((call) => call[1]?.method === 'GET')).toBe(true);
@@ -386,13 +384,13 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          result: { id: namespaceId, title: 'ghostbuild-deployment-1-cache' },
+          result: { id: namespaceId, title: 'cloudchef-deployment-1-cache' },
         }),
       );
 
     await expect(new UserCloudflareAccountApi('account-1', 'token', request).ensureKvForPlan(plan)).resolves.toEqual({
       id: namespaceId,
-      name: 'ghostbuild-deployment-1-cache',
+      name: 'cloudchef-deployment-1-cache',
     });
     expect(request).toHaveBeenNthCalledWith(
       1,
@@ -404,7 +402,7 @@ describe('UserCloudflareAccountApi', () => {
       'https://api.cloudflare.com/client/v4/accounts/account-1/storage/kv/namespaces',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ title: 'ghostbuild-deployment-1-cache' }),
+        body: JSON.stringify({ title: 'cloudchef-deployment-1-cache' }),
       }),
     );
   });
@@ -412,7 +410,7 @@ describe('UserCloudflareAccountApi', () => {
   test('rejects a matching D1 readback without an identity instead of creating a replacement', async () => {
     const request = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({ success: true, result: [{ name: 'ghostbuild-deployment-1' }] }));
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ name: 'cloudchef-deployment-1' }] }));
 
     await expect(new UserCloudflareAccountApi('account-1', 'token', request).ensureD1ForPlan(plan)).rejects.toThrow(
       'invalid D1 resource',
@@ -434,7 +432,7 @@ describe('UserCloudflareAccountApi', () => {
       }
       return Response.json({
         success: true,
-        result: { uuid: 'd1-id', name: 'ghostbuild-deployment-1' },
+        result: { uuid: 'd1-id', name: 'cloudchef-deployment-1' },
       });
     });
     const api = new UserCloudflareAccountApi('account-1', 'token', request, authorizeRequest);
@@ -461,7 +459,7 @@ describe('UserCloudflareAccountApi', () => {
         generation = 2;
         return Response.json({ success: false }, { status: 404 });
       }
-      return Response.json({ success: true, result: { name: 'ghostbuild-deployment-1-storage' } });
+      return Response.json({ success: true, result: { name: 'cloudchef-deployment-1-storage' } });
     });
     const api = new UserCloudflareAccountApi('account-1', 'token', request, authorizeRequest);
 
@@ -470,7 +468,7 @@ describe('UserCloudflareAccountApi', () => {
     expect(authorizeRequest).toHaveBeenCalledTimes(2);
     expect(request).toHaveBeenCalledOnce();
     expect(request).toHaveBeenCalledWith(
-      expect.stringContaining('/r2/buckets/ghostbuild-deployment-1-storage'),
+      expect.stringContaining('/r2/buckets/cloudchef-deployment-1-storage'),
       expect.objectContaining({ method: 'GET' }),
     );
   });
@@ -482,12 +480,12 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(
         Response.json({ success: false, errors: [{ message: 'bucket already exists' }] }, { status: 409 }),
       )
-      .mockResolvedValueOnce(Response.json({ success: true, result: { name: 'ghostbuild-user-data' } }));
+      .mockResolvedValueOnce(Response.json({ success: true, result: { name: 'cloudchef-user-data' } }));
     const api = new UserCloudflareAccountApi('account-1', 'token', request);
 
-    await expect(api.ensureR2Bucket('ghostbuild-user-data')).resolves.toEqual({
-      id: 'ghostbuild-user-data',
-      name: 'ghostbuild-user-data',
+    await expect(api.ensureR2Bucket('cloudchef-user-data')).resolves.toEqual({
+      id: 'cloudchef-user-data',
+      name: 'cloudchef-user-data',
     });
     expect(request).toHaveBeenCalledTimes(3);
   });
@@ -568,7 +566,7 @@ describe('UserCloudflareAccountApi', () => {
     const batch = JSON.parse(String(request.mock.calls[3]?.[1]?.body)) as { batch: Array<{ sql: string }> };
     expect(batch.batch).toHaveLength(2);
     expect(batch.batch[0]?.sql).toBe('CREATE TABLE users (id TEXT PRIMARY KEY)');
-    expect(batch.batch[1]?.sql).toContain('ghostbuild_runtime_migrations');
+    expect(batch.batch[1]?.sql).toContain('cloudchef_runtime_migrations');
     expect(batch.batch[1]?.sql).toContain('digest');
     expect(batch.batch[1]?.sql).not.toContain('OR IGNORE');
   });
@@ -644,7 +642,7 @@ describe('UserCloudflareAccountApi', () => {
         Response.json({ success: true, result: [{ success: true, results: [{ name: 'digest' }] }] }),
       )
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: [] }] }))
-      .mockRejectedValueOnce(new Error('UNIQUE constraint failed: ghostbuild_runtime_migrations.name'))
+      .mockRejectedValueOnce(new Error('UNIQUE constraint failed: cloudchef_runtime_migrations.name'))
       .mockResolvedValueOnce(
         Response.json({
           success: true,
@@ -705,7 +703,7 @@ describe('UserCloudflareAccountApi', () => {
     ).rejects.toThrow('receipt lacks a digest');
     expect(request).toHaveBeenCalledTimes(3);
     expect(request.mock.calls.map((call) => String(call[1]?.body)).join('\n')).not.toContain(
-      'UPDATE ghostbuild_runtime_migrations',
+      'UPDATE cloudchef_runtime_migrations',
     );
   });
 
@@ -728,12 +726,12 @@ describe('UserCloudflareAccountApi', () => {
 
     await expect(
       new UserCloudflareAccountApi('account-1', 'token', request, authorizeRequest).configureWorkspaceRuntimeGcSchedule(
-        'ghostbuild-workspace-1',
+        'cloudchef-workspace-1',
       ),
     ).resolves.toBeUndefined();
 
     expect(request).toHaveBeenCalledWith(
-      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-workspace-1/schedules',
+      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-workspace-1/schedules',
       expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify([{ cron: '*/15 * * * *' }]),
@@ -758,7 +756,7 @@ describe('UserCloudflareAccountApi', () => {
 
     await expect(
       new UserCloudflareAccountApi('account-1', 'token', request).configureWorkspaceRuntimeGcSchedule(
-        'ghostbuild-workspace-1',
+        'cloudchef-workspace-1',
       ),
     ).rejects.toThrow('invalid workspace runtime schedules');
 
@@ -776,7 +774,7 @@ describe('UserCloudflareAccountApi', () => {
 
     await expect(
       new UserCloudflareAccountApi('account-1', 'token', request).configureWorkspaceRuntimeGcSchedule(
-        'ghostbuild-workspace-1',
+        'cloudchef-workspace-1',
       ),
     ).rejects.toThrow('schedule update rejected');
 
@@ -785,8 +783,8 @@ describe('UserCloudflareAccountApi', () => {
 
   test('creates a Worker with assets and reads back the exact active version', async () => {
     const module = await artifactFile('index.js', 'export default { fetch() { return new Response("ok") } }');
-    const asset = await artifactFile('index.html', '<h1>Ghostbuild</h1>');
-    const duplicateAsset = await artifactFile('nested/index.html', '<h1>Ghostbuild</h1>');
+    const asset = await artifactFile('index.html', '<h1>CloudChef</h1>');
+    const duplicateAsset = await artifactFile('nested/index.html', '<h1>CloudChef</h1>');
     const assetHash = await deploymentAssetHash(asset);
     const sessionJwt = currentAssetUploadJwt();
     const workerVersionId = '11111111-1111-4111-8111-111111111111';
@@ -796,7 +794,7 @@ describe('UserCloudflareAccountApi', () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ success: true, result: { jwt: sessionJwt, buckets: [[assetHash]] } }))
       .mockResolvedValueOnce(Response.json({ success: true, result: { jwt: 'asset-completion-jwt' } }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: { id: 'ghostbuild-app', etag: 'managed-etag' } }))
+      .mockResolvedValueOnce(Response.json({ success: true, result: { id: 'cloudchef-app', etag: 'managed-etag' } }))
       .mockResolvedValueOnce(
         Response.json({
           success: true,
@@ -813,7 +811,7 @@ describe('UserCloudflareAccountApi', () => {
 
     await expect(
       api.deployManagedWorker({
-        workerName: 'ghostbuild-app',
+        workerName: 'cloudchef-app',
         projectType: 'web_app',
         sourceSha256: 'a'.repeat(64),
         mainModule: 'index.js',
@@ -823,17 +821,17 @@ describe('UserCloudflareAccountApi', () => {
         appAgent: true,
         d1DatabaseId: '0123456789abcdef0123456789abcdef',
         agentSecurityD1DatabaseId: 'abcdef0123456789abcdef0123456789',
-        r2BucketName: 'ghostbuild-storage',
+        r2BucketName: 'cloudchef-storage',
         kvNamespaceId: '0123456789abcdef0123456789abcdef',
       }),
     ).resolves.toBeUndefined();
 
     expect(request.mock.calls.map(([url]) => String(url))).toEqual([
-      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-app/assets-upload-session',
+      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-app/assets-upload-session',
       `https://api.cloudflare.com/client/v4/accounts/account-1/workers/assets/upload/${assetHash}`,
-      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-app?excludeScript=true&bindings_inherit=strict',
-      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-app/deployments',
-      `https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-app/versions/${workerVersionId}`,
+      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-app?excludeScript=true&bindings_inherit=strict',
+      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-app/deployments',
+      `https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-app/versions/${workerVersionId}`,
     ]);
     expect(request.mock.calls.every(([, init]) => init?.redirect === 'manual')).toBe(true);
     expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({
@@ -895,7 +893,7 @@ describe('UserCloudflareAccountApi', () => {
 
     await expect(
       new UserCloudflareAccountApi('account-1', 'token', request).deployManagedWorker({
-        workerName: 'ghostbuild-worker',
+        workerName: 'cloudchef-worker',
         projectType: 'worker',
         sourceSha256: 'a'.repeat(64),
         mainModule: 'server.js',
@@ -907,10 +905,10 @@ describe('UserCloudflareAccountApi', () => {
     ).resolves.toBeUndefined();
 
     expect(request.mock.calls.map(([url]) => String(url))).toEqual([
-      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/deployments',
-      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/versions',
-      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/deployments',
-      `https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/deployments/${providerDeploymentId}`,
+      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/deployments',
+      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/versions',
+      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/deployments',
+      `https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/deployments/${providerDeploymentId}`,
     ]);
     expect(request.mock.calls.map(([, init]) => init?.method)).toEqual(['GET', 'POST', 'POST', 'GET']);
   });
@@ -923,9 +921,7 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ success: false, errors: [{ code: 10007 }] }), { status: 404 }),
       )
-      .mockResolvedValueOnce(
-        Response.json({ success: true, result: { id: 'ghostbuild-worker', etag: 'managed-etag' } }),
-      )
+      .mockResolvedValueOnce(Response.json({ success: true, result: { id: 'cloudchef-worker', etag: 'managed-etag' } }))
       .mockResolvedValueOnce(
         Response.json({
           success: true,
@@ -949,7 +945,7 @@ describe('UserCloudflareAccountApi', () => {
 
     await expect(
       new UserCloudflareAccountApi('account-1', 'token', request).deployManagedWorker({
-        workerName: 'ghostbuild-worker',
+        workerName: 'cloudchef-worker',
         projectType: 'worker',
         sourceSha256: 'a'.repeat(64),
         mainModule: 'server.js',
@@ -961,10 +957,10 @@ describe('UserCloudflareAccountApi', () => {
     ).resolves.toBeUndefined();
 
     expect(request.mock.calls.map(([url, init]) => `${init?.method} ${String(url)}`)).toEqual([
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/deployments',
-      'PUT https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker?excludeScript=true&bindings_inherit=strict',
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/deployments',
-      `GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/versions/${workerVersionId}`,
+      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/deployments',
+      'PUT https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker?excludeScript=true&bindings_inherit=strict',
+      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/deployments',
+      `GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/versions/${workerVersionId}`,
     ]);
   });
 
@@ -983,7 +979,7 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          result: { id: 'a'.repeat(32), name: 'ghostbuild-worker', deployed_on: null },
+          result: { id: 'a'.repeat(32), name: 'cloudchef-worker', deployed_on: null },
         }),
       )
       .mockResolvedValueOnce(Response.json({ success: true, result: { id: workerVersionId } }))
@@ -997,7 +993,7 @@ describe('UserCloudflareAccountApi', () => {
 
     await expect(
       new UserCloudflareAccountApi('account-1', 'token', request).previewManagedWorker({
-        workerName: 'ghostbuild-worker',
+        workerName: 'cloudchef-worker',
         projectType: 'worker',
         sourceSha256: 'a'.repeat(64),
         mainModule: 'server.js',
@@ -1008,21 +1004,21 @@ describe('UserCloudflareAccountApi', () => {
       }),
     ).resolves.toEqual({
       workerVersionId,
-      previewUrl: 'https://12345678-ghostbuild-worker.account-subdomain.workers.dev',
+      previewUrl: 'https://12345678-cloudchef-worker.account-subdomain.workers.dev',
     });
     expect(request.mock.calls.map(([url, init]) => `${init?.method} ${String(url)}`)).toEqual([
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/deployments',
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/workers/ghostbuild-worker',
+      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/deployments',
+      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/workers/cloudchef-worker',
       'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/workers',
-      'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/versions',
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/subdomain',
-      'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/subdomain',
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/subdomain',
-      `GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/versions/${workerVersionId}`,
+      'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/versions',
+      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/subdomain',
+      'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/subdomain',
+      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/subdomain',
+      `GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/versions/${workerVersionId}`,
       'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/subdomain',
     ]);
     expect(JSON.parse(String(request.mock.calls[2]?.[1]?.body))).toMatchObject({
-      name: 'ghostbuild-worker',
+      name: 'cloudchef-worker',
       subdomain: { enabled: false, previews_enabled: true },
     });
   });
@@ -1057,7 +1053,7 @@ describe('UserCloudflareAccountApi', () => {
 
     await expect(
       new UserCloudflareAccountApi('account-1', 'token', request).previewManagedWorker({
-        workerName: 'ghostbuild-worker',
+        workerName: 'cloudchef-worker',
         projectType: 'worker',
         sourceSha256: 'a'.repeat(64),
         mainModule: 'server.js',
@@ -1068,26 +1064,26 @@ describe('UserCloudflareAccountApi', () => {
       }),
     ).resolves.toEqual({
       workerVersionId,
-      previewUrl: 'https://12345678-ghostbuild-worker.account-subdomain.workers.dev',
+      previewUrl: 'https://12345678-cloudchef-worker.account-subdomain.workers.dev',
     });
 
     expect(request.mock.calls.map(([url, init]) => `${init?.method} ${String(url)}`)).toEqual([
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/deployments',
-      'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/versions',
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/subdomain',
-      'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/subdomain',
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/subdomain',
-      `GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/ghostbuild-worker/versions/${workerVersionId}`,
+      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/deployments',
+      'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/versions',
+      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/subdomain',
+      'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/subdomain',
+      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/subdomain',
+      `GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/versions/${workerVersionId}`,
       'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/subdomain',
     ]);
   });
 
   test('rejects unknown asset bucket hashes and a missing final completion JWT', async () => {
     const module = await artifactFile('index.js', 'export default {}');
-    const asset = await artifactFile('index.html', '<h1>Ghostbuild</h1>');
+    const asset = await artifactFile('index.html', '<h1>CloudChef</h1>');
     const deploy = (request: typeof fetch) =>
       new UserCloudflareAccountApi('account-1', 'token', request).deployManagedWorker({
-        workerName: 'ghostbuild-app',
+        workerName: 'cloudchef-app',
         projectType: 'web_app',
         sourceSha256: 'a'.repeat(64),
         mainModule: 'index.js',
@@ -1140,7 +1136,7 @@ describe('UserCloudflareAccountApi', () => {
     }
     expect(part.name).toBe(assetHash);
     expect(part.type).toContain('text/html');
-    expect(await part.text()).toBe(btoa('<h1>Ghostbuild</h1>'));
+    expect(await part.text()).toBe(btoa('<h1>CloudChef</h1>'));
   });
 
   test('forces one credential refresh and retries exactly once on a Cloudflare 401', async () => {
@@ -1178,8 +1174,8 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(Response.json({ success: true, result: subdomain }));
     const api = new UserCloudflareAccountApi('account-1', 'token', request);
 
-    await expect(api.configureManagedWorkerSchedule('ghostbuild-app', true)).resolves.toBeUndefined();
-    await expect(api.enableWorkerSubdomain('ghostbuild-app')).resolves.toBeUndefined();
+    await expect(api.configureManagedWorkerSchedule('cloudchef-app', true)).resolves.toBeUndefined();
+    await expect(api.enableWorkerSubdomain('cloudchef-app')).resolves.toBeUndefined();
     expect(request.mock.calls.map(([, init]) => init?.method)).toEqual(['PUT', 'GET', 'POST', 'GET']);
   });
 
@@ -1191,7 +1187,7 @@ describe('UserCloudflareAccountApi', () => {
 
     await expect(
       new UserCloudflareAccountApi('account-1', 'token', request).configureManagedWorkerSchedule(
-        'ghostbuild-app',
+        'cloudchef-app',
         false,
       ),
     ).rejects.toThrow('invalid managed Worker schedules');
@@ -1204,7 +1200,7 @@ describe('UserCloudflareAccountApi', () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
-        Response.json({ success: true, result: { id: 'ghostbuild-workspace-user', etag: 'runtime-etag' } }),
+        Response.json({ success: true, result: { id: 'cloudchef-workspace-user', etag: 'runtime-etag' } }),
       )
       .mockResolvedValueOnce(
         Response.json({
@@ -1227,7 +1223,7 @@ describe('UserCloudflareAccountApi', () => {
             {
               id: '0123456789abcdef0123456789abcdef',
               class: 'ProjectWorkspace',
-              script: 'ghostbuild-workspace-user',
+              script: 'cloudchef-workspace-user',
               use_sqlite: true,
             },
           ],
@@ -1237,7 +1233,7 @@ describe('UserCloudflareAccountApi', () => {
 
     await expect(
       api.deployWorkspaceRuntimeWorker({
-        workerName: 'ghostbuild-workspace-user',
+        workerName: 'cloudchef-workspace-user',
         source: 'export default { fetch() { return new Response() } }',
         controlPlaneSecret: 'control-plane-secret-that-is-long-enough',
         runtimeVersion: 'a'.repeat(64),
@@ -1246,13 +1242,13 @@ describe('UserCloudflareAccountApi', () => {
         connectionId: 'connection-1',
         connectionGeneration: 1,
         oauthScopeGrantStatus: 'full',
-        endpoint: 'https://ghostbuild-workspace-user.example.workers.dev',
+        endpoint: 'https://cloudchef-workspace-user.example.workers.dev',
       }),
     ).resolves.toEqual({ namespaceId: '0123456789abcdef0123456789abcdef' });
 
     const [scriptUrl, scriptInit] = request.mock.calls[0];
     expect(scriptUrl).toBe(
-      'https://api.cloudflare.com/client/v4/accounts/user-account/workers/scripts/ghostbuild-workspace-user?excludeScript=true&bindings_inherit=strict',
+      'https://api.cloudflare.com/client/v4/accounts/user-account/workers/scripts/cloudchef-workspace-user?excludeScript=true&bindings_inherit=strict',
     );
     expect(scriptInit).toMatchObject({ method: 'PUT', headers: { authorization: 'Bearer user-token' } });
     const form = scriptInit?.body as FormData;
@@ -1276,8 +1272,8 @@ describe('UserCloudflareAccountApi', () => {
         }),
         expect.objectContaining({
           type: 'plain_text',
-          name: 'GHOSTBUILD_CONTROL_PLANE_ENDPOINT',
-          text: 'https://ghostbuild.dev',
+          name: 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT',
+          text: 'https://cloudchef.build',
         }),
       ]),
     );
@@ -1307,7 +1303,7 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(
         Response.json({
           id: 'container-application-1',
-          name: 'ghostbuild-workspace-user',
+          name: 'cloudchef-workspace-user',
           durable_objects: { namespace_id: '0123456789abcdef0123456789abcdef' },
         }),
       );
@@ -1316,7 +1312,7 @@ describe('UserCloudflareAccountApi', () => {
 
     await expect(
       api.ensureWorkspaceRuntimeContainer({
-        applicationName: 'ghostbuild-workspace-user',
+        applicationName: 'cloudchef-workspace-user',
         namespaceId: '0123456789abcdef0123456789abcdef',
         image,
       }),
@@ -1330,7 +1326,7 @@ describe('UserCloudflareAccountApi', () => {
     const [, createInit] = request.mock.calls[1];
     const createPayload = JSON.parse(String(createInit?.body));
     expect(createPayload).toMatchObject({
-      name: 'ghostbuild-workspace-user',
+      name: 'cloudchef-workspace-user',
       configuration: {
         image,
         instance_type: PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE,
@@ -1349,12 +1345,12 @@ describe('UserCloudflareAccountApi', () => {
         Response.json([
           {
             id: 'container-application-1',
-            name: 'ghostbuild-workspace-user',
+            name: 'cloudchef-workspace-user',
             durable_objects: { namespace_id: '0123456789abcdef0123456789abcdef' },
           },
         ]),
       )
-      .mockResolvedValueOnce(Response.json({ id: 'container-application-1', name: 'ghostbuild-workspace-user' }))
+      .mockResolvedValueOnce(Response.json({ id: 'container-application-1', name: 'cloudchef-workspace-user' }))
       .mockResolvedValueOnce(Response.json([]))
       .mockResolvedValueOnce(Response.json({ id: 'rollout-1' }))
       .mockResolvedValueOnce(
@@ -1372,7 +1368,7 @@ describe('UserCloudflareAccountApi', () => {
       );
 
     await new UserCloudflareAccountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
-      applicationName: 'ghostbuild-workspace-user',
+      applicationName: 'cloudchef-workspace-user',
       namespaceId: '0123456789abcdef0123456789abcdef',
       image,
     });
@@ -1399,12 +1395,12 @@ describe('UserCloudflareAccountApi', () => {
         Response.json([
           {
             id: 'container-application-1',
-            name: 'ghostbuild-workspace-user',
+            name: 'cloudchef-workspace-user',
             durable_objects: { namespace_id: '0123456789abcdef0123456789abcdef' },
           },
         ]),
       )
-      .mockResolvedValueOnce(Response.json({ id: 'container-application-1', name: 'ghostbuild-workspace-user' }))
+      .mockResolvedValueOnce(Response.json({ id: 'container-application-1', name: 'cloudchef-workspace-user' }))
       .mockResolvedValueOnce(
         Response.json([
           {
@@ -1435,7 +1431,7 @@ describe('UserCloudflareAccountApi', () => {
       );
 
     await new UserCloudflareAccountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
-      applicationName: 'ghostbuild-workspace-user',
+      applicationName: 'cloudchef-workspace-user',
       namespaceId: '0123456789abcdef0123456789abcdef',
       image,
     });
@@ -1461,12 +1457,12 @@ describe('UserCloudflareAccountApi', () => {
         Response.json([
           {
             id: 'container-application-1',
-            name: 'ghostbuild-workspace-user',
+            name: 'cloudchef-workspace-user',
             durable_objects: { namespace_id: '0123456789abcdef0123456789abcdef' },
           },
         ]),
       )
-      .mockResolvedValueOnce(Response.json({ id: 'container-application-1', name: 'ghostbuild-workspace-user' }))
+      .mockResolvedValueOnce(Response.json({ id: 'container-application-1', name: 'cloudchef-workspace-user' }))
       .mockResolvedValueOnce(
         Response.json([
           {
@@ -1496,7 +1492,7 @@ describe('UserCloudflareAccountApi', () => {
     const sleep = vi.fn(async () => undefined);
 
     await new UserCloudflareAccountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
-      applicationName: 'ghostbuild-workspace-user',
+      applicationName: 'cloudchef-workspace-user',
       namespaceId: '0123456789abcdef0123456789abcdef',
       image,
       sleep,
@@ -1519,7 +1515,7 @@ describe('UserCloudflareAccountApi', () => {
 
     await expect(
       new UserCloudflareAccountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
-        applicationName: 'ghostbuild-workspace-user',
+        applicationName: 'cloudchef-workspace-user',
         namespaceId: '0123456789abcdef0123456789abcdef',
         image: `docker.io/cloudflare/sandbox:0.12.4@sha256:${'b'.repeat(64)}`,
       }),
@@ -1527,12 +1523,12 @@ describe('UserCloudflareAccountApi', () => {
   });
 
   test('rejects a matching container application without provider identity', async () => {
-    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json([{ name: 'ghostbuild-workspace-user' }]));
+    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json([{ name: 'cloudchef-workspace-user' }]));
     const api = new UserCloudflareAccountApi('user-account', 'user-token', request);
 
     await expect(
       api.ensureWorkspaceRuntimeContainer({
-        applicationName: 'ghostbuild-workspace-user',
+        applicationName: 'cloudchef-workspace-user',
         namespaceId: '0123456789abcdef0123456789abcdef',
         image: `docker.io/cloudflare/sandbox:0.12.4@sha256:${'b'.repeat(64)}`,
       }),
@@ -1546,14 +1542,14 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          result: [{ id: 'f'.repeat(32), title: 'ghostbuild-other-cache' }],
+          result: [{ id: 'f'.repeat(32), title: 'cloudchef-other-cache' }],
           result_info: { page: 1, total_pages: 2 },
         }),
       )
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          result: [{ id: namespaceId, title: 'ghostbuild-deployment-1-cache' }],
+          result: [{ id: namespaceId, title: 'cloudchef-deployment-1-cache' }],
           result_info: { page: 2, total_pages: 2 },
         }),
       );
@@ -1561,7 +1557,7 @@ describe('UserCloudflareAccountApi', () => {
     // A namespace on the second page must be reused, not created a second time.
     await expect(new UserCloudflareAccountApi('account-1', 'token', request).ensureKvForPlan(plan)).resolves.toEqual({
       id: namespaceId,
-      name: 'ghostbuild-deployment-1-cache',
+      name: 'cloudchef-deployment-1-cache',
     });
     expect(request).toHaveBeenCalledTimes(2);
     expect(request.mock.calls.every((call) => call[1]?.method === 'GET')).toBe(true);
@@ -1572,14 +1568,14 @@ describe('UserCloudflareAccountApi', () => {
       Response.json({
         success: true,
         result: [
-          { id: '0'.repeat(32), title: 'ghostbuild-deployment-1-cache' },
-          { id: '1'.repeat(32), title: 'ghostbuild-deployment-1-cache' },
+          { id: '0'.repeat(32), title: 'cloudchef-deployment-1-cache' },
+          { id: '1'.repeat(32), title: 'cloudchef-deployment-1-cache' },
         ],
       }),
     );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).deleteKvNamespace('ghostbuild-deployment-1-cache'),
+      new UserCloudflareAccountApi('account-1', 'token', request).deleteKvNamespace('cloudchef-deployment-1-cache'),
     ).rejects.toThrow('ambiguous KV namespaces');
   });
 });

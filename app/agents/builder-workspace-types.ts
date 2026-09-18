@@ -1,1 +1,1 @@
-export * from '@ghostbuild/user-workspace-runtime/protocol';
+export * from '@cloudchef/user-workspace-runtime/protocol';

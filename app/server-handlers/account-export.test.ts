@@ -21,13 +21,13 @@ const completeExport = {
   status: 'complete',
   unavailableSections: [],
   rowLimitPerSection: 200,
-  covers: 'Every record the Ghostbuild control plane stores for this account, and nothing else.',
+  covers: 'Every record the CloudChef control plane stores for this account, and nothing else.',
   omits: ['Chats, transcripts, project files, and deployment records.'],
   sections: { account: { status: 'exported', account: { id: 'user-1' } } },
 };
 
-function exportRequest(origin = 'https://ghostbuild.dev'): Request {
-  return new Request('https://ghostbuild.dev/api/account/export', { method: 'POST', headers: { origin } });
+function exportRequest(origin = 'https://cloudchef.build'): Request {
+  return new Request('https://cloudchef.build/api/account/export', { method: 'POST', headers: { origin } });
 }
 
 function freshSession(createdAt = Date.now()) {
@@ -88,7 +88,7 @@ describe('exportAccountAction', () => {
       unavailableSections: ['authSessions'],
       sections: {
         ...completeExport.sections,
-        authSessions: { status: 'unavailable', error: 'Ghostbuild could not read this section.' },
+        authSessions: { status: 'unavailable', error: 'CloudChef could not read this section.' },
       },
     });
 

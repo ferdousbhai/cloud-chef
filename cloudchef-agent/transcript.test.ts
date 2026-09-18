@@ -24,7 +24,7 @@ describe('transcript identity', () => {
     expect(
       stripTranscriptBaseMetadata({
         id: 'message',
-        metadata: { ghostbuildTranscriptBase: identity, retained: true },
+        metadata: { cloudchefTranscriptBase: identity, retained: true },
       }),
     ).toEqual({ id: 'message', metadata: { retained: true } });
   });

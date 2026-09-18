@@ -25,7 +25,7 @@ function envWithChats(chats: Array<{ creatorId: string; isDeleted?: number }> = 
 }
 
 function route(pathname: string, env: Env, userId = 'owner') {
-  return routeUserRuntimeAgentRequest(new Request(`https://ghostbuild.dev${pathname}`), env, userId);
+  return routeUserRuntimeAgentRequest(new Request(`https://cloudchef.build${pathname}`), env, userId);
 }
 
 describe('user-runtime Agent routing', () => {
@@ -39,7 +39,7 @@ describe('user-runtime Agent routing', () => {
     async (pathname) => {
       const database = databaseReturning({ match_count: 1, active_match_count: 1, has_owner_conflict: 0 });
       const env = { DB: database.db } as Env;
-      const request = new Request(`https://ghostbuild.dev${pathname}`);
+      const request = new Request(`https://cloudchef.build${pathname}`);
 
       await expect(routeUserRuntimeAgentRequest(request, env, 'owner-1')).resolves.toHaveProperty('status', 200);
       expect(database.values).toEqual(['owner-1', 'chat', 'chat']);
@@ -84,7 +84,7 @@ describe('user-runtime Agent routing', () => {
   it('uses the identical encoded name for authorization and PartyServer routing', async () => {
     const database = databaseReturning({ match_count: 1, active_match_count: 1, has_owner_conflict: 0 });
     const env = { DB: database.db } as Env;
-    const request = new Request('https://ghostbuild.dev//agents//builder-agent/%C3%A9');
+    const request = new Request('https://cloudchef.build//agents//builder-agent/%C3%A9');
 
     expect((await routeUserRuntimeAgentRequest(request, env, 'owner-1'))?.status).toBe(200);
     expect(database.values).toEqual(['owner-1', '%C3%A9', '%C3%A9']);

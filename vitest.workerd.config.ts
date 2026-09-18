@@ -26,7 +26,7 @@ const serverDependencyStubs = new Set([
 function isolateRootWorkerRoutes(): Plugin {
   const stub = fromRoot('./tests/workerd/server-dependencies.stub.ts');
   return {
-    name: 'ghostbuild-workerd-route-boundaries',
+    name: 'cloudchef-workerd-route-boundaries',
     enforce: 'pre',
     resolveId(source, importer) {
       if (source === '@tanstack/react-start/server-entry') {

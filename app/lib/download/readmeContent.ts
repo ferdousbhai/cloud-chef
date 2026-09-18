@@ -1,7 +1,7 @@
 export function generateReadmeContent(description: string) {
   return `# ${description}
 
-This Cloudflare Workers project was built with Ghostbuild.
+This Cloudflare Workers project was built with CloudChef.
 
 \`\`\`sh
 pnpm run dev

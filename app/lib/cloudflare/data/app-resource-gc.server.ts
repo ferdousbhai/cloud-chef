@@ -1,4 +1,4 @@
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { deploymentPlanResourceName, parseDeploymentPlanJson } from '~/lib/.server/cloudflare/deployment-plan';
 import { createUserAccountApi } from '~/lib/.server/cloudflare/user-workspace-deployment-executor';
 import type { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
@@ -49,11 +49,11 @@ export async function sweepAppResourceGcCandidates(
   env: Pick<
     Env,
     | 'DB'
-    | 'GHOSTBUILD_CONTROL_PLANE_ENDPOINT'
+    | 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT'
     | 'CONTROL_PLANE_SECRET'
-    | 'GHOSTBUILD_USER_ID'
-    | 'GHOSTBUILD_CONNECTION_ID'
-    | 'GHOSTBUILD_CONNECTION_GENERATION'
+    | 'CLOUDCHEF_USER_ID'
+    | 'CLOUDCHEF_CONNECTION_ID'
+    | 'CLOUDCHEF_CONNECTION_GENERATION'
     | 'CLOUDFLARE_ACCOUNT_ID'
   >,
   options: { limit?: number; now?: number; accountApi?: AppResourceCleanupApi } = {},

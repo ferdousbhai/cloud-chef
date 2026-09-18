@@ -17,9 +17,9 @@ describe('Cloudflare auth sessions', () => {
       },
     } as unknown as Env;
 
-    const prepared = await prepareAuthSession('user-1', new Request('https://ghostbuild.dev/connect/return'), 1_000);
+    const prepared = await prepareAuthSession('user-1', new Request('https://cloudchef.build/connect/return'), 1_000);
     const cookie = await createAuthSession(env, prepared);
-    const token = cookie.match(/^ghostbuild_session=([^;]+)/)?.[1];
+    const token = cookie.match(/^cloudchef_session=([^;]+)/)?.[1];
     expect(token).toBeTruthy();
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('Secure');
@@ -48,7 +48,7 @@ describe('Cloudflare auth sessions', () => {
         };
       },
     } as unknown as D1Database;
-    const prepared = await prepareAuthSession('user-1', new Request('https://ghostbuild.dev/connect/return'), 1_000);
+    const prepared = await prepareAuthSession('user-1', new Request('https://cloudchef.build/connect/return'), 1_000);
 
     await expect(createAuthSession({ DB: db } as Env, prepared)).resolves.toBe(prepared.cookie);
     expect(committedValues).toEqual([
@@ -113,7 +113,7 @@ describe('Cloudflare auth sessions', () => {
     } as unknown as Env;
     const session = await getAuthSession(
       env,
-      new Request('https://ghostbuild.dev/', { headers: { cookie: 'ghostbuild_session=opaque-token' } }),
+      new Request('https://cloudchef.build/', { headers: { cookie: 'cloudchef_session=opaque-token' } }),
     );
 
     expect(query).toContain("connections.status = 'active'");

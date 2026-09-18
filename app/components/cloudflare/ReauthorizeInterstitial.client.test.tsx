@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  createCloudflareReturnURL: vi.fn(() => 'https://ghostbuild.dev/'),
+  createCloudflareReturnURL: vi.fn(() => 'https://cloudchef.build/'),
   signInWithCloudflare: vi.fn(async () => undefined),
 }));
 
@@ -16,7 +16,7 @@ vi.mock('~/lib/auth-client', () => ({
 
 import { ReauthorizeInterstitial } from './ReauthorizeInterstitial.client';
 
-const DEFERRED_KEY = 'ghostbuild:cloudflare-reauthorize-deferred';
+const DEFERRED_KEY = 'cloudchef:cloudflare-reauthorize-deferred';
 
 function stageConnection(oauthScopeGrantStatus: string | null) {
   const fetchImpl = vi.fn(
@@ -83,7 +83,7 @@ describe('ReauthorizeInterstitial', () => {
     stageConnection('unknown');
     await mount();
     await clickButton('Reauthorize Cloudflare');
-    expect(mocks.signInWithCloudflare).toHaveBeenCalledWith('https://ghostbuild.dev/');
+    expect(mocks.signInWithCloudflare).toHaveBeenCalledWith('https://cloudchef.build/');
   });
 
   it('remembers a deferral so it does not nag on re-render', async () => {

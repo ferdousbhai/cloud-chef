@@ -1,4 +1,4 @@
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import type {
   BuilderWorkspaceApplyResult,
   BuilderWorkspaceClientChange,

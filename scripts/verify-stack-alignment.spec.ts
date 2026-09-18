@@ -151,13 +151,13 @@ describe('stack alignment verification helpers', () => {
 
   it('reports forbidden generated lockfiles', () => {
     expect(findForbiddenFiles(['scripts/fixtures/forbidden-stack-imports.txt'])).toEqual([
-      'scripts/fixtures/forbidden-stack-imports.txt must not exist; Ghostbuild uses pnpm lockfiles only.',
+      'scripts/fixtures/forbidden-stack-imports.txt must not exist; CloudChef uses pnpm lockfiles only.',
     ]);
   });
 
   it('reports forbidden legacy stack paths', () => {
     expect(findForbiddenLegacyPaths(['scripts/fixtures/forbidden-stack-imports.txt'])).toEqual([
-      'scripts/fixtures/forbidden-stack-imports.txt must not exist; Ghostbuild uses TanStack Start and Cloudflare-only providers.',
+      'scripts/fixtures/forbidden-stack-imports.txt must not exist; CloudChef uses TanStack Start and Cloudflare-only providers.',
     ]);
   });
 
@@ -181,9 +181,9 @@ describe('stack alignment verification helpers', () => {
   });
 
   it('prevents accidental publication of internal workspace packages', () => {
-    expect(findInternalPackageMetadataErrors({ private: true }, 'ghostbuild-agent/package.json')).toEqual([]);
-    expect(findInternalPackageMetadataErrors({}, 'ghostbuild-agent/package.json')).toEqual([
-      'ghostbuild-agent/package.json must set private to true so it cannot be published accidentally.',
+    expect(findInternalPackageMetadataErrors({ private: true }, 'cloudchef-agent/package.json')).toEqual([]);
+    expect(findInternalPackageMetadataErrors({}, 'cloudchef-agent/package.json')).toEqual([
+      'cloudchef-agent/package.json must set private to true so it cannot be published accidentally.',
     ]);
   });
 

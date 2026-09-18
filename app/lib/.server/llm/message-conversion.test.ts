@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { toolSuccess } from 'ghostbuild-agent/tool-result';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import { toolSuccess } from 'cloudchef-agent/tool-result';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { cleanupAssistantMessages } from './message-conversion';
 
 describe('cleanupAssistantMessages', () => {
@@ -98,7 +98,7 @@ describe('cleanupAssistantMessages', () => {
         parts: [
           {
             type: 'text',
-            text: '<think>private one</think>Visible<div class="__ghostbuildThought__">private two</div> answer',
+            text: '<think>private one</think>Visible<div class="__cloudchefThought__">private two</div> answer',
           },
         ],
       },
@@ -108,7 +108,7 @@ describe('cleanupAssistantMessages', () => {
   });
 });
 
-function assistantToolMessage(part: GhostbuildMessage['parts'][number]): GhostbuildMessage {
+function assistantToolMessage(part: CloudChefMessage['parts'][number]): CloudChefMessage {
   return {
     id: crypto.randomUUID(),
     role: 'assistant',

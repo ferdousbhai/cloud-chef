@@ -3,12 +3,12 @@ import { CheckIcon, CircleIcon, Cross2Icon, FileIcon, MagnifyingGlassIcon, Penci
 import { Spinner } from '@ui/Spinner';
 import type { ToolActivityStatus } from '~/lib/common/types';
 import { classNames } from '~/utils/classNames';
-import { isToolInvocationInProgress, type GhostbuildToolInvocation } from 'ghostbuild-agent/ai-compat';
-import { getRelativePath } from 'ghostbuild-agent/utils/workDir';
-import { MODEL_TOOL_INPUT_SCHEMAS } from 'ghostbuild-agent/model-tool-inputs';
+import { isToolInvocationInProgress, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
+import { getRelativePath } from 'cloudchef-agent/utils/workDir';
+import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
 import { formatStreamedSize, streamedToolInput } from './streaming-tool-input';
 import type { ZodType } from 'zod';
-import { toolFailure, toolResultSucceeded } from 'ghostbuild-agent/tool-result';
+import { toolFailure, toolResultSucceeded } from 'cloudchef-agent/tool-result';
 import { AUTO_VALIDATION_TOOL_CALL_ID_PREFIX } from '~/lib/common/builder-validation-progress';
 
 const MAX_TOOL_TITLE_VALUE_CHARACTERS = 160;
@@ -29,7 +29,7 @@ const STOPPED_TOOL_TITLES = new Map<string, string>([
 
 const MODEL_TOOL_INPUT_SCHEMA_BY_NAME = new Map<string, ZodType>(Object.entries(MODEL_TOOL_INPUT_SCHEMAS));
 
-const emptyInvocation: GhostbuildToolInvocation = {
+const emptyInvocation: CloudChefToolInvocation = {
   type: 'dynamic-tool',
   state: 'input-streaming',
   toolCallId: '',
@@ -37,7 +37,7 @@ const emptyInvocation: GhostbuildToolInvocation = {
   input: {},
 };
 
-export function normalizeToolInvocation(invocation: GhostbuildToolInvocation | undefined): GhostbuildToolInvocation {
+export function normalizeToolInvocation(invocation: CloudChefToolInvocation | undefined): CloudChefToolInvocation {
   if (!invocation || invocation.state !== 'output-available' || isErrorResult(invocation)) {
     return invocation ?? emptyInvocation;
   }
@@ -48,7 +48,7 @@ export function normalizeToolInvocation(invocation: GhostbuildToolInvocation | u
     : invocation;
 }
 
-export function statusIcon(status: ToolActivityStatus, invocation: GhostbuildToolInvocation): ReactNode {
+export function statusIcon(status: ToolActivityStatus, invocation: CloudChefToolInvocation): ReactNode {
   if (isErrorResult(invocation)) {
     return icon(<Cross2Icon />, 'text-bolt-elements-icon-error');
   }
@@ -65,7 +65,7 @@ export function statusIcon(status: ToolActivityStatus, invocation: GhostbuildToo
   return null;
 }
 
-export function toolTitle(invocation: GhostbuildToolInvocation, status: ToolActivityStatus): ReactNode {
+export function toolTitle(invocation: CloudChefToolInvocation, status: ToolActivityStatus): ReactNode {
   if (status === 'aborted') {
     return STOPPED_TOOL_TITLES.get(invocation.toolName) ?? 'Tool stopped';
   }
@@ -135,7 +135,7 @@ function icon(content: ReactNode, color: string): ReactNode {
   return <div className={classNames('text-base', color)}>{content}</div>;
 }
 
-function isErrorResult(invocation: GhostbuildToolInvocation): boolean {
+function isErrorResult(invocation: CloudChefToolInvocation): boolean {
   return (
     invocation.state === 'output-error' ||
     invocation.state === 'output-denied' ||
@@ -157,7 +157,7 @@ function titleRow(children: ReactNode, iconContent?: ReactNode): ReactNode {
  * knowable — and worth showing — long before the call is complete. Until the path is legible the
  * title stays with the wording it has always used.
  */
-function streamingFileTitle(invocation: GhostbuildToolInvocation, verb: string, fallback: string): string {
+function streamingFileTitle(invocation: CloudChefToolInvocation, verb: string, fallback: string): string {
   const streamed = streamedToolInput(invocation);
   if (streamed.path === null) {
     return fallback;
@@ -166,11 +166,11 @@ function streamingFileTitle(invocation: GhostbuildToolInvocation, verb: string, 
   return `${verb} ${compactToolLabel(getRelativePath(streamed.path) || streamed.path)}…${written}`;
 }
 
-function isStreamingInput(invocation: GhostbuildToolInvocation): boolean {
+function isStreamingInput(invocation: CloudChefToolInvocation): boolean {
   return invocation.state === 'input-streaming';
 }
 
-function readTitle(invocation: GhostbuildToolInvocation, status: ToolActivityStatus): ReactNode {
+function readTitle(invocation: CloudChefToolInvocation, status: ToolActivityStatus): ReactNode {
   if (isStreamingInput(invocation)) {
     return titleRow(
       streamingFileTitle(invocation, 'Reading', 'Reading a file…'),
@@ -186,7 +186,7 @@ function readTitle(invocation: GhostbuildToolInvocation, status: ToolActivitySta
   );
 }
 
-function listTitle(invocation: GhostbuildToolInvocation, status: ToolActivityStatus): ReactNode {
+function listTitle(invocation: CloudChefToolInvocation, status: ToolActivityStatus): ReactNode {
   const args = MODEL_TOOL_INPUT_SCHEMAS.ls.safeParse(invocation.input);
   const target = args.success && args.data.path ? getRelativePath(args.data.path) || args.data.path : 'the project';
   return titleRow(
@@ -195,7 +195,7 @@ function listTitle(invocation: GhostbuildToolInvocation, status: ToolActivitySta
   );
 }
 
-function searchTitle(invocation: GhostbuildToolInvocation, status: ToolActivityStatus): ReactNode {
+function searchTitle(invocation: CloudChefToolInvocation, status: ToolActivityStatus): ReactNode {
   const args = MODEL_TOOL_INPUT_SCHEMAS.grep.safeParse(invocation.input);
   return titleRow(
     args.success
@@ -205,7 +205,7 @@ function searchTitle(invocation: GhostbuildToolInvocation, status: ToolActivityS
   );
 }
 
-function editTitle(invocation: GhostbuildToolInvocation, status: ToolActivityStatus): ReactNode {
+function editTitle(invocation: CloudChefToolInvocation, status: ToolActivityStatus): ReactNode {
   if (isStreamingInput(invocation)) {
     return titleRow(
       streamingFileTitle(invocation, 'Editing', 'Editing a file…'),
@@ -219,7 +219,7 @@ function editTitle(invocation: GhostbuildToolInvocation, status: ToolActivitySta
   );
 }
 
-function writeTitle(invocation: GhostbuildToolInvocation): ReactNode {
+function writeTitle(invocation: CloudChefToolInvocation): ReactNode {
   if (isStreamingInput(invocation)) {
     return titleRow(
       streamingFileTitle(invocation, 'Writing', 'Writing a file…'),

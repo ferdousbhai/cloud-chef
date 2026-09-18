@@ -3,7 +3,7 @@ import { collectBrowserDiagnostics } from './browser-diagnostics';
 
 // The built Worker enforces these boundaries itself, so they are provable
 // against the local candidate without any Cloudflare account.
-const FORGED_SESSION_COOKIE = 'ghostbuild_session=forged-session-token';
+const FORGED_SESSION_COOKIE = 'cloudchef_session=forged-session-token';
 const RUNTIME_CREDENTIAL_REQUEST = {
   userId: 'forged-user',
   connectionId: 'forged-connection',
@@ -102,7 +102,7 @@ test('mints no session from a forged cookie', async ({ request }) => {
 test('keeps the project workbench closed to a forged browser session', async ({ page, context, baseURL }, testInfo) => {
   const assertClean = collectBrowserDiagnostics(page, testInfo);
   await context.addCookies([
-    { name: 'ghostbuild_session', value: 'forged-session-token', domain: new URL(baseURL!).hostname, path: '/' },
+    { name: 'cloudchef_session', value: 'forged-session-token', domain: new URL(baseURL!).hostname, path: '/' },
   ]);
 
   await page.goto('/chat/forged-session-project');

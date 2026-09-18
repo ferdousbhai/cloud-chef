@@ -1,4 +1,4 @@
-import type { CloudflareOAuthScopeGrantStatus, GhostbuildCapability } from './cloudflare-oauth-scope-manifest';
+import type { CloudflareOAuthScopeGrantStatus, CloudChefCapability } from './cloudflare-oauth-scope-manifest';
 
 export type CloudflareConnectionRequest = {
   returnUrl: string;
@@ -28,7 +28,7 @@ export type CloudflareConnectionResult = {
   refreshToken?: string;
   accessTokenExpiresAt?: number;
   /** Product capabilities the confirmed grant covers, never an echo of what was requested. */
-  grantedCapabilities: GhostbuildCapability[];
+  grantedCapabilities: CloudChefCapability[];
   /** Exact scope IDs in the authorization request. */
   requestedOAuthScopes: string[];
   /** Exact provider-confirmed scope IDs. */

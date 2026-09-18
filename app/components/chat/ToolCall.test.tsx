@@ -3,8 +3,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GhostbuildToolInvocation } from 'ghostbuild-agent/ai-compat';
-import { makePartId } from 'ghostbuild-agent/partId';
+import type { CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
+import { makePartId } from 'cloudchef-agent/partId';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { ToolCall } from './ToolCall';
 
@@ -28,7 +28,7 @@ describe('ToolCall', () => {
   });
 
   it('renders an exact Cloudflare proposal and wires its durable approval decision', async () => {
-    const invocation: GhostbuildToolInvocation = {
+    const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'output-available',
       toolCallId: 'cloudflare-execute-1',
@@ -99,7 +99,7 @@ describe('ToolCall', () => {
   });
 
   it('renders an indeterminate Cloudflare execution as terminal reconciliation guidance', async () => {
-    const invocation: GhostbuildToolInvocation = {
+    const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'output-available',
       toolCallId: 'cloudflare-execute-2',
@@ -149,7 +149,7 @@ describe('ToolCall', () => {
     );
   });
   it('names the file a streaming write is filling, with how much has arrived', async () => {
-    const invocation: GhostbuildToolInvocation = {
+    const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'input-streaming',
       toolCallId: 'write-1',
@@ -163,7 +163,7 @@ describe('ToolCall', () => {
   });
 
   it('keeps the established wording until the streamed path is legible', async () => {
-    const invocation: GhostbuildToolInvocation = {
+    const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'input-streaming',
       toolCallId: 'write-2',
@@ -177,7 +177,7 @@ describe('ToolCall', () => {
   });
 
   it("marks the validation the builder runs on the model's behalf as automatic", async () => {
-    const invocation: GhostbuildToolInvocation = {
+    const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'input-available',
       toolCallId: 'auto-validate:0f8f0f0f',
@@ -191,7 +191,7 @@ describe('ToolCall', () => {
   });
 
   it('reports a finished validation as a verdict and its stages, not raw JSON', async () => {
-    const invocation: GhostbuildToolInvocation = {
+    const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'output-available',
       toolCallId: 'validate-1',
@@ -225,7 +225,7 @@ describe('ToolCall', () => {
   });
 
   it('never shows the running placeholder for a tool the turn already stopped', async () => {
-    const invocation: GhostbuildToolInvocation = {
+    const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'input-available',
       toolCallId: 'validate-2',

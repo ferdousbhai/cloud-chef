@@ -6,7 +6,7 @@ import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { HamburgerMenuIcon, PersonIcon, GearIcon, ExitIcon } from '@radix-ui/react-icons';
 import { profileStore, setProfile } from '~/lib/stores/profile';
 import { Menu as MenuComponent, MenuItem as MenuItemComponent } from '@ui/Menu';
-import { signOutOfGhostbuild } from '~/lib/auth-client';
+import { signOutOfCloudChef } from '~/lib/auth-client';
 import { BrandLink } from '~/components/BrandLink';
 import { Button } from '@ui/Button';
 import { ThemeSwitch } from '~/components/ui/ThemeSwitch';
@@ -37,7 +37,7 @@ export function Header({ hideSidebarIcon = false }: { hideSidebarIcon?: boolean 
 
   const handleLogout = async () => {
     try {
-      await signOutOfGhostbuild();
+      await signOutOfCloudChef();
       setProfile(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to sign out. Please try again.');
@@ -50,7 +50,7 @@ export function Header({ hideSidebarIcon = false }: { hideSidebarIcon?: boolean 
     <>
       <header
         className={classNames(
-          'ghostbuild-header flex h-[var(--header-height)] items-center overflow-x-auto overflow-y-hidden border-b px-3 sm:px-5',
+          'cloudchef-header flex h-[var(--header-height)] items-center overflow-x-auto overflow-y-hidden border-b px-3 sm:px-5',
           { 'py-1 lg:py-3': chat.started, 'py-1.5 sm:py-3': !chat.started },
         )}
         data-chat-started={chat.started}
@@ -59,7 +59,7 @@ export function Header({ hideSidebarIcon = false }: { hideSidebarIcon?: boolean 
           {showSidebarIcon && (
             <button
               type="button"
-              className="ghostbuild-header__menu-button !size-11 sm:!size-9"
+              className="cloudchef-header__menu-button !size-11 sm:!size-9"
               data-hamburger-menu
               aria-label={isMenuOpen ? 'Close project menu' : 'Open project menu'}
               aria-expanded={isMenuOpen}
@@ -78,7 +78,7 @@ export function Header({ hideSidebarIcon = false }: { hideSidebarIcon?: boolean 
               'flex items-center gap-2 rounded-md text-content-primary no-underline hover:text-content-primary hover:no-underline',
               { 'max-[479px]:hidden': showSidebarIcon && chat.started },
             )}
-            nameClassName="ghostbuild-brand-name font-display text-lg font-black leading-none text-content-primary"
+            nameClassName="cloudchef-brand-name font-display text-lg font-black leading-none text-content-primary"
           />
         </div>
         {chat.started && (

@@ -1,4 +1,4 @@
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { z } from 'zod';
 import { UnauthorizedError } from './auth.server';
 import { DataNotFoundError, SubchatLimitError } from './errors';

@@ -1,7 +1,7 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import { CaretDownIcon, CaretRightIcon, FileIcon } from '@radix-ui/react-icons';
 import { useCallback, type ReactNode } from 'react';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { classNames } from '~/utils/classNames';
 import type { FileNode, FolderNode } from './file-tree-model';
 

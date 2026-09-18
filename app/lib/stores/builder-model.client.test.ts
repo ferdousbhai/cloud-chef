@@ -42,7 +42,7 @@ function memoryStorage(entries: Record<string, string> = {}) {
   };
 }
 
-const SEEN_KEY = 'ghostbuild_seen_builder_models_v1';
+const SEEN_KEY = 'cloudchef_seen_builder_models_v1';
 
 describe('builder model preference', () => {
   beforeEach(() => {

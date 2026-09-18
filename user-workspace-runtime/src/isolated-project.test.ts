@@ -13,17 +13,17 @@ describe('isolated project command', () => {
           { binding: 'AGENT_SECURITY_DB', migrations_dir: '/home/project/agent-security-migrations' },
         ],
       },
-      { projectRoot: '/home/project', isolatedRoot: '/tmp/ghostbuild-projects/deployment-id' },
+      { projectRoot: '/home/project', isolatedRoot: '/tmp/cloudchef-projects/deployment-id' },
     );
 
     expect(config).toEqual({
-      main: '/tmp/ghostbuild-projects/deployment-id/dist/server/index.js',
-      assets: { directory: '/tmp/ghostbuild-projects/deployment-id/dist/client' },
+      main: '/tmp/cloudchef-projects/deployment-id/dist/server/index.js',
+      assets: { directory: '/tmp/cloudchef-projects/deployment-id/dist/client' },
       d1_databases: [
-        { binding: 'DB', migrations_dir: '/tmp/ghostbuild-projects/deployment-id/migrations' },
+        { binding: 'DB', migrations_dir: '/tmp/cloudchef-projects/deployment-id/migrations' },
         {
           binding: 'AGENT_SECURITY_DB',
-          migrations_dir: '/tmp/ghostbuild-projects/deployment-id/agent-security-migrations',
+          migrations_dir: '/tmp/cloudchef-projects/deployment-id/agent-security-migrations',
         },
       ],
     });
@@ -32,17 +32,17 @@ describe('isolated project command', () => {
   it('enters a quoted native directory from a valid workspace cwd', () => {
     expect(
       createContainerDirectoryCommand({
-        directory: '/tmp/ghostbuild projects/validation-id',
+        directory: '/tmp/cloudchef projects/validation-id',
         command: 'pnpm run build',
       }),
-    ).toBe("cd '/tmp/ghostbuild projects/validation-id' &&\npnpm run build");
+    ).toBe("cd '/tmp/cloudchef projects/validation-id' &&\npnpm run build");
   });
 
   it('rejects trusted deployment paths outside the durable project root', () => {
     expect(() =>
       rebaseDeploymentConfigPaths(
         { main: '/tmp/untrusted.js' },
-        { projectRoot: '/home/project', isolatedRoot: '/tmp/ghostbuild-projects/deployment-id' },
+        { projectRoot: '/home/project', isolatedRoot: '/tmp/cloudchef-projects/deployment-id' },
       ),
     ).toThrow(/outside the project root/i);
   });
@@ -50,14 +50,14 @@ describe('isolated project command', () => {
   it('derives artifact paths from the requested root, not transport metadata', () => {
     expect(
       relativeIsolatedPath(
-        '/tmp/ghostbuild-projects/deployment-id/.ghostbuild-artifact',
-        '/tmp/ghostbuild-projects/deployment-id/.ghostbuild-artifact/index.js',
+        '/tmp/cloudchef-projects/deployment-id/.cloudchef-artifact',
+        '/tmp/cloudchef-projects/deployment-id/.cloudchef-artifact/index.js',
       ),
     ).toBe('index.js');
     expect(() =>
       relativeIsolatedPath(
-        '/tmp/ghostbuild-projects/deployment-id/.ghostbuild-artifact',
-        '/tmp/ghostbuild-projects/deployment-id/elsewhere/index.js',
+        '/tmp/cloudchef-projects/deployment-id/.cloudchef-artifact',
+        '/tmp/cloudchef-projects/deployment-id/elsewhere/index.js',
       ),
     ).toThrow(/outside its expected root/i);
   });
@@ -82,10 +82,10 @@ describe('isolated project command', () => {
     const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
 
     for (const table of [
-      'ghostbuild_active_preview',
-      'ghostbuild_pending_previews',
-      'ghostbuild_preview_results',
-      'ghostbuild_preview_cancellations',
+      'cloudchef_active_preview',
+      'cloudchef_pending_previews',
+      'cloudchef_preview_results',
+      'cloudchef_preview_cancellations',
     ]) {
       expect(source).toContain(`'${table}'`);
     }
@@ -112,7 +112,7 @@ describe('isolated project command', () => {
       source.indexOf('private async discardPreparedValidationArtifact('),
       source.indexOf('private async copyProjectToIsolatedRoot('),
     );
-    expect(discard).not.toContain('DELETE FROM ghostbuild_prepared_validation');
+    expect(discard).not.toContain('DELETE FROM cloudchef_prepared_validation');
   });
 
   it('keeps the Computer container alive for stateful and deployment operations', () => {
@@ -135,7 +135,7 @@ describe('isolated project command', () => {
     expect(keepAlive).toContain('this.#containerKeepAliveOperations += 1');
     expect(keepAlive).toContain('await this.setKeepAlive(true)');
     expect(keepAlive).toContain('this.#containerKeepAliveOperations -= 1');
-    expect(keepAlive).toContain("ghostbuild_deployment_sessions WHERE status = 'active'");
+    expect(keepAlive).toContain("cloudchef_deployment_sessions WHERE status = 'active'");
     expect(keepAlive).toContain('this.#containerKeepAliveOperations === 0 && !deploymentActive');
     expect(keepAlive).not.toContain('activePreviewRow');
     expect(keepAlive).toContain('await this.setKeepAlive(false)');

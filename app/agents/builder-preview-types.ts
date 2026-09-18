@@ -1,7 +1,7 @@
 export type BuilderPreviewStatus = 'idle' | 'queued' | 'building' | 'ready' | 'failed' | 'cancelled';
 
-export type { BuilderPreviewSuccess } from '@ghostbuild/user-workspace-runtime/protocol';
-import type { BuilderPreviewSuccess } from '@ghostbuild/user-workspace-runtime/protocol';
+export type { BuilderPreviewSuccess } from '@cloudchef/user-workspace-runtime/protocol';
+import type { BuilderPreviewSuccess } from '@cloudchef/user-workspace-runtime/protocol';
 
 export type BuilderPreviewState = {
   status: BuilderPreviewStatus;

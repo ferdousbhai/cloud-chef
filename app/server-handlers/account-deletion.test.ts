@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  clearAuthSessionCookie: vi.fn(() => 'ghostbuild_session=; Path=/; HttpOnly; Max-Age=0'),
+  clearAuthSessionCookie: vi.fn(() => 'cloudchef_session=; Path=/; HttpOnly; Max-Age=0'),
   getAuthSession: vi.fn(),
   eraseControlPlaneAccount: vi.fn(),
 }));
@@ -24,8 +24,8 @@ const validBody = {
   acknowledgeCloudflareResourcesRetained: true,
 };
 
-function deletionRequest(body: unknown, origin = 'https://ghostbuild.dev'): Request {
-  return new Request('https://ghostbuild.dev/api/account/delete', {
+function deletionRequest(body: unknown, origin = 'https://cloudchef.build'): Request {
+  return new Request('https://cloudchef.build/api/account/delete', {
     method: 'POST',
     headers: { origin, 'content-type': 'application/json' },
     body: JSON.stringify(body),

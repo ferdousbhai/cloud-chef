@@ -1,13 +1,13 @@
 import { createSocialPageHead } from './social-meta';
 
-const GHOSTBUILD_REPOSITORY_URL = 'https://github.com/ferdousbhai/ghost-build';
-export const GHOSTBUILD_SUPPORT_URL = `${GHOSTBUILD_REPOSITORY_URL}/issues/new?template=support_request.yml`;
-export const GHOSTBUILD_SECURITY_URL = `${GHOSTBUILD_REPOSITORY_URL}/security/advisories/new`;
+const CLOUDCHEF_REPOSITORY_URL = 'https://github.com/ferdousbhai/cloud-chef';
+export const CLOUDCHEF_SUPPORT_URL = `${CLOUDCHEF_REPOSITORY_URL}/issues/new?template=support_request.yml`;
+export const CLOUDCHEF_SECURITY_URL = `${CLOUDCHEF_REPOSITORY_URL}/security/advisories/new`;
 export const CLOUDFLARE_SUPPORT_URL = 'https://developers.cloudflare.com/support/contacting-cloudflare-support/';
 // Support and Security both open their escalation table with this row. One definition, so the two
 // pages cannot answer "who do I call" differently.
 export const TRUST_EMERGENCY_PAIR = { term: 'Immediate danger', detail: 'Local emergency services' } as const;
-export const GHOSTBUILD_OPERATOR = {
+export const CLOUDCHEF_OPERATOR = {
   legalName: 'DOUS SOFTWARE INC.',
   legalForm: 'Ontario corporation',
   registrationNumber: '1001622428',
@@ -21,21 +21,21 @@ export const TRUST_DOCUMENT_EFFECTIVE_DATE = 'August 14, 2026';
 // pages, next to each page's own restatement of its own number, so the same fact was on screen
 // three times. Each page now renders its own rows and shares only the caveat.
 export const TRUST_RESPONSE_CAVEAT =
-  'Public-beta targets, not guarantees or contractual service levels. Channels are not monitored continuously, and Ghostbuild does not provide 24/7 or real-time emergency response.';
+  'Public-beta targets, not guarantees or contractual service levels. Channels are not monitored continuously, and CloudChef does not provide 24/7 or real-time emergency response.';
 export const HOME_HERO_LEDE =
-  'Describe the app. Ghostbuild writes, runs, and deploys it inside your own Cloudflare account.';
+  'Describe the app. CloudChef writes, runs, and deploys it inside your own Cloudflare account.';
 
 // The browser gate asserts these exact headings, so the pages and the suite
 // read one definition instead of drifting apart.
 export const TRUST_PAGE_HEADINGS = {
-  privacy: 'How Ghostbuild handles your data.',
+  privacy: 'How CloudChef handles your data.',
   terms: 'You control the cloud account.',
   support: 'Get help through the right channel.',
   security: 'Keep vulnerability details private.',
 } as const;
 
 /** Title strip on the landing-page composer, rendered as a decorative label. */
-export const HOME_COMPOSER_TITLE = 'ghostbuild ~ new project';
+export const HOME_COMPOSER_TITLE = 'cloudchef ~ new project';
 
 export const TRUST_LINKS = [
   { href: '/privacy', label: 'Privacy' },
@@ -48,6 +48,6 @@ export function createPublicBetaTrustPageHead(options: { title: string; descript
   return createSocialPageHead({
     ...options,
     imagePath: '/social-preview-home-v2.png',
-    imageAlt: 'Ghostbuild — build and ship Cloudflare apps',
+    imageAlt: 'CloudChef — build and ship Cloudflare apps',
   });
 }

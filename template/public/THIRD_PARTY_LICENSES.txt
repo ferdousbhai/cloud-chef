@@ -1,4 +1,4 @@
-Ghostbuild Generated Application Third-Party Licenses
+CloudChef Generated Application Third-Party Licenses
 
 This generated artifact inventories every exact platform-neutral production package version.
 Published package license and notice files are reproduced verbatim and deduplicated by SHA-256.

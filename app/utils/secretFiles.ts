@@ -29,11 +29,11 @@ export function assertNotLocalSecretFilePath(filePath: string) {
 
   if (pathSegments(filePath).some((segment) => PROJECT_DEPENDENCY_HOOK_FILE_NAME_SET.has(segment))) {
     throw new Error(
-      `Project dependency hook files are disabled for Ghostbuild projects: ${filePath}. Use the reviewed pnpm workspace policy instead.`,
+      `Project dependency hook files are disabled for CloudChef projects: ${filePath}. Use the reviewed pnpm workspace policy instead.`,
     );
   }
 
   throw new Error(
-    `Local secret files are disabled for Ghostbuild projects: ${filePath}. Use a per-Worker secret or, for an exported project, an account-level Cloudflare Secrets Store binding instead.`,
+    `Local secret files are disabled for CloudChef projects: ${filePath}. Use a per-Worker secret or, for an exported project, an account-level Cloudflare Secrets Store binding instead.`,
   );
 }

@@ -1,5 +1,5 @@
-import type { FileMap } from 'ghostbuild-agent/types';
-import { getRelativePath } from 'ghostbuild-agent/utils/workDir';
+import type { FileMap } from 'cloudchef-agent/types';
+import { getRelativePath } from 'cloudchef-agent/utils/workDir';
 import { isLocalSecretFilePath } from '~/utils/secretFiles';
 import { cursorRulesContent } from './cursorRulesContent';
 import { generateReadmeContent } from './readmeContent';
@@ -23,7 +23,7 @@ export async function downloadProject(files: FileMap, description: string): Prom
     hasCursorRules ||= relativePath === '.cursor/rules/cloudflare_rules.mdc';
   }
 
-  const readmePath = hasReadme ? 'GHOSTBUILD_README.md' : 'README.md';
+  const readmePath = hasReadme ? 'CLOUDCHEF_README.md' : 'README.md';
   zip.file(readmePath, generateReadmeContent(description));
   if (!hasCursorRules) {
     zip.file('.cursor/rules/cloudflare_rules.mdc', cursorRulesContent);

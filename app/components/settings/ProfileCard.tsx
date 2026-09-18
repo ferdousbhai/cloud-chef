@@ -1,7 +1,7 @@
 import { useStore } from '@nanostores/react';
 import { profileStore } from '~/lib/stores/profile';
 import { ExitIcon, PersonIcon } from '@radix-ui/react-icons';
-import { signOutOfGhostbuild } from '~/lib/auth-client';
+import { signOutOfCloudChef } from '~/lib/auth-client';
 import { Button } from '@ui/Button';
 import { toast } from 'sonner';
 
@@ -9,7 +9,7 @@ export function ProfileCard() {
   const profile = useStore(profileStore);
   const handleLogout = async () => {
     try {
-      await signOutOfGhostbuild();
+      await signOutOfCloudChef();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to sign out. Please try again.');
     }
@@ -34,7 +34,7 @@ export function ProfileCard() {
         <div className="min-w-0 flex-1">
           <p className="app-page-eyebrow">Cloudflare identity</p>
           <h2 id="profile-heading" className="app-card-title mt-2 truncate">
-            {profile.username || 'Ghostbuild user'}
+            {profile.username || 'CloudChef user'}
           </h2>
           {profile.email && <p className="mt-1 truncate text-sm text-content-secondary">{profile.email}</p>}
         </div>

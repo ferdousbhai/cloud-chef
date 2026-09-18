@@ -9,7 +9,7 @@ import {
 import { callable, type FiberRecoveryContext, type FiberRecoveryResult } from 'agents';
 import { canApplyConversationCompaction, conversationCompactionKey } from '~/lib/compaction';
 import { createChatResponseFromBody, type ChatRequestBody } from '~/lib/.server/chat';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import {
   completeBuilderTurn,
   createBuilderTurn,
@@ -21,7 +21,7 @@ import {
 import { DurableObjectContextCompactionRepository } from '~/lib/.server/llm/context-compaction-store';
 import { compactContext } from '~/lib/.server/llm/context-compaction';
 import { summarizeBuilderContext } from '~/lib/.server/llm/workers-ai-text';
-import { chatTurnContextSchema, type ChatTurnContext } from 'ghostbuild-agent/turn-context';
+import { chatTurnContextSchema, type ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { getUserWorkersAiCredentials } from '~/lib/.server/cloudflare/workers-ai-billing-context';
 import type { UIMessage } from 'ai';
 import {
@@ -46,7 +46,7 @@ import {
   setHeuristicProjectDescriptionIfMissing,
   setHeuristicSubchatDescriptionIfMissing,
 } from '~/lib/cloudflare/data/chat-service.server';
-import { getToolInvocation, messageText, type GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import { getToolInvocation, messageText, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import {
   transcriptCheckpointSchema,
   transcriptCheckpointsEqual,
@@ -56,7 +56,7 @@ import {
   TRANSCRIPT_BASE_METADATA_KEY,
   type TranscriptCheckpoint,
   type TranscriptIdentity,
-} from 'ghostbuild-agent/transcript';
+} from 'cloudchef-agent/transcript';
 import { createWorkersAiSessionAffinity } from '~/lib/.server/llm/workers-ai-prompt-cache';
 import {
   boundBuilderMessageForPersistence,
@@ -98,7 +98,7 @@ import {
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import { waitForCancellationBeforeDeadline } from './builder-cancellation';
 import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
-import { MAX_USER_MESSAGE_CHARACTERS } from 'ghostbuild-agent/context-limits';
+import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
 import {
   BuilderCloudflareExecutionRepository,
@@ -116,7 +116,7 @@ import {
   type CloudflareExecutionSafeOutcome,
   type CloudflareExecutionStatus,
   type CloudflareMcpImmediateResult,
-} from 'ghostbuild-agent/cloudflare-mcp';
+} from 'cloudchef-agent/cloudflare-mcp';
 import {
   cloudflareMcpExecuteEnabled,
   readCloudflareMcpRuntimeAdmission,
@@ -351,7 +351,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       lastTurn?.status === 'aborted' &&
       (lastTurn.requestId === ctx.requestId || lastTurn.requestId === ctx.recoveryRootRequestId)
     ) {
-      logger.info('Skipping recovery for a durably cancelled Ghostbuild chat turn', {
+      logger.info('Skipping recovery for a durably cancelled CloudChef chat turn', {
         incidentId: ctx.incidentId,
       });
       return { persist: true, continue: false };
@@ -361,7 +361,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       ...this.state,
       activeTurn: nextTurn,
     });
-    logger.warn('Recovering interrupted Ghostbuild chat turn', {
+    logger.warn('Recovering interrupted CloudChef chat turn', {
       incidentId: nextTurn.recovery?.incidentId,
       recoveryKind: ctx.recoveryKind,
       attempt: ctx.attempt,
@@ -1023,7 +1023,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private stashTurn(turn: BuilderTurnState) {
     try {
       this.stash({
-        kind: 'ghostbuild-chat-turn',
+        kind: 'cloudchef-chat-turn',
         turn,
         recoveryPlan: {
           onRecovery: 'Persist partial output and continue.',
@@ -1031,7 +1031,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         },
       });
     } catch {
-      logger.warn('Unable to stash Ghostbuild chat turn recovery context');
+      logger.warn('Unable to stash CloudChef chat turn recovery context');
     }
   }
 
@@ -1381,7 +1381,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       outcome: record.outcome,
     };
     let replaced = false;
-    const messages: GhostbuildMessage[] = this.messages.map((message) => ({
+    const messages: CloudChefMessage[] = this.messages.map((message) => ({
       ...message,
       parts: message.parts.map((part) => {
         const invocation = getToolInvocation(part);

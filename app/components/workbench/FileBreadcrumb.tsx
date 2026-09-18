@@ -1,11 +1,11 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { AnimatePresence, motion, type Variants } from 'framer-motion';
 import { memo, useState } from 'react';
-import type { FileMap } from 'ghostbuild-agent/types';
+import type { FileMap } from 'cloudchef-agent/types';
 import { classNames } from '~/utils/classNames';
-import { WORK_DIR } from 'ghostbuild-agent/constants';
+import { WORK_DIR } from 'cloudchef-agent/constants';
 import { cubicEasingFn } from '~/utils/easings';
-import { renderLogger } from 'ghostbuild-agent/utils/logger';
+import { renderLogger } from 'cloudchef-agent/utils/logger';
 import { FileTree } from './FileTree';
 import { FileIcon, ChevronRightIcon } from '@radix-ui/react-icons';
 

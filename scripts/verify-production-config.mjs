@@ -26,11 +26,11 @@ const PLACEHOLDER_D1_ID = '00000000-0000-0000-0000-000000000000';
 const workerTargets = [
   {
     path: 'wrangler.jsonc',
-    name: 'ghostbuild',
+    name: 'cloudchef',
     main: 'app/server.ts',
-    databaseName: 'ghostbuild',
+    databaseName: 'cloudchef',
     durableObjects: [],
-    customDomains: ['ghostbuild.dev', 'www.ghostbuild.dev'],
+    customDomains: ['cloudchef.build', 'www.cloudchef.build'],
   },
 ];
 
@@ -112,7 +112,7 @@ export function findWorkerGcScheduleErrors(config, label) {
 }
 
 /**
- * Private operations are authorized by reachability: `ghostbuild-ops` holds a
+ * Private operations are authorized by reachability: `cloudchef-ops` holds a
  * Service binding to the `OperationsService` RPC entrypoint, which HTTP can
  * never dispatch to. Restoring the retired shared secret would put a forgeable
  * string back on the wire, so that specific binding may not reappear. Other
@@ -121,12 +121,12 @@ export function findWorkerGcScheduleErrors(config, label) {
  */
 export function findWorkerOperationsSecretErrors(config, label) {
   const revived = (config?.secrets_store_secrets ?? []).filter(
-    (binding) => binding?.binding === 'OPS_AUTH_SECRET' || binding?.secret_name === 'ghostbuild-ops-auth',
+    (binding) => binding?.binding === 'OPS_AUTH_SECRET' || binding?.secret_name === 'cloudchef-ops-auth',
   );
   return revived.length === 0
     ? []
     : [
-        `${label} must not bind the retired operations secret (ghostbuild-ops-auth); private operations are authorized by the OperationsService Service binding.`,
+        `${label} must not bind the retired operations secret (cloudchef-ops-auth); private operations are authorized by the OperationsService Service binding.`,
       ];
 }
 

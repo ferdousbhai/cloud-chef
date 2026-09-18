@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
-import { toolFailure, toolSuccess } from 'ghostbuild-agent/tool-result';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
+import { toolFailure, toolSuccess } from 'cloudchef-agent/tool-result';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import { z, type ZodType } from 'zod';
@@ -747,7 +747,7 @@ function workspaceStub(
   return workspace as unknown as BuilderWorkspaceApi;
 }
 
-function user(text: string): GhostbuildMessage {
+function user(text: string): CloudChefMessage {
   return { id: crypto.randomUUID(), role: 'user', parts: [{ type: 'text', text }] };
 }
 

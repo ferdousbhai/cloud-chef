@@ -1,5 +1,5 @@
-import type { FileMap } from 'ghostbuild-agent/types';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import type { FileMap } from 'cloudchef-agent/types';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 
 const logger = createScopedLogger('FileTreeModel');
 

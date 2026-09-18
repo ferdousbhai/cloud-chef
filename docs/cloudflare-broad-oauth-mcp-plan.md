@@ -2,18 +2,18 @@
 
 Status: implementation plan  
 Prepared: 2026-08-30  
-Audience: Ghostbuild coding agent and reviewers
+Audience: CloudChef coding agent and reviewers
 
 ## Outcome
 
-Change Ghostbuild's existing Cloudflare sign-in/sign-up authorization so that a user can grant Ghost the broadest Cloudflare API access available to that user. Reuse that same refreshable Cloudflare credential to call Cloudflare's managed API MCP server at `https://mcp.cloudflare.com/mcp`. Do not add a second MCP-specific OAuth prompt.
+Change CloudChef's existing Cloudflare sign-in/sign-up authorization so that a user can grant Ghost the broadest Cloudflare API access available to that user. Reuse that same refreshable Cloudflare credential to call Cloudflare's managed API MCP server at `https://mcp.cloudflare.com/mcp`. Do not add a second MCP-specific OAuth prompt.
 
 When the full grant is present, Ghost should be able to discover and invoke any operation that all of the following permit:
 
 - the public Cloudflare API and official MCP server expose the operation;
 - the user's OAuth grant contains the necessary scope;
 - the user's Cloudflare account role, selected account/resources, plan, billing state, and product entitlements allow it; and
-- Ghostbuild's explicit approval and safety policy allows that particular invocation.
+- CloudChef's explicit approval and safety policy allows that particular invocation.
 
 This includes the Cloudflare Registrar API. With Registrar Write permission and Cloudflare's billing, registrant-contact, agreement, and availability prerequisites satisfied, Ghost can search for, price, and register a domain. Registration is a billable, normally irreversible action and must never execute without an operation-specific user approval.
 
@@ -31,7 +31,7 @@ The current implementation is intentionally narrow:
 
 There is also a correctness defect to fix before broad access is enabled:
 
-- `CloudflareConnectionResult.grantedCapabilities` contains Ghostbuild product capability names such as `workers` and `d1`, not OAuth scope IDs.
+- `CloudflareConnectionResult.grantedCapabilities` contains CloudChef product capability names such as `workers` and `d1`, not OAuth scope IDs.
 - `completeCloudflareConnectionAction()` saves those capability names into `cloudflare_connections.granted_scopes_json`.
 - Consequently, the database does not currently contain an authoritative record of what OAuth scopes Cloudflare granted.
 
@@ -41,18 +41,18 @@ Never infer a broad grant from the existing column. Existing rows must be treate
 
 ### One user-visible authorization flow
 
-The existing Ghostbuild Cloudflare authorization remains the only Cloudflare consent event. It serves both as account sign-in/sign-up and authorization for Ghost's Cloudflare tools. The MCP client authenticates with a fresh bearer access token derived from that grant.
+The existing CloudChef Cloudflare authorization remains the only Cloudflare consent event. It serves both as account sign-in/sign-up and authorization for Ghost's Cloudflare tools. The MCP client authenticates with a fresh bearer access token derived from that grant.
 
-Do not redirect the user through the official MCP server's independent OAuth flow. That would create a second grant with a separate lifecycle and would make it possible for Ghostbuild identity, deployment, and MCP access to refer to different accounts.
+Do not redirect the user through the official MCP server's independent OAuth flow. That would create a second grant with a separate lifecycle and would make it possible for CloudChef identity, deployment, and MCP access to refer to different accounts.
 
 ### Broad by default, user-controlled at Cloudflare
 
 Use two scope classes:
 
-1. **Required core scopes** are the minimum needed for identity, exactly-one-account discovery, refresh tokens, current workspace provisioning/deployment, and Workers AI inference. A user who declines a required core scope cannot complete Ghostbuild onboarding.
-2. **Broad optional scopes** are every other production OAuth scope supported by the Ghostbuild OAuth client and relevant to the official Cloudflare API MCP server, including read, write, revoke, run, purge, billing, Registrar, account, user, zone, security, Zero Trust, network, media, email, and developer-platform permissions.
+1. **Required core scopes** are the minimum needed for identity, exactly-one-account discovery, refresh tokens, current workspace provisioning/deployment, and Workers AI inference. A user who declines a required core scope cannot complete CloudChef onboarding.
+2. **Broad optional scopes** are every other production OAuth scope supported by the CloudChef OAuth client and relevant to the official Cloudflare API MCP server, including read, write, revoke, run, purge, billing, Registrar, account, user, zone, security, Zero Trust, network, media, email, and developer-platform permissions.
 
-Cloudflare's consent screen selects requested optional permissions by default and lets the user choose Read only, Full access, categories, or individual permissions. Ghostbuild should explain that leaving **Full access** selected enables the complete agent capability. If the user deliberately narrows the grant, onboarding may continue only when core scopes remain, and Ghost must accurately report partial access.
+Cloudflare's consent screen selects requested optional permissions by default and lets the user choose Read only, Full access, categories, or individual permissions. CloudChef should explain that leaving **Full access** selected enables the complete agent capability. If the user deliberately narrows the grant, onboarding may continue only when core scopes remain, and Ghost must accurately report partial access.
 
 Do not make hundreds of product scopes “required” merely to force broad consent. Required scopes cannot be declined, which turns a recoverable partial grant into a sign-up failure and is inconsistent with Cloudflare's optional-permission UX. The default request is still the full catalog.
 
@@ -63,14 +63,14 @@ Cloudflare's authenticated `GET /oauth/scopes` endpoint is the source of truth f
 Add a checked-in, generated-and-reviewed scope manifest containing at least:
 
 - scope ID, display name, category, and read/write/revoke/run classification;
-- whether Ghostbuild considers it required core or broad optional;
+- whether CloudChef considers it required core or broad optional;
 - the catalog retrieval date and a deterministic catalog digest;
 - the OAuth client configuration version that was verified against it; and
 - explicit inclusion of Registrar Write and other high-impact permissions.
 
 Production must use the checked-in manifest, not fetch an unaudited scope catalog during login. Add a read-only sync/check command that fetches `GET /oauth/scopes` with an operator credential, produces a deterministic diff, redacts the credential, and fails CI when required scopes disappear or the checked-in manifest drifts. Updating the manifest remains a reviewed code change.
 
-The current official MCP repository says its consent catalog is derived from the production `GET /oauth/scopes` response and does not impose an application-level scope-count cap. Phase 0 must nevertheless verify the real Ghostbuild public OAuth client accepts the complete current catalog and that the authorization URL/token exchange work at its actual size. Provider behavior wins over repository assumptions.
+The current official MCP repository says its consent catalog is derived from the production `GET /oauth/scopes` response and does not impose an application-level scope-count cap. Phase 0 must nevertheless verify the real CloudChef public OAuth client accepts the complete current catalog and that the authorization URL/token exchange work at its actual size. Provider behavior wins over repository assumptions.
 
 ### Existing credential as transient MCP bearer
 
@@ -128,14 +128,14 @@ Do not replace `builder-deployment-command.ts` or the exact-revision user-owned 
 
 ```text
 User chooses “Continue with Cloudflare”
-  -> Ghostbuild requests core + complete broad optional scope manifest + offline access
+  -> CloudChef requests core + complete broad optional scope manifest + offline access
   -> Cloudflare account/resource selection and consent (Full access selected by default)
-  -> Ghostbuild exchanges code, records actual granted scope IDs, and encrypts refresh token
+  -> CloudChef exchanges code, records actual granted scope IDs, and encrypts refresh token
   -> existing/new user session starts
 
 User asks Ghost to inspect or change Cloudflare
   -> Builder exposes official MCP docs/search/execute tools
-  -> transient MCP gateway resolves a fresh access token from Ghostbuild's vault
+  -> transient MCP gateway resolves a fresh access token from CloudChef's vault
   -> gateway calls https://mcp.cloudflare.com/mcp with bearer auth
   -> docs/search runs immediately
   -> execute pauses for durable approval (initial release)
@@ -151,11 +151,11 @@ Complete this before changing production OAuth configuration.
 
 1. Fetch the production scope catalog from `GET /oauth/scopes` using a non-production operator credential. Record only scope metadata, never the token.
 2. Compare it with the official MCP server's current supported catalog and the permissions required by representative OpenAPI endpoints.
-3. Confirm the current Ghostbuild OAuth client can be configured with the entire catalog, with core scopes required and all other scopes optional.
+3. Confirm the current CloudChef OAuth client can be configured with the entire catalog, with core scopes required and all other scopes optional.
 4. Confirm the authorize endpoint accepts the resulting scope request without URL-size or provider limits.
 5. Complete a staging consent in each mode: default Full access, Read only, and a custom partial selection.
 6. Establish the authoritative source for actual granted scope IDs. Prefer the token response's `scope` field if Cloudflare returns it. Also inspect documented callback/grant metadata. Never equate requested scopes with granted optional scopes.
-7. Confirm a Ghostbuild-issued Cloudflare OAuth access token works as direct bearer authentication to `https://mcp.cloudflare.com/mcp`; list tools and perform a harmless account read.
+7. Confirm a CloudChef-issued Cloudflare OAuth access token works as direct bearer authentication to `https://mcp.cloudflare.com/mcp`; list tools and perform a harmless account read.
 8. Confirm the MCP endpoint's current protocol version, stateless Streamable HTTP behavior, tool names, input schemas, response limits, and error shape.
 9. Confirm refresh retains the same grant and determine how `insufficient_scope`, revocation, and expired access tokens are reported.
 10. Confirm Registrar Search/Availability works with a staging account or a non-purchasing request. Do not register a domain in automated tests.
@@ -175,14 +175,14 @@ Add a new control-plane migration after `migrations/0015_workspace_runtime_image
 
 Recommended connection fields:
 
-| Field                         | Purpose                                                                                                      |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `granted_capabilities_json`   | Ghostbuild product capabilities such as Workers, D1, and R2. Backfill from the legacy `granted_scopes_json`. |
-| `requested_oauth_scopes_json` | Exact scope IDs in the authorization request.                                                                |
-| `granted_oauth_scopes_json`   | Exact provider-confirmed scope IDs.                                                                          |
-| `oauth_scope_profile_version` | Manifest/catalog version used for the grant.                                                                 |
-| `oauth_scope_grant_status`    | `unknown`, `core`, `partial`, or `full`.                                                                     |
-| `oauth_grant_updated_at`      | When Cloudflare issued or replaced the grant.                                                                |
+| Field                         | Purpose                                                                                                     |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `granted_capabilities_json`   | CloudChef product capabilities such as Workers, D1, and R2. Backfill from the legacy `granted_scopes_json`. |
+| `requested_oauth_scopes_json` | Exact scope IDs in the authorization request.                                                               |
+| `granted_oauth_scopes_json`   | Exact provider-confirmed scope IDs.                                                                         |
+| `oauth_scope_profile_version` | Manifest/catalog version used for the grant.                                                                |
+| `oauth_scope_grant_status`    | `unknown`, `core`, `partial`, or `full`.                                                                    |
+| `oauth_grant_updated_at`      | When Cloudflare issued or replaced the grant.                                                               |
 
 Update `CloudflareConnection` to expose `grantedCapabilities` and `grantedOAuthScopes` as different typed properties. Retire the ambiguous `grantedScopes` name throughout the application.
 
@@ -236,7 +236,7 @@ Add account states and UI:
 - **Reauthorization required**: legacy/unknown grant; broad MCP disabled until reconnect.
 - **Revoked/error**: current fail-closed recovery behavior.
 
-The onboarding and settings copy must plainly say that Full access lets Ghost read and change Cloudflare resources, manage security and identity settings, create credentials, and perform billable actions only after an additional in-product operation approval. Link to Ghostbuild privacy/terms and Cloudflare's authorization-management page.
+The onboarding and settings copy must plainly say that Full access lets Ghost read and change Cloudflare resources, manage security and identity settings, create credentials, and perform billable actions only after an additional in-product operation approval. Link to CloudChef privacy/terms and Cloudflare's authorization-management page.
 
 On successful reauthorization:
 
@@ -271,7 +271,7 @@ Security requirements:
 
 Use MCP discovery to validate the expected `docs`, `search`, and `execute` tools and their schemas. Namespace model-facing names as `cloudflare_docs`, `cloudflare_search`, and `cloudflare_execute` so they cannot collide with workspace tools. Fail closed if the required tool set or schema becomes incompatible. Emit a coarse compatibility metric without serializing schemas or user data.
 
-The official MCP server currently runs generated `execute` code in an isolated Dynamic Worker and restricts outbound calls to Cloudflare API destinations. Ghostbuild must still apply its own authorization, account binding, approval, redaction, and audit policies at the client boundary.
+The official MCP server currently runs generated `execute` code in an isolated Dynamic Worker and restricts outbound calls to Cloudflare API destinations. CloudChef must still apply its own authorization, account binding, approval, redaction, and audit policies at the client boundary.
 
 ### Phase 5: Integrate tools into the custom Pi model loop
 
@@ -279,8 +279,8 @@ The repository does not use the default AI SDK MCP tool path, so wire the MCP to
 
 Expected files include:
 
-- `ghostbuild-agent/model-tool-inputs.ts`: add namespaced MCP tool inputs or support a carefully bounded dynamic tool contract.
-- `ghostbuild-agent/types.ts` and `ghostbuild-agent/tool.ts`: represent MCP metadata, approval state, and safe results without weakening workspace-tool types.
+- `cloudchef-agent/model-tool-inputs.ts`: add namespaced MCP tool inputs or support a carefully bounded dynamic tool contract.
+- `cloudchef-agent/types.ts` and `cloudchef-agent/tool.ts`: represent MCP metadata, approval state, and safe results without weakening workspace-tool types.
 - `app/lib/.server/llm/workers-ai-tools.ts`: compose the official MCP tools beside workspace tools; MCP calls must not take the workspace operation lane.
 - `app/lib/.server/llm/pi-tools-adapter.ts`: adapt the new tools, labels, schemas, timeouts, and approval pause result.
 - `app/lib/.server/llm/builder-turn-budget.ts`: add separate discovery/read/execute budgets and caps.
@@ -328,7 +328,7 @@ Update the chat surface to render first-class MCP tool cards rather than generic
 - partial-scope errors with a “Grant access” settings link; and
 - secret-result handles that only the authenticated user can reveal.
 
-Expected files include `app/components/chat/ToolUseContents.tsx`, the tool call/presentation components, `app/components/chat/useBuilderAgentChat.ts`, `ghostbuild-agent/ai-compat.ts`, and `app/lib/stores/tool-activity.client.ts`.
+Expected files include `app/components/chat/ToolUseContents.tsx`, the tool call/presentation components, `app/components/chat/useBuilderAgentChat.ts`, `cloudchef-agent/ai-compat.ts`, and `app/lib/stores/tool-activity.client.ts`.
 
 Expose `addToolApprovalResponse` only if the Pi bridge uses AI SDK-compatible approval parts end to end. Otherwise add explicit typed BuilderAgent callables and map their durable state to the existing `approval-requested`, `approval-responded`, and `output-denied` UI message states. Do not mix two partial approval protocols.
 
@@ -446,7 +446,7 @@ The coding agent should expect to touch or add the following areas; exact names 
 - Scope/config tooling: new scope manifest/sync modules, `wrangler.jsonc`, `scripts/verify-production-config.mjs` and specs, a new explicit OAuth-client runbook/apply tool.
 - Schemas/migrations: new `migrations/0016_*.sql`, new `user-workspace-migrations/0008_*.sql`, connection/data API schemas and tests.
 - MCP client/policy: new server-only `cloudflare-mcp-client`, invocation policy/parser, redaction, error, and audit modules.
-- Builder/model tools: `ghostbuild-agent/model-tool-inputs.ts`, `ghostbuild-agent/types.ts`, `app/lib/.server/llm/workers-ai-tools.ts`, `pi-tools-adapter.ts`, `pi-agent-runner.ts`, `pi-message-conversion.ts`, and turn budgets/prompts.
+- Builder/model tools: `cloudchef-agent/model-tool-inputs.ts`, `cloudchef-agent/types.ts`, `app/lib/.server/llm/workers-ai-tools.ts`, `pi-tools-adapter.ts`, `pi-agent-runner.ts`, `pi-message-conversion.ts`, and turn budgets/prompts.
 - Durable approval: `app/agents/builder-agent.ts`, `app/agents/builder-agent-schema.ts`, callable/protocol types, recovery tests.
 - UI: `app/components/chat/ToolUseContents.tsx`, `ToolCall.tsx`, `useBuilderAgentChat.ts`, `app/components/settings/CloudflareCard.client.tsx`, `CloudflareSignInPrompt.tsx`, settings/onboarding surfaces and stores.
 - Runtime/artifacts: `user-workspace-runtime/src/index.ts`, `protocol.ts`, runtime tests, trusted deployment config, generated artifacts.
@@ -455,7 +455,7 @@ The coding agent should expect to touch or add the following areas; exact names 
 ## Definition of done
 
 - A new user's single Cloudflare sign-in requests the reviewed complete scope profile, with Full access selected by default in Cloudflare consent.
-- Ghostbuild stores an encrypted refreshable credential and the authoritative actual OAuth grant, separately from product capabilities.
+- CloudChef stores an encrypted refreshable credential and the authoritative actual OAuth grant, separately from product capabilities.
 - An existing narrow/unknown grant cannot use broad MCP until the user reconnects.
 - Ghost can discover and call the official Cloudflare API MCP with the existing credential and no second OAuth flow.
 - Tokens never persist in MCP connection state or appear in model/browser/log/audit output.

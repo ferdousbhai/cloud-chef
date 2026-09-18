@@ -4,8 +4,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { applyEdits, modify, parse, printParseErrorCode } from "jsonc-parser";
 
-const rootDir = process.env.GHOSTBUILD_PROVISION_ROOT
-  ? resolve(process.env.GHOSTBUILD_PROVISION_ROOT)
+const rootDir = process.env.CLOUDCHEF_PROVISION_ROOT
+  ? resolve(process.env.CLOUDCHEF_PROVISION_ROOT)
   : resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const configPath = resolve(rootDir, "wrangler.jsonc");
 const PLACEHOLDER_D1_ID = "00000000-0000-0000-0000-000000000000";
@@ -332,7 +332,7 @@ function updateKvNamespaceId(raw, kvIndex, namespaceId) {
 }
 
 function ensureKvNamespace(kv) {
-  const title = kv.binding?.title ?? "ghostbuild-cloudflare-app-cache";
+  const title = kv.binding?.title ?? "cloudchef-cloudflare-app-cache";
   const configuredId = kv.binding?.id;
   const hasConfiguredId = configuredId && configuredId !== PLACEHOLDER_KV_ID;
   if (isCheck && !hasConfiguredId) {
@@ -435,7 +435,7 @@ export function main() {
   validateArguments();
   const { raw, config } = readConfig();
   const applicationD1 = getBinding(config, "d1_databases", "DB");
-  // This provisioner is also reused by the root Ghostbuild Worker, which has
+  // This provisioner is also reused by the root CloudChef Worker, which has
   // no generated AppAgent. The generated-app stack verifier requires
   // AGENT_SECURITY_DB before this script can run from template/package.json.
   const agentSecurityIndex = config.d1_databases.findIndex(

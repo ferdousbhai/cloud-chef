@@ -5,12 +5,12 @@ is not a privacy policy or legal-basis determination.
 
 ## Implemented telemetry contract
 
-Browsers send `POST /api/client-telemetry` using a credential-free keepalive fetch, so Ghostbuild session and retired
+Browsers send `POST /api/client-telemetry` using a credential-free keepalive fetch, so CloudChef session and retired
 prompt cookies are not attached. The Worker accepts only the checked-in event enum, page class, opaque UUID
 journey/correlation/error-event IDs, status fields, and bounded non-negative metrics. The strict schema rejects extra
 properties. Prompts, generated code, URLs, user/account/project identifiers, credentials, tokens, exception messages,
 and raw tool output have no accepted field. Browser telemetry is off by default and is emitted only after the user sets
-`localStorage['ghostbuild:telemetry:preference']` to `enabled` through the Privacy-page control. Global Privacy Control
+`localStorage['cloudchef:telemetry:preference']` to `enabled` through the Privacy-page control. Global Privacy Control
 and Do Not Track override that opt-in and disable emission. The endpoint requires an exact same-origin browser `Origin`
 header, uses the Cloudflare-supplied client IP only as the 60-second rate-limit key, allows up to 120 requests per IP per
 minute before parsing, and caps each body at 8 KiB. The IP is not included in the application event log.
@@ -69,7 +69,7 @@ engineering objectives:
   deduplicated by the per-event ID.
 
 Cloudflare Workers Logs automatically retains data for three days on Workers Free or seven days on Workers Paid, with a
-maximum retention of seven days. Ghostbuild does not copy these logs to another store. An August 4, 2026 account-member
+maximum retention of seven days. CloudChef does not copy these logs to another store. An August 4, 2026 account-member
 readback showed one member, the sole Super Administrator, so no other account member currently has log access. Recheck
 both facts whenever the plan or account membership changes.
 
@@ -83,12 +83,12 @@ twice-weekday contact-channel inspection and remaining notification drills are r
 1. Declare severity, start an incident record, name the incident commander, and assign an opaque incident ID in that
    record. This operator-assigned ID is separate from browser telemetry error-event IDs. Do not
    copy prompts, code, tokens, or raw tool output into chat or tickets.
-2. Confirm scope with Worker logs and `pnpm exec wrangler tail ghostbuild --format json --search client_telemetry`.
+2. Confirm scope with Worker logs and `pnpm exec wrangler tail cloudchef --format json --search client_telemetry`.
    Correlate related browser events by journey ID, correlation ID, event, failure reason, time window, and deployment
    version; attach only the operator-assigned incident ID in the restricted incident record, not user content.
 3. Stop release activity. For a control-plane regression, inspect versions with
-   `pnpm exec wrangler deployments list --name ghostbuild`, then run
-   `pnpm exec wrangler rollback <known-good-version-id> --name ghostbuild --message "incident rollback"` after the
+   `pnpm exec wrangler deployments list --name cloudchef`, then run
+   `pnpm exec wrangler rollback <known-good-version-id> --name cloudchef --message "incident rollback"` after the
    incident commander confirms the exact version.
 4. Contain deployment incidents by stopping releases and revoking affected credentials through the normal
    Cloudflare connection controls. Never delete customer-owned Workers, D1, R2, Containers, or Agents as an inferred
@@ -103,7 +103,7 @@ twice-weekday contact-channel inspection and remaining notification drills are r
 
 ## Containment
 
-Ghostbuild has a server-side kill switch for new Computer-backed operations. Set `enabled = 0`, optionally with a
+CloudChef has a server-side kill switch for new Computer-backed operations. Set `enabled = 0`, optionally with a
 `reason`, on the `computer_operations` row of the `runtime_controls` table in the affected user runtime's D1 database
 through the Cloudflare D1 API. New tool operations, seeds, and previews then fail closed with the typed
 `computer_operations_disabled` error within ten seconds, without a redeploy. Reads, deployment-plan inspection, and
@@ -131,7 +131,7 @@ than assumed:
   Durable Object SQLite bind-variable limit, and it replaces the nested branch of `Database.transactionSync` — the
   `SAVEPOINT` / `RELEASE` / `ROLLBACK TO` path — with an inline call to the closure, because Durable Objects reject that
   SQL outright and every write nested inside an outer `transactionSync` would otherwise throw.
-- The contract canaries assert the runtime surfaces Ghostbuild actually calls — `Workspace`, `WorkspaceFilesystem`,
+- The contract canaries assert the runtime surfaces CloudChef actually calls — `Workspace`, `WorkspaceFilesystem`,
   `WorkspaceRuntime`, and `SyncRetryScheduler` — rather than the `createAITools` tool schemas, which production does not
   execute. Only one exec backend is configured, `container-shell`.
 

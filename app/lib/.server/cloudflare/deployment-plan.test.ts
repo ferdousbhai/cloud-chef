@@ -65,11 +65,11 @@ describe('buildDeploymentPlanFromSource', () => {
       sourceSha256: SOURCE_ONE,
       project: { type: 'web_app', bindings: { ai: true, d1: true, r2: true, kv: true, appAgent: true } },
     });
-    expect(deploymentPlanResourceName(plan, 'worker', 'app')).toBe('ghostbuild-deployment-2');
-    expect(deploymentPlanResourceName(plan, 'd1', 'DB_PREVIEW')).toBe('ghostbuild-deployment-2-preview');
-    expect(deploymentPlanResourceName(plan, 'd1', 'AGENT_SECURITY_DB')).toBe('ghostbuild-deployment-2-agent-security');
+    expect(deploymentPlanResourceName(plan, 'worker', 'app')).toBe('cloudchef-deployment-2');
+    expect(deploymentPlanResourceName(plan, 'd1', 'DB_PREVIEW')).toBe('cloudchef-deployment-2-preview');
+    expect(deploymentPlanResourceName(plan, 'd1', 'AGENT_SECURITY_DB')).toBe('cloudchef-deployment-2-agent-security');
     expect(deploymentPlanResourceName(plan, 'd1', 'AGENT_SECURITY_DB_PREVIEW')).toBe(
-      'ghostbuild-deployment-2-preview-agent',
+      'cloudchef-deployment-2-preview-agent',
     );
     expect(deploymentPlanResourceName(plan, 'workers_ai', 'AI')).toBe('AI');
     expect(deploymentPlanResourceName(plan, 'durable_object', 'AppAgent')).toBe('AppAgent');

@@ -3,18 +3,18 @@ import { toast } from 'sonner';
 import { processMessage, type PartCache } from '~/lib/hooks/useProcessedMessages';
 import { subchatIndexStore } from '~/lib/stores/subchats';
 import { useStore } from '@nanostores/react';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 
 const logger = createScopedLogger('ReloadMessages');
 
 type ReloadedMessages = {
-  initialMessages: GhostbuildMessage[];
+  initialMessages: CloudChefMessage[];
   partCache: PartCache;
   subchatIndex: number | undefined;
 };
 
-export function useReloadMessages(initialMessages: GhostbuildMessage[] | undefined): ReloadedMessages | undefined {
+export function useReloadMessages(initialMessages: CloudChefMessage[] | undefined): ReloadedMessages | undefined {
   const [reloadState, setReloadState] = useState<ReloadedMessages | undefined>(undefined);
   const subchatIndex = useStore(subchatIndexStore);
   useEffect(() => {

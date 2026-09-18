@@ -131,7 +131,7 @@ export function BuilderModelSelector({
           <p role="note" className="mx-2 mb-1 mt-2 text-xs leading-5 text-content-tertiary">
             {catalogStatus === 'error'
               ? 'The live catalog could not be loaded, so only the default model is available.'
-              : 'Loaded from your Workers AI catalog. Ghostbuild shows text models with function calling and enough context for a full build.'}
+              : 'Loaded from your Workers AI catalog. CloudChef shows text models with function calling and enough context for a full build.'}
           </p>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentContext, AgentMessage } from '@earendil-works/pi-agent-core';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { PiStreamChunk } from './pi-stream';
 import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type WorkersAiModelId } from '~/lib/workers-ai-model';
 
@@ -674,7 +674,7 @@ describe('piAgentRunner', () => {
   it('runs the canonical validation when a mutated turn finishes without one', async () => {
     const onSettled = vi.fn();
     mocks.getValidatedBuildCompletion.mockImplementation(
-      (_messages: GhostbuildMessage[], results: Array<{ toolName: string }> = []) =>
+      (_messages: CloudChefMessage[], results: Array<{ toolName: string }> = []) =>
         results.some((entry) => entry.toolName === 'validate') ? 'Validated automatically.' : undefined,
     );
     mocks.validateExecute.mockResolvedValue({
@@ -712,7 +712,7 @@ describe('piAgentRunner', () => {
   it('feeds an automatic validation failure back into the same turn for repair', async () => {
     mocks.getValidatedBuildCompletion.mockImplementation(
       (
-        _messages: GhostbuildMessage[],
+        _messages: CloudChefMessage[],
         results: Array<{ toolName: string; result: { validation?: { ok?: boolean } } }> = [],
       ) => {
         const latestValidation = results.findLast((entry) => entry.toolName === 'validate');

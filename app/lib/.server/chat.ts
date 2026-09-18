@@ -1,9 +1,9 @@
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { piAgentRunner } from '~/lib/.server/llm/pi-agent-runner';
 import { createPiStreamResponse } from './llm/pi-stream';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { ContextCompactionUnavailableError, ModelInputBudgetExceededError } from './llm/model-input';
-import type { ChatTurnContext } from 'ghostbuild-agent/turn-context';
+import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import type { WorkersAiAccountCredentials } from './llm/pi-ai-models';
 import type { ContextCompaction } from './llm/context-compaction';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
@@ -14,7 +14,7 @@ import type { PiSteeringQueue } from './llm/pi-steering';
 import type { BuilderTurnBudgetReport } from './llm/builder-turn-budget';
 import type { CloudflareMcpModelToolContext } from './llm/cloudflare-mcp-model-tools';
 
-type Messages = GhostbuildMessage[];
+type Messages = CloudChefMessage[];
 
 const logger = createScopedLogger('api.chat');
 

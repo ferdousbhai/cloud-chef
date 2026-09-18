@@ -31,11 +31,11 @@ describe('generated application response boundary', () => {
     expect(response.headers.get('Strict-Transport-Security')).toBe('max-age=63072000; includeSubDomains; preload');
   });
 
-  test('allows only Ghostbuild to frame a Workers version preview', () => {
+  test('allows only CloudChef to frame a Workers version preview', () => {
     const response = withApplicationSecurityHeaders(new Response('preview'), { workersPreview: true });
 
     expect(response.headers.get('Content-Security-Policy')).toBe(
-      "base-uri 'self'; frame-ancestors https://ghostbuild.dev; object-src 'none'; form-action 'self'",
+      "base-uri 'self'; frame-ancestors https://cloudchef.build; object-src 'none'; form-action 'self'",
     );
     expect(response.headers.get('X-Frame-Options')).toBeNull();
   });
@@ -93,17 +93,17 @@ describe('generated application response boundary', () => {
 
   test('derives the frame policy from the exact Workers version hostname', async () => {
     const preview = await finalizeApplicationResponse(
-      new Request('https://12345678-ghostbuild-app.account-subdomain.workers.dev/'),
+      new Request('https://12345678-cloudchef-app.account-subdomain.workers.dev/'),
       null,
       () => new Response('preview'),
     );
     const production = await finalizeApplicationResponse(
-      new Request('https://ghostbuild-app.account-subdomain.workers.dev/'),
+      new Request('https://cloudchef-app.account-subdomain.workers.dev/'),
       null,
       () => new Response('production'),
     );
 
-    expect(preview.headers.get('Content-Security-Policy')).toContain('frame-ancestors https://ghostbuild.dev');
+    expect(preview.headers.get('Content-Security-Policy')).toContain('frame-ancestors https://cloudchef.build');
     expect(preview.headers.get('X-Frame-Options')).toBeNull();
     expect(production.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
     expect(production.headers.get('X-Frame-Options')).toBe('DENY');

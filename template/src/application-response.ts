@@ -1,7 +1,7 @@
 const APPLICATION_CSP_BASELINE =
   "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'";
 const WORKERS_PREVIEW_CSP_BASELINE =
-  "base-uri 'self'; frame-ancestors https://ghostbuild.dev; object-src 'none'; form-action 'self'";
+  "base-uri 'self'; frame-ancestors https://cloudchef.build; object-src 'none'; form-action 'self'";
 const HSTS_MIN_AGE_SECONDS = "31536000";
 
 type ApplicationSecurityOptions = {

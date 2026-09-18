@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
-import { makePartId } from 'ghostbuild-agent/partId';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
+import { makePartId } from 'cloudchef-agent/partId';
 import { currentToolStatus } from './useCurrentToolStatus';
 
 describe('currentToolStatus', () => {
@@ -24,7 +24,7 @@ describe('currentToolStatus', () => {
   });
 });
 
-function message(id: string): GhostbuildMessage {
+function message(id: string): CloudChefMessage {
   return {
     id,
     role: 'assistant',

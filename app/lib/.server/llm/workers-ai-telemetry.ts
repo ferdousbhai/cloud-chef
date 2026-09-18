@@ -1,4 +1,4 @@
-import type { PromptCharacterCounts } from 'ghostbuild-agent/context-message-metrics';
+import type { PromptCharacterCounts } from 'cloudchef-agent/context-message-metrics';
 import type { Usage } from '@earendil-works/pi-ai';
 
 interface FinishTelemetryOptions {

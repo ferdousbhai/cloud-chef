@@ -1,9 +1,9 @@
 import { useStore } from '@nanostores/react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
-import type { TranscriptIdentity } from 'ghostbuild-agent/transcript';
-import { createScopedLogger } from 'ghostbuild-agent/utils/logger';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
+import type { TranscriptIdentity } from 'cloudchef-agent/transcript';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import {
   useCachedChatTranscript,
   type SerializedMessage,
@@ -25,7 +25,7 @@ function transcriptRequest(chatId: string, selection: TranscriptSelection): Tran
 
 interface InitialMessages {
   loadedChatId: string;
-  deserialized: GhostbuildMessage[];
+  deserialized: CloudChefMessage[];
   loadedSubchatIndex: number;
   transcript: TranscriptIdentity;
 }
@@ -126,7 +126,7 @@ export function useInitialMessagesState(chatId: string | undefined): InitialMess
   return { initialMessages, error: cached.error, retry: cached.retry };
 }
 
-function deserializeMessageFromStorage(message: SerializedMessage): GhostbuildMessage {
+function deserializeMessageFromStorage(message: SerializedMessage): CloudChefMessage {
   return {
     ...message,
     createdAt: message.createdAt === undefined ? undefined : new Date(message.createdAt),

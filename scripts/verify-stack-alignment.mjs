@@ -92,8 +92,8 @@ const requiredPaths = [
   'app/lib/.server/cloudflare/user-workspace-deployment-executor.ts',
   'user-workspace-runtime/src/index.ts',
   'app/lib/workers-ai-model.ts',
-  'ghostbuild-agent/package.json',
-  'ghostbuild-agent/tsconfig.json',
+  'cloudchef-agent/package.json',
+  'cloudchef-agent/tsconfig.json',
   'scripts/check-runtime-artifacts.mjs',
   'template/package.json',
   'template/pnpm-lock.yaml',
@@ -142,11 +142,11 @@ function readJson(path) {
 }
 
 export function findForbiddenFiles(paths) {
-  return findForbiddenPaths(rootDir, paths, 'Ghostbuild uses pnpm lockfiles only');
+  return findForbiddenPaths(rootDir, paths, 'CloudChef uses pnpm lockfiles only');
 }
 
 export function findForbiddenLegacyPaths(paths) {
-  return findForbiddenPaths(rootDir, paths, 'Ghostbuild uses TanStack Start and Cloudflare-only providers');
+  return findForbiddenPaths(rootDir, paths, 'CloudChef uses TanStack Start and Cloudflare-only providers');
 }
 
 export function findForbiddenRuntimeEnvAccess(files, allowlist = runtimeEnvAccessAllowlist) {
@@ -215,7 +215,7 @@ export function findInternalPackageMetadataErrors(pkg, label) {
 
 export function findRootWorkspacePolicyErrors(workspace) {
   const errors = [];
-  for (const packagePath of ['ghostbuild-agent', 'template']) {
+  for (const packagePath of ['cloudchef-agent', 'template']) {
     if (!new RegExp(`- ['"]?${packagePath}['"]?`).test(workspace)) {
       errors.push(`pnpm-workspace.yaml must include ${packagePath}.`);
     }
@@ -291,22 +291,22 @@ export function findRootMigrationErrors(sql) {
 export function verifyStackAlignment() {
   const errors = [];
   const rootPackage = readJson('package.json');
-  const agentPackage = readJson('ghostbuild-agent/package.json');
+  const agentPackage = readJson('cloudchef-agent/package.json');
   const templatePackage = readJson('template/package.json');
   const sandboxPackage = readJson('node_modules/@cloudflare/sandbox/package.json');
 
   verifyPackage(errors, rootPackage, 'package.json', rootRequiredPackages, true);
-  verifyPackage(errors, agentPackage, 'ghostbuild-agent/package.json', agentRequiredPackages);
+  verifyPackage(errors, agentPackage, 'cloudchef-agent/package.json', agentRequiredPackages);
   verifyPackage(errors, templatePackage, 'template/package.json', APP_REQUIRED_PACKAGES, true);
   errors.push(
     ...findForbiddenRootBrowserRuntimeDependencies(rootPackage),
     ...findInternalPackageMetadataErrors(rootPackage, 'package.json'),
-    ...findInternalPackageMetadataErrors(agentPackage, 'ghostbuild-agent/package.json'),
+    ...findInternalPackageMetadataErrors(agentPackage, 'cloudchef-agent/package.json'),
     ...findInternalPackageMetadataErrors(templatePackage, 'template/package.json'),
     ...findPackageVersionAlignmentErrors(
       rootPackage,
       agentPackage,
-      'ghostbuild-agent/package.json',
+      'cloudchef-agent/package.json',
       agentRequiredPackages,
     ),
     ...findPackageVersionAlignmentErrors(rootPackage, templatePackage, 'template/package.json', APP_REQUIRED_PACKAGES),
@@ -330,7 +330,7 @@ export function verifyStackAlignment() {
       'validate:template',
     ]),
     ...findMissingCommandSteps(rootPackage.scripts?.['validate:agent'], 'package.json scripts.validate:agent', [
-      'ghostbuild-agent',
+      'cloudchef-agent',
       'typecheck',
     ]),
     ...findMissingCommandSteps(rootPackage.scripts?.['validate:root'], 'package.json scripts.validate:root', [
@@ -378,7 +378,7 @@ export function verifyStackAlignment() {
 
   const sourceFiles = collectSourceEntries(rootDir, [
     'app',
-    'ghostbuild-agent',
+    'cloudchef-agent',
     'template/src',
     'vite.config.ts',
     'template/vite.config.ts',

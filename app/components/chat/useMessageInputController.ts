@@ -21,7 +21,7 @@ import {
   type PromptRefinementAnswer,
   type PromptRefinementQuestion,
 } from '~/lib/prompt-refinement';
-import { useGhostbuildAuth } from './GhostbuildAuthWrapper';
+import { useCloudChefAuth } from './CloudChefAuthWrapper';
 import { z } from 'zod';
 
 /** Failure envelope returned by the prompt-enhancement endpoint. */
@@ -53,7 +53,7 @@ export function useMessageInputController({
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [refinement, setRefinement] = useState<PromptRefinementSession | null>(null);
   const enhanceRequestRef = useRef<AbortController | null>(null);
-  const authState = useGhostbuildAuth();
+  const authState = useCloudChefAuth();
   const input = useStore(messageInputStore);
   const search = useSearch({ from: '__root__' });
 
@@ -180,7 +180,7 @@ export function useMessageInputController({
       }
       const result = promptRefinementResultSchema.safeParse(await response.json());
       if (!result.success) {
-        throw new Error('Ghostbuild returned an invalid plan refinement response.');
+        throw new Error('CloudChef returned an invalid plan refinement response.');
       }
       if (controller.signal.aborted) {
         return;

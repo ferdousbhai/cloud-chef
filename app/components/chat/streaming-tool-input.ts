@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { GhostbuildToolInvocation } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 
 /**
  * A tool input is still arriving as JSON text while the model writes it, so the invocation carries
@@ -34,7 +34,7 @@ const decodedInputSchema = z.looseObject({
     .catch(undefined),
 });
 
-export function streamedToolInput(invocation: Pick<GhostbuildToolInvocation, 'input'>): StreamedToolInput {
+export function streamedToolInput(invocation: Pick<CloudChefToolInvocation, 'input'>): StreamedToolInput {
   const raw = rawJsonPrefixSchema.safeParse(invocation.input);
   if (raw.success) {
     return { path: pathFromRawJson(raw.data), characters: raw.data.length };

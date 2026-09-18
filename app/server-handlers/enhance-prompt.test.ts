@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
-import { MAX_USER_MESSAGE_CHARACTERS } from 'ghostbuild-agent/context-limits';
+import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 
 const mocks = vi.hoisted(() => ({
   completeToolCall: vi.fn(),
@@ -50,7 +50,7 @@ function discoveringAiBinding(): Ai {
 }
 
 function request(body: Record<string, unknown> = { prompt: 'Build a calendar' }) {
-  return new Request('https://ghostbuild.dev/api/enhance-prompt', {
+  return new Request('https://cloudchef.build/api/enhance-prompt', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -66,7 +66,7 @@ describe('userRuntimeEnhancePromptAction billing', () => {
 
   it('rejects an oversized prompt body before calling the provider', async () => {
     const response = await userRuntimeEnhPrompt({
-      request: new Request('https://ghostbuild.dev/api/enhance-prompt', {
+      request: new Request('https://cloudchef.build/api/enhance-prompt', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         // Twice the worst-case byte budget for a supported prompt, so the transport must refuse it.
@@ -112,7 +112,7 @@ describe('userRuntimeEnhancePromptAction billing', () => {
     expect(response.status).toBe(402);
     await expect(response.json()).resolves.toMatchObject({
       code: 'workers_paid_required',
-      error: expect.stringContaining('GHOSTBUILD_WORKERS_PAID_REQUIRED:'),
+      error: expect.stringContaining('CLOUDCHEF_WORKERS_PAID_REQUIRED:'),
     });
   });
 

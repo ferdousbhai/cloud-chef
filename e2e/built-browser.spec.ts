@@ -8,7 +8,7 @@ test('hydrates the built landing page without replacing meaningful SSR content',
 
   await page.goto('/');
 
-  await expect(page).toHaveTitle(/Ghostbuild/);
+  await expect(page).toHaveTitle(/CloudChef/);
   await expect(page.getByRole('heading', { name: /If you can dream it/i })).toBeVisible();
   // Asserted against the constant, not a copy of it: this gate exists to prove SSR content
   // survives hydration, and a transcribed sentence turns every wording change into a red build
@@ -80,13 +80,13 @@ test('renders the public trust routes and persists the telemetry choice', async 
   }
 
   await page.goto('/terms');
-  await expect(page.getByText(/Ghostbuild is operated by DOUS SOFTWARE INC\./)).toBeVisible();
+  await expect(page.getByText(/CloudChef is operated by DOUS SOFTWARE INC\./)).toBeVisible();
 
   const securityTxt = await page.request.get('/.well-known/security.txt');
   expect(securityTxt.status()).toBe(200);
   expect(securityTxt.headers()['content-type']).toBe('text/plain; charset=utf-8');
   expect(await securityTxt.text()).toContain(
-    'Contact: https://github.com/ferdousbhai/ghost-build/security/advisories/new',
+    'Contact: https://github.com/ferdousbhai/cloud-chef/security/advisories/new',
   );
 
   await page.goto('/privacy');

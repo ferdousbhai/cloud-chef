@@ -51,13 +51,13 @@ export function deploymentProjectProfileFromConfig(
   const unsupported = UNSUPPORTED_MANAGED_DEPLOYMENT_KEYS.filter((key) => hasConfiguredValue(config[key]));
   if (unsupported.length > 0) {
     throw new Error(
-      `Ghostbuild managed deployment does not support these Wrangler capabilities: ${unsupported.join(', ')}.`,
+      `CloudChef managed deployment does not support these Wrangler capabilities: ${unsupported.join(', ')}.`,
     );
   }
 
   const ai = recordOrNull(config.ai);
   if (ai && (ai.binding !== 'AI' || Object.keys(ai).some((key) => key !== 'binding'))) {
-    throw new Error('Ghostbuild managed deployment supports only the AI Workers AI binding.');
+    throw new Error('CloudChef managed deployment supports only the AI Workers AI binding.');
   }
   const d1Bindings = requireExactBindings(config.d1_databases, 'D1', ['DB', 'AGENT_SECURITY_DB']);
   const r2Bindings = requireExactBindings(config.r2_buckets, 'R2', ['APP_STORAGE']);
@@ -72,7 +72,7 @@ export function deploymentProjectProfileFromConfig(
       (entry) => recordOrNull(entry)?.name === 'AppAgent' && recordOrNull(entry)?.class_name === 'AppAgent',
     )
   ) {
-    throw new Error('Ghostbuild managed deployment supports only the AppAgent Durable Object binding.');
+    throw new Error('CloudChef managed deployment supports only the AppAgent Durable Object binding.');
   }
   if (appAgent !== d1Bindings.has('AGENT_SECURITY_DB')) {
     throw new Error('The AppAgent and AGENT_SECURITY_DB managed deployment capabilities must be configured together.');
@@ -111,7 +111,7 @@ function requireExactBindings(value: unknown, label: string, allowed: readonly s
     new Set(names).size !== names.length ||
     names.some((name) => !allowed.includes(name))
   ) {
-    throw new Error(`Ghostbuild managed deployment supports only these ${label} bindings: ${allowed.join(', ')}.`);
+    throw new Error(`CloudChef managed deployment supports only these ${label} bindings: ${allowed.join(', ')}.`);
   }
   return new Set(names);
 }
@@ -126,7 +126,7 @@ function assertManagedExports(value: unknown, appAgent: boolean): void {
         JSON.stringify(exports?.AppAgent) !== JSON.stringify(APP_AGENT_DECLARATIVE_EXPORT))) ||
     (!appAgent && names.length > 0)
   ) {
-    throw new Error('Ghostbuild managed deployment supports only the AppAgent Durable Object export.');
+    throw new Error('CloudChef managed deployment supports only the AppAgent Durable Object export.');
   }
 }
 
@@ -146,7 +146,7 @@ function assertManagedTriggers(value: unknown, appAgent: boolean): void {
     crons[0] !== DEPLOYMENT_SECURITY_CLEANUP_CRON ||
     Object.keys(triggers!).some((key) => key !== 'crons')
   ) {
-    throw new Error('Ghostbuild managed deployment supports only the AppAgent security cleanup schedule.');
+    throw new Error('CloudChef managed deployment supports only the AppAgent security cleanup schedule.');
   }
 }
 

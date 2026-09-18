@@ -25,11 +25,11 @@ export const BROAD_CLOUDFLARE_OAUTH_SCOPES = [] satisfies readonly string[];
 
 export type CloudflareOAuthScopeGrantStatus = 'unknown' | 'core' | 'partial' | 'full';
 
-const GHOSTBUILD_CAPABILITIES = ['workers', 'containers', 'd1', 'r2', 'kv', 'durable_objects', 'workers_ai'] as const;
+const CLOUDCHEF_CAPABILITIES = ['workers', 'containers', 'd1', 'r2', 'kv', 'durable_objects', 'workers_ai'] as const;
 
-export type GhostbuildCapability = (typeof GHOSTBUILD_CAPABILITIES)[number];
+export type CloudChefCapability = (typeof CLOUDCHEF_CAPABILITIES)[number];
 
-/** The scope IDs each Ghostbuild product capability needs before it can be considered granted. */
+/** The scope IDs each CloudChef product capability needs before it can be considered granted. */
 const CAPABILITY_SCOPE_REQUIREMENTS = {
   workers: ['workers-scripts.write'],
   containers: ['containers.write'],
@@ -38,7 +38,7 @@ const CAPABILITY_SCOPE_REQUIREMENTS = {
   kv: ['workers-kv-storage.write'],
   durable_objects: ['workers-scripts.write'],
   workers_ai: ['ai.read'],
-} satisfies Record<GhostbuildCapability, readonly string[]>;
+} satisfies Record<CloudChefCapability, readonly string[]>;
 
 /** Stable, deduplicated scope request order: core first, then the broad optional profile. */
 export function requestedCloudflareOAuthScopes(): string[] {
@@ -77,9 +77,9 @@ export function cloudflareOAuthScopeGrantStatus(granted: readonly string[]): Clo
 }
 
 /** The product capabilities whose scope requirements the grant fully covers. */
-export function capabilitiesFromOAuthScopes(granted: readonly string[]): GhostbuildCapability[] {
+export function capabilitiesFromOAuthScopes(granted: readonly string[]): CloudChefCapability[] {
   const held = new Set(granted);
-  return GHOSTBUILD_CAPABILITIES.filter((capability) =>
+  return CLOUDCHEF_CAPABILITIES.filter((capability) =>
     CAPABILITY_SCOPE_REQUIREMENTS[capability].every((scope) => held.has(scope)),
   );
 }

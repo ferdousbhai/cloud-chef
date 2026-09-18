@@ -15,7 +15,7 @@ import {
   type OpenAICompletionsOptions,
 } from '@earendil-works/pi-ai/api/openai-completions';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
-import { modelTokenEstimateSafetyTokens } from 'ghostbuild-agent/context-limits';
+import { modelTokenEstimateSafetyTokens } from 'cloudchef-agent/context-limits';
 import type { WorkersAiModel, WorkersAiRuntimeModelId } from '~/lib/workers-ai-model';
 import { recordPiStage } from './pi-telemetry';
 
@@ -54,10 +54,10 @@ function catalogModel(modelId: string): WorkersAiCatalogModel | undefined {
 }
 
 /**
- * Ghostbuild states only what the binding path requires, and Pi's own catalog entry supplies the
+ * CloudChef states only what the binding path requires, and Pi's own catalog entry supplies the
  * rest — `compat.thinkingFormat` included, which today every Workers AI entry omits.
  *
- * Ghostbuild used to name a thinking dialect itself, by model-id prefix, for the families Pi does
+ * CloudChef used to name a thinking dialect itself, by model-id prefix, for the families Pi does
  * not characterise. That is gone because it was measured to do nothing: Cloudflare ignores every
  * vendor-native thinking block those dialects produce. Toggling `thinking: { type: 'disabled' }`
  * moved the returned reasoning not at all — glm-5.3-flash 43ch against a 43ch baseline,
@@ -125,7 +125,7 @@ const MINIMUM_OUTPUT_TOKENS = 4_096;
  * Workers AI rejects any request where input tokens + `max_completion_tokens` exceed the model's
  * context window. So the honest answer to "how much may this model write?" is "whatever the window
  * has left once this request's input is counted" — recomputed per request, never a fixed number.
- * A static cap (Ghostbuild previously asked for 24,576 tokens regardless) only ever truncated a
+ * A static cap (CloudChef previously asked for 24,576 tokens regardless) only ever truncated a
  * model that could physically have produced far more.
  */
 function availableOutputTokens(model: Model<Api>, context: Context): number {
@@ -267,7 +267,7 @@ function createWorkersAiBindingFetch(
     // The model is the first binding argument; keeping it out of inputs matches env.AI.run().
     delete payload.model;
     // SAFETY: `Ai.run` is generic over the generated `AiModelList`, which does not enumerate every
-    // Workers AI model Ghostbuild can be pointed at. The binding itself accepts any model id, so the
+    // Workers AI model CloudChef can be pointed at. The binding itself accepts any model id, so the
     // raw-response entry point is reached through the non-generic contract it actually implements.
     const rawBinding = binding as WorkersAiRawBinding;
     recordPiStage('binding_run_start', modelId);

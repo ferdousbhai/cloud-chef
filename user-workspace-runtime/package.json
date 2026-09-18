@@ -1,5 +1,5 @@
 {
-  "name": "@ghostbuild/user-workspace-runtime",
+  "name": "@cloudchef/user-workspace-runtime",
   "private": true,
   "version": "1.0.0",
   "type": "module",

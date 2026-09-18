@@ -154,7 +154,7 @@ async function requestUserRuntimeSession(
     }
     const headers = new Headers({ Accept: 'application/json' });
     if (retryProvisioning) {
-      headers.set('Ghostbuild-Runtime-Provisioning-Retry', '1');
+      headers.set('CloudChef-Runtime-Provisioning-Retry', '1');
     }
     retryProvisioning = false;
     const response = await fetch('/api/cloudflare/runtime-session', {
@@ -184,7 +184,7 @@ async function requestUserRuntimeSession(
     ) {
       const code = userRuntimeErrorCodeSchema.safeParse(payload?.code);
       throw new UserRuntimeSessionError(
-        payload?.error ?? 'The user-owned Ghostbuild runtime is unavailable.',
+        payload?.error ?? 'The user-owned CloudChef runtime is unavailable.',
         code.success ? code.data : null,
         cloudflareDashboardUrl(payload?.upgradeUrl),
       );
@@ -215,7 +215,7 @@ function cloudflareDashboardUrl(value: string | undefined): string | null {
 export function requireUserRuntimeEndpoint(): string {
   const endpoint = userRuntimeEndpointStore.get();
   if (!endpoint) {
-    throw new Error('The user-owned Ghostbuild runtime has not been loaded.');
+    throw new Error('The user-owned CloudChef runtime has not been loaded.');
   }
   return endpoint;
 }

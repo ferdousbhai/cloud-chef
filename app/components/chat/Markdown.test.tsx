@@ -7,12 +7,12 @@ describe('Markdown', () => {
     const markup = renderToStaticMarkup(
       <Markdown>
         {
-          '<div class="__ghostbuildThought__" onclick="alert(1)">Safe <strong>markup</strong></div><script>alert(2)</script>'
+          '<div class="__cloudchefThought__" onclick="alert(1)">Safe <strong>markup</strong></div><script>alert(2)</script>'
         }
       </Markdown>,
     );
 
-    expect(markup).toContain('class="__ghostbuildThought__"');
+    expect(markup).toContain('class="__cloudchefThought__"');
     expect(markup).toContain('<strong>markup</strong>');
     expect(markup).not.toContain('onclick');
     expect(markup).not.toContain('<script');

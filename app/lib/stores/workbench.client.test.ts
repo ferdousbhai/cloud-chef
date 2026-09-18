@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkbenchStore } from './workbench.client';
-import type { AbsolutePath } from 'ghostbuild-agent/utils/workDir';
+import type { AbsolutePath } from 'cloudchef-agent/utils/workDir';
 import type {
   BuilderWorkspaceApplyResult,
   BuilderWorkspaceClientChange,

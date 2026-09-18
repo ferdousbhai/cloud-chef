@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { advanceTranscriptCheckpoint } from 'ghostbuild-agent/transcript';
+import { advanceTranscriptCheckpoint } from 'cloudchef-agent/transcript';
 import { settleBuilderStop } from './builder-stop';
 
 describe('settleBuilderStop', () => {

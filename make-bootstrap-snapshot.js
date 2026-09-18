@@ -31,10 +31,10 @@ async function main() {
  * The generated application's own copy of the builder's model pin, emitted rather than maintained.
  *
  * The two copies are not the same risk. Re-pinning the control-plane constant moves every
- * Ghostbuild build at the next deploy; the template's literal is baked into each generated app and
+ * CloudChef build at the next deploy; the template's literal is baked into each generated app and
  * deployed into the user's own Cloudflare account, where there is no catalog discovery and no
  * failover, and apps already out there stay frozen on whatever it said. So re-pinning the builder
- * and forgetting the template ships new apps on a model Ghostbuild itself has already left. A test
+ * and forgetting the template ships new apps on a model CloudChef itself has already left. A test
  * used to compare the two as text, which caught the drift after it was written; generating the
  * copy means there is no second value to drift.
  */

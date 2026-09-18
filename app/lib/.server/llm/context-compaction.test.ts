@@ -1,12 +1,12 @@
 import { describe, expect, test, vi } from 'vitest';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { assembleCompactedContext, compactContext, type ContextCompaction } from './context-compaction';
 
-function textMessage(id: string, role: 'user' | 'assistant', text: string): GhostbuildMessage {
+function textMessage(id: string, role: 'user' | 'assistant', text: string): CloudChefMessage {
   return { id, role, parts: [{ type: 'text', text }] };
 }
 
-function longConversation(count = 24): GhostbuildMessage[] {
+function longConversation(count = 24): CloudChefMessage[] {
   return Array.from({ length: count }, (_, index) =>
     textMessage(`m-${index}`, index % 2 === 0 ? 'user' : 'assistant', `${index}:${'x'.repeat(20_000)}`),
   );
@@ -28,7 +28,7 @@ describe('Cloudflare-native context compaction', () => {
     expect(assembled.messages.map((message) => message.id)).toEqual([
       'm-0',
       'm-1',
-      'compaction_ghostbuild_m-5',
+      'compaction_cloudchef_m-5',
       'm-6',
       'm-7',
     ]);
@@ -164,7 +164,7 @@ describe('Cloudflare-native context compaction', () => {
       textMessage('latest-assistant', 'assistant', 'Working'),
       textMessage('latest-user-2', 'user', 'Finish'),
       textMessage('latest-assistant-2', 'assistant', 'Done'),
-    ] satisfies GhostbuildMessage[];
+    ] satisfies CloudChefMessage[];
 
     const result = await compactContext({ messages, summarize });
 

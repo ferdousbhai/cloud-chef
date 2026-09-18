@@ -5,7 +5,7 @@ export async function exportAccountAction({ request, env }: { request: Request; 
   const session = await requireRecentlyAuthenticatedSession(
     env,
     request,
-    'Reconnect Cloudflare to confirm it is you, then download your Ghostbuild account data.',
+    'Reconnect Cloudflare to confirm it is you, then download your CloudChef account data.',
   );
   if (session instanceof Response) {
     return session;

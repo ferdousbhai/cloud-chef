@@ -1,7 +1,7 @@
 import {
   WORKSPACE_OPERATION_CONFLICT_ERROR_CODE,
   workspaceOperationConflictMessage,
-} from '../../ghostbuild-agent/cloudflare-computer';
+} from '../../cloudchef-agent/cloudflare-computer';
 import { first } from './sql-rows';
 
 const WORKSPACE_OPERATION_LEASE_MS = 15 * 60_000;
@@ -86,7 +86,7 @@ export class WorkspaceOperationLane {
 
   initialize(): void {
     this.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS ghostbuild_operation_lane (
+      `CREATE TABLE IF NOT EXISTS cloudchef_operation_lane (
          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
          owner TEXT,
          idempotency_key TEXT,
@@ -95,7 +95,7 @@ export class WorkspaceOperationLane {
          deadline INTEGER
        )`,
     );
-    this.storage.sql.exec(`INSERT OR IGNORE INTO ghostbuild_operation_lane (singleton) VALUES (1)`);
+    this.storage.sql.exec(`INSERT OR IGNORE INTO cloudchef_operation_lane (singleton) VALUES (1)`);
   }
 
   acquire(args: {
@@ -145,7 +145,7 @@ export class WorkspaceOperationLane {
 
       const deadline = now + leaseMs;
       this.storage.sql.exec(
-        `UPDATE ghostbuild_operation_lane
+        `UPDATE cloudchef_operation_lane
          SET owner = ?, idempotency_key = ?, kind = ?, acquired_at = ?, deadline = ?
          WHERE singleton = 1`,
         args.owner,
@@ -171,7 +171,7 @@ export class WorkspaceOperationLane {
 
   release(lease: WorkspaceOperationLease): void {
     this.storage.sql.exec(
-      `UPDATE ghostbuild_operation_lane
+      `UPDATE cloudchef_operation_lane
        SET owner = NULL, idempotency_key = NULL, kind = NULL, acquired_at = NULL, deadline = NULL
        WHERE singleton = 1 AND owner = ?`,
       lease.owner,
@@ -214,7 +214,7 @@ export class WorkspaceOperationLane {
       }
       const renewed = { ...lease, deadline: now + leaseMs };
       this.storage.sql.exec(
-        `UPDATE ghostbuild_operation_lane SET deadline = ?
+        `UPDATE cloudchef_operation_lane SET deadline = ?
          WHERE singleton = 1 AND owner = ? AND idempotency_key = ?`,
         renewed.deadline,
         lease.owner,
@@ -229,7 +229,7 @@ export class WorkspaceOperationLane {
       first(
         this.storage.sql.exec<OperationLaneRow>(
           `SELECT owner, idempotency_key, kind, acquired_at, deadline
-           FROM ghostbuild_operation_lane WHERE singleton = 1`,
+           FROM cloudchef_operation_lane WHERE singleton = 1`,
         ),
       ) ?? {
         owner: null,

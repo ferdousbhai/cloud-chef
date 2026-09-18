@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import type { dataOperationArgSchemas } from './data-operation-schemas';
-import type { TranscriptIdentity } from 'ghostbuild-agent/transcript';
+import type { TranscriptIdentity } from 'cloudchef-agent/transcript';
 import type { ChatHistoryCursor, DataPage, SubchatCursor } from './data-pagination';
 
 type ChatSummary = {

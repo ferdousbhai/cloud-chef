@@ -19,8 +19,8 @@ vi.mock('~/lib/stores/userId', () => ({
   isAuthenticated: () => true,
 }));
 
-vi.mock('./GhostbuildAuthWrapper', () => ({
-  useGhostbuildAuth: () => ({ kind: 'fullyLoggedIn' }),
+vi.mock('./CloudChefAuthWrapper', () => ({
+  useCloudChefAuth: () => ({ kind: 'fullyLoggedIn' }),
 }));
 
 type Controller = ReturnType<typeof useMessageInputController>;

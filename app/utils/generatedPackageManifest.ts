@@ -3,7 +3,7 @@ import {
   isForbiddenStackDependencyPackageName,
   isRegistryPackageSpec,
   packageNameFromInstallSpec,
-} from 'ghostbuild-agent/utils/stackPolicy';
+} from 'cloudchef-agent/utils/stackPolicy';
 import { slashPath } from './pathNames';
 
 const packageDependencySections = [

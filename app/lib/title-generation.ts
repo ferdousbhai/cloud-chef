@@ -3,7 +3,7 @@ const CONVERSATION_TITLE_REGENERATION_PROMPT_CHARACTERS = 64;
 
 const MAX_TITLE_PROMPT_CHARACTERS = 4_000;
 /**
- * A ceiling, not a leash. Ghostbuild's per-request output budget is floored at 4,096 tokens
+ * A ceiling, not a leash. CloudChef's per-request output budget is floored at 4,096 tokens
  * (`requestOutputTokens` in `app/lib/.server/llm/pi-ai-models.ts` lifts anything smaller), so the
  * old 24-token request was silently granted 4,096 anyway and could never keep a title short.
  * Asking for the floor is the honest version of the same request; brevity is enforced instead by

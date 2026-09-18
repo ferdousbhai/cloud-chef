@@ -1,10 +1,10 @@
 import { decideConversationCompaction, type ConversationCompactionAction } from '~/lib/compaction';
 import type { ModelMessage } from './message-conversion';
 import { estimateStringTokens } from 'agents/experimental/memory/utils';
-import type { GhostbuildMessage } from 'ghostbuild-agent/ai-compat';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
-import { modelTokenEstimateSafetyTokens } from 'ghostbuild-agent/context-limits';
-import type { ChatTurnContext } from 'ghostbuild-agent/turn-context';
+import { modelTokenEstimateSafetyTokens } from 'cloudchef-agent/context-limits';
+import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import {
   assembleCompactedContext,
   compactContext,
@@ -21,7 +21,7 @@ type ModelInputLogger = {
 
 type PreparedModelInput = {
   messages: ModelMessage[];
-  promptMessages: GhostbuildMessage[];
+  promptMessages: CloudChefMessage[];
   estimatedTokens: number;
   contextCompacted: boolean;
   nextCompaction: ContextCompaction | null;
@@ -80,7 +80,7 @@ export class ContextCompactionUnavailableError extends Error {
 
 /** Build provider input, replacing older prompt messages with a summary as the configured limits approach. */
 export async function prepareModelInput(args: {
-  messages: GhostbuildMessage[];
+  messages: CloudChefMessage[];
   turnContext?: ChatTurnContext;
   currentCompaction?: ContextCompaction | null;
   compactionPending?: boolean;
@@ -115,7 +115,7 @@ export async function prepareModelInput(args: {
     };
   }
 
-  args.logger?.info('Starting automatic Ghostbuild context compaction', {
+  args.logger?.info('Starting automatic CloudChef context compaction', {
     estimatedTokens: modelInput.estimatedTokens,
     messageCount: assembled.messages.length,
   });
@@ -150,7 +150,7 @@ export async function prepareModelInput(args: {
     throw new ModelInputBudgetExceededError(modelInput.estimatedTokens, policy.hardLimitTokens);
   }
 
-  args.logger?.info('Automatically compacted Ghostbuild context', {
+  args.logger?.info('Automatically compacted CloudChef context', {
     tokensBefore,
     tokensAfter: modelInput.estimatedTokens,
     messagesBefore,
@@ -167,7 +167,7 @@ export async function prepareModelInput(args: {
 }
 
 async function assembleModelInput(
-  uiMessages: GhostbuildMessage[],
+  uiMessages: CloudChefMessage[],
   args: Pick<Parameters<typeof prepareModelInput>[0], 'systemPrompt' | 'tools'>,
 ): Promise<{ messages: ModelMessage[]; estimatedTokens: number }> {
   const messages = cleanupAssistantMessages(uiMessages);

@@ -35,7 +35,7 @@ function requireFailure(cwd, args) {
 }
 
 export async function verifyTemplate() {
-  const tempDir = await mkdtemp(join(tmpdir(), 'ghostbuild-template-'));
+  const tempDir = await mkdtemp(join(tmpdir(), 'cloudchef-template-'));
   try {
     await copyCanonicalTemplateSource(tempDir);
     const generatedBindingsPath = join(tempDir, 'worker-configuration.d.ts');
@@ -92,12 +92,12 @@ async function verifyResolvedProductionModulePolicy(tempDir) {
 }
 
 export async function verifyWorkerTemplateProfile() {
-  const tempDir = await mkdtemp(join(tmpdir(), 'ghostbuild-worker-template-'));
+  const tempDir = await mkdtemp(join(tmpdir(), 'cloudchef-worker-template-'));
   try {
     await copyCanonicalTemplateSource(tempDir);
     const stalePackagePath = join(tempDir, 'package.json');
     const stalePackage = JSON.parse(await readFile(stalePackagePath, 'utf8'));
-    stalePackage.ghostbuild = { projectType: 'worker' };
+    stalePackage.cloudchef = { projectType: 'worker' };
     await writeFile(stalePackagePath, `${JSON.stringify(stalePackage, null, 2)}\n`);
     // Isolate this assertion to stale web scripts; production typecheck generates
     // the real binding declarations before stack verification.
@@ -121,7 +121,7 @@ export async function verifyWorkerTemplateProfile() {
 }
 
 export async function verifyAgentCapabilityTemplate() {
-  const tempDir = await mkdtemp(join(tmpdir(), 'ghostbuild-agent-template-'));
+  const tempDir = await mkdtemp(join(tmpdir(), 'cloudchef-agent-template-'));
   try {
     await copyCanonicalTemplateSource(tempDir);
     run(tempDir, ['install', '--frozen-lockfile']);
@@ -163,7 +163,7 @@ async function convertToWorkerProfile(tempDir) {
     'wrangler',
     'yaml',
   ];
-  pkg.ghostbuild = { projectType: 'worker' };
+  pkg.cloudchef = { projectType: 'worker' };
   pkg.scripts = {
     dev: 'wrangler dev',
     preview: 'wrangler dev',

@@ -34,15 +34,15 @@ describe('trusted deployment config', () => {
 function input(overrides: { projectType?: 'web_app' | 'worker' } = {}) {
   return {
     accountId: 'account-id',
-    workerName: 'ghostbuild-deployment-1',
+    workerName: 'cloudchef-deployment-1',
     projectType: overrides.projectType ?? ('web_app' as const),
     workersAi: true,
     appAgent: true,
     d1DatabaseId: 'application-d1-id',
-    d1DatabaseName: 'ghostbuild-deployment-1',
+    d1DatabaseName: 'cloudchef-deployment-1',
     agentSecurityD1DatabaseId: 'agent-security-d1-id',
-    agentSecurityD1DatabaseName: 'ghostbuild-deployment-1-agent-security',
-    r2BucketName: 'ghostbuild-deployment-1-storage',
+    agentSecurityD1DatabaseName: 'cloudchef-deployment-1-agent-security',
+    r2BucketName: 'cloudchef-deployment-1-storage',
     kvNamespaceId: '1'.repeat(32),
   };
 }

@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
-export const WORKERS_PAID_REQUIRED_MARKER = 'GHOSTBUILD_WORKERS_PAID_REQUIRED:';
-export const CLOUDFLARE_AI_FUNDING_REQUIRED_MARKER = 'GHOSTBUILD_CLOUDFLARE_AI_FUNDING_REQUIRED:';
+export const WORKERS_PAID_REQUIRED_MARKER = 'CLOUDCHEF_WORKERS_PAID_REQUIRED:';
+export const CLOUDFLARE_AI_FUNDING_REQUIRED_MARKER = 'CLOUDCHEF_CLOUDFLARE_AI_FUNDING_REQUIRED:';
 
 export function workersPaidRequiredMessage(): string {
-  return `${WORKERS_PAID_REQUIRED_MARKER} Your connected Cloudflare account exhausted its free Workers AI allocation. Review and explicitly authorize Workers Paid in Cloudflare to continue; Ghostbuild did not upgrade your plan.`;
+  return `${WORKERS_PAID_REQUIRED_MARKER} Your connected Cloudflare account exhausted its free Workers AI allocation. Review and explicitly authorize Workers Paid in Cloudflare to continue; CloudChef did not upgrade your plan.`;
 }
 
 export function isWorkersAiFreeAllocationError(error: unknown): boolean {
@@ -14,7 +14,7 @@ export function isWorkersAiFreeAllocationError(error: unknown): boolean {
 }
 
 export function cloudflareAiFundingRequiredMessage(): string {
-  return `${CLOUDFLARE_AI_FUNDING_REQUIRED_MARKER} This third-party model uses AI Gateway Unified Billing, but your Cloudflare account has no credits available. In AI Gateway, select Credits Available, Manage, then Top-up credits to continue; Ghostbuild did not make a purchase.`;
+  return `${CLOUDFLARE_AI_FUNDING_REQUIRED_MARKER} This third-party model uses AI Gateway Unified Billing, but your Cloudflare account has no credits available. In AI Gateway, select Credits Available, Manage, then Top-up credits to continue; CloudChef did not make a purchase.`;
 }
 
 export function isCloudflareAiFundingError(error: unknown): boolean {

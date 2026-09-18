@@ -42,7 +42,7 @@ jobs:
           status=$?
           set -e
           if ! jq -e '.status and .markdown' "$RUNNER_TEMP/runtime-artifacts.json" >/dev/null 2>&1; then
-            jq -n '{status:"error",results:[],markdown:"<!-- ghostbuild-runtime-artifact-watch -->\n## Runtime artifact check failed\n\nThe checker exited before producing a valid report. Inspect this workflow run.\n"}' \
+            jq -n '{status:"error",results:[],markdown:"<!-- cloudchef-runtime-artifact-watch -->\n## Runtime artifact check failed\n\nThe checker exited before producing a valid report. Inspect this workflow run.\n"}' \
               > "$RUNNER_TEMP/runtime-artifacts.json"
             status=2
           fi
@@ -61,7 +61,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
-          marker='<!-- ghostbuild-runtime-artifact-watch -->'
+          marker='<!-- cloudchef-runtime-artifact-watch -->'
           issue_number=$(gh issue list --state open --limit 100 --json number,body,author --jq \
             "map(select((.author.login == \"github-actions[bot]\" or .author.login == \"$REPOSITORY_OWNER\") and ((.body // \"\") | contains(\"$marker\"))))[0].number // empty")
           status=$(jq -r .status "$RUNNER_TEMP/runtime-artifacts.json")

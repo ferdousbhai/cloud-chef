@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react';
-import type { FileMap } from 'ghostbuild-agent/types';
-import { renderLogger } from 'ghostbuild-agent/utils/logger';
+import type { FileMap } from 'cloudchef-agent/types';
+import { renderLogger } from 'cloudchef-agent/utils/logger';
 import { DEFAULT_COLLAPSED_FOLDERS } from '~/utils/constants';
 import { classNames } from '~/utils/classNames';
 import { FileTreeNode } from './FileTreeNodes';

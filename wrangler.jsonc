@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "ghostbuild",
+  "name": "cloudchef",
   "compatibility_date": "2026-07-21",
   "compatibility_flags": ["nodejs_compat"],
   "main": "app/server.ts",
@@ -8,11 +8,11 @@
   "preview_urls": true,
   "routes": [
     {
-      "pattern": "ghostbuild.dev",
+      "pattern": "cloudchef.build",
       "custom_domain": true,
     },
     {
-      "pattern": "www.ghostbuild.dev",
+      "pattern": "www.cloudchef.build",
       "custom_domain": true,
     },
   ],
@@ -36,7 +36,7 @@
   "workflows": [
     {
       "binding": "USER_WORKSPACE_RUNTIME_PROVISIONING",
-      "name": "ghostbuild-user-workspace-runtime-provisioning",
+      "name": "cloudchef-user-workspace-runtime-provisioning",
       "class_name": "UserWorkspaceRuntimeProvisioningWorkflow",
     },
   ],
@@ -68,8 +68,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "ghostbuild",
-      "database_id": "ecad935d-17df-453a-99eb-f3d025c917a4",
+      "database_name": "cloudchef",
+      "database_id": "04680db0-07a0-468d-9547-e07f5091756c",
       "migrations_dir": "migrations",
     },
   ],

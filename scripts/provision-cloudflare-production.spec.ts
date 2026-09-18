@@ -18,7 +18,7 @@ describe('Cloudflare production provisioning helpers', () => {
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "ghostbuild",
+      "database_name": "cloudchef",
       "database_id": "${placeholderId}",
       "migrations_dir": "migrations",
     },
@@ -41,31 +41,27 @@ describe('Cloudflare production provisioning helpers', () => {
   });
 
   it('parses Wrangler JSON output even when Wrangler emits surrounding text', () => {
-    const output = `\nListing D1 databases\n[\n  {"name":"ghostbuild","uuid":"${databaseId}"}\n]\n`;
+    const output = `\nListing D1 databases\n[\n  {"name":"cloudchef","uuid":"${databaseId}"}\n]\n`;
 
-    expect(parseJsonOutput(output, 'wrangler d1 list --json')).toEqual([{ name: 'ghostbuild', uuid: databaseId }]);
+    expect(parseJsonOutput(output, 'wrangler d1 list --json')).toEqual([{ name: 'cloudchef', uuid: databaseId }]);
   });
 
   it('recognizes supported D1 list field variants', () => {
     expect(d1DatabaseId({ uuid: databaseId })).toBe(databaseId);
     expect(d1DatabaseId({ database_id: databaseId })).toBe(databaseId);
     expect(d1DatabaseId({ id: databaseId })).toBe(databaseId);
-    expect(d1DatabaseName({ name: 'ghostbuild' })).toBe('ghostbuild');
-    expect(d1DatabaseName({ database_name: 'ghostbuild' })).toBe('ghostbuild');
+    expect(d1DatabaseName({ name: 'cloudchef' })).toBe('cloudchef');
+    expect(d1DatabaseName({ database_name: 'cloudchef' })).toBe('cloudchef');
   });
 
   it('rejects a configured D1 id that resolves to a different database name', () => {
     expect(() =>
-      requireMatchingD1Database(
-        [{ uuid: databaseId, name: 'unrelated-production-database' }],
-        databaseId,
-        'ghostbuild',
-      ),
-    ).toThrow(`Configured D1 database_id ${databaseId} resolves to "unrelated-production-database", not "ghostbuild".`);
+      requireMatchingD1Database([{ uuid: databaseId, name: 'unrelated-production-database' }], databaseId, 'cloudchef'),
+    ).toThrow(`Configured D1 database_id ${databaseId} resolves to "unrelated-production-database", not "cloudchef".`);
   });
 
   it('rejects a configured D1 id that is absent even when the account has no databases', () => {
-    expect(() => requireMatchingD1Database([], databaseId, 'ghostbuild')).toThrow(
+    expect(() => requireMatchingD1Database([], databaseId, 'cloudchef')).toThrow(
       `Configured D1 database_id ${databaseId} was not found in the Cloudflare account.`,
     );
   });
@@ -75,19 +71,19 @@ describe('Cloudflare production provisioning helpers', () => {
       requireMatchingD1Database(
         [
           { uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', name: 'other' },
-          { uuid: databaseId, name: 'ghostbuild' },
+          { uuid: databaseId, name: 'cloudchef' },
         ],
         databaseId,
-        'ghostbuild',
+        'cloudchef',
       ),
-    ).toEqual({ uuid: databaseId, name: 'ghostbuild' });
+    ).toEqual({ uuid: databaseId, name: 'cloudchef' });
   });
 
   it('detects R2 buckets from Wrangler list output', () => {
-    expect(r2BucketExists('name\nexample\n ghostbuild-app-storage ', 'ghostbuild-app-storage')).toBe(true);
-    expect(r2BucketExists('│ ghostbuild-app-storage │ 2026-06-29 │', 'ghostbuild-app-storage')).toBe(true);
-    expect(r2BucketExists('ghostbuild-app-storage 2026-06-29', 'ghostbuild-app-storage')).toBe(true);
-    expect(r2BucketExists('name\nexample\nother', 'ghostbuild-app-storage')).toBe(false);
-    expect(r2BucketExists('name\nexample\nghostbuild-app-storage-old', 'ghostbuild-app-storage')).toBe(false);
+    expect(r2BucketExists('name\nexample\n cloudchef-app-storage ', 'cloudchef-app-storage')).toBe(true);
+    expect(r2BucketExists('│ cloudchef-app-storage │ 2026-06-29 │', 'cloudchef-app-storage')).toBe(true);
+    expect(r2BucketExists('cloudchef-app-storage 2026-06-29', 'cloudchef-app-storage')).toBe(true);
+    expect(r2BucketExists('name\nexample\nother', 'cloudchef-app-storage')).toBe(false);
+    expect(r2BucketExists('name\nexample\ncloudchef-app-storage-old', 'cloudchef-app-storage')).toBe(false);
   });
 });

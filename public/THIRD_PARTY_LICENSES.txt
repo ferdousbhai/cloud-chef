@@ -1,4 +1,4 @@
-Ghostbuild Third-Party Production Dependency Licenses
+CloudChef Third-Party Production Dependency Licenses
 
 This generated artifact inventories every exact platform-neutral production package version.
 Published package license and notice files are reproduced verbatim and deduplicated by SHA-256.
@@ -8,7 +8,7 @@ This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
 Production packages: 699
-Inventory SHA-256: 42b97425e61444ca7b94b06ec2c93270e912be8deb2d8086317fa6e5a7048a92
+Inventory SHA-256: 8a1e18a5d511bbb2f03ff5c725d413ef76d109f1daf908db6d0a635b6546159b
 
 PACKAGE INVENTORY
 =================

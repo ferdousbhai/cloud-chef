@@ -58,31 +58,31 @@ describe('the submit an authorization was asked to finish', () => {
 describe('Cloudflare return URL', () => {
   test('returns OAuth directly to the same-origin builder destination', () => {
     expect(
-      createCloudflareReturnURL('https://ghostbuild.dev/chat/project?panel=code#preview', 'https://ghostbuild.dev'),
-    ).toBe('https://ghostbuild.dev/chat/project?panel=code#preview');
+      createCloudflareReturnURL('https://cloudchef.build/chat/project?panel=code#preview', 'https://cloudchef.build'),
+    ).toBe('https://cloudchef.build/chat/project?panel=code#preview');
   });
 
   test('rejects external and protocol-relative continuations', () => {
-    expect(createCloudflareReturnURL('https://attacker.example/path', 'https://ghostbuild.dev')).toBe(
-      'https://ghostbuild.dev/',
+    expect(createCloudflareReturnURL('https://attacker.example/path', 'https://cloudchef.build')).toBe(
+      'https://cloudchef.build/',
     );
-    expect(createCloudflareReturnURL('https://ghostbuild.dev//attacker.example', 'https://ghostbuild.dev')).toBe(
-      'https://ghostbuild.dev/',
+    expect(createCloudflareReturnURL('https://cloudchef.build//attacker.example', 'https://cloudchef.build')).toBe(
+      'https://cloudchef.build/',
     );
   });
 
   test('resumes the original destination after a failed authorization', () => {
     expect(
       createCloudflareReturnURL(
-        'https://ghostbuild.dev/settings?continue=%2Fchat%2Fproject&cloudflare_authorization=failed#cloudflare',
-        'https://ghostbuild.dev',
+        'https://cloudchef.build/settings?continue=%2Fchat%2Fproject&cloudflare_authorization=failed#cloudflare',
+        'https://cloudchef.build',
       ),
-    ).toBe('https://ghostbuild.dev/chat/project');
+    ).toBe('https://cloudchef.build/chat/project');
     expect(
       createCloudflareReturnURL(
-        'https://ghostbuild.dev/settings?continue=%2F%5Cattacker.example&cloudflare_authorization=failed',
-        'https://ghostbuild.dev',
+        'https://cloudchef.build/settings?continue=%2F%5Cattacker.example&cloudflare_authorization=failed',
+        'https://cloudchef.build',
       ),
-    ).toBe('https://ghostbuild.dev/settings');
+    ).toBe('https://cloudchef.build/settings');
   });
 });

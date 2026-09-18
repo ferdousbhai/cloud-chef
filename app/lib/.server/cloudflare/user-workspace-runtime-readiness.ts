@@ -1,5 +1,5 @@
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
-import { USER_WORKSPACE_RUNTIME_SERVICE } from '@ghostbuild/user-workspace-runtime/protocol';
+import { USER_WORKSPACE_RUNTIME_SERVICE } from '@cloudchef/user-workspace-runtime/protocol';
 import { z } from 'zod';
 
 const MAX_HEALTH_RESPONSE_BYTES = 1_024;

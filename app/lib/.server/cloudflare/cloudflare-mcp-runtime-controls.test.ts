@@ -9,12 +9,12 @@ const enabledRows = CLOUDFLARE_MCP_RUNTIME_CONTROL_KEYS.map((key) => ({ key, ena
 
 function testEnv(rows = enabledRows, grant = 'full') {
   return {
-    GHOSTBUILD_USER_RUNTIME: '1',
-    GHOSTBUILD_USER_ID: 'user-1',
+    CLOUDCHEF_USER_RUNTIME: '1',
+    CLOUDCHEF_USER_ID: 'user-1',
     CLOUDFLARE_ACCOUNT_ID: 'account-1',
-    GHOSTBUILD_CONNECTION_ID: 'connection-1',
-    GHOSTBUILD_CONNECTION_GENERATION: '3',
-    GHOSTBUILD_OAUTH_SCOPE_GRANT_STATUS: grant,
+    CLOUDCHEF_CONNECTION_ID: 'connection-1',
+    CLOUDCHEF_CONNECTION_GENERATION: '3',
+    CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS: grant,
     DB: {
       prepare: () => ({
         bind: () => ({

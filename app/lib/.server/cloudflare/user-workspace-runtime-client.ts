@@ -1,10 +1,10 @@
-import type { GhostbuildToolResult } from 'ghostbuild-agent/tool-result';
+import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import {
   computerSyncUnconfirmedError,
   isComputerSyncUnconfirmedError,
   workspaceOperationConflict,
   WORKSPACE_OPERATION_CONFLICT_ERROR_CODE,
-} from 'ghostbuild-agent/cloudflare-computer';
+} from 'cloudchef-agent/cloudflare-computer';
 import {
   WorkspaceToolOperationIndeterminateError,
   type BuilderWorkspaceApi,
@@ -418,7 +418,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     mode: 'add' | 'sync-lockfile';
     packages: string[];
     abortSignal?: AbortSignal;
-  }): Promise<GhostbuildToolResult> {
+  }): Promise<CloudChefToolResult> {
     const { abortSignal, ...input } = args;
     abortSignal?.throwIfAborted();
     let cancellation: Promise<void> | undefined;
@@ -457,7 +457,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     input: unknown;
     abortSignal?: AbortSignal;
     onStage?: WorkspaceValidationStageReporter;
-  }): Promise<GhostbuildToolResult> {
+  }): Promise<CloudChefToolResult> {
     args.abortSignal?.throwIfAborted();
     if (this.#activeValidationToolCallId && this.#activeValidationToolCallId !== args.toolCallId) {
       throw new Error('ProjectWorkspace validation is already running.');
@@ -849,7 +849,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     if (!userId) {
       throw new Error('Agent authentication is required.');
     }
-    if (this.env.GHOSTBUILD_USER_RUNTIME !== '1' || this.env.GHOSTBUILD_USER_ID !== userId) {
+    if (this.env.CLOUDCHEF_USER_RUNTIME !== '1' || this.env.CLOUDCHEF_USER_ID !== userId) {
       throw new Error('The user-owned Cloudflare workspace runtime is not configured for this project owner.');
     }
     const stub = this.env.PROJECT_WORKSPACE.get(this.env.PROJECT_WORKSPACE.idFromName(this.projectId));

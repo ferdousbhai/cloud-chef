@@ -7,14 +7,14 @@ import { build } from 'esbuild';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outputPath = resolve(root, 'app/generated/user-workspace-runtime.generated.ts');
-const pathBrowserifyEntry = createRequire(resolve(root, 'ghostbuild-agent/package.json')).resolve('path-browserify');
+const pathBrowserifyEntry = createRequire(resolve(root, 'cloudchef-agent/package.json')).resolve('path-browserify');
 
 /**
  * Vite resolves `?raw` imports natively; esbuild does not. The bundled builder skills are
  * markdown kept as markdown in this repository, so both bundlers have to read them the same way.
  */
 const rawTextPlugin = {
-  name: 'ghostbuild-raw-text',
+  name: 'cloudchef-raw-text',
   setup(pluginBuild) {
     pluginBuild.onResolve({ filter: /\?raw$/ }, (args) => {
       const specifier = args.path.slice(0, -'?raw'.length);
@@ -24,10 +24,10 @@ const rawTextPlugin = {
         path: specifier.startsWith('~/')
           ? resolve(root, 'app', specifier.slice('~/'.length))
           : resolve(args.resolveDir, specifier),
-        namespace: 'ghostbuild-raw-text',
+        namespace: 'cloudchef-raw-text',
       };
     });
-    pluginBuild.onLoad({ filter: /.*/, namespace: 'ghostbuild-raw-text' }, async (args) => ({
+    pluginBuild.onLoad({ filter: /.*/, namespace: 'cloudchef-raw-text' }, async (args) => ({
       contents: await readFile(args.path, 'utf8'),
       loader: 'text',
     }));
@@ -84,7 +84,7 @@ const result = await build({
   legalComments: 'none',
   define: { 'import.meta.url': JSON.stringify('file:///bundle/workspace-runtime.mjs') },
   banner: {
-    js: 'import { createRequire as __ghostbuildCreateRequire } from "node:module"; const require = __ghostbuildCreateRequire("file:///bundle/workspace-runtime.mjs");',
+    js: 'import { createRequire as __cloudchefCreateRequire } from "node:module"; const require = __cloudchefCreateRequire("file:///bundle/workspace-runtime.mjs");',
   },
   external: ['cloudflare:*', 'node:*'],
   plugins: [rawTextPlugin],
