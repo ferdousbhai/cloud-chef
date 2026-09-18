@@ -18,7 +18,7 @@ export function BrandLink({
       aria-label="CloudChef home"
     >
       <span className="cloudchef-brand-mark" aria-hidden>
-        <img src="/cloudchef-logo.svg?v=2" alt="" width={30} height={30} />
+        <img src="/cloudchef-logo.svg?v=3" alt="" width={30} height={30} />
       </span>
       <span className={nameClassName}>CloudChef</span>
     </Link>

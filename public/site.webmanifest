@@ -8,7 +8,7 @@
   "theme_color": "#1a1b26",
   "icons": [
     {
-      "src": "/cloudchef-logo.svg?v=2",
+      "src": "/cloudchef-logo.svg?v=3",
       "sizes": "any",
       "type": "image/svg+xml"
     }

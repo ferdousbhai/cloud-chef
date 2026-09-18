@@ -1,6 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="CloudChef">
-  <rect width="256" height="256" rx="48" fill="#1a1b26"/>
-  <path d="M76 160v-24a36 36 0 0 1-7-71 39 39 0 0 1 72-14 35 35 0 0 1 47 17 35 35 0 0 1-8 68v24Z" fill="#f4f4f5"/>
-  <path d="M96 134v26m32-34v34m32-26v26" fill="none" stroke="#1a1b26" stroke-width="8" stroke-linecap="round"/>
-  <path d="M76 172h104v21a11 11 0 0 1-11 11H87a11 11 0 0 1-11-11Z" fill="#ffad70"/>
+  <rect width="256" height="256" rx="56" fill="#1a1b26"/>
+  <path d="M76 190a44 44 0 0 1-9-87 59 59 0 0 1 114-10 49 49 0 0 1-2 97Z" fill="#ffad70"/>
+  <path d="m82 119 24 22-24 22m47 0h35" fill="none" stroke="#1a1b26" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
