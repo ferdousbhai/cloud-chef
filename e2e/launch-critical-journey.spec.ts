@@ -37,7 +37,7 @@ test('authenticated build, edit, preview, approval, and production journey', asy
   }
 
   await page.goto('/');
-  await page.getByPlaceholder(/Describe the app, workflow, and data/i).fill(prompt);
+  await page.getByPlaceholder(/Describe your app/i).fill(prompt);
   await page.getByRole('button', { name: 'Send' }).click();
 
   await expect(page).toHaveURL(/\/chat\//, { timeout: 30_000 });

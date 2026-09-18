@@ -22,8 +22,7 @@ export const TRUST_DOCUMENT_EFFECTIVE_DATE = 'August 14, 2026';
 // three times. Each page now renders its own rows and shares only the caveat.
 export const TRUST_RESPONSE_CAVEAT =
   'Public-beta targets, not guarantees or contractual service levels. Channels are not monitored continuously, and CloudChef does not provide 24/7 or real-time emergency response.';
-export const HOME_HERO_LEDE =
-  'Describe the app. CloudChef writes, runs, and deploys it inside your own Cloudflare account.';
+export const HOME_HEADING = 'What are we building?';
 
 // The browser gate asserts these exact headings, so the pages and the suite
 // read one definition instead of drifting apart.
@@ -33,9 +32,6 @@ export const TRUST_PAGE_HEADINGS = {
   support: 'Get help through the right channel.',
   security: 'Keep vulnerability details private.',
 } as const;
-
-/** Title strip on the landing-page composer, rendered as a decorative label. */
-export const HOME_COMPOSER_TITLE = 'cloudchef ~ new project';
 
 export const TRUST_LINKS = [
   { href: '/privacy', label: 'Privacy' },

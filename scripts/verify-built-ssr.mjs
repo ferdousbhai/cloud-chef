@@ -25,7 +25,7 @@ const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const builtServerPath = resolve(rootDir, 'dist/server/index.js');
 
 const routeCases = [
-  { path: '/', status: 200, content: 'If you can dream it' },
+  { path: '/', status: 200, content: 'What are we building?' },
   { path: '/settings', status: 200, content: 'Settings | CloudChef' },
   { path: '/chat/ssr-smoke-project', status: 200, content: 'Project | CloudChef' },
   { path: '/does-not-exist', status: 404, content: 'This page does not exist' },

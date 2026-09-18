@@ -40,12 +40,12 @@ test('finishes the submit that had to connect Cloudflare first', async ({ page }
   await stubCloudflareAuthorization(page);
 
   await page.goto('/');
-  await page.getByPlaceholder(/Describe the app, workflow, and data/i).fill(PROMPT);
+  await page.getByPlaceholder(/Describe your app/i).fill(PROMPT);
   await page.getByRole('button', { name: 'Connect Cloudflare' }).first().click();
 
   // Back from Cloudflare, the prompt is not merely restored: the submit it belonged to runs.
   await expect(page.getByText('Preparing your Cloudflare workspace')).toBeVisible();
-  await expect(page.getByPlaceholder(/Describe the app, workflow, and data/i)).toHaveCount(0);
+  await expect(page.getByPlaceholder(/Describe your app/i)).toHaveCount(0);
   await assertClean();
 });
 
@@ -66,7 +66,7 @@ test('never starts a build for someone who connected from settings', async ({ pa
   );
   await page.getByRole('button', { name: 'Connect Cloudflare' }).click();
 
-  await expect(page.getByPlaceholder(/Describe the app, workflow, and data/i)).toHaveValue(PROMPT);
+  await expect(page.getByPlaceholder(/Describe your app/i)).toHaveValue(PROMPT);
   await expect(page.getByText('Preparing your Cloudflare workspace')).toHaveCount(0);
   await assertClean();
 });

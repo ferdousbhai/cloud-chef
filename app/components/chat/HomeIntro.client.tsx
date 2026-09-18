@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { HomeBrandMark, HomeHeroCopy } from '~/components/HomeHeroCopy';
+import { HomeHeroCopy } from '~/components/HomeHeroCopy';
 import { MessageInput } from './MessageInput';
 
 const DisabledChatMessageSheet = lazy(() =>
@@ -27,11 +27,10 @@ export function HomeIntro({
     <div className="cloudchef-home-shell grow p-4 sm:px-6 lg:px-8">
       <section className="cloudchef-home-copy min-w-0" aria-labelledby="intro">
         <div className="cloudchef-home-hero">
-          <HomeBrandMark />
           <div className="min-w-0">
-            <HomeHeroCopy headingId="intro" reveal />
+            <HomeHeroCopy headingId="intro" />
 
-            <div className="cloudchef-home-reveal cloudchef-home-composer-stack">
+            <div className="cloudchef-home-composer-stack">
               <MessageInput
                 chatStarted={false}
                 isStreaming={isStreaming}

@@ -19,7 +19,7 @@ async function stubConnectedSession(page: Page) {
 
 async function startProject(page: Page) {
   await page.goto('/');
-  await page.getByPlaceholder(/Describe the app, workflow, and data/i).fill('Build a launch checklist.');
+  await page.getByPlaceholder(/Describe your app/i).fill('Build a launch checklist.');
   await page.getByRole('button', { name: 'Send' }).click();
 }
 

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { HOME_HERO_LEDE, TRUST_PAGE_HEADINGS } from '~/lib/trust';
+import { HOME_HEADING, TRUST_PAGE_HEADINGS } from '~/lib/trust';
 import { collectBrowserDiagnostics } from './browser-diagnostics';
 
 test('hydrates the built landing page without replacing meaningful SSR content', async ({ page }, testInfo) => {
@@ -9,12 +9,11 @@ test('hydrates the built landing page without replacing meaningful SSR content',
   await page.goto('/');
 
   await expect(page).toHaveTitle(/CloudChef/);
-  await expect(page.getByRole('heading', { name: /If you can dream it/i })).toBeVisible();
   // Asserted against the constant, not a copy of it: this gate exists to prove SSR content
   // survives hydration, and a transcribed sentence turns every wording change into a red build
   // that `validate` cannot see, because the browser gate runs outside it.
-  await expect(page.getByText(HOME_HERO_LEDE, { exact: false })).toBeVisible();
-  await expect(page.getByPlaceholder(/Describe the app, workflow, and data/i)).toBeVisible();
+  await expect(page.getByText(HOME_HEADING, { exact: false })).toBeVisible();
+  await expect(page.getByPlaceholder(/Describe your app/i)).toBeVisible();
   // The builder model selector belongs to a connected session, so the signed-out
   // landing page must offer the connect action instead.
   await expect(page.getByRole('button', { name: /Builder model/i })).toHaveCount(0);
@@ -37,9 +36,7 @@ test('renders signed-out private routes after browser hydration', async ({ page 
   // Never a bounce into Cloudflare's consent screen: the route that asks for eight permissions
   // states the plan requirement here first, exactly as the composer does.
   await expect(page).toHaveURL(/\/settings$/);
-  await expect(page.getByTestId('cloudflare-connect-legal-notice')).toContainText(
-    'Cloudflare Containers, which requires the Workers Paid plan',
-  );
+  await expect(page.getByTestId('cloudflare-connect-legal-notice')).toContainText('Workers Paid required.');
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex,\s*nofollow/);
 
   await page.goto('/chat/browser-smoke-project');

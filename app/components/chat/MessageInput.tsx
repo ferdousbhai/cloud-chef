@@ -15,7 +15,6 @@ import {
 import { BuilderModelSelector } from './BuilderModelSelector.client';
 import { NewModelsNotice } from './NewModelsNotice.client';
 import { PromptRefinementDialog } from './PromptRefinementDialog.client';
-import { HOME_COMPOSER_TITLE } from '~/lib/trust';
 
 interface MessageInputProps {
   chatStarted: boolean;
@@ -49,7 +48,7 @@ export const MessageInput = memo(function MessageInput({
       : numMessages !== undefined && numMessages > 0
         ? 'What would you like to do next?'
         : 'Start this chat with a prompt…'
-    : 'Describe the app, workflow, and data you want to build…';
+    : 'Describe your app…';
   const inputStatus = input.length > 3 ? <NewLineShortcut /> : null;
   const actions = (
     <>
@@ -78,13 +77,7 @@ export const MessageInput = memo(function MessageInput({
         className={classNames('ml-1 h-8 min-w-8 rounded', !chatStarted ? 'cloudchef-message-input__send' : '')}
         aria-label={primaryActionLabel}
         icon={
-          sendMessageInProgress ? (
-            <Spinner className="text-white" />
-          ) : primaryActionLabel === 'Send' ? (
-            <ArrowRightIcon />
-          ) : (
-            <StopIcon />
-          )
+          sendMessageInProgress ? <Spinner className="text-white" /> : !isStreaming ? <ArrowRightIcon /> : <StopIcon />
         }
       />
     </>
@@ -98,11 +91,6 @@ export const MessageInput = memo(function MessageInput({
           chatStarted ? 'max-w-chat' : 'cloudchef-message-input--home max-w-none',
         )}
       >
-        {!chatStarted && (
-          <p className="cloudchef-message-input__titlebar" aria-hidden="true">
-            {HOME_COMPOSER_TITLE}
-          </p>
-        )}
         {modelSelector ? <NewModelsNotice /> : null}
         <div
           className={classNames(
@@ -147,7 +135,7 @@ export const MessageInput = memo(function MessageInput({
             // Left-aligned and set to the composer's own measure: centred prose inside a
             // left-aligned column reads as a separate island rather than a footnote to the field
             // it belongs to.
-            className="mt-2 px-1 text-[11px] leading-snug text-content-tertiary"
+            className="px-3 pb-2 text-[11px] leading-snug text-content-tertiary"
           />
         )}
       </div>
