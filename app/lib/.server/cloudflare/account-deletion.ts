@@ -11,6 +11,10 @@ export async function eraseControlPlaneAccount(args: {
   vault?: D1CloudflareCredentialVault;
 }): Promise<{ cloudflareAuthorizationRevoked: boolean }> {
   const db = args.env.DB;
+  // Project resource cleanup runs in the user workspace and needs the Cloudflare authorization
+  // revoked here, so it cannot be drained from the control plane: the project GC receipts live in
+  // the workspace database, which this erasure deliberately never touches. The settings UI names
+  // the ordering this implies — delete projects and let their scheduled cleanup finish first.
   const credentialHandle = await revokeConnection(db, args.userId);
   const vault = credentialHandle !== null ? (args.vault ?? safeCredentialVault(args.env)) : null;
   const cloudflareAuthorizationRevoked =

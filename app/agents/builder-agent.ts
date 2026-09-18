@@ -164,6 +164,9 @@ const previewPublicationJobSchema = z.object({
   workspaceRevision: z.number().int().min(0),
   snapshotRevision: z.string().min(1),
   requestedAt: z.number().int().positive(),
+  // Manual "Build preview" requests must not promote to the public production URL. Only the
+  // validated-revision pipeline (publishValidatedRevision) opts into the deployment behind the preview.
+  autoDeploy: z.boolean().default(true),
 });
 type PreviewPublicationJob = z.infer<typeof previewPublicationJobSchema>;
 
@@ -837,7 +840,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   @callable()
   requestPreview(): Promise<BuilderPreviewState> {
-    return this.requestPreviewInternal();
+    return this.requestPreviewInternal({ autoDeploy: false });
   }
 
   @callable()
@@ -1473,7 +1476,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    * could not even be queued), the deployment starts directly instead of waiting on anything.
    */
   private async publishValidatedRevision(snapshot: BuilderWorkspaceCheckpoint): Promise<void> {
-    const preview = await this.requestPreviewInternal({ validatedSnapshot: snapshot }).catch(() => {
+    const preview = await this.requestPreviewInternal({ validatedSnapshot: snapshot, autoDeploy: true }).catch(() => {
       logger.warn('Unable to queue the validated preview publication');
       return null;
     });
@@ -1582,7 +1585,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   private async requestPreviewInternal(
-    options: { validatedSnapshot?: BuilderWorkspaceCheckpoint } = {},
+    options: { validatedSnapshot?: BuilderWorkspaceCheckpoint; autoDeploy?: boolean } = {},
   ): Promise<BuilderPreviewState> {
     if (!this.ownerId || !this.userId || !this.transcriptBinding) {
       throw new Response('Agent authentication is required.', { status: 401 });
@@ -1607,6 +1610,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       workspaceRevision: snapshot.workspaceRevision,
       snapshotRevision: snapshot.revision,
       requestedAt: Date.now(),
+      autoDeploy: options.autoDeploy ?? false,
     };
     this.setPreviewState({
       status: 'queued',
@@ -1714,13 +1718,23 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         event: 'builder_preview_published',
         publicationMs: Date.now() - job.requestedAt,
       });
-      await this.scheduleDeploymentAfterPreview(job);
+      await this.schedulePipelineDeploymentAfterPreview(job);
     } catch (error) {
       await this.failPreviewPublication(
         job,
         (error instanceof Error ? error.message : 'The Workers preview publication failed.').slice(-4_000),
       );
-      // A failed preview must not also cost the user the production deployment.
+      await this.schedulePipelineDeploymentAfterPreview(job);
+    }
+  }
+
+  /**
+   * Deployment follows a settled pipeline preview — never a manual "Build preview", which must not
+   * promote to the public production URL. A failed preview still deploys behind the pipeline so one
+   * broken preview never costs the user the production deployment.
+   */
+  private async schedulePipelineDeploymentAfterPreview(job: PreviewPublicationJob): Promise<void> {
+    if (job.autoDeploy) {
       await this.scheduleDeploymentAfterPreview(job);
     }
   }

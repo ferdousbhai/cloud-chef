@@ -143,8 +143,12 @@ async function cleanupCandidate(
       }
       const plan = parsePlanForCleanup(row.plan_json);
       if (!plan) {
-        logger.warn('Skipped a deployment whose stored plan this build cannot parse');
-        continue;
+        // A newer schema version is not a completed cleanup: deleting the receipt here would strand
+        // billable resources with no retry. Preserve the candidate so a build that understands the
+        // plan can clean it up.
+        logger.warn('Preserving a deployment whose stored plan this build cannot parse');
+        await rescheduleCandidate(db, candidate, now, false);
+        return;
       }
       if (!(await cleanupDeploymentPlan(accountApi, plan))) {
         await rescheduleCandidate(db, candidate, now, false);

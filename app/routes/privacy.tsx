@@ -252,8 +252,9 @@ function PrivacyPage() {
           Chats, transcripts, project files, and deployment records also stay there under that account’s controls, and
           the account export does not contain them: download individual project source with Download code in the project
           header, and use your Cloudflare account’s own tools for the rest. The browser holds no persistent chat,
-          transcript, or project replica. Its theme, model, telemetry, cookie, and tab-session data are not reachable
-          from the server and are in no export; Settings lists exactly what to clear.
+          transcript, or project replica. Its theme, model, telemetry-choice, and tab-session data are not reachable
+          from the server and are in no export; the authentication cookie is sent with requests so the server can verify
+          sign-in. Settings lists exactly what to clear.
         </p>
         <p>
           Workspace Worker and Computer container logs, and generated-application Worker logs and traces, remain in your
@@ -269,6 +270,9 @@ function PrivacyPage() {
           deleted; provider failures or revoked authorization can delay cleanup and are retried while access remains
           available. It is not complete erasure: catalog, transcript, deployment, provider-retained observability, and
           browser records remain under their applicable retention boundaries. Browser data remains until you clear it.
+          Delete projects and allow this cleanup to finish before deleting your Ghostbuild account data: account
+          deletion revokes the authorization cleanup needs, so a project deleted inside this window keeps running and
+          billing until you remove its resources in your Cloudflare account.
         </p>
         <p>
           GitHub retains public support issues and private security reports according to its policies and repository

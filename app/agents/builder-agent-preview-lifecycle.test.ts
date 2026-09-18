@@ -34,10 +34,16 @@ describe('BuilderAgent preview lifecycle', () => {
     expect(response).toContain('const validatedSnapshot = await this.refreshDeploymentReadiness()');
     expect(response).toContain('await this.publishValidatedRevision(validatedSnapshot)');
     expect(response).not.toContain('this.scheduleDeployment(validatedSnapshot)');
-    expect(source).toContain('this.requestPreviewInternal({ validatedSnapshot: snapshot })');
-    // Deployment follows the settled preview on both the success and the failure path, so a
-    // broken preview can never cost the user the production deployment.
-    expect(publication.match(/await this\.scheduleDeploymentAfterPreview\(job\)/g)).toHaveLength(2);
+    expect(source).toContain('this.requestPreviewInternal({ validatedSnapshot: snapshot, autoDeploy: true })');
+    // Only the validated-revision pipeline deploys behind the preview. A manual "Build preview"
+    // request must never promote to the public production URL.
+    expect(source).toContain('return this.requestPreviewInternal({ autoDeploy: false })');
+    // Deployment follows the settled pipeline preview on both the success and the failure path, so a
+    // broken preview can never cost the user the production deployment — but only behind the
+    // autoDeploy guard, so a manual "Build preview" never promotes to production.
+    expect(publication.match(/await this\.schedulePipelineDeploymentAfterPreview\(job\)/g)).toHaveLength(2);
+    expect(source).toContain('private async schedulePipelineDeploymentAfterPreview(job: PreviewPublicationJob)');
+    expect(source).toContain('if (job.autoDeploy)');
     // And a successful deployment no longer gates the preview: the old post-deployment preview
     // trigger stays deleted.
     expect(source).not.toContain('this.requestPreviewInternal({ validatedSnapshot: job })');

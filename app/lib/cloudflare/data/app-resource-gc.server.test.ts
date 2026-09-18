@@ -91,15 +91,17 @@ describe('app resource garbage collection', () => {
     ]);
   });
 
-  it('completes the receipt instead of stalling on a plan this build cannot parse', async () => {
+  it('preserves the receipt when a stored plan uses a newer schema', async () => {
     const plan = await deploymentPlan();
     const database = new AppResourceGcDatabase([JSON.stringify({ ...plan, version: 999 }), JSON.stringify(plan)]);
     const accountApi = cleanupApi(true);
 
     await expect(sweepAppResourceGcCandidates(database.env, { now: 100, accountApi })).resolves.toBeUndefined();
 
-    expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('ghostbuild-deployment-1');
-    expect(database.candidates).toEqual([]);
+    expect(accountApi.deleteManagedWorker).not.toHaveBeenCalled();
+    expect(database.candidates).toEqual([
+      { chat_id: 'chat-row', not_before: 100 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
+    ]);
   });
 
   it('backs off and preserves the receipt when Cloudflare cleanup fails', async () => {

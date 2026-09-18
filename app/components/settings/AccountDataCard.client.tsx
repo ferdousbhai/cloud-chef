@@ -15,6 +15,8 @@ const accountDeletionPayloadSchema = z.looseObject({
   cloudflareAuthorizationRevoked: z.boolean().optional().catch(undefined),
 });
 
+const CLOUDFLARE_OAUTH_AUTHORIZATIONS_URL = 'https://dash.cloudflare.com/?to=/profile/access-management/authorization';
+
 type DeletionPhase = 'idle' | 'confirming' | 'deleting' | 'reauthenticate' | 'deleted';
 type ExportPhase = 'idle' | 'downloading' | 'reauthenticate' | 'downloaded';
 
@@ -191,9 +193,18 @@ export function AccountDataCard() {
             address from its own database.
           </p>
           <p className="mt-2">
-            {revoked
-              ? 'Cloudflare confirmed that Ghostbuild’s authorization was revoked.'
-              : 'Cloudflare did not confirm the revocation. Remove the Ghostbuild authorization yourself in your Cloudflare account under Manage Account → Authorized Apps.'}
+            {revoked ? (
+              'Cloudflare confirmed that Ghostbuild’s authorization was revoked.'
+            ) : (
+              <>
+                Cloudflare did not confirm the revocation. Remove the Ghostbuild authorization yourself in the
+                Cloudflare dashboard under <strong>Profile → Manage OAuth authorizations</strong> (
+                <a className="underline" href={CLOUDFLARE_OAUTH_AUTHORIZATIONS_URL}>
+                  open OAuth authorizations
+                </a>
+                ).
+              </>
+            )}
           </p>
           <p className="mt-2">
             Resources Ghostbuild deployed are still in your Cloudflare account and still billed to it. Clear this
@@ -220,9 +231,11 @@ export function AccountDataCard() {
             Ghostbuild account.
           </p>
           <p className="mt-2 max-w-2xl text-sm text-content-secondary">
-            To remove a deployed app, delete its project first. Deleting a project reclaims the Cloudflare resources
-            Ghostbuild provisioned for it. Once this account is deleted the authorization is gone, so Ghostbuild can no
-            longer reclaim anything on your behalf.
+            To remove a deployed app, delete its project first and allow its scheduled cleanup to finish — project
+            resources are removed no earlier than 30 minutes after deletion. Project deletion removes that project’s
+            generated Worker and versions, Durable Objects, D1 databases, KV namespaces, and R2 buckets; it does not
+            remove the shared workspace runtime or anything outside that project. Once this account is deleted the
+            authorization is gone, so Ghostbuild can no longer clean up anything on your behalf.
           </p>
           {phase === 'idle' ? (
             <Button className="mt-3" size="sm" variant="danger" onClick={() => setPhase('confirming')}>
