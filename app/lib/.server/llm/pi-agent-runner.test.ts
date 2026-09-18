@@ -615,6 +615,34 @@ describe('piAgentRunner', () => {
     expect(requestDurableCompaction).toHaveBeenCalled();
   });
 
+  it('preserves the provider rejection when a new chat has nothing to compact', async () => {
+    const summarize = vi.fn(async () => 'Unused');
+    mocks.piMessages = [{ role: 'user', content: 'a to do app', timestamp: 1 }];
+    mocks.piRun.mockImplementation(
+      async (
+        context: { messages: Array<AgentMessage | ReturnType<typeof assistantMessage>> },
+        _config: StopAwareLoopConfig,
+        emit: RunnerEventSink,
+      ) => {
+        const overflow = assistantMessage([], {
+          stopReason: 'error',
+          errorMessage: 'The prompt exceeds the context window.',
+        });
+        context.messages.push(overflow);
+        await emit({ type: 'turn_end', message: overflow, toolResults: [] });
+      },
+    );
+
+    const chunks = await collectChunks(await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, { summarize }));
+
+    expect(summarize).not.toHaveBeenCalled();
+    expect(mocks.piRun).toHaveBeenCalledOnce();
+    expect(chunks).toContainEqual({
+      type: 'error',
+      errorText: 'The model request failed: The prompt exceeds the context window. Retry, or pick a different model.',
+    });
+  });
+
   it('does not retry a second invisible overflow', async () => {
     mocks.piMessages = runtimeHistory();
     const overflowRun = async (

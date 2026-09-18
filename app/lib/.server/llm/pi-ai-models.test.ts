@@ -240,6 +240,37 @@ describe('Pi Workers AI model binding', () => {
     expect(run.mock.calls[1]?.[1].max_completion_tokens).toBe(1_048_576);
   });
 
+  it('recovers from the production output-cap then total-context rejection and remembers the window', async () => {
+    const model = { ...DEFAULT_WORKERS_AI_MODEL, contextTokens: 1_310_720 };
+    const run = vi.fn(async (_model: string, _inputs: BindingInputs, _options: BindingOptions) =>
+      completionResponse(model.id),
+    );
+    run.mockResolvedValueOnce(new Response(OUTPUT_CAP_REJECTION, { status: 400 }));
+    run.mockResolvedValueOnce(new Response(CONTEXT_LIMIT_REJECTION, { status: 400 }));
+    const handle = getPiModel(bindingFor(run), model.id, { model });
+    const context = { messages: [{ role: 'user' as const, content: 'Hi', timestamp: 1 }] };
+
+    const result = await handle.stream(handle.model, context).result();
+
+    expect(result.content).toContainEqual({ type: 'text', text: 'Hello' });
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(run.mock.calls[2]?.[1].max_completion_tokens).toBe(1_048_576 - 16 - 104_858);
+    expect(handle.model.contextWindow).toBe(1_048_576);
+    await handle.stream(handle.model, context).result();
+    expect(run).toHaveBeenCalledTimes(4);
+    expect(run.mock.calls[3]?.[1].max_completion_tokens).toBeLessThan(1_048_576 - 104_858);
+  });
+
+  it.each([
+    "Requested token count exceeds the model's maximum context length of 1048576 tokens.",
+    "Requested token count exceeds the model's maximum context length of 1048576 tokens. 1040000 tokens from the input messages",
+  ])('does not retry a context rejection with missing counts or no usable output budget: %s', async (body) => {
+    const { binding, run } = cappingBinding(DEFAULT_WORKERS_AI_MODEL.id, body, 1);
+    const handle = getPiModel(binding, DEFAULT_WORKERS_AI_MODEL.id, { model: DEFAULT_WORKERS_AI_MODEL });
+    await handle.stream(handle.model, { messages: [{ role: 'user', content: 'Hi', timestamp: 1 }] }).result();
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it('leaves a rejection that names no completion cap alone', async () => {
     const model: WorkersAiModel = { ...DEFAULT_WORKERS_AI_MODEL, contextTokens: 1_310_720 };
     const { binding, run } = cappingBinding(model.id, '{"error":"messages: field required"}', 1);
@@ -358,6 +389,9 @@ const EFFORT_MODEL: WorkersAiModel = {
 /** Verbatim from a production glm-5.3-flash rejection. */
 const OUTPUT_CAP_REJECTION =
   'max_completion_tokens is too large: 1200000.This model supports at most 1048576 completion tokens.';
+
+const CONTEXT_LIMIT_REJECTION =
+  "Requested token count exceeds the model's maximum context length of 1048576 tokens. You requested a total of 1048592 tokens: 16 tokens from the input messages and 1048576 tokens for the completion. Please reduce the number of tokens in the input messages or the completion to fit within the limit.";
 
 function recordingBinding(modelId: string) {
   const run = vi.fn(async (_model: string, _inputs: BindingInputs, _options: BindingOptions) =>

@@ -231,7 +231,7 @@ export function getPiModel(
     // Pi's OpenAI-compatible serializer requires a non-empty key before calling custom fetch.
     // The binding adapter forwards only the reviewed session-affinity header.
     apiKey: 'workers-ai-binding',
-    fetch: createWorkersAiBindingFetch(accountCredentials.binding, modelId, settings?.model?.requiresPaid === true),
+    fetch: createWorkersAiBindingFetch(accountCredentials.binding, model, settings?.model?.requiresPaid === true),
     sessionAffinity: settings?.sessionAffinity,
   });
 }
@@ -256,14 +256,15 @@ type WorkersAiRawBinding = {
 
 function createWorkersAiBindingFetch(
   binding: Ai,
-  modelId: WorkersAiRuntimeModelId,
+  model: Model<Api>,
   routeThroughDefaultGateway: boolean,
 ): FetchFunction {
+  const modelId = model.id;
   return async (input, init) => {
     recordPiStage('binding_fetch_enter', modelId);
     const request = new Request(input, init);
     request.signal.throwIfAborted();
-    const payload = await request.json<WorkersAiBindingInputs>();
+    let payload = await request.json<WorkersAiBindingInputs>();
     // The model is the first binding argument; keeping it out of inputs matches env.AI.run().
     delete payload.model;
     // SAFETY: `Ai.run` is generic over the generated `AiModelList`, which does not enumerate every
@@ -279,27 +280,28 @@ function createWorkersAiBindingFetch(
     if (sessionAffinity) {
       options.extraHeaders = { 'x-session-affinity': sessionAffinity };
     }
-    const response = await rawBinding.run(modelId, payload, options);
+    let response = await rawBinding.run(modelId, payload, options);
     recordPiStage('binding_run_response', modelId, response.status);
-    if (response.status !== 400) {
-      return response;
+    // A completion-cap rejection can reveal a second, smaller total-context limit. Allow both
+    // corrections, but never loop indefinitely or replay an unchanged request.
+    for (let attempt = 0; attempt < 2 && response.status === 400; attempt += 1) {
+      const body = await response
+        .clone()
+        .text()
+        .catch(() => '');
+      const corrected =
+        withinProviderContextLimit(model, payload, body) ??
+        withinProviderOutputCap(modelId, payload, body) ??
+        withinSupportedReasoningEffort(modelId, payload, body);
+      if (!corrected) {
+        break;
+      }
+      request.signal.throwIfAborted();
+      payload = corrected;
+      response = await rawBinding.run(modelId, payload, options);
+      recordPiStage('binding_run_response', modelId, response.status);
     }
-    // Both replays read the same rejection for a different provider string, so the body is consumed
-    // once here and handed over as text. Each helper replays at most once and `??` stops at the
-    // first one that fires, so a rejection that could be read two ways still costs exactly one
-    // replay.
-    const rejectionBody = await response
-      .clone()
-      .text()
-      .catch(() => '');
-    const retried =
-      (await retryWithinProviderOutputCap(rawBinding, modelId, payload, options, rejectionBody)) ??
-      (await retryWithinSupportedReasoningEffort(rawBinding, modelId, payload, options, rejectionBody));
-    if (!retried) {
-      return response;
-    }
-    recordPiStage('binding_run_response', modelId, retried.status);
-    return retried;
+    return response;
   };
 }
 
@@ -307,18 +309,16 @@ function createWorkersAiBindingFetch(
  * Cloudflare's catalog window is not always the provider's completion cap: glm-5.3-flash advertises
  * a 1,310,720-token window and rejects any `max_completion_tokens` above 1,048,576, so the budget
  * computed from the window fails every request for that model. The rejection names the real cap, so
- * the request is replayed once at that number. The replay calls the binding directly, which is what
- * keeps a second rejection from looping.
+ * the request is replayed once at that number. The caller bounds recovery attempts and
+ * can also correct a total-context rejection from that replay.
  */
 const PROVIDER_OUTPUT_CAP_PATTERN = /supports at most (\d+) completion tokens/;
 
-async function retryWithinProviderOutputCap(
-  binding: WorkersAiRawBinding,
-  modelId: WorkersAiRuntimeModelId,
+function withinProviderOutputCap(
+  modelId: string,
   payload: WorkersAiBindingInputs,
-  options: WorkersAiRawRunOptions,
   body: string,
-): Promise<Response | undefined> {
+): WorkersAiBindingInputs | undefined {
   const requested = payload.max_completion_tokens;
   if (requested === undefined) {
     return undefined;
@@ -328,7 +328,33 @@ async function retryWithinProviderOutputCap(
     return undefined;
   }
   recordPiStage('binding_output_cap_retry', modelId);
-  return binding.run(modelId, { ...payload, max_completion_tokens: cap }, options);
+  return { ...payload, max_completion_tokens: cap };
+}
+
+/** Use the provider's actual input count, including its tool/message framing, not our estimate. */
+const PROVIDER_CONTEXT_LIMIT_PATTERN = /maximum context length of (\d+) tokens/i;
+const PROVIDER_INPUT_TOKENS_PATTERN = /(\d+) tokens from the input messages/i;
+
+function withinProviderContextLimit(
+  model: Model<Api>,
+  payload: WorkersAiBindingInputs,
+  body: string,
+): WorkersAiBindingInputs | undefined {
+  const limit = Number(PROVIDER_CONTEXT_LIMIT_PATTERN.exec(body)?.[1]);
+  const input = Number(PROVIDER_INPUT_TOKENS_PATTERN.exec(body)?.[1]);
+  if (!Number.isSafeInteger(limit) || limit <= 0 || !Number.isSafeInteger(input) || input < 0) {
+    return undefined;
+  }
+  // Keep the corrected window on this turn's handle so later tool steps budget against it too.
+  model.contextWindow = Math.min(model.contextWindow, limit);
+  const available = limit - input - modelTokenEstimateSafetyTokens(limit);
+  const requested = payload.max_completion_tokens;
+  // A genuinely full input needs compaction; do not silently request a truncated answer.
+  if (requested === undefined || available < MINIMUM_OUTPUT_TOKENS || available >= requested) {
+    return undefined;
+  }
+  recordPiStage('binding_context_limit_retry', model.id);
+  return { ...payload, max_completion_tokens: available };
 }
 
 /**
@@ -359,13 +385,11 @@ const SUPPORTED_REASONING_EFFORT_PATTERN = /supported types are ([^.]+)/i;
 /** Strongest first, which is the order the replacement is chosen in. */
 const REASONING_EFFORT_PREFERENCE = ['xhigh', 'high', 'medium', 'low'] as const;
 
-async function retryWithinSupportedReasoningEffort(
-  binding: WorkersAiRawBinding,
-  modelId: WorkersAiRuntimeModelId,
+function withinSupportedReasoningEffort(
+  modelId: string,
   payload: WorkersAiBindingInputs,
-  options: WorkersAiRawRunOptions,
   body: string,
-): Promise<Response | undefined> {
+): WorkersAiBindingInputs | undefined {
   const requested = payload.reasoning_effort;
   if (requested === undefined) {
     return undefined;
@@ -386,7 +410,7 @@ async function retryWithinSupportedReasoningEffort(
     return undefined;
   }
   recordPiStage('binding_reasoning_effort_retry', modelId);
-  return binding.run(modelId, { ...payload, reasoning_effort: supported }, options);
+  return { ...payload, reasoning_effort: supported };
 }
 
 /**

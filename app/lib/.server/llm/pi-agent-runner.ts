@@ -208,7 +208,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     const reason = error instanceof BuilderTurnBudgetExceededError ? undefined : exhaustedBudgetReason();
     return reason ? new BuilderTurnBudgetExceededError(reason) : error;
   };
-  const compactionPolicy = modelCompactionPolicy(handle.model.contextWindow);
   const { skillContext, piTools } = await withPreparationStage('tool_setup', async () => {
     const skillContext = createBuilderSkillContext();
     return {
@@ -490,9 +489,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
         signal: loopSignal,
       });
       if (!compacted) {
-        runtimeCompactionError = new ContextCompactionUnavailableError(
-          new Error('The active turn has no safe compaction boundary.'),
-        );
         return undefined;
       }
       runtimeContextCompacted = true;
@@ -527,7 +523,11 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
         },
         prepareNextTurn: async ({ message, context: turnContext }) => {
           const wouldContinue = message.content.some((part) => part.type === 'toolCall');
-          if (!wouldContinue || estimatePiContextTokens(turnContext.messages) < compactionPolicy.hardLimitTokens) {
+          if (
+            !wouldContinue ||
+            estimatePiContextTokens(turnContext.messages) <
+              modelCompactionPolicy(handle.model.contextWindow).hardLimitTokens
+          ) {
             return undefined;
           }
           const compacted = await compactRuntimeContext(turnContext);
@@ -680,7 +680,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
         throw new HiddenReasoningExhaustionError();
       }
       const finalContextTokens = estimatePiContextTokens(context.messages);
-      if (finalContextTokens >= compactionPolicy.proactiveTokens) {
+      if (finalContextTokens >= modelCompactionPolicy(handle.model.contextWindow).proactiveTokens) {
         compaction.requestDurableCompaction?.();
       }
       recordWorkersAiFinish({
