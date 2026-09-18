@@ -106,6 +106,10 @@ No ZIP, `DirectoryBackup`, or project copy passes through CloudChef.
 
 ## Deployment
 
+The `cloudchef` Worker is connected to `ferdousbhai/cloud-chef` in Workers Builds. Its build settings are
+specified in `workers-builds.production.json`: keep the dashboard commands, branch controls, build variables,
+and token selection aligned with that file. Runtime secrets remain on the Worker and are not build variables.
+
 Cloudflare Workers Builds validates every push. Non-production branches upload an undeployed Worker version. A push to
 `main` runs the production deploy command only from the exact Workers Builds checkout, applies control-plane D1
 migrations, publishes with the exact 40-character commit ID, and then probes `https://cloudchef.build/api/version` until
