@@ -1,5 +1,6 @@
 import { lazy, memo, Suspense, useEffect, useRef } from 'react';
 import { ToolCall } from './ToolCall';
+import { FileToolGroup, groupMessageParts } from './FileToolGroup';
 import { ReasoningPart } from './ReasoningPart';
 import { makePartId, type PartId } from 'ghostbuild-agent/partId.js';
 import { getToolInvocation, type GhostbuildMessage, type GhostbuildPart } from 'ghostbuild-agent/ai-compat';
@@ -23,17 +24,27 @@ export const AssistantMessage = memo(function AssistantMessage({
   onCloudflareExecutionDecision,
 }: AssistantMessageProps) {
   return (
-    <div className="w-full overflow-hidden text-sm">
-      <div className="flex flex-col gap-2">
-        {message.parts.map((part, index) => (
-          <AssistantMessagePart
-            key={index}
-            part={part}
-            partId={makePartId(message.id, index)}
-            cloudflareExecutions={cloudflareExecutions}
-            onCloudflareExecutionDecision={onCloudflareExecutionDecision}
-          />
-        ))}
+    <div className="w-full overflow-hidden text-[13px] leading-6">
+      <div className="flex flex-col gap-1">
+        {groupMessageParts(message.parts).map((block) =>
+          block.kind === 'file-group' ? (
+            <FileToolGroup
+              key={block.items[0].index}
+              entries={block.items.map((item) => ({
+                invocation: item.invocation,
+                partId: makePartId(message.id, item.index),
+              }))}
+            />
+          ) : (
+            <AssistantMessagePart
+              key={block.index}
+              part={block.part}
+              partId={makePartId(message.id, block.index)}
+              cloudflareExecutions={cloudflareExecutions}
+              onCloudflareExecutionDecision={onCloudflareExecutionDecision}
+            />
+          ),
+        )}
       </div>
     </div>
   );

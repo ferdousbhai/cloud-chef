@@ -132,7 +132,7 @@ export function toolTitle(invocation: GhostbuildToolInvocation, status: ToolActi
 }
 
 function icon(content: ReactNode, color: string): ReactNode {
-  return <div className={classNames('text-lg', color)}>{content}</div>;
+  return <div className={classNames('text-base', color)}>{content}</div>;
 }
 
 function isErrorResult(invocation: GhostbuildToolInvocation): boolean {
@@ -145,9 +145,9 @@ function isErrorResult(invocation: GhostbuildToolInvocation): boolean {
 
 function titleRow(children: ReactNode, iconContent?: ReactNode): ReactNode {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5">
       {iconContent}
-      <span>{children}</span>
+      <span className="truncate">{children}</span>
     </div>
   );
 }

@@ -35,13 +35,13 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messa
           return (
             <div
               key={message.id}
-              className={classNames(styles.Message, 'relative flex w-full gap-3', {
+              className={classNames(styles.Message, 'relative flex w-full gap-2', {
                 [styles.UserMessage]: isUserMessage,
                 [styles.AssistantMessage]: !isUserMessage,
               })}
             >
               {isUserMessage && (
-                <div className="flex size-8 shrink-0 items-center justify-center self-start overflow-hidden rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-content-secondary">
+                <div className="flex size-6 shrink-0 items-center justify-center self-start overflow-hidden rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-content-secondary">
                   {profile?.avatar ? (
                     <img
                       src={profile.avatar}
@@ -51,7 +51,7 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messa
                       decoding="sync"
                     />
                   ) : (
-                    <PersonIcon className="size-3.5" />
+                    <PersonIcon className="size-3" />
                   )}
                 </div>
               )}
@@ -68,11 +68,11 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messa
           );
         })
       ) : (
-        <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
-          <div className="mb-6 flex size-[64px] shrink-0 items-center justify-center text-gray-600 dark:text-gray-500">
-            <ChatBubbleIcon className="size-8" />
+        <div className="flex flex-col items-center justify-center px-4 py-10 text-center">
+          <div className="mb-4 flex size-12 shrink-0 items-center justify-center text-gray-600 dark:text-gray-500">
+            <ChatBubbleIcon className="size-6" />
           </div>
-          <h3 className="text-content-primary text-xl font-semibold">What should Ghostbuild change?</h3>
+          <h3 className="text-content-primary text-lg font-semibold">What should Ghostbuild change?</h3>
         </div>
       )}
     </div>

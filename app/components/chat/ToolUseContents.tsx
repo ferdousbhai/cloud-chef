@@ -97,7 +97,7 @@ function RunningToolContents({ invocation, progress }: { invocation: GhostbuildT
     <ToolResultFrame>
       <pre
         aria-live="polite"
-        className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-content-secondary"
+        className="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs leading-[1.4] text-content-secondary"
       >
         {preview}
       </pre>
@@ -159,13 +159,13 @@ function CloudflareMcpToolContents({
     const activity = invocation.toolName === 'cloudflare_docs' ? input?.query : input?.code;
     return (
       <ToolResultFrame>
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <div className="text-content-secondary">
             {invocation.toolName === 'cloudflare_docs'
               ? 'Searching Cloudflare documentation…'
               : 'Searching the authenticated Cloudflare account…'}
           </div>
-          {activity ? <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words">{activity}</pre> : null}
+          {activity ? <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words">{activity}</pre> : null}
         </div>
       </ToolResultFrame>
     );
@@ -183,7 +183,7 @@ function CloudflareMcpToolContents({
   }
   return (
     <ToolResultFrame>
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <div className={result.status === 'success' ? 'text-content-primary' : 'text-bolt-elements-icon-error'}>
           {result.status === 'success'
             ? 'Cloudflare MCP completed.'
@@ -193,7 +193,7 @@ function CloudflareMcpToolContents({
         </div>
         <div className="text-xs text-content-tertiary">Account: {result.accountId}</div>
         {result.content ? (
-          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-content-secondary">
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs leading-[1.4] text-content-secondary">
             {result.content}
           </pre>
         ) : null}
@@ -235,10 +235,10 @@ function CloudflareExecuteContents({
   if (running) {
     return (
       <ToolResultFrame>
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <div className="text-content-secondary">Preparing an approval-bound Cloudflare execution…</div>
           {input?.code ? (
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs">{input.code}</pre>
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs">{input.code}</pre>
           ) : null}
         </div>
       </ToolResultFrame>

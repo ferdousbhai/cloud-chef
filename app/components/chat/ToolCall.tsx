@@ -45,7 +45,7 @@ export const ToolCall = memo(function ToolCall({
       expanded={expanded}
       header={
         <div className="flex items-center gap-1.5">
-          <div className="w-full text-sm font-medium leading-5 text-content-primary">
+          <div className="w-full text-[13px] font-medium leading-4 text-content-primary">
             {toolTitle(invocation, status)}
           </div>
           {statusIcon(status, invocation)}
@@ -54,7 +54,7 @@ export const ToolCall = memo(function ToolCall({
       onToggle={toggleAction}
       body={
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <div className="space-y-2.5">
+          <div className="space-y-1.5">
             <ToolUseContents
               invocation={invocation}
               status={status}

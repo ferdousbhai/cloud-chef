@@ -69,12 +69,12 @@ export function ReasoningPart({ part }: { part: GhostbuildPart }) {
   const tail = text.length > PREVIEW_TAIL_CHARACTERS ? text.slice(-PREVIEW_TAIL_CHARACTERS) : text;
 
   return (
-    <div className="flex w-full flex-col overflow-hidden rounded-lg border border-bolt-elements-artifacts-borderColor bg-bolt-elements-artifacts-background">
+    <div className="flex w-full flex-col overflow-hidden rounded-md border border-bolt-elements-artifacts-borderColor bg-bolt-elements-artifacts-background">
       <button
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((visible) => !visible)}
-        className="flex min-w-0 items-center gap-2 px-3 py-1.5 text-left text-xs text-content-tertiary outline-none transition-colors hover:text-content-secondary focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500"
+        className="flex min-w-0 items-center gap-2 px-2.5 py-1 text-left text-[11px] text-content-tertiary outline-none transition-colors hover:text-content-secondary focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500"
       >
         <span className="truncate">{label}</span>
         <span className="grow" />
@@ -83,16 +83,16 @@ export function ReasoningPart({ part }: { part: GhostbuildPart }) {
       {!expanded && streaming && tail !== '' && (
         <div
           aria-hidden="true"
-          className="relative h-9 overflow-hidden"
+          className="relative h-7 overflow-hidden"
           style={{ maskImage: PREVIEW_FADE, WebkitMaskImage: PREVIEW_FADE }}
         >
-          <div className="absolute inset-x-3 bottom-1.5 whitespace-pre-wrap break-words text-[11px] leading-[1.15rem] text-content-tertiary">
+          <div className="absolute inset-x-2.5 bottom-1 whitespace-pre-wrap break-words text-[11px] leading-4 text-content-tertiary">
             {tail}
           </div>
         </div>
       )}
       {expanded && (
-        <div className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words border-t border-bolt-elements-artifacts-borderColor px-3 py-2 text-[11px] leading-[1.15rem] text-content-tertiary">
+        <div className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words border-t border-bolt-elements-artifacts-borderColor px-2.5 py-1.5 text-[11px] leading-4 text-content-tertiary">
           {text === '' ? 'No reasoning was recorded.' : text}
         </div>
       )}

@@ -261,7 +261,7 @@ export function BaseChat({
                         >
                           <Messages
                             ref={messageRef}
-                            className="z-[1] mx-auto flex w-full max-w-chat flex-1 flex-col gap-3 px-3 pb-8 sm:px-0"
+                            className="z-[1] mx-auto flex w-full max-w-chat flex-1 flex-col gap-1.5 px-3 pb-4 sm:px-0"
                             messages={messages}
                             cloudflareExecutions={cloudflareExecutions}
                             onCloudflareExecutionDecision={onCloudflareExecutionDecision}
@@ -275,16 +275,16 @@ export function BaseChat({
                   <div
                     className={classNames(
                       styles.ComposerDock,
-                      'z-prompt sticky bottom-0 mx-auto flex w-full max-w-chat flex-col px-3 pb-3 sm:px-0 sm:pb-4',
+                      'z-prompt sticky bottom-0 mx-auto flex w-full max-w-chat flex-col px-3 pb-2 sm:px-0 sm:pb-3',
                     )}
                   >
                     {runtimeNotice && (
-                      <div className="mb-2 px-1 text-xs text-content-tertiary" role="status">
+                      <div className="mb-1.5 px-1 text-xs text-content-tertiary" role="status">
                         {runtimeNotice}
                       </div>
                     )}
                     {deployment ? (
-                      <div className="mb-3">
+                      <div className="mb-2">
                         <DeploymentStatus deployment={deployment} publication={publication} onRetry={onDeploy} />
                       </div>
                     ) : null}

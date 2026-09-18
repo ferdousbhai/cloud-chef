@@ -13,7 +13,7 @@ export const UserMessage = memo(function UserMessage({ content }: UserMessagePro
     const images = content.filter((item) => item.type === 'image' && item.image);
 
     body = (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2">
         {textContent && <Markdown>{textContent}</Markdown>}
         {images.map((item, index) => (
           <img
@@ -30,5 +30,5 @@ export const UserMessage = memo(function UserMessage({ content }: UserMessagePro
     body = <Markdown>{content}</Markdown>;
   }
 
-  return <div className="overflow-hidden text-sm">{body}</div>;
+  return <div className="overflow-hidden text-[13px] leading-6">{body}</div>;
 });

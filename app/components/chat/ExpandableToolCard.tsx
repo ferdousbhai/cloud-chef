@@ -15,7 +15,7 @@ export function ExpandableToolCard({
   onToggle: () => void;
 }) {
   return (
-    <div className="tool-call-card flex w-full flex-col overflow-hidden rounded-md border border-bolt-elements-artifacts-borderColor transition-[border-color] duration-150">
+    <div className="tool-call-card flex w-full flex-col overflow-hidden rounded border border-bolt-elements-artifacts-borderColor transition-[border-color] duration-150">
       <motion.button
         type="button"
         aria-expanded={expanded}
@@ -25,8 +25,8 @@ export function ExpandableToolCard({
         className="flex min-w-0 items-stretch overflow-hidden bg-bolt-elements-artifacts-background text-content-primary outline-none transition-colors hover:bg-bolt-elements-artifacts-backgroundHover focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500"
         onClick={onToggle}
       >
-        <div className="min-w-0 flex-1 px-3 py-1.5 text-left">{header}</div>
-        <span className="flex shrink-0 items-center justify-center px-2.5 text-content-tertiary">
+        <div className="min-w-0 flex-1 px-2.5 py-1 text-left">{header}</div>
+        <span className="flex shrink-0 items-center justify-center px-2 text-content-tertiary">
           {expanded ? <CaretUpIcon /> : <CaretDownIcon />}
         </span>
       </motion.button>
@@ -39,7 +39,7 @@ export function ExpandableToolCard({
             exit={{ height: 0 }}
             transition={{ duration: 0.15 }}
           >
-            <div className="bg-bolt-elements-actions-background px-3 py-2.5 text-left">{body}</div>
+            <div className="bg-bolt-elements-actions-background px-2.5 py-1.5 text-left">{body}</div>
           </motion.div>
         )}
       </AnimatePresence>

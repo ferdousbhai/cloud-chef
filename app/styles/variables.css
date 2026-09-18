@@ -179,7 +179,7 @@ html.dark {
      squeezed into the same column, so on a wide screen the transcript sat in a narrow ribbon with
      the rest of the viewport empty. Widened only where there is room to spare, and only to about
      80 characters, past which prose gets harder to read rather than denser. */
-  --chat-max-width: 37rem;
+  --chat-max-width: 44rem;
   --chat-min-width: 640px;
   --workbench-width: min(calc(100% - var(--chat-min-width)), 2536px);
   --workbench-inner-width: calc(var(--workbench-width) - 16px);
@@ -203,6 +203,6 @@ html.dark {
 
 @media (min-width: 1280px) {
   :root {
-    --chat-max-width: 46rem;
+    --chat-max-width: 52rem;
   }
 }

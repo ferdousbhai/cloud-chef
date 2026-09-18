@@ -1,6 +1,6 @@
 :root {
   --font-mono: ui-monospace, 'Fira Code', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-  --code-font-size: 13px;
+  --code-font-size: 12px;
 }
 
 @define-mixin not-inside-tool-details {
@@ -10,17 +10,17 @@
 }
 
 .MarkdownContent {
-  line-height: 1.6;
+  line-height: 1.5;
   color: var(--content-primary);
 
   > *:not(:last-child) {
-    margin-block-end: 16px;
+    margin-block-end: 10px;
   }
 
   :is(h1, h2, h3, h4, h5, h6) {
     @mixin not-inside-tool-details {
-      margin-block-start: 24px;
-      margin-block-end: 16px;
+      margin-block-start: 12px;
+      margin-block-end: 6px;
       font-weight: 600;
       line-height: 1.25;
       color: var(--content-primary);
@@ -28,19 +28,19 @@
   }
 
   h1 {
-    font-size: 2em;
+    font-size: 1.4em;
     border-bottom: 1px solid var(--border-transparent);
     padding-bottom: 0.3em;
   }
 
   h2 {
-    font-size: 1.5em;
+    font-size: 1.25em;
     border-bottom: 1px solid var(--border-transparent);
     padding-bottom: 0.3em;
   }
 
   h3 {
-    font-size: 1.25em;
+    font-size: 1.1em;
   }
 
   h4 {
@@ -61,7 +61,7 @@
 
     &:not(:last-of-type) {
       margin-block-start: 0;
-      margin-block-end: 16px;
+      margin-block-end: 8px;
     }
   }
 
@@ -88,7 +88,7 @@
   }
 
   pre {
-    padding: 20px 16px;
+    padding: 10px 12px;
     border-radius: 6px;
   }
 
@@ -109,9 +109,9 @@
 
   :is(ul, ol) {
     @mixin not-inside-tool-details {
-      padding-left: 2em;
+      padding-left: 1.5em;
       margin-block-start: 0;
-      margin-block-end: 16px;
+      margin-block-end: 10px;
     }
   }
 
@@ -130,11 +130,11 @@
   li {
     @mixin not-inside-tool-details {
       & + li {
-        margin-block-start: 8px;
+        margin-block-start: 4px;
       }
 
       > *:not(:last-child) {
-        margin-block-end: 16px;
+        margin-block-end: 8px;
       }
     }
   }
@@ -142,7 +142,7 @@
   hr {
     height: 0.25em;
     padding: 0;
-    margin: 24px 0;
+    margin: 12px 0;
     background-color: var(--border-transparent);
     border: 0;
   }
@@ -150,10 +150,10 @@
   table {
     border-collapse: collapse;
     width: 100%;
-    margin-block-end: 16px;
+    margin-block-end: 10px;
 
     :is(th, td) {
-      padding: 6px 13px;
+      padding: 4px 8px;
       border: 1px solid var(--border-transparent);
     }
 

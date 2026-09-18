@@ -47,7 +47,7 @@
 .UserMessage {
   align-self: flex-end;
   width: min(92%, 34rem);
-  padding: 0.875rem 1rem;
+  padding: 0.5rem 0.75rem;
   border: 1px solid color-mix(in srgb, var(--gb-content-accent) 22%, var(--gb-border-transparent));
   /* Keeps the tailed-bubble idiom, at the theme's radius scale. */
   border-radius: var(--gb-radius-lg) var(--gb-radius-lg) var(--gb-radius-sm) var(--gb-radius-lg);
@@ -56,7 +56,7 @@
 }
 
 .AssistantMessage {
-  padding: 0.85rem 0.25rem 1.15rem;
+  padding: 0.3rem 0.25rem 0.5rem;
   color: var(--gb-content-primary);
 }
 
