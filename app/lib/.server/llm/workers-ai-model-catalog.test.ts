@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type WorkersAiModel } from '~/lib/workers-ai-model';
+import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import {
   readWorkersAiBuilderModelCatalog,
   requireWorkersAiBuilderModel,
@@ -15,15 +15,6 @@ const eligibleProperties = [
   { property_id: 'reasoning', value: 'true' },
   { property_id: 'vision', value: 'false' },
 ];
-
-/** A plain builder-capable catalog entry, so failover ranking is the only thing under test. */
-const eligibleModel: WorkersAiModel = {
-  ...DEFAULT_WORKERS_AI_MODEL,
-  id: '@cf/qwen/qwen3-coder-480b',
-  label: 'Qwen3 Coder 480B',
-  contextTokens: 131_072,
-  vision: false,
-};
 
 type ModelOverrides = {
   source?: number;
@@ -58,7 +49,7 @@ describe('Workers AI live model catalog', () => {
             { property_id: 'vision', value: 'true' },
           ],
         }),
-        model('@cf/openai/gpt-oss-120b'),
+        model('@cf/deepseek-ai/deepseek-v4-flash-0731'),
         model('@hf/example/partner'),
         model('@cf/example/no-tools', {
           properties: [{ property_id: 'context_window', value: '131072' }],
@@ -83,7 +74,7 @@ describe('Workers AI live model catalog', () => {
       page: 1,
       per_page: 100,
     });
-    expect(models.map(({ id }) => id)).toEqual(['@cf/zai-org/glm-5.3-flash', '@cf/openai/gpt-oss-120b']);
+    expect(models.map(({ id }) => id)).toEqual(['@cf/zai-org/glm-5.3-flash', '@cf/deepseek-ai/deepseek-v4-flash-0731']);
     expect(models[0]).toMatchObject({
       label: 'GLM 5.3 Flash',
       contextTokens: 1_048_576,
@@ -96,9 +87,8 @@ describe('Workers AI live model catalog', () => {
   it('carries the catalog publication date through, and omits an unusable one', async () => {
     const binding = {
       models: vi.fn(async () => [
-        model('@cf/openai/gpt-oss-120b', { createdAt: '2026-08-26 00:00:00.000' }),
-        model('@cf/example/undated'),
-        model('@cf/example/bad-date', { createdAt: 'sometime last week' }),
+        model('@cf/deepseek-ai/deepseek-v4-flash-0731', { createdAt: '2026-08-26 00:00:00.000' }),
+        model(CLOUDFLARE_WORKERS_AI_MODEL, { createdAt: 'sometime last week' }),
       ]),
     };
 
@@ -106,7 +96,6 @@ describe('Workers AI live model catalog', () => {
 
     expect(models[0]?.createdAt).toBe(new Date('2026-08-26 00:00:00.000').toISOString());
     expect(models[1]).not.toHaveProperty('createdAt');
-    expect(models[2]).not.toHaveProperty('createdAt');
   });
 
   it('takes the pinned default from discovery rather than the reviewed literal', () => {
@@ -122,127 +111,44 @@ describe('Workers AI live model catalog', () => {
     expect(workersAiModelCatalogPayload([otherModel, discoveredDefault])).toEqual({
       defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
       // The default stays first so the picker's top row does not move.
-      models: [discoveredDefault, otherModel],
+      models: [discoveredDefault],
     });
   });
 
-  it('fails over to the best eligible model when Cloudflare retires the pin', () => {
+  it('promotes only the selected Flash alternative, never a newer Pro or unrelated model', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const small = { ...eligibleModel, id: '@cf/qwen/small' as const, vision: true, contextTokens: 131_072 };
-    const large = { ...eligibleModel, id: '@cf/qwen/large' as const, vision: true, contextTokens: 262_144 };
-
-    expect(workersAiModelCatalogPayload([eligibleModel, small, large])).toEqual({
-      // Vision outranks the window, and the window outranks catalog order.
-      defaultModelId: large.id,
-      models: [large, eligibleModel, small],
-    });
-    expect(warn).toHaveBeenCalledWith({
-      event: 'workers_ai_default_model_retired',
-      pinned: CLOUDFLARE_WORKERS_AI_MODEL,
-      replacement: large.id,
-      rule: 'ranked_preference',
-    });
+    const flash = { ...DEFAULT_WORKERS_AI_MODEL, id: '@cf/deepseek-ai/deepseek-v4-flash-0731' as const };
+    const pro = { ...flash, id: '@cf/deepseek-ai/deepseek-v4-pro-0813' as const };
+    const other = { ...flash, id: '@cf/openai/gpt-oss-120b' as const };
+    expect(resolveBuilderDefaultModel([pro, other, flash])).toBe(flash);
+    expect(resolveBuilderDefaultModel([pro, other])).toBe(DEFAULT_WORKERS_AI_MODEL);
+    expect(workersAiModelCatalogPayload([pro, other, flash]).models).toEqual([flash]);
     warn.mockRestore();
   });
 
-  it('prefers the newer of two equal candidates, and ranks an undated one last', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const undated = { ...eligibleModel, id: '@cf/qwen/undated' as const };
-    const older = { ...eligibleModel, id: '@cf/qwen/older' as const, createdAt: '2026-01-05T00:00:00.000Z' };
-    const newer = { ...eligibleModel, id: '@cf/qwen/newer' as const, createdAt: '2026-08-26T00:00:00.000Z' };
-
-    expect(resolveBuilderDefaultModel([undated, older, newer])).toBe(newer);
-    expect(resolveBuilderDefaultModel([undated, older])).toBe(older);
-    expect(warn).toHaveBeenCalledTimes(2);
-    warn.mockRestore();
-  });
-
-  /**
-   * Failover used to apply an extra gate that refused any reasoning model outside a short list of
-   * family prefixes. It is gone, and this is the case it cost: `@cf/openai/gpt-oss-120b` reasons
-   * and is in none of those families, so the gate could never promote it — while it is the fastest
-   * builder model this project has verified end to end, 17m13s against the pin's 26m26s. The
-   * fixture states `reasoning: true` deliberately, because that was the flag the old test had to
-   * falsify to get this model past the gate at all.
-   */
-  it('promotes a reasoning model from a family no prefix list ever named', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const gptOss = {
-      ...eligibleModel,
-      id: '@cf/openai/gpt-oss-120b' as const,
-      reasoning: true,
-      contextTokens: 1_048_576,
-      createdAt: '2026-09-01T00:00:00.000Z',
+  it('rejects otherwise compatible models outside the two selected choices', async () => {
+    const binding = {
+      models: vi.fn(async () => [model('@cf/deepseek-ai/deepseek-v4-pro-0813'), model('@cf/openai/gpt-oss-120b')]),
     };
-    const narrower = { ...eligibleModel, id: '@cf/mistralai/narrower' as const, contextTokens: 131_072 };
-
-    expect(resolveBuilderDefaultModel([narrower, gptOss])).toBe(gptOss);
-    expect(warn).toHaveBeenCalledWith({
-      event: 'workers_ai_default_model_retired',
-      pinned: CLOUDFLARE_WORKERS_AI_MODEL,
-      replacement: gptOss.id,
-      rule: 'ranked_preference',
+    expect(await readWorkersAiBuilderModelCatalog(binding)).toEqual([]);
+    await expect(requireWorkersAiBuilderModel(binding, '@cf/deepseek-ai/deepseek-v4-pro-0813')).rejects.toMatchObject({
+      status: 400,
     });
-    warn.mockRestore();
+    await expect(requireWorkersAiBuilderModel(binding, '@cf/openai/gpt-oss-120b')).rejects.toMatchObject({
+      status: 400,
+    });
   });
 
-  /**
-   * The owner's stated second choice, and the reason it sits ahead of the ranking: the heuristic
-   * scores on catalog properties, and on today's live catalog its vision-first rule picks
-   * `@cf/qwen/qwen3.8-27b` — measured against production, the one model that rejects the
-   * `reasoning_effort: high` every builder request carries. DeepSeek v4 answers the builder's exact
-   * request shape with a 200 and real reasoning, so a verified family beats a scored guess.
-   */
-  it('fails over to the newest DeepSeek ahead of what the ranking would score highest', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    // Exactly what the heuristic would promote today: vision, newest, widest window.
-    const qwen = {
-      ...eligibleModel,
-      id: '@cf/qwen/qwen3.8-27b' as const,
-      vision: true,
-      contextTokens: 262_144,
-      createdAt: '2026-08-17T00:00:00.000Z',
+  it('still checks capabilities of the selected models', async () => {
+    const binding = {
+      models: vi.fn(async () => [
+        model(CLOUDFLARE_WORKERS_AI_MODEL, { properties: [{ property_id: 'context_window', value: '1310720' }] }),
+        model('@cf/deepseek-ai/deepseek-v4-flash-0731', { source: 2 }),
+      ]),
     };
-    const olderDeepSeek = {
-      ...eligibleModel,
-      id: '@cf/deepseek-ai/deepseek-v4-flash-0731' as const,
-      createdAt: '2026-07-31T00:00:00.000Z',
-    };
-    const newerDeepSeek = {
-      ...eligibleModel,
-      id: '@cf/deepseek-ai/deepseek-v4-pro-0813' as const,
-      createdAt: '2026-08-13T00:00:00.000Z',
-    };
-
-    // Newest by date within the family, not the widest or the most capable on paper.
-    expect(resolveBuilderDefaultModel([qwen, olderDeepSeek, newerDeepSeek])).toBe(newerDeepSeek);
-    expect(warn).toHaveBeenCalledWith({
-      event: 'workers_ai_default_model_retired',
-      pinned: CLOUDFLARE_WORKERS_AI_MODEL,
-      replacement: newerDeepSeek.id,
-      rule: 'newest_preferred_family',
-    });
-    warn.mockRestore();
+    expect(await readWorkersAiBuilderModelCatalog(binding)).toEqual([]);
   });
 
-  it('falls back to the ranking when the account offers no DeepSeek at all', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const qwen = { ...eligibleModel, id: '@cf/qwen/qwen3.8-27b' as const, vision: true };
-
-    expect(resolveBuilderDefaultModel([eligibleModel, qwen])).toBe(qwen);
-    expect(warn).toHaveBeenCalledWith({
-      event: 'workers_ai_default_model_retired',
-      pinned: CLOUDFLARE_WORKERS_AI_MODEL,
-      replacement: qwen.id,
-      rule: 'ranked_preference',
-    });
-    warn.mockRestore();
-  });
-
-  /**
-   * The only way to reach the reviewed literal now that candidates are exactly catalog membership:
-   * an account whose catalog offers no builder-capable model at all.
-   */
   it('keeps the reviewed literal when discovery offers nothing to replace the pin', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -258,20 +164,22 @@ describe('Workers AI live model catalog', () => {
 
   it('fails the builder over to a replacement when the pin is absent from a successful read', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const binding = { models: vi.fn(async () => [model('@cf/openai/gpt-oss-120b')]) };
+    const binding = { models: vi.fn(async () => [model('@cf/deepseek-ai/deepseek-v4-flash-0731')]) };
 
     await expect(requireWorkersAiBuilderModel(binding, CLOUDFLARE_WORKERS_AI_MODEL)).resolves.toMatchObject({
-      id: '@cf/openai/gpt-oss-120b',
+      id: '@cf/deepseek-ai/deepseek-v4-flash-0731',
     });
     warn.mockRestore();
   });
 
   it('validates non-default selections against the current account catalog', async () => {
-    const selected = model('@cf/openai/gpt-oss-120b');
+    const selected = model('@cf/deepseek-ai/deepseek-v4-flash-0731');
     const binding = { models: vi.fn(async () => [selected]) };
 
-    await expect(requireWorkersAiBuilderModel(binding, '@cf/openai/gpt-oss-120b')).resolves.toMatchObject({
-      id: '@cf/openai/gpt-oss-120b',
+    await expect(
+      requireWorkersAiBuilderModel(binding, '@cf/deepseek-ai/deepseek-v4-flash-0731'),
+    ).resolves.toMatchObject({
+      id: '@cf/deepseek-ai/deepseek-v4-flash-0731',
     });
     await expect(requireWorkersAiBuilderModel(binding, '@cf/example/missing')).rejects.toMatchObject({ status: 400 });
   });

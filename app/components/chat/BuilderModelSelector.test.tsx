@@ -20,8 +20,8 @@ import { BuilderModelSelector } from './BuilderModelSelector.client';
 
 const alternativeModel: WorkersAiModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
-  id: '@cf/openai/gpt-oss-120b',
-  label: 'GPT OSS 120B',
+  id: '@cf/deepseek-ai/deepseek-v4-flash-0731',
+  label: 'DeepSeek V4 Flash 0731',
   description: 'Cloudflare-hosted open-weight reasoning model.',
   vision: false,
 };
@@ -72,7 +72,7 @@ describe('BuilderModelSelector', () => {
     expect(menu?.textContent).toContain('function calling');
     expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(2);
     const alternative = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
-      item.textContent?.includes('GPT OSS 120B'),
+      item.textContent?.includes('DeepSeek V4 Flash 0731'),
     );
 
     await act(async () => alternative?.click());
@@ -92,7 +92,7 @@ describe('BuilderModelSelector', () => {
     });
 
     const alternative = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
-      item.textContent?.includes('GPT OSS 120B'),
+      item.textContent?.includes('DeepSeek V4 Flash 0731'),
     );
     expect(alternative?.textContent).toContain('New');
     expect(alternative?.textContent).toContain('added Aug 26');

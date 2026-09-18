@@ -22,8 +22,8 @@ import {
 
 const alternativeModel: WorkersAiModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
-  id: '@cf/openai/gpt-oss-120b',
-  label: 'GPT OSS 120B',
+  id: '@cf/deepseek-ai/deepseek-v4-flash-0731',
+  label: 'DeepSeek V4 Flash 0731',
   contextTokens: 128_000,
   requiresPaid: false,
   vision: false,
@@ -133,58 +133,15 @@ describe('new Workers AI models', () => {
     expect(JSON.parse(storage.read(SEEN_KEY) ?? 'null')).toEqual([DEFAULT_WORKERS_AI_MODEL.id, alternativeModel.id]);
   });
 
-  /**
-   * The two rows the owner stands behind: the default, then the newest of the preferred fallback
-   * family — the same model `resolveBuilderDefaultModel` would promote on a retirement. Both sit
-   * above a newer model that would otherwise take the second row on its date alone.
-   */
-  it('gives the second row to the newest preferred-fallback model', () => {
-    const newest: WorkersAiModel = {
-      ...alternativeModel,
-      id: '@cf/qwen/qwen3.8-27b',
-      createdAt: '2026-08-17T00:00:00Z',
-    };
-    const olderDeepSeek: WorkersAiModel = {
-      ...alternativeModel,
-      id: '@cf/deepseek-ai/deepseek-v4-flash-0731',
-      createdAt: '2026-07-31T00:00:00Z',
-    };
-    const newerDeepSeek: WorkersAiModel = {
-      ...alternativeModel,
-      id: '@cf/deepseek-ai/deepseek-v4-pro-0813',
-      createdAt: '2026-08-13T00:00:00Z',
-    };
-
-    const ordered = orderBuilderModelsForDisplay(
-      [newest, olderDeepSeek, DEFAULT_WORKERS_AI_MODEL, newerDeepSeek],
-      DEFAULT_WORKERS_AI_MODEL.id,
-    );
-
-    expect(ordered.map(({ id }) => id)).toEqual([
-      DEFAULT_WORKERS_AI_MODEL.id,
-      newerDeepSeek.id,
-      // Below the two pinned rows nothing else changes: still newest first.
-      newest.id,
-      olderDeepSeek.id,
-    ]);
-  });
-
-  it('orders the picker newest first while the pinned default stays on top', () => {
-    const older: WorkersAiModel = { ...alternativeModel, id: '@cf/example/older', createdAt: '2026-01-05T00:00:00Z' };
-    const newer: WorkersAiModel = { ...alternativeModel, id: '@cf/example/newer', createdAt: '2026-08-26T00:00:00Z' };
-    const undated: WorkersAiModel = { ...alternativeModel, id: '@cf/example/undated' };
-
-    const ordered = orderBuilderModelsForDisplay(
-      [older, undated, newer, DEFAULT_WORKERS_AI_MODEL],
-      DEFAULT_WORKERS_AI_MODEL.id,
-    );
-
-    expect(ordered.map(({ id }) => id)).toEqual([
-      DEFAULT_WORKERS_AI_MODEL.id,
-      newer.id,
-      older.id,
-      // An unknown publication date is not a claim to be old, so it keeps its catalog position last.
-      undated.id,
+  it('keeps only GLM and DeepSeek Flash even with an older broad catalog and saved Pro preference', () => {
+    const pro: WorkersAiModel = { ...alternativeModel, id: '@cf/deepseek-ai/deepseek-v4-pro-0813' };
+    const oldCatalog = { defaultModelId: pro.id, models: [pro, alternativeModel, DEFAULT_WORKERS_AI_MODEL] };
+    installBuilderModelCatalog(oldCatalog, { getItem: () => pro.id });
+    expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+    expect(builderModelsStore.get().map(({ id }) => id)).toEqual([alternativeModel.id, CLOUDFLARE_WORKERS_AI_MODEL]);
+    expect(orderBuilderModelsForDisplay(oldCatalog.models, CLOUDFLARE_WORKERS_AI_MODEL).map(({ id }) => id)).toEqual([
+      CLOUDFLARE_WORKERS_AI_MODEL,
+      alternativeModel.id,
     ]);
   });
 });

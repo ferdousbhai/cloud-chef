@@ -8,10 +8,10 @@ import { builderNewModelsStore, installBuilderModelCatalog } from '~/lib/stores/
 import { NewModelsNotice } from './NewModelsNotice.client';
 
 const SEEN_KEY = 'cloudchef_seen_builder_models_v1';
-const kimi: WorkersAiModel = {
+const deepseek: WorkersAiModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
-  id: '@cf/moonshotai/kimi-k2.7-code',
-  label: 'Kimi K2.7 Code',
+  id: '@cf/deepseek-ai/deepseek-v4-flash-0731',
+  label: 'DeepSeek V4 Flash 0731',
   createdAt: '2026-08-26T00:00:00.000Z',
 };
 
@@ -41,7 +41,7 @@ describe('NewModelsNotice', () => {
   it('says nothing on a first ever catalog load', async () => {
     installBuilderModelCatalog({
       defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
-      models: [DEFAULT_WORKERS_AI_MODEL, kimi],
+      models: [DEFAULT_WORKERS_AI_MODEL, deepseek],
     });
 
     await render();
@@ -53,25 +53,25 @@ describe('NewModelsNotice', () => {
     values.set(SEEN_KEY, JSON.stringify([CLOUDFLARE_WORKERS_AI_MODEL]));
     installBuilderModelCatalog({
       defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
-      models: [DEFAULT_WORKERS_AI_MODEL, kimi],
+      models: [DEFAULT_WORKERS_AI_MODEL, deepseek],
     });
 
     await render();
 
     const notice = document.querySelector('[role="status"]');
     expect(notice?.textContent).toContain('New on Workers AI');
-    expect(notice?.textContent).toContain('Kimi K2.7 Code');
+    expect(notice?.textContent).toContain('DeepSeek V4 Flash 0731');
     expect(notice?.textContent).toContain('available in the model picker');
 
     await act(async () => notice?.querySelector('button')?.click());
 
     expect(document.querySelector('[role="status"]')).toBeNull();
-    expect(JSON.parse(values.get(SEEN_KEY) ?? 'null')).toEqual([CLOUDFLARE_WORKERS_AI_MODEL, kimi.id]);
+    expect(JSON.parse(values.get(SEEN_KEY) ?? 'null')).toEqual([CLOUDFLARE_WORKERS_AI_MODEL, deepseek.id]);
 
     // A later load of the same catalog has nothing left to announce.
     installBuilderModelCatalog({
       defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
-      models: [DEFAULT_WORKERS_AI_MODEL, kimi],
+      models: [DEFAULT_WORKERS_AI_MODEL, deepseek],
     });
     await act(async () => undefined);
     expect(document.querySelector('[role="status"]')).toBeNull();

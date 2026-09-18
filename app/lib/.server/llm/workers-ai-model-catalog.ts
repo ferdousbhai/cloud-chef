@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import {
   CLOUDFLARE_WORKERS_AI_MODEL,
+  CLOUDFLARE_ALTERNATIVE_BUILDER_MODEL,
   DEFAULT_WORKERS_AI_MODEL,
   isWorkersAiModelId,
   MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS,
-  newestPreferredFallbackWorkersAiModel,
-  workersAiModelPublishedTime,
+  isSupportedBuilderModel,
   type WorkersAiModel,
   type WorkersAiModelCatalogPayload,
   type WorkersAiModelId,
@@ -44,6 +44,7 @@ export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalog
       entry.source !== 1 ||
       entry.task.name !== 'Text Generation' ||
       !isWorkersAiModelId(entry.name) ||
+      !isSupportedBuilderModel(entry.name) ||
       properties.get('function_calling') !== 'true' ||
       contextTokens < MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS
     ) {
@@ -98,83 +99,21 @@ export async function requireWorkersAiBuilderModel(
   });
 }
 
-/**
- * The default the builder actually runs, given what the account can currently serve. The pin wins
- * whenever discovery still offers it: the catalog can say what a model is, never what a CloudChef
- * build needs from it, so the choice stays human.
- *
- * Below the pin the order is deliberate — the owner's stated second choice first, the ranked
- * heuristic only after it. The heuristic reasons from catalog properties, and properties are not
- * evidence a model can serve a CloudChef turn: measured against production it would choose
- * `@cf/qwen/qwen3.8-27b` on its vision flag, which is the one model known to reject the reasoning
- * effort a builder request would carry — see `retryWithinSupportedReasoningEffort` in
- * `pi-ai-models.ts`. The DeepSeek family answered the builder's request shape with a 200 and real
- * reasoning. See `newestPreferredFallbackWorkersAiModel`.
- * The heuristic stays as the layer below, for the day the account offers neither.
- *
- * Nothing narrows the candidates beyond what catalog membership already proves — function calling
- * and `MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS`, both enforced in `readWorkersAiBuilderModelCatalog`.
- * There used to be a further gate that refused any reasoning model outside a short list of family
- * prefixes, justified as knowing how to serialize that family's thinking. That justification did
- * not survive measurement: Workers AI ignores every vendor-native thinking dialect, so the prefix
- * named a set this repository had looked at rather than a capability it had. Its one concrete
- * effect was to exclude `@cf/openai/gpt-oss-120b` — the fastest builder model this project has
- * verified end to end, 17m13s against the pin's 26m26s — from ever being promoted. The protection
- * that does real work is the ordering above it: the human pin first, then a family measured against
- * the builder's own request shape, and only then a guess.
- */
+/** Never promote an unrelated model when the preferred default disappears. */
 export function resolveBuilderDefaultModel(models: readonly WorkersAiModel[]): WorkersAiModel {
   const pinned = models.find(({ id }) => id === CLOUDFLARE_WORKERS_AI_MODEL);
   if (pinned) {
     return pinned;
   }
-  const preferred = newestPreferredFallbackWorkersAiModel(models);
-  // Copied before sorting: `models` belongs to the caller, and the picker reads the same array to
-  // build its rows, so ranking must not reorder it underneath them.
-  const replacement = preferred ?? [...models].sort(byBuilderDefaultPreference)[0];
-  // Nothing discovered at all: the reviewed literal is still the best-understood configuration,
-  // and letting the request reach the binding surfaces a named provider error rather than an
-  // invented substitute nobody reviewed.
-  const chosen = replacement ?? DEFAULT_WORKERS_AI_MODEL;
-  let rule: 'newest_preferred_family' | 'ranked_preference' | 'reviewed_literal';
-  if (preferred) {
-    rule = 'newest_preferred_family';
-  } else if (replacement) {
-    rule = 'ranked_preference';
-  } else {
-    rule = 'reviewed_literal';
-  }
-  // Retirement is rare and consequential, and nothing else in the request tells an operator that
-  // the reviewed pin is gone — the build simply runs on a model nobody chose. The model that is
-  // actually returned is logged unconditionally, because a build always runs on one; the rule is
-  // logged beside it because "which model" alone does not say whether a reviewed second choice was
-  // available, the ranking had to invent one, or the literal had to stand in.
+  const alternative = models.find(({ id }) => id === CLOUDFLARE_ALTERNATIVE_BUILDER_MODEL);
+  const chosen = alternative ?? DEFAULT_WORKERS_AI_MODEL;
   console.warn({
     event: 'workers_ai_default_model_retired',
     pinned: CLOUDFLARE_WORKERS_AI_MODEL,
     replacement: chosen.id,
-    rule,
+    rule: alternative ? 'selected_alternative' : 'reviewed_literal',
   });
   return chosen;
-}
-
-/**
- * Ranked by what a CloudChef build actually consumes: images first, because a builder that cannot
- * read a screenshot loses a whole class of work; then window, because it bounds the transcript
- * before compaction; then publication date, since a newer model of equal shape is the closer
- * replacement. Undated entries rank last — an unknown date is not a claim to be old, but it is not
- * a claim to be new either — and `sort` being stable leaves catalog order as the final tiebreak.
- */
-function byBuilderDefaultPreference(left: WorkersAiModel, right: WorkersAiModel): number {
-  if (left.vision !== right.vision) {
-    return left.vision ? -1 : 1;
-  }
-  if (left.contextTokens !== right.contextTokens) {
-    return right.contextTokens - left.contextTokens;
-  }
-  const leftPublished = workersAiModelPublishedTime(left);
-  const rightPublished = workersAiModelPublishedTime(right);
-  return leftPublished === rightPublished ? 0 : rightPublished - leftPublished;
 }
 
 export function workersAiModelCatalogPayload(models: WorkersAiModel[]): WorkersAiModelCatalogPayload {
@@ -184,7 +123,7 @@ export function workersAiModelCatalogPayload(models: WorkersAiModel[]): WorkersA
   const defaultModel = resolveBuilderDefaultModel(models);
   return {
     defaultModelId: defaultModel.id,
-    models: [defaultModel, ...models.filter(({ id }) => id !== defaultModel.id)],
+    models: [defaultModel, ...models.filter(({ id }) => isSupportedBuilderModel(id) && id !== defaultModel.id)],
   };
 }
 
@@ -216,6 +155,7 @@ function workersAiModelLabel(modelId: WorkersAiModelId): string {
     .map((part) => (/^\d/.test(part) ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
     .join(' ')
     .replace(/\bGlm\b/g, 'GLM')
+    .replace(/\bDeepseek\b/g, 'DeepSeek')
     .replace(/\bGpt\b/g, 'GPT')
     .replace(/\bOss\b/g, 'OSS')
     .replace(/\bFp8\b/g, 'FP8');

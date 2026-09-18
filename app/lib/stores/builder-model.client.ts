@@ -4,10 +4,9 @@ import {
   CLOUDFLARE_WORKERS_AI_MODEL,
   DEFAULT_WORKERS_AI_MODEL,
   isWorkersAiModelId,
-  newestPreferredFallbackWorkersAiModel,
+  isSupportedBuilderModel,
   validateWorkersAiModelCatalogPayload,
   workersAiModelCatalogPayloadSchema,
-  workersAiModelPublishedTime,
   type WorkersAiModel,
   type WorkersAiModelCatalogPayload,
   type WorkersAiModelId,
@@ -23,8 +22,8 @@ let pendingCatalog: Promise<void> | null = null;
 /**
  * Until the live catalog arrives, `builderModelsStore` holds only the pinned default, so a
  * membership test would discard every other saved preference — including on the opening turn of a
- * homepage-started build. Before that point a shape-valid saved id is trusted; the server is the
- * authority on which ids are usable and rejects an unknown one.
+ * homepage-started build. Before that point only one of the two supported saved ids is trusted; the server
+ * still validates availability against the user account catalog.
  */
 let catalogInstalled = false;
 
@@ -83,11 +82,16 @@ export function loadBuilderModelCatalog(
 }
 
 export function installBuilderModelCatalog(payload: WorkersAiModelCatalogPayload, storage?: BuilderModelStorage): void {
-  builderModelsStore.set(payload.models);
-  builderDefaultModelStore.set(payload.defaultModelId);
+  // Older user runtimes can still return the former broad catalog during an upgrade.
+  const models = payload.models.filter(({ id }) => isSupportedBuilderModel(id));
+  const defaultModel =
+    models.find(({ id }) => id === CLOUDFLARE_WORKERS_AI_MODEL) ?? models[0] ?? DEFAULT_WORKERS_AI_MODEL;
+  const supportedModels = models.length > 0 ? models : [defaultModel];
+  builderModelsStore.set(supportedModels);
+  builderDefaultModelStore.set(defaultModel.id);
   catalogInstalled = true;
   applyStoredModelPreference(storage);
-  applyUnseenModels(payload.models, storage);
+  applyUnseenModels(supportedModels, storage);
 }
 
 /**
@@ -105,44 +109,14 @@ export function markBuilderModelsSeen(storage?: BuilderModelStorage): void {
   );
 }
 
-/**
- * Newest first, with the two models CloudChef stands behind pinned to the top two rows regardless
- * of their dates: the current default, then the newest model of the preferred fallback family — the
- * same model `resolveBuilderDefaultModel` would promote if Cloudflare retired the default. Those
- * are the only two choices anyone here has verified end to end, so they are the two a user should
- * reach for without reading dates, and a picker whose top rows move whenever Cloudflare publishes
- * something is a picker nobody can learn. Everything below them is newest first, and undated models
- * keep their catalog order after the dated ones, because an unknown date is not a claim to be old.
- */
+/** Keep the default first and exclude models returned by older runtime catalogs. */
 export function orderBuilderModelsForDisplay(
   models: readonly WorkersAiModel[],
   defaultModelId: WorkersAiModelId,
 ): readonly WorkersAiModel[] {
-  // Computed over everything except the default, so a default that is itself in the preferred
-  // family gives the second row to a genuinely different model rather than to itself.
-  const preferredFallbackId = newestPreferredFallbackWorkersAiModel(
-    models.filter(({ id }) => id !== defaultModelId),
-  )?.id;
-  function pinnedRank({ id }: WorkersAiModel): number {
-    if (id === defaultModelId) {
-      return 0;
-    }
-    if (id === preferredFallbackId) {
-      return 1;
-    }
-    return 2;
-  }
-  return [...models].sort((left, right) => {
-    const rankDifference = pinnedRank(left) - pinnedRank(right);
-    if (rankDifference !== 0) {
-      return rankDifference;
-    }
-    const leftTime = workersAiModelPublishedTime(left);
-    const rightTime = workersAiModelPublishedTime(right);
-    // Two undated entries are both `-Infinity`, whose difference is `NaN`; equal times compare equal
-    // instead, and `sort` being stable since ES2019 leaves them in catalog order.
-    return leftTime === rightTime ? 0 : rightTime - leftTime;
-  });
+  return models
+    .filter(({ id }) => isSupportedBuilderModel(id))
+    .sort((left, right) => Number(right.id === defaultModelId) - Number(left.id === defaultModelId));
 }
 
 export function setBuilderModel(modelId: WorkersAiModelId, storage?: Pick<Storage, 'setItem'>): void {
@@ -213,7 +187,9 @@ function applyStoredModelPreference(storage?: BuilderModelStorage): void {
   try {
     const persisted = (storage ?? localStorage).getItem(BUILDER_MODEL_STORAGE_KEY);
     builderModelStore.set(
-      isWorkersAiModelId(persisted) && (!catalogInstalled || models.some(({ id }) => id === persisted))
+      isWorkersAiModelId(persisted) &&
+        isSupportedBuilderModel(persisted) &&
+        (!catalogInstalled || models.some(({ id }) => id === persisted))
         ? persisted
         : defaultModel,
     );

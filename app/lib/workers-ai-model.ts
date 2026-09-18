@@ -20,22 +20,7 @@ export type WorkersAiModel = {
   createdAt?: string;
 };
 
-/**
- * The deliberately pinned default. Catalog discovery may add choices, and it supplies this entry's
- * own metadata, but it never changes which model a build runs on while the pin is still offered —
- * and when Cloudflare retires it, the failover is logged rather than silent (see
- * `resolveBuilderDefaultModel`). The owner pins GLM 5.3 Flash: it is the fastest Workers AI model
- * that reasons, reads images, and holds a million-token window, which is the shape a CloudChef
- * build actually needs.
- *
- * The earlier canary failures no longer describe the runtime that drives it. Those runs asked for
- * a fixed 24,576-token output ceiling, and a reasoning model spends that ceiling on hidden
- * reasoning before it ever writes a tool call. Requests now carry an uncapped per-request output
- * budget — whatever the window has left once the input is counted — so reasoning and the answer no
- * longer compete for the same few thousand tokens. See `requestOutputTokens` in
- * `.server/llm/pi-ai-models.ts`; the reasoning directive that rides alongside it is
- * `builderThinkingLevel` in `.server/llm/pi-agent-runner.ts`, which currently sends none.
- */
+/** GLM is the default; only the explicitly selected Flash alternative is offered. */
 export const CLOUDFLARE_WORKERS_AI_MODEL = '@cf/zai-org/glm-5.3-flash' satisfies WorkersAiModelId;
 
 /**
@@ -78,7 +63,7 @@ export const DEFAULT_WORKERS_AI_MODEL: WorkersAiModel = {
   id: CLOUDFLARE_WORKERS_AI_MODEL,
   label: 'GLM 5.3 Flash',
   description: 'Latest fast GLM model for coding, reasoning, and tool-driven builds.',
-  contextTokens: 1_048_576,
+  contextTokens: 1_310_720,
   requiresPaid: true,
   reasoning: true,
   vision: true,
@@ -124,41 +109,10 @@ export function validateWorkersAiModelCatalogPayload(
   return { defaultModelId, models };
 }
 
-/**
- * The second model the owner stands behind, expressed as a family rather than an id. When the
- * pinned GLM default is gone — retired by Cloudflare, or absent from an account's catalog — the
- * builder falls to the newest DeepSeek the account can currently serve.
- *
- * Why a family and not a pin: a pinned id is one more literal to hand-maintain, and it goes stale
- * the day Cloudflare publishes the next DeepSeek. What makes auto-selecting *within* the family
- * defensible is that both DeepSeek v4 models were measured answering the builder's own request
- * shape with a 200 and real reasoning — not any claim about directing their thinking, which on this
- * provider nothing does.
- *
- * Why this outranks the ranked heuristic in `resolveBuilderDefaultModel`: measured against
- * production, the heuristic's vision-first rule would choose `@cf/qwen/qwen3.8-27b`, and that is
- * precisely the model whose reasoning-effort vocabulary a builder request has to be repaired around
- * — see `retryWithinSupportedReasoningEffort` in `.server/llm/pi-ai-models.ts`. DeepSeek v4 answered
- * the builder's request shape with a 200 and real reasoning. A heuristic that picks a model nobody
- * has run is worse than a family that has been verified end to end.
- *
- * Shared here, beside the model type, because both sides of the bundle need the same answer: the
- * server resolves the failover default, and the picker puts the same model in its second row.
- */
-const PREFERRED_FALLBACK_WORKERS_AI_MODEL_PREFIX = '@cf/deepseek-ai/';
+export const CLOUDFLARE_ALTERNATIVE_BUILDER_MODEL = '@cf/deepseek-ai/deepseek-v4-flash-0731' satisfies WorkersAiModelId;
 
-export function newestPreferredFallbackWorkersAiModel(models: readonly WorkersAiModel[]): WorkersAiModel | undefined {
-  // Strictly newer wins, so equal or undated entries keep the earlier catalog position rather than
-  // letting an unknown date displace a model already chosen.
-  return models
-    .filter(({ id }) => id.startsWith(PREFERRED_FALLBACK_WORKERS_AI_MODEL_PREFIX))
-    .reduce<WorkersAiModel | undefined>(
-      (newest, model) =>
-        newest === undefined || workersAiModelPublishedTime(model) > workersAiModelPublishedTime(newest)
-          ? model
-          : newest,
-      undefined,
-    );
+export function isSupportedBuilderModel(modelId: string): modelId is WorkersAiModelId {
+  return modelId === CLOUDFLARE_WORKERS_AI_MODEL || modelId === CLOUDFLARE_ALTERNATIVE_BUILDER_MODEL;
 }
 
 /**
