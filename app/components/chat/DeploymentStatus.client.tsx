@@ -25,7 +25,7 @@ export function DeploymentStatus({
       data-testid="deployment-status"
       // The browser gate reads this to prove production carries the revision that was saved.
       data-workspace-revision={deployment.workspaceRevision}
-      className="mt-2 space-y-1.5 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2.5 text-[13px]"
+      className="mt-2 break-words space-y-1.5 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2.5 text-[13px]"
     >
       {deployment.status === 'succeeded' ? (
         <p className="text-bolt-elements-icon-success">

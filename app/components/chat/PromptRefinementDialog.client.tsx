@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from 'react';
-import { SparklesIcon } from '@heroicons/react/24/outline';
 import { Button } from '@ui/Button';
 import { Modal } from '@ui/Modal';
 import { Spinner } from '@ui/Spinner';
@@ -88,20 +87,8 @@ export function PromptRefinementDialog({
   return (
     <Modal
       onClose={onCancel}
-      title={
-        <div className="flex items-center gap-2">
-          <span className="flex size-8 items-center justify-center rounded bg-accent-500/10 text-accent-500">
-            <SparklesIcon className="size-4" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="font-semibold text-content-primary">Refine the build plan</div>
-            <div className="text-xs font-normal text-content-tertiary">
-              Decision {questionIndex + 1} of {questions.length}
-            </div>
-          </div>
-        </div>
-      }
-      description="Choose your preferences, then review the plan before building."
+      title="Build plan"
+      description={questions.length > 1 ? `Question ${questionIndex + 1} of ${questions.length}` : undefined}
     >
       <form onSubmit={continueOrSubmit}>
         <section aria-labelledby={`prompt-refinement-${question.id}`}>
@@ -152,9 +139,9 @@ export function PromptRefinementDialog({
             })}
           </div>
 
-          <div className="mt-4 rounded-lg border border-bolt-elements-borderColor p-3">
+          <div className="mt-4">
             <label htmlFor="prompt-refinement-custom-answer" className="text-sm font-medium text-content-primary">
-              Or write your own answer
+              Or write an answer
             </label>
             <textarea
               id="prompt-refinement-custom-answer"
@@ -200,13 +187,13 @@ export function PromptRefinementDialog({
               onClick={() => updateDraft({ note: '' })}
               className="mt-3 text-sm font-medium text-content-secondary underline decoration-bolt-elements-borderColor underline-offset-4 hover:text-content-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
             >
-              Add a clarification note
+              Add a note
             </button>
           )}
 
           <div className="mt-5 flex min-h-9 flex-wrap items-center justify-between gap-3 border-t border-bolt-elements-borderColor pt-4">
             <Button variant="subtle" size="sm" onClick={onCancel}>
-              Cancel refinement
+              Cancel
             </Button>
             <div className="flex flex-wrap items-center gap-2">
               {isLoading ? (

@@ -14,6 +14,11 @@ interface MarkdownProps {
 }
 
 const markdownComponents = {
+  table: ({ children }) => (
+    <div className="max-w-full overflow-x-auto" tabIndex={0} role="region" aria-label="Table">
+      <table>{children}</table>
+    </div>
+  ),
   pre: (props) => {
     const { children, node, ...preProps } = props;
     const [firstChild] = node?.children ?? [];

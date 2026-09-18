@@ -1,4 +1,5 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { CaretDownIcon, CaretRightIcon, FileIcon } from '@radix-ui/react-icons';
 import { useCallback, type ReactNode } from 'react';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
@@ -16,6 +17,7 @@ interface FileTreeNodeProps {
   onFileSelect?: (filePath: string) => void;
   allowFolderSelection?: boolean;
   collapsedFolders: Set<string>;
+  menuItems?: boolean;
   toggleCollapseState: (fullPath: string) => void;
 }
 
@@ -28,6 +30,7 @@ export function FileTreeNode({
   allowFolderSelection,
   collapsedFolders,
   toggleCollapseState,
+  menuItems = false,
 }: FileTreeNodeProps) {
   const copyPath = useCallback(() => copyToClipboard(node.fullPath), [node.fullPath]);
   const copyRelativePath = useCallback(
@@ -37,6 +40,7 @@ export function FileTreeNode({
   if (node.kind === 'file') {
     return (
       <File
+        menuItem={menuItems}
         selected={selectedFile === node.fullPath}
         file={node}
         unsavedChanges={unsavedFiles?.has(node.fullPath)}
@@ -48,6 +52,7 @@ export function FileTreeNode({
   }
   return (
     <Folder
+      menuItem={menuItems}
       folder={node}
       selected={allowFolderSelection && selectedFile === node.fullPath}
       collapsed={collapsedFolders.has(node.fullPath)}
@@ -67,6 +72,7 @@ function copyToClipboard(value: string): void {
 }
 
 interface NodeActions {
+  menuItem?: boolean;
   onCopyPath: () => void;
   onCopyRelativePath: () => void;
   onClick: () => void;
@@ -86,6 +92,7 @@ function Folder({
             !selected,
           'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent': selected,
         })}
+        menuItem={actions.menuItem}
         depth={folder.depth}
         expanded={!collapsed}
         icon={collapsed ? <CaretRightIcon /> : <CaretDownIcon />}
@@ -111,6 +118,7 @@ function File({
             !selected,
           'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent': selected,
         })}
+        menuItem={actions.menuItem}
         current={selected}
         depth={file.depth}
         icon={<FileIcon className={classNames({ 'group-hover:text-bolt-elements-item-contentActive': !selected })} />}
@@ -172,6 +180,7 @@ function NodeButton({
   depth,
   icon,
   expanded,
+  menuItem,
   current,
   onClick,
   className,
@@ -181,11 +190,12 @@ function NodeButton({
   icon: ReactNode;
   expanded?: boolean;
   current?: boolean;
+  menuItem?: boolean;
   children: ReactNode;
   className?: string;
   onClick: () => void;
 }) {
-  return (
+  const button = (
     <button
       type="button"
       aria-expanded={expanded}
@@ -200,5 +210,12 @@ function NodeButton({
       <div className="shrink-0">{icon}</div>
       <div className="min-w-0 flex-1 truncate text-left">{children}</div>
     </button>
+  );
+  return menuItem ? (
+    <DropdownMenu.Item asChild onSelect={(event) => event.preventDefault()}>
+      {button}
+    </DropdownMenu.Item>
+  ) : (
+    button
   );
 }

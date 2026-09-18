@@ -10,6 +10,8 @@
 }
 
 .MarkdownContent {
+  min-width: 0;
+  overflow-wrap: anywhere;
   line-height: 1.5;
   color: var(--content-primary);
 
@@ -148,6 +150,7 @@
   }
 
   table {
+    overflow-wrap: normal;
     border-collapse: collapse;
     width: 100%;
     margin-block-end: 10px;

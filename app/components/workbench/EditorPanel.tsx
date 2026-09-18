@@ -18,7 +18,7 @@ import { renderLogger } from 'cloudchef-agent/utils/logger';
 import { isMobile } from '~/utils/mobile';
 import { FileBreadcrumb } from './FileBreadcrumb';
 import { FileTree } from './FileTree';
-import { CheckIcon, ResetIcon } from '@radix-ui/react-icons';
+import { ResetIcon } from '@radix-ui/react-icons';
 
 interface EditorPanelProps {
   projectId: string;
@@ -92,15 +92,6 @@ export const EditorPanel = memo(function EditorPanel({
               />
               {activeFileUnsaved && (
                 <div className="-mr-1.5 ml-auto flex gap-1">
-                  <PanelHeaderButton
-                    onClick={() => {
-                      editorRef.current?.flushPendingChange();
-                      onFileSave?.();
-                    }}
-                  >
-                    <CheckIcon />
-                    Save
-                  </PanelHeaderButton>
                   <PanelHeaderButton
                     onClick={() => {
                       editorRef.current?.flushPendingChange();

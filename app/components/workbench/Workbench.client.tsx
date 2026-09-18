@@ -99,12 +99,15 @@ function ReadyWorkbench({ isStreaming }: Pick<WorkbenchProps, 'isStreaming'>) {
       setSelectedView={controller.setSelectedView}
       isSmallViewport={controller.isSmallViewport}
       onClose={controller.close}
-      lockedMessage={
-        isStreaming ? 'Code and preview controls will be available as soon as the current build step finishes.' : null
-      }
+      lockedMessage={isStreaming ? 'Build in progress. Code and preview unlock when this step finishes.' : null}
       headerActions={
         controller.selectedView === 'code' ? (
-          <PanelHeaderButton className="mr-1 text-sm" onClick={() => void controller.onFileSave()}>
+          <PanelHeaderButton
+            className="mr-1 text-sm"
+            title="Save current file"
+            disabled={!controller.currentDocument}
+            onClick={() => void controller.onFileSave()}
+          >
             Save
           </PanelHeaderButton>
         ) : (
@@ -287,5 +290,7 @@ function slidingPosition({ view, selectedView }: { view: WorkbenchViewType; sele
   return {
     initial: position,
     animate: position,
+    'aria-hidden': view !== selectedView,
+    inert: view !== selectedView,
   } satisfies Partial<ViewProps>;
 }

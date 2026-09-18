@@ -16,6 +16,7 @@ interface Props {
   allowFolderSelection?: boolean;
   unsavedFiles?: Set<string>;
   className?: string;
+  menuItems?: boolean;
 }
 
 export const FileTree = memo(function FileTree({
@@ -28,6 +29,7 @@ export const FileTree = memo(function FileTree({
   allowFolderSelection = false,
   className,
   unsavedFiles,
+  menuItems = false,
 }: Props) {
   renderLogger.trace('FileTree');
   const fileList = useMemo(() => buildFileList(files, rootFolder, hideRoot), [files, rootFolder, hideRoot]);
@@ -62,6 +64,7 @@ export const FileTree = memo(function FileTree({
         <FileTreeNode
           key={node.fullPath}
           node={node}
+          menuItems={menuItems}
           rootFolder={rootFolder}
           selectedFile={selectedFile}
           unsavedFiles={unsavedFiles}

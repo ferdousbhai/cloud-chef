@@ -202,7 +202,7 @@ export function SubchatBar({
       />
       <div className="border-content-secondary/15 flex items-center gap-2 border-b px-1 pb-2.5">
         {hasMultipleSubchats && (
-          <div className="bg-background-secondary flex shrink-0 rounded-lg border border-bolt-elements-borderColor">
+          <div className="bg-background-secondary hidden shrink-0 rounded-lg sm:flex border border-bolt-elements-borderColor">
             <Button
               size="sm"
               variant="neutral"
@@ -244,7 +244,9 @@ export function SubchatBar({
                     className="group flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-content-secondary outline-none transition-colors hover:bg-bolt-elements-background-depth-2 focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label={`Switch chat. ${chatPositionLabel}: ${currentSubchatLabel}`}
                   >
-                    <span>{chatPositionLabel}</span>
+                    <span>
+                      {currentSubchatIndex + 1}/{subchatCount}
+                    </span>
                     <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
                   </button>
                 </DropdownMenu.Trigger>
@@ -254,7 +256,7 @@ export function SubchatBar({
                   align="start"
                   sideOffset={8}
                   collisionPadding={12}
-                  className="z-50 max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height))] w-[var(--radix-dropdown-menu-trigger-width)] min-w-72 overflow-y-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-none"
+                  className="z-50 max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height))] w-[min(20rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-none"
                   aria-label="Chat history"
                 >
                   <DropdownMenu.Label className="px-3 pb-2 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-content-secondary">
@@ -275,7 +277,7 @@ export function SubchatBar({
                         <DropdownMenu.RadioItem
                           key={String(option.value)}
                           value={String(option.value)}
-                          className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left outline-none transition-colors hover:bg-bolt-elements-background-depth-2 focus:bg-bolt-elements-background-depth-2 data-[state=checked]:bg-bolt-elements-background-depth-2"
+                          className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left outline-none transition-colors hover:bg-bolt-elements-background-depth-2 focus:bg-bolt-elements-background-depth-2 data-[state=checked]:bg-bolt-elements-background-depth-2"
                         >
                           <span className="flex size-7 shrink-0 items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-xs font-semibold text-content-secondary">
                             {option.value + 1}
@@ -283,9 +285,6 @@ export function SubchatBar({
                           <span className="min-w-0 grow">
                             <span className="block truncate text-sm font-medium" title={option.label}>
                               {option.label}
-                            </span>
-                            <span className="block text-xs text-content-secondary">
-                              {isCurrent ? 'Currently viewing' : `Chat ${option.value + 1}`}
                             </span>
                           </span>
                           {isCurrent && <CheckIcon className="size-4 shrink-0 text-accent-500" />}

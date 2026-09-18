@@ -46,7 +46,7 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
           <TextInput
             id={`description-${item.id}`}
             aria-label="Project name"
-            className="-ml-1.5 -mt-1.5"
+            className="min-w-0 flex-1"
             autoFocus
             value={currentDescription}
             onChange={handleChange}
@@ -69,6 +69,7 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
             to="/chat/$id"
             params={{ id: item.initialId }}
             onClick={onNavigate}
+            aria-current={isActiveChat ? 'page' : undefined}
             className="flex min-w-0 flex-1 items-start gap-2.5 rounded-lg p-2 text-content-primary no-underline hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
           >
             <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg bg-[var(--cc-background-secondary)] text-content-accent shadow-sm">

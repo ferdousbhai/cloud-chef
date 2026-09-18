@@ -55,8 +55,7 @@ html.light {
 .cloudchef-home-copy {
   width: 100%;
   max-width: 760px;
-  margin: 0 auto;
-  padding-top: clamp(16px, 4vh, 40px);
+  margin: auto;
 }
 
 .cloudchef-home-hero {
@@ -141,10 +140,6 @@ html.light {
   .cloudchef-home-shell {
     padding-right: 18px;
     padding-left: 18px;
-  }
-
-  .cloudchef-home-copy {
-    padding-top: 6px;
   }
 
   .cloudchef-home-title {

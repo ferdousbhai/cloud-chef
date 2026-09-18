@@ -100,23 +100,16 @@ export default function StreamingIndicator(props: StreamingIndicatorProps) {
         role="status"
         aria-live="polite"
       >
-        <div className="text-content-secondary flex px-1 py-1.5">
-          <div className="flex-1">
-            <div className="actions">
-              <div className="flex gap-3 text-xs font-medium">
-                <div className="flex w-full items-center gap-1.5">
-                  <div>{icon}</div>
-                  {message}
-                  <div className="min-h-6 grow" />
-                  {retryLabel && (
-                    <Button type="button" className="ml-2 h-auto" onClick={props.resendMessage} icon={<ResetIcon />}>
-                      {retryLabel}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+        <div className="flex min-w-0 items-start gap-2 px-1 py-1.5 text-xs font-medium text-content-secondary">
+          <span className="mt-0.5 shrink-0" aria-hidden>
+            {icon}
+          </span>
+          <span className="min-w-0 flex-1 break-words">{message}</span>
+          {retryLabel && (
+            <Button type="button" size="xs" variant="neutral" onClick={props.resendMessage} icon={<ResetIcon />}>
+              {retryLabel}
+            </Button>
+          )}
         </div>
       </div>
     </motion.div>

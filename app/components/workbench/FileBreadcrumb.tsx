@@ -104,6 +104,7 @@ export const FileBreadcrumb = memo<FileBreadcrumbProps>(function FileBreadcrumb(
                         <div className="overflow-hidden rounded-lg">
                           <div className="max-h-[min(50vh,var(--radix-dropdown-menu-content-available-height))] w-[300px] max-w-[calc(100vw-16px)] overflow-auto rounded-lg border bg-bolt-elements-background-depth-1 shadow-sm">
                             <FileTree
+                              menuItems
                               files={files}
                               hideRoot
                               rootFolder={path}
