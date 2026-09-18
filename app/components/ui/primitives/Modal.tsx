@@ -23,7 +23,10 @@ export function Modal({
     >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-        <Dialog.Content className="fixed inset-4 z-50 m-auto h-fit max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-5 shadow-xl focus:outline-none">
+        <Dialog.Content
+          {...(!description ? { 'aria-describedby': undefined } : {})}
+          className="fixed inset-4 z-50 m-auto h-fit max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-5 shadow-xl focus:outline-none"
+        >
           <div className="mb-3 flex items-start justify-between gap-3">
             {typeof title === 'string' ? (
               <Dialog.Title className="font-semibold text-content-primary">{title}</Dialog.Title>

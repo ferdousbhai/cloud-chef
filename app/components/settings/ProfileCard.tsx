@@ -37,7 +37,7 @@ export function ProfileCard() {
           </h2>
           {profile.email && <p className="mt-1 truncate text-sm text-content-secondary">{profile.email}</p>}
         </div>
-        <div className="flex flex-col gap-2 sm:items-end">
+        <div className="w-full">
           <Button variant="neutral" size="sm" onClick={() => void handleLogout()} icon={<ExitIcon aria-hidden />}>
             Log out
           </Button>

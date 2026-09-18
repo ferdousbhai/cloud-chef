@@ -60,7 +60,7 @@ export const EditorPanel = memo(function EditorPanel({
   useEffect(() => workbenchStore.registerPendingEditorChangeFlusher(() => editorRef.current?.flushPendingChange()), []);
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[minmax(10rem,22%)_1fr] max-sm:grid-cols-1 max-sm:grid-rows-[minmax(8rem,30%)_1fr]">
+    <div className="grid h-full min-h-0 grid-cols-[minmax(10rem,22%)_minmax(0,1fr)] max-sm:grid-cols-1 max-sm:grid-rows-[minmax(8rem,30%)_1fr]">
       <aside
         aria-label="Project files"
         className="flex min-h-0 flex-col border-r border-border-transparent max-sm:border-r-0 max-sm:border-b"
@@ -78,7 +78,7 @@ export const EditorPanel = memo(function EditorPanel({
           }}
         />
       </aside>
-      <section className="flex min-h-0 flex-col">
+      <section className="flex min-h-0 min-w-0 flex-col">
         <PanelHeader className="overflow-x-auto">
           {(activeFileSegments?.length ?? 0) > 0 && (
             <div className="flex flex-1 items-center text-sm">

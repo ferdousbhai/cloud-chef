@@ -74,7 +74,7 @@ function readBlob(blob: Blob): Promise<string> {
 }
 
 async function openDeletionPanel() {
-  await act(async () => button('Delete my CloudChef account data').click());
+  await act(async () => button('Delete account data').click());
 }
 
 async function fillConfirmation() {
@@ -96,7 +96,7 @@ describe('AccountDataCard', () => {
     fetchMock.mockResolvedValue(new Response(exported, { status: 200 }));
     await render();
 
-    await act(async () => button('Download my account data').click());
+    await act(async () => button('Download account data').click());
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/account/export',
@@ -115,7 +115,7 @@ describe('AccountDataCard', () => {
     );
     await render();
 
-    await act(async () => button('Download my account data').click());
+    await act(async () => button('Download account data').click());
 
     const alert = document.querySelector('[role="alert"]');
     expect(alert?.textContent).toContain('authSessions');
@@ -133,7 +133,7 @@ describe('AccountDataCard', () => {
     );
     await render();
 
-    await act(async () => button('Download my account data').click());
+    await act(async () => button('Download account data').click());
     expect(mocks.saveAs).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain('Confirm it is you in Cloudflare, then download again');
 
@@ -141,11 +141,24 @@ describe('AccountDataCard', () => {
     expect(mocks.signInWithCloudflare).toHaveBeenCalledOnce();
   });
 
+  it('shows export reconnect failures beside the export action', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ code: 'reauthentication_required' }), { status: 401 }));
+    mocks.signInWithCloudflare.mockRejectedValueOnce(new Error('Connection unavailable.'));
+    await render();
+    await act(async () => button('Download account data').click());
+    await act(async () => button('Reconnect Cloudflare').click());
+    const alert = document.querySelector('[role="alert"]')!;
+    expect(alert.textContent).toBe('Connection unavailable.');
+    expect(
+      alert.compareDocumentPosition(button('Delete account data')) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('reports an unreachable server instead of saving an empty file', async () => {
     fetchMock.mockRejectedValue(new Error('offline'));
     await render();
 
-    await act(async () => button('Download my account data').click());
+    await act(async () => button('Download account data').click());
 
     expect(mocks.saveAs).not.toHaveBeenCalled();
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('Unable to reach CloudChef');

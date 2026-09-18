@@ -111,6 +111,7 @@ function File({
             !selected,
           'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent': selected,
         })}
+        current={selected}
         depth={file.depth}
         icon={<FileIcon className={classNames({ 'group-hover:text-bolt-elements-item-contentActive': !selected })} />}
         onClick={actions.onClick}
@@ -121,7 +122,11 @@ function File({
           })}
         >
           <div className="flex-1 truncate pr-2">{file.name}</div>
-          {unsavedChanges && <div className="size-1.5 rounded-full bg-orange-500" />}
+          {unsavedChanges && (
+            <span className="size-1.5 shrink-0 rounded-full bg-orange-500">
+              <span className="sr-only"> (unsaved)</span>
+            </span>
+          )}
         </div>
       </NodeButton>
     </FileContextMenu>
@@ -167,6 +172,7 @@ function NodeButton({
   depth,
   icon,
   expanded,
+  current,
   onClick,
   className,
   children,
@@ -174,6 +180,7 @@ function NodeButton({
   depth: number;
   icon: ReactNode;
   expanded?: boolean;
+  current?: boolean;
   children: ReactNode;
   className?: string;
   onClick: () => void;
@@ -182,6 +189,7 @@ function NodeButton({
     <button
       type="button"
       aria-expanded={expanded}
+      aria-current={current ? true : undefined}
       className={classNames(
         'flex w-full items-center gap-1.5 border-2 border-transparent py-0.5 pr-2 text-faded',
         className,
@@ -190,7 +198,7 @@ function NodeButton({
       onClick={onClick}
     >
       <div className="shrink-0">{icon}</div>
-      <div className="w-full truncate text-left">{children}</div>
+      <div className="min-w-0 flex-1 truncate text-left">{children}</div>
     </button>
   );
 }

@@ -70,8 +70,8 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
 
   return (
     <section id="cloudflare" className="app-card w-full p-4" aria-labelledby="cloudflare-heading">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+      <div className="flex flex-col items-start gap-3">
+        <div className="min-w-0 w-full break-words">
           <h2 id="cloudflare-heading" className="app-card-title">
             Cloudflare account
           </h2>

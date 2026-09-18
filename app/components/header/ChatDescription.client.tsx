@@ -23,11 +23,12 @@ export function ChatDescription() {
   return (
     <div className="flex min-w-0 w-full items-center justify-center">
       {editing ? (
-        <form onSubmit={handleSubmit} className="flex items-center justify-center">
+        <form onSubmit={handleSubmit} className="flex min-w-0 max-w-full items-center justify-center">
           <TextInput
             autoFocus
-            className="mr-2"
+            className="mr-2 min-w-0 flex-1"
             id="chat-description"
+            aria-label="Project name"
             value={currentDescription}
             onChange={handleChange}
             onBlur={handleBlur}

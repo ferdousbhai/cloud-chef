@@ -68,8 +68,8 @@ test('authenticated build, edit, preview, approval, and production journey', asy
   if (await buildPreview.isVisible()) {
     await buildPreview.click();
   }
-  const previewFrame = page.locator('iframe[title^="Remote preview for durable revision"]');
-  await expect(previewFrame).toHaveAttribute('title', `Remote preview for durable revision ${deployedRevision}`, {
+  const previewFrame = page.locator('iframe[title^="Workers preview for durable revision"]');
+  await expect(previewFrame).toHaveAttribute('title', `Workers preview for durable revision ${deployedRevision}`, {
     timeout: 10 * 60_000,
   });
 

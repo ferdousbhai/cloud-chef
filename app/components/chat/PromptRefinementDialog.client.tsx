@@ -101,7 +101,7 @@ export function PromptRefinementDialog({
           </div>
         </div>
       }
-      description="Answer the product decisions that materially affect the app. CloudChef will use the complete batch to prepare a final brief for review before building."
+      description="Choose your preferences, then review the plan before building."
     >
       <form onSubmit={continueOrSubmit}>
         <section aria-labelledby={`prompt-refinement-${question.id}`}>
@@ -136,7 +136,7 @@ export function PromptRefinementDialog({
                       : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 hover:border-accent-500/60 hover:bg-bolt-elements-background-depth-3',
                   )}
                 >
-                  <span className="flex items-start justify-between gap-3">
+                  <span className="flex flex-wrap items-start justify-between gap-3">
                     <span className="font-medium text-content-primary">{option.label}</span>
                     {recommended && (
                       <span className="shrink-0 rounded bg-accent-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-500">
@@ -204,11 +204,11 @@ export function PromptRefinementDialog({
             </button>
           )}
 
-          <div className="mt-5 flex min-h-9 items-center justify-between gap-3 border-t border-bolt-elements-borderColor pt-4">
+          <div className="mt-5 flex min-h-9 flex-wrap items-center justify-between gap-3 border-t border-bolt-elements-borderColor pt-4">
             <Button variant="subtle" size="sm" onClick={onCancel}>
               Cancel refinement
             </Button>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {isLoading ? (
                 <div className="flex items-center gap-2 text-sm text-content-secondary" aria-live="polite">
                   <Spinner className="size-4" />

@@ -128,11 +128,11 @@ export function BuilderModelSelector({
               newModelIds={newModelIds}
             />
           </DropdownMenu.RadioGroup>
-          <p role="note" className="mx-2 mb-1 mt-2 text-xs leading-5 text-content-tertiary">
-            {catalogStatus === 'error'
-              ? 'The live catalog could not be loaded, so only the default model is available.'
-              : 'Loaded from your Workers AI catalog. CloudChef shows text models with function calling and enough context for a full build.'}
-          </p>
+          {catalogStatus === 'error' && (
+            <p role="status" className="mx-2 mb-1 mt-2 text-xs leading-5 text-content-tertiary">
+              Catalog unavailable. Only the default model is available.
+            </p>
+          )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
@@ -171,8 +171,8 @@ function ModelGroup({
               </DropdownMenu.ItemIndicator>
             </span>
             <span className="min-w-0 grow">
-              <span className="flex items-center gap-2">
-                <span className="truncate text-sm font-semibold text-content-primary">{model.label}</span>
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="break-words text-sm font-semibold text-content-primary">{model.label}</span>
                 {model.id === defaultModelId && (
                   <span className="shrink-0 rounded border border-accent-500/30 bg-accent-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-content-accent">
                     Default

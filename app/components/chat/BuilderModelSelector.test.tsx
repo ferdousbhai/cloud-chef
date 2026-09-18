@@ -69,7 +69,6 @@ describe('BuilderModelSelector', () => {
 
     const menu = document.querySelector('[role="menu"]');
     expect(menu?.textContent).toContain('Cloudflare Workers AI');
-    expect(menu?.textContent).toContain('function calling');
     expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(2);
     const alternative = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
       item.textContent?.includes('DeepSeek V4 Flash 0731'),

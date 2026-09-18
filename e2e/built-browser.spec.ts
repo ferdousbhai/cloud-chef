@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { HOME_HEADING, TRUST_PAGE_HEADINGS } from '~/lib/trust';
+import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
 import { collectBrowserDiagnostics } from './browser-diagnostics';
 
 test('hydrates the built landing page without replacing meaningful SSR content', async ({ page }, testInfo) => {
@@ -106,5 +107,70 @@ test('renders the public trust routes and persists the telemetry choice', async 
 
   await page.getByRole('button', { name: 'Disable telemetry' }).click();
   await expect(page.getByText('Product telemetry is disabled on this browser.')).toBeVisible();
+  await assertClean();
+});
+
+// A local contract fixture: no real account is connected or deleted.
+test('keeps account details discoverable and clears a cancelled deletion', async ({ page }, testInfo) => {
+  const assertClean = collectBrowserDiagnostics(page, testInfo);
+  await page.route('**/api/auth/session', (route) =>
+    route.fulfill({
+      json: {
+        session: {
+          id: 'settings-session',
+          userId: 'settings-user',
+          expiresAt: Date.now() + 86400000,
+          createdAt: Date.now(),
+        },
+        user: { id: 'settings-user', name: 'Settings fixture', email: 'settings@example.invalid', image: null },
+      },
+    }),
+  );
+  await page.route('**/api/cloudflare/connection', (route) =>
+    route.fulfill({
+      json: {
+        accountName: 'Test account',
+        oauthScopeGrantStatus: 'full',
+      },
+    }),
+  );
+  let deletionRequests = 0;
+  await page.route('**/api/account/delete', (route) => {
+    deletionRequests += 1;
+    return route.fulfill({ status: 400, json: { error: 'Fixture: deletion is disabled.' } });
+  });
+  await page.goto('/settings');
+  await expect(page.getByRole('heading', { name: 'Your data' })).toBeVisible();
+  await expect(page.getByText('Your Cloudflare resources remain live and billable.')).toBeVisible();
+  const exportDetails = page.locator('details').filter({ hasText: 'What’s included?' });
+  await expect(exportDetails).not.toHaveAttribute('open', '');
+  await exportDetails.locator('summary').click();
+  await expect(exportDetails.getByText(/Chats, transcripts/)).toBeVisible();
+
+  const openDeletion = page.getByRole('button', { name: 'Delete account data' });
+  await openDeletion.click();
+  const confirm = page.getByRole('button', { name: 'Permanently delete', exact: true });
+  await expect(confirm).toBeDisabled();
+  await page.getByRole('checkbox').check();
+  await page.getByLabel('Deletion confirmation phrase').fill(ACCOUNT_DELETION_CONFIRMATION);
+  await expect(confirm).toBeEnabled();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await openDeletion.click();
+  await expect(confirm).toBeDisabled();
+  await expect(page.getByRole('checkbox')).not.toBeChecked();
+  await expect(page.getByLabel('Deletion confirmation phrase')).toHaveValue('');
+  expect(deletionRequests).toBe(0);
+  const cards = page.locator('section.app-card');
+  await expect(cards).toHaveCount(3);
+  // Classic scrollbars can leave only 310 CSS pixels inside a 320px window.
+  for (const width of [1280, 320, 310]) {
+    await page.setViewportSize({ width, height: 800 });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+    ).toBe(true);
+    expect(
+      await cards.evaluateAll((sections) => sections.every((section) => section.scrollWidth <= section.clientWidth)),
+    ).toBe(true);
+  }
   await assertClean();
 });

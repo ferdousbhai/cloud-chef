@@ -90,12 +90,20 @@ export function AccountDataCard() {
     }
   };
 
-  const reauthenticate = async () => {
+  const cancelDeletion = () => {
+    setPhase('idle');
+    setConfirmation('');
+    setAcknowledged(false);
     setError(null);
+  };
+
+  const reauthenticate = async (purpose: 'export' | 'delete') => {
+    const reportError = purpose === 'export' ? setExportError : setError;
+    reportError(null);
     try {
       await signInWithCloudflare(createCloudflareReturnURL(window.location.href));
     } catch (authorizationError) {
-      setError(authorizationError instanceof Error ? authorizationError.message : 'Unable to reconnect Cloudflare.');
+      reportError(authorizationError instanceof Error ? authorizationError.message : 'Unable to reconnect Cloudflare.');
     }
   };
 
@@ -105,33 +113,31 @@ export function AccountDataCard() {
         Your data
       </h2>
       <p className="mt-2 max-w-2xl text-sm text-content-secondary">
-        CloudChef’s own database holds your Cloudflare identity and email, your sign-in sessions, your encrypted
-        Cloudflare credentials and granted scopes, and the address of your workspace runtime. Your chats, project files,
-        deployment records, and every Worker, D1 database, R2 bucket, KV namespace, Container, Durable Object, and Agent
-        CloudChef created live in your own Cloudflare account, not here. See the{' '}
-        <Link to="/privacy">Privacy notice</Link> for the full inventory.
+        Projects and deployed resources live in your Cloudflare account. See the{' '}
+        <Link to="/privacy">Privacy notice</Link> for details.
       </p>
 
-      <h3 className="mt-3 text-sm font-medium text-content-primary">Download your project source</h3>
+      <h3 className="mt-3 text-sm font-medium text-content-primary">Project source</h3>
       <p className="mt-1 max-w-2xl text-sm text-content-secondary">
-        Open a project and choose <strong>Download code</strong> in the project header to save a ZIP of its files. Local
-        secret files are excluded. This is per project, so download each project you want to keep. Chats, deployment
-        history, and generated infrastructure remain readable in your Cloudflare account.
+        Choose <strong>Download code</strong> in each project’s header for a ZIP. Secret files are excluded.
       </p>
 
-      <h3 className="mt-3 text-sm font-medium text-content-primary">Download your account data</h3>
+      <h3 className="mt-3 text-sm font-medium text-content-primary">Account data</h3>
       <p className="mt-1 max-w-2xl text-sm text-content-secondary">
-        Save a JSON file of everything CloudChef’s own database holds for your account: your identity and email, your
-        Cloudflare connection metadata and granted scopes, the fact that an encrypted credential exists and when it was
-        stored, your workspace runtime address, and your sign-in and authorization session records. Encrypted
-        credentials, their initialisation vectors, credential handles, and session tokens are never included.
+        Export your CloudChef account record as JSON. Reconnecting Cloudflare may be required.
       </p>
-      <p className="mt-1 max-w-2xl text-sm text-content-secondary">
-        It does <strong>not</strong> contain your chats, transcripts, project files, or deployment records. Those live
-        in your own Cloudflare account, not in CloudChef’s database — use <strong>Download code</strong> above for
-        project source and your Cloudflare account’s own tools for the rest. CloudChef asks you to reconnect Cloudflare
-        first, because the file is a complete copy of your account record.
-      </p>
+      <details className="mt-2 text-sm text-content-secondary">
+        <summary className="cursor-pointer py-1 text-content-primary">What’s included?</summary>
+        <p className="mt-1 max-w-2xl">
+          Your identity and email, connection metadata and granted scopes, credential storage dates, workspace runtime
+          address, and sign-in and authorization session records. Credentials, credential handles, encryption vectors,
+          and session tokens are excluded.
+        </p>
+        <p className="mt-2 max-w-2xl">
+          Chats, transcripts, project files, and deployment records are not included. They live in your Cloudflare
+          account. Use <strong>Download code</strong> for project source and Cloudflare’s tools for the rest.
+        </p>
+      </details>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button
           size="sm"
@@ -140,10 +146,10 @@ export function AccountDataCard() {
           disabled={exportPhase === 'downloading'}
           onClick={() => void downloadAccountData()}
         >
-          Download my account data
+          Download account data
         </Button>
         {exportPhase === 'reauthenticate' ? (
-          <Button size="sm" variant="neutral" onClick={() => void reauthenticate()}>
+          <Button size="sm" variant="neutral" onClick={() => void reauthenticate('export')}>
             Reconnect Cloudflare
           </Button>
         ) : null}
@@ -169,20 +175,16 @@ export function AccountDataCard() {
         </p>
       ) : null}
 
-      <h3 className="mt-3 text-sm font-medium text-content-primary">Clear this browser</h3>
-      <p className="mt-1 max-w-2xl text-sm text-content-secondary">
-        Logging out disposes this browser’s in-memory project cache. To remove everything CloudChef kept on this device,
-        clear site data for this site in your browser settings. That removes the <code>cloudchef_session</code> cookie,
-        the <code>cloudchef_theme</code> and <code>cloudchef_builder_model</code> preferences, the telemetry preference
-        and tab-scoped session state. Repeat this in every browser and profile you have used; no server-side request can
-        reach them.
-      </p>
-
-      <h3 className="mt-3 text-sm font-medium text-content-primary">Ask for a copy or an erasure</h3>
-      <p className="mt-1 max-w-2xl text-sm text-content-secondary">
-        For an access, portability, correction, or erasure request that this page does not cover, start on{' '}
-        <Link to="/support">Support</Link> with only the request type and your GitHub handle. Do not put account details
-        or other private information in the public issue.
+      <details className="mt-3 text-sm text-content-secondary">
+        <summary className="cursor-pointer py-1 text-content-primary">Clear this browser</summary>
+        <p className="mt-1 max-w-2xl">
+          Logging out clears the in-memory project cache. Clear this site’s data in your browser settings to remove
+          cookies, preferences, and tab-session state. Repeat in each browser and profile you used.
+        </p>
+      </details>
+      <p className="mt-3 max-w-2xl text-sm text-content-secondary">
+        For other data requests, contact <Link to="/support">Support</Link> with the request type and your GitHub
+        handle. Keep account details and private information out of public issues.
       </p>
 
       <h3 className="mt-6 text-sm font-medium text-content-primary">Delete your CloudChef account data</h3>
@@ -219,27 +221,20 @@ export function AccountDataCard() {
       ) : (
         <>
           <p className="mt-2 max-w-2xl text-sm text-content-secondary">
-            This erases your account identity, sign-in sessions, encrypted Cloudflare credentials, connection metadata
-            and granted scopes, and your runtime address from CloudChef’s database, and asks Cloudflare to revoke
-            CloudChef’s authorization. It cannot be undone.
+            Permanently erases your CloudChef account record, sessions, and stored credentials, and requests revocation
+            of CloudChef’s access. Signing in again creates an empty account.
           </p>
           <p className="mt-2 max-w-2xl text-sm text-content-secondary">
-            It does <strong>not</strong> delete anything inside your Cloudflare account. Workers and their unpromoted
-            preview versions, production and preview D1 databases, R2 buckets, KV namespaces, Containers, Durable
-            Objects, and Agents that CloudChef deployed stay exactly where they are, keep serving traffic, keep costing
-            money, and remain yours to remove. It does not clear this browser, and signing in again creates a new, empty
-            CloudChef account.
+            <strong>Your Cloudflare resources remain live and billable.</strong> Browser data is not cleared.
           </p>
           <p className="mt-2 max-w-2xl text-sm text-content-secondary">
-            To remove a deployed app, delete its project first and allow its scheduled cleanup to finish — project
-            resources are removed no earlier than 30 minutes after deletion. Project deletion removes that project’s
-            generated Worker and versions, Durable Objects, D1 databases, KV namespaces, and R2 buckets; it does not
-            remove the shared workspace runtime or anything outside that project. Once this account is deleted the
-            authorization is gone, so CloudChef can no longer clean up anything on your behalf.
+            To remove deployed apps, delete their projects first and wait for cleanup (at least 30 minutes). This
+            removes each project’s resources, but not the shared workspace runtime or unrelated resources. After account
+            deletion, CloudChef can no longer clean up resources for you.
           </p>
           {phase === 'idle' ? (
             <Button className="mt-3" size="sm" variant="danger" onClick={() => setPhase('confirming')}>
-              Delete my CloudChef account data
+              Delete account data
             </Button>
           ) : (
             <div className="mt-3 grid max-w-2xl gap-3">
@@ -269,9 +264,14 @@ export function AccountDataCard() {
               {phase === 'reauthenticate' ? (
                 <div role="status" className="text-sm text-content-secondary">
                   <p>Confirm it is you in Cloudflare, then return here and delete again.</p>
-                  <Button className="mt-2" size="sm" variant="neutral" onClick={() => void reauthenticate()}>
-                    Reconnect Cloudflare
-                  </Button>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button size="sm" variant="neutral" onClick={() => void reauthenticate('delete')}>
+                      Reconnect Cloudflare
+                    </Button>
+                    <Button size="sm" variant="neutral" onClick={cancelDeletion}>
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
@@ -284,7 +284,7 @@ export function AccountDataCard() {
                   >
                     Permanently delete
                   </Button>
-                  <Button size="sm" variant="neutral" disabled={phase === 'deleting'} onClick={() => setPhase('idle')}>
+                  <Button size="sm" variant="neutral" disabled={phase === 'deleting'} onClick={cancelDeletion}>
                     Cancel
                   </Button>
                 </div>
