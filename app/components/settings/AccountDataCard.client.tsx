@@ -100,7 +100,7 @@ export function AccountDataCard() {
   };
 
   return (
-    <section id="your-data" className="app-card w-full p-5 sm:p-6" aria-labelledby="account-data-heading">
+    <section id="your-data" className="app-card w-full p-4" aria-labelledby="account-data-heading">
       <h2 id="account-data-heading" className="app-card-title">
         Your data
       </h2>
@@ -112,14 +112,14 @@ export function AccountDataCard() {
         <Link to="/privacy">Privacy notice</Link> for the full inventory.
       </p>
 
-      <h3 className="mt-5 text-sm font-medium text-content-primary">Download your project source</h3>
+      <h3 className="mt-3 text-sm font-medium text-content-primary">Download your project source</h3>
       <p className="mt-1 max-w-2xl text-sm text-content-secondary">
         Open a project and choose <strong>Download code</strong> in the project header to save a ZIP of its files. Local
         secret files are excluded. This is per project, so download each project you want to keep. Chats, deployment
         history, and generated infrastructure remain readable in your Cloudflare account.
       </p>
 
-      <h3 className="mt-5 text-sm font-medium text-content-primary">Download your account data</h3>
+      <h3 className="mt-3 text-sm font-medium text-content-primary">Download your account data</h3>
       <p className="mt-1 max-w-2xl text-sm text-content-secondary">
         Save a JSON file of everything CloudChef’s own database holds for your account: your identity and email, your
         Cloudflare connection metadata and granted scopes, the fact that an encrypted credential exists and when it was
@@ -169,7 +169,7 @@ export function AccountDataCard() {
         </p>
       ) : null}
 
-      <h3 className="mt-5 text-sm font-medium text-content-primary">Clear this browser</h3>
+      <h3 className="mt-3 text-sm font-medium text-content-primary">Clear this browser</h3>
       <p className="mt-1 max-w-2xl text-sm text-content-secondary">
         Logging out disposes this browser’s in-memory project cache. To remove everything CloudChef kept on this device,
         clear site data for this site in your browser settings. That removes the <code>cloudchef_session</code> cookie,
@@ -178,7 +178,7 @@ export function AccountDataCard() {
         reach them.
       </p>
 
-      <h3 className="mt-5 text-sm font-medium text-content-primary">Ask for a copy or an erasure</h3>
+      <h3 className="mt-3 text-sm font-medium text-content-primary">Ask for a copy or an erasure</h3>
       <p className="mt-1 max-w-2xl text-sm text-content-secondary">
         For an access, portability, correction, or erasure request that this page does not cover, start on{' '}
         <Link to="/support">Support</Link> with only the request type and your GitHub handle. Do not put account details

@@ -47,7 +47,7 @@ html.light {
      combined height no matter how short the copy was. `grow` already gives it the leftover space. */
   min-height: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   overflow-x: hidden;
   isolation: isolate;
   background-color: var(--cloudchef-home-bg);
@@ -62,7 +62,7 @@ html.light {
   width: 100%;
   max-width: 1080px;
   margin: 0 auto;
-  padding-top: clamp(8px, 2.5vh, 28px);
+  padding-top: clamp(16px, 4vh, 40px);
 }
 
 .cloudchef-home-hero {
@@ -75,26 +75,26 @@ html.light {
 @media (min-width: 900px) {
   .cloudchef-home-hero {
     grid-template-columns: auto minmax(0, 1fr);
-    gap: 44px;
+    gap: 24px;
   }
 }
 
 .cloudchef-home-mark {
-  width: 96px;
-  height: 96px;
+  width: 56px;
+  height: 56px;
 }
 
 @media (min-width: 900px) {
   .cloudchef-home-mark {
-    width: 160px;
-    height: 160px;
+    width: 80px;
+    height: 80px;
   }
 }
 
 .cloudchef-home-title {
   max-width: 780px;
   color: var(--cloudchef-home-ink);
-  font-size: clamp(26px, 3.6vw, 40px);
+  font-size: clamp(24px, 2.8vw, 32px);
   font-weight: 700;
   line-height: 1.24;
   letter-spacing: -0.015em;
@@ -130,7 +130,7 @@ html.light {
 
 .cloudchef-home-lede {
   max-width: 620px;
-  margin-top: 12px;
+  margin-top: 8px;
   color: var(--cloudchef-home-muted);
   font-size: 14.5px;
   font-style: italic;
@@ -139,7 +139,7 @@ html.light {
 
 .cloudchef-home-composer-stack {
   max-width: 760px;
-  margin-top: 18px;
+  margin-top: 12px;
   animation-delay: 80ms;
 }
 
@@ -263,8 +263,8 @@ html.light {
   }
 
   .cloudchef-home-mark {
-    width: 64px;
-    height: 64px;
+    width: 40px;
+    height: 40px;
   }
 }
 

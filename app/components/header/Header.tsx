@@ -49,10 +49,7 @@ export function Header({ hideSidebarIcon = false }: { hideSidebarIcon?: boolean 
   return (
     <>
       <header
-        className={classNames(
-          'cloudchef-header flex h-[var(--header-height)] items-center overflow-x-auto overflow-y-hidden border-b px-3 sm:px-5',
-          { 'py-1 lg:py-3': chat.started, 'py-1.5 sm:py-3': !chat.started },
-        )}
+        className="cloudchef-header flex h-[var(--header-height)] items-center overflow-x-auto overflow-y-hidden border-b px-3 py-0.5 sm:px-4"
         data-chat-started={chat.started}
       >
         <div className="z-40 flex shrink-0 items-center gap-3 text-content-primary">

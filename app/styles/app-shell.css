@@ -337,3 +337,21 @@ button,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Settings use a compact summary column beside the account controls on desktop. */
+.settings-container {
+  width: min(100% - 32px, 1120px);
+  padding: 16px 0 24px;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+}
+
+@media (min-width: 1024px) {
+  .settings-grid {
+    grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  }
+}

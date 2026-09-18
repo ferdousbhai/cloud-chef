@@ -211,11 +211,11 @@ function WorkbenchFrame({
         className={classNames('fixed z-0 transition-[left,width] duration-200 bolt-ease-cubic-bezier', {
           invisible: !visible && !isSmallViewport,
           'inset-x-0 top-[var(--header-height)] bottom-0 w-full': isSmallViewport,
-          'left-[var(--workbench-left)] top-[calc(var(--header-height)+1rem)] bottom-four w-[var(--workbench-inner-width)]':
+          'left-[var(--workbench-left)] top-[calc(var(--header-height)+0.5rem)] bottom-2 w-[var(--workbench-inner-width)]':
             !isSmallViewport,
         })}
       >
-        <div className={classNames('absolute inset-0', { 'px-2 lg:px-6': !isSmallViewport })}>
+        <div className={classNames('absolute inset-0', { 'px-2': !isSmallViewport })}>
           <div
             className={classNames('relative flex h-full flex-col overflow-hidden bg-bolt-elements-background-depth-2', {
               'rounded-lg border border-border-transparent shadow-panel': !isSmallViewport,
@@ -224,7 +224,7 @@ function WorkbenchFrame({
             <div
               className={classNames('flex items-center border-b border-border-transparent', {
                 'relative min-h-11 justify-end px-2 py-1 touch-pan-y touch-pinch-zoom': isSmallViewport,
-                'px-3 py-2.5': !isSmallViewport,
+                'px-2 py-1': !isSmallViewport,
               })}
               {...(isSmallViewport ? workspaceSwipe : {})}
             >

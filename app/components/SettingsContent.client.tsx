@@ -12,8 +12,8 @@ export function SettingsContent({ authorizationError }: { authorizationError?: s
   return (
     <UserProvider>
       <div className="app-page-shell">
-        <div className="app-page-container">
-          <nav className="app-page-nav !mb-8" aria-label="Settings navigation">
+        <div className="app-page-container settings-container">
+          <nav className="app-page-nav !mb-4" aria-label="Settings navigation">
             <BrandLink />
             <LinkButton to="/" variant="neutral" size="sm" icon={<ArrowLeftIcon aria-hidden />}>
               <span>Back to builder</span>
@@ -22,13 +22,15 @@ export function SettingsContent({ authorizationError }: { authorizationError?: s
 
           <h1 className="sr-only">Settings</h1>
 
-          <div className="app-page-content !mt-0 grid gap-5">
-            <ProfileCard />
-            <CloudflareCard initialError={authorizationError} />
+          <div className="app-page-content !mt-0 settings-grid">
+            <div className="grid content-start gap-3">
+              <ProfileCard />
+              <CloudflareCard initialError={authorizationError} />
+            </div>
             <AccountDataCard />
           </div>
         </div>
-        <TrustFooter className="mt-10" />
+        <TrustFooter className="mt-4" />
         <Toaster />
       </div>
     </UserProvider>

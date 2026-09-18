@@ -173,16 +173,16 @@ html.dark {
 }
 
 :root {
-  --header-height: 56px;
+  --header-height: 48px;
   /* A prose measure, and prose is what sets it: 37rem is about 65 characters, which is where a
      paragraph stays readable. Tool rows, code blocks and diffs are not prose and were being
      squeezed into the same column, so on a wide screen the transcript sat in a narrow ribbon with
      the rest of the viewport empty. Widened only where there is room to spare, and only to about
      80 characters, past which prose gets harder to read rather than denser. */
   --chat-max-width: 44rem;
-  --chat-min-width: 640px;
+  --chat-min-width: clamp(400px, 38vw, 560px);
   --workbench-width: min(calc(100% - var(--chat-min-width)), 2536px);
-  --workbench-inner-width: calc(var(--workbench-width) - 16px);
+  --workbench-inner-width: var(--workbench-width);
   --workbench-left: calc(100% - var(--workbench-width));
 
   /* Retro chrome primitives. Square-ish corners and a stacked drop shadow
