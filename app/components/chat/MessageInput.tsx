@@ -130,15 +130,12 @@ export const MessageInput = memo(function MessageInput({
             </div>
           )}
         </div>
-        {authState.kind === 'unauthenticated' && (
-          <CloudflareConnectLegalNotice
-            // Left-aligned and set to the composer's own measure: centred prose inside a
-            // left-aligned column reads as a separate island rather than a footnote to the field
-            // it belongs to.
-            className="px-3 pb-2 text-[11px] leading-snug text-content-tertiary"
-          />
-        )}
       </div>
+      {authState.kind === 'unauthenticated' && (
+        <CloudflareConnectLegalNotice
+          className={classNames('mx-auto mt-2 w-full px-1', chatStarted ? 'max-w-chat' : '')}
+        />
+      )}
       {controller.refinement && (
         <PromptRefinementDialog
           key={controller.refinement.questions.map((question) => question.id).join(':')}

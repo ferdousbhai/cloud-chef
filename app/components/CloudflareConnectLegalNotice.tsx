@@ -1,16 +1,13 @@
 import { Link } from '@tanstack/react-router';
+import { classNames } from '~/utils/classNames';
 
 export function CloudflareConnectLegalNotice({ className = '' }: { className?: string }) {
   return (
-    <p className={className} data-testid="cloudflare-connect-legal-notice">
-      Workers Paid required. Connecting lets CloudChef create resources in your account and means you agree to the{' '}
-      <Link to="/terms" className="underline underline-offset-4">
-        Terms
-      </Link>
-      .{' '}
-      <Link to="/privacy" className="underline underline-offset-4">
-        Privacy
-      </Link>
-    </p>
+    <div className={classNames('cloudchef-connect-note', className)} data-testid="cloudflare-connect-legal-notice">
+      <span>Workers Paid required.</span>
+      <p>
+        By connecting, you agree to the <Link to="/terms">Terms</Link>. <Link to="/privacy">Privacy</Link>
+      </p>
+    </div>
   );
 }

@@ -79,7 +79,7 @@ html.light {
   margin-top: 12px;
 }
 
-/* One compact surface for the prompt and connection notice. */
+/* Keep the prompt surface separate from its lightweight connection footnote. */
 .cloudchef-message-input--home {
   position: relative;
   isolation: isolate;
@@ -162,4 +162,32 @@ html.light {
   .cloudchef-home-title {
     font-size: 20px;
   }
+}
+
+.cloudchef-connect-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  color: var(--cc-content-secondary);
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.cloudchef-connect-note p {
+  margin: 0;
+}
+
+.cloudchef-connect-note a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--cc-border-transparent);
+  text-underline-offset: 3px;
+}
+
+.cloudchef-connect-note a:hover {
+  color: var(--cc-content-primary);
+  text-decoration-color: currentColor;
 }

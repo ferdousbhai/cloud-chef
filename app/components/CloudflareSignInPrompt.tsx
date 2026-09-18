@@ -50,7 +50,7 @@ export function CloudflareSignInPrompt({
             Back to CloudChef
           </LinkButton>
         </div>
-        <CloudflareConnectLegalNotice className="mt-4 text-xs leading-relaxed text-content-tertiary" />
+        <CloudflareConnectLegalNotice className="mt-4" />
       </section>
     </div>
   );
