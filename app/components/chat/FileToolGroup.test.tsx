@@ -16,7 +16,7 @@ function filePart(toolName: 'read' | 'write' | 'edit', toolCallId: string, path:
     state: 'output-available',
     input: toolName === 'write' ? { path, content: 'hello' } : { path },
     output: { summary: 'done' },
-  } as unknown as CloudChefPart;
+  };
 }
 
 function invocation(toolName: string): CloudChefToolInvocation {
@@ -55,7 +55,7 @@ describe('groupMessageParts', () => {
         toolCallId: 'v1',
         state: 'output-available',
         input: {},
-      } as unknown as CloudChefPart,
+      },
       filePart('write', 'w1', 'src/b.css'),
     ];
     const blocks = groupMessageParts(parts);
@@ -81,7 +81,7 @@ describe('AssistantMessage file grouping', () => {
   let root: Root;
 
   beforeEach(() => {
-    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, value: true });
     window.scrollTo = () => undefined;
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -112,7 +112,7 @@ describe('AssistantMessage file grouping', () => {
                 state: 'output-available',
                 input: {},
                 output: { summary: 'ok' },
-              } as unknown as CloudChefPart,
+              },
             ],
           }}
         />,

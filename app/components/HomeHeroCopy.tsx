@@ -37,7 +37,7 @@ export function HomeHeroCopy({ headingId, reveal = false }: { headingId: string;
       <h1 id={headingId} className="ghost-home-title">
         If you can dream it,
         <br />
-        <span>the ghost will build it.</span>
+        <span>CloudChef will build it.</span>
       </h1>
       <p className="ghost-home-lede">{HOME_HERO_LEDE}</p>
     </div>

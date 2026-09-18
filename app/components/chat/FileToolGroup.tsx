@@ -12,9 +12,9 @@ import { statusIcon } from './tool-call-presentation';
 /** File tools worth folding into one row when they arrive back-to-back. */
 const GROUPABLE_FILE_TOOL_NAMES = new Set(['read', 'write', 'edit']);
 
-export type FileGroupItem = { part: CloudChefPart; index: number; invocation: CloudChefToolInvocation };
+type FileGroupItem = { part: CloudChefPart; index: number; invocation: CloudChefToolInvocation };
 
-export type MessageBlock =
+type MessageBlock =
   { kind: 'single'; part: CloudChefPart; index: number } | { kind: 'file-group'; items: FileGroupItem[] };
 
 /** Fold runs of 2+ consecutive file tools into one block; everything else stays single. */
@@ -44,7 +44,11 @@ export function groupMessageParts(parts: CloudChefPart[]): MessageBlock[] {
   return blocks;
 }
 
-const GROUP_VERBS: Record<string, string> = { read: 'read', write: 'wrote', edit: 'edited' };
+const GROUP_VERBS = new Map([
+  ['read', 'read'],
+  ['write', 'wrote'],
+  ['edit', 'edited'],
+]);
 
 /** Plain-verb summary in first-appearance order, e.g. "Read 1 file, edited 2 files". */
 export function describeFileGroup(invocations: CloudChefToolInvocation[]): string {
@@ -57,7 +61,7 @@ export function describeFileGroup(invocations: CloudChefToolInvocation[]): strin
   }
   const summary = [...counts]
     .map(([toolName, count]) => {
-      const verb = GROUP_VERBS[toolName] ?? toolName;
+      const verb = GROUP_VERBS.get(toolName) ?? toolName;
       return `${verb} ${count} file${count === 1 ? '' : 's'}`;
     })
     .join(', ');

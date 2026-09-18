@@ -112,8 +112,13 @@ migrations, publishes with the exact 40-character commit ID, and then probes `ht
 five consecutive responses report that commit, a live Worker version ID, configured OAuth bindings, and
 `Cache-Control: no-store`.
 
-Production source deploys are intentionally accepted only from Cloudflare Workers Builds. For an emergency rollback
-from a clean checkout of current `main`, inspect and promote an immutable version:
+Cloudflare Workers Builds is the normal production release path. The deploy wrapper also supports
+`node scripts/deploy-production.mjs --local` for operator-driven bootstrap deployments from a clean `main` checkout
+matching `origin/main`, with `CLOUDFLARE_OAUTH_CLIENT_ID` supplied in the environment. This local path deploys and
+probes the built Worker; it does not run validation, apply migrations, or record a D1 recovery bookmark. Complete
+those prerequisites separately before using it.
+
+For an emergency rollback from a clean checkout of current `main`, inspect and promote an immutable version:
 
 ```bash
 pnpm exec wrangler versions view '<version-id>' --name cloudchef --json
