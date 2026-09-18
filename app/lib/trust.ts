@@ -27,10 +27,10 @@ export const HOME_HEADING = 'What are we building?';
 // The browser gate asserts these exact headings, so the pages and the suite
 // read one definition instead of drifting apart.
 export const TRUST_PAGE_HEADINGS = {
-  privacy: 'How CloudChef handles your data.',
-  terms: 'You control the cloud account.',
-  support: 'Get help through the right channel.',
-  security: 'Keep vulnerability details private.',
+  privacy: 'Privacy',
+  terms: 'Terms',
+  support: 'Support',
+  security: 'Security',
 } as const;
 
 export const TRUST_LINKS = [

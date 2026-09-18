@@ -10,6 +10,8 @@ export function TrustLinks({ className = '' }: { className?: string }) {
       {TRUST_LINKS.map(({ href, label }) => (
         <Link
           key={href}
+          activeOptions={{ exact: true }}
+          activeProps={{ className: 'font-semibold text-content-primary decoration-current', 'aria-current': 'page' }}
           to={href}
           className="rounded-sm underline decoration-transparent underline-offset-4 transition hover:decoration-current focus-visible:decoration-current"
         >

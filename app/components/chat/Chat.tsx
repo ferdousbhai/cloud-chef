@@ -135,8 +135,8 @@ function WorkspaceRuntimeConnectionError({
   }
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center p-5">
-      <section className="app-card w-full max-w-lg p-6 text-center" aria-labelledby="workspace-connection-heading">
-        <h1 id="workspace-connection-heading" className="font-display text-3xl font-black text-content-primary">
+      <section className="app-card w-full max-w-lg p-5 text-center" aria-labelledby="workspace-connection-heading">
+        <h1 id="workspace-connection-heading" className="font-display text-2xl font-bold text-content-primary">
           CloudChef could not prepare your workspace.
         </h1>
         <p className="mt-3 break-words text-sm text-content-secondary" role="alert">
@@ -156,7 +156,7 @@ function WorkspaceRuntimeConnectionError({
             <li>Return to the builder and select “Try again”.</li>
           </ol>
         ) : null}
-        <div className="mt-6 flex flex-wrap justify-center gap-3">
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
           {planRequired ? (
             <a
               className={buttonClassNames({ variant: 'primary', size: 'md' })}

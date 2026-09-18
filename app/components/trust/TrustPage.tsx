@@ -1,9 +1,12 @@
-import { Fragment, type ReactNode } from 'react';
+import { Children, Fragment, isValidElement, type ReactNode } from 'react';
 import { BrandLink } from '~/components/BrandLink';
 import { TRUST_DOCUMENT_EFFECTIVE_DATE, TRUST_DOCUMENT_EFFECTIVE_ISO_DATE, TRUST_DOCUMENT_VERSION } from '~/lib/trust';
 import { TrustLinks } from './TrustLinks';
 
 export function TrustPage({ title, summary, children }: { title: string; summary: string; children: ReactNode }) {
+  const sections = Children.toArray(children).filter(
+    (child) => isValidElement<{ title: string }>(child) && child.type === TrustSection,
+  );
   return (
     <div className="trust-page min-h-svh">
       <header className="trust-page__header">
@@ -24,6 +27,22 @@ export function TrustPage({ title, summary, children }: { title: string; summary
           </p>
           <h1>{title}</h1>
           <p className="trust-page__summary">{summary}</p>
+          <details className="trust-page__contents">
+            <summary>On this page</summary>
+            <nav aria-label="Page sections">
+              {sections.map((section) => {
+                if (!isValidElement<{ title: string }>(section)) {
+                  return null;
+                }
+                const title = section.props.title;
+                return (
+                  <a key={title} href={`#${sectionId(title)}`}>
+                    {title}
+                  </a>
+                );
+              })}
+            </nav>
+          </details>
           <div className="trust-page__prose">{children}</div>
         </article>
       </div>
@@ -33,7 +52,7 @@ export function TrustPage({ title, summary, children }: { title: string; summary
 
 export function TrustSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section>
+    <section id={sectionId(title)}>
       <h2>{title}</h2>
       {children}
     </section>
@@ -52,4 +71,11 @@ export function TrustPairs({ items }: { items: readonly { term: string; detail: 
       ))}
     </dl>
   );
+}
+
+function sectionId(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 }

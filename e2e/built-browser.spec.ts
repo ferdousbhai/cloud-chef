@@ -70,7 +70,15 @@ test('renders the public trust routes and persists the telemetry choice', async 
 
   for (const [path, heading] of routes) {
     await page.goto(path);
-    await expect(page.getByRole('heading', { name: heading })).toBeVisible();
+    await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible();
+    await expect(
+      page.getByRole('navigation', { name: 'Trust and legal' }).getByRole('link', { name: heading, exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
+    await page.getByText('On this page', { exact: true }).click();
+    const sectionLink = page.getByRole('navigation', { name: 'Page sections' }).getByRole('link').last();
+    const sectionTitle = await sectionLink.innerText();
+    await sectionLink.click();
+    await expect(page.getByRole('heading', { name: sectionTitle, exact: true })).toBeInViewport();
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
     ).toBe(true);
@@ -87,7 +95,7 @@ test('renders the public trust routes and persists the telemetry choice', async 
   );
 
   await page.goto('/privacy');
-  await expect(page.getByRole('heading', { name: TRUST_PAGE_HEADINGS.privacy })).toBeVisible();
+  await expect(page.getByRole('heading', { name: TRUST_PAGE_HEADINGS.privacy, level: 1 })).toBeVisible();
   await expect(page.getByText(/DOUS SOFTWARE INC\..*is the controller for personal data/)).toBeVisible();
   await expect(page.getByText('Product telemetry is disabled on this browser.')).toBeVisible();
 

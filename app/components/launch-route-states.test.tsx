@@ -40,7 +40,7 @@ describe('launch route states', () => {
       <ProjectLoadError error={new WorkspacePreparingError('messages.get')} onRetry={vi.fn()} />,
     );
 
-    expect(preparing).toContain('CloudChef is still preparing your workspace');
+    expect(preparing).toContain('Preparing your workspace');
     expect(preparing).toContain('takes a few minutes');
     expect(preparing).toContain('Keep waiting');
     // "Try again" restarts the same wait, so the preparing state must not offer it.
@@ -51,7 +51,7 @@ describe('launch route states', () => {
   it('never reports a workspace that is not ready yet as a page that could not load', () => {
     const preparing = renderToStaticMarkup(<ErrorDisplay error={new WorkspacePreparingError('messages.get')} />);
 
-    expect(preparing).toContain('CloudChef is still preparing your workspace');
+    expect(preparing).toContain('Preparing your workspace');
     expect(preparing).toContain('Keep waiting');
     expect(preparing).not.toContain('This page could not load');
     expect(preparing).not.toContain('Try again');

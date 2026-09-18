@@ -30,10 +30,10 @@ export function CloudflareSignInPrompt({
   };
 
   return (
-    <div className="app-page-shell flex min-h-full items-center px-4 py-10">
+    <div className="app-page-shell flex min-h-full items-center px-4 py-6">
       <section className="app-error-card app-card mx-auto" aria-labelledby="cloudflare-sign-in-heading">
         <BrandLink />
-        <h1 id="cloudflare-sign-in-heading" className="app-page-title mt-8 !text-[clamp(34px,6vw,52px)]">
+        <h1 id="cloudflare-sign-in-heading" className="app-page-title mt-4 !text-2xl">
           {title}
         </h1>
         {description ? <p className="app-page-lede">{description}</p> : null}
@@ -42,7 +42,7 @@ export function CloudflareSignInPrompt({
             {error}
           </p>
         )}
-        <div className="mt-7 flex flex-wrap gap-3">
+        <div className="mt-4 flex flex-wrap gap-2">
           <Button loading={connecting} onClick={() => void connect()}>
             Connect Cloudflare
           </Button>
@@ -50,7 +50,7 @@ export function CloudflareSignInPrompt({
             Back to CloudChef
           </LinkButton>
         </div>
-        <CloudflareConnectLegalNotice className="mt-6 text-xs leading-relaxed text-content-tertiary" />
+        <CloudflareConnectLegalNotice className="mt-4 text-xs leading-relaxed text-content-tertiary" />
       </section>
     </div>
   );

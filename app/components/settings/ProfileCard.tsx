@@ -32,14 +32,13 @@ export function ProfileCard() {
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="app-page-eyebrow">Cloudflare identity</p>
-          <h2 id="profile-heading" className="app-card-title mt-2 truncate">
+          <h2 id="profile-heading" className="app-card-title truncate">
             {profile.username || 'CloudChef user'}
           </h2>
           {profile.email && <p className="mt-1 truncate text-sm text-content-secondary">{profile.email}</p>}
         </div>
         <div className="flex flex-col gap-2 sm:items-end">
-          <Button variant="danger" size="sm" onClick={() => void handleLogout()} icon={<ExitIcon aria-hidden />}>
+          <Button variant="neutral" size="sm" onClick={() => void handleLogout()} icon={<ExitIcon aria-hidden />}>
             Log out
           </Button>
         </div>

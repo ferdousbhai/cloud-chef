@@ -115,15 +115,14 @@ export function ProjectLoadError({ error, onRetry }: { error: unknown; onRetry: 
   }
   return (
     <div className="flex h-full items-center justify-center p-5">
-      <section className="app-card w-full max-w-xl p-6 text-center sm:p-8" aria-labelledby="project-load-heading">
-        <p className="app-page-eyebrow">Project unavailable</p>
-        <h1 id="project-load-heading" className="mt-2 font-display text-4xl font-black text-content-primary">
+      <section className="app-card w-full max-w-lg p-5 text-center" aria-labelledby="project-load-heading">
+        <h1 id="project-load-heading" className="font-display text-2xl font-bold text-content-primary">
           CloudChef could not load this project.
         </h1>
-        <p className="mx-auto mt-4 max-w-md break-words text-content-secondary" role="alert">
+        <p className="mx-auto mt-3 max-w-md text-sm break-words text-content-secondary" role="alert">
           {message}
         </p>
-        <Button className="mt-6" onClick={retry}>
+        <Button className="mt-4" onClick={retry}>
           Try again
         </Button>
       </section>
@@ -134,18 +133,17 @@ export function ProjectLoadError({ error, onRetry }: { error: unknown; onRetry: 
 function NotFound() {
   return (
     <div className="flex h-full items-center justify-center p-5">
-      <section className="app-card w-full max-w-xl p-6 text-center sm:p-8" aria-labelledby="project-not-found-heading">
-        <p className="app-page-eyebrow">Project unavailable</p>
+      <section className="app-card w-full max-w-lg p-5 text-center" aria-labelledby="project-not-found-heading">
         <h1
           id="project-not-found-heading"
-          className="mt-2 font-display text-4xl font-black tracking-tight text-content-primary"
+          className="font-display text-2xl font-bold tracking-tight text-content-primary"
         >
           This project could not be found.
         </h1>
-        <p className="mx-auto mt-4 max-w-md text-balance text-content-secondary">
+        <p className="mx-auto mt-3 max-w-md text-sm text-balance text-content-secondary">
           It may have been deleted, or it may belong to a different Cloudflare account.
         </p>
-        <LinkButton to="/" className="mt-6">
+        <LinkButton to="/" className="mt-4">
           Start a new project
         </LinkButton>
       </section>

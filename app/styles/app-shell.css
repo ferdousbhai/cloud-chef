@@ -275,8 +275,8 @@ button,
 }
 
 .app-error-card {
-  width: min(100%, 680px);
-  padding: clamp(24px, 5vw, 40px);
+  width: min(100%, 560px);
+  padding: 24px;
 }
 
 .app-error-code {

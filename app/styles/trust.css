@@ -59,11 +59,13 @@
 }
 
 .trust-page__prose {
-  margin-top: 28px;
+  margin-top: 16px;
 }
 
 .trust-page__prose section {
-  padding: 18px 0;
+  padding: 16px 0;
+  scroll-margin-top: 16px;
+  overflow-wrap: anywhere;
   border-top: 1px solid var(--trust-rule);
 }
 
@@ -169,4 +171,27 @@
   .trust-page__pairs dt:not(:first-of-type) {
     margin-top: 6px;
   }
+}
+
+.trust-page__contents {
+  margin-top: 16px;
+  font-size: 13px;
+}
+
+.trust-page__contents summary {
+  width: fit-content;
+  padding-block: 8px;
+  cursor: pointer;
+}
+
+.trust-page__contents nav {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 4px 16px;
+}
+
+.trust-page__contents a {
+  padding-block: 6px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }

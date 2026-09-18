@@ -35,7 +35,7 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
     <div
       className={classNames(
         'group relative flex min-w-0 items-center gap-1 overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-[var(--cc-background-tertiary)] p-1.5 text-sm text-content-secondary transition-[border-color,background-color,box-shadow,transform]',
-        'hover:-translate-y-px hover:border-accent-500/50 hover:bg-[var(--bolt-elements-sidebar-active-item-background)] hover:shadow-sm',
+        'hover:border-accent-500/50 hover:bg-[var(--bolt-elements-sidebar-active-item-background)] hover:shadow-sm',
         {
           'border-accent-500/70 bg-[var(--bolt-elements-sidebar-active-item-background)] shadow-sm': isActiveChat,
         },
@@ -44,7 +44,8 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
       {editing ? (
         <form onSubmit={handleSubmit} className="flex min-w-0 flex-1 items-center gap-2">
           <TextInput
-            id="description"
+            id={`description-${item.id}`}
+            aria-label="Project name"
             className="-ml-1.5 -mt-1.5"
             autoFocus
             value={currentDescription}
@@ -77,9 +78,7 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
               <ProjectTitle className="block truncate font-bold leading-5 text-content-primary">
                 {description}
               </ProjectTitle>
-              <span className="mt-0.5 text-[11px] font-medium leading-4 text-content-tertiary">
-                Created {projectTime}
-              </span>
+              <span className="mt-0.5 text-[11px] font-medium leading-4 text-content-tertiary">{projectTime}</span>
             </span>
           </Link>
           <div className="flex shrink-0 items-center gap-0.5 text-content-tertiary opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">

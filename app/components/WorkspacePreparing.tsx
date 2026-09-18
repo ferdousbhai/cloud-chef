@@ -12,22 +12,20 @@ export const WORKSPACE_PREPARING_MESSAGE = 'Preparing your Cloudflare workspace.
 export function WorkspacePreparingPanel({ onKeepWaiting }: { onKeepWaiting: () => void }) {
   return (
     <section
-      className="app-card w-full max-w-lg p-6 text-center sm:p-8"
+      className="app-card w-full max-w-lg p-5 text-center"
       aria-labelledby="workspace-preparing-heading"
       role="status"
     >
       <div className="app-loading-mark mx-auto" aria-hidden>
         <Spinner />
       </div>
-      <p className="app-page-eyebrow mt-4">Workspace preparing</p>
-      <h1 id="workspace-preparing-heading" className="mt-2 font-display text-3xl font-black text-content-primary">
-        CloudChef is still preparing your workspace.
+      <h1 id="workspace-preparing-heading" className="mt-3 font-display text-xl font-bold text-content-primary">
+        Preparing your workspace
       </h1>
-      <p className="mx-auto mt-4 max-w-md text-balance text-sm text-content-secondary">
-        CloudChef is building this workspace inside your Cloudflare account. That takes a few minutes and finishes on
-        its own — nothing has gone wrong, and there is nothing to fix.
+      <p className="mx-auto mt-2 max-w-md text-balance text-sm text-content-secondary">
+        Setup in your Cloudflare account takes a few minutes. You can leave this page and return later.
       </p>
-      <Button className="mt-6" onClick={onKeepWaiting}>
+      <Button className="mt-4" onClick={onKeepWaiting}>
         Keep waiting
       </Button>
     </section>

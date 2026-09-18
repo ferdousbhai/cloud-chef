@@ -170,16 +170,16 @@ function Layout({ children }: { children: ReactNode }) {
 
 function RootNotFoundComponent() {
   return (
-    <div className="app-page-shell flex min-h-svh items-center px-4 py-10">
+    <div className="app-page-shell flex min-h-svh items-center px-4 py-6">
       <section className="app-error-card app-card mx-auto" aria-labelledby="not-found-heading">
-        <div className="mb-8 flex items-center justify-between gap-4">
+        <div className="mb-4 flex items-center justify-between gap-4">
           <BrandLink />
           <span className="app-status-badge">404</span>
         </div>
-        <h1 id="not-found-heading" className="app-page-title !text-[clamp(34px,6vw,52px)]">
+        <h1 id="not-found-heading" className="app-page-title !text-2xl">
           This page does not exist.
         </h1>
-        <div className="mt-7">
+        <div className="mt-4">
           <LinkButton to="/">Back to CloudChef</LinkButton>
         </div>
       </section>
