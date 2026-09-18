@@ -75,7 +75,7 @@ export const MessageInput = memo(function MessageInput({
         tip={authState.kind === 'unauthenticated' ? 'Connect Cloudflare to continue' : undefined}
         onClick={controller.handleButtonClick}
         size="xs"
-        className={classNames('ml-1 h-8 min-w-8 rounded', !chatStarted ? 'ghost-message-input__send' : '')}
+        className={classNames('ml-1 h-8 min-w-8 rounded', !chatStarted ? 'cloudchef-message-input__send' : '')}
         aria-label={primaryActionLabel}
         icon={
           sendMessageInProgress ? (
@@ -95,24 +95,24 @@ export const MessageInput = memo(function MessageInput({
       <div
         className={classNames(
           'relative z-20 mx-auto w-full transition-all duration-200',
-          chatStarted ? 'max-w-chat' : 'ghost-message-input--home max-w-none',
+          chatStarted ? 'max-w-chat' : 'cloudchef-message-input--home max-w-none',
         )}
       >
         {!chatStarted && (
-          <p className="ghost-message-input__titlebar" aria-hidden="true">
+          <p className="cloudchef-message-input__titlebar" aria-hidden="true">
             {HOME_COMPOSER_TITLE}
           </p>
         )}
         {modelSelector ? <NewModelsNotice /> : null}
         <div
           className={classNames(
-            'ghost-message-input__surface rounded-lg bg-bolt-elements-background-depth-1 shadow-panel',
+            'cloudchef-message-input__surface rounded-lg bg-bolt-elements-background-depth-1 shadow-panel',
             !chatStarted ? 'p-2' : '',
           )}
         >
           <div
             className={classNames(
-              'ghost-message-input__editor relative border border-bolt-elements-borderColor transition-all has-[textarea:focus]:border-border-selected',
+              'cloudchef-message-input__editor relative border border-bolt-elements-borderColor transition-all has-[textarea:focus]:border-border-selected',
             )}
           >
             <PromptTextarea
@@ -136,7 +136,7 @@ export const MessageInput = memo(function MessageInput({
             )}
           </div>
           {!chatStarted && (
-            <div className="ghost-message-input__footer flex flex-wrap items-center gap-2 rounded-b-lg border border-t-0 border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-1.5 text-sm">
+            <div className="cloudchef-message-input__footer flex flex-wrap items-center gap-2 rounded-b-lg border border-t-0 border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-1.5 text-sm">
               {modelSelector}
               <div className="ml-auto flex items-center gap-1">{actions}</div>
             </div>

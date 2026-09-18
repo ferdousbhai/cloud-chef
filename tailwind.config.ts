@@ -14,37 +14,37 @@ export default {
       fontFamily: {
         // The retro theme is mono end to end. All three keys resolve to the
         // single token in variables.css so the face has one definition.
-        display: ['var(--gb-font-mono)'],
-        sans: ['var(--gb-font-mono)'],
-        mono: ['var(--gb-font-mono)'],
+        display: ['var(--cc-font-mono)'],
+        sans: ['var(--cc-font-mono)'],
+        mono: ['var(--cc-font-mono)'],
       },
       borderRadius: {
         // Every named step maps to a token, so a component pasted in with a
         // stock `rounded-2xl` still lands on the theme's geometry.
-        DEFAULT: 'var(--gb-radius)',
-        sm: 'var(--gb-radius-sm)',
-        md: 'var(--gb-radius)',
-        lg: 'var(--gb-radius-lg)',
-        xl: 'var(--gb-radius-lg)',
-        '2xl': 'var(--gb-radius-lg)',
-        '3xl': 'var(--gb-radius-lg)',
+        DEFAULT: 'var(--cc-radius)',
+        sm: 'var(--cc-radius-sm)',
+        md: 'var(--cc-radius)',
+        lg: 'var(--cc-radius-lg)',
+        xl: 'var(--cc-radius-lg)',
+        '2xl': 'var(--cc-radius-lg)',
+        '3xl': 'var(--cc-radius-lg)',
       },
       boxShadow: {
-        raised: 'var(--gb-shadow-raised)',
-        panel: 'var(--gb-shadow-panel)',
+        raised: 'var(--cc-shadow-raised)',
+        panel: 'var(--cc-shadow-panel)',
       },
       colors: {
         accent: {
-          500: 'var(--gb-accent)',
+          500: 'var(--cc-accent)',
         },
         background: {
           primary: 'rgb(var(--background-primary-rgb) / <alpha-value>)',
           secondary: 'rgb(var(--background-secondary-rgb) / <alpha-value>)',
-          tertiary: 'var(--gb-background-tertiary)',
-          highlight: 'var(--gb-background-highlight)',
-          success: 'var(--gb-background-success)',
-          warning: 'var(--gb-background-warning)',
-          error: 'var(--gb-background-error)',
+          tertiary: 'var(--cc-background-tertiary)',
+          highlight: 'var(--cc-background-highlight)',
+          success: 'var(--cc-background-success)',
+          warning: 'var(--cc-background-warning)',
+          error: 'var(--cc-background-error)',
           depth: {
             1: 'var(--bolt-elements-bg-depth-1)',
             2: 'var(--bolt-elements-bg-depth-2)',
@@ -53,18 +53,18 @@ export default {
           },
         },
         border: {
-          transparent: 'var(--gb-border-transparent)',
-          selected: 'var(--gb-border-selected)',
+          transparent: 'var(--cc-border-transparent)',
+          selected: 'var(--cc-border-selected)',
         },
         content: {
           primary: 'rgb(var(--content-primary-rgb) / <alpha-value>)',
           secondary: 'rgb(var(--content-secondary-rgb) / <alpha-value>)',
           tertiary: 'rgb(var(--content-tertiary-rgb) / <alpha-value>)',
-          accent: 'var(--gb-content-accent)',
-          success: 'var(--gb-content-success)',
-          warning: 'var(--gb-content-warning)',
-          error: 'var(--gb-content-error)',
-          link: 'var(--gb-content-link)',
+          accent: 'var(--cc-content-accent)',
+          success: 'var(--cc-content-success)',
+          warning: 'var(--cc-content-warning)',
+          error: 'var(--cc-content-error)',
+          link: 'var(--cc-content-link)',
         },
         util: {
           accent: 'rgb(122 162 247 / <alpha-value>)',
@@ -73,7 +73,7 @@ export default {
         },
         bolt: {
           elements: {
-            borderColor: 'var(--gb-border-transparent)',
+            borderColor: 'var(--cc-border-transparent)',
             background: {
               depth: {
                 1: 'var(--bolt-elements-bg-depth-1)',

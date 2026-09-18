@@ -1,11 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256" role="img" aria-label="CloudChef">
-  <rect width="256" height="256" rx="64" fill="#111c25"/>
-  <path
-    fill="#f7f9fb"
-    d="M128 42c-47.5 0-86 38.5-86 86v72.6c0 9.7 11.6 14.6 18.5 7.7L75 193.8l16.5 16.5a10.9 10.9 0 0 0 15.4 0l21.1-21.1 21.1 21.1a10.9 10.9 0 0 0 15.4 0l16.5-16.5 14.5 14.5c6.9 6.9 18.5 2 18.5-7.7V128c0-47.5-38.5-86-86-86Z"
-  />
-  <circle cx="95" cy="125" r="13" fill="#111c25"/>
-  <circle cx="161" cy="125" r="13" fill="#111c25"/>
-  <path fill="none" stroke="#111c25" stroke-linecap="round" stroke-width="12" d="M108 158c11 8 29 8 40 0"/>
-  <path fill="#38e07b" d="m181 193.8 14.5 14.5c6.9 6.9 18.5 2 18.5-7.7v-31.8l-33 25Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="CloudChef">
+  <rect width="256" height="256" rx="48" fill="#1a1b26"/>
+  <path d="M76 160v-24a36 36 0 0 1-7-71 39 39 0 0 1 72-14 35 35 0 0 1 47 17 35 35 0 0 1-8 68v24Z" fill="#f4f4f5"/>
+  <path d="M96 134v26m32-34v34m32-26v26" fill="none" stroke="#1a1b26" stroke-width="8" stroke-linecap="round"/>
+  <path d="M76 172h104v21a11 11 0 0 1-11 11H87a11 11 0 0 1-11-11Z" fill="#ffad70"/>
 </svg>

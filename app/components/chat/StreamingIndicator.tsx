@@ -20,7 +20,7 @@ interface StreamingIndicatorProps {
   resendMessage: () => void;
 }
 
-const WarningIcon = () => <ExclamationTriangleIcon className="text-[var(--gb-content-warning)]" />;
+const WarningIcon = () => <ExclamationTriangleIcon className="text-[var(--cc-content-warning)]" />;
 const LoadingIcon = () => <Spinner />;
 
 export const STATUS_MESSAGES = {

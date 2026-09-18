@@ -6,16 +6,16 @@ Audience: CloudChef coding agent and reviewers
 
 ## Outcome
 
-Change CloudChef's existing Cloudflare sign-in/sign-up authorization so that a user can grant Ghost the broadest Cloudflare API access available to that user. Reuse that same refreshable Cloudflare credential to call Cloudflare's managed API MCP server at `https://mcp.cloudflare.com/mcp`. Do not add a second MCP-specific OAuth prompt.
+Change CloudChef's existing Cloudflare sign-in/sign-up authorization so that a user can grant CloudChef the broadest Cloudflare API access available to that user. Reuse that same refreshable Cloudflare credential to call Cloudflare's managed API MCP server at `https://mcp.cloudflare.com/mcp`. Do not add a second MCP-specific OAuth prompt.
 
-When the full grant is present, Ghost should be able to discover and invoke any operation that all of the following permit:
+When the full grant is present, CloudChef should be able to discover and invoke any operation that all of the following permit:
 
 - the public Cloudflare API and official MCP server expose the operation;
 - the user's OAuth grant contains the necessary scope;
 - the user's Cloudflare account role, selected account/resources, plan, billing state, and product entitlements allow it; and
 - CloudChef's explicit approval and safety policy allows that particular invocation.
 
-This includes the Cloudflare Registrar API. With Registrar Write permission and Cloudflare's billing, registrant-contact, agreement, and availability prerequisites satisfied, Ghost can search for, price, and register a domain. Registration is a billable, normally irreversible action and must never execute without an operation-specific user approval.
+This includes the Cloudflare Registrar API. With Registrar Write permission and Cloudflare's billing, registrant-contact, agreement, and availability prerequisites satisfied, CloudChef can search for, price, and register a domain. Registration is a billable, normally irreversible action and must never execute without an operation-specific user approval.
 
 “Anything the user can do” must not be presented as literal dashboard parity. Cloudflare has no wildcard OAuth scope, some dashboard/support/partner actions are not public API operations, and a token cannot exceed the authorizing member's effective access.
 
@@ -41,7 +41,7 @@ Never infer a broad grant from the existing column. Existing rows must be treate
 
 ### One user-visible authorization flow
 
-The existing CloudChef Cloudflare authorization remains the only Cloudflare consent event. It serves both as account sign-in/sign-up and authorization for Ghost's Cloudflare tools. The MCP client authenticates with a fresh bearer access token derived from that grant.
+The existing CloudChef Cloudflare authorization remains the only Cloudflare consent event. It serves both as account sign-in/sign-up and authorization for CloudChef's Cloudflare tools. The MCP client authenticates with a fresh bearer access token derived from that grant.
 
 Do not redirect the user through the official MCP server's independent OAuth flow. That would create a second grant with a separate lifecycle and would make it possible for CloudChef identity, deployment, and MCP access to refer to different accounts.
 
@@ -52,7 +52,7 @@ Use two scope classes:
 1. **Required core scopes** are the minimum needed for identity, exactly-one-account discovery, refresh tokens, current workspace provisioning/deployment, and Workers AI inference. A user who declines a required core scope cannot complete CloudChef onboarding.
 2. **Broad optional scopes** are every other production OAuth scope supported by the CloudChef OAuth client and relevant to the official Cloudflare API MCP server, including read, write, revoke, run, purge, billing, Registrar, account, user, zone, security, Zero Trust, network, media, email, and developer-platform permissions.
 
-Cloudflare's consent screen selects requested optional permissions by default and lets the user choose Read only, Full access, categories, or individual permissions. CloudChef should explain that leaving **Full access** selected enables the complete agent capability. If the user deliberately narrows the grant, onboarding may continue only when core scopes remain, and Ghost must accurately report partial access.
+Cloudflare's consent screen selects requested optional permissions by default and lets the user choose Read only, Full access, categories, or individual permissions. CloudChef should explain that leaving **Full access** selected enables the complete agent capability. If the user deliberately narrows the grant, onboarding may continue only when core scopes remain, and CloudChef must accurately report partial access.
 
 Do not make hundreds of product scopes “required” merely to force broad consent. Required scopes cannot be declined, which turns a recoverable partial grant into a sign-up failure and is inconsistent with Cloudflare's optional-permission UX. The default request is still the full catalog.
 
@@ -98,7 +98,7 @@ Zone and resource access remains limited by the resources selected in Cloudflare
 
 ### Broad authorization does not mean silent mutation
 
-Authentication answers what Ghost is technically allowed to request. Approval policy answers what it may execute without a fresh human decision. Keep these independent.
+Authentication answers what CloudChef is technically allowed to request. Approval policy answers what it may execute without a fresh human decision. Keep these independent.
 
 For the first mutation-capable release:
 
@@ -133,7 +133,7 @@ User chooses “Continue with Cloudflare”
   -> CloudChef exchanges code, records actual granted scope IDs, and encrypts refresh token
   -> existing/new user session starts
 
-User asks Ghost to inspect or change Cloudflare
+User asks CloudChef to inspect or change Cloudflare
   -> Builder exposes official MCP docs/search/execute tools
   -> transient MCP gateway resolves a fresh access token from CloudChef's vault
   -> gateway calls https://mcp.cloudflare.com/mcp with bearer auth
@@ -236,7 +236,7 @@ Add account states and UI:
 - **Reauthorization required**: legacy/unknown grant; broad MCP disabled until reconnect.
 - **Revoked/error**: current fail-closed recovery behavior.
 
-The onboarding and settings copy must plainly say that Full access lets Ghost read and change Cloudflare resources, manage security and identity settings, create credentials, and perform billable actions only after an additional in-product operation approval. Link to CloudChef privacy/terms and Cloudflare's authorization-management page.
+The onboarding and settings copy must plainly say that Full access lets CloudChef read and change Cloudflare resources, manage security and identity settings, create credentials, and perform billable actions only after an additional in-product operation approval. Link to CloudChef privacy/terms and Cloudflare's authorization-management page.
 
 On successful reauthorization:
 
@@ -457,7 +457,7 @@ The coding agent should expect to touch or add the following areas; exact names 
 - A new user's single Cloudflare sign-in requests the reviewed complete scope profile, with Full access selected by default in Cloudflare consent.
 - CloudChef stores an encrypted refreshable credential and the authoritative actual OAuth grant, separately from product capabilities.
 - An existing narrow/unknown grant cannot use broad MCP until the user reconnects.
-- Ghost can discover and call the official Cloudflare API MCP with the existing credential and no second OAuth flow.
+- CloudChef can discover and call the official Cloudflare API MCP with the existing credential and no second OAuth flow.
 - Tokens never persist in MCP connection state or appear in model/browser/log/audit output.
 - The MCP client is fixed to the official endpoint and authenticated account.
 - Every `execute` is durably approval-gated in the first mutation release, exactly-once bound, recoverable, and audited.

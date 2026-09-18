@@ -8,148 +8,148 @@
 :root {
   /* Only the greys the --bolt-elements-* layer actually reads. Semantic colour
      lives in the light/dark blocks below, not in ramps. */
-  --gb-neutral-2: rgb(192, 202, 245);
-  --gb-neutral-9: rgb(65, 72, 104);
-  --gb-neutral-10: rgb(41, 46, 66);
-  --gb-neutral-11: rgb(36, 40, 59);
-  --gb-neutral-12: rgb(22, 22, 30);
+  --cc-neutral-2: rgb(192, 202, 245);
+  --cc-neutral-9: rgb(65, 72, 104);
+  --cc-neutral-10: rgb(41, 46, 66);
+  --cc-neutral-11: rgb(36, 40, 59);
+  --cc-neutral-12: rgb(22, 22, 30);
 }
 
 :root,
 html.light {
-  --gb-accent: rgb(152, 84, 241);
-  --gb-accent-ink: rgb(236, 237, 241);
-  --gb-background-primary: rgb(220, 222, 229);
-  --gb-background-secondary: rgb(236, 237, 241);
-  --gb-background-tertiary: rgb(206, 210, 224);
-  --gb-background-highlight: rgb(194, 199, 218);
-  --gb-background-success: rgb(219, 243, 194);
-  --gb-background-warning: rgb(245, 227, 181);
-  --gb-background-error: rgb(255, 218, 224);
-  --gb-background-error-secondary: rgb(255, 190, 201);
-  --gb-content-primary: rgb(51, 53, 91);
-  --gb-content-secondary: rgb(97, 114, 176);
-  --gb-content-tertiary: rgb(132, 140, 181);
-  --gb-content-accent: rgb(152, 84, 241);
-  --gb-content-success: rgb(88, 117, 57);
-  --gb-content-warning: rgb(177, 92, 0);
-  --gb-content-error: rgb(197, 32, 76);
-  --gb-content-error-secondary: rgb(245, 42, 101);
-  --gb-content-link: rgb(46, 125, 233);
-  --gb-border-transparent: rgba(51, 53, 91, 0.2);
-  --gb-border-selected: rgb(152, 84, 241);
-  --background-primary: var(--gb-background-primary);
+  --cc-accent: rgb(156, 64, 12);
+  --cc-accent-ink: rgb(255, 255, 255);
+  --cc-background-primary: rgb(220, 222, 229);
+  --cc-background-secondary: rgb(255, 255, 255);
+  --cc-background-tertiary: rgb(206, 210, 224);
+  --cc-background-highlight: rgb(194, 199, 218);
+  --cc-background-success: rgb(219, 243, 194);
+  --cc-background-warning: rgb(245, 227, 181);
+  --cc-background-error: rgb(255, 218, 224);
+  --cc-background-error-secondary: rgb(255, 190, 201);
+  --cc-content-primary: rgb(51, 53, 91);
+  --cc-content-secondary: rgb(97, 114, 176);
+  --cc-content-tertiary: rgb(132, 140, 181);
+  --cc-content-accent: rgb(156, 64, 12);
+  --cc-content-success: rgb(88, 117, 57);
+  --cc-content-warning: rgb(177, 92, 0);
+  --cc-content-error: rgb(197, 32, 76);
+  --cc-content-error-secondary: rgb(245, 42, 101);
+  --cc-content-link: rgb(46, 125, 233);
+  --cc-border-transparent: rgba(51, 53, 91, 0.2);
+  --cc-border-selected: rgb(156, 64, 12);
+  --background-primary: var(--cc-background-primary);
   --background-primary-rgb: 220 222 229;
   --background-secondary-rgb: 236 237 241;
-  --content-primary: var(--gb-content-primary);
+  --content-primary: var(--cc-content-primary);
   --content-primary-rgb: 51 53 91;
-  --content-secondary: var(--gb-content-secondary);
+  --content-secondary: var(--cc-content-secondary);
   --content-secondary-rgb: 97 114 176;
-  --content-tertiary: var(--gb-content-tertiary);
+  --content-tertiary: var(--cc-content-tertiary);
   --content-tertiary-rgb: 132 140 181;
-  --content-link: var(--gb-content-link);
-  --border-transparent: var(--gb-border-transparent);
+  --content-link: var(--cc-content-link);
+  --border-transparent: var(--cc-border-transparent);
   --border-transparent-rgb: 51 53 91 / 0.2;
 }
 
 :root,
 html.dark {
-  --gb-accent: rgb(187, 154, 247);
-  --gb-accent-ink: rgb(26, 27, 38);
-  --gb-background-primary: rgb(26, 27, 38);
-  --gb-background-secondary: rgb(36, 40, 59);
-  --gb-background-tertiary: rgb(41, 46, 66);
-  --gb-background-highlight: rgb(52, 58, 82);
-  --gb-background-success: rgb(45, 63, 30);
-  --gb-background-warning: rgb(84, 58, 24);
-  --gb-background-error: rgb(74, 25, 38);
-  --gb-background-error-secondary: rgb(153, 43, 62);
-  --gb-content-primary: rgb(192, 202, 245);
-  --gb-content-secondary: rgb(169, 177, 214);
-  --gb-content-tertiary: rgb(122, 132, 176);
-  --gb-content-accent: rgb(187, 154, 247);
-  --gb-content-success: rgb(158, 206, 106);
-  --gb-content-warning: rgb(224, 175, 104);
-  --gb-content-error: rgb(255, 154, 172);
-  --gb-content-error-secondary: rgb(247, 118, 142);
-  --gb-content-link: rgb(125, 207, 255);
-  --gb-border-transparent: rgba(192, 202, 245, 0.16);
-  --gb-border-selected: rgb(187, 154, 247);
-  --background-primary: var(--gb-background-primary);
+  --cc-accent: rgb(255, 173, 112);
+  --cc-accent-ink: rgb(26, 27, 38);
+  --cc-background-primary: rgb(26, 27, 38);
+  --cc-background-secondary: rgb(36, 40, 59);
+  --cc-background-tertiary: rgb(41, 46, 66);
+  --cc-background-highlight: rgb(52, 58, 82);
+  --cc-background-success: rgb(45, 63, 30);
+  --cc-background-warning: rgb(84, 58, 24);
+  --cc-background-error: rgb(74, 25, 38);
+  --cc-background-error-secondary: rgb(153, 43, 62);
+  --cc-content-primary: rgb(192, 202, 245);
+  --cc-content-secondary: rgb(169, 177, 214);
+  --cc-content-tertiary: rgb(122, 132, 176);
+  --cc-content-accent: rgb(255, 173, 112);
+  --cc-content-success: rgb(158, 206, 106);
+  --cc-content-warning: rgb(224, 175, 104);
+  --cc-content-error: rgb(255, 154, 172);
+  --cc-content-error-secondary: rgb(247, 118, 142);
+  --cc-content-link: rgb(125, 207, 255);
+  --cc-border-transparent: rgba(192, 202, 245, 0.16);
+  --cc-border-selected: rgb(255, 173, 112);
+  --background-primary: var(--cc-background-primary);
   --background-primary-rgb: 26 27 38;
   --background-secondary-rgb: 36 40 59;
-  --content-primary: var(--gb-content-primary);
+  --content-primary: var(--cc-content-primary);
   --content-primary-rgb: 192 202 245;
-  --content-secondary: var(--gb-content-secondary);
+  --content-secondary: var(--cc-content-secondary);
   --content-secondary-rgb: 169 177 214;
-  --content-tertiary: var(--gb-content-tertiary);
+  --content-tertiary: var(--cc-content-tertiary);
   --content-tertiary-rgb: 122 132 176;
-  --content-link: var(--gb-content-link);
-  --border-transparent: var(--gb-border-transparent);
+  --content-link: var(--cc-content-link);
+  --border-transparent: var(--cc-border-transparent);
   --border-transparent-rgb: 192 202 245 / 0.16;
 }
 
 :root {
-  --bolt-elements-bg-depth-1: var(--gb-background-secondary);
-  --bolt-elements-bg-depth-2: var(--gb-background-primary);
+  --bolt-elements-bg-depth-1: var(--cc-background-secondary);
+  --bolt-elements-bg-depth-2: var(--cc-background-primary);
 
-  --bolt-elements-button-primary-background: var(--gb-accent);
-  --bolt-elements-button-primary-backgroundHover: color-mix(in srgb, var(--gb-accent) 80%, transparent);
-  --bolt-elements-button-primary-text: var(--gb-accent-ink);
+  --bolt-elements-button-primary-background: var(--cc-accent);
+  --bolt-elements-button-primary-backgroundHover: color-mix(in srgb, var(--cc-accent) 80%, transparent);
+  --bolt-elements-button-primary-text: var(--cc-accent-ink);
 
-  --bolt-elements-button-secondary-background: var(--gb-background-secondary);
-  --bolt-elements-button-secondary-backgroundHover: var(--gb-background-tertiary);
-  --bolt-elements-button-secondary-text: var(--gb-content-primary);
+  --bolt-elements-button-secondary-background: var(--cc-background-secondary);
+  --bolt-elements-button-secondary-backgroundHover: var(--cc-background-tertiary);
+  --bolt-elements-button-secondary-text: var(--cc-content-primary);
 
-  --bolt-elements-button-danger-background: var(--gb-background-error);
-  --bolt-elements-button-danger-backgroundHover: var(--gb-background-error-secondary);
-  --bolt-elements-button-danger-text: var(--gb-content-error);
+  --bolt-elements-button-danger-background: var(--cc-background-error);
+  --bolt-elements-button-danger-backgroundHover: var(--cc-background-error-secondary);
+  --bolt-elements-button-danger-text: var(--cc-content-error);
 
-  --bolt-elements-loader-background: var(--gb-neutral-9);
-  --bolt-elements-loader-progress: var(--gb-content-accent);
+  --bolt-elements-loader-background: var(--cc-neutral-9);
+  --bolt-elements-loader-progress: var(--cc-content-accent);
 
-  --bolt-elements-messages-background: var(--gb-background-primary);
-  --bolt-elements-messages-linkColor: var(--gb-content-link);
+  --bolt-elements-messages-background: var(--cc-background-primary);
+  --bolt-elements-messages-linkColor: var(--cc-content-link);
 
-  --bolt-elements-artifacts-background: var(--gb-background-secondary);
-  --bolt-elements-artifacts-backgroundHover: var(--gb-background-primary);
-  --bolt-elements-artifacts-borderColor: var(--gb-border-transparent);
-  --bolt-elements-actions-background: var(--gb-background-secondary);
+  --bolt-elements-artifacts-background: var(--cc-background-secondary);
+  --bolt-elements-artifacts-backgroundHover: var(--cc-background-primary);
+  --bolt-elements-artifacts-borderColor: var(--cc-border-transparent);
+  --bolt-elements-actions-background: var(--cc-background-secondary);
 
-  --bolt-elements-sidebar-background: var(--gb-background-secondary);
-  --bolt-elements-sidebar-active-item-background: var(--gb-background-primary);
+  --bolt-elements-sidebar-background: var(--cc-background-secondary);
+  --bolt-elements-sidebar-active-item-background: var(--cc-background-primary);
 
-  --bolt-elements-preview-addressBar-background: var(--gb-background-secondary);
-  --bolt-elements-preview-addressBar-backgroundHover: var(--gb-background-secondary);
-  --bolt-elements-preview-addressBar-backgroundActive: var(--gb-background-secondary);
-  --bolt-elements-preview-addressBar-text: var(--gb-content-secondary);
-  --bolt-elements-preview-addressBar-textActive: var(--gb-content-primary);
+  --bolt-elements-preview-addressBar-background: var(--cc-background-secondary);
+  --bolt-elements-preview-addressBar-backgroundHover: var(--cc-background-secondary);
+  --bolt-elements-preview-addressBar-backgroundActive: var(--cc-background-secondary);
+  --bolt-elements-preview-addressBar-text: var(--cc-content-secondary);
+  --bolt-elements-preview-addressBar-textActive: var(--cc-content-primary);
 
-  --bolt-elements-item-backgroundAccent: var(--gb-background-tertiary);
-  --bolt-elements-item-contentAccent: var(--gb-content-primary);
+  --bolt-elements-item-backgroundAccent: var(--cc-background-tertiary);
+  --bolt-elements-item-contentAccent: var(--cc-content-primary);
 
-  --bolt-elements-actions-code-background: var(--gb-neutral-12);
+  --bolt-elements-actions-code-background: var(--cc-neutral-12);
 
-  /* Theme-independent once routed through --gb-*: the light and dark blocks
+  /* Theme-independent once routed through --cc-*: the light and dark blocks
      below carry only the values that actually differ. */
-  --bolt-elements-bg-depth-3: var(--gb-background-tertiary);
+  --bolt-elements-bg-depth-3: var(--cc-background-tertiary);
   --bolt-elements-bg-depth-4: rgb(var(--content-primary-rgb) / 0.06);
-  --bolt-elements-code-text: var(--gb-content-primary);
-  --bolt-elements-messages-inlineCode-text: var(--gb-content-primary);
-  --bolt-elements-artifacts-inlineCode-text: var(--gb-content-primary);
-  --bolt-elements-item-contentActive: var(--gb-content-primary);
-  --bolt-elements-item-contentDanger: var(--gb-content-error-secondary);
-  --bolt-elements-item-backgroundDanger: color-mix(in srgb, var(--gb-content-error-secondary) 12%, transparent);
-  --bolt-elements-icon-success: var(--gb-content-success);
-  --bolt-elements-icon-error: var(--gb-content-error-secondary);
+  --bolt-elements-code-text: var(--cc-content-primary);
+  --bolt-elements-messages-inlineCode-text: var(--cc-content-primary);
+  --bolt-elements-artifacts-inlineCode-text: var(--cc-content-primary);
+  --bolt-elements-item-contentActive: var(--cc-content-primary);
+  --bolt-elements-item-contentDanger: var(--cc-content-error-secondary);
+  --bolt-elements-item-backgroundDanger: color-mix(in srgb, var(--cc-content-error-secondary) 12%, transparent);
+  --bolt-elements-icon-success: var(--cc-content-success);
+  --bolt-elements-icon-error: var(--cc-content-error-secondary);
 }
 
 :root,
 html.light {
-  --bolt-elements-code-background: var(--gb-background-secondary);
-  --bolt-elements-messages-code-background: var(--gb-neutral-11);
-  --bolt-elements-messages-inlineCode-background: var(--gb-background-tertiary);
-  --bolt-elements-artifacts-inlineCode-background: var(--gb-background-tertiary);
+  --bolt-elements-code-background: var(--cc-background-secondary);
+  --bolt-elements-messages-code-background: var(--cc-neutral-11);
+  --bolt-elements-messages-inlineCode-background: var(--cc-background-tertiary);
+  --bolt-elements-artifacts-inlineCode-background: var(--cc-background-tertiary);
 
   --bolt-elements-item-contentDefault: rgb(var(--content-primary-rgb) / 0.6);
   --bolt-elements-item-backgroundDefault: rgba(0, 0, 0, 0);
@@ -160,10 +160,10 @@ html.light {
 
 :root,
 html.dark {
-  --bolt-elements-code-background: var(--gb-neutral-11);
-  --bolt-elements-messages-code-background: var(--gb-neutral-12);
-  --bolt-elements-messages-inlineCode-background: var(--gb-neutral-10);
-  --bolt-elements-artifacts-inlineCode-background: var(--gb-neutral-11);
+  --bolt-elements-code-background: var(--cc-neutral-11);
+  --bolt-elements-messages-code-background: var(--cc-neutral-12);
+  --bolt-elements-messages-inlineCode-background: var(--cc-neutral-10);
+  --bolt-elements-artifacts-inlineCode-background: var(--cc-neutral-11);
 
   --bolt-elements-item-contentDefault: rgb(var(--content-primary-rgb) / 0.55);
   --bolt-elements-item-backgroundDefault: rgba(255, 255, 255, 0);
@@ -187,18 +187,18 @@ html.dark {
 
   /* Retro chrome primitives. Square-ish corners and a stacked drop shadow
      stand in for the soft blurred surfaces the previous theme used. */
-  --gb-font-mono:
+  --cc-font-mono:
     'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-  --gb-radius-sm: 4px;
-  --gb-radius: 6px;
-  --gb-radius-lg: 8px;
-  --gb-tracking-label: 0.12em;
+  --cc-radius-sm: 4px;
+  --cc-radius: 6px;
+  --cc-radius-lg: 8px;
+  --cc-tracking-label: 0.12em;
   /* Three layers, not six: at -12px spread and tighter the shadow rect is
      inside the border box, so the extra blurs rasterise under an opaque
      element. This renders identically for half the blur work. */
-  --gb-shadow-raised:
+  --cc-shadow-raised:
     0 1px 0 0 rgba(0, 0, 0, 0.1), 0 3px 18px -6px rgba(0, 0, 0, 0.2), 0 6px 30px -12px rgba(0, 0, 0, 0.3);
-  --gb-shadow-panel: 0 2px 0 0 rgba(0, 0, 0, 0.12), 0 18px 48px -24px rgba(0, 0, 0, 0.55);
+  --cc-shadow-panel: 0 2px 0 0 rgba(0, 0, 0, 0.12), 0 18px 48px -24px rgba(0, 0, 0, 0.55);
 }
 
 @media (min-width: 1280px) {

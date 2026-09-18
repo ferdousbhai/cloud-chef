@@ -166,9 +166,9 @@ function getEditorTheme() {
       padding: '4px',
       whiteSpace: 'nowrap',
       backgroundColor: 'var(--bolt-elements-bg-depth-2)',
-      borderColor: 'var(--gb-border-selected)',
+      borderColor: 'var(--cc-border-selected)',
       '& .cm-tooltip-arrow:before': {
-        borderTopColor: 'var(--gb-border-selected)',
+        borderTopColor: 'var(--cc-border-selected)',
       },
       '& .cm-tooltip-arrow:after': {
         borderTopColor: 'transparent',

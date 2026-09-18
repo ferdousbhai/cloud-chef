@@ -36,7 +36,7 @@ export function Modal({
               <Dialog.Close asChild>
                 <button
                   type="button"
-                  className="gb-icon-button flex size-8 items-center justify-center text-content-secondary hover:text-content-primary"
+                  className="cc-icon-button flex size-8 items-center justify-center text-content-secondary hover:text-content-primary"
                   aria-label="Close dialog"
                 >
                   <span aria-hidden>×</span>

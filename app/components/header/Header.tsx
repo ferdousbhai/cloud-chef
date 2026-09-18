@@ -107,10 +107,10 @@ export function Header({ hideSidebarIcon = false }: { hideSidebarIcon?: boolean 
           {profile && (
             <>
               <div className="hidden items-center gap-1 lg:flex">
-                <LinkButton variant="ghost" size="xs" to="/settings" icon={<GearIcon />}>
+                <LinkButton variant="subtle" size="xs" to="/settings" icon={<GearIcon />}>
                   Settings
                 </LinkButton>
-                <Button variant="ghost" size="xs" onClick={() => void handleLogout()} icon={<ExitIcon />}>
+                <Button variant="subtle" size="xs" onClick={() => void handleLogout()} icon={<ExitIcon />}>
                   Log out
                 </Button>
               </div>

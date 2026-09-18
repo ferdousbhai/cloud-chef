@@ -1,19 +1,19 @@
 :root {
   line-height: 1.55;
-  font-family: var(--gb-font-mono);
+  font-family: var(--cc-font-mono);
   font-synthesis: none;
   /* Deliberate for a coding face: no `!=`/`=>` ligatures anywhere. */
   font-variant-ligatures: none;
 }
 
 html {
-  background: var(--gb-background-primary);
+  background: var(--cc-background-primary);
 }
 
 body {
   min-width: 320px;
-  background: var(--gb-background-primary);
-  color: var(--gb-content-primary);
+  background: var(--cc-background-primary);
+  color: var(--cc-content-primary);
   font-family: inherit;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -25,8 +25,8 @@ button,
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--gb-content-accent) 32%, transparent);
-  color: var(--gb-content-primary);
+  background: color-mix(in srgb, var(--cc-content-accent) 32%, transparent);
+  color: var(--cc-content-primary);
 }
 
 #root,
@@ -35,15 +35,15 @@ button,
 }
 
 :where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
-  outline: 2px solid var(--gb-content-accent);
+  outline: 2px solid var(--cc-content-accent);
   outline-offset: 2px;
 }
 
 /* Terminal buttons: flat accent fill, dark ink, uppercase, stacked shadow. */
-.gb-button {
-  border-radius: var(--gb-radius);
+.cc-button {
+  border-radius: var(--cc-radius);
   font-weight: 700;
-  letter-spacing: var(--gb-tracking-label);
+  letter-spacing: var(--cc-tracking-label);
   text-transform: uppercase;
   transition:
     transform 120ms ease,
@@ -51,34 +51,34 @@ button,
     border-color 120ms ease;
 }
 
-.gb-button:hover:not(:disabled) {
+.cc-button:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
-.gb-button:active:not(:disabled) {
+.cc-button:active:not(:disabled) {
   transform: translateY(1px);
 }
 
-.gb-button.bg-accent-500 {
-  background: var(--gb-accent);
-  color: var(--gb-accent-ink);
-  box-shadow: var(--gb-shadow-raised);
+.cc-button.bg-accent-500 {
+  background: var(--cc-accent);
+  color: var(--cc-accent-ink);
+  box-shadow: var(--cc-shadow-raised);
 }
 
-.gb-button.bg-accent-500:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--gb-accent) 82%, var(--gb-content-primary));
+.cc-button.bg-accent-500:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cc-accent) 82%, var(--cc-content-primary));
 }
 
-.gb-icon-button {
-  border-radius: var(--gb-radius);
+.cc-icon-button {
+  border-radius: var(--cc-radius);
   transition:
     color 120ms ease,
     background-color 120ms ease;
 }
 
-.gb-icon-button:hover {
-  background: color-mix(in srgb, var(--gb-content-accent) 14%, transparent);
-  color: var(--gb-content-accent);
+.cc-icon-button:hover {
+  background: color-mix(in srgb, var(--cc-content-accent) 14%, transparent);
+  color: var(--cc-content-accent);
 }
 
 .skip-link {
@@ -86,14 +86,14 @@ button,
   top: 12px;
   left: 12px;
   z-index: 9999;
-  border: 1px solid var(--gb-border-selected);
-  border-radius: var(--gb-radius);
-  background: var(--gb-background-secondary);
-  color: var(--gb-content-primary);
+  border: 1px solid var(--cc-border-selected);
+  border-radius: var(--cc-radius);
+  background: var(--cc-background-secondary);
+  color: var(--cc-content-primary);
   padding: 10px 14px;
   font-size: 13px;
   font-weight: 700;
-  letter-spacing: var(--gb-tracking-label);
+  letter-spacing: var(--cc-tracking-label);
   text-transform: uppercase;
   text-decoration: none;
   transform: translateY(calc(-100% - 24px));
@@ -109,14 +109,14 @@ button,
   height: var(--header-height);
   min-height: var(--header-height);
   flex-shrink: 0;
-  border-bottom: 1px solid var(--gb-border-transparent);
-  background: var(--gb-background-primary);
-  color: var(--gb-content-primary);
+  border-bottom: 1px solid var(--cc-border-transparent);
+  background: var(--cc-background-primary);
+  color: var(--cc-content-primary);
 }
 
 .cloudchef-header a,
 .cloudchef-header a:visited {
-  color: var(--gb-content-primary);
+  color: var(--cc-content-primary);
 }
 
 .cloudchef-header__menu-button {
@@ -126,10 +126,10 @@ button,
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--gb-border-transparent);
-  border-radius: var(--gb-radius-sm);
-  background: var(--gb-background-secondary);
-  color: var(--gb-content-secondary);
+  border: 1px solid var(--cc-border-transparent);
+  border-radius: var(--cc-radius-sm);
+  background: var(--cc-background-secondary);
+  color: var(--cc-content-secondary);
   transition:
     border-color 120ms ease,
     background-color 120ms ease,
@@ -138,9 +138,9 @@ button,
 }
 
 .cloudchef-header__menu-button:hover {
-  border-color: var(--gb-content-accent);
-  background: var(--gb-background-tertiary);
-  color: var(--gb-content-accent);
+  border-color: var(--cc-content-accent);
+  background: var(--cc-background-tertiary);
+  color: var(--cc-content-accent);
 }
 
 .cloudchef-header__menu-button:active {
@@ -152,8 +152,8 @@ button,
   min-height: 100svh;
   overflow: hidden;
   isolation: isolate;
-  background: var(--gb-background-primary);
-  color: var(--gb-content-primary);
+  background: var(--cc-background-primary);
+  color: var(--cc-content-primary);
 }
 
 .app-page-container {
@@ -174,33 +174,33 @@ button,
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  color: var(--gb-content-primary);
+  color: var(--cc-content-primary);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-decoration: none;
 }
 
 .app-brand-lockup:visited {
-  color: var(--gb-content-primary);
+  color: var(--cc-content-primary);
 }
 
 .app-page-eyebrow {
-  color: var(--gb-content-accent);
+  color: var(--cc-content-accent);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: var(--gb-tracking-label);
+  letter-spacing: var(--cc-tracking-label);
   text-transform: uppercase;
 }
 
 .app-page-eyebrow::before {
   content: '// ';
-  color: var(--gb-content-tertiary);
+  color: var(--cc-content-tertiary);
 }
 
 .app-page-title {
   max-width: 760px;
   margin: 12px 0 0;
-  color: var(--gb-content-primary);
+  color: var(--cc-content-primary);
   font-size: clamp(28px, 4.4vw, 44px);
   font-weight: 700;
   line-height: 1.1;
@@ -210,7 +210,7 @@ button,
 .app-page-lede {
   max-width: 650px;
   margin: 16px 0 0;
-  color: var(--gb-content-secondary);
+  color: var(--cc-content-secondary);
   font-size: 15px;
   line-height: 1.7;
 }
@@ -220,14 +220,14 @@ button,
 }
 
 .app-card {
-  border: 1px solid var(--gb-border-transparent);
-  border-radius: var(--gb-radius-lg);
-  background: var(--gb-background-secondary);
-  box-shadow: var(--gb-shadow-panel);
+  border: 1px solid var(--cc-border-transparent);
+  border-radius: var(--cc-radius-lg);
+  background: var(--cc-background-secondary);
+  box-shadow: var(--cc-shadow-panel);
 }
 
 .app-card-title {
-  color: var(--gb-content-primary);
+  color: var(--cc-content-primary);
   font-size: 16px;
   font-weight: 700;
   line-height: 1.3;
@@ -238,14 +238,14 @@ button,
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  border: 1px solid var(--gb-border-transparent);
-  border-radius: var(--gb-radius-sm);
-  background: var(--gb-background-secondary);
-  color: var(--gb-content-secondary);
+  border: 1px solid var(--cc-border-transparent);
+  border-radius: var(--cc-radius-sm);
+  background: var(--cc-background-secondary);
+  color: var(--cc-content-secondary);
   padding: 5px 9px;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: var(--gb-tracking-label);
+  letter-spacing: var(--cc-tracking-label);
   text-transform: uppercase;
 }
 
@@ -253,13 +253,13 @@ button,
   width: 7px;
   height: 7px;
   border-radius: 1px;
-  background: var(--gb-content-success);
+  background: var(--cc-content-success);
   content: '';
 }
 
 .app-loading-state {
   min-height: min(100%, 520px);
-  color: var(--gb-content-secondary);
+  color: var(--cc-content-secondary);
 }
 
 .app-loading-mark {
@@ -267,11 +267,11 @@ button,
   width: 44px;
   height: 44px;
   place-items: center;
-  border: 1px solid var(--gb-border-transparent);
-  border-radius: var(--gb-radius);
-  background: var(--gb-accent);
-  color: var(--gb-accent-ink);
-  box-shadow: var(--gb-shadow-raised);
+  border: 1px solid var(--cc-border-transparent);
+  border-radius: var(--cc-radius);
+  background: var(--cc-accent);
+  color: var(--cc-accent-ink);
+  box-shadow: var(--cc-shadow-raised);
 }
 
 .app-error-card {
@@ -282,10 +282,10 @@ button,
 .app-error-code {
   max-height: 220px;
   overflow: auto;
-  border: 1px solid var(--gb-border-transparent);
-  border-radius: var(--gb-radius);
-  background: var(--gb-neutral-12);
-  color: var(--gb-neutral-2);
+  border: 1px solid var(--cc-border-transparent);
+  border-radius: var(--cc-radius);
+  background: var(--cc-neutral-12);
+  color: var(--cc-neutral-2);
   padding: 14px;
   font-size: 12px;
   line-height: 1.6;
@@ -319,8 +319,8 @@ button,
 }
 
 @media (pointer: coarse) {
-  .gb-button,
-  .gb-icon-button,
+  .cc-button,
+  .cc-icon-button,
   .cloudchef-header__menu-button {
     min-width: 44px;
     min-height: 44px;

@@ -21,7 +21,7 @@
   --cm-selection-backgroundColorBlurred: var(--bolt-elements-editor-selection-inactiveBackgroundColor, #c9e9ff);
   --cm-selection-backgroundOpacityBlurred: var(--bolt-elements-editor-selection-inactiveBackgroundOpacity, 0.3);
 
-  --cm-panels-borderColor: var(--bolt-elements-editor-panels-borderColor, var(--gb-border-transparent));
+  --cm-panels-borderColor: var(--bolt-elements-editor-panels-borderColor, var(--cc-border-transparent));
 
   --cm-search-backgroundColor: var(--bolt-elements-editor-search-backgroundColor, var(--cm-backgroundColor));
   --cm-search-textColor: var(--bolt-elements-editor-search-textColor, rgb(var(--content-secondary-rgb)));
@@ -64,16 +64,16 @@
 
   --cm-search-button-borderColorFocused: var(
     --bolt-elements-editor-search-button-borderColorFocused,
-    var(--gb-border-selected)
+    var(--cc-border-selected)
   );
 
   --cm-search-input-backgroundColor: var(--bolt-elements-editor-search-input-backgroundColor, transparent);
   --cm-search-input-textColor: var(--bolt-elements-editor-search-input-textColor, rgb(var(--content-primary-rgb)));
-  --cm-search-input-borderColor: var(--bolt-elements-editor-search-input-borderColor, var(--gb-border-transparent));
+  --cm-search-input-borderColor: var(--bolt-elements-editor-search-input-borderColor, var(--cc-border-transparent));
 
   --cm-search-input-borderColorFocused: var(
     --bolt-elements-editor-search-input-borderColorFocused,
-    var(--gb-border-selected)
+    var(--cc-border-selected)
   );
 
   --cm-tooltip-backgroundColor: var(--bolt-elements-editor-tooltip-backgroundColor, var(--cm-backgroundColor));
@@ -89,7 +89,7 @@
     rgb(var(--content-primary-rgb))
   );
 
-  --cm-tooltip-borderColor: var(--bolt-elements-editor-tooltip-borderColor, var(--gb-border-transparent));
+  --cm-tooltip-borderColor: var(--bolt-elements-editor-tooltip-borderColor, var(--cc-border-transparent));
 
   --cm-searchMatch-backgroundColor: var(--bolt-elements-editor-searchMatch-backgroundColor, rgba(234, 92, 0, 0.33));
 }

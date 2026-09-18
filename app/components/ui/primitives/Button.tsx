@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 import { classNames } from '~/utils/classNames';
 import { Spinner } from './Spinner';
 
-export type ButtonVariant = 'primary' | 'neutral' | 'danger' | 'ghost';
+export type ButtonVariant = 'primary' | 'neutral' | 'danger' | 'subtle';
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 
 export type ButtonVisualProps = {
@@ -27,7 +27,7 @@ const variantClasses = {
   danger: 'bg-red-600 text-white hover:bg-red-700',
   neutral:
     'border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-content-primary hover:bg-bolt-elements-background-depth-3',
-  ghost:
+  subtle:
     'border border-transparent bg-transparent text-content-secondary hover:bg-bolt-elements-background-depth-2 hover:text-content-primary',
 } satisfies Record<ButtonVariant, string>;
 
@@ -45,7 +45,7 @@ export function buttonClassNames({
   inline,
 }: Pick<ButtonVisualProps, 'className' | 'variant' | 'size' | 'inline'>) {
   return classNames(
-    'gb-button inline-flex shrink-0 items-center justify-center gap-1.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50',
+    'cc-button inline-flex shrink-0 items-center justify-center gap-1.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50',
     inline ? 'w-auto' : '',
     variantClasses[variant],
     sizeClasses[size],

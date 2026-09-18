@@ -4,11 +4,11 @@
   "description": "Build and ship Cloudflare apps with a full-stack AI coding agent.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#fff9fc",
-  "theme_color": "#18101e",
+  "background_color": "#1a1b26",
+  "theme_color": "#1a1b26",
   "icons": [
     {
-      "src": "/cloudchef-logo.svg",
+      "src": "/cloudchef-logo.svg?v=2",
       "sizes": "any",
       "type": "image/svg+xml"
     }

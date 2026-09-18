@@ -47,7 +47,7 @@ export const TRUST_LINKS = [
 export function createPublicBetaTrustPageHead(options: { title: string; description: string; path: string }) {
   return createSocialPageHead({
     ...options,
-    imagePath: '/social-preview-home-v2.png',
+    imagePath: '/social-preview-home-v3.png',
     imageAlt: 'CloudChef — build and ship Cloudflare apps',
   });
 }

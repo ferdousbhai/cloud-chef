@@ -98,7 +98,7 @@ export const Route = createRootRoute({
     links: [
       {
         rel: 'icon',
-        href: '/cloudchef-logo.svg',
+        href: '/cloudchef-logo.svg?v=2',
         type: 'image/svg+xml',
       },
       { rel: 'manifest', href: '/site.webmanifest' },

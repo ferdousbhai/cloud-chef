@@ -1,4 +1,4 @@
-// Pi-native ghost message — kept structurally compatible with UIMessage parts shapes used by chat UI.
+// Pi-native CloudChef message — kept structurally compatible with UIMessage parts shapes used by chat UI.
 export type CloudChefPart = {
   type: string;
   text?: string;

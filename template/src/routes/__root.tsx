@@ -30,7 +30,7 @@ export const Route = createRootRoute({
       { property: "og:type", content: "website" },
       {
         property: "og:image",
-        content: "https://cloudchef.build/social-preview-share-v2.png",
+        content: "https://cloudchef.build/social-preview-share-v3.png",
       },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:title", content: "CloudChef Cloudflare App" },
@@ -40,7 +40,7 @@ export const Route = createRootRoute({
       },
       {
         name: "twitter:image",
-        content: "https://cloudchef.build/social-preview-share-v2.png",
+        content: "https://cloudchef.build/social-preview-share-v3.png",
       },
     ],
     links: [{ rel: "stylesheet", href: appCss }],

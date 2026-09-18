@@ -169,7 +169,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-5">
           {history.error != null && (
             <div
-              className="mb-3 rounded-lg border border-[var(--gb-content-warning)]/40 bg-[var(--gb-background-secondary)] p-3 text-xs text-content-secondary"
+              className="mb-3 rounded-lg border border-[var(--cc-content-warning)]/40 bg-[var(--cc-background-secondary)] p-3 text-xs text-content-secondary"
               role="alert"
             >
               <p>Projects could not be refreshed.</p>

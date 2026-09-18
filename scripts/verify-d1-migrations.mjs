@@ -41,7 +41,7 @@ const migrationPolicies = [
       '0004_remove_legacy_workspace_runtime.sql': 'fd0a0a6a4297ccc046216ff11216bb217afaaeb399548501a2581f7e4450ae5f',
       // Full launch removes the default-off gate that blocked automatic provisioning.
       '0006_remove_launch_controls.sql': '48cb5986ca4291a46609b4714747878adb197dea2024d6c0a8bdd817327bb99f',
-      // Operator receipts moved to the private ghost-build-ops database.
+      // Operator receipts moved to the retired private operator database.
       '0008_remove_upstream_monitor_runs.sql': '1ca903265be41d756da88c11dcebdec0547309bf4f5fc24c82b2fd9b9f295112',
       // No code reads these tables once skills stop being mirrored; the sync that wrote them is gone.
       '0012_remove_builder_skill_sync.sql': '5731448cabed0deec30178e99a87419103d1f9a96ca1ecbc6bdc5d36ecf1a708',

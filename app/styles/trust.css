@@ -2,10 +2,10 @@
    one clause — so headings sit close to the text they label and sections are separated by a rule
    rather than by empty space. */
 .trust-page {
-  --trust-rule: color-mix(in srgb, var(--ghost-home-accent-2) 24%, var(--ghost-home-border));
+  --trust-rule: color-mix(in srgb, var(--cloudchef-home-accent-2) 24%, var(--cloudchef-home-border));
   overflow-x: hidden;
-  background: var(--ghost-home-bg);
-  color: var(--ghost-home-ink);
+  background: var(--cloudchef-home-bg);
+  color: var(--cloudchef-home-ink);
 }
 
 .trust-page__header {
@@ -30,10 +30,10 @@
   flex-wrap: wrap;
   gap: 8px;
   margin: 0 0 10px;
-  color: var(--gb-content-tertiary);
+  color: var(--cc-content-tertiary);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: var(--gb-tracking-label);
+  letter-spacing: var(--cc-tracking-label);
   text-transform: uppercase;
 }
 
@@ -53,7 +53,7 @@
 .trust-page__summary {
   max-width: 70ch;
   margin-top: 10px;
-  color: var(--ghost-home-muted);
+  color: var(--cloudchef-home-muted);
   font-size: clamp(15px, 1.4vw, 16px);
   line-height: 1.6;
 }
@@ -69,7 +69,7 @@
 
 .trust-page__prose h2 {
   margin-bottom: 8px;
-  color: var(--ghost-home-ink);
+  color: var(--cloudchef-home-ink);
   font-size: clamp(17px, 1.6vw, 20px);
   font-weight: 800;
   line-height: 1.3;
@@ -81,7 +81,7 @@
 .trust-page__prose dt,
 .trust-page__prose dd {
   max-width: 70ch;
-  color: var(--ghost-home-muted);
+  color: var(--cloudchef-home-muted);
   font-size: 15px;
   line-height: 1.6;
 }
@@ -101,7 +101,7 @@
 }
 
 .trust-page__prose li::marker {
-  color: var(--ghost-home-soft);
+  color: var(--cloudchef-home-soft);
 }
 
 /* Two columns so the term and its value line up down the page; a term that has to wrap still
@@ -115,18 +115,18 @@
 }
 
 .trust-page__pairs dt {
-  color: var(--ghost-home-ink);
+  color: var(--cloudchef-home-ink);
   font-weight: 700;
 }
 
 .trust-page__prose strong,
 .trust-page__prose a {
-  color: var(--ghost-home-ink);
+  color: var(--cloudchef-home-ink);
 }
 
 .trust-page__prose a {
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--ghost-home-accent) 58%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--cloudchef-home-accent) 58%, transparent);
   text-underline-offset: 4px;
 }
 
@@ -135,14 +135,14 @@
   min-height: 44px;
   padding: 10px 16px;
   align-items: center;
-  border-radius: var(--gb-radius);
-  background: var(--gb-accent);
-  color: var(--gb-accent-ink) !important;
+  border-radius: var(--cc-radius);
+  background: var(--cc-accent);
+  color: var(--cc-accent-ink) !important;
   font-weight: 700;
-  letter-spacing: var(--gb-tracking-label);
+  letter-spacing: var(--cc-tracking-label);
   text-transform: uppercase;
   text-decoration: none !important;
-  box-shadow: var(--gb-shadow-raised);
+  box-shadow: var(--cc-shadow-raised);
 }
 
 @media (max-width: 720px) {

@@ -1,34 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <defs>
-    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(170 80) rotate(34) scale(760 560)">
-      <stop offset="0" stop-color="#123d2c"/>
-      <stop offset="0.52" stop-color="#0d171c"/>
-      <stop offset="1" stop-color="#080d11"/>
-    </radialGradient>
-    <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse">
-      <path d="M42 0H0V42" fill="none" stroke="#d7e4dd" stroke-opacity=".045"/>
-    </pattern>
-    <filter id="shadow" x="-40%" y="-40%" width="180%" height="180%">
-      <feDropShadow dx="0" dy="18" stdDeviation="26" flood-color="#000" flood-opacity=".38"/>
-    </filter>
-  </defs>
-  <rect width="1200" height="630" fill="url(#glow)"/>
-  <rect width="1200" height="630" fill="url(#grid)"/>
-  <circle cx="1060" cy="96" r="184" fill="#38e07b" opacity=".055"/>
-  <circle cx="1112" cy="542" r="290" fill="#38e07b" opacity=".035"/>
-
-  <g filter="url(#shadow)">
-    <rect x="72" y="93" width="218" height="218" rx="62" fill="#111c25" stroke="#38e07b" stroke-opacity=".26" stroke-width="2"/>
-    <text x="181" y="244" text-anchor="middle" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji" font-size="126">👻</text>
-  </g>
-
-  <text x="350" y="169" fill="#38e07b" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="30" font-weight="700" letter-spacing=".8">cloudchef.build</text>
-  <text x="350" y="268" fill="#f7f9fb" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="72" font-weight="760" letter-spacing="-2.6">CloudChef</text>
-  <text x="350" y="340" fill="#c9d2dc" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="40" font-weight="520" letter-spacing="-.7">Build and ship Cloudflare apps.</text>
-
-  <g transform="translate(72 493)">
-    <rect width="1056" height="1" fill="#d7e4dd" opacity=".14"/>
-    <circle cx="9" cy="67" r="7" fill="#38e07b"/>
-    <text x="32" y="77" fill="#aebbc7" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="27" font-weight="560">Full-stack AI coding agent for Cloudflare</text>
+  <rect width="1200" height="630" fill="#1a1b26"/>
+  <g transform="translate(64 156) scale(.82)">  <rect width="256" height="256" rx="48" fill="#1a1b26"/>
+  <path d="M76 160v-24a36 36 0 0 1-7-71 39 39 0 0 1 72-14 35 35 0 0 1 47 17 35 35 0 0 1-8 68v24Z" fill="#f4f4f5"/>
+  <path d="M96 134v26m32-34v34m32-26v26" fill="none" stroke="#1a1b26" stroke-width="8" stroke-linecap="round"/>
+  <path d="M76 172h104v21a11 11 0 0 1-11 11H87a11 11 0 0 1-11-11Z" fill="#ffad70"/>
+</g>
+  <g font-family="DejaVu Sans, sans-serif">
+    <text x="328" y="180" fill="#ffad70" font-size="28">cloudchef.build</text>
+    <text x="328" y="272" fill="#f4f4f5" font-size="68" font-weight="700">CloudChef</text>
+    <text x="328" y="336" fill="#b9c1de" font-size="32">Build and ship Cloudflare apps.</text>
+    <path d="M72 477h1056" stroke="#414868"/>
+    <text x="72" y="548" fill="#b9c1de" font-size="26">Your idea. Your Cloudflare account.</text>
   </g>
 </svg>

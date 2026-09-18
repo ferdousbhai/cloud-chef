@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 const inlineComponents: Components = {
   p: ({ children }) => <>{children}</>,
   code: ({ children }) => (
-    <code className="rounded bg-[var(--gb-background-secondary)] px-1 py-0.5 font-mono text-[0.9em]">{children}</code>
+    <code className="rounded bg-[var(--cc-background-secondary)] px-1 py-0.5 font-mono text-[0.9em]">{children}</code>
   ),
 };
 

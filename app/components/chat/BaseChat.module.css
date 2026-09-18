@@ -16,7 +16,7 @@
 
 .Chat {
   opacity: 1;
-  background: var(--gb-background-primary);
+  background: var(--cc-background-primary);
 }
 
 .ChatScroller {
@@ -37,7 +37,7 @@
   inset: -3rem -1rem 0;
   content: '';
   pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--gb-background-primary) 3rem);
+  background: linear-gradient(to bottom, transparent, var(--cc-background-primary) 3rem);
 }
 
 .Message {
@@ -48,16 +48,16 @@
   align-self: flex-end;
   width: min(92%, 34rem);
   padding: 0.5rem 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--gb-content-accent) 22%, var(--gb-border-transparent));
+  border: 1px solid color-mix(in srgb, var(--cc-content-accent) 22%, var(--cc-border-transparent));
   /* Keeps the tailed-bubble idiom, at the theme's radius scale. */
-  border-radius: var(--gb-radius-lg) var(--gb-radius-lg) var(--gb-radius-sm) var(--gb-radius-lg);
-  background: color-mix(in srgb, var(--gb-background-secondary) 91%, var(--gb-accent));
-  box-shadow: var(--gb-shadow-panel);
+  border-radius: var(--cc-radius-lg) var(--cc-radius-lg) var(--cc-radius-sm) var(--cc-radius-lg);
+  background: color-mix(in srgb, var(--cc-background-secondary) 91%, var(--cc-accent));
+  box-shadow: var(--cc-shadow-panel);
 }
 
 .AssistantMessage {
   padding: 0.3rem 0.25rem 0.5rem;
-  color: var(--gb-content-primary);
+  color: var(--cc-content-primary);
 }
 
 @keyframes message-enter {

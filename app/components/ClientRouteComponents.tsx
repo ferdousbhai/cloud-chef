@@ -84,11 +84,11 @@ function HeaderLoadingFallback() {
 
 function HomepageLoadingFallback() {
   return (
-    <div className="ghost-home-shell grow p-4 sm:px-6 lg:px-8 lg:py-5">
-      <section className="ghost-home-copy min-w-0" aria-labelledby="loading-intro">
+    <div className="cloudchef-home-shell grow p-4 sm:px-6 lg:px-8 lg:py-5">
+      <section className="cloudchef-home-copy min-w-0" aria-labelledby="loading-intro">
         <HomeHeroCopy headingId="loading-intro" />
         <div
-          className="ghost-message-input--home mt-7 flex min-h-16 items-center px-5 text-sm text-content-secondary"
+          className="cloudchef-message-input--home mt-7 flex min-h-16 items-center px-5 text-sm text-content-secondary"
           role="status"
           aria-live="polite"
         >

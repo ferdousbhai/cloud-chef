@@ -205,7 +205,7 @@ export function PromptRefinementDialog({
           )}
 
           <div className="mt-5 flex min-h-9 items-center justify-between gap-3 border-t border-bolt-elements-borderColor pt-4">
-            <Button variant="ghost" size="sm" onClick={onCancel}>
+            <Button variant="subtle" size="sm" onClick={onCancel}>
               Cancel refinement
             </Button>
             <div className="flex items-center gap-2">
@@ -217,7 +217,7 @@ export function PromptRefinementDialog({
               ) : (
                 <>
                   {questionIndex > 0 && (
-                    <Button variant="ghost" size="sm" onClick={() => setQuestionIndex((index) => index - 1)}>
+                    <Button variant="subtle" size="sm" onClick={() => setQuestionIndex((index) => index - 1)}>
                       Back
                     </Button>
                   )}
