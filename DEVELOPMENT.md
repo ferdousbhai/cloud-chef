@@ -122,6 +122,11 @@ matching `origin/main`, with `CLOUDFLARE_OAUTH_CLIENT_ID` supplied in the enviro
 probes the built Worker; it does not run validation, apply migrations, or record a D1 recovery bookmark. Complete
 those prerequisites separately before using it.
 
+The Worker also answers on the retired `ghostbuild.dev` and `www.ghostbuild.dev` custom domains, which exist only to
+redirect to the canonical `https://cloudchef.build` origin with the path and query intact. The first deploy that adds
+these routes needs a Workers Builds token that may attach a custom domain in the `ghostbuild.dev` zone; attaching them
+once by hand is equivalent, and later deploys are no-ops for routes that already exist.
+
 For an emergency rollback from a clean checkout of current `main`, inspect and promote an immutable version:
 
 ```bash

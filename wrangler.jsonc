@@ -15,6 +15,16 @@
       "pattern": "www.cloudchef.build",
       "custom_domain": true,
     },
+    // The retired ghostbuild.dev origin, attached only so the Worker can redirect it to
+    // cloudchef.build. Removing these routes strands every link that still points at it.
+    {
+      "pattern": "ghostbuild.dev",
+      "custom_domain": true,
+    },
+    {
+      "pattern": "www.ghostbuild.dev",
+      "custom_domain": true,
+    },
   ],
   "triggers": {
     "crons": ["*/15 * * * *"],

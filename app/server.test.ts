@@ -90,6 +90,9 @@ describe('server Agent routing boundary', () => {
   it.each([
     ['HTTP', 'http://cloudchef.build/share?from=http', 'https://cloudchef.build/share?from=http'],
     ['www', 'https://www.cloudchef.build/share?from=www', 'https://cloudchef.build/share?from=www'],
+    ['retired apex', 'https://ghostbuild.dev/share?from=old', 'https://cloudchef.build/share?from=old'],
+    ['retired www', 'https://www.ghostbuild.dev/share?from=old', 'https://cloudchef.build/share?from=old'],
+    ['retired HTTP', 'http://ghostbuild.dev/share?from=old', 'https://cloudchef.build/share?from=old'],
   ])('redirects the production %s origin to canonical HTTPS before routing', async (_label, source, destination) => {
     const response = await server.fetch(new Request(source), testEnv());
 

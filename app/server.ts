@@ -21,6 +21,12 @@ import { CSP_NONCE_REQUEST_HEADER } from './lib/csp-nonce';
 const APPLICATION_CSP_BASELINE = "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'";
 const HSTS_MIN_AGE_SECONDS = '31536000';
 const PRODUCTION_HOSTNAME = 'cloudchef.build';
+/**
+ * Hostnames the product answered on before it was renamed. They stay attached to this Worker for
+ * one reason: so the links, bookmarks, and search results that still point at them land on the
+ * canonical origin instead of failing to resolve.
+ */
+const RETIRED_HOSTNAMES = new Set(['ghostbuild.dev', 'www.ghostbuild.dev']);
 
 function methodNotAllowed(allowedMethod: string) {
   return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: allowedMethod } });
@@ -163,10 +169,11 @@ const exactRoutes = new Map<string, ServerRoute>(
 export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
-    if (
-      (url.hostname === PRODUCTION_HOSTNAME || url.hostname === `www.${PRODUCTION_HOSTNAME}`) &&
-      (url.protocol !== 'https:' || url.hostname !== PRODUCTION_HOSTNAME)
-    ) {
+    const servedHostname =
+      url.hostname === PRODUCTION_HOSTNAME ||
+      url.hostname === `www.${PRODUCTION_HOSTNAME}` ||
+      RETIRED_HOSTNAMES.has(url.hostname);
+    if (servedHostname && (url.protocol !== 'https:' || url.hostname !== PRODUCTION_HOSTNAME)) {
       url.protocol = 'https:';
       url.hostname = PRODUCTION_HOSTNAME;
       return withApplicationSecurityHeaders(Response.redirect(url, 308), url.pathname);
