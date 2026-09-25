@@ -62,6 +62,28 @@ describe('preservePromptForAuthentication', () => {
 });
 
 describe('clearPromptIfUnchanged', () => {
+  it('clears a sent prompt and its cached draft even after a remount re-sets the same text', () => {
+    const storage = new Map<string, string>([[PENDING_PROMPT_STORAGE_KEY, 'build a notes app']]);
+    vi.stubGlobal('window', {
+      sessionStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+        removeItem: (key: string) => storage.delete(key),
+      },
+    });
+    setMessageInput('build a notes app');
+    const submittedRevision = getMessageInputRevision();
+
+    // The chat page mounting restores the cached draft, which is the same text.
+    setMessageInput('build a notes app');
+
+    expect(getMessageInputRevision()).toBe(submittedRevision);
+    expect(clearPromptIfUnchanged('build a notes app', submittedRevision)).toBe(true);
+    expect(messageInputStore.get()).toBe('');
+    // Otherwise the next new chat in this tab starts pre-filled with the prompt already sent.
+    expect(storage.has(PENDING_PROMPT_STORAGE_KEY)).toBe(false);
+  });
+
   it('preserves a draft changed programmatically away and back to the submitted value', () => {
     setMessageInput('sent input');
     const submittedRevision = getMessageInputRevision();

@@ -10,6 +10,7 @@ import { chatStore } from '~/lib/stores/chatId';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { getMessageInputRevision, messageInputStore, setMessageInput } from '~/lib/stores/messageInput';
 import { getChatRetryState, MAX_CHAT_RETRIES } from './chat-retry';
+import { clearPromptIfUnchanged } from './useMessageInputController';
 import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { builderModelStore } from '~/lib/stores/builder-model.client';
@@ -156,12 +157,9 @@ export function useChatMessageSubmission(args: {
     void (async () => {
       let restoreInputRevision = pendingInputRevision;
       const sent = await sendMessageRef.current(pendingMessage, () => {
-        if (
-          mountedRef.current &&
-          getMessageInputRevision() === pendingInputRevision &&
-          messageInputStore.get() === pendingMessage
-        ) {
-          setMessageInput('');
+        // The shared clear also forgets the cached draft; otherwise the next unstarted input
+        // would restore this already-sent prompt from session storage.
+        if (mountedRef.current && clearPromptIfUnchanged(pendingMessage, pendingInputRevision)) {
           restoreInputRevision = getMessageInputRevision();
         }
       });
