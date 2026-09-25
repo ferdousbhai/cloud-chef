@@ -68,6 +68,13 @@ describe('useBuildProgress', () => {
     expect(progress?.message).toContain('Thinking…');
   });
 
+  it('ignores stale reasoning once a later part arrives', async () => {
+    const message = reasoningMessage('Earlier reasoning', 'streaming');
+    await render([message]);
+    await render([{ ...message, parts: [...message.parts, { type: 'text', text: 'Working now', state: 'done' }] }]);
+    expect(progress).toMatchObject({ phase: 'creating' });
+  });
+
   it('leaves the phase alone once the reasoning part has ended', async () => {
     await render([reasoningMessage('Considered', 'done')]);
 

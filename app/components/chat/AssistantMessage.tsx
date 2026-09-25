@@ -14,12 +14,14 @@ const Markdown = lazy(() => import('./Markdown').then((module) => ({ default: mo
 
 interface AssistantMessageProps {
   message: CloudChefMessage;
+  isStreaming?: boolean;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 }
 
 export const AssistantMessage = memo(function AssistantMessage({
   message,
+  isStreaming = false,
   cloudflareExecutions,
   onCloudflareExecutionDecision,
 }: AssistantMessageProps) {
@@ -39,6 +41,7 @@ export const AssistantMessage = memo(function AssistantMessage({
             <AssistantMessagePart
               key={block.index}
               part={block.part}
+              isStreaming={isStreaming && block.index === message.parts.length - 1}
               partId={makePartId(message.id, block.index)}
               cloudflareExecutions={cloudflareExecutions}
               onCloudflareExecutionDecision={onCloudflareExecutionDecision}
@@ -52,11 +55,13 @@ export const AssistantMessage = memo(function AssistantMessage({
 
 function AssistantMessagePart({
   part,
+  isStreaming,
   partId,
   cloudflareExecutions,
   onCloudflareExecutionDecision,
 }: {
   part: CloudChefPart;
+  isStreaming: boolean;
   partId: PartId;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
@@ -82,7 +87,7 @@ function AssistantMessagePart({
   }
 
   if (part.type === 'reasoning') {
-    return <ReasoningPart part={part} />;
+    return <ReasoningPart part={part} isActive={isStreaming} />;
   }
 
   if (part.type === 'step-start' || part.type === 'reasoning-file') {

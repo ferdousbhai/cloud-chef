@@ -15,12 +15,13 @@ import type {
 interface MessagesProps {
   className?: string;
   messages: CloudChefMessage[];
+  isStreaming?: boolean;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 }
 
 export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messages(
-  { messages, className, cloudflareExecutions, onCloudflareExecutionDecision }: MessagesProps,
+  { messages, isStreaming = false, className, cloudflareExecutions, onCloudflareExecutionDecision }: MessagesProps,
   ref: ForwardedRef<HTMLDivElement> | undefined,
 ) {
   const profile = useStore(profileStore);
@@ -28,7 +29,7 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messa
   return (
     <div className={className} ref={ref}>
       {messages.length > 0 ? (
-        messages.map((message) => {
+        messages.map((message, index) => {
           const { role } = message;
           const isUserMessage = role === 'user';
 
@@ -60,6 +61,7 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messa
               ) : (
                 <AssistantMessage
                   message={message}
+                  isStreaming={isStreaming && index === messages.length - 1}
                   cloudflareExecutions={cloudflareExecutions}
                   onCloudflareExecutionDecision={onCloudflareExecutionDecision}
                 />

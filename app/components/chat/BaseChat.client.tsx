@@ -263,6 +263,7 @@ export function BaseChat({
                             ref={messageRef}
                             className="z-[1] mx-auto flex w-full max-w-chat flex-1 flex-col gap-1.5 px-3 pb-4 sm:px-0"
                             messages={messages}
+                            isStreaming={isStreaming}
                             cloudflareExecutions={cloudflareExecutions}
                             onCloudflareExecutionDecision={onCloudflareExecutionDecision}
                           />

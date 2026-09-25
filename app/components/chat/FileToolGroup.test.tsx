@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CloudChefPart, CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
+import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { AssistantMessage } from './AssistantMessage';
 import { describeFileGroup, groupMessageParts } from './FileToolGroup';
 
@@ -93,6 +94,21 @@ describe('AssistantMessage file grouping', () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     document.body.replaceChildren();
+  });
+
+  it('only marks the latest reasoning part of an active message as thinking', async () => {
+    const message: CloudChefMessage = {
+      id: 'reasoning-message',
+      role: 'assistant',
+      parts: [
+        { type: 'reasoning', text: 'Earlier', state: 'streaming' },
+        { type: 'reasoning', text: 'Current', state: 'streaming' },
+      ],
+    };
+    await act(async () => root.render(<AssistantMessage message={message} isStreaming />));
+    expect(container.textContent?.match(/Thinking/g)).toHaveLength(1);
+    await act(async () => root.render(<AssistantMessage message={message} isStreaming={false} />));
+    expect(container.textContent).not.toContain('Thinking');
   });
 
   it('renders one summary row for back-to-back file tools and expands to the details', async () => {

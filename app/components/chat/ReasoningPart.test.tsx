@@ -46,6 +46,16 @@ describe('ReasoningPart', () => {
     expect(container.textContent).not.toContain('Weighing the routes');
   });
 
+  it('stops a stale streaming marker when the build moves on or ends', async () => {
+    const part = reasoningPart('Earlier reasoning', 'streaming');
+    await act(async () => root.render(<ReasoningPart part={part} isActive />));
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    await act(async () => root.render(<ReasoningPart part={part} isActive={false} />));
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(container.textContent).toContain('Thought for 3s');
+    expect(container.textContent).not.toContain('Thinking');
+  });
+
   it('reports no duration for reasoning restored from the transcript, and expands to the full text', async () => {
     await act(async () => root.render(<ReasoningPart part={reasoningPart('Weighing the routes', 'done')} />));
 

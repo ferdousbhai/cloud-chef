@@ -122,11 +122,7 @@ function streamingReasoningKey(messages: CloudChefMessage[]): string | null {
   if (!lastMessage?.parts) {
     return null;
   }
-  for (let index = lastMessage.parts.length - 1; index >= 0; index -= 1) {
-    const part = lastMessage.parts[index];
-    if (part?.type === 'reasoning') {
-      return reasoningPartView(part).streaming ? `${lastMessage.id}:${index}` : null;
-    }
-  }
-  return null;
+  const index = lastMessage.parts.length - 1;
+  const part = lastMessage.parts[index];
+  return part?.type === 'reasoning' && reasoningPartView(part).streaming ? `${lastMessage.id}:${index}` : null;
 }

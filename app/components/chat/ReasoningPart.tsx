@@ -34,8 +34,10 @@ export function reasoningPartView(part: CloudChefPart): ReasoningPartView {
  * The model's own reasoning, shown while it streams so a long silent think is legible, and quiet
  * once it ends. It never grows past two lines collapsed, and scrolls inside itself when expanded.
  */
-export function ReasoningPart({ part }: { part: CloudChefPart }) {
-  const { text, streaming } = reasoningPartView(part);
+export function ReasoningPart({ part, isActive = true }: { part: CloudChefPart; isActive?: boolean }) {
+  const view = reasoningPartView(part);
+  const { text } = view;
+  const streaming = isActive && view.streaming;
   const [expanded, setExpanded] = useState(false);
   const startedAtRef = useRef<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
