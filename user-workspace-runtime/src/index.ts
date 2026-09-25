@@ -12,6 +12,7 @@ import { settleCancelledWorkspaceCommand } from './command-cancellation';
 import { terminateWorkspaceCommand } from './command-termination';
 import {
   isExecutionReattachable,
+  observeExecutionSettlement,
   reattachExecution,
   WORKSPACE_RESTART_INDETERMINATE_MESSAGE,
 } from './execution-reattach';
@@ -76,6 +77,7 @@ import {
   WorkspaceOperationConflictError,
   WorkspaceOperationIndeterminateError,
   WorkspaceOperationLane,
+  findSettledExecHolder,
   type WorkspaceOperationLease,
 } from './workspace-operation-lane';
 import { OperationLeaseHeartbeat, type OperationLiveness } from './operation-lease-heartbeat';
@@ -2491,6 +2493,14 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     this.requireCompletedComputerSync();
     const owner = crypto.randomUUID();
     const plan = operationLeasePlan(kind);
+    const settledHolder = await findSettledExecHolder({
+      holder: this.#operationLane.holder(),
+      idempotencyKey,
+      now: Date.now(),
+      isOwnerActive: (holderOwner) => this.#activeOperationOwners.has(holderOwner),
+      observe: (executionId) =>
+        this.withComputer((workspace) => observeExecutionSettlement(workspace.runtime, executionId, 'container-shell')),
+    });
     let lease: WorkspaceOperationLease;
     try {
       lease = this.#operationLane.acquire({
@@ -2501,6 +2511,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         // Re-entering this lane under its own key adopts the effect it already started; the lease
         // the dead owner still holds is protecting the workspace from a different operation.
         resume: options.resume,
+        settledHolder,
       });
     } catch (error) {
       if (error instanceof WorkspaceOperationConflictError) {

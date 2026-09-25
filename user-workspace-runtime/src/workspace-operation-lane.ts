@@ -2,6 +2,7 @@ import {
   WORKSPACE_OPERATION_CONFLICT_ERROR_CODE,
   workspaceOperationConflictMessage,
 } from '../../cloudchef-agent/cloudflare-computer';
+import type { ExecutionObservation } from './execution-reattach';
 import { first } from './sql-rows';
 
 const WORKSPACE_OPERATION_LEASE_MS = 15 * 60_000;
@@ -23,6 +24,11 @@ export type WorkspaceOperationLease = {
   acquiredAt: number;
   deadline: number;
   recoveredOwner: string | null;
+};
+
+type WorkspaceOperationHolder = {
+  owner: string;
+  idempotencyKey: string;
 };
 
 export class WorkspaceOperationConflictError extends Error {
@@ -110,6 +116,12 @@ export class WorkspaceOperationLane {
      * the owner it is replacing is no longer running here.
      */
     resume?: boolean;
+    /**
+     * The caller observed, outside this transaction, that this exact holder's external effect has
+     * already finished, so its lease no longer protects anything. It applies only while the lane
+     * still names that owner and key and the owner is no longer running here (#143).
+     */
+    settledHolder?: WorkspaceOperationHolder;
   }): WorkspaceOperationLease {
     const result = this.storage.transactionSync<
       WorkspaceOperationLease | { error: WorkspaceOperationConflictError | WorkspaceOperationIndeterminateError }
@@ -123,10 +135,15 @@ export class WorkspaceOperationLane {
       const canRecoverBeforeDeadline =
         !ownerIsActive && current.kind !== null && this.canRecoverInterruptedOwner(current.kind);
       const resuming = args.resume === true && !ownerIsActive && current.idempotency_key === args.idempotencyKey;
+      const holderSettled =
+        !ownerIsActive &&
+        args.settledHolder !== undefined &&
+        current.owner === args.settledHolder.owner &&
+        current.idempotency_key === args.settledHolder.idempotencyKey;
       if (
         current.owner &&
         current.deadline !== null &&
-        (ownerIsActive || (current.deadline > now && !canRecoverBeforeDeadline && !resuming))
+        (ownerIsActive || (current.deadline > now && !canRecoverBeforeDeadline && !resuming && !holderSettled))
       ) {
         return {
           error: new WorkspaceOperationConflictError(
@@ -167,6 +184,15 @@ export class WorkspaceOperationLane {
       throw result.error;
     }
     return result;
+  }
+
+  /** The operation currently holding the lane, if any, without claiming or renewing it. */
+  holder(): (WorkspaceOperationHolder & { kind: string; deadline: number }) | null {
+    const row = this.read();
+    if (row.owner === null || row.idempotency_key === null || row.kind === null || row.deadline === null) {
+      return null;
+    }
+    return { owner: row.owner, idempotencyKey: row.idempotency_key, kind: row.kind, deadline: row.deadline };
   }
 
   release(lease: WorkspaceOperationLease): void {
@@ -240,4 +266,34 @@ export class WorkspaceOperationLane {
       }
     );
   }
+}
+
+/**
+ * An exec lane whose owner died with a previous instance stays leased because its command may still
+ * be running in the container, which outlives the reset (#143). When the container shows that the
+ * command has finished, the lease protects nothing, so name the holder as reclaimable. A running or
+ * unobservable command keeps the lease until its deadline, exactly as before. Only an exec holder
+ * is probed, only for a different key (the same key must resume, never replay), and only while its
+ * deadline has not already made it reclaimable.
+ */
+export async function findSettledExecHolder(args: {
+  holder: ReturnType<WorkspaceOperationLane['holder']>;
+  idempotencyKey: string;
+  now: number;
+  isOwnerActive: (owner: string) => boolean;
+  observe: (executionId: string) => Promise<ExecutionObservation>;
+}): Promise<WorkspaceOperationHolder | undefined> {
+  const { holder } = args;
+  if (
+    !holder ||
+    holder.kind !== 'exec' ||
+    holder.idempotencyKey === args.idempotencyKey ||
+    holder.deadline <= args.now ||
+    args.isOwnerActive(holder.owner)
+  ) {
+    return undefined;
+  }
+  // The exec lane's key is the id its command runs under in the container.
+  const observation = await args.observe(holder.idempotencyKey).catch((): ExecutionObservation => 'unobservable');
+  return observation === 'finished' ? { owner: holder.owner, idempotencyKey: holder.idempotencyKey } : undefined;
 }

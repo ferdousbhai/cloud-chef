@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import type { ExecutionObservation } from './execution-reattach';
 import {
+  findSettledExecHolder,
   WorkspaceOperationConflictError,
   WorkspaceOperationIndeterminateError,
   WorkspaceOperationLane,
@@ -30,6 +32,9 @@ describe('WorkspaceOperationLane', () => {
     expect(acquisition).toContain("console.info('ProjectWorkspace operation lane conflict'");
     expect(acquisition).toContain('activeKind: error.activeKind');
     expect(acquisition).toContain('retryAfterMs: error.retryAfterMs');
+    // The container probe for a settled interrupted exec must feed the claim acquisition re-checks.
+    expect(acquisition).toContain('const settledHolder = await findSettledExecHolder(');
+    expect(acquisition).toContain('settledHolder,');
   });
 
   it('recovers a stale owner for a different operation but never replays the stale idempotency key', () => {
@@ -175,6 +180,116 @@ describe('WorkspaceOperationLane', () => {
     lane.acquire(operation('write', 'write-b', 1_101));
 
     expect(() => lane.renew(lease, 1_000, 1_102)).toThrow(WorkspaceOperationIndeterminateError);
+  });
+});
+
+describe('reclaiming an exec lane whose interrupted command settled (#143)', () => {
+  const EXEC_LEASE_MS = 10 * 60_000;
+
+  function laneHeldByInterruptedExec() {
+    // The owner died with the previous instance, so nothing here reports it active.
+    const lane = createLane();
+    lane.acquire(operation('exec', 'tool:call-a', 100, EXEC_LEASE_MS));
+    return lane;
+  }
+
+  async function acquireAfterProbe(lane: WorkspaceOperationLane, observation: ExecutionObservation, now = 200) {
+    const observed: string[] = [];
+    const settledHolder = await findSettledExecHolder({
+      holder: lane.holder(),
+      idempotencyKey: 'tool:call-b',
+      now,
+      isOwnerActive: () => false,
+      observe: (executionId) => {
+        observed.push(executionId);
+        return Promise.resolve(observation);
+      },
+    });
+    return { observed, acquire: () => lane.acquire({ ...operation('exec', 'tool:call-b', now), settledHolder }) };
+  }
+
+  it('reclaims the lane at once when the container shows the command finished', async () => {
+    const lane = laneHeldByInterruptedExec();
+    const { observed, acquire } = await acquireAfterProbe(lane, 'finished');
+
+    expect(observed).toEqual(['tool:call-a']);
+    expect(acquire()).toMatchObject({ owner: 'owner-exec-tool:call-b', recoveredOwner: 'owner-exec-tool:call-a' });
+  });
+
+  it.each<ExecutionObservation>(['running', 'unobservable'])(
+    'keeps the lane leased until its deadline when the command is %s',
+    async (observation) => {
+      const lane = laneHeldByInterruptedExec();
+      const { acquire } = await acquireAfterProbe(lane, observation);
+
+      expect(acquire).toThrow(WorkspaceOperationConflictError);
+    },
+  );
+
+  it('treats a probe that throws as unobservable', async () => {
+    const lane = laneHeldByInterruptedExec();
+    const settledHolder = await findSettledExecHolder({
+      holder: lane.holder(),
+      idempotencyKey: 'tool:call-b',
+      now: 200,
+      isOwnerActive: () => false,
+      observe: () => Promise.reject(new Error('Container service disconnected')),
+    });
+
+    expect(settledHolder).toBeUndefined();
+  });
+
+  it('never probes a holder that is running here, is not an exec, has the same key, or already expired', async () => {
+    const observe = () => Promise.reject(new Error('must not probe'));
+    const lane = laneHeldByInterruptedExec();
+    const holder = lane.holder();
+
+    expect(
+      await findSettledExecHolder({
+        holder,
+        idempotencyKey: 'tool:call-b',
+        now: 200,
+        isOwnerActive: () => true,
+        observe,
+      }),
+    ).toBeUndefined();
+    expect(
+      await findSettledExecHolder({
+        holder: holder && { ...holder, kind: 'install' },
+        idempotencyKey: 'tool:call-b',
+        now: 200,
+        isOwnerActive: () => false,
+        observe,
+      }),
+    ).toBeUndefined();
+    // The same key must resume its own command, never be handed a lane that would replay it.
+    expect(
+      await findSettledExecHolder({
+        holder,
+        idempotencyKey: 'tool:call-a',
+        now: 200,
+        isOwnerActive: () => false,
+        observe,
+      }),
+    ).toBeUndefined();
+    expect(
+      await findSettledExecHolder({
+        holder,
+        idempotencyKey: 'tool:call-b',
+        now: 100 + EXEC_LEASE_MS,
+        isOwnerActive: () => false,
+        observe,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('refuses a settlement claim for a holder the lane no longer names', async () => {
+    const lane = laneHeldByInterruptedExec();
+    const { acquire } = await acquireAfterProbe(lane, 'finished');
+    // Between the probe and the claim, the dead owner resumed under its own key.
+    lane.acquire({ ...operation('exec', 'tool:call-a', 150), owner: 'owner-resumed', resume: true });
+
+    expect(acquire).toThrow(WorkspaceOperationConflictError);
   });
 });
 
