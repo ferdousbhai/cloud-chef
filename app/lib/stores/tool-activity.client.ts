@@ -64,6 +64,51 @@ export class ToolActivityStore {
     this.#turnActive = true;
   }
 
+  /** Reattach to a server-owned turn without reviving older interrupted tool batches. */
+  resumeTurn(message?: CloudChefMessage): void {
+    if (this.#turnActive) {
+      return;
+    }
+    this.#turnActive = true;
+    if (!message || message.role !== 'assistant') {
+      return;
+    }
+    const resumableIds = new Set<string>();
+    for (const part of message.parts.toReversed()) {
+      const invocation = getToolInvocation(part);
+      if (!invocation) {
+        break;
+      }
+      resumableIds.add(invocation.toolCallId);
+    }
+    for (const part of message.parts) {
+      const invocation = getToolInvocation(part);
+      if (invocation && invocationStatus(invocation) === 'complete') {
+        resumableIds.add(invocation.toolCallId);
+      }
+    }
+    const activities = this.activities.get();
+    this.activities.set(
+      Object.fromEntries(
+        Object.entries(activities).filter(
+          ([, activity]) => activity.status !== 'aborted' || !resumableIds.has(activity.invocation.toolCallId),
+        ),
+      ),
+    );
+    message.parts.forEach((part, index) => {
+      const invocation = getToolInvocation(part);
+      if (invocation) {
+        const partId = makePartId(message.id, index);
+        if (resumableIds.has(invocation.toolCallId)) {
+          this.record(partId, invocation);
+        } else if (!this.activities.get()[partId]) {
+          this.activities.setKey(partId, { invocation, status: 'aborted' });
+        }
+      }
+    });
+    this.#bumpRevision();
+  }
+
   handoffActiveTurn(): void {
     this.#turnHandoffPending = this.#turnActive;
   }

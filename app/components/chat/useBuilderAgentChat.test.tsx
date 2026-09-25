@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => {
     chatCallbacks: [] as ChatCallbacks[],
     executeDataOperation: vi.fn(),
     finishToolTurn: vi.fn(),
+    resumeToolTurn: vi.fn(),
     loadSnapshot: vi.fn(async (args: { read: () => Promise<unknown> }) => args.read()),
     recordChatFailure: vi.fn(),
     recordToolProgress: vi.fn(),
@@ -92,6 +93,7 @@ vi.mock('~/lib/stores/tool-activity.client', () => ({
   toolActivityStore: {
     abortActive: mocks.abortToolActivity,
     finishTurn: mocks.finishToolTurn,
+    resumeTurn: mocks.resumeToolTurn,
   },
 }));
 vi.mock('~/lib/stores/tool-progress.client', () => ({
@@ -131,6 +133,9 @@ beforeEach(() => {
   mocks.controller.dispose.mockClear();
   mocks.controller.pull.mockClear();
   mocks.chat.messages = [];
+  mocks.chat.isStreaming = false;
+  mocks.chat.isRecovering = false;
+  mocks.resumeToolTurn.mockClear();
   mocks.chat.sendMessage.mockClear();
   mocks.chat.setMessages.mockClear();
   mocks.chatCallbacks.length = 0;
@@ -164,6 +169,22 @@ afterEach(async () => {
 });
 
 describe('useBuilderAgentChat workspace preparation', () => {
+  it('reattaches tool activity when the SDK restores an active response', async () => {
+    mocks.agent.call.mockResolvedValue({ initialized: true });
+    const message: CloudChefMessage = { id: 'restored', role: 'assistant', parts: [] };
+    mocks.chat.messages = [message];
+    mocks.chat.isStreaming = true;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    function Harness() {
+      useBuilderAgentChat(chatArgs('restored-workspace'));
+      return null;
+    }
+    await act(async () => root?.render(<Harness />));
+    expect(mocks.resumeToolTurn).toHaveBeenCalledWith(message);
+  });
+
   it('gives prepareWorkspace at least the container connect ceiling instead of the SDK default', async () => {
     // The agents SDK applies a 30-second default RPC timeout. Preparing the workspace can wait
     // on the full toolchain bootstrap after a container restart, so the explicit budget must

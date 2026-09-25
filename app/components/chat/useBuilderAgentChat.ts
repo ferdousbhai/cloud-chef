@@ -259,6 +259,12 @@ export function useBuilderAgentChat(args: {
     initialMessagesRef.current = args.initialMessages;
   });
 
+  useLayoutEffect(() => {
+    if (chat.isStreaming || chat.isRecovering) {
+      toolActivityStore.resumeTurn(chat.messages.at(-1));
+    }
+  }, [chat.isStreaming, chat.isRecovering, chat.messages]);
+
   const readAuthoritativeTranscript = useCallback(() => {
     // `useAgent` only types `call` for the callables whose results are JSON-serializable, and a
     // transcript message may carry a `Date`. Go through the untyped RPC handle and parse the result.

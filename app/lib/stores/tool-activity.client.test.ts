@@ -1,8 +1,40 @@
+import type { CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 import { describe, expect, it } from 'vitest';
 import { makePartId, type PartId } from 'cloudchef-agent/partId';
 import { ToolActivityStore } from './tool-activity.client';
 
 describe('ToolActivityStore', () => {
+  it('restores the current tool batch and completed results when reattaching', () => {
+    const store = new ToolActivityStore();
+    const pending = (id: string): CloudChefToolInvocation => ({
+      type: 'dynamic-tool',
+      toolName: 'exec',
+      toolCallId: id,
+      state: 'input-available',
+      input: {},
+    });
+    const old = pending('old');
+    const finished = pending('finished');
+    const active = pending('active');
+    store.record(makePartId('message', 1), finished);
+    store.record(makePartId('message', 3), active);
+    store.resumeTurn({
+      id: 'message',
+      role: 'assistant',
+      parts: [
+        old,
+        { ...finished, state: 'output-available', output: { ok: true } },
+        { type: 'reasoning', text: 'Next step', state: 'done' },
+        active,
+      ],
+    });
+    expect(store.activities.get()[makePartId('message', 0)]?.status).toBe('aborted');
+    expect(store.activities.get()[makePartId('message', 1)]?.status).toBe('complete');
+    expect(store.activities.get()[makePartId('message', 3)]?.status).toBe('running');
+    store.record(makePartId('message', 3), { ...active, state: 'output-available', output: { ok: true } });
+    expect(store.activities.get()[makePartId('message', 3)]?.status).toBe('complete');
+  });
+
   it('marks incomplete late parts aborted and ignores late results until the next turn', () => {
     const store = new ToolActivityStore();
     const firstPart = 'message:0' as PartId;
