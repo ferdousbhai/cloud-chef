@@ -8,7 +8,7 @@ This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-02
 Production packages: 117
-Inventory SHA-256: b380c668ad1c5ceae3caac348e8c9ae85c09d1509a7f76416103918d4e2a851b
+Inventory SHA-256: 5f786b6e3dbb4b42d64bd3eb76f22bfc97553ef281f2defb429f0fc8f2fc93a6
 
 PACKAGE INVENTORY
 =================
@@ -478,7 +478,7 @@ Homepage: <not published>
 Package-level license evidence: <not published>
 Published license/notice files: <not published>
 
-@types/node@26.1.2
+@types/node@22.20.4
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/DefinitelyTyped/DefinitelyTyped.git","directory":"types/node"}
@@ -964,7 +964,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 46231df5a7733c3f52f11b71f3df61813007745b62b09031acfb45fb42d75082)
 
-undici-types@8.3.0
+undici-types@6.21.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/nodejs/undici.git"}
@@ -4849,7 +4849,7 @@ SOFTWARE.
 
 SHA-256 a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27
 Used by:
-- undici-types@8.3.0:LICENSE
+- undici-types@6.21.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -5208,7 +5208,7 @@ THE SOFTWARE.
 
 SHA-256 c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
 Used by:
-- @types/node@26.1.2:LICENSE
+- @types/node@22.20.4:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
     MIT License
 

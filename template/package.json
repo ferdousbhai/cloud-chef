@@ -37,7 +37,7 @@
     "@cloudflare/workers-types": "5.20260801.1",
     "@eslint/js": "^10.0.1",
     "@tanstack/router-cli": "^1.167.22",
-    "@types/node": "^26.1.2",
+    "@types/node": "^22.20.4",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
@@ -56,6 +56,6 @@
     "yaml": "2.9.0"
   },
   "engines": {
-    "node": ">=26.0.0"
+    "node": ">=22.13.0"
   }
 }

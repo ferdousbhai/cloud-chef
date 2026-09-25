@@ -21,8 +21,20 @@ const forbiddenDependencyPatterns = [
   /^@types\/diff$/,
 ];
 
-export const REQUIRED_NODE_ENGINE = ">=26.0.0";
-export const REQUIRED_NODE_TYPES_MAJOR = "^26.";
+/** The control plane builds on Workers Builds with the pinned Node 26. */
+export const CONTROL_PLANE_TOOLCHAIN = {
+  nodeEngine: ">=26.0.0",
+  nodeTypesMajor: 26,
+};
+/**
+ * Generated apps build inside the user's workspace container, whose stock sandbox image ships
+ * Node 22. 22.13 is the floor of the template's toolchain (ESLint). Node types track the same
+ * major so scripts cannot compile against APIs the container lacks.
+ */
+export const GENERATED_APP_TOOLCHAIN = {
+  nodeEngine: ">=22.13.0",
+  nodeTypesMajor: 22,
+};
 export const REQUIRED_PNPM_VERSION = "11.14.0";
 
 const REQUIRED_AI_SDK_VERSIONS = {
@@ -147,10 +159,10 @@ export function findAgentCapabilityDependencyErrors(
   });
 }
 
-export function findRuntimePinErrors(pkg, label) {
+export function findRuntimePinErrors(pkg, label, toolchain) {
   const errors = [];
-  if (pkg?.engines?.node !== REQUIRED_NODE_ENGINE) {
-    errors.push(`${label} must set engines.node to ${REQUIRED_NODE_ENGINE}.`);
+  if (pkg?.engines?.node !== toolchain.nodeEngine) {
+    errors.push(`${label} must set engines.node to ${toolchain.nodeEngine}.`);
   }
   if (pkg?.packageManager !== `pnpm@${REQUIRED_PNPM_VERSION}`) {
     errors.push(
@@ -159,11 +171,11 @@ export function findRuntimePinErrors(pkg, label) {
   }
   if (
     !pkg?.devDependencies?.["@types/node"]?.startsWith(
-      REQUIRED_NODE_TYPES_MAJOR,
+      `^${toolchain.nodeTypesMajor}.`,
     )
   ) {
     errors.push(
-      `${label} must use @types/node ^26.x for the Node 26 toolchain.`,
+      `${label} must use @types/node ^${toolchain.nodeTypesMajor}.x for the Node ${toolchain.nodeTypesMajor} toolchain.`,
     );
   }
   return errors;

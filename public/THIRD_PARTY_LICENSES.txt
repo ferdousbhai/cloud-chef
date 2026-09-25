@@ -7,8 +7,8 @@ A package whose package-level evidence is <not published> remains exact-version 
 This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
-Production packages: 699
-Inventory SHA-256: 8a1e18a5d511bbb2f03ff5c725d413ef76d109f1daf908db6d0a635b6546159b
+Production packages: 701
+Inventory SHA-256: 0ac8462563fcef3b1bf30bedc1eb7a6bb4eac28781b6362a9c722105bbc884b1
 
 PACKAGE INVENTORY
 =================
@@ -2282,6 +2282,15 @@ Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/DefinitelyTyped/DefinitelyTyped.git","directory":"types/ms"}
 Homepage: https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/ms
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383)
+
+@types/node@22.20.4
+Declared license: MIT
+Author: <not published>
+Repository: {"type":"git","url":"https://github.com/DefinitelyTyped/DefinitelyTyped.git","directory":"types/node"}
+Homepage: https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/node
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383)
@@ -5941,6 +5950,15 @@ Homepage: https://undici.nodejs.org
 Package-level license evidence: published
 Published license/notice files:
 - lib/web/fetch/LICENSE (SHA-256 a21d6c8d3fc631198b97e57584697f7f9c37805c71c6cf9a12e4442b40394b88)
+- LICENSE (SHA-256 a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27)
+
+undici-types@6.21.0
+Declared license: MIT
+Author: <not published>
+Repository: {"type":"git","url":"git+https://github.com/nodejs/undici.git"}
+Homepage: https://undici.nodejs.org
+Package-level license evidence: published
+Published license/notice files:
 - LICENSE (SHA-256 a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27)
 
 undici-types@8.3.0
@@ -18464,6 +18482,7 @@ SOFTWARE.
 
 SHA-256 a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27
 Used by:
+- undici-types@6.21.0:LICENSE
 - undici-types@8.3.0:LICENSE
 - undici@7.29.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
@@ -20170,6 +20189,7 @@ Used by:
 - @types/json-schema@7.0.15:LICENSE
 - @types/mdast@4.0.4:LICENSE
 - @types/ms@2.1.0:LICENSE
+- @types/node@22.20.4:LICENSE
 - @types/node@26.1.2:LICENSE
 - @types/react-dom@19.2.4:LICENSE
 - @types/react@19.2.18:LICENSE

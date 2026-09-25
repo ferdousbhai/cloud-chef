@@ -3,6 +3,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   APP_REQUIRED_PACKAGES,
+  CONTROL_PLANE_TOOLCHAIN,
+  GENERATED_APP_TOOLCHAIN,
   collectSourceEntries,
   dependencyNames,
   findCloudflareAiPeerCompatibilityErrors,
@@ -23,6 +25,8 @@ import { templateSourceDigest } from './template-source.mjs';
 import { verifyD1MigrationSafety } from './verify-d1-migrations.mjs';
 
 export {
+  CONTROL_PLANE_TOOLCHAIN,
+  GENERATED_APP_TOOLCHAIN,
   dependencyNames,
   findCloudflareAiPeerCompatibilityErrors,
   findForbiddenDependencies,
@@ -198,11 +202,11 @@ export function findDeploymentRuntimePolicyErrors(templateConfigSource, runtimeP
       ];
 }
 
-function verifyPackage(errors, pkg, label, requiredPackages, checkAiPeers = false) {
+function verifyPackage(errors, pkg, label, requiredPackages, toolchain, checkAiPeers = false) {
   errors.push(
     ...findForbiddenDependencies(pkg, label),
     ...findMissingDependencies(pkg, label, requiredPackages),
-    ...findRuntimePinErrors(pkg, label),
+    ...findRuntimePinErrors(pkg, label, toolchain),
   );
   if (checkAiPeers) {
     errors.push(...findCloudflareAiPeerCompatibilityErrors(pkg, label));
@@ -295,9 +299,9 @@ export function verifyStackAlignment() {
   const templatePackage = readJson('template/package.json');
   const sandboxPackage = readJson('node_modules/@cloudflare/sandbox/package.json');
 
-  verifyPackage(errors, rootPackage, 'package.json', rootRequiredPackages, true);
-  verifyPackage(errors, agentPackage, 'cloudchef-agent/package.json', agentRequiredPackages);
-  verifyPackage(errors, templatePackage, 'template/package.json', APP_REQUIRED_PACKAGES, true);
+  verifyPackage(errors, rootPackage, 'package.json', rootRequiredPackages, CONTROL_PLANE_TOOLCHAIN, true);
+  verifyPackage(errors, agentPackage, 'cloudchef-agent/package.json', agentRequiredPackages, CONTROL_PLANE_TOOLCHAIN);
+  verifyPackage(errors, templatePackage, 'template/package.json', APP_REQUIRED_PACKAGES, GENERATED_APP_TOOLCHAIN, true);
   errors.push(
     ...findForbiddenRootBrowserRuntimeDependencies(rootPackage),
     ...findInternalPackageMetadataErrors(rootPackage, 'package.json'),

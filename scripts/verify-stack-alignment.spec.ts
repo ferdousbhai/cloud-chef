@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  CONTROL_PLANE_TOOLCHAIN,
+  GENERATED_APP_TOOLCHAIN,
   dependencyNames,
   findForbiddenFiles,
   findForbiddenLegacyPaths,
@@ -161,7 +163,7 @@ describe('stack alignment verification helpers', () => {
     ]);
   });
 
-  it('requires the production Node and pnpm toolchain pins', () => {
+  it('requires the control-plane Node and pnpm toolchain pins', () => {
     expect(
       findRuntimePinErrors(
         {
@@ -170,13 +172,34 @@ describe('stack alignment verification helpers', () => {
           devDependencies: { '@types/node': '^26.1.0' },
         },
         'package.json',
+        CONTROL_PLANE_TOOLCHAIN,
       ),
     ).toEqual([]);
 
-    expect(findRuntimePinErrors({ devDependencies: {} }, 'package.json')).toEqual([
+    expect(findRuntimePinErrors({ devDependencies: {} }, 'package.json', CONTROL_PLANE_TOOLCHAIN)).toEqual([
       'package.json must set engines.node to >=26.0.0.',
       'package.json must pin packageManager to pnpm@11.14.0.',
       'package.json must use @types/node ^26.x for the Node 26 toolchain.',
+    ]);
+  });
+
+  it("pins generated apps to the workspace container's Node 22", () => {
+    const generatedApp = {
+      engines: { node: '>=22.13.0' },
+      packageManager: 'pnpm@11.14.0',
+      devDependencies: { '@types/node': '^22.20.0' },
+    };
+    expect(findRuntimePinErrors(generatedApp, 'template/package.json', GENERATED_APP_TOOLCHAIN)).toEqual([]);
+
+    expect(
+      findRuntimePinErrors(
+        { ...generatedApp, engines: { node: '>=26.0.0' }, devDependencies: { '@types/node': '^26.1.0' } },
+        'template/package.json',
+        GENERATED_APP_TOOLCHAIN,
+      ),
+    ).toEqual([
+      'template/package.json must set engines.node to >=22.13.0.',
+      'template/package.json must use @types/node ^22.x for the Node 22 toolchain.',
     ]);
   });
 

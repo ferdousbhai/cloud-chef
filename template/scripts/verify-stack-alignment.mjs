@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse } from "jsonc-parser";
 import {
   APP_REQUIRED_PACKAGES,
+  GENERATED_APP_TOOLCHAIN,
   WORKER_REQUIRED_PACKAGES,
   collectSourceEntries,
   findAgentCapabilityDependencyErrors,
@@ -81,7 +82,11 @@ export function verifyStackAlignment() {
       capability.dependencies,
       agentCapabilityEnabled,
     ),
-    ...findRuntimePinErrors(packageJson, "package.json"),
+    ...findRuntimePinErrors(
+      packageJson,
+      "package.json",
+      GENERATED_APP_TOOLCHAIN,
+    ),
     ...findMissingPaths(rootDir, [
       ...baseRequiredPaths,
       ...(type === "web_app" ? webAppRequiredPaths : []),
