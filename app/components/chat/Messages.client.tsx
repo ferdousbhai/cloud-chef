@@ -1,27 +1,20 @@
 import { forwardRef, type ForwardedRef } from 'react';
 import { classNames } from '~/utils/classNames';
-import { AssistantMessage } from './AssistantMessage';
+import { RunNarrative } from './RunNarrative';
 import { UserMessage } from './UserMessage';
 import { useStore } from '@nanostores/react';
 import { profileStore } from '~/lib/stores/profile';
 import { ChatBubbleIcon, PersonIcon } from '@radix-ui/react-icons';
 import { messageText, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import styles from './BaseChat.module.css';
-import type {
-  CloudflareExecutionDecisionHandler,
-  CloudflareExecutionPublicState,
-} from 'cloudchef-agent/cloudflare-mcp';
 
 interface MessagesProps {
   className?: string;
   messages: CloudChefMessage[];
-  isStreaming?: boolean;
-  cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
-  onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 }
 
 export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messages(
-  { messages, isStreaming = false, className, cloudflareExecutions, onCloudflareExecutionDecision }: MessagesProps,
+  { messages, className }: MessagesProps,
   ref: ForwardedRef<HTMLDivElement> | undefined,
 ) {
   const profile = useStore(profileStore);
@@ -29,7 +22,7 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messa
   return (
     <div className={className} ref={ref}>
       {messages.length > 0 ? (
-        messages.map((message, index) => {
+        messages.map((message) => {
           const { role } = message;
           const isUserMessage = role === 'user';
           if (!isUserMessage && !message.parts.some((part) => part.type === 'text' && part.text?.trim())) {
@@ -59,17 +52,7 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messa
                   )}
                 </div>
               )}
-              {isUserMessage ? (
-                <UserMessage content={messageText(message)} />
-              ) : (
-                <AssistantMessage
-                  message={message}
-                  view="conversation"
-                  isStreaming={isStreaming && index === messages.length - 1}
-                  cloudflareExecutions={cloudflareExecutions}
-                  onCloudflareExecutionDecision={onCloudflareExecutionDecision}
-                />
-              )}
+              {isUserMessage ? <UserMessage content={messageText(message)} /> : <RunNarrative parts={message.parts} />}
             </div>
           );
         })

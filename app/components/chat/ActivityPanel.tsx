@@ -7,6 +7,7 @@ import type {
   CloudflareExecutionPublicState,
 } from 'cloudchef-agent/cloudflare-mcp';
 import { AssistantMessage } from './AssistantMessage';
+import { DetailsToggle } from './DetailsToggle';
 import styles from './BaseChat.module.css';
 
 const filePathInput = z.object({ path: z.string() });
@@ -39,16 +40,13 @@ export function ActivityPanel({
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-bolt-elements-borderColor px-3 py-2">
         <h2 className="text-sm font-medium text-content-primary">Activity</h2>
         {compact ? (
-          <button
-            type="button"
-            aria-expanded={visible}
-            aria-controls={detailsId}
-            className="text-xs text-content-secondary underline underline-offset-4"
-            onClick={() => setExpanded(!expanded)}
+          <DetailsToggle
+            expanded={visible}
+            controls={detailsId}
+            onToggle={() => setExpanded(!expanded)}
             disabled={pendingApproval}
-          >
-            {visible ? 'Hide details' : `Show details${isStreaming ? ' · Working' : ''}`}
-          </button>
+            suffix={isStreaming ? ' · Working' : ''}
+          />
         ) : (
           <span className="text-xs text-content-tertiary">{isStreaming ? 'Working' : 'Latest first'}</span>
         )}
@@ -146,7 +144,6 @@ function ActivityRun({
               <summary className="cursor-pointer py-2">Earlier steps</summary>
               <AssistantMessage
                 message={message}
-                view="activity"
                 endIndex={currentStepStart}
                 cloudflareExecutions={cloudflareExecutions}
                 onCloudflareExecutionDecision={onCloudflareExecutionDecision}
@@ -156,7 +153,6 @@ function ActivityRun({
           <AssistantMessage
             message={message}
             startIndex={active && !pendingApproval ? currentStepStart : 0}
-            view="activity"
             isStreaming={active}
             cloudflareExecutions={cloudflareExecutions}
             onCloudflareExecutionDecision={onCloudflareExecutionDecision}

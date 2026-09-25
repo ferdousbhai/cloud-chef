@@ -274,9 +274,6 @@ export function BaseChat({
                           ref={messageRef}
                           className="flex min-w-0 flex-col gap-3 px-1 pb-4"
                           messages={messages}
-                          isStreaming={isStreaming}
-                          cloudflareExecutions={cloudflareExecutions}
-                          onCloudflareExecutionDecision={onCloudflareExecutionDecision}
                         />
                       </div>
                       <ActivityPanel

@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { ToolCall } from './ToolCall';
 import { FileToolGroup, groupMessageParts } from './FileToolGroup';
 import { ReasoningPart } from './ReasoningPart';
@@ -10,12 +10,9 @@ import type {
   CloudflareExecutionPublicState,
 } from 'cloudchef-agent/cloudflare-mcp';
 
-const Markdown = lazy(() => import('./Markdown').then((module) => ({ default: module.Markdown })));
-
 interface AssistantMessageProps {
   message: CloudChefMessage;
   isStreaming?: boolean;
-  view?: 'all' | 'conversation' | 'activity';
   startIndex?: number;
   endIndex?: number;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
@@ -25,7 +22,6 @@ interface AssistantMessageProps {
 export const AssistantMessage = memo(function AssistantMessage({
   message,
   isStreaming = false,
-  view = 'all',
   startIndex = 0,
   endIndex = message.parts.length,
   cloudflareExecutions,
@@ -37,14 +33,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         {groupMessageParts(message.parts)
           .filter((block) => {
             const index = block.kind === 'single' ? block.index : block.items[0].index;
-            if (index < startIndex || index >= endIndex) {
-              return false;
-            }
-            if (view === 'all') {
-              return true;
-            }
-            const narrative = block.kind === 'single' && block.part.type === 'text';
-            return view === 'conversation' ? narrative : !narrative;
+            return index >= startIndex && index < endIndex && (block.kind !== 'single' || block.part.type !== 'text');
           })
           .map((block) =>
             block.kind === 'file-group' ? (
@@ -94,14 +83,6 @@ function AssistantMessagePart({
         onCloudflareExecutionDecision={onCloudflareExecutionDecision}
       />
     );
-  }
-
-  if (part.type === 'text') {
-    return typeof part.text === 'string' ? (
-      <Suspense fallback={null}>
-        <Markdown>{part.text}</Markdown>
-      </Suspense>
-    ) : null;
   }
 
   if (part.type === 'reasoning') {

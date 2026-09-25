@@ -114,7 +114,7 @@ describe('AssistantMessage file grouping', () => {
       input: { path: 'src/updated.ts' },
       output: { summary: 'read' },
     });
-    await act(async () => root.render(<AssistantMessage message={message} view="activity" />));
+    await act(async () => root.render(<AssistantMessage message={message} />));
     expect(container.textContent).toContain('src/updated.ts');
     expect(container.textContent).not.toContain('Narrative stays in chat.');
   });
