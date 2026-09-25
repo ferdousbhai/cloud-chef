@@ -2,7 +2,7 @@ import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { piAgentRunner } from '~/lib/.server/llm/pi-agent-runner';
 import { createPiStreamResponse } from './llm/pi-stream';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
-import { ContextCompactionUnavailableError, ModelInputBudgetExceededError } from './llm/model-input';
+import { ModelInputBudgetExceededError } from './llm/model-input';
 import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import type { WorkersAiAccountCredentials } from './llm/pi-ai-models';
 import type { ContextCompaction } from './llm/context-compaction';
@@ -45,7 +45,6 @@ export async function createChatResponseFromBody({
   compaction: {
     current: ContextCompaction | null;
     pending: boolean;
-    summarize: (prompt: string, signal?: AbortSignal) => Promise<string>;
     save: (compaction: ContextCompaction) => void;
     schedule?: () => Promise<void>;
     requestDurableCompaction?: () => void;
@@ -95,13 +94,6 @@ export async function createChatResponseFromBody({
       throw new Response(error.message, {
         status: 413,
         statusText: 'Current request is too large',
-      });
-    }
-
-    if (error instanceof ContextCompactionUnavailableError) {
-      throw new Response(error.message, {
-        status: 503,
-        statusText: 'Context compaction unavailable',
       });
     }
 

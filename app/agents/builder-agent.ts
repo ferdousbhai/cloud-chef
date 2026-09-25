@@ -20,7 +20,6 @@ import {
 } from './builder-turn-state';
 import { DurableObjectContextCompactionRepository } from '~/lib/.server/llm/context-compaction-store';
 import { compactContext } from '~/lib/.server/llm/context-compaction';
-import { summarizeBuilderContext } from '~/lib/.server/llm/workers-ai-text';
 import { chatTurnContextSchema, type ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { getUserWorkersAiCredentials } from '~/lib/.server/cloudflare/workers-ai-billing-context';
 import type { UIMessage } from 'ai';
@@ -431,8 +430,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!compaction.success || !this.userId) {
       return { status: 'error', error: 'missing context compaction recovery data' };
     }
-    const credentials = await getUserWorkersAiCredentials(this.env, this.userId);
-    await this.runContextCompaction(compaction.data.throughMessageId, credentials);
+    await this.runContextCompaction(compaction.data.throughMessageId);
     return { status: 'completed', snapshot: ctx.snapshot };
   }
 
@@ -518,12 +516,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         compaction: {
           current: this.contextCompaction.getCompaction(),
           pending: compactionPending,
-          summarize: (prompt, signal) => summarizeBuilderContext(prompt, accountCredentials, signal),
           save: (compaction) => this.contextCompaction.saveCompaction(compaction),
           schedule: async () => {
             const throughMessageId = messages.at(-1)?.id;
             if (throughMessageId) {
-              await this.scheduleContextCompaction(throughMessageId, messages.length, accountCredentials);
+              await this.scheduleContextCompaction(throughMessageId, messages.length);
             }
           },
           requestDurableCompaction: () => {
@@ -548,11 +545,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
   }
 
-  private async scheduleContextCompaction(
-    throughMessageId: string,
-    revision: number,
-    accountCredentials: Awaited<ReturnType<typeof getUserWorkersAiCredentials>>,
-  ): Promise<void> {
+  private async scheduleContextCompaction(throughMessageId: string, revision: number): Promise<void> {
     if (await this.hasPendingContextCompaction()) {
       return;
     }
@@ -560,7 +553,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       CONTEXT_COMPACTION_FIBER,
       async (fiber) => {
         fiber.stash({ throughMessageId, version: 1 });
-        await this.runContextCompaction(throughMessageId, accountCredentials);
+        await this.runContextCompaction(throughMessageId);
       },
       {
         idempotencyKey: conversationCompactionKey({
@@ -573,10 +566,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     );
   }
 
-  private async runContextCompaction(
-    throughMessageId: string,
-    accountCredentials: Awaited<ReturnType<typeof getUserWorkersAiCredentials>>,
-  ): Promise<void> {
+  private async runContextCompaction(throughMessageId: string): Promise<void> {
     const currentMessages = this.messages;
     const throughIndex = currentMessages.findIndex((message) => message.id === throughMessageId);
     if (throughIndex < 0) {
@@ -584,10 +574,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const sourceMessages = currentMessages.slice(0, throughIndex + 1);
     const expected = this.contextCompaction.getCompaction();
-    const next = await compactContext({
+    const next = compactContext({
       messages: sourceMessages,
       current: expected,
-      summarize: (prompt) => summarizeBuilderContext(prompt, accountCredentials),
     });
     if (!next) {
       return;
@@ -634,22 +623,20 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (compactAfterTurn) {
       this.setState({ ...this.state, contextCompactionRequestedTurnId: null });
     }
-    const validatedSnapshot = await this.refreshDeploymentReadiness();
-    if (status === 'completed') {
-      if (compactAfterTurn && this.userId) {
-        const throughMessageId = this.messages.at(-1)?.id;
-        if (throughMessageId) {
-          try {
-            const credentials = await getUserWorkersAiCredentials(this.env, this.userId);
-            await this.scheduleContextCompaction(throughMessageId, this.messages.length, credentials);
-          } catch {
-            logger.warn('Unable to queue post-turn context compaction');
-          }
+    // A handoff accepted before an abort/error still belongs to the persisted transcript.
+    if (compactAfterTurn && this.userId) {
+      const throughMessageId = this.messages.at(-1)?.id;
+      if (throughMessageId) {
+        try {
+          await this.scheduleContextCompaction(throughMessageId, this.messages.length);
+        } catch {
+          logger.warn('Unable to queue post-turn context rollover');
         }
       }
-      if (validatedSnapshot) {
-        await this.publishValidatedRevision(validatedSnapshot);
-      }
+    }
+    const validatedSnapshot = await this.refreshDeploymentReadiness();
+    if (status === 'completed' && validatedSnapshot) {
+      await this.publishValidatedRevision(validatedSnapshot);
     }
   }
 

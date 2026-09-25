@@ -216,14 +216,17 @@ cancellation to its Container process.
 
 The browser sends open, recently used, and locally modified file context as a bounded turn attachment. The server adds
 that attachment only to the current model view; it never persists the generated context as a transcript message.
-CloudChef derives compaction thresholds from the selected model window while reserving its full output budget. It
-summarizes old turns into a branch-anchored checkpoint, retains about 20K recent tokens, and leaves the authoritative
-transcript unchanged. Long tool loops can also compact their in-memory Pi context before another model step; an invisible
-provider context-overflow response is compacted and retried once. After the response is durably persisted, the existing
-recoverable fiber records an equivalent transcript checkpoint. The model reacquires authoritative facts on demand through
-Computer's paged `read` tool and the bounded VFS-served `ls` and `grep` tools, which is why compaction can discard file
-context cheaply: recovering it no longer costs a container round trip. Retrieved source remains untrusted project data,
-and so is every path and matching line a discovery tool returns.
+CloudChef starts fresh context windows using builder-authored handoffs, following Ghost's recovery approach.
+The `new_context` tool accepts concise continuation state; `history` searches and pages the current authenticated
+conversation, including earlier windows. Before the rollover threshold, the builder gets a best-effort reminder to
+save notes and hand off. If it reaches the threshold or a provider context overflow first, a bounded deterministic
+recovery record retains user inputs, the latest tool batch, and the last authored handoff. No separate summarizer
+model is called. The record is not a verified progress summary: the builder must recover details through history and
+check current workspace state before continuing. Repeated rollovers preserve the authored checkpoint without nesting
+automatic records. The complete transcript remains in the owning Agent; live history ids are turn-local, so after a
+restart the builder searches again for durable message ids. Existing summary checkpoints remain readable, and anchor
+validation prevents applying a checkpoint after a rewind removed its source. Thresholds follow the selected model's
+window, including a smaller limit learned from the provider, with output and estimation headroom reserved.
 
 The installed AI SDK `ToolLoopAgent` remains useful for generated applications, but it does not expose an equivalent to
 Pi's one-at-a-time, persistence-before-delivery steering queue or a continuation after a nominally final model response

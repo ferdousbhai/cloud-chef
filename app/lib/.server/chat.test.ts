@@ -7,7 +7,7 @@ vi.mock('cloudchef-agent/utils/logger', () => ({ createScopedLogger: () => logge
 vi.mock('~/lib/.server/llm/pi-agent-runner', () => ({ piAgentRunner }));
 
 import { createChatResponseFromBody } from './chat';
-import { ContextCompactionUnavailableError, ModelInputBudgetExceededError } from './llm/model-input';
+import { ModelInputBudgetExceededError } from './llm/model-input';
 import { PiSteeringQueue } from './llm/pi-steering';
 import { DEFAULT_WORKERS_AI_MODEL, type WorkersAiModel } from '~/lib/workers-ai-model';
 
@@ -32,14 +32,14 @@ describe('chat provider error boundary', () => {
     expect(JSON.stringify(logger.error.mock.calls)).not.toContain('private request values');
   });
 
-  it.each([
-    [new ModelInputBudgetExceededError(10, 5), 413],
-    [new ContextCompactionUnavailableError(new Error('summary failed')), 503],
-  ])('preserves actionable model-input failures with status %i', async (error, status) => {
-    piAgentRunner.mockRejectedValueOnce(error);
+  it.each([[new ModelInputBudgetExceededError(10, 5), 413]])(
+    'preserves actionable model-input failures with status %i',
+    async (error, status) => {
+      piAgentRunner.mockRejectedValueOnce(error);
 
-    await expect(createResponse()).rejects.toMatchObject({ status });
-  });
+      await expect(createResponse()).rejects.toMatchObject({ status });
+    },
+  );
 
   it('forwards the selected catalog model to the builder agent', async () => {
     piAgentRunner.mockResolvedValueOnce(new ReadableStream());
@@ -55,8 +55,8 @@ function createResponse(model: WorkersAiModel = DEFAULT_WORKERS_AI_MODEL) {
   return createChatResponseFromBody({
     body: { messages: [], modelId: model.id },
     model,
-    compaction: { current: null, pending: false, summarize: vi.fn(), save: vi.fn() },
     firstUserMessage: true,
+    compaction: { current: null, pending: false, save: vi.fn() },
     accountCredentials: { binding: {} as Ai },
     sessionAffinity: 'session',
     workspace: {} as never,

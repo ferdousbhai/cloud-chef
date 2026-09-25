@@ -29,20 +29,10 @@ export const CLOUDFLARE_WORKERS_AI_MODEL = '@cf/zai-org/glm-5.3-flash' satisfies
  * `choices[].delta`. Small Workers AI models such as `@cf/meta/llama-3.2-1b-instruct` answer in
  * Cloudflare's native `{ response, usage }` shape instead: the adapter parses no text, the title
  * comes back empty, and every chat silently keeps its heuristic prompt-derived name. Do not move
- * this to a native-shape model. Llama 4 Scout answers in the OpenAI shape, in about half a second,
- * and already backs `CLOUDFLARE_CONTEXT_SUMMARY_MODEL`.
+ * this to a native-shape model. Llama 4 Scout answers in the OpenAI shape, in about half a second.
  */
 export const CLOUDFLARE_PROJECT_TITLE_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct' satisfies WorkersAiModelId;
 
-/**
- * Context-compaction summaries must come from a fast, large-context model that never spends its
- * output budget on hidden reasoning: GLM 5.3 Flash produced 24s empty "summaries" (all
- * reasoning_content, finish_reason length), and a failed summary aborts the whole builder turn.
- * Unlike a builder turn, a summary asks for a small explicit output budget rather than the whole
- * remaining window, so a reasoning model can still exhaust it here even though it no longer can
- * as the builder. This stays on a non-reasoning, OpenAI-shaped model regardless of the default.
- */
-export const CLOUDFLARE_CONTEXT_SUMMARY_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct' satisfies WorkersAiModelId;
 export type WorkersAiRuntimeModelId = WorkersAiModelId;
 
 /**

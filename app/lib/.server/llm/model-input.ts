@@ -8,7 +8,7 @@ import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import {
   assembleCompactedContext,
   compactContext,
-  CONTEXT_COMPACTION_KEEP_RECENT_TOKENS,
+  CONTEXT_HANDOFF_REMINDER_TOKENS,
   type ContextCompaction,
 } from './context-compaction';
 import { cleanupAssistantMessages } from './message-conversion';
@@ -48,12 +48,11 @@ export function modelCompactionPolicy(contextWindow: number) {
     Math.ceil(contextWindow * COMPACTION_OUTPUT_RESERVE_FRACTION),
   );
   const hardLimitTokens = Math.max(
-    // Compaction always keeps the recent tail, so a limit at or below it could never be satisfied.
-    CONTEXT_COMPACTION_KEEP_RECENT_TOKENS + 1,
+    2,
     contextWindow - outputReserveTokens - modelTokenEstimateSafetyTokens(contextWindow),
   );
   return {
-    proactiveTokens: Math.max(1, hardLimitTokens - CONTEXT_COMPACTION_KEEP_RECENT_TOKENS),
+    proactiveTokens: Math.max(1, hardLimitTokens - CONTEXT_HANDOFF_REMINDER_TOKENS),
     hardLimitTokens,
   };
 }
@@ -71,20 +70,12 @@ export class ModelInputBudgetExceededError extends Error {
   }
 }
 
-export class ContextCompactionUnavailableError extends Error {
-  constructor(readonly cause: unknown) {
-    super('This conversation needs automatic compaction, but its summary could not be generated. Please retry.');
-    this.name = 'ContextCompactionUnavailableError';
-  }
-}
-
-/** Build provider input, replacing older prompt messages with a summary as the configured limits approach. */
+/** Build provider input, replacing older prompt messages with a recovery record as the configured limits approach. */
 export async function prepareModelInput(args: {
   messages: CloudChefMessage[];
   turnContext?: ChatTurnContext;
   currentCompaction?: ContextCompaction | null;
   compactionPending?: boolean;
-  summarize: (prompt: string, signal?: AbortSignal) => Promise<string>;
   scheduleCompaction?: () => Promise<void>;
   signal?: AbortSignal;
   contextWindow: number;
@@ -115,27 +106,16 @@ export async function prepareModelInput(args: {
     };
   }
 
-  args.logger?.info('Starting automatic CloudChef context compaction', {
+  args.logger?.info('Starting automatic CloudChef context rollover', {
     estimatedTokens: modelInput.estimatedTokens,
     messageCount: assembled.messages.length,
   });
 
-  let nextCompaction: ContextCompaction | null;
-  try {
-    nextCompaction = await compactContext({
-      messages: args.messages,
-      current: args.currentCompaction,
-      summarize: args.summarize,
-      signal: args.signal,
-    });
-  } catch (error) {
-    args.signal?.throwIfAborted();
-    args.logger?.warn('Automatic context compaction failed; preserving the full transcript', {
-      error: error instanceof Error ? error.message : String(error),
-      estimatedTokens: modelInput.estimatedTokens,
-    });
-    throw new ContextCompactionUnavailableError(error);
-  }
+  const nextCompaction = compactContext({
+    messages: args.messages,
+    current: args.currentCompaction,
+    signal: args.signal,
+  });
 
   if (!nextCompaction) {
     throw new ModelInputBudgetExceededError(modelInput.estimatedTokens, policy.hardLimitTokens);
@@ -150,7 +130,7 @@ export async function prepareModelInput(args: {
     throw new ModelInputBudgetExceededError(modelInput.estimatedTokens, policy.hardLimitTokens);
   }
 
-  args.logger?.info('Automatically compacted CloudChef context', {
+  args.logger?.info('Started a fresh CloudChef context window', {
     tokensBefore,
     tokensAfter: modelInput.estimatedTokens,
     messagesBefore,

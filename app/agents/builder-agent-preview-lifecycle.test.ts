@@ -63,7 +63,7 @@ describe('BuilderAgent preview lifecycle', () => {
     );
   });
 
-  it('persists requested runtime compaction only after the completed response', () => {
+  it('persists requested handoffs after the transcript even when the response aborts', () => {
     const chatMessage = source.slice(
       source.indexOf('override async onChatMessage('),
       source.indexOf('private async scheduleContextCompaction('),
@@ -75,7 +75,10 @@ describe('BuilderAgent preview lifecycle', () => {
 
     expect(chatMessage).toContain('requestDurableCompaction: () =>');
     expect(response).toContain('const compactAfterTurn =');
-    expect(response).toContain('this.scheduleContextCompaction(throughMessageId, this.messages.length, credentials)');
+    expect(response).toContain('this.scheduleContextCompaction(throughMessageId, this.messages.length)');
+    expect(response.indexOf('this.scheduleContextCompaction')).toBeLessThan(
+      response.indexOf("if (status === 'completed'"),
+    );
     expect(response.indexOf('await this.advanceTranscriptCheckpoint')).toBeLessThan(
       response.indexOf('this.scheduleContextCompaction'),
     );

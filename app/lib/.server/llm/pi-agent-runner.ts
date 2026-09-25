@@ -40,13 +40,16 @@ import {
   type BuilderTurnBudgetReport,
   type BuilderTurnTerminalReason,
 } from './builder-turn-budget';
-import { compactPiContext, estimatePiContextTokens, type ContextCompaction } from './context-compaction';
 import {
-  ContextCompactionUnavailableError,
-  ModelInputBudgetExceededError,
-  modelCompactionPolicy,
-  prepareModelInput,
-} from './model-input';
+  compactPiContext,
+  estimatePiContextTokens,
+  durableHistoryEntries,
+  liveHistoryEntry,
+  type HistoryEntry,
+  type ContextCompaction,
+} from './context-compaction';
+import { createContextWindowTools } from './context-window-tools';
+import { ModelInputBudgetExceededError, modelCompactionPolicy, prepareModelInput } from './model-input';
 import { modelMessagesToPi } from './pi-message-conversion';
 import { recordPiStage, recordPiTurnBudget } from './pi-telemetry';
 import { createToolTimeAccounting } from './tool-time-accounting';
@@ -95,7 +98,6 @@ interface PiAgentOptions {
   compaction: {
     current: ContextCompaction | null;
     pending: boolean;
-    summarize: (prompt: string, signal?: AbortSignal) => Promise<string>;
     save: (compaction: ContextCompaction) => void;
     schedule?: () => Promise<void>;
     requestDurableCompaction?: () => void;
@@ -221,6 +223,32 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     };
   });
 
+  const archivedHistory: HistoryEntry[] = [];
+  const archivedMessages = new Set<AgentMessage>();
+  const checkpointReminders = new Set<AgentMessage>();
+  const archive = (entries: AgentMessage[]) => {
+    for (const entry of entries) {
+      if (!archivedMessages.has(entry)) {
+        archivedMessages.add(entry);
+        archivedHistory.push(liveHistoryEntry(entry, `live-${archivedHistory.length}`));
+      }
+    }
+  };
+  let rolloverRequested = false;
+  let manualHandoff: string | undefined;
+  let checkpointReminderSent = false;
+  Object.assign(
+    piTools,
+    createContextWindowTools({
+      history: () => [...durableHistoryEntries(messages), ...archivedHistory],
+      requestRollover: (handoff) => {
+        manualHandoff = handoff;
+        rolloverRequested = true;
+        compaction.requestDurableCompaction?.();
+      },
+    }),
+  );
+
   const validatedBuildCompletion = getValidatedBuildCompletion(messages);
   if (validatedBuildCompletion && !steering.hasPending()) {
     logger.info('Returning validated build completion without another model turn (pi)');
@@ -244,7 +272,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       turnContext,
       currentCompaction: compaction.current,
       compactionPending: compaction.pending,
-      summarize: compaction.summarize,
       scheduleCompaction: compaction.schedule,
       signal: loopSignal,
       contextWindow: handle.model.contextWindow,
@@ -272,7 +299,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   let totalUsage = emptyUsage();
   let currentTurnStreamedContent = false;
   let runtimeContextCompacted = false;
-  let runtimeCompactionError: ContextCompactionUnavailableError | undefined;
   let toolBudgetError: BuilderTurnBudgetExceededError | undefined;
   let toolIndeterminateError: WorkspaceToolOperationIndeterminateError | undefined;
   let cloudflareApprovalPending = false;
@@ -286,14 +312,10 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   const toolAccounting = createToolTimeAccounting();
 
   /**
-   * Reasons the turn must stop that are not the model's own choice: a context it could not compact,
-   * a spent tool budget, an indeterminate workspace operation, or an approval the user still owes.
+   * Stop for spent tool budgets, indeterminate workspace operations, or pending user approval.
    */
   const turnInterrupted = () =>
-    runtimeCompactionError !== undefined ||
-    toolBudgetError !== undefined ||
-    toolIndeterminateError !== undefined ||
-    cloudflareApprovalPending;
+    toolBudgetError !== undefined || toolIndeterminateError !== undefined || cloudflareApprovalPending;
 
   const clearInactivityWatchdog = () => {
     clearTimeout(inactivityTimer);
@@ -319,6 +341,9 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   const writer = writable.getWriter();
 
   const emit = async (event: AgentEvent) => {
+    if (event.type === 'message_end') {
+      archive([event.message]);
+    }
     if (event.type === 'tool_execution_start') {
       toolsInFlight += 1;
       toolAccounting.start(event.toolCallId, event.toolName);
@@ -482,28 +507,31 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   };
 
   const compactRuntimeContext = async (source: AgentContext): Promise<AgentContext | undefined> => {
-    try {
-      const compacted = await compactPiContext({
-        messages: source.messages,
-        summarize: compaction.summarize,
-        signal: loopSignal,
-      });
-      if (!compacted) {
-        return undefined;
-      }
-      runtimeContextCompacted = true;
-      compaction.requestDurableCompaction?.();
-      logger.info('Compacted live Pi context', {
-        tokensBefore: compacted.tokensBefore,
-        tokensAfter: compacted.tokensAfter,
-      });
-      return { ...source, messages: compacted.messages };
-    } catch (error) {
-      loopSignal?.throwIfAborted();
-      runtimeCompactionError =
-        error instanceof ContextCompactionUnavailableError ? error : new ContextCompactionUnavailableError(error);
+    if (loopSignal.aborted) {
       return undefined;
     }
+    archive(source.messages);
+    const compacted = compactPiContext({
+      messages: source.messages,
+      durableMessages: messages,
+      previousInputs: [...archivedMessages].filter(
+        (message) => message.role === 'user' && !checkpointReminders.has(message),
+      ),
+      handoff: manualHandoff,
+    });
+    if (!compacted) {
+      return undefined;
+    }
+    manualHandoff = undefined;
+    rolloverRequested = false;
+    checkpointReminderSent = false;
+    runtimeContextCompacted = true;
+    compaction.requestDurableCompaction?.();
+    logger.info('Started a fresh live context window', {
+      tokensBefore: compacted.tokensBefore,
+      tokensAfter: compacted.tokensAfter,
+    });
+    return { ...source, messages: compacted.messages };
   };
 
   void (async () => {
@@ -522,12 +550,26 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
           return messages;
         },
         prepareNextTurn: async ({ message, context: turnContext }) => {
+          archive(turnContext.messages);
           const wouldContinue = message.content.some((part) => part.type === 'toolCall');
-          if (
-            !wouldContinue ||
-            estimatePiContextTokens(turnContext.messages) <
-              modelCompactionPolicy(handle.model.contextWindow).hardLimitTokens
-          ) {
+          if (!wouldContinue) {
+            return undefined;
+          }
+          const policy = modelCompactionPolicy(handle.model.contextWindow);
+          const tokens = estimatePiContextTokens(turnContext.messages);
+          if (!rolloverRequested && tokens < policy.hardLimitTokens) {
+            if (!checkpointReminderSent && tokens >= policy.proactiveTokens) {
+              checkpointReminderSent = true;
+              const reminder: AgentMessage = {
+                role: 'user',
+                content:
+                  'Context checkpoint: save longer working notes in the project, then call new_context with concise goal, progress, decisions, failures, and next steps. Earlier conversation remains available through history.',
+                timestamp: Date.now(),
+              };
+              checkpointReminders.add(reminder);
+              context = { ...turnContext, messages: [...turnContext.messages, reminder] };
+              return { context };
+            }
             return undefined;
           }
           const compacted = await compactRuntimeContext(turnContext);
@@ -653,9 +695,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
 
       recordPiStage('loop_complete', modelId);
       const finalAssistant = assistantMessageValue(terminalAssistant);
-      if (runtimeCompactionError) {
-        throw runtimeCompactionError;
-      }
       if (toolIndeterminateError) {
         throw toolIndeterminateError;
       }
@@ -703,7 +742,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       if (
         (error instanceof BuilderTurnBudgetExceededError ||
           error instanceof WorkspaceToolOperationIndeterminateError ||
-          error instanceof ContextCompactionUnavailableError ||
           error instanceof HiddenReasoningExhaustionError) &&
         !abortSignal?.aborted
       ) {
@@ -960,7 +998,7 @@ function withPreparationStage<T>(stage: PiPreparationStage, operation: () => T |
 }
 
 function rethrowPreparationError(stage: PiPreparationStage, error: unknown): never {
-  if (error instanceof ModelInputBudgetExceededError || error instanceof ContextCompactionUnavailableError) {
+  if (error instanceof ModelInputBudgetExceededError) {
     throw error;
   }
   throw new PiAgentPreparationError(stage, error);

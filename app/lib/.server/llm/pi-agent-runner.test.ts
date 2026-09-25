@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentContext, AgentMessage } from '@earendil-works/pi-agent-core';
+import type { AgentContext, AgentMessage, AgentLoopConfig } from '@earendil-works/pi-agent-core';
+import type { AssistantMessage, ToolResultMessage } from '@earendil-works/pi-ai';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { PiStreamChunk } from './pi-stream';
 import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type WorkersAiModelId } from '~/lib/workers-ai-model';
@@ -548,8 +549,59 @@ describe('piAgentRunner', () => {
     expect(chunks).not.toContainEqual({ type: 'error', errorText: budgetPayload });
   });
 
+  it('switches context only after the requested handoff tool batch and retains searchable results', async () => {
+    mocks.piMessages = [{ role: 'user', content: 'Build todo', timestamp: 1 }];
+    const requestDurableCompaction = vi.fn();
+    mocks.piRun.mockImplementation(async (context: AgentContext, config: AgentLoopConfig, emit: RunnerEventSink) => {
+      const nextTool = context.tools?.find((tool) => tool.name === 'new_context');
+      const history = context.tools?.find((tool) => tool.name === 'history');
+      expect(nextTool).toBeDefined();
+      const before = [...context.messages];
+      await nextTool?.execute('handoff', { handoff: 'Revision 42 written. Next: validate.' });
+      expect(context.messages).toEqual(before);
+      const call: AssistantMessage = {
+        ...assistantMessage([]),
+        role: 'assistant',
+        api: 'openai-completions',
+        stopReason: 'toolUse',
+        content: [
+          {
+            type: 'toolCall',
+            id: 'handoff',
+            name: 'new_context',
+            arguments: { handoff: 'Revision 42 written. Next: validate.' },
+          },
+        ],
+      };
+      const result: ToolResultMessage = {
+        role: 'toolResult',
+        toolCallId: 'handoff',
+        toolName: 'new_context',
+        content: [{ type: 'text', text: 'Handoff accepted' }],
+        isError: false,
+        timestamp: 2,
+      };
+      context.messages.push(call, result);
+      const next = await config.prepareNextTurn?.({
+        message: call,
+        context,
+        newMessages: [call, result],
+        toolResults: [result],
+      });
+      expect(next?.context?.messages).toHaveLength(1);
+      expect(JSON.stringify(next?.context?.messages)).toContain('Revision 42 written. Next: validate.');
+      const recovered = await history?.execute('lookup', { op: 'search', query: 'Handoff accepted' });
+      expect(JSON.stringify(recovered)).toContain('live-');
+      await emit({ type: 'turn_end', message: assistantMessage([{ type: 'text', text: 'Done' }]), toolResults: [] });
+    });
+    const chunks = await collectChunks(
+      await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, { requestDurableCompaction }),
+    );
+    expect(chunks.some((chunk) => chunk.type === 'error')).toBe(false);
+    expect(requestDurableCompaction).toHaveBeenCalled();
+  });
+
   it('compacts live tool-loop context before another model step', async () => {
-    const summarize = vi.fn(async () => '## Goal\nFinish the build.');
     const requestDurableCompaction = vi.fn();
     mocks.piMessages = runtimeHistory();
     mocks.piRun.mockImplementation(
@@ -572,16 +624,14 @@ describe('piAgentRunner', () => {
     );
 
     const chunks = await collectChunks(
-      await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, { summarize, requestDurableCompaction }),
+      await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, { requestDurableCompaction }),
     );
 
     expect(chunks.some((chunk) => chunk.type === 'error')).toBe(false);
-    expect(summarize).toHaveBeenCalled();
     expect(requestDurableCompaction).toHaveBeenCalled();
   });
 
   it('compacts and retries one invisible context-overflow response', async () => {
-    const summarize = vi.fn(async () => '## Goal\nRecover the build.');
     const requestDurableCompaction = vi.fn();
     mocks.piMessages = runtimeHistory();
     mocks.piRun
@@ -607,7 +657,7 @@ describe('piAgentRunner', () => {
       );
 
     const chunks = await collectChunks(
-      await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, { summarize, requestDurableCompaction }),
+      await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, { requestDurableCompaction }),
     );
 
     expect(mocks.piRun).toHaveBeenCalledTimes(2);
@@ -616,7 +666,6 @@ describe('piAgentRunner', () => {
   });
 
   it('preserves the provider rejection when a new chat has nothing to compact', async () => {
-    const summarize = vi.fn(async () => 'Unused');
     mocks.piMessages = [{ role: 'user', content: 'a to do app', timestamp: 1 }];
     mocks.piRun.mockImplementation(
       async (
@@ -633,9 +682,8 @@ describe('piAgentRunner', () => {
       },
     );
 
-    const chunks = await collectChunks(await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, { summarize }));
+    const chunks = await collectChunks(await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, {}));
 
-    expect(summarize).not.toHaveBeenCalled();
     expect(mocks.piRun).toHaveBeenCalledOnce();
     expect(chunks).toContainEqual({
       type: 'error',
@@ -659,9 +707,7 @@ describe('piAgentRunner', () => {
     };
     mocks.piRun.mockImplementation(overflowRun);
 
-    const chunks = await collectChunks(
-      await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, { summarize: async () => 'Checkpoint' }),
-    );
+    const chunks = await collectChunks(await createAgentStream());
 
     expect(mocks.piRun).toHaveBeenCalledTimes(2);
     expect(chunks).toContainEqual({
@@ -976,7 +1022,6 @@ function createAgentStream(
     compaction: {
       current: null,
       pending: false,
-      summarize: async () => 'summary',
       save: vi.fn(),
       ...compactionOverrides,
     },

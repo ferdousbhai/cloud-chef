@@ -2,7 +2,6 @@ import { describe, expect, test, vi } from 'vitest';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { ModelInputBudgetExceededError, modelCompactionPolicy, prepareModelInput } from './model-input';
-import type { ContextCompactionUnavailableError } from './model-input';
 
 const tools = [
   { name: 'read', label: 'Read', description: 'Read a file', parameters: { type: 'object' } },
@@ -28,7 +27,6 @@ function largeHistory(count = 48): CloudChefMessage[] {
 function prepare(messages: CloudChefMessage[], options: Partial<Parameters<typeof prepareModelInput>[0]> = {}) {
   return prepareModelInput({
     messages,
-    summarize: async () => '## Current State\nCompacted.',
     contextWindow: TEST_CONTEXT_WINDOW,
     systemPrompt: '',
     tools,
@@ -40,7 +38,7 @@ describe('prepareModelInput', () => {
   test('compacts once after the actual provider input reaches the model-safe limit', async () => {
     const result = await prepare(largeHistory());
 
-    expect(result.nextCompaction?.summary).toContain('Compacted');
+    expect(result.nextCompaction?.summary).toContain('Automatic context rollover recovery record');
     expect(result.contextCompacted).toBe(true);
     expect(result.promptMessages.length).toBeLessThan(48);
     expect(result.estimatedTokens).toBeLessThanOrEqual(hardLimitTokens);
@@ -57,49 +55,40 @@ describe('prepareModelInput', () => {
     expect(result.estimatedTokens).toBeLessThanOrEqual(hardLimitTokens);
   });
 
-  test('accepts proactive compaction without waiting for summary generation', async () => {
-    const summarize = vi.fn(async () => 'summary');
+  test('schedules a proactive recovery checkpoint', async () => {
     const scheduleCompaction = vi.fn(async () => undefined);
-    const result = await prepare(largeHistory(18), { scheduleCompaction, summarize });
 
+    const result = await prepare(largeHistory(18), { scheduleCompaction });
     expect(result.compactionAction).toBe('background');
     expect(scheduleCompaction).toHaveBeenCalledOnce();
-    expect(summarize).not.toHaveBeenCalled();
     expect(result.nextCompaction).toBeNull();
   });
 
   test('does not schedule another proactive compaction while one is pending', async () => {
-    const summarize = vi.fn(async () => 'summary');
     const scheduleCompaction = vi.fn(async () => undefined);
     const result = await prepare(largeHistory(18), {
       compactionPending: true,
       scheduleCompaction,
-      summarize,
     });
 
     expect(result.compactionAction).toBe('none');
     expect(scheduleCompaction).not.toHaveBeenCalled();
-    expect(summarize).not.toHaveBeenCalled();
   });
 
-  test('counts turn-local context but never places it in the persisted summary prompt', async () => {
-    const summarize = vi.fn(async (_prompt: string) => 'durable summary');
+  test('counts turn-local context but never places it in the persisted recovery record', async () => {
     const messages = Array.from({ length: 20 }, (_, index) => message(`m-${index}`, 'x'.repeat(18_000)));
     const turnContext = {
       version: 1 as const,
       content: `ephemeral-workspace:${'y'.repeat(79_000)}`,
     };
 
-    const result = await prepare(messages, { summarize, turnContext });
-
-    expect(summarize).toHaveBeenCalledOnce();
-    expect(summarize.mock.calls[0]?.[0]).not.toContain('ephemeral-workspace');
-    expect(result.nextCompaction?.summary).toBe('durable summary');
+    const result = await prepare(messages, { turnContext });
+    expect(result.nextCompaction?.summary).not.toContain('ephemeral-workspace');
     expect(JSON.stringify(result.promptMessages)).toContain('ephemeral-workspace');
     expect(JSON.stringify(messages)).not.toContain('ephemeral-workspace');
   });
 
-  test('iteratively updates an existing summary overlay', async () => {
+  test('iteratively updates an existing checkpoint overlay', async () => {
     const first = await prepare(largeHistory());
     const extended = [
       ...largeHistory(),
@@ -108,15 +97,13 @@ describe('prepareModelInput', () => {
 
     const second = await prepare(extended, {
       currentCompaction: first.nextCompaction,
-      summarize: async () => 'updated summary',
     });
 
     expect(second.contextCompacted).toBe(true);
-    expect(second.nextCompaction?.summary).toBe('updated summary');
     expect(second.nextCompaction?.fromMessageId).toBe(first.nextCompaction?.fromMessageId);
   });
 
-  test('preserves cancellation instead of reporting compaction failure', async () => {
+  test('preserves cancellation during rollover', async () => {
     const controller = new AbortController();
     controller.abort();
 
@@ -125,20 +112,10 @@ describe('prepareModelInput', () => {
     });
   });
 
-  test('fails clearly without mutating or omitting history when summary generation fails', async () => {
+  test('rolls over without mutating the durable transcript', async () => {
     const messages = largeHistory();
     const original = structuredClone(messages);
-
-    await expect(
-      prepare(messages, {
-        summarize: async () => {
-          throw new Error('summary unavailable');
-        },
-      }),
-    ).rejects.toMatchObject({
-      name: 'ContextCompactionUnavailableError',
-      cause: expect.objectContaining({ message: 'summary unavailable' }),
-    } satisfies Partial<ContextCompactionUnavailableError>);
+    await prepare(messages);
     expect(messages).toEqual(original);
   });
 

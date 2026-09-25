@@ -1,12 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Type, type Message } from '@earendil-works/pi-ai';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
-import {
-  CLOUDFLARE_CONTEXT_SUMMARY_MODEL,
-  CLOUDFLARE_PROJECT_TITLE_MODEL,
-  DEFAULT_WORKERS_AI_MODEL,
-  type WorkersAiModel,
-} from '~/lib/workers-ai-model';
+import { CLOUDFLARE_PROJECT_TITLE_MODEL, DEFAULT_WORKERS_AI_MODEL, type WorkersAiModel } from '~/lib/workers-ai-model';
 import { getPiModel, type ModelStreamOptions } from './pi-ai-models';
 
 /** The OpenAI-compatible body and binding options the adapter forwards, as this test reads them. */
@@ -28,18 +23,18 @@ type BindingOptions = {
 };
 
 /**
- * The title and summary call sites deliberately pass no `WorkersAiModel`, because pi-ai's own
+ * The title call site deliberately pass no `WorkersAiModel`, because pi-ai's own
  * static catalog already describes llama-4-scout correctly. That is an assumption about a
  * dependency, not about this repository: if an upgrade drops the entry or shrinks its window,
- * `getPiModel` silently substitutes its 128k non-reasoning defaults and the summarizer quietly
+ * `getPiModel` silently substitutes its 128k non-reasoning defaults and title generation quietly
  * loses window instead of failing. This makes that upgrade turn `validate` red.
  */
-describe('pinned title and summary models in the pi-ai catalog', () => {
+describe('pinned title model in the pi-ai catalog', () => {
   const piCatalog = new Map<string, { api: string; contextWindow: number }>(
     Object.entries(CLOUDFLARE_WORKERS_AI_MODELS),
   );
 
-  it.each([CLOUDFLARE_PROJECT_TITLE_MODEL, CLOUDFLARE_CONTEXT_SUMMARY_MODEL])('describes %s', (modelId) => {
+  it.each([CLOUDFLARE_PROJECT_TITLE_MODEL])('describes %s', (modelId) => {
     expect(piCatalog.get(modelId)).toMatchObject({
       api: 'openai-completions',
       contextWindow: expect.any(Number),

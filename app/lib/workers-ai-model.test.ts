@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CLOUDFLARE_CONTEXT_SUMMARY_MODEL,
   CLOUDFLARE_PROJECT_TITLE_MODEL,
   CLOUDFLARE_WORKERS_AI_MODEL,
   DEFAULT_WORKERS_AI_MODEL,
@@ -46,7 +45,7 @@ describe('Workers AI model catalog', () => {
     // A native `{ response, usage }` model (any `@cf/meta/llama-3.2-*-instruct`, for one) parses as
     // empty text through the Pi openai-completions adapter, so titles silently never generate.
     expect(CLOUDFLARE_PROJECT_TITLE_MODEL).toBe('@cf/meta/llama-4-scout-17b-16e-instruct');
-    expect(CLOUDFLARE_PROJECT_TITLE_MODEL).toBe(CLOUDFLARE_CONTEXT_SUMMARY_MODEL);
+    expect(CLOUDFLARE_PROJECT_TITLE_MODEL).toBe('@cf/meta/llama-4-scout-17b-16e-instruct');
   });
 
   it('accepts Cloudflare-native model slugs without pretending they are catalog membership', () => {

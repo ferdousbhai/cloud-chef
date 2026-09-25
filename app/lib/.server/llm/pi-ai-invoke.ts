@@ -1,7 +1,7 @@
 import type { Message, Tool, ToolCall } from '@earendil-works/pi-ai';
 import type { ModelHandle } from './pi-ai-models';
 
-export class AgentTurnError extends Error {
+class AgentTurnError extends Error {
   readonly statusCode?: number;
   constructor(message: string, statusCode?: number) {
     super(message);
