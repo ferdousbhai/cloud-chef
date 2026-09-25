@@ -6,7 +6,7 @@ import {
   type ChatResponseResult,
   type OnChatMessageOptions,
 } from '@cloudflare/ai-chat';
-import { callable, type FiberRecoveryContext, type FiberRecoveryResult } from 'agents';
+import { callable, type Connection, type FiberRecoveryContext, type FiberRecoveryResult } from 'agents';
 import { canApplyConversationCompaction, conversationCompactionKey } from '~/lib/compaction';
 import { createChatResponseFromBody, type ChatRequestBody } from '~/lib/.server/chat';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
@@ -66,6 +66,7 @@ import {
   type BuilderTranscriptBinding,
 } from './builder-request-policy';
 import { initializeBuilderAgentSchema } from './builder-agent-schema';
+import { rethrowAgentRejection } from './builder-agent-rejection';
 import {
   BuilderAgentIdentityMismatchError,
   BuilderAgentIdentityRepository,
@@ -298,6 +299,16 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.hydrateDurableIdentity({ required: false, reason: 'agent_start' });
     }
     this.refreshCloudflareExecutionState();
+  }
+
+  override onError(...args: [connection: Connection, cause: unknown] | [cause: unknown]): void {
+    if (args.length === 2) {
+      rethrowAgentRejection(args[1]);
+      super.onError(args[0], args[1]);
+    } else {
+      rethrowAgentRejection(args[0]);
+      super.onError(args[0]);
+    }
   }
 
   /**

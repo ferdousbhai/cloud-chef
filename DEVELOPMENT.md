@@ -11,6 +11,23 @@ pnpm install --frozen-lockfile
 
 Node.js and pnpm versions are pinned in `.nvmrc` and `package.json`.
 
+## Run Locally
+
+```bash
+pnpm run generate
+pnpm run d1:migrations:apply:local
+pnpm exec vite dev
+```
+
+This generates the route tree, Worker types, and bundled artifacts, applies the control-plane D1 migrations to a local
+database, and serves the app at http://localhost:5173 with Vite and the Cloudflare Workers runtime. The home page, UI,
+and `/api/health` work without any credentials. There is intentionally no `dev` package script: the production-config
+verifier rejects scripts that start a local server.
+
+Signing in and building apps need the `CLOUDFLARE_OAUTH_CLIENT_SECRET` and `CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY`
+secrets and a Cloudflare OAuth client whose callback reaches your origin (see Configuration). Wrangler warns that they
+are missing; that is expected for UI work.
+
 ## Verification
 
 Run the same complete pipeline used by CI:

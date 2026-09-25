@@ -46,13 +46,20 @@ export function Preview({
         </div>
       )}
 
+      {previewUrl && preview && (
+        <div className="flex items-center gap-2 border-b border-bolt-elements-borderColor px-3 py-1 text-xs text-content-tertiary">
+          <span className="font-medium text-content-secondary">Your app</span>
+          <span>Preview of revision {preview.workspaceRevision}</span>
+        </div>
+      )}
+
       <div className="relative min-h-0 flex-1">
         {previewUrl && preview ? (
           <iframe
             key={`${preview.id}:${reloadKey}`}
             className="size-full border-0 bg-white"
             src={previewUrl}
-            title={`Workers preview for durable revision ${preview.workspaceRevision}`}
+            title={`Your app: preview of revision ${preview.workspaceRevision}`}
             sandbox={PREVIEW_SANDBOX}
             referrerPolicy="no-referrer"
           />

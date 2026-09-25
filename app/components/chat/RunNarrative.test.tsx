@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { toolSuccess } from 'cloudchef-agent/tool-result';
 import { RunNarrative } from './RunNarrative';
@@ -26,6 +26,11 @@ const message: CloudChefMessage = {
     { type: 'text', text: 'Done. The preview is publishing.', state: 'done' },
   ],
 };
+
+// RunNarrative loads Markdown lazily; warm the module so a busy full-suite run doesn't outlast vi.waitFor.
+beforeAll(async () => {
+  await import('./Markdown');
+});
 
 beforeEach(() => {
   Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, value: true });
