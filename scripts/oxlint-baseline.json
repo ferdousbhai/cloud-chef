@@ -1,5 +1,5 @@
 {
-  "total": 1269,
+  "total": 1258,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -33,9 +33,6 @@
     "app/agents/builder-workspace-seed.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 2
-    },
-    "app/components/chat/AssistantMessage.tsx": {
-      "anti-slop/no-runtime-typeof": 1
     },
     "app/components/chat/CloudChefAuthWrapper.tsx": {
       "anti-slop/no-runtime-typeof": 1
@@ -223,13 +220,9 @@
     "app/lib/.server/llm/context-compaction-store.test.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 1
     },
-    "app/lib/.server/llm/context-compaction.test.ts": {
-      "anti-slop/require-safety-comment-for-type-assertion": 1
-    },
     "app/lib/.server/llm/context-compaction.ts": {
-      "anti-slop/no-runtime-typeof": 5,
-      "anti-slop/no-unknown-parameters": 3,
-      "anti-slop/no-unsafe-dictionary-type": 1
+      "anti-slop/no-runtime-typeof": 3,
+      "anti-slop/no-unknown-parameters": 1
     },
     "app/lib/.server/llm/message-conversion.ts": {
       "anti-slop/no-runtime-typeof": 3,
@@ -288,13 +281,6 @@
     },
     "app/lib/.server/llm/workers-ai-stream.test.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 1
-    },
-    "app/lib/.server/llm/workers-ai-text.test.ts": {
-      "anti-slop/no-module-mocking": 2,
-      "anti-slop/require-safety-comment-for-type-assertion": 1
-    },
-    "app/lib/.server/llm/workers-ai-text.ts": {
-      "anti-slop/no-unknown-parameters": 1
     },
     "app/lib/.server/llm/workers-ai-tools.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
@@ -487,9 +473,6 @@
     "app/utils/classNames.ts": {
       "anti-slop/no-runtime-typeof": 2
     },
-    "e2e/launch-critical-journey.spec.ts": {
-      "anti-slop/require-safety-comment-for-type-assertion": 2
-    },
     "cloudchef-agent/ai-compat.ts": {
       "anti-slop/no-runtime-typeof": 10,
       "anti-slop/no-unknown-parameters": 2,
@@ -532,6 +515,9 @@
     },
     "cloudchef-agent/utils/stripIndent.ts": {
       "anti-slop/no-runtime-typeof": 1
+    },
+    "e2e/launch-critical-journey.spec.ts": {
+      "anti-slop/require-safety-comment-for-type-assertion": 2
     },
     "playwright.config.ts": {
       "anti-slop/no-conditional-empty-object-spread": 1
