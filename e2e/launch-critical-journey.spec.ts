@@ -73,7 +73,7 @@ test('authenticated build, edit, preview, approval, and production journey', asy
     timeout: 10 * 60_000,
   });
 
-  const productionUrl = await deploymentStatus.getByRole('link', { name: 'Open deployment' }).getAttribute('href');
+  const productionUrl = await deploymentStatus.getByRole('link', { name: 'View app' }).getAttribute('href');
   if (!productionUrl?.startsWith('https://')) {
     throw new Error('The deployment did not return a valid HTTPS production URL.');
   }

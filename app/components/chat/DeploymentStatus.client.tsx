@@ -32,7 +32,7 @@ export function DeploymentStatus({
           Deployed.
           {deployment.productionUrl ? (
             <a className="ml-1 underline" href={deployment.productionUrl} target="_blank" rel="noreferrer">
-              Open deployment
+              View app
             </a>
           ) : null}
         </p>
