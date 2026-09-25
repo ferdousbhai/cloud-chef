@@ -202,9 +202,8 @@ export function BaseChat({
     }
   }, [lastUserMessage, onSend]);
   const isSmallViewport = useViewport(1024);
-  const isNarrowChat = useViewport(1280);
   const showWorkbench = useStore(workbenchStore.showWorkbench);
-  const compactActivity = isNarrowChat || showWorkbench;
+  const compactActivity = isSmallViewport || showWorkbench;
   const swipeEnabled = isSmallViewport && chatStarted;
   const workspaceSwipe = useWorkspaceSwipe(swipeEnabled);
   return (
