@@ -122,7 +122,7 @@ export function SubchatBar({
   );
 
   return (
-    <nav aria-label="Chat history" className="mx-auto mb-3 w-full max-w-chat px-3 pt-3 sm:px-0">
+    <nav aria-label="Chat history" className="mb-2 w-full px-4 pt-3 lg:px-6">
       <SubchatDialogs
         createOpen={activeCreateDialog !== null}
         renameOpen={activeRenameDialog !== null}

@@ -88,7 +88,7 @@ export const MessageInput = memo(function MessageInput({
       <div
         className={classNames(
           'relative z-20 mx-auto w-full transition-all duration-200',
-          chatStarted ? 'max-w-chat' : 'cloudchef-message-input--home max-w-none',
+          chatStarted ? 'max-w-none' : 'cloudchef-message-input--home max-w-none',
         )}
       >
         {modelSelector ? <NewModelsNotice /> : null}
@@ -107,19 +107,18 @@ export const MessageInput = memo(function MessageInput({
               onKeyDown={controller.handleKeyDown}
               onChange={controller.handleChange}
               value={input}
-              minHeight={chatStarted ? 72 : 44}
+              minHeight={44}
               maxHeight={chatStarted ? 200 : 160}
               placeholder={placeholder}
               disabled={disabled}
-              contentClassName={chatStarted ? 'pb-14' : undefined}
             />
             {chatStarted && (
-              <div className="pointer-events-none absolute inset-x-2 bottom-2 z-10 flex items-end gap-2">
-                <div className="pointer-events-auto flex min-w-0 flex-1 items-center gap-2 pl-1">
+              <div className="flex items-end gap-2 px-2 pb-2">
+                <div className="flex min-w-0 flex-1 items-center gap-2 pl-1">
                   {modelSelector}
                   <div className="hidden min-w-0 sm:block">{inputStatus}</div>
                 </div>
-                <div className="pointer-events-auto ml-auto flex items-center gap-1">{actions}</div>
+                <div className="ml-auto flex items-center gap-1">{actions}</div>
               </div>
             )}
           </div>
@@ -131,11 +130,7 @@ export const MessageInput = memo(function MessageInput({
           )}
         </div>
       </div>
-      {authState.kind === 'unauthenticated' && (
-        <CloudflareConnectLegalNotice
-          className={classNames('mx-auto mt-2 w-full px-1', chatStarted ? 'max-w-chat' : '')}
-        />
-      )}
+      {authState.kind === 'unauthenticated' && <CloudflareConnectLegalNotice className="mx-auto mt-2 w-full px-1" />}
       {controller.refinement && (
         <PromptRefinementDialog
           key={controller.refinement.questions.map((question) => question.id).join(':')}
@@ -157,7 +152,6 @@ function PromptTextarea({
   maxHeight,
   placeholder,
   disabled,
-  contentClassName,
 }: {
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
   onChange: ChangeEventHandler<HTMLTextAreaElement>;
@@ -166,7 +160,6 @@ function PromptTextarea({
   maxHeight: number;
   placeholder: string;
   disabled: boolean;
-  contentClassName?: string;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -180,11 +173,11 @@ function PromptTextarea({
     <div className="relative overflow-y-auto" style={{ minHeight, maxHeight }}>
       <textarea
         ref={ref}
+        rows={1}
         className={classNames(
           'block w-full appearance-none resize-none bg-transparent px-3 py-3 text-sm leading-snug text-content-primary outline-none placeholder-content-tertiary',
           'disabled:cursor-not-allowed disabled:opacity-50',
           'scrollbar-thin scrollbar-track-transparent scrollbar-thumb-macosScrollbar-thumb',
-          contentClassName,
         )}
         disabled={disabled}
         onKeyDown={onKeyDown}

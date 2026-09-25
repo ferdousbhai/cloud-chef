@@ -32,6 +32,9 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messa
         messages.map((message, index) => {
           const { role } = message;
           const isUserMessage = role === 'user';
+          if (!isUserMessage && !message.parts.some((part) => part.type === 'text' && part.text?.trim())) {
+            return null;
+          }
 
           return (
             <div
@@ -61,6 +64,7 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messa
               ) : (
                 <AssistantMessage
                   message={message}
+                  view="conversation"
                   isStreaming={isStreaming && index === messages.length - 1}
                   cloudflareExecutions={cloudflareExecutions}
                   onCloudflareExecutionDecision={onCloudflareExecutionDecision}

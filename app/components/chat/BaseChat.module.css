@@ -19,25 +19,70 @@
   background: var(--cc-background-primary);
 }
 
+.Chat[data-chat-started='true'] {
+  --chat-max-width: 100%;
+}
+
 .ChatScroller {
-  scroll-padding-block: 5rem 10rem;
+  min-height: 0;
+}
+
+.ChatLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.85fr) minmax(20rem, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas: 'conversation activity' 'composer activity';
+  flex: 1;
+  min-height: 0;
+  gap: 0 1.5rem;
+  padding: 0 1.5rem;
+}
+
+.ChatLayout[data-compact='true'] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-areas: 'conversation' 'activity' 'composer';
+  gap: 0;
+  padding-inline: 0.75rem;
 }
 
 .Conversation {
+  grid-area: conversation;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
   padding-top: 0.25rem;
+  scroll-padding-block: 1rem;
 }
 
 .ComposerDock {
-  isolation: isolate;
+  grid-area: composer;
+  padding-top: 0.5rem;
+  background: var(--cc-background-primary);
 }
 
-.ComposerDock::before {
-  position: absolute;
-  z-index: -1;
-  inset: -3rem -1rem 0;
-  content: '';
-  pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--cc-background-primary) 3rem);
+.ActivityPanel {
+  grid-area: activity;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin-bottom: 0.75rem;
+  border-left: 1px solid var(--cc-border-transparent);
+}
+
+.ActivityPanel[data-compact='true'] {
+  max-height: 35dvh;
+  margin-bottom: 0;
+  border-left: 0;
+  border-top: 1px solid var(--cc-border-transparent);
+}
+
+.ActivityList {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .Message {

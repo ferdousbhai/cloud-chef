@@ -3,6 +3,8 @@ import { messageText, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { isStreamStatusActive, type StreamStatus } from '~/lib/common/types';
 import { MessageInput } from './MessageInput';
 import { Messages } from './Messages.client';
+import { ActivityPanel } from './ActivityPanel';
+import { workbenchStore } from '~/lib/stores/workbench.client';
 import { useChatId } from '~/lib/stores/chatId';
 import { setMessageInput } from '~/lib/stores/messageInput';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
@@ -14,7 +16,7 @@ import { DisabledChatMessageSheet } from './DisabledChatMessageSheet';
 import { HomeIntro } from './HomeIntro.client';
 import StreamingIndicator from './StreamingIndicator';
 import { ReauthorizeInterstitial } from '~/components/cloudflare/ReauthorizeInterstitial.client';
-import { AnimatePresence, motion, MotionConfig } from 'framer-motion';
+import { MotionConfig } from 'framer-motion';
 import { useStore } from '@nanostores/react';
 import { toast } from 'sonner';
 import { SubchatBar } from './SubchatBar';
@@ -200,6 +202,9 @@ export function BaseChat({
     }
   }, [lastUserMessage, onSend]);
   const isSmallViewport = useViewport(1024);
+  const isNarrowChat = useViewport(1280);
+  const showWorkbench = useStore(workbenchStore.showWorkbench);
+  const compactActivity = isNarrowChat || showWorkbench;
   const swipeEnabled = isSmallViewport && chatStarted;
   const workspaceSwipe = useWorkspaceSwipe(swipeEnabled);
   return (
@@ -209,21 +214,27 @@ export function BaseChat({
         data-chat-visible={showChat}
       >
         <div
-          ref={scrollRef}
-          className={classNames(styles.ChatScroller, 'flex size-full flex-col overflow-y-auto', {
+          ref={chatStarted ? undefined : scrollRef}
+          className={classNames(styles.ChatScroller, 'flex size-full min-h-0 flex-col', {
             'touch-pan-y touch-pinch-zoom': swipeEnabled,
+            'overflow-y-auto': !chatStarted,
           })}
           {...workspaceSwipe}
         >
-          <div className="flex w-full grow flex-col lg:flex-row">
+          <div className="flex size-full min-h-0 grow flex-col lg:flex-row">
             <div
-              className={classNames(styles.Chat, 'flex flex-col flex-grow lg:min-w-[var(--chat-min-width)] h-full', {
-                'items-stretch': !chatStarted,
-              })}
+              className={classNames(
+                styles.Chat,
+                'flex min-w-0 flex-col flex-grow lg:min-w-[var(--chat-min-width)] h-full',
+                {
+                  'items-stretch': !chatStarted,
+                },
+              )}
+              data-chat-started={chatStarted}
             >
               <div
                 className={classNames('w-full', {
-                  'h-full flex flex-col': chatStarted,
+                  'h-full min-h-0 flex flex-col': chatStarted,
                 })}
               >
                 {!chatStarted ? (
@@ -248,75 +259,77 @@ export function BaseChat({
                       handleRenameSubchat={handleRenameSubchat}
                       isSubchatLoaded={isSubchatLoaded}
                     />
-
-                    {isSubchatLoaded && (
-                      <AnimatePresence>
-                        <motion.div
-                          key="messages"
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -20 }}
-                          transition={{ duration: 0.3, ease: 'easeInOut' }}
-                          className={classNames(styles.Conversation, 'mx-auto flex w-full max-w-chat flex-1 flex-col')}
-                        >
-                          <Messages
-                            ref={messageRef}
-                            className="z-[1] mx-auto flex w-full max-w-chat flex-1 flex-col gap-1.5 px-3 pb-4 sm:px-0"
-                            messages={messages}
-                            isStreaming={isStreaming}
-                            cloudflareExecutions={cloudflareExecutions}
-                            onCloudflareExecutionDecision={onCloudflareExecutionDecision}
-                          />
-                        </motion.div>
-                      </AnimatePresence>
-                    )}
                   </>
                 )}
-                {chatStarted && (
-                  <div
-                    className={classNames(
-                      styles.ComposerDock,
-                      'z-prompt sticky bottom-0 mx-auto flex w-full max-w-chat flex-col px-3 pb-2 sm:px-0 sm:pb-3',
-                    )}
-                  >
-                    {runtimeNotice && (
-                      <div className="mb-1.5 px-1 text-xs text-content-tertiary" role="status">
-                        {runtimeNotice}
-                      </div>
-                    )}
-                    {deployment ? (
-                      <div className="mb-2">
-                        <DeploymentStatus deployment={deployment} publication={publication} onRetry={onDeploy} />
-                      </div>
-                    ) : null}
-                    {(!subchats || (currentSubchatIndex >= subchats.length - 1 && isSubchatLoaded)) && (
-                      <>
-                        {!disabledReason && (
-                          <StreamingIndicator
-                            streamStatus={streamStatus}
-                            isRecovering={isRecovering}
-                            currentError={currentError}
-                            buildProgress={buildProgress}
-                            isProjectUpdate={currentSubchatIndex > 0}
-                            submissionPending={sendMessageInProgress}
-                            resendMessage={resendMessage}
-                          />
-                        )}
-
-                        <MessageInput
-                          chatStarted={chatStarted}
+                <div className={chatStarted ? styles.ChatLayout : undefined} data-compact={compactActivity}>
+                  {chatStarted && isSubchatLoaded && (
+                    <>
+                      <div
+                        ref={scrollRef}
+                        className={styles.Conversation}
+                        role="region"
+                        aria-label="Conversation"
+                        tabIndex={0}
+                      >
+                        <Messages
+                          ref={messageRef}
+                          className="flex min-w-0 flex-col gap-3 px-1 pb-4"
+                          messages={messages}
                           isStreaming={isStreaming}
-                          sendMessageInProgress={sendMessageInProgress}
-                          disabled={disabledReason !== null}
-                          onStop={onStop}
-                          onSend={onSend}
-                          numMessages={messages.length}
+                          cloudflareExecutions={cloudflareExecutions}
+                          onCloudflareExecutionDecision={onCloudflareExecutionDecision}
                         />
-                      </>
-                    )}
-                    <DisabledChatMessageSheet message={disabledReason} />
-                  </div>
-                )}
+                      </div>
+                      <ActivityPanel
+                        messages={messages}
+                        isStreaming={isStreaming}
+                        compact={compactActivity}
+                        cloudflareExecutions={cloudflareExecutions}
+                        onCloudflareExecutionDecision={onCloudflareExecutionDecision}
+                      />
+                    </>
+                  )}
+                  {chatStarted && (
+                    <div className={classNames(styles.ComposerDock, 'z-prompt flex min-w-0 w-full flex-col pb-2')}>
+                      {runtimeNotice && (
+                        <div className="mb-1.5 px-1 text-xs text-content-tertiary" role="status">
+                          {runtimeNotice}
+                        </div>
+                      )}
+                      {deployment ? (
+                        <div className="mb-2">
+                          <DeploymentStatus deployment={deployment} publication={publication} onRetry={onDeploy} />
+                        </div>
+                      ) : null}
+                      {(!subchats || (currentSubchatIndex >= subchats.length - 1 && isSubchatLoaded)) && (
+                        <>
+                          {!disabledReason && (
+                            <StreamingIndicator
+                              streamStatus={streamStatus}
+                              isRecovering={isRecovering}
+                              currentError={currentError}
+                              buildProgress={buildProgress}
+                              isProjectUpdate={currentSubchatIndex > 0}
+                              submissionPending={sendMessageInProgress}
+                              resendMessage={resendMessage}
+                            />
+                          )}
+
+                          <MessageInput
+                            chatStarted={chatStarted}
+                            isStreaming={isStreaming}
+                            sendMessageInProgress={sendMessageInProgress}
+                            disabled={disabledReason !== null}
+                            onStop={onStop}
+                            onSend={onSend}
+                            numMessages={messages.length}
+                          />
+                        </>
+                      )}
+                      <DisabledChatMessageSheet message={disabledReason} />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
             {chatStarted && (

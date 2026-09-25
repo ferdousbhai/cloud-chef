@@ -33,8 +33,9 @@ export const ToolCall = memo(function ToolCall({
     [activity?.invocation, rawInvocation],
   );
   const status = activity?.status ?? invocationStatus(invocation);
-  const expanded = showAction || status === 'pending' || status === 'running';
   const cloudflareExecution = cloudflareExecutions?.find((execution) => execution.toolCallId === invocation.toolCallId);
+  const expanded =
+    showAction || status === 'pending' || status === 'running' || cloudflareExecution?.status === 'awaiting_approval';
 
   const toggleAction = () => {
     setShowAction((visible) => !visible);

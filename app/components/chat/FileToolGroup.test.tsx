@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CloudChefPart, CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
+import { makePartId } from 'cloudchef-agent/partId';
 import { AssistantMessage } from './AssistantMessage';
 import { describeFileGroup, groupMessageParts } from './FileToolGroup';
 
@@ -94,6 +95,28 @@ describe('AssistantMessage file grouping', () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     document.body.replaceChildren();
+  });
+
+  it('preserves tool part IDs when separating activity from conversation', async () => {
+    const message: CloudChefMessage = {
+      id: 'filtered-message',
+      role: 'assistant',
+      parts: [
+        { type: 'text', text: 'Narrative stays in chat.', state: 'done' },
+        filePart('read', 'read-filtered', 'src/original.ts'),
+      ],
+    };
+    toolActivityStore.record(makePartId(message.id, 1), {
+      type: 'dynamic-tool',
+      toolName: 'read',
+      toolCallId: 'read-filtered',
+      state: 'output-available',
+      input: { path: 'src/updated.ts' },
+      output: { summary: 'read' },
+    });
+    await act(async () => root.render(<AssistantMessage message={message} view="activity" />));
+    expect(container.textContent).toContain('src/updated.ts');
+    expect(container.textContent).not.toContain('Narrative stays in chat.');
   });
 
   it('only marks the latest reasoning part of an active message as thinking', async () => {
