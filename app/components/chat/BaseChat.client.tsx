@@ -224,7 +224,7 @@ export function BaseChat({
             <div
               className={classNames(
                 styles.Chat,
-                'flex min-w-0 flex-col flex-grow lg:min-w-[var(--chat-min-width)] h-full',
+                'flex min-w-0 flex-1 flex-col lg:min-w-[var(--chat-min-width)] h-full',
                 {
                   'items-stretch': !chatStarted,
                 },
