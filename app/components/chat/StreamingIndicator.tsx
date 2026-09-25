@@ -5,6 +5,7 @@ import { chatStore } from '~/lib/stores/chatId';
 import { Spinner } from '@ui/Spinner';
 import { ExclamationTriangleIcon, ResetIcon } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';
+import { revealActivity } from '~/lib/stores/activity-reveal';
 import type { BuildProgress } from './build-progress';
 
 /** A provider rejection body can run to kilobytes; the chat line shows the start of it. */
@@ -83,6 +84,9 @@ export default function StreamingIndicator(props: StreamingIndicatorProps) {
     }
   }
 
+  // While a run is working, its status is a link into the Activity panel's view of that work.
+  const revealable = !aborted && (streamStatus === 'submitted' || streamStatus === 'streaming');
+
   const retryLabel =
     streamStatus === 'error' ? 'Resend' : aborted && streamStatus === 'ready' ? 'Try again' : undefined;
 
@@ -104,7 +108,18 @@ export default function StreamingIndicator(props: StreamingIndicatorProps) {
           <span className="mt-0.5 shrink-0" aria-hidden>
             {icon}
           </span>
-          <span className="min-w-0 flex-1 break-words">{message}</span>
+          {revealable ? (
+            <button
+              type="button"
+              title="Show in Activity"
+              className="min-w-0 flex-1 break-words text-left decoration-dotted underline-offset-4 hover:text-content-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-500"
+              onClick={revealActivity}
+            >
+              {message}
+            </button>
+          ) : (
+            <span className="min-w-0 flex-1 break-words">{message}</span>
+          )}
           {retryLabel && (
             <Button type="button" size="xs" variant="neutral" onClick={props.resendMessage} icon={<ResetIcon />}>
               {retryLabel}

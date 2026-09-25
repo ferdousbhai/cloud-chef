@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudChefMessage, CloudChefPart } from 'cloudchef-agent/ai-compat';
 import { toolFailure, toolSuccess } from 'cloudchef-agent/tool-result';
 import { ActivityPanel } from './ActivityPanel';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
+import { revealActivity } from '~/lib/stores/activity-reveal';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -130,4 +131,52 @@ it('keeps pending approvals visible even in the compact panel', async () => {
   );
   expect(container.textContent).toContain('Approval needed');
   expect(container.textContent).toContain('Review this action.');
+});
+
+describe('revealing work from the status line', () => {
+  const thinking: CloudChefMessage = {
+    ...message,
+    parts: [...message.parts, { type: 'reasoning', text: 'Weighing the D1 schema', state: 'streaming' }],
+  };
+  let scrolled: Element[];
+
+  beforeEach(() => {
+    scrolled = [];
+    // jsdom has no layout, so record which element was asked to come into view.
+    Element.prototype.scrollIntoView = vi.fn(function (this: Element) {
+      scrolled.push(this);
+    });
+  });
+
+  it('opens the collapsed panel and expands, scrolls to and highlights the live reasoning', async () => {
+    await act(async () => root.render(<ActivityPanel messages={[thinking]} isStreaming compact />));
+    expect(container.textContent).not.toContain('Thinking');
+
+    await act(async () => revealActivity());
+
+    const reasoningToggle = [...container.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Thinking'),
+    );
+    expect(reasoningToggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(container.textContent).toContain('Weighing the D1 schema');
+    expect(scrolled).toHaveLength(1);
+    expect(scrolled[0]?.className).toContain('border-accent-500');
+  });
+
+  it('scrolls to the current run when the model is not reasoning', async () => {
+    await act(async () => root.render(<ActivityPanel messages={[message]} isStreaming compact />));
+
+    await act(async () => revealActivity());
+
+    expect(container.textContent).toContain('Current work');
+    expect(scrolled.map((element) => element.tagName)).toEqual(['SECTION']);
+  });
+
+  it('ignores a reveal requested before the panel existed', async () => {
+    revealActivity();
+    await act(async () => root.render(<ActivityPanel messages={[thinking]} isStreaming compact />));
+
+    expect(container.textContent).not.toContain('Thinking');
+    expect(scrolled).toEqual([]);
+  });
 });

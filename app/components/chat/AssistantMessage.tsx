@@ -15,6 +15,8 @@ interface AssistantMessageProps {
   isStreaming?: boolean;
   startIndex?: number;
   endIndex?: number;
+  /** A reveal request for the part streaming now; see ActivityPanel. */
+  revealKey?: number;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 }
@@ -24,6 +26,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   isStreaming = false,
   startIndex = 0,
   endIndex = message.parts.length,
+  revealKey = 0,
   cloudflareExecutions,
   onCloudflareExecutionDecision,
 }: AssistantMessageProps) {
@@ -49,6 +52,7 @@ export const AssistantMessage = memo(function AssistantMessage({
                 key={block.index}
                 part={block.part}
                 isStreaming={isStreaming && block.index === message.parts.length - 1}
+                revealKey={block.index === message.parts.length - 1 ? revealKey : 0}
                 partId={makePartId(message.id, block.index)}
                 cloudflareExecutions={cloudflareExecutions}
                 onCloudflareExecutionDecision={onCloudflareExecutionDecision}
@@ -63,12 +67,14 @@ export const AssistantMessage = memo(function AssistantMessage({
 function AssistantMessagePart({
   part,
   isStreaming,
+  revealKey,
   partId,
   cloudflareExecutions,
   onCloudflareExecutionDecision,
 }: {
   part: CloudChefPart;
   isStreaming: boolean;
+  revealKey: number;
   partId: PartId;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
@@ -86,7 +92,7 @@ function AssistantMessagePart({
   }
 
   if (part.type === 'reasoning') {
-    return <ReasoningPart part={part} isActive={isStreaming} />;
+    return <ReasoningPart part={part} isActive={isStreaming} revealKey={revealKey} />;
   }
 
   if (part.type === 'step-start' || part.type === 'reasoning-file') {

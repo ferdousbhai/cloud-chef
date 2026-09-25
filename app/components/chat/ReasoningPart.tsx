@@ -2,7 +2,11 @@ import { CaretDownIcon, CaretUpIcon } from '@radix-ui/react-icons';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import type { CloudChefPart } from 'cloudchef-agent/ai-compat';
+import { classNames } from '~/utils/classNames';
 import { formatDuration } from './build-progress';
+
+/** How long a revealed reasoning block stays outlined so the eye finds it. */
+const REVEAL_HIGHLIGHT_MS = 1_500;
 
 /** Characters of the tail kept for the collapsed preview; the rest only renders when expanded. */
 const PREVIEW_TAIL_CHARACTERS = 400;
@@ -34,11 +38,33 @@ export function reasoningPartView(part: CloudChefPart): ReasoningPartView {
  * The model's own reasoning, shown while it streams so a long silent think is legible, and quiet
  * once it ends. It never grows past two lines collapsed, and scrolls inside itself when expanded.
  */
-export function ReasoningPart({ part, isActive = true }: { part: CloudChefPart; isActive?: boolean }) {
+export function ReasoningPart({
+  part,
+  isActive = true,
+  revealKey = 0,
+}: {
+  part: CloudChefPart;
+  isActive?: boolean;
+  /** Changes when the status line asks to see this reasoning: expand, scroll to it, flash it. */
+  revealKey?: number;
+}) {
   const view = reasoningPartView(part);
   const { text } = view;
   const streaming = isActive && view.streaming;
   const [expanded, setExpanded] = useState(false);
+  const [highlighted, setHighlighted] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!revealKey) {
+      return () => undefined;
+    }
+    setExpanded(true);
+    setHighlighted(true);
+    rootRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const timer = window.setTimeout(() => setHighlighted(false), REVEAL_HIGHLIGHT_MS);
+    return () => window.clearTimeout(timer);
+  }, [revealKey]);
   const startedAtRef = useRef<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [durationMs, setDurationMs] = useState<number | null>(null);
@@ -71,7 +97,13 @@ export function ReasoningPart({ part, isActive = true }: { part: CloudChefPart; 
   const tail = text.length > PREVIEW_TAIL_CHARACTERS ? text.slice(-PREVIEW_TAIL_CHARACTERS) : text;
 
   return (
-    <div className="flex w-full flex-col overflow-hidden rounded-md border border-bolt-elements-artifacts-borderColor bg-bolt-elements-artifacts-background">
+    <div
+      ref={rootRef}
+      className={classNames(
+        'flex w-full flex-col overflow-hidden rounded-md border bg-bolt-elements-artifacts-background transition-colors',
+        highlighted ? 'border-accent-500' : 'border-bolt-elements-artifacts-borderColor',
+      )}
+    >
       <button
         type="button"
         aria-expanded={expanded}

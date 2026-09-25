@@ -4,6 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chatStore } from '~/lib/stores/chatId';
+import { activityRevealStore } from '~/lib/stores/activity-reveal';
 import StreamingIndicator, { STATUS_MESSAGES } from './StreamingIndicator';
 
 describe('StreamingIndicator', () => {
@@ -46,6 +47,32 @@ describe('StreamingIndicator', () => {
     await renderError('   ');
 
     expect(container.textContent).toContain(STATUS_MESSAGES.error);
+  });
+
+  it('links the working status to the Activity panel', async () => {
+    await act(async () =>
+      root.render(
+        <StreamingIndicator
+          streamStatus="streaming"
+          buildProgress={{ phase: 'thinking', message: 'Thinking… 12s', delayed: false }}
+          isProjectUpdate={false}
+          submissionPending={false}
+          resendMessage={vi.fn()}
+        />,
+      ),
+    );
+    const link = container.querySelector<HTMLButtonElement>('button[title="Show in Activity"]');
+    expect(link?.textContent).toBe('Thinking… 12s');
+
+    const before = activityRevealStore.get();
+    await act(async () => link?.click());
+    expect(activityRevealStore.get()).toBe(before + 1);
+  });
+
+  it('keeps a failure as plain text rather than a link', async () => {
+    await renderError('The model hit a limit.');
+
+    expect(container.querySelector('button[title="Show in Activity"]')).toBeNull();
   });
 
   async function renderError(message: string) {

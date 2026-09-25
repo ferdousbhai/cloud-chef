@@ -1,4 +1,5 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { useStore } from '@nanostores/react';
 import { z } from 'zod';
 import { getToolInvocation, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { toolResultSucceeded } from 'cloudchef-agent/tool-result';
@@ -6,7 +7,9 @@ import type {
   CloudflareExecutionDecisionHandler,
   CloudflareExecutionPublicState,
 } from 'cloudchef-agent/cloudflare-mcp';
+import { activityRevealStore } from '~/lib/stores/activity-reveal';
 import { AssistantMessage } from './AssistantMessage';
+import { reasoningPartView } from './ReasoningPart';
 import { DetailsToggle } from './DetailsToggle';
 import styles from './BaseChat.module.css';
 
@@ -28,6 +31,15 @@ export function ActivityPanel({
 }) {
   const [expanded, setExpanded] = useState(false);
   const detailsId = useId();
+  // Answer only reveals requested while this panel exists, not one left over from another chat.
+  const [revealBaseline] = useState(() => activityRevealStore.get());
+  const revealRequest = useStore(activityRevealStore);
+  const revealKey = revealRequest > revealBaseline ? revealRequest : 0;
+  useEffect(() => {
+    if (revealKey) {
+      setExpanded(true);
+    }
+  }, [revealKey]);
   const pendingApproval = cloudflareExecutions?.some((execution) => execution.status === 'awaiting_approval') ?? false;
   const visible = !compact || expanded || pendingApproval;
   const activity = messages.filter(
@@ -63,6 +75,7 @@ export function ActivityPanel({
                   key={message.id}
                   message={message}
                   active={isStreaming && message === messages.at(-1)}
+                  revealKey={revealKey}
                   cloudflareExecutions={cloudflareExecutions}
                   onCloudflareExecutionDecision={onCloudflareExecutionDecision}
                 />
@@ -77,15 +90,33 @@ export function ActivityPanel({
 function ActivityRun({
   message,
   active,
+  revealKey,
   cloudflareExecutions,
   onCloudflareExecutionDecision,
 }: {
   message: CloudChefMessage;
   active: boolean;
+  /** A reveal the status line requested; only the active run answers it. */
+  revealKey: number;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const sectionRef = useRef<HTMLElement>(null);
+  const lastPart = message.parts.at(-1);
+  // Live reasoning answers a reveal itself (expand, scroll, highlight); otherwise the run scrolls.
+  const reasoningLive = active && lastPart?.type === 'reasoning' && reasoningPartView(lastPart).streaming;
+  const runRevealKey = active ? revealKey : 0;
+  // Only a new request scrolls; the reasoning ending later must not pull the view back.
+  const handledRevealRef = useRef(0);
+  useEffect(() => {
+    if (runRevealKey && runRevealKey !== handledRevealRef.current) {
+      handledRevealRef.current = runRevealKey;
+      if (!reasoningLive) {
+        sectionRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [runRevealKey, reasoningLive]);
   const tools = message.parts.map(getToolInvocation).filter((tool) => tool !== null);
   const pendingApproval = tools.some((tool) =>
     cloudflareExecutions?.some(
@@ -125,7 +156,7 @@ function ActivityRun({
       : []),
   ].join(' · ');
   return (
-    <section className="min-w-0 border-b border-bolt-elements-borderColor last:border-0">
+    <section ref={sectionRef} className="min-w-0 border-b border-bolt-elements-borderColor last:border-0">
       <button
         type="button"
         className="w-full p-3 text-left text-xs text-content-secondary hover:text-content-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-500"
@@ -154,6 +185,7 @@ function ActivityRun({
             message={message}
             startIndex={active && !pendingApproval ? currentStepStart : 0}
             isStreaming={active}
+            revealKey={reasoningLive ? runRevealKey : 0}
             cloudflareExecutions={cloudflareExecutions}
             onCloudflareExecutionDecision={onCloudflareExecutionDecision}
           />
