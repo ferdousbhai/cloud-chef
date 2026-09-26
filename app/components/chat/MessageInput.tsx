@@ -112,22 +112,14 @@ export const MessageInput = memo(function MessageInput({
               placeholder={placeholder}
               disabled={disabled}
             />
-            {chatStarted && (
-              <div className="flex items-end gap-2 px-2 pb-2">
-                <div className="flex min-w-0 flex-1 items-center gap-2 pl-1">
-                  {modelSelector}
-                  <div className="hidden min-w-0 sm:block">{inputStatus}</div>
-                </div>
-                <div className="ml-auto flex items-center gap-1">{actions}</div>
+            <div className="flex items-center gap-2 px-2 pb-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                {modelSelector}
+                <div className="hidden min-w-0 sm:block">{inputStatus}</div>
               </div>
-            )}
-          </div>
-          {!chatStarted && (
-            <div className="cloudchef-message-input__footer flex flex-wrap items-center gap-2 rounded-b-lg border border-t-0 border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-1.5 text-sm">
-              {modelSelector}
               <div className="ml-auto flex items-center gap-1">{actions}</div>
             </div>
-          )}
+          </div>
         </div>
       </div>
       {authState.kind === 'unauthenticated' && <CloudflareConnectLegalNotice className="mx-auto mt-2 w-full px-1" />}

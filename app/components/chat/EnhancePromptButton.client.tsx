@@ -23,12 +23,11 @@ export const EnhancePromptButton = React.memo(function EnhancePromptButton({
       disabled={disabled || isEnhancing}
       inline
       size="xs"
-      className="h-8 min-w-8 px-2"
+      className="h-8 gap-1.5 px-2 text-xs font-normal"
       onClick={onClick}
     >
-      <div className="text-lg">
-        {!isEnhancing ? <SparklesIcon className="size-4" /> : <Spinner className="size-4" />}
-      </div>
+      {!isEnhancing ? <SparklesIcon className="size-4" aria-hidden /> : <Spinner className="size-4" />}
+      <span>{isEnhancing ? 'Refining…' : 'Refine'}</span>
     </Button>
   );
 });

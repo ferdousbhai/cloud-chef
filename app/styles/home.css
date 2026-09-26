@@ -90,15 +90,10 @@ html.light {
 }
 
 .cloudchef-message-input--home .cloudchef-message-input__surface {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   background: transparent;
 }
 
 .cloudchef-message-input--home .cloudchef-message-input__editor {
-  min-width: 0;
-  flex: 1;
   border-color: var(--cloudchef-home-border);
   border-radius: var(--cc-radius-sm);
   background: var(--cloudchef-home-input);
@@ -119,16 +114,9 @@ html.light {
   color: var(--cloudchef-home-soft);
 }
 
-.cloudchef-message-input--home .cloudchef-message-input__footer {
-  flex: 0 0 auto;
-  border: 0;
-  background: transparent;
-  padding: 0;
-}
-
 .cloudchef-message-input--home .cloudchef-message-input__send {
-  min-height: 42px;
-  min-width: 42px;
+  min-height: 36px;
+  min-width: 36px;
   margin-left: 0;
   border-radius: var(--cc-radius-sm);
   background: var(--cc-accent);
