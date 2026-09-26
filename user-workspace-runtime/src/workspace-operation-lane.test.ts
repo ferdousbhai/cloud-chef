@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ExecutionObservation } from './execution-reattach';
+import { InterruptedExecSettlement } from './interrupted-exec-settlement';
 import {
-  findSettledExecHolder,
   WorkspaceOperationConflictError,
   WorkspaceOperationIndeterminateError,
   WorkspaceOperationLane,
@@ -33,7 +33,7 @@ describe('WorkspaceOperationLane', () => {
     expect(acquisition).toContain('activeKind: error.activeKind');
     expect(acquisition).toContain('retryAfterMs: error.retryAfterMs');
     // The container probe for a settled interrupted exec must feed the claim acquisition re-checks.
-    expect(acquisition).toContain('const settledHolder = await findSettledExecHolder(');
+    expect(acquisition).toContain('const settledHolder = await this.#execSettlement.findSettledHolder(');
     expect(acquisition).toContain('settledHolder,');
   });
 
@@ -195,15 +195,14 @@ describe('reclaiming an exec lane whose interrupted command settled (#143)', () 
 
   async function acquireAfterProbe(lane: WorkspaceOperationLane, observation: ExecutionObservation, now = 200) {
     const observed: string[] = [];
-    const settledHolder = await findSettledExecHolder({
-      holder: lane.holder(),
+    const settlement = new InterruptedExecSettlement((executionId) => {
+      observed.push(executionId);
+      return Promise.resolve(observation);
+    });
+    const settledHolder = await settlement.findSettledHolder({
+      holder: lane.interruptedHolder(now),
       idempotencyKey: 'tool:call-b',
       now,
-      isOwnerActive: () => false,
-      observe: (executionId) => {
-        observed.push(executionId);
-        return Promise.resolve(observation);
-      },
     });
     return { observed, acquire: () => lane.acquire({ ...operation('exec', 'tool:call-b', now), settledHolder }) };
   }
@@ -228,59 +227,61 @@ describe('reclaiming an exec lane whose interrupted command settled (#143)', () 
 
   it('treats a probe that throws as unobservable', async () => {
     const lane = laneHeldByInterruptedExec();
-    const settledHolder = await findSettledExecHolder({
-      holder: lane.holder(),
+    const settlement = new InterruptedExecSettlement(() => Promise.reject(new Error('Container service disconnected')));
+    const settledHolder = await settlement.findSettledHolder({
+      holder: lane.interruptedHolder(200),
       idempotencyKey: 'tool:call-b',
       now: 200,
-      isOwnerActive: () => false,
-      observe: () => Promise.reject(new Error('Container service disconnected')),
     });
 
     expect(settledHolder).toBeUndefined();
   });
 
-  it('never probes a holder that is running here, is not an exec, has the same key, or already expired', async () => {
-    const observe = () => Promise.reject(new Error('must not probe'));
-    const lane = laneHeldByInterruptedExec();
-    const holder = lane.holder();
+  it('offers no interrupted holder while its owner runs here or after its lease lapsed', () => {
+    const running = createLane(() => true);
+    running.acquire(operation('exec', 'tool:call-a', 100, EXEC_LEASE_MS));
+    expect(running.interruptedHolder(200)).toBeNull();
+
+    const lapsed = laneHeldByInterruptedExec();
+    // Past the deadline the ordinary reclaim applies, so there is nothing to prove early.
+    expect(lapsed.interruptedHolder(100 + EXEC_LEASE_MS)).toBeNull();
+    expect(lapsed.interruptedHolder(200)).toMatchObject({ owner: 'owner-exec-tool:call-a', kind: 'exec' });
+  });
+
+  it('never probes a holder that is not an exec or has the same key', async () => {
+    const settlement = new InterruptedExecSettlement(() => Promise.reject(new Error('must not probe')));
+    const holder = laneHeldByInterruptedExec().interruptedHolder(200);
 
     expect(
-      await findSettledExecHolder({
-        holder,
-        idempotencyKey: 'tool:call-b',
-        now: 200,
-        isOwnerActive: () => true,
-        observe,
-      }),
-    ).toBeUndefined();
-    expect(
-      await findSettledExecHolder({
+      await settlement.findSettledHolder({
         holder: holder && { ...holder, kind: 'install' },
         idempotencyKey: 'tool:call-b',
         now: 200,
-        isOwnerActive: () => false,
-        observe,
       }),
     ).toBeUndefined();
     // The same key must resume its own command, never be handed a lane that would replay it.
-    expect(
-      await findSettledExecHolder({
-        holder,
-        idempotencyKey: 'tool:call-a',
-        now: 200,
-        isOwnerActive: () => false,
-        observe,
-      }),
-    ).toBeUndefined();
-    expect(
-      await findSettledExecHolder({
-        holder,
+    expect(await settlement.findSettledHolder({ holder, idempotencyKey: 'tool:call-a', now: 200 })).toBeUndefined();
+  });
+
+  it('asks the container again only after a "not finished" answer has stood for a while', async () => {
+    const lane = laneHeldByInterruptedExec();
+    let probes = 0;
+    const settlement = new InterruptedExecSettlement(() => {
+      probes += 1;
+      return Promise.resolve<ExecutionObservation>('running');
+    });
+    const ask = (now: number) =>
+      settlement.findSettledHolder({
+        holder: lane.interruptedHolder(now),
         idempotencyKey: 'tool:call-b',
-        now: 100 + EXEC_LEASE_MS,
-        isOwnerActive: () => false,
-        observe,
-      }),
-    ).toBeUndefined();
+        now,
+      });
+
+    await ask(200);
+    await ask(5_000);
+    expect(probes).toBe(1);
+    await ask(10_200);
+    expect(probes).toBe(2);
   });
 
   it('refuses a settlement claim for a holder the lane no longer names', async () => {
@@ -297,8 +298,8 @@ function operation(kind: string, idempotencyKey: string, now: number, leaseMs = 
   return { kind, idempotencyKey, owner: `owner-${kind}-${idempotencyKey}`, now, leaseMs };
 }
 
-function createLane() {
-  const lane = new WorkspaceOperationLane(new TestStorage() as never);
+function createLane(isOwnerActive?: (owner: string) => boolean) {
+  const lane = new WorkspaceOperationLane(new TestStorage() as never, isOwnerActive);
   lane.initialize();
   return lane;
 }

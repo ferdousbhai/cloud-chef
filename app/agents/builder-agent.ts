@@ -302,11 +302,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   override onError(...args: [connection: Connection, cause: unknown] | [cause: unknown]): void {
+    rethrowAgentRejection(args.at(-1));
     if (args.length === 2) {
-      rethrowAgentRejection(args[1]);
       super.onError(args[0], args[1]);
     } else {
-      rethrowAgentRejection(args[0]);
       super.onError(args[0]);
     }
   }

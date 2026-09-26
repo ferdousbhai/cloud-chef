@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { z } from 'zod';
 import { getToolInvocation, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
@@ -9,7 +9,6 @@ import type {
 } from 'cloudchef-agent/cloudflare-mcp';
 import { activityRevealStore } from '~/lib/stores/activity-reveal';
 import { AssistantMessage } from './AssistantMessage';
-import { reasoningPartView } from './ReasoningPart';
 import { DetailsToggle } from './DetailsToggle';
 import styles from './BaseChat.module.css';
 
@@ -68,18 +67,19 @@ export function ActivityPanel({
           {activity.length === 0 ? (
             <p className="p-3 text-xs text-content-tertiary">Tool activity and reasoning will appear here.</p>
           ) : (
-            activity
-              .toReversed()
-              .map((message) => (
+            activity.toReversed().map((message) => {
+              const active = isStreaming && message === messages.at(-1);
+              return (
                 <ActivityRun
                   key={message.id}
                   message={message}
-                  active={isStreaming && message === messages.at(-1)}
-                  revealKey={revealKey}
+                  active={active}
+                  revealKey={active ? revealKey : 0}
                   cloudflareExecutions={cloudflareExecutions}
                   onCloudflareExecutionDecision={onCloudflareExecutionDecision}
                 />
-              ))
+              );
+            })
           )}
         </div>
       )}
@@ -96,27 +96,20 @@ function ActivityRun({
 }: {
   message: CloudChefMessage;
   active: boolean;
-  /** A reveal the status line requested; only the active run answers it. */
+  /** A reveal the status line requested, passed only to the active run. */
   revealKey: number;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 }) {
   const [expanded, setExpanded] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
-  const lastPart = message.parts.at(-1);
-  // Live reasoning answers a reveal itself (expand, scroll, highlight); otherwise the run scrolls.
-  const reasoningLive = active && lastPart?.type === 'reasoning' && reasoningPartView(lastPart).streaming;
-  const runRevealKey = active ? revealKey : 0;
-  // Only a new request scrolls; the reasoning ending later must not pull the view back.
-  const handledRevealRef = useRef(0);
-  useEffect(() => {
-    if (runRevealKey && runRevealKey !== handledRevealRef.current) {
-      handledRevealRef.current = runRevealKey;
-      if (!reasoningLive) {
-        sectionRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      }
+  // A layout effect runs before the live reasoning part's own reveal effect, so that part can then
+  // refine the scroll to itself; any other work leaves the run in view.
+  useLayoutEffect(() => {
+    if (revealKey) {
+      sectionRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
-  }, [runRevealKey, reasoningLive]);
+  }, [revealKey]);
   const tools = message.parts.map(getToolInvocation).filter((tool) => tool !== null);
   const pendingApproval = tools.some((tool) =>
     cloudflareExecutions?.some(
@@ -185,7 +178,7 @@ function ActivityRun({
             message={message}
             startIndex={active && !pendingApproval ? currentStepStart : 0}
             isStreaming={active}
-            revealKey={reasoningLive ? runRevealKey : 0}
+            revealKey={revealKey}
             cloudflareExecutions={cloudflareExecutions}
             onCloudflareExecutionDecision={onCloudflareExecutionDecision}
           />

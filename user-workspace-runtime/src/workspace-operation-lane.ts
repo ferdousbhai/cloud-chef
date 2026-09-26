@@ -2,7 +2,6 @@ import {
   WORKSPACE_OPERATION_CONFLICT_ERROR_CODE,
   workspaceOperationConflictMessage,
 } from '../../cloudchef-agent/cloudflare-computer';
-import type { ExecutionObservation } from './execution-reattach';
 import { first } from './sql-rows';
 
 const WORKSPACE_OPERATION_LEASE_MS = 15 * 60_000;
@@ -26,7 +25,7 @@ export type WorkspaceOperationLease = {
   recoveredOwner: string | null;
 };
 
-type WorkspaceOperationHolder = {
+export type WorkspaceOperationHolder = {
   owner: string;
   idempotencyKey: string;
 };
@@ -186,13 +185,23 @@ export class WorkspaceOperationLane {
     return result;
   }
 
-  /** The operation currently holding the lane, if any, without claiming or renewing it. */
-  holder(): (WorkspaceOperationHolder & { kind: string; deadline: number }) | null {
+  /**
+   * The holder whose owner is no longer running here but whose lease has not lapsed yet: the only
+   * holder a caller could prove reclaimable early. Read without claiming or renewing anything.
+   */
+  interruptedHolder(now = Date.now()): (WorkspaceOperationHolder & { kind: string }) | null {
     const row = this.read();
-    if (row.owner === null || row.idempotency_key === null || row.kind === null || row.deadline === null) {
+    if (
+      row.owner === null ||
+      row.idempotency_key === null ||
+      row.kind === null ||
+      row.deadline === null ||
+      row.deadline <= now ||
+      this.isOwnerActive(row.owner)
+    ) {
       return null;
     }
-    return { owner: row.owner, idempotencyKey: row.idempotency_key, kind: row.kind, deadline: row.deadline };
+    return { owner: row.owner, idempotencyKey: row.idempotency_key, kind: row.kind };
   }
 
   release(lease: WorkspaceOperationLease): void {
@@ -266,34 +275,4 @@ export class WorkspaceOperationLane {
       }
     );
   }
-}
-
-/**
- * An exec lane whose owner died with a previous instance stays leased because its command may still
- * be running in the container, which outlives the reset (#143). When the container shows that the
- * command has finished, the lease protects nothing, so name the holder as reclaimable. A running or
- * unobservable command keeps the lease until its deadline, exactly as before. Only an exec holder
- * is probed, only for a different key (the same key must resume, never replay), and only while its
- * deadline has not already made it reclaimable.
- */
-export async function findSettledExecHolder(args: {
-  holder: ReturnType<WorkspaceOperationLane['holder']>;
-  idempotencyKey: string;
-  now: number;
-  isOwnerActive: (owner: string) => boolean;
-  observe: (executionId: string) => Promise<ExecutionObservation>;
-}): Promise<WorkspaceOperationHolder | undefined> {
-  const { holder } = args;
-  if (
-    !holder ||
-    holder.kind !== 'exec' ||
-    holder.idempotencyKey === args.idempotencyKey ||
-    holder.deadline <= args.now ||
-    args.isOwnerActive(holder.owner)
-  ) {
-    return undefined;
-  }
-  // The exec lane's key is the id its command runs under in the container.
-  const observation = await args.observe(holder.idempotencyKey).catch((): ExecutionObservation => 'unobservable');
-  return observation === 'finished' ? { owner: holder.owner, idempotencyKey: holder.idempotencyKey } : undefined;
 }

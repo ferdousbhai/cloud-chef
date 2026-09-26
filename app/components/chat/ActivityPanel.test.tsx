@@ -159,8 +159,9 @@ describe('revealing work from the status line', () => {
     );
     expect(reasoningToggle?.getAttribute('aria-expanded')).toBe('true');
     expect(container.textContent).toContain('Weighing the D1 schema');
-    expect(scrolled).toHaveLength(1);
-    expect(scrolled[0]?.className).toContain('border-accent-500');
+    // The run comes into view first, then the live reasoning refines the scroll to itself.
+    expect(scrolled.map((element) => element.tagName)).toEqual(['SECTION', 'DIV']);
+    expect(scrolled.at(-1)?.className).toContain('border-accent-500');
   });
 
   it('scrolls to the current run when the model is not reasoning', async () => {

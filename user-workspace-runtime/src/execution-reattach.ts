@@ -39,18 +39,33 @@ export async function isExecutionReattachable(
   id: string,
   backend: string,
 ): Promise<boolean> {
-  let handle: DisposableExecutionHandle;
-  try {
-    handle = await runtime.getExec(id, { backend, encoding: 'utf8', resume: 'tail' });
-  } catch {
+  const handle = await openProbe(runtime, id, backend);
+  if (!handle) {
     return false;
   }
+  disposeProbe(handle);
+  return true;
+}
+
+/** Observe an execution by its tail only; a probe must never adopt or replay its output. */
+async function openProbe<THandle>(
+  runtime: ReattachableExecutionRuntime<THandle>,
+  id: string,
+  backend: string,
+): Promise<THandle | null> {
+  try {
+    return await runtime.getExec(id, { backend, encoding: 'utf8', resume: 'tail' });
+  } catch {
+    return null;
+  }
+}
+
+function disposeProbe(handle: DisposableExecutionHandle): void {
   try {
     handle[Symbol.dispose]();
   } catch {
-    // Releasing the probe's stream is bookkeeping; the execution it found is still there.
+    // Releasing the probe's stream is bookkeeping; what it observed already stands.
   }
-  return true;
 }
 
 /** How long a settlement probe waits for an interrupted execution's result before calling it running. */
@@ -75,10 +90,8 @@ export async function observeExecutionSettlement(
   backend: string,
   probeMs = EXECUTION_SETTLEMENT_PROBE_MS,
 ): Promise<ExecutionObservation> {
-  let handle: ObservableExecutionHandle;
-  try {
-    handle = await runtime.getExec(id, { backend, encoding: 'utf8', resume: 'tail' });
-  } catch {
+  const handle = await openProbe(runtime, id, backend);
+  if (!handle) {
     return 'unobservable';
   }
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -94,11 +107,7 @@ export async function observeExecutionSettlement(
     ]);
   } finally {
     clearTimeout(timer);
-    try {
-      handle[Symbol.dispose]();
-    } catch {
-      // Releasing the probe's stream is bookkeeping; the observation already stands.
-    }
+    disposeProbe(handle);
   }
 }
 

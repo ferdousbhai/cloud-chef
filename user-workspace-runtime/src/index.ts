@@ -77,10 +77,10 @@ import {
   WorkspaceOperationConflictError,
   WorkspaceOperationIndeterminateError,
   WorkspaceOperationLane,
-  findSettledExecHolder,
   type WorkspaceOperationLease,
 } from './workspace-operation-lane';
 import { OperationLeaseHeartbeat, type OperationLiveness } from './operation-lease-heartbeat';
+import { InterruptedExecSettlement } from './interrupted-exec-settlement';
 import {
   CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS,
   OPERATION_LEASE_MS,
@@ -302,6 +302,9 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   readonly #activeCommandSettlements = new Map<string, Promise<unknown>>();
   readonly #pendingCommandCancellations = new Set<string>();
   #containerKeepAliveOperations = 0;
+  readonly #execSettlement = new InterruptedExecSettlement((executionId) =>
+    this.withComputer((workspace) => observeExecutionSettlement(workspace.runtime, executionId, 'container-shell')),
+  );
 
   constructor(ctx: DurableObjectState<{}>, env: RuntimeEnv) {
     super(ctx, env);
@@ -2493,13 +2496,11 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     this.requireCompletedComputerSync();
     const owner = crypto.randomUUID();
     const plan = operationLeasePlan(kind);
-    const settledHolder = await findSettledExecHolder({
-      holder: this.#operationLane.holder(),
+    const now = Date.now();
+    const settledHolder = await this.#execSettlement.findSettledHolder({
+      holder: this.#operationLane.interruptedHolder(now),
       idempotencyKey,
-      now: Date.now(),
-      isOwnerActive: (holderOwner) => this.#activeOperationOwners.has(holderOwner),
-      observe: (executionId) =>
-        this.withComputer((workspace) => observeExecutionSettlement(workspace.runtime, executionId, 'container-shell')),
+      now,
     });
     let lease: WorkspaceOperationLease;
     try {

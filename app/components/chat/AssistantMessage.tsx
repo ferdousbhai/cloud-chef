@@ -52,7 +52,7 @@ export const AssistantMessage = memo(function AssistantMessage({
                 key={block.index}
                 part={block.part}
                 isStreaming={isStreaming && block.index === message.parts.length - 1}
-                revealKey={block.index === message.parts.length - 1 ? revealKey : 0}
+                revealKey={isStreaming && block.index === message.parts.length - 1 ? revealKey : 0}
                 partId={makePartId(message.id, block.index)}
                 cloudflareExecutions={cloudflareExecutions}
                 onCloudflareExecutionDecision={onCloudflareExecutionDecision}
