@@ -73,9 +73,7 @@ import {
 import { logProviderFailure } from './provider-error-logging';
 import { ProviderStopError, providerStopDiagnosticCode } from './provider-stop-error';
 import type { PiSteeringQueue } from './pi-steering';
-import type { CloudflareMcpModelToolContext } from './cloudflare-mcp-model-tools';
-import { isCloudflareExecuteProposal } from 'cloudchef-agent/cloudflare-mcp';
-import type { CloudflareMcpResultCandidate } from 'cloudchef-agent/cloudflare-mcp';
+import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 
 type Messages = CloudChefMessage[];
 type UIMessageChunk = PiStreamChunk;
@@ -105,7 +103,7 @@ interface PiAgentOptions {
   accountCredentials: WorkersAiAccountCredentials;
   sessionAffinity: string;
   workspace: BuilderWorkspaceApi;
-  cloudflareMcp?: CloudflareMcpModelToolContext;
+  cloudflareApi?: CloudflareApiModelToolContext;
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
   steering: PiSteeringQueue;
@@ -179,7 +177,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     accountCredentials,
     sessionAffinity,
     workspace,
-    cloudflareMcp,
+    cloudflareApi,
     onValidationStage,
     runWithKeepAlive,
     steering,
@@ -218,7 +216,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
         workspace,
         { onValidationStage, runWithKeepAlive },
         skillContext.reader,
-        cloudflareMcp,
+        cloudflareApi,
       ),
     };
   });
@@ -468,10 +466,9 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       toolBudgetError ??= event.isError ? toolBudgetErrorFromResult(event.result) : undefined;
       toolIndeterminateError ??= event.isError ? toolIndeterminateErrorFromResult(event.result) : undefined;
       currentRunToolResults.push({ toolName: event.toolName, result });
-      cloudflareApprovalPending ||= cloudflareExecutePausesTurn(
-        event.toolName,
-        isRecord(result) && typeof result.kind === 'string' ? { kind: result.kind } : null,
-      );
+      // A proposal is a completed tool result, but it deliberately ends this Pi run before another model step.
+      cloudflareApprovalPending ||=
+        event.toolName === 'cloudflare_request' && isRecord(result) && result.kind === 'cloudflare_request_proposal';
       if (event.isError && !hasStructuredToolResult(event.result)) {
         await writer.write({
           type: 'tool-output-error',
@@ -824,11 +821,6 @@ function providerFailureText(reason: string): string {
     return `The model request failed: ${trimmed.slice(0, MAX_PROVIDER_REASON_CHARACTERS)}… Retry, or pick a different model.`;
   }
   return `The model request failed: ${trimmed}. Retry, or pick a different model.`;
-}
-
-/** A proposal is a completed tool result, but it deliberately ends this Pi run before another model step. */
-function cloudflareExecutePausesTurn(toolName: string, result: CloudflareMcpResultCandidate | null): boolean {
-  return toolName === 'cloudflare_execute' && isCloudflareExecuteProposal(result);
 }
 
 function createValidatedBuildCompletionStream(text: string): ReadableStream<UIMessageChunk> {

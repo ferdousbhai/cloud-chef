@@ -103,7 +103,7 @@ describe('deployment credential boundary', () => {
     const buildStart = runtimeSource.indexOf('private async buildDeploymentArtifact(');
     const buildEnd = runtimeSource.indexOf('private async collectDeploymentArtifact(', buildStart);
     const build = runtimeSource.slice(buildStart, buildEnd);
-    expect(build).toContain('wrangler deploy --dry-run');
+    expect(build).toContain('cf deploy --prebuilt --mode production --dry-run');
     // Materialisation now goes through the verified copy, which pushes and then proves the
     // isolated root matches the durable VFS before anything is built from it (#139).
     expect(preparation).toContain('await this.copyProjectToIsolatedRoot(PREPARED_VALIDATION_ROOT)');
@@ -120,7 +120,7 @@ describe('deployment credential boundary', () => {
     const transientCommand = runtimeSource.slice(transientCommandStart, transientCommandEnd);
     expect(transientCommand).toContain('runTrackedSandboxCommand');
     expect(transientCommand).toContain(
-      "this.sandboxProcesses.exec(trackedCommand, { ...options, env: { CI: 'true' } })",
+      "this.sandboxProcesses.exec(trackedCommand, { ...options, env: { CI: 'true', ...CONTAINER_TOOL_ENV } })",
     );
     expect(transientCommand).not.toMatch(/apiToken|CLOUDFLARE_API_TOKEN|authorization/i);
     expect(runtimeSource).not.toContain("route.operation === 'deploy'");

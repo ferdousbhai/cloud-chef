@@ -1,8 +1,14 @@
 import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { GENERATED_PROJECT_PNPM_VERSION } from '../../cloudchef-agent/cloudflare-computer';
 import {
   BOOTSTRAP_RETRY_DELAY_MS,
+  CF_CLI_VERSION,
+  CF_CLI_WRAPPER,
+  cfCliLauncherScript,
   COMPUTERD_BINARY,
   COMPUTERD_INSTALLATION_CURRENT,
   COMPUTERD_ROOT,
@@ -20,8 +26,8 @@ import {
 import { CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS } from './operation-lease-policy';
 
 describe('container toolchain bootstrap', () => {
-  it('installs and verifies the pinned pnpm version missing from the stock Sandbox image', () => {
-    const command = containerToolchainBootstrapCommand();
+  it('installs the pinned pnpm version and the credential-free cf launcher in one stage', () => {
+    const command = containerToolchainBootstrapCommand("acc'1");
 
     expect(command).toMatch(/^\(\nset -eu\n[\s\S]+\n\)$/);
     expect(command).toContain('command -v pnpm');
@@ -29,6 +35,33 @@ describe('container toolchain bootstrap', () => {
     expect(command).toContain(`test "$(pnpm --version)" = '${GENERATED_PROJECT_PNPM_VERSION}'`);
     expect(command).toContain('--ignore-scripts');
     expect(command).toContain('--registry=https://registry.npmjs.org/');
+    expect(command).toContain(`> '${CF_CLI_WRAPPER}'`);
+    expect(command).not.toMatch(/CLOUDFLARE_API_TOKEN|Bearer/);
+  });
+
+  it('runs the pinned cf, preferring the project copy, with the connected account', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'cf-launcher-'));
+    const launcher = join(directory, 'cf');
+    const root = join(directory, 'root');
+    const project = join(directory, 'project');
+    const fakeCf = '#!/bin/sh\necho "$0|$CLOUDFLARE_ACCOUNT_ID|$*"\n';
+    mkdirSync(join(root, CF_CLI_VERSION, 'node_modules', '.bin'), { recursive: true });
+    writeFileSync(join(root, CF_CLI_VERSION, 'node_modules', '.bin', 'cf'), fakeCf, { mode: 0o755 });
+    writeFileSync(
+      launcher,
+      cfCliLauncherScript("acc'1").replaceAll('/opt/cloudchef/cf', root).replaceAll('/home/project', project),
+      { mode: 0o755 },
+    );
+
+    const pinned = spawnSync(launcher, ['cli', 'search', 'list d1 databases'], { encoding: 'utf8' });
+    expect(pinned.stdout).toBe(
+      `${join(root, CF_CLI_VERSION, 'node_modules/.bin/cf')}|acc'1|cli search list d1 databases\n`,
+    );
+
+    mkdirSync(join(project, 'node_modules', '.bin'), { recursive: true });
+    writeFileSync(join(project, 'node_modules', '.bin', 'cf'), fakeCf, { mode: 0o755 });
+    const local = spawnSync(launcher, ['schema', 'd1', 'list'], { encoding: 'utf8' });
+    expect(local.stdout).toBe(`${join(project, 'node_modules/.bin/cf')}|acc'1|schema d1 list\n`);
   });
 
   it('reinstalls computerd when the pinned layer digest changes, not only when it is missing', () => {

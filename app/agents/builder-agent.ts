@@ -109,30 +109,32 @@ import {
   type CloudflareExecutionRecord,
 } from './builder-cloudflare-execution';
 import {
-  type CloudflareExecuteFinalResult,
-  type CloudflareExecuteProposal,
+  cloudflareApiRequestIsRead,
+  CloudflareApiRequestRejectedError,
+  normalizeCloudflareApiRequest,
+  type CloudflareApiRequest,
+  type CloudflareApiRequestInput,
   type CloudflareExecutionDecisionResult,
   type CloudflareExecutionPublicState,
   type CloudflareExecutionSafeOutcome,
   type CloudflareExecutionStatus,
-  type CloudflareMcpImmediateResult,
-} from 'cloudchef-agent/cloudflare-mcp';
+  type CloudflareRequestFinalResult,
+  type CloudflareRequestImmediateResult,
+  type CloudflareRequestProposal,
+} from 'cloudchef-agent/cloudflare-api';
 import {
-  cloudflareMcpExecuteEnabled,
-  readCloudflareMcpRuntimeAdmission,
-  type CloudflareMcpRuntimeControls,
-  type CloudflareMcpRuntimeIdentity,
-} from '~/lib/.server/cloudflare/cloudflare-mcp-runtime-controls';
-import { CloudflareMcpClient, type CloudflareMcpOutcome } from '~/lib/.server/cloudflare/cloudflare-mcp-client';
+  cloudflareApiWriteEnabled,
+  readCloudflareApiRuntimeAdmission,
+  type CloudflareApiRuntimeAdmission,
+  type CloudflareApiRuntimeIdentity,
+} from '~/lib/.server/cloudflare/cloudflare-api-runtime-controls';
+import { CloudflareApiClient, type CloudflareApiOutcome } from '~/lib/.server/cloudflare/cloudflare-api-client';
 import { resolveUserWorkspaceCloudflareAccessToken } from '~/lib/.server/cloudflare/user-workspace-cloudflare-credential';
 import { requireWorkersAiBuilderModel } from '~/lib/.server/llm/workers-ai-model-catalog';
 import type {
-  CloudflareDocsModelInput,
-  CloudflareExecuteModelInput,
-  CloudflareMcpModelToolContext,
-  CloudflareSearchModelInput,
+  CloudflareApiModelToolContext,
   ModelToolExecutionOptions,
-} from '~/lib/.server/llm/cloudflare-mcp-model-tools';
+} from '~/lib/.server/llm/cloudflare-api-model-tools';
 
 const logger = createScopedLogger('BuilderAgent');
 
@@ -494,7 +496,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     };
 
     try {
-      const cloudflareMcp = await this.createCloudflareMcpToolContext(durableIdentity.transcript);
+      const cloudflareApi = await this.createCloudflareApiToolContext(durableIdentity.transcript);
       if (shouldGenerateTitle) {
         await this.scheduleTitleGeneration(
           {
@@ -516,7 +518,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         accountCredentials,
         sessionAffinity: await createWorkersAiSessionAffinity(transcript, modelId),
         workspace: this.workspace,
-        cloudflareMcp,
+        cloudflareApi,
         onValidationStage: (toolCallId, stage) => this.setValidationProgress(toolCallId, stage),
         runWithKeepAlive: (operation) => this.keepAliveWhile(operation),
         steering,
@@ -1156,12 +1158,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return this.seedWorkspace(builderTemplateSeedId(), template);
   }
 
-  private async createCloudflareMcpToolContext(
+  private async createCloudflareApiToolContext(
     transcript: BuilderTranscriptBinding,
-  ): Promise<CloudflareMcpModelToolContext | undefined> {
-    const admission = await readCloudflareMcpRuntimeAdmission(this.env);
+  ): Promise<CloudflareApiModelToolContext | undefined> {
+    const admission = await readCloudflareApiRuntimeAdmission(this.env);
     if (
-      !admission?.controls.cloudflare_mcp ||
+      !admission?.controls.cloudflare_api ||
       !this.userId ||
       admission.identity.userId !== this.userId ||
       !this.transcriptBinding ||
@@ -1170,13 +1172,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return undefined;
     }
     const expectedIdentity = admission.identity;
-    const executeEnabled = cloudflareMcpExecuteEnabled(admission.controls);
     return {
-      accountId: expectedIdentity.accountId,
-      executeEnabled,
-      docs: (input, options) => this.invokeCloudflareReadOnly('docs', input, options, expectedIdentity),
-      search: (input, options) => this.invokeCloudflareReadOnly('search', input, options, expectedIdentity),
-      proposeExecute: (input, options) => this.proposeCloudflareExecution(input, options, expectedIdentity, transcript),
+      writeEnabled: cloudflareApiWriteEnabled(admission.controls),
+      request: (input, options) => this.handleCloudflareRequest(input, options, expectedIdentity, transcript),
     };
   }
 
@@ -1187,109 +1185,90 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
   }
 
-  private async invokeCloudflareReadOnly(
-    toolName: 'docs',
-    input: CloudflareDocsModelInput,
+  /** Reads are sent now. Every other method becomes a durable proposal that pauses the turn for approval. */
+  private async handleCloudflareRequest(
+    input: CloudflareApiRequestInput,
     options: ModelToolExecutionOptions,
-    expectedIdentity: CloudflareMcpRuntimeIdentity,
-  ): Promise<CloudflareMcpImmediateResult>;
-  private async invokeCloudflareReadOnly(
-    toolName: 'search',
-    input: CloudflareSearchModelInput,
-    options: ModelToolExecutionOptions,
-    expectedIdentity: CloudflareMcpRuntimeIdentity,
-  ): Promise<CloudflareMcpImmediateResult>;
-  private async invokeCloudflareReadOnly(
-    toolName: 'docs' | 'search',
-    input: CloudflareDocsModelInput | CloudflareSearchModelInput,
-    options: ModelToolExecutionOptions,
-    expectedIdentity: CloudflareMcpRuntimeIdentity,
-  ): Promise<CloudflareMcpImmediateResult> {
-    const admission = await this.requireCloudflareMcpAdmission(expectedIdentity, false);
-    const client = this.createCloudflareMcpClient(admission.identity);
-    const signal = options.abortSignal ?? new AbortController().signal;
+    expectedIdentity: CloudflareApiRuntimeIdentity,
+    transcript: BuilderTranscriptBinding,
+  ): Promise<CloudflareRequestImmediateResult | CloudflareRequestProposal> {
+    options.abortSignal?.throwIfAborted();
+    let request: CloudflareApiRequest;
     try {
-      const outcome = await client.invoke(
-        toolName === 'docs'
-          ? {
-              ...admission.identity,
-              toolName,
-              toolInput: { query: 'query' in input ? input.query : '' },
-              signal,
-              invocationId: options.toolCallId,
-            }
-          : {
-              ...admission.identity,
-              toolName,
-              toolInput: { code: 'code' in input ? input.code : '' },
-              signal,
-              invocationId: options.toolCallId,
-            },
-      );
-      return cloudflareImmediateResult(toolName, admission.identity.accountId, outcome);
-    } catch {
-      signal.throwIfAborted();
+      request = normalizeCloudflareApiRequest(input, expectedIdentity.accountId);
+    } catch (error) {
+      if (!(error instanceof CloudflareApiRequestRejectedError)) {
+        throw error;
+      }
+      return cloudflareRequestFailure(expectedIdentity.accountId, error.message);
+    }
+    const write = !cloudflareApiRequestIsRead(request);
+    const admitted = admitCloudflareApiRequest(
+      await readCloudflareApiRuntimeAdmission(this.env),
+      expectedIdentity,
+      write,
+    );
+    if ('rejection' in admitted) {
+      return cloudflareRequestFailure(expectedIdentity.accountId, admitted.rejection);
+    }
+    const { admission } = admitted;
+    if (!write) {
+      const signal = options.abortSignal ?? new AbortController().signal;
+      let outcome: CloudflareApiOutcome;
+      try {
+        outcome = await this.createCloudflareApiClient(admission.identity).send(request, signal);
+      } catch {
+        // A failed tool result lets the model report or retry instead of ending the turn.
+        signal.throwIfAborted();
+        return cloudflareRequestFailure(admission.identity.accountId, 'The Cloudflare credential is unavailable.');
+      }
       return {
-        kind: 'cloudflare_mcp_result',
-        operation: toolName,
-        status: 'failure',
+        kind: 'cloudflare_request_result',
+        // Only a change can be left half-applied; an unobserved read is simply a failure to retry.
+        status: outcome.status === 'indeterminate' ? 'failure' : outcome.status,
         accountId: admission.identity.accountId,
-        content: 'The official Cloudflare MCP tool contract is currently unavailable.',
-        requestId: null,
-        httpStatus: null,
-        truncated: false,
+        content: outcome.content,
+        requestId: outcome.requestId,
+        httpStatus: outcome.httpStatus,
+        truncated: outcome.truncated,
       };
     }
-  }
-
-  private async proposeCloudflareExecution(
-    input: CloudflareExecuteModelInput,
-    options: ModelToolExecutionOptions,
-    expectedIdentity: CloudflareMcpRuntimeIdentity,
-    transcript: BuilderTranscriptBinding,
-  ): Promise<CloudflareExecuteProposal> {
-    options.abortSignal?.throwIfAborted();
-    const admission = await this.requireCloudflareMcpAdmission(expectedIdentity, true);
     if (!this.transcriptBinding || !builderTranscriptBindingsEqual(this.transcriptBinding, transcript)) {
-      throw new Error('The transcript changed before the Cloudflare execution proposal was stored.');
+      throw new Error('The transcript changed before the Cloudflare request proposal was stored.');
     }
     const record = await this.cloudflareExecutions.createProposal({
       toolCallId: options.toolCallId,
       binding: { ...admission.identity, transcript },
-      code: input.code,
+      request,
     });
     this.refreshCloudflareExecutionState();
     return {
-      kind: 'cloudflare_execute_proposal',
+      kind: 'cloudflare_request_proposal',
       status: 'awaiting_approval',
       executionId: record.executionId,
       toolCallId: record.toolCallId,
       accountId: record.accountId,
-      code: record.code,
+      request: record.request,
       proposalSha256: record.proposalSha256,
       riskNote: CLOUDFLARE_EXECUTION_RISK_NOTE,
       expiresAt: record.expiresAt,
     };
   }
 
-  private async requireCloudflareMcpAdmission(
-    expectedIdentity: CloudflareMcpRuntimeIdentity,
-    execute: boolean,
-  ): Promise<{ identity: CloudflareMcpRuntimeIdentity; controls: CloudflareMcpRuntimeControls }> {
-    const admission = await readCloudflareMcpRuntimeAdmission(this.env);
-    if (
-      !admission ||
-      !cloudflareRuntimeIdentitiesEqual(admission.identity, expectedIdentity) ||
-      !admission.controls.cloudflare_mcp ||
-      (execute && !cloudflareMcpExecuteEnabled(admission.controls))
-    ) {
-      throw new Error('Cloudflare MCP is disabled or the authenticated connection changed.');
+  /** The approval fiber re-admits the stored change; a rejection there settles it as failed. */
+  private async requireCloudflareApiWriteAdmission(expectedIdentity: CloudflareApiRuntimeIdentity): Promise<void> {
+    const admitted = admitCloudflareApiRequest(
+      await readCloudflareApiRuntimeAdmission(this.env),
+      expectedIdentity,
+      true,
+    );
+    if ('rejection' in admitted) {
+      throw new Error(admitted.rejection);
     }
-    return admission;
   }
 
-  private createCloudflareMcpClient(identity: CloudflareMcpRuntimeIdentity): CloudflareMcpClient {
-    return new CloudflareMcpClient({
+  private createCloudflareApiClient(identity: CloudflareApiRuntimeIdentity): CloudflareApiClient {
+    return new CloudflareApiClient({
       resolveAccessToken: (options) => resolveUserWorkspaceCloudflareAccessToken(this.env, identity, options),
     });
   }
@@ -1297,7 +1276,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private async requireCurrentCloudflareExecutionBinding(reason: string): Promise<CloudflareExecutionBinding> {
     const durableIdentity = await this.hydrateDurableIdentity({ required: true, reason });
     const transcript = this.transcriptBinding;
-    const admission = await readCloudflareMcpRuntimeAdmission(this.env);
+    const admission = await readCloudflareApiRuntimeAdmission(this.env);
     if (!durableIdentity || !transcript || !admission || admission.identity.userId !== durableIdentity.userId) {
       throw new Response('The Cloudflare execution identity is unavailable.', { status: 409 });
     }
@@ -1314,7 +1293,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         throw new Error('The approved Cloudflare execution digest changed.');
       }
       this.refreshCloudflareExecutionState();
-      await this.requireCloudflareMcpAdmission(binding, true);
+      await this.requireCloudflareApiWriteAdmission(binding);
       const executing = await this.cloudflareExecutions.beginExecution(job.executionId, binding);
       if (!executing) {
         const settled = this.cloudflareExecutions.get(job.executionId);
@@ -1324,14 +1303,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         return;
       }
       this.refreshCloudflareExecutionState();
-      const client = this.createCloudflareMcpClient(binding);
-      const outcome = await client.invoke({
-        ...binding,
-        toolName: 'execute',
-        toolInput: { code: executing.code },
-        signal: new AbortController().signal,
-        invocationId: executing.executionId,
-      });
+      const outcome = await this.createCloudflareApiClient(binding).send(
+        executing.request,
+        new AbortController().signal,
+      );
       const safeOutcome = safeCloudflareExecutionOutcome(outcome);
       const status = cloudflareExecutionStatusForOutcome(outcome);
       const completed = this.cloudflareExecutions.complete(job.executionId, status, safeOutcome);
@@ -1369,8 +1344,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!isCloudflareExecutionTerminal(record.status) || !record.outcome) {
       return;
     }
-    const output: CloudflareExecuteFinalResult = {
-      kind: 'cloudflare_execute_result',
+    const output: CloudflareRequestFinalResult = {
+      kind: 'cloudflare_request_final_result',
       executionId: record.executionId,
       accountId: record.accountId,
       proposalSha256: record.proposalSha256,
@@ -1383,7 +1358,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       parts: message.parts.map((part) => {
         const invocation = getToolInvocation(part);
         if (
-          invocation?.toolName !== 'cloudflare_execute' ||
+          invocation?.toolName !== 'cloudflare_request' ||
           invocation.toolCallId !== record.toolCallId ||
           invocation.state !== 'output-available'
         ) {
@@ -1870,9 +1845,31 @@ function deploymentErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Deployment failed.';
 }
 
+/**
+ * Admit one request only while the switches allow it and the connection is still the one the turn
+ * started with; otherwise say why, for the model to report.
+ */
+function admitCloudflareApiRequest(
+  admission: CloudflareApiRuntimeAdmission | null,
+  expectedIdentity: CloudflareApiRuntimeIdentity,
+  write: boolean,
+): { admission: CloudflareApiRuntimeAdmission } | { rejection: string } {
+  if (
+    !admission ||
+    !cloudflareRuntimeIdentitiesEqual(admission.identity, expectedIdentity) ||
+    !admission.controls.cloudflare_api
+  ) {
+    return { rejection: 'Cloudflare API requests are disabled or the authenticated connection changed.' };
+  }
+  if (write && !cloudflareApiWriteEnabled(admission.controls)) {
+    return { rejection: 'Cloudflare account changes are disabled for this workspace. Only GET requests can run.' };
+  }
+  return { admission };
+}
+
 function cloudflareRuntimeIdentitiesEqual(
-  left: CloudflareMcpRuntimeIdentity,
-  right: CloudflareMcpRuntimeIdentity,
+  left: CloudflareApiRuntimeIdentity,
+  right: CloudflareApiRuntimeIdentity,
 ): boolean {
   return (
     left.userId === right.userId &&
@@ -1883,89 +1880,41 @@ function cloudflareRuntimeIdentitiesEqual(
   );
 }
 
-function cloudflareImmediateResult(
-  operation: 'docs' | 'search',
-  accountId: string,
-  outcome: CloudflareMcpOutcome,
-): CloudflareMcpImmediateResult {
-  if (outcome.status === 'success') {
-    return {
-      kind: 'cloudflare_mcp_result',
-      operation,
-      status: 'success',
-      accountId,
-      content: outcome.content.map((part) => part.text).join('\n'),
-      requestId: outcome.metadata.requestId,
-      httpStatus: outcome.metadata.httpStatus,
-      truncated: outcome.metadata.truncated,
-    };
-  }
-  if (outcome.status === 'insufficient_scope') {
-    return {
-      kind: 'cloudflare_mcp_result',
-      operation,
-      status: 'insufficient_scope',
-      accountId,
-      content: outcome.message,
-      requestId: outcome.metadata.requestId,
-      httpStatus: outcome.metadata.httpStatus,
-      truncated: outcome.metadata.truncated,
-    };
-  }
+function cloudflareRequestFailure(accountId: string, content: string): CloudflareRequestImmediateResult {
   return {
-    kind: 'cloudflare_mcp_result',
-    operation,
+    kind: 'cloudflare_request_result',
     status: 'failure',
     accountId,
-    content: outcome.error.message,
-    requestId: outcome.metadata.requestId,
-    httpStatus: outcome.metadata.httpStatus,
-    truncated: outcome.metadata.truncated,
+    content,
+    requestId: null,
+    httpStatus: null,
+    truncated: false,
   };
 }
 
-function safeCloudflareExecutionOutcome(outcome: CloudflareMcpOutcome): CloudflareExecutionSafeOutcome {
+function safeCloudflareExecutionOutcome(outcome: CloudflareApiOutcome): CloudflareExecutionSafeOutcome {
+  const metadata = { requestId: outcome.requestId, httpStatus: outcome.httpStatus, truncated: outcome.truncated };
   if (outcome.status === 'success') {
-    const content = outcome.content.map((part) => part.text).join('\n');
-    if (containsCredentialishCloudflareContent(content)) {
+    if (containsCredentialishCloudflareContent(outcome.content)) {
       return {
         status: 'success',
-        summary: 'Cloudflare completed the approved execution, but sensitive-looking response content was withheld.',
-        requestId: outcome.metadata.requestId,
-        httpStatus: outcome.metadata.httpStatus,
-        truncated: outcome.metadata.truncated,
+        summary: 'Cloudflare applied the approved request, but sensitive-looking response content was withheld.',
+        ...metadata,
         sensitiveContentWithheld: true,
       };
     }
     return {
       status: 'success',
-      summary: 'Cloudflare completed the approved execution.',
-      content,
-      requestId: outcome.metadata.requestId,
-      httpStatus: outcome.metadata.httpStatus,
-      truncated: outcome.metadata.truncated,
+      summary: 'Cloudflare applied the approved request.',
+      content: outcome.content,
+      ...metadata,
     };
   }
-  if (outcome.status === 'insufficient_scope') {
-    return {
-      status: 'insufficient_scope',
-      summary: outcome.message,
-      requestId: outcome.metadata.requestId,
-      httpStatus: outcome.metadata.httpStatus,
-      truncated: outcome.metadata.truncated,
-    };
-  }
-  return {
-    status: outcome.status,
-    summary: outcome.error.message,
-    requestId: outcome.metadata.requestId,
-    httpStatus: outcome.metadata.httpStatus,
-    truncated: outcome.metadata.truncated,
-  };
+  return { status: outcome.status, summary: outcome.content, ...metadata };
 }
 
 function cloudflareExecutionStatusForOutcome(
-  outcome: CloudflareMcpOutcome,
+  outcome: CloudflareApiOutcome,
 ): Extract<CloudflareExecutionStatus, 'succeeded' | 'failed' | 'indeterminate'> {
   return outcome.status === 'success' ? 'succeeded' : outcome.status === 'indeterminate' ? 'indeterminate' : 'failed';
 }

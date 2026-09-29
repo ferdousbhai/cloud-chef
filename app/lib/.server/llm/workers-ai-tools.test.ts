@@ -476,16 +476,18 @@ describe('minimal Workers AI tool surface', () => {
     expect(workspace.executeCommand).not.toHaveBeenCalled();
   });
 
-  it('rejects a wrangler.jsonc write that removes a required template binding', async () => {
+  it('rejects a cloudflare.project.json write that removes a required template resource', async () => {
     const workspace = workspaceStub();
     const tools = createWorkersAiTools(workspace, operationContext());
 
     await expect(
       executeTool(tools.write, {
-        path: '/home/project/wrangler.jsonc',
-        content: '{ "name": "app", "d1_databases": [{ "binding": "DB" }] }',
+        path: '/home/project/cloudflare.project.json',
+        content: '{ "name": "app", "d1": { "name": "app", "id": "x" } }',
       }),
-    ).resolves.toMatchObject({ error: expect.stringMatching(/required DB, APP_STORAGE, and APP_CACHE bindings/) });
+    ).resolves.toMatchObject({
+      error: expect.stringMatching(/required d1 \(DB\), r2 \(APP_STORAGE\), and kv \(APP_CACHE\)/),
+    });
     expect(workspace.computer.fs.writeFile).not.toHaveBeenCalled();
   });
 

@@ -127,7 +127,7 @@ export const COMPUTER_SHELL_TOOL_OPTIONS = {
   backends: {
     [COMPUTER_DEFAULT_SHELL_BACKEND]: {
       description:
-        'Cloudflare Container with full Linux userland, public network access, Node.js, pnpm, git, Wrangler, and build tools.',
+        'Cloudflare Container with full Linux userland, public network access, Node.js, pnpm, git, the credential-free `cf` CLI, and build tools.',
     },
   },
 } as const satisfies {

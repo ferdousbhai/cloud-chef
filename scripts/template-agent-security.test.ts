@@ -1,7 +1,6 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { parse } from 'jsonc-parser';
 import { describe, expect, test } from 'vitest';
 import {
   cleanupExpiredAgentSecurityState,
@@ -15,24 +14,17 @@ import { enableAgentCapability } from '../template/scripts/enable-agent-capabili
 
 describe('generated app agent security', () => {
   test('keeps the protected Agent capability available but disabled by default', () => {
-    const config = parse(readFileSync('template/wrangler.jsonc', 'utf8'));
+    const project = JSON.parse(readFileSync('template/cloudflare.project.json', 'utf8'));
+    const config = readFileSync('template/cloudflare.config.ts', 'utf8');
     const capability = JSON.parse(readFileSync('template/agent-capability.json', 'utf8'));
 
-    expect(config.main).toBe('src/plain-server.ts');
-    expect(config.ai).toBeUndefined();
-    expect(config.durable_objects).toBeUndefined();
-    expect(config.triggers).toBeUndefined();
-    expect(config.d1_databases).toEqual([expect.objectContaining({ binding: 'DB', migrations_dir: 'migrations' })]);
+    expect(project.entrypoint).toBe('src/plain-server.ts');
+    expect(project.agent).toBeUndefined();
+    expect(config).not.toMatch(/AGENT_SECURITY_DB|AppAgent|bindings\.ai|triggers/);
     expect(capability).toMatchObject({
-      wrangler: {
-        main: 'src/server.ts',
-        ai: { binding: 'AI' },
-        agentSecurityDatabase: {
-          binding: 'AGENT_SECURITY_DB',
-          migrations_dir: 'agent-security-migrations',
-        },
-        durable_objects: { bindings: [{ name: 'AppAgent', class_name: 'AppAgent' }] },
-        triggers: { crons: ['0 3 * * *'] },
+      cloudflare: {
+        entrypoint: 'src/server.ts',
+        agent: { securityD1: { name: 'cloudchef-cloudflare-app-agent-security' } },
       },
     });
   });
@@ -42,7 +34,8 @@ describe('generated app agent security', () => {
     try {
       for (const path of [
         'package.json',
-        'wrangler.jsonc',
+        'cloudflare.project.json',
+        'cloudflare.config.ts',
         'tsconfig.json',
         'agent-capability.json',
         'scripts/production-license-policy.json',
@@ -51,24 +44,21 @@ describe('generated app agent security', () => {
         cpSync(join('template', path), join(root, path));
       }
 
-      await enableAgentCapability(root);
-      const first = {
+      const snapshot = () => ({
         package: readFileSync(join(root, 'package.json'), 'utf8'),
         licensePolicy: readFileSync(join(root, 'scripts/production-license-policy.json'), 'utf8'),
-        wrangler: readFileSync(join(root, 'wrangler.jsonc'), 'utf8'),
+        project: readFileSync(join(root, 'cloudflare.project.json'), 'utf8'),
+        config: readFileSync(join(root, 'cloudflare.config.ts'), 'utf8'),
         tsconfig: readFileSync(join(root, 'tsconfig.json'), 'utf8'),
-      };
+      });
       await enableAgentCapability(root);
-      expect({
-        package: readFileSync(join(root, 'package.json'), 'utf8'),
-        licensePolicy: readFileSync(join(root, 'scripts/production-license-policy.json'), 'utf8'),
-        wrangler: readFileSync(join(root, 'wrangler.jsonc'), 'utf8'),
-        tsconfig: readFileSync(join(root, 'tsconfig.json'), 'utf8'),
-      }).toEqual(first);
+      const first = snapshot();
+      await enableAgentCapability(root);
+      expect(snapshot()).toEqual(first);
 
       const pkg = JSON.parse(first.package);
       const licensePolicy = JSON.parse(first.licensePolicy);
-      const config = parse(first.wrangler);
+      const project = JSON.parse(first.project);
       const tsconfig = JSON.parse(first.tsconfig);
       expect(pkg.dependencies).toMatchObject({
         agents: '0.20.1',
@@ -79,15 +69,15 @@ describe('generated app agent security', () => {
       expect(licensePolicy.metadataOnlyPackageAllowlist).toEqual(
         expect.arrayContaining(['@ai-sdk/provider-utils@5.0.18', 'partyserver@0.5.9']),
       );
-      expect(config).toMatchObject({
-        main: 'src/server.ts',
-        ai: { binding: 'AI' },
-        durable_objects: { bindings: [{ name: 'AppAgent', class_name: 'AppAgent' }] },
-        exports: { AppAgent: { type: 'durable-object', storage: 'sqlite' } },
-        triggers: { crons: ['0 3 * * *'] },
+      expect(project).toMatchObject({
+        entrypoint: 'src/server.ts',
+        agent: { securityD1: { name: 'cloudchef-cloudflare-app-agent-security' } },
       });
-      expect(config.d1_databases).toHaveLength(2);
-      expect(config.d1_databases).toContainEqual(expect.objectContaining({ binding: 'AGENT_SECURITY_DB' }));
+      expect(first.config).toContain('AGENT_SECURITY_DB: bindings.d1(');
+      expect(first.config).toContain('AppAgent: bindings.durableObject(');
+      expect(first.config).toContain('AI: bindings.ai({})');
+      expect(first.config).toContain('exports: { AppAgent: exports.durableObject({ storage: "sqlite" }) }');
+      expect(first.config).toContain('triggers: [triggers.scheduled({ schedule: "0 3 * * *" })]');
       expect(tsconfig.exclude).toBeUndefined();
     } finally {
       rmSync(root, { recursive: true, force: true });

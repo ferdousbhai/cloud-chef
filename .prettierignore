@@ -2,6 +2,9 @@ pnpm-lock.yaml
 app/routeTree.gen.ts
 app/generated/user-workspace-runtime.generated.ts
 template/src/routeTree.gen.ts
+template/.cloudflare/
+# Rendered from cloudflare.project.json; verify:stack compares it byte for byte with the renderer's output.
+template/cloudflare.config.ts
 worker-configuration.d.ts
 vite.config.ts.timestamp-*.mjs
 app/generated/builder-skill-assets.generated.ts

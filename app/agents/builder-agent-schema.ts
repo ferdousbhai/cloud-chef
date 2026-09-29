@@ -141,6 +141,15 @@ const migrations: readonly SchemaMigration[] = [
       `);
     },
   },
+  {
+    version: 8,
+    name: 'clear_cloudflare_mcp_execute_proposals',
+    apply(sql) {
+      // Approvals now hold one exact API request instead of MCP execute code. Code proposals can no
+      // longer run, and every terminal outcome is already persisted into its transcript tool part.
+      sql.exec('DELETE FROM builder_cloudflare_executions');
+    },
+  },
 ];
 
 type AppliedMigration = {

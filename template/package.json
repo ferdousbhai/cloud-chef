@@ -13,9 +13,9 @@
     "build": "pnpm run verify:licenses && vite build && pnpm run verify:licenses:built",
     "preview": "vite preview --host 0.0.0.0",
     "agent:enable": "node scripts/enable-agent-capability.mjs && pnpm install --no-frozen-lockfile && pnpm run licenses:generate",
-    "deploy": "pnpm run typecheck && pnpm run verify:stack && pnpm run provision:production && pnpm run verify:production-config && pnpm run build && pnpm run lint && pnpm run d1:migrations:apply:production && wrangler deploy",
+    "deploy": "pnpm run typecheck && pnpm run verify:stack && pnpm run provision:production && pnpm run verify:production-config && pnpm run build && pnpm run lint && pnpm run d1:migrations:apply:production && cf deploy --prebuilt",
     "d1:migrations:apply:production": "node scripts/apply-d1-migrations.mjs",
-    "cf-typegen": "node scripts/cf-typegen.mjs",
+    "cf-typegen": "node scripts/render-cloudflare-config.mjs && cf workers types --include-runtime false",
     "typecheck": "pnpm run generate-routes && pnpm run cf-typegen && tsc -p . --noEmit --pretty false",
     "provision:production": "node scripts/provision-cloudflare-production.mjs",
     "verify:stack": "node scripts/verify-stack-alignment.mjs",
@@ -33,7 +33,7 @@
   },
   "devDependencies": {
     "@babel/core": "^8.0.1",
-    "@cloudflare/vite-plugin": "1.50.0",
+    "@cloudflare/vite-plugin": "2.0.0-beta.sha-ad79608dd",
     "@cloudflare/workers-types": "5.20260801.1",
     "@eslint/js": "^10.0.1",
     "@tanstack/router-cli": "^1.167.22",
@@ -42,6 +42,7 @@
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "~10.5.4",
+    "cf": "1.0.0-beta.5",
     "eslint": "^10.8.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
@@ -52,7 +53,6 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.65.0",
     "vite": "^8.2.0",
-    "wrangler": "4.118.0",
     "yaml": "2.9.0"
   },
   "engines": {

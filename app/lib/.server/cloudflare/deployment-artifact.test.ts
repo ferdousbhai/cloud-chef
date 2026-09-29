@@ -37,13 +37,13 @@ describe('deployment artifact boundary', () => {
   });
 
   it('rejects path traversal, byte tampering, and Worker-only static assets', async () => {
-    const main = await file('server.js', 'export default {}');
+    const main = await file('index.js', 'export default {}');
     const asset = await file('index.html', '<h1>CloudChef</h1>');
     await expect(
       validatePreparedDeploymentArtifact(
         {
           revision: 'a'.repeat(64),
-          mainModule: 'server.js',
+          mainModule: 'index.js',
           modules: [main],
           assets: [asset],
           migrations: { DB: [], AGENT_SECURITY_DB: [] },

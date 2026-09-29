@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CLOUDFLARE_MCP_RUNTIME_CONTROL_KEYS,
-  cloudflareMcpExecuteEnabled,
-  readCloudflareMcpRuntimeAdmission,
-} from './cloudflare-mcp-runtime-controls';
+  CLOUDFLARE_API_RUNTIME_CONTROL_KEYS,
+  cloudflareApiWriteEnabled,
+  readCloudflareApiRuntimeAdmission,
+} from './cloudflare-api-runtime-controls';
 
-const enabledRows = CLOUDFLARE_MCP_RUNTIME_CONTROL_KEYS.map((key) => ({ key, enabled: 1 }));
+const enabledRows = CLOUDFLARE_API_RUNTIME_CONTROL_KEYS.map((key) => ({ key, enabled: 1 }));
 
 function testEnv(rows = enabledRows, grant = 'full') {
   return {
@@ -25,10 +25,10 @@ function testEnv(rows = enabledRows, grant = 'full') {
   };
 }
 
-describe('Cloudflare MCP runtime controls', () => {
+describe('Cloudflare API runtime controls', () => {
   it('admits a known grant only when every typed row is present and well formed', async () => {
     // SAFETY: testEnv supplies every runtime binding read by this function and a D1 result stub.
-    const admission = await readCloudflareMcpRuntimeAdmission(testEnv() as never);
+    const admission = await readCloudflareApiRuntimeAdmission(testEnv() as never);
 
     expect(admission).toEqual({
       identity: {
@@ -38,13 +38,7 @@ describe('Cloudflare MCP runtime controls', () => {
         connectionGeneration: 3,
         oauthScopeGrantStatus: 'full',
       },
-      controls: {
-        cloudflare_mcp: true,
-        cloudflare_mcp_execute: true,
-        cloudflare_mcp_billable: true,
-        cloudflare_mcp_credentials: true,
-        cloudflare_mcp_registrar: true,
-      },
+      controls: { cloudflare_api: true, cloudflare_api_write: true },
     });
   });
 
@@ -53,24 +47,16 @@ describe('Cloudflare MCP runtime controls', () => {
     { label: 'missing row', env: testEnv(enabledRows.slice(1)) },
     {
       label: 'malformed row',
-      env: testEnv(enabledRows.map((row) => (row.key === 'cloudflare_mcp' ? { ...row, enabled: 2 } : row))),
+      env: testEnv(enabledRows.map((row) => (row.key === 'cloudflare_api' ? { ...row, enabled: 2 } : row))),
     },
   ])('fails closed for a $label', async ({ env }) => {
     // SAFETY: each case mutates only the boundary value under test; the remaining runtime shape is complete.
-    await expect(readCloudflareMcpRuntimeAdmission(env as never)).resolves.toBeNull();
+    await expect(readCloudflareApiRuntimeAdmission(env as never)).resolves.toBeNull();
   });
 
-  it('keeps execute disabled until every unclassified mutation-class switch is enabled', () => {
-    const controls = {
-      cloudflare_mcp: true,
-      cloudflare_mcp_execute: true,
-      cloudflare_mcp_billable: true,
-      cloudflare_mcp_credentials: true,
-      cloudflare_mcp_registrar: true,
-    };
-    expect(cloudflareMcpExecuteEnabled(controls)).toBe(true);
-    for (const key of CLOUDFLARE_MCP_RUNTIME_CONTROL_KEYS) {
-      expect(cloudflareMcpExecuteEnabled({ ...controls, [key]: false })).toBe(false);
-    }
+  it('admits writes only when both switches are enabled', () => {
+    expect(cloudflareApiWriteEnabled({ cloudflare_api: true, cloudflare_api_write: true })).toBe(true);
+    expect(cloudflareApiWriteEnabled({ cloudflare_api: false, cloudflare_api_write: true })).toBe(false);
+    expect(cloudflareApiWriteEnabled({ cloudflare_api: true, cloudflare_api_write: false })).toBe(false);
   });
 });

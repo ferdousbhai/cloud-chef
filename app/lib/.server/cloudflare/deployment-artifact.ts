@@ -30,6 +30,9 @@ export type PreparedDeploymentArtifact = {
   };
 };
 
+/** Both project types build through cf, and the bundled Worker is always collapsed to this one module. */
+export const WORKER_MAIN_MODULE = 'index.js' as const;
+
 /** Validate every byte returned by the untrusted project build boundary. */
 export async function validatePreparedDeploymentArtifact(
   value: PreparedDeploymentArtifact,
@@ -38,8 +41,7 @@ export async function validatePreparedDeploymentArtifact(
   if (!value || typeof value !== 'object' || value.revision !== expected.revision) {
     throw new Error('The prepared deployment artifact does not match the approved revision.');
   }
-  const expectedMain = expected.projectType === 'worker' ? 'server.js' : 'index.js';
-  if (value.mainModule !== expectedMain || !Array.isArray(value.modules) || !Array.isArray(value.assets)) {
+  if (value.mainModule !== WORKER_MAIN_MODULE || !Array.isArray(value.modules) || !Array.isArray(value.assets)) {
     throw new Error('The prepared deployment artifact is invalid.');
   }
   if (expected.projectType === 'worker' && value.assets.length !== 0) {

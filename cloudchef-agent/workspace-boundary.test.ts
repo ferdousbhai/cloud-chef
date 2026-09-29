@@ -18,6 +18,7 @@ describe('rejectedWorkspaceCommand', () => {
     'wrangler dev',
     'pnpm exec wrangler dev --local',
     'wrangler tail',
+    'cf dev',
     'next dev',
     'nodemon src/server.ts',
     'http-server dist',
@@ -42,12 +43,27 @@ describe('rejectedWorkspaceCommand', () => {
     },
   );
 
+  it.each(['cf auth login', 'cf --profile work auth create', 'cd /home/project && cf auth list'])(
+    'points the credential command %j at cloudflare_request',
+    (command) => {
+      expect(rejectedWorkspaceCommand(command)).toMatch(/cloudflare_request/);
+    },
+  );
+
+  it.each(['cf cli search "list d1 databases"', 'cf schema d1 list', 'cf d1 list --dry-run'])(
+    'allows the credential-free cf command %j',
+    (command) => {
+      expect(rejectedWorkspaceCommand(command)).toBeNull();
+    },
+  );
+
   it.each([
     'rm -rf .wrangler',
     'rm -rf /home/project/.wrangler/state',
     'mv .wrangler /tmp/backup',
     'workerd --version',
     'pnpm build; rm -r .wrangler',
+    'rm -rf .cloudflare/output',
     'computerd restart',
   ])('rejects the platform-state command %j', (command) => {
     expect(rejectedWorkspaceCommand(command)).toMatch(/platform runtime state/i);
@@ -77,43 +93,45 @@ describe('rejectedWorkspaceCommand', () => {
 });
 
 describe('rejectedWorkspaceFileMutation', () => {
-  const completeConfig = `{
-    // Cloudflare resources
-    "d1_databases": [{ "binding": "DB" }],
-    "r2_buckets": [{ "binding": "APP_STORAGE" }],
-    "kv_namespaces": [{ "binding": "APP_CACHE" }],
-  }`;
+  const completeProject = JSON.stringify(
+    {
+      name: 'cloudchef-cloudflare-app',
+      entrypoint: 'src/plain-server.ts',
+      d1: { name: 'cloudchef-cloudflare-app', id: '00000000-0000-0000-0000-000000000000' },
+      kv: { id: '00000000000000000000000000000000' },
+      r2: { name: 'cloudchef-cloudflare-app-storage' },
+    },
+    null,
+    2,
+  );
 
-  it('allows a wrangler.jsonc write that keeps every required binding', () => {
-    expect(rejectedWorkspaceFileMutation('/home/project/wrangler.jsonc', completeConfig)).toBeNull();
+  it('allows a cloudflare.project.json write that keeps every required resource', () => {
+    expect(rejectedWorkspaceFileMutation('/home/project/cloudflare.project.json', completeProject)).toBeNull();
   });
 
-  it.each(['DB', 'APP_STORAGE', 'APP_CACHE'])('rejects a wrangler.jsonc write that drops the %s binding', (binding) => {
-    const content = completeConfig.replace(`"binding": "${binding}"`, '"binding": "OTHER"');
-    expect(rejectedWorkspaceFileMutation('/home/project/wrangler.jsonc', content)).toMatch(/required DB, APP_STORAGE/);
-  });
-
-  it('rejects replacing wrangler.jsonc with a minimal config', () => {
-    expect(rejectedWorkspaceFileMutation('/home/project/wrangler.jsonc', '{ "name": "app" }')).toMatch(
-      /required DB, APP_STORAGE/,
+  it.each(['d1', 'r2', 'kv'])('rejects a cloudflare.project.json write that drops the %s resource', (resource) => {
+    const project = JSON.parse(completeProject);
+    delete project[resource];
+    expect(rejectedWorkspaceFileMutation('/home/project/cloudflare.project.json', JSON.stringify(project))).toMatch(
+      /required d1 \(DB\)/,
     );
   });
 
   it.each([
-    '/home/project/./wrangler.jsonc',
-    '/home/project//wrangler.jsonc',
-    '/home/project/src/../wrangler.jsonc',
-    '/home/project\\wrangler.jsonc',
-    'wrangler.jsonc',
-    './wrangler.jsonc',
-  ])('rejects a binding-dropping write addressed as %s', (path) => {
+    '/home/project/./cloudflare.project.json',
+    '/home/project//cloudflare.project.json',
+    '/home/project/src/../cloudflare.project.json',
+    '/home/project\\cloudflare.project.json',
+    'cloudflare.project.json',
+    './cloudflare.project.json',
+  ])('rejects a resource-dropping write addressed as %s', (path) => {
     // Every layer below this one canonicalizes, so a non-canonical spelling still lands on the
     // real config.
-    expect(rejectedWorkspaceFileMutation(path, '{ "name": "app" }')).toMatch(/required DB, APP_STORAGE/);
+    expect(rejectedWorkspaceFileMutation(path, '{ "name": "app" }')).toMatch(/required d1 \(DB\)/);
   });
 
-  it('ignores files other than the project wrangler config', () => {
+  it('ignores files other than the project Cloudflare configuration', () => {
     expect(rejectedWorkspaceFileMutation('/home/project/src/index.ts', 'export {};')).toBeNull();
-    expect(rejectedWorkspaceFileMutation('/home/project/docs/wrangler.jsonc.md', '{}')).toBeNull();
+    expect(rejectedWorkspaceFileMutation('/home/project/docs/cloudflare.project.json.md', '{}')).toBeNull();
   });
 });

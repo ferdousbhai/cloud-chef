@@ -4,10 +4,13 @@ import { isToolInvocationInProgress, type CloudChefToolInvocation } from 'cloudc
 import { isCloudChefToolResult, toolResultSucceeded, toolResultSummary } from 'cloudchef-agent/tool-result';
 import { ToolResultFrame } from './ToolResultFrame';
 import { captureProductEvent } from '~/lib/telemetry.client';
-import type {
-  CloudflareExecutionDecisionHandler,
-  CloudflareExecutionPublicState,
-} from 'cloudchef-agent/cloudflare-mcp';
+import {
+  cloudflareApiRequestDisplaySchema,
+  cloudflareApiRequestIsRead,
+  type CloudflareApiRequestDisplay,
+  type CloudflareExecutionDecisionHandler,
+  type CloudflareExecutionPublicState,
+} from 'cloudchef-agent/cloudflare-api';
 import { Button } from '~/components/ui/primitives/Button';
 import { isToolActivityStatusActive, type ToolActivityStatus } from '~/lib/common/types';
 
@@ -28,13 +31,9 @@ export const ToolUseContents = memo(function ToolUseContents({
   // invocation alone cannot say whether work is still happening. The card's own status can, and a
   // tool that is no longer running must never show the running placeholder.
   const running = isToolInvocationInProgress(invocation) && isToolActivityStatusActive(status);
-  if (
-    invocation.toolName === 'cloudflare_docs' ||
-    invocation.toolName === 'cloudflare_search' ||
-    invocation.toolName === 'cloudflare_execute'
-  ) {
+  if (invocation.toolName === 'cloudflare_request') {
     return (
-      <CloudflareMcpToolContents
+      <CloudflareRequestContents
         invocation={invocation}
         running={running}
         execution={cloudflareExecution}
@@ -105,21 +104,20 @@ function RunningToolContents({ invocation, progress }: { invocation: CloudChefTo
   );
 }
 
-const cloudflareExecuteProposalSchema = z.object({
-  kind: z.literal('cloudflare_execute_proposal'),
+const cloudflareRequestProposalSchema = z.object({
+  kind: z.literal('cloudflare_request_proposal'),
   status: z.literal('awaiting_approval'),
   executionId: z.string(),
   toolCallId: z.string(),
   accountId: z.string(),
-  code: z.string(),
+  request: cloudflareApiRequestDisplaySchema,
   proposalSha256: z.string(),
   riskNote: z.string(),
   expiresAt: z.number(),
 });
 
-const cloudflareMcpResultSchema = z.object({
-  kind: z.literal('cloudflare_mcp_result'),
-  operation: z.enum(['docs', 'search']),
+const cloudflareRequestResultSchema = z.object({
+  kind: z.literal('cloudflare_request_result'),
   status: z.enum(['success', 'failure', 'insufficient_scope']),
   accountId: z.string(),
   content: z.string().optional(),
@@ -128,12 +126,16 @@ const cloudflareMcpResultSchema = z.object({
   truncated: z.boolean(),
 });
 
-const cloudflareToolInputSchema = z.looseObject({
-  query: z.string().optional(),
-  code: z.string().optional(),
-});
+function CloudflareRequestLine({ request }: { request: CloudflareApiRequestDisplay }) {
+  return (
+    <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-bolt-elements-borderColor p-3 text-xs leading-5 text-content-secondary">
+      {`${request.method} ${request.url}`}
+      {request.body === undefined ? '' : `\n\n${JSON.stringify(request.body, null, 2)}`}
+    </pre>
+  );
+}
 
-function CloudflareMcpToolContents({
+function CloudflareRequestContents({
   invocation,
   running,
   execution,
@@ -144,54 +146,52 @@ function CloudflareMcpToolContents({
   execution?: CloudflareExecutionPublicState;
   onDecision?: CloudflareExecutionDecisionHandler;
 }) {
-  if (invocation.toolName === 'cloudflare_execute') {
+  const input = cloudflareApiRequestDisplaySchema.safeParse(invocation.input).data;
+  const output = invocation.state === 'output-available' ? invocation.output : undefined;
+  const proposal = cloudflareRequestProposalSchema.safeParse(output).data;
+  if (execution || proposal || (running && input && !cloudflareApiRequestIsRead(input))) {
     return (
-      <CloudflareExecuteContents
+      <CloudflareRequestApprovalContents
         invocation={invocation}
+        input={input}
+        proposal={proposal}
         running={running}
         execution={execution}
         onDecision={onDecision}
       />
     );
   }
-  const input = cloudflareToolInputSchema.safeParse(invocation.input).data;
   if (running) {
-    const activity = invocation.toolName === 'cloudflare_docs' ? input?.query : input?.code;
     return (
       <ToolResultFrame>
         <div className="space-y-1.5">
-          <div className="text-content-secondary">
-            {invocation.toolName === 'cloudflare_docs'
-              ? 'Searching Cloudflare documentation…'
-              : 'Searching the authenticated Cloudflare account…'}
-          </div>
-          {activity ? <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words">{activity}</pre> : null}
+          <div className="text-content-secondary">Reading the connected Cloudflare account…</div>
+          {input ? <CloudflareRequestLine request={input} /> : null}
         </div>
       </ToolResultFrame>
     );
   }
   if (invocation.state === 'output-error') {
-    return <ToolResultFrame>{invocation.errorText ?? 'Cloudflare MCP failed.'}</ToolResultFrame>;
+    return <ToolResultFrame>{invocation.errorText ?? 'The Cloudflare API request failed.'}</ToolResultFrame>;
   }
   if (isToolInvocationInProgress(invocation)) {
     return <ToolResultFrame>{unfinishedToolSummary('aborted')}</ToolResultFrame>;
   }
-  const result =
-    invocation.state === 'output-available' ? cloudflareMcpResultSchema.safeParse(invocation.output).data : null;
+  const result = cloudflareRequestResultSchema.safeParse(output).data;
   if (!result) {
-    return <ToolResultFrame>Cloudflare MCP returned an invalid result.</ToolResultFrame>;
+    return <ToolResultFrame>The Cloudflare API returned an invalid result.</ToolResultFrame>;
   }
   return (
     <ToolResultFrame>
       <div className="space-y-1.5">
         <div className={result.status === 'success' ? 'text-content-primary' : 'text-bolt-elements-icon-error'}>
           {result.status === 'success'
-            ? 'Cloudflare MCP completed.'
+            ? 'Cloudflare API request completed.'
             : result.status === 'insufficient_scope'
-              ? 'The connected Cloudflare grant does not include the required scope.'
-              : 'Cloudflare MCP failed.'}
+              ? 'The connected Cloudflare grant does not allow this request.'
+              : 'The Cloudflare API request failed.'}
         </div>
-        <div className="text-xs text-content-tertiary">Account: {result.accountId}</div>
+        {input ? <CloudflareRequestLine request={input} /> : null}
         {result.content ? (
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs leading-[1.4] text-content-secondary">
             {result.content}
@@ -203,22 +203,21 @@ function CloudflareMcpToolContents({
   );
 }
 
-function CloudflareExecuteContents({
+function CloudflareRequestApprovalContents({
   invocation,
   running,
   execution,
   onDecision,
+  input,
+  proposal,
 }: {
   invocation: CloudChefToolInvocation;
   running: boolean;
   execution?: CloudflareExecutionPublicState;
   onDecision?: CloudflareExecutionDecisionHandler;
+  input?: CloudflareApiRequestDisplay;
+  proposal?: z.infer<typeof cloudflareRequestProposalSchema>;
 }) {
-  const proposal =
-    invocation.state === 'output-available'
-      ? cloudflareExecuteProposalSchema.safeParse(invocation.output).data
-      : undefined;
-  const input = cloudflareToolInputSchema.safeParse(invocation.input).data;
   const [pendingDecision, setPendingDecision] = useState<'approve' | 'reject' | null>(null);
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const [expired, setExpired] = useState(() => (proposal?.expiresAt ?? execution?.expiresAt ?? Infinity) <= Date.now());
@@ -236,10 +235,8 @@ function CloudflareExecuteContents({
     return (
       <ToolResultFrame>
         <div className="space-y-1.5">
-          <div className="text-content-secondary">Preparing an approval-bound Cloudflare execution…</div>
-          {input?.code ? (
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs">{input.code}</pre>
-          ) : null}
+          <div className="text-content-secondary">Preparing a Cloudflare change for your approval…</div>
+          {input ? <CloudflareRequestLine request={input} /> : null}
         </div>
       </ToolResultFrame>
     );
@@ -248,14 +245,14 @@ function CloudflareExecuteContents({
     return <ToolResultFrame>{unfinishedToolSummary('aborted')}</ToolResultFrame>;
   }
   if (invocation.state === 'output-error') {
-    return <ToolResultFrame>{invocation.errorText ?? 'The Cloudflare execution proposal failed.'}</ToolResultFrame>;
+    return <ToolResultFrame>{invocation.errorText ?? 'The Cloudflare change proposal failed.'}</ToolResultFrame>;
   }
   if (!proposal && !execution) {
-    return <ToolResultFrame>The Cloudflare execution proposal is unavailable.</ToolResultFrame>;
+    return <ToolResultFrame>The Cloudflare change proposal is unavailable.</ToolResultFrame>;
   }
 
   const executionId = proposal?.executionId ?? execution?.executionId ?? '';
-  const code = proposal?.code ?? input?.code ?? '';
+  const request = proposal?.request ?? input;
   const accountId = proposal?.accountId ?? execution?.accountId ?? '';
   const digest = proposal?.proposalSha256 ?? execution?.proposalSha256 ?? '';
   const status = execution?.status ?? 'awaiting_approval';
@@ -279,17 +276,15 @@ function CloudflareExecuteContents({
 
   return (
     <ToolResultFrame>
-      <div className="space-y-3" data-testid="cloudflare-execute-approval">
+      <div className="space-y-3" data-testid="cloudflare-request-approval">
         <div className="grid gap-1 text-xs text-content-tertiary">
           <div>Account: {accountId}</div>
           <div>Digest: {digest.slice(0, 12)}</div>
         </div>
-        <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-bolt-elements-borderColor p-3 text-xs leading-5 text-content-secondary">
-          {code}
-        </pre>
+        {request ? <CloudflareRequestLine request={request} /> : null}
         <p className="text-xs leading-5 text-content-secondary">
           {proposal?.riskNote ??
-            'This exact generated code may make destructive, irreversible, or billable Cloudflare API changes.'}
+            'This exact request may make destructive, irreversible, or billable Cloudflare account changes.'}
         </p>
         <CloudflareExecutionStatus status={effectiveStatus} outcome={execution?.outcome ?? null} />
         {effectiveStatus === 'awaiting_approval' ? (
@@ -333,16 +328,16 @@ function CloudflareExecutionStatus({
     status === 'awaiting_approval'
       ? 'Waiting for approval.'
       : status === 'approved' || status === 'executing'
-        ? 'Approved. Executing the exact digest…'
+        ? 'Approved. Sending the exact request…'
         : status === 'rejected'
-          ? 'Rejected. No Cloudflare execution was performed.'
+          ? 'Rejected. Nothing was sent to Cloudflare.'
           : status === 'expired'
-            ? 'Approval expired. Propose the operation again to continue.'
+            ? 'Approval expired. Propose the change again to continue.'
             : status === 'succeeded'
-              ? 'Cloudflare execution succeeded.'
+              ? 'Cloudflare applied the change.'
               : status === 'indeterminate'
-                ? 'Outcome indeterminate. Reconcile current state before proposing another mutation.'
-                : 'Cloudflare execution failed.';
+                ? 'Outcome indeterminate. Reconcile current state before proposing another change.'
+                : 'The Cloudflare change failed.';
   const error = status === 'failed' || status === 'indeterminate' || status === 'expired';
   return (
     <div className="space-y-2" role="status">

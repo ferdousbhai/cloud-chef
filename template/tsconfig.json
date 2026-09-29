@@ -3,7 +3,8 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "vite.config.ts",
-    "worker-configuration.d.ts"
+    "cloudflare.config.ts",
+    ".cloudflare/types/index.d.ts"
   ],
   "exclude": [
     "src/server.ts",
@@ -17,7 +18,7 @@
     "jsx": "react-jsx",
     "module": "ES2022",
     "moduleResolution": "bundler",
-    "types": ["./worker-configuration.d.ts", "node", "vite/client"],
+    "types": ["@cloudflare/workers-types", "node", "vite/client"],
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "isolatedModules": true,

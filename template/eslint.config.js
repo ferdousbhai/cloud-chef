@@ -6,13 +6,7 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: [
-      "dist",
-      "node_modules",
-      ".tanstack",
-      ".wrangler",
-      "worker-configuration.d.ts",
-    ],
+    ignores: ["dist", "node_modules", ".tanstack", ".wrangler", ".cloudflare"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

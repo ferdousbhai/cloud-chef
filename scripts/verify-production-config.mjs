@@ -5,13 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { parse, printParseErrorCode } from 'jsonc-parser';
 import {
   findMissingCommandSteps,
-  findWorkerObservabilityErrors,
-  findWorkerRuntimeSecretErrors,
   loadsLocalEnvFiles,
   startsLocalDevServer,
   targetsStaging,
   workflowPathsFromDirectoryEntries,
 } from '../template/scripts/lib/project-policy.mjs';
+import { findWorkerObservabilityErrors, findWorkerRuntimeSecretErrors } from './lib/worker-policy.mjs';
 import { runVerifierIfMain } from './run-verifier.mjs';
 import { findUnexpectedGithubWorkflowPaths } from './workers-builds-config.mjs';
 

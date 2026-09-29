@@ -1,6 +1,6 @@
 # Broad Cloudflare OAuth and official MCP integration plan
 
-Status: implementation plan  
+Status: MCP integration superseded on 2026-09-29 by the `cf` CLI and `cloudflare_request` (see ARCHITECTURE.md). The broad OAuth scope work still applies.  
 Prepared: 2026-08-30  
 Audience: CloudChef coding agent and reviewers
 

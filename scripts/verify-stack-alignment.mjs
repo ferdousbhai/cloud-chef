@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   APP_REQUIRED_PACKAGES,
+  SHARED_APP_PACKAGES,
   CONTROL_PLANE_TOOLCHAIN,
   GENERATED_APP_TOOLCHAIN,
   collectSourceEntries,
@@ -21,6 +22,11 @@ import {
   packageDependencyVersion,
 } from '../template/scripts/lib/project-policy.mjs';
 import { runVerifierIfMain } from './run-verifier.mjs';
+import {
+  CF_COMPATIBILITY_DATE,
+  CF_LOGS_HEAD_SAMPLING_RATE,
+  CF_TRACES_HEAD_SAMPLING_RATE,
+} from '../template/scripts/lib/cloudflare-project.mjs';
 import { templateSourceDigest } from './template-source.mjs';
 import { verifyD1MigrationSafety } from './verify-d1-migrations.mjs';
 
@@ -52,7 +58,11 @@ const agentRequiredPackages = ['ai', 'zod'];
  * A generated application is a different program: its own `typecheck` shells out to `tsr generate`,
  * so `@tanstack/router-cli` stays required by the shared app policy and is subtracted only here.
  */
-const rootRequiredPackages = APP_REQUIRED_PACKAGES.filter((name) => name !== '@tanstack/router-cli');
+const rootRequiredPackages = [
+  ...SHARED_APP_PACKAGES.filter((name) => name !== '@tanstack/router-cli'),
+  '@cloudflare/vite-plugin',
+  'wrangler',
+];
 const forbiddenLockfiles = ['package-lock.json'];
 const blockedRootBuildEntries = new Map([
   ['@google/genai', "  '@google/genai': false"],
@@ -105,7 +115,8 @@ const requiredPaths = [
   'template/src/agents/app-agent.ts',
   'template/src/agents/anonymous-retention.ts',
   'template/vite.config.ts',
-  'template/wrangler.jsonc',
+  'template/cloudflare.config.ts',
+  'template/cloudflare.project.json',
 ];
 const requiredMigrationTables = [
   'user',
@@ -186,20 +197,28 @@ export function findBuilderTemplateModuleErrors(content, sourceSha256) {
     : ['app/agents/builder-template.generated.ts is stale; run pnpm run generate:artifacts.'];
 }
 
-export function findDeploymentRuntimePolicyErrors(templateConfigSource, runtimePolicySource) {
-  const runtimeMatch = /export const DEPLOYMENT_COMPATIBILITY_DATE = '([^']+)'/.exec(runtimePolicySource);
-  if (!runtimeMatch) {
-    return ['deployment runtime policy must declare DEPLOYMENT_COMPATIBILITY_DATE.'];
-  }
-  const templateMatch = /"compatibility_date"\s*:\s*"([^"]+)"/.exec(templateConfigSource);
-  if (!templateMatch) {
-    return ['template/wrangler.jsonc must declare compatibility_date.'];
-  }
-  return runtimeMatch[1] === templateMatch[1]
+/** A cf pin bump needs a fresh review: the reviewed release-age exemption must name the pinned version. */
+export function findCfCliPinErrors(templatePackage, dependencyPolicy) {
+  const version = templatePackage.devDependencies?.cf;
+  return (dependencyPolicy.approvedReleaseAgeExclusions ?? []).includes(`cf@${version}`)
     ? []
-    : [
-        `deployment compatibility date ${JSON.stringify(runtimeMatch[1])} must match template/wrangler.jsonc ${JSON.stringify(templateMatch[1])}.`,
-      ];
+    : [`The reviewed release-age exemptions must name cf@${version}.`];
+}
+
+/** The generated template's deployment policy must match what the control plane publishes. */
+export function findDeploymentRuntimePolicyErrors(templatePolicy, runtimePolicySource) {
+  const runtimePolicy = {
+    compatibilityDate: /export const DEPLOYMENT_COMPATIBILITY_DATE = '([^']+)'/.exec(runtimePolicySource)?.[1],
+    logsHeadSamplingRate: Number(/logs: \{[^}]*head_sampling_rate: ([0-9.]+)/.exec(runtimePolicySource)?.[1]),
+    tracesHeadSamplingRate: Number(/traces: \{[^}]*head_sampling_rate: ([0-9.]+)/.exec(runtimePolicySource)?.[1]),
+  };
+  return Object.entries(templatePolicy).flatMap(([name, value]) =>
+    runtimePolicy[name] === value
+      ? []
+      : [
+          `deployment ${name} ${JSON.stringify(runtimePolicy[name])} must match the generated template's ${JSON.stringify(value)}.`,
+        ],
+  );
 }
 
 function verifyPackage(errors, pkg, label, requiredPackages, toolchain, checkAiPeers = false) {
@@ -313,7 +332,7 @@ export function verifyStackAlignment() {
       'cloudchef-agent/package.json',
       agentRequiredPackages,
     ),
-    ...findPackageVersionAlignmentErrors(rootPackage, templatePackage, 'template/package.json', APP_REQUIRED_PACKAGES),
+    ...findPackageVersionAlignmentErrors(rootPackage, templatePackage, 'template/package.json', SHARED_APP_PACKAGES),
     ...findForbiddenFiles(forbiddenLockfiles),
     ...findForbiddenLegacyPaths(forbiddenLegacyPaths),
     ...findMissingPaths(rootDir, requiredPaths),
@@ -367,8 +386,16 @@ export function verifyStackAlignment() {
   verifyRootMigrations(errors);
   errors.push(...verifyD1MigrationSafety(rootDir));
   errors.push(
+    ...findCfCliPinErrors(
+      templatePackage,
+      readJson('template/scripts/lib/project-policy/generated-project-dependency-policy.json'),
+    ),
     ...findDeploymentRuntimePolicyErrors(
-      readFileSync(resolve(rootDir, 'template/wrangler.jsonc'), 'utf8'),
+      {
+        compatibilityDate: CF_COMPATIBILITY_DATE,
+        logsHeadSamplingRate: CF_LOGS_HEAD_SAMPLING_RATE,
+        tracesHeadSamplingRate: CF_TRACES_HEAD_SAMPLING_RATE,
+      },
       readFileSync(resolve(rootDir, 'app/lib/.server/cloudflare/deployment-runtime-policy.ts'), 'utf8'),
     ),
   );

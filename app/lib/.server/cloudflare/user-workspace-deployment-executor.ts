@@ -28,7 +28,6 @@ type UserOwnedRuntimeContext = {
   runtimeEnv: Env;
   connectionGeneration: number;
   request: typeof fetch;
-  accountId: string;
 };
 
 type ProjectWorkspaceStub = ReturnType<Env['PROJECT_WORKSPACE']['get']>;
@@ -85,7 +84,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
   let providerChangesPossible = false;
   let session: PublicationSession | null = null;
   try {
-    const { runtimeEnv, connectionGeneration, request, accountId } = requireUserOwnedRuntimeContext(args);
+    const { runtimeEnv, connectionGeneration, request } = requireUserOwnedRuntimeContext(args);
     let deployment = await requireDeployment(args.env.DB, args.deploymentId);
     requireExecutionIdentity(deployment, args);
     deployment = await claimApprovedDeployment({
@@ -128,7 +127,6 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
       executionGeneration: args.executionGeneration,
       deployment,
       reference,
-      accountId,
       workerName,
       profile,
       resources,
@@ -197,7 +195,7 @@ export async function executeUserOwnedPreview(
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(args.previewId)) {
     throw new Error('Preview identity is invalid.');
   }
-  const { runtimeEnv, connectionGeneration, request, accountId } = requireUserOwnedRuntimeContext(args);
+  const { runtimeEnv, connectionGeneration, request } = requireUserOwnedRuntimeContext(args);
   const deployment = await requireDeployment(args.env.DB, args.deploymentId);
   requirePreviewExecutionIdentity(deployment, args, connectionGeneration);
   const reference = requireApprovedWorkspaceReference(deployment, 'preview');
@@ -240,7 +238,6 @@ export async function executeUserOwnedPreview(
       executionGeneration: args.executionGeneration,
       deployment,
       reference,
-      accountId,
       workerName,
       profile,
       resources,
@@ -345,7 +342,6 @@ async function prepareValidatedArtifact(args: {
   executionGeneration: number;
   deployment: Deployment;
   reference: WorkspaceReference;
-  accountId: string;
   workerName: string;
   profile: DeploymentProjectProfile;
   resources: PublicationResources;
@@ -358,7 +354,6 @@ async function prepareValidatedArtifact(args: {
       deploymentId: deployment.id,
       executionGeneration: args.executionGeneration,
       revision: reference.revision,
-      accountId: args.accountId,
       workerName: args.workerName,
       projectType: profile.type,
       workersAi: profile.bindings.ai,
@@ -579,7 +574,6 @@ function requireUserOwnedRuntimeContext(args: UserOwnedDeploymentArgs): UserOwne
     runtimeEnv,
     connectionGeneration,
     request: args.request ?? fetch,
-    accountId: runtimeEnv.CLOUDFLARE_ACCOUNT_ID,
   };
 }
 

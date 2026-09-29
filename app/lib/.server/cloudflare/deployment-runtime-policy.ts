@@ -10,7 +10,6 @@ export const APP_AGENT_DECLARATIVE_EXPORT = {
   storage: 'sqlite',
 } as const;
 
-export const DEPLOYMENT_PROJECT_ROOT = '/home/project';
 export const DEPLOYMENT_SECURITY_CLEANUP_CRON = '0 3 * * *';
 /**
  * Managed applications intentionally expose unpromoted Worker versions through

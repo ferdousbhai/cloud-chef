@@ -12,6 +12,7 @@ import {
   findForbiddenRootBrowserRuntimeDependencies,
   findInternalPackageMetadataErrors,
   findCloudflareAiPeerCompatibilityErrors,
+  findCfCliPinErrors,
   findDeploymentRuntimePolicyErrors,
   findMissingDependencies,
   findMissingCommandSteps,
@@ -210,20 +211,28 @@ describe('stack alignment verification helpers', () => {
     ]);
   });
 
-  it('keeps deployment admission aligned with the generated template compatibility date', () => {
-    const runtimePolicy = "export const DEPLOYMENT_COMPATIBILITY_DATE = '2026-07-21';";
-    const templateConfig = '{ "compatibility_date": "2026-07-21", }';
+  it('requires a reviewed release-age exemption for the pinned cf version', () => {
+    const policy = { approvedReleaseAgeExclusions: ['cf@1.0.0-beta.5'] };
 
-    expect(findDeploymentRuntimePolicyErrors(templateConfig, runtimePolicy)).toEqual([]);
-    expect(findDeploymentRuntimePolicyErrors('{ "compatibility_date": "2026-07-22" }', runtimePolicy)).toEqual([
-      'deployment compatibility date "2026-07-21" must match template/wrangler.jsonc "2026-07-22".',
+    expect(findCfCliPinErrors({ devDependencies: { cf: '1.0.0-beta.5' } }, policy)).toEqual([]);
+    expect(findCfCliPinErrors({ devDependencies: { cf: '1.0.0-beta.6' } }, policy)).toEqual([
+      'The reviewed release-age exemptions must name cf@1.0.0-beta.6.',
     ]);
-    expect(findDeploymentRuntimePolicyErrors(templateConfig, 'export const other = 1;')).toEqual([
-      'deployment runtime policy must declare DEPLOYMENT_COMPATIBILITY_DATE.',
-    ]);
-    expect(findDeploymentRuntimePolicyErrors('{}', runtimePolicy)).toEqual([
-      'template/wrangler.jsonc must declare compatibility_date.',
-    ]);
+  });
+
+  it('keeps deployment admission aligned with the generated template policy', () => {
+    const runtimePolicy = [
+      "export const DEPLOYMENT_COMPATIBILITY_DATE = '2026-07-21';",
+      'logs: { enabled: true, head_sampling_rate: 0.6 },',
+      'traces: { enabled: true, head_sampling_rate: 0.05 },',
+    ].join('\n');
+    const templatePolicy = { compatibilityDate: '2026-07-21', logsHeadSamplingRate: 0.6, tracesHeadSamplingRate: 0.05 };
+
+    expect(findDeploymentRuntimePolicyErrors(templatePolicy, runtimePolicy)).toEqual([]);
+    expect(
+      findDeploymentRuntimePolicyErrors({ ...templatePolicy, compatibilityDate: '2026-07-22' }, runtimePolicy),
+    ).toEqual(['deployment compatibilityDate "2026-07-21" must match the generated template\'s "2026-07-22".']);
+    expect(findDeploymentRuntimePolicyErrors(templatePolicy, 'export const other = 1;')).toHaveLength(3);
   });
 
   it('keeps only control-plane tables in root D1', () => {

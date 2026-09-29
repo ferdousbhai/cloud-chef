@@ -191,7 +191,7 @@ describe('durable Cloudflare execution approval repository', () => {
     const proposal = await repository.createProposal({
       toolCallId: 'tool-1',
       binding,
-      code: 'return mutate()',
+      request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/old' },
       now: 100,
     });
 
@@ -228,7 +228,7 @@ describe('durable Cloudflare execution approval repository', () => {
     const proposal = await repository.createProposal({
       toolCallId: 'tool-2',
       binding,
-      code: 'return mutate()',
+      request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/old' },
       now: 100,
     });
     await expect(repository.approve(proposal.executionId, { ...binding, ...changed }, 200)).rejects.toBeInstanceOf(
@@ -241,7 +241,7 @@ describe('durable Cloudflare execution approval repository', () => {
     const proposal = await repository.createProposal({
       toolCallId: 'tool-3',
       binding,
-      code: 'return mutate()',
+      request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/old' },
       now: 100,
     });
     const row = storage.rows.get(proposal.executionId);
@@ -260,7 +260,7 @@ describe('durable Cloudflare execution approval repository', () => {
     const proposal = await repository.createProposal({
       toolCallId: 'tool-4',
       binding,
-      code: 'return mutate()',
+      request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/old' },
       now: 100,
     });
 
@@ -275,7 +275,7 @@ describe('durable Cloudflare execution approval repository', () => {
     const proposal = await repository.createProposal({
       toolCallId: 'tool-5',
       binding,
-      code: 'return mutate()',
+      request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/old' },
       now: 100,
     });
     await repository.approve(proposal.executionId, binding, 200);

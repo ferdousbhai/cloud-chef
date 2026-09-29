@@ -1,5 +1,5 @@
 {
-  "total": 1258,
+  "total": 1243,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -143,10 +143,7 @@
       "anti-slop/no-unknown-parameters": 1
     },
     "app/lib/.server/cloudflare/deployment-project-profile.ts": {
-      "anti-slop/no-runtime-typeof": 4,
-      "anti-slop/no-unknown-parameters": 5,
-      "anti-slop/no-unsafe-dictionary-type": 3,
-      "anti-slop/require-safety-comment-for-type-assertion": 1
+      "anti-slop/no-unsafe-dictionary-type": 1
     },
     "app/lib/.server/cloudflare/deployment-repository.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
@@ -242,7 +239,7 @@
       "anti-slop/require-safety-comment-for-type-assertion": 4
     },
     "app/lib/.server/llm/pi-agent-runner.ts": {
-      "anti-slop/no-runtime-typeof": 5,
+      "anti-slop/no-runtime-typeof": 4,
       "anti-slop/no-unknown-parameters": 10,
       "anti-slop/no-unknown-returns": 2,
       "anti-slop/no-unsafe-dictionary-type": 1
@@ -544,8 +541,15 @@
     "scripts/deploy-production.spec.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 12
     },
+    "scripts/lib/worker-policy.mjs": {
+      "anti-slop/no-runtime-typeof": 2,
+      "anti-slop/no-shape-in-symbol-names": 2
+    },
     "scripts/ops-report.mjs": {
       "anti-slop/no-runtime-typeof": 14
+    },
+    "scripts/provision-cloudflare-production.mjs": {
+      "anti-slop/no-runtime-typeof": 2
     },
     "scripts/record-d1-time-travel-bookmark.mjs": {
       "anti-slop/no-runtime-typeof": 2
@@ -595,18 +599,11 @@
     "scripts/workers-builds-config.mjs": {
       "anti-slop/no-runtime-typeof": 2
     },
-    "template/scripts/cf-typegen.mjs": {
-      "anti-slop/no-runtime-typeof": 2
-    },
     "template/scripts/lib/production-license-artifact.mjs": {
       "anti-slop/no-runtime-typeof": 2
     },
     "template/scripts/lib/project-policy/dependency-policy.mjs": {
       "anti-slop/no-runtime-typeof": 2
-    },
-    "template/scripts/lib/project-policy/worker-policy.mjs": {
-      "anti-slop/no-runtime-typeof": 2,
-      "anti-slop/no-shape-in-symbol-names": 2
     },
     "template/scripts/lib/project-policy/workflow-policy.mjs": {
       "anti-slop/no-runtime-typeof": 1
@@ -618,9 +615,6 @@
     "template/scripts/lib/runtime-module-security.ts": {
       "anti-slop/no-runtime-typeof": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 1
-    },
-    "template/scripts/provision-cloudflare-production.mjs": {
-      "anti-slop/no-runtime-typeof": 2
     },
     "template/scripts/verify-production-config.mjs": {
       "anti-slop/no-runtime-typeof": 2

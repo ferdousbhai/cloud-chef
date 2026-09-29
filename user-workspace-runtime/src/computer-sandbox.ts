@@ -26,20 +26,30 @@ import { first } from './sql-rows';
 
 export const COMPUTERD_PROCESS_ROLE = 'computerd';
 const WORKSPACE_CONTAINER_SLEEP_AFTER = '10m';
+/**
+ * Environment every workspace process shares, both computerd's model commands and the runtime's own
+ * validation commands. Generated projects depend on the cf CLI, which reports usage unless told not to.
+ */
+export const CONTAINER_TOOL_ENV = { CF_SEND_TELEMETRY: 'false' } as const;
+
 export const COMPUTERD_ENV = {
   PORT: '8080',
   MOUNT_POINT: '/home',
   FUSE_MOUNT: 'auto',
   // Never let pnpm project dependencies leak through FUSE into durable VFS storage.
   npm_config_verify_deps_before_run: 'false',
+  ...CONTAINER_TOOL_ENV,
 } as const;
 
 type WorkspaceRuntimeExports = {
   WorkspaceProxy(options: { props: WorkspaceRef }): Fetcher;
 };
 
+/** The runtime binding every workspace sandbox reads; the container never receives a credential. */
+type ComputerSandboxEnv = { CLOUDFLARE_ACCOUNT_ID: string };
+
 /** The narrow adapter between Sandbox lifecycle APIs and Computer's container backend. */
-export class ComputerSandboxBase<Env = unknown> extends Sandbox<Env> {
+export class ComputerSandboxBase<Env extends ComputerSandboxEnv = ComputerSandboxEnv> extends Sandbox<Env> {
   override sleepAfter = WORKSPACE_CONTAINER_SLEEP_AFTER;
   protected readonly sandboxProcesses = createExtensionProcessSandbox(this);
   readonly containerBackend = new CloudflareContainerBackend({
@@ -72,9 +82,10 @@ export class ComputerSandboxBase<Env = unknown> extends Sandbox<Env> {
     }
     await Promise.all([
       this.runBootstrapStage(
-        'toolchain (pnpm)',
+        'toolchain (pnpm, cf)',
         CONTAINER_TOOLCHAIN_BOOTSTRAP_TIMEOUT_MS,
-        containerToolchainBootstrapCommand(),
+        // The connected account `cf --dry-run` output names. The container never receives a credential.
+        containerToolchainBootstrapCommand(this.env.CLOUDFLARE_ACCOUNT_ID),
       ),
       this.runBootstrapStage('computerd', COMPUTERD_BOOTSTRAP_TIMEOUT_MS, computerdBootstrapCommand()),
     ]);

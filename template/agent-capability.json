@@ -18,22 +18,14 @@
     "@cloudflare/workers-types@5.20260801.1",
     "partyserver@0.5.9"
   ],
-  "wrangler": {
-    "main": "src/server.ts",
-    "ai": { "binding": "AI" },
-    "agentSecurityDatabase": {
-      "binding": "AGENT_SECURITY_DB",
-      "database_name": "cloudchef-cloudflare-app-agent-security",
-      "database_id": "00000000-0000-0000-0000-000000000000",
-      "migrations_dir": "agent-security-migrations"
-    },
-    "durable_objects": {
-      "bindings": [{ "name": "AppAgent", "class_name": "AppAgent" }]
-    },
-    "exports": {
-      "AppAgent": { "type": "durable-object", "storage": "sqlite" }
-    },
-    "triggers": { "crons": ["0 3 * * *"] }
+  "cloudflare": {
+    "entrypoint": "src/server.ts",
+    "agent": {
+      "securityD1": {
+        "name": "cloudchef-cloudflare-app-agent-security",
+        "id": "00000000-0000-0000-0000-000000000000"
+      }
+    }
   },
   "typescriptExcludesToRemove": [
     "src/server.ts",

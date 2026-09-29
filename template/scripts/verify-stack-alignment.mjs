@@ -3,6 +3,15 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse } from "jsonc-parser";
 import {
+  CF_GENERATED_BINDING_TYPES,
+  CLOUDFLARE_CONFIG_FILE,
+  CLOUDFLARE_PROJECT_FILE,
+} from "./lib/cloudflare-project.mjs";
+import {
+  cloudflareConfigErrors,
+  readCloudflareProject,
+} from "./lib/cloudflare-project-files.mjs";
+import {
   APP_REQUIRED_PACKAGES,
   GENERATED_APP_TOOLCHAIN,
   WORKER_REQUIRED_PACKAGES,
@@ -27,14 +36,19 @@ const baseRequiredPaths = [
   "pnpm-workspace.yaml",
   "public/THIRD_PARTY_LICENSES.txt",
   "agent-capability.json",
+  CLOUDFLARE_CONFIG_FILE,
+  CLOUDFLARE_PROJECT_FILE,
+  CF_GENERATED_BINDING_TYPES,
+  "scripts/lib/cloudflare-project.mjs",
+  "scripts/lib/cloudflare-project-files.mjs",
+  "scripts/render-cloudflare-config.mjs",
   "scripts/production-license-policy.json",
   "scripts/enable-agent-capability.mjs",
   "scripts/lib/production-license-artifact.mjs",
   "scripts/verify-production-licenses.mjs",
   "src/server.ts",
   "tsconfig.json",
-  "worker-configuration.d.ts",
-  "wrangler.jsonc",
+  "vite.config.ts",
 ];
 const webAppRequiredPaths = [
   "agent-security-migrations/0001_agent_security.sql",
@@ -46,7 +60,6 @@ const webAppRequiredPaths = [
   "src/router.tsx",
   "src/routes/__root.tsx",
   "src/routes/index.tsx",
-  "vite.config.ts",
 ];
 
 function readJson(path) {
@@ -57,11 +70,12 @@ export function verifyStackAlignment() {
   const errors = [];
   const packageJson = readJson("package.json");
   const capability = readJson("agent-capability.json");
-  const wranglerConfig = parse(
-    readFileSync(resolve(rootDir, "wrangler.jsonc"), "utf8"),
-  );
-  const agentCapabilityEnabled =
-    wranglerConfig?.main === capability?.wrangler?.main;
+  const { project, errors: projectErrors } = readCloudflareProject(rootDir);
+  errors.push(...projectErrors);
+  const agentCapabilityEnabled = Boolean(project.agent);
+  if (projectErrors.length === 0) {
+    errors.push(...cloudflareConfigErrors(rootDir, project));
+  }
   const type = projectType(packageJson);
   if (existsSync(resolve(rootDir, "package-lock.json"))) {
     errors.push(
@@ -100,28 +114,22 @@ export function verifyStackAlignment() {
   errors.push(...findBuildApprovalErrors(workspace, "pnpm-workspace.yaml"));
 
   const scripts = packageJson.scripts ?? {};
-  if (type === "web_app" && scripts.dev !== "vite dev --host 0.0.0.0") {
+  if (scripts.dev !== "vite dev --host 0.0.0.0") {
     errors.push('package.json must define "dev": "vite dev --host 0.0.0.0".');
   }
-  if (type === "web_app" && scripts.preview !== "vite preview --host 0.0.0.0") {
+  if (scripts.preview !== "vite preview --host 0.0.0.0") {
     errors.push(
       'package.json must define "preview": "vite preview --host 0.0.0.0".',
     );
   }
-  if (type === "worker" && scripts.dev !== "wrangler dev") {
-    errors.push('Worker package.json must define "dev": "wrangler dev".');
-  }
-  if (type === "worker" && scripts.preview !== "wrangler dev") {
-    errors.push('Worker package.json must define "preview": "wrangler dev".');
-  }
   if (
     type === "worker" &&
-    /(?:provision:production|verify:production-config|d1:migrations:apply:production|vite)/.test(
+    /(?:provision:production|verify:production-config|d1:migrations:apply:production)/.test(
       scripts.deploy ?? "",
     )
   ) {
     errors.push(
-      "Worker package.json scripts.deploy must not contain web-app provisioning, migrations, or Vite steps.",
+      "Worker package.json scripts.deploy must not contain web-app provisioning or migration steps.",
     );
   }
   errors.push(
@@ -129,7 +137,7 @@ export function verifyStackAlignment() {
       scripts.build,
       "package.json scripts.build",
       type === "worker"
-        ? ["wrangler deploy", "--dry-run", "--outdir dist/worker"]
+        ? ["vite build"]
         : ["verify:licenses", "vite build", "verify:licenses:built"],
     ),
     ...findMissingCommandSteps(
@@ -148,7 +156,7 @@ export function verifyStackAlignment() {
       "build",
       "lint",
       ...(type === "web_app" ? ["d1:migrations:apply:production"] : []),
-      "wrangler deploy",
+      "cf deploy --prebuilt",
     ]),
   );
 
@@ -164,9 +172,8 @@ export function verifyStackAlignment() {
 
   const files = collectSourceEntries(rootDir, [
     "src",
-    ...(type === "web_app"
-      ? ["vite.config.ts", "scripts/lib/runtime-module-security.ts"]
-      : []),
+    "vite.config.ts",
+    ...(type === "web_app" ? ["scripts/lib/runtime-module-security.ts"] : []),
   ]);
   errors.push(
     ...findForbiddenImports(files),

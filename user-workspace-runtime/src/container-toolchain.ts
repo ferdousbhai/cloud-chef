@@ -1,4 +1,6 @@
 import { GENERATED_PROJECT_PNPM_VERSION } from '../../cloudchef-agent/cloudflare-computer';
+import { WORK_DIR } from '../../cloudchef-agent/constants';
+import templatePackage from '../../template/package.json' with { type: 'json' };
 import { CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS } from './operation-lease-policy';
 import { shellQuote } from './shell-quote';
 
@@ -113,14 +115,55 @@ export async function runIdempotentBootstrapStage(options: {
   throw new ContainerToolchainBootstrapError(options.stage, options.budgetMs, attempts, lastError);
 }
 
-export function containerToolchainBootstrapCommand(): string {
+/** The generated project's own pinned `cf`, so the model plans with the CLI the project builds with. */
+export const CF_CLI_VERSION = templatePackage.devDependencies.cf;
+const CF_CLI_ROOT = '/opt/cloudchef/cf';
+export const CF_CLI_WRAPPER = '/usr/local/bin/cf';
+
+/**
+ * Install pnpm and a `cf` launcher, in one bootstrap stage.
+ *
+ * Only discovery (`cf cli search`, `cf schema`) and `--dry-run` are useful here: the container
+ * holds no Cloudflare credential, and the runtime Worker sends the request the model copies from
+ * dry-run output. The account id makes those dry-run URLs name the connected account. The launcher
+ * runs the project's own pinned `cf` once dependencies are installed, and otherwise fetches the same
+ * pin on first use, without the optional local simulator nothing here runs. Concurrent first uses
+ * each stage their own install and the first rename wins.
+ */
+export function containerToolchainBootstrapCommand(accountId: string): string {
   const expectedVersion = shellQuote(GENERATED_PROJECT_PNPM_VERSION);
   return strictSubshellCommand([
     `if ! command -v pnpm >/dev/null 2>&1 || [ "$(pnpm --version)" != ${expectedVersion} ]; then`,
     `  npm install --global pnpm@${GENERATED_PROJECT_PNPM_VERSION} --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/`,
     'fi',
     `test "$(pnpm --version)" = ${expectedVersion}`,
+    `printf %s ${shellQuote(cfCliLauncherScript(accountId))} > ${shellQuote(CF_CLI_WRAPPER)}`,
+    `chmod 0755 ${shellQuote(CF_CLI_WRAPPER)}`,
   ]);
+}
+
+/**
+ * The `cf` launcher: the project's own pinned CLI when installed, else the same pin installed once
+ * through the shared pnpm store, so the project's later install reuses the download.
+ */
+export function cfCliLauncherScript(accountId: string): string {
+  const projectCf = `${WORK_DIR}/node_modules/.bin/cf`;
+  const installRoot = `${CF_CLI_ROOT}/${CF_CLI_VERSION}`;
+  return [
+    '#!/bin/sh',
+    'set -eu',
+    `export CLOUDFLARE_ACCOUNT_ID=${shellQuote(accountId)}`,
+    `if [ -x ${shellQuote(projectCf)} ]; then exec ${shellQuote(projectCf)} "$@"; fi`,
+    `root=${shellQuote(installRoot)}`,
+    'if [ ! -x "$root/node_modules/.bin/cf" ]; then',
+    `  mkdir -p ${shellQuote(CF_CLI_ROOT)}`,
+    `  staging="$(mktemp -d ${shellQuote(`${CF_CLI_ROOT}/.install.XXXXXX`)})"`,
+    `  pnpm add --dir "$staging" cf@${CF_CLI_VERSION} --store-dir ${shellQuote(CONTAINER_PNPM_STORE_DIR)} --prefer-offline --ignore-scripts --no-optional --reporter=silent --registry=https://registry.npmjs.org/ >&2`,
+    '  mv -T "$staging" "$root" 2>/dev/null || rm -rf "$staging"',
+    'fi',
+    'exec "$root/node_modules/.bin/cf" "$@"',
+    '',
+  ].join('\n');
 }
 
 /** Records which computerd layer the container currently holds, so the bootstrap can re-install on

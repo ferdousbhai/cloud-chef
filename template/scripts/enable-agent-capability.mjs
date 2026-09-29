@@ -2,6 +2,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { applyEdits, modify, parse } from "jsonc-parser";
+import {
+  readCloudflareProject,
+  writeCloudflareProject,
+} from "./lib/cloudflare-project-files.mjs";
 
 const scriptRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -36,31 +40,15 @@ export async function enableAgentCapability(rootDir = scriptRoot) {
     `${JSON.stringify(licensePolicy, null, 2)}\n`,
   );
 
-  const wranglerPath = resolve(rootDir, "wrangler.jsonc");
-  let wranglerSource = await readFile(wranglerPath, "utf8");
-  const wrangler = parse(wranglerSource);
-  const d1Databases = [
-    ...(wrangler.d1_databases ?? []).filter(
-      (database) => database?.binding !== "AGENT_SECURITY_DB",
-    ),
-    capability.wrangler.agentSecurityDatabase,
-  ];
-  for (const [path, value] of [
-    [["main"], capability.wrangler.main],
-    [["ai"], capability.wrangler.ai],
-    [["d1_databases"], d1Databases],
-    [["durable_objects"], capability.wrangler.durable_objects],
-    [["exports"], capability.wrangler.exports],
-    [["triggers"], capability.wrangler.triggers],
-  ]) {
-    wranglerSource = applyEdits(
-      wranglerSource,
-      modify(wranglerSource, path, value, {
-        formattingOptions: { insertSpaces: true, tabSize: 2 },
-      }),
-    );
+  const { project, errors } = readCloudflareProject(rootDir);
+  if (errors.length > 0) {
+    throw new Error(errors.join("\n"));
   }
-  await writeFile(wranglerPath, wranglerSource);
+  writeCloudflareProject(rootDir, {
+    ...project,
+    entrypoint: capability.cloudflare.entrypoint,
+    agent: project.agent ?? capability.cloudflare.agent,
+  });
 
   const tsconfigPath = resolve(rootDir, "tsconfig.json");
   let tsconfigSource = await readFile(tsconfigPath, "utf8");

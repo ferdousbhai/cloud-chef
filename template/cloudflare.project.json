@@ -1,0 +1,14 @@
+{
+  "name": "cloudchef-cloudflare-app",
+  "entrypoint": "src/plain-server.ts",
+  "d1": {
+    "name": "cloudchef-cloudflare-app",
+    "id": "00000000-0000-0000-0000-000000000000"
+  },
+  "kv": {
+    "id": "00000000000000000000000000000000"
+  },
+  "r2": {
+    "name": "cloudchef-cloudflare-app-storage"
+  }
+}

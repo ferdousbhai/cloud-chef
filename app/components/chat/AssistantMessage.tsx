@@ -8,7 +8,7 @@ import { captureMessage } from '~/lib/telemetry.client';
 import type {
   CloudflareExecutionDecisionHandler,
   CloudflareExecutionPublicState,
-} from 'cloudchef-agent/cloudflare-mcp';
+} from 'cloudchef-agent/cloudflare-api';
 
 interface AssistantMessageProps {
   message: CloudChefMessage;

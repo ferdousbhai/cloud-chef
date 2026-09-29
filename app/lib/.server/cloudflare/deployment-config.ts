@@ -1,16 +1,14 @@
+import { WORKER_MAIN_MODULE } from './deployment-artifact';
 import {
   APP_AGENT_DECLARATIVE_EXPORT,
   DEPLOYMENT_COMPATIBILITY_DATE,
   DEPLOYMENT_COMPATIBILITY_FLAGS,
   DEPLOYMENT_OBSERVABILITY,
-  DEPLOYMENT_PROJECT_ROOT,
   DEPLOYMENT_SECURITY_CLEANUP_CRON,
 } from './deployment-runtime-policy';
 
 export type DeploymentConfigInput = {
-  accountId: string;
   workerName: string;
-  projectType: 'web_app' | 'worker';
   workersAi: boolean;
   appAgent: boolean;
   d1DatabaseId?: string;
@@ -21,85 +19,81 @@ export type DeploymentConfigInput = {
   kvNamespaceId?: string;
 };
 
+type TrustedBinding =
+  | { type: 'd1'; name: string; id: string }
+  | { type: 'r2'; name: string }
+  | { type: 'kv'; id: string }
+  | { type: 'ai' }
+  | { type: 'durable-object'; worker: string; exportName: 'AppAgent' };
+
 type TrustedDeploymentConfig = {
   name: string;
-  account_id: string;
-  main: string;
-  no_bundle: true;
-  compatibility_date: string;
-  compatibility_flags: readonly string[];
-  observability: typeof DEPLOYMENT_OBSERVABILITY;
-  upload_source_maps: true;
-  workers_dev: true;
-  assets?: { directory: string };
-  ai?: { binding: 'AI' };
-  d1_databases?: Array<{
-    binding: 'DB' | 'AGENT_SECURITY_DB';
-    database_name: string;
-    database_id: string;
-    migrations_dir: string;
-  }>;
-  r2_buckets?: Array<{ binding: 'APP_STORAGE'; bucket_name: string }>;
-  kv_namespaces?: Array<{ binding: 'APP_CACHE'; id: string }>;
-  durable_objects?: { bindings: Array<{ name: 'AppAgent'; class_name: 'AppAgent' }> };
+  compatibilityDate: string;
+  compatibilityFlags: readonly string[];
+  observability: typeof CF_OBSERVABILITY;
+  workersDev: true;
+  env: Partial<Record<'DB' | 'AGENT_SECURITY_DB' | 'APP_STORAGE' | 'APP_CACHE' | 'AI' | 'AppAgent', TrustedBinding>>;
   exports?: { AppAgent: typeof APP_AGENT_DECLARATIVE_EXPORT };
-  triggers?: { crons: Array<typeof DEPLOYMENT_SECURITY_CLEANUP_CRON> };
+  triggers?: Array<{ type: 'scheduled'; schedule: typeof DEPLOYMENT_SECURITY_CLEANUP_CRON }>;
+  manifest: { type: 'partial'; mainModule: typeof WORKER_MAIN_MODULE; modules: Record<string, never> };
 };
 
-/** Build the complete trusted Wrangler config; generated projects cannot override deployment policy. */
+/** The same policy as the Workers API form, in cf's camelCase Build Output shape. */
+const CF_OBSERVABILITY = {
+  enabled: DEPLOYMENT_OBSERVABILITY.enabled,
+  logs: {
+    enabled: DEPLOYMENT_OBSERVABILITY.logs.enabled,
+    headSamplingRate: DEPLOYMENT_OBSERVABILITY.logs.head_sampling_rate,
+  },
+  traces: {
+    enabled: DEPLOYMENT_OBSERVABILITY.traces.enabled,
+    headSamplingRate: DEPLOYMENT_OBSERVABILITY.traces.head_sampling_rate,
+  },
+} as const;
+
+/**
+ * The resolved `cf` Build Output configuration (`worker.config.json`) for the validation dry run.
+ *
+ * It is rebuilt from trusted inputs and written over whatever the project's own build resolved, so
+ * a generated `cloudflare.config.ts` cannot change deployment policy.
+ */
 export function createTrustedDeploymentConfig(args: DeploymentConfigInput): TrustedDeploymentConfig {
   const config: TrustedDeploymentConfig = {
-    name: args.workerName,
-    account_id: args.accountId,
-    main:
-      args.projectType === 'worker'
-        ? `${DEPLOYMENT_PROJECT_ROOT}/dist/worker/server.js`
-        : `${DEPLOYMENT_PROJECT_ROOT}/dist/server/index.js`,
-    no_bundle: true,
-    compatibility_date: DEPLOYMENT_COMPATIBILITY_DATE,
-    compatibility_flags: DEPLOYMENT_COMPATIBILITY_FLAGS,
-    observability: DEPLOYMENT_OBSERVABILITY,
-    upload_source_maps: true,
-    workers_dev: true,
+    name: requireCloudflareName(args.workerName, 'workerName'),
+    compatibilityDate: DEPLOYMENT_COMPATIBILITY_DATE,
+    compatibilityFlags: DEPLOYMENT_COMPATIBILITY_FLAGS,
+    observability: CF_OBSERVABILITY,
+    workersDev: true,
+    env: {},
+    manifest: { type: 'partial', mainModule: WORKER_MAIN_MODULE, modules: {} },
   };
-  if (args.projectType === 'web_app') {
-    config.assets = { directory: `${DEPLOYMENT_PROJECT_ROOT}/dist/client` };
-  }
-  if (args.workersAi) {
-    config.ai = { binding: 'AI' };
-  }
-  const d1Databases: NonNullable<TrustedDeploymentConfig['d1_databases']> = [];
   if (args.d1DatabaseId !== undefined) {
-    d1Databases.push({
-      binding: 'DB',
-      database_name: requireCloudflareName(args.d1DatabaseName, 'd1DatabaseName'),
-      database_id: requireString(args.d1DatabaseId, 'd1DatabaseId', 64),
-      migrations_dir: `${DEPLOYMENT_PROJECT_ROOT}/migrations`,
-    });
+    config.env.DB = {
+      type: 'd1',
+      name: requireCloudflareName(args.d1DatabaseName, 'd1DatabaseName'),
+      id: requireString(args.d1DatabaseId, 'd1DatabaseId', 64),
+    };
   }
   if (args.agentSecurityD1DatabaseId !== undefined) {
-    d1Databases.push({
-      binding: 'AGENT_SECURITY_DB',
-      database_name: requireCloudflareName(args.agentSecurityD1DatabaseName, 'agentSecurityD1DatabaseName'),
-      database_id: requireString(args.agentSecurityD1DatabaseId, 'agentSecurityD1DatabaseId', 64),
-      migrations_dir: `${DEPLOYMENT_PROJECT_ROOT}/agent-security-migrations`,
-    });
-  }
-  if (d1Databases.length > 0) {
-    config.d1_databases = d1Databases;
+    config.env.AGENT_SECURITY_DB = {
+      type: 'd1',
+      name: requireCloudflareName(args.agentSecurityD1DatabaseName, 'agentSecurityD1DatabaseName'),
+      id: requireString(args.agentSecurityD1DatabaseId, 'agentSecurityD1DatabaseId', 64),
+    };
   }
   if (args.r2BucketName !== undefined) {
-    config.r2_buckets = [
-      { binding: 'APP_STORAGE', bucket_name: requireCloudflareName(args.r2BucketName, 'r2BucketName') },
-    ];
+    config.env.APP_STORAGE = { type: 'r2', name: requireCloudflareName(args.r2BucketName, 'r2BucketName') };
   }
   if (args.kvNamespaceId !== undefined) {
-    config.kv_namespaces = [{ binding: 'APP_CACHE', id: requireHexId(args.kvNamespaceId, 'kvNamespaceId') }];
+    config.env.APP_CACHE = { type: 'kv', id: requireHexId(args.kvNamespaceId, 'kvNamespaceId') };
+  }
+  if (args.workersAi) {
+    config.env.AI = { type: 'ai' };
   }
   if (args.appAgent) {
-    config.durable_objects = { bindings: [{ name: 'AppAgent', class_name: 'AppAgent' }] };
+    config.env.AppAgent = { type: 'durable-object', worker: config.name, exportName: 'AppAgent' };
     config.exports = { AppAgent: APP_AGENT_DECLARATIVE_EXPORT };
-    config.triggers = { crons: [DEPLOYMENT_SECURITY_CLEANUP_CRON] };
+    config.triggers = [{ type: 'scheduled', schedule: DEPLOYMENT_SECURITY_CLEANUP_CRON }];
   }
   return config;
 }

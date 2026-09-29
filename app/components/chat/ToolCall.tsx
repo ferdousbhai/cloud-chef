@@ -11,7 +11,7 @@ import { toolProgressStore } from '~/lib/stores/tool-progress.client';
 import type {
   CloudflareExecutionDecisionHandler,
   CloudflareExecutionPublicState,
-} from 'cloudchef-agent/cloudflare-mcp';
+} from 'cloudchef-agent/cloudflare-api';
 
 export const ToolCall = memo(function ToolCall({
   partId,

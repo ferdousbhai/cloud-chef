@@ -28,7 +28,7 @@ import type { Tool } from 'cloudchef-agent/tool';
 import { type BuilderSkillReader, isBuilderSkillPath } from './builder-skills';
 import { cloudflareDocsSearchTool } from './cloudflare-docs-search';
 import { sha256Hex } from '~/lib/hex-digest';
-import type { CloudflareMcpModelToolContext } from './cloudflare-mcp-model-tools';
+import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 
 type BuilderOperationContext = {
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
@@ -47,11 +47,18 @@ type AutoValidatedResult = Record<string, unknown> & {
   dependencyMutation?: boolean;
 };
 
+const CLOUDFLARE_REQUEST_TOOL_DESCRIPTION =
+  'Send one Cloudflare API request for the connected account; the account is fixed by the server, so never choose another. ' +
+  'In the workspace, find the operation with `cf cli search "<task>"` (describe the action only, never names or IDs), ' +
+  'check it with `cf schema <command>`, run `cf <command> --dry-run`, and pass that JSON unchanged here: cf has no ' +
+  'credential in the workspace, so only this tool sends requests. Report insufficient scopes honestly, and deploy ' +
+  'generated apps through the workspace deployment path, not this tool.';
+
 export function createWorkersAiTools(
   workspace: BuilderWorkspaceApi,
   operationContext: BuilderOperationContext,
   skillReader?: BuilderSkillReader,
-  cloudflareMcp?: CloudflareMcpModelToolContext,
+  cloudflareApi?: CloudflareApiModelToolContext,
 ): CloudChefToolSet {
   const coordinateStatefulTool = createTurnStatefulToolCoordinator(operationContext.runWithKeepAlive);
   const tools: CloudChefToolSet = {
@@ -66,30 +73,17 @@ export function createWorkersAiTools(
     search_cloudflare_docs: cloudflareDocsSearchTool(),
   };
 
-  if (cloudflareMcp) {
-    tools.cloudflare_docs = {
-      description:
-        'Search the official Cloudflare MCP documentation. Use this before generating API code. The authenticated account is fixed by CloudChef and cannot be supplied by the model.',
-      inputSchema: MODEL_TOOL_INPUT_SCHEMAS.cloudflare_docs,
+  if (cloudflareApi) {
+    tools.cloudflare_request = {
+      description: `${CLOUDFLARE_REQUEST_TOOL_DESCRIPTION} ${
+        cloudflareApi.writeEnabled
+          ? 'GET runs immediately; any other method is stored for fresh user approval and pauses the turn.'
+          : 'Only GET requests are enabled; changes to the account are not.'
+      }`,
+      inputSchema: MODEL_TOOL_INPUT_SCHEMAS.cloudflare_request,
       execute: async (input, options) =>
-        cloudflareMcp.docs(MODEL_TOOL_INPUT_SCHEMAS.cloudflare_docs.parse(input), options),
+        cloudflareApi.request(MODEL_TOOL_INPUT_SCHEMAS.cloudflare_request.parse(input), options),
     };
-    tools.cloudflare_search = {
-      description:
-        'Search the authenticated Cloudflare account with read-only API code. Use it to inspect current state and reconcile mutations. Missing OAuth scopes are reported as tool results.',
-      inputSchema: MODEL_TOOL_INPUT_SCHEMAS.cloudflare_search,
-      execute: async (input, options) =>
-        cloudflareMcp.search(MODEL_TOOL_INPUT_SCHEMAS.cloudflare_search.parse(input), options),
-    };
-    if (cloudflareMcp.executeEnabled) {
-      tools.cloudflare_execute = {
-        description:
-          'Propose exact Cloudflare API code for explicit user approval. This call never executes the code; it creates a durable, expiring approval bound to this account, connection, transcript, and exact digest. Use the specialized deployment flow for application deployment.',
-        inputSchema: MODEL_TOOL_INPUT_SCHEMAS.cloudflare_execute,
-        execute: async (input, options) =>
-          cloudflareMcp.proposeExecute(MODEL_TOOL_INPUT_SCHEMAS.cloudflare_execute.parse(input), options),
-      };
-    }
   }
 
   for (const toolName of WORKSPACE_TOOL_NAMES) {

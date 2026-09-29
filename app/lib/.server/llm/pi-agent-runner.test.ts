@@ -421,14 +421,14 @@ describe('piAgentRunner', () => {
     expect(chunks).toContainEqual({ type: 'error', errorText: timeoutPayload });
   });
 
-  it('ends the current run after cloudflare_execute stores an approval proposal', async () => {
+  it('ends the current run after cloudflare_request stores an approval proposal', async () => {
     const proposal = {
-      kind: 'cloudflare_execute_proposal',
+      kind: 'cloudflare_request_proposal',
       status: 'awaiting_approval',
       executionId: 'execution-1',
       toolCallId: 'cloudflare-execute-1',
       accountId: 'account-1',
-      code: 'return mutate()',
+      request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
       proposalSha256: 'a'.repeat(64),
       riskNote: 'This exact digest requires approval.',
       expiresAt: Date.now() + 60_000,
@@ -438,7 +438,7 @@ describe('piAgentRunner', () => {
         await emit({
           type: 'tool_execution_end',
           toolCallId: proposal.toolCallId,
-          toolName: 'cloudflare_execute',
+          toolName: 'cloudflare_request',
           result: { details: proposal },
           isError: false,
         });
@@ -446,7 +446,7 @@ describe('piAgentRunner', () => {
         await emit({
           type: 'turn_end',
           message: assistantMessage([
-            { type: 'toolCall', id: proposal.toolCallId, name: 'cloudflare_execute', arguments: {} },
+            { type: 'toolCall', id: proposal.toolCallId, name: 'cloudflare_request', arguments: {} },
           ]),
           toolResults: [],
         });

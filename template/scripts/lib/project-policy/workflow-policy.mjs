@@ -37,7 +37,7 @@ export function workflowPathsFromDirectoryEntries(entries) {
 }
 
 export function startsLocalDevServer(content) {
-  return /\bwrangler\s+dev\b|\bvite\s+(?:--host|dev)\b/.test(content);
+  return /\b(?:wrangler|cf)\s+dev\b|\bvite\s+(?:--host|dev)\b/.test(content);
 }
 
 export function targetsStaging(...values) {

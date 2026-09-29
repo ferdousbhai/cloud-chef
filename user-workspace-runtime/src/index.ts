@@ -7,7 +7,6 @@ import {
   WorkspaceProxy,
 } from '@cloudflare/computer';
 import { type SandboxCommand } from '@cloudflare/sandbox';
-import { parse } from 'jsonc-parser';
 import { settleCancelledWorkspaceCommand } from './command-cancellation';
 import { terminateWorkspaceCommand } from './command-termination';
 import {
@@ -34,9 +33,9 @@ import {
 import { recordDeploymentActivity } from '../../app/lib/.server/cloudflare/deployment-repository';
 import type { BuilderValidationStage } from '../../app/lib/common/builder-validation-progress';
 import type { WorkspaceValidationStageReporter } from '../../app/agents/builder-workspace-api';
-import { deploymentProjectProfileFromConfig } from '../../app/lib/.server/cloudflare/deployment-project-profile';
+import { deploymentProjectProfileFromProject } from '../../app/lib/.server/cloudflare/deployment-project-profile';
 import type { DeploymentProjectProfile } from '../../app/lib/.server/cloudflare/deployment-project-profile';
-import { DEPLOYMENT_PROJECT_ROOT } from '../../app/lib/.server/cloudflare/deployment-runtime-policy';
+import { WORK_DIR } from '../../cloudchef-agent/constants';
 import {
   MAX_DEPLOYMENT_ARTIFACT_BYTES,
   MAX_DEPLOYMENT_ARTIFACT_FILES,
@@ -44,6 +43,7 @@ import {
   type DeploymentArtifactFile,
   type PreparedDeploymentArtifact,
   validatePreparedDeploymentArtifact,
+  WORKER_MAIN_MODULE,
 } from '../../app/lib/.server/cloudflare/deployment-artifact';
 import { addRequestedDependencies } from '../../app/lib/runtime/action-runner/dependency-manifest';
 import { userRuntimeDataAction, userRuntimeInitialMessagesAction } from '../../app/lib/cloudflare/data.server';
@@ -125,13 +125,17 @@ import {
   type TrackedSandboxProcess,
 } from './tracked-command';
 import { ValidationCancellation } from './validation-cancellation';
-import { COMPUTERD_ENV, COMPUTERD_PROCESS_ROLE, ComputerSandboxBase } from './computer-sandbox';
 import {
-  createContainerDirectoryCommand,
-  ISOLATED_PROJECT_ROOT,
-  rebaseDeploymentConfigPaths,
-  relativeIsolatedPath,
-} from './isolated-project';
+  CF_BUILD_OUTPUT_WORKER_CONFIG,
+  CF_BUILT_ASSETS_DIR,
+  CF_BUILT_WORKER_MODULE,
+  CLOUDFLARE_PROJECT_FILE,
+  parseCloudflareProjectText,
+  PLACEHOLDER_D1_DATABASE_ID,
+  PLACEHOLDER_KV_NAMESPACE_ID,
+} from '../../template/scripts/lib/cloudflare-project.mjs';
+import { COMPUTERD_ENV, COMPUTERD_PROCESS_ROLE, ComputerSandboxBase, CONTAINER_TOOL_ENV } from './computer-sandbox';
+import { createContainerDirectoryCommand, ISOLATED_PROJECT_ROOT, relativeIsolatedPath } from './isolated-project';
 
 export { WorkspaceProxy };
 
@@ -158,7 +162,7 @@ interface ScheduledRetryPayload {
   attempt?: number;
 }
 
-const PROJECT_ROOT = DEPLOYMENT_PROJECT_ROOT;
+const PROJECT_ROOT = WORK_DIR;
 const READINESS_ROOT = '/home/.cloudchef-readiness';
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 const MAX_FILE_BYTES = BUILDER_WORKSPACE_MAX_FILE_BYTES;
@@ -166,7 +170,7 @@ const MAX_TOTAL_BYTES = BUILDER_WORKSPACE_MAX_TOTAL_BYTES;
 const MAX_FILES = BUILDER_WORKSPACE_MAX_FILES;
 const SYNC_BATCH_BYTES = BUILDER_WORKSPACE_SYNC_BATCH_BYTES;
 const SYNC_BATCH_FILES = BUILDER_WORKSPACE_SYNC_BATCH_FILES;
-const CHECKPOINT_EXCLUDED_ROOTS = new Set(['node_modules', 'dist', '.output', '.tanstack', '.wrangler']);
+const CHECKPOINT_EXCLUDED_ROOTS = new Set(['node_modules', 'dist', '.output', '.tanstack', '.wrangler', '.cloudflare']);
 /**
  * `--store-dir` points every install at the store the workspace image pre-warms, which is what
  * turns a from-scratch dependency install into a hardlink pass. `--prefer-offline` keeps a warm
@@ -177,14 +181,13 @@ const INSTALL_COMMAND =
   'pnpm install --frozen-lockfile --ignore-scripts=true --ignore-pnpmfile --prefer-offline ' +
   `--store-dir ${CONTAINER_PNPM_STORE_DIR} --registry=https://registry.npmjs.org/`;
 const INSTALL_TIMEOUT_MS = CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS;
-const WEB_APP_BUNDLE_SCRIPT = [
+const WORKER_BUNDLE_SCRIPT = [
   "import { createRequire } from 'node:module';",
   "const require = createRequire(import.meta.resolve('vite'));",
   "const { build } = require('esbuild');",
   "await build({ entryPoints: [process.argv[1]], bundle: true, minify: true, format: 'esm', platform: 'node', external: ['cloudflare:*'], outfile: process.argv[2] });",
 ].join('');
 const PREPARED_VALIDATION_ROOT = `${ISOLATED_PROJECT_ROOT}/validated-artifact`;
-const PREPARED_VALIDATION_CONFIG = `${PREPARED_VALIDATION_ROOT}/.cloudchef-deploy.json`;
 const PREPARED_VALIDATION_ARTIFACT_ROOT = `${PREPARED_VALIDATION_ROOT}/.cloudchef-artifact`;
 /**
  * Per-stage validation ceilings. These run through the native Sandbox exec
@@ -195,7 +198,7 @@ const PREPARED_VALIDATION_ARTIFACT_ROOT = `${PREPARED_VALIDATION_ROOT}/.cloudche
  * documented at `EXEC_COMMAND_TIMEOUT_MS` (#128).
  */
 /**
- * `pnpm run typecheck` runs `tsr generate` and `wrangler types` before `tsc`, so the route tree
+ * `pnpm run typecheck` runs `tsr generate` and `cf workers types` before `tsc`, so the route tree
  * and binding declarations it writes are inputs to lint and to the production build. It is the one
  * validation stage that has to finish before the others start.
  */
@@ -1559,7 +1562,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
             revision: before.revision,
             isolatedRoot,
             artifactRoot: PREPARED_VALIDATION_ARTIFACT_ROOT,
-            wranglerConfigPath: PREPARED_VALIDATION_CONFIG,
             project,
             deploymentConfig: validationDeploymentConfig(project),
             cancellation,
@@ -1857,9 +1859,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       throw new Error('The deployment artifact bindings do not match the AppAgent security profile.');
     }
     const deploymentConfig: DeploymentConfigInput = {
-      accountId: requireString(input.accountId, 'accountId', 64),
       workerName: requireCloudflareName(input.workerName, 'workerName'),
-      projectType,
       workersAi: project.bindings.ai,
       appAgent: project.bindings.appAgent,
     };
@@ -1938,7 +1938,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
             revision,
             isolatedRoot: PREPARED_VALIDATION_ROOT,
             artifactRoot: PREPARED_VALIDATION_ARTIFACT_ROOT,
-            wranglerConfigPath: PREPARED_VALIDATION_CONFIG,
             project,
             deploymentConfig,
             activity,
@@ -1986,10 +1985,31 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     await this.destroy().catch(() => undefined);
   }
 
+  private async readCloudflareProjectFile(): Promise<{ content: string }> {
+    try {
+      return await this.readText(`${PROJECT_ROOT}/${CLOUDFLARE_PROJECT_FILE}`);
+    } catch (error) {
+      // A project seeded before the cf toolchain has wrangler.jsonc instead; say so rather than
+      // surfacing a bare missing-file error. Any other read failure is reported as it is.
+      const legacy = await this.readText(`${PROJECT_ROOT}/wrangler.jsonc`).then(
+        () => true,
+        () => false,
+      );
+      if (legacy) {
+        throw new Error(
+          'This project was created before CloudChef moved to the cf CLI: it has wrangler.jsonc and no ' +
+            `${CLOUDFLARE_PROJECT_FILE}, so it cannot be validated or deployed. Start a new project.`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
+  }
+
   private async readDeploymentProjectProfile(): Promise<DeploymentProjectProfile> {
-    const [packageFile, wranglerFile] = await Promise.all([
+    const [packageFile, projectFile] = await Promise.all([
       this.readText(`${PROJECT_ROOT}/package.json`),
-      this.readText(`${PROJECT_ROOT}/wrangler.jsonc`),
+      this.readCloudflareProjectFile(),
     ]);
     const packageJson: unknown = JSON.parse(packageFile.content);
     const cloudchef = isRecord(packageJson) ? packageJson.cloudchef : undefined;
@@ -1997,18 +2017,17 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     if (configuredType !== undefined && configuredType !== 'web_app' && configuredType !== 'worker') {
       throw new Error('The generated project type is invalid.');
     }
-    const wrangler: unknown = parse(wranglerFile.content);
-    if (!isRecord(wrangler)) {
-      throw new Error('The generated Worker entrypoint is invalid.');
+    const parsed = parseCloudflareProjectText(projectFile.content);
+    if (parsed.errors.length > 0) {
+      throw new Error(`The generated project configuration is invalid: ${parsed.errors.join(' ')}`);
     }
-    return deploymentProjectProfileFromConfig(wrangler, configuredType === 'worker' ? 'worker' : 'web_app');
+    return deploymentProjectProfileFromProject(parsed.project, configuredType === 'worker' ? 'worker' : 'web_app');
   }
 
   private async buildDeploymentArtifact(args: {
     revision: string;
     isolatedRoot: string;
     artifactRoot: string;
-    wranglerConfigPath: string;
     project: DeploymentProjectProfile;
     deploymentConfig: DeploymentConfigInput;
     cancellation?: ValidationCancellation;
@@ -2019,14 +2038,11 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     await this.runTransientCommand(args.isolatedRoot, 'pnpm run build', 5 * 60_000, args.cancellation);
     args.liveness?.observed();
     args.cancellation?.requireActive();
+    // The build resolved the project's own cloudflare.config.ts; replace it with the trusted
+    // configuration so the dry run checks exactly what CloudChef will publish.
     const configWrite = await this.writeFile(
-      args.wranglerConfigPath,
-      JSON.stringify(
-        rebaseDeploymentConfigPaths(createTrustedDeploymentConfig(args.deploymentConfig), {
-          projectRoot: PROJECT_ROOT,
-          isolatedRoot: args.isolatedRoot,
-        }),
-      ),
+      `${args.isolatedRoot}/${CF_BUILD_OUTPUT_WORKER_CONFIG}`,
+      JSON.stringify(createTrustedDeploymentConfig(args.deploymentConfig)),
       { encoding: 'utf-8' },
     );
     if (!configWrite.success) {
@@ -2035,35 +2051,28 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     await args.activity?.(34, 'Checking Cloudflare deployment package');
     await this.runTransientCommand(
       args.isolatedRoot,
-      `pnpm exec wrangler deploy --dry-run --outdir ${shellQuote(args.artifactRoot)} --config ${shellQuote(args.wranglerConfigPath)}`,
+      // The project's own pinned cf, run directly rather than paying a pnpm start-up.
+      'node_modules/.bin/cf deploy --prebuilt --mode production --dry-run',
       10 * 60_000,
       args.cancellation,
     );
     args.liveness?.observed();
     args.cancellation?.requireActive();
-    if (args.project.type === 'web_app') {
-      // Collapse Wrangler's verified web-app output to one module so the later versions API
-      // upload cannot acknowledge a multipart request while omitting a generated module.
-      const builtMainPath = `${args.isolatedRoot}/dist/server/index.js`;
-      const mainPath = `${args.artifactRoot}/index.js`;
-      const bundledPath = `${args.isolatedRoot}/.cloudchef-worker.js`;
-      await args.activity?.(35, 'Bundling Worker modules');
-      await this.runTransientCommand(
-        args.isolatedRoot,
-        `node --input-type=module --eval ${shellQuote(WEB_APP_BUNDLE_SCRIPT)} ${shellQuote(builtMainPath)} ${shellQuote(bundledPath)}`,
-        2 * 60_000,
-        args.cancellation,
-      );
-      await this.runTransientCommand('/', `rm -rf ${shellQuote(args.artifactRoot)}`, 30_000, args.cancellation);
-      await this.runTransientCommand('/', `mkdir -p ${shellQuote(args.artifactRoot)}`, 30_000, args.cancellation);
-      await this.runTransientCommand(
-        '/',
-        `mv ${shellQuote(bundledPath)} ${shellQuote(mainPath)}`,
-        30_000,
-        args.cancellation,
-      );
-      args.liveness?.observed();
-    }
+    // Collapse the built Worker to one module so the later versions API upload cannot acknowledge a
+    // multipart request while omitting a generated module.
+    const builtMainPath = `${args.isolatedRoot}/${CF_BUILT_WORKER_MODULE}`;
+    await args.activity?.(35, 'Bundling Worker modules');
+    await this.runTransientCommand(
+      args.isolatedRoot,
+      [
+        `rm -rf ${shellQuote(args.artifactRoot)}`,
+        `mkdir -p ${shellQuote(args.artifactRoot)}`,
+        `node --input-type=module --eval ${shellQuote(WORKER_BUNDLE_SCRIPT)} ${shellQuote(builtMainPath)} ${shellQuote(`${args.artifactRoot}/${WORKER_MAIN_MODULE}`)}`,
+      ].join(' && '),
+      2 * 60_000,
+      args.cancellation,
+    );
+    args.liveness?.observed();
     await args.activity?.(36, 'Build artifact ready');
     return this.collectDeploymentArtifact(args);
   }
@@ -2076,13 +2085,13 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }): Promise<PreparedDeploymentArtifact> {
     const artifact: PreparedDeploymentArtifact = {
       revision: args.revision,
-      mainModule: args.project.type === 'worker' ? 'server.js' : 'index.js',
+      mainModule: WORKER_MAIN_MODULE,
       modules: await collectSandboxFiles(this, args.artifactRoot, (path) => /\.(?:js|mjs|wasm)$/.test(path)),
       assets:
         args.project.type === 'web_app'
           ? await collectSandboxFiles(
               this,
-              `${args.isolatedRoot}/dist/client`,
+              `${args.isolatedRoot}/${CF_BUILT_ASSETS_DIR}`,
               (path) => path !== '.assetsignore' && !path.endsWith('.map'),
             )
           : [],
@@ -2281,7 +2290,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         // that `pnpm run` performs before a script, must inherit CI mode so an incompatible modules
         // directory is replaced deterministically instead of prompting and aborting.
         exec: (trackedCommand, options) =>
-          this.sandboxProcesses.exec(trackedCommand, { ...options, env: { CI: 'true' } }),
+          this.sandboxProcesses.exec(trackedCommand, { ...options, env: { CI: 'true', ...CONTAINER_TOOL_ENV } }),
         onProcess: async (startedProcess) => {
           process = startedProcess;
           this.setProcessForRole(TRANSIENT_COMMAND_PROCESS_ROLE, startedProcess.id);
@@ -3300,28 +3309,24 @@ function workspaceFileMetadata(file: WorkspaceFile, revision: number) {
 
 /** Placeholder identities: validation only proves the artifact builds, it binds nothing real. */
 function validationDeploymentConfig(project: DeploymentProjectProfile): DeploymentConfigInput {
-  const nullUuid = '00000000-0000-0000-0000-000000000000';
-  const nullHexId = '00000000000000000000000000000000';
   const config: DeploymentConfigInput = {
-    accountId: nullHexId,
     workerName: 'cloudchef-validation',
-    projectType: project.type,
     workersAi: project.bindings.ai,
     appAgent: project.bindings.appAgent,
   };
   if (project.bindings.d1) {
-    config.d1DatabaseId = nullUuid;
+    config.d1DatabaseId = PLACEHOLDER_D1_DATABASE_ID;
     config.d1DatabaseName = 'cloudchef-validation-db';
   }
   if (project.bindings.appAgent) {
-    config.agentSecurityD1DatabaseId = nullUuid;
+    config.agentSecurityD1DatabaseId = PLACEHOLDER_D1_DATABASE_ID;
     config.agentSecurityD1DatabaseName = 'cloudchef-validation-agent';
   }
   if (project.bindings.r2) {
     config.r2BucketName = 'cloudchef-validation-storage';
   }
   if (project.bindings.kv) {
-    config.kvNamespaceId = nullHexId;
+    config.kvNamespaceId = PLACEHOLDER_KV_NAMESPACE_ID;
   }
   return config;
 }

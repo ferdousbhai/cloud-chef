@@ -135,7 +135,6 @@ export type WorkspaceDeploymentArtifactRequest = {
   revision: string;
   deploymentId: string;
   executionGeneration: number;
-  accountId: string;
   workerName: string;
   projectType: DeploymentProjectProfile['type'];
   workersAi: boolean;

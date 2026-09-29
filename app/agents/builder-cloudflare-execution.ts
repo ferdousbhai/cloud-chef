@@ -1,18 +1,20 @@
 import {
   CLOUDFLARE_EXECUTION_APPROVAL_TTL_MS,
+  cloudflareApiRequestSchema,
+  type CloudflareApiRequest,
   type CloudflareExecutionPublicState,
   type CloudflareExecutionSafeOutcome,
   type CloudflareExecutionStatus,
-} from 'cloudchef-agent/cloudflare-mcp';
+} from 'cloudchef-agent/cloudflare-api';
 import { sha256Hex } from '~/lib/hex-digest';
-import type { CloudflareMcpRuntimeIdentity } from '~/lib/.server/cloudflare/cloudflare-mcp-runtime-controls';
+import type { CloudflareApiRuntimeIdentity } from '~/lib/.server/cloudflare/cloudflare-api-runtime-controls';
 import { builderTranscriptBindingsEqual, type BuilderTranscriptBinding } from './builder-request-policy';
 import { z } from 'zod';
 
 type CloudflareExecutionStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
 
 export type CloudflareExecutionBinding = Pick<
-  CloudflareMcpRuntimeIdentity,
+  CloudflareApiRuntimeIdentity,
   'userId' | 'accountId' | 'connectionId' | 'connectionGeneration' | 'oauthScopeGrantStatus'
 > & {
   transcript: BuilderTranscriptBinding;
@@ -20,7 +22,7 @@ export type CloudflareExecutionBinding = Pick<
 
 export type CloudflareExecutionRecord = CloudflareExecutionPublicState & {
   binding: CloudflareExecutionBinding;
-  code: string;
+  request: CloudflareApiRequest;
 };
 
 type CloudflareExecutionRow = {
@@ -53,12 +55,12 @@ const EXECUTION_COLUMNS = `execution_id, tool_call_id, user_id, account_id, conn
   status, created_at, decided_at, started_at, completed_at, expires_at, outcome_json`;
 
 export const CLOUDFLARE_EXECUTION_RISK_NOTE =
-  'This generated code may make one or more Cloudflare API requests, including mutations, destructive changes, or billable actions. Approval authorizes this exact digest once.';
+  'This request changes your Cloudflare account and may be destructive, irreversible, or billable. Approval sends this exact request once.';
 
-const DEFAULT_RISK_REASONS = [
-  'Generated execute code can contain multiple API requests whose effects are not statically classified.',
+/** Stored with each proposal for the audit trail; a single request carries one reason. */
+const RISK_REASONS_JSON = JSON.stringify([
   'Cloudflare changes can be externally visible, destructive, irreversible, or billable.',
-] as const;
+]);
 
 const credentialishPatterns: readonly RegExp[] = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/iu,
@@ -68,7 +70,6 @@ const credentialishPatterns: readonly RegExp[] = [
   /\b(?:access_?token|api_?key|client_?secret|password|private_?key|refresh_?token|secret)\s*[=:]\s*[^\s,}]{8,}/iu,
 ];
 
-const storedExecuteInputSchema = z.object({ code: z.string() }).strict();
 const storedExecutionOutcomeSchema = z
   .object({
     status: z.enum(['success', 'failure', 'insufficient_scope', 'indeterminate', 'denied']),
@@ -93,11 +94,11 @@ export class BuilderCloudflareExecutionRepository {
   async createProposal(args: {
     toolCallId: string;
     binding: CloudflareExecutionBinding;
-    code: string;
+    request: CloudflareApiRequest;
     now?: number;
   }): Promise<CloudflareExecutionRecord> {
     const now = args.now ?? Date.now();
-    const inputJson = JSON.stringify({ code: args.code });
+    const inputJson = JSON.stringify(args.request);
     const proposalSha256 = await proposalDigest(args.toolCallId, args.binding, inputJson);
     return this.storage.transactionSync(() => {
       const existing = this.findByToolCallId(args.toolCallId);
@@ -133,7 +134,7 @@ export class BuilderCloudflareExecutionRepository {
         args.binding.transcript.parentAgentName,
         inputJson,
         proposalSha256,
-        JSON.stringify(DEFAULT_RISK_REASONS),
+        RISK_REASONS_JSON,
         now,
         expiresAt,
       );
@@ -340,7 +341,7 @@ export class BuilderCloudflareExecutionRepository {
     if (!executionBindingsEqual(record.binding, binding)) {
       throw new CloudflareExecutionDecisionError('The Cloudflare execution identity or connection changed.');
     }
-    const digest = await proposalDigest(record.toolCallId, record.binding, JSON.stringify({ code: record.code }));
+    const digest = await proposalDigest(record.toolCallId, record.binding, JSON.stringify(record.request));
     if (digest !== record.proposalSha256) {
       throw new CloudflareExecutionDecisionError('The stored Cloudflare execution digest does not match its proposal.');
     }
@@ -387,7 +388,6 @@ export function containsCredentialishCloudflareContent(value: string): boolean {
 }
 
 function recordFromRow(row: CloudflareExecutionRow): CloudflareExecutionRecord {
-  const input = parseExecuteInput(row.execute_input_json);
   return {
     executionId: row.execution_id,
     toolCallId: row.tool_call_id,
@@ -414,12 +414,12 @@ function recordFromRow(row: CloudflareExecutionRow): CloudflareExecutionRecord {
         parentAgentName: row.transcript_parent_agent_name,
       },
     },
-    code: input.code,
+    request: parseStoredRequest(row.execute_input_json),
   };
 }
 
-function parseExecuteInput(value: string) {
-  const parsed = storedExecuteInputSchema.safeParse(JSON.parse(value));
+function parseStoredRequest(value: string): CloudflareApiRequest {
+  const parsed = cloudflareApiRequestSchema.safeParse(JSON.parse(value));
   if (!parsed.success) {
     throw new Error('Stored Cloudflare execution input is invalid.');
   }
@@ -467,8 +467,8 @@ function executionBindingsEqual(left: CloudflareExecutionBinding, right: Cloudfl
 function proposalDigest(toolCallId: string, binding: CloudflareExecutionBinding, inputJson: string): Promise<string> {
   return sha256Hex(
     JSON.stringify({
-      version: 1,
-      toolName: 'execute',
+      version: 2,
+      toolName: 'cloudflare_request',
       toolCallId,
       userId: binding.userId,
       accountId: binding.accountId,

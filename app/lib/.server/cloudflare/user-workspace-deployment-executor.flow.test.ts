@@ -191,10 +191,10 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     const moduleDigest = await crypto.subtle.digest('SHA-256', moduleBytes);
     const prepareDeploymentArtifact = vi.fn(async (_input: Record<string, unknown>) => ({
       revision,
-      mainModule: 'server.js',
+      mainModule: 'index.js',
       modules: [
         {
-          path: 'server.js',
+          path: 'index.js',
           bytes: moduleBytes,
           size: moduleBytes.byteLength,
           sha256: [...new Uint8Array(moduleDigest)].map((byte) => byte.toString(16).padStart(2, '0')).join(''),
@@ -260,7 +260,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceSha256: revision,
-        mainModule: 'server.js',
+        mainModule: 'index.js',
         modules: expect.any(Array),
       }),
     );
@@ -332,10 +332,10 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     const moduleDigest = await crypto.subtle.digest('SHA-256', moduleBytes);
     const prepareDeploymentArtifact = vi.fn(async () => ({
       revision,
-      mainModule: 'server.js',
+      mainModule: 'index.js',
       modules: [
         {
-          path: 'server.js',
+          path: 'index.js',
           bytes: moduleBytes,
           size: moduleBytes.byteLength,
           sha256: [...new Uint8Array(moduleDigest)].map((byte) => byte.toString(16).padStart(2, '0')).join(''),

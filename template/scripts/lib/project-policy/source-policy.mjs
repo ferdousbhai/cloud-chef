@@ -21,6 +21,7 @@ const sourceExtensions = new Set([
   ".tsx",
 ]);
 const ignoredDirectories = new Set([
+  ".cloudflare",
   ".git",
   ".turbo",
   ".wrangler",

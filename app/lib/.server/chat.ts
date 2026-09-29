@@ -12,7 +12,7 @@ import { logProviderFailure } from './llm/provider-error-logging';
 import type { WorkersAiModel, WorkersAiModelId } from '~/lib/workers-ai-model';
 import type { PiSteeringQueue } from './llm/pi-steering';
 import type { BuilderTurnBudgetReport } from './llm/builder-turn-budget';
-import type { CloudflareMcpModelToolContext } from './llm/cloudflare-mcp-model-tools';
+import type { CloudflareApiModelToolContext } from './llm/cloudflare-api-model-tools';
 
 type Messages = CloudChefMessage[];
 
@@ -33,7 +33,7 @@ export async function createChatResponseFromBody({
   accountCredentials,
   sessionAffinity,
   workspace,
-  cloudflareMcp,
+  cloudflareApi,
   onValidationStage,
   runWithKeepAlive,
   steering,
@@ -54,7 +54,7 @@ export async function createChatResponseFromBody({
   accountCredentials: WorkersAiAccountCredentials;
   sessionAffinity: string;
   workspace: BuilderWorkspaceApi;
-  cloudflareMcp?: CloudflareMcpModelToolContext;
+  cloudflareApi?: CloudflareApiModelToolContext;
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
   steering: PiSteeringQueue;
@@ -79,7 +79,7 @@ export async function createChatResponseFromBody({
       accountCredentials,
       sessionAffinity,
       workspace,
-      cloudflareMcp,
+      cloudflareApi,
       onValidationStage,
       runWithKeepAlive,
       steering,

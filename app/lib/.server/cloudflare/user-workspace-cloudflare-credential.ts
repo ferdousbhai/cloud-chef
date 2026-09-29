@@ -1,18 +1,24 @@
 import { z } from 'zod';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
-import type { CloudflareMcpAccessTokenResolution, CloudflareMcpIdentity } from './cloudflare-mcp-client';
+import type { CloudflareAccessTokenResolution } from './cloudflare-api-client';
+import type { CloudflareApiRuntimeIdentity } from './cloudflare-api-runtime-controls';
 
 const RUNTIME_CREDENTIAL_TIMEOUT_MS = 30_000;
 const MAX_RUNTIME_CREDENTIAL_RESPONSE_BYTES = 8 * 1024;
 const runtimeCredentialResponseSchema = z.object({ accessToken: z.string().min(1).max(4_096) }).strict();
+
+type CloudflareConnectionIdentity = Pick<
+  CloudflareApiRuntimeIdentity,
+  'userId' | 'connectionId' | 'connectionGeneration'
+>;
 
 type RuntimeCredentialEnv = Pick<Env, 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT' | 'CONTROL_PLANE_SECRET'>;
 
 /** Resolve an access token through the authenticated control-plane broker without retaining it. */
 export async function resolveUserWorkspaceCloudflareAccessToken(
   env: RuntimeCredentialEnv,
-  identity: CloudflareMcpIdentity,
-  options: CloudflareMcpAccessTokenResolution = {},
+  identity: CloudflareConnectionIdentity,
+  options: CloudflareAccessTokenResolution = {},
 ): Promise<string> {
   const endpoint = runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT);
   const response = await fetch(endpoint, {

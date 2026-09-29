@@ -275,7 +275,7 @@ function runProductionBuild(untrustedHelperSource: string, expectSuccess: boolea
       recursive: true,
       filter(source) {
         const sourceRelative = relative(templateDir, source).split(sep);
-        return !['node_modules', 'dist', '.wrangler'].includes(sourceRelative[0] ?? '');
+        return !['node_modules', 'dist', '.wrangler', '.cloudflare'].includes(sourceRelative[0] ?? '');
       },
     });
     symlinkSync(resolve(templateDir, 'node_modules'), join(projectDir, 'node_modules'), 'dir');
@@ -286,7 +286,7 @@ function runProductionBuild(untrustedHelperSource: string, expectSuccess: boolea
     const result = spawnSync(process.execPath, [templateViteBin(), 'build'], {
       cwd: projectDir,
       encoding: 'utf8',
-      env: { ...processEnvironment, CLOUDCHEF_PREVIEW: '0' },
+      env: { ...processEnvironment, CLOUDCHEF_PREVIEW: '0', CF_SEND_TELEMETRY: 'false' },
       timeout: 60_000,
     });
     const output = `${result.stdout}\n${result.stderr}`;
@@ -296,7 +296,10 @@ function runProductionBuild(untrustedHelperSource: string, expectSuccess: boolea
       expect(result.status, output).not.toBe(0);
     }
     // The bundle has to be read before the finally deletes the project tree.
-    return { output, files: expectSuccess ? readTextFiles(join(projectDir, 'dist/server')) : [] };
+    return {
+      output,
+      files: expectSuccess ? readTextFiles(join(projectDir, '.cloudflare/output/v0/workers/default/bundle')) : [],
+    };
   } finally {
     rmSync(projectDir, { recursive: true, force: true });
   }

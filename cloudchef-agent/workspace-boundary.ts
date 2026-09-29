@@ -20,18 +20,24 @@ const PROCESS_REJECTION =
   'Rejected: process management is handled by the CloudChef platform. Do not kill or signal processes; if a ' +
   'command appears stuck, stop and report the failure instead.';
 
+/** Build-tool state directories the model's file commands must not touch. */
+const PLATFORM_STATE_DIRECTORIES = ['.wrangler', '.cloudflare'];
+
 const PLATFORM_STATE_REJECTION =
-  'Rejected: platform runtime state (.wrangler, workerd, computerd) is managed by CloudChef and must not be ' +
-  'modified. Work only on project source files.';
+  `Rejected: platform runtime state (${PLATFORM_STATE_DIRECTORIES.join(', ')}, workerd, computerd) is managed by ` +
+  'CloudChef and must not be modified. Work only on project source files.';
 
-const REQUIRED_BINDING_REJECTION =
-  'Rejected: wrangler.jsonc must keep the required DB, APP_STORAGE, and APP_CACHE bindings. CloudChef provisions ' +
-  'these Cloudflare resources for every generated app; removing a binding breaks validation and deployment.';
+const REQUIRED_RESOURCE_REJECTION =
+  'Rejected: cloudflare.project.json must keep the required d1 (DB), r2 (APP_STORAGE), and kv (APP_CACHE) resources. ' +
+  'CloudChef provisions these Cloudflare resources for every generated app; removing one breaks validation and deployment.';
 
-/** Every binding CloudChef provisions, as it appears in the generated wrangler config. */
-const REQUIRED_BINDING_PATTERNS = ['DB', 'APP_STORAGE', 'APP_CACHE'].map(
-  (binding) => new RegExp(`"binding"\\s*:\\s*"${binding}"`),
-);
+const CF_CREDENTIAL_REJECTION =
+  'Rejected: cf has no Cloudflare credential in this workspace, by design. Find the operation with ' +
+  '`cf cli search`, check it with `cf schema`, print the request with `--dry-run`, then send that output ' +
+  'with the cloudflare_request tool.';
+
+/** Every resource CloudChef provisions, as it appears in cloudflare.project.json. */
+const REQUIRED_RESOURCE_PATTERNS = ['d1', 'r2', 'kv'].map((resource) => new RegExp(`"${resource}"\\s*:\\s*\\{`));
 
 /** Script names that start a dev, preview, or watch server when run through a package runner. */
 const SERVER_SCRIPT_NAMES = new Set(['dev', 'develop', 'preview', 'serve', 'start', 'watch']);
@@ -55,6 +61,7 @@ const SERVER_SUBCOMMANDS = new Map<string, ReadonlySet<string>>([
   ['remix', new Set(['dev'])],
   ['vite', new Set(['dev', 'preview', 'serve'])],
   ['webpack', new Set(['serve', 'watch'])],
+  ['cf', new Set(['dev'])],
   ['wrangler', new Set(['dev', 'tail'])],
 ]);
 
@@ -98,14 +105,14 @@ export function rejectedWorkspaceCommand(command: string): string | null {
  *
  * The path is canonicalized first because every layer below this one canonicalizes too: the
  * workspace runtime folds `\` to `/` and collapses repeated slashes, and Computer drops `.`
- * segments before the write lands. A raw string compare would let `/home/project/./wrangler.jsonc`
- * past the guard and onto the real config, dropping the bindings this exists to protect.
+ * segments before the write lands. A raw string compare would let `/home/project/./cloudflare.project.json`
+ * past the guard and onto the real config, dropping the resources this exists to protect.
  */
 export function rejectedWorkspaceFileMutation(pathString: string, content: string): string | null {
-  if (path.normalize(getAbsolutePath(pathString.replaceAll('\\', '/'))) !== `${WORK_DIR}/wrangler.jsonc`) {
+  if (path.normalize(getAbsolutePath(pathString.replaceAll('\\', '/'))) !== `${WORK_DIR}/cloudflare.project.json`) {
     return null;
   }
-  return REQUIRED_BINDING_PATTERNS.every((pattern) => pattern.test(content)) ? null : REQUIRED_BINDING_REJECTION;
+  return REQUIRED_RESOURCE_PATTERNS.every((pattern) => pattern.test(content)) ? null : REQUIRED_RESOURCE_REJECTION;
 }
 
 function rejectedSegment(segment: CommandSegment): string | null {
@@ -125,8 +132,15 @@ function rejectedSegment(segment: CommandSegment): string | null {
   if (words.some((word) => PLATFORM_PROCESS_NAMES.has(baseName(word)))) {
     return PLATFORM_STATE_REJECTION;
   }
-  if (FILE_MUTATION_COMMANDS.has(base) && args.some((argument) => argument.includes('.wrangler'))) {
+  if (
+    FILE_MUTATION_COMMANDS.has(base) &&
+    args.some((argument) => PLATFORM_STATE_DIRECTORIES.some((directory) => argument.includes(directory)))
+  ) {
     return PLATFORM_STATE_REJECTION;
+  }
+
+  if (base === 'cf' && args.includes('auth')) {
+    return CF_CREDENTIAL_REJECTION;
   }
 
   if (segment.background) {

@@ -209,7 +209,7 @@ dangerouslyAllowAllBuilds: true
         'pnpm-workspace.yaml must set minimumReleaseAge to 1440 minutes.',
         'pnpm-workspace.yaml must enable minimumReleaseAgeStrict.',
         'pnpm-workspace.yaml must not define trustLockfile.',
-        'pnpm-workspace.yaml must not define minimumReleaseAgeExclude.',
+        'pnpm-workspace.yaml minimumReleaseAgeExclude must not exempt unreviewed package unexpected-installer.',
       ]),
     );
   });
@@ -263,16 +263,16 @@ overrides:
   'brace-expansion@>=4.0.0 <5.0.9': '5.0.9'
   '@hono/node-server@<2.0.10': '2.0.10'
   'browserslist@<=4.28.6': '4.28.8'
-  'fast-uri@>=3.0.0 <3.1.6': '3.1.6'
+  'fast-uri@>=3.0.0 <3.1.7': '3.1.7'
   'hono@<4.13.5': '4.13.5'
-  'ip-address@<=10.3.0': '10.3.1'
+  'ip-address@<=10.5.0': '10.5.1'
   'js-yaml@>=4.0.0 <4.3.2': '4.3.2'
   'nanoid@<3.3.18': '3.3.18'
   'postcss@<=8.5.22': '8.5.25'
   'qs@<6.16.0': '6.16.0'
   'smol-toml@<1.7.1': '1.8.0'
   'sharp@<0.35.4': '0.35.4'
-  'undici@>=7.0.0 <7.29.0': '7.29.0'
+  'undici@>=7.0.0 <7.29.1': '7.29.1'
 `;
     expect(findBuildApprovalErrors(reviewed, 'pnpm-workspace.yaml')).toEqual([]);
 
@@ -290,16 +290,16 @@ overrides:
         'pnpm-workspace.yaml overrides must pin brace-expansion@>=4.0.0 <5.0.9 to 5.0.9.',
         'pnpm-workspace.yaml overrides must pin @hono/node-server@<2.0.10 to 2.0.10.',
         'pnpm-workspace.yaml overrides must pin browserslist@<=4.28.6 to 4.28.8.',
-        'pnpm-workspace.yaml overrides must pin fast-uri@>=3.0.0 <3.1.6 to 3.1.6.',
+        'pnpm-workspace.yaml overrides must pin fast-uri@>=3.0.0 <3.1.7 to 3.1.7.',
         'pnpm-workspace.yaml overrides must pin hono@<4.13.5 to 4.13.5.',
-        'pnpm-workspace.yaml overrides must pin ip-address@<=10.3.0 to 10.3.1.',
+        'pnpm-workspace.yaml overrides must pin ip-address@<=10.5.0 to 10.5.1.',
         'pnpm-workspace.yaml overrides must pin js-yaml@>=4.0.0 <4.3.2 to 4.3.2.',
         'pnpm-workspace.yaml overrides must pin nanoid@<3.3.18 to 3.3.18.',
         'pnpm-workspace.yaml overrides must pin postcss@<=8.5.22 to 8.5.25.',
         'pnpm-workspace.yaml overrides must pin qs@<6.16.0 to 6.16.0.',
         'pnpm-workspace.yaml overrides must pin smol-toml@<1.7.1 to 1.8.0.',
         'pnpm-workspace.yaml overrides must pin sharp@<0.35.4 to 0.35.4.',
-        'pnpm-workspace.yaml overrides must pin undici@>=7.0.0 <7.29.0 to 7.29.0.',
+        'pnpm-workspace.yaml overrides must pin undici@>=7.0.0 <7.29.1 to 7.29.1.',
       ]),
     );
   });
@@ -430,14 +430,16 @@ overrides:
     ]);
   });
 
-  it('keeps Cloudflare type generation bounded in browser containers', () => {
-    const script = readFileSync('template/scripts/cf-typegen.mjs', 'utf8');
+  it('generates Cloudflare binding types without starting the Workers runtime', () => {
+    const pkg = JSON.parse(readFileSync('template/package.json', 'utf8'));
+    const viteConfig = readFileSync('template/vite.config.ts', 'utf8');
 
-    expect(script).toContain('timeout: WRANGLER_TYPES_TIMEOUT_MS');
-    expect(script).toContain('experimental_generateTypes');
-    expect(script).toContain('includeRuntime: false');
-    expect(script).toContain('withPackagedRuntimeTypes');
-    expect(script).toContain('config?.secrets?.required ?? []');
+    // Runtime types would start workerd, which the browser container cannot rely on; they come
+    // from @cloudflare/workers-types instead.
+    expect(pkg.scripts['cf-typegen']).toBe(
+      'node scripts/render-cloudflare-config.mjs && cf workers types --include-runtime false',
+    );
+    expect(viteConfig).toContain('types: { includeRuntime: false }');
   });
 });
 

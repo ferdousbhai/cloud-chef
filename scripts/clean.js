@@ -11,7 +11,7 @@ const generatedPaths = [
   'template/.tanstack',
   'template/.wrangler',
   'template/dist',
-  'template/worker-configuration.d.ts',
+  'template/.cloudflare',
 ];
 
 for (const path of generatedPaths) {

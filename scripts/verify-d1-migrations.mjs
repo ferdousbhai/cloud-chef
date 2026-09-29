@@ -70,6 +70,7 @@ const migrationPolicies = [
       '0006_runtime_controls.sql': '952b8c35936e312b128eda8aaaf45453a312aef4333f9812a293ef4cc79294e6',
       '0007_builder_agent_transcript_authority.sql': 'ab725f59263f1c754bbef8b3a930bc00bcc63c2978e597b3e169a0d4c84ec616',
       '0008_cloudflare_mcp_runtime_controls.sql': '43f98431a6cce8cdec9ff1d65d42b79aa13740e87c12278a2a134b43394761c6',
+      '0009_cloudflare_api_runtime_controls.sql': 'ba63b747dab79622f544d3379a0bae48512b5d6a6d09d67ed3dcaf83c82e46f1',
     },
     contractAllowlist: {
       // Chat identity has one immutable key; remove the unused alternate URL column and index.

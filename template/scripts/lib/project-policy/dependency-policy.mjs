@@ -42,8 +42,8 @@ const REQUIRED_AI_SDK_VERSIONS = {
   "@ai-sdk/react": "4.0.51",
 };
 
-export const APP_REQUIRED_PACKAGES = [
-  "@cloudflare/vite-plugin",
+/** Framework packages the control plane and generated apps share, kept on aligned versions. */
+export const SHARED_APP_PACKAGES = [
   "@tanstack/react-router",
   "@tanstack/react-start",
   "@tanstack/router-cli",
@@ -52,10 +52,22 @@ export const APP_REQUIRED_PACKAGES = [
   "react-dom",
   "typescript",
   "vite",
-  "wrangler",
 ];
 
-export const WORKER_REQUIRED_PACKAGES = ["typescript", "wrangler"];
+/** Generated apps build and deploy with the cf CLI and its Vite plugin; the control plane uses Wrangler. */
+export const APP_REQUIRED_PACKAGES = [
+  ...SHARED_APP_PACKAGES,
+  "@cloudflare/vite-plugin",
+  "cf",
+];
+
+/** Worker-only projects build with the same Vite and cf toolchain, without the web framework. */
+export const WORKER_REQUIRED_PACKAGES = [
+  "@cloudflare/vite-plugin",
+  "cf",
+  "typescript",
+  "vite",
+];
 
 export function projectType(pkg) {
   return pkg?.cloudchef?.projectType === "worker" ? "worker" : "web_app";

@@ -42,8 +42,9 @@ describe('BuilderAgent schema migrations', () => {
       { version: 5, name: 'persist_builder_identity' },
       { version: 6, name: 'remove_builder_turns' },
       { version: 7, name: 'create_cloudflare_execution_approvals' },
+      { version: 8, name: 'clear_cloudflare_mcp_execute_proposals' },
     ]);
-    expect(storage.transactionCount).toBe(7);
+    expect(storage.transactionCount).toBe(8);
     expect(storage.statements.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS builder_turns'))).toBe(
       true,
     );
@@ -86,13 +87,14 @@ describe('BuilderAgent schema migrations', () => {
 
     runBuilderAgentSchemaMigrations(storage as never);
 
-    expect(storage.applied.slice(-4)).toEqual([
+    expect(storage.applied.slice(-5)).toEqual([
       { version: 4, name: 'remove_builder_tool_replays' },
       { version: 5, name: 'persist_builder_identity' },
       { version: 6, name: 'remove_builder_turns' },
       { version: 7, name: 'create_cloudflare_execution_approvals' },
+      { version: 8, name: 'clear_cloudflare_mcp_execute_proposals' },
     ]);
-    expect(storage.transactionCount).toBe(4);
+    expect(storage.transactionCount).toBe(5);
     expect(storage.statements).toContain('DROP TABLE IF EXISTS builder_workspace_tool_results');
   });
 
@@ -117,6 +119,6 @@ describe('BuilderAgent schema migrations', () => {
 
     expect(blockConcurrencyWhile).toHaveBeenCalledOnce();
     await expect(initialization).resolves.toBeUndefined();
-    expect(storage.applied).toHaveLength(7);
+    expect(storage.applied).toHaveLength(8);
   });
 });

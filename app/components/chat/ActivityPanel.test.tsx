@@ -87,17 +87,17 @@ it('keeps pending approvals visible even in the compact panel', async () => {
     parts: [
       {
         type: 'dynamic-tool',
-        toolName: 'cloudflare_execute',
+        toolName: 'cloudflare_request',
         toolCallId: 'approval-call',
         state: 'output-available',
-        input: { code: 'return 1' },
+        input: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
         output: {
-          kind: 'cloudflare_execute_proposal',
+          kind: 'cloudflare_request_proposal',
           status: 'awaiting_approval',
           executionId: 'approval',
           toolCallId: 'approval-call',
           accountId: 'account',
-          code: 'return 1',
+          request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
           proposalSha256: 'a'.repeat(64),
           riskNote: 'Review this action.',
           expiresAt: Date.now() + 60_000,

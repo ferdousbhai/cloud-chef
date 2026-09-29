@@ -24,6 +24,6 @@ After changing production dependencies, refresh the checked-in license notices b
 pnpm run licenses:generate
 \`\`\`
 
-Keep secret values out of source and local environment files. Configure them with Wrangler or in the Cloudflare dashboard.
+Keep secret values out of source and local environment files. Configure them with the \`cf\` CLI or in the Cloudflare dashboard.
 `;
 }

@@ -119,7 +119,8 @@ describe('Cloudflare Computer preview contract', () => {
     expect(rootPackage.dependencies?.['@cloudflare/computer']).toBe(CLOUDFLARE_COMPUTER_VERSION);
     expect(rootPackage.packageManager).toBe(`pnpm@${GENERATED_PROJECT_PNPM_VERSION}`);
     expect(installedPackage.version).toBe(CLOUDFLARE_COMPUTER_VERSION);
-    expect(workspaceConfig).not.toContain('minimumReleaseAgeExclude');
+    // The only release-age exemptions are the reviewed cf toolchain packages, never Computer.
+    expect(workspaceConfig).not.toMatch(/^\s*-\s*['"]?@cloudflare\/computer/m);
     expect(installedReadme).toContain('**PREVIEW ONLY.**');
     expect(installedReadme).toContain('production use at this time.');
   });

@@ -1,41 +1,44 @@
-import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { createTrustedDeploymentConfig } from './deployment-config';
-import { DEPLOYMENT_PROJECT_ROOT } from './deployment-runtime-policy';
 
 describe('trusted deployment config', () => {
-  test('resolves every generated-project path beneath the Computer project root', () => {
-    const webConfig = createTrustedDeploymentConfig(input({ projectType: 'web_app' }));
-    const workerConfig = createTrustedDeploymentConfig(input({ projectType: 'worker' }));
-    const generatedProjectPaths = [
-      webConfig.main,
-      webConfig.assets?.directory,
-      workerConfig.main,
-      ...webConfig.d1_databases!.map((database) => database.migrations_dir),
-    ];
+  test('emits the cf Build Output shape with the managed bindings and cleanup schedule', () => {
+    const config = createTrustedDeploymentConfig(input());
 
-    expect(generatedProjectPaths).not.toContain(undefined);
-    for (const generatedPath of generatedProjectPaths) {
-      expect(path.posix.isAbsolute(generatedPath!)).toBe(true);
-      expect(generatedPath!.startsWith(`${DEPLOYMENT_PROJECT_ROOT}/`)).toBe(true);
-    }
+    expect(config.name).toBe('cloudchef-deployment-1');
+    expect(config.manifest).toEqual({ type: 'partial', mainModule: 'index.js', modules: {} });
+    expect(config.env).toEqual({
+      DB: { type: 'd1', name: 'cloudchef-deployment-1', id: 'application-d1-id' },
+      AGENT_SECURITY_DB: { type: 'd1', name: 'cloudchef-deployment-1-agent-security', id: 'agent-security-d1-id' },
+      APP_STORAGE: { type: 'r2', name: 'cloudchef-deployment-1-storage' },
+      APP_CACHE: { type: 'kv', id: '1'.repeat(32) },
+      AI: { type: 'ai' },
+      AppAgent: { type: 'durable-object', worker: 'cloudchef-deployment-1', exportName: 'AppAgent' },
+    });
+    expect(config.exports).toEqual({ AppAgent: { type: 'durable-object', storage: 'sqlite' } });
+    expect(config.triggers).toEqual([{ type: 'scheduled', schedule: '0 3 * * *' }]);
   });
 
-  test('emits the managed bindings and cleanup cron', () => {
-    const config = createTrustedDeploymentConfig(input());
-    const agentSecurityDatabase = config.d1_databases!.find((database) => database.binding === 'AGENT_SECURITY_DB')!;
+  test('omits the AppAgent capability and absent resources', () => {
+    const config = createTrustedDeploymentConfig({
+      workerName: 'cloudchef-deployment-1',
+      workersAi: false,
+      appAgent: false,
+    });
 
-    expect(config.kv_namespaces).toEqual([{ binding: 'APP_CACHE', id: '1'.repeat(32) }]);
-    expect(agentSecurityDatabase.database_id).toBe('agent-security-d1-id');
-    expect(config.triggers?.crons).toHaveLength(1);
+    expect(config.env).toEqual({});
+    expect(config.exports).toBeUndefined();
+    expect(config.triggers).toBeUndefined();
+  });
+
+  test('rejects an invalid KV namespace id', () => {
+    expect(() => createTrustedDeploymentConfig({ ...input(), kvNamespaceId: 'not-hex' })).toThrow(SyntaxError);
   });
 });
 
-function input(overrides: { projectType?: 'web_app' | 'worker' } = {}) {
+function input() {
   return {
-    accountId: 'account-id',
     workerName: 'cloudchef-deployment-1',
-    projectType: overrides.projectType ?? ('web_app' as const),
     workersAi: true,
     appAgent: true,
     d1DatabaseId: 'application-d1-id',

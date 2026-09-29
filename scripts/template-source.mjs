@@ -39,6 +39,7 @@ function listTemplateSourceFilesWithoutGit(rootDir) {
     '.output',
     '.tanstack',
     '.wrangler',
+    '.cloudflare',
     '.idea',
     '.vscode',
   ]);
@@ -53,7 +54,6 @@ function listTemplateSourceFilesWithoutGit(rootDir) {
       }
       if (
         !entry.isFile() ||
-        entry.name === 'worker-configuration.d.ts' ||
         entry.name === '.DS_Store' ||
         entry.name.startsWith('.env') ||
         entry.name.startsWith('.dev.vars') ||

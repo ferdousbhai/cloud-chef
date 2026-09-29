@@ -13,7 +13,6 @@ describe('standalone template verification source', () => {
       expect(existsSync(join(tempDir, 'package.json'))).toBe(true);
       expect(existsSync(join(tempDir, 'package-lock.json'))).toBe(false);
       expect(existsSync(join(tempDir, 'preview-runtime'))).toBe(false);
-      expect(existsSync(join(tempDir, 'worker-configuration.d.ts'))).toBe(false);
 
       const pkg = JSON.parse(readFileSync(join(tempDir, 'package.json'), 'utf8')) as {
         scripts: { deploy: string; typecheck: string };
@@ -38,7 +37,7 @@ describe('standalone template verification source', () => {
     expect(plainServer).toContain('handler.fetch(request)');
     expect(server).not.toContain('CLOUDCHEF_ISOLATED_PREVIEW');
     expect(server).not.toContain('isAgentRoute');
-    expect(viteConfig).toContain('cloudflare({ viteEnvironment: { name: "ssr" } })');
+    expect(viteConfig).toContain('viteEnvironment: { name: "ssr" }');
     expect(viteConfig).toContain('tanstackStart()');
     expect(existsSync('template/src/preview-server.ts')).toBe(false);
     expect(existsSync('template/wrangler.preview.jsonc')).toBe(false);

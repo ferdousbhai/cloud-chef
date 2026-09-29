@@ -8,6 +8,7 @@ import { getRelativePath } from 'cloudchef-agent/utils/workDir';
 import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
 import { formatStreamedSize, streamedToolInput } from './streaming-tool-input';
 import type { ZodType } from 'zod';
+import { cloudflareApiRequestDisplaySchema, cloudflareApiRequestIsRead } from 'cloudchef-agent/cloudflare-api';
 import { toolFailure, toolResultSucceeded } from 'cloudchef-agent/tool-result';
 import { AUTO_VALIDATION_TOOL_CALL_ID_PREFIX } from '~/lib/common/builder-validation-progress';
 
@@ -22,10 +23,10 @@ const STOPPED_TOOL_TITLES = new Map<string, string>([
   ['exec', 'Command stopped'],
   ['validate', 'Validation stopped'],
   ['search_cloudflare_docs', 'Cloudflare docs search stopped'],
-  ['cloudflare_docs', 'Cloudflare MCP docs search stopped'],
-  ['cloudflare_search', 'Cloudflare account search stopped'],
-  ['cloudflare_execute', 'Cloudflare proposal stopped'],
+  ['cloudflare_request', 'Cloudflare API request stopped'],
 ]);
+
+const cloudflareRequestMethodSchema = cloudflareApiRequestDisplaySchema.pick({ method: true });
 
 const MODEL_TOOL_INPUT_SCHEMA_BY_NAME = new Map<string, ZodType>(Object.entries(MODEL_TOOL_INPUT_SCHEMAS));
 
@@ -111,21 +112,18 @@ export function toolTitle(invocation: CloudChefToolInvocation, status: ToolActiv
         status === 'running' ? 'Searching Cloudflare docs' : 'Searched Cloudflare docs',
         <MagnifyingGlassIcon className="text-content-secondary" />,
       );
-    case 'cloudflare_docs':
-      return titleRow(
-        status === 'running' ? 'Searching Cloudflare MCP docs' : 'Searched Cloudflare MCP docs',
-        <MagnifyingGlassIcon className="text-content-secondary" />,
-      );
-    case 'cloudflare_search':
-      return titleRow(
-        status === 'running' ? 'Searching Cloudflare account' : 'Searched Cloudflare account',
-        <MagnifyingGlassIcon className="text-content-secondary" />,
-      );
-    case 'cloudflare_execute':
-      return titleRow(
-        status === 'running' ? 'Preparing Cloudflare proposal' : 'Cloudflare execution proposal',
-        <Pencil1Icon className="text-content-secondary" />,
-      );
+    case 'cloudflare_request': {
+      const request = cloudflareRequestMethodSchema.safeParse(invocation.input).data;
+      return request && cloudflareApiRequestIsRead(request)
+        ? titleRow(
+            status === 'running' ? 'Reading Cloudflare account' : 'Read Cloudflare account',
+            <MagnifyingGlassIcon className="text-content-secondary" />,
+          )
+        : titleRow(
+            status === 'running' ? 'Preparing Cloudflare change' : 'Cloudflare change proposal',
+            <Pencil1Icon className="text-content-secondary" />,
+          );
+    }
     default:
       return invocation.toolName;
   }

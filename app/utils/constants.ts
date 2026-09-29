@@ -9,6 +9,7 @@ export const DEFAULT_COLLAPSED_FOLDERS = new Set([
   `${WORK_DIR}/public`,
   `${WORK_DIR}/.output`,
   `${WORK_DIR}/.tanstack`,
+  `${WORK_DIR}/.cloudflare`,
   `${WORK_DIR}/.wrangler`,
   `${WORK_DIR}/src/agents`,
   `${WORK_DIR}/src/components`,

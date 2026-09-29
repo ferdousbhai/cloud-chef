@@ -36,7 +36,11 @@ async function productionPlugins(): Promise<PluginOption[]> {
   return [
     productionModuleSecurityPlugin(projectDir),
     ...agentPlugins,
-    cloudflare({ viteEnvironment: { name: "ssr" } }),
+    cloudflare({
+      viteEnvironment: { name: "ssr" },
+      // Runtime types come from @cloudflare/workers-types; generating them would start workerd.
+      types: { includeRuntime: false },
+    }),
     tanstackStart(),
     react(),
   ];

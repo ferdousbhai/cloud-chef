@@ -8,6 +8,7 @@ import {
   readProductionPackages,
 } from "./lib/production-license-artifact.mjs";
 
+import { CF_BUILT_ASSETS_DIR } from "./lib/cloudflare-project.mjs";
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nodeModulesPath = resolve(rootDir, "node_modules");
 const policyPath = resolve(rootDir, "scripts/production-license-policy.json");
@@ -15,7 +16,7 @@ const lockfilePath = resolve(rootDir, "pnpm-lock.yaml");
 const artifactPath = resolve(rootDir, "public/THIRD_PARTY_LICENSES.txt");
 const builtArtifactPath = resolve(
   rootDir,
-  "dist/client/THIRD_PARTY_LICENSES.txt",
+  `${CF_BUILT_ASSETS_DIR}/THIRD_PARTY_LICENSES.txt`,
 );
 
 function readLicenseReport() {
@@ -81,7 +82,7 @@ try {
       readFileSync(builtArtifactPath, "utf8") !== result.expectedArtifact
     ) {
       throw new Error(
-        "dist/client/THIRD_PARTY_LICENSES.txt must exactly match the generated public artifact.",
+        "The built THIRD_PARTY_LICENSES.txt asset must exactly match the generated public artifact.",
       );
     }
     console.log("Verified the deployed generated-app license artifact.");

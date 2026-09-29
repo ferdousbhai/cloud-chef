@@ -1,34 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { createContainerDirectoryCommand, rebaseDeploymentConfigPaths, relativeIsolatedPath } from './isolated-project';
+import { createContainerDirectoryCommand, relativeIsolatedPath } from './isolated-project';
 
 describe('isolated project command', () => {
-  it('rebases every trusted Wrangler project path into the isolated copy', () => {
-    const config = rebaseDeploymentConfigPaths(
-      {
-        main: '/home/project/dist/server/index.js',
-        assets: { directory: '/home/project/dist/client' },
-        d1_databases: [
-          { binding: 'DB', migrations_dir: '/home/project/migrations' },
-          { binding: 'AGENT_SECURITY_DB', migrations_dir: '/home/project/agent-security-migrations' },
-        ],
-      },
-      { projectRoot: '/home/project', isolatedRoot: '/tmp/cloudchef-projects/deployment-id' },
-    );
-
-    expect(config).toEqual({
-      main: '/tmp/cloudchef-projects/deployment-id/dist/server/index.js',
-      assets: { directory: '/tmp/cloudchef-projects/deployment-id/dist/client' },
-      d1_databases: [
-        { binding: 'DB', migrations_dir: '/tmp/cloudchef-projects/deployment-id/migrations' },
-        {
-          binding: 'AGENT_SECURITY_DB',
-          migrations_dir: '/tmp/cloudchef-projects/deployment-id/agent-security-migrations',
-        },
-      ],
-    });
-  });
-
   it('enters a quoted native directory from a valid workspace cwd', () => {
     expect(
       createContainerDirectoryCommand({
@@ -36,15 +10,6 @@ describe('isolated project command', () => {
         command: 'pnpm run build',
       }),
     ).toBe("cd '/tmp/cloudchef projects/validation-id' &&\npnpm run build");
-  });
-
-  it('rejects trusted deployment paths outside the durable project root', () => {
-    expect(() =>
-      rebaseDeploymentConfigPaths(
-        { main: '/tmp/untrusted.js' },
-        { projectRoot: '/home/project', isolatedRoot: '/tmp/cloudchef-projects/deployment-id' },
-      ),
-    ).toThrow(/outside the project root/i);
   });
 
   it('derives artifact paths from the requested root, not transport metadata', () => {
@@ -259,6 +224,6 @@ describe('#139 stale-bytes guard', () => {
       source.indexOf('private async terminateTransientCommand('),
     );
 
-    expect(transientCommand).toContain("env: { CI: 'true' }");
+    expect(transientCommand).toContain("env: { CI: 'true', ...CONTAINER_TOOL_ENV }");
   });
 });

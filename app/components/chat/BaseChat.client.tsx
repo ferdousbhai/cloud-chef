@@ -31,7 +31,7 @@ import { DeploymentStatus } from './DeploymentStatus.client';
 import type {
   CloudflareExecutionDecisionHandler,
   CloudflareExecutionPublicState,
-} from 'cloudchef-agent/cloudflare-mcp';
+} from 'cloudchef-agent/cloudflare-api';
 
 const Workbench = lazy(() =>
   import('~/components/workbench/Workbench.client').then((module) => ({ default: module.Workbench })),

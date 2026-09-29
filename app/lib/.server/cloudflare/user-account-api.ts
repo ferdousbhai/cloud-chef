@@ -1,5 +1,10 @@
 import { deploymentPlanResourceName, type DeploymentPlan, type DeploymentResourceType } from './deployment-plan';
-import { deploymentAssetExtension, deploymentAssetHash, type DeploymentArtifactFile } from './deployment-artifact';
+import {
+  deploymentAssetExtension,
+  deploymentAssetHash,
+  WORKER_MAIN_MODULE,
+  type DeploymentArtifactFile,
+} from './deployment-artifact';
 import {
   APP_AGENT_DECLARATIVE_EXPORT,
   DEPLOYMENT_COMPATIBILITY_DATE,
@@ -568,11 +573,10 @@ export class UserCloudflareAccountApi {
 
   private async managedWorkerUploadForm(args: ManagedWorkerVersionArgs): Promise<FormData> {
     requireWorkerName(args.workerName);
-    const expectedMain = args.projectType === 'worker' ? 'server.js' : 'index.js';
     if (
-      args.mainModule !== expectedMain ||
+      args.mainModule !== WORKER_MAIN_MODULE ||
       !/^[a-f0-9]{64}$/.test(args.sourceSha256) ||
-      args.modules.filter((module) => module.path === expectedMain).length !== 1 ||
+      args.modules.filter((module) => module.path === WORKER_MAIN_MODULE).length !== 1 ||
       (args.kvNamespaceId !== undefined && !/^[a-f0-9]{32}$/.test(args.kvNamespaceId)) ||
       (args.projectType === 'worker' && args.assets.length !== 0)
     ) {
@@ -592,7 +596,7 @@ export class UserCloudflareAccountApi {
       ...(args.appAgent ? [{ type: 'durable_object_namespace', name: 'AppAgent', class_name: 'AppAgent' }] : []),
     ];
     const metadata: WorkerUploadMetadata = {
-      main_module: expectedMain,
+      main_module: WORKER_MAIN_MODULE,
       compatibility_date: DEPLOYMENT_COMPATIBILITY_DATE,
       compatibility_flags: [...DEPLOYMENT_COMPATIBILITY_FLAGS],
       bindings,

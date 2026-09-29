@@ -120,6 +120,16 @@ workflow precedence; concrete product and API guidance comes from retrieval, whi
 remain enforced by project validation. A documentation search that fails returns a failed tool result the model can
 act on, rather than ending the turn.
 
+Cloudflare account work goes through Cloudflare's `cf` CLI and one Worker-side tool. The container's `cf` launcher
+installs the pinned CLI on first use; the model finds an operation with `cf cli search`, checks it with `cf schema`,
+and prints the exact request with `--dry-run`. The container holds no Cloudflare credential, so `cf` only plans. The
+model passes the dry-run JSON to `cloudflare_request`, which the runtime Worker validates (the public v4 API only, and
+only the connected account) and sends with a fresh access token from the credential broker. GET requests run
+immediately. Every other method is stored as a durable, expiring proposal bound to the account, connection, transcript,
+and exact request digest; it pauses the turn until the owner approves or rejects it, and an interrupted approved
+request is marked indeterminate rather than replayed. `cloudflare_api` and `cloudflare_api_write` in the user workspace
+`runtime_controls` table are the operator kill switches for reads and writes.
+
 Model tools and editor reads use the same workspace API. Browser saves use
 compare-and-swap against the numeric revision the browser loaded; a conflict refreshes from the user runtime and never
 overwrites newer state. TanStack DB collections are in-memory presentation caches rebuilt from the user runtime. The
@@ -147,7 +157,7 @@ checkpoints from the same VFS, so deployment cannot proceed after the project ch
 
 A preview is one immutable, checkpoint-bound Worker version in the user's account. Full validation copies the project
 to an isolated root, installs dependencies, runs typecheck/lint/stack verification, performs the production build and
-Wrangler dry-run, and retains the deployable module/asset/migration artifact under the content revision. The exact
+`cf deploy --prebuilt` dry run against a trusted `worker.config.json`, and retains the deployable module/asset/migration artifact under the content revision. The exact
 revision is asserted before and after validation and again before publication.
 
 Preview publication performs no container work. Through the same generation-checked credential broker used by
@@ -159,7 +169,6 @@ process, quick tunnel, preview expiry alarm, or preview-specific container keep-
 Production consumes the same retained artifact for the same source digest, substitutes production bindings, uploads a
 second immutable version, and promotes that exact version. If Computer recycled after validation, artifact preparation
 may rebuild from the retained source checkpoint, but its byte inventory must match the durable validation digest.
-OAuth credentials and control-plane secrets never enter generated project processes.
 
 ## Deployment Boundary
 

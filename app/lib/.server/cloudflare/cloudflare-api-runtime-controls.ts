@@ -1,33 +1,22 @@
 import type { CloudflareOAuthScopeGrantStatus } from './cloudflare-oauth-scope-manifest';
 
-export const CLOUDFLARE_MCP_RUNTIME_CONTROL_KEYS = [
-  'cloudflare_mcp',
-  'cloudflare_mcp_execute',
-  'cloudflare_mcp_billable',
-  'cloudflare_mcp_credentials',
-  'cloudflare_mcp_registrar',
-] as const;
+export const CLOUDFLARE_API_RUNTIME_CONTROL_KEYS = ['cloudflare_api', 'cloudflare_api_write'] as const;
 
-export type CloudflareMcpRuntimeControlKey = (typeof CLOUDFLARE_MCP_RUNTIME_CONTROL_KEYS)[number];
+type CloudflareApiRuntimeControlKey = (typeof CLOUDFLARE_API_RUNTIME_CONTROL_KEYS)[number];
 
-export type CloudflareMcpRuntimeControls = Record<CloudflareMcpRuntimeControlKey, boolean>;
+type CloudflareApiRuntimeControls = Record<CloudflareApiRuntimeControlKey, boolean>;
 
-/**
- * Execute code is intentionally treated as unclassified in this phase. Until a later static
- * analysis phase can prove the affected operation classes, every mutation-class switch must be
- * enabled before the tool is admitted.
- */
-export function cloudflareMcpExecuteEnabled(controls: CloudflareMcpRuntimeControls): boolean {
-  return (
-    controls.cloudflare_mcp &&
-    controls.cloudflare_mcp_execute &&
-    controls.cloudflare_mcp_billable &&
-    controls.cloudflare_mcp_credentials &&
-    controls.cloudflare_mcp_registrar
-  );
+/** Writes need both switches; `cloudflare_api` alone admits read-only requests. */
+export function cloudflareApiWriteEnabled(controls: CloudflareApiRuntimeControls): boolean {
+  return controls.cloudflare_api && controls.cloudflare_api_write;
 }
 
-export type CloudflareMcpRuntimeIdentity = {
+export type CloudflareApiRuntimeAdmission = {
+  identity: CloudflareApiRuntimeIdentity;
+  controls: CloudflareApiRuntimeControls;
+};
+
+export type CloudflareApiRuntimeIdentity = {
   userId: string;
   accountId: string;
   connectionId: string;
@@ -40,7 +29,7 @@ type RuntimeControlRow = {
   enabled: number;
 };
 
-type CloudflareMcpRuntimeEnv = Pick<
+type CloudflareApiRuntimeEnv = Pick<
   Env,
   | 'DB'
   | 'CLOUDCHEF_USER_RUNTIME'
@@ -57,42 +46,39 @@ type CloudflareMcpRuntimeEnv = Pick<
  * disable the integration. Callers re-read this before each operation so a kill switch prevents
  * newly admitted work without taking workspace reads or deployments offline.
  */
-export async function readCloudflareMcpRuntimeAdmission(
-  env: CloudflareMcpRuntimeEnv,
-): Promise<{ identity: CloudflareMcpRuntimeIdentity; controls: CloudflareMcpRuntimeControls } | null> {
+export async function readCloudflareApiRuntimeAdmission(
+  env: CloudflareApiRuntimeEnv,
+): Promise<CloudflareApiRuntimeAdmission | null> {
   const identity = runtimeIdentity(env);
   if (!identity) {
     return null;
   }
-  const placeholders = CLOUDFLARE_MCP_RUNTIME_CONTROL_KEYS.map(() => '?').join(', ');
+  const placeholders = CLOUDFLARE_API_RUNTIME_CONTROL_KEYS.map(() => '?').join(', ');
   const result = await env.DB.prepare(
     `SELECT key, enabled FROM runtime_controls WHERE key IN (${placeholders}) ORDER BY key`,
   )
-    .bind(...CLOUDFLARE_MCP_RUNTIME_CONTROL_KEYS)
+    .bind(...CLOUDFLARE_API_RUNTIME_CONTROL_KEYS)
     .all<RuntimeControlRow>();
-  if (result.results.length !== CLOUDFLARE_MCP_RUNTIME_CONTROL_KEYS.length) {
+  if (result.results.length !== CLOUDFLARE_API_RUNTIME_CONTROL_KEYS.length) {
     return null;
   }
   const values = new Map(result.results.map((row) => [row.key, row.enabled]));
   if (
-    values.size !== CLOUDFLARE_MCP_RUNTIME_CONTROL_KEYS.length ||
-    CLOUDFLARE_MCP_RUNTIME_CONTROL_KEYS.some((key) => values.get(key) !== 0 && values.get(key) !== 1)
+    values.size !== CLOUDFLARE_API_RUNTIME_CONTROL_KEYS.length ||
+    CLOUDFLARE_API_RUNTIME_CONTROL_KEYS.some((key) => values.get(key) !== 0 && values.get(key) !== 1)
   ) {
     return null;
   }
   return {
     identity,
     controls: {
-      cloudflare_mcp: values.get('cloudflare_mcp') === 1,
-      cloudflare_mcp_execute: values.get('cloudflare_mcp_execute') === 1,
-      cloudflare_mcp_billable: values.get('cloudflare_mcp_billable') === 1,
-      cloudflare_mcp_credentials: values.get('cloudflare_mcp_credentials') === 1,
-      cloudflare_mcp_registrar: values.get('cloudflare_mcp_registrar') === 1,
+      cloudflare_api: values.get('cloudflare_api') === 1,
+      cloudflare_api_write: values.get('cloudflare_api_write') === 1,
     },
   };
 }
 
-function runtimeIdentity(env: CloudflareMcpRuntimeEnv): CloudflareMcpRuntimeIdentity | null {
+function runtimeIdentity(env: CloudflareApiRuntimeEnv): CloudflareApiRuntimeIdentity | null {
   const connectionGeneration = Number(env.CLOUDCHEF_CONNECTION_GENERATION);
   const oauthScopeGrantStatus = env.CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS;
   if (

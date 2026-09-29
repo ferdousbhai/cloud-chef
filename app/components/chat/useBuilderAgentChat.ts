@@ -37,7 +37,7 @@ import { builderModelStore } from '~/lib/stores/builder-model.client';
 import { workersAiModelIdSchema } from '~/lib/workers-ai-model';
 import { loadAuthoritativeTranscriptSnapshot, reconcileMessagesForSend } from './chat-send-reconciliation';
 import { BUILDER_AGENT_QUERY_CACHE_TTL_MS, loadBuilderAgentCapability } from './builder-agent-auth';
-import type { CloudflareExecutionDecisionHandler } from 'cloudchef-agent/cloudflare-mcp';
+import type { CloudflareExecutionDecisionHandler } from 'cloudchef-agent/cloudflare-api';
 
 const logger = createScopedLogger('BuilderAgentChat');
 

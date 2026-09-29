@@ -867,7 +867,7 @@ describe('UserCloudflareAccountApi', () => {
   });
 
   test('promotes an immutable version when a plain Worker already exists', async () => {
-    const module = await artifactFile('server.js', 'export default { fetch() { return new Response("ok") } }');
+    const module = await artifactFile('index.js', 'export default { fetch() { return new Response("ok") } }');
     const workerVersionId = '22222222-2222-4222-8222-222222222222';
     const providerDeploymentId = '33333333-3333-4333-8333-333333333333';
     const versions = [{ percentage: 100, version_id: workerVersionId }];
@@ -896,7 +896,7 @@ describe('UserCloudflareAccountApi', () => {
         workerName: 'cloudchef-worker',
         projectType: 'worker',
         sourceSha256: 'a'.repeat(64),
-        mainModule: 'server.js',
+        mainModule: 'index.js',
         modules: [module],
         assets: [],
         workersAi: false,
@@ -914,7 +914,7 @@ describe('UserCloudflareAccountApi', () => {
   });
 
   test('publishes a never-deployed plain Worker directly instead of uploading a version', async () => {
-    const module = await artifactFile('server.js', 'export default { fetch() { return new Response("ok") } }');
+    const module = await artifactFile('index.js', 'export default { fetch() { return new Response("ok") } }');
     const workerVersionId = '22222222-2222-4222-8222-222222222222';
     const request = vi
       .fn<typeof fetch>()
@@ -948,7 +948,7 @@ describe('UserCloudflareAccountApi', () => {
         workerName: 'cloudchef-worker',
         projectType: 'worker',
         sourceSha256: 'a'.repeat(64),
-        mainModule: 'server.js',
+        mainModule: 'index.js',
         modules: [module],
         assets: [],
         workersAi: false,
@@ -965,7 +965,7 @@ describe('UserCloudflareAccountApi', () => {
   });
 
   test('creates an empty Worker resource before the first unpromoted preview version', async () => {
-    const module = await artifactFile('server.js', 'export default {}');
+    const module = await artifactFile('index.js', 'export default {}');
     const workerVersionId = '12345678-1234-4234-8234-123456789abc';
     const subdomain = { enabled: false, previews_enabled: true };
     const request = vi
@@ -996,7 +996,7 @@ describe('UserCloudflareAccountApi', () => {
         workerName: 'cloudchef-worker',
         projectType: 'worker',
         sourceSha256: 'a'.repeat(64),
-        mainModule: 'server.js',
+        mainModule: 'index.js',
         modules: [module],
         assets: [],
         workersAi: false,
@@ -1024,7 +1024,7 @@ describe('UserCloudflareAccountApi', () => {
   });
 
   test('uploads an unpromoted Worker version and derives its preview URL', async () => {
-    const module = await artifactFile('server.js', 'export default { fetch() { return new Response("ok") } }');
+    const module = await artifactFile('index.js', 'export default { fetch() { return new Response("ok") } }');
     const workerVersionId = '12345678-1234-4234-8234-123456789abc';
     const request = vi
       .fn<typeof fetch>()
@@ -1056,7 +1056,7 @@ describe('UserCloudflareAccountApi', () => {
         workerName: 'cloudchef-worker',
         projectType: 'worker',
         sourceSha256: 'a'.repeat(64),
-        mainModule: 'server.js',
+        mainModule: 'index.js',
         modules: [module],
         assets: [],
         workersAi: false,

@@ -31,16 +31,16 @@ describe('ToolCall', () => {
     const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'output-available',
-      toolCallId: 'cloudflare-execute-1',
-      toolName: 'cloudflare_execute',
-      input: { code: 'return await client.deleteZone("zone-1")' },
+      toolCallId: 'cloudflare-request-1',
+      toolName: 'cloudflare_request',
+      input: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
       output: {
-        kind: 'cloudflare_execute_proposal',
+        kind: 'cloudflare_request_proposal',
         status: 'awaiting_approval',
         executionId: 'execution-1',
-        toolCallId: 'cloudflare-execute-1',
+        toolCallId: 'cloudflare-request-1',
         accountId: 'account-1',
-        code: 'return await client.deleteZone("zone-1")',
+        request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
         proposalSha256: 'a'.repeat(64),
         riskNote: 'This may delete an externally visible resource.',
         expiresAt: Date.now() + 60_000,
@@ -49,7 +49,7 @@ describe('ToolCall', () => {
     const decide = vi.fn(async () => ({
       execution: {
         executionId: 'execution-1',
-        toolCallId: 'cloudflare-execute-1',
+        toolCallId: 'cloudflare-request-1',
         accountId: 'account-1',
         proposalSha256: 'a'.repeat(64),
         status: 'succeeded' as const,
@@ -71,7 +71,7 @@ describe('ToolCall', () => {
           cloudflareExecutions={[
             {
               executionId: 'execution-1',
-              toolCallId: 'cloudflare-execute-1',
+              toolCallId: 'cloudflare-request-1',
               accountId: 'account-1',
               proposalSha256: 'a'.repeat(64),
               status: 'awaiting_approval',
@@ -89,7 +89,7 @@ describe('ToolCall', () => {
     );
     await act(async () => container.querySelector('button')?.click());
 
-    expect(container.textContent).toContain('return await client.deleteZone("zone-1")');
+    expect(container.textContent).toContain('DELETE https://api.cloudflare.com/client/v4/zones/zone-1');
     expect(container.textContent).toContain('Digest: aaaaaaaaaaaa');
     expect(container.textContent).toContain('Account: account-1');
     const approve = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Approve'));
@@ -102,16 +102,16 @@ describe('ToolCall', () => {
     const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'output-available',
-      toolCallId: 'cloudflare-execute-2',
-      toolName: 'cloudflare_execute',
-      input: { code: 'return mutate()' },
+      toolCallId: 'cloudflare-request-2',
+      toolName: 'cloudflare_request',
+      input: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
       output: {
-        kind: 'cloudflare_execute_proposal',
+        kind: 'cloudflare_request_proposal',
         status: 'awaiting_approval',
         executionId: 'execution-2',
-        toolCallId: 'cloudflare-execute-2',
+        toolCallId: 'cloudflare-request-2',
         accountId: 'account-1',
-        code: 'return mutate()',
+        request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
         proposalSha256: 'b'.repeat(64),
         riskNote: 'risk',
         expiresAt: Date.now() + 60_000,
@@ -125,7 +125,7 @@ describe('ToolCall', () => {
           cloudflareExecutions={[
             {
               executionId: 'execution-2',
-              toolCallId: 'cloudflare-execute-2',
+              toolCallId: 'cloudflare-request-2',
               accountId: 'account-1',
               proposalSha256: 'b'.repeat(64),
               status: 'indeterminate',

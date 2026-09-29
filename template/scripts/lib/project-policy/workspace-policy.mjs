@@ -12,6 +12,10 @@ const MAX_PNPM_WORKSPACE_POLICY_BYTES =
 const ALLOWED_PNPM_WORKSPACE_KEYS = new Set(
   generatedProjectDependencyPolicy.allowedWorkspaceKeys,
 );
+/** The cf CLI toolchain ships betas faster than the release-age window; only it may skip it. */
+const APPROVED_RELEASE_AGE_EXCLUSIONS = new Set(
+  generatedProjectDependencyPolicy.approvedReleaseAgeExclusions,
+);
 const FORBIDDEN_PNPM_WORKSPACE_KEYS = new Set(
   generatedProjectDependencyPolicy.forbiddenWorkspaceKeys,
 );
@@ -112,6 +116,7 @@ export function findBuildApprovalErrors(workspace, label) {
   );
 
   findOverrideErrors(root, label, errors);
+  findReleaseAgeExclusionErrors(root, label, errors);
 
   const allowBuildsPair = root.items.find(
     (pair) => isScalar(pair.key) && pair.key.value === "allowBuilds",
@@ -163,6 +168,33 @@ export function findBuildApprovalErrors(workspace, label) {
     }
   }
   return errors;
+}
+
+function findReleaseAgeExclusionErrors(root, label, errors) {
+  const pair = root.items.find(
+    (item) =>
+      isScalar(item.key) && item.key.value === "minimumReleaseAgeExclude",
+  );
+  if (!pair) {
+    return;
+  }
+  if (!isSeq(pair.value) || pair.value.flow) {
+    errors.push(`${label} minimumReleaseAgeExclude must be a block sequence.`);
+    return;
+  }
+  const seen = new Set();
+  for (const item of pair.value.items) {
+    const name = isScalar(item) ? item.value : undefined;
+    // The approved set holds only package-name strings, so membership also rejects non-strings.
+    if (!APPROVED_RELEASE_AGE_EXCLUSIONS.has(name)) {
+      errors.push(
+        `${label} minimumReleaseAgeExclude must not exempt unreviewed package ${String(name)}.`,
+      );
+    } else if (seen.has(name)) {
+      errors.push(`${label} minimumReleaseAgeExclude must not repeat ${name}.`);
+    }
+    seen.add(name);
+  }
 }
 
 function findOverrideErrors(root, label, errors) {

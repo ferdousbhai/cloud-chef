@@ -6,7 +6,7 @@ import { toolResultSucceeded } from 'cloudchef-agent/tool-result';
 import type {
   CloudflareExecutionDecisionHandler,
   CloudflareExecutionPublicState,
-} from 'cloudchef-agent/cloudflare-mcp';
+} from 'cloudchef-agent/cloudflare-api';
 import { activityRevealStore } from '~/lib/stores/activity-reveal';
 import { AssistantMessage } from './AssistantMessage';
 import { DetailsToggle } from './DetailsToggle';

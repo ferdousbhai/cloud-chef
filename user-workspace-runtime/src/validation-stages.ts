@@ -2,7 +2,7 @@
  * Run independent validation stages concurrently inside one container command.
  *
  * Validation runs typecheck first, then stack verification and lint in parallel. Only typecheck
- * actually feeds the others — `pnpm run typecheck` runs `tsr generate` and `wrangler types`, so
+ * actually feeds the others — `pnpm run typecheck` runs `tsr generate` and `cf workers types`, so
  * the route tree and binding types it writes are inputs to lint. Everything after it was
  * serialized for no reason, on a container that now has four cores to spend.
  *
