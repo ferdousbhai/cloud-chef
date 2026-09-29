@@ -55,7 +55,8 @@ async function digests(name: string, files: Record<string, string>) {
   return { fromVfs: await vfsDigest(vfs), fromContainer: containerDigest(root) };
 }
 
-describe('project content digest', () => {
+// Every case spawns a real shell pipeline, which can take seconds on a loaded CI builder.
+describe('project content digest', { timeout: 30_000 }, () => {
   it('agrees between the durable VFS and the copied tree', async () => {
     // The whole point: two independent computations of the same thing. If they can disagree for a
     // benign reason, the check is worthless as evidence of the malign one.
