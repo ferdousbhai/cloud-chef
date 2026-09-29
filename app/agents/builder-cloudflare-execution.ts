@@ -182,16 +182,15 @@ export class BuilderCloudflareExecutionRepository {
     let transitioned = false;
     const record = this.storage.transactionSync(() => {
       const current = this.require(executionId);
-      if (current.status === 'awaiting_approval') {
-        transitioned =
-          this.storage.sql.exec(
-            `UPDATE builder_cloudflare_executions
-           SET status = 'approved', decided_at = ?
-           WHERE execution_id = ? AND status = 'awaiting_approval' AND expires_at > ?`,
-            now,
-            executionId,
-            now,
-          ).rowsWritten === 1;
+      // The status and expiry were just read inside this synchronous transaction, so they decide the
+      // transition. A SQL cursor's rowsWritten is not final until the cursor is consumed.
+      if (current.status === 'awaiting_approval' && current.expiresAt > now) {
+        this.storage.sql.exec(
+          `UPDATE builder_cloudflare_executions SET status = 'approved', decided_at = ? WHERE execution_id = ?`,
+          now,
+          executionId,
+        );
+        transitioned = true;
       }
       return this.require(executionId);
     });
@@ -214,18 +213,17 @@ export class BuilderCloudflareExecutionRepository {
     let transitioned = false;
     const record = this.storage.transactionSync(() => {
       const current = this.require(executionId);
-      if (current.status === 'awaiting_approval') {
-        transitioned =
-          this.storage.sql.exec(
-            `UPDATE builder_cloudflare_executions
+      if (current.status === 'awaiting_approval' && current.expiresAt > now) {
+        this.storage.sql.exec(
+          `UPDATE builder_cloudflare_executions
            SET status = 'rejected', decided_at = ?, completed_at = ?, outcome_json = ?
-           WHERE execution_id = ? AND status = 'awaiting_approval' AND expires_at > ?`,
-            now,
-            now,
-            JSON.stringify(denied),
-            executionId,
-            now,
-          ).rowsWritten === 1;
+           WHERE execution_id = ?`,
+          now,
+          now,
+          JSON.stringify(denied),
+          executionId,
+        );
+        transitioned = true;
       }
       return this.require(executionId);
     });
@@ -246,14 +244,12 @@ export class BuilderCloudflareExecutionRepository {
       if (current.status !== 'approved') {
         return null;
       }
-      const updated = this.storage.sql.exec(
-        `UPDATE builder_cloudflare_executions
-         SET status = 'executing', started_at = ?
-         WHERE execution_id = ? AND status = 'approved'`,
+      this.storage.sql.exec(
+        `UPDATE builder_cloudflare_executions SET status = 'executing', started_at = ? WHERE execution_id = ?`,
         now,
         executionId,
       );
-      return updated.rowsWritten === 1 ? this.require(executionId) : null;
+      return this.require(executionId);
     });
   }
 

@@ -81,34 +81,32 @@ class TestExecutionStorage {
         this.rows.set(row.execution_id, row);
         return result([], 1);
       }
+      // Like the Durable Object cursor, an unconsumed UPDATE reports no rows written yet.
       if (normalized.includes("SET status = 'approved'")) {
         const row = this.rows.get(String(bindings[1]));
-        const written = row?.status === 'awaiting_approval' && row.expires_at > Number(bindings[2]);
-        if (row && written) {
+        if (row) {
           row.status = 'approved';
           row.decided_at = Number(bindings[0]);
         }
-        return result([], written ? 1 : 0);
+        return result([]);
       }
       if (normalized.includes("SET status = 'rejected'")) {
         const row = this.rows.get(String(bindings[3]));
-        const written = row?.status === 'awaiting_approval' && row.expires_at > Number(bindings[4]);
-        if (row && written) {
+        if (row) {
           row.status = 'rejected';
           row.decided_at = Number(bindings[0]);
           row.completed_at = Number(bindings[1]);
           row.outcome_json = String(bindings[2]);
         }
-        return result([], written ? 1 : 0);
+        return result([]);
       }
       if (normalized.includes("SET status = 'executing'")) {
         const row = this.rows.get(String(bindings[1]));
-        const written = row?.status === 'approved';
-        if (row && written) {
+        if (row) {
           row.status = 'executing';
           row.started_at = Number(bindings[0]);
         }
-        return result([], written ? 1 : 0);
+        return result([]);
       }
       if (normalized.includes('SET status = ?, completed_at = ?')) {
         const row = this.rows.get(String(bindings[3]));
