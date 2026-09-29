@@ -1478,7 +1478,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (
       !retryId &&
       current?.revision === job.revision &&
-      (current.status === 'deploying' || current.status === 'succeeded' || current.status === 'failed')
+      (current.status === 'succeeded' ||
+        current.status === 'failed' ||
+        (current.status === 'deploying' && (await this.hasLiveDeploymentFiber())))
     ) {
       return;
     }
@@ -1514,6 +1516,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       this.failDeployment(job, error);
       throw error;
     }
+  }
+
+  /** A deploying state with no live fiber behind it is orphaned: nothing will ever settle it. */
+  private async hasLiveDeploymentFiber(): Promise<boolean> {
+    const fibers = await this.listFibers({ name: DEPLOYMENT_FIBER, status: ['pending', 'running'], limit: 1 });
+    return fibers.length > 0;
   }
 
   private async runDeployment(job: DeploymentJob): Promise<BuilderDeploymentState> {

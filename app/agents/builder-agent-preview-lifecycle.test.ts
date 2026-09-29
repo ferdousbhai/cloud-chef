@@ -107,6 +107,7 @@ describe('BuilderAgent preview lifecycle', () => {
       "if (!started.accepted && started.status !== 'pending' && started.status !== 'running')",
     );
     expect(schedule).toContain('await this.scheduleDeployment(job, crypto.randomUUID())');
+    expect(schedule).toContain("current.status === 'deploying' && (await this.hasLiveDeploymentFiber())");
     // A failed readiness read keeps the recorded deployment instead of resetting a live revision.
     expect(readiness.slice(readiness.indexOf('} catch {'), readiness.indexOf('const currentDeployment'))).toContain(
       'return null;',
