@@ -53,6 +53,7 @@ const messageMetadataSchema = z.looseObject({});
 
 const AGENT_SEND_READY_TIMEOUT_MS = 10_000;
 const AGENT_CANCEL_SETTLE_TIMEOUT_MS = 5 * 60 * 1000;
+const CLOUDFLARE_DECISION_TIMEOUT_MS = 45_000;
 
 /**
  * Preparing the durable workspace can legitimately take minutes: after a container restart it
@@ -471,7 +472,10 @@ export function useBuilderAgentChat(args: {
   const decideCloudflareExecution = useCallback<CloudflareExecutionDecisionHandler>(
     async (executionId, decision) => {
       const method = decision === 'approve' ? 'approveCloudflareExecution' : 'rejectCloudflareExecution';
-      const result = await builderAgent.call(method, [{ executionId }], { timeout: 2 * 60_000 });
+      // A call sent while the socket reconnects is never answered, so wait for it to open. The agent
+      // bounds a decision at its 30s turn boundary; anything longer is a lost call, not a slow one.
+      await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
+      const result = await builderAgent.call(method, [{ executionId }], { timeout: CLOUDFLARE_DECISION_TIMEOUT_MS });
       if (result.resumeTurn) {
         const status = result.execution.status;
         await sendMessage({

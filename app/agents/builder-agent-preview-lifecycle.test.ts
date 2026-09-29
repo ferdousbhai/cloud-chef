@@ -95,6 +95,24 @@ describe('BuilderAgent preview lifecycle', () => {
     expect(retry.indexOf('terminalizeDeployment')).toBeLessThan(retry.indexOf('scheduleDeployment'));
   });
 
+  it('never leaves a deployment marked deploying behind an already settled fiber', () => {
+    const schedule = source.slice(
+      source.indexOf('private async scheduleDeployment('),
+      source.indexOf('private async runDeployment('),
+    );
+    const readiness = source.slice(source.indexOf('private async refreshDeploymentReadiness('));
+
+    // The per-revision idempotency key hands back a settled fiber without running anything.
+    expect(schedule).toContain(
+      "if (!started.accepted && started.status !== 'pending' && started.status !== 'running')",
+    );
+    expect(schedule).toContain('await this.scheduleDeployment(job, crypto.randomUUID())');
+    // A failed readiness read keeps the recorded deployment instead of resetting a live revision.
+    expect(readiness.slice(readiness.indexOf('} catch {'), readiness.indexOf('const currentDeployment'))).toContain(
+      'return null;',
+    );
+  });
+
   it('keeps the agent alive while stateful Computer tools run', () => {
     const chatMessage = source.slice(
       source.indexOf('override async onChatMessage('),

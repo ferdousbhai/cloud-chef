@@ -1487,7 +1487,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       deployment: { status: 'deploying', ...job },
     });
     try {
-      await this.startFiber(
+      const started = await this.startFiber(
         DEPLOYMENT_FIBER,
         async (fiber) => {
           fiber.stash(job);
@@ -1505,6 +1505,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           metadata: job,
         },
       );
+      if (!started.accepted && started.status !== 'pending' && started.status !== 'running') {
+        // This revision's fiber already settled, so nothing would ever settle the state set above.
+        // The plan and deployment are recorded per revision, so a replay returns the recorded outcome.
+        await this.scheduleDeployment(job, crypto.randomUUID());
+      }
     } catch (error) {
       this.failDeployment(job, error);
       throw error;
@@ -1744,11 +1749,14 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   private async refreshDeploymentReadiness(): Promise<BuilderWorkspaceCheckpoint | null> {
-    let validatedSnapshot: BuilderWorkspaceCheckpoint | null = null;
+    let validatedSnapshot: BuilderWorkspaceCheckpoint | null;
     try {
       validatedSnapshot = await validatedDeploymentCheckpoint(this.workspace);
     } catch {
+      // An unreadable workspace says nothing about the deployment, so keep what is recorded: dropping
+      // a settled deployment here would make the next turn redeploy a revision that is already live.
       logger.warn('Unable to refresh deployment readiness');
+      return null;
     }
     const currentDeployment = this.state.deployment;
     const deployment = validatedSnapshot
