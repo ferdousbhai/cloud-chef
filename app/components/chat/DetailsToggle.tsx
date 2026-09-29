@@ -3,13 +3,11 @@ export function DetailsToggle({
   controls,
   onToggle,
   disabled,
-  suffix = '',
 }: {
   expanded: boolean;
   controls: string;
   onToggle: () => void;
   disabled?: boolean;
-  suffix?: string;
 }) {
   return (
     <button
@@ -20,7 +18,7 @@ export function DetailsToggle({
       onClick={onToggle}
       disabled={disabled}
     >
-      {expanded ? 'Hide details' : `Show details${suffix}`}
+      {expanded ? 'Hide details' : 'Show details'}
     </button>
   );
 }

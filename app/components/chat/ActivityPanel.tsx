@@ -50,16 +50,13 @@ export function ActivityPanel({
     <aside className={styles.ActivityPanel} aria-label="Agent activity" data-compact={compact}>
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-bolt-elements-borderColor px-3 py-2">
         <h2 className="text-sm font-medium text-content-primary">Activity</h2>
-        {compact ? (
+        {compact && (
           <DetailsToggle
             expanded={visible}
             controls={detailsId}
             onToggle={() => setExpanded(!expanded)}
             disabled={pendingApproval}
-            suffix={isStreaming ? ' · Working' : ''}
           />
-        ) : (
-          <span className="text-xs text-content-tertiary">{isStreaming ? 'Working' : 'Latest first'}</span>
         )}
       </div>
       {visible && (

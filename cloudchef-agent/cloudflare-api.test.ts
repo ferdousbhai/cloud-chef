@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cloudflareApiRequestInputSchema,
   cloudflareApiRequestIsRead,
   CloudflareApiRequestRejectedError,
   normalizeCloudflareApiRequest,
@@ -73,6 +74,18 @@ describe('normalizeCloudflareApiRequest', () => {
         'account-1',
       ),
     ).toEqual({ method: 'POST', url: `${accountUrl}/d1/database/db-1/query`, body: { sql: 'select 1' } });
+  });
+
+  it('parses a body the model passed as a JSON string, but keeps a plain string', () => {
+    const url = `${accountUrl}/storage/kv/namespaces`;
+    expect(
+      cloudflareApiRequestInputSchema.parse({ method: 'POST', url, body: '{"title": "cloudchef-approval-test"}' }),
+    ).toEqual({ method: 'POST', url, body: { title: 'cloudchef-approval-test' } });
+    expect(cloudflareApiRequestInputSchema.parse({ method: 'PUT', url, body: 'plain value' })).toEqual({
+      method: 'PUT',
+      url,
+      body: 'plain value',
+    });
   });
 
   it('rejects a non-JSON body kind', () => {

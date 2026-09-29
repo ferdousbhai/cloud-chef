@@ -39,7 +39,26 @@ const queryValueSchema = z.union([z.string(), z.number(), z.boolean()]);
  * operation with the `cf` CLI in the credential-free workspace and passes its output through
  * unchanged; the runtime Worker alone holds the credential that sends it.
  */
+/**
+ * Models often re-serialize the dry-run's JSON body into a string. Sent as-is it would be encoded
+ * twice and Cloudflare would reject it, so a string holding a JSON object or array is parsed back.
+ */
+const dryRunBodySchema = z.unknown().transform((body) => {
+  if (body !== String(body)) {
+    return body;
+  }
+  try {
+    const parsed = z
+      .union([z.record(z.string(), z.unknown()), z.array(z.unknown())])
+      .safeParse(JSON.parse(String(body)));
+    return parsed.success ? parsed.data : body;
+  } catch {
+    return body;
+  }
+});
+
 export const cloudflareApiRequestInputSchema = cloudflareApiRequestSchema.extend({
+  body: dryRunBodySchema.optional(),
   command: z.string().max(512).optional(),
   pathParams: z.record(z.string(), z.unknown()).optional(),
   query: z.record(z.string(), z.union([queryValueSchema, z.array(queryValueSchema)])).optional(),
