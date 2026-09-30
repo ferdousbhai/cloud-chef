@@ -150,6 +150,7 @@ function deploymentToolCallId(workspaceRevision: number, revision: string): stri
 const CONTEXT_COMPACTION_FIBER = 'background:context_compaction';
 const PREVIEW_PUBLICATION_FIBER = 'background:builder_preview';
 const DEPLOYMENT_FIBER = 'background:builder_deployment';
+const DEPLOYMENT_INTERRUPTED_MESSAGE = 'Deployment was interrupted. Retry to reconcile the exact revision.';
 const TITLE_GENERATION_FIBER = 'background:title_generation';
 const CLOUDFLARE_EXECUTION_FIBER = 'background:cloudflare_execution';
 const TITLE_GENERATION_JOB_MAX_PROMPT_CHARACTERS = 4_000;
@@ -411,7 +412,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (!job || !this.userId || !this.transcriptBinding) {
         return { status: 'error', error: 'missing deployment recovery data' };
       }
-      const error = new Error('Deployment was interrupted. Retry to reconcile the exact revision.');
+      const error = new Error(DEPLOYMENT_INTERRUPTED_MESSAGE);
       try {
         await this.retry(() => this.terminalizeDeployment(job));
       } catch {
@@ -827,13 +828,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Error('The current project revision must pass validation before deployment.');
     }
     const current = this.state.deployment;
-    if (current?.revision === snapshot.revision && (current.status === 'deploying' || current.status === 'succeeded')) {
-      return current;
-    }
-    if (current?.revision === snapshot.revision && current.status === 'failed') {
+    const retry = current?.revision === snapshot.revision && current.status === 'failed';
+    if (retry) {
       await this.terminalizeDeployment(snapshot);
     }
-    await this.scheduleDeployment(snapshot, crypto.randomUUID());
+    await this.scheduleDeployment(snapshot, { retry });
     return this.state.deployment ?? { status: 'deploying', ...snapshot };
   }
 
@@ -1473,15 +1472,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     await this.scheduleDeployment(checkpoint).catch(() => logger.warn('Unable to queue the automatic deployment'));
   }
 
-  private async scheduleDeployment(job: DeploymentJob, retryId?: string): Promise<void> {
+  private async scheduleDeployment(job: DeploymentJob, options: { retry?: boolean } = {}): Promise<void> {
     const current = this.state.deployment;
-    if (
-      !retryId &&
-      current?.revision === job.revision &&
-      (current.status === 'succeeded' ||
-        current.status === 'failed' ||
-        (current.status === 'deploying' && (await this.hasLiveDeploymentFiber())))
-    ) {
+    if (!options.retry && current?.revision === job.revision && current.status !== 'ready') {
       return;
     }
     this.setState({
@@ -1489,7 +1482,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       deployment: { status: 'deploying', ...job },
     });
     try {
-      const started = await this.startFiber(
+      // No per-revision fiber key: it would hand back a settled fiber without running it.
+      await this.startFiber(
         DEPLOYMENT_FIBER,
         async (fiber) => {
           fiber.stash(job);
@@ -1500,28 +1494,18 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
             throw error;
           }
         },
-        {
-          idempotencyKey: `builder-deployment:${this.name}:${job.workspaceRevision}:${job.revision}${
-            retryId ? `:retry:${retryId}` : ''
-          }`,
-          metadata: job,
-        },
+        { metadata: job },
       );
-      if (!started.accepted && started.status !== 'pending' && started.status !== 'running') {
-        // This revision's fiber already settled, so nothing would ever settle the state set above.
-        // The plan and deployment are recorded per revision, so a replay returns the recorded outcome.
-        await this.scheduleDeployment(job, crypto.randomUUID());
-      }
     } catch (error) {
       this.failDeployment(job, error);
       throw error;
     }
   }
 
-  /** A deploying state with no live fiber behind it is orphaned: nothing will ever settle it. */
-  private async hasLiveDeploymentFiber(): Promise<boolean> {
-    const fibers = await this.listFibers({ name: DEPLOYMENT_FIBER, status: ['pending', 'running'], limit: 1 });
-    return fibers.length > 0;
+  /** Interrupted fibers count: their recovery hook, not the readiness check, settles them. */
+  private async deploymentFiberRunning(revision: string): Promise<boolean> {
+    const live = await this.listFibers({ name: DEPLOYMENT_FIBER, status: ['pending', 'running', 'interrupted'] });
+    return live.some((fiber) => deploymentJobSchema.safeParse(fiber.metadata).data?.revision === revision);
   }
 
   private async runDeployment(job: DeploymentJob): Promise<BuilderDeploymentState> {
@@ -1757,21 +1741,26 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   private async refreshDeploymentReadiness(): Promise<BuilderWorkspaceCheckpoint | null> {
-    let validatedSnapshot: BuilderWorkspaceCheckpoint | null;
-    try {
-      validatedSnapshot = await validatedDeploymentCheckpoint(this.workspace);
-    } catch {
-      // An unreadable workspace says nothing about the deployment, so keep what is recorded: dropping
-      // a settled deployment here would make the next turn redeploy a revision that is already live.
+    const validatedSnapshot = await validatedDeploymentCheckpoint(this.workspace).catch(() => undefined);
+    if (validatedSnapshot === undefined) {
+      // An unreadable workspace says nothing about the deployment, so keep the recorded one.
       logger.warn('Unable to refresh deployment readiness');
       return null;
     }
     const currentDeployment = this.state.deployment;
-    const deployment = validatedSnapshot
+    let deployment = validatedSnapshot
       ? currentDeployment?.revision === validatedSnapshot.revision
         ? currentDeployment
         : { status: 'ready' as const, ...validatedSnapshot }
       : null;
+    // A deploying record with no fiber working on its revision is orphaned: nothing would ever settle it.
+    if (
+      validatedSnapshot &&
+      deployment?.status === 'deploying' &&
+      !(await this.deploymentFiberRunning(validatedSnapshot.revision))
+    ) {
+      deployment = { ...deployment, status: 'failed', error: DEPLOYMENT_INTERRUPTED_MESSAGE };
+    }
     this.setState({
       ...this.state,
       deployment,

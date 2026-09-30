@@ -8,7 +8,7 @@ This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
 Production packages: 701
-Inventory SHA-256: a3ba9638208adac3e95dfa1404e757cfcfd466caca88222f28b7e4ab051e928a
+Inventory SHA-256: 75b06f61286815cc6d3095b4c189fdeeb90f918b6287a6a0b711a379613161b1
 
 PACKAGE INVENTORY
 =================
@@ -2617,7 +2617,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 dfde54fedc270c2a305d9a9f993d93f706d34624455a2fd2d2a05ca34d8ae8c3)
 
-brace-expansion@5.0.9
+brace-expansion@5.0.12
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/juliangruber/brace-expansion.git"}
@@ -3283,7 +3283,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 7bf9b2de73a6b356761c948d0e9eeb4be6c1270bd04c79cd489c1e400ffdfc1a)
 
-fast-uri@3.1.7
+fast-uri@3.1.8
 Declared license: BSD-3-Clause
 Author: Vincent Le Goff <vince.legoff@gmail.com> (https://github.com/zekth)
 Repository: {"type":"git","url":"git+https://github.com/fastify/fast-uri.git"}
@@ -3796,7 +3796,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 395c95f20598da653ff1eb1cb9d74947c7fac689697147f1d192fd0242a0e635)
 
-ip-address@10.5.1
+ip-address@10.7.1
 Declared license: MIT
 Author: Beau Gunderson <beau@beaugunderson.com> (https://beaugunderson.com/)
 Repository: {"type":"git","url":"https://github.com/beaugunderson/ip-address.git"}
@@ -17578,7 +17578,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 9c63a23124d68cd30cd316a94a1a0bca34f032786df6df69fc4b5f136bac8d2e
 Used by:
-- brace-expansion@5.0.9:LICENSE
+- brace-expansion@5.0.12:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -19141,7 +19141,7 @@ Used by:
 
 SHA-256 b010b0dfdfdb23d7396e03b82cd4621fc9bb8f95d6b0aea70b9c24e12074c786
 Used by:
-- fast-uri@3.1.7:LICENSE
+- fast-uri@3.1.8:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (c) 2011-2021, Gary Court until https://github.com/garycourt/uri-js/commit/a1acf730b4bba3f1097c9f52e7d9d3aba8cdcaae
 Copyright (c) 2021-present The Fastify team <https://github.com/fastify/fastify#team>
@@ -23484,7 +23484,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 SHA-256 f8d791359a50cbcac82c29cb7b0b1b889b28be76fdd35b8ee33f0f7c8704702a
 Used by:
-- ip-address@10.5.1:LICENSE
+- ip-address@10.7.1:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (C) 2011 by Beau Gunderson
 
