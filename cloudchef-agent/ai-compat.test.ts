@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { getToolInvocation, messageText } from './ai-compat.js';
+import { getToolInvocation } from './ai-compat.js';
 
 describe('chat message helpers', () => {
-  it('reads message text exclusively from native parts', () => {
-    expect(messageText({ parts: [{ type: 'text', text: 'hello' }] })).toBe('hello');
-  });
-
   it('preserves native error and denial tool states', () => {
     expect(
       getToolInvocation({

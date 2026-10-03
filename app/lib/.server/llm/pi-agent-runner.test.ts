@@ -45,8 +45,17 @@ interface RunnerTurnEndEvent {
   toolResults: object[];
 }
 
+type FinishTurnDecision = { action: 'continue' | 'end' } | void;
+
 interface StopAwareLoopConfig {
-  shouldStopAfterTurn(): boolean;
+  finishTurn?(turn: unknown): FinishTurnDecision | Promise<FinishTurnDecision>;
+}
+
+/** Ask the runner's `finishTurn` hook whether it ends the run after a completed tool turn. */
+async function endsTurn(config: StopAwareLoopConfig): Promise<boolean> {
+  const message = assistantMessage([{ type: 'toolCall', id: 'call-check', name: 'write', arguments: {} }]);
+  const decision = await config.finishTurn?.({ message, toolResults: [], context: { messages: [] }, newMessages: [] });
+  return decision?.action === 'end';
 }
 
 const mocks = vi.hoisted(() => ({
@@ -395,11 +404,7 @@ describe('piAgentRunner', () => {
       retryable: true,
     });
     mocks.piRun.mockImplementation(
-      async (
-        _context: unknown,
-        config: { shouldStopAfterTurn: () => boolean },
-        emit: (event: unknown) => Promise<void>,
-      ) => {
+      async (_context: unknown, config: StopAwareLoopConfig, emit: (event: unknown) => Promise<void>) => {
         await emit({
           type: 'tool_execution_end',
           toolCallId: 'write-timeout',
@@ -407,7 +412,7 @@ describe('piAgentRunner', () => {
           result: { content: [{ type: 'text', text: timeoutPayload }], details: {} },
           isError: true,
         });
-        expect(config.shouldStopAfterTurn()).toBe(true);
+        expect(await endsTurn(config)).toBe(true);
         await emit({
           type: 'turn_end',
           message: assistantMessage([{ type: 'toolCall', id: 'write-timeout', name: 'write', arguments: {} }]),
@@ -442,7 +447,7 @@ describe('piAgentRunner', () => {
           result: { details: proposal },
           isError: false,
         });
-        expect(config.shouldStopAfterTurn()).toBe(true);
+        expect(await endsTurn(config)).toBe(true);
         await emit({
           type: 'turn_end',
           message: assistantMessage([
@@ -471,11 +476,7 @@ describe('piAgentRunner', () => {
       retryable: false,
     });
     mocks.piRun.mockImplementation(
-      async (
-        _context: unknown,
-        config: { shouldStopAfterTurn: () => boolean },
-        emit: (event: unknown) => Promise<void>,
-      ) => {
+      async (_context: unknown, config: StopAwareLoopConfig, emit: (event: unknown) => Promise<void>) => {
         await emit({
           type: 'tool_execution_end',
           toolCallId: 'write-indeterminate',
@@ -483,7 +484,7 @@ describe('piAgentRunner', () => {
           result: { content: [{ type: 'text', text: payload }], details: {} },
           isError: true,
         });
-        expect(config.shouldStopAfterTurn()).toBe(true);
+        expect(await endsTurn(config)).toBe(true);
         await emit({
           type: 'turn_end',
           message: assistantMessage([{ type: 'toolCall', id: 'write-indeterminate', name: 'write', arguments: {} }]),
@@ -517,11 +518,7 @@ describe('piAgentRunner', () => {
       indeterminate: { toolCallId: 'edit-indeterminate', payload: indeterminatePayload },
     } as const;
     mocks.piRun.mockImplementation(
-      async (
-        _context: unknown,
-        config: { shouldStopAfterTurn: () => boolean },
-        emit: (event: unknown) => Promise<void>,
-      ) => {
+      async (_context: unknown, config: StopAwareLoopConfig, emit: (event: unknown) => Promise<void>) => {
         for (const result of order) {
           await emit({
             type: 'tool_execution_end',
@@ -531,7 +528,7 @@ describe('piAgentRunner', () => {
             isError: true,
           });
         }
-        expect(config.shouldStopAfterTurn()).toBe(true);
+        expect(await endsTurn(config)).toBe(true);
         await emit({
           type: 'turn_end',
           message: assistantMessage([
@@ -588,8 +585,9 @@ describe('piAgentRunner', () => {
         newMessages: [call, result],
         toolResults: [result],
       });
-      expect(next?.context?.messages).toHaveLength(1);
-      expect(JSON.stringify(next?.context?.messages)).toContain('Revision 42 written. Next: validate.');
+      expect(next?.context?.messages).toHaveLength(2);
+      expect(next?.context?.messages[0]).toMatchObject({ role: 'system' });
+      expect(JSON.stringify(next?.context?.messages[1])).toContain('Revision 42 written. Next: validate.');
       const recovered = await history?.execute('lookup', { op: 'search', query: 'Handoff accepted' });
       expect(JSON.stringify(recovered)).toContain('live-');
       await emit({ type: 'turn_end', message: assistantMessage([{ type: 'text', text: 'Done' }]), toolResults: [] });
@@ -617,8 +615,9 @@ describe('piAgentRunner', () => {
           newMessages: [],
           toolResults: [],
         });
-        expect(next?.context?.messages[0]).toMatchObject({ role: 'user' });
-        expect(JSON.stringify(next?.context?.messages[0])).toContain('<summary>');
+        expect(next?.context?.messages[0]).toMatchObject({ role: 'system' });
+        expect(next?.context?.messages[1]).toMatchObject({ role: 'user' });
+        expect(JSON.stringify(next?.context?.messages[1])).toContain('<summary>');
         await emit({ type: 'turn_end', message: assistantMessage([{ type: 'text', text: 'Done' }]), toolResults: [] });
       },
     );
@@ -647,7 +646,8 @@ describe('piAgentRunner', () => {
       )
       .mockImplementationOnce(
         async (context: { messages: unknown[] }, _config: unknown, emit: (event: unknown) => Promise<void>) => {
-          expect(JSON.stringify(context.messages[0])).toContain('<summary>');
+          expect(context.messages[0]).toMatchObject({ role: 'system' });
+          expect(JSON.stringify(context.messages[1])).toContain('<summary>');
           await emit({
             type: 'turn_end',
             message: assistantMessage([{ type: 'text', text: 'Recovered' }]),
@@ -1047,20 +1047,22 @@ function budgetErrorText(reason: string) {
   });
 }
 
-/** Drive the runner's loop config the way pi-agent-core does: turn_end, then the stop check. */
+/** Drive the runner's loop config the way pi-agent-core does: the finishTurn decision, then turn_end. */
 function fakeModelLoop(turn: (step: number, emit: (event: unknown) => Promise<void>) => Promise<void>) {
-  return async (
-    _context: unknown,
-    config: { shouldStopAfterTurn?: (value: unknown) => boolean | Promise<boolean> },
-    emit: (event: unknown) => Promise<void>,
-  ) => {
+  return async (_context: unknown, config: StopAwareLoopConfig, emit: (event: unknown) => Promise<void>) => {
     // Fixed safety bound: the production loop has no step ceiling, so a test
     // whose stop condition never fires must fail instead of spinning forever.
     for (let step = 1; step <= 200; step += 1) {
       await turn(step, emit);
       const message = assistantMessage([{ type: 'toolCall', id: `call-${step}`, name: 'write', arguments: {} }]);
+      const decision = await config.finishTurn?.({
+        message,
+        toolResults: [],
+        context: { messages: [] },
+        newMessages: [],
+      });
       await emit({ type: 'turn_end', message, toolResults: [] });
-      if (await config.shouldStopAfterTurn?.({ message, toolResults: [], context: {}, newMessages: [] })) {
+      if (decision?.action === 'end') {
         return;
       }
     }

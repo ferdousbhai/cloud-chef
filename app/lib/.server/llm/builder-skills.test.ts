@@ -17,7 +17,7 @@ describe('builder skills', () => {
 
     await expect(reader.read('/__skills__/project-stack/SKILL.md')).resolves.toEqual({
       kind: 'file',
-      content: expect.stringContaining('cloudchef.projectType to "worker"'),
+      content: expect.stringContaining('name: project-stack'),
     });
     await expect(reader.read('/__skills__/frontend-design/SKILL.md')).resolves.toEqual({
       kind: 'file',
@@ -26,19 +26,6 @@ describe('builder skills', () => {
     await expect(reader.read('/__skills__/frontend-design')).resolves.toEqual({
       kind: 'directory',
       content: 'SKILL.md',
-    });
-    await expect(reader.read('/__skills__/react-start/SKILL.md')).resolves.toEqual({
-      kind: 'file',
-      content: expect.stringContaining('name: react-start'),
-    });
-    // The entry skill's own relative reference resolves inside the bundle.
-    await expect(reader.read('/__skills__/react-start/server-components/SKILL.md')).resolves.toEqual({
-      kind: 'file',
-      content: expect.stringContaining('name: server-components'),
-    });
-    await expect(reader.read('/__skills__/react-start')).resolves.toEqual({
-      kind: 'directory',
-      content: expect.stringContaining('SKILL.md'),
     });
     await expect(reader.read('/__skills__/frontend-design/LICENSE.txt')).resolves.toBeNull();
     await expect(reader.read('/__skills__/nothing/SKILL.md')).resolves.toBeNull();

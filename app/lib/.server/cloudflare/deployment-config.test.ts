@@ -27,8 +27,21 @@ describe('trusted deployment config', () => {
     });
 
     expect(config.env).toEqual({});
+    expect(config.assets).toBeUndefined();
     expect(config.exports).toBeUndefined();
     expect(config.triggers).toBeUndefined();
+  });
+
+  test('routes pages through the Worker first when the project serves static assets', () => {
+    const config = createTrustedDeploymentConfig({
+      workerName: 'cloudchef-deployment-1',
+      workersAi: false,
+      appAgent: false,
+      assets: true,
+    });
+
+    expect(config.env).toEqual({ ASSETS: { type: 'assets' } });
+    expect(config.assets).toEqual({ runWorkerFirst: ['/*', '!/assets/*'] });
   });
 
   test('rejects an invalid KV namespace id', () => {

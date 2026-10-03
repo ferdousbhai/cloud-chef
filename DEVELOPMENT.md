@@ -57,7 +57,8 @@ The checked-in D1 ID belongs to CloudChef production. Before provisioning a fork
 `00000000-0000-0000-0000-000000000000`. The provisioner refuses to replace an unknown non-placeholder ID.
 
 Builder references are not mirrored. Cloudflare's documentation is retrieved live by the `search_cloudflare_docs`
-tool, and TanStack's skills are read from the project's own `node_modules`, so neither needs syncing or pinning. The
+tool, and a framework's packaged skills are read from the project's own `node_modules`, so neither needs syncing or
+pinning. The
 single exception is `app/lib/.server/llm/skills/frontend-design/`, which is vendored into this repository, bundled
 into the Worker, and maintained by hand — edit it like any other source file. Its frontmatter `name` and `description`
 are what the system prompt catalogs, so keep them accurate.

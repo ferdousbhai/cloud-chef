@@ -27,14 +27,15 @@ export function findLicenseNoticeErrors(packages, policy) {
   const metadataOnly = new Set(policy?.metadataOnlyPackageAllowlist ?? []);
   const packagesById = new Map(packages.map((entry) => [packageIdentity(entry.name, entry.version), entry]));
   for (const [packageId, entry] of packagesById) {
-    if (!entry.hasPackageLicenseEvidence && !metadataOnly.has(packageId)) {
+    if (!entry.hasPackageLicenseEvidence && !metadataOnly.has(packageId) && !metadataOnly.has(entry.name)) {
       errors.push(
-        `${packageId} publishes no package-level license evidence; review it and add the exact version to metadataOnlyPackageAllowlist if the package metadata is sufficient.`,
+        `${packageId} publishes no package-level license evidence; review it and add the package name to metadataOnlyPackageAllowlist if the package metadata is sufficient.`,
       );
     }
   }
+  // An entry is an exact `name@version`, or a bare name reviewed across releases.
   for (const packageId of metadataOnly) {
-    const entry = packagesById.get(packageId);
+    const entry = packagesById.get(packageId) ?? packages.find((candidate) => candidate.name === packageId);
     if (!entry) {
       errors.push(`${packageId} is a stale metadataOnlyPackageAllowlist entry.`);
     } else if (entry.hasPackageLicenseEvidence) {

@@ -75,7 +75,7 @@ describe('generated-app production license artifact', () => {
       ),
     ).toEqual([
       'unreviewed@1.0.0 declares unreviewed production license "AGPL-3.0-only".',
-      'unreviewed@1.0.0 publishes no package-level license evidence and requires exact-version review.',
+      'unreviewed@1.0.0 publishes no package-level license evidence and requires review.',
       'metadata-only@1.0.0 is a stale metadata-only review entry.',
     ]);
   });
@@ -95,6 +95,20 @@ describe('generated-app production license artifact', () => {
         ],
         { ...policy, metadataOnlyPackageAllowlist: [] },
       ),
-    ).toEqual(['nested-only@1.0.0 publishes no package-level license evidence and requires exact-version review.']);
+    ).toEqual(['nested-only@1.0.0 publishes no package-level license evidence and requires review.']);
+  });
+
+  it('accepts a bare package name as a metadata-only review across releases', () => {
+    const entry = {
+      name: 'metadata-only',
+      version: '2.3.4',
+      license: 'MIT',
+      packageLicense: 'MIT',
+      hasPackageLicenseEvidence: false,
+      licenseFiles: [],
+    };
+    expect(
+      findProductionLicenseErrors([entry], { ...policy, metadataOnlyPackageAllowlist: ['metadata-only'] }),
+    ).toEqual([]);
   });
 });

@@ -1,4 +1,4 @@
-import type { SqlProvider } from 'agents/experimental/memory/session';
+import type { SqlProvider } from 'agents/context';
 import { describe, expect, test } from 'vitest';
 import { DurableObjectContextCompactionRepository } from './context-compaction-store';
 

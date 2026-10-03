@@ -15,6 +15,11 @@ export const PLACEHOLDER_D1_DATABASE_ID =
   "00000000-0000-0000-0000-000000000000";
 export const PLACEHOLDER_KV_NAMESPACE_ID = "00000000000000000000000000000000";
 const WORKER_ENTRYPOINTS = ["src/plain-server.ts", "src/server.ts"];
+/**
+ * A web app's pages and API run through its Worker first, so CloudChef's security headers reach
+ * every HTML response whatever framework produced it; Vite's hashed bundles stay plain static hits.
+ */
+export const WEB_APP_RUN_WORKER_FIRST = ["/*", "!/assets/*"];
 
 const cloudflareName = /^[a-z0-9][a-z0-9-]{2,63}$/;
 export const D1_DATABASE_ID_PATTERN =
@@ -35,7 +40,15 @@ export function parseCloudflareProject(value) {
   if (!isRecord(value)) {
     errors.push(`${CLOUDFLARE_PROJECT_FILE} must contain a JSON object.`);
   }
-  const allowed = new Set(["name", "entrypoint", "d1", "kv", "r2", "agent"]);
+  const allowed = new Set([
+    "name",
+    "entrypoint",
+    "assets",
+    "d1",
+    "kv",
+    "r2",
+    "agent",
+  ]);
   for (const key of Object.keys(record)) {
     if (!allowed.has(key)) {
       errors.push(
@@ -48,6 +61,9 @@ export function parseCloudflareProject(value) {
     errors.push(
       `${CLOUDFLARE_PROJECT_FILE} entrypoint must be one of ${WORKER_ENTRYPOINTS.join(", ")}.`,
     );
+  }
+  if (record.assets !== undefined && record.assets !== true) {
+    errors.push(`${CLOUDFLARE_PROJECT_FILE} assets must be true when present.`);
   }
   if (record.d1 !== undefined) {
     requireD1(errors, record.d1, "d1");
@@ -101,6 +117,9 @@ export function parseCloudflareProjectText(text) {
 export function renderCloudflareConfig(project) {
   const agent = project.agent;
   const env = [];
+  if (project.assets) {
+    env.push("ASSETS: bindings.assets(),");
+  }
   if (project.d1) {
     env.push(`DB: bindings.d1(${literal(project.d1)}),`);
   }
@@ -127,6 +146,11 @@ export function renderCloudflareConfig(project) {
     `compatibilityDate: ${literal(CF_COMPATIBILITY_DATE)},`,
     'compatibilityFlags: ["nodejs_compat"],',
     `entrypoint: ${literal(project.entrypoint)},`,
+    ...(project.assets
+      ? [
+          `assets: { runWorkerFirst: ${JSON.stringify(WEB_APP_RUN_WORKER_FIRST)} },`,
+        ]
+      : []),
     "observability: {",
     "  enabled: true,",
     `  logs: { enabled: true, headSamplingRate: ${CF_LOGS_HEAD_SAMPLING_RATE} },`,

@@ -1853,8 +1853,12 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         r2: r2BucketName !== undefined,
         kv: kvNamespaceId !== undefined,
         appAgent: input.appAgent === true,
+        assets: input.assets === true,
       },
     };
+    if (project.bindings.assets && project.type !== 'web_app') {
+      throw new Error('Only a web app deployment may declare static assets.');
+    }
     if (project.bindings.appAgent !== (agentSecurityD1DatabaseId !== undefined)) {
       throw new Error('The deployment artifact bindings do not match the AppAgent security profile.');
     }
@@ -1862,6 +1866,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       workerName: requireCloudflareName(input.workerName, 'workerName'),
       workersAi: project.bindings.ai,
       appAgent: project.bindings.appAgent,
+      assets: project.bindings.assets,
     };
     if (d1DatabaseId !== undefined) {
       deploymentConfig.d1DatabaseId = d1DatabaseId;
@@ -3313,6 +3318,7 @@ function validationDeploymentConfig(project: DeploymentProjectProfile): Deployme
     workerName: 'cloudchef-validation',
     workersAi: project.bindings.ai,
     appAgent: project.bindings.appAgent,
+    assets: project.bindings.assets,
   };
   if (project.bindings.d1) {
     config.d1DatabaseId = PLACEHOLDER_D1_DATABASE_ID;

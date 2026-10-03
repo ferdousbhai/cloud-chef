@@ -1,10 +1,10 @@
-import handler from "@tanstack/react-start/server-entry";
+import application from "./application";
 import { finalizeApplicationResponse } from "./application-response";
 
 export default {
-  fetch(request: Request) {
+  fetch(request: Request, env: Env) {
     return finalizeApplicationResponse(request, null, () =>
-      handler.fetch(request),
+      application.fetch(request, env),
     );
   },
 } satisfies ExportedHandler<Env>;

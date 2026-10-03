@@ -53,7 +53,7 @@ export async function verifyTemplate() {
     }
     run(tempDir, ['install', '--frozen-lockfile']);
     run(tempDir, ['audit', '--audit-level', 'moderate']);
-    // Typecheck owns route and Worker-binding generation. Run it before stack
+    // Typecheck owns Worker-binding generation. Run it before stack
     // verification so a fresh snapshot does not depend on ignored local files.
     run(tempDir, ['run', 'typecheck']);
     if (!existsSync(generatedBindingsPath)) {
@@ -72,7 +72,7 @@ export async function verifyTemplate() {
 
 async function verifyResolvedProductionModulePolicy(tempDir) {
   const dependencyDir = join(tempDir, 'node_modules', 'innocent-runtime-helper');
-  const routePath = join(tempDir, 'src', 'routes', 'index.tsx');
+  const routePath = join(tempDir, 'src', 'application.ts');
   const originalRoute = await readFile(routePath, 'utf8');
   await mkdir(dependencyDir, { recursive: true });
   await writeFile(
@@ -231,6 +231,7 @@ async function convertToWorkerProfile(tempDir) {
   await Promise.all([
     rm(join(tempDir, 'agent-security-migrations'), { recursive: true, force: true }),
     rm(join(tempDir, 'migrations'), { recursive: true, force: true }),
+    rm(join(tempDir, 'index.html'), { force: true }),
   ]);
 }
 

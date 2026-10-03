@@ -11,6 +11,9 @@ import {
   productionModuleSecurityPlugin,
 } from '../template/scripts/lib/runtime-module-security';
 
+/** The template's Agent capability installs the latest Agents release, which the root also uses. */
+const packageRequire = createRequire(import.meta.url);
+
 describe('generated app production module security', () => {
   test.each([
     [`export { env as value } from "cloudflare:\\x77orkers";`, 'ambient-workers-module'],
@@ -29,15 +32,39 @@ describe('generated app production module security', () => {
       'shared-intrinsic-mutation',
     ],
     [`Reflect.set(globalThis, "Boolean", () => true);`, 'shared-intrinsic-mutation'],
+    [`export const keys = Reflect.ownKeys(globalThis);`, 'global-object-escape'],
+    [`export const symbols = Object.getOwnPropertySymbols(self);`, 'global-object-escape'],
+    [`export const copy = { ...globalThis };`, 'global-object-escape'],
+    [`const root = (globalThis); export const value = root;`, 'global-object-escape'],
   ])('rejects a resolved dependency capability: %s', (source, capability) => {
     expect(findRuntimeModuleSecurityViolations(source)).toEqual(
       expect.arrayContaining([expect.objectContaining({ capability })]),
     );
     const id =
-      capability === 'shared-intrinsic-mutation'
+      capability === 'shared-intrinsic-mutation' || capability === 'global-object-escape'
         ? '/workspace/src/routes/untrusted.ts'
         : '/workspace/node_modules/innocent-helper/index.js';
     expect(() => transformResolvedModule(source, id)).toThrow(`forbidden ${capability} capability`);
+  });
+
+  test('lets project code read through the global object but leaves dependencies their own globals', () => {
+    expect(
+      findRuntimeModuleSecurityViolations(
+        [
+          'export const subtle = globalThis.crypto.subtle;',
+          'export const hasWindow = typeof window !== "undefined";',
+          'export const origin = self["location"];',
+          'type Root = typeof globalThis;',
+          'export const options = { window: 1 };',
+        ].join('\n'),
+      ),
+    ).toEqual([]);
+    expect(() =>
+      transformResolvedModule(
+        `export const root = typeof globalThis === "object" && globalThis;`,
+        '/workspace/node_modules/ordinary-polyfill/index.js',
+      ),
+    ).not.toThrow();
   });
 
   test('allows normal resolved dependencies and only the exact protected binding broker', () => {
@@ -139,28 +166,20 @@ describe('generated app production module security', () => {
       ].join('\n'),
       true,
     );
-    const lockdown = files.find(([path]) => path.includes('_virtual_cloudchef-security-intrinsics-lockdown'));
-    expect(lockdown?.[1]).toContain('getPrototypeOf = Object.getPrototypeOf');
-    expect(lockdown?.[1]).toContain('current !== objectPrototype');
-
     const probe = files.find(([, source]) => source.includes('cloudchef-prototype-lockdown-production-probe'));
     expect(probe, 'The indirect mutation probe was omitted from the production bundle.').toBeDefined();
-    expect(probe?.[1]).toContain('init__virtual_cloudchef_security_intrinsics_lockdown();');
-    expect(probe?.[1].indexOf('init__virtual_cloudchef_security_intrinsics_lockdown();')).toBeLessThan(
-      probe?.[1].indexOf('cloudchef-prototype-lockdown-production-probe') ?? -1,
-    );
+    const source = probe?.[1] ?? '';
+    const probeAt = source.indexOf('cloudchef-prototype-lockdown-production-probe');
+    // The lockdown is either inlined ahead of application code or split into a chunk whose
+    // initializer runs first; either way it must execute before the untrusted module.
+    const lockdownAt = source.includes('current !== objectPrototype')
+      ? source.indexOf('current !== objectPrototype')
+      : source.indexOf('init__virtual_cloudchef_security_intrinsics_lockdown();');
+    expect(lockdownAt, 'The lockdown does not run in the module that holds the probe.').toBeGreaterThanOrEqual(0);
+    expect(lockdownAt).toBeLessThan(probeAt);
+    const lockdown = files.find(([, file]) => file.includes('current !== objectPrototype'));
+    expect(lockdown?.[1]).toContain('getPrototypeOf = Object.getPrototypeOf');
   }, 70_000);
-
-  test('removes partyserver ambient-environment fallback only from its exact reviewed module', () => {
-    const id = createRequire(resolve('template/node_modules/agents/package.json')).resolve('partyserver');
-    const source = readFileSync(id, 'utf8');
-    const transformed = transformResolvedModule(source, id) as { code: string };
-
-    expect(transformed.code).toContain('import { DurableObject } from "cloudflare:workers";');
-    expect(transformed.code).toContain('async function routePartykitRequest(req, env$1, options) {');
-    expect(transformed.code).not.toContain('env$1 = env');
-    expect(() => transformResolvedModule(`${source}\n`, id)).toThrow('no longer matches its exact security baseline');
-  });
 
   test('allows the narrow application broker but rejects reverse imports into privileged runtime modules', () => {
     const projectDir = '/workspace';
@@ -197,30 +216,47 @@ describe('generated app production module security', () => {
   });
 
   test('rejects unreviewed imports of mutable Agent runtime package entries', () => {
-    const packageRequire = createRequire(resolve('template/package.json'));
     for (const target of [packageRequire.resolve('agents'), packageRequire.resolve('@cloudflare/ai-chat')]) {
       expect(
         findRuntimeModuleImportViolation(resolve('template/src/routes/index.tsx'), target, resolve('template')),
       ).toEqual(expect.objectContaining({ importer: 'project:src/routes/index.tsx' }));
+      expect(
+        findRuntimeModuleImportViolation(
+          resolve('template/node_modules/innocent-helper/index.js'),
+          target,
+          resolve('template'),
+        ),
+      ).toEqual(expect.objectContaining({ importer: 'package:innocent-helper/index.js' }));
     }
   });
 
-  test('allows only the exact reviewed Agents modules to import partyserver', () => {
-    const packageRequire = createRequire(resolve('template/package.json'));
+  test('lets application UI import the Agent browser entries and Agent packages import each other', () => {
     const agentsEntry = packageRequire.resolve('agents');
-    const mcpHelper = resolve(agentsEntry, '../client-zqKcsyFa.js');
-    const partyserverEntry = createRequire(agentsEntry).resolve('partyserver');
+    const route = resolve('template/src/routes/index.tsx');
+    for (const clientEntry of [
+      packageRequire.resolve('agents/react'),
+      packageRequire.resolve('agents/client'),
+      packageRequire.resolve('@cloudflare/ai-chat/react'),
+    ]) {
+      expect(findRuntimeModuleImportViolation(route, clientEntry, resolve('template'))).toBeNull();
+    }
+    expect(
+      findRuntimeModuleImportViolation(packageRequire.resolve('@cloudflare/ai-chat'), agentsEntry, resolve('template')),
+    ).toBeNull();
+    expect(
+      findRuntimeModuleImportViolation(resolve('template/src/server.ts'), agentsEntry, resolve('template')),
+    ).toBeNull();
+  });
 
-    expect(findRuntimeModuleImportViolation(agentsEntry, partyserverEntry, resolve('template'))).toBeNull();
-    expect(findRuntimeModuleImportViolation(mcpHelper, partyserverEntry, resolve('template'))).toBeNull();
+  test('admits the current Agents runtime, whose modules may use Worker primitives', () => {
+    const agentsEntry = packageRequire.resolve('agents');
     expect(() => transformResolvedModule(readFileSync(agentsEntry, 'utf8'), agentsEntry)).not.toThrow();
-    expect(() => transformResolvedModule(readFileSync(mcpHelper, 'utf8'), mcpHelper)).not.toThrow();
-    expect(() => transformResolvedModule(`${readFileSync(agentsEntry, 'utf8')}\n`, agentsEntry)).toThrow(
-      'no longer matches its exact security baseline',
-    );
-    expect(() => transformResolvedModule(`${readFileSync(mcpHelper, 'utf8')}\n`, mcpHelper)).toThrow(
-      'no longer matches its exact security baseline',
-    );
+    expect(() =>
+      transformResolvedModule(
+        `import { env } from "cloudflare:workers"; export const DB = env.DB;`,
+        '/workspace/node_modules/agents/dist/unreviewed.js',
+      ),
+    ).not.toThrow();
   });
 
   test.each([
@@ -280,8 +316,8 @@ function runProductionBuild(untrustedHelperSource: string, expectSuccess: boolea
     });
     symlinkSync(resolve(templateDir, 'node_modules'), join(projectDir, 'node_modules'), 'dir');
     writeFileSync(join(projectDir, 'src/untrusted-helper.ts'), untrustedHelperSource);
-    const routePath = join(projectDir, 'src/routes/index.tsx');
-    writeFileSync(routePath, `import "../untrusted-helper";\n${readFileSync(routePath, 'utf8')}`);
+    const applicationPath = join(projectDir, 'src/application.ts');
+    writeFileSync(applicationPath, `import "./untrusted-helper";\n${readFileSync(applicationPath, 'utf8')}`);
 
     const result = spawnSync(process.execPath, [templateViteBin(), 'build'], {
       cwd: projectDir,

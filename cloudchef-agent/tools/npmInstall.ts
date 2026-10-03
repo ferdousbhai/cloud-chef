@@ -74,7 +74,7 @@ export const npmInstallToolParameters = z
         code: z.ZodIssueCode.custom,
         message: `Unsupported package(s): ${forbiddenPackages
           .map(({ spec }) => spec)
-          .join(', ')}. Use Cloudflare Workers AI and TanStack/Cloudflare APIs instead.`,
+          .join(', ')}. Use Cloudflare Workers AI and Cloudflare platform APIs instead.`,
       });
     }
   });

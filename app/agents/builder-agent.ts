@@ -230,7 +230,7 @@ export type BuilderAgentState = {
 };
 
 /** Durable transcript as the agent currently holds it, returned after a cancel or an explicit reload. */
-export type BuilderTranscriptSnapshot = {
+type BuilderTranscriptSnapshot = {
   checkpoint: TranscriptCheckpoint | null;
   messages: NonNullable<ChatRequestBody['messages']>;
 };
@@ -378,7 +378,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       recoveryKind: ctx.recoveryKind,
       attempt: ctx.attempt,
       hasPartialOutput: ctx.partialText.length > 0,
-      hasRecoveryData: ctx.recoveryData !== undefined,
     });
 
     return {};
@@ -510,7 +509,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           accountCredentials,
         );
       }
-      this.stashTurn(turn);
       const compactionPending = await this.hasPendingContextCompaction();
       return await createChatResponseFromBody({
         abortSignal: options?.abortSignal,
@@ -1016,21 +1014,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     this.setState({ ...this.state, transcript: checkpoint });
     return checkpoint;
-  }
-
-  private stashTurn(turn: BuilderTurnState) {
-    try {
-      this.stash({
-        kind: 'cloudchef-chat-turn',
-        turn,
-        recoveryPlan: {
-          onRecovery: 'Persist partial output and continue.',
-          contextSource: 'durable AIChatAgent transcript plus this turn checkpoint',
-        },
-      });
-    } catch {
-      logger.warn('Unable to stash CloudChef chat turn recovery context');
-    }
   }
 
   private async scheduleTitleGeneration(

@@ -192,14 +192,21 @@ intentionally unsupported because it would disclose the runtime secret.
 
 ## Generated-Application Boundary
 
-`template/` is an independent application. Its default is a plain TanStack Worker entrypoint with no Workers AI
+`template/` is an independent application. Its default is a framework-free Worker web app (Vite, an `index.html`
+client, and the project-owned `src/application.ts` handler, reached through a Worker-first `ASSETS` binding so the
+security headers cover every page) with no Workers AI
 binding, Agent Durable Object, Agent security D1, cleanup cron, or Agent/AI packages. A project that needs durable AI
-runs `pnpm run agent:enable`; the idempotent command applies the reviewed capability manifest, exact dependency pins,
-protected `src/server.ts` entrypoint, Agent security database, Durable Object export, and cleanup schedule together.
+runs `pnpm run agent:enable`; the command applies the reviewed capability manifest, installs its dependencies at
+their latest release, and adds the protected `src/server.ts` entrypoint, Agent security database, Durable Object export, and cleanup schedule together.
 Partial Agent configuration fails validation. When enabled, application data stays in `DB`, while Agent sessions,
 retention state, and inference accounting stay in separately provisioned `AGENT_SECURITY_DB`. Only the AppAgent
 runtime may import that binding; the protected build policy checks the resolved module graph so aliases and
-dependencies cannot widen the capability boundary.
+dependencies cannot widen the capability boundary. The policy is structural rather than pinned to package versions:
+only the Agent packages (and capnweb, their RPC layer) may import `cloudflare:workers`, only the protected
+entrypoints and those packages may import the Agent runtime, and project code may reach `globalThis`, `self`, or
+`window` only through property access, because capnweb keeps the Workers module on the global object under an
+unregistered symbol that enumeration would expose. A web framework is the project's own choice: the builder adds one
+only when the product needs it, and wires its handler into `src/application.ts` behind the same entrypoints.
 
 Root dependencies do not implicitly apply to the template. Generated bundle source is deliberately ignored rather
 than reviewed as source: `pnpm run generate:artifacts` rebuilds both the template snapshot and the user-workspace Worker

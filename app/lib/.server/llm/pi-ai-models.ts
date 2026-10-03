@@ -1,7 +1,6 @@
 import type {
   Api,
   AssistantMessageEventStream,
-  Context,
   Model,
   ModelCost,
   OpenAICompletionsCompat,
@@ -9,6 +8,7 @@ import type {
   ProviderHeaders,
   SimpleStreamOptions,
   StreamFunction,
+  TranscriptContext,
 } from '@earendil-works/pi-ai';
 import {
   stream as openaiCompletionsStream,
@@ -24,24 +24,23 @@ import { recordPiStage } from './pi-telemetry';
 
 export type WorkersAiAccountCredentials = { binding: Ai };
 
-export type ModelStreamOptions = SimpleStreamOptions & {
+export type ModelStreamOptions = Omit<SimpleStreamOptions, 'toolChoice'> & {
   toolChoice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
 };
 
 export type ModelHandle = {
   model: Model<Api>;
-  stream: (model: Model<Api>, context: Context, options?: ModelStreamOptions) => AssistantMessageEventStream;
+  stream: (model: Model<Api>, context: TranscriptContext, options?: ModelStreamOptions) => AssistantMessageEventStream;
   lastResponse?: { status: number };
 };
+
+type WorkersAiStreamOptions = OpenAICompletionsOptions & Omit<SimpleStreamOptions, 'toolChoice'>;
 
 // SAFETY: `makeHandle` refuses any model whose `api` is not `openai-completions`, so every model this
 // stream ever receives matches the narrower signature the OpenAI Completions adapter declares. The
 // options type is that adapter's own, not the generic `SimpleStreamOptions`, because this calls the
 // adapter's api-level entry point directly (see `builderReasoningEffort`).
-const WORKERS_AI_STREAM = openaiCompletionsStream as StreamFunction<
-  Api,
-  OpenAICompletionsOptions & SimpleStreamOptions
->;
+const WORKERS_AI_STREAM = openaiCompletionsStream as StreamFunction<Api, WorkersAiStreamOptions>;
 
 const ZERO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
@@ -55,7 +54,7 @@ function catalogModel(modelId: string): WorkersAiCatalogModel | undefined {
 
 /**
  * CloudChef states only what the binding path requires, and Pi's own catalog entry supplies the
- * rest — `compat.thinkingFormat` included, which today every Workers AI entry omits.
+ * rest — `compat.thinkingFormat` included, which Pi sets only for the DeepSeek v4 entries.
  *
  * CloudChef used to name a thinking dialect itself, by model-id prefix, for the families Pi does
  * not characterise. That is gone because it was measured to do nothing: Cloudflare ignores every
@@ -84,17 +83,14 @@ function workersAiCompat(catalog: WorkersAiCatalogModel | undefined): OpenAIComp
 const ESTIMATED_CHARACTERS_PER_TOKEN = 4;
 
 /**
- * Everything this one request puts in front of the model: the system prompt, every message
- * (thinking blocks included, because a reasoning model's replayed chain-of-thought is real input),
- * and the tool schemas. Serialized rather than walked, so JSON framing is counted too — the
- * estimate must lean high, since the budget built on it is what keeps the provider from rejecting
- * the request outright.
+ * Everything this one request puts in front of the model: every transcript message — the system
+ * messages carry the prompt and the tool declarations, and a reasoning model's replayed
+ * chain-of-thought is real input. Serialized rather than walked, so JSON framing is counted too —
+ * the estimate must lean high, since the budget built on it is what keeps the provider from
+ * rejecting the request outright.
  */
-function estimateRequestInputTokens(context: Context): number {
-  let characters = context.systemPrompt?.length ?? 0;
-  for (const tool of context.tools ?? []) {
-    characters += tool.name.length + tool.description.length + serializedLength(tool.parameters);
-  }
+function estimateRequestInputTokens(context: TranscriptContext): number {
+  let characters = 0;
   for (const message of context.messages) {
     characters += serializedLength(message);
   }
@@ -128,7 +124,7 @@ const MINIMUM_OUTPUT_TOKENS = 4_096;
  * A static cap (CloudChef previously asked for 24,576 tokens regardless) only ever truncated a
  * model that could physically have produced far more.
  */
-function availableOutputTokens(model: Model<Api>, context: Context): number {
+function availableOutputTokens(model: Model<Api>, context: TranscriptContext): number {
   const reserved = estimateRequestInputTokens(context) + modelTokenEstimateSafetyTokens(model.contextWindow);
   return Math.max(0, model.contextWindow - reserved);
 }
@@ -138,7 +134,7 @@ function availableOutputTokens(model: Model<Api>, context: Context): number {
  * it, clamped to what physically fits. A caller that asked for nothing gets everything left. Both
  * are then lifted to `MINIMUM_OUTPUT_TOKENS`, which is never omitted and never zero.
  */
-function requestOutputTokens(model: Model<Api>, context: Context, requested: number | undefined): number {
+function requestOutputTokens(model: Model<Api>, context: TranscriptContext, requested: number | undefined): number {
   const available = availableOutputTokens(model, context);
   return Math.max(MINIMUM_OUTPUT_TOKENS, requested === undefined ? available : Math.min(requested, available));
 }
@@ -162,7 +158,7 @@ function makeHandle(args: HandleArgs): ModelHandle {
       handle.lastResponse = undefined;
       const streamOptions = { ...options };
       const headers: ProviderHeaders = { ...streamOptions.headers };
-      const merged: OpenAICompletionsOptions & SimpleStreamOptions = {
+      const merged: WorkersAiStreamOptions = {
         ...streamOptions,
         maxTokens: requestOutputTokens(model, context, streamOptions.maxTokens),
         sessionId: streamOptions.sessionId ?? args.sessionAffinity,
@@ -363,7 +359,7 @@ function withinProviderContextLimit(
  * other sites that care point here rather than repeating the provider's wording.
  *
  * Pi only translates a directive into a model's own vocabulary when its static catalog carries a
- * `thinkingLevelMap` for it, which pi-ai 0.83.0 does not for most of the Workers AI catalog, so the
+ * `thinkingLevelMap` for it, which pi-ai does not carry for most of the Workers AI catalog, so the
  * value goes out as written. Measured against production, `@cf/qwen/qwen3.8-27b` rejects `high`
  * outright with `Unexpected reasoning effort high. Supported types are xhigh (default), medium, and
  * low.` Were `builderThinkingLevel` sending `high`, a user selecting that model would 400 on every

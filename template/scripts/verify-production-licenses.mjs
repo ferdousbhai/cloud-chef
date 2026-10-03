@@ -34,7 +34,10 @@ function readLicenseReport() {
       `pnpm production license inventory failed: ${result.stderr?.trim() || `exit ${result.status}`}`,
     );
   }
-  return JSON.parse(result.stdout);
+  // A project with no production dependencies gets a sentence, not JSON.
+  return /^No licenses/i.test(result.stdout.trim())
+    ? {}
+    : JSON.parse(result.stdout);
 }
 
 function verify() {

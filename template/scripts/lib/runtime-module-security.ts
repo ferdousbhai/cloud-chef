@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
 import { relative, resolve, sep } from "node:path";
 import ts from "typescript";
 import type { Plugin } from "vite";
@@ -110,7 +108,8 @@ type RuntimeCapability =
   | "require-call"
   | "eval-call"
   | "function-constructor"
-  | "shared-intrinsic-mutation";
+  | "shared-intrinsic-mutation"
+  | "global-object-escape";
 
 const PROTECTED_INTRINSIC_ROOTS = new Set([
   "globalThis",
@@ -138,6 +137,14 @@ const PROTECTED_INTRINSIC_ROOTS = new Set([
   "btoa",
 ]);
 
+/**
+ * Runtime libraries may stash Worker state on the global object under an unregistered symbol
+ * (capnweb keeps the whole `cloudflare:workers` module there). Reading such a property needs the
+ * global object itself as a value - enumerated, spread, aliased, or passed along - so project code
+ * may only reach these roots through property access.
+ */
+const GLOBAL_OBJECT_ROOTS = new Set(["globalThis", "self", "window"]);
+
 const SHARED_INTRINSIC_MUTATORS = new Map([
   [
     "Object",
@@ -163,59 +170,42 @@ type RuntimeModuleImportViolation = {
 /**
  * Production bundles receive privileged Agent bindings, so every resolved
  * runtime module is inspected before Vite transforms it. The allowlist is
- * intentionally file- and capability-specific: reviewed framework modules
- * may use Worker primitives, but generated application modules and arbitrary
- * dependencies may not acquire the ambient environment or dynamic code.
+ * intentionally capability-specific: reviewed framework modules may use Worker
+ * primitives, but generated application modules and arbitrary dependencies may
+ * not acquire the ambient environment or dynamic code. Package identities are
+ * version-free: the project lockfile pins each package's exact content, and the
+ * Agent capability always installs the latest Agents release.
  */
 const REVIEWED_MODULE_CAPABILITIES = new Map<
   string,
   ReadonlySet<RuntimeCapability>
 >([
   ["project:src/app-bindings.ts", new Set(["ambient-workers-module"])],
-  ["package:agents@0.20.1/dist/index.js", new Set(["ambient-workers-module"])],
+  ["package:ajv/dist/compile/index.js", new Set(["function-constructor"])],
   [
-    "package:agents@0.20.1/dist/cloudflare-BduZwmYK.js",
-    new Set(["ambient-workers-module"]),
-  ],
-  [
-    "package:partyserver@0.5.9/dist/index.js",
-    new Set(["ambient-workers-module"]),
-  ],
-  [
-    "package:ajv@8.20.0/dist/compile/index.js",
-    new Set(["function-constructor"]),
-  ],
-  [
-    "package:core-js-pure@3.49.0/internals/global-this.js",
+    "package:core-js-pure/internals/global-this.js",
     new Set(["function-constructor"]),
   ],
 ]);
 
-const REVIEWED_PACKAGE_MODULE_SHA256 = new Map([
-  [
-    "package:agents@0.20.1/dist/index.js",
-    "eae420dafd2dc41cefa369f1d80feefacaa1f11cac6a1becb402c96b21043a4a",
-  ],
-  [
-    "package:partyserver@0.5.9/dist/index.js",
-    "a15a4d1903c1696d288eb793cf29a0bd1fa2105ff10cde41648bb3dc2313bcc5",
-  ],
-  [
-    "package:agents@0.20.1/dist/cloudflare-BduZwmYK.js",
-    "8114fd7ace8e21cc09039e94e04322f265f70b8eb9ff4185f5fa7f5b659e16c0",
-  ],
-  [
-    "package:agents@0.20.1/dist/client-zqKcsyFa.js",
-    "23d25d934bb1a7d4970df286be4e8f1f36cdc4ef1acf93a5dcdf188352e4f2b4",
-  ],
-  [
-    "package:ajv@8.20.0/dist/compile/index.js",
-    "05b34da22814f3787bfa3ac68dad59c9047f56e55a607e0a20719ebf5afe69ac",
-  ],
-  [
-    "package:core-js-pure@3.49.0/internals/global-this.js",
-    "48246f2542635417cf3f8c6bcf99d7a991668ea1284d869671fcb5b63a4af8c8",
-  ],
+/** Agent runtime packages; their modules are privileged and may import each other. */
+const AGENT_RUNTIME_PACKAGES = new Set(["agents", "@cloudflare/ai-chat"]);
+
+/** Packages whose every module may use Worker primitives: the Agent runtime and its RPC layer. */
+const REVIEWED_PACKAGE_CAPABILITIES = new Map<
+  string,
+  ReadonlySet<RuntimeCapability>
+>([
+  ["agents", new Set(["ambient-workers-module"])],
+  ["@cloudflare/ai-chat", new Set(["ambient-workers-module"])],
+  ["capnweb", new Set(["ambient-workers-module"])],
+]);
+
+/** Browser entry points of the Agent packages that application UI may import. */
+const AGENT_CLIENT_ENTRIES = new Set([
+  "package:agents/dist/react.js",
+  "package:agents/dist/client.js",
+  "package:@cloudflare/ai-chat/dist/react.js",
 ]);
 
 /**
@@ -225,23 +215,44 @@ const REVIEWED_PACKAGE_MODULE_SHA256 = new Map([
  * The application binding broker is intentionally absent from this set: it is
  * the narrow, reviewed surface generated routes are expected to import.
  */
-const PRIVILEGED_RUNTIME_MODULES = new Set([
+const PRIVILEGED_PROJECT_MODULES = new Set([
   "project:src/server.ts",
   "project:src/agents/app-agent.ts",
-  "package:agents@0.20.1/dist/index.js",
-  "package:agents@0.20.1/dist/client-zqKcsyFa.js",
-  "package:partyserver@0.5.9/dist/index.js",
-  "package:@cloudflare/ai-chat@0.10.1/dist/index.js",
 ]);
 
-const REVIEWED_PRIVILEGED_IMPORTERS = new Set([
-  "project:src/server.ts",
-  "project:src/agents/app-agent.ts",
-  "package:agents@0.20.1/dist/index.js",
-  "package:agents@0.20.1/dist/client-zqKcsyFa.js",
-  "package:partyserver@0.5.9/dist/index.js",
-  "package:@cloudflare/ai-chat@0.10.1/dist/index.js",
+/** Checks that bind generated application code; dependencies legitimately use these patterns. */
+const PROJECT_ONLY_CAPABILITIES: ReadonlySet<RuntimeCapability> = new Set([
+  "shared-intrinsic-mutation",
+  "global-object-escape",
 ]);
+
+function agentRuntimePackage(identity: string): string | undefined {
+  const name = packageName(identity);
+  return name && AGENT_RUNTIME_PACKAGES.has(name) ? name : undefined;
+}
+
+function isPrivilegedRuntimeModule(identity: string): boolean {
+  return (
+    PRIVILEGED_PROJECT_MODULES.has(identity) ||
+    (agentRuntimePackage(identity) !== undefined &&
+      !AGENT_CLIENT_ENTRIES.has(identity))
+  );
+}
+
+function isReviewedPrivilegedImporter(identity: string): boolean {
+  return (
+    PRIVILEGED_PROJECT_MODULES.has(identity) ||
+    agentRuntimePackage(identity) !== undefined
+  );
+}
+
+function allowedCapabilities(identity: string): ReadonlySet<RuntimeCapability> {
+  return (
+    REVIEWED_MODULE_CAPABILITIES.get(identity) ??
+    REVIEWED_PACKAGE_CAPABILITIES.get(packageName(identity) ?? "") ??
+    new Set<RuntimeCapability>()
+  );
+}
 
 export function productionModuleSecurityPlugin(projectDir: string): Plugin {
   const canonicalProjectDir = resolve(projectDir);
@@ -286,22 +297,11 @@ export function productionModuleSecurityPlugin(projectDir: string): Plugin {
         return null;
       }
       const identity = moduleIdentity(cleanId, canonicalProjectDir);
-      const reviewedDigest = REVIEWED_PACKAGE_MODULE_SHA256.get(identity);
-      if (reviewedDigest && sha256(code) !== reviewedDigest) {
-        this.error(
-          `Reviewed production module ${identity} no longer matches its exact security baseline.`,
-        );
-      }
-      const securedCode = applyReviewedModulePatch(identity, code);
-      const allowed =
-        REVIEWED_MODULE_CAPABILITIES.get(identity) ??
-        new Set<RuntimeCapability>();
-      const violations = findRuntimeModuleSecurityViolations(
-        securedCode,
-      ).filter(
+      const allowed = allowedCapabilities(identity);
+      const violations = findRuntimeModuleSecurityViolations(code).filter(
         (violation) =>
           !allowed.has(violation.capability) &&
-          (violation.capability !== "shared-intrinsic-mutation" ||
+          (!PROJECT_ONLY_CAPABILITIES.has(violation.capability) ||
             identity.startsWith("project:")),
       );
       if (violations.length > 0) {
@@ -313,8 +313,8 @@ export function productionModuleSecurityPlugin(projectDir: string): Plugin {
         );
       }
       const runtimeCode = options?.ssr
-        ? `import ${JSON.stringify(INTRINSIC_LOCKDOWN_MODULE)};\n${securedCode}`
-        : securedCode;
+        ? `import ${JSON.stringify(INTRINSIC_LOCKDOWN_MODULE)};\n${code}`
+        : code;
       return runtimeCode === code ? null : { code: runtimeCode, map: null };
     },
     moduleParsed(module) {
@@ -346,8 +346,8 @@ export function findRuntimeModuleImportViolation(
   const importer = moduleIdentity(cleanModuleId(importerId), projectDir);
   const imported = moduleIdentity(cleanModuleId(importedId), projectDir);
   if (
-    !PRIVILEGED_RUNTIME_MODULES.has(imported) ||
-    REVIEWED_PRIVILEGED_IMPORTERS.has(importer)
+    !isPrivilegedRuntimeModule(imported) ||
+    isReviewedPrivilegedImporter(importer)
   ) {
     return null;
   }
@@ -362,37 +362,6 @@ function importViolationMessage(
     `${violation.imported}. Generated application code must use src/app-bindings.ts ` +
     "and public client adapters instead."
   );
-}
-
-function applyReviewedModulePatch(identity: string, source: string): string {
-  if (identity !== "package:partyserver@0.5.9/dist/index.js") {
-    return source;
-  }
-  const ambientImport =
-    'import { DurableObject, env } from "cloudflare:workers";';
-  const routeSignature =
-    "async function routePartykitRequest(req, env$1 = env, options) {";
-  if (
-    source.split(ambientImport).length !== 2 ||
-    source.split(routeSignature).length !== 2
-  ) {
-    throw new Error(
-      "Reviewed partyserver ambient-environment patch no longer applies exactly.",
-    );
-  }
-  return source
-    .replace(
-      ambientImport,
-      'import { DurableObject } from "cloudflare:workers";',
-    )
-    .replace(
-      routeSignature,
-      "async function routePartykitRequest(req, env$1, options) {",
-    );
-}
-
-function sha256(source: string): string {
-  return createHash("sha256").update(source).digest("hex");
 }
 
 export function findRuntimeModuleSecurityViolations(
@@ -425,6 +394,13 @@ export function findRuntimeModuleSecurityViolations(
   }
 
   function visit(node: ts.Node) {
+    if (
+      ts.isIdentifier(node) &&
+      GLOBAL_OBJECT_ROOTS.has(node.text) &&
+      isGlobalObjectValueUse(node)
+    ) {
+      add(node, "global-object-escape");
+    }
     if (
       ts.isBinaryExpression(node) &&
       isAssignmentOperator(node.operatorToken.kind) &&
@@ -502,6 +478,43 @@ export function findRuntimeModuleSecurityViolations(
 
   visit(file);
   return violations;
+}
+
+/** Whether a global-object identifier is used as a value rather than read through. */
+function isGlobalObjectValueUse(node: ts.Identifier): boolean {
+  let child: ts.Node = node;
+  let parent = node.parent;
+  while (ts.isParenthesizedExpression(parent)) {
+    child = parent;
+    parent = parent.parent;
+  }
+  if (
+    ((ts.isPropertyAccessExpression(parent) ||
+      ts.isElementAccessExpression(parent)) &&
+      parent.expression === child) ||
+    ts.isTypeOfExpression(parent)
+  ) {
+    return false;
+  }
+  // A property or member named like a global, a declaration of that name, or a type position.
+  if (
+    (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+    (ts.isPropertyAssignment(parent) && parent.name === node) ||
+    (ts.isMethodDeclaration(parent) && parent.name === node) ||
+    (ts.isPropertyDeclaration(parent) && parent.name === node) ||
+    (ts.isVariableDeclaration(parent) && parent.name === node) ||
+    (ts.isParameter(parent) && parent.name === node) ||
+    ts.isImportSpecifier(parent) ||
+    ts.isExportSpecifier(parent)
+  ) {
+    return false;
+  }
+  for (let current: ts.Node = node; current.parent; current = current.parent) {
+    if (ts.isTypeNode(current)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function collectProtectedIntrinsicAliases(
@@ -754,28 +767,7 @@ function moduleIdentity(id: string, projectDir: string): string {
   const marker = "/node_modules/";
   const lastNodeModules = normalized.lastIndexOf(marker);
   if (lastNodeModules !== -1) {
-    const packagePath = normalized.slice(lastNodeModules + marker.length);
-    const parts = packagePath.split("/");
-    const packageLength = parts[0]?.startsWith("@") ? 2 : 1;
-    const packageName = parts.slice(0, packageLength).join("/");
-    const packageFile = parts.slice(packageLength).join("/");
-    const packageRoot =
-      normalized.slice(0, lastNodeModules + marker.length) + packageName;
-    let version = "unversioned";
-    try {
-      const metadata = JSON.parse(
-        readFileSync(`${packageRoot}/package.json`, "utf8"),
-      ) as { version?: unknown };
-      if (
-        typeof metadata.version === "string" &&
-        /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(metadata.version)
-      ) {
-        version = metadata.version;
-      }
-    } catch {
-      // Missing or malformed package metadata can never match a reviewed entry.
-    }
-    return `package:${packageName}@${version}/${packageFile}`;
+    return `package:${normalized.slice(lastNodeModules + marker.length)}`;
   }
   const projectRelative = relative(projectDir, resolve(id))
     .split(sep)
@@ -783,6 +775,14 @@ function moduleIdentity(id: string, projectDir: string): string {
   return projectRelative.startsWith("../")
     ? `external:${normalized}`
     : `project:${projectRelative}`;
+}
+
+function packageName(identity: string): string | undefined {
+  if (!identity.startsWith("package:")) {
+    return undefined;
+  }
+  const parts = identity.slice("package:".length).split("/");
+  return parts.slice(0, parts[0]?.startsWith("@") ? 2 : 1).join("/");
 }
 
 function cleanModuleId(id: string): string {

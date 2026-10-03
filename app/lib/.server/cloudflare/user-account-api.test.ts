@@ -817,6 +817,7 @@ describe('UserCloudflareAccountApi', () => {
         mainModule: 'index.js',
         modules: [module],
         assets: [asset, duplicateAsset],
+        workerFirstAssets: true,
         workersAi: true,
         appAgent: true,
         d1DatabaseId: '0123456789abcdef0123456789abcdef',
@@ -852,9 +853,10 @@ describe('UserCloudflareAccountApi', () => {
     const metadata = JSON.parse(await (workerForm.get('metadata') as Blob).text()) as Record<string, unknown>;
     expect(metadata).toMatchObject({
       main_module: 'index.js',
-      assets: { jwt: 'asset-completion-jwt' },
+      assets: { jwt: 'asset-completion-jwt', config: { run_worker_first: ['/*', '!/assets/*'] } },
       compatibility_date: '2026-07-21',
       bindings: expect.arrayContaining([
+        { type: 'assets', name: 'ASSETS' },
         {
           type: 'kv_namespace',
           name: 'APP_CACHE',
@@ -899,6 +901,7 @@ describe('UserCloudflareAccountApi', () => {
         mainModule: 'index.js',
         modules: [module],
         assets: [],
+        workerFirstAssets: false,
         workersAi: false,
         appAgent: false,
       }),
@@ -951,6 +954,7 @@ describe('UserCloudflareAccountApi', () => {
         mainModule: 'index.js',
         modules: [module],
         assets: [],
+        workerFirstAssets: false,
         workersAi: false,
         appAgent: false,
       }),
@@ -999,6 +1003,7 @@ describe('UserCloudflareAccountApi', () => {
         mainModule: 'index.js',
         modules: [module],
         assets: [],
+        workerFirstAssets: false,
         workersAi: false,
         appAgent: false,
       }),
@@ -1059,6 +1064,7 @@ describe('UserCloudflareAccountApi', () => {
         mainModule: 'index.js',
         modules: [module],
         assets: [],
+        workerFirstAssets: false,
         workersAi: false,
         appAgent: false,
       }),
@@ -1089,6 +1095,7 @@ describe('UserCloudflareAccountApi', () => {
         mainModule: 'index.js',
         modules: [module],
         assets: [asset],
+        workerFirstAssets: false,
         workersAi: false,
         appAgent: false,
       });

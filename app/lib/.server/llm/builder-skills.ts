@@ -1,14 +1,4 @@
 import { parse } from 'yaml';
-/**
- * The react-start skill tree ships inside @tanstack/react-start, a direct template dependency
- * whose exact version the seeded lockfile pins. A freshly seeded workspace has no node_modules
- * and the reviewed installer only rewrites package.json and pnpm-lock.yaml, so a workspace
- * path under node_modules is unreadable when the catalog reaches the model. The tree is
- * inlined into a generated module by scripts/build-user-workspace-runtime.mjs because this
- * file is bundled both by Vite and, via BuilderAgent, by esbuild into the user workspace
- * runtime - and only Vite implements import.meta.glob.
- */
-import { REACT_START_SKILL_FILES } from '~/generated/builder-skill-assets.generated';
 import frontendDesignSkill from './skills/frontend-design/SKILL.md?raw';
 /*
  * Lives outside .server/ because the exported project's Cursor rules embed the same stack-selection
@@ -28,7 +18,6 @@ const MAX_BUILDER_SKILL_PROMPT_CHARS = 16_000;
 const BUNDLED_SKILLS: readonly BundledSkillSource[] = [
   { name: 'project-stack', files: new Map([['SKILL.md', projectStackSkill]]) },
   { name: 'frontend-design', files: new Map([['SKILL.md', frontendDesignSkill]]) },
-  { name: 'react-start', files: bundledSkillFiles('react-start', REACT_START_SKILL_FILES) },
 ];
 
 export type BuilderSkillReadResult = { kind: 'file' | 'directory'; content: string };
@@ -55,15 +44,6 @@ export function createBuilderSkillContext(): BuilderSkillContext {
 export function isBuilderSkillPath(path: string): boolean {
   const normalized = normalizeAbsolutePath(path);
   return normalized === BUILDER_SKILL_ROOT || normalized.startsWith(`${BUILDER_SKILL_ROOT}/`);
-}
-
-/** A bundled skill's generated file map, keyed by path inside the skill directory. */
-function bundledSkillFiles(name: string, files: Readonly<Record<string, string>>): ReadonlyMap<string, string> {
-  const map = new Map(Object.entries(files));
-  if (!map.get('SKILL.md')) {
-    throw new Error(`Bundled builder skill ${name} is missing SKILL.md.`);
-  }
-  return map;
 }
 
 type DeclaredSkillFrontmatter = { name?: unknown; description?: unknown };

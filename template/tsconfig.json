@@ -1,7 +1,6 @@
 {
   "include": [
     "src/**/*.ts",
-    "src/**/*.tsx",
     "vite.config.ts",
     "cloudflare.config.ts",
     ".cloudflare/types/index.d.ts"
@@ -15,7 +14,6 @@
   "compilerOptions": {
     "target": "ES2021",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "jsx": "react-jsx",
     "module": "ES2022",
     "moduleResolution": "bundler",
     "types": ["@cloudflare/workers-types", "node", "vite/client"],

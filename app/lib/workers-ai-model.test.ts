@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CLOUDFLARE_PROJECT_TITLE_MODEL,
   CLOUDFLARE_WORKERS_AI_MODEL,
   DEFAULT_WORKERS_AI_MODEL,
   getWorkersAiModel,
   isWorkersAiModelId,
-  MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS,
   validateWorkersAiModelCatalogPayload,
   workersAiModelCatalogPayloadSchema,
   type WorkersAiModel,
@@ -21,14 +19,6 @@ const alternativeModel: WorkersAiModel = {
 };
 
 describe('Workers AI model catalog', () => {
-  it('pins the owner-selected GLM 5.3 Flash as the safe startup default', () => {
-    expect(CLOUDFLARE_WORKERS_AI_MODEL).toBe('@cf/zai-org/glm-5.3-flash');
-    expect(DEFAULT_WORKERS_AI_MODEL.contextTokens).toBeGreaterThanOrEqual(MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS);
-    expect(DEFAULT_WORKERS_AI_MODEL.contextTokens).toBe(1_310_720);
-    expect(DEFAULT_WORKERS_AI_MODEL).toMatchObject({ label: 'GLM 5.3 Flash', reasoning: true, vision: true });
-    expect(getWorkersAiModel(CLOUDFLARE_WORKERS_AI_MODEL, [DEFAULT_WORKERS_AI_MODEL])).toBe(DEFAULT_WORKERS_AI_MODEL);
-  });
-
   it('accepts a catalog entry with or without the publication date', () => {
     const dated = { ...alternativeModel, createdAt: '2026-08-26T00:00:00.000Z' };
 
@@ -39,13 +29,6 @@ describe('Workers AI model catalog', () => {
       workersAiModelCatalogPayloadSchema.safeParse({ defaultModelId: alternativeModel.id, models: [alternativeModel] })
         .success,
     ).toBe(true);
-  });
-
-  it('pins the auxiliary models to backends that speak the OpenAI completions response shape', () => {
-    // A native `{ response, usage }` model (any `@cf/meta/llama-3.2-*-instruct`, for one) parses as
-    // empty text through the Pi openai-completions adapter, so titles silently never generate.
-    expect(CLOUDFLARE_PROJECT_TITLE_MODEL).toBe('@cf/meta/llama-4-scout-17b-16e-instruct');
-    expect(CLOUDFLARE_PROJECT_TITLE_MODEL).toBe('@cf/meta/llama-4-scout-17b-16e-instruct');
   });
 
   it('accepts Cloudflare-native model slugs without pretending they are catalog membership', () => {

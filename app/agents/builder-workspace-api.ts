@@ -139,6 +139,7 @@ export type WorkspaceDeploymentArtifactRequest = {
   projectType: DeploymentProjectProfile['type'];
   workersAi: boolean;
   appAgent: boolean;
+  assets?: boolean;
   d1DatabaseId?: string;
   d1DatabaseName?: string;
   agentSecurityD1DatabaseId?: string;

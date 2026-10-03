@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -9,20 +10,19 @@ import {
 
 const scriptRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Enable the protected Agent/Workers AI capability without hand-editing four configuration surfaces. */
-export async function enableAgentCapability(rootDir = scriptRoot) {
-  const capability = JSON.parse(
+async function readCapability(rootDir) {
+  return JSON.parse(
     await readFile(resolve(rootDir, "agent-capability.json"), "utf8"),
   );
-  const packagePath = resolve(rootDir, "package.json");
-  const packageJson = JSON.parse(await readFile(packagePath, "utf8"));
-  packageJson.dependencies = Object.fromEntries(
-    Object.entries({
-      ...packageJson.dependencies,
-      ...capability.dependencies,
-    }).sort(([left], [right]) => left.localeCompare(right)),
-  );
-  await writeFile(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+}
+
+/**
+ * Enable the protected Agent/Workers AI capability without hand-editing four configuration
+ * surfaces. Dependencies are installed separately, at their latest release, by
+ * {@link installAgentCapabilityDependencies}.
+ */
+export async function enableAgentCapability(rootDir = scriptRoot) {
+  const capability = await readCapability(rootDir);
 
   const licensePolicyPath = resolve(
     rootDir,
@@ -70,9 +70,23 @@ export async function enableAgentCapability(rootDir = scriptRoot) {
   await writeFile(tsconfigPath, tsconfigSource);
 }
 
+/** Install every capability dependency at its latest release; the lockfile pins what resolved. */
+export async function installAgentCapabilityDependencies(rootDir = scriptRoot) {
+  const capability = await readCapability(rootDir);
+  const result = spawnSync(
+    "pnpm",
+    ["add", ...capability.dependencies.map((name) => `${name}@latest`)],
+    { cwd: rootDir, stdio: "inherit" },
+  );
+  if (result.status !== 0) {
+    throw new Error("Installing the Agent capability dependencies failed.");
+  }
+}
+
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   await enableAgentCapability();
+  await installAgentCapabilityDependencies();
 }

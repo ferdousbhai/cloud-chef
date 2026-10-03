@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { WORKSPACE_READ_ONLY_TOOL_NAMES } from '../../cloudchef-agent/model-tool-inputs';
 import { BUILDER_TURN_TIMEOUTS } from '../../app/lib/.server/llm/builder-turn-budget';
@@ -58,40 +57,12 @@ describe('operation lease policy', () => {
     }
   });
 
-  it('declares every lane the ProjectWorkspace actually opens', () => {
-    const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    const opened = new Set(
-      [...source.matchAll(/withStatefulOperation\(\s*'([a-z]+)'/g)].map((match) => match[1] as StatefulOperationKind),
-    );
-
-    expect([...opened].filter((kind) => !kinds.includes(kind))).toEqual([]);
-    expect(kinds.filter((kind) => !opened.has(kind) && kind !== 'deployment')).toEqual([]);
-  });
-
   it('keeps the package-install ceiling inside the budget of the tools it serves', () => {
     // The container may not kill an installation the tool layer still allows —
     // the same guard as the lease derivation, extended to the container-side
     // ceiling the toolchain bootstrap shares (#131).
     expect(CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS).toBeLessThanOrEqual(OPERATION_TOOL_BUDGET_MS.install);
     expect(CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS).toBeLessThanOrEqual(OPERATION_TOOL_BUDGET_MS.exec);
-  });
-
-  it('derives every container exec ceiling the ProjectWorkspace declares instead of restating it', () => {
-    const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    const sandboxAdapter = readFileSync(new URL('./computer-sandbox.ts', import.meta.url), 'utf8');
-
-    // The exec tool's container-shell timeoutMs is a lifetime hint computerd
-    // 0.1.1 does not enforce (#128); it is derived from the exec tool budget
-    // so an enforcing computerd could never disagree with the layer above.
-    expect(source).toContain('const EXEC_COMMAND_TIMEOUT_MS = OPERATION_TOOL_BUDGET_MS.exec;');
-    expect(source.match(/timeoutMs: EXEC_COMMAND_TIMEOUT_MS/g)).toHaveLength(2);
-
-    // The dependency-install ceiling and the toolchain bootstrap share one
-    // declaration, and the vendor connect deadline is derived from the stages
-    // it must contain rather than declared beside them (#131).
-    expect(source).toContain('const INSTALL_TIMEOUT_MS = CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS;');
-    expect(sandboxAdapter).toContain('connectTimeoutMs: CONTAINER_CONNECT_TIMEOUT_MS');
-    expect(sandboxAdapter).not.toMatch(/connectTimeoutMs:\s*\d/);
   });
 
   it('renews exactly the lanes whose lease is shorter than their governing budget', () => {

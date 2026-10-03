@@ -37,36 +37,17 @@ export const GENERATED_APP_TOOLCHAIN = {
 };
 export const REQUIRED_PNPM_VERSION = "11.14.0";
 
-const REQUIRED_AI_SDK_VERSIONS = {
-  ai: "7.0.48",
-  "@ai-sdk/react": "4.0.51",
-};
+/** Toolchain packages the control plane and generated apps share, kept on aligned versions. */
+export const SHARED_APP_PACKAGES = ["typescript", "vite"];
 
-/** Framework packages the control plane and generated apps share, kept on aligned versions. */
-export const SHARED_APP_PACKAGES = [
-  "@tanstack/react-router",
-  "@tanstack/react-start",
-  "@tanstack/router-cli",
-  "@vitejs/plugin-react",
-  "react",
-  "react-dom",
-  "typescript",
-  "vite",
-];
-
-/** Generated apps build and deploy with the cf CLI and its Vite plugin; the control plane uses Wrangler. */
+/**
+ * Every generated project builds and deploys with Vite, the Cloudflare Vite plugin, and the cf CLI;
+ * the control plane uses Wrangler. A web framework is the project's own choice, never required.
+ */
 export const APP_REQUIRED_PACKAGES = [
   ...SHARED_APP_PACKAGES,
   "@cloudflare/vite-plugin",
   "cf",
-];
-
-/** Worker-only projects build with the same Vite and cf toolchain, without the web framework. */
-export const WORKER_REQUIRED_PACKAGES = [
-  "@cloudflare/vite-plugin",
-  "cf",
-  "typescript",
-  "vite",
 ];
 
 export function projectType(pkg) {
@@ -130,45 +111,20 @@ export function findPackageVersionAlignmentErrors(
   });
 }
 
-export function findCloudflareAiPeerCompatibilityErrors(pkg, label) {
-  const peers = ["agents", "@cloudflare/ai-chat"].filter((name) =>
-    packageDependencyVersion(pkg, name),
-  );
-  if (peers.length === 0) {
-    return [];
-  }
-
-  return Object.entries(REQUIRED_AI_SDK_VERSIONS).flatMap(
-    ([name, expected]) => {
-      const version = packageDependencyVersion(pkg, name);
-      return version && version !== expected
-        ? [
-            `${label} must pin the tested AI SDK 7 family ${name}@${expected} for ${peers.join(
-              ", ",
-            )}; found ${version}.`,
-          ]
-        : [];
-    },
-  );
-}
-
 export function findAgentCapabilityDependencyErrors(
   pkg,
   label,
-  expectedDependencies,
+  requiredDependencies,
   enabled,
 ) {
   if (!enabled) {
     return [];
   }
-  return Object.entries(expectedDependencies).flatMap(([name, expected]) => {
-    const actual = packageDependencyVersion(pkg, name);
-    return actual === expected
+  return requiredDependencies.flatMap((name) =>
+    packageDependencyVersion(pkg, name)
       ? []
-      : [
-          `${label} must pin enabled Agent capability dependency ${name}@${expected}; found ${actual ?? "missing"}.`,
-        ];
-  });
+      : [`${label} must declare enabled Agent capability dependency ${name}.`],
+  );
 }
 
 export function findRuntimePinErrors(pkg, label, toolchain) {

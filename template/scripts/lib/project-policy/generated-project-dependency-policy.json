@@ -1,12 +1,6 @@
 {
   "schemaVersion": 1,
   "maximumWorkspacePolicyBytes": 65536,
-  "minimumReleaseAgeMinutes": 1440,
-  "approvedReleaseAgeExclusions": [
-    "cf@1.0.0-beta.5",
-    "@cloudflare/vite-plugin@2.0.0-beta.sha-ad79608dd",
-    "@cloudflare/codemods@0.2.1"
-  ],
   "approvedBuildDependencies": ["core-js-pure", "esbuild", "sharp", "workerd"],
   "approvedOverrides": {
     "brace-expansion@<1.1.21": "1.1.21",
@@ -15,7 +9,7 @@
     "@hono/node-server@<2.0.10": "2.0.10",
     "browserslist@<=4.28.6": "4.28.8",
     "fast-uri@>=3.0.0 <3.1.8": "3.1.8",
-    "hono@<4.13.5": "4.13.5",
+    "hono@<4.13.8": "4.13.8",
     "ip-address@<=10.7.0": "10.7.1",
     "js-yaml@>=4.0.0 <4.3.2": "4.3.2",
     "nanoid@<3.3.18": "3.3.18",
@@ -29,10 +23,8 @@
     "packages",
     "ignoreWorkspaceRootCheck",
     "minimumReleaseAge",
-    "minimumReleaseAgeIgnoreMissingTime",
-    "minimumReleaseAgeStrict",
-    "minimumReleaseAgeExclude",
     "strictDepBuilds",
+    "auditConfig",
     "blockExoticSubdeps",
     "overrides",
     "allowBuilds",

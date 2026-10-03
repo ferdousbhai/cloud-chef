@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { publicationProgress, publicationStageLabel } from './builder-publication-progress';
+import { publicationProgress } from './builder-publication-progress';
 
 describe('publicationProgress', () => {
   it('reports the step recorded most recently, not the highest numbered one', () => {
@@ -37,23 +37,5 @@ describe('publicationProgress', () => {
 
   it('has nothing to report before the publication records its first step', () => {
     expect(publicationProgress('deployment', [])).toBeNull();
-  });
-});
-
-describe('publicationStageLabel', () => {
-  it('reads as the step plus how far through the lane it is', () => {
-    expect(publicationStageLabel({ lane: 'deployment', message: 'Uploading version', percent: 62, updatedAt: 1 })).toBe(
-      'Uploading version… 62%',
-    );
-  });
-
-  it('drops the percentage when the step has no known position', () => {
-    expect(publicationStageLabel({ lane: 'preview', message: 'Something new', percent: null, updatedAt: 1 })).toBe(
-      'Something new…',
-    );
-  });
-
-  it('says nothing when nothing has been recorded', () => {
-    expect(publicationStageLabel(null)).toBeNull();
   });
 });

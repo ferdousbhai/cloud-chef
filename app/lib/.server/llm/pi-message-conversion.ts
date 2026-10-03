@@ -1,6 +1,8 @@
 import type {
   AssistantMessage,
+  JsonObject,
   Message,
+  SystemMessage,
   TextContent,
   ToolCall,
   ToolResultMessage,
@@ -53,10 +55,8 @@ function toPiMessage(message: ModelMessage): Message {
     return userMessage(message.content);
   }
 
-  // SAFETY: pi-ai carries the system prompt in `Context.systemPrompt`, so its `Message` union has no
-  // system role, yet the persisted transcript schema still admits one. Such an entry is forwarded
-  // verbatim rather than dropped or rewritten so the payload reaching the provider is unchanged.
-  return { role: message.role, content: message.content, timestamp: Date.now() } as unknown as Message;
+  const system: SystemMessage = { role: 'system', content: message.content, timestamp: Date.now() };
+  return system;
 }
 
 function toPiAssistantContent(part: ModelTextPart | ModelToolCallPart): TextContent | ToolCall {
@@ -67,7 +67,8 @@ function toPiAssistantContent(part: ModelTextPart | ModelToolCallPart): TextCont
     type: 'toolCall',
     id: part.toolCallId,
     name: part.toolName,
-    arguments: part.input,
+    // SAFETY: replayed tool inputs were parsed from the persisted JSON transcript.
+    arguments: part.input as JsonObject,
   };
 }
 

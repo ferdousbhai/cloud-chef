@@ -11,14 +11,11 @@
     "CC-BY-4.0",
     "ISC",
     "MIT",
+    "MIT-0",
     "MIT OR Apache-2.0",
     "MPL-2.0",
     "Python-2.0",
     "Unlicense"
   ],
-  "metadataOnlyPackageAllowlist": [
-    "@napi-rs/wasm-runtime@1.2.2",
-    "@rolldown/binding-wasm32-wasi@1.2.1",
-    "@tybys/wasm-util@0.10.3"
-  ]
+  "metadataOnlyPackageAllowlist": []
 }

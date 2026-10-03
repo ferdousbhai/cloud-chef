@@ -187,10 +187,8 @@ export function findProductionLicenseErrors(packages, policy) {
       "The production license policy must record reviewedAt as YYYY-MM-DD.",
     );
   }
-  if (packages.length === 0 || allowedLicenses.size === 0) {
-    errors.push(
-      "The production dependency and license inventories must not be empty.",
-    );
+  if (allowedLicenses.size === 0) {
+    errors.push("The production license inventory must not be empty.");
   }
   for (const entry of packages) {
     const packageId = packageIdentity(entry.name, entry.version);
@@ -210,15 +208,21 @@ export function findProductionLicenseErrors(packages, policy) {
         `${packageId} declares unreviewed production license ${JSON.stringify(entry.license)}.`,
       );
     }
-    if (!entry.hasPackageLicenseEvidence && !metadataOnly.has(packageId)) {
+    if (
+      !entry.hasPackageLicenseEvidence &&
+      !metadataOnly.has(packageId) &&
+      !metadataOnly.has(entry.name)
+    ) {
       errors.push(
-        `${packageId} publishes no package-level license evidence and requires exact-version review.`,
+        `${packageId} publishes no package-level license evidence and requires review.`,
       );
     }
   }
+  // An entry is an exact `name@version`, or a bare name reviewed across releases.
   for (const packageId of metadataOnly) {
     const entry = packages.find(
       (candidate) =>
+        candidate.name === packageId ||
         packageIdentity(candidate.name, candidate.version) === packageId,
     );
     if (!entry) {

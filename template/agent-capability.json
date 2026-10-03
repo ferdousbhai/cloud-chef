@@ -1,22 +1,22 @@
 {
   "version": 1,
-  "description": "Opt-in Cloudflare AppAgent and Workers AI capability",
-  "dependencies": {
-    "@ai-sdk/provider": "4.0.4",
-    "@ai-sdk/react": "4.0.51",
-    "@cloudflare/ai-chat": "0.10.1",
-    "agents": "0.20.1",
-    "ai": "7.0.48",
-    "core-js-pure": "3.49.0",
-    "partyserver": "0.5.9",
-    "workers-ai-provider": "4.0.0",
-    "zod": "4.4.3"
-  },
+  "description": "Opt-in Cloudflare AppAgent and Workers AI capability; dependencies install at their latest release",
+  "dependencies": [
+    "@ai-sdk/provider",
+    "@ai-sdk/react",
+    "@cloudflare/ai-chat",
+    "agents",
+    "ai",
+    "core-js-pure",
+    "workers-ai-provider",
+    "zod"
+  ],
   "metadataOnlyPackageAllowlist": [
-    "@ai-sdk/provider-utils@5.0.18",
-    "@cfworker/json-schema@4.1.1",
-    "@cloudflare/workers-types@5.20260801.1",
-    "partyserver@0.5.9"
+    "@ai-sdk/provider-utils",
+    "@cfworker/json-schema",
+    "@napi-rs/wasm-runtime",
+    "@rolldown/binding-wasm32-wasi",
+    "@tybys/wasm-util"
   ],
   "cloudflare": {
     "entrypoint": "src/server.ts",

@@ -12,6 +12,11 @@ export const APP_AGENT_DECLARATIVE_EXPORT = {
 
 export const DEPLOYMENT_SECURITY_CLEANUP_CRON = '0 3 * * *';
 /**
+ * A project declaring `assets` routes pages and API through its Worker first, so the application's
+ * security headers reach every HTML response; Vite's hashed bundles under /assets stay static hits.
+ */
+export const DEPLOYMENT_ASSETS_RUN_WORKER_FIRST = ['/*', '!/assets/*'] as const;
+/**
  * Managed applications intentionally expose unpromoted Worker versions through
  * versioned workers.dev preview URLs. Production workers.dev routing remains
  * enabled as well.

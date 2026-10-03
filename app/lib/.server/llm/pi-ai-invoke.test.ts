@@ -31,7 +31,12 @@ describe('completeToolCall', () => {
     });
     expect(stream).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ tools: [tool] }),
+      {
+        messages: [
+          { role: 'system', content: 'System', toolsAdded: [tool], timestamp: 0 },
+          { role: 'user', content: 'User', timestamp: expect.any(Number) },
+        ],
+      },
       expect.objectContaining({
         toolChoice: { type: 'function', function: { name: 'submit_result' } },
       }),

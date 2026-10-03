@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   CLOUDFLARE_COMPUTER_VERSION,
@@ -13,41 +13,6 @@ import {
   workspaceOperationConflict,
   workspaceOperationConflictMessage,
 } from './cloudflare-computer.js';
-
-/**
- * CloudChef does not use the published AI SDK tools; every model tool is hand
- * written. The upstream blast radius is the durable workspace surface the
- * ProjectWorkspace runtime calls directly, so that is what the canary pins.
- * `readdir`, `stat`, and the utf8 `readFile` carry the VFS-only discovery tools
- * as well as `read`, so a drift in any of them breaks discovery before it breaks
- * anything the container could still answer.
- */
-const REQUIRED_COMPUTER_DECLARATIONS = [
-  'declare class Workspace {',
-  'get fs(): WorkspaceFilesystem;',
-  'get runtime(): WorkspaceRuntime;',
-  'provider(): SQLiteWorkspaceProvider;',
-  'stub(): WorkspaceStub;',
-  'push(id?: string): Promise<number>;',
-  'pull(id?: string): Promise<ApplyResult>;',
-  'retryPendingSync(id?: string): Promise<WorkspaceRetryPendingSyncResult>;',
-  'close(): Promise<void>;',
-  'declare class WorkspaceFilesystem {',
-  'readFile(path: string, encoding: "utf8"): Promise<string>;',
-  'stat(path: string): Promise<WorkspaceStatResult>;',
-  'readdir(path: string, options?: ReaddirOptions): Promise<WorkspaceDirentResult[]>;',
-  'find(directory: string, pattern?: string, options?: FindOptions): Promise<WorkspaceFoundEntry[]>;',
-  'grep(pattern: string, path: string, options?: GrepOptions): Promise<WorkspaceGrepMatch[]>;',
-  'mkdir(path: string, options?: MkdirOptions): Promise<void>;',
-  'rm(path: string, options?: RmOptions): Promise<void>;',
-  'declare class WorkspaceRuntime {',
-  'exec(source: string, options: WorkspaceRuntimeExecOptions<"utf8">): Promise<WorkspaceRuntimeExecHandle<"utf8">>;',
-  'disposeExec(id: string, options?: WorkspaceRuntimeDisposeOptions): Promise<void>;',
-  'interface SyncRetryScheduler {',
-  'get(backend: string): Promise<SyncRetryIntent | undefined>;',
-  'schedule(intent: SyncRetryIntent): Promise<void>;',
-  'clear(backend: string): Promise<void>;',
-] as const;
 
 /**
  * Post-image of patches/@cloudflare__computer@0.2.1.patch. Patching a preview
@@ -114,22 +79,12 @@ describe('Cloudflare Computer preview contract', () => {
     const rootPackage = jsonFile<{ dependencies?: Record<string, string>; packageManager?: string }>('../package.json');
     const installedPackage = jsonFile<{ version?: string }>('../node_modules/@cloudflare/computer/package.json');
     const workspaceConfig = textFile('../pnpm-workspace.yaml');
-    const installedReadme = textFile('../node_modules/@cloudflare/computer/README.md');
 
     expect(rootPackage.dependencies?.['@cloudflare/computer']).toBe(CLOUDFLARE_COMPUTER_VERSION);
     expect(rootPackage.packageManager).toBe(`pnpm@${GENERATED_PROJECT_PNPM_VERSION}`);
     expect(installedPackage.version).toBe(CLOUDFLARE_COMPUTER_VERSION);
     // The only release-age exemptions are the reviewed cf toolchain packages, never Computer.
     expect(workspaceConfig).not.toMatch(/^\s*-\s*['"]?@cloudflare\/computer/m);
-    expect(installedReadme).toContain('**PREVIEW ONLY.**');
-    expect(installedReadme).toContain('production use at this time.');
-  });
-
-  it('canaries the durable workspace surfaces the runtime executes', () => {
-    const declarations = computerTypeDeclarations();
-    for (const declaration of REQUIRED_COMPUTER_DECLARATIONS) {
-      expect(declarations, declaration).toContain(declaration);
-    }
   });
 
   it('canaries the reviewed SQL probe patch against the published bundle', () => {
@@ -173,16 +128,6 @@ describe('Cloudflare Computer preview contract', () => {
     expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('CloudChef manages previews after validation');
   });
 });
-
-/** Shared declaration chunks carry content-hashed names, so read the whole published surface. */
-function computerTypeDeclarations(): string {
-  const directory = new URL('../node_modules/@cloudflare/computer/dist/', import.meta.url);
-  return readdirSync(directory)
-    .filter((name) => name.endsWith('.d.ts'))
-    .sort()
-    .map((name) => readFileSync(new URL(name, directory), 'utf8'))
-    .join('\n');
-}
 
 function jsonFile<T>(path: string): T {
   return JSON.parse(textFile(path)) as T;

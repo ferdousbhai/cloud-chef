@@ -25,27 +25,4 @@ describe('standalone template verification source', () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
-
-  test('uses one canonical Cloudflare Vite build with no container preview entrypoint', () => {
-    const viteConfig = readFileSync('template/vite.config.ts', 'utf8');
-    const server = readFileSync('template/src/server.ts', 'utf8');
-    const plainServer = readFileSync('template/src/plain-server.ts', 'utf8');
-    const pkg = JSON.parse(readFileSync('template/package.json', 'utf8')) as { scripts: Record<string, string> };
-
-    expect(server).toContain('handler.fetch(request)');
-    expect(server).toContain('routeAppAgentRequest');
-    expect(plainServer).toContain('handler.fetch(request)');
-    expect(server).not.toContain('CLOUDCHEF_ISOLATED_PREVIEW');
-    expect(server).not.toContain('isAgentRoute');
-    expect(viteConfig).toContain('viteEnvironment: { name: "ssr" }');
-    expect(viteConfig).toContain('tanstackStart()');
-    expect(existsSync('template/src/preview-server.ts')).toBe(false);
-    expect(existsSync('template/wrangler.preview.jsonc')).toBe(false);
-    expect(pkg.scripts).not.toHaveProperty('build:isolated-preview');
-    expect(pkg.scripts.dev).toBe('vite dev --host 0.0.0.0');
-    expect(pkg.scripts.preview).toBe('vite preview --host 0.0.0.0');
-    expect(existsSync('template/vite.preview.config.mjs')).toBe(false);
-    expect(existsSync('template/src/preview')).toBe(false);
-    expect(existsSync('template/index.html')).toBe(false);
-  });
 });

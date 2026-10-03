@@ -1,5 +1,5 @@
 {
-  "total": 1243,
+  "total": 1235,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -250,15 +250,10 @@
     "app/lib/.server/llm/pi-ai-invoke.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1
     },
-    "app/lib/.server/llm/pi-ai-models.test.ts": {
-      "anti-slop/no-chained-type-assertions": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 1
-    },
     "app/lib/.server/llm/pi-ai-models.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1
     },
     "app/lib/.server/llm/pi-message-conversion.ts": {
-      "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/no-runtime-typeof": 1
     },
     "app/lib/.server/llm/pi-steering.ts": {
@@ -567,7 +562,7 @@
       "anti-slop/no-runtime-typeof": 3,
       "anti-slop/no-unknown-parameters": 2,
       "anti-slop/no-unknown-returns": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 7
+      "anti-slop/require-safety-comment-for-type-assertion": 6
     },
     "scripts/upload-workers-builds-preview.mjs": {
       "anti-slop/no-runtime-typeof": 1
@@ -594,7 +589,7 @@
       "anti-slop/no-runtime-typeof": 2
     },
     "scripts/verify-template.spec.ts": {
-      "anti-slop/require-safety-comment-for-type-assertion": 2
+      "anti-slop/require-safety-comment-for-type-assertion": 1
     },
     "scripts/workers-builds-config.mjs": {
       "anti-slop/no-runtime-typeof": 2
@@ -611,10 +606,6 @@
     "template/scripts/lib/project-policy/workspace-policy.mjs": {
       "anti-slop/no-runtime-typeof": 5,
       "eslint/no-control-regex": 1
-    },
-    "template/scripts/lib/runtime-module-security.ts": {
-      "anti-slop/no-runtime-typeof": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 1
     },
     "template/scripts/verify-production-config.mjs": {
       "anti-slop/no-runtime-typeof": 2
@@ -684,7 +675,7 @@
       "anti-slop/require-safety-comment-for-type-assertion": 2
     },
     "user-workspace-runtime/src/operation-lease-policy.test.ts": {
-      "anti-slop/require-safety-comment-for-type-assertion": 5
+      "anti-slop/require-safety-comment-for-type-assertion": 4
     },
     "user-workspace-runtime/src/readiness-route.test.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 3

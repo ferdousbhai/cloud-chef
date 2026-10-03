@@ -1,6 +1,7 @@
 {
   "name": "cloudchef-cloudflare-app",
   "entrypoint": "src/plain-server.ts",
+  "assets": true,
   "d1": {
     "name": "cloudchef-cloudflare-app",
     "id": "00000000-0000-0000-0000-000000000000"

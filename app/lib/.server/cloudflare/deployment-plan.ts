@@ -16,6 +16,7 @@ const deploymentProjectProfileSchema: z.ZodType<DeploymentProjectProfile> = z.st
     r2: z.boolean(),
     kv: z.boolean(),
     appAgent: z.boolean(),
+    assets: z.boolean().optional(),
   }),
 });
 const deploymentPlanResourceSchema = z.strictObject({

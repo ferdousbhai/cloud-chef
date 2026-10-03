@@ -10,7 +10,7 @@ ${stackSelectionRules}
 - Keep pnpm run dev and pnpm run preview available for local and isolated remote preview.
 - After changing production dependencies, run pnpm run licenses:generate before build or deploy so the shipped third-party notices match the lockfile.
 - Keep the default Worker entrypoint in src/plain-server.ts. Run pnpm run agent:enable only when the application actually needs durable Agent sessions or Workers AI; that command switches to the protected src/server.ts entrypoint and enables the capability atomically.
-- In generated TanStack routes and server functions, call getAppBindings() from @/app-bindings for application DB/R2 access.
+- In application code and framework server functions, call getAppBindings() from @/app-bindings for application DB/R2 access.
 - Do not import cloudflare:workers from generated source. AI, AppAgent, and AGENT_SECURITY_DB bindings are intentionally unavailable to generated routes.
 - When the AppAgent capability is enabled, automatically deployed projects do not allow dynamic import(), require(), eval(), or Function constructors in generated source.
 - When AI is needed, use Workers AI only through the reviewed AppAgent and prefer ${CLOUDFLARE_WORKERS_AI_MODEL} for coding-agent features.

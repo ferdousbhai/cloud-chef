@@ -3,14 +3,14 @@ packages:
   - 'template'
   - 'user-workspace-runtime'
 ignoreWorkspaceRootCheck: true
-minimumReleaseAge: 1440
-minimumReleaseAgeIgnoreMissingTime: false
-minimumReleaseAgeStrict: true
-minimumReleaseAgeExclude:
-  - 'cf@1.0.0-beta.5'
-  - '@cloudflare/vite-plugin@2.0.0-beta.sha-ad79608dd'
-  - '@cloudflare/codemods@0.2.1'
+# pnpm otherwise holds back releases younger than a day; CloudChef installs the latest.
+minimumReleaseAge: 0
 strictDepBuilds: true
+auditConfig:
+  ignoreGhsas:
+    # braces <=3.0.3 has no patched release; it reaches only build-time file watching and
+    # globbing (eslint plugins, tailwind's chokidar), never a deployed Worker. Drop on release.
+    - 'GHSA-vfj7-8cjw-p6xm'
 blockExoticSubdeps: true
 overrides:
   # Keep every transitive range on the fully patched brace-expansion releases.
@@ -21,7 +21,7 @@ overrides:
   '@hono/node-server@<2.0.10': '2.0.10'
   'browserslist@<=4.28.6': '4.28.8'
   'fast-uri@>=3.0.0 <3.1.8': '3.1.8'
-  'hono@<4.13.5': '4.13.5'
+  'hono@<4.13.8': '4.13.8'
   'ip-address@<=10.7.0': '10.7.1'
   'js-yaml@>=4.0.0 <4.3.2': '4.3.2'
   'nanoid@<3.3.18': '3.3.18'

@@ -177,7 +177,7 @@ export function useBuilderAgentChat(args: {
     getInitialMessages: null,
     messages: asUiMessages(args.initialMessages),
     syncMessagesToServer: false,
-    experimental_throttle: 100,
+    throttle: 100,
     prepareSendMessagesRequest: ({ body }) => {
       if (!isAuthenticated()) {
         throw new Error('Not authenticated');

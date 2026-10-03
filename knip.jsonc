@@ -35,7 +35,7 @@
       "project": ["src/**/*.ts"],
     },
     "template": {
-      "entry": ["src/router.tsx"],
+      "entry": ["src/plain-server.ts", "src/server.ts"],
       "project": ["src/**/*.{ts,tsx}", "scripts/**/*.mjs"],
     },
   },

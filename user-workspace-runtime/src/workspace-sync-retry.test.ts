@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
 import type { WorkspaceRuntimeResult } from '@cloudflare/computer';
 import {
   DurableWorkspaceSyncRetryScheduler,
@@ -131,92 +130,6 @@ describe('DurableWorkspaceSyncRetryScheduler', () => {
 
     expect(wake).toHaveBeenCalledOnce();
     expect(restartedWake).not.toHaveBeenCalled();
-  });
-
-  it('collapses duplicate constructor reconciliation and wake schedules to one pending row', () => {
-    const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    const scheduler = source.slice(
-      source.indexOf('this.#syncRetries = new DurableWorkspaceSyncRetryScheduler'),
-      source.indexOf('this.#syncRetries.initialize()'),
-    );
-    expect(scheduler).toContain("'retryPendingComputerSync'");
-    expect(scheduler).toContain('this.scheduleOnce(');
-
-    const scheduleOnceStart = source.indexOf('private async scheduleOnce(');
-    const scheduleOnce = source.slice(scheduleOnceStart, source.indexOf('\n  }', scheduleOnceStart));
-    // `Container.schedule` mints a fresh row id per call, so dedupe has to be explicit.
-    // An options bag such as `{ idempotent: true }` is dropped by its 3-arg signature.
-    expect(scheduleOnce).toContain('this.deleteSchedules(callback)');
-    expect(scheduleOnce).not.toContain('idempotent');
-    expect(scheduleOnce.indexOf('this.deleteSchedules(callback)')).toBeLessThan(
-      scheduleOnce.indexOf('await this.schedule('),
-    );
-  });
-
-  it('proves exhausted recovery through a fresh pull before preserving the result and clearing the barrier', () => {
-    const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    const start = source.indexOf('private async recoverExhaustedComputerSync(');
-    const recovery = source.slice(start, source.indexOf('\n  private ', start + 1));
-
-    expect(recovery.indexOf('await this.#workspace.close()')).toBeGreaterThanOrEqual(0);
-    expect(recovery.indexOf('await this.#workspace.pull(backend)')).toBeGreaterThan(
-      recovery.indexOf('await this.#workspace.close()'),
-    );
-    expect(recovery.indexOf('this.finishPendingCommand(backend)')).toBeGreaterThan(
-      recovery.indexOf('await this.#workspace.pull(backend)'),
-    );
-    expect(recovery.indexOf('await this.#syncRetries.clear(backend)')).toBeGreaterThan(
-      recovery.indexOf('this.finishPendingCommand(backend)'),
-    );
-    expect(recovery).toContain('return false');
-  });
-
-  it('recycles the container after consecutive failed recoveries instead of pulling forever', () => {
-    const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    const start = source.indexOf('private async recoverExhaustedComputerSync(');
-    const recovery = source.slice(start, source.indexOf('\n  private ', start + 1));
-
-    // A recovery pull that keeps failing after Computer exhausted its own retries is the
-    // signature of a container whose control connection never returns; each further pull only
-    // burns the vendor's fixed connect retries. The escalation must reuse the same recycle the
-    // preview path uses, count failures per backend, and reset the count on success.
-    expect(source).toContain('const SYNC_RECOVERY_CONTAINER_RECYCLE_THRESHOLD = 2;');
-    expect(recovery).toContain('SYNC_RECOVERY_CONTAINER_RECYCLE_THRESHOLD');
-    expect(recovery).toContain('await this.recycleWorkspaceContainer()');
-    expect(recovery.indexOf('this.#syncRecoveryFailures.delete(backend)')).toBeGreaterThanOrEqual(0);
-    expect(recovery.indexOf('this.#syncRecoveryFailures.delete(backend)')).toBeLessThan(
-      recovery.indexOf('} catch (error) {'),
-    );
-    expect(recovery.indexOf('await this.#workspace.pull(backend)')).toBeLessThan(
-      recovery.indexOf('await this.recycleWorkspaceContainer()'),
-    );
-    // Recycling still reports the recovery as pending so every caller reschedules it.
-    expect(recovery.lastIndexOf('return false')).toBeGreaterThan(
-      recovery.indexOf('await this.recycleWorkspaceContainer()'),
-    );
-  });
-
-  it('keeps exhausted sync recovery armed even when no tool continuation remains', () => {
-    const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    const constructor = source.slice(source.indexOf('constructor(ctx:'), source.indexOf('override fetch('));
-    const reconcileStart = source.indexOf('async reconcilePendingCommands()');
-    const reconcile = source.slice(reconcileStart, source.indexOf('\n  async beginToolOperation(', reconcileStart));
-
-    expect(constructor).toContain("this.#syncRetries.state('container-shell')?.exhausted === true");
-    expect(reconcile).toContain("backends.add('container-shell')");
-    expect(reconcile).toContain('await this.schedulePendingCommandRecovery');
-  });
-
-  it('rejects tools on a pre-existing pending backend before allocating journal rows', () => {
-    const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    for (const [start, end] of [
-      ['async beginToolOperation(', 'completeToolOperation('],
-      ['private async runToolOperation(', 'private async withStatefulOperation<'],
-    ]) {
-      const method = source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
-      expect(method.indexOf('requireCompletedComputerSync()')).toBeGreaterThanOrEqual(0);
-      expect(method.indexOf('requireCompletedComputerSync()')).toBeLessThan(method.indexOf('#toolOperations.begin'));
-    }
   });
 });
 

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   findDurableObjectLifecycleErrors,
@@ -183,11 +183,7 @@ describe('production config workflow verification helpers', () => {
 
   it('rejects unreviewed dependency build scripts', () => {
     const workspace = `
-minimumReleaseAge: 0
-minimumReleaseAgeStrict: false
 trustLockfile: true
-minimumReleaseAgeExclude:
-  - unexpected-installer
 strictDepBuilds: true
 allowBuilds:
   core-js-pure: true
@@ -205,28 +201,17 @@ dangerouslyAllowAllBuilds: true
       'pnpm-workspace.yaml must not define dangerouslyAllowAllBuilds.',
     );
     expect(findBuildApprovalErrors(workspace, 'pnpm-workspace.yaml')).toEqual(
-      expect.arrayContaining([
-        'pnpm-workspace.yaml must set minimumReleaseAge to 1440 minutes.',
-        'pnpm-workspace.yaml must enable minimumReleaseAgeStrict.',
-        'pnpm-workspace.yaml must not define trustLockfile.',
-        'pnpm-workspace.yaml minimumReleaseAgeExclude must not exempt unreviewed package unexpected-installer.',
-      ]),
+      expect.arrayContaining(['pnpm-workspace.yaml must not define trustLockfile.']),
     );
   });
 
   it.each([
     '"trustLockfile": true',
-    "'minimumReleaseAgeExclude': [malicious-package]",
     '"dangerouslyAllow\\u0041llBuilds": true',
     '"trustLock\\u0066ile": true',
-    '"minimumReleaseAge\\u0045xclude": [malicious-package]',
-    'minimumReleaseAge: 1440\nminimumReleaseAge: 0',
-    '"minimumRelease\\u0041ge": 0',
-    'minimumReleaseAgeStrict: true\nminimumReleaseAgeStrict: false',
-  ])('rejects ambiguous or quoted dependency-cooling policy: %s', (weakening) => {
+    'strictDepBuilds: true\nstrictDepBuilds: false',
+  ])('rejects ambiguous or quoted dependency policy: %s', (weakening) => {
     const workspace = `
-minimumReleaseAge: 1440
-minimumReleaseAgeStrict: true
 strictDepBuilds: true
 allowBuilds:
   core-js-pure: true
@@ -264,7 +249,7 @@ overrides:
   '@hono/node-server@<2.0.10': '2.0.10'
   'browserslist@<=4.28.6': '4.28.8'
   'fast-uri@>=3.0.0 <3.1.8': '3.1.8'
-  'hono@<4.13.5': '4.13.5'
+  'hono@<4.13.8': '4.13.8'
   'ip-address@<=10.7.0': '10.7.1'
   'js-yaml@>=4.0.0 <4.3.2': '4.3.2'
   'nanoid@<3.3.18': '3.3.18'
@@ -291,7 +276,7 @@ overrides:
         'pnpm-workspace.yaml overrides must pin @hono/node-server@<2.0.10 to 2.0.10.',
         'pnpm-workspace.yaml overrides must pin browserslist@<=4.28.6 to 4.28.8.',
         'pnpm-workspace.yaml overrides must pin fast-uri@>=3.0.0 <3.1.8 to 3.1.8.',
-        'pnpm-workspace.yaml overrides must pin hono@<4.13.5 to 4.13.5.',
+        'pnpm-workspace.yaml overrides must pin hono@<4.13.8 to 4.13.8.',
         'pnpm-workspace.yaml overrides must pin ip-address@<=10.7.0 to 10.7.1.',
         'pnpm-workspace.yaml overrides must pin js-yaml@>=4.0.0 <4.3.2 to 4.3.2.',
         'pnpm-workspace.yaml overrides must pin nanoid@<3.3.18 to 3.3.18.',
@@ -429,18 +414,6 @@ overrides:
       '.github/workflows/deploy.yml',
     ]);
   });
-
-  it('generates Cloudflare binding types without starting the Workers runtime', () => {
-    const pkg = JSON.parse(readFileSync('template/package.json', 'utf8'));
-    const viteConfig = readFileSync('template/vite.config.ts', 'utf8');
-
-    // Runtime types would start workerd, which the browser container cannot rely on; they come
-    // from @cloudflare/workers-types instead.
-    expect(pkg.scripts['cf-typegen']).toBe(
-      'node scripts/render-cloudflare-config.mjs && cf workers types --include-runtime false',
-    );
-    expect(viteConfig).toContain('types: { includeRuntime: false }');
-  });
 });
 
 function workspacePolicyFixture(packages: string[], ignoreWorkspaceRootCheck = true): string {
@@ -448,9 +421,6 @@ function workspacePolicyFixture(packages: string[], ignoreWorkspaceRootCheck = t
 packages:
 ${packages.map((workspacePackage) => `  - ${JSON.stringify(workspacePackage)}`).join('\n')}
 ignoreWorkspaceRootCheck: ${ignoreWorkspaceRootCheck}
-minimumReleaseAge: 1440
-minimumReleaseAgeIgnoreMissingTime: false
-minimumReleaseAgeStrict: true
 strictDepBuilds: true
 blockExoticSubdeps: true
 allowBuilds:

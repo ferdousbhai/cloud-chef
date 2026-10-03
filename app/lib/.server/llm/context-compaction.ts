@@ -1,5 +1,5 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import type { Message } from '@earendil-works/pi-ai';
+import { getCurrentSystemMessage, type Message } from '@earendil-works/pi-ai';
 import { getToolInvocation, messageText, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 
 /** Best-effort checkpoint reminder distance from the automatic rollover line. */
@@ -108,9 +108,10 @@ export function compactPiContext(args: {
 }): { messages: AgentMessage[]; tokensBefore: number; tokensAfter: number } | null {
   args.signal?.throwIfAborted();
   // An initial prompt alone has no completed work to hand off. Keep the real provider error.
+  const conversation = args.messages.filter((message) => message.role !== 'system');
   if (
-    args.messages.length <= 1 &&
-    !args.messages.some((message) => message.role === 'assistant' || message.role === 'toolResult')
+    conversation.length <= 1 &&
+    !conversation.some((message) => message.role === 'assistant' || message.role === 'toolResult')
   ) {
     return null;
   }
@@ -140,7 +141,9 @@ export function compactPiContext(args: {
     content: formatHandoff(recoveryRecord(users, args.handoff ?? previous, batch)),
     timestamp: Date.now(),
   };
-  const messages = [checkpoint];
+  // The fresh window keeps the current prompt and tool declarations, folded into one system message.
+  const systemMessage = getCurrentSystemMessage(args.messages);
+  const messages: AgentMessage[] = systemMessage ? [systemMessage, checkpoint] : [checkpoint];
   return {
     messages,
     tokensBefore: estimatePiContextTokens(args.messages),
@@ -222,6 +225,11 @@ function excerpt(text: string, maximum: number): string {
   return text.length <= maximum ? text : `${text.slice(0, Math.max(0, maximum - suffix.length))}${suffix}`;
 }
 
+/** About four characters per token: a cheap trigger estimate; provider-reported usage stays authoritative. */
+export function estimateTextTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
 export function estimatePiContextTokens(messages: AgentMessage[]): number {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -233,9 +241,9 @@ export function estimatePiContextTokens(messages: AgentMessage[]): number {
       message.usage.input + message.usage.output + message.usage.cacheRead + message.usage.cacheWrite;
     if (used > 0) {
       return (
-        used + messages.slice(index + 1).reduce((total, item) => total + Math.ceil(JSON.stringify(item).length / 4), 0)
+        used + messages.slice(index + 1).reduce((total, item) => total + estimateTextTokens(JSON.stringify(item)), 0)
       );
     }
   }
-  return messages.reduce((total, message) => total + Math.ceil(JSON.stringify(message).length / 4), 0);
+  return messages.reduce((total, message) => total + estimateTextTokens(JSON.stringify(message)), 0);
 }

@@ -8,7 +8,6 @@ import {
   GENERATED_APP_TOOLCHAIN,
   collectSourceEntries,
   dependencyNames,
-  findCloudflareAiPeerCompatibilityErrors,
   findForbiddenDependencies,
   findBuildApprovalErrors,
   findForbiddenImports,
@@ -26,6 +25,7 @@ import {
   CF_COMPATIBILITY_DATE,
   CF_LOGS_HEAD_SAMPLING_RATE,
   CF_TRACES_HEAD_SAMPLING_RATE,
+  WEB_APP_RUN_WORKER_FIRST,
 } from '../template/scripts/lib/cloudflare-project.mjs';
 import { templateSourceDigest } from './template-source.mjs';
 import { verifyD1MigrationSafety } from './verify-d1-migrations.mjs';
@@ -34,7 +34,6 @@ export {
   CONTROL_PLANE_TOOLCHAIN,
   GENERATED_APP_TOOLCHAIN,
   dependencyNames,
-  findCloudflareAiPeerCompatibilityErrors,
   findForbiddenDependencies,
   findForbiddenImports,
   findMissingCommandSteps,
@@ -48,18 +47,18 @@ const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const runtimeEnvAccessAllowlist = [{ pathSuffix: 'app/components/ErrorComponent.tsx', snippet: 'import.meta.env.DEV' }];
 const agentRequiredPackages = ['ai', 'zod'];
 /**
- * The control plane's stack, which is the app stack minus the route-tree CLI.
- *
- * `app/routeTree.gen.ts` here is written by the TanStack Start vite plugin and nothing else —
- * `scripts/generate-route-tree.mjs` resolves this repository's own vite config to run that plugin's
- * codegen outside a build, so `typecheck` still sees a route added a moment ago. A second generator
- * would only be a second thing to drift.
- *
- * A generated application is a different program: its own `typecheck` shells out to `tsr generate`,
- * so `@tanstack/router-cli` stays required by the shared app policy and is subtracted only here.
+ * The control plane's own stack. `app/routeTree.gen.ts` here is written by the TanStack Start vite
+ * plugin and nothing else — `scripts/generate-route-tree.mjs` resolves this repository's own vite
+ * config to run that plugin's codegen outside a build, so `typecheck` still sees a route added a
+ * moment ago. Generated applications choose their own framework and share only the toolchain.
  */
 const rootRequiredPackages = [
-  ...SHARED_APP_PACKAGES.filter((name) => name !== '@tanstack/router-cli'),
+  ...SHARED_APP_PACKAGES,
+  '@tanstack/react-router',
+  '@tanstack/react-start',
+  '@vitejs/plugin-react',
+  'react',
+  'react-dom',
   '@cloudflare/vite-plugin',
   'wrangler',
 ];
@@ -197,20 +196,15 @@ export function findBuilderTemplateModuleErrors(content, sourceSha256) {
     : ['app/agents/builder-template.generated.ts is stale; run pnpm run generate:artifacts.'];
 }
 
-/** A cf pin bump needs a fresh review: the reviewed release-age exemption must name the pinned version. */
-export function findCfCliPinErrors(templatePackage, dependencyPolicy) {
-  const version = templatePackage.devDependencies?.cf;
-  return (dependencyPolicy.approvedReleaseAgeExclusions ?? []).includes(`cf@${version}`)
-    ? []
-    : [`The reviewed release-age exemptions must name cf@${version}.`];
-}
-
 /** The generated template's deployment policy must match what the control plane publishes. */
 export function findDeploymentRuntimePolicyErrors(templatePolicy, runtimePolicySource) {
   const runtimePolicy = {
     compatibilityDate: /export const DEPLOYMENT_COMPATIBILITY_DATE = '([^']+)'/.exec(runtimePolicySource)?.[1],
     logsHeadSamplingRate: Number(/logs: \{[^}]*head_sampling_rate: ([0-9.]+)/.exec(runtimePolicySource)?.[1]),
     tracesHeadSamplingRate: Number(/traces: \{[^}]*head_sampling_rate: ([0-9.]+)/.exec(runtimePolicySource)?.[1]),
+    assetsRunWorkerFirst: normalizedStringList(
+      /export const DEPLOYMENT_ASSETS_RUN_WORKER_FIRST = (\[[^\]]*\])/.exec(runtimePolicySource)?.[1],
+    ),
   };
   return Object.entries(templatePolicy).flatMap(([name, value]) =>
     runtimePolicy[name] === value
@@ -221,15 +215,21 @@ export function findDeploymentRuntimePolicyErrors(templatePolicy, runtimePolicyS
   );
 }
 
-function verifyPackage(errors, pkg, label, requiredPackages, toolchain, checkAiPeers = false) {
+/** A single-quoted TypeScript string array, as compact JSON; anything else is undefined. */
+function normalizedStringList(source) {
+  try {
+    return JSON.stringify(JSON.parse(source.replaceAll("'", '"')));
+  } catch {
+    return undefined;
+  }
+}
+
+function verifyPackage(errors, pkg, label, requiredPackages, toolchain) {
   errors.push(
     ...findForbiddenDependencies(pkg, label),
     ...findMissingDependencies(pkg, label, requiredPackages),
     ...findRuntimePinErrors(pkg, label, toolchain),
   );
-  if (checkAiPeers) {
-    errors.push(...findCloudflareAiPeerCompatibilityErrors(pkg, label));
-  }
 }
 
 export function findInternalPackageMetadataErrors(pkg, label) {
@@ -318,9 +318,9 @@ export function verifyStackAlignment() {
   const templatePackage = readJson('template/package.json');
   const sandboxPackage = readJson('node_modules/@cloudflare/sandbox/package.json');
 
-  verifyPackage(errors, rootPackage, 'package.json', rootRequiredPackages, CONTROL_PLANE_TOOLCHAIN, true);
+  verifyPackage(errors, rootPackage, 'package.json', rootRequiredPackages, CONTROL_PLANE_TOOLCHAIN);
   verifyPackage(errors, agentPackage, 'cloudchef-agent/package.json', agentRequiredPackages, CONTROL_PLANE_TOOLCHAIN);
-  verifyPackage(errors, templatePackage, 'template/package.json', APP_REQUIRED_PACKAGES, GENERATED_APP_TOOLCHAIN, true);
+  verifyPackage(errors, templatePackage, 'template/package.json', APP_REQUIRED_PACKAGES, GENERATED_APP_TOOLCHAIN);
   errors.push(
     ...findForbiddenRootBrowserRuntimeDependencies(rootPackage),
     ...findInternalPackageMetadataErrors(rootPackage, 'package.json'),
@@ -386,15 +386,12 @@ export function verifyStackAlignment() {
   verifyRootMigrations(errors);
   errors.push(...verifyD1MigrationSafety(rootDir));
   errors.push(
-    ...findCfCliPinErrors(
-      templatePackage,
-      readJson('template/scripts/lib/project-policy/generated-project-dependency-policy.json'),
-    ),
     ...findDeploymentRuntimePolicyErrors(
       {
         compatibilityDate: CF_COMPATIBILITY_DATE,
         logsHeadSamplingRate: CF_LOGS_HEAD_SAMPLING_RATE,
         tracesHeadSamplingRate: CF_TRACES_HEAD_SAMPLING_RATE,
+        assetsRunWorkerFirst: JSON.stringify(WEB_APP_RUN_WORKER_FIRST),
       },
       readFileSync(resolve(rootDir, 'app/lib/.server/cloudflare/deployment-runtime-policy.ts'), 'utf8'),
     ),

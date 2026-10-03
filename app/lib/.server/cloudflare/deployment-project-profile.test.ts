@@ -15,7 +15,7 @@ describe('managed deployment capability boundary', () => {
   test('returns the exact provisioned and attested capability profile', () => {
     expect(deploymentProjectProfileFromProject(agentProject, 'web_app')).toEqual({
       type: 'web_app',
-      bindings: { ai: true, d1: true, r2: true, kv: true, appAgent: true },
+      bindings: { ai: true, d1: true, r2: true, kv: true, appAgent: true, assets: false },
     });
   });
 
@@ -27,8 +27,16 @@ describe('managed deployment capability boundary', () => {
       ),
     ).toEqual({
       type: 'web_app',
-      bindings: { ai: false, d1: false, r2: false, kv: false, appAgent: false },
+      bindings: { ai: false, d1: false, r2: false, kv: false, appAgent: false, assets: false },
     });
+  });
+
+  test('carries Worker-first static assets for a web app only', () => {
+    const project = { name: 'cloudchef-cloudflare-app', entrypoint: 'src/plain-server.ts', assets: true };
+    expect(deploymentProjectProfileFromProject(project, 'web_app').bindings.assets).toBe(true);
+    expect(() => deploymentProjectProfileFromProject({ ...project, entrypoint: 'src/server.ts' }, 'worker')).toThrow(
+      'Only a web app may declare static assets.',
+    );
   });
 
   test.each([

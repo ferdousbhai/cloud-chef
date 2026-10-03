@@ -1,5 +1,5 @@
-import handler from "@tanstack/react-start/server-entry";
 import { getAgentByName } from "agents";
+import application from "./application";
 import { finalizeApplicationResponse } from "./application-response";
 import { routeAppAgentRequest, type AppAgentResolver } from "./agent-routing";
 import { cleanupExpiredAgentSecurityState } from "./agent-security";
@@ -14,7 +14,7 @@ export default {
       getAgentByName as unknown as AppAgentResolver,
     );
     return finalizeApplicationResponse(request, agentResponse, () =>
-      handler.fetch(request),
+      application.fetch(request, env),
     );
   },
   async scheduled(controller: ScheduledController, env: Env) {

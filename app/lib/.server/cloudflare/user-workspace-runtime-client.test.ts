@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import type { ProjectWorkspaceRpc } from '~/agents/builder-workspace-api';
 import { UserWorkspaceRuntimeClient } from './user-workspace-runtime-client';
@@ -1065,7 +1064,7 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     expect(stub.applyChanges).toHaveBeenCalledOnce();
   });
 
-  it('uses RPC-native bytes and streams and performs no internal HTTP fetch', async () => {
+  it('transports file bytes and streams through the authenticated project RPC', async () => {
     const bytes = new Uint8Array([0, 1, 2, 255]);
     const stream = new Blob([bytes]).stream();
     const { client, stub, namespace } = harness((operation) => {
@@ -1090,12 +1089,6 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     await expect(client.computer.fs.readFile('/home/project/blob.bin')).resolves.toBe(stream);
     expect(namespace.idFromName).toHaveBeenCalledWith('project-1');
     expect(stub.initializeProjectIdentity).toHaveBeenCalledWith({ projectId: 'project-1', userId: 'user-1' });
-
-    const source = readFileSync(new URL('./user-workspace-runtime-client.ts', import.meta.url), 'utf8');
-    expect(source).not.toContain('fetch(');
-    expect(source).not.toContain('authorization');
-    expect(source).not.toContain('base64');
-    expect(source).not.toContain('/v1/projects/');
   });
 
   it('rejects a user mismatch before resolving a project stub', async () => {

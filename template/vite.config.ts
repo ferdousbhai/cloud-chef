@@ -16,33 +16,31 @@ const baseAlias = {
   "@": path.resolve(projectDir, "./src"),
   "#": path.resolve(projectDir, "./src"),
 };
+
+/**
+ * Add framework plugins (React, TanStack Start, React Router, ...) to `frameworkPlugins`; keep the
+ * module-security plugin first and the Cloudflare plugin last.
+ */
 async function productionPlugins(): Promise<PluginOption[]> {
-  const [
-    { tanstackStart },
-    { cloudflare },
-    { default: react },
-    { productionModuleSecurityPlugin },
-  ] = await Promise.all([
-    import("@tanstack/react-start/plugin/vite"),
-    import("@cloudflare/vite-plugin"),
-    import("@vitejs/plugin-react"),
-    import("./scripts/lib/runtime-module-security.ts"),
-  ]);
+  const [{ cloudflare }, { productionModuleSecurityPlugin }] =
+    await Promise.all([
+      import("@cloudflare/vite-plugin"),
+      import("./scripts/lib/runtime-module-security.ts"),
+    ]);
   const agentPlugins: PluginOption[] = [];
   if (agentCapabilityEnabled) {
     const { default: agents } = await import(agentsViteModule);
     agentPlugins.push(agents());
   }
+  const frameworkPlugins: PluginOption[] = [];
   return [
     productionModuleSecurityPlugin(projectDir),
     ...agentPlugins,
+    ...frameworkPlugins,
     cloudflare({
-      viteEnvironment: { name: "ssr" },
       // Runtime types come from @cloudflare/workers-types; generating them would start workerd.
       types: { includeRuntime: false },
     }),
-    tanstackStart(),
-    react(),
   ];
 }
 

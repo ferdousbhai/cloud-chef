@@ -7,6 +7,7 @@ import {
   type AgentToolResult,
 } from '@earendil-works/pi-agent-core';
 import {
+  createInitialSystemMessage,
   isContextOverflow,
   type AssistantMessage,
   type AssistantMessageEvent,
@@ -226,7 +227,8 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   const checkpointReminders = new Set<AgentMessage>();
   const archive = (entries: AgentMessage[]) => {
     for (const entry of entries) {
-      if (!archivedMessages.has(entry)) {
+      // The system prompt and tool declarations are configuration, not conversation history.
+      if (entry.role !== 'system' && !archivedMessages.has(entry)) {
         archivedMessages.add(entry);
         archivedHistory.push(liveHistoryEntry(entry, `live-${archivedHistory.length}`));
       }
@@ -497,10 +499,13 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     }
   };
 
+  const tools = Object.values(piTools);
+  // Pi 1.0 carries the prompt and tool declarations in the transcript itself. Declaring the tools
+  // up front keeps the loop from appending a tool-change system message before the first request.
+  const systemMessage = createInitialSystemMessage(instructions, tools);
   let context: AgentContext = {
-    systemPrompt: instructions,
-    messages: piMessages,
-    tools: Object.values(piTools),
+    messages: systemMessage ? [systemMessage, ...piMessages] : piMessages,
+    tools,
   };
 
   const compactRuntimeContext = async (source: AgentContext): Promise<AgentContext | undefined> => {
@@ -576,8 +581,14 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
           context = compacted;
           return { context: compacted };
         },
-        shouldStopAfterTurn: () =>
-          turnInterrupted() || (currentValidatedBuildCompletion !== undefined && !steering.hasPending()),
+        finishTurn: (turn) => {
+          if (turn.message.stopReason === 'error' || turn.message.stopReason === 'aborted') {
+            return undefined;
+          }
+          return turnInterrupted() || (currentValidatedBuildCompletion !== undefined && !steering.hasPending())
+            ? { action: 'end' }
+            : undefined;
+        },
         afterToolCall: async ({ result, isError }) =>
           !isError && !toolResultSucceeded(result.details) ? { isError: true } : undefined,
         maxTokens: handle.model.maxTokens,

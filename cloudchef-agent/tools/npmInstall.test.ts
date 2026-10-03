@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  findForbiddenNpmInstallPackages,
-  npmInstallToolParameters,
-  parseNpmInstallCommand,
-  splitPackageSpecs,
-} from './npmInstall.js';
+import { findForbiddenNpmInstallPackages, npmInstallToolParameters, parseNpmInstallCommand } from './npmInstall.js';
 import { packageNameFromInstallSpec } from '../utils/stackPolicy.js';
 
 describe('dependency command parameters', () => {
@@ -94,9 +89,5 @@ describe('dependency command parameters', () => {
     expect(() => parseNpmInstallCommand('npm install date-fns')).toThrow('exec accepts only');
     expect(() => parseNpmInstallCommand('yarn add date-fns')).toThrow('exec accepts only');
     expect(() => parseNpmInstallCommand('pnpm add date-fns && touch owned')).toThrow('Only npm registry');
-  });
-
-  it('splits package specs by whitespace', () => {
-    expect(splitPackageSpecs('  clsx\nlucide-react\tdate-fns  ')).toEqual(['clsx', 'lucide-react', 'date-fns']);
   });
 });

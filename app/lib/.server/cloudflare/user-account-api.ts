@@ -7,6 +7,7 @@ import {
 } from './deployment-artifact';
 import {
   APP_AGENT_DECLARATIVE_EXPORT,
+  DEPLOYMENT_ASSETS_RUN_WORKER_FIRST,
   DEPLOYMENT_COMPATIBILITY_DATE,
   DEPLOYMENT_COMPATIBILITY_FLAGS,
   DEPLOYMENT_OBSERVABILITY,
@@ -117,7 +118,7 @@ type WorkerUploadMetadata = {
   compatibility_date: string;
   compatibility_flags: string[];
   bindings: unknown[];
-  assets?: { jwt: string };
+  assets?: { jwt: string; config?: { run_worker_first: readonly string[] } };
   exports?: { AppAgent: typeof APP_AGENT_DECLARATIVE_EXPORT };
   observability: typeof DEPLOYMENT_OBSERVABILITY;
   annotations: { 'workers/message': string; 'workers/tag': string };
@@ -131,6 +132,8 @@ export type ManagedWorkerVersionArgs = {
   mainModule: string;
   modules: readonly DeploymentArtifactFile[];
   assets: readonly DeploymentArtifactFile[];
+  /** Route pages and API through the Worker first, serving files through an `ASSETS` binding. */
+  workerFirstAssets: boolean;
   workersAi: boolean;
   appAgent: boolean;
   d1DatabaseId?: string;
@@ -578,7 +581,7 @@ export class UserCloudflareAccountApi {
       !/^[a-f0-9]{64}$/.test(args.sourceSha256) ||
       args.modules.filter((module) => module.path === WORKER_MAIN_MODULE).length !== 1 ||
       (args.kvNamespaceId !== undefined && !/^[a-f0-9]{32}$/.test(args.kvNamespaceId)) ||
-      (args.projectType === 'worker' && args.assets.length !== 0)
+      (args.projectType === 'worker' && (args.assets.length !== 0 || args.workerFirstAssets))
     ) {
       throw new CloudflareAccountApiError('Managed Worker deployment artifact is invalid.');
     }
@@ -586,6 +589,7 @@ export class UserCloudflareAccountApi {
     const assetJwt =
       args.projectType === 'web_app' ? await this.uploadStaticAssets(args.workerName, args.assets) : undefined;
     const bindings: Array<Record<string, unknown>> = [
+      ...(args.workerFirstAssets ? [{ type: 'assets', name: 'ASSETS' }] : []),
       ...(args.workersAi ? [{ type: 'ai', name: 'AI' }] : []),
       ...(args.d1DatabaseId ? [{ type: 'd1', name: 'DB', id: args.d1DatabaseId }] : []),
       ...(args.agentSecurityD1DatabaseId
@@ -607,7 +611,9 @@ export class UserCloudflareAccountApi {
       },
     };
     if (assetJwt) {
-      metadata.assets = { jwt: assetJwt };
+      metadata.assets = args.workerFirstAssets
+        ? { jwt: assetJwt, config: { run_worker_first: DEPLOYMENT_ASSETS_RUN_WORKER_FIRST } }
+        : { jwt: assetJwt };
     }
     if (args.appAgent) {
       metadata.exports = { AppAgent: APP_AGENT_DECLARATIVE_EXPORT };

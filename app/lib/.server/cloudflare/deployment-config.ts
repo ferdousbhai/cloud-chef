@@ -1,6 +1,7 @@
 import { WORKER_MAIN_MODULE } from './deployment-artifact';
 import {
   APP_AGENT_DECLARATIVE_EXPORT,
+  DEPLOYMENT_ASSETS_RUN_WORKER_FIRST,
   DEPLOYMENT_COMPATIBILITY_DATE,
   DEPLOYMENT_COMPATIBILITY_FLAGS,
   DEPLOYMENT_OBSERVABILITY,
@@ -11,6 +12,7 @@ export type DeploymentConfigInput = {
   workerName: string;
   workersAi: boolean;
   appAgent: boolean;
+  assets?: boolean;
   d1DatabaseId?: string;
   d1DatabaseName?: string;
   agentSecurityD1DatabaseId?: string;
@@ -24,6 +26,7 @@ type TrustedBinding =
   | { type: 'r2'; name: string }
   | { type: 'kv'; id: string }
   | { type: 'ai' }
+  | { type: 'assets' }
   | { type: 'durable-object'; worker: string; exportName: 'AppAgent' };
 
 type TrustedDeploymentConfig = {
@@ -32,7 +35,10 @@ type TrustedDeploymentConfig = {
   compatibilityFlags: readonly string[];
   observability: typeof CF_OBSERVABILITY;
   workersDev: true;
-  env: Partial<Record<'DB' | 'AGENT_SECURITY_DB' | 'APP_STORAGE' | 'APP_CACHE' | 'AI' | 'AppAgent', TrustedBinding>>;
+  env: Partial<
+    Record<'ASSETS' | 'DB' | 'AGENT_SECURITY_DB' | 'APP_STORAGE' | 'APP_CACHE' | 'AI' | 'AppAgent', TrustedBinding>
+  >;
+  assets?: { runWorkerFirst: readonly string[] };
   exports?: { AppAgent: typeof APP_AGENT_DECLARATIVE_EXPORT };
   triggers?: Array<{ type: 'scheduled'; schedule: typeof DEPLOYMENT_SECURITY_CLEANUP_CRON }>;
   manifest: { type: 'partial'; mainModule: typeof WORKER_MAIN_MODULE; modules: Record<string, never> };
@@ -67,6 +73,10 @@ export function createTrustedDeploymentConfig(args: DeploymentConfigInput): Trus
     env: {},
     manifest: { type: 'partial', mainModule: WORKER_MAIN_MODULE, modules: {} },
   };
+  if (args.assets) {
+    config.env.ASSETS = { type: 'assets' };
+    config.assets = { runWorkerFirst: DEPLOYMENT_ASSETS_RUN_WORKER_FIRST };
+  }
   if (args.d1DatabaseId !== undefined) {
     config.env.DB = {
       type: 'd1',

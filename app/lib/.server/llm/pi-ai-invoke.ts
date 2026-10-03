@@ -1,4 +1,4 @@
-import type { Message, Tool, ToolCall } from '@earendil-works/pi-ai';
+import { normalizeContext, type Message, type Tool, type ToolCall } from '@earendil-works/pi-ai';
 import type { ModelHandle } from './pi-ai-models';
 
 class AgentTurnError extends Error {
@@ -28,11 +28,11 @@ export async function completeText(
   },
 ): Promise<string> {
   const messages: Message[] = [{ role: 'user', content: args.prompt, timestamp: Date.now() }];
-  const stream = await handle.stream(
-    handle.model,
-    { systemPrompt: args.systemPrompt, messages },
-    { maxTokens: args.maxTokens, temperature: args.temperature, signal: args.signal },
-  );
+  const stream = await handle.stream(handle.model, normalizeContext({ systemPrompt: args.systemPrompt, messages }), {
+    maxTokens: args.maxTokens,
+    temperature: args.temperature,
+    signal: args.signal,
+  });
   const message = await stream.result();
   if (message.stopReason === 'error' || message.stopReason === 'aborted') {
     args.signal?.throwIfAborted();
@@ -55,11 +55,11 @@ export async function completeToolCall(
 ): Promise<Record<string, unknown>> {
   const stream = await handle.stream(
     handle.model,
-    {
+    normalizeContext({
       systemPrompt: args.systemPrompt,
       messages: [{ role: 'user', content: args.prompt, timestamp: Date.now() }],
       tools: [args.tool],
-    },
+    }),
     {
       maxTokens: args.maxTokens,
       temperature: args.temperature,

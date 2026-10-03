@@ -60,14 +60,10 @@ describe('generated app agent security', () => {
       const licensePolicy = JSON.parse(first.licensePolicy);
       const project = JSON.parse(first.project);
       const tsconfig = JSON.parse(first.tsconfig);
-      expect(pkg.dependencies).toMatchObject({
-        agents: '0.20.1',
-        ai: '7.0.48',
-        'core-js-pure': '3.49.0',
-        partyserver: '0.5.9',
-      });
+      // Dependencies are installed separately at their latest release, never pinned by the manifest.
+      expect(pkg.dependencies).not.toHaveProperty('agents');
       expect(licensePolicy.metadataOnlyPackageAllowlist).toEqual(
-        expect.arrayContaining(['@ai-sdk/provider-utils@5.0.18', 'partyserver@0.5.9']),
+        expect.arrayContaining(['@ai-sdk/provider-utils', '@cfworker/json-schema', '@rolldown/binding-wasm32-wasi']),
       );
       expect(project).toMatchObject({
         entrypoint: 'src/server.ts',

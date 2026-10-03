@@ -14,10 +14,8 @@ import {
 import {
   APP_REQUIRED_PACKAGES,
   GENERATED_APP_TOOLCHAIN,
-  WORKER_REQUIRED_PACKAGES,
   collectSourceEntries,
   findAgentCapabilityDependencyErrors,
-  findCloudflareAiPeerCompatibilityErrors,
   findForbiddenDependencies,
   findForbiddenImports,
   findForbiddenRuntimeEnvAccess,
@@ -55,11 +53,8 @@ const webAppRequiredPaths = [
   "migrations",
   "scripts/lib/runtime-module-security.ts",
   "src/agents/app-agent.ts",
+  "src/application.ts",
   "src/plain-server.ts",
-  "src/routeTree.gen.ts",
-  "src/router.tsx",
-  "src/routes/__root.tsx",
-  "src/routes/index.tsx",
 ];
 
 function readJson(path) {
@@ -77,6 +72,16 @@ export function verifyStackAlignment() {
     errors.push(...cloudflareConfigErrors(rootDir, project));
   }
   const type = projectType(packageJson);
+  if (
+    projectErrors.length === 0 &&
+    (type === "web_app") !== (project.assets === true)
+  ) {
+    errors.push(
+      type === "web_app"
+        ? `A web app must declare "assets": true in ${CLOUDFLARE_PROJECT_FILE} so its pages run through the Worker.`
+        : `A Worker-only project must not declare assets in ${CLOUDFLARE_PROJECT_FILE}.`,
+    );
+  }
   if (existsSync(resolve(rootDir, "package-lock.json"))) {
     errors.push(
       "package-lock.json is not allowed; generated projects use the pinned pnpm toolchain only.",
@@ -87,9 +92,8 @@ export function verifyStackAlignment() {
     ...findMissingDependencies(
       packageJson,
       "package.json",
-      type === "worker" ? WORKER_REQUIRED_PACKAGES : APP_REQUIRED_PACKAGES,
+      APP_REQUIRED_PACKAGES,
     ),
-    ...findCloudflareAiPeerCompatibilityErrors(packageJson, "package.json"),
     ...findAgentCapabilityDependencyErrors(
       packageJson,
       "package.json",
@@ -143,9 +147,7 @@ export function verifyStackAlignment() {
     ...findMissingCommandSteps(
       scripts.typecheck,
       "package.json scripts.typecheck",
-      type === "web_app"
-        ? ["generate-routes", "cf-typegen", "tsc"]
-        : ["cf-typegen", "tsc"],
+      ["cf-typegen", "tsc"],
     ),
     ...findMissingCommandSteps(scripts.deploy, "package.json scripts.deploy", [
       "typecheck",

@@ -11,8 +11,6 @@ import {
   findForbiddenRuntimeEnvAccess,
   findForbiddenRootBrowserRuntimeDependencies,
   findInternalPackageMetadataErrors,
-  findCloudflareAiPeerCompatibilityErrors,
-  findCfCliPinErrors,
   findDeploymentRuntimePolicyErrors,
   findMissingDependencies,
   findMissingCommandSteps,
@@ -33,30 +31,6 @@ describe('stack alignment verification helpers', () => {
     expect(findRootWorkspacePolicyErrors(workspace.replace('  protobufjs: false\n', ''))).toContain(
       'pnpm-workspace.yaml must explicitly block protobufjs exactly once.',
     );
-  });
-
-  it('checks runtime artifact pins before merge without mutating pull request issues', () => {
-    const workflow = readFileSync(new URL('../.github/workflows/runtime-artifacts.yml', import.meta.url), 'utf8');
-
-    expect(workflow).toContain('pull_request:');
-    expect(workflow).toContain('user-workspace-runtime/src/container-toolchain.ts');
-    expect(workflow).toContain("if: always() && github.event_name != 'pull_request'");
-    expect(workflow).toContain('.author.login == \\"github-actions[bot]\\"');
-    expect(workflow).toContain('.author.login == \\"$REPOSITORY_OWNER\\"');
-  });
-
-  it('keeps Computer object probes below the Durable Object SQL variable limit', () => {
-    const workspace = readFileSync(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8');
-    const patch = readFileSync(new URL('../patches/@cloudflare__computer@0.2.1.patch', import.meta.url), 'utf8');
-    const installed = readFileSync(
-      new URL('../node_modules/@cloudflare/computer/dist/index.js', import.meta.url),
-      'utf8',
-    );
-
-    expect(workspace).toContain("'@cloudflare/computer@0.2.1': patches/@cloudflare__computer@0.2.1.patch");
-    expect(patch).toContain('-const PROBE_BATCH = 100;');
-    expect(patch).toContain('+const PROBE_BATCH = 64;');
-    expect(installed).toContain('const PROBE_BATCH = 64;');
   });
 
   it('collects dependency names across package sections', () => {
@@ -111,32 +85,10 @@ describe('stack alignment verification helpers', () => {
     };
 
     expect(packageDependencyVersion(pkg, '@ai-sdk/react')).toBe('4.0.51');
-    expect(findCloudflareAiPeerCompatibilityErrors(pkg, 'package.json')).toEqual([]);
     expect(findPackageVersionAlignmentErrors(pkg, pkg, 'template/package.json', ['ai', 'zod'])).toEqual([]);
     expect(
       findPackageVersionAlignmentErrors(pkg, { dependencies: { ai: '7.0.49' } }, 'template/package.json', ['ai']),
     ).toEqual(['template/package.json must align ai with package.json 7.0.48; found 7.0.49.']);
-  });
-
-  it('keeps AI SDK packages on the current Cloudflare-compatible peer line', () => {
-    expect(
-      findCloudflareAiPeerCompatibilityErrors(
-        {
-          dependencies: {
-            '@ai-sdk/provider': '4.0.0',
-            '@ai-sdk/react': '4.0.7',
-            '@cloudflare/ai-chat': '^0.9.1',
-            agents: '^0.17.1',
-            ai: '7.0.6',
-            'workers-ai-provider': '^3.3.0',
-          },
-        },
-        'package.json',
-      ),
-    ).toEqual([
-      'package.json must pin the tested AI SDK 7 family ai@7.0.48 for agents, @cloudflare/ai-chat; found 7.0.6.',
-      'package.json must pin the tested AI SDK 7 family @ai-sdk/react@4.0.51 for agents, @cloudflare/ai-chat; found 4.0.7.',
-    ]);
   });
 
   it('keeps the official Sandbox package and container image aligned', () => {
@@ -208,15 +160,6 @@ describe('stack alignment verification helpers', () => {
     expect(findInternalPackageMetadataErrors({ private: true }, 'cloudchef-agent/package.json')).toEqual([]);
     expect(findInternalPackageMetadataErrors({}, 'cloudchef-agent/package.json')).toEqual([
       'cloudchef-agent/package.json must set private to true so it cannot be published accidentally.',
-    ]);
-  });
-
-  it('requires a reviewed release-age exemption for the pinned cf version', () => {
-    const policy = { approvedReleaseAgeExclusions: ['cf@1.0.0-beta.5'] };
-
-    expect(findCfCliPinErrors({ devDependencies: { cf: '1.0.0-beta.5' } }, policy)).toEqual([]);
-    expect(findCfCliPinErrors({ devDependencies: { cf: '1.0.0-beta.6' } }, policy)).toEqual([
-      'The reviewed release-age exemptions must name cf@1.0.0-beta.6.',
     ]);
   });
 

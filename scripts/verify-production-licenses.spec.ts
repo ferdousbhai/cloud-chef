@@ -84,8 +84,8 @@ describe('production dependency license inventory', () => {
         metadataOnlyPackageAllowlist: ['metadata-only@1.0.0', 'now-complete@3.0.0', 'removed@1.0.0'],
       }),
     ).toEqual([
-      'unreviewed@2.0.0 publishes no package-level license evidence; review it and add the exact version to metadataOnlyPackageAllowlist if the package metadata is sufficient.',
-      'nested-only@1.0.0 publishes no package-level license evidence; review it and add the exact version to metadataOnlyPackageAllowlist if the package metadata is sufficient.',
+      'unreviewed@2.0.0 publishes no package-level license evidence; review it and add the package name to metadataOnlyPackageAllowlist if the package metadata is sufficient.',
+      'nested-only@1.0.0 publishes no package-level license evidence; review it and add the package name to metadataOnlyPackageAllowlist if the package metadata is sufficient.',
       'now-complete@3.0.0 now publishes license or notice text; remove its metadataOnlyPackageAllowlist entry.',
       'removed@1.0.0 is a stale metadataOnlyPackageAllowlist entry.',
     ]);

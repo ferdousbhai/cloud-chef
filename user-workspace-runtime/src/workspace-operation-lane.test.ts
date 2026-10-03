@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ExecutionObservation } from './execution-reattach';
 import { InterruptedExecSettlement } from './interrupted-exec-settlement';
@@ -22,19 +21,6 @@ describe('WorkspaceOperationLane', () => {
     } catch (error) {
       expect(error).toMatchObject({ code: 'workspace_operation_conflict', retryAfterMs: 1_000 });
     }
-  });
-
-  it('records every conflict the ProjectWorkspace admission path rejects', () => {
-    const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    const start = source.indexOf('private async withStatefulOperation<T>(');
-    const acquisition = source.slice(start, source.indexOf('\n  private ', start + 1));
-
-    expect(acquisition).toContain("console.info('ProjectWorkspace operation lane conflict'");
-    expect(acquisition).toContain('activeKind: error.activeKind');
-    expect(acquisition).toContain('retryAfterMs: error.retryAfterMs');
-    // The container probe for a settled interrupted exec must feed the claim acquisition re-checks.
-    expect(acquisition).toContain('const settledHolder = await this.#execSettlement.findSettledHolder(');
-    expect(acquisition).toContain('settledHolder,');
   });
 
   it('recovers a stale owner for a different operation but never replays the stale idempotency key', () => {

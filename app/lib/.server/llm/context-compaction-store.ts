@@ -1,4 +1,4 @@
-import type { SqlProvider } from 'agents/experimental/memory/session';
+import type { SqlProvider } from 'agents/context';
 import type { ContextCompaction } from './context-compaction';
 
 const CONTEXT_ID = 'active';
