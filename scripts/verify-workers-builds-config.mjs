@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parse, printParseErrorCode } from 'jsonc-parser';
+import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
 import { findWorkersBuildsConfigErrors } from './workers-builds-config.mjs';
 import { runVerifierIfMain } from './run-verifier.mjs';
 
@@ -16,20 +16,11 @@ function readJson(path, errors) {
   }
 }
 
-function readJsonc(path, errors) {
-  const parseErrors = [];
-  const config = parse(readFileSync(resolve(rootDir, path), 'utf8'), parseErrors, { allowTrailingComma: true });
-  for (const error of parseErrors) {
-    errors.push(`${path} has invalid JSONC: ${printParseErrorCode(error.error)} at offset ${error.offset}.`);
-  }
-  return config;
-}
-
-export function verifyWorkersBuildsConfig() {
+export async function verifyWorkersBuildsConfig() {
   const errors = [];
   const config = readJson('workers-builds.production.json', errors);
   const packageJson = readJson('package.json', errors);
-  const workerConfig = readJsonc('wrangler.jsonc', errors);
+  const workerConfig = await loadCommittedWranglerConfig();
   const nvmrc = readFileSync(resolve(rootDir, '.nvmrc'), 'utf8');
   const workflowsDirectory = resolve(rootDir, '.github/workflows');
   const githubWorkflowPaths = existsSync(workflowsDirectory)

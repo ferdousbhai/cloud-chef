@@ -11,10 +11,17 @@ import {
   validateLocalDeployContext,
   validateWorkersBuildContext,
   validateWorkersBuildMetadata,
-  wranglerDeployArgs,
+  verifyBuiltDeployVars,
+  BUILT_WORKER_CONFIG_PATH,
 } from './deploy-production.mjs';
 
 const commitSha = 'a'.repeat(40);
+const builtConfig = (vars: Record<string, string>) => () =>
+  JSON.stringify({
+    name: 'cloudchef',
+    env: Object.fromEntries(Object.entries(vars).map(([name, value]) => [name, { type: 'text', value }])),
+  });
+const readBuiltConfig = builtConfig({ COMMIT_SHA: commitSha, CLOUDFLARE_OAUTH_CLIENT_ID: 'oauth-client-id' });
 const workersBuildEnv = {
   WORKERS_CI: '1',
   WORKERS_CI_BRANCH: 'main',
@@ -212,32 +219,46 @@ describe('production deploy wrapper', () => {
     ).toThrow('must be a lowercase UUID');
   });
 
-  it('passes the OAuth ID and exact commit to Wrangler without a shell', () => {
-    expect(wranglerDeployArgs('oauth-client-id', commitSha)).toEqual([
-      'exec',
-      'wrangler',
-      'deploy',
-      '--var',
-      `COMMIT_SHA:${commitSha}`,
-      '--var',
-      'CLOUDFLARE_OAUTH_CLIENT_ID:oauth-client-id',
+  it('builds with the OAuth ID and exact commit, then ships that build with cf without a shell', () => {
+    const spawn = vi.fn(() => ({ status: 0 }));
+    expect(
+      deployProduction({ clientId: 'oauth-client-id', commitSha, env: workersBuildEnv, spawn, readBuiltConfig }),
+    ).toBe(commitSha);
+    const deployEnv = { ...workersBuildEnv, COMMIT_SHA: commitSha, CLOUDFLARE_OAUTH_CLIENT_ID: 'oauth-client-id' };
+    expect(spawn.mock.calls).toEqual([
+      ['pnpm', ['exec', 'vite', 'build'], { stdio: 'inherit', env: deployEnv }],
+      ['pnpm', ['exec', 'cf', 'deploy', '--prebuilt'], { stdio: 'inherit', env: deployEnv }],
     ]);
+  });
+
+  it('refuses a build output that does not carry the released commit and OAuth ID', () => {
+    expect(() => verifyBuiltDeployVars('oauth-client-id', commitSha, readBuiltConfig)).not.toThrow();
+    expect(() =>
+      verifyBuiltDeployVars(
+        'oauth-client-id',
+        commitSha,
+        builtConfig({ CLOUDFLARE_OAUTH_CLIENT_ID: 'oauth-client-id' }),
+      ),
+    ).toThrow(`${BUILT_WORKER_CONFIG_PATH} must bind COMMIT_SHA to ${commitSha}; found undefined.`);
+    expect(() =>
+      verifyBuiltDeployVars(
+        'oauth-client-id',
+        commitSha,
+        builtConfig({ COMMIT_SHA: commitSha, CLOUDFLARE_OAUTH_CLIENT_ID: 'other' }),
+      ),
+    ).toThrow(`${BUILT_WORKER_CONFIG_PATH} must bind CLOUDFLARE_OAUTH_CLIENT_ID to the deploy environment's value.`);
 
     const spawn = vi.fn(() => ({ status: 0 }));
-    expect(deployProduction({ clientId: 'oauth-client-id', commitSha, env: workersBuildEnv, spawn })).toBe(commitSha);
-    expect(spawn).toHaveBeenCalledWith(
-      'pnpm',
-      [
-        'exec',
-        'wrangler',
-        'deploy',
-        '--var',
-        `COMMIT_SHA:${commitSha}`,
-        '--var',
-        'CLOUDFLARE_OAUTH_CLIENT_ID:oauth-client-id',
-      ],
-      { stdio: 'inherit' },
-    );
+    expect(() =>
+      deployProduction({
+        clientId: 'oauth-client-id',
+        commitSha,
+        env: workersBuildEnv,
+        spawn,
+        readBuiltConfig: builtConfig({}),
+      }),
+    ).toThrow('must bind COMMIT_SHA');
+    expect(spawn).toHaveBeenCalledTimes(1);
   });
 
   it('verifies the deployment against the deployed commit', async () => {
@@ -249,6 +270,7 @@ describe('production deploy wrapper', () => {
         commitSha,
         env: workersBuildEnv,
         spawn: () => ({ status: 0 }),
+        readBuiltConfig,
         verifyLocal,
       }),
     ).resolves.toBe(commitSha);
@@ -271,7 +293,7 @@ describe('production deploy wrapper', () => {
         env: workersBuildEnv,
         spawn: () => ({ status: null }),
       }),
-    ).toThrow('Wrangler deploy terminated without an exit status.');
+    ).toThrow('Vite build terminated without an exit status.');
     expect(() =>
       deployProduction({
         clientId: 'oauth-client-id',
@@ -279,6 +301,16 @@ describe('production deploy wrapper', () => {
         env: workersBuildEnv,
         spawn: () => ({ status: 23 }),
       }),
-    ).toThrow('Wrangler deploy failed with exit status 23. Live verification was not run.');
+    ).toThrow('Vite build failed with exit status 23. Live verification was not run.');
+    const deployFails = vi.fn().mockReturnValueOnce({ status: 0 }).mockReturnValueOnce({ status: 23 });
+    expect(() =>
+      deployProduction({
+        clientId: 'oauth-client-id',
+        commitSha,
+        env: workersBuildEnv,
+        spawn: deployFails,
+        readBuiltConfig,
+      }),
+    ).toThrow('cf deploy failed with exit status 23. Live verification was not run.');
   });
 });

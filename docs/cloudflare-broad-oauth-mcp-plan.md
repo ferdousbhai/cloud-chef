@@ -23,7 +23,7 @@ This includes the Cloudflare Registrar API. With Registrar Write permission and 
 
 The current implementation is intentionally narrow:
 
-- `wrangler.jsonc` requests eight scope IDs: `account-settings.read`, `user-details.read`, Workers Scripts Write, Containers Write, D1 Write, R2 Write, KV Write, and Workers AI Read.
+- `cloudflare.config.ts` requests eight scope IDs: `account-settings.read`, `user-details.read`, Workers Scripts Write, Containers Write, D1 Write, R2 Write, KV Write, and Workers AI Read.
 - `app/lib/.server/cloudflare/cloudflare-oauth-orchestrator.ts` validates that narrow set, adds `offline_access`, performs Authorization Code plus PKCE, and stores a refresh token.
 - The model receives only workspace tools and `search_cloudflare_docs`; it has no general Cloudflare API or MCP tools.
 - `D1CloudflareCredentialVault` already encrypts access and refresh tokens, refreshes expiring access tokens, and supports revocation. It is the correct credential authority to extend.
@@ -212,7 +212,7 @@ Update the OAuth orchestrator and schemas:
 7. Include the grant state and missing-scope summary in the authenticated connection/status response, but never include tokens.
 8. Continue requiring a refresh token. A refresh token cannot add a new scope; scope expansion requires a new authorization-code consent.
 
-Update the Cloudflare OAuth client itself, not only `wrangler.jsonc`:
+Update the Cloudflare OAuth client itself, not only `cloudflare.config.ts`:
 
 - include Authorization Code and refresh-token/offline access as supported by Cloudflare's current client API;
 - set the complete reviewed manifest as allowed scopes;
@@ -222,7 +222,7 @@ Update the Cloudflare OAuth client itself, not only `wrangler.jsonc`:
 
 Do not add mutations to `pnpm run ops` or `pnpm run ops:json`; those commands must stay read-only. Provide either a documented dashboard runbook or a separate explicit `--apply` administration command for changing the OAuth client. The command must show the scope diff, require the expected client/account IDs, and never print the client secret or operator token.
 
-Update `scripts/verify-production-config.mjs` so it checks the configured scope-manifest digest and core inclusion rather than pinning the old eight-scope string. Update `wrangler.jsonc` only after the OAuth client accepts the same manifest.
+Update `scripts/verify-production-config.mjs` so it checks the configured scope-manifest digest and core inclusion rather than pinning the old eight-scope string. Update `cloudflare.config.ts` only after the OAuth client accepts the same manifest.
 
 ### Phase 3: Reauthorization and connection UX
 
@@ -443,7 +443,7 @@ Alert on repeated token refresh failures, elevated `insufficient_scope`, MCP sch
 The coding agent should expect to touch or add the following areas; exact names may change if a cleaner boundary is found.
 
 - OAuth/authentication: `app/lib/.server/cloudflare/cloudflare-oauth-orchestrator.ts`, `cloudflare-orchestrator.ts`, `cloudflare-connection-repository.ts`, `cloudflare-credential-vault.ts`, `app/server-handlers/cloudflare-integration.ts`, `app/server-handlers/runtime-credential.ts`.
-- Scope/config tooling: new scope manifest/sync modules, `wrangler.jsonc`, `scripts/verify-production-config.mjs` and specs, a new explicit OAuth-client runbook/apply tool.
+- Scope/config tooling: new scope manifest/sync modules, `cloudflare.config.ts`, `scripts/verify-production-config.mjs` and specs, a new explicit OAuth-client runbook/apply tool.
 - Schemas/migrations: new `migrations/0016_*.sql`, new `user-workspace-migrations/0008_*.sql`, connection/data API schemas and tests.
 - MCP client/policy: new server-only `cloudflare-mcp-client`, invocation policy/parser, redaction, error, and audit modules.
 - Builder/model tools: `cloudchef-agent/model-tool-inputs.ts`, `cloudchef-agent/types.ts`, `app/lib/.server/llm/workers-ai-tools.ts`, `pi-tools-adapter.ts`, `pi-agent-runner.ts`, `pi-message-conversion.ts`, and turn budgets/prompts.

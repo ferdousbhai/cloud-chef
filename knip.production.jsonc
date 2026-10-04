@@ -4,7 +4,13 @@
   },
   "workspaces": {
     ".": {
-      "entry": ["app/router.tsx", "make-bootstrap-snapshot.js", "scripts/build-user-workspace-runtime.mjs"],
+      "entry": [
+        "app/router.tsx",
+        "app/server.ts",
+        "cloudflare.config.ts",
+        "make-bootstrap-snapshot.js",
+        "scripts/build-user-workspace-runtime.mjs",
+      ],
       "project": [
         "**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!",
         "!**/*.test.{ts,tsx}",
@@ -24,5 +30,13 @@
   },
   // `@oxlint/plugins` is imported only by the vendored plugin under tools/, which this
   // production view excludes by design.
-  "ignoreDependencies": ["@babel/core", "@babel/plugin-proposal-decorators", "cloudflare", "@oxlint/plugins"],
+  // `wrangler` and `@cloudflare/workers-types` are explained in knip.jsonc.
+  "ignoreDependencies": [
+    "@babel/core",
+    "@babel/plugin-proposal-decorators",
+    "cloudflare",
+    "@oxlint/plugins",
+    "wrangler",
+    "@cloudflare/workers-types",
+  ],
 }

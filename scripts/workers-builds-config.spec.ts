@@ -78,7 +78,7 @@ describe('Workers Builds production configuration', () => {
         'workers-builds.production.json buildTokenName must be "account-workers-builds-production"; found "per-project-token".',
         'workers-builds.production.json buildVariables must not contain unreviewed variables: UNREVIEWED_SECRET.',
         'workers-builds.production.json must not build a CloudChef-owned Sandbox image.',
-        'wrangler.jsonc must not bind CloudChef-owned Containers.',
+        'cloudflare.config.ts must not bind CloudChef-owned Containers.',
         'package.json packageManager must be "pnpm@11.14.0"; found "pnpm@latest".',
         '.nvmrc must be "26.3.0"; found "node".',
         'GitHub deployment workflows must not exist; Cloudflare Workers Builds is the only CI/CD provider. Found: .github/workflows/ci.yml, .github/workflows/deploy.yml.',

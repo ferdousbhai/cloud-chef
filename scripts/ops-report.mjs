@@ -40,7 +40,7 @@ const WEEK = 7 * DAY;
 /** How many connected accounts one report inspects. */
 const RUNTIME_ROW_LIMIT = 200;
 
-/** The control-plane Worker this repository deploys, as named in `wrangler.jsonc`. */
+/** The control-plane Worker this repository deploys, as named in `cloudflare.config.ts`. */
 const WORKER_SCRIPT_NAME = 'cloudchef';
 /** How far back the invocation read looks. */
 const WORKER_INVOCATION_WINDOW_MS = DAY;

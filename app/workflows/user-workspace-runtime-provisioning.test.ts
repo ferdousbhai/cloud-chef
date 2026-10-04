@@ -171,6 +171,7 @@ function workflowEnv(
       create: vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['create']>(),
       createBatch,
       get,
+      deleteBatch: vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['deleteBatch']>(),
     },
   };
 }
@@ -184,5 +185,7 @@ function workflowInstance(status: WorkflowInstance['status']): WorkflowInstance 
     resume: vi.fn().mockResolvedValue(undefined),
     terminate: vi.fn().mockResolvedValue(undefined),
     sendEvent: vi.fn().mockResolvedValue(undefined),
+    delete: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn(),
   };
 }

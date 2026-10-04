@@ -25,8 +25,8 @@ and `/api/health` work without any credentials. There is intentionally no `dev` 
 verifier rejects scripts that start a local server.
 
 Signing in and building apps need the `CLOUDFLARE_OAUTH_CLIENT_SECRET` and `CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY`
-secrets and a Cloudflare OAuth client whose callback reaches your origin (see Configuration). Wrangler warns that they
-are missing; that is expected for UI work.
+secrets and a Cloudflare OAuth client whose callback reaches your origin (see Configuration). The Cloudflare Vite
+plugin warns that they are missing; that is expected for UI work.
 
 ## Verification
 
@@ -49,7 +49,8 @@ license diligence but do not replace legal review.
 
 ## Configuration
 
-`wrangler.jsonc` is the source of truth for the control-plane Worker. It contains one D1 binding for identity,
+`cloudflare.config.ts` is the source of truth for the control-plane Worker, built by `vite build` with the Cloudflare
+Vite plugin and deployed with the `cf` CLI. It contains one D1 binding for identity,
 authentication, encrypted Cloudflare credentials, connection metadata, and user-runtime discovery. Configure the two
 declared secret values in Cloudflare; never store them in source or local environment files.
 
@@ -64,7 +65,7 @@ into the Worker, and maintained by hand — edit it like any other source file. 
 are what the system prompt catalogs, so keep them accurate.
 
 The OAuth callback is `https://<deployment-origin>/connect/return`. Keep its permissions aligned with
-`CLOUDFLARE_OAUTH_SCOPES` in `wrangler.jsonc`. Those permissions let CloudChef create a workspace runtime in the
+`CLOUDFLARE_OAUTH_SCOPES` in `cloudflare.config.ts`. Those permissions let CloudChef create a workspace runtime in the
 connected user's account; they do not add customer storage or compute to the CloudChef account.
 
 `workers-builds.production.json` is the reviewed contract for Cloudflare dashboard build settings. Cloudflare does not
@@ -97,12 +98,16 @@ generated Builder template module directly.
 for generated-project pnpm cooling, lifecycle-build approvals, and security overrides. The root and template verifiers
 import it through `template/scripts/lib/project-policy.mjs`.
 
-Client source maps are generated for internal diagnosis but excluded from the static upload by
-`dist/client/.assetsignore`, following Cloudflare's
-[static asset ignore contract](https://developers.cloudflare.com/workers/static-assets/binding/#ignoring-assets).
-Worker source maps remain private Cloudflare uploads through
-[`upload_source_maps`](https://developers.cloudflare.com/workers/observability/source-maps/). The validation pipeline
-checks both sides of that policy.
+`vite build` writes the Worker as Build Output under `.cloudflare/output/`, which `cf deploy --prebuilt` ships. The
+client build emits no source maps, so none can become a public static asset. Worker source maps sit in the bundle and
+`cf deploy` uploads them as private
+[Worker source maps](https://developers.cloudflare.com/workers/observability/source-maps/). `verify:static-assets`
+checks both sides of that policy against the build output.
+
+`cf build` refuses to run at a pnpm workspace root, so the repository builds with `vite build` directly.
+`@cloudflare/vitest-pool-workers` and local D1 migrations still read Wrangler config, so they run against
+`.cloudflare/wrangler.json`, a Wrangler-format copy of `cloudflare.config.ts` that `scripts/lib/cloudflare-config.mjs`
+writes on demand; never edit it.
 
 ## User Workspace Runtime
 
@@ -130,7 +135,8 @@ and token selection aligned with that file. Runtime secrets remain on the Worker
 
 Cloudflare Workers Builds validates every push. Non-production branches upload an undeployed Worker version. A push to
 `main` runs the production deploy command only from the exact Workers Builds checkout, applies control-plane D1
-migrations, publishes with the exact 40-character commit ID, and then probes `https://cloudchef.build/api/version` until
+migrations, rebuilds with the exact 40-character commit ID and OAuth client ID in the environment (which
+`cloudflare.config.ts` binds as plain-text vars), deploys that build with `cf deploy --prebuilt`, and then probes `https://cloudchef.build/api/version` until
 five consecutive responses report that commit, a live Worker version ID, configured OAuth bindings, and
 `Cache-Control: no-store`.
 
@@ -145,7 +151,8 @@ redirect to the canonical `https://cloudchef.build` origin with the path and que
 these routes needs a Workers Builds token that may attach a custom domain in the `ghostbuild.dev` zone; attaching them
 once by hand is equivalent, and later deploys are no-ops for routes that already exist.
 
-For an emergency rollback from a clean checkout of current `main`, inspect and promote an immutable version:
+For an emergency rollback from a clean checkout of current `main`, inspect and promote an immutable version with
+Wrangler, which addresses the Worker by name and needs no config file (cf has no rollback command yet):
 
 ```bash
 pnpm exec wrangler versions view '<version-id>' --name cloudchef --json

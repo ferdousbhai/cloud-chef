@@ -5,17 +5,19 @@ import { describe, expect, it } from 'vitest';
 import { findDeployedLicenseArtifactErrors, findStaticAssetExposureErrors } from './verify-static-assets.mjs';
 
 describe('static asset deployment policy', () => {
-  it('keeps Worker source maps private and excludes every client source map', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'cloudchef-assets-'));
+  it('keeps Worker source maps private and ships no client source map', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'cloudchef-build-output-'));
     try {
-      mkdirSync(join(directory, 'assets'));
-      writeFileSync(join(directory, 'assets/app.js.map'), '{}');
+      mkdirSync(join(directory, 'assets/assets'), { recursive: true });
+      mkdirSync(join(directory, 'bundle/assets'), { recursive: true });
+      writeFileSync(join(directory, 'assets/assets/app.js'), '');
+      writeFileSync(join(directory, 'bundle/index.js.map'), '{}');
+      writeFileSync(join(directory, 'bundle/assets/chunk.js.map'), '{}');
 
       expect(
         findStaticAssetExposureErrors({
-          assetDirectory: directory,
-          workerConfig: { upload_source_maps: true },
-          ignoreContent: 'wrangler.json\n.dev.vars\n*.map\n',
+          assetDirectory: join(directory, 'assets'),
+          bundleDirectory: join(directory, 'bundle'),
         }),
       ).toEqual([]);
     } finally {
@@ -23,22 +25,23 @@ describe('static asset deployment policy', () => {
     }
   });
 
-  it('reports deployable maps, disabled private upload, and re-inclusions', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'cloudchef-assets-'));
+  it('reports public maps, local environment files, and a missing Worker source map', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'cloudchef-build-output-'));
     try {
-      writeFileSync(join(directory, 'app.js.map'), '{}');
+      mkdirSync(join(directory, 'assets'));
+      mkdirSync(join(directory, 'bundle'));
+      writeFileSync(join(directory, 'assets/app.js.map'), '{}');
+      writeFileSync(join(directory, 'bundle/.dev.vars'), 'SECRET=1');
 
       expect(
         findStaticAssetExposureErrors({
-          assetDirectory: directory,
-          workerConfig: { upload_source_maps: false },
-          ignoreContent: '!app.js.map\n',
+          assetDirectory: join(directory, 'assets'),
+          bundleDirectory: join(directory, 'bundle'),
         }),
       ).toEqual([
-        'The built Worker config must keep upload_source_maps enabled for private Worker diagnostics.',
-        'The deployed client asset root .assetsignore must contain *.map.',
-        'The deployed client asset root .assetsignore must not re-include ignored files.',
-        'Client source maps would be deployable: app.js.map.',
+        'The built Worker bundle must include index.js.map so cf deploy uploads it as a private source map.',
+        'Client source maps would be deployed as public assets: app.js.map.',
+        'Local environment files would be deployed: bundle/.dev.vars.',
       ]);
     } finally {
       rmSync(directory, { force: true, recursive: true });

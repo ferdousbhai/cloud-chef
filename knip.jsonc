@@ -6,6 +6,9 @@
     ".": {
       "entry": [
         "app/router.tsx",
+        // The Worker entrypoint and its config, both read by cf and the Cloudflare Vite plugin.
+        "app/server.ts",
+        "cloudflare.config.ts",
         // Test entrypoints are explicit because the repository has separate
         // Node/jsdom and workerd Vitest configurations.
         "**/*.test.{ts,tsx}",
@@ -50,5 +53,11 @@
 
     // imported by the vendored anti-slop plugin, which knip is told to ignore above
     "@oxlint/plugins",
+
+    // run as `pnpm exec wrangler` by scripts that still need Wrangler (local D1 migrations, ops reads)
+    "wrangler",
+
+    // type-only peer of the Agents packages (see pnpm-workspace.yaml peerDependencyRules)
+    "@cloudflare/workers-types",
   ],
 }

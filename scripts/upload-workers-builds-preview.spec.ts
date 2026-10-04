@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   uploadWorkersBuildsPreview,
   validatePreviewBuildContext,
-  wranglerPreviewUploadArgs,
+  cfPreviewUploadArgs,
 } from './upload-workers-builds-preview.mjs';
 
 const commitSha = 'a'.repeat(40);
@@ -28,16 +28,14 @@ describe('Workers Builds preview upload', () => {
     ).toThrow('refuses the production branch');
   });
 
-  it('uploads a version with reviewed variables without promoting it', () => {
-    expect(wranglerPreviewUploadArgs('oauth-client-id', commitSha, 'feature/cloudflare-preview')).toEqual([
+  it('builds with reviewed variables and uploads that build as a version without promoting it', () => {
+    expect(cfPreviewUploadArgs(commitSha, 'feature/cloudflare-preview')).toEqual([
       'exec',
-      'wrangler',
+      'cf',
+      'workers',
       'versions',
-      'upload',
-      '--var',
-      `COMMIT_SHA:${commitSha}`,
-      '--var',
-      'CLOUDFLARE_OAUTH_CLIENT_ID:oauth-client-id',
+      'create',
+      '--prebuilt',
       '--message',
       `Workers Builds preview for feature/cloudflare-preview at ${commitSha}`,
     ]);
@@ -45,12 +43,20 @@ describe('Workers Builds preview upload', () => {
     const spawn = vi
       .fn()
       .mockReturnValueOnce({ status: 0, stdout: `${commitSha}\n`, stderr: '' })
-      .mockReturnValueOnce({ status: 0 });
-    expect(uploadWorkersBuildsPreview({ env: previewEnv, spawn: spawn as never })).toBe(commitSha);
-    expect(spawn).toHaveBeenLastCalledWith(
-      'pnpm',
-      wranglerPreviewUploadArgs('oauth-client-id', commitSha, 'feature/cloudflare-preview'),
-      { stdio: 'inherit' },
-    );
+      .mockReturnValue({ status: 0 });
+    const readBuiltConfig = () =>
+      JSON.stringify({
+        env: {
+          COMMIT_SHA: { type: 'text', value: commitSha },
+          CLOUDFLARE_OAUTH_CLIENT_ID: { type: 'text', value: 'oauth-client-id' },
+        },
+      });
+    expect(uploadWorkersBuildsPreview({ env: previewEnv, spawn: spawn as never, readBuiltConfig })).toBe(commitSha);
+    const deployEnv = { ...previewEnv, COMMIT_SHA: commitSha };
+    expect(spawn).toHaveBeenNthCalledWith(2, 'pnpm', ['exec', 'vite', 'build'], { stdio: 'inherit', env: deployEnv });
+    expect(spawn).toHaveBeenLastCalledWith('pnpm', cfPreviewUploadArgs(commitSha, 'feature/cloudflare-preview'), {
+      stdio: 'inherit',
+      env: deployEnv,
+    });
   });
 });

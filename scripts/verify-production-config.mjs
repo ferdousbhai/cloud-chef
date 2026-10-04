@@ -2,7 +2,6 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parse, printParseErrorCode } from 'jsonc-parser';
 import {
   findMissingCommandSteps,
   loadsLocalEnvFiles,
@@ -10,6 +9,7 @@ import {
   targetsStaging,
   workflowPathsFromDirectoryEntries,
 } from '../template/scripts/lib/project-policy.mjs';
+import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
 import { findWorkerObservabilityErrors, findWorkerRuntimeSecretErrors } from './lib/worker-policy.mjs';
 import { runVerifierIfMain } from './run-verifier.mjs';
 import { findUnexpectedGithubWorkflowPaths } from './workers-builds-config.mjs';
@@ -24,7 +24,8 @@ const REQUIRED_SECRET_NAMES = ['CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY', 'CLOUDFLA
 const PLACEHOLDER_D1_ID = '00000000-0000-0000-0000-000000000000';
 const workerTargets = [
   {
-    path: 'wrangler.jsonc',
+    // Checked in the Wrangler format `cf deploy` converts it to, so the field names below are what is uploaded.
+    path: 'cloudflare.config.ts',
     name: 'cloudchef',
     main: 'app/server.ts',
     databaseName: 'cloudchef',
@@ -40,15 +41,6 @@ function readJson(path, errors) {
     errors.push(`${path} must be valid JSON: ${error instanceof Error ? error.message : String(error)}.`);
     return undefined;
   }
-}
-
-function readJsonc(path, errors) {
-  const parseErrors = [];
-  const config = parse(readFileSync(resolve(rootDir, path), 'utf8'), parseErrors, { allowTrailingComma: true });
-  for (const error of parseErrors) {
-    errors.push(`${path} has invalid JSONC: ${printParseErrorCode(error.error)} at offset ${error.offset}.`);
-  }
-  return config;
 }
 
 function requireEqual(errors, label, actual, expected) {
@@ -155,7 +147,6 @@ function verifyWorker(errors, config, target) {
   if (!config?.compatibility_flags?.includes('nodejs_compat')) {
     errors.push(`${label} compatibility_flags must include "nodejs_compat".`);
   }
-  requireEqual(errors, `${label} upload_source_maps`, config?.upload_source_maps, true);
   requireEqual(errors, `${label} version_metadata.binding`, config?.version_metadata?.binding, 'CF_VERSION_METADATA');
   errors.push(...findWorkerOAuthStartRateLimitErrors(config, label));
   requireEqual(
@@ -189,7 +180,6 @@ function verifyWorker(errors, config, target) {
     errors.push(`${label} must bind D1 as DB.`);
   } else {
     requireEqual(errors, `${label} D1 database_name`, d1.database_name, target.databaseName);
-    requireEqual(errors, `${label} D1 migrations_dir`, d1.migrations_dir, 'migrations');
     if (!d1.database_id || d1.database_id === PLACEHOLDER_D1_ID) {
       errors.push(`${label} must contain a provisioned D1 database_id.`);
     }
@@ -249,6 +239,11 @@ function verifyScripts(errors, pkg, label) {
     ]),
   );
   errors.push(
+    ...findMissingCommandSteps(scripts['d1:migrations:apply:production'], `${label} D1 migration script`, [
+      'scripts/apply-d1-migrations.mjs --remote',
+    ]),
+  );
+  errors.push(
     ...findMissingCommandSteps(scripts['workers-builds:build'], `${label} Workers Builds build script`, [
       'pnpm install --frozen-lockfile',
       'scripts/check-workers-builds-environment.mjs',
@@ -301,10 +296,10 @@ function verifyWorkflows(errors) {
   }
 }
 
-export function verifyProductionConfig() {
+export async function verifyProductionConfig() {
   const errors = [];
   for (const target of workerTargets) {
-    verifyWorker(errors, readJsonc(target.path, errors), target);
+    verifyWorker(errors, await loadCommittedWranglerConfig({ path: resolve(rootDir, target.path) }), target);
   }
   verifyScripts(errors, readJson('package.json', errors), 'package.json');
   verifyProvisionScript(errors, 'scripts/provision-cloudflare-production.mjs');

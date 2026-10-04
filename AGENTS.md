@@ -19,7 +19,7 @@ Cloudflare control plane, builder agent, user-owned workspace runtime, and gener
 - `template/` — generated application source and security migrations
 - `make-bootstrap-snapshot.js` and `scripts/verify-template.mjs` — template artifact generation and verification
 - `scripts/ops-report.mjs` — read-only production status report
-- `migrations/` and `wrangler.jsonc` — control-plane schema and bindings
+- `migrations/` and `cloudflare.config.ts` — control-plane schema and bindings (deployed with the cf CLI)
 
 ## Invariants
 

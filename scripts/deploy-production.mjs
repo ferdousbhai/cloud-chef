@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { verifyLocalDeployment } from './verify-live-deployment.mjs';
 
@@ -7,6 +8,9 @@ const MAX_CLIENT_ID_LENGTH = 512;
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
 const WORKERS_BUILD_UUID_PATTERN = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const WORKERS_BUILD_GENERATED_OUTPUTS = new Set(['app/routeTree.gen.ts']);
+/** The Build Output config `vite build` writes and `cf deploy --prebuilt` ships. */
+export const BUILT_WORKER_CONFIG_PATH = '.cloudflare/output/v0/workers/default/worker.config.json';
+export const VITE_BUILD_ARGS = Object.freeze(['exec', 'vite', 'build']);
 
 /**
  * @typedef {(command: string, args: readonly string[], options: {stdio: 'inherit'}) => {
@@ -220,23 +224,102 @@ export function resolveDeployableCommitSha({ spawn = spawnSync, env = process.en
   }
   if (typeof ignoredEnvironmentFiles.stdout !== 'string' || ignoredEnvironmentFiles.stdout.length > 0) {
     throw new Error(
-      'Production deploy refuses ignored root .env*, .dev.vars*, and *.vars files because Vite or Wrangler could make the build differ from COMMIT_SHA.',
+      'Production deploy refuses ignored root .env*, .dev.vars*, and *.vars files because Vite or cf could make the build differ from COMMIT_SHA.',
     );
   }
   return commitSha;
 }
 
-export function wranglerDeployArgs(clientId, commitSha) {
-  return [
-    'exec',
-    'wrangler',
-    'deploy',
-    '--var',
-    `COMMIT_SHA:${validateCommitSha(commitSha)}`,
-    '--var',
-    `${CLIENT_ID_ENV}:${validateOAuthClientId(clientId)}`,
-  ];
+/**
+ * cloudflare.config.ts binds COMMIT_SHA and the OAuth client id from the environment of the build, so the deploy
+ * tooling builds with exactly these values and ships that build output; neither value is ever committed.
+ * @param {string | undefined} clientId
+ * @param {string} commitSha
+ * @param {Record<string, string | undefined>} [env]
+ */
+export function deployVarsEnv(clientId, commitSha, env = process.env) {
+  return { ...env, COMMIT_SHA: validateCommitSha(commitSha), [CLIENT_ID_ENV]: validateOAuthClientId(clientId) };
 }
+
+/**
+ * @param {(path: string) => string} [readBuiltConfig]
+ * @returns {{COMMIT_SHA?: string, CLOUDFLARE_OAUTH_CLIENT_ID?: string}}
+ */
+export function readBuiltDeployVars(readBuiltConfig = (path) => readFileSync(path, 'utf8')) {
+  const config = JSON.parse(readBuiltConfig(BUILT_WORKER_CONFIG_PATH));
+  const textValue = (name) => {
+    const binding = config?.env?.[name];
+    return binding?.type === 'text' ? binding.value : undefined;
+  };
+  return { COMMIT_SHA: textValue('COMMIT_SHA'), [CLIENT_ID_ENV]: textValue(CLIENT_ID_ENV) };
+}
+
+/**
+ * Fail closed unless the build output carries exactly the commit and OAuth client id being released.
+ * @param {string | undefined} clientId
+ * @param {string} commitSha
+ * @param {(path: string) => string} [readBuiltConfig]
+ */
+export function verifyBuiltDeployVars(clientId, commitSha, readBuiltConfig) {
+  const built = readBuiltDeployVars(readBuiltConfig);
+  if (built.COMMIT_SHA !== validateCommitSha(commitSha)) {
+    throw new Error(`${BUILT_WORKER_CONFIG_PATH} must bind COMMIT_SHA to ${commitSha}; found ${built.COMMIT_SHA}.`);
+  }
+  if (built[CLIENT_ID_ENV] !== validateOAuthClientId(clientId)) {
+    throw new Error(`${BUILT_WORKER_CONFIG_PATH} must bind ${CLIENT_ID_ENV} to the deploy environment's value.`);
+  }
+}
+
+/**
+ * @param {DeploySpawn} spawn
+ * @param {readonly string[]} args
+ * @param {Record<string, unknown>} options
+ * @param {string} label
+ * @param {string} [failureSuffix]
+ */
+function runPnpmStep(spawn, args, options, label, failureSuffix = '') {
+  const result = spawn('pnpm', args, options);
+  if (result.error) {
+    throw result.error;
+  }
+  if (typeof result.status !== 'number') {
+    throw new Error(`${label} terminated without an exit status.`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`${label} failed with exit status ${result.status}.${failureSuffix}`);
+  }
+}
+
+/**
+ * Build the Worker with the release's COMMIT_SHA and OAuth client id, then prove the output carries them.
+ * @param {{
+ *   clientId?: string;
+ *   commitSha: string;
+ *   env?: Record<string, string | undefined>;
+ *   spawn?: DeploySpawn;
+ *   readBuiltConfig?: (path: string) => string;
+ *   failureSuffix?: string;
+ * }} options
+ */
+export function buildWithDeployVars({
+  clientId,
+  commitSha,
+  env = process.env,
+  spawn = spawnSync,
+  readBuiltConfig,
+  failureSuffix,
+}) {
+  runPnpmStep(
+    spawn,
+    VITE_BUILD_ARGS,
+    { stdio: 'inherit', env: deployVarsEnv(clientId, commitSha, env) },
+    'Vite build',
+    failureSuffix,
+  );
+  verifyBuiltDeployVars(clientId, commitSha, readBuiltConfig);
+}
+
+export const CF_DEPLOY_ARGS = Object.freeze(['exec', 'cf', 'deploy', '--prebuilt']);
 
 /**
  * @param {{
@@ -245,6 +328,7 @@ export function wranglerDeployArgs(clientId, commitSha) {
  *   env?: Record<string, string | undefined>;
  *   spawn?: DeploySpawn;
  *   local?: boolean;
+ *   readBuiltConfig?: (path: string) => string;
  * }} [options]
  */
 export function deployProduction({
@@ -253,6 +337,7 @@ export function deployProduction({
   env = process.env,
   spawn = spawnSync,
   local = false,
+  readBuiltConfig,
 } = {}) {
   commitSha =
     commitSha === undefined
@@ -260,17 +345,15 @@ export function deployProduction({
       : local
         ? validateLocalDeployContext({ spawn, currentCommitSha: validateCommitSha(commitSha) })
         : validateWorkersBuildContext({ env, spawn, currentCommitSha: validateCommitSha(commitSha) });
-  const args = wranglerDeployArgs(clientId, commitSha);
-  const result = spawn('pnpm', args, { stdio: 'inherit' });
-  if (result.error) {
-    throw result.error;
-  }
-  if (typeof result.status !== 'number') {
-    throw new Error('Wrangler deploy terminated without an exit status.');
-  }
-  if (result.status !== 0) {
-    throw new Error(`Wrangler deploy failed with exit status ${result.status}. Live verification was not run.`);
-  }
+  const notVerified = ' Live verification was not run.';
+  buildWithDeployVars({ clientId, commitSha, env, spawn, readBuiltConfig, failureSuffix: notVerified });
+  runPnpmStep(
+    spawn,
+    CF_DEPLOY_ARGS,
+    { stdio: 'inherit', env: deployVarsEnv(clientId, commitSha, env) },
+    'cf deploy',
+    notVerified,
+  );
   return validateCommitSha(commitSha);
 }
 
@@ -281,6 +364,7 @@ export function deployProduction({
  *   env?: Record<string, string | undefined>;
  *   spawn?: DeploySpawn;
  *   local?: boolean;
+ *   readBuiltConfig?: (path: string) => string;
  *   verifyLocal?: typeof verifyLocalDeployment;
  * }} [options]
  */
@@ -290,9 +374,10 @@ export async function deployAndVerifyProduction({
   env = process.env,
   spawn = spawnSync,
   local = false,
+  readBuiltConfig,
   verifyLocal = verifyLocalDeployment,
 } = {}) {
-  const deployedSha = deployProduction({ clientId, commitSha, env, spawn, local });
+  const deployedSha = deployProduction({ clientId, commitSha, env, spawn, local, readBuiltConfig });
   await verifyLocal({ expectedSha: deployedSha });
   return deployedSha;
 }

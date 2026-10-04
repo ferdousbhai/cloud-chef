@@ -2,7 +2,7 @@
   "extends": "agents/tsconfig",
   "compilerOptions": {
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
-    "types": ["./worker-configuration.d.ts", "node", "vite/client"],
+    "types": ["./.cloudflare/types/index.d.ts", "node", "vite/client"],
     "isolatedModules": true,
     "esModuleInterop": true,
     "jsx": "react-jsx",

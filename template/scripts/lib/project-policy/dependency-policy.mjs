@@ -41,8 +41,8 @@ export const REQUIRED_PNPM_VERSION = "11.14.0";
 export const SHARED_APP_PACKAGES = ["typescript", "vite"];
 
 /**
- * Every generated project builds and deploys with Vite, the Cloudflare Vite plugin, and the cf CLI;
- * the control plane uses Wrangler. A web framework is the project's own choice, never required.
+ * Every generated project builds and deploys with Vite, the Cloudflare Vite plugin, and the cf CLI,
+ * as the control plane does. A web framework is the project's own choice, never required.
  */
 export const APP_REQUIRED_PACKAGES = [
   ...SHARED_APP_PACKAGES,

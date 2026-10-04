@@ -12,32 +12,30 @@ const placeholderId = '00000000-0000-0000-0000-000000000000';
 const databaseId = '11111111-2222-3333-4444-555555555555';
 
 describe('Cloudflare production provisioning helpers', () => {
-  it('updates the configured D1 database id while preserving JSONC comments', () => {
-    const raw = `{
-  // production database
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "cloudchef",
-      "database_id": "${placeholderId}",
-      "migrations_dir": "migrations",
+  it('updates the configured D1 database id while preserving cloudflare.config.ts comments', () => {
+    const raw = `export default defineConfig({
+  worker: {
+    env: {
+      // production database
+      DB: bindings.d1({ name: 'cloudchef', id: '${placeholderId}' }),
+      OTHER_DB: bindings.d1({ name: 'other', id: '${placeholderId}' }),
     },
-  ],
-}
+  },
+});
 `;
 
-    const updated = setD1DatabaseId(raw, 0, databaseId);
+    const updated = setD1DatabaseId(raw, 'DB', placeholderId, databaseId);
 
     expect(updated).toContain('// production database');
-    expect(updated).toContain(`"database_id": "${databaseId}"`);
-    expect(updated).not.toContain(placeholderId);
+    expect(updated).toContain(`DB: bindings.d1({ name: 'cloudchef', id: '${databaseId}' })`);
+    expect(updated).toContain(`OTHER_DB: bindings.d1({ name: 'other', id: '${placeholderId}' })`);
   });
 
-  it('does not mutate JSONC for empty or placeholder D1 ids', () => {
-    const raw = `{"d1_databases":[{"binding":"DB","database_id":"${placeholderId}"}]}`;
+  it('does not mutate cloudflare.config.ts for empty or placeholder D1 ids', () => {
+    const raw = `DB: bindings.d1({ id: '${placeholderId}' })`;
 
-    expect(setD1DatabaseId(raw, 0, '')).toBe(raw);
-    expect(setD1DatabaseId(raw, 0, placeholderId)).toBe(raw);
+    expect(setD1DatabaseId(raw, 'DB', placeholderId, '')).toBe(raw);
+    expect(setD1DatabaseId(raw, 'DB', placeholderId, placeholderId)).toBe(raw);
   });
 
   it('parses Wrangler JSON output even when Wrangler emits surrounding text', () => {

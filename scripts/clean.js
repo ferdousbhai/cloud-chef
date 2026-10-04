@@ -4,9 +4,9 @@ import { resolve } from 'node:path';
 const rootDir = resolve(import.meta.dirname, '..');
 const generatedPaths = [
   '.tanstack',
+  '.cloudflare',
   '.wrangler',
   'dist',
-  'worker-configuration.d.ts',
   'package-lock.json',
   'template/.tanstack',
   'template/.wrangler',

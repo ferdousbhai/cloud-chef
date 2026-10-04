@@ -3,7 +3,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { extname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const DEFAULT_ASSET_DIRECTORY = fileURLToPath(new URL('../dist/client/assets', import.meta.url));
+const DEFAULT_ASSET_DIRECTORY = fileURLToPath(
+  new URL('../.cloudflare/output/v0/workers/default/assets/assets', import.meta.url),
+);
 const REPORTABLE_EXTENSIONS = new Set(['.css', '.js', '.wasm']);
 const SOURCE_MAP_EXTENSION = '.map';
 
@@ -17,8 +19,8 @@ function collectExcludedSourceMaps(directory) {
 function collectBundleAssets(directory) {
   return (
     walkFiles(directory)
-      // Source maps are intentionally excluded from static deployment by the
-      // generated .assetsignore and therefore are not part of deployable bytes.
+      // The client build emits no source maps (vite.config.ts), and verify:static-assets
+      // fails if one appears, so a map is never counted as deployable bytes.
       .filter((path) => !path.endsWith(SOURCE_MAP_EXTENSION) && REPORTABLE_EXTENSIONS.has(extname(path)))
       .map((path) => {
         const contents = readFileSync(path);

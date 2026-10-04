@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import {
   findDurableObjectLifecycleErrors,
   findWorkerObservabilityErrors,
@@ -179,7 +179,10 @@ describe('findWorkerOAuthStartRateLimitErrors', () => {
 });
 
 describe('production config workflow verification helpers', () => {
-  const configErrors = verifyProductionConfig();
+  let configErrors: string[] = [];
+  beforeAll(async () => {
+    configErrors = await verifyProductionConfig();
+  });
 
   it('rejects unreviewed dependency build scripts', () => {
     const workspace = `
@@ -397,15 +400,19 @@ overrides:
 
   it('uses explicit deploy inputs instead of dashboard-preserved variables', () => {
     expect(configErrors).not.toContain(
-      'wrangler.jsonc must omit keep_vars so checked-in config and deploy arguments remain the source of truth.',
+      'cloudflare.config.ts must omit keep_vars so checked-in config and deploy arguments remain the source of truth.',
     );
     expect(configErrors).not.toContain(
-      'wrangler.jsonc must not commit CLOUDFLARE_OAUTH_CLIENT_ID; inject it from the deploy environment.',
+      'cloudflare.config.ts must not commit CLOUDFLARE_OAUTH_CLIENT_ID; inject it from the deploy environment.',
     );
   });
 
-  it('pins the least-privilege OAuth scope list in Wrangler configuration', () => {
-    expect(configErrors.join('\n')).not.toContain('wrangler.jsonc vars.CLOUDFLARE_OAUTH_SCOPES');
+  it('pins the least-privilege OAuth scope list in the Worker configuration', () => {
+    expect(configErrors.join('\n')).not.toContain('cloudflare.config.ts vars.CLOUDFLARE_OAUTH_SCOPES');
+  });
+
+  it('passes against the committed configuration', () => {
+    expect(configErrors).toEqual([]);
   });
 
   it('discovers every YAML workflow file for production guard checks', () => {

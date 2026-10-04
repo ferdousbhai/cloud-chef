@@ -1,6 +1,11 @@
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { resolveCurrentCommitSha, validateOAuthClientId, validateWorkersBuildMetadata } from './deploy-production.mjs';
+import {
+  buildWithDeployVars,
+  deployVarsEnv,
+  resolveCurrentCommitSha,
+  validateWorkersBuildMetadata,
+} from './deploy-production.mjs';
 
 /**
  * @param {{
@@ -17,16 +22,14 @@ export function validatePreviewBuildContext({ env = process.env, spawn = spawnSy
   return metadata;
 }
 
-export function wranglerPreviewUploadArgs(clientId, commitSha, branch) {
+export function cfPreviewUploadArgs(commitSha, branch) {
   return [
     'exec',
-    'wrangler',
+    'cf',
+    'workers',
     'versions',
-    'upload',
-    '--var',
-    `COMMIT_SHA:${commitSha}`,
-    '--var',
-    `CLOUDFLARE_OAUTH_CLIENT_ID:${validateOAuthClientId(clientId)}`,
+    'create',
+    '--prebuilt',
     '--message',
     `Workers Builds preview for ${branch} at ${commitSha}`,
   ];
@@ -39,12 +42,14 @@ export function wranglerPreviewUploadArgs(clientId, commitSha, branch) {
  *   env?: Record<string, string | undefined>;
  *   clientId?: string;
  *   spawn?: typeof spawnSync;
+ *   readBuiltConfig?: (path: string) => string;
  * }} [options]
  */
 export function uploadWorkersBuildsPreview({
   env = process.env,
   clientId = env.CLOUDFLARE_OAUTH_CLIENT_ID,
   spawn = spawnSync,
+  readBuiltConfig,
 } = {}) {
   const currentCommitSha = resolveCurrentCommitSha({ spawn });
   const { branch, commitSha } = validatePreviewBuildContext({
@@ -52,17 +57,19 @@ export function uploadWorkersBuildsPreview({
     spawn,
     currentCommitSha,
   });
-  const result = spawn('pnpm', wranglerPreviewUploadArgs(clientId, commitSha, branch), {
+  buildWithDeployVars({ clientId, commitSha, env, spawn, readBuiltConfig });
+  const result = spawn('pnpm', cfPreviewUploadArgs(commitSha, branch), {
     stdio: 'inherit',
+    env: deployVarsEnv(clientId, commitSha, env),
   });
   if (result.error) {
     throw result.error;
   }
   if (typeof result.status !== 'number') {
-    throw new Error('Wrangler preview upload terminated without an exit status.');
+    throw new Error('cf preview upload terminated without an exit status.');
   }
   if (result.status !== 0) {
-    throw new Error(`Wrangler preview upload failed with exit status ${result.status}.`);
+    throw new Error(`cf preview upload failed with exit status ${result.status}.`);
   }
   return commitSha;
 }

@@ -6,18 +6,8 @@ import { configDefaults, defineConfig } from 'vitest/config';
 import { optimizeCssModules } from 'vite-plugin-optimize-css-modules';
 import wasm from 'vite-plugin-wasm';
 import { fileURLToPath } from 'node:url';
-import { readFile, rm, writeFile } from 'node:fs/promises';
 
 const fromRoot = (path: string) => fileURLToPath(new URL(path, import.meta.url));
-const CLIENT_ASSETS_IGNORE_PATH = fromRoot('./dist/client/.assetsignore');
-
-function withPrivateClientSourceMaps(content: string): string {
-  const lines = content.split(/\r?\n/).filter(Boolean);
-  if (!lines.includes('*.map')) {
-    lines.push('*.map');
-  }
-  return `${lines.join('\n')}\n`;
-}
 
 export default defineConfig((config) => {
   const isTest = config.mode === 'test';
@@ -25,7 +15,8 @@ export default defineConfig((config) => {
   return {
     build: {
       target: 'esnext',
-      // Source maps can include backend code, so secrets must never be hardcoded.
+      // Worker source maps are uploaded privately by `cf deploy`; source maps can include backend code, so secrets
+      // must never be hardcoded. The client environment below turns them off so no map ships as a public asset.
       sourcemap: true,
       rolldownOptions: {
         output: {
@@ -34,6 +25,13 @@ export default defineConfig((config) => {
       },
       commonjsOptions: {
         transformMixedEsModules: true,
+      },
+    },
+    environments: {
+      client: {
+        build: {
+          sourcemap: false,
+        },
       },
     },
     optimizeDeps: {
@@ -56,23 +54,7 @@ export default defineConfig((config) => {
     },
     plugins: [
       !isTest && agents(),
-      {
-        name: 'cloudchef-strip-local-dev-vars',
-        apply: 'build',
-        async closeBundle() {
-          await rm(fromRoot('./dist/server/.dev.vars'), { force: true });
-        },
-      },
       !isTest && cloudflare({ viteEnvironment: { name: 'ssr' } }),
-      {
-        name: 'cloudchef-private-client-source-maps',
-        apply: 'build',
-        enforce: 'post',
-        async closeBundle() {
-          const generatedIgnore = await readFile(CLIENT_ASSETS_IGNORE_PATH, 'utf8');
-          await writeFile(CLIENT_ASSETS_IGNORE_PATH, withPrivateClientSourceMaps(generatedIgnore));
-        },
-      },
       // This plugin's codegen is the only writer of `app/routeTree.gen.ts`. Its route-tree hook
       // runs on vite's `configResolved`, so `scripts/generate-route-tree.mjs` can refresh the tree
       // outside a build by resolving this very config — see that script.

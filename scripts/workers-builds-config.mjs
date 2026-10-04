@@ -58,7 +58,7 @@ export function findWorkersBuildsConfigErrors({
     errors.push('workers-builds.production.json must not build a CloudChef-owned Sandbox image.');
   }
   if (Array.isArray(workerConfig?.containers) && workerConfig.containers.length > 0) {
-    errors.push('wrangler.jsonc must not bind CloudChef-owned Containers.');
+    errors.push('cloudflare.config.ts must not bind CloudChef-owned Containers.');
   }
 
   if (!isRecord(config?.buildVariables)) {

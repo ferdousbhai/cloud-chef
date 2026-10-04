@@ -1,5 +1,5 @@
 {
-  "total": 1235,
+  "total": 1234,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -586,7 +586,7 @@
       "anti-slop/no-runtime-typeof": 3
     },
     "scripts/verify-static-assets.mjs": {
-      "anti-slop/no-runtime-typeof": 2
+      "anti-slop/no-runtime-typeof": 1
     },
     "scripts/verify-template.spec.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 1

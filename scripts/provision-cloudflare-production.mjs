@@ -2,10 +2,10 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { applyEdits, modify, parse, printParseErrorCode } from 'jsonc-parser';
+import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const configPath = resolve(rootDir, 'wrangler.jsonc');
+const configPath = resolve(rootDir, 'cloudflare.config.ts');
 const PLACEHOLDER_D1_ID = '00000000-0000-0000-0000-000000000000';
 const PLACEHOLDER_KV_ID = '00000000000000000000000000000000';
 const isDryRun = process.argv.includes('--dry-run');
@@ -20,22 +20,13 @@ function compactLines(lines) {
   return lines.filter((line) => line).join('\n');
 }
 
-function readConfig() {
-  const raw = readFileSync(configPath, 'utf8');
-  const parseErrors = [];
-  const config = parse(raw, parseErrors, { allowTrailingComma: true });
-
-  if (parseErrors.length > 0) {
-    fail(
-      parseErrors
-        .map(
-          (error) => `wrangler.jsonc has invalid JSONC: ${printParseErrorCode(error.error)} at offset ${error.offset}.`,
-        )
-        .join('\n'),
-    );
+/** Read cloudflare.config.ts in the Wrangler format `cf deploy` uploads, plus its source for in-place id updates. */
+async function readConfig() {
+  try {
+    return { raw: readFileSync(configPath, 'utf8'), config: await loadCommittedWranglerConfig({ path: configPath }) };
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
   }
-
-  return { raw, config };
 }
 
 function validateArguments() {
@@ -48,12 +39,12 @@ function validateArguments() {
 function getBinding(config, collectionName, bindingName) {
   const collection = config?.[collectionName];
   if (!Array.isArray(collection)) {
-    fail(`wrangler.jsonc ${collectionName} must be an array.`);
+    fail(`cloudflare.config.ts ${collectionName} must be an array.`);
   }
 
   const index = collection.findIndex((binding) => binding?.binding === bindingName);
   if (index === -1) {
-    fail(`wrangler.jsonc must contain ${collectionName} binding ${bindingName}.`);
+    fail(`cloudflare.config.ts must contain ${collectionName} binding ${bindingName}.`);
   }
 
   return { binding: collection[index], index };
@@ -201,14 +192,14 @@ function listD1Databases() {
 function ensureD1Database(d1) {
   const databaseName = d1.binding?.database_name;
   if (!databaseName) {
-    fail('wrangler.jsonc D1 database_name must be configured.');
+    fail('cloudflare.config.ts D1 database_name must be configured.');
   }
 
   const configuredId = d1.binding?.database_id;
   const hasConfiguredId = configuredId && configuredId !== PLACEHOLDER_D1_ID;
   if (isCheck && !hasConfiguredId) {
     fail(
-      `wrangler.jsonc D1 database ${databaseName} must have a non-placeholder database_id before production release.`,
+      `cloudflare.config.ts D1 database ${databaseName} must have a non-placeholder database_id before production release.`,
     );
   }
   if (hasConfiguredId && isDryRun) {
@@ -239,7 +230,7 @@ function ensureD1Database(d1) {
   const databaseId = d1DatabaseId(database);
   if (!databaseId) {
     if (isDryRun) {
-      console.log(`[dry-run] Would create or reuse D1 database ${databaseName} and update wrangler.jsonc.`);
+      console.log(`[dry-run] Would create or reuse D1 database ${databaseName} and update cloudflare.config.ts.`);
       return PLACEHOLDER_D1_ID;
     }
     fail(`Unable to determine D1 database_id for ${databaseName}.`);
@@ -248,43 +239,47 @@ function ensureD1Database(d1) {
   return databaseId;
 }
 
-export function setD1DatabaseId(raw, d1Index, databaseId) {
-  if (!databaseId || databaseId === PLACEHOLDER_D1_ID) {
+/**
+ * Replace a binding's resource id in cloudflare.config.ts source: the first quoted `currentId` after the binding's
+ * `NAME:` key, so comments and formatting survive. Placeholder or empty ids never overwrite anything.
+ */
+export function setBindingId(raw, bindingName, currentId, nextId, placeholderId) {
+  if (!nextId || nextId === placeholderId || nextId === currentId) {
     return raw;
   }
-
-  const edits = modify(raw, ['d1_databases', d1Index, 'database_id'], databaseId, {
-    formattingOptions: {
-      insertSpaces: true,
-      tabSize: 2,
-      eol: '\n',
-    },
-  });
-  return applyEdits(raw, edits);
+  const bindingStart = raw.search(new RegExp(`\\b${bindingName}\\s*:`));
+  if (bindingStart === -1 || !currentId) {
+    fail(`cloudflare.config.ts must declare ${bindingName} with an id to update.`);
+  }
+  const idStart = ['"', "'"]
+    .map((quote) => raw.indexOf(`${quote}${currentId}${quote}`, bindingStart))
+    .filter((index) => index !== -1)
+    .sort((left, right) => left - right)[0];
+  if (idStart === undefined) {
+    fail(`cloudflare.config.ts ${bindingName} id ${currentId} was not found after its binding.`);
+  }
+  return `${raw.slice(0, idStart + 1)}${nextId}${raw.slice(idStart + 1 + currentId.length)}`;
 }
 
-function updateD1DatabaseId(raw, d1Index, databaseId, bindingName) {
-  const nextRaw = setD1DatabaseId(raw, d1Index, databaseId);
+export function setD1DatabaseId(raw, bindingName, currentId, databaseId) {
+  return setBindingId(raw, bindingName, currentId, databaseId, PLACEHOLDER_D1_ID);
+}
+
+function updateD1DatabaseId(raw, d1, databaseId) {
+  const bindingName = d1.binding.binding;
+  const nextRaw = setD1DatabaseId(raw, bindingName, d1.binding.database_id, databaseId);
   if (nextRaw !== raw) {
     writeFileSync(configPath, nextRaw);
-    console.log(`Updated wrangler.jsonc ${bindingName} D1 database_id to ${databaseId}.`);
+    console.log(`Updated cloudflare.config.ts ${bindingName} D1 database id to ${databaseId}.`);
   }
   return nextRaw;
 }
 
-function updateKvNamespaceId(raw, kvIndex, namespaceId) {
-  if (!namespaceId || namespaceId === PLACEHOLDER_KV_ID) {
-    return raw;
-  }
-  const nextRaw = applyEdits(
-    raw,
-    modify(raw, ['kv_namespaces', kvIndex, 'id'], namespaceId, {
-      formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' },
-    }),
-  );
+function updateKvNamespaceId(raw, kv, namespaceId) {
+  const nextRaw = setBindingId(raw, 'APP_CACHE', kv.binding.id, namespaceId, PLACEHOLDER_KV_ID);
   if (nextRaw !== raw) {
     writeFileSync(configPath, nextRaw);
-    console.log(`Updated wrangler.jsonc APP_CACHE KV namespace id to ${namespaceId}.`);
+    console.log(`Updated cloudflare.config.ts APP_CACHE KV namespace id to ${namespaceId}.`);
   }
   return nextRaw;
 }
@@ -294,7 +289,7 @@ function ensureKvNamespace(kv) {
   const configuredId = kv.binding?.id;
   const hasConfiguredId = configuredId && configuredId !== PLACEHOLDER_KV_ID;
   if (isCheck && !hasConfiguredId) {
-    fail('wrangler.jsonc APP_CACHE must have a non-placeholder namespace id before production release.');
+    fail('cloudflare.config.ts APP_CACHE must have a non-placeholder namespace id before production release.');
   }
   if (isDryRun) {
     console.log(`[dry-run] Would ensure KV namespace ${title} exists.`);
@@ -344,7 +339,7 @@ export function r2BucketExists(output, bucketName) {
 function ensureR2Bucket(r2) {
   const bucketName = r2.binding?.bucket_name;
   if (!bucketName) {
-    fail('wrangler.jsonc R2 bucket_name must be configured.');
+    fail('cloudflare.config.ts R2 bucket_name must be configured.');
   }
 
   if (isDryRun) {
@@ -377,9 +372,9 @@ function ensureR2Bucket(r2) {
   console.log(`R2 bucket ${bucketName} is available.`);
 }
 
-function main() {
+async function main() {
   validateArguments();
-  const { raw, config } = readConfig();
+  const { raw, config } = await readConfig();
   const applicationD1 = getBinding(config, 'd1_databases', 'DB');
   // The CloudChef control-plane Worker has no AppAgent, so AGENT_SECURITY_DB is optional.
   const agentSecurityIndex = config.d1_databases.findIndex((binding) => binding?.binding === 'AGENT_SECURITY_DB');
@@ -408,19 +403,19 @@ function main() {
     fail('DB and AGENT_SECURITY_DB must resolve to separate D1 databases.');
   }
   if (!isCheck) {
-    const withApplicationDatabase = updateD1DatabaseId(raw, applicationD1.index, applicationDatabaseId, 'DB');
+    const withApplicationDatabase = updateD1DatabaseId(raw, applicationD1, applicationDatabaseId);
     if (agentSecurityD1 && agentSecurityDatabaseId) {
-      updateD1DatabaseId(withApplicationDatabase, agentSecurityD1.index, agentSecurityDatabaseId, 'AGENT_SECURITY_DB');
+      updateD1DatabaseId(withApplicationDatabase, agentSecurityD1, agentSecurityDatabaseId);
     }
   }
   if (r2) {
     ensureR2Bucket({ binding: r2 });
   }
   if (kv) {
-    updateKvNamespaceId(readFileSync(configPath, 'utf8'), kv.index, ensureKvNamespace(kv));
+    updateKvNamespaceId(readFileSync(configPath, 'utf8'), kv, ensureKvNamespace(kv));
   }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main();
+  await main();
 }

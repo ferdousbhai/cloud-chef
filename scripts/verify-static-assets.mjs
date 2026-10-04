@@ -1,10 +1,13 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runVerifierIfMain } from './run-verifier.mjs';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const builtWorkerConfigPath = resolve(rootDir, 'dist/server/wrangler.json');
+/** `vite build` writes the Worker as Build Output: `cf deploy --prebuilt` uploads `assets/` publicly and `bundle/`
+ * (with every `.map` in it, as private Worker source maps) as the Worker. */
+const builtWorkerDirectory = resolve(rootDir, '.cloudflare/output/v0/workers/default');
+const builtWorkerConfigPath = join(builtWorkerDirectory, 'worker.config.json');
 const sourceLicenseArtifactPath = resolve(rootDir, 'public/THIRD_PARTY_LICENSES.txt');
 
 function walkFiles(directory) {
@@ -14,29 +17,30 @@ function walkFiles(directory) {
   });
 }
 
-export function findStaticAssetExposureErrors({ assetDirectory, workerConfig, ignoreContent }) {
+const LOCAL_ENVIRONMENT_FILE = /^(?:\.dev\.vars|\.env)(?:\..*)?$/;
+
+export function findStaticAssetExposureErrors({ assetDirectory, bundleDirectory }) {
   const errors = [];
-  if (workerConfig?.upload_source_maps !== true) {
-    errors.push('The built Worker config must keep upload_source_maps enabled for private Worker diagnostics.');
+  const bundleFiles = walkFiles(bundleDirectory).map((path) => relative(bundleDirectory, path));
+  if (!bundleFiles.includes('index.js.map')) {
+    errors.push('The built Worker bundle must include index.js.map so cf deploy uploads it as a private source map.');
   }
 
-  const ignorePatterns = ignoreContent
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#'));
-  if (!ignorePatterns.includes('*.map')) {
-    errors.push('The deployed client asset root .assetsignore must contain *.map.');
-  }
-  if (ignorePatterns.some((pattern) => pattern.startsWith('!'))) {
-    errors.push('The deployed client asset root .assetsignore must not re-include ignored files.');
-  }
-
-  const sourceMaps = walkFiles(assetDirectory)
-    .filter((path) => path.endsWith('.map'))
+  const assetFiles = walkFiles(assetDirectory)
     .map((path) => relative(assetDirectory, path))
     .sort();
-  if (sourceMaps.length > 0 && !ignorePatterns.includes('*.map')) {
-    errors.push(`Client source maps would be deployable: ${sourceMaps.join(', ')}.`);
+  const sourceMaps = assetFiles.filter((path) => path.endsWith('.map'));
+  if (sourceMaps.length > 0) {
+    errors.push(`Client source maps would be deployed as public assets: ${sourceMaps.join(', ')}.`);
+  }
+  const environmentFiles = [
+    ...assetFiles.map((path) => ['assets', path]),
+    ...bundleFiles.map((path) => ['bundle', path]),
+  ]
+    .filter(([, path]) => LOCAL_ENVIRONMENT_FILE.test(basename(path)))
+    .map(([directory, path]) => `${directory}/${path}`);
+  if (environmentFiles.length > 0) {
+    errors.push(`Local environment files would be deployed: ${environmentFiles.join(', ')}.`);
   }
   return errors;
 }
@@ -55,26 +59,18 @@ export function findDeployedLicenseArtifactErrors({ sourceContent, deployedConte
 
 export function verifyStaticAssets() {
   if (!existsSync(builtWorkerConfigPath)) {
-    return ['dist/server/wrangler.json is missing; run pnpm run build before static asset verification.'];
+    return [
+      `${relative(rootDir, builtWorkerConfigPath)} is missing; run pnpm run build before static asset verification.`,
+    ];
   }
-  const workerConfig = JSON.parse(readFileSync(builtWorkerConfigPath, 'utf8'));
-  const configuredDirectory = workerConfig?.assets?.directory;
-  if (typeof configuredDirectory !== 'string' || configuredDirectory.length === 0) {
-    return ['The built Worker config must identify its static asset directory.'];
+  const assetDirectory = join(builtWorkerDirectory, 'assets');
+  const bundleDirectory = join(builtWorkerDirectory, 'bundle');
+  for (const directory of [assetDirectory, bundleDirectory]) {
+    if (!existsSync(directory)) {
+      return [`The built Worker directory does not exist: ${relative(rootDir, directory)}.`];
+    }
   }
-  const assetDirectory = resolve(dirname(builtWorkerConfigPath), configuredDirectory);
-  if (!existsSync(assetDirectory)) {
-    return [`The built static asset directory does not exist: ${relative(rootDir, assetDirectory)}.`];
-  }
-  const ignorePath = resolve(assetDirectory, '.assetsignore');
-  if (!existsSync(ignorePath)) {
-    return [`${relative(rootDir, ignorePath)} is missing, so client source maps would be public.`];
-  }
-  const errors = findStaticAssetExposureErrors({
-    assetDirectory,
-    workerConfig,
-    ignoreContent: readFileSync(ignorePath, 'utf8'),
-  });
+  const errors = findStaticAssetExposureErrors({ assetDirectory, bundleDirectory });
   const deployedLicenseArtifactPath = resolve(assetDirectory, 'THIRD_PARTY_LICENSES.txt');
   errors.push(
     ...findDeployedLicenseArtifactErrors({
