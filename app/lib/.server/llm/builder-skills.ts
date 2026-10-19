@@ -5,18 +5,22 @@ import frontendDesignSkill from './skills/frontend-design/SKILL.md?raw';
  * text, and that module is bundled for the browser.
  */
 import projectStackSkill from '~/lib/guidance/project-stack/SKILL.md?raw';
+import { CLOUDFLARE_SKILLS } from '~/generated/cloudflare-skills.generated';
 
 const BUILDER_SKILL_ROOT = '/__skills__';
 const MAX_BUILDER_SKILL_PROMPT_CHARS = 16_000;
 
 /**
- * References bundled into this Worker and served read-only under /__skills__/. Everything
- * Cloudflare publishes is retrieved live through search_cloudflare_docs instead. The catalog
- * must never point at workspace files: the model reads them through the Computer VFS, which a
- * fresh seed does not populate beyond the template sources.
+ * References bundled into this Worker and served read-only under /__skills__/: CloudChef's own (only what
+ * is specific to its starter app), and Cloudflare's official skills, vendored at a pinned commit by
+ * scripts/sync-cloudflare-skills.mjs so they stay Cloudflare's current guidance. The rest of Cloudflare's
+ * documentation is retrieved live through search_cloudflare_docs. The catalog must never point at
+ * workspace files: the model reads them through the Computer VFS, which a fresh seed does not populate
+ * beyond the template sources.
  */
 const BUNDLED_SKILLS: readonly BundledSkillSource[] = [
   { name: 'project-stack', files: new Map([['SKILL.md', projectStackSkill]]) },
+  ...CLOUDFLARE_SKILLS.map(({ name, files }) => ({ name, files: new Map(files) })),
   { name: 'frontend-design', files: new Map([['SKILL.md', frontendDesignSkill]]) },
 ];
 
@@ -90,6 +94,7 @@ function renderPrompt(skills: readonly BundledSkill[]): string {
     ...skills.map(({ name, description }) => `- ${BUILDER_SKILL_ROOT}/${name}/SKILL.md — ${description}`),
     '',
     'Read a full Cloudflare page with exec by appending /index.md to any developers.cloudflare.com URL; never fetch llms.txt or llms-full.txt, which exceed the turn budget.',
+    "Where a skill's advice conflicts with this workspace, the workspace wins: `cf` is already installed and has no credential here, so never run `cf auth` or install it; send Cloudflare API requests with the cloudflare_request tool when you have it; never start `cf dev`, `wrangler dev`, or other dev servers; and in a CloudChef starter app, follow project-stack.",
     '</builder_skills>',
   ].join('\n');
   if (prompt.length > MAX_BUILDER_SKILL_PROMPT_CHARS) {

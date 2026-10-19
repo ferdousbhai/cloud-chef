@@ -31,6 +31,7 @@
     "d1:migrations:apply:production": "node scripts/apply-d1-migrations.mjs --remote",
     "generate": "node scripts/generate-route-tree.mjs && pnpm run cf-typegen && pnpm run generate:artifacts",
     "generate:artifacts": "node scripts/generate-artifacts.mjs",
+    "skills:sync": "node scripts/sync-cloudflare-skills.mjs",
     "test": "vitest run",
     "test:workerd": "vitest run --config vitest.workerd.config.ts",
     "test:e2e:install": "playwright install --with-deps chromium",
