@@ -198,10 +198,11 @@ describe('AccountDataCard', () => {
   });
 
   it('offers a Cloudflare reconnect when the session is not freshly re-authenticated', async () => {
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ code: 'reauthentication_required', error: 'Reconnect Cloudflare.' }), {
-        status: 401,
-      }),
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ code: 'reauthentication_required', error: 'Reconnect Cloudflare.' }), {
+          status: 401,
+        }),
     );
     await render();
     await openDeletionPanel();
@@ -209,6 +210,9 @@ describe('AccountDataCard', () => {
 
     await act(async () => button('Permanently delete').click());
     expect(document.body.textContent).toContain('Sign in again to confirm it is you');
+    // Signed in again in another tab, the person deletes from here without starting over.
+    await act(async () => button('Permanently delete').click());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     await act(async () => button('Reconnect Cloudflare').click());
     expect(mocks.signInWithCloudflare).toHaveBeenCalledOnce();

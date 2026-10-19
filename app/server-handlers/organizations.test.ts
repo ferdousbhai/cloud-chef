@@ -342,4 +342,59 @@ describe('organizations', () => {
     });
     expect(accepted.status).toBe(410);
   });
+  it('gives an invited person the projects the admin chose, those still in the organization, from that admin', async () => {
+    const { env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const addProject = async (id: string, repoId: number) => {
+      await env.DB.prepare(
+        `INSERT INTO org_projects (id, org_id, name, repo_id, repo_full_name, default_branch, origin, created_at)
+         VALUES (?, ?, ?, ?, ?, 'main', 'linked', 1)`,
+      )
+        .bind(id, orgId, `project-${repoId}`, repoId, `acme/project-${repoId}`)
+        .run();
+    };
+    const [site, blog, unlinked, elsewhere] = [
+      crypto.randomUUID(),
+      crypto.randomUUID(),
+      crypto.randomUUID(),
+      crypto.randomUUID(),
+    ];
+    await addProject(site, 1);
+    await addProject(blog, 2);
+    await addProject(unlinked, 3);
+
+    const response = await inviteToOrganizationAction({
+      request: new Request(`${ORIGIN}/api/organizations/invite`, {
+        method: 'POST',
+        headers: { Origin: ORIGIN, 'Content-Type': 'application/json', cookie: admin.cookie },
+        body: JSON.stringify({ orgId, email: 'sam@acme.com', projectIds: [site, unlinked, elsewhere] }),
+      }),
+      env,
+    });
+    expect(response.status).toBe(201);
+    const { inviteUrl } = invitedSchema.parse(await response.json());
+
+    // The admin sees what the pending invite gives; a project from elsewhere was never kept.
+    const listed = await listOrganizationsAction({
+      request: new Request(`${ORIGIN}/api/organizations`, { headers: { cookie: admin.cookie } }),
+      env,
+    });
+    const pending = z
+      .object({ organizations: z.array(z.object({ invites: z.array(z.object({ projectIds: z.array(z.string()) })) })) })
+      .parse(await listed.json()).organizations[0].invites[0];
+    expect(pending.projectIds.toSorted()).toEqual([site, unlinked].toSorted());
+
+    await env.DB.prepare('DELETE FROM org_projects WHERE id = ?').bind(unlinked).run();
+    const sam = await signIn('sam@acme.com');
+    const accepted = await acceptInviteAction({
+      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(inviteUrl) }),
+      env,
+    });
+    expect(accepted.status).toBe(200);
+    const { results } = await env.DB.prepare('SELECT project_id, granted_by FROM org_project_access WHERE user_id = ?')
+      .bind(sam.userId)
+      .all();
+    expect(results).toEqual([{ project_id: site, granted_by: admin.userId }]);
+  });
 });

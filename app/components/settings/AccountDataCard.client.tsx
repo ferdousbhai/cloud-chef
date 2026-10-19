@@ -116,7 +116,11 @@ export function AccountDataCard() {
   );
 
   return (
-    <section id="your-data" className="app-card w-full p-4" aria-labelledby="account-data-heading">
+    <section
+      id="your-data"
+      className="app-card w-full min-w-0 p-4 [overflow-wrap:anywhere]"
+      aria-labelledby="account-data-heading"
+    >
       <h2 id="account-data-heading" className="app-card-title">
         Your data
       </h2>
@@ -283,6 +287,15 @@ export function AccountDataCard() {
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {reauthenticateButtons('delete')}
+                    {/* Signed in again elsewhere (an emailed link opened in another tab): delete from here. */}
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={!confirmed || switchedAccount}
+                      onClick={() => void requestDeletion()}
+                    >
+                      Permanently delete
+                    </Button>
                     <Button size="sm" variant="neutral" onClick={cancelDeletion}>
                       Cancel
                     </Button>

@@ -126,6 +126,10 @@ async function install(env: Env, app: GitHubApp, cookie: string, orgId: string, 
   });
 }
 
+function githubMessage(response: Response): string | null {
+  return new URL(response.headers.get('location') ?? '/', ORIGIN).searchParams.get('github_message');
+}
+
 const myProjectsSchema = z.object({ projects: z.array(z.object({ id: z.string(), repoFullName: z.string() })) });
 
 async function myProjects(env: Env, cookie: string) {
@@ -166,11 +170,14 @@ describe('GitHub projects', () => {
   it('records an installation only when the returning admin can reach it', async () => {
     const { env, orgId, admin, app } = await setup();
     const forged = await install(env, app, admin.cookie, orgId, 999);
-    expect(forged.status).toBe(403);
+    expect(forged.status).toBe(303);
+    expect(githubMessage(forged)).toBe('Only the owner of that GitHub account or organization can connect it.');
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM github_installations').first()).toEqual({ n: 0 });
 
     const installed = await install(env, app, admin.cookie, orgId);
     expect(installed.status).toBe(303);
+    expect(githubMessage(installed)).toBe('Connected GitHub (ada).');
+    expect(new URL(installed.headers.get('location') ?? '').hash).toBe('#organizations');
     expect(await env.DB.prepare('SELECT installation_id, account_login FROM github_installations').first()).toEqual({
       installation_id: INSTALLATION_ID,
       account_login: 'ada',
@@ -199,6 +206,36 @@ describe('GitHub projects', () => {
       app,
     });
     expect(forged.status).toBe(303);
+    expect(new URL(forged.headers.get('location') ?? '').pathname).toBe('/settings');
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM github_installations').first()).toEqual({ n: 0 });
+  });
+
+  it('sends a browser back to Settings saying why an expired or cancelled return did nothing', async () => {
+    const { env, orgId, admin, app } = await setup();
+    const started = await startGitHubInstallAction({
+      request: post(admin.cookie, '/api/organizations/github/start', { orgId }),
+      env: envWith({
+        ...env,
+        GITHUB_APP_CLIENT_ID: 'Iv1.test',
+        GITHUB_APP_CLIENT_SECRET: 'secret',
+        GITHUB_APP_PRIVATE_KEY: 'unused',
+        GITHUB_APP_SLUG: 'cloudchef',
+      }),
+    });
+    const state = /cloudchef_github_state=([^;]+)/.exec(started.headers.get('set-cookie') ?? '')?.[1] ?? '';
+    const returnWith = (query: string) =>
+      completeGitHubInstallAction({
+        request: new Request(`${ORIGIN}/github/return?${query}&state=${state}`, {
+          headers: { cookie: `${admin.cookie}; cloudchef_github_state=${state}` },
+        }),
+        env,
+        app,
+      });
+    const cancelled = await returnWith('setup_action=install');
+    expect(cancelled.status).toBe(303);
+    expect(githubMessage(cancelled)).toMatch(/cancelled/);
+    const reused = await returnWith(`installation_id=${INSTALLATION_ID}&code=c`);
+    expect(githubMessage(reused)).toMatch(/expired or was already finished/);
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM github_installations').first()).toEqual({ n: 0 });
   });
 
@@ -208,7 +245,8 @@ describe('GitHub projects', () => {
     // Another GitHub user's installation shows up for anyone who can read one of its repositories.
     const { app } = fakeGitHub(pem, 'mallory');
     const refused = await install(env, app, admin.cookie, orgId);
-    expect(refused.status).toBe(403);
+    expect(refused.status).toBe(303);
+    expect(githubMessage(refused)).toBe('Only the owner of that GitHub account or organization can connect it.');
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM github_installations').first()).toEqual({ n: 0 });
   });
 

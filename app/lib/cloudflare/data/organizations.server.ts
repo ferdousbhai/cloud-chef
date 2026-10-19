@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { sha256Hex, bytesToBase64Url } from '~/lib/hex-digest';
 import { findMembership, type Membership, type OrganizationRole } from './organization-access.server';
 
@@ -27,7 +28,7 @@ type OrganizationMember = {
   usage: { turns: number; inputTokens: number; outputTokens: number };
 };
 
-type PendingInvite = { id: string; email: string; role: OrganizationRole; expiresAt: number };
+type PendingInvite = { id: string; email: string; role: OrganizationRole; expiresAt: number; projectIds: string[] };
 
 type OrganizationSummary = Membership & {
   /** The organization's Cloudflare account, once an admin has connected it. */
@@ -63,10 +64,20 @@ export async function requireAdmin(db: D1Database, orgId: string, userId: string
 const MAX_PENDING_INVITES = 50;
 const MAX_INVITES_PER_DAY = 100;
 
-/** A one-time invite for `email`; the link carries the token, and only its hash is stored. */
+/**
+ * A one-time invite for `email`; the link carries the token, and only its hash is stored. `projectIds`
+ * are the organization's GitHub projects the person gets on joining (others are ignored).
+ */
 export async function createInvite(
   db: D1Database,
-  args: { orgId: string; email: string; role: OrganizationRole; invitedBy: string; now?: number },
+  args: {
+    orgId: string;
+    email: string;
+    role: OrganizationRole;
+    invitedBy: string;
+    projectIds?: string[];
+    now?: number;
+  },
 ): Promise<{ token: string; expiresAt: number }> {
   const now = args.now ?? Date.now();
   // Invites are email CloudChef sends: only an organization with its Cloudflare account connected (a
@@ -92,12 +103,14 @@ export async function createInvite(
       409,
     );
   }
+  const projectIds = await orgProjectIds(db, args.orgId, args.projectIds ?? []);
   const token = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
   const expiresAt = now + ORGANIZATION_INVITE_TTL_MS;
   await db
     .prepare(
-      `INSERT INTO organization_invites (id, org_id, email, role, token_hash, invited_by, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO organization_invites
+         (id, org_id, email, role, token_hash, invited_by, expires_at, created_at, project_ids)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       crypto.randomUUID(),
@@ -108,9 +121,22 @@ export async function createInvite(
       args.invitedBy,
       expiresAt,
       now,
+      projectIds.length > 0 ? JSON.stringify(projectIds) : null,
     )
     .run();
   return { token, expiresAt };
+}
+
+/** Which of `projectIds` are the organization's projects. */
+async function orgProjectIds(db: D1Database, orgId: string, projectIds: string[]): Promise<string[]> {
+  if (projectIds.length === 0) {
+    return [];
+  }
+  const { results } = await db
+    .prepare('SELECT id FROM org_projects WHERE org_id = ? AND id IN (SELECT value FROM json_each(?))')
+    .bind(orgId, JSON.stringify(projectIds))
+    .all<{ id: string }>();
+  return results.map((row) => row.id);
 }
 
 /**
@@ -153,7 +179,8 @@ export async function acceptInvite(
     .prepare(
       // An invite speaks for the admin who sent it: once they're removed, paused or no longer an admin,
       // it lapses, so a removed admin can't come back through an invite they sent themselves.
-      `SELECT invites.id, invites.org_id, invites.email, invites.role, invites.expires_at, invites.accepted_at
+      `SELECT invites.id, invites.org_id, invites.email, invites.role, invites.expires_at, invites.accepted_at,
+              invites.invited_by, invites.project_ids
        FROM organization_invites AS invites
        JOIN organization_members AS inviter
          ON inviter.org_id = invites.org_id AND inviter.user_id = invites.invited_by
@@ -168,6 +195,8 @@ export async function acceptInvite(
       role: OrganizationRole;
       expires_at: number;
       accepted_at: number | null;
+      invited_by: string;
+      project_ids: string | null;
     }>();
   if (!invite || invite.accepted_at !== null || invite.expires_at <= now) {
     throw new OrganizationError('This invite has been used or has expired. Ask for a new one.', 410);
@@ -206,6 +235,18 @@ export async function acceptInvite(
     )
     .bind(invite.org_id, args.userId, invite.role, now, invite.role === 'admin' ? 1 : 0)
     .run();
+  if (invite.project_ids !== null) {
+    // The projects the inviting admin chose, those still in the organization, granted in their name.
+    await db
+      .prepare(
+        `INSERT INTO org_project_access (project_id, user_id, granted_by, granted_at)
+         SELECT id, ?, ?, ? FROM org_projects
+         WHERE org_id = ? AND id IN (SELECT value FROM json_each(?))
+         ON CONFLICT(project_id, user_id) DO NOTHING`,
+      )
+      .bind(args.userId, invite.invited_by, now, invite.org_id, invite.project_ids)
+      .run();
+  }
   return { orgId: invite.org_id };
 }
 
@@ -300,13 +341,33 @@ async function listMembers(db: D1Database, orgId: string, now: number): Promise<
 async function listPendingInvites(db: D1Database, orgId: string, now: number): Promise<PendingInvite[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, email, role, expires_at FROM organization_invites
+      `SELECT id, email, role, expires_at, project_ids FROM organization_invites
        WHERE org_id = ? AND accepted_at IS NULL AND expires_at > ?
        ORDER BY created_at DESC`,
     )
     .bind(orgId, now)
-    .all<{ id: string; email: string; role: OrganizationRole; expires_at: number }>();
-  return results.map((row) => ({ id: row.id, email: row.email, role: row.role, expiresAt: row.expires_at }));
+    .all<{ id: string; email: string; role: OrganizationRole; expires_at: number; project_ids: string | null }>();
+  return results.map((row) => ({
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    expiresAt: row.expires_at,
+    projectIds: storedProjectIds(row.project_ids),
+  }));
+}
+
+const storedProjectIdsSchema = z.array(z.string());
+
+/** An invite's stored project ids; anything unreadable gives none. */
+function storedProjectIds(stored: string | null): string[] {
+  if (stored === null) {
+    return [];
+  }
+  try {
+    return storedProjectIdsSchema.catch([]).parse(JSON.parse(stored));
+  } catch {
+    return [];
+  }
 }
 
 type MemberAction = 'pause' | 'resume' | 'remove' | 'make_admin' | 'make_member' | 'allow_drafts' | 'disallow_drafts';

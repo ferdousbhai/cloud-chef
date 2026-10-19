@@ -1,15 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { toast } from 'sonner';
 import { z } from 'zod';
 import { Button } from '@ui/Button';
 import { TextInput } from '@ui/TextInput';
-import {
-  authClient,
-  createCloudflareReturnURL,
-  ReauthenticationRequiredError,
-  signInWithCloudflare,
-  switchWorkspace,
-} from '~/lib/auth-client';
-import { ReauthenticateButtons } from './ReauthenticateButtons.client';
+import { authClient, createCloudflareReturnURL, signInWithCloudflare, switchWorkspace } from '~/lib/auth-client';
+import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
 import {
   MyOrgProjects,
   OrgProjectsSection,
@@ -42,7 +37,9 @@ const organizationsSchema = z.object({
           }),
         )
         .nullable(),
-      invites: z.array(z.object({ id: z.string(), email: z.string(), role: roleSchema })).nullable(),
+      invites: z
+        .array(z.object({ id: z.string(), email: z.string(), role: roleSchema, projectIds: z.array(z.string()) }))
+        .nullable(),
       github: orgGitHubSchema,
       projects: z.array(orgProjectSchema),
       productionRequests: z.array(productionRequestSchema).nullable(),
@@ -57,6 +54,10 @@ const memberUpdatedSchema = z.object({ ok: z.literal(true), workspaceDeleted: z.
 type MemberAction = 'pause' | 'resume' | 'remove' | 'make_admin' | 'make_member' | 'allow_drafts' | 'disallow_drafts';
 
 type Organization = z.infer<typeof organizationsSchema>['organizations'][number];
+type OrgProject = Organization['projects'][number];
+
+/** How many of a member's projects their row names before "and N more". */
+const MEMBER_PROJECTS_SHOWN = 3;
 
 /**
  * Organizations: people sharing one Cloudflare account to build in. An admin connects the account and
@@ -68,11 +69,9 @@ export function OrganizationsCard() {
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
-  // Why a fresh sign-in is needed first (creating or connecting an organization asks for a recent one).
-  const [signInReason, setSignInReason] = useState<string | null>(null);
-  const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
-  // What a return from GitHub (approving a production request) has to say, shown once.
+  // What a return from GitHub (connecting it, or approving a production request) has to say, shown once.
   const [githubMessage, setGitHubMessage] = useState<string | null>(null);
+  const scrolledToHash = useRef(false);
   useEffect(() => {
     const url = new URL(window.location.href);
     const message = url.searchParams.get('github_message');
@@ -91,40 +90,66 @@ export function OrganizationsCard() {
       throw new Error('Unable to load your organizations.');
     }
     setOrganizations(parsed.data.organizations);
+    setError(null);
   }, []);
 
+  /** Loads again after a change; a failure says so instead of leaving stale controls unexplained. */
+  const reload = useCallback(
+    () =>
+      load().catch((loadError: Error) => {
+        setError(messageOf(loadError, 'Unable to load your organizations.'));
+      }),
+    [load],
+  );
+
   useEffect(() => {
-    void (async () => {
-      try {
-        await load();
-      } catch (loadError) {
-        setError(messageOf(loadError instanceof Error ? loadError : null, 'Unable to load your organizations.'));
+    void reload();
+  }, [reload]);
+
+  // Settings opens lazily, so a link to #organizations lands before this card has its height: scroll to
+  // it once the organizations are in.
+  useEffect(() => {
+    if (organizations !== null && !scrolledToHash.current) {
+      scrolledToHash.current = true;
+      if (window.location.hash === '#organizations') {
+        document.getElementById('organizations')?.scrollIntoView();
       }
-    })();
-  }, [load]);
+    }
+  }, [organizations]);
 
   const create = async (event: FormEvent) => {
     event.preventDefault();
+    const orgName = name.trim();
     setBusy(true);
     setError(null);
+    let created = false;
     try {
-      const { orgId } = await postJson('/api/organizations/create', { name: name.trim() }, createdSchema);
+      const { orgId } = await postJson('/api/organizations/create', { name: orgName }, createdSchema);
+      created = true;
+      // It exists now: trying again must not create a second one.
+      setName('');
       // Straight on to connecting its Cloudflare account, which only its admin can do.
       await signInWithCloudflare(createCloudflareReturnURL(window.location.href), { organizationId: orgId });
     } catch (createError) {
-      if (createError instanceof ReauthenticationRequiredError) {
-        setSignInReason(createError.message);
-      } else {
-        setError(messageOf(createError instanceof Error ? createError : null, 'Unable to create the organization.'));
-      }
+      const reason = messageOf(createError instanceof Error ? createError : null, 'That did not work.');
+      setError(
+        created
+          ? `Created ${orgName}, but connecting its Cloudflare account didn't start: ${reason} Use its "Connect its Cloudflare account" button below.`
+          : messageOf(createError instanceof Error ? createError : null, 'Unable to create the organization.'),
+      );
       setBusy(false);
-      // It may exist by now, waiting for its Cloudflare account.
-      void load().catch(() => undefined);
+      void reload();
     }
   };
 
+  const personal = session?.contexts.find((option) => option.kind === 'personal') ?? null;
+
   return (
-    <section id="organizations" className="app-card w-full p-4" aria-labelledby="organizations-heading">
+    <section
+      id="organizations"
+      className="app-card w-full min-w-0 p-4 [overflow-wrap:anywhere]"
+      aria-labelledby="organizations-heading"
+    >
       <h2 id="organizations-heading" className="app-card-title">
         Organizations
       </h2>
@@ -142,14 +167,6 @@ export function OrganizationsCard() {
           {githubMessage}
         </p>
       ) : null}
-      {signInReason ? (
-        <div role="status" className="mt-3 text-sm text-content-secondary">
-          <p>{linkSentTo ? `Open the link sent to ${linkSentTo}, then come back here and try again.` : signInReason}</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <ReauthenticateButtons onError={setError} onLinkSent={setLinkSentTo} />
-          </div>
-        </div>
-      ) : null}
       {organizations === null && !error ? (
         <p className="mt-3 text-sm text-content-secondary" role="status">
           Loading…
@@ -161,7 +178,20 @@ export function OrganizationsCard() {
           Cloudflare account it builds in (yours works), then invite people and link GitHub repositories.
         </p>
       ) : null}
-      <div className="mt-3 grid gap-3">
+      <div className="mt-3 grid min-w-0 gap-3">
+        {/* Someone working in an organization can always go back to their own account. */}
+        {personal && organizations?.length ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-bolt-elements-borderColor p-3">
+            <h3 className="min-w-0 flex-1 truncate font-medium" title={personal.accountName ?? undefined}>
+              Personal{personal.accountName ? ` · ${personal.accountName}` : ''}
+            </h3>
+            {session?.context?.kind === 'personal' ? (
+              <span className="text-xs text-content-secondary">open now</span>
+            ) : (
+              <OpenButton connectionId={personal.connectionId} />
+            )}
+          </div>
+        ) : null}
         {organizations?.map((organization) => (
           <OrganizationRow
             key={organization.orgId}
@@ -173,8 +203,7 @@ export function OrganizationsCard() {
             }
             current={session?.context?.kind === 'organization' && session.context.orgId === organization.orgId}
             myUserId={session?.user.id ?? null}
-            onChanged={() => void load()}
-            onSignInRequired={setSignInReason}
+            onChanged={reload}
           />
         ))}
       </div>
@@ -196,64 +225,119 @@ export function OrganizationsCard() {
   );
 }
 
+/** Opens another account to build in; a refusal is shown as a toast, since the page stays. */
+function OpenButton({ connectionId }: { connectionId: string }) {
+  const [opening, setOpening] = useState(false);
+  const open = async () => {
+    setOpening(true);
+    try {
+      await switchWorkspace(connectionId);
+    } catch (switchError) {
+      toast.error(messageOf(switchError instanceof Error ? switchError : null, 'Unable to switch accounts.'));
+      setOpening(false);
+    }
+  };
+  return (
+    <Button size="xs" variant="neutral" loading={opening} onClick={() => void open()}>
+      Open
+    </Button>
+  );
+}
+
 function OrganizationRow({
   organization,
   connectionId,
   current,
   myUserId,
   onChanged,
-  onSignInRequired,
 }: {
   organization: Organization;
   connectionId: string | null;
   current: boolean;
   myUserId: string | null;
-  onChanged: () => void;
-  onSignInRequired: (reason: string) => void;
+  onChanged: () => Promise<void>;
 }) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'member' | 'admin'>('member');
+  // The projects a new member gets: every project until the admin unticks some.
+  const [chosenProjects, setChosenProjects] = useState<ReadonlySet<string> | null>(null);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [inviteFeedback, setInviteFeedback] = useState<Feedback>(null);
+  const [peopleFeedback, setPeopleFeedback] = useState<Feedback>(null);
+  const [connectFeedback, setConnectFeedback] = useState<Feedback>(null);
   const [busy, setBusy] = useState(false);
   const admin = organization.role === 'admin' && organization.pausedAt === null;
   const connection = organization.connection;
+  const projects = organization.projects;
+  const projectIds = chosenProjects ?? new Set(projects.map((project) => project.id));
+
+  const toggleProject = (projectId: string, chosen: boolean) => {
+    const next = new Set(projectIds);
+    if (chosen) {
+      next.add(projectId);
+    } else {
+      next.delete(projectId);
+    }
+    setChosenProjects(next);
+  };
 
   const invite = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    setMessage(null);
+    setInviteFeedback(null);
     try {
       const invited = await postJson(
         '/api/organizations/invite',
-        { orgId: organization.orgId, email: email.trim(), role },
+        {
+          orgId: organization.orgId,
+          email: email.trim(),
+          role,
+          // Admins work on every project.
+          projectIds:
+            role === 'member' ? projects.filter((project) => projectIds.has(project.id)).map(({ id }) => id) : [],
+        },
         invitedSchema,
       );
       setInviteUrl(invited.inviteUrl);
-      setMessage(
+      setInviteFeedback(
         invited.emailed
-          ? `Invite sent to ${email.trim()}. You can also share the link below.`
-          : "The invite email couldn't be sent; share the link below instead.",
+          ? noteFeedback(`Invite sent to ${email.trim()}. You can also share the link below.`)
+          : errorFeedback("The invite email couldn't be sent; share the link below instead."),
       );
       setEmail('');
-      onChanged();
+      setChosenProjects(null);
+      await onChanged();
     } catch (inviteError) {
-      setMessage(messageOf(inviteError instanceof Error ? inviteError : null, 'Unable to invite.'));
+      setInviteFeedback(
+        errorFeedback(messageOf(inviteError instanceof Error ? inviteError : null, 'Unable to invite.')),
+      );
     } finally {
       setBusy(false);
     }
   };
 
+  const revoke = (inviteId: string) =>
+    void run(
+      async () => {
+        await postJson('/api/organizations/invite/revoke', { orgId: organization.orgId, inviteId }, noContentSchema);
+      },
+      async () => {
+        // The link shown is for an invite that may be this one: it no longer works either way.
+        setInviteUrl(null);
+        setInviteFeedback(null);
+        await onChanged();
+      },
+      (message) => setPeopleFeedback(errorFeedback(message)),
+    );
+
   return (
-    <div className="rounded-lg border border-bolt-elements-borderColor p-3">
+    <div className="min-w-0 rounded-lg border border-bolt-elements-borderColor p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="min-w-0 flex-1 truncate font-medium">{organization.orgName}</h3>
+        <h3 className="min-w-0 flex-1 truncate font-medium" title={organization.orgName}>
+          {organization.orgName}
+        </h3>
         <span className="text-xs text-content-secondary">{organization.pausedAt ? 'paused' : organization.role}</span>
-        {connectionId && !current ? (
-          <Button size="xs" variant="neutral" onClick={() => void switchWorkspace(connectionId)}>
-            Open
-          </Button>
-        ) : null}
+        {connectionId && !current ? <OpenButton connectionId={connectionId} /> : null}
       </div>
       <p className="mt-1 text-sm text-content-secondary">
         {connection === null
@@ -269,92 +353,101 @@ function OrganizationRow({
             className="mt-2"
             size="xs"
             variant={connection?.active ? 'neutral' : 'primary'}
-            // A refusal is shown, not dropped; an admin who signed in too long ago is offered a fresh sign-in.
             onClick={() =>
               void run(
-                () => connectOrganization(organization.orgId, onSignInRequired),
+                () =>
+                  signInWithCloudflare(createCloudflareReturnURL(window.location.href), {
+                    organizationId: organization.orgId,
+                  }),
                 () => undefined,
-                setMessage,
+                (message) => setConnectFeedback(errorFeedback(message)),
               )
             }
           >
             {connection?.active ? 'Reconnect its Cloudflare account' : 'Connect its Cloudflare account'}
           </Button>
+          <FeedbackLine feedback={connectFeedback} />
           <OrgProjectsSection
             orgId={organization.orgId}
             github={organization.github}
-            projects={organization.projects}
+            projects={projects}
             members={organization.members ?? []}
             productionRequests={organization.productionRequests ?? []}
             onChanged={onChanged}
-            onMessage={setMessage}
-            onSignInRequired={onSignInRequired}
           />
           <h4 className="mt-3 text-sm font-medium">People</h4>
-          <ul className="mt-2 grid gap-2 text-sm">
+          <ul className="mt-2 grid min-w-0 gap-2 text-sm">
             {organization.members?.map((member) => (
               <MemberRow
                 key={member.userId}
                 orgId={organization.orgId}
+                orgName={organization.orgName}
                 member={member}
+                projects={projects}
+                self={member.userId === myUserId}
                 onChanged={onChanged}
-                onMessage={setMessage}
+                onFeedback={setPeopleFeedback}
               />
             ))}
             {organization.invites?.map((pending) => (
-              <li key={pending.id} className="flex flex-wrap items-center gap-2 text-content-secondary">
-                <span className="min-w-0 flex-1 truncate">{pending.email}</span>
-                <span className="text-xs">invited</span>
-                <Button
-                  size="xs"
-                  variant="subtle"
-                  onClick={() =>
-                    void run(
-                      async () => {
-                        await postJson(
-                          '/api/organizations/invite/revoke',
-                          { orgId: organization.orgId, inviteId: pending.id },
-                          noContentSchema,
-                        );
-                      },
-                      onChanged,
-                      setMessage,
-                    )
-                  }
-                >
+              <li key={pending.id} className="flex min-w-0 flex-wrap items-center gap-2 text-content-secondary">
+                <span className="min-w-0 flex-1 truncate" title={pending.email}>
+                  {pending.email}
+                </span>
+                <span className="text-xs">
+                  invited as {pending.role}
+                  {pending.role === 'member' && pending.projectIds.length > 0
+                    ? ` · ${pending.projectIds.length} ${pending.projectIds.length === 1 ? 'project' : 'projects'}`
+                    : ''}
+                </span>
+                <Button size="xs" variant="subtle" onClick={() => revoke(pending.id)}>
                   Revoke
                 </Button>
               </li>
             ))}
           </ul>
-          <form className="mt-3 flex flex-wrap gap-2" onSubmit={(event) => void invite(event)}>
-            <TextInput
-              type="email"
-              required
-              placeholder="name@company.com"
-              aria-label="Email to invite"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="min-w-0 flex-1"
-            />
-            <select
-              aria-label="Role"
-              value={role}
-              onChange={(event) => setRole(event.target.value === 'admin' ? 'admin' : 'member')}
-              className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 text-sm"
-            >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
-            <Button type="submit" size="xs" variant="neutral" loading={busy}>
-              Invite
-            </Button>
+          <FeedbackLine feedback={peopleFeedback} />
+          <form className="mt-3 grid min-w-0 gap-2" onSubmit={(event) => void invite(event)}>
+            <div className="flex flex-wrap gap-2">
+              <TextInput
+                type="email"
+                required
+                placeholder="name@company.com"
+                aria-label="Email to invite"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="min-w-0 flex-1"
+              />
+              <select
+                aria-label="Role"
+                value={role}
+                onChange={(event) => setRole(event.target.value === 'admin' ? 'admin' : 'member')}
+                className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 text-sm"
+              >
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </select>
+              <Button type="submit" size="xs" variant="neutral" loading={busy}>
+                Invite
+              </Button>
+            </div>
+            {role === 'member' && projects.length > 0 ? (
+              <fieldset className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-xs text-content-secondary">
+                <legend className="mb-1">Projects they get</legend>
+                {projects.map((project) => (
+                  <label key={project.id} className="flex min-w-0 items-center gap-1" title={project.repoFullName}>
+                    <input
+                      type="checkbox"
+                      checked={projectIds.has(project.id)}
+                      onChange={(event) => toggleProject(project.id, event.target.checked)}
+                    />
+                    {project.name}
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
           </form>
-          {message ? (
-            <p className="mt-2 text-sm text-content-secondary" role="status">
-              {message}
-            </p>
-          ) : null}
+          <FeedbackLine feedback={inviteFeedback} />
           {inviteUrl ? (
             <TextInput
               readOnly
@@ -367,70 +460,139 @@ function OrganizationRow({
         </>
       ) : (
         <>
-          <MyOrgProjects projects={organization.projects} requests={organization.ownRequests} />
-          <Button
-            className="mt-2"
-            size="xs"
-            variant="subtle"
-            onClick={() =>
-              void run(
-                async () => {
-                  if (myUserId) {
-                    await updateMember(organization.orgId, myUserId, 'remove');
-                  }
-                },
-                () => window.location.assign('/settings'),
-                setMessage,
-              )
-            }
-          >
-            Leave {organization.orgName}
-          </Button>
+          <MyOrgProjects projects={projects} requests={organization.ownRequests} />
+          {myUserId ? (
+            <LeaveOrganization orgId={organization.orgId} orgName={organization.orgName} myUserId={myUserId} />
+          ) : null}
         </>
       )}
-      {!admin && message ? (
-        <p className="mt-2 text-sm text-content-secondary" role="status">
-          {message}
-        </p>
-      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Leaving an organization: two steps, since it also deletes the person's workspace (their chats and
+ * project files) from the organization's Cloudflare account. Settings reloads afterwards, as the
+ * account this session builds in may have been the organization's.
+ */
+function LeaveOrganization({
+  orgId,
+  orgName,
+  myUserId,
+  onCancel,
+}: {
+  orgId: string;
+  orgName: string;
+  myUserId: string;
+  /** Set when asked from elsewhere (an admin's own row): it opens at the confirmation, and Cancel goes back. */
+  onCancel?: () => void;
+}) {
+  const [confirming, setConfirming] = useState(onCancel !== undefined);
+  const [leaving, setLeaving] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const leave = async () => {
+    setLeaving(true);
+    await run(
+      async () => {
+        await updateMember(orgId, myUserId, 'remove');
+      },
+      () => window.location.assign('/settings'),
+      (message) => {
+        if (message !== null) {
+          setLeaving(false);
+        }
+        setFeedback(errorFeedback(message));
+      },
+    );
+  };
+  return (
+    <div className="mt-2 grid min-w-0 gap-1">
+      {confirming ? (
+        <>
+          <p className="text-sm text-content-secondary">
+            Leave {orgName}? Your workspace in its Cloudflare account, with your chats and project files there, is
+            deleted. You need a new invite to come back.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="xs" variant="danger" loading={leaving} onClick={() => void leave()}>
+              Leave and delete my workspace
+            </Button>
+            <Button size="xs" variant="subtle" disabled={leaving} onClick={onCancel ?? (() => setConfirming(false))}>
+              Cancel
+            </Button>
+          </div>
+        </>
+      ) : (
+        <Button className="justify-self-start" size="xs" variant="subtle" onClick={() => setConfirming(true)}>
+          Leave {orgName}
+        </Button>
+      )}
+      <FeedbackLine feedback={feedback} className="" />
     </div>
   );
 }
 
 type Member = NonNullable<Organization['members']>[number];
 
-/** A member in an admin's view: their role and this month's use, and what the admin can change. */
+/** A member in an admin's view: their role, projects and this month's use, and what the admin can change. */
 function MemberRow({
   orgId,
+  orgName,
   member,
+  projects,
+  self,
   onChanged,
-  onMessage,
+  onFeedback,
 }: {
   orgId: string;
+  orgName: string;
   member: Member;
-  onChanged: () => void;
-  onMessage: (message: string | null) => void;
+  projects: OrgProject[];
+  /** The admin's own row: no pausing themselves, a confirmed step down, and removal is leaving. */
+  self: boolean;
+  onChanged: () => Promise<void>;
+  onFeedback: (feedback: Feedback) => void;
 }) {
-  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [confirming, setConfirming] = useState<'remove' | 'make_member' | null>(null);
   const act = (action: MemberAction) =>
     void run(
       async () => {
         const result = await updateMember(orgId, member.userId, action);
         if (result.workspaceDeleted === false) {
-          onMessage(
-            `${member.email} is removed. Their workspace couldn't be deleted from the Cloudflare account; remove it there.`,
+          onFeedback(
+            errorFeedback(
+              `${member.email} is removed. Their workspace couldn't be deleted from the Cloudflare account; remove it there.`,
+            ),
           );
         }
       },
-      onChanged,
-      onMessage,
+      async () => {
+        setConfirming(null);
+        await onChanged();
+      },
+      (message) => onFeedback(errorFeedback(message)),
     );
   const tokens = member.usage.inputTokens + member.usage.outputTokens;
+  const theirProjects = projects.filter((project) => project.memberIds.includes(member.userId));
+  const projectsLine =
+    member.role === 'admin'
+      ? 'All projects'
+      : theirProjects.length === 0
+        ? 'No projects'
+        : `Projects: ${theirProjects
+            .slice(0, MEMBER_PROJECTS_SHOWN)
+            .map((project) => project.name)
+            .join(', ')}${
+            theirProjects.length > MEMBER_PROJECTS_SHOWN
+              ? ` and ${theirProjects.length - MEMBER_PROJECTS_SHOWN} more`
+              : ''
+          }`;
   return (
-    <li className="grid gap-1">
+    <li className="grid min-w-0 gap-1">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="min-w-0 flex-1 truncate">
+        <span className="min-w-0 flex-1 truncate" title={`${member.name} ${member.email}`}>
           {member.name} <span className="text-content-secondary">{member.email}</span>
+          {self ? <span className="text-content-secondary"> (you)</span> : null}
         </span>
         <span className="text-xs text-content-secondary">
           {member.pausedAt
@@ -442,57 +604,77 @@ function MemberRow({
                 : 'member · GitHub projects only'}
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-1">
-        <span className="mr-auto text-xs text-content-tertiary">
-          This month: {member.usage.turns} {member.usage.turns === 1 ? 'turn' : 'turns'}, {tokens.toLocaleString()}{' '}
-          tokens
+      {projects.length > 0 ? (
+        <span
+          className="min-w-0 text-xs text-content-secondary"
+          title={member.role === 'member' ? theirProjects.map((project) => project.name).join(', ') : undefined}
+        >
+          {projectsLine}
         </span>
-        <Button size="xs" variant="subtle" onClick={() => act(member.pausedAt ? 'resume' : 'pause')}>
-          {member.pausedAt ? 'Resume' : 'Pause'}
-        </Button>
-        {member.role === 'member' ? (
-          // Without their own apps, a member works only on the GitHub projects they're given and never
-          // gets the organization's Cloudflare authorization.
+      ) : null}
+      {self && confirming === 'remove' ? (
+        <LeaveOrganization
+          orgId={orgId}
+          orgName={orgName}
+          myUserId={member.userId}
+          onCancel={() => setConfirming(null)}
+        />
+      ) : confirming ? (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="mr-auto min-w-0 text-xs text-content-secondary">
+            {confirming === 'remove'
+              ? `Remove ${member.name || member.email}? Their workspace in the organization's account is deleted.`
+              : 'Make yourself a member? You lose admin access to this organization until another admin gives it back.'}
+          </span>
+          <Button size="xs" variant="danger" onClick={() => act(confirming)}>
+            {confirming === 'remove' ? 'Remove and delete their workspace' : 'Make me a member'}
+          </Button>
+          <Button size="xs" variant="subtle" onClick={() => setConfirming(null)}>
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="mr-auto text-xs text-content-tertiary">
+            This month: {member.usage.turns} {member.usage.turns === 1 ? 'turn' : 'turns'}, {tokens.toLocaleString()}{' '}
+            tokens
+          </span>
+          {self ? null : (
+            <Button size="xs" variant="subtle" onClick={() => act(member.pausedAt ? 'resume' : 'pause')}>
+              {member.pausedAt ? 'Resume' : 'Pause'}
+            </Button>
+          )}
+          {member.role === 'member' ? (
+            // Without their own apps, a member works only on the GitHub projects they're given and never
+            // gets the organization's Cloudflare authorization.
+            <Button
+              size="xs"
+              variant="subtle"
+              onClick={() => act(member.draftsAllowed ? 'disallow_drafts' : 'allow_drafts')}
+            >
+              {member.draftsAllowed ? 'Stop new apps' : 'Allow new apps'}
+            </Button>
+          ) : null}
           <Button
             size="xs"
             variant="subtle"
-            onClick={() => act(member.draftsAllowed ? 'disallow_drafts' : 'allow_drafts')}
-          >
-            {member.draftsAllowed ? 'Stop new apps' : 'Allow new apps'}
-          </Button>
-        ) : null}
-        <Button size="xs" variant="subtle" onClick={() => act(member.role === 'admin' ? 'make_member' : 'make_admin')}>
-          {member.role === 'admin' ? 'Make member' : 'Make admin'}
-        </Button>
-        <Button
-          size="xs"
-          variant={confirmingRemove ? 'danger' : 'subtle'}
-          onClick={() => {
-            if (confirmingRemove) {
-              act('remove');
+            onClick={() =>
+              member.role === 'admin' && self
+                ? setConfirming('make_member')
+                : act(member.role === 'admin' ? 'make_member' : 'make_admin')
             }
-            setConfirmingRemove(!confirmingRemove);
-          }}
-        >
-          {confirmingRemove ? 'Remove and delete their workspace' : 'Remove'}
-        </Button>
-      </div>
+          >
+            {member.role === 'admin' ? 'Make member' : 'Make admin'}
+          </Button>
+          <Button size="xs" variant="subtle" onClick={() => setConfirming('remove')}>
+            {self ? 'Leave' : 'Remove'}
+          </Button>
+        </div>
+      )}
     </li>
   );
 }
 
 function updateMember(orgId: string, userId: string, action: MemberAction) {
   return postJson('/api/organizations/member', { orgId, userId, action }, memberUpdatedSchema);
-}
-
-/** Starts connecting an organization's Cloudflare account; a session too old for it is offered a fresh sign-in. */
-async function connectOrganization(orgId: string, onSignInRequired: (reason: string) => void): Promise<void> {
-  try {
-    await signInWithCloudflare(createCloudflareReturnURL(window.location.href), { organizationId: orgId });
-  } catch (failure) {
-    if (!(failure instanceof ReauthenticationRequiredError)) {
-      throw failure;
-    }
-    onSignInRequired(failure.message);
-  }
 }

@@ -1,10 +1,6 @@
 import { z } from 'zod';
-import { ReauthenticationRequiredError } from '~/lib/auth-client';
 
-const errorSchema = z.looseObject({
-  code: z.string().optional().catch(undefined),
-  error: z.string().optional().catch(undefined),
-});
+const errorSchema = z.looseObject({ error: z.string().optional().catch(undefined) });
 
 /** A 204: no body, which `postJson` reads as null. */
 export const noContentSchema = z.null();
@@ -12,7 +8,7 @@ export const noContentSchema = z.null();
 /** Posts to one of CloudChef's organization routes and parses its answer with `schema`. */
 export async function postJson<T>(
   path: string,
-  body: Record<string, string | number | boolean>,
+  body: Record<string, string | number | boolean | string[]>,
   schema: z.ZodType<T>,
 ): Promise<T> {
   const response = await fetch(path, {
@@ -33,10 +29,7 @@ async function parseResponse<T>(response: Response, schema: z.ZodType<T>): Promi
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const parsed = errorSchema.safeParse(payload);
-    const message = (parsed.success ? parsed.data.error : undefined) ?? 'Something went wrong. Try again.';
-    throw parsed.success && parsed.data.code === 'reauthentication_required'
-      ? new ReauthenticationRequiredError(message)
-      : new Error(message);
+    throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Something went wrong. Try again.');
   }
   return schema.parse(payload);
 }
@@ -48,14 +41,14 @@ export function messageOf(error: Error | null | undefined, fallback: string): st
 /** Runs one admin action, then refreshes, or shows why it failed. */
 export async function run(
   action: () => Promise<void>,
-  then: () => void,
-  onMessage: (message: string | null) => void,
+  then: () => void | Promise<void>,
+  onError: (message: string | null) => void,
 ): Promise<void> {
-  onMessage(null);
+  onError(null);
   try {
     await action();
-    then();
+    await then();
   } catch (failure) {
-    onMessage(messageOf(failure instanceof Error ? failure : null, 'That did not work. Try again.'));
+    onError(messageOf(failure instanceof Error ? failure : null, 'That did not work. Try again.'));
   }
 }

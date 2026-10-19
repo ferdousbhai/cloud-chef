@@ -37,6 +37,8 @@ const inviteSchema = z.strictObject({
   orgId: z.string().uuid(),
   email: z.email().max(254),
   role: z.enum(['admin', 'member']).default('member'),
+  /** The organization's GitHub projects they get on joining. */
+  projectIds: z.array(z.string().uuid()).max(500).default([]),
 });
 const acceptSchema = z.strictObject({ token: z.string().min(32).max(128) });
 const contextSchema = z.strictObject({ connectionId: z.string().min(1).max(128) });
@@ -129,7 +131,7 @@ export function inviteToOrganizationAction({ request, env }: { request: Request;
     if ('response' in body) {
       return body.response;
     }
-    const { orgId, role } = body.data;
+    const { orgId, role, projectIds } = body.data;
     const email = normalizeEmail(body.data.email);
     const admin = await requireAdmin(env.DB, orgId, session.user.id);
     // Invites are email CloudChef sends with text an admin chose, so they're rate-limited per admin.
@@ -137,7 +139,13 @@ export function inviteToOrganizationAction({ request, env }: { request: Request;
     if (!success) {
       return Response.json({ error: 'Too many invites at once. Try again in a minute.' }, { status: 429 });
     }
-    const { token, expiresAt } = await createInvite(env.DB, { orgId, email, role, invitedBy: session.user.id });
+    const { token, expiresAt } = await createInvite(env.DB, {
+      orgId,
+      email,
+      role,
+      invitedBy: session.user.id,
+      projectIds,
+    });
     const link = new URL(ORGANIZATION_INVITE_PATH, new URL(request.url).origin);
     link.searchParams.set('token', token);
     const emailed = await sendInvite(env, { to: email, orgName: admin.orgName, inviter: session.user.name, link });

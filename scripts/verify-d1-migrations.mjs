@@ -38,6 +38,7 @@ const migrationPolicies = [
       '0021_organizations.sql': 'c181f20c983af3a41e36fb9723d9e4987b2e997cef044ae814e22ac1d6421f61',
       '0022_github_projects.sql': '3e9b4e9192a53c49be52bf185822dd5f4b946f554b43297168ef7e7eec94da0a',
       '0023_production_requests.sql': '8a3e6faa722489cac40a96f93a7e282013e0122966472c114e516482e7f92014',
+      '0024_invite_projects.sql': '35fc087ca702efb95141a43fa845fdb8fdcb1aa9ecdb81b3028cedd13f67e404',
     },
     contractAllowlist: {
       // Explicit pre-launch clean break: the Computer locator replaced this
