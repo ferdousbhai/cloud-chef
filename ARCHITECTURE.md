@@ -58,8 +58,10 @@ runtime reports each model turn's token counts to `/api/cloudflare/runtime-usage
 control plane keeps per-day counts for the organization's admins; no content reaches it.
 
 An organization's authorization reaches every workspace in its account, so in a shared account
-(`CLOUDCHEF_SHARED_ACCOUNT`) the agent's direct `cloudflare_request` tool is not offered at all, reads
-included: a member's changes go through the deployment pipeline, which touches only their own resources.
+(`CLOUDCHEF_SHARED_ACCOUNT`) the agent's direct `cloudflare_request` tool is offered only to the
+organization's active admins, asked of the control plane (`/api/cloudflare/runtime-access`) each time it is
+admitted, so a demoted admin loses it at once. A member's changes go through the deployment pipeline or GitHub,
+which touch only their own resources.
 A tab names the
 account it opened in on each runtime-session request and reloads if another tab switched the session.
 

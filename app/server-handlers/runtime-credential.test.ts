@@ -227,21 +227,24 @@ describe('runtimeAccessAction', () => {
     `);
     mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, userId: null, orgId: 'org-1' });
     const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: encryptionKeyBase64 });
-    const ask = async () =>
-      (
-        await runtimeAccessAction({
-          request: request(await runtimeSecret('member-1', 'connection-1'), {
-            userId: 'member-1',
-            connectionId: 'connection-1',
-            connectionGeneration: 3,
-          }),
-          env,
-        })
-      ).status;
+    const ask = async () => {
+      const response = await runtimeAccessAction({
+        request: request(await runtimeSecret('member-1', 'connection-1'), {
+          userId: 'member-1',
+          connectionId: 'connection-1',
+          connectionGeneration: 3,
+        }),
+        env,
+      });
+      return { status: response.status, body: response.ok ? await response.json() : null };
+    };
 
-    expect(await ask()).toBe(204);
+    // A member may build, but isn't an admin: the agent's direct Cloudflare tool stays off for them.
+    expect(await ask()).toEqual({ status: 200, body: { organizationAdmin: false } });
+    database.exec(`UPDATE organization_members SET role = 'admin'`);
+    expect(await ask()).toEqual({ status: 200, body: { organizationAdmin: true } });
     database.exec(`UPDATE organization_members SET paused_at = 2`);
-    expect(await ask()).toBe(401);
+    expect((await ask()).status).toBe(401);
   });
 });
 

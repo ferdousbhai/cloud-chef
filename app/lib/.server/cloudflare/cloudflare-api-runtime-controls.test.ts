@@ -55,6 +55,19 @@ describe('Cloudflare API runtime controls', () => {
     await expect(readCloudflareApiRuntimeAdmission(env as never)).resolves.toBeNull();
   });
 
+  it("admits an organization's active admin, and nobody else, in its account", async () => {
+    // SAFETY: the shared env is complete, as in the cases above, and is only read.
+    const shared = { ...testEnv(), CLOUDCHEF_SHARED_ACCOUNT: '1' } as never;
+    await expect(readCloudflareApiRuntimeAdmission(shared, async () => true)).resolves.not.toBeNull();
+    await expect(readCloudflareApiRuntimeAdmission(shared, async () => false)).resolves.toBeNull();
+    // An access check that can't be answered admits nobody.
+    await expect(
+      readCloudflareApiRuntimeAdmission(shared, async () => {
+        throw new Error('control plane unreachable');
+      }),
+    ).resolves.toBeNull();
+  });
+
   it('admits writes only when both switches are enabled', () => {
     expect(cloudflareApiWriteEnabled({ cloudflare_api: true, cloudflare_api_write: true })).toBe(true);
     expect(cloudflareApiWriteEnabled({ cloudflare_api: false, cloudflare_api_write: true })).toBe(false);

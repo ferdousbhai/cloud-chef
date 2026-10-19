@@ -49,15 +49,17 @@ type CloudflareApiRuntimeEnv = Pick<
  */
 export async function readCloudflareApiRuntimeAdmission(
   env: CloudflareApiRuntimeEnv,
+  /** In an organization's account: whether this person is now one of its active admins. */
+  isOrganizationAdmin: () => Promise<boolean> = async () => false,
 ): Promise<CloudflareApiRuntimeAdmission | null> {
-  // Never in an organization's account: its authorization reaches every member's workspace, Worker
-  // code, storage and the admin's own profile, even read-only. Members change their resources through
-  // the deployment pipeline, which touches only their own.
-  if (env.CLOUDCHEF_SHARED_ACCOUNT === '1') {
-    return null;
-  }
   const identity = runtimeIdentity(env);
   if (!identity) {
+    return null;
+  }
+  // In an organization's account, only its admins: its authorization reaches every member's workspace,
+  // Worker code and storage, even read-only. Members change their resources through the deployment
+  // pipeline (or GitHub), which touches only their own. Asked afresh each time, so a demoted admin stops.
+  if (env.CLOUDCHEF_SHARED_ACCOUNT === '1' && !(await isOrganizationAdmin().catch(() => false))) {
     return null;
   }
   const placeholders = CLOUDFLARE_API_RUNTIME_CONTROL_KEYS.map(() => '?').join(', ');

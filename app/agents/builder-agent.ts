@@ -1338,6 +1338,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    * build: the model runs on the organization's Workers AI, and a paused or removed member must stop at
    * their next turn even in a workspace they already have open.
    */
+  /** Whether this person is now an active admin of the organization whose account this runtime uses. */
+  private async isOrganizationAdmin(): Promise<boolean> {
+    const identity = runtimeIdentity(this.env);
+    return identity ? (await confirmUserWorkspaceAccess(this.env, identity))?.organizationAdmin === true : false;
+  }
+
   private async requireOrganizationAccess(): Promise<void> {
     if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1') {
       return;
@@ -1364,7 +1370,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private async createCloudflareApiToolContext(
     transcript: BuilderTranscriptBinding,
   ): Promise<CloudflareApiModelToolContext | undefined> {
-    const admission = await readCloudflareApiRuntimeAdmission(this.env);
+    const admission = await readCloudflareApiRuntimeAdmission(this.env, () => this.isOrganizationAdmin());
     if (
       !admission?.controls.cloudflare_api ||
       !this.userId ||
@@ -1407,7 +1413,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const write = !cloudflareApiRequestIsRead(request);
     const admitted = admitCloudflareApiRequest(
-      await readCloudflareApiRuntimeAdmission(this.env),
+      await readCloudflareApiRuntimeAdmission(this.env, () => this.isOrganizationAdmin()),
       expectedIdentity,
       write,
     );
@@ -1461,7 +1467,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   /** The approval fiber re-admits the stored change; a rejection there settles it as failed. */
   private async requireCloudflareApiWriteAdmission(expectedIdentity: CloudflareApiRuntimeIdentity): Promise<void> {
     const admitted = admitCloudflareApiRequest(
-      await readCloudflareApiRuntimeAdmission(this.env),
+      await readCloudflareApiRuntimeAdmission(this.env, () => this.isOrganizationAdmin()),
       expectedIdentity,
       true,
     );
@@ -1479,7 +1485,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private async requireCurrentCloudflareExecutionBinding(reason: string): Promise<CloudflareExecutionBinding> {
     const durableIdentity = await this.hydrateDurableIdentity({ required: true, reason });
     const transcript = this.transcriptBinding;
-    const admission = await readCloudflareApiRuntimeAdmission(this.env);
+    const admission = await readCloudflareApiRuntimeAdmission(this.env, () => this.isOrganizationAdmin());
     if (!durableIdentity || !transcript || !admission || admission.identity.userId !== durableIdentity.userId) {
       throw new Response('The Cloudflare execution identity is unavailable.', { status: 409 });
     }

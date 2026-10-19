@@ -140,9 +140,16 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
     throw error;
   }
   const authenticated = await authenticateRuntime(args.env, args.request, body);
-  return authenticated instanceof Response
-    ? authenticated
-    : new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+  if (authenticated instanceof Response) {
+    return authenticated;
+  }
+  // An organization's admins may use its Cloudflare authorization directly (the agent's Cloudflare tool).
+  const orgId = authenticated.connection.orgId;
+  const membership = orgId ? await findMembership(args.env.DB, orgId, body.userId) : null;
+  return Response.json(
+    { organizationAdmin: membership?.role === 'admin' && membership.pausedAt === null },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
 }
 
 type RuntimeIdentity = { userId: string; connectionId: string; connectionGeneration: number };

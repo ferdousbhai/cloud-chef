@@ -79,10 +79,14 @@ export async function reportUserWorkspaceModelUsage(
  * removed from the organization that owns the connection. Errors, like an unreachable control plane,
  * are thrown, not read as a refusal.
  */
+/**
+ * Whether this person may still use the runtime's account, and in an organization's whether they are
+ * one of its active admins; null when they may not.
+ */
 export async function confirmUserWorkspaceAccess(
   env: RuntimeCredentialEnv,
   identity: CloudflareConnectionIdentity,
-): Promise<boolean> {
+): Promise<{ organizationAdmin: boolean } | null> {
   const response = await fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, 'runtime-access'), {
     method: 'POST',
     headers: { authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`, 'content-type': 'application/json' },
@@ -94,15 +98,19 @@ export async function confirmUserWorkspaceAccess(
     redirect: 'manual',
     signal: AbortSignal.timeout(RUNTIME_CREDENTIAL_TIMEOUT_MS),
   });
-  await response.body?.cancel().catch(() => undefined);
   if (response.status === 401) {
-    return false;
+    await response.body?.cancel().catch(() => undefined);
+    return null;
   }
   if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
     throw new Error('The CloudChef control plane could not confirm workspace access.');
   }
-  return true;
+  const parsed = accessResponseSchema.safeParse(await response.json().catch(() => null));
+  return { organizationAdmin: parsed.success && parsed.data.organizationAdmin };
 }
+
+const accessResponseSchema = z.object({ organizationAdmin: z.boolean() });
 
 /**
  * Model calls outside a builder turn (prompt enhancement) in an organization's account: refused once
