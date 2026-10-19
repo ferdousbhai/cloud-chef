@@ -385,12 +385,14 @@ export async function startCloudflareConnectionAction(args: {
     // Someone signed in by email or Google connects Cloudflare to their own CloudChef account, or, as
     // an admin, to their organization.
     const signedIn = await getAuthSession(args.env, args.request);
-    // Attaching a new Cloudflare login to a signed-in account, or pointing an organization at a Cloudflare
-    // account, needs a recent sign-in, like export and erasure: a borrowed session must not do either.
+    // Attaching a new Cloudflare login to a signed-in account needs a recent sign-in, like export and
+    // erasure: it changes how the account itself can be signed into. Connecting an organization doesn't:
+    // the admin approves it on Cloudflare, which is check enough.
     if (
       signedIn &&
+      !payload.organizationId &&
       !isRecentSignIn(signedIn) &&
-      (payload.organizationId || !(await hasCloudflareLogin(args.env.DB, signedIn.user.id)))
+      !(await hasCloudflareLogin(args.env.DB, signedIn.user.id))
     ) {
       return reauthenticationRequired('Sign in again to confirm it is you, then connect Cloudflare.');
     }

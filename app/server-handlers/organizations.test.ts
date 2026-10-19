@@ -166,20 +166,18 @@ describe('organizations', () => {
     expect(await accepted.json()).toMatchObject({ code: 'email_unproven' });
   });
 
-  it('asks for a fresh sign-in before creating an organization, and creates nothing until then', async () => {
+  it('creates an organization from a session signed in a while ago', async () => {
     const { database, env } = await setup();
     const user = await upsertVerifiedEmailUser(env.DB, { email: 'ada@acme.com' });
-    // Signed in an hour ago: creating goes straight on to connecting Cloudflare, which needs a recent sign-in.
+    // Signed in an hour ago: creating needs no fresh sign-in, and connecting is approved on Cloudflare.
     const stale = await prepareAuthSession(user.id, undefined, Date.now() - 60 * 60_000);
     const cookie = (await createAuthSession(env, stale)).split(';')[0];
-
-    const refused = await createOrganizationAction({
+    const created = await createOrganizationAction({
       request: post(cookie, '/api/organizations/create', { name: 'Acme' }),
       env,
     });
-    expect(refused.status).toBe(401);
-    expect(await refused.json()).toMatchObject({ code: 'reauthentication_required' });
-    expect(database.prepare('SELECT COUNT(*) AS n FROM organizations').get()).toEqual({ n: 0 });
+    expect(created.status).toBe(201);
+    expect(database.prepare('SELECT COUNT(*) AS n FROM organizations').get()).toEqual({ n: 1 });
   });
 
   it("doesn't send invites until the organization's Cloudflare account is connected", async () => {

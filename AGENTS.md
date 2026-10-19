@@ -12,7 +12,7 @@ Cloudflare control plane, builder agent, user-owned workspace runtime, and gener
 - `app/workflows/user-workspace-runtime-provisioning.ts` — durable background provisioning of user workspace runtimes
 - `app/agents/builder-agent.ts` — builder lifecycle and recovery
 - `app/lib/.server/chat.ts` and `app/lib/.server/llm/` — model and tool orchestration
-- `app/lib/.server/llm/builder-skills.ts` — the agent's skills: CloudChef's `project-stack` plus Cloudflare's official skills, vendored from github.com/cloudflare/skills into `app/generated/cloudflare-skills.generated.ts` (update with `pnpm run skills:sync`)
+- `app/lib/.server/llm/builder-skills.ts` — the agent's skills: CloudChef's `project-stack` plus Cloudflare's official skills, vendored from github.com/cloudflare/skills into `app/lib/.server/llm/skills/cloudflare-skills.vendored.ts` (update with `pnpm run skills:sync`)
 - `app/components/chat/Chat.tsx` — chat surface
 - `app/lib/stores/workbench.client.ts` and `app/lib/stores/startup/` — workspace presentation and restoration
 - `app/lib/cloudflare/data.server.ts`, `app/lib/cloudflare/data/`, and `app/lib/cloudflare/data-api.ts` — authenticated persistence boundary

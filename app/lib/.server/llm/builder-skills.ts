@@ -5,7 +5,7 @@ import frontendDesignSkill from './skills/frontend-design/SKILL.md?raw';
  * text, and that module is bundled for the browser.
  */
 import projectStackSkill from '~/lib/guidance/project-stack/SKILL.md?raw';
-import { CLOUDFLARE_SKILLS } from '~/generated/cloudflare-skills.generated';
+import { CLOUDFLARE_SKILLS } from './skills/cloudflare-skills.vendored';
 
 const BUILDER_SKILL_ROOT = '/__skills__';
 const MAX_BUILDER_SKILL_PROMPT_CHARS = 16_000;

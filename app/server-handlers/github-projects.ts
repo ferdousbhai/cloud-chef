@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { isRecentSignIn, reauthenticationRequired } from '~/lib/.server/account-reauthentication';
 import { getAuthSession } from '~/lib/.server/auth';
 import { GitHubError } from '~/lib/.server/github/github-api';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
@@ -73,10 +72,8 @@ export function startGitHubInstallAction({ request, env }: { request: Request; e
       return body.response;
     }
     await requireAdmin(env.DB, body.data.orgId, session.user.id);
-    // Pointing an organization at a GitHub account is as consequential as pointing it at a Cloudflare one.
-    if (!isRecentSignIn(session)) {
-      return reauthenticationRequired('Sign in again to confirm it is you, then connect GitHub.');
-    }
+    // No fresh CloudChef sign-in needed: GitHub has the admin install and authorize there, and the return
+    // is accepted only for an installation they own.
     const state = crypto.randomUUID();
     const origin = new URL(request.url).origin;
     const now = Date.now();
@@ -201,9 +198,6 @@ export function approveProductionRequestAction({
       return body.response;
     }
     await requireAdmin(env.DB, body.data.orgId, session.user.id);
-    if (!isRecentSignIn(session)) {
-      return reauthenticationRequired('Sign in again to confirm it is you, then approve.');
-    }
     const installation = await findGitHubInstallation(env.DB, body.data.orgId);
     if (!app || !installation) {
       return Response.json({ error: app ? 'Connect GitHub first.' : UNAVAILABLE }, { status: 409 });

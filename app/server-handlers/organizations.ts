@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { isRecentSignIn, reauthenticationRequired } from '~/lib/.server/account-reauthentication';
 import { getAuthSession, normalizeEmail, setSessionContext, type CloudflareAuthSession } from '~/lib/.server/auth';
 import { hasSameOrigin, readJsonRequest } from '~/lib/.server/request-guards';
 import { findCloudflareConnectionForOrganization } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
@@ -113,11 +112,6 @@ export function createOrganizationAction({ request, env }: { request: Request; e
     const body = await readJsonRequest(request, createSchema, 'Give the organization a name.');
     if ('response' in body) {
       return body.response;
-    }
-    // Creating one goes straight on to connecting its Cloudflare account, which needs a recent sign-in:
-    // asking first leaves no organization behind with nothing connected.
-    if (!isRecentSignIn(session)) {
-      return reauthenticationRequired('Sign in again to confirm it is you, then create the organization.');
     }
     const orgId = await createOrganization(env.DB, session.user.id, body.data.name);
     return Response.json({ orgId }, { status: 201 });
