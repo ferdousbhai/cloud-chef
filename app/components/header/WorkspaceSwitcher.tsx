@@ -23,8 +23,9 @@ export function WorkspaceSwitcher() {
       buttonProps={{
         variant: 'subtle',
         size: 'xs',
-        title: 'Switch account or manage organizations',
-        children: <span className="max-w-40 truncate">{current ? workspaceLabel(current) : 'No workspace'}</span>,
+        // The button names the workspace briefly; its Cloudflare account is in the tooltip and the menu.
+        title: current ? `${fullLabel(current)}. Switch account or manage organizations` : 'Manage organizations',
+        children: <span className="max-w-56 truncate">{current ? shortLabel(current) : 'No workspace'}</span>,
       }}
     >
       {session.contexts.map((option) => (
@@ -37,7 +38,10 @@ export function WorkspaceSwitcher() {
           }}
         >
           <CheckIcon aria-hidden className={option.connectionId === current?.connectionId ? '' : 'invisible'} />
-          {workspaceLabel(option)}
+          <span className="flex flex-col">
+            <span>{shortLabel(option)}</span>
+            {option.accountName ? <span className="text-xs text-content-tertiary">{option.accountName}</span> : null}
+          </span>
         </MenuItem>
       ))}
       <MenuItem action={organizations}>
@@ -58,8 +62,10 @@ async function switchTo(connectionId: string) {
   }
 }
 
-function workspaceLabel(option: WorkspaceContext) {
-  return option.kind === 'organization'
-    ? option.orgName
-    : `Personal${option.accountName ? ` · ${option.accountName}` : ''}`;
+function shortLabel(option: WorkspaceContext) {
+  return option.kind === 'organization' ? option.orgName : 'Personal';
+}
+
+function fullLabel(option: WorkspaceContext) {
+  return option.accountName ? `${shortLabel(option)} · ${option.accountName}` : shortLabel(option);
 }
