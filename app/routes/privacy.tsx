@@ -81,6 +81,15 @@ function PrivacyPage() {
           remove them, which also deletes their workspace from the organization&apos;s account; applications they
           deployed stay there.
         </p>
+        <p>
+          An organization can also work on apps kept in GitHub. An admin installs CloudChef&apos;s GitHub App on the
+          GitHub account that holds them and chooses which repositories it may reach. CloudChef stores the installation
+          and which repositories are its projects, not their contents or any GitHub token: it fetches a project&apos;s
+          files into the member&apos;s workspace and sends their changes back to GitHub as commits, with a short-lived
+          token limited to that repository. When a member asks for a draft to become a project, its files are kept with
+          the request until an admin approves it (and they go to the new GitHub repository) or declines it.
+          GitHub&apos;s own terms and privacy statement govern the repositories.
+        </p>
       </TrustSection>
 
       <TrustSection title="Data, purposes, and legal bases">
@@ -204,7 +213,9 @@ function PrivacyPage() {
       <TrustSection title="Retention in the operator control plane">
         <p>In the operator control plane:</p>
         <ul>
-          <li>OAuth authorization and Google sign-in state expires after 10 minutes</li>
+          <li>
+            OAuth authorization and Google sign-in state expires after 10 minutes, GitHub installation state after 15
+          </li>
           <li>emailed sign-in links after 15 minutes, and organization invites after 7 days</li>
           <li>authentication sessions after 30 days</li>
           <li>unreferenced encrypted credential records become eligible for removal after 24 hours</li>
@@ -257,6 +268,7 @@ function PrivacyPage() {
           <li>the existence, storage time, and key version of your encrypted credential record</li>
           <li>your runtime locators</li>
           <li>your organization memberships, invites addressed to you, and your daily usage counts</li>
+          <li>the GitHub projects you were given and the production requests you sent</li>
           <li>your authentication-session and OAuth-state records</li>
         </ul>
         <p>

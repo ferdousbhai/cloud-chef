@@ -62,7 +62,9 @@ function TermsPage() {
         <p>
           An organization&apos;s admin who connects its Cloudflare account authorizes CloudChef to act in that account
           for every member they invite, and the organization is responsible for the charges its members incur there.
-          Members build and deploy in that account under its administrators&apos; control.
+          Members build and deploy in that account under its administrators&apos; control. An admin who installs
+          CloudChef&apos;s GitHub App authorizes CloudChef to read and commit to the repositories they choose, for the
+          members they give those projects to; changes members publish are merged into those repositories.
         </p>
       </TrustSection>
       <TrustSection title="Your inputs and generated output">

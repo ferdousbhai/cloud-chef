@@ -66,12 +66,39 @@ account it opened in on each runtime-session request and reloads if another tab 
 An organization keeps at least one active admin. Erasing a member's account never revokes the organization's
 authorization; erasing its last member removes the organization and revokes it.
 
+## GitHub Projects
+
+An organization can work on existing apps kept in GitHub, which stays their source of truth. An admin installs
+CloudChef's GitHub App on the account holding them, choosing its repositories, and links repositories as projects,
+choosing which members may work on each (`app/server-handlers/github-projects.ts`,
+`app/lib/cloudflare/data/org-projects.server.ts`). The installation is recorded only after the returning admin's own
+GitHub authorization shows they can reach it. No GitHub token is stored: each operation mints an installation token
+limited to one repository and the permissions it needs (`app/lib/.server/github/`).
+
+Opening a project creates a chat bound to it (`chats.org_project_id`) before its agent starts, and the agent seeds the
+workspace from the default branch, streamed through the control plane (`/api/cloudflare/runtime-github/snapshot`),
+recording the commit and each file's hash. The runtime never holds a GitHub token: snapshot, commit, and build-status
+calls are authenticated like the credential broker and re-check the member's access to the project, and that the
+project belongs to the organization the runtime runs for (`app/server-handlers/runtime-github.ts`). Validation runs the
+repository's own `typecheck`, `lint`, `test`, and `build` scripts. The agent's `publish_preview` commits the workspace's
+changes, one commit on top of the commit it was opened from, to the member's own branch, and `publish` also merges
+that branch into the default branch; the repository's own pipeline (Workers Builds) previews and deploys, and its check
+runs report the build and the preview link. The template's automatic hosted preview and deployment don't run for these
+workspaces.
+
+A member's new app (a draft) can be sent for review: the request carries the draft's files. Approving it, an admin
+authorizes CloudChef once on GitHub to create a repository as them, the draft becomes its first commit with its
+Cloudflare resources named after it, and it becomes a project its requester may work on; the admin connects the
+repository to Workers Builds. An admin can also limit a member to GitHub projects: that member's runtime is refused the
+organization's Cloudflare token by the credential broker, so their work reaches production only through GitHub.
+
 ## State Ownership
 
 | State                                                                                             | Authoritative owner                                  |
 | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | Identity, OAuth credentials, sessions, connection metadata, runtime locators                      | CloudChef control-plane D1                           |
 | Organizations, memberships, invites, per-member daily usage counts                                | CloudChef control-plane D1                           |
+| GitHub installations, linked projects and access, production requests                             | CloudChef control-plane D1                           |
 | Chat catalog, transcript identity, deployment plans and resources, Agent garbage-collection queue | User workspace D1                                    |
 | Agent messages, turn state, compaction, and resumable execution                                   | User-owned `BuilderAgent` DO SQLite                  |
 | Project bytes, numeric revision, change index, tool journal, and validation receipts              | User-owned `ProjectWorkspace` Computer VFS/DO SQLite |
