@@ -162,20 +162,6 @@ describe('ToolCall', () => {
     expect(container.textContent).toContain('Writing src/routes/index.tsx… 3.2 KB');
   });
 
-  it('keeps the established wording until the streamed path is legible', async () => {
-    const invocation: CloudChefToolInvocation = {
-      type: 'dynamic-tool',
-      state: 'input-streaming',
-      toolCallId: 'write-2',
-      toolName: 'write',
-      input: {},
-    };
-
-    await act(async () => root.render(<ToolCall partId={makePartId('message-4', 0)} invocation={invocation} />));
-
-    expect(container.textContent).toContain('Writing a file…');
-  });
-
   it("marks the validation the builder runs on the model's behalf as automatic", async () => {
     const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',

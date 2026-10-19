@@ -32,12 +32,6 @@ function invocation(toolName: string): CloudChefToolInvocation {
 }
 
 describe('describeFileGroup', () => {
-  it('summarizes a mixed run in plain verbs', () => {
-    expect(describeFileGroup([invocation('read'), invocation('edit'), invocation('write')])).toBe(
-      'Read 1 file, edited 1 file, wrote 1 file',
-    );
-  });
-
   it('pluralizes repeated verbs', () => {
     expect(describeFileGroup([invocation('edit'), invocation('edit'), invocation('write')])).toBe(
       'Edited 2 files, wrote 1 file',

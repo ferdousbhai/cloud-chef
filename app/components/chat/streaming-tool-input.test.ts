@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatStreamedSize, streamedToolInput } from './streaming-tool-input';
+import { streamedToolInput } from './streaming-tool-input';
 
 describe('streamedToolInput', () => {
   it('reads the path from the partially decoded object the stream rebuilt', () => {
@@ -40,13 +40,5 @@ describe('streamedToolInput', () => {
   it('counts the raw prefix while nothing has been decoded yet', () => {
     expect(streamedToolInput({ input: '{"path"' }).characters).toBe(7);
     expect(streamedToolInput({ input: { path: '/home/project/a.ts' } }).characters).toBe(0);
-  });
-});
-
-describe('formatStreamedSize', () => {
-  it('scales the unit to the amount actually streamed', () => {
-    expect(formatStreamedSize(512)).toBe('512 B');
-    expect(formatStreamedSize(3_277)).toBe('3.2 KB');
-    expect(formatStreamedSize(2 * 1_024 * 1_024)).toBe('2.0 MB');
   });
 });

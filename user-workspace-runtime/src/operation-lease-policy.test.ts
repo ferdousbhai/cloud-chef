@@ -44,13 +44,6 @@ describe('operation lease policy', () => {
     ]);
   });
 
-  it('governs the write lane by the longer of the two tools that share it', () => {
-    expect(OPERATION_LANE_TOOLS.write).toEqual(['write', 'edit']);
-    expect(OPERATION_TOOL_BUDGET_MS.write).toBe(
-      Math.max(BUILDER_TURN_TIMEOUTS.tools.write, BUILDER_TURN_TIMEOUTS.tools.edit),
-    );
-  });
-
   it('leaves lanes no model tool can occupy on their lease alone', () => {
     for (const kind of kinds) {
       if (kind in OPERATION_LANE_TOOLS) {

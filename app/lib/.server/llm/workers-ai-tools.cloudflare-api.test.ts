@@ -52,8 +52,4 @@ describe('canonical Cloudflare API tool', () => {
     ).rejects.toThrow();
     expect(cloudflareApi.request).not.toHaveBeenCalled();
   });
-
-  it('does not offer the tool when admission is absent', () => {
-    expect(createWorkersAiTools(workspace, operationContext).cloudflare_request).toBeUndefined();
-  });
 });

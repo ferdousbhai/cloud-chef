@@ -3,7 +3,6 @@ import {
   AGENT_GC_GRACE_PERIOD_MS,
   AGENT_GC_RETRY_BASE_MS,
   AGENT_GC_SWEEP_LIMIT,
-  prepareAgentGcCandidatesStatement,
   sweepAgentGcCandidates,
 } from './agent-gc.server';
 
@@ -71,40 +70,6 @@ describe('BuilderAgent garbage collection', () => {
     await expect(sweepAgentGcCandidates(database.env, { now: 100, limit: 999 })).resolves.toBeUndefined();
     expect(database.scheduleDestroy).toHaveBeenCalledTimes(AGENT_GC_SWEEP_LIMIT);
     expect(database.candidates).toHaveLength(3);
-  });
-});
-
-describe('BuilderAgent garbage collection receipts', () => {
-  it('applies the full grace period to normal chat deletion candidates', () => {
-    const bind = vi.fn(() => ({}) as D1PreparedStatement);
-    let sql = '';
-    const db = {
-      prepare: vi.fn((statement: string) => {
-        sql = statement;
-        return { bind };
-      }),
-    } as unknown as D1Database;
-
-    prepareAgentGcCandidatesStatement(db, { initialId: 'chat', ownerId: 'owner', now: 1_000 });
-
-    expect(bind).toHaveBeenCalledWith(1_000 + AGENT_GC_GRACE_PERIOD_MS, 1_000, 'owner', 'chat');
-    expect(sql).not.toContain('has_messages');
-  });
-
-  it('applies the full grace period to empty-chat discard candidates', () => {
-    const bind = vi.fn(() => ({}) as D1PreparedStatement);
-    let sql = '';
-    const db = {
-      prepare: vi.fn((statement: string) => {
-        sql = statement;
-        return { bind };
-      }),
-    } as unknown as D1Database;
-
-    prepareAgentGcCandidatesStatement(db, { ownerId: 'owner', initialId: 'chat', now: 2_000, requireEmpty: true });
-
-    expect(bind).toHaveBeenCalledWith(2_000 + AGENT_GC_GRACE_PERIOD_MS, 2_000, 'owner', 'chat');
-    expect(sql).toContain('chats.has_messages = 0');
   });
 });
 

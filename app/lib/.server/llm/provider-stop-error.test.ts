@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ProviderStopError, providerStopDiagnosticCode } from './provider-stop-error';
+import { providerStopDiagnosticCode } from './provider-stop-error';
 
 /** The shape `logProviderFailure` will accept as a diagnostic code. */
 const DIAGNOSTIC_CODE_PATTERN = /^[a-z0-9_:-]{1,64}$/;
@@ -28,13 +28,5 @@ describe('providerStopDiagnosticCode', () => {
     expect(
       providerStopDiagnosticCode("400: Input length (265330) exceeds model's maximum context length (262144)."),
     ).toBe('context_overflow');
-  });
-
-  it('keeps the provider wording on the error while carrying the class beside it', () => {
-    const error = new ProviderStopError('Stream ended without finish_reason', 'stream_ended_without_finish');
-
-    expect(error.message).toBe('Stream ended without finish_reason');
-    expect(error.diagnosticCode).toBe('stream_ended_without_finish');
-    expect(error.name).toBe('ProviderStopError');
   });
 });

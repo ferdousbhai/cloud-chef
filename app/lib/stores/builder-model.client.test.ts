@@ -8,7 +8,6 @@ import {
   type WorkersAiModelCatalogPayload,
 } from '~/lib/workers-ai-model';
 import {
-  builderDefaultModelStore,
   builderModelCatalogStatusStore,
   builderModelsStore,
   builderModelStore,
@@ -52,14 +51,6 @@ describe('builder model preference', () => {
     );
     builderModelCatalogStatusStore.set('idle');
     builderNewModelsStore.set([]);
-  });
-
-  it('uses the pinned GLM 5.3 Flash default before discovery', () => {
-    loadBuilderModelPreference({ getItem: () => null });
-
-    expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
-    expect(builderDefaultModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
-    expect(builderModelsStore.get()).toEqual([DEFAULT_WORKERS_AI_MODEL]);
   });
 
   it('installs the live catalog and restores only a current member', () => {

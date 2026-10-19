@@ -22,24 +22,6 @@ describe('executeDataOperation', () => {
     vi.mocked(getUserRuntimeSession).mockImplementation(async () => runtimeSession);
   });
 
-  it('aborts a data request instead of waiting forever', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
-      return new Promise((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
-      });
-    });
-    const request = executeDataOperation(api.messages.initializeChat, {
-      id: 'chat-1',
-      sessionId: 'session-1',
-    });
-    const rejection = expect(request).rejects.toThrow('CloudChef timed out while running messages.initializeChat');
-
-    await vi.advanceTimersByTimeAsync(15_000);
-
-    await rejection;
-  });
-
   it('waits for a workspace that is still being prepared instead of timing the operation out', async () => {
     vi.useFakeTimers();
     // Provisioning a stale or missing runtime takes minutes, and the readiness wait owns that

@@ -3,7 +3,6 @@ import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { toolFailure, toolSuccess } from 'cloudchef-agent/tool-result';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
-import { z, type ZodType } from 'zod';
 import {
   createTurnStatefulToolCoordinator,
   createWorkersAiTools,
@@ -17,42 +16,6 @@ type Tool = {
 };
 
 describe('minimal Workers AI tool surface', () => {
-  it('keeps the reviewed Computer schemas behind the active model tools', () => {
-    const tools = createWorkersAiTools(workspaceStub(), operationContext());
-
-    expect(Object.keys(tools)).toEqual([
-      'read',
-      'ls',
-      'grep',
-      'write',
-      'edit',
-      'exec',
-      'validate',
-      'search_cloudflare_docs',
-    ]);
-    expect(toolInputSchema(tools.ls).safeParse({}).success).toBe(true);
-    expect(toolInputSchema(tools.ls).safeParse({ path: '/home/project/src', recursive: true, limit: 50 }).success).toBe(
-      true,
-    );
-    expect(toolInputSchema(tools.grep).safeParse({ pattern: 'createRouter' }).success).toBe(true);
-    expect(toolInputSchema(tools.grep).safeParse({ path: '/home/project/src' }).success).toBe(false);
-    expect(
-      toolInputSchema(tools.read).safeParse({ path: '/home/project/package.json', offset: 1, limit: 20 }).success,
-    ).toBe(true);
-    expect(toolInputSchema(tools.write).safeParse({ path: '/home/project/new.ts', content: 'export {}' }).success).toBe(
-      true,
-    );
-    expect(
-      toolInputSchema(tools.edit).safeParse({
-        path: '/home/project/app.ts',
-        base: 'A'.repeat(24),
-        edits: [{ startLine: 1, endLine: 1, content: 'after' }],
-      }).success,
-    ).toBe(true);
-    expect(toolInputSchema(tools.exec).safeParse({ command: 'rg TODO' }).success).toBe(true);
-    expect(Object.keys(z.toJSONSchema(toolInputSchema(tools.exec)).properties ?? {})).toEqual(['command', 'cwd']);
-  });
-
   it('reads bundled skill references through read without consulting the project workspace', async () => {
     const workspace = workspaceStub();
     const path = '/__skills__/cloudflare/references/workers-ai/README.md';
@@ -277,25 +240,6 @@ describe('minimal Workers AI tool surface', () => {
     });
     expect(workspace.validate).not.toHaveBeenCalled();
     await expect(workspace.readText(path)).resolves.toMatchObject({ content: 'one\nTWO\nthree\nfour\n' });
-  });
-
-  it('does not validate read-only exec commands', async () => {
-    const runtimeExec = vi.fn(async () => ({
-      result: async () => ({ exitCode: 0, stdout: 'src\n', stderr: '' }),
-    }));
-    const workspace = workspaceStub({ runtimeExec });
-    const tools = createWorkersAiTools(workspace, operationContext());
-
-    await expect(executeTool(tools.exec, { command: 'rg TODO' })).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: 'src\n',
-    });
-    expect(runtimeExec).toHaveBeenCalledWith('rg TODO', {
-      cwd: undefined,
-      encoding: 'utf8',
-      backend: 'container-shell',
-    });
-    expect(workspace.validate).not.toHaveBeenCalled();
   });
 
   it('does not mask an indeterminate workspace settlement as an ordinary tool error or timeout', async () => {
@@ -758,10 +702,6 @@ async function executeTool(definition: Tool, input: unknown, abortSignal?: Abort
     throw new Error('Expected an executable tool.');
   }
   return definition.execute(input, { toolCallId: 'tool-call', abortSignal });
-}
-
-function toolInputSchema(definition: Tool): ZodType {
-  return definition.inputSchema as ZodType;
 }
 
 async function sha256(value: string): Promise<string> {

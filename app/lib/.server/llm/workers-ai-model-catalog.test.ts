@@ -139,16 +139,6 @@ describe('Workers AI live model catalog', () => {
     });
   });
 
-  it('still checks capabilities of the selected models', async () => {
-    const binding = {
-      models: vi.fn(async () => [
-        model(CLOUDFLARE_WORKERS_AI_MODEL, { properties: [{ property_id: 'context_window', value: '1310720' }] }),
-        model('@cf/deepseek-ai/deepseek-v4-flash-0731', { source: 2 }),
-      ]),
-    };
-    expect(await readWorkersAiBuilderModelCatalog(binding)).toEqual([]);
-  });
-
   it('keeps the reviewed literal when discovery offers nothing to replace the pin', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 

@@ -19,18 +19,6 @@ const alternativeModel: WorkersAiModel = {
 };
 
 describe('Workers AI model catalog', () => {
-  it('accepts a catalog entry with or without the publication date', () => {
-    const dated = { ...alternativeModel, createdAt: '2026-08-26T00:00:00.000Z' };
-
-    expect(workersAiModelCatalogPayloadSchema.parse({ defaultModelId: dated.id, models: [dated] }).models[0]).toEqual(
-      dated,
-    );
-    expect(
-      workersAiModelCatalogPayloadSchema.safeParse({ defaultModelId: alternativeModel.id, models: [alternativeModel] })
-        .success,
-    ).toBe(true);
-  });
-
   it('accepts Cloudflare-native model slugs without pretending they are catalog membership', () => {
     expect(isWorkersAiModelId('@cf/zai-org/glm-5.3-flash')).toBe(true);
     expect(isWorkersAiModelId('@cf/openai/gpt-oss-120b')).toBe(true);

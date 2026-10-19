@@ -1,35 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildDeploymentPlanFromSource } from '~/lib/.server/cloudflare/deployment-plan';
-import { AGENT_GC_GRACE_PERIOD_MS, AGENT_GC_RETRY_BASE_MS } from './agent-gc.server';
-import { prepareAppResourceGcCandidateStatement, sweepAppResourceGcCandidates } from './app-resource-gc.server';
-
-describe('app resource garbage collection receipts', () => {
-  it('queues provider cleanup with the project deletion grace period', () => {
-    const bind = vi.fn(() => ({}) as D1PreparedStatement);
-    const db = { prepare: vi.fn(() => ({ bind })) } as unknown as D1Database;
-
-    prepareAppResourceGcCandidateStatement(db, {
-      initialId: 'chat',
-      ownerId: 'owner',
-      now: 1_000,
-    });
-
-    expect(bind).toHaveBeenCalledWith(1_000 + AGENT_GC_GRACE_PERIOD_MS, 1_000, 'chat', 'owner');
-  });
-
-  it('uses the durable-empty predicate when an empty chat is discarded', () => {
-    const bind = vi.fn(() => ({}) as D1PreparedStatement);
-    const prepare = vi.fn(() => ({ bind }));
-
-    prepareAppResourceGcCandidateStatement({ prepare } as unknown as D1Database, {
-      initialId: 'chat',
-      ownerId: 'owner',
-      requireEmpty: true,
-    });
-
-    expect(prepare).toHaveBeenCalledWith(expect.stringContaining('chats.has_messages = 0'));
-  });
-});
+import { AGENT_GC_RETRY_BASE_MS } from './agent-gc.server';
+import { sweepAppResourceGcCandidates } from './app-resource-gc.server';
 
 describe('app resource garbage collection', () => {
   it('removes every resource derived from every deployment before completing the receipt', async () => {

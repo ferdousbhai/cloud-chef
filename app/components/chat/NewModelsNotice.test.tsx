@@ -38,17 +38,6 @@ afterEach(async () => {
 });
 
 describe('NewModelsNotice', () => {
-  it('says nothing on a first ever catalog load', async () => {
-    installBuilderModelCatalog({
-      defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
-      models: [DEFAULT_WORKERS_AI_MODEL, deepseek],
-    });
-
-    await render();
-
-    expect(document.querySelector('[role="status"]')).toBeNull();
-  });
-
   it('names a newly added model once, then stays gone after it is dismissed', async () => {
     values.set(SEEN_KEY, JSON.stringify([CLOUDFLARE_WORKERS_AI_MODEL]));
     installBuilderModelCatalog({

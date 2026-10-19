@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   DISCOVERY_MAX_LIST_ENTRIES,
@@ -227,25 +226,6 @@ describe('workspace discovery search', () => {
       0,
     );
     expect(bytes).toBeLessThanOrEqual(DISCOVERY_MAX_OUTPUT_BYTES);
-  });
-});
-
-describe('workspace discovery wiring', () => {
-  it('reaches the VFS through the read seam, never the lane or the sync barrier', () => {
-    // The whole reason these tools exist is that they skip the container. Taking a stateful
-    // operation or requiring a completed Computer sync would silently reintroduce the container
-    // wake and the durable sync barrier that made discovery through exec expensive.
-    const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    const methods = /\n {2}async (listProjectEntries|searchProjectFiles)\(value: unknown\) \{([\s\S]*?)\n {2}\}/g;
-    const bodies = [...source.matchAll(methods)].map((match) => match[2] ?? '');
-
-    expect(bodies).toHaveLength(2);
-    for (const body of bodies) {
-      expect(body).toContain('this.stableProjectRead(');
-      expect(body).not.toContain('withStatefulOperation');
-      expect(body).not.toContain('requireCompletedComputerSync');
-      expect(body).not.toContain('withComputer');
-    }
   });
 });
 

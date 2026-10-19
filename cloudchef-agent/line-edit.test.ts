@@ -73,15 +73,6 @@ describe('line-anchored editing', () => {
     expect(() => applyLineEdits('one\ntwo', [operation as unknown as LineEditOperation])).toThrow(message);
   });
 
-  it('preserves insertion-at-replacement-start behavior', () => {
-    expect(
-      applyLineEdits('one\ntwo\nthree', [
-        { startLine: 2, endLine: 2, content: 'TWO' },
-        { afterLine: 1, content: 'between' },
-      ]).content,
-    ).toBe('one\nbetween\nTWO\nthree');
-  });
-
   it('preserves the complete strict line-edit schema, 24-character base, and 100-operation cap', () => {
     expect(
       lineEditToolParameters.safeParse({

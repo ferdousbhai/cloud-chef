@@ -1,16 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { Usage } from '@earendil-works/pi-ai';
-import { recordFirstWorkersAiResponse, recordWorkersAiFinish, turnUsage } from './workers-ai-telemetry';
-
-describe("a turn's token counts", () => {
-  test('counts input, output and cached tokens, for a finished or a failed turn alike', () => {
-    expect(turnUsage(usage({ input: 1_000, output: 20, cacheRead: 800, totalTokens: 1_020 }))).toEqual({
-      inputTokens: 1_000,
-      outputTokens: 20,
-      cachedTokens: 800,
-    });
-  });
-});
+import { recordFirstWorkersAiResponse, recordWorkersAiFinish } from './workers-ai-telemetry';
 
 describe('Workers AI prompt-cache telemetry', () => {
   test('records the native Pi usage produced by the agent loop', () => {

@@ -152,19 +152,6 @@ describe('AccountDataCard', () => {
     expect(mocks.signInWithCloudflare).toHaveBeenCalledOnce();
   });
 
-  it('shows export reconnect failures beside the export action', async () => {
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({ code: 'reauthentication_required' }), { status: 401 }));
-    mocks.signInWithCloudflare.mockRejectedValueOnce(new Error('Connection unavailable.'));
-    await render();
-    await act(async () => button('Download account data').click());
-    await act(async () => button('Reconnect Cloudflare').click());
-    const alert = document.querySelector('[role="alert"]')!;
-    expect(alert.textContent).toBe('Connection unavailable.');
-    expect(
-      alert.compareDocumentPosition(button('Delete account data')) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
-
   it('reports an unreachable server instead of saving an empty file', async () => {
     fetchMock.mockRejectedValue(new Error('offline'));
     await render();

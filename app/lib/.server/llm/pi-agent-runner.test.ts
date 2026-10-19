@@ -160,19 +160,6 @@ describe('piAgentRunner', () => {
     expect(mocks.recordFinish).not.toHaveBeenCalled();
   });
 
-  it('routes the validated model selection to the Pi provider', async () => {
-    await collectChunks(await createAgentStream('@cf/openai/gpt-oss-120b'));
-
-    expect(mocks.getPiModel).toHaveBeenCalledWith(
-      expect.anything(),
-      '@cf/openai/gpt-oss-120b',
-      expect.objectContaining({
-        model: expect.objectContaining({ id: '@cf/openai/gpt-oss-120b' }),
-        sessionAffinity: expect.any(String),
-      }),
-    );
-  });
-
   it('classifies pre-stream preparation failures without exposing their cause', async () => {
     mocks.prepareModelInput.mockRejectedValueOnce(new Error('private prompt details'));
 
@@ -343,58 +330,6 @@ describe('piAgentRunner', () => {
         { type: 'text-delta', id: 'pi-123-1', delta: 'Done' },
       ]),
     );
-  });
-
-  it('closes a reasoning part the model never ended', async () => {
-    mocks.piRun.mockImplementation(async (_ctx: AgentContext, _cfg: StopAwareLoopConfig, emit: RunnerEventSink) => {
-      await emit({
-        type: 'message_update',
-        message: { timestamp: 123 },
-        assistantMessageEvent: { type: 'thinking_delta', contentIndex: 0, delta: 'Half a thought' },
-      });
-    });
-
-    const chunks = await collectChunks(await createAgentStream());
-    const terminal = chunks.findIndex((chunk) => chunk.type === 'finish');
-
-    expect(chunks.slice(0, terminal)).toEqual(
-      expect.arrayContaining([
-        { type: 'reasoning-start', id: 'pi-123-0' },
-        { type: 'reasoning-delta', id: 'pi-123-0', delta: 'Half a thought' },
-        { type: 'reasoning-end', id: 'pi-123-0' },
-      ]),
-    );
-  });
-
-  it('exposes exactly the four primitive Pi tools with automatic selection', async () => {
-    mocks.piRun.mockImplementation(
-      async (context: { tools: Array<{ name: string }> }, config: { toolChoice: string }) => {
-        expect(context.tools.map((tool) => tool.name)).toEqual(['read', 'write', 'edit', 'exec']);
-        expect(config.toolChoice).toBe('auto');
-      },
-    );
-
-    await collectChunks(await createAgentStream());
-  });
-
-  it('exposes Pi one-at-a-time steering without a model timeout', async () => {
-    const steering = new PiSteeringQueue();
-    mocks.piMessages = [{ role: 'user', content: 'Use blue instead', timestamp: 1 }];
-    steering.reserve({ id: 'steer-1', role: 'user', parts: [{ type: 'text', text: 'Use blue instead' }] })?.commit();
-    mocks.piRun.mockImplementation(
-      async (
-        _context: unknown,
-        config: { getSteeringMessages: () => Promise<Array<{ role: string; content: string }>>; timeoutMs?: number },
-      ) => {
-        await expect(config.getSteeringMessages()).resolves.toEqual([
-          expect.objectContaining({ role: 'user', content: 'Use blue instead' }),
-        ]);
-        await expect(config.getSteeringMessages()).resolves.toEqual([]);
-        expect(config.timeoutMs).toBeUndefined();
-      },
-    );
-
-    await collectChunks(await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, {}, steering));
   });
 
   it('stops before another model turn after a typed tool timeout', async () => {

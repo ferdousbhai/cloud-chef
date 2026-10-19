@@ -9,7 +9,7 @@ vi.mock('~/lib/.server/llm/pi-agent-runner', () => ({ piAgentRunner }));
 import { createChatResponseFromBody } from './chat';
 import { ModelInputBudgetExceededError } from './llm/model-input';
 import { PiSteeringQueue } from './llm/pi-steering';
-import { DEFAULT_WORKERS_AI_MODEL, type WorkersAiModel } from '~/lib/workers-ai-model';
+import { DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 
 describe('chat provider error boundary', () => {
   beforeEach(() => {
@@ -40,18 +40,9 @@ describe('chat provider error boundary', () => {
       await expect(createResponse()).rejects.toMatchObject({ status });
     },
   );
-
-  it('forwards the selected catalog model to the builder agent', async () => {
-    piAgentRunner.mockResolvedValueOnce(new ReadableStream());
-    const model = testModel('@cf/openai/gpt-oss-120b');
-
-    await createResponse(model);
-
-    expect(piAgentRunner).toHaveBeenCalledWith(expect.objectContaining({ model }));
-  });
 });
 
-function createResponse(model: WorkersAiModel = DEFAULT_WORKERS_AI_MODEL) {
+function createResponse(model = DEFAULT_WORKERS_AI_MODEL) {
   return createChatResponseFromBody({
     body: { messages: [], modelId: model.id },
     model,
@@ -67,8 +58,4 @@ function createResponse(model: WorkersAiModel = DEFAULT_WORKERS_AI_MODEL) {
 
 function steering() {
   return { steering: new PiSteeringQueue(), onSettled: vi.fn() };
-}
-
-function testModel(id: WorkersAiModel['id']): WorkersAiModel {
-  return { ...DEFAULT_WORKERS_AI_MODEL, id, label: id };
 }

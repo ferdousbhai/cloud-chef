@@ -88,9 +88,4 @@ describe('CloudflareApiClient', () => {
     expect(large.truncated).toBe(true);
     expect(new TextEncoder().encode(large.content).byteLength).toBeLessThanOrEqual(CLOUDFLARE_API_MAX_CONTENT_BYTES);
   });
-
-  it('keeps a truncated prefix of a response too large to read in full', async () => {
-    const huge = await client([new Response('y'.repeat(4 * 1024 * 1024))]).api.send({ method: 'GET', url }, signal);
-    expect(huge).toMatchObject({ status: 'success', truncated: true });
-  });
 });

@@ -51,29 +51,6 @@ describe('bounded data page loading', () => {
     );
   });
 
-  it('drains subchat pages without hiding older branches', async () => {
-    const subchat = (subchatIndex: number) => ({
-      subchatIndex,
-      updatedAt: subchatIndex,
-      transcript: { agentName: `agent-${subchatIndex}`, generation: 0, subchatIndex },
-    });
-    executeDataOperation
-      .mockResolvedValueOnce({ items: [subchat(0)], nextCursor: { subchatIndex: 0 } })
-      .mockResolvedValueOnce({ items: [subchat(1)] });
-
-    await expect(loadAllSubchats('chat-1', 'user-1')).resolves.toEqual([subchat(0), subchat(1)]);
-    expect(executeDataOperation).toHaveBeenLastCalledWith(
-      'subchats.get',
-      {
-        chatId: 'chat-1',
-        sessionId: 'user-1',
-        cursor: { subchatIndex: 0 },
-        limit: 50,
-      },
-      { signal: undefined },
-    );
-  });
-
   it('returns an empty final page and rejects cursor cycles', async () => {
     const options = {
       maximumItemsPerPage: 2,

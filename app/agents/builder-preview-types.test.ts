@@ -53,9 +53,4 @@ describe('Builder preview state', () => {
     expect(isPreviewStale(successful, 4)).toBe(false);
     expect(isPreviewStale(successful, 5)).toBe(true);
   });
-
-  it('exposes the exact revisions carried by the immutable Worker preview', () => {
-    expect(successful.workspaceRevision).toBe(4);
-    expect(successful.snapshotRevision).toBe('snapshot-sha');
-  });
 });

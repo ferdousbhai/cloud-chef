@@ -1,5 +1,5 @@
 {
-  "total": 1219,
+  "total": 1174,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -229,7 +229,7 @@
     "app/lib/.server/llm/pi-agent-runner.test.ts": {
       "anti-slop/no-conditional-empty-object-spread": 1,
       "anti-slop/no-module-mocking": 8,
-      "anti-slop/no-unknown-parameters": 38,
+      "anti-slop/no-unknown-parameters": 37,
       "anti-slop/require-safety-comment-for-type-assertion": 4
     },
     "app/lib/.server/llm/pi-agent-runner.ts": {
@@ -272,7 +272,7 @@
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/no-unknown-parameters": 2,
       "anti-slop/no-unknown-returns": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 5
+      "anti-slop/require-safety-comment-for-type-assertion": 4
     },
     "app/lib/.server/llm/workers-ai-tools.ts": {
       "anti-slop/no-runtime-typeof": 4,
@@ -308,24 +308,24 @@
       "anti-slop/no-unknown-parameters": 1
     },
     "app/lib/cloudflare/data/agent-gc.server.test.ts": {
-      "anti-slop/no-chained-type-assertions": 3,
-      "anti-slop/require-safety-comment-for-type-assertion": 13
+      "anti-slop/no-chained-type-assertions": 1,
+      "anti-slop/require-safety-comment-for-type-assertion": 7
     },
     "app/lib/cloudflare/data/app-resource-gc.server.test.ts": {
-      "anti-slop/no-chained-type-assertions": 3,
-      "anti-slop/require-safety-comment-for-type-assertion": 12
+      "anti-slop/no-chained-type-assertions": 1,
+      "anti-slop/require-safety-comment-for-type-assertion": 6
     },
     "app/lib/cloudflare/data/auth.server.ts": {
       "anti-slop/no-unknown-parameters": 1
     },
     "app/lib/cloudflare/data/chat-repository.server.test.ts": {
-      "anti-slop/no-chained-type-assertions": 2,
-      "anti-slop/require-safety-comment-for-type-assertion": 7
+      "anti-slop/no-chained-type-assertions": 1,
+      "anti-slop/require-safety-comment-for-type-assertion": 2
     },
     "app/lib/cloudflare/data/chat-service.server.test.ts": {
-      "anti-slop/no-chained-type-assertions": 13,
+      "anti-slop/no-chained-type-assertions": 6,
       "anti-slop/no-known-value-widening": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 31
+      "anti-slop/require-safety-comment-for-type-assertion": 17
     },
     "app/lib/cloudflare/data/cloudflare-auth-retention.server.test.ts": {
       "anti-slop/no-chained-type-assertions": 2,

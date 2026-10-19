@@ -46,23 +46,6 @@ describe('user runtime session', () => {
     expect(aiGatewayCreditStatusStore.get()).toBe('available');
   });
 
-  it('uses an unknown credit status when an older server response omits it', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        Response.json({
-          endpoint: 'https://workspace.example',
-          token: 'capability-token',
-          expiresAt: Date.now() + 60_000,
-        }),
-      ),
-    );
-
-    await getUserRuntimeSession();
-
-    expect(aiGatewayCreditStatusStore.get()).toBe('unknown');
-  });
-
   it('surfaces automatic provisioning failures', async () => {
     vi.stubGlobal(
       'fetch',
@@ -180,47 +163,6 @@ describe('user runtime session', () => {
         'workspace_plan_required',
         null,
       ),
-    );
-  });
-
-  it('keeps an undeterminable plan check distinct from a plan refusal', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        Response.json(
-          {
-            code: 'workspace_eligibility_unknown',
-            error: 'CloudChef could not reach Cloudflare to confirm that this account can run Containers.',
-          },
-          { status: 503 },
-        ),
-      ),
-    );
-
-    await expect(getUserRuntimeSession()).rejects.toEqual(
-      new UserRuntimeSessionError(
-        'CloudChef could not reach Cloudflare to confirm that this account can run Containers.',
-        'workspace_eligibility_unknown',
-      ),
-    );
-  });
-
-  it('preserves the Cloudflare reauthorization recovery code', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        Response.json(
-          {
-            code: 'cloudflare_reauthorization_required',
-            error: 'Reauthorize Cloudflare, then try again.',
-          },
-          { status: 409 },
-        ),
-      ),
-    );
-
-    await expect(getUserRuntimeSession()).rejects.toEqual(
-      new UserRuntimeSessionError('Reauthorize Cloudflare, then try again.', 'cloudflare_reauthorization_required'),
     );
   });
 

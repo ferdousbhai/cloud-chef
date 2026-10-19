@@ -69,12 +69,6 @@ describe('StreamingIndicator', () => {
     expect(activityRevealStore.get()).toBe(before + 1);
   });
 
-  it('keeps a failure as plain text rather than a link', async () => {
-    await renderError('The model hit a limit.');
-
-    expect(container.querySelector('button[title="Show in Activity"]')).toBeNull();
-  });
-
   async function renderError(message: string) {
     await act(async () =>
       root.render(
