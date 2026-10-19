@@ -16,7 +16,7 @@ import {
   userWorkspacePreparingStore,
 } from '~/lib/cloudflare/runtime-session';
 import { isWorkspacePreparingError } from '~/lib/cloudflare/client';
-import { WORKSPACE_PREPARING_MESSAGE, WorkspacePreparingPanel } from '~/components/WorkspacePreparing';
+import { WorkspacePreparingLoading, WorkspacePreparingPanel } from '~/components/WorkspacePreparing';
 
 export function ExistingChat({ chatId }: { chatId: string }) {
   return (
@@ -94,7 +94,7 @@ function AuthenticatedExistingChat({ chatId }: { chatId: string }) {
 /** The load is indistinguishable from any other until the runtime says it is still provisioning. */
 function ProjectLoading() {
   const preparing = useStore(userWorkspacePreparingStore);
-  return <Loading message={preparing ? WORKSPACE_PREPARING_MESSAGE : 'Loading project…'} />;
+  return preparing ? <WorkspacePreparingLoading /> : <Loading message="Loading project…" />;
 }
 
 export function ProjectLoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {

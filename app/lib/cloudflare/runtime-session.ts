@@ -43,6 +43,7 @@ const runtimeSessionPayloadSchema = z.looseObject({
   upgradeUrl: z.string().optional().catch(undefined),
   aiGatewayCreditStatus: aiGatewayCreditStatusSchema.optional().catch(undefined),
   correlationId: z.string().optional().catch(undefined),
+  upgrading: z.boolean().optional().catch(undefined),
 });
 
 export class UserRuntimeSessionError extends Error {
@@ -69,6 +70,8 @@ export const aiGatewayCreditStatusStore = atom<AiGatewayCreditStatus>('unknown')
  * runtime can say so instead of reporting the wait as a fault.
  */
 export const userWorkspacePreparingStore = atom<boolean>(false);
+/** While preparing: whether it's an upgrade of an existing workspace to a new CloudChef release. */
+export const userWorkspaceUpgradingStore = atom<boolean>(false);
 
 /**
  * The server-minted identifier for the request that admitted this browser. It lives
@@ -189,6 +192,7 @@ async function requestUserRuntimeSession(
         throw new Error('The runtime session request was canceled.');
       }
       userWorkspacePreparingStore.set(true);
+      userWorkspaceUpgradingStore.set(payload.upgrading === true);
       await new Promise((resolve) => setTimeout(resolve, PREPARATION_RETRY_DELAY_MS));
       continue;
     }

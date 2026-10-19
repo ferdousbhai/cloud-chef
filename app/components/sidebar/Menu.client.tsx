@@ -18,6 +18,9 @@ import { PlusIcon } from '@radix-ui/react-icons';
 import { removeChatHistoryItem, useChatHistory } from '~/lib/cloudflare/chat-history-db';
 import { ProjectTitle } from '~/components/ProjectTitle';
 import { OrgProjectsList } from './OrgProjectsList.client';
+import { useStore } from '@nanostores/react';
+import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
+import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
 import { authClient } from '~/lib/auth-client';
 import { Link } from '@tanstack/react-router';
 
@@ -53,6 +56,9 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
   const accountUserId = userId ?? null;
   const activeChatId = useChatId();
   const history = useChatHistory(accountUserId);
+  // Projects come from the workspace in the user's Cloudflare account; while it's set up or updated, say so.
+  const workspacePreparing = useStore(userWorkspacePreparingStore);
+  const workspaceUpgrading = useStore(userWorkspaceUpgradingStore);
   const { data: session } = authClient.useSession();
   // A member limited to the organization's GitHub projects can't start apps of their own here.
   const draftsAllowed = session?.context?.kind !== 'organization' || session.context.draftsAllowed;
@@ -188,7 +194,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
           )}
           {history.isLoading && list.length === 0 && (
             <p className="px-4 text-sm text-content-tertiary" role="status">
-              Loading projects…
+              {workspacePreparing ? workspacePreparingMessage(workspaceUpgrading) : 'Loading projects…'}
             </p>
           )}
           {filteredList.length === 0 && (

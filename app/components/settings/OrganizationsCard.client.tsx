@@ -155,6 +155,12 @@ export function OrganizationsCard() {
           Loading…
         </p>
       ) : null}
+      {organizations?.length === 0 ? (
+        <p className="mt-3 text-sm text-content-secondary">
+          You&apos;re not in an organization yet. Name one below to create it: you become its admin, connect the
+          Cloudflare account it builds in (yours works), then invite people and link GitHub repositories.
+        </p>
+      ) : null}
       <div className="mt-3 grid gap-3">
         {organizations?.map((organization) => (
           <OrganizationRow

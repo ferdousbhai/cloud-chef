@@ -229,6 +229,8 @@ export async function cloudflareRuntimeSessionAction({
       {
         code: 'workspace_preparing',
         error: 'CloudChef is still preparing your workspace.',
+        // An existing workspace is being upgraded to this CloudChef release, not set up for the first time.
+        upgrading: runtime !== null,
       },
       {
         status: 409,

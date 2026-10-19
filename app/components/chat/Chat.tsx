@@ -25,8 +25,7 @@ import {
   userWorkspacePreparingStore,
   type UserRuntimeErrorCode,
 } from '~/lib/cloudflare/runtime-session';
-import { Loading } from '~/components/Loading';
-import { WORKSPACE_PREPARING_MESSAGE, WorkspacePreparingPanel } from '~/components/WorkspacePreparing';
+import { WorkspacePreparingLoading, WorkspacePreparingPanel } from '~/components/WorkspacePreparing';
 import { Button } from '@ui/Button';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { buttonClassNames } from '~/components/ui/primitives/Button';
@@ -91,7 +90,7 @@ export const Chat = memo(
           onRetry={() => setRetryCount((count) => count + 1)}
         />
       ) : (
-        <Loading message={WORKSPACE_PREPARING_MESSAGE} />
+        <WorkspacePreparingLoading />
       );
     }
 

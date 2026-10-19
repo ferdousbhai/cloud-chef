@@ -1,8 +1,25 @@
+import { useStore } from '@nanostores/react';
 import { Button } from '@ui/Button';
 import { Spinner } from '@ui/Spinner';
+import { Loading } from '~/components/Loading';
+import { userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
 
 /** Said wherever the browser is waiting on provisioning, so the wait always reads the same. */
-export const WORKSPACE_PREPARING_MESSAGE = 'Preparing your Cloudflare workspace. This takes a few minutes.';
+const WORKSPACE_PREPARING_MESSAGE = 'Preparing your Cloudflare workspace. This takes a few minutes.';
+
+/** The wait after a CloudChef release changed the workspace: the existing one is being updated, briefly. */
+const WORKSPACE_UPGRADING_MESSAGE =
+  'Updating your Cloudflare workspace to the latest CloudChef. This takes a minute or two.';
+
+export function workspacePreparingMessage(upgrading: boolean): string {
+  return upgrading ? WORKSPACE_UPGRADING_MESSAGE : WORKSPACE_PREPARING_MESSAGE;
+}
+
+/** The full-page wait while the workspace is set up or updated, saying which. */
+export function WorkspacePreparingLoading() {
+  const upgrading = useStore(userWorkspaceUpgradingStore);
+  return <Loading message={workspacePreparingMessage(upgrading)} />;
+}
 
 /**
  * Provisioning a workspace is expected, slow, and self-resolving, so this states what is
