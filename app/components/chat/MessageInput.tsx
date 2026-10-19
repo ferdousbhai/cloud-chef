@@ -4,6 +4,7 @@ import { Button } from '@ui/Button';
 import { KeyboardShortcut } from '@ui/KeyboardShortcut';
 import { Spinner } from '@ui/Spinner';
 import { CloudflareConnectLegalNotice } from '~/components/CloudflareConnectLegalNotice';
+import { LinkButton } from '~/components/ui/LinkButton';
 import { classNames } from '~/utils/classNames';
 import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { EnhancePromptButton } from './EnhancePromptButton.client';
@@ -123,7 +124,15 @@ export const MessageInput = memo(function MessageInput({
         </div>
       </div>
       {authState.kind === 'unauthenticated' && (
-        <CloudflareConnectLegalNotice className="mx-auto mt-2 w-full px-1" signInLink />
+        <>
+          <CloudflareConnectLegalNotice className="mx-auto mt-2 w-full px-1" />
+          {/* Describing an app connects you on the way; this signs in without one. */}
+          <div className="mt-4 flex justify-center">
+            <LinkButton to="/sign-in" variant="neutral" size="sm">
+              Sign in or connect Cloudflare
+            </LinkButton>
+          </div>
+        </>
       )}
       {controller.refinement && (
         <PromptRefinementDialog
