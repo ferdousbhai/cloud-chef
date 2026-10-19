@@ -13,6 +13,7 @@ export function Preview({
   requesting,
   onRequest,
   error,
+  linkedRepository = null,
 }: {
   presentation: PreviewPresentation;
   publication: BuilderPublicationState | null;
@@ -20,6 +21,8 @@ export function Preview({
   requesting: boolean;
   onRequest: () => void;
   error: string | null;
+  /** A GitHub project's repository: its previews come from its own pipeline, not from CloudChef. */
+  linkedRepository?: string | null;
 }) {
   const { preview, previewUrl, status } = presentation;
 
@@ -31,6 +34,10 @@ export function Preview({
       });
     }
   }, [preview, status]);
+
+  if (linkedRepository) {
+    return <LinkedPreviewNotice repository={linkedRepository} />;
+  }
 
   return (
     <div className="flex size-full min-h-0 flex-col bg-bolt-elements-background-depth-1">
@@ -108,6 +115,21 @@ function PreviewEmpty({
             {status === 'failed' ? 'Retry' : 'Build preview'}
           </Button>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** A GitHub project's previews are built by its repository's pipeline from the branch the agent publishes. */
+function LinkedPreviewNotice({ repository }: { repository: string }) {
+  return (
+    <div className="flex size-full flex-col overflow-y-auto bg-bolt-elements-background-depth-1 p-6 text-center">
+      <div className="m-auto w-full max-w-sm shrink-0 break-words">
+        <p className="font-medium text-content-primary">Previews come from your branch&apos;s pipeline</p>
+        <p className="mt-2 text-sm text-content-secondary">
+          Ask the agent to publish a preview: it sends your changes to a branch of {repository} and shares the link its
+          pipeline builds.
+        </p>
       </div>
     </div>
   );

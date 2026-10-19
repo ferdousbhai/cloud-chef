@@ -27,6 +27,7 @@ export function WorkspacePreparingLoading() {
  * would only restart the same wait.
  */
 export function WorkspacePreparingPanel({ onKeepWaiting }: { onKeepWaiting: () => void }) {
+  const upgrading = useStore(userWorkspaceUpgradingStore);
   return (
     <section
       className="app-card m-auto w-full max-w-lg shrink-0 p-5 text-center"
@@ -37,10 +38,13 @@ export function WorkspacePreparingPanel({ onKeepWaiting }: { onKeepWaiting: () =
         <Spinner />
       </div>
       <h1 id="workspace-preparing-heading" className="mt-3 font-display text-xl font-bold text-content-primary">
-        Preparing your workspace
+        {upgrading ? 'Updating your workspace' : 'Preparing your workspace'}
       </h1>
       <p className="mx-auto mt-2 max-w-md text-balance text-sm text-content-secondary">
-        Setup in your Cloudflare account takes a few minutes. You can leave this page and return later.
+        {upgrading
+          ? 'Your Cloudflare workspace is moving to the latest CloudChef. This takes a minute or two.'
+          : 'Setup in your Cloudflare account takes a few minutes.'}{' '}
+        You can leave this page and return later.
       </p>
       <Button className="mt-4" onClick={onKeepWaiting}>
         Keep waiting

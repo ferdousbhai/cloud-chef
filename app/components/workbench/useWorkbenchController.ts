@@ -24,6 +24,7 @@ export function useWorkbenchController(isStreaming?: boolean) {
   const files = useStore(workbenchStore.files);
   const selectedView = useStore(workbenchStore.currentView);
   const following = useStore(workbenchStore.followingStreamedCode);
+  const linkedProject = useStore(workbenchStore.linkedProject);
   const isSmallViewport = useViewport(1024);
   const workspaceId = workbenchStore.getActiveWorkspaceId();
   const [hasLoadedPreview, setHasLoadedPreview] = useState(false);
@@ -111,7 +112,8 @@ export function useWorkbenchController(isStreaming?: boolean) {
         }
         return;
       }
-      if (!isCurrentRequest()) {
+      // A GitHub project previews through its repository's pipeline, so a save has no preview to update.
+      if (!isCurrentRequest() || workbenchStore.linkedProject.get()) {
         return;
       }
       try {
@@ -159,6 +161,7 @@ export function useWorkbenchController(isStreaming?: boolean) {
     files,
     following,
     hasLoadedPreview,
+    linkedProject,
     isSmallViewport,
     onEditorChange,
     onEditorScroll,

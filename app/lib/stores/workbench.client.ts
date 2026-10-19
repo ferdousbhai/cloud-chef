@@ -7,6 +7,7 @@ import type {
   BuilderWorkspaceClientChange,
   BuilderWorkspaceSyncEntry,
 } from '~/agents/builder-workspace-types';
+import type { BuilderLinkedProjectSummary } from '~/agents/builder-agent';
 import { downloadProject } from '~/lib/download/download-project';
 import { description } from './description';
 import { EditorStore } from './editor';
@@ -36,6 +37,11 @@ export class WorkbenchStore {
   showWorkbench: WritableAtom<boolean> = import.meta.hot?.data.showWorkbench ?? atom(false);
   currentView = workbenchCurrentView;
   unsavedFiles: WritableAtom<Set<AbsolutePath>> = import.meta.hot?.data.unsavedFiles ?? atom(new Set<AbsolutePath>());
+  /**
+   * The GitHub project the active workspace works on, or null for a CloudChef app (and until the agent
+   * says). A GitHub project previews and deploys through its repository's pipeline, not CloudChef's.
+   */
+  linkedProject: WritableAtom<BuilderLinkedProjectSummary | null> = atom(null);
 
   constructor() {
     if (import.meta.hot) {
@@ -116,6 +122,7 @@ export class WorkbenchStore {
     this.#editorStore.setSelectedFile(undefined);
     this.#editorStore.followingStreamedCode.set(true);
     this.#previewsStore.reset();
+    this.linkedProject.set(null);
     this.currentView.set('code');
     this.showWorkbench.set(false);
   }

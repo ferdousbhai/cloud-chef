@@ -127,15 +127,19 @@ export function toolTitle(invocation: CloudChefToolInvocation, status: ToolActiv
           );
     }
     case 'publish_preview':
-      return titleRow(
-        status === 'running' ? 'Sending a preview to GitHub' : 'Sent a preview to GitHub',
-        <CheckIcon className="text-content-secondary" />,
-      );
+      return isErrorResult(invocation)
+        ? titleRow('Preview not sent', <Cross2Icon className="text-content-secondary" />)
+        : titleRow(
+            status === 'running' ? 'Sending a preview to GitHub' : 'Sent a preview to GitHub',
+            <CheckIcon className="text-content-secondary" />,
+          );
     case 'publish':
-      return titleRow(
-        status === 'running' ? 'Publishing to GitHub' : 'Published to GitHub',
-        <CheckIcon className="text-content-secondary" />,
-      );
+      return isErrorResult(invocation)
+        ? titleRow('Publishing failed', <Cross2Icon className="text-content-secondary" />)
+        : titleRow(
+            status === 'running' ? 'Publishing to GitHub' : 'Published to GitHub',
+            <CheckIcon className="text-content-secondary" />,
+          );
     default:
       return invocation.toolName;
   }

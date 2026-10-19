@@ -27,6 +27,7 @@ import {
 } from '~/lib/cloudflare/runtime-session';
 import { WorkspacePreparingLoading, WorkspacePreparingPanel } from '~/components/WorkspacePreparing';
 import { Button } from '@ui/Button';
+import { Loading } from '~/components/Loading';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { buttonClassNames } from '~/components/ui/primitives/Button';
 import { workbenchStore } from '~/lib/stores/workbench.client';
@@ -50,6 +51,7 @@ export const Chat = memo(
     const clearPendingInitialMessage = useCallback(() => setPendingInitialMessage(null), []);
     const userId = useUserIdOrNullOrLoading();
     const runtimeEndpoint = useStore(userRuntimeEndpointStore);
+    const workspacePreparing = useStore(userWorkspacePreparingStore);
     const [runtimeConnectionError, setRuntimeConnectionError] = useState<{
       message: string;
       code: UserRuntimeErrorCode | null;
@@ -89,8 +91,11 @@ export const Chat = memo(
           upgradeUrl={runtimeConnectionError.upgradeUrl}
           onRetry={() => setRetryCount((count) => count + 1)}
         />
-      ) : (
+      ) : workspacePreparing ? (
         <WorkspacePreparingLoading />
+      ) : (
+        // Most sessions answer at once; only one the runtime says is still being prepared is a long wait.
+        <Loading message="Connecting to your workspace…" />
       );
     }
 

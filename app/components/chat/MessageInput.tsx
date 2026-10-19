@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, type ChangeEventHandler, type KeyboardEventHandler } from 'react';
+import { memo, useContext, useEffect, useRef, type ChangeEventHandler, type KeyboardEventHandler } from 'react';
 import { ArrowRightIcon, StopIcon } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';
 import { KeyboardShortcut } from '@ui/KeyboardShortcut';
@@ -18,6 +18,7 @@ import {
 import { BuilderModelSelector } from './BuilderModelSelector.client';
 import { NewModelsNotice } from './NewModelsNotice.client';
 import { PromptRefinementDialog } from './PromptRefinementDialog.client';
+import { PromptPrefillContext } from './prompt-prefill';
 
 interface MessageInputProps {
   chatStarted: boolean;
@@ -27,6 +28,8 @@ interface MessageInputProps {
   onSend: (message: string, onAccepted?: () => void) => Promise<boolean>;
   disabled: boolean;
   numMessages: number | undefined;
+  /** What an empty, unstarted composer asks for, when the project already says what it is. */
+  placeholder?: string;
 }
 
 export const MessageInput = memo(function MessageInput({
@@ -37,8 +40,15 @@ export const MessageInput = memo(function MessageInput({
   onSend,
   disabled,
   numMessages,
+  placeholder: unstartedPlaceholder = 'Describe your app…',
 }: MessageInputProps) {
-  const controller = useMessageInputController({ isStreaming, onStop, onSend, prefillEnabled: !chatStarted });
+  const prefillAllowed = useContext(PromptPrefillContext);
+  const controller = useMessageInputController({
+    isStreaming,
+    onStop,
+    onSend,
+    prefillEnabled: !chatStarted && prefillAllowed,
+  });
   const { authState, input } = controller;
   const { data: session, error: sessionError } = authClient.useSession();
   const primaryActionLabel = getMessageInputPrimaryActionLabel(authState.kind, isStreaming, input.trim().length > 0);
@@ -52,7 +62,7 @@ export const MessageInput = memo(function MessageInput({
       : numMessages !== undefined && numMessages > 0
         ? 'What would you like to do next?'
         : 'Start this chat with a prompt…'
-    : 'Describe your app…';
+    : unstartedPlaceholder;
   const inputStatus = input.length > 3 ? <NewLineShortcut /> : null;
   const actions = (
     <>

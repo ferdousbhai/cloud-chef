@@ -5,7 +5,12 @@ import { upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import { GitHubApp } from '~/lib/.server/github/github-app';
 import { bytesToBase64 } from '~/lib/hex-digest';
-import { runtimeGitHubCommitAction, runtimeGitHubSnapshotAction, runtimeGitHubStatusAction } from './runtime-github';
+import {
+  runtimeGitHubCommitAction,
+  runtimeGitHubSnapshotAction,
+  runtimeGitHubStatusAction,
+  runtimeRequestProductionAction,
+} from './runtime-github';
 import { runtimeCredentialAction } from './runtime-credential';
 
 const ORIGIN = 'https://cloudchef.build';
@@ -331,5 +336,24 @@ describe('a member working on a GitHub project', () => {
     database.prepare('UPDATE organization_members SET drafts_allowed = 1 WHERE user_id = ?').run(sara.id);
     const allowed = await runtimeCredentialAction({ request: call('/api/cloudflare/runtime-credential', {}), env });
     expect(allowed.status).toBe(503);
+  });
+  it('sends a draft for review once, however many times the same request is submitted', async () => {
+    const { database, env, call } = await setup();
+    const request = (title: string) =>
+      call('/api/cloudflare/runtime-github/request-production', {
+        title,
+        note: '',
+        previewUrl: null,
+        snapshot: 'H4sI',
+        files: 1,
+      });
+    const sent = await runtimeRequestProductionAction({ request: request('Bookings'), env });
+    expect(sent.status).toBe(201);
+    const again = await runtimeRequestProductionAction({ request: request(' bookings '), env });
+    expect(again.status).toBe(409);
+    expect(await again.json()).toEqual({ error: "“bookings” is already waiting for your admins' review." });
+    const other = await runtimeRequestProductionAction({ request: request('Invoices'), env });
+    expect(other.status).toBe(201);
+    expect(database.prepare('SELECT COUNT(*) AS count FROM production_requests').get()).toEqual({ count: 2 });
   });
 });

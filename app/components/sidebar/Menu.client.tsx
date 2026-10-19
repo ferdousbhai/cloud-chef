@@ -66,6 +66,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
   const [deleteTarget, setDeleteTarget] = useState<ChatHistorySummary | null>(null);
 
   const { filteredItems: filteredList, handleSearchChange } = useSearchFilter({ items: list });
+  const [searchQuery, setSearchQuery] = useState('');
 
   const deleteItem = async (item: ChatHistorySummary) => {
     if (!accountUserId) {
@@ -168,19 +169,23 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
               className="w-full min-w-0 max-w-full"
               type="search"
               placeholder="Search projects..."
-              onChange={handleSearchChange}
+              onChange={(event) => {
+                handleSearchChange(event);
+                setSearchQuery(event.target.value);
+              }}
               aria-label="Search projects"
             />
           </div>
         </div>
-        <OrgProjectsList userId={accountUserId} onNavigate={onClose} />
-        <div className="flex items-baseline justify-between gap-3 px-4 pb-2 pt-1">
-          <h2 className="text-xs font-black tracking-widest text-content-secondary uppercase">Projects</h2>
-          <span className="text-xs tabular-nums text-content-tertiary">
-            {list.length} {list.length === 1 ? 'project' : 'projects'}
-          </span>
-        </div>
+        {/* One scroller for both lists, so GitHub projects never squeeze the user's own off a phone screen. */}
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-5">
+          <OrgProjectsList userId={accountUserId} query={searchQuery} onNavigate={onClose} />
+          <div className="flex items-baseline justify-between gap-3 px-1 pb-2 pt-1">
+            <h2 className="text-xs font-black tracking-widest text-content-secondary uppercase">Projects</h2>
+            <span className="text-xs tabular-nums text-content-tertiary">
+              {list.length} {list.length === 1 ? 'project' : 'projects'}
+            </span>
+          </div>
           {history.error != null && (
             <div
               className="mb-3 rounded-lg border border-[var(--cc-content-warning)]/40 bg-[var(--cc-background-secondary)] p-3 text-xs text-content-secondary"
