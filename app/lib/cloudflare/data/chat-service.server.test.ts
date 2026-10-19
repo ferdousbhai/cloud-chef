@@ -68,6 +68,8 @@ describe('bounded chat reads', () => {
     expect(lastPage.items.map((item) => item.initialId)).toEqual(['initial-row-a']);
     expect(lastPage.nextCursor).toBeUndefined();
     expect(prepare).toHaveBeenCalledWith(expect.stringContaining('ORDER BY chats.timestamp DESC, chats.id DESC'));
+    // A GitHub project's chat is listed with the GitHub projects, never also as one of the user's apps.
+    expect(prepare).toHaveBeenCalledWith(expect.stringContaining('AND chats.org_project_id IS NULL'));
     expect(prepare).toHaveBeenLastCalledWith(expect.stringContaining('(chats.timestamp, chats.id) < (?, ?)'));
     expect(bind).toHaveBeenNthCalledWith(1, 'user-1', 3);
     expect(bind).toHaveBeenNthCalledWith(2, 'user-1', timestamp, 'row-b', 3);

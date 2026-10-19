@@ -17,6 +17,7 @@ import {
 } from '~/lib/cloudflare/runtime-session';
 import { isWorkspacePreparingError } from '~/lib/cloudflare/client';
 import { WorkspacePreparingLoading, WorkspacePreparingPanel } from '~/components/WorkspacePreparing';
+import { PromptPrefillContext } from './chat/prompt-prefill';
 
 export function ExistingChat({ chatId }: { chatId: string }) {
   return (
@@ -79,15 +80,18 @@ function AuthenticatedExistingChat({ chatId }: { chatId: string }) {
     return <ProjectLoading />;
   }
   return (
-    <Chat
-      initialMessages={initialMessages}
-      partCache={reloadState.partCache}
-      initializeChat={initializeChat}
-      discardEmptyChat={discardEmptyChat}
-      onBuilderRequestStart={onBuilderRequestStart}
-      subchats={subchats}
-      transcript={transcript}
-    />
+    // The homepage's draft belongs to a new project, not to this one.
+    <PromptPrefillContext.Provider value={false}>
+      <Chat
+        initialMessages={initialMessages}
+        partCache={reloadState.partCache}
+        initializeChat={initializeChat}
+        discardEmptyChat={discardEmptyChat}
+        onBuilderRequestStart={onBuilderRequestStart}
+        subchats={subchats}
+        transcript={transcript}
+      />
+    </PromptPrefillContext.Provider>
   );
 }
 

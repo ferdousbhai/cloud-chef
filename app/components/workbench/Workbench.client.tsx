@@ -32,6 +32,11 @@ const smallViewportWorkbenchStyle: CSSProperties & Record<`--${string}`, string>
 interface WorkbenchProps {
   chatStarted?: boolean;
   isStreaming?: boolean;
+  /**
+   * Opened before the chat started (a GitHub project's code), when the header has no surface switcher
+   * yet: the workbench then offers its own close button on every viewport.
+   */
+  beforeChatStarted?: boolean;
 }
 
 const viewTransition = { duration: 0.3, ease: cubicEasingFn };
@@ -64,7 +69,7 @@ const workbenchVariants = {
   },
 } satisfies Variants;
 
-export const Workbench = memo(function Workbench({ chatStarted, isStreaming }: WorkbenchProps) {
+export const Workbench = memo(function Workbench({ chatStarted, isStreaming, beforeChatStarted }: WorkbenchProps) {
   renderLogger.trace('Workbench');
   const showWorkbench = useStore(workbenchStore.showWorkbench);
   const [hasMountedWorkbench, setHasMountedWorkbench] = useState(showWorkbench);
@@ -81,12 +86,12 @@ export const Workbench = memo(function Workbench({ chatStarted, isStreaming }: W
 
   return (
     <MotionConfig reducedMotion="user">
-      <ReadyWorkbench isStreaming={isStreaming} />
+      <ReadyWorkbench isStreaming={isStreaming} beforeChatStarted={beforeChatStarted} />
     </MotionConfig>
   );
 });
 
-function ReadyWorkbench({ isStreaming }: Pick<WorkbenchProps, 'isStreaming'>) {
+function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps, 'isStreaming' | 'beforeChatStarted'>) {
   const controller = useWorkbenchController(isStreaming);
   const [previewReloadKey, setPreviewReloadKey] = useState(0);
   const presentation = previewPresentation(controller.previewState);
@@ -98,6 +103,7 @@ function ReadyWorkbench({ isStreaming }: Pick<WorkbenchProps, 'isStreaming'>) {
       selectedView={controller.selectedView}
       setSelectedView={controller.setSelectedView}
       isSmallViewport={controller.isSmallViewport}
+      closable={!controller.isSmallViewport || Boolean(beforeChatStarted)}
       onClose={controller.close}
       lockedMessage={isStreaming ? 'Build in progress. Code and preview unlock when this step finishes.' : null}
       headerActions={
@@ -117,7 +123,7 @@ function ReadyWorkbench({ isStreaming }: Pick<WorkbenchProps, 'isStreaming'>) {
                 Updating…
               </span>
             )}
-            {presentation.canUpdate && (
+            {presentation.canUpdate && !controller.linkedProject && (
               <PanelHeaderButton
                 className="mr-1 text-sm"
                 disabled={controller.previewRequesting}
@@ -164,6 +170,7 @@ function ReadyWorkbench({ isStreaming }: Pick<WorkbenchProps, 'isStreaming'>) {
                 requesting={controller.previewRequesting}
                 onRequest={() => void controller.onPreviewRequest()}
                 error={controller.previewState.error}
+                linkedRepository={controller.linkedProject?.repository ?? null}
               />
             </Suspense>
           ) : (
@@ -180,6 +187,7 @@ function WorkbenchFrame({
   selectedView,
   setSelectedView,
   isSmallViewport,
+  closable,
   onClose,
   lockedMessage,
   headerActions,
@@ -189,6 +197,7 @@ function WorkbenchFrame({
   selectedView: WorkbenchViewType;
   setSelectedView: (view: WorkbenchViewType) => void;
   isSmallViewport: boolean;
+  closable: boolean;
   onClose: () => void;
   lockedMessage?: ReactNode;
   headerActions?: ReactNode;
@@ -246,7 +255,7 @@ function WorkbenchFrame({
               <div className={classNames({ 'ml-auto': isSmallViewport })} inert={Boolean(lockedMessage)}>
                 {headerActions}
               </div>
-              {!isSmallViewport && (
+              {closable && (
                 <IconButton icon={<Cross2Icon />} className="-mr-1" title="Close workbench" onClick={onClose} />
               )}
             </div>

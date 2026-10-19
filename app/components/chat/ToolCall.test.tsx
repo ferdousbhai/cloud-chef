@@ -234,4 +234,41 @@ describe('ToolCall', () => {
     expect(container.textContent).toContain('Stopped before this tool returned a result.');
     expect(container.textContent).toContain('Validation stopped');
   });
+  it('titles a failed publish as a failure, and links what the pipeline reported instead of dumping it', async () => {
+    const failed: CloudChefToolInvocation = {
+      type: 'dynamic-tool',
+      state: 'output-available',
+      toolCallId: 'publish-1',
+      toolName: 'publish',
+      input: { message: 'Update the hero' },
+      output: { version: 1, ok: false, summary: 'Run validate on the current changes first.' },
+    };
+    await act(async () => root.render(<ToolCall partId={makePartId('message-8', 0)} invocation={failed} />));
+    expect(container.textContent).toContain('Publishing failed');
+    expect(container.textContent).not.toContain('Published to GitHub');
+
+    const sent: CloudChefToolInvocation = {
+      type: 'dynamic-tool',
+      state: 'output-available',
+      toolCallId: 'publish-preview-1',
+      toolName: 'publish_preview',
+      input: { message: 'Update the hero' },
+      output: {
+        version: 1,
+        ok: true,
+        summary: 'Committed on the branch cloudchef/sara; the pipeline built it.',
+        data: {
+          commit: 'c'.repeat(40),
+          previewUrl: 'https://cloudchef-ada-site.ada.workers.dev',
+          detailsUrl: 'javascript:alert(1)',
+        },
+      },
+    };
+    await act(async () => root.render(<ToolCall partId={makePartId('message-9', 0)} invocation={sent} />));
+    await act(async () => container.querySelector('button')?.click());
+    expect(container.textContent).toContain('Sent a preview to GitHub');
+    const links = [...container.querySelectorAll('a')].map((link) => [link.textContent, link.getAttribute('href')]);
+    expect(links).toEqual([['Open the preview', 'https://cloudchef-ada-site.ada.workers.dev']]);
+    expect(container.textContent).not.toContain('"commit"');
+  });
 });

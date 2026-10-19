@@ -14,6 +14,7 @@ import { useWorkspaceSwipe } from '~/lib/hooks/useWorkspaceSwipe';
 import useViewport from '~/lib/hooks/useViewport';
 import { DisabledChatMessageSheet } from './DisabledChatMessageSheet';
 import { HomeIntro } from './HomeIntro.client';
+import { LinkedProjectIntro } from './LinkedProjectIntro.client';
 import StreamingIndicator from './StreamingIndicator';
 import { ReauthorizeInterstitial } from '~/components/cloudflare/ReauthorizeInterstitial.client';
 import { MotionConfig } from 'framer-motion';
@@ -205,6 +206,7 @@ export function BaseChat({
   }, [lastUserMessage, onSend]);
   const isSmallViewport = useViewport(1024);
   const showWorkbench = useStore(workbenchStore.showWorkbench);
+  const linkedProject = useStore(workbenchStore.linkedProject);
   const compactActivity = isSmallViewport || showWorkbench;
   const swipeEnabled = isSmallViewport && chatStarted;
   const workspaceSwipe = useWorkspaceSwipe(swipeEnabled);
@@ -238,7 +240,17 @@ export function BaseChat({
                   'h-full min-h-0 flex flex-col': chatStarted,
                 })}
               >
-                {!chatStarted ? (
+                {!chatStarted && linkedProject ? (
+                  <LinkedProjectIntro
+                    linkedProject={linkedProject}
+                    disabledReason={disabledReason}
+                    isStreaming={isStreaming}
+                    messagesLength={messages.length}
+                    onSend={onSend}
+                    onStop={onStop}
+                    sendMessageInProgress={sendMessageInProgress}
+                  />
+                ) : !chatStarted ? (
                   <HomeIntro
                     disabledReason={disabledReason}
                     isStreaming={isStreaming}
@@ -335,9 +347,10 @@ export function BaseChat({
                 </div>
               </div>
             </div>
-            {chatStarted && (
+            {/* A GitHub project has code before its first message, so its code can be browsed from the start. */}
+            {(chatStarted || linkedProject) && (
               <Suspense fallback={null}>
-                <Workbench chatStarted isStreaming={isStreaming} />
+                <Workbench chatStarted isStreaming={isStreaming} beforeChatStarted={!chatStarted} />
               </Suspense>
             )}
             {Boolean(userId) && chatStarted && <ReauthorizeInterstitial />}

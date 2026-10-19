@@ -215,11 +215,17 @@ export async function runtimeRequestProductionAction(args: { request: Request; e
   if (!orgId) {
     return json({ error: "Production requests are for an organization's drafts." }, 409);
   }
+  // A request already waiting under the same name is this one sent again (a reload, a second tab):
+  // the admins would only see the same draft twice.
   const pending = await args.env.DB.prepare(
-    `SELECT COUNT(*) AS count FROM production_requests WHERE requested_by = ? AND org_id = ? AND status = 'pending'`,
+    `SELECT COUNT(*) AS count, COALESCE(SUM(title = ? COLLATE NOCASE), 0) AS same_title
+     FROM production_requests WHERE requested_by = ? AND org_id = ? AND status = 'pending'`,
   )
-    .bind(body.userId, orgId)
-    .first<{ count: number }>();
+    .bind(body.title, body.userId, orgId)
+    .first<{ count: number; same_title: number }>();
+  if ((pending?.same_title ?? 0) > 0) {
+    return json({ error: `“${body.title}” is already waiting for your admins' review.` }, 409);
+  }
   if ((pending?.count ?? 0) >= MAX_PENDING_REQUESTS_PER_MEMBER) {
     return json({ error: 'You already have several requests waiting. An admin will get to them.' }, 429);
   }

@@ -7,6 +7,7 @@ import {
   UserRuntimeSessionError,
   userRuntimeEndpointStore,
   userWorkspacePreparingStore,
+  userWorkspaceUpgradingStore,
 } from './runtime-session';
 
 afterEach(() => {
@@ -193,6 +194,28 @@ describe('user runtime session', () => {
     await expect(session).resolves.toMatchObject({ endpoint: 'https://workspace.example' });
     expect(request).toHaveBeenCalledTimes(2);
     expect(userWorkspacePreparingStore.get()).toBe(false);
+  });
+
+  it('stops saying the workspace is being prepared when the connection drops mid-poll', async () => {
+    vi.useFakeTimers();
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ code: 'workspace_preparing', error: 'Updating.', upgrading: true }, { status: 409 }),
+      )
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    vi.stubGlobal('fetch', request);
+
+    const session = getUserRuntimeSession();
+    const failure = expect(session).rejects.toThrow('Failed to fetch');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(userWorkspacePreparingStore.get()).toBe(true);
+    expect(userWorkspaceUpgradingStore.get()).toBe(true);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await failure;
+    expect(userWorkspacePreparingStore.get()).toBe(false);
+    expect(userWorkspaceUpgradingStore.get()).toBe(false);
   });
 
   it('lets a caller cancel its wait without cancelling shared provisioning', async () => {

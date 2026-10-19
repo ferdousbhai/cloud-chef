@@ -153,6 +153,11 @@ export function useBuilderAgentChat(args: {
         workbenchStore.updatePreview(state.preview);
       }
       workbenchStore.updatePublication(state.publication ?? null);
+      const linked = state.linkedProject ?? null;
+      const shownLinked = workbenchStore.linkedProject.get();
+      if (linked?.repository !== shownLinked?.repository || linked?.defaultBranch !== shownLinked?.defaultBranch) {
+        workbenchStore.linkedProject.set(linked);
+      }
       const generatedTitle = state.generatedSubchatTitle;
       if (!generatedTitle || generatedSubchatTitleUpdatedAtRef.current === generatedTitle.updatedAt) {
         return;

@@ -80,6 +80,8 @@ export async function getAllChats(
        FROM chats
        WHERE chats.creator_id = ? AND chats.is_deleted = 0
          AND chats.has_messages = 1
+         -- A GitHub project's chat is listed with the GitHub projects, not as an app of one's own.
+         AND chats.org_project_id IS NULL
          ${cursorClause}
        ORDER BY chats.timestamp DESC, chats.id DESC
        LIMIT ?`,

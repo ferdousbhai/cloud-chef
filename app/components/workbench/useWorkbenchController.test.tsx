@@ -11,6 +11,7 @@ vi.mock('~/lib/stores/workbench.client', async () => {
   let workspaceId: string | null = null;
   let previewRequest: (() => Promise<BuilderPreviewState>) | null = null;
   const previewState = atom(idleState());
+  const linkedProject = atom<{ repository: string; defaultBranch: string } | null>(null);
 
   return {
     workbenchStore: {
@@ -22,10 +23,12 @@ vi.mock('~/lib/stores/workbench.client', async () => {
       files: map({}),
       currentView: atom<'code' | 'preview'>('code'),
       followingStreamedCode: atom(true),
+      linkedProject,
       activateWorkspace(nextWorkspaceId: string) {
         workspaceId = nextWorkspaceId;
         previewRequest = null;
         previewState.set(idleState());
+        linkedProject.set(null);
       },
       getActiveWorkspaceId: () => workspaceId,
       isWorkspaceActive: (candidate: string) => workspaceId === candidate,
@@ -138,6 +141,25 @@ describe('useWorkbenchController preview requests', () => {
 
     expect(workbenchStore.saveCurrentDocument).toHaveBeenCalled();
     expect(requestPreview).toHaveBeenCalledOnce();
+  });
+
+  it("saves a GitHub project's file without asking CloudChef for a preview its pipeline builds", async () => {
+    const requestPreview = vi.fn(() => Promise.resolve(idleBuilderPreviewState()));
+    workbenchStore.activateWorkspace('account:chat--transcript-0-0');
+    workbenchStore.connectPreview({ request: requestPreview });
+    workbenchStore.linkedProject.set({ repository: 'ada/site', defaultBranch: 'main' });
+
+    const controller = await mountController();
+
+    act(() => controller()!.onFileSave());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(workbenchStore.saveCurrentDocument).toHaveBeenCalled();
+    expect(requestPreview).not.toHaveBeenCalled();
+    expect(controller()!.linkedProject).toEqual({ repository: 'ada/site', defaultBranch: 'main' });
   });
 
   it('does not continue a pending save into preview after unmount', async () => {

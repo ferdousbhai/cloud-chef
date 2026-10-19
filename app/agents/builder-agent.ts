@@ -96,6 +96,7 @@ import {
   linkedBuildStatus,
   requestProductionReview,
   streamLinkedProjectSnapshot,
+  type LinkedSnapshotLine,
   type LinkedBuildStatus,
 } from '~/lib/.server/cloudflare/linked-project-client';
 import type { LinkedProjectModelToolContext } from '~/lib/.server/llm/linked-project-model-tools';
@@ -246,7 +247,12 @@ export type BuilderAgentState = {
   publication?: BuilderPublicationState | null;
   contextCompactionRequestedTurnId?: string | null;
   cloudflareExecutions?: CloudflareExecutionPublicState[];
+  /** The organization GitHub project this workspace works on, once it's prepared; null for a CloudChef app. */
+  linkedProject?: BuilderLinkedProjectSummary | null;
 };
+
+/** What the browser shows of a GitHub project: which repository, and the branch its pipeline deploys. */
+export type BuilderLinkedProjectSummary = { repository: string; defaultBranch: string };
 
 /** Durable transcript as the agent currently holds it, returned after a cancel or an explicit reload. */
 type BuilderTranscriptSnapshot = {
@@ -281,6 +287,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     publication: null,
     contextCompactionRequestedTurnId: null,
     cloudflareExecutions: [],
+    linkedProject: null,
   };
 
   override chatRecovery = {
@@ -839,6 +846,30 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return this.workspace.linkedProject();
   }
 
+  /** Tells the browser whether this is a GitHub project, so it never offers what only a CloudChef app has. */
+  private async publishLinkedProjectState(): Promise<void> {
+    const linked = await this.workspace.linkedProject();
+    this.showLinkedProject(linked ? { repository: linked.repository, defaultBranch: linked.defaultBranch } : null);
+  }
+
+  private showLinkedProject(next: BuilderLinkedProjectSummary | null): void {
+    const current = this.state.linkedProject ?? null;
+    if (current?.repository === next?.repository && current?.defaultBranch === next?.defaultBranch) {
+      return;
+    }
+    this.setState({ ...this.state, linkedProject: next });
+  }
+
+  /** Names the repository to the browser as soon as its download starts, not minutes later when it's seeded. */
+  private async *announceLinkedProject(lines: AsyncIterable<LinkedSnapshotLine>): AsyncGenerator<LinkedSnapshotLine> {
+    for await (const line of lines) {
+      if ('commit' in line) {
+        this.showLinkedProject({ repository: line.repository, defaultBranch: line.defaultBranch });
+      }
+      yield line;
+    }
+  }
+
   @callable()
   getWorkspaceState(): Promise<BuilderWorkspaceState> {
     return this.workspace.refresh();
@@ -850,6 +881,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Response('Agent authentication is required.', { status: 401 });
     }
     const state = await this.initializeWorkspace(this.transcriptBinding);
+    await this.publishLinkedProjectState();
     // Not awaited. The browser blocks its send gate on this call, and the point of warming is to
     // overlap the container's cold start with the user composing their first message — awaiting it
     // here would just move the wait rather than remove it. `warmContainer` never rejects.
@@ -1232,7 +1264,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return seedLinkedWorkspace(
         this.workspace,
         orgProjectId,
-        streamLinkedProjectSnapshot(this.env, identity, orgProjectId),
+        this.announceLinkedProject(streamLinkedProjectSnapshot(this.env, identity, orgProjectId)),
       );
     }
     const template = await loadBuilderTemplate();

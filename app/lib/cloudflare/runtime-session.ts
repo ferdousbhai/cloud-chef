@@ -163,6 +163,28 @@ async function requestUserRuntimeSession(
   isCurrent: () => boolean,
   retryProvisioning: boolean,
 ): Promise<UserRuntimeSession> {
+  try {
+    return await pollUserRuntimeSession(isCurrent, retryProvisioning);
+  } catch (error) {
+    // However the attempt ended (a dropped connection mid-poll included), the browser is no longer
+    // waiting on preparation, and must not keep saying so. A superseded attempt leaves the stores to
+    // the one that replaced it.
+    if (isCurrent()) {
+      setWorkspacePreparing(false);
+    }
+    throw error;
+  }
+}
+
+function setWorkspacePreparing(preparing: boolean, upgrading = false): void {
+  userWorkspacePreparingStore.set(preparing);
+  userWorkspaceUpgradingStore.set(preparing && upgrading);
+}
+
+async function pollUserRuntimeSession(
+  isCurrent: () => boolean,
+  retryProvisioning: boolean,
+): Promise<UserRuntimeSession> {
   for (;;) {
     if (!isCurrent()) {
       throw new Error('The runtime session request was canceled.');
@@ -191,14 +213,13 @@ async function requestUserRuntimeSession(
       if (!isCurrent()) {
         throw new Error('The runtime session request was canceled.');
       }
-      userWorkspacePreparingStore.set(true);
-      userWorkspaceUpgradingStore.set(payload.upgrading === true);
+      setWorkspacePreparing(true, payload.upgrading === true);
       await new Promise((resolve) => setTimeout(resolve, PREPARATION_RETRY_DELAY_MS));
       continue;
     }
     // Every remaining answer is final for this attempt, whether it carries a session or a
     // refusal, so the browser is no longer waiting on preparation.
-    userWorkspacePreparingStore.set(false);
+    setWorkspacePreparing(false);
     if (
       !response.ok ||
       !payload?.endpoint ||
@@ -272,5 +293,5 @@ export function resetUserRuntimeSession(): void {
   userRuntimeEndpointStore.set(null);
   aiGatewayCreditStatusStore.set('unknown');
   telemetryCorrelationIdStore.set(null);
-  userWorkspacePreparingStore.set(false);
+  setWorkspacePreparing(false);
 }

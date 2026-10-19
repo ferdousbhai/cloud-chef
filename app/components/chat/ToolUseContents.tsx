@@ -1,7 +1,12 @@
 import { memo, useEffect, useState } from 'react';
 import { z } from 'zod';
 import { isToolInvocationInProgress, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
-import { isCloudChefToolResult, toolResultSucceeded, toolResultSummary } from 'cloudchef-agent/tool-result';
+import {
+  isCloudChefToolResult,
+  toolResultSucceeded,
+  toolResultSummary,
+  type CloudChefToolResult,
+} from 'cloudchef-agent/tool-result';
 import { ToolResultFrame } from './ToolResultFrame';
 import { captureProductEvent } from '~/lib/telemetry.client';
 import {
@@ -490,10 +495,42 @@ function StructuredResultTool({ invocation }: { invocation: CloudChefToolInvocat
         {invocation.output.coverage !== undefined ? (
           <pre className="whitespace-pre-wrap">{JSON.stringify(invocation.output.coverage, null, 2)}</pre>
         ) : null}
-        {invocation.output.data !== undefined ? (
+        {invocation.toolName === 'publish' || invocation.toolName === 'publish_preview' ? (
+          <PublishResultLinks result={invocation.output} />
+        ) : invocation.output.data !== undefined ? (
           <pre className="whitespace-pre-wrap">{JSON.stringify(invocation.output.data, null, 2)}</pre>
         ) : null}
       </div>
     </ToolResultFrame>
+  );
+}
+
+/** Only a web link the pipeline reported is offered; anything else in the result stays out of the card. */
+const webUrlSchema = z
+  .url({ protocol: /^https?$/ })
+  .nullable()
+  .optional()
+  .catch(undefined);
+const publishResultLinksSchema = z.looseObject({ previewUrl: webUrlSchema, detailsUrl: webUrlSchema });
+
+/** What GitHub's pipeline made of a publish: its preview and its build details, as links. */
+function PublishResultLinks({ result }: { result: CloudChefToolResult }) {
+  const links = publishResultLinksSchema.safeParse(result.data).data;
+  if (!links?.previewUrl && !links?.detailsUrl) {
+    return null;
+  }
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1">
+      {links.previewUrl ? (
+        <a className="underline" href={links.previewUrl} target="_blank" rel="noopener noreferrer">
+          Open the preview
+        </a>
+      ) : null}
+      {links.detailsUrl ? (
+        <a className="underline" href={links.detailsUrl} target="_blank" rel="noopener noreferrer">
+          Build details
+        </a>
+      ) : null}
+    </div>
   );
 }
