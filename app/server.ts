@@ -27,6 +27,11 @@ import {
 } from './server-handlers/organizations';
 import { completeGoogleSignInAction, GOOGLE_RETURN_PATH, startGoogleSignInAction } from './server-handlers/google-auth';
 import {
+  runtimeGitHubCommitAction,
+  runtimeGitHubSnapshotAction,
+  runtimeGitHubStatusAction,
+} from './server-handlers/runtime-github';
+import {
   completeGitHubInstallAction,
   disconnectGitHubAction,
   GITHUB_RETURN_PATH,
@@ -196,6 +201,18 @@ const exactRoutes = new Map<string, ServerRoute>(
     '/api/organizations/projects/access': {
       method: 'POST',
       handler: (request, env) => setProjectAccessAction({ request, env }),
+    },
+    '/api/cloudflare/runtime-github/snapshot': {
+      method: 'POST',
+      handler: (request, env) => runtimeGitHubSnapshotAction({ request, env }),
+    },
+    '/api/cloudflare/runtime-github/commit': {
+      method: 'POST',
+      handler: (request, env) => runtimeGitHubCommitAction({ request, env }),
+    },
+    '/api/cloudflare/runtime-github/status': {
+      method: 'POST',
+      handler: (request, env) => runtimeGitHubStatusAction({ request, env }),
     },
     '/api/org-projects': {
       method: 'GET',

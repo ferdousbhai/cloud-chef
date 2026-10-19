@@ -142,7 +142,7 @@ type RuntimeIdentity = { userId: string; connectionId: string; connectionGenerat
  * connection's owner, or an unpaused member of the organization that owns it. Pausing or removing
  * them stops their runtime at its very next call.
  */
-async function authenticateRuntime(
+export async function authenticateRuntime(
   env: Env,
   request: Request,
   identity: RuntimeIdentity,

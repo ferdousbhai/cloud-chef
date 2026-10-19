@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { isRecentSignIn, reauthenticationRequired } from '~/lib/.server/account-reauthentication';
 import { getAuthSession } from '~/lib/.server/auth';
-import { GitHubError, gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
+import { GitHubError } from '~/lib/.server/github/github-api';
+import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
 import { readCookie, readJsonRequest, safeReturnTo } from '~/lib/.server/request-guards';
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
 import {

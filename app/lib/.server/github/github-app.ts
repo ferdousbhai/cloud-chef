@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { createGitHubAppJwt } from './app-jwt';
+import { callGitHub, GitHubError, type GitHubRequestInit } from './github-api';
+import { RepositoryClient } from './repository-client';
 
-const API = 'https://api.github.com';
 const OAUTH_TOKEN_URL = 'https://github.com/login/oauth/access_token';
-const API_VERSION = '2022-11-28';
 
 /** The permissions CloudChef asks for when it mints a token: never more than one operation needs. */
 type GitHubTokenPermissions = {
@@ -30,16 +30,6 @@ const repositoriesPageSchema = z.looseObject({
 
 type GitHubInstallation = z.infer<typeof installationSchema>;
 type GitHubRepository = z.infer<typeof gitHubRepositorySchema>;
-
-/** A GitHub request that failed: `status` is GitHub's, or 502 for a response CloudChef couldn't read. */
-export class GitHubError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-  }
-}
 
 type GitHubAppConfig = {
   clientId: string;
@@ -121,31 +111,18 @@ export class GitHubApp {
     return repositories;
   }
 
-  private async call<T>(
-    path: string,
-    token: string,
-    schema: z.ZodType<T>,
-    init: { method?: string; body?: string } = {},
-  ): Promise<T> {
-    const headers = new Headers({
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
-      'User-Agent': 'CloudChef',
-      'X-GitHub-Api-Version': API_VERSION,
-    });
-    if (init.body !== undefined) {
-      headers.set('Content-Type', 'application/json');
-    }
-    const request = this.request;
-    const response = await request(`${API}${path}`, { method: init.method ?? 'GET', headers, body: init.body });
-    if (!response.ok) {
-      throw new GitHubError(`GitHub refused the request (${response.status}).`, response.status);
-    }
-    const parsed = schema.safeParse(await response.json().catch(() => null));
-    if (!parsed.success) {
-      throw new GitHubError('GitHub returned an unexpected response.', 502);
-    }
-    return parsed.data;
+  /** A client for one repository, holding a token limited to it and `permissions`. */
+  async repository(
+    installationId: number,
+    repository: { id: number; fullName: string },
+    permissions: GitHubTokenPermissions,
+  ): Promise<RepositoryClient> {
+    const token = await this.installationToken(installationId, permissions, [repository.id]);
+    return new RepositoryClient(token, repository.fullName, this.request);
+  }
+
+  private call<T>(path: string, token: string, schema: z.ZodType<T>, init: GitHubRequestInit = {}): Promise<T> {
+    return callGitHub(this.request, path, token, schema, init);
   }
 }
 
