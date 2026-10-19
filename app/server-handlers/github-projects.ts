@@ -10,6 +10,8 @@ import {
   declineProductionRequest,
   findGitHubInstallation,
   findPendingProductionRequest,
+  claimProductionRequest,
+  releaseProductionRequest,
   linkProject,
   listAccessibleProjects,
   recordApprovedRequest,
@@ -122,7 +124,9 @@ export async function completeGitHubInstallAction({
   }
   const state = readCookie(request, STATE_COOKIE);
   const settings = new URL('/settings#organizations', url.origin);
-  if (!state) {
+  // The state GitHub carries back must be the one this browser started with: a link carrying someone
+  // else's installation and code can't finish an admin's half-finished connection.
+  if (!state || url.searchParams.get('state') !== state) {
     // Changing the App's repositories on GitHub returns here too, with nothing to record.
     return redirect(settings, request);
   }
@@ -271,10 +275,15 @@ async function completeProductionApproval(args: {
   if (!productionRequest || !installation) {
     return redirectClearing(settings, request, APPROVAL_COOKIE);
   }
+  // One approval at a time: two admins approving together must not create two repositories.
+  if (!(await claimProductionRequest(env.DB, productionRequest.id))) {
+    return Response.json({ error: 'Another admin is already approving that request.' }, { status: 409 });
+  }
   try {
     const userToken = await app.userToken(code);
     const login = await app.userLogin(userToken);
     if (installation.accountType === 'User' && login !== installation.accountLogin) {
+      await releaseProductionRequest(env.DB, productionRequest.id);
       return Response.json(
         { error: `Sign in to GitHub as ${installation.accountLogin} to create the repository there.` },
         { status: 403 },
@@ -301,6 +310,7 @@ async function completeProductionApproval(args: {
       }
     }
     if (!head) {
+      await releaseProductionRequest(env.DB, productionRequest.id);
       return Response.json(
         { error: 'GitHub created the repository but not its first branch. Try again.' },
         { status: 502 },
@@ -325,6 +335,7 @@ async function completeProductionApproval(args: {
     const done = new URL(`/settings?promoted=${encodeURIComponent(projectId)}#organizations`, url.origin);
     return redirectClearing(done, request, APPROVAL_COOKIE);
   } catch (error) {
+    await releaseProductionRequest(env.DB, productionRequest.id);
     if (error instanceof GitHubError) {
       return Response.json(
         {

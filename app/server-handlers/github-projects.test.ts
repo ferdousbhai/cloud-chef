@@ -112,9 +112,12 @@ async function install(env: Env, app: GitHubApp, cookie: string, orgId: string, 
   expect(started.status).toBe(201);
   const state = /cloudchef_github_state=([^;]+)/.exec(started.headers.get('set-cookie') ?? '')?.[1] ?? '';
   return completeGitHubInstallAction({
-    request: new Request(`${ORIGIN}/github/return?installation_id=${installationId}&code=c&setup_action=install`, {
-      headers: { cookie: `${cookie}; cloudchef_github_state=${state}` },
-    }),
+    request: new Request(
+      `${ORIGIN}/github/return?installation_id=${installationId}&code=c&setup_action=install&state=${state}`,
+      {
+        headers: { cookie: `${cookie}; cloudchef_github_state=${state}` },
+      },
+    ),
     env,
     app,
   });
@@ -169,6 +172,31 @@ describe('GitHub projects', () => {
       installation_id: INSTALLATION_ID,
       account_login: 'ada',
     });
+  });
+
+  it("ignores a return that doesn't carry the state this browser started with", async () => {
+    const { env, orgId, admin, app } = await setup();
+    const started = await startGitHubInstallAction({
+      request: post(admin.cookie, '/api/organizations/github/start', { orgId }),
+      env: envWith({
+        ...env,
+        GITHUB_APP_CLIENT_ID: 'Iv1.test',
+        GITHUB_APP_CLIENT_SECRET: 'secret',
+        GITHUB_APP_PRIVATE_KEY: 'unused',
+        GITHUB_APP_SLUG: 'cloudchef',
+      }),
+    });
+    const state = /cloudchef_github_state=([^;]+)/.exec(started.headers.get('set-cookie') ?? '')?.[1] ?? '';
+    // A link someone else made, with their installation and code, opened in the admin's browser.
+    const forged = await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?installation_id=${INSTALLATION_ID}&code=theirs&state=other`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_state=${state}` },
+      }),
+      env,
+      app,
+    });
+    expect(forged.status).toBe(303);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM github_installations').first()).toEqual({ n: 0 });
   });
 
   it("doesn't let a member connect GitHub", async () => {

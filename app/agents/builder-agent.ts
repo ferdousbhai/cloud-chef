@@ -1264,7 +1264,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!(await this.workspace.hasSuccessfulValidation(checkpoint.revision))) {
       return toolFailure('Run validate on the current changes first: only validated work is sent to GitHub.');
     }
-    const changes = await linkedWorkspaceChanges(this.workspace, linked);
+    const { changes, manifest } = await linkedWorkspaceChanges(this.workspace, linked);
     if (changes.length === 0) {
       return toolFailure(`Nothing has changed since this workspace was opened from ${linked.repository}.`);
     }
@@ -1283,6 +1283,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       );
     }
     const sha = input.live ? (result.published ?? result.commit) : result.commit;
+    if (input.live && result.published) {
+      // What went live is the new base: later changes are measured from it and merge on top of it.
+      await this.workspace.setLinkedProject({ ...linked, baseCommit: result.published, baseManifest: manifest });
+    }
     const build = await this.waitForLinkedBuild(identity, linked.orgProjectId, sha, options.abortSignal);
     const where = input.live ? `merged into ${linked.defaultBranch}` : `on the branch ${result.branch}`;
     const summary =

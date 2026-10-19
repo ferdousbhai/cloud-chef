@@ -18,7 +18,8 @@ CREATE TABLE production_requests (
   preview_url TEXT,
   snapshot_gzip_base64 TEXT NOT NULL,
   snapshot_files INTEGER NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'declined')),
+  -- 'approving' while one admin's approval is creating the repository, so no other can start.
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approving', 'approved', 'declined')),
   project_id TEXT REFERENCES org_projects(id) ON DELETE SET NULL,
   decided_by TEXT REFERENCES "user"(id) ON DELETE SET NULL,
   decided_at INTEGER,

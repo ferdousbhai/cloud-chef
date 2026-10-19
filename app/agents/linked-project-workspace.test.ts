@@ -85,8 +85,8 @@ describe('seedLinkedWorkspace', () => {
         defaultBranch: 'main',
         baseCommit: COMMIT,
         baseManifest: [
-          { path: 'README.md', sha256: await sha256Hex('hello') },
-          { path: 'src/app.ts', sha256: await sha256Hex('export {}') },
+          { path: 'README.md', sha256: await sha256Hex('hello'), executable: false },
+          { path: 'src/app.ts', sha256: await sha256Hex('export {}'), executable: false },
         ],
       },
     ]);
@@ -144,17 +144,20 @@ describe('linkedWorkspaceChanges', () => {
         return { path, bytes, encoding: 'utf8', size: bytes.length, mode: 0o644, sha256: '', revision: 1 };
       },
     };
-    const changes = await linkedWorkspaceChanges(workspace, {
+    const { changes, manifest } = await linkedWorkspaceChanges(workspace, {
       orgProjectId: 'project-1',
       repository: 'ada/site',
       defaultBranch: 'main',
       baseCommit: COMMIT,
       baseManifest: [
-        { path: 'README.md', sha256: await sha256Hex('hello') },
+        { path: 'README.md', sha256: await sha256Hex('hello'), executable: true },
         { path: 'src/app.ts', sha256: await sha256Hex('export {}') },
         { path: 'old.txt', sha256: await sha256Hex('gone') },
       ],
     });
+    // GitHub's executable bit carries over, since the workspace keeps no modes of its own.
+    expect(manifest.find((file) => file.path === 'README.md')).toMatchObject({ executable: true });
+    expect(manifest.map((file) => file.path)).toEqual(['README.md', 'src/app.ts', 'src/new.ts']);
     expect(changes).toEqual([
       { path: 'src/app.ts', contentBase64: btoa('export const changed = 1;'), executable: false },
       { path: 'src/new.ts', contentBase64: btoa('new'), executable: true },

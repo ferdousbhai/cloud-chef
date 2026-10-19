@@ -288,7 +288,8 @@ export async function listOwnProductionRequests(
 ): Promise<OwnProductionRequest[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, title, status, decision_note FROM production_requests
+      `SELECT id, title, CASE status WHEN 'approving' THEN 'pending' ELSE status END AS status, decision_note
+       FROM production_requests
        WHERE org_id = ? AND requested_by = ? ORDER BY created_at DESC LIMIT 10`,
     )
     .bind(orgId, userId)
@@ -326,6 +327,23 @@ export async function declineProductionRequest(
   if (declined.meta.changes !== 1) {
     throw new OrganizationError('That request was already decided.', 409);
   }
+}
+
+/** Marks a pending request as being approved; false when someone else already is (or it was decided). */
+export async function claimProductionRequest(db: D1Database, requestId: string): Promise<boolean> {
+  const claimed = await db
+    .prepare(`UPDATE production_requests SET status = 'approving' WHERE id = ? AND status = 'pending'`)
+    .bind(requestId)
+    .run();
+  return claimed.meta.changes === 1;
+}
+
+/** Hands a request back to pending after an approval that didn't finish. */
+export async function releaseProductionRequest(db: D1Database, requestId: string): Promise<void> {
+  await db
+    .prepare(`UPDATE production_requests SET status = 'pending' WHERE id = ? AND status = 'approving'`)
+    .bind(requestId)
+    .run();
 }
 
 /**
@@ -372,7 +390,7 @@ export async function recordApprovedRequest(
       .prepare(
         `UPDATE production_requests SET status = 'approved', project_id = ?, decided_by = ?, decided_at = ?,
            snapshot_gzip_base64 = ''
-         WHERE id = ? AND org_id = ?`,
+         WHERE id = ? AND org_id = ? AND status = 'approving'`,
       )
       .bind(projectId, args.actorId, now, args.requestId, args.orgId),
   ]);

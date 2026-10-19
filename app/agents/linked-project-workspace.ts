@@ -54,7 +54,7 @@ export async function seedLinkedWorkspace(
         continue;
       }
       const bytes = Uint8Array.from(atob(line.contentBase64), (char) => char.charCodeAt(0));
-      manifest.push({ path: line.path, sha256: await sha256Hex(bytes) });
+      manifest.push({ path: line.path, sha256: await sha256Hex(bytes), executable: line.executable });
       totalBytes += bytes.length;
       const entry = { path: `${WORK_DIR}/${line.path}`, content: line.contentBase64, encoding: 'base64' as const };
       if (
@@ -90,35 +90,40 @@ export async function seedLinkedWorkspace(
 }
 
 /**
- * The workspace's changes against the commit it was opened from: every file whose content differs or is
- * new, and every file that's gone. This is exactly what GitHub needs to show the workspace as it is.
+ * The workspace's changes against its base commit: every file whose content differs or is new, and every
+ * file that's gone. This is exactly what GitHub needs to show the workspace as it is. Also returns the
+ * workspace's own manifest, which becomes the base once the changes are merged.
  */
 export async function linkedWorkspaceChanges(
   workspace: Pick<BuilderWorkspaceApi, 'refresh' | 'listFiles' | 'readFile'>,
   linked: BuilderWorkspaceLinkedProject,
-): Promise<LinkedChange[]> {
-  const base = new Map(linked.baseManifest.map((file) => [file.path, file.sha256]));
+): Promise<{ changes: LinkedChange[]; manifest: BuilderWorkspaceLinkedProject['baseManifest'] }> {
+  const base = new Map(linked.baseManifest.map((file) => [file.path, file]));
   await workspace.refresh();
   const current = workspace
     .listFiles()
     .filter((file) => !EXCLUDED_ROOTS.has(projectPath(file.path).split('/')[0] ?? ''));
   const changes: LinkedChange[] = [];
+  const manifest: BuilderWorkspaceLinkedProject['baseManifest'] = [];
   const present = new Set<string>();
   for (const file of current) {
     const path = projectPath(file.path);
     present.add(path);
-    if (base.get(path) === file.sha256) {
+    const before = base.get(path);
+    const executable = (file.mode & 0o111) !== 0 || before?.executable === true;
+    manifest.push({ path, sha256: file.sha256, executable });
+    if (before?.sha256 === file.sha256) {
       continue;
     }
     const read = await workspace.readFile(file.path);
-    changes.push({ path, contentBase64: bytesToBase64(read.bytes), executable: (file.mode & 0o111) !== 0 });
+    changes.push({ path, contentBase64: bytesToBase64(read.bytes), executable });
   }
   for (const path of base.keys()) {
     if (!present.has(path)) {
       changes.push({ path, contentBase64: null, executable: false });
     }
   }
-  return changes;
+  return { changes, manifest };
 }
 
 function projectPath(path: string): string {

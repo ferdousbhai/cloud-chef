@@ -21,8 +21,11 @@ export type BuilderWorkspaceLinkedProject = {
   repository: string;
   defaultBranch: string;
   baseCommit: string;
-  /** Project-relative paths and SHA-256s of the files at `baseCommit`. */
-  baseManifest: { path: string; sha256: string }[];
+  /**
+   * Project-relative paths and SHA-256s of the files at `baseCommit`, and which are executable there:
+   * the workspace keeps no file modes, so GitHub's are carried here to commit them back unchanged.
+   */
+  baseManifest: { path: string; sha256: string; executable?: boolean }[];
 };
 
 export type BuilderWorkspaceFileInput = {

@@ -166,7 +166,9 @@ interface ScheduledRetryPayload {
 
 const PROJECT_ROOT = WORK_DIR;
 /** The stored file list of a linked project's base commit. */
-const linkedManifestSchema = z.array(z.object({ path: z.string(), sha256: z.string() }));
+const linkedManifestSchema = z.array(
+  z.object({ path: z.string(), sha256: z.string(), executable: z.boolean().optional() }),
+);
 /** The scripts a GitHub project's validation runs, when its package.json has them. */
 const LINKED_PROJECT_SCRIPTS = ['typecheck', 'lint', 'test', 'build'] as const;
 const LINKED_PROJECT_SCRIPT_TIMEOUT_MS = 10 * 60_000;
@@ -1556,13 +1558,11 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
           if ((await this.checkpoint()).revision !== before.revision) {
             throw new Error('The project changed while validation was being isolated. Validate the new revision.');
           }
-          reportStage('installing');
-          await this.runTransientCommand(isolatedRoot, INSTALL_COMMAND, INSTALL_TIMEOUT_MS, cancellation);
-          liveness.observed();
           if (this.linkedProject()) {
             // A GitHub project builds and deploys through its own pipeline, so it is validated with its
             // own scripts rather than CloudChef's template checks.
             const checks = await this.runLinkedProjectScripts(isolatedRoot, cancellation, reportStage);
+            liveness.observed();
             liveness.observed();
             const after = await this.checkpoint();
             if (after.revision !== before.revision) {
@@ -1582,11 +1582,14 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
               revision: after.revision,
               workspaceRevision: after.workspaceRevision,
               buildEnvironment: 'cloudflare-computer-container',
-              checks: ['dependency-installation', ...checks].map((name) => ({ name, status: 'passed' as const })),
+              checks: checks.map((name) => ({ name, status: 'passed' as const })),
               durationMs: Date.now() - startedAt,
               nextAction: 'publish',
             });
           }
+          reportStage('installing');
+          await this.runTransientCommand(isolatedRoot, INSTALL_COMMAND, INSTALL_TIMEOUT_MS, cancellation);
+          liveness.observed();
           reportStage('typecheck');
           await this.runTransientCommand(
             isolatedRoot,
@@ -1688,19 +1691,38 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   /**
-   * The GitHub project's own checks, in the order a developer would run them: whichever of `typecheck`,
-   * `lint`, `test` and `build` its package.json defines. Returns the ones that ran.
+   * The GitHub project's own checks: install with the package manager its lockfile names, then whichever of
+   * `typecheck`, `lint`, `test` and `build` its package.json defines, in that order. A repository without
+   * a package.json has nothing to run. Returns the checks that ran.
    */
   private async runLinkedProjectScripts(
     isolatedRoot: string,
     cancellation: ValidationCancellation,
     reportStage: (stage: BuilderValidationStage) => void,
   ): Promise<string[]> {
-    const manifest = linkedPackageSchema.safeParse(
-      JSON.parse((await this.readText(`${PROJECT_ROOT}/package.json`).catch(() => ({ content: '{}' }))).content),
-    );
+    const packageJson = await this.readText(`${PROJECT_ROOT}/package.json`).catch(() => null);
+    if (!packageJson) {
+      return [];
+    }
+    const manifest = linkedPackageSchema.safeParse(JSON.parse(packageJson.content));
     const scripts = manifest.success ? (manifest.data.scripts ?? {}) : {};
-    const ran: string[] = [];
+    const exists = async (file: string) =>
+      this.readText(`${PROJECT_ROOT}/${file}`).then(
+        () => true,
+        () => false,
+      );
+    // Install scripts stay off, as for every install CloudChef runs.
+    const manager = (await exists('pnpm-lock.yaml'))
+      ? { install: INSTALL_COMMAND, run: 'pnpm run' }
+      : (await exists('package-lock.json'))
+        ? { install: 'npm ci --ignore-scripts', run: 'npm run' }
+        : (await exists('yarn.lock'))
+          ? { install: 'corepack yarn install --immutable --mode=skip-build', run: 'corepack yarn run' }
+          : { install: 'npm install --ignore-scripts', run: 'npm run' };
+    reportStage('installing');
+    await this.runTransientCommand(isolatedRoot, manager.install, INSTALL_TIMEOUT_MS, cancellation);
+    cancellation.requireActive();
+    const ran: string[] = ['dependency-installation'];
     for (const script of LINKED_PROJECT_SCRIPTS) {
       if (!(script in scripts)) {
         continue;
@@ -1708,7 +1730,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       reportStage(script === 'typecheck' ? 'typecheck' : script === 'build' ? 'build' : 'lint');
       await this.runTransientCommand(
         isolatedRoot,
-        `pnpm run ${script}`,
+        `${manager.run} ${script}`,
         LINKED_PROJECT_SCRIPT_TIMEOUT_MS,
         cancellation,
       );
