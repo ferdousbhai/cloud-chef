@@ -97,9 +97,14 @@ describe('organizations', () => {
     });
     expect(accepted.status).toBe(200);
 
-    // Sam now builds in Acme's account, as a member.
+    // Sam now works in Acme's account, as a member who builds new apps only once an admin allows it.
     const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
-    expect(session?.context).toMatchObject({ kind: 'organization', connectionId: 'acme-connection', role: 'member' });
+    expect(session?.context).toMatchObject({
+      kind: 'organization',
+      connectionId: 'acme-connection',
+      role: 'member',
+      draftsAllowed: false,
+    });
 
     // The admin sees members and invites; the member sees neither.
     const asAdmin = await listOrganizationsAction({

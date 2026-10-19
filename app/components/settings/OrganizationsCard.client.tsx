@@ -432,7 +432,15 @@ function MemberRow({
         <span className="min-w-0 flex-1 truncate">
           {member.name} <span className="text-content-secondary">{member.email}</span>
         </span>
-        <span className="text-xs text-content-secondary">{member.pausedAt ? 'paused' : member.role}</span>
+        <span className="text-xs text-content-secondary">
+          {member.pausedAt
+            ? 'paused'
+            : member.role === 'admin'
+              ? 'admin'
+              : member.draftsAllowed
+                ? 'member · can build new apps'
+                : 'member · GitHub projects only'}
+        </span>
       </div>
       <div className="flex flex-wrap items-center gap-1">
         <span className="mr-auto text-xs text-content-tertiary">
@@ -450,7 +458,7 @@ function MemberRow({
             variant="subtle"
             onClick={() => act(member.draftsAllowed ? 'disallow_drafts' : 'allow_drafts')}
           >
-            {member.draftsAllowed ? 'Only GitHub projects' : 'Allow own apps'}
+            {member.draftsAllowed ? 'Stop new apps' : 'Allow new apps'}
           </Button>
         ) : null}
         <Button size="xs" variant="subtle" onClick={() => act(member.role === 'admin' ? 'make_member' : 'make_admin')}>

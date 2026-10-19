@@ -173,10 +173,12 @@ export async function acceptInvite(
   // Someone already in the organization keeps their role; an invite never demotes or unpauses.
   await db
     .prepare(
-      `INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)
+      // A member builds new apps of their own only once an admin allows it; until then, they work on the
+      // GitHub projects they're given. (Admins may always.)
+      `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(org_id, user_id) DO NOTHING`,
     )
-    .bind(invite.org_id, args.userId, invite.role, now)
+    .bind(invite.org_id, args.userId, invite.role, now, invite.role === 'admin' ? 1 : 0)
     .run();
   return { orgId: invite.org_id };
 }
