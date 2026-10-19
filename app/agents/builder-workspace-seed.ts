@@ -18,6 +18,8 @@ export async function seedBuilderWorkspace(
   workspace: BuilderWorkspaceApi,
   seedId: string,
   entries: BuilderWorkspaceFileInput[],
+  /** Runs after every file is in and before the seed commits: what must hold whenever the workspace does. */
+  beforeCommit: () => Promise<void> = async () => undefined,
 ): Promise<BuilderWorkspaceState> {
   const started = await workspace.beginSeed(seedId);
   if (started.status === 'initialized') {
@@ -27,6 +29,7 @@ export async function seedBuilderWorkspace(
     for (const batch of batchBuilderWorkspaceSeed(entries)) {
       await workspace.appendSeed(seedId, batch);
     }
+    await beforeCommit();
     return await workspace.commitSeed(seedId, builderTemplateTotals(entries));
   } catch (error) {
     await workspace.abortSeed(seedId).catch(() => undefined);

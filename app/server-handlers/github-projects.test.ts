@@ -35,13 +35,16 @@ async function pkcs8Pem(): Promise<{ pem: string; publicKey: CryptoKey }> {
 }
 
 /** GitHub as CloudChef sees it: one installation the user `ada-gh` can reach, and what was asked of it. */
-function fakeGitHub(pem: string) {
+function fakeGitHub(pem: string, login = 'ada') {
   const calls: { url: string; body: string | null }[] = [];
   const request: typeof fetch = async (input, init) => {
     const url = String(input);
     calls.push({ url, body: init?.body ? String(init.body) : null });
     if (url === 'https://github.com/login/oauth/access_token') {
       return Response.json({ access_token: 'user-token' });
+    }
+    if (url === 'https://api.github.com/user') {
+      return Response.json({ login });
     }
     if (url.startsWith('https://api.github.com/user/installations')) {
       return Response.json({ installations: [{ id: INSTALLATION_ID, account: { login: 'ada', type: 'User' } }] });
@@ -196,6 +199,16 @@ describe('GitHub projects', () => {
       app,
     });
     expect(forged.status).toBe(303);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM github_installations').first()).toEqual({ n: 0 });
+  });
+
+  it("refuses an installation the admin can see but doesn't own", async () => {
+    const { env, orgId, admin } = await setup();
+    const { pem } = await pkcs8Pem();
+    // Another GitHub user's installation shows up for anyone who can read one of its repositories.
+    const { app } = fakeGitHub(pem, 'mallory');
+    const refused = await install(env, app, admin.cookie, orgId);
+    expect(refused.status).toBe(403);
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM github_installations').first()).toEqual({ n: 0 });
   });
 

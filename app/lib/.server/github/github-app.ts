@@ -91,6 +91,17 @@ export class GitHubApp {
     );
   }
 
+  /** Whether the GitHub user behind `userToken` is an active owner of the GitHub organization `org`. */
+  async isOrganizationOwner(userToken: string, org: string): Promise<boolean> {
+    const response = await fetchGitHub(this.request, `/user/memberships/orgs/${encodeURIComponent(org)}`, userToken);
+    if (!response.ok) {
+      await response.body?.cancel();
+      return false;
+    }
+    const membership = z.looseObject({ role: z.string(), state: z.string() }).safeParse(await response.json());
+    return membership.success && membership.data.role === 'admin' && membership.data.state === 'active';
+  }
+
   /** A repository the GitHub user behind `userToken` can see, by `owner/name`, or null. */
   async findRepository(userToken: string, fullName: string): Promise<GitHubRepository | null> {
     const response = await fetchGitHub(this.request, `/repos/${fullName}`, userToken);

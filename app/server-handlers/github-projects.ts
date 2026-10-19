@@ -151,8 +151,18 @@ export async function completeGitHubInstallAction({
   try {
     const userToken = await app.userToken(code);
     const installation = (await app.userInstallations(userToken)).find((candidate) => candidate.id === installationId);
-    if (!installation) {
-      return Response.json({ error: 'That GitHub installation is not yours.' }, { status: 403 });
+    // Seeing an installation isn't controlling it: anyone who can read one of an organization's repositories
+    // sees its installations. It must be the admin's own account, or an organization they own.
+    const controls =
+      installation &&
+      (installation.account.type === 'User'
+        ? installation.account.login === (await app.userLogin(userToken))
+        : await app.isOrganizationOwner(userToken, installation.account.login));
+    if (!installation || !controls) {
+      return Response.json(
+        { error: 'Only the owner of that GitHub account or organization can connect it.' },
+        { status: 403 },
+      );
     }
     await saveGitHubInstallation(env.DB, {
       orgId: pending.org_id,

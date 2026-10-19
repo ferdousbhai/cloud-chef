@@ -1204,16 +1204,22 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     if (binding.parentAgentName) {
       const parent = await this.loadParentWorkspace(binding.parentAgentName);
-      const state = await this.seedWorkspace(parentBuilderWorkspaceSeedId(parent.targetRevision), parent.entries);
-      // A subchat of a GitHub project keeps working on it, relative to the same commit.
+      // A subchat of a GitHub project keeps working on it, relative to the same commit: linked before its
+      // seed commits, so it never exists as an ordinary draft holding the repository's code.
       const parentAgent: Pick<BuilderAgent, 'getLinkedProject'> = this.env.BuilderAgent.getByName(
         binding.parentAgentName,
       );
       const linked = await parentAgent.getLinkedProject();
-      if (linked) {
-        await this.workspace.setLinkedProject(linked);
-      }
-      return state;
+      return seedBuilderWorkspace(
+        this.workspace,
+        parentBuilderWorkspaceSeedId(parent.targetRevision),
+        parent.entries,
+        async () => {
+          if (linked) {
+            await this.workspace.setLinkedProject(linked);
+          }
+        },
+      );
     }
     const orgProjectId = this.userId
       ? await loadChatOrgProject(this.env.DB, { agentName: binding.agentName, ownerId: this.userId })
@@ -1942,6 +1948,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   private async refreshDeploymentReadiness(): Promise<BuilderWorkspaceCheckpoint | null> {
+    // A GitHub project deploys through its repository's pipeline: CloudChef's deployment record stays empty.
+    if (await this.workspace.linkedProject().catch(() => null)) {
+      if (this.state.deployment) {
+        this.setState({ ...this.state, deployment: null });
+      }
+      return null;
+    }
     const validatedSnapshot = await validatedDeploymentCheckpoint(this.workspace).catch(() => undefined);
     if (validatedSnapshot === undefined) {
       // An unreadable workspace says nothing about the deployment, so keep the recorded one.
