@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { createCloudflareReturnURL, signInWithCloudflare } from './auth-client';
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { authClient, createCloudflareReturnURL, retrySession, signInWithCloudflare } from './auth-client';
 import { PENDING_SUBMIT_STORAGE_KEY } from '~/utils/constants';
 
 afterEach(() => {
@@ -84,5 +86,39 @@ describe('Cloudflare return URL', () => {
         'https://cloudchef.build',
       ),
     ).toBe('https://cloudchef.build/settings');
+  });
+});
+
+describe('a session that could not be checked', () => {
+  test('is reported as an error, not as being signed out, until a retry succeeds', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError('Network down'))
+        .mockResolvedValue(
+          Response.json({
+            session: { id: 's', userId: 'u', expiresAt: 2, createdAt: 1 },
+            user: { id: 'u', name: 'Sam', email: 'sam@acme.com', image: null },
+            context: null,
+            contexts: [],
+          }),
+        ),
+    );
+    const seen: Array<{ email: string | null; error: string | null; isPending: boolean }> = [];
+    function Probe() {
+      const { data, error, isPending } = authClient.useSession();
+      seen.push({ email: data?.user.email ?? null, error, isPending });
+      return null;
+    }
+    Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
+    const root = createRoot(document.createElement('div'));
+
+    await act(async () => root.render(createElement(Probe)));
+    expect(seen.at(-1)).toEqual({ email: null, error: "Couldn't check your session.", isPending: false });
+
+    await act(async () => retrySession());
+    expect(seen.at(-1)).toEqual({ email: 'sam@acme.com', error: null, isPending: false });
+    await act(async () => root.unmount());
   });
 });

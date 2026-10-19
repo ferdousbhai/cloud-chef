@@ -8,9 +8,10 @@ vi.mock('~/components/ClientRouteComponents', () => ({
   ClientHeader: () => null,
   ClientHomepage: ({ initialId }: { initialId: string }) => <output data-testid="project-id">{initialId}</output>,
 }));
-vi.mock('~/components/trust/TrustLinks', () => ({ TrustFooter: () => null }));
+vi.mock('~/components/trust/TrustLinks', () => ({ TrustFooter: () => <footer data-testid="trust-footer" /> }));
 
 import { IndexShell } from './index';
+import { chatStore } from '~/lib/stores/chatId';
 
 let root: Root | undefined;
 
@@ -24,6 +25,7 @@ afterEach(async () => {
     root = undefined;
   }
   document.body.replaceChildren();
+  chatStore.setKey('started', false);
 });
 
 describe('homepage project identity', () => {
@@ -36,5 +38,17 @@ describe('homepage project identity', () => {
     await act(async () => root?.render(<IndexShell initialId="project-b" />));
 
     expect(container.querySelector('[data-testid="project-id"]')?.textContent).toBe('project-a');
+  });
+
+  it('shows the trust footer on the home page only until a chat starts', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => root?.render(<IndexShell initialId="project-a" />));
+    expect(container.querySelector('[data-testid="trust-footer"]')).not.toBeNull();
+
+    await act(async () => chatStore.setKey('started', true));
+    expect(container.querySelector('[data-testid="trust-footer"]')).toBeNull();
   });
 });

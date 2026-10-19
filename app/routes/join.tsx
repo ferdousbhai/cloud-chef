@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createFileRoute } from '@tanstack/react-router';
 import { Button } from '@ui/Button';
 import { BrandLink } from '~/components/BrandLink';
+import { SessionCheckError } from '~/components/CloudflareSignInPrompt';
 import { Loading } from '~/components/Loading';
 import { authClient, requestEmailSignInLink, signInWithGoogle, signOutOfCloudChef } from '~/lib/auth-client';
 import { disposeClientCollections } from '~/lib/cloudflare/client-collections';
@@ -10,6 +11,7 @@ import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { createPrivatePageHead } from '~/lib/social-meta';
 
 const joinSearchSchema = z.object({ token: z.string().optional().catch(undefined) });
+const acceptedSchema = z.object({ switched: z.boolean() });
 const errorSchema = z.looseObject({
   error: z.string().optional().catch(undefined),
   code: z.string().optional().catch(undefined),
@@ -31,7 +33,7 @@ type Invite = z.infer<typeof inviteSchema>;
 
 function Join() {
   const { token } = Route.useSearch();
-  const { data: session, isPending } = authClient.useSession();
+  const { data: session, isPending, error: sessionError } = authClient.useSession();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(token ? null : 'This invite link is incomplete.');
   // What the link is for: the organization, who sent it, and the address it was emailed to.
@@ -40,6 +42,10 @@ function Join() {
   // it is the invited address: proving it now, while signed in, keeps it one account instead of starting another.
   const [needsProof, setNeedsProof] = useState(false);
   const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
+  const [proving, setProving] = useState<'google' | 'email' | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  // Joined an organization whose admin hasn't connected its Cloudflare account yet: nothing to open there.
+  const [joinedWithoutAccount, setJoinedWithoutAccount] = useState(false);
   const joinStarted = useRef(false);
 
   useEffect(() => {
@@ -77,6 +83,13 @@ function Join() {
         setNeedsProof(parsed.success && parsed.data.code === 'email_unproven');
         throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Unable to accept this invite.');
       }
+      const accepted = acceptedSchema.safeParse(await response.json().catch(() => null));
+      if (!accepted.success || !accepted.data.switched) {
+        // Still in whatever account they were in: opening the builder would land them in the wrong one.
+        setJoinedWithoutAccount(true);
+        setBusy(false);
+        return;
+      }
       // The builder reopens in the organization's account, with nothing left over from the last one.
       await disposeClientCollections();
       resetUserRuntimeSession();
@@ -98,6 +111,13 @@ function Join() {
     // `join` reads only the token and stable setters.
   }, [signedInAsInvited]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  if (!isPending && !session && sessionError) {
+    return (
+      <JoinCard title="Join an organization on CloudChef">
+        <SessionCheckError className="mt-4" />
+      </JoinCard>
+    );
+  }
   if (isPending || (token && invite === null)) {
     return <Loading message="Opening your invite…" />;
   }
@@ -107,6 +127,16 @@ function Join() {
         <p className="app-page-lede">
           {token ? 'It has been used or has expired.' : 'The link is incomplete.'} Ask the person who invited you to
           send a new one.
+        </p>
+      </JoinCard>
+    );
+  }
+  if (joinedWithoutAccount) {
+    return (
+      <JoinCard title={`You've joined ${invite.orgName}`}>
+        <p className="app-page-lede break-words">
+          You&apos;ve joined {invite.orgName}. Its admin hasn&apos;t connected a Cloudflare account yet, so there&apos;s
+          nothing to build in there. Once they do, choose {invite.orgName} from your account menu.
         </p>
       </JoinCard>
     );
@@ -124,6 +154,7 @@ function Join() {
   }
 
   const prove = async (method: 'google' | 'email') => {
+    setProving(method);
     setError(null);
     try {
       if (method === 'google') {
@@ -134,6 +165,19 @@ function Join() {
       }
     } catch (proofError) {
       setError(proofError instanceof Error ? proofError.message : 'Unable to confirm your email.');
+    } finally {
+      setProving(null);
+    }
+  };
+
+  const switchToAnotherAccount = async () => {
+    setSigningOut(true);
+    setError(null);
+    try {
+      await signOutOfCloudChef(window.location.href);
+    } catch (signOutError) {
+      setError(signOutError instanceof Error ? signOutError.message : 'Unable to sign out. Please try again.');
+      setSigningOut(false);
     }
   };
 
@@ -144,13 +188,14 @@ function Join() {
         <h1 id="join-heading" className="app-page-title mt-4 !text-2xl">
           Join your organization on CloudChef
         </h1>
-        <p className="app-page-lede">
-          {invite.inviterName} invited you to {invite.orgName}. You&apos;re signed in as {session.user.email}. What you
-          build is stored in the organization&apos;s Cloudflare account, where its administrators can see it.
+        <p className="app-page-lede break-words">
+          {invite.inviterName} invited you to {invite.orgName}. You&apos;re signed in as{' '}
+          <span className="break-all">{session.user.email}</span>. What you build is stored in the organization&apos;s
+          Cloudflare account, where its administrators can see it.
         </p>
         {signedInAsInvited ? null : (
-          <p className="mt-2 text-sm text-content-secondary">
-            This invite is for {invite.email}. Use that account to join.
+          <p className="mt-2 break-words text-sm text-content-secondary">
+            This invite is for <span className="break-all">{invite.email}</span>. Use that account to join.
           </p>
         )}
         {error && (
@@ -158,26 +203,42 @@ function Join() {
             {error}
           </p>
         )}
-        {needsProof ? (
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button variant="neutral" onClick={() => void prove('google')}>
-              Continue with Google
-            </Button>
-            <Button variant="neutral" onClick={() => void prove('email')}>
-              Email me a link to {session.user.email}
-            </Button>
-          </div>
+        {needsProof && !linkSentTo ? (
+          <>
+            <p className="mt-4 break-words text-sm text-content-secondary">
+              Confirm this address with Google, or with a link emailed to{' '}
+              <span className="break-all">{session.user.email}</span>: open it in this browser, then join.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                variant="neutral"
+                loading={proving === 'google'}
+                disabled={proving !== null}
+                onClick={() => void prove('google')}
+              >
+                Continue with Google
+              </Button>
+              <Button
+                variant="neutral"
+                loading={proving === 'email'}
+                disabled={proving !== null}
+                onClick={() => void prove('email')}
+              >
+                Email me a link
+              </Button>
+            </div>
+          </>
         ) : null}
         {linkSentTo ? (
-          <p className="mt-2 text-sm text-content-secondary" role="status">
-            Open the link sent to {linkSentTo} in this browser, then join.
+          <p className="mt-4 break-words text-sm text-content-secondary" role="status">
+            Open the link sent to <span className="break-all">{linkSentTo}</span> in this browser, then join.
           </p>
         ) : null}
         <div className="mt-4 flex flex-wrap gap-2">
           <Button loading={busy} disabled={!token} onClick={() => void join()}>
             Join
           </Button>
-          <Button variant="neutral" onClick={() => void signOutOfCloudChef(window.location.href)}>
+          <Button variant="neutral" loading={signingOut} onClick={() => void switchToAnotherAccount()}>
             Use another account
           </Button>
         </div>
@@ -236,9 +297,9 @@ function SignInToJoin({
   };
   return (
     <JoinCard title={`Join ${invite.orgName} on CloudChef`}>
-      <p className="app-page-lede">
-        {invite.inviterName} invited {invite.email}. Sign in as that address to join; you&apos;ll come straight back
-        here.
+      <p className="app-page-lede break-words">
+        {invite.inviterName} invited <span className="break-all">{invite.email}</span>. Sign in as that address to join;
+        you&apos;ll come straight back here.
       </p>
       {error ? (
         <p className="mt-4 text-sm text-content-error" role="alert">
@@ -246,18 +307,29 @@ function SignInToJoin({
         </p>
       ) : null}
       {linkSentTo ? (
-        <p className="mt-4 text-sm text-content-secondary" role="status">
-          Check {linkSentTo} for a sign-in link, and open it in this browser.
+        <p className="mt-4 break-words text-sm text-content-secondary" role="status">
+          Check <span className="break-all">{linkSentTo}</span> for a sign-in link, and open it in this browser.
         </p>
       ) : (
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button loading={busy === 'google'} onClick={() => void run('google')}>
-            Continue with Google
-          </Button>
-          <Button variant="neutral" loading={busy === 'email'} onClick={() => void run('email')}>
-            Email a sign-in link to {invite.email}
-          </Button>
-        </div>
+        <>
+          <p className="mt-4 break-words text-sm text-content-secondary">
+            Continue with Google, or get a sign-in link at <span className="break-all">{invite.email}</span> and open it
+            in this browser.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button loading={busy === 'google'} disabled={busy !== null} onClick={() => void run('google')}>
+              Continue with Google
+            </Button>
+            <Button
+              variant="neutral"
+              loading={busy === 'email'}
+              disabled={busy !== null}
+              onClick={() => void run('email')}
+            >
+              Email me a sign-in link
+            </Button>
+          </div>
+        </>
       )}
     </JoinCard>
   );

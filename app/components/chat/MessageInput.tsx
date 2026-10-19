@@ -4,6 +4,8 @@ import { Button } from '@ui/Button';
 import { KeyboardShortcut } from '@ui/KeyboardShortcut';
 import { Spinner } from '@ui/Spinner';
 import { CloudflareConnectLegalNotice } from '~/components/CloudflareConnectLegalNotice';
+import { SessionCheckError } from '~/components/CloudflareSignInPrompt';
+import { authClient } from '~/lib/auth-client';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { classNames } from '~/utils/classNames';
 import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
@@ -38,6 +40,7 @@ export const MessageInput = memo(function MessageInput({
 }: MessageInputProps) {
   const controller = useMessageInputController({ isStreaming, onStop, onSend, prefillEnabled: !chatStarted });
   const { authState, input } = controller;
+  const { data: session, error: sessionError } = authClient.useSession();
   const primaryActionLabel = getMessageInputPrimaryActionLabel(authState.kind, isStreaming, input.trim().length > 0);
   const hasActiveSession = authState.kind === 'fullyLoggedIn';
   const modelSelector = shouldOfferBuilderModelSelector(authState.kind) && (
@@ -123,17 +126,19 @@ export const MessageInput = memo(function MessageInput({
           </div>
         </div>
       </div>
-      {authState.kind === 'unauthenticated' && (
+      {authState.kind === 'unauthenticated' && !session && sessionError ? (
+        <SessionCheckError className="mt-4 text-center" />
+      ) : authState.kind === 'unauthenticated' ? (
         <>
           <CloudflareConnectLegalNotice className="mx-auto mt-2 w-full px-1" />
           {/* Describing an app connects you on the way; this signs in without one. */}
           <div className="mt-4 flex justify-center">
             <LinkButton to="/sign-in" variant="neutral" size="sm">
-              Sign in or connect Cloudflare
+              {session ? 'Connect Cloudflare' : 'Sign in or connect Cloudflare'}
             </LinkButton>
           </div>
         </>
-      )}
+      ) : null}
       {controller.refinement && (
         <PromptRefinementDialog
           key={controller.refinement.questions.map((question) => question.id).join(':')}

@@ -15,6 +15,8 @@ const captureCloudflareConnectStarted = createClientOnlyFn(() => {
 type AuthState = {
   data: CloudflareAuthSession | null;
   isPending: boolean;
+  /** Set when the session couldn't be checked: not the same as being signed out. */
+  error: string | null;
 };
 
 const workspaceContextSchema = z.discriminatedUnion('kind', [
@@ -60,7 +62,7 @@ export class ReauthenticationRequiredError extends Error {}
 const requestErrorSchema = z.looseObject({ error: z.string().optional().catch(undefined) });
 
 const listeners = new Set<() => void>();
-const serverSnapshot: AuthState = { data: null, isPending: true };
+const serverSnapshot: AuthState = { data: null, isPending: true, error: null };
 let state: AuthState = serverSnapshot;
 let loading: Promise<void> | null = null;
 
@@ -86,14 +88,21 @@ async function loadSession() {
         throw new Error('Unable to load the Cloudflare session.');
       }
       const session = cloudflareAuthSessionSchema.safeParse(await response.json());
-      setState({ data: session.success ? session.data : null, isPending: false });
+      setState({ data: session.success ? session.data : null, isPending: false, error: null });
       rememberTabWorkspace(session.success ? (session.data.context?.connectionId ?? null) : null);
     })
-    .catch(() => setState({ data: null, isPending: false }))
+    // A failed check keeps what was known (nothing, on a first load) and says so, rather than looking signed out.
+    .catch(() => setState({ data: state.data, isPending: false, error: "Couldn't check your session." }))
     .finally(() => {
       loading = null;
     });
   return loading;
+}
+
+/** Checks the session again, after a failed check. */
+export function retrySession() {
+  setState({ ...state, isPending: true, error: null });
+  void loadSession();
 }
 
 export const authClient = {
@@ -265,7 +274,7 @@ export async function signOutOfCloudChef(callbackURL = window.location.origin) {
     const parsed = requestErrorSchema.safeParse(await response.json().catch(() => null));
     throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Unable to sign out of CloudChef.');
   }
-  setState({ data: null, isPending: false });
+  setState({ data: null, isPending: false, error: null });
   await disposeClientCollections();
   resetUserRuntimeSession();
   clearPendingSubmit();

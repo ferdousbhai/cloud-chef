@@ -4,6 +4,8 @@ import { createSocialPageHead } from '~/lib/social-meta';
 import { TrustFooter } from '~/components/trust/TrustLinks';
 import { ChatIdProvider } from '~/lib/stores/chatId';
 import { useState } from 'react';
+import { useStore } from '@nanostores/react';
+import { chatStore } from '~/lib/stores/chatId';
 
 export const Route = createFileRoute('/')({
   loader: () => ({ initialId: crypto.randomUUID() }),
@@ -33,13 +35,15 @@ export function IndexShell({ initialId }: { initialId: string }) {
   // Publishing the masked resumable URL revalidates the active `/` loader.
   // The mounted live build must keep the identity it started with.
   const [chatId] = useState(initialId);
+  // The footer belongs to the home page; once a chat starts here, the chat has the whole height.
+  const chatStarted = useStore(chatStore).started;
 
   return (
     <ChatIdProvider key={chatId} chatId={chatId}>
       <div className="flex size-full flex-col bg-bolt-elements-background-depth-1">
         <ClientHeader />
         <ClientHomepage initialId={chatId} />
-        <TrustFooter />
+        {chatStarted ? null : <TrustFooter />}
       </div>
     </ChatIdProvider>
   );

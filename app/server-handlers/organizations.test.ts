@@ -97,6 +97,7 @@ describe('organizations', () => {
       env,
     });
     expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toEqual({ orgId, switched: true });
 
     // Sam now works in Acme's account, as a member who builds new apps only once an admin allows it.
     const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
@@ -124,6 +125,25 @@ describe('organizations', () => {
       .object({ organizations: z.array(z.object({ members: z.null(), invites: z.null() })) })
       .safeParse(await asMember.json());
     expect(memberView.success).toBe(true);
+  });
+
+  it("joins an organization whose Cloudflare connection isn't active without switching into it", async () => {
+    const { env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const token = tokenOf((await invite(env, admin.cookie, orgId, 'sam@acme.com')).body?.inviteUrl ?? '');
+    await env.DB.prepare(`UPDATE cloudflare_connections SET status = 'error' WHERE id = 'acme-connection'`).run();
+
+    const sam = await signIn('sam@acme.com');
+    const accepted = await acceptInviteAction({
+      request: post(sam.cookie, '/api/organizations/accept', { token }),
+      env,
+    });
+
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toEqual({ orgId, switched: false });
+    const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
+    expect(session?.context?.kind).not.toBe('organization');
   });
 
   it('tells the link holder what an invite is for, before they sign in, until it is used', async () => {

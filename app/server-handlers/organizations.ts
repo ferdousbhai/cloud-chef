@@ -176,12 +176,14 @@ export function acceptInviteAction({ request, env }: { request: Request; env: En
       return body.response;
     }
     const { orgId } = await acceptInvite(env.DB, { token: body.data.token, userId: session.user.id });
-    // Straight into the organization's account, once its admin has connected one.
+    // Straight into the organization's account, once its admin has connected one; `switched` tells the
+    // invite page whether the builder is ready to open there.
     const connection = await findCloudflareConnectionForOrganization(env.DB, orgId);
-    if (connection?.status === 'active') {
+    const switched = connection?.status === 'active';
+    if (switched) {
       await setSessionContext(env, request, connection.id);
     }
-    return Response.json({ orgId });
+    return Response.json({ orgId, switched });
   });
 }
 

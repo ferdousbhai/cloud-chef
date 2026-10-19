@@ -24,6 +24,7 @@ export function Homepage({ initialId }: { initialId: string }) {
 
   const homeIntro = (
     <HomeIntro
+      homepage
       disabledReason={null}
       isStreaming={false}
       messagesLength={0}

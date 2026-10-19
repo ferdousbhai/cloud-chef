@@ -7,7 +7,7 @@ import { HamburgerMenuIcon, PersonIcon, GearIcon, ExitIcon } from '@radix-ui/rea
 import { profileStore, setProfile } from '~/lib/stores/profile';
 import { Menu as MenuComponent, MenuItem as MenuItemComponent } from '@ui/Menu';
 import { signOutOfCloudChef } from '~/lib/auth-client';
-import { WorkspaceSwitcher } from './WorkspaceSwitcher';
+import { WorkspaceMenuItems, WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { BrandLink } from '~/components/BrandLink';
 import { Button } from '@ui/Button';
 import { ThemeSwitch } from '~/components/ui/ThemeSwitch';
@@ -123,6 +123,9 @@ export function Header({ hideSidebarIcon = false }: { hideSidebarIcon?: boolean 
                     icon: <ProfileAvatar avatar={profile.avatar} username={profile.username} />,
                   }}
                 >
+                  {/* The workspace switcher doesn't fit beside the menu here: its accounts lead the menu instead. */}
+                  <WorkspaceMenuItems />
+                  <div role="separator" className="my-1 border-t border-bolt-elements-borderColor" />
                   {chat.started && (
                     <Suspense fallback={null}>
                       <MobileProjectMenuItems />

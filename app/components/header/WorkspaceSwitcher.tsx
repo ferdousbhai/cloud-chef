@@ -12,12 +12,10 @@ import type { WorkspaceContext } from '~/lib/.server/auth';
  */
 export function WorkspaceSwitcher() {
   const { data: session } = authClient.useSession();
-  const navigate = useNavigate();
   if (!session) {
     return null;
   }
   const current = session.context;
-  const organizations = () => void navigate({ to: '/settings', hash: 'organizations' });
   return (
     <Menu
       buttonProps={{
@@ -28,6 +26,25 @@ export function WorkspaceSwitcher() {
         children: <span className="max-w-56 truncate">{current ? shortLabel(current) : 'No workspace'}</span>,
       }}
     >
+      <WorkspaceMenuItems />
+    </Menu>
+  );
+}
+
+/**
+ * The switcher's items: every account to build in, the current one checked, then creating or managing
+ * organizations. Also in the small-screen user menu, where the switcher itself doesn't fit.
+ */
+export function WorkspaceMenuItems() {
+  const { data: session } = authClient.useSession();
+  const navigate = useNavigate();
+  if (!session) {
+    return null;
+  }
+  const current = session.context;
+  const organizations = () => void navigate({ to: '/settings', hash: 'organizations' });
+  return (
+    <>
       {session.contexts.map((option) => (
         <MenuItem
           key={option.connectionId}
@@ -38,9 +55,11 @@ export function WorkspaceSwitcher() {
           }}
         >
           <CheckIcon aria-hidden className={option.connectionId === current?.connectionId ? '' : 'invisible'} />
-          <span className="flex flex-col">
-            <span>{shortLabel(option)}</span>
-            {option.accountName ? <span className="text-xs text-content-tertiary">{option.accountName}</span> : null}
+          <span className="flex min-w-0 flex-col">
+            <span className="break-words">{shortLabel(option)}</span>
+            {option.accountName ? (
+              <span className="break-words text-xs text-content-tertiary">{option.accountName}</span>
+            ) : null}
           </span>
         </MenuItem>
       ))}
@@ -50,7 +69,7 @@ export function WorkspaceSwitcher() {
           ? 'Manage organizations'
           : 'Create an organization'}
       </MenuItem>
-    </Menu>
+    </>
   );
 }
 

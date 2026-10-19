@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createFileRoute } from '@tanstack/react-router';
 import { Button } from '@ui/Button';
 import { BrandLink } from '~/components/BrandLink';
+import { LinkButton } from '~/components/ui/LinkButton';
 import { completeEmailSignIn, describeEmailSignIn } from '~/lib/auth-client';
 import { createPrivatePageHead } from '~/lib/social-meta';
 
@@ -69,8 +70,9 @@ function EmailSignIn() {
           Sign in to CloudChef
         </h1>
         {email ? (
-          <p className="app-page-lede">
-            This link signs you in as <strong>{email}</strong>. Continue only if that is your address.
+          <p className="app-page-lede break-words">
+            This link signs you in as <strong className="break-all">{email}</strong>. Continue only if that is your
+            address.
           </p>
         ) : null}
         {error && (
@@ -78,11 +80,25 @@ function EmailSignIn() {
             {error}
           </p>
         )}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button loading={busy} disabled={!email} onClick={() => void signIn()}>
-            Sign in
-          </Button>
-        </div>
+        {email || error ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {email ? (
+              <Button loading={busy} onClick={() => void signIn()}>
+                Sign in
+              </Button>
+            ) : null}
+            {/* Used, expired or incomplete: the way on is a new link. */}
+            {error ? (
+              <LinkButton to="/sign-in" variant={email ? 'neutral' : 'primary'}>
+                Get a new sign-in link
+              </LinkButton>
+            ) : null}
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-content-secondary" role="status">
+            Checking your link…
+          </p>
+        )}
       </section>
     </div>
   );
