@@ -26,7 +26,7 @@ const packageJson = {
   packageManager: 'pnpm@11.14.0',
   scripts: {
     'workers-builds:build':
-      'pnpm install --frozen-lockfile && node scripts/check-workers-builds-environment.mjs && pnpm run validate && node scripts/deploy-production.mjs --check-workers-builds',
+      'pnpm install --frozen-lockfile && node scripts/check-workers-builds-environment.mjs && node scripts/workers-builds-checks.mjs && node scripts/deploy-production.mjs --check-workers-builds',
     'workers-builds:deploy':
       'node scripts/deploy-production.mjs --check-workers-builds && pnpm run provision:production:check && pnpm run verify:production-config && pnpm run verify:workers-builds-config && pnpm run d1:bookmark:production && pnpm run d1:migrations:apply:production && node scripts/deploy-production.mjs',
     'workers-builds:preview': 'node scripts/upload-workers-builds-preview.mjs',

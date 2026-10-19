@@ -247,7 +247,7 @@ function verifyScripts(errors, pkg, label) {
     ...findMissingCommandSteps(scripts['workers-builds:build'], `${label} Workers Builds build script`, [
       'pnpm install --frozen-lockfile',
       'scripts/check-workers-builds-environment.mjs',
-      'validate',
+      'scripts/workers-builds-checks.mjs',
       'scripts/deploy-production.mjs --check-workers-builds',
     ]),
   );

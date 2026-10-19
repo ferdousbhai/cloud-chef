@@ -133,9 +133,10 @@ The `cloudchef` Worker is connected to `ferdousbhai/cloud-chef` in Workers Build
 specified in `workers-builds.production.json`: keep the dashboard commands, branch controls, build variables,
 and token selection aligned with that file. Runtime secrets remain on the Worker and are not build variables.
 
-Cloudflare Workers Builds validates every push. Non-production branches upload an undeployed Worker version. A push to
-`main` runs the production deploy command only from the exact Workers Builds checkout, applies control-plane D1
-migrations, rebuilds with the exact 40-character commit ID and OAuth client ID in the environment (which
+Cloudflare Workers Builds runs the full `pnpm run validate` on every non-production branch, which uploads an undeployed
+Worker version (`scripts/workers-builds-checks.mjs`). A push to `main` skips that validation, so prove a change on its
+branch or locally first: it regenerates the checked-in outputs, runs the production deploy command only from the exact
+Workers Builds checkout, applies control-plane D1 migrations, rebuilds with the exact 40-character commit ID and OAuth client ID in the environment (which
 `cloudflare.config.ts` binds as plain-text vars), deploys that build with `cf deploy --prebuilt`, and then probes `https://cloudchef.build/api/version` until
 five consecutive responses report that commit, a live Worker version ID, configured OAuth bindings, and
 `Cache-Control: no-store`.

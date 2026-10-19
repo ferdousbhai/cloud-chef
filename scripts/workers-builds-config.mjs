@@ -87,7 +87,8 @@ export function findWorkersBuildsConfigErrors({
     [
       'pnpm install --frozen-lockfile',
       'node scripts/check-workers-builds-environment.mjs',
-      'pnpm run validate',
+      // Full validation on branch builds; the production branch regenerates outputs only.
+      'node scripts/workers-builds-checks.mjs',
       'node scripts/deploy-production.mjs --check-workers-builds',
     ].join(' && '),
   );
