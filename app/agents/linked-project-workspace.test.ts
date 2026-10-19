@@ -27,7 +27,7 @@ function seedingWorkspace(begin: 'started' | 'initialized' = 'started') {
   const aborted: string[] = [];
   const workspace: Pick<
     BuilderWorkspaceApi,
-    'beginSeed' | 'appendSeed' | 'commitSeed' | 'abortSeed' | 'setLinkedProject'
+    'beginSeed' | 'appendSeed' | 'commitSeed' | 'abortSeed' | 'setLinkedProject' | 'linkedProject'
   > = {
     beginSeed: async (seedId) =>
       begin === 'initialized' ? { status: 'initialized', state } : { status: 'started', seedId, state },
@@ -46,6 +46,7 @@ function seedingWorkspace(begin: 'started' | 'initialized' = 'started') {
     setLinkedProject: async (value) => {
       linked.push(value);
     },
+    linkedProject: async () => linked.at(-1) ?? null,
   };
   return { workspace, appended, committed, linked, aborted };
 }
@@ -110,10 +111,18 @@ describe('seedLinkedWorkspace', () => {
     expect(truncated.linked).toEqual([]);
   });
 
-  it('leaves an already seeded workspace alone', async () => {
-    const { workspace, appended } = seedingWorkspace('initialized');
-    await seedLinkedWorkspace(workspace, 'project-1', lines([]));
-    expect(appended).toEqual([]);
+  it('leaves an already seeded workspace alone, and refuses one that lost its link', async () => {
+    const seeded = seedingWorkspace('initialized');
+    await expect(seedLinkedWorkspace(seeded.workspace, 'project-1', lines([]))).rejects.toThrow('lost track');
+    seeded.linked.push({
+      orgProjectId: 'project-1',
+      repository: 'ada/site',
+      defaultBranch: 'main',
+      baseCommit: COMMIT,
+      baseManifest: [],
+    });
+    await seedLinkedWorkspace(seeded.workspace, 'project-1', lines([]));
+    expect(seeded.appended).toEqual([]);
   });
 });
 

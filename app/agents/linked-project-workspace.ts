@@ -22,13 +22,20 @@ type LinkedChange = { path: string; contentBase64: string | null; executable: bo
  * they arrive: a repository never sits in the agent's memory whole.
  */
 export async function seedLinkedWorkspace(
-  workspace: Pick<BuilderWorkspaceApi, 'beginSeed' | 'appendSeed' | 'commitSeed' | 'abortSeed' | 'setLinkedProject'>,
+  workspace: Pick<
+    BuilderWorkspaceApi,
+    'beginSeed' | 'appendSeed' | 'commitSeed' | 'abortSeed' | 'setLinkedProject' | 'linkedProject'
+  >,
   orgProjectId: string,
   lines: AsyncIterable<LinkedSnapshotLine>,
 ): Promise<BuilderWorkspaceState> {
   const seedId = `linked_${orgProjectId}`;
   const started = await workspace.beginSeed(seedId);
   if (started.status === 'initialized') {
+    // Seeded and linked together: a seeded workspace without its link would quietly lose GitHub.
+    if (!(await workspace.linkedProject())) {
+      throw new Error('This workspace lost track of its GitHub project. Open the project again from the menu.');
+    }
     return started.state;
   }
   try {
@@ -74,7 +81,7 @@ export async function seedLinkedWorkspace(
     if (batch.length > 0) {
       await workspace.appendSeed(seedId, batch);
     }
-    const state = await workspace.commitSeed(seedId, { fileCount: manifest.length, totalBytes });
+    // Linked before the seed commits, so a workspace is never initialized without its project.
     await workspace.setLinkedProject({
       orgProjectId,
       repository: head.repository,
@@ -82,7 +89,7 @@ export async function seedLinkedWorkspace(
       baseCommit: head.commit,
       baseManifest: manifest,
     });
-    return state;
+    return await workspace.commitSeed(seedId, { fileCount: manifest.length, totalBytes });
   } catch (error) {
     await workspace.abortSeed(seedId).catch(() => undefined);
     throw error;

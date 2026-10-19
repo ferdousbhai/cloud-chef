@@ -20,6 +20,8 @@ CREATE TABLE production_requests (
   snapshot_files INTEGER NOT NULL,
   -- 'approving' while one admin's approval is creating the repository, so no other can start.
   status TEXT NOT NULL CHECK (status IN ('pending', 'approving', 'approved', 'declined')),
+  -- When an approval claimed it; a claim that never finished lapses, so the request isn't stuck.
+  claimed_at INTEGER,
   project_id TEXT REFERENCES org_projects(id) ON DELETE SET NULL,
   decided_by TEXT REFERENCES "user"(id) ON DELETE SET NULL,
   decided_at INTEGER,

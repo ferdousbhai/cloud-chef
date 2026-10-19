@@ -228,6 +228,22 @@ describe('production requests', () => {
     expect(database.prepare('SELECT COUNT(*) AS n FROM org_projects').get()).toEqual({ n: 0 });
   });
 
+  it('lets an approval that never finished lapse, so the request can still be decided', async () => {
+    const { database, env, admin } = await setup();
+    database
+      .prepare(`UPDATE production_requests SET status = 'approving', claimed_at = ?`)
+      .run(Date.now() - 11 * 60_000);
+    const declined = await declineProductionRequestAction({
+      request: post(admin.cookie, '/api/organizations/production-requests/decline', {
+        orgId: ORG,
+        requestId: REQUEST,
+        note: '',
+      }),
+      env,
+    });
+    expect(declined.status).toBe(204);
+  });
+
   it('lets only an admin decide, and only once', async () => {
     const { env, admin, sara, app } = await setup();
     const byMember = await approveProductionRequestAction({

@@ -165,10 +165,6 @@ interface ScheduledRetryPayload {
 }
 
 const PROJECT_ROOT = WORK_DIR;
-/** The stored file list of a linked project's base commit. */
-const linkedManifestSchema = z.array(
-  z.object({ path: z.string(), sha256: z.string(), executable: z.boolean().optional() }),
-);
 /** The scripts a GitHub project's validation runs, when its package.json has them. */
 const LINKED_PROJECT_SCRIPTS = ['typecheck', 'lint', 'test', 'build'] as const;
 const LINKED_PROJECT_SCRIPT_TIMEOUT_MS = 10 * 60_000;
@@ -420,8 +416,15 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
          repository TEXT NOT NULL,
          default_branch TEXT NOT NULL,
          base_commit TEXT NOT NULL,
-         base_manifest_json TEXT NOT NULL,
          updated_at INTEGER NOT NULL
+       )`,
+    );
+    // Its files at the base commit, a row each: a repository's whole list is too large for one value.
+    this.ctx.storage.sql.exec(
+      `CREATE TABLE IF NOT EXISTS cloudchef_linked_manifest (
+         path TEXT PRIMARY KEY,
+         sha256 TEXT NOT NULL,
+         executable INTEGER NOT NULL DEFAULT 0
        )`,
     );
     // Runtime schema migration: previews are now immutable Worker versions in the user's account,
@@ -2082,6 +2085,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_validations');
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_prepared_validation');
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_linked_project');
+      this.ctx.storage.sql.exec('DELETE FROM cloudchef_linked_manifest');
       this.ctx.storage.sql.exec(
         `UPDATE cloudchef_workspace_state
          SET initialized = 0, seed_id = NULL, reset_revision = ?
@@ -2096,21 +2100,30 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     if (!/^[0-9a-f]{40}$/.test(value.baseCommit) || value.baseManifest.length > BUILDER_WORKSPACE_MAX_FILES) {
       throw new Error('Linked project state is invalid.');
     }
-    this.ctx.storage.sql.exec(
-      `INSERT INTO cloudchef_linked_project
-         (singleton, org_project_id, repository, default_branch, base_commit, base_manifest_json, updated_at)
-       VALUES (1, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(singleton) DO UPDATE SET org_project_id = excluded.org_project_id,
-         repository = excluded.repository, default_branch = excluded.default_branch,
-         base_commit = excluded.base_commit, base_manifest_json = excluded.base_manifest_json,
-         updated_at = excluded.updated_at`,
-      value.orgProjectId,
-      value.repository,
-      value.defaultBranch,
-      value.baseCommit,
-      JSON.stringify(value.baseManifest),
-      Date.now(),
-    );
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO cloudchef_linked_project
+           (singleton, org_project_id, repository, default_branch, base_commit, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?)
+         ON CONFLICT(singleton) DO UPDATE SET org_project_id = excluded.org_project_id,
+           repository = excluded.repository, default_branch = excluded.default_branch,
+           base_commit = excluded.base_commit, updated_at = excluded.updated_at`,
+        value.orgProjectId,
+        value.repository,
+        value.defaultBranch,
+        value.baseCommit,
+        Date.now(),
+      );
+      this.ctx.storage.sql.exec('DELETE FROM cloudchef_linked_manifest');
+      for (const file of value.baseManifest) {
+        this.ctx.storage.sql.exec(
+          'INSERT INTO cloudchef_linked_manifest (path, sha256, executable) VALUES (?, ?, ?)',
+          file.path,
+          file.sha256,
+          file.executable ? 1 : 0,
+        );
+      }
+    });
   }
 
   linkedProject(): BuilderWorkspaceLinkedProject | null {
@@ -2120,21 +2133,25 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         repository: string;
         default_branch: string;
         base_commit: string;
-        base_manifest_json: string;
       }>(
-        `SELECT org_project_id, repository, default_branch, base_commit, base_manifest_json
+        `SELECT org_project_id, repository, default_branch, base_commit
          FROM cloudchef_linked_project WHERE singleton = 1`,
       ),
     );
     if (!row) {
       return null;
     }
+    const files = [
+      ...this.ctx.storage.sql.exec<{ path: string; sha256: string; executable: number }>(
+        'SELECT path, sha256, executable FROM cloudchef_linked_manifest ORDER BY path',
+      ),
+    ];
     return {
       orgProjectId: row.org_project_id,
       repository: row.repository,
       defaultBranch: row.default_branch,
       baseCommit: row.base_commit,
-      baseManifest: linkedManifestSchema.parse(JSON.parse(row.base_manifest_json)),
+      baseManifest: files.map((file) => ({ path: file.path, sha256: file.sha256, executable: file.executable === 1 })),
     };
   }
 

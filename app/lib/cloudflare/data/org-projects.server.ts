@@ -226,6 +226,12 @@ function toProject(row: ProjectRow): Omit<OrgProject, 'memberIds'> {
   };
 }
 
+/** How long an approval may hold a request before another admin can take it over. */
+const APPROVAL_CLAIM_MS = 10 * 60_000;
+
+/** A request still open for a decision: waiting, or claimed by an approval that never finished. */
+const OPEN_REQUEST = `(status = 'pending' OR (status = 'approving' AND claimed_at < ?))`;
+
 /** A draft a member asked to make a real project, as an admin reviews it. */
 type ProductionRequest = {
   id: string;
@@ -254,10 +260,11 @@ export async function listPendingProductionRequests(db: D1Database, orgId: strin
               requests.created_at, users.name, users.email
        FROM production_requests AS requests
        JOIN "user" AS users ON users.id = requests.requested_by
-       WHERE requests.org_id = ? AND requests.status = 'pending'
+       WHERE requests.org_id = ?
+         AND (requests.status = 'pending' OR (requests.status = 'approving' AND requests.claimed_at < ?))
        ORDER BY requests.created_at`,
     )
-    .bind(orgId)
+    .bind(orgId, Date.now() - APPROVAL_CLAIM_MS)
     .all<{
       id: string;
       title: string;
@@ -302,9 +309,9 @@ export async function findPendingProductionRequest(db: D1Database, orgId: string
   const row = await db
     .prepare(
       `SELECT id, requested_by, title, snapshot_gzip_base64 FROM production_requests
-       WHERE id = ? AND org_id = ? AND status = 'pending'`,
+       WHERE id = ? AND org_id = ? AND ${OPEN_REQUEST}`,
     )
-    .bind(requestId, orgId)
+    .bind(requestId, orgId, Date.now() - APPROVAL_CLAIM_MS)
     .first<{ id: string; requested_by: string; title: string; snapshot_gzip_base64: string }>();
   return row
     ? { id: row.id, requestedBy: row.requested_by, title: row.title, snapshot: row.snapshot_gzip_base64 }
@@ -320,9 +327,16 @@ export async function declineProductionRequest(
     .prepare(
       `UPDATE production_requests SET status = 'declined', decided_by = ?, decided_at = ?, decision_note = ?,
          snapshot_gzip_base64 = ''
-       WHERE id = ? AND org_id = ? AND status = 'pending'`,
+       WHERE id = ? AND org_id = ? AND ${OPEN_REQUEST}`,
     )
-    .bind(args.actorId, args.now ?? Date.now(), args.note || null, args.requestId, args.orgId)
+    .bind(
+      args.actorId,
+      args.now ?? Date.now(),
+      args.note || null,
+      args.requestId,
+      args.orgId,
+      (args.now ?? Date.now()) - APPROVAL_CLAIM_MS,
+    )
     .run();
   if (declined.meta.changes !== 1) {
     throw new OrganizationError('That request was already decided.', 409);
@@ -332,8 +346,8 @@ export async function declineProductionRequest(
 /** Marks a pending request as being approved; false when someone else already is (or it was decided). */
 export async function claimProductionRequest(db: D1Database, requestId: string): Promise<boolean> {
   const claimed = await db
-    .prepare(`UPDATE production_requests SET status = 'approving' WHERE id = ? AND status = 'pending'`)
-    .bind(requestId)
+    .prepare(`UPDATE production_requests SET status = 'approving', claimed_at = ? WHERE id = ? AND ${OPEN_REQUEST}`)
+    .bind(Date.now(), requestId, Date.now() - APPROVAL_CLAIM_MS)
     .run();
   return claimed.meta.changes === 1;
 }
@@ -341,7 +355,9 @@ export async function claimProductionRequest(db: D1Database, requestId: string):
 /** Hands a request back to pending after an approval that didn't finish. */
 export async function releaseProductionRequest(db: D1Database, requestId: string): Promise<void> {
   await db
-    .prepare(`UPDATE production_requests SET status = 'pending' WHERE id = ? AND status = 'approving'`)
+    .prepare(
+      `UPDATE production_requests SET status = 'pending', claimed_at = NULL WHERE id = ? AND status = 'approving'`,
+    )
     .bind(requestId)
     .run();
 }
