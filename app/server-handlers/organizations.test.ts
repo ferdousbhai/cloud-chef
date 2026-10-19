@@ -5,6 +5,7 @@ import { createAuthSession, getAuthSession, prepareAuthSession, upsertVerifiedEm
 import {
   acceptInviteAction,
   createOrganizationAction,
+  describeInviteAction,
   inviteToOrganizationAction,
   listOrganizationsAction,
   revokeInviteAction,
@@ -123,6 +124,23 @@ describe('organizations', () => {
       .object({ organizations: z.array(z.object({ members: z.null(), invites: z.null() })) })
       .safeParse(await asMember.json());
     expect(memberView.success).toBe(true);
+  });
+
+  it('tells the link holder what an invite is for, before they sign in, until it is used', async () => {
+    const { env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const token = tokenOf((await invite(env, admin.cookie, orgId, 'sam@acme.com')).body?.inviteUrl ?? '');
+    const describe = () =>
+      describeInviteAction({ request: post('', '/api/organizations/invite/describe', { token }), env });
+
+    const described = await describe();
+    expect(described.status).toBe(200);
+    expect(await described.json()).toEqual({ orgName: 'Acme', email: 'sam@acme.com', inviterName: expect.any(String) });
+
+    const sam = await signIn('sam@acme.com');
+    await acceptInviteAction({ request: post(sam.cookie, '/api/organizations/accept', { token }), env });
+    expect((await describe()).status).toBe(410);
   });
 
   it('accepts an invite only once, and only from the invited address', async () => {

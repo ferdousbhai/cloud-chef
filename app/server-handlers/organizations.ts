@@ -6,6 +6,7 @@ import {
   acceptInvite,
   createInvite,
   createOrganization,
+  describeInvite,
   listOrganizations,
   OrganizationError,
   requireAdmin,
@@ -142,6 +143,30 @@ export function inviteToOrganizationAction({ request, env }: { request: Request;
     const emailed = await sendInvite(env, { to: email, orgName: admin.orgName, inviter: session.user.name, link });
     return Response.json({ inviteUrl: link.toString(), expiresAt, emailed }, { status: 201 });
   });
+}
+
+/**
+ * What an invite link is for, so its page can greet the person by the organization and offer to sign
+ * them in with the invited address. Needs no session: the link itself is the secret.
+ */
+export async function describeInviteAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  if (!hasSameOrigin(request)) {
+    return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
+  }
+  const { success } = await env.SIGN_IN_RATE_LIMITER.limit({
+    key: request.headers.get('CF-Connecting-IP') ?? 'unknown',
+  });
+  if (!success) {
+    return Response.json({ error: 'Too many requests. Try again shortly.' }, { status: 429 });
+  }
+  const body = await readJsonRequest(request, acceptSchema, 'This invite link is not valid.');
+  if ('response' in body) {
+    return body.response;
+  }
+  const invite = await describeInvite(env.DB, body.data.token);
+  return invite
+    ? Response.json(invite, { headers: { 'Cache-Control': 'no-store' } })
+    : Response.json({ error: 'This invite has been used or has expired. Ask for a new one.' }, { status: 410 });
 }
 
 export function acceptInviteAction({ request, env }: { request: Request; env: Env }): Promise<Response> {

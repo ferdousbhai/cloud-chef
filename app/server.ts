@@ -18,6 +18,7 @@ import {
 } from './server-handlers/email-auth';
 import {
   acceptInviteAction,
+  describeInviteAction,
   createOrganizationAction,
   inviteToOrganizationAction,
   listOrganizationsAction,
@@ -240,6 +241,10 @@ const exactRoutes = new Map<string, ServerRoute>(
     '/api/organizations': {
       method: 'GET',
       handler: (request, env) => listOrganizationsAction({ request, env }),
+    },
+    '/api/organizations/invite/describe': {
+      method: 'POST',
+      handler: (request, env) => describeInviteAction({ request, env }),
     },
     '/api/organizations/create': {
       method: 'POST',

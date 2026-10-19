@@ -118,6 +118,32 @@ export async function createInvite(
  * an email CloudChef proved this person holds (an emailed link or Google): a forwarded link is useless
  * to anyone else, and so is an email merely reported by another sign-in.
  */
+/**
+ * What an invite link says before anyone signs in: the organization, who sent it, and the address it's
+ * for. Only the link's holder can ask, and the address is the one the link was emailed to. Null when the
+ * invite is used, expired, or its sender is no longer an active admin.
+ */
+export async function describeInvite(
+  db: D1Database,
+  token: string,
+  now = Date.now(),
+): Promise<{ orgName: string; email: string; inviterName: string } | null> {
+  const row = await db
+    .prepare(
+      `SELECT organizations.name AS org_name, invites.email, users.name AS inviter_name
+       FROM organization_invites AS invites
+       JOIN organizations ON organizations.id = invites.org_id
+       JOIN organization_members AS inviter
+         ON inviter.org_id = invites.org_id AND inviter.user_id = invites.invited_by
+            AND inviter.role = 'admin' AND inviter.paused_at IS NULL
+       JOIN "user" AS users ON users.id = invites.invited_by
+       WHERE invites.token_hash = ? AND invites.accepted_at IS NULL AND invites.expires_at > ?`,
+    )
+    .bind(await sha256Hex(token), now)
+    .first<{ org_name: string; email: string; inviter_name: string }>();
+  return row ? { orgName: row.org_name, email: row.email, inviterName: row.inviter_name } : null;
+}
+
 export async function acceptInvite(
   db: D1Database,
   args: { token: string; userId: string; now?: number },
