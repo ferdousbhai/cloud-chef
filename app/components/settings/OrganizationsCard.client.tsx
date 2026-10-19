@@ -10,6 +10,8 @@ import {
   switchWorkspace,
 } from '~/lib/auth-client';
 import { ReauthenticateButtons } from './ReauthenticateButtons.client';
+import { MyOrgProjects, OrgProjectsSection, orgGitHubSchema, orgProjectSchema } from './OrgProjectsSection.client';
+import { messageOf, noContentSchema, postJson, run } from './organization-requests.client';
 
 const roleSchema = z.enum(['admin', 'member']);
 const organizationsSchema = z.object({
@@ -33,45 +35,18 @@ const organizationsSchema = z.object({
         )
         .nullable(),
       invites: z.array(z.object({ id: z.string(), email: z.string(), role: roleSchema })).nullable(),
+      github: orgGitHubSchema,
+      projects: z.array(orgProjectSchema),
     }),
   ),
-});
-const errorSchema = z.looseObject({
-  code: z.string().optional().catch(undefined),
-  error: z.string().optional().catch(undefined),
 });
 const createdSchema = z.object({ orgId: z.string() });
 const invitedSchema = z.object({ inviteUrl: z.string(), emailed: z.boolean() });
 const memberUpdatedSchema = z.object({ ok: z.literal(true), workspaceDeleted: z.boolean().optional() });
-/** A 204: no body, which `postJson` reads as null. */
-const noContentSchema = z.null();
 
 type MemberAction = 'pause' | 'resume' | 'remove' | 'make_admin' | 'make_member';
 
 type Organization = z.infer<typeof organizationsSchema>['organizations'][number];
-
-/** Posts to one of CloudChef's organization routes and parses its answer with `schema`. */
-async function postJson<T>(path: string, body: Record<string, string>, schema: z.ZodType<T>): Promise<T> {
-  const response = await fetch(path, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const parsed = errorSchema.safeParse(payload);
-    const message = (parsed.success ? parsed.data.error : undefined) ?? 'Something went wrong. Try again.';
-    throw parsed.success && parsed.data.code === 'reauthentication_required'
-      ? new ReauthenticationRequiredError(message)
-      : new Error(message);
-  }
-  return schema.parse(payload);
-}
-
-function messageOf(error: Error | null | undefined, fallback: string): string {
-  return error?.message ?? fallback;
-}
 
 /**
  * Organizations: people sharing one Cloudflare account to build in. An admin connects the account and
@@ -272,7 +247,17 @@ function OrganizationRow({
           >
             {connection?.active ? 'Reconnect its Cloudflare account' : 'Connect its Cloudflare account'}
           </Button>
-          <ul className="mt-3 grid gap-2 text-sm">
+          <OrgProjectsSection
+            orgId={organization.orgId}
+            github={organization.github}
+            projects={organization.projects}
+            members={organization.members ?? []}
+            onChanged={onChanged}
+            onMessage={setMessage}
+            onSignInRequired={onSignInRequired}
+          />
+          <h4 className="mt-3 text-sm font-medium">People</h4>
+          <ul className="mt-2 grid gap-2 text-sm">
             {organization.members?.map((member) => (
               <MemberRow
                 key={member.userId}
@@ -347,24 +332,27 @@ function OrganizationRow({
           ) : null}
         </>
       ) : (
-        <Button
-          className="mt-2"
-          size="xs"
-          variant="subtle"
-          onClick={() =>
-            void run(
-              async () => {
-                if (myUserId) {
-                  await updateMember(organization.orgId, myUserId, 'remove');
-                }
-              },
-              () => window.location.assign('/settings'),
-              setMessage,
-            )
-          }
-        >
-          Leave {organization.orgName}
-        </Button>
+        <>
+          <MyOrgProjects projects={organization.projects} />
+          <Button
+            className="mt-2"
+            size="xs"
+            variant="subtle"
+            onClick={() =>
+              void run(
+                async () => {
+                  if (myUserId) {
+                    await updateMember(organization.orgId, myUserId, 'remove');
+                  }
+                },
+                () => window.location.assign('/settings'),
+                setMessage,
+              )
+            }
+          >
+            Leave {organization.orgName}
+          </Button>
+        </>
       )}
       {!admin && message ? (
         <p className="mt-2 text-sm text-content-secondary" role="status">
@@ -453,16 +441,5 @@ async function connectOrganization(orgId: string, onSignInRequired: (reason: str
       throw failure;
     }
     onSignInRequired(failure.message);
-  }
-}
-
-/** Runs one admin action, then refreshes, or shows why it failed. */
-async function run(action: () => Promise<void>, then: () => void, onMessage: (message: string | null) => void) {
-  onMessage(null);
-  try {
-    await action();
-    then();
-  } catch (failure) {
-    onMessage(messageOf(failure instanceof Error ? failure : null, 'That did not work. Try again.'));
   }
 }

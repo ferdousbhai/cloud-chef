@@ -43,6 +43,12 @@ export default defineConfig({
       // Sign in with Google, for people without a Cloudflare login. Unset, the option reports itself unavailable.
       GOOGLE_OAUTH_CLIENT_ID: bindings.secret(),
       GOOGLE_OAUTH_CLIENT_SECRET: bindings.secret(),
+      // CloudChef's GitHub App, for organization projects kept in GitHub. Unset, they report themselves
+      // unavailable. The private key is PKCS#8 (app/lib/.server/github/app-jwt.ts).
+      GITHUB_APP_CLIENT_ID: bindings.secret(),
+      GITHUB_APP_CLIENT_SECRET: bindings.secret(),
+      GITHUB_APP_PRIVATE_KEY: bindings.secret(),
+      GITHUB_APP_SLUG: bindings.secret(),
       ...deployVar('COMMIT_SHA'),
       ...deployVar('CLOUDFLARE_OAUTH_CLIENT_ID'),
       // Migrations live in migrations/; scripts/apply-d1-migrations.mjs applies them to this database id.

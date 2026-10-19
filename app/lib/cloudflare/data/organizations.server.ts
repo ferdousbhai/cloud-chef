@@ -332,14 +332,21 @@ export async function updateMember(
     throw new OrganizationError('Make someone else an admin first: an organization always needs one.', 409);
   }
   if (args.action === 'remove') {
-    // Their workspace locator in the organization's account goes with them.
-    await db
-      .prepare(
-        `DELETE FROM user_computer_runtimes
-         WHERE user_id = ? AND connection_id IN (SELECT id FROM cloudflare_connections WHERE org_id = ?)`,
-      )
-      .bind(args.userId, args.orgId)
-      .run();
+    // Their workspace locator in the organization's account and their access to its projects go with them.
+    await db.batch([
+      db
+        .prepare(
+          `DELETE FROM user_computer_runtimes
+           WHERE user_id = ? AND connection_id IN (SELECT id FROM cloudflare_connections WHERE org_id = ?)`,
+        )
+        .bind(args.userId, args.orgId),
+      db
+        .prepare(
+          `DELETE FROM org_project_access
+           WHERE user_id = ? AND project_id IN (SELECT id FROM org_projects WHERE org_id = ?)`,
+        )
+        .bind(args.userId, args.orgId),
+    ]);
   }
 }
 

@@ -45,12 +45,16 @@ describe('Cloudflare authorization retention', () => {
     const insertGoogleState = database.prepare('INSERT INTO google_sign_in_states (id, expires_at) VALUES (?, ?)');
     insertGoogleState.run('google-expired', now - 1);
     insertGoogleState.run('google-live', now + 1);
+    const insertGitHubState = database.prepare('INSERT INTO github_install_states (id, expires_at) VALUES (?, ?)');
+    insertGitHubState.run('github-expired', now - 1);
+    insertGitHubState.run('github-live', now + 1);
 
     await expect(pruneCloudflareAuthData({ db, now, limit: 2 })).resolves.toBeUndefined();
     expect(values(database, 'cloudflare_oauth_states', 'id')).toEqual(['state-3', 'state-live']);
     expect(values(database, 'cloudflare_auth_sessions', 'id')).toEqual(['session-3', 'session-live']);
     expect(values(database, 'email_sign_in_tokens', 'token_hash')).toEqual(['link-3', 'link-live']);
     expect(values(database, 'google_sign_in_states', 'id')).toEqual(['google-live']);
+    expect(values(database, 'github_install_states', 'id')).toEqual(['github-live']);
     expect(values(database, 'cloudflare_credentials', 'handle')).toEqual([
       'credential-3',
       'credential-fresh',
@@ -108,6 +112,10 @@ function retentionDatabase(): { database: DatabaseSyncInstance; db: D1Database }
       created_at INTEGER NOT NULL
     );
     CREATE TABLE google_sign_in_states (
+      id TEXT PRIMARY KEY,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE github_install_states (
       id TEXT PRIMARY KEY,
       expires_at INTEGER NOT NULL
     );

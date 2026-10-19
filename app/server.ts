@@ -26,6 +26,17 @@ import {
   updateMemberAction,
 } from './server-handlers/organizations';
 import { completeGoogleSignInAction, GOOGLE_RETURN_PATH, startGoogleSignInAction } from './server-handlers/google-auth';
+import {
+  completeGitHubInstallAction,
+  disconnectGitHubAction,
+  GITHUB_RETURN_PATH,
+  linkGitHubProjectAction,
+  listGitHubRepositoriesAction,
+  listMyProjectsAction,
+  setProjectAccessAction,
+  startGitHubInstallAction,
+  unlinkGitHubProjectAction,
+} from './server-handlers/github-projects';
 import { deleteAccountAction } from './server-handlers/account-deletion';
 import { exportAccountAction } from './server-handlers/account-export';
 import { runtimeAccessAction, runtimeCredentialAction, runtimeUsageAction } from './server-handlers/runtime-credential';
@@ -104,7 +115,7 @@ function withApplicationSecurityHeaders(response: Response, pathname: string, no
   applyHstsFloor(headers);
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
-  if (pathname === '/connect/return' || pathname === GOOGLE_RETURN_PATH) {
+  if (pathname === '/connect/return' || pathname === GOOGLE_RETURN_PATH || pathname === GITHUB_RETURN_PATH) {
     headers.set('Cache-Control', 'no-store');
     headers.set('Pragma', 'no-cache');
   } else if (isHtml) {
@@ -161,6 +172,38 @@ const exactRoutes = new Map<string, ServerRoute>(
     '/api/auth/google/start': {
       method: 'POST',
       handler: (request, env) => startGoogleSignInAction({ request, env }),
+    },
+    '/api/organizations/github/start': {
+      method: 'POST',
+      handler: (request, env) => startGitHubInstallAction({ request, env }),
+    },
+    '/api/organizations/github/disconnect': {
+      method: 'POST',
+      handler: (request, env) => disconnectGitHubAction({ request, env }),
+    },
+    '/api/organizations/github/repositories': {
+      method: 'GET',
+      handler: (request, env) => listGitHubRepositoriesAction({ request, env }),
+    },
+    '/api/organizations/projects/link': {
+      method: 'POST',
+      handler: (request, env) => linkGitHubProjectAction({ request, env }),
+    },
+    '/api/organizations/projects/unlink': {
+      method: 'POST',
+      handler: (request, env) => unlinkGitHubProjectAction({ request, env }),
+    },
+    '/api/organizations/projects/access': {
+      method: 'POST',
+      handler: (request, env) => setProjectAccessAction({ request, env }),
+    },
+    '/api/org-projects': {
+      method: 'GET',
+      handler: (request, env) => listMyProjectsAction({ request, env }),
+    },
+    [GITHUB_RETURN_PATH]: {
+      method: 'GET',
+      handler: (request, env) => completeGitHubInstallAction({ request, env }),
     },
     '/api/organizations': {
       method: 'GET',

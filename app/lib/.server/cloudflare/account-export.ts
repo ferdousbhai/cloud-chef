@@ -22,6 +22,7 @@ const SECTION_NAMES = [
   'organizations',
   'organizationInvites',
   'organizationUsage',
+  'organizationProjects',
   'authSessions',
   'oauthStates',
 ] as const;
@@ -120,6 +121,14 @@ type ExportedUsageDay = {
   cachedTokens: number;
 };
 
+/** A GitHub-backed project this person was given access to. Its repository's contents live in GitHub. */
+type ExportedProjectAccess = {
+  organizationId: string;
+  projectName: string;
+  repository: string;
+  grantedAt: string;
+};
+
 type ExportedAuthSession = {
   id: string;
   createdAt: string;
@@ -162,6 +171,7 @@ type ControlPlaneExport = {
     organizations: ExportedSection<BoundedList<{ memberships: ExportedMembership[] }>>;
     organizationInvites: ExportedSection<BoundedList<{ invites: ExportedInvite[] }>>;
     organizationUsage: ExportedSection<BoundedList<{ usage: ExportedUsageDay[] }>>;
+    organizationProjects: ExportedSection<BoundedList<{ projects: ExportedProjectAccess[] }>>;
     authSessions: ExportedSection<BoundedList<{ sessions: ExportedAuthSession[] }>>;
     oauthStates: ExportedSection<BoundedList<{ states: ExportedOAuthState[] }>>;
   };
@@ -183,6 +193,7 @@ export async function exportControlPlaneAccount(args: { env: Env; userId: string
     organizations: await exportSection('organizations', () => readMemberships(db, args.userId)),
     organizationInvites: await exportSection('organizationInvites', () => readInvites(db, args.userId)),
     organizationUsage: await exportSection('organizationUsage', () => readUsage(db, args.userId)),
+    organizationProjects: await exportSection('organizationProjects', () => readProjectAccess(db, args.userId)),
     authSessions: await exportSection('authSessions', () => readAuthSessions(db, args.userId)),
     oauthStates: await exportSection('oauthStates', () => readOAuthStates(db, args.userId)),
   };
@@ -516,4 +527,27 @@ function isoTimestamp(epochMilliseconds: number): string {
 
 function optionalIsoTimestamp(epochMilliseconds: number | null): string | null {
   return epochMilliseconds === null ? null : isoTimestamp(epochMilliseconds);
+}
+
+async function readProjectAccess(
+  db: D1Database,
+  userId: string,
+): Promise<BoundedList<{ projects: ExportedProjectAccess[] }>> {
+  const rows = await db
+    .prepare(
+      `SELECT projects.org_id, projects.name, projects.repo_full_name, access.granted_at, COUNT(*) OVER () AS total_rows
+       FROM org_project_access AS access
+       JOIN org_projects AS projects ON projects.id = access.project_id
+       WHERE access.user_id = ?
+       ORDER BY access.granted_at DESC LIMIT ?`,
+    )
+    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
+    .all<{ org_id: string; name: string; repo_full_name: string; granted_at: number; total_rows: number }>();
+  const projects = rows.results.map((row) => ({
+    organizationId: row.org_id,
+    projectName: row.name,
+    repository: row.repo_full_name,
+    grantedAt: new Date(row.granted_at).toISOString(),
+  }));
+  return { projects, ...boundsOf(rows.results, projects.length) };
 }

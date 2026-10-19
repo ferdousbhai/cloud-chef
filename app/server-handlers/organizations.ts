@@ -13,6 +13,11 @@ import {
   revokeInvite,
   updateMember,
 } from '~/lib/cloudflare/data/organizations.server';
+import {
+  findGitHubInstallation,
+  listAccessibleProjects,
+  listOrgProjects,
+} from '~/lib/cloudflare/data/org-projects.server';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { workspaceRuntimeNames } from '~/workflows/user-workspace-runtime-provisioning';
@@ -45,7 +50,7 @@ const revokeInviteSchema = z.strictObject({ orgId: z.string().uuid(), inviteId: 
 type Handler = (args: { request: Request; env: Env; session: CloudflareAuthSession }) => Promise<Response>;
 
 /** Runs `handler` for a signed-in, same-origin request, turning organization errors into responses. */
-async function signedIn(request: Request, env: Env, handler: Handler): Promise<Response> {
+export async function signedIn(request: Request, env: Env, handler: Handler): Promise<Response> {
   if (request.method !== 'GET' && !hasSameOrigin(request)) {
     return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
   }
@@ -66,12 +71,34 @@ async function signedIn(request: Request, env: Env, handler: Handler): Promise<R
 }
 
 export function listOrganizationsAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
-  return signedIn(request, env, async ({ session }) =>
-    Response.json(
-      { organizations: await listOrganizations(env.DB, session.user.id) },
-      { headers: { 'Cache-Control': 'private, no-store' } },
-    ),
-  );
+  return signedIn(request, env, async ({ session }) => {
+    const organizations = await listOrganizations(env.DB, session.user.id);
+    // With each, its GitHub account and projects: all of them, with who may work on each, for an admin;
+    // the ones they may work on for a member.
+    const withProjects = await Promise.all(
+      organizations.map(async (organization) => {
+        const admin = organization.members !== null;
+        const [github, projects] = await Promise.all([
+          findGitHubInstallation(env.DB, organization.orgId),
+          admin
+            ? listOrgProjects(env.DB, organization.orgId)
+            : listAccessibleProjects(env.DB, organization.orgId, session.user.id),
+        ]);
+        return {
+          ...organization,
+          github: github ? { accountLogin: github.accountLogin, accountType: github.accountType } : null,
+          projects: projects.map(({ id, name, repoFullName, defaultBranch, memberIds }) => ({
+            id,
+            name,
+            repoFullName,
+            defaultBranch,
+            memberIds,
+          })),
+        };
+      }),
+    );
+    return Response.json({ organizations: withProjects }, { headers: { 'Cache-Control': 'private, no-store' } });
+  });
 }
 
 export function createOrganizationAction({ request, env }: { request: Request; env: Env }): Promise<Response> {

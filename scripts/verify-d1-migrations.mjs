@@ -36,6 +36,7 @@ const migrationPolicies = [
       '0019_remove_dead_control_plane_schema.sql': 'cf136090e98b908ec89166f224a7416381d4d67feffe8f12058f041c3d35073a',
       '0020_member_sign_in.sql': 'b5b04da2845b9f4d03dcd2df2f438fb11076091b00a4c031f8197ec41fd6d82e',
       '0021_organizations.sql': 'c181f20c983af3a41e36fb9723d9e4987b2e997cef044ae814e22ac1d6421f61',
+      '0022_github_projects.sql': '3e9b4e9192a53c49be52bf185822dd5f4b946f554b43297168ef7e7eec94da0a',
     },
     contractAllowlist: {
       // Explicit pre-launch clean break: the Computer locator replaced this
