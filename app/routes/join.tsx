@@ -135,8 +135,8 @@ function Join() {
     return (
       <JoinCard title={`You've joined ${invite.orgName}`}>
         <p className="app-page-lede break-words">
-          You&apos;ve joined {invite.orgName}. Its admin hasn&apos;t connected a Cloudflare account yet, so there&apos;s
-          nothing to build in there. Once they do, choose {invite.orgName} from your account menu.
+          You&apos;ve joined {invite.orgName}. Its Cloudflare account isn&apos;t ready yet, so there&apos;s nothing to
+          build in there. Once its admin connects it, choose {invite.orgName} from your account menu.
         </p>
       </JoinCard>
     );

@@ -226,26 +226,35 @@ export async function acceptInvite(
     throw new OrganizationError('This invite has been used or has expired. Ask for a new one.', 410);
   }
   // Someone already in the organization keeps their role; an invite never demotes or unpauses.
-  await db
-    .prepare(
-      // A member builds new apps of their own only once an admin allows it; until then, they work on the
-      // GitHub projects they're given. (Admins may always.)
-      `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(org_id, user_id) DO NOTHING`,
-    )
-    .bind(invite.org_id, args.userId, invite.role, now, invite.role === 'admin' ? 1 : 0)
-    .run();
+  const joining = [
+    db
+      .prepare(
+        // A member builds new apps of their own only once an admin allows it; until then, they work on the
+        // GitHub projects they're given. (Admins may always.)
+        `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(org_id, user_id) DO NOTHING`,
+      )
+      .bind(invite.org_id, args.userId, invite.role, now, invite.role === 'admin' ? 1 : 0),
+  ];
   if (invite.project_ids !== null) {
     // The projects the inviting admin chose, those still in the organization, granted in their name.
-    await db
-      .prepare(
-        `INSERT INTO org_project_access (project_id, user_id, granted_by, granted_at)
-         SELECT id, ?, ?, ? FROM org_projects
-         WHERE org_id = ? AND id IN (SELECT value FROM json_each(?))
-         ON CONFLICT(project_id, user_id) DO NOTHING`,
-      )
-      .bind(args.userId, invite.invited_by, now, invite.org_id, invite.project_ids)
-      .run();
+    joining.push(
+      db
+        .prepare(
+          `INSERT INTO org_project_access (project_id, user_id, granted_by, granted_at)
+           SELECT id, ?, ?, ? FROM org_projects
+           WHERE org_id = ? AND id IN (SELECT value FROM json_each(?))
+           ON CONFLICT(project_id, user_id) DO NOTHING`,
+        )
+        .bind(args.userId, invite.invited_by, now, invite.org_id, invite.project_ids),
+    );
+  }
+  // Membership and project access land together; if they can't, the invite is released to try again.
+  try {
+    await db.batch(joining);
+  } catch (failure) {
+    await db.prepare('UPDATE organization_invites SET accepted_at = NULL WHERE id = ?').bind(invite.id).run();
+    throw failure;
   }
   return { orgId: invite.org_id };
 }
