@@ -1,5 +1,5 @@
 /** One regular file from a tarball, its path relative to the archive's top-level directory. */
-export type TarEntry = { path: string; bytes: Uint8Array; executable: boolean };
+type TarEntry = { path: string; bytes: Uint8Array; executable: boolean };
 
 const BLOCK = 512;
 

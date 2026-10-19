@@ -61,6 +61,7 @@ import {
   boundBuilderMessageForPersistence,
   builderTranscriptBindingsEqual,
   loadBuilderTranscriptBinding,
+  loadChatOrgProject,
   requireBuilderRequestScope,
   requireBuilderTranscriptIdentity,
   type BuilderTranscriptBinding,
@@ -83,11 +84,20 @@ import { UserWorkspaceRuntimeClient } from '~/lib/.server/cloudflare/user-worksp
 import type {
   BuilderWorkspaceFileInput,
   BuilderWorkspaceApplyResult,
+  BuilderWorkspaceLinkedProject,
   BuilderWorkspaceState,
   BuilderWorkspaceSyncPage,
 } from './builder-workspace-types';
 import { builderTemplateSeedId, loadBuilderTemplate } from './builder-template';
 import { parentBuilderWorkspaceSeedId, seedBuilderWorkspace } from './builder-workspace-seed';
+import { linkedWorkspaceChanges, seedLinkedWorkspace } from './linked-project-workspace';
+import {
+  commitLinkedProject,
+  linkedBuildStatus,
+  streamLinkedProjectSnapshot,
+  type LinkedBuildStatus,
+} from '~/lib/.server/cloudflare/linked-project-client';
+import type { LinkedProjectModelToolContext } from '~/lib/.server/llm/linked-project-model-tools';
 import { deriveProvisionalTitle, shouldGenerateConversationTitle } from '~/lib/title-generation';
 import {
   failedBuilderPreviewState,
@@ -100,6 +110,7 @@ import { waitForCancellationBeforeDeadline } from './builder-cancellation';
 import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
 import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
+import { toolFailure, toolSuccess, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import {
   BuilderCloudflareExecutionRepository,
   CLOUDFLARE_EXECUTION_RISK_NOTE,
@@ -505,6 +516,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     try {
       await this.requireOrganizationAccess();
       const cloudflareApi = await this.createCloudflareApiToolContext(durableIdentity.transcript);
+      const linkedProject = await this.createLinkedProjectToolContext();
       if (shouldGenerateTitle) {
         await this.scheduleTitleGeneration(
           {
@@ -526,6 +538,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         sessionAffinity: await createWorkersAiSessionAffinity(transcript, modelId),
         workspace: this.workspace,
         cloudflareApi,
+        linkedProject,
         onValidationStage: (toolCallId, stage) => this.setValidationProgress(toolCallId, stage),
         runWithKeepAlive: (operation) => this.keepAliveWhile(operation),
         steering,
@@ -655,7 +668,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
     }
     const validatedSnapshot = await this.refreshDeploymentReadiness();
-    if (status === 'completed' && validatedSnapshot) {
+    // A GitHub project previews and deploys through its own pipeline, when the agent publishes to it.
+    if (status === 'completed' && validatedSnapshot && !(await this.workspace.linkedProject())) {
       await this.publishValidatedRevision(validatedSnapshot);
     }
   }
@@ -785,6 +799,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     };
   }
 
+  /** The organization GitHub project this workspace works on, or null for a CloudChef app. */
+  @callable()
+  getLinkedProject(): Promise<BuilderWorkspaceLinkedProject | null> {
+    return this.workspace.linkedProject();
+  }
+
   @callable()
   getWorkspaceState(): Promise<BuilderWorkspaceState> {
     return this.workspace.refresh();
@@ -830,6 +850,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   @callable()
   async deployValidatedRevision(): Promise<BuilderDeploymentState> {
     await this.hydrateDurableIdentity({ required: true, reason: 'deploy_validated_revision' });
+    if (await this.workspace.linkedProject()) {
+      throw new Error('This project deploys through GitHub: ask the agent to publish it.');
+    }
     const snapshot = await validatedDeploymentCheckpoint(this.workspace);
     if (!snapshot) {
       throw new Error('The current project revision must pass validation before deployment.');
@@ -1147,10 +1170,122 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     if (binding.parentAgentName) {
       const parent = await this.loadParentWorkspace(binding.parentAgentName);
-      return this.seedWorkspace(parentBuilderWorkspaceSeedId(parent.targetRevision), parent.entries);
+      const state = await this.seedWorkspace(parentBuilderWorkspaceSeedId(parent.targetRevision), parent.entries);
+      // A subchat of a GitHub project keeps working on it, relative to the same commit.
+      const parentAgent: Pick<BuilderAgent, 'getLinkedProject'> = this.env.BuilderAgent.getByName(
+        binding.parentAgentName,
+      );
+      const linked = await parentAgent.getLinkedProject();
+      if (linked) {
+        await this.workspace.setLinkedProject(linked);
+      }
+      return state;
+    }
+    const orgProjectId = this.userId
+      ? await loadChatOrgProject(this.env.DB, { agentName: binding.agentName, ownerId: this.userId })
+      : null;
+    if (orgProjectId) {
+      const identity = runtimeIdentity(this.env);
+      if (!identity) {
+        throw new Error('This workspace is not connected to CloudChef, so it cannot open the project.');
+      }
+      return seedLinkedWorkspace(
+        this.workspace,
+        orgProjectId,
+        streamLinkedProjectSnapshot(this.env, identity, orgProjectId),
+      );
     }
     const template = await loadBuilderTemplate();
     return this.seedWorkspace(builderTemplateSeedId(), template);
+  }
+
+  /** The publish tools for a workspace opened from an organization's GitHub project; none otherwise. */
+  private async createLinkedProjectToolContext(): Promise<LinkedProjectModelToolContext | undefined> {
+    const linked = await this.workspace.linkedProject();
+    if (!linked) {
+      return undefined;
+    }
+    return {
+      repository: linked.repository,
+      defaultBranch: linked.defaultBranch,
+      publish: (input, options) => this.keepAliveWhile(() => this.publishLinkedProject(input, options)),
+    };
+  }
+
+  /**
+   * Sends the validated workspace to GitHub: a commit on the member's branch, merged into the default
+   * branch when it should go live. Then waits for the repository's pipeline to report the build, so the
+   * agent can give the user the preview link or say it is live.
+   */
+  private async publishLinkedProject(
+    input: { message: string; live: boolean },
+    options: { abortSignal?: AbortSignal },
+  ): Promise<CloudChefToolResult> {
+    const linked = await this.workspace.linkedProject();
+    const identity = runtimeIdentity(this.env);
+    if (!linked || !identity) {
+      return toolFailure("This workspace is not one of the organization's GitHub projects.");
+    }
+    const checkpoint = await this.workspace.checkpoint();
+    if (!(await this.workspace.hasSuccessfulValidation(checkpoint.revision))) {
+      return toolFailure('Run validate on the current changes first: only validated work is sent to GitHub.');
+    }
+    const changes = await linkedWorkspaceChanges(this.workspace, linked);
+    if (changes.length === 0) {
+      return toolFailure(`Nothing has changed since this workspace was opened from ${linked.repository}.`);
+    }
+    const result = await commitLinkedProject(this.env, identity, {
+      orgProjectId: linked.orgProjectId,
+      baseCommit: linked.baseCommit,
+      message: input.message,
+      publish: input.live,
+      changes,
+    });
+    if (result.code === 'merge_conflict') {
+      return toolFailure(
+        `${result.error ?? 'The changes overlap with newer work.'} Nothing went live. The work is saved on the ` +
+          `branch ${result.branch} of ${linked.repository}; an admin can merge it there.`,
+        { branch: result.branch, commit: result.commit },
+      );
+    }
+    const sha = input.live ? (result.published ?? result.commit) : result.commit;
+    const build = await this.waitForLinkedBuild(identity, linked.orgProjectId, sha, options.abortSignal);
+    const where = input.live ? `merged into ${linked.defaultBranch}` : `on the branch ${result.branch}`;
+    const summary =
+      build.state === 'success'
+        ? `Committed ${where}; the pipeline built it.${build.previewUrl ? ` Preview: ${build.previewUrl}` : ''}`
+        : build.state === 'failure'
+          ? `Committed ${where}, but the pipeline's build failed. Details: ${build.detailsUrl ?? 'see the repository on GitHub'}.`
+          : build.state === 'pending'
+            ? `Committed ${where}; the pipeline is still building. It will be ${input.live ? 'live' : 'previewable'} once it finishes.`
+            : `Committed ${where}. The repository reported no pipeline for it yet.`;
+    return (build.state === 'failure' ? toolFailure : toolSuccess)(summary, {
+      branch: result.branch,
+      commit: sha,
+      live: input.live,
+      build: build.state,
+      previewUrl: build.previewUrl,
+      detailsUrl: build.detailsUrl,
+    });
+  }
+
+  /** Polls the repository's pipeline for a commit until it finishes, for up to six minutes. */
+  private async waitForLinkedBuild(
+    identity: NonNullable<ReturnType<typeof runtimeIdentity>>,
+    orgProjectId: string,
+    sha: string,
+    abortSignal?: AbortSignal,
+  ): Promise<LinkedBuildStatus> {
+    const deadline = Date.now() + 6 * 60_000;
+    let status: LinkedBuildStatus = { state: 'none', previewUrl: null, detailsUrl: null };
+    while (Date.now() < deadline && !abortSignal?.aborted) {
+      await new Promise((resolve) => setTimeout(resolve, 15_000));
+      status = await linkedBuildStatus(this.env, identity, orgProjectId, sha).catch(() => status);
+      if (status.state === 'success' || status.state === 'failure') {
+        return status;
+      }
+    }
+    return status;
   }
 
   /**
@@ -1584,6 +1719,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Response('Agent authentication is required.', { status: 401 });
     }
     const workspace = await this.initializeWorkspace(this.transcriptBinding);
+    if (await this.workspace.linkedProject()) {
+      throw new Error('This project previews through GitHub: ask the agent for a preview of your branch.');
+    }
     const current = this.currentPreviewState();
     const snapshot = options.validatedSnapshot ?? (await this.workspace.checkpoint());
     const publishing = current.status === 'queued' || current.status === 'building';

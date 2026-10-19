@@ -29,6 +29,7 @@ import { type BuilderSkillReader, isBuilderSkillPath } from './builder-skills';
 import { cloudflareDocsSearchTool } from './cloudflare-docs-search';
 import { sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
+import { linkedProjectModelTools, type LinkedProjectModelToolContext } from './linked-project-model-tools';
 
 type BuilderOperationContext = {
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
@@ -59,6 +60,7 @@ export function createWorkersAiTools(
   operationContext: BuilderOperationContext,
   skillReader?: BuilderSkillReader,
   cloudflareApi?: CloudflareApiModelToolContext,
+  linkedProject?: LinkedProjectModelToolContext,
 ): CloudChefToolSet {
   const coordinateStatefulTool = createTurnStatefulToolCoordinator(operationContext.runWithKeepAlive);
   const tools: CloudChefToolSet = {
@@ -68,7 +70,7 @@ export function createWorkersAiTools(
     write: abortAwareWriteTool(workspace),
     edit: lineAnchoredEditTool(workspace),
     exec: streamingExecTool(workspace),
-    validate: canonicalValidationTool(),
+    validate: canonicalValidationTool(linkedProject !== undefined),
     // Stateless and remote: it must not take the workspace operation lane.
     search_cloudflare_docs: cloudflareDocsSearchTool(),
   };
@@ -84,6 +86,10 @@ export function createWorkersAiTools(
       execute: async (input, options) =>
         cloudflareApi.request(MODEL_TOOL_INPUT_SCHEMAS.cloudflare_request.parse(input), options),
     };
+  }
+
+  if (linkedProject) {
+    Object.assign(tools, linkedProjectModelTools(linkedProject));
   }
 
   for (const toolName of WORKSPACE_TOOL_NAMES) {
@@ -252,13 +258,16 @@ const EXEC_TOOL_DESCRIPTION =
  * Only the model-facing schema and description live here: the composed Computer tool runs the
  * validation itself, through the workspace coordinator.
  */
-function canonicalValidationTool(): Tool {
+function canonicalValidationTool(linked: boolean): Tool {
   return {
-    description:
-      'Run the complete canonical project validation (typecheck, lint, stack verification, and production build). ' +
-      'A passing run marks the exact current revision deployable; CloudChef then publishes the hosted preview and ' +
-      'deployment automatically. Call it once after finishing changes instead of running typecheck, lint, or build ' +
-      'individually.',
+    description: linked
+      ? "Install dependencies and run the repository's own checks (its typecheck, lint, test, and build scripts, " +
+        'whichever it has). A passing run marks the exact current revision ready for publish_preview or publish. ' +
+        'Call it once after finishing changes.'
+      : 'Run the complete canonical project validation (typecheck, lint, stack verification, and production build). ' +
+        'A passing run marks the exact current revision deployable; CloudChef then publishes the hosted preview and ' +
+        'deployment automatically. Call it once after finishing changes instead of running typecheck, lint, or build ' +
+        'individually.',
     inputSchema: MODEL_TOOL_INPUT_SCHEMAS.validate,
   };
 }

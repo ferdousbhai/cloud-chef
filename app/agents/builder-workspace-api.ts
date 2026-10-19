@@ -8,6 +8,7 @@ import type {
   BuilderWorkspaceClientChange,
   BuilderWorkspaceFileInput,
   BuilderWorkspaceSeedStartResult,
+  BuilderWorkspaceLinkedProject,
   BuilderWorkspaceState,
   BuilderWorkspaceSyncPage,
 } from './builder-workspace-types';
@@ -299,6 +300,8 @@ export interface ProjectWorkspaceRpc extends Rpc.DurableObjectBranded {
   finishDeploymentSession(value: { sessionId: string; status: 'completed' | 'failed' }): Promise<void>;
   terminalizeInterruptedDeploymentSession(value: { sessionId: string }): Promise<void>;
   deleteProject(): Promise<void>;
+  setLinkedProject(value: BuilderWorkspaceLinkedProject): Promise<void>;
+  linkedProject(): Promise<BuilderWorkspaceLinkedProject | null>;
 }
 
 /**
@@ -347,6 +350,10 @@ export interface BuilderWorkspaceApi {
   ): Promise<CloudChefToolResult>;
   cancelActiveValidation(): Promise<void>;
   hasSuccessfulValidation(revision: string): Promise<boolean>;
+  /** Records the GitHub project this workspace was opened from (its base commit and files). */
+  setLinkedProject(value: BuilderWorkspaceLinkedProject): Promise<void>;
+  /** The GitHub project this workspace works on, or null for a CloudChef app. */
+  linkedProject(): Promise<BuilderWorkspaceLinkedProject | null>;
   prepareDeployment(revision: string): Promise<BuilderWorkspaceDeploymentPlan>;
   deleteProject(): Promise<void>;
 }

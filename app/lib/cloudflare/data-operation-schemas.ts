@@ -21,6 +21,7 @@ const subchatCursorSchema = z.object({ subchatIndex: subchatIndexSchema }).stric
 
 export const dataOperationArgSchemas = {
   'messages.initializeChat': chatIdentityArgsSchema,
+  'messages.openLinkedChat': chatIdentityArgsSchema.extend({ orgProjectId: z.string().uuid() }),
   'messages.discardEmptyChat': chatIdentityArgsSchema,
   // `subchatIndex` no longer affects the result; it stays accepted so already-deployed
   // workspace runtimes that still send it are not rejected by the strict schema.

@@ -43,6 +43,9 @@ export const BUILDER_TURN_TIMEOUTS = {
     // Reads are one bounded API request; writes only persist an approval proposal. An approved
     // write runs later in its own durable fiber under the client's own deadline.
     cloudflare_request: 90_000,
+    // A commit, then waiting for the repository's pipeline to report the build and its preview link.
+    publish_preview: 8 * 60_000,
+    publish: 8 * 60_000,
   } satisfies Record<ModelToolName, number>,
 } as const;
 

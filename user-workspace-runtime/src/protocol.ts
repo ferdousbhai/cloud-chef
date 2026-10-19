@@ -12,6 +12,19 @@ export const BUILDER_WORKSPACE_SYNC_BATCH_FILES = 100;
 
 export type BuilderWorkspaceEncoding = 'utf8' | 'base64';
 
+/**
+ * A workspace opened from one of an organization's GitHub projects: which project, and the commit it was
+ * opened from, with each file's SHA-256 then, so its changes can be told from what GitHub already has.
+ */
+export type BuilderWorkspaceLinkedProject = {
+  orgProjectId: string;
+  repository: string;
+  defaultBranch: string;
+  baseCommit: string;
+  /** Project-relative paths and SHA-256s of the files at `baseCommit`. */
+  baseManifest: { path: string; sha256: string }[];
+};
+
 export type BuilderWorkspaceFileInput = {
   path: string;
   content: string;

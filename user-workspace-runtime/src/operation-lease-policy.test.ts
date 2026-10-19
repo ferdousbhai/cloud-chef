@@ -38,6 +38,9 @@ describe('operation lease policy', () => {
       // cloudflare_request is sent by the runtime Worker directly and must never take a
       // workspace lane, so it belongs with the other ungoverned tools.
       'cloudflare_request',
+      // GitHub publishing reads the workspace's files and talks to the control plane; it holds no lane.
+      'publish_preview',
+      'publish',
     ]);
   });
 

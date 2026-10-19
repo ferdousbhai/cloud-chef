@@ -17,6 +17,7 @@ import { TextInput } from '@ui/TextInput';
 import { PlusIcon } from '@radix-ui/react-icons';
 import { removeChatHistoryItem, useChatHistory } from '~/lib/cloudflare/chat-history-db';
 import { ProjectTitle } from '~/components/ProjectTitle';
+import { OrgProjectsList } from './OrgProjectsList.client';
 import { Link } from '@tanstack/react-router';
 
 const menuVariants = {
@@ -160,6 +161,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
             />
           </div>
         </div>
+        <OrgProjectsList userId={accountUserId} onNavigate={onClose} />
         <div className="flex items-baseline justify-between gap-3 px-4 pb-2 pt-1">
           <h2 className="text-xs font-black tracking-widest text-content-secondary uppercase">Projects</h2>
           <span className="text-xs tabular-nums text-content-tertiary">

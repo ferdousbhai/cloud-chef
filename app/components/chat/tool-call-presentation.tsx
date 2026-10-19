@@ -24,6 +24,8 @@ const STOPPED_TOOL_TITLES = new Map<string, string>([
   ['validate', 'Validation stopped'],
   ['search_cloudflare_docs', 'Cloudflare docs search stopped'],
   ['cloudflare_request', 'Cloudflare API request stopped'],
+  ['publish_preview', 'GitHub preview stopped'],
+  ['publish', 'Publishing stopped'],
 ]);
 
 const cloudflareRequestMethodSchema = cloudflareApiRequestDisplaySchema.pick({ method: true });
@@ -124,6 +126,16 @@ export function toolTitle(invocation: CloudChefToolInvocation, status: ToolActiv
             <Pencil1Icon className="text-content-secondary" />,
           );
     }
+    case 'publish_preview':
+      return titleRow(
+        status === 'running' ? 'Sending a preview to GitHub' : 'Sent a preview to GitHub',
+        <CheckIcon className="text-content-secondary" />,
+      );
+    case 'publish':
+      return titleRow(
+        status === 'running' ? 'Publishing to GitHub' : 'Published to GitHub',
+        <CheckIcon className="text-content-secondary" />,
+      );
     default:
       return invocation.toolName;
   }

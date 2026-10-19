@@ -28,6 +28,7 @@ type DataOperationResults = {
   'messages.get': ChatSummary | null;
   'messages.getAll': DataPage<ChatHistorySummary, ChatHistoryCursor>;
   'messages.initializeChat': { created: boolean };
+  'messages.openLinkedChat': { initialId: string; created: boolean };
   'messages.discardEmptyChat': null;
   'messages.remove': { kind: 'success' };
   'messages.setDescription': null;
@@ -46,6 +47,7 @@ export const api = {
     get: 'messages.get',
     getAll: 'messages.getAll',
     initializeChat: 'messages.initializeChat',
+    openLinkedChat: 'messages.openLinkedChat',
     discardEmptyChat: 'messages.discardEmptyChat',
     remove: 'messages.remove',
     setDescription: 'messages.setDescription',

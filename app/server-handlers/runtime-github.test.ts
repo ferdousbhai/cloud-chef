@@ -13,8 +13,10 @@ const BASE = 'a'.repeat(40);
 const MAIN_HEAD = 'b'.repeat(40);
 
 /** A tar archive (ustar), gzipped the way GitHub serves a commit: everything under one top directory. */
-async function gzippedTarball(files: { path: string; content: string; mode?: number }[]): Promise<Uint8Array> {
-  const blocks: Uint8Array[] = [];
+async function gzippedTarball(
+  files: { path: string; content: string; mode?: number }[],
+): Promise<Uint8Array<ArrayBuffer>> {
+  const blocks: Uint8Array<ArrayBuffer>[] = [];
   const encoder = new TextEncoder();
   const header = (name: string, size: number, mode: number, type: string) => {
     const block = new Uint8Array(512);
@@ -47,7 +49,7 @@ async function gzippedTarball(files: { path: string; content: string; mode?: num
 }
 
 /** One repository on GitHub: its default branch, the member branch if pushed, and what was written. */
-function fakeRepository(options: { tarball: Uint8Array; mergeStatus?: number }) {
+function fakeRepository(options: { tarball: Uint8Array<ArrayBuffer>; mergeStatus?: number }) {
   const refs = new Map<string, string>([['main', MAIN_HEAD]]);
   const writes: { method: string; path: string; body: string | null }[] = [];
   let tokenRequest: string | null = null;
@@ -113,7 +115,7 @@ function fakeRepository(options: { tarball: Uint8Array; mergeStatus?: number }) 
 
 const PRIVATE_KEY = { pem: '' };
 
-async function setup(options: { tarball?: Uint8Array; mergeStatus?: number; grant?: boolean } = {}) {
+async function setup(options: { tarball?: Uint8Array<ArrayBuffer>; mergeStatus?: number; grant?: boolean } = {}) {
   const pair = await crypto.subtle.generateKey(
     { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
     true,

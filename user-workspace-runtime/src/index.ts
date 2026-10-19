@@ -15,9 +15,11 @@ import {
   reattachExecution,
   WORKSPACE_RESTART_INDETERMINATE_MESSAGE,
 } from './execution-reattach';
+import { z } from 'zod';
 import { BuilderAgent } from '../../app/agents/builder-agent';
 import { COMPUTER_TOOL_LIMITS } from '../../cloudchef-agent/cloudflare-computer';
 import {
+  type BuilderWorkspaceLinkedProject,
   type BuilderWorkspaceState as WorkspaceState,
   BUILDER_WORKSPACE_MAX_FILE_BYTES,
   BUILDER_WORKSPACE_MAX_FILES,
@@ -163,6 +165,12 @@ interface ScheduledRetryPayload {
 }
 
 const PROJECT_ROOT = WORK_DIR;
+/** The stored file list of a linked project's base commit. */
+const linkedManifestSchema = z.array(z.object({ path: z.string(), sha256: z.string() }));
+/** The scripts a GitHub project's validation runs, when its package.json has them. */
+const LINKED_PROJECT_SCRIPTS = ['typecheck', 'lint', 'test', 'build'] as const;
+const LINKED_PROJECT_SCRIPT_TIMEOUT_MS = 10 * 60_000;
+const linkedPackageSchema = z.looseObject({ scripts: z.record(z.string(), z.string()).optional() });
 const READINESS_ROOT = '/home/.cloudchef-readiness';
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 const MAX_FILE_BYTES = BUILDER_WORKSPACE_MAX_FILE_BYTES;
@@ -399,6 +407,18 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
          acquired_at INTEGER NOT NULL,
          deadline INTEGER NOT NULL,
          status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'failed', 'indeterminate')),
+         updated_at INTEGER NOT NULL
+       )`,
+    );
+    // A workspace opened from an organization's GitHub project: its project and base commit.
+    this.ctx.storage.sql.exec(
+      `CREATE TABLE IF NOT EXISTS cloudchef_linked_project (
+         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+         org_project_id TEXT NOT NULL,
+         repository TEXT NOT NULL,
+         default_branch TEXT NOT NULL,
+         base_commit TEXT NOT NULL,
+         base_manifest_json TEXT NOT NULL,
          updated_at INTEGER NOT NULL
        )`,
     );
@@ -1539,6 +1559,34 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
           reportStage('installing');
           await this.runTransientCommand(isolatedRoot, INSTALL_COMMAND, INSTALL_TIMEOUT_MS, cancellation);
           liveness.observed();
+          if (this.linkedProject()) {
+            // A GitHub project builds and deploys through its own pipeline, so it is validated with its
+            // own scripts rather than CloudChef's template checks.
+            const checks = await this.runLinkedProjectScripts(isolatedRoot, cancellation, reportStage);
+            liveness.observed();
+            const after = await this.checkpoint();
+            if (after.revision !== before.revision) {
+              throw new Error('The project changed while validation was running. Validate the new revision.');
+            }
+            this.ctx.storage.sql.exec(
+              `INSERT INTO cloudchef_validations (revision, workspace_revision, validated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(revision) DO UPDATE SET workspace_revision = excluded.workspace_revision,
+                 validated_at = excluded.validated_at`,
+              after.revision,
+              after.workspaceRevision,
+              Date.now(),
+            );
+            return toolSuccess(`Project validation passed at durable source revision ${after.revision}.`, {
+              level: 'full',
+              revision: after.revision,
+              workspaceRevision: after.workspaceRevision,
+              buildEnvironment: 'cloudflare-computer-container',
+              checks: ['dependency-installation', ...checks].map((name) => ({ name, status: 'passed' as const })),
+              durationMs: Date.now() - startedAt,
+              nextAction: 'publish',
+            });
+          }
           reportStage('typecheck');
           await this.runTransientCommand(
             isolatedRoot,
@@ -1637,6 +1685,37 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         }
       }),
     );
+  }
+
+  /**
+   * The GitHub project's own checks, in the order a developer would run them: whichever of `typecheck`,
+   * `lint`, `test` and `build` its package.json defines. Returns the ones that ran.
+   */
+  private async runLinkedProjectScripts(
+    isolatedRoot: string,
+    cancellation: ValidationCancellation,
+    reportStage: (stage: BuilderValidationStage) => void,
+  ): Promise<string[]> {
+    const manifest = linkedPackageSchema.safeParse(
+      JSON.parse((await this.readText(`${PROJECT_ROOT}/package.json`).catch(() => ({ content: '{}' }))).content),
+    );
+    const scripts = manifest.success ? (manifest.data.scripts ?? {}) : {};
+    const ran: string[] = [];
+    for (const script of LINKED_PROJECT_SCRIPTS) {
+      if (!(script in scripts)) {
+        continue;
+      }
+      reportStage(script === 'typecheck' ? 'typecheck' : script === 'build' ? 'build' : 'lint');
+      await this.runTransientCommand(
+        isolatedRoot,
+        `pnpm run ${script}`,
+        LINKED_PROJECT_SCRIPT_TIMEOUT_MS,
+        cancellation,
+      );
+      cancellation.requireActive();
+      ran.push(script);
+    }
+    return ran;
   }
 
   validationStatus(revision: unknown) {
@@ -1980,6 +2059,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       await this.withComputer((workspace) => workspace.fs.rm(PROJECT_ROOT, { recursive: true, force: true }));
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_validations');
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_prepared_validation');
+      this.ctx.storage.sql.exec('DELETE FROM cloudchef_linked_project');
       this.ctx.storage.sql.exec(
         `UPDATE cloudchef_workspace_state
          SET initialized = 0, seed_id = NULL, reset_revision = ?
@@ -1988,6 +2068,52 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       );
     });
     await this.destroy().catch(() => undefined);
+  }
+
+  setLinkedProject(value: BuilderWorkspaceLinkedProject): void {
+    if (!/^[0-9a-f]{40}$/.test(value.baseCommit) || value.baseManifest.length > BUILDER_WORKSPACE_MAX_FILES) {
+      throw new Error('Linked project state is invalid.');
+    }
+    this.ctx.storage.sql.exec(
+      `INSERT INTO cloudchef_linked_project
+         (singleton, org_project_id, repository, default_branch, base_commit, base_manifest_json, updated_at)
+       VALUES (1, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(singleton) DO UPDATE SET org_project_id = excluded.org_project_id,
+         repository = excluded.repository, default_branch = excluded.default_branch,
+         base_commit = excluded.base_commit, base_manifest_json = excluded.base_manifest_json,
+         updated_at = excluded.updated_at`,
+      value.orgProjectId,
+      value.repository,
+      value.defaultBranch,
+      value.baseCommit,
+      JSON.stringify(value.baseManifest),
+      Date.now(),
+    );
+  }
+
+  linkedProject(): BuilderWorkspaceLinkedProject | null {
+    const row = first(
+      this.ctx.storage.sql.exec<{
+        org_project_id: string;
+        repository: string;
+        default_branch: string;
+        base_commit: string;
+        base_manifest_json: string;
+      }>(
+        `SELECT org_project_id, repository, default_branch, base_commit, base_manifest_json
+         FROM cloudchef_linked_project WHERE singleton = 1`,
+      ),
+    );
+    if (!row) {
+      return null;
+    }
+    return {
+      orgProjectId: row.org_project_id,
+      repository: row.repository,
+      defaultBranch: row.default_branch,
+      baseCommit: row.base_commit,
+      baseManifest: linkedManifestSchema.parse(JSON.parse(row.base_manifest_json)),
+    };
   }
 
   private async readCloudflareProjectFile(): Promise<{ content: string }> {

@@ -1,6 +1,10 @@
 import type { AbsolutePath } from './utils/workDir.js';
 import type { Tool } from './tool.js';
-import type { AlwaysAvailableModelToolName, CloudflareApiModelToolName } from './model-tool-inputs.js';
+import type {
+  AlwaysAvailableModelToolName,
+  CloudflareApiModelToolName,
+  LinkedProjectModelToolName,
+} from './model-tool-inputs.js';
 
 export interface EditorDocument {
   value: string;
@@ -25,7 +29,7 @@ interface Folder {
 }
 
 export type CloudChefToolSet = Record<AlwaysAvailableModelToolName, Tool> &
-  Partial<Record<CloudflareApiModelToolName, Tool>>;
+  Partial<Record<CloudflareApiModelToolName | LinkedProjectModelToolName, Tool>>;
 
 export type Dirent = File | Folder;
 

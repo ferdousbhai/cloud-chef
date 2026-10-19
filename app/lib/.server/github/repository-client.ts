@@ -18,10 +18,10 @@ const checkRunsSchema = z.looseObject({
 });
 
 /** One file in a commit: new or changed content, or `null` content to delete it. */
-export type CommitChange = { path: string; contentBase64: string | null; executable: boolean };
+type CommitChange = { path: string; contentBase64: string | null; executable: boolean };
 
 /** What a repository's pipeline reported for a commit, read from its check runs. */
-export type BuildStatus = {
+type BuildStatus = {
   state: 'pending' | 'success' | 'failure' | 'none';
   /** The first workers.dev or https link a check run reported: Workers Builds' preview, typically. */
   previewUrl: string | null;
@@ -29,7 +29,7 @@ export type BuildStatus = {
 };
 
 /** The outcome of merging a branch into another. */
-export type MergeOutcome = { status: 'merged'; sha: string } | { status: 'up_to_date' } | { status: 'conflict' };
+type MergeOutcome = { status: 'merged'; sha: string } | { status: 'up_to_date' } | { status: 'conflict' };
 
 /**
  * One repository, through a token limited to it. GitHub stays the source of truth: CloudChef reads a

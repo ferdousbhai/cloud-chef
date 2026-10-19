@@ -10,7 +10,7 @@ import { MAX_SUBCHAT_INDEX } from './data-pagination';
 import type { DataOperationPath, DataOperationResult } from './data-api';
 import { dataOperationArgSchemas } from './data-operation-schemas';
 import { getSessionId, UnauthorizedError } from './data/auth.server';
-import { findChat, requireChat } from './data/chat-repository.server';
+import { findChat, openLinkedChat, requireChat } from './data/chat-repository.server';
 import {
   createSubchat,
   discardEmptyChat,
@@ -134,6 +134,8 @@ function runKnownDataOperation(
   switch (path) {
     case 'messages.initializeChat':
       return initializeChat(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
+    case 'messages.openLinkedChat':
+      return openLinkedChat(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
     case 'messages.discardEmptyChat':
       return discardEmptyChat(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
     case 'messages.get':

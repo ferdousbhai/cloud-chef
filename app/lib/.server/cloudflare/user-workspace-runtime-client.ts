@@ -26,6 +26,7 @@ import {
 import type {
   BuilderWorkspaceApplyResult,
   BuilderWorkspaceFileInput,
+  BuilderWorkspaceLinkedProject,
   BuilderWorkspaceSeedStartResult,
   BuilderWorkspaceState,
   BuilderWorkspaceSyncPage,
@@ -593,6 +594,14 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       }
       throw error;
     }
+  }
+
+  async setLinkedProject(value: BuilderWorkspaceLinkedProject): Promise<void> {
+    await (await this.#stub()).setLinkedProject(value);
+  }
+
+  async linkedProject(): Promise<BuilderWorkspaceLinkedProject | null> {
+    return (await this.#stub()).linkedProject();
   }
 
   hasSuccessfulValidation(revision: string): Promise<boolean> {

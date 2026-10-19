@@ -73,6 +73,24 @@ export async function loadBuilderTranscriptBinding(
     : null;
 }
 
+/** The organization GitHub project a transcript's chat works on, or null for a CloudChef app. */
+export async function loadChatOrgProject(
+  db: D1Database,
+  args: { agentName: string; ownerId: string },
+): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT chats.org_project_id
+       FROM chat_transcripts AS transcripts
+       INNER JOIN chats ON chats.id = transcripts.chat_id
+       WHERE transcripts.agent_name = ? AND chats.creator_id = ? AND chats.is_deleted = 0
+       LIMIT 1`,
+    )
+    .bind(args.agentName, args.ownerId)
+    .first<{ org_project_id: string | null }>();
+  return row?.org_project_id ?? null;
+}
+
 /** The chat request fields the builder scope check reads. Every one arrives unvalidated from the client. */
 type BuilderChatRequestBody = {
   chatInitialId?: unknown;

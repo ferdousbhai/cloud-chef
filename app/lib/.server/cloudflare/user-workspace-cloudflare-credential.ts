@@ -122,10 +122,16 @@ export async function organizationModelAccess(
   return { allowed: true, report: (usage) => reportUserWorkspaceModelUsage(env, identity, usage) };
 }
 
-function runtimeCredentialEndpoint(
-  value: string,
-  route: 'runtime-credential' | 'runtime-usage' | 'runtime-access' = 'runtime-credential',
-): URL {
+/** The control plane's runtime-facing routes, authenticated with the runtime's own secret. */
+type RuntimeRoute =
+  | 'runtime-credential'
+  | 'runtime-usage'
+  | 'runtime-access'
+  | 'runtime-github/snapshot'
+  | 'runtime-github/commit'
+  | 'runtime-github/status';
+
+export function runtimeCredentialEndpoint(value: string, route: RuntimeRoute = 'runtime-credential'): URL {
   let endpoint: URL;
   try {
     endpoint = new URL(`/api/cloudflare/${route}`, value);

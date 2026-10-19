@@ -24,13 +24,21 @@ export type WorkspaceReadOnlyToolName = (typeof WORKSPACE_READ_ONLY_TOOL_NAMES)[
 export const CLOUDFLARE_API_MODEL_TOOL_NAMES = ['cloudflare_request'] as const;
 export type CloudflareApiModelToolName = (typeof CLOUDFLARE_API_MODEL_TOOL_NAMES)[number];
 
+/** Tools for a workspace opened from an organization's GitHub project: changes go back to GitHub. */
+export const LINKED_PROJECT_MODEL_TOOL_NAMES = ['publish_preview', 'publish'] as const;
+export type LinkedProjectModelToolName = (typeof LINKED_PROJECT_MODEL_TOOL_NAMES)[number];
+
 export const MODEL_TOOL_NAMES = [
   ...WORKSPACE_TOOL_NAMES,
   'search_cloudflare_docs',
   ...CLOUDFLARE_API_MODEL_TOOL_NAMES,
+  ...LINKED_PROJECT_MODEL_TOOL_NAMES,
 ] as const;
 export type ModelToolName = (typeof MODEL_TOOL_NAMES)[number];
-export type AlwaysAvailableModelToolName = Exclude<ModelToolName, CloudflareApiModelToolName>;
+export type AlwaysAvailableModelToolName = Exclude<
+  ModelToolName,
+  CloudflareApiModelToolName | LinkedProjectModelToolName
+>;
 
 export function isWorkspaceReadOnlyToolName(name: string): name is WorkspaceReadOnlyToolName {
   return (WORKSPACE_READ_ONLY_TOOL_NAMES as readonly string[]).includes(name);
@@ -64,4 +72,18 @@ export const MODEL_TOOL_INPUT_SCHEMAS = {
   // The model passes `cf <command> --dry-run` output through unchanged. The account is fixed by the
   // connection, so a URL naming any other account is rejected before a credential is resolved.
   cloudflare_request: cloudflareApiRequestInputSchema,
+  publish_preview: z.object({
+    message: z
+      .string()
+      .min(1)
+      .max(500)
+      .describe('A short commit message saying what changed, for the project history.'),
+  }),
+  publish: z.object({
+    message: z
+      .string()
+      .min(1)
+      .max(500)
+      .describe('A short commit message saying what changed, for the project history.'),
+  }),
 } as const satisfies Record<ModelToolName, ZodType>;

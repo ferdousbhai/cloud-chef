@@ -77,6 +77,7 @@ import { logProviderFailure } from './provider-error-logging';
 import { ProviderStopError, providerStopDiagnosticCode } from './provider-stop-error';
 import type { PiSteeringQueue } from './pi-steering';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
+import type { LinkedProjectModelToolContext } from './linked-project-model-tools';
 
 type Messages = CloudChefMessage[];
 type UIMessageChunk = PiStreamChunk;
@@ -107,6 +108,8 @@ interface PiAgentOptions {
   sessionAffinity: string;
   workspace: BuilderWorkspaceApi;
   cloudflareApi?: CloudflareApiModelToolContext;
+  /** Set when the workspace is one of an organization's GitHub projects. */
+  linkedProject?: LinkedProjectModelToolContext;
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
   steering: PiSteeringQueue;
@@ -183,6 +186,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     sessionAffinity,
     workspace,
     cloudflareApi,
+    linkedProject,
     onValidationStage,
     runWithKeepAlive,
     steering,
@@ -222,6 +226,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
         { onValidationStage, runWithKeepAlive },
         skillContext.reader,
         cloudflareApi,
+        linkedProject,
       ),
     };
   });
@@ -253,7 +258,9 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     }),
   );
 
-  const validatedBuildCompletion = getValidatedBuildCompletion(messages);
+  // A CloudChef app previews and deploys itself once validated, so validation ends the turn; a GitHub
+  // project goes on to publish_preview, which the model calls after validating.
+  const validatedBuildCompletion = linkedProject ? undefined : getValidatedBuildCompletion(messages);
   if (validatedBuildCompletion && !steering.hasPending()) {
     logger.info('Returning validated build completion without another model turn (pi)');
     steering.close();
@@ -269,7 +276,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     return createValidatedBuildCompletionStream(validatedBuildCompletion);
   }
 
-  const instructions = systemPrompt(skillContext.prompt);
+  const instructions = systemPrompt(skillContext.prompt, linkedProject);
   const modelInput = await withPreparationStage('model_input', () =>
     prepareModelInput({
       messages,
@@ -589,7 +596,8 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
           if (turn.message.stopReason === 'error' || turn.message.stopReason === 'aborted') {
             return undefined;
           }
-          return turnInterrupted() || (currentValidatedBuildCompletion !== undefined && !steering.hasPending())
+          return turnInterrupted() ||
+            (currentValidatedBuildCompletion !== undefined && !linkedProject && !steering.hasPending())
             ? { action: 'end' }
             : undefined;
         },

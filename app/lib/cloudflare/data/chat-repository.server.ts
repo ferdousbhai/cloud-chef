@@ -15,7 +15,7 @@ const CHAT_COLUMNS =
  */
 export async function ensureInitialChat(
   db: D1Database,
-  args: { id: string; creatorId: string; initialId: string },
+  args: { id: string; creatorId: string; initialId: string; orgProjectId?: string },
 ): Promise<ChatRow & { created: boolean }> {
   const createdAt = Date.now();
   const results = await db.batch([
@@ -57,13 +57,21 @@ export async function ensureInitialChat(
     db
       .prepare(
         `INSERT INTO chats (
-          id, creator_id, initial_id, description, timestamp, last_subchat_index, has_messages, is_deleted
+          id, creator_id, initial_id, description, timestamp, last_subchat_index, has_messages, is_deleted,
+          org_project_id
         )
-        SELECT ?, ?, ?, NULL, ?, 0, 0, 0
+        SELECT ?, ?, ?, NULL, ?, 0, 0, 0, ?
         WHERE NOT EXISTS (SELECT 1 FROM chats WHERE initial_id = ?)
         ON CONFLICT DO NOTHING`,
       )
-      .bind(args.id, args.creatorId, args.initialId, new Date().toISOString(), args.initialId),
+      .bind(
+        args.id,
+        args.creatorId,
+        args.initialId,
+        new Date().toISOString(),
+        args.orgProjectId ?? null,
+        args.initialId,
+      ),
     db
       .prepare(
         `INSERT INTO chat_transcripts (
@@ -92,6 +100,44 @@ export async function ensureInitialChat(
   }
   // A revived chat is empty again, so a second failed submission must still be able to discard it.
   return { ...chat, created: results[0].meta.changes > 0 || results[3].meta.changes > 0 };
+}
+
+/**
+ * The chat working on an organization's GitHub project, created the first time it's opened. The project
+ * is set before the chat is ever opened, because its workspace is seeded the moment its agent starts.
+ */
+export async function openLinkedChat(
+  db: D1Database,
+  args: { sessionId: string; id: string; orgProjectId: string },
+): Promise<{ initialId: string; created: boolean }> {
+  const existing = await findLinkedChat(db, args);
+  if (existing) {
+    return { initialId: existing, created: false };
+  }
+  try {
+    const chat = await ensureInitialChat(db, {
+      id: crypto.randomUUID(),
+      creatorId: args.sessionId,
+      initialId: args.id,
+      orgProjectId: args.orgProjectId,
+    });
+    return { initialId: chat.initial_id, created: chat.created };
+  } catch (error) {
+    // Opened in two tabs at once: the other one's chat won the unique index.
+    const raced = error instanceof DataNotFoundError ? await findLinkedChat(db, args) : null;
+    if (raced) {
+      return { initialId: raced, created: false };
+    }
+    throw error;
+  }
+}
+
+async function findLinkedChat(db: D1Database, args: { sessionId: string; orgProjectId: string }) {
+  const row = await db
+    .prepare('SELECT initial_id FROM chats WHERE creator_id = ? AND org_project_id = ? AND is_deleted = 0 LIMIT 1')
+    .bind(args.sessionId, args.orgProjectId)
+    .first<{ initial_id: string }>();
+  return row?.initial_id ?? null;
 }
 
 export function findChat(db: D1Database, args: { id: string; sessionId: string }): Promise<ChatRow | null> {

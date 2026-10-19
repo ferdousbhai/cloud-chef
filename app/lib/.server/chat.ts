@@ -13,6 +13,7 @@ import type { WorkersAiModel, WorkersAiModelId } from '~/lib/workers-ai-model';
 import type { PiSteeringQueue } from './llm/pi-steering';
 import type { BuilderTurnBudgetReport } from './llm/builder-turn-budget';
 import type { CloudflareApiModelToolContext } from './llm/cloudflare-api-model-tools';
+import type { LinkedProjectModelToolContext } from './llm/linked-project-model-tools';
 import type { ModelTurnUsage } from './llm/workers-ai-telemetry';
 
 type Messages = CloudChefMessage[];
@@ -35,6 +36,7 @@ export async function createChatResponseFromBody({
   sessionAffinity,
   workspace,
   cloudflareApi,
+  linkedProject,
   onValidationStage,
   runWithKeepAlive,
   steering,
@@ -57,6 +59,7 @@ export async function createChatResponseFromBody({
   sessionAffinity: string;
   workspace: BuilderWorkspaceApi;
   cloudflareApi?: CloudflareApiModelToolContext;
+  linkedProject?: LinkedProjectModelToolContext;
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
   steering: PiSteeringQueue;
@@ -83,6 +86,7 @@ export async function createChatResponseFromBody({
       sessionAffinity,
       workspace,
       cloudflareApi,
+      linkedProject,
       onValidationStage,
       runWithKeepAlive,
       steering,
