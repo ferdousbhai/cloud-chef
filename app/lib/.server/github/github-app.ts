@@ -91,6 +91,16 @@ export class GitHubApp {
     );
   }
 
+  /** A repository the GitHub user behind `userToken` can see, by `owner/name`, or null. */
+  async findRepository(userToken: string, fullName: string): Promise<GitHubRepository | null> {
+    const response = await fetchGitHub(this.request, `/repos/${fullName}`, userToken);
+    if (!response.ok) {
+      await response.body?.cancel();
+      return null;
+    }
+    return gitHubRepositorySchema.parse(await response.json());
+  }
+
   /**
    * Adds a repository to an installation limited to selected repositories. An installation covering all
    * of the account's repositories already includes it, and GitHub refuses the call then: not an error.

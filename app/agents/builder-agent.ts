@@ -1284,8 +1284,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const sha = input.live ? (result.published ?? result.commit) : result.commit;
     if (input.live && result.published) {
-      // What went live is the new base: later changes are measured from it and merge on top of it.
-      await this.workspace.setLinkedProject({ ...linked, baseCommit: result.published, baseManifest: manifest });
+      // The commit that went live becomes the base: its tree is exactly this workspace, so later changes
+      // are measured from it, and merging them keeps whatever else the default branch gained meanwhile.
+      await this.workspace.setLinkedProject({ ...linked, baseCommit: result.commit, baseManifest: manifest });
     }
     const build = await this.waitForLinkedBuild(identity, linked.orgProjectId, sha, options.abortSignal);
     const where = input.live ? `merged into ${linked.defaultBranch}` : `on the branch ${result.branch}`;

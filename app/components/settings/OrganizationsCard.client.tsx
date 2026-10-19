@@ -71,6 +71,18 @@ export function OrganizationsCard() {
   // Why a fresh sign-in is needed first (creating or connecting an organization asks for a recent one).
   const [signInReason, setSignInReason] = useState<string | null>(null);
   const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
+  // What a return from GitHub (approving a production request) has to say, shown once.
+  const [githubMessage, setGitHubMessage] = useState<string | null>(null);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const message = url.searchParams.get('github_message');
+    if (message) {
+      setGitHubMessage(message);
+      url.searchParams.delete('github_message');
+      url.searchParams.delete('promoted');
+      window.history.replaceState(null, '', url);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     const response = await fetch('/api/organizations', { credentials: 'same-origin' });
@@ -123,6 +135,11 @@ export function OrganizationsCard() {
       {error ? (
         <p className="mt-3 text-sm text-bolt-elements-icon-error" role="alert">
           {error}
+        </p>
+      ) : null}
+      {githubMessage ? (
+        <p className="mt-3 text-sm text-content-secondary" role="status">
+          {githubMessage}
         </p>
       ) : null}
       {signInReason ? (

@@ -84,12 +84,18 @@ export async function commitLinkedProject(
   },
 ): Promise<LinkedCommitResult> {
   const response = await post(env, 'runtime-github/commit', { ...pick(identity), ...body }, COMMIT_TIMEOUT_MS);
-  if (!response.ok && response.status !== 409) {
-    throw new Error(await failureMessage(response, 'CloudChef could not commit to GitHub.'));
+  const payload = await readJsonBodyWithLimit(
+    response,
+    MAX_JSON_RESPONSE_BYTES,
+    'Linked project commit response',
+  ).catch(() => null);
+  const result = commitResultSchema.safeParse(payload);
+  // A 409 is a result only when it's an overlap with newer work; anything else is a refusal to explain.
+  if (result.success && (response.ok || (response.status === 409 && result.data.code === 'merge_conflict'))) {
+    return result.data;
   }
-  return commitResultSchema.parse(
-    await readJsonBodyWithLimit(response, MAX_JSON_RESPONSE_BYTES, 'Linked project commit response'),
-  );
+  const refused = errorSchema.safeParse(payload);
+  throw new Error(refused.success ? refused.data.error : 'CloudChef could not commit to GitHub.');
 }
 
 /** What the repository's pipeline reports for a commit so far. */

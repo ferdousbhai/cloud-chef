@@ -36,7 +36,7 @@ const DRAFT_FILES = [
 ];
 
 /** GitHub as the approval sees it: the admin `ada`, a new repository, and what CloudChef wrote to it. */
-async function fakeGitHub() {
+async function fakeGitHub(options: { appCannotReach?: boolean } = {}) {
   const pair = await crypto.subtle.generateKey(
     { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
     true,
@@ -62,6 +62,9 @@ async function fakeGitHub() {
     }
     if (url.pathname === '/user/installations/9/repositories/77') {
       return new Response(null, { status: 204 });
+    }
+    if (url.pathname === '/app/installations/9/access_tokens' && options.appCannotReach) {
+      return new Response('repository not in installation', { status: 422 });
     }
     if (url.pathname === '/app/installations/9/access_tokens') {
       return Response.json({ token: 'repo-token', expires_at: 'soon' }, { status: 201 });
@@ -98,7 +101,7 @@ async function fakeGitHub() {
   return { app, calls };
 }
 
-async function setup() {
+async function setup(options: { appCannotReach?: boolean } = {}) {
   const { database, db } = controlPlaneDatabase();
   const env = envWith({ DB: db });
   const signIn = async (email: string) => {
@@ -126,7 +129,7 @@ async function setup() {
        VALUES (?, ?, ?, 'Recipe box', 'For the family', 'https://draft.example.workers.dev', ?, 2, 'pending', 1)`,
     )
     .run(REQUEST, ORG, sara.userId, await gzipBase64(JSON.stringify(DRAFT_FILES)));
-  return { database, env, admin, sara, ...(await fakeGitHub()) };
+  return { database, env, admin, sara, ...(await fakeGitHub(options)) };
 }
 
 function post(cookie: string, path: string, body: Record<string, string | boolean>): Request {
@@ -162,7 +165,9 @@ describe('production requests', () => {
       app,
     });
     expect(returned.status).toBe(303);
-    expect(returned.headers.get('Location')).toContain('/settings?promoted=');
+    expect(new URL(returned.headers.get('Location') ?? '').searchParams.get('github_message')).toBe(
+      'Recipe box is now ada/new-app.',
+    );
 
     // The repository was created in the admin's account, and the draft is its first commit.
     expect(JSON.parse(calls.find((call) => call.path === '/user/repos')?.body ?? '{}')).toEqual({
@@ -193,6 +198,34 @@ describe('production requests', () => {
       .object({ organizations: z.array(z.object({ ownRequests: z.array(z.object({ status: z.string() })) })) })
       .parse(await listed.json());
     expect(view.organizations[0].ownRequests).toEqual([expect.objectContaining({ status: 'approved' })]);
+  });
+
+  it("hands the request back, saying what to do, when CloudChef's App can't reach the new repository", async () => {
+    const { database, env, admin, app } = await setup({ appCannotReach: true });
+    const started = await approveProductionRequestAction({
+      request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+        orgId: ORG,
+        requestId: REQUEST,
+        repoName: 'new-app',
+        private: true,
+      }),
+      env,
+      app,
+    });
+    const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+    const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+    const returned = await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+      }),
+      env,
+      app,
+    });
+    expect(new URL(returned.headers.get('Location') ?? '').searchParams.get('github_message')).toContain(
+      "CloudChef's GitHub App can't reach it",
+    );
+    expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'pending' });
+    expect(database.prepare('SELECT COUNT(*) AS n FROM org_projects').get()).toEqual({ n: 0 });
   });
 
   it('lets only an admin decide, and only once', async () => {

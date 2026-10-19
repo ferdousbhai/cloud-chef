@@ -249,6 +249,18 @@ async function completeProductionApproval(args: {
 }): Promise<Response> {
   const { request, env, app } = args;
   const url = new URL(request.url);
+  // This is a browser coming back from GitHub: every outcome returns to Settings, which says what happened.
+  const back = (message: string | null, promoted?: string) => {
+    const location = new URL('/settings', url.origin);
+    if (message) {
+      location.searchParams.set('github_message', message);
+    }
+    if (promoted) {
+      location.searchParams.set('promoted', promoted);
+    }
+    location.hash = 'organizations';
+    return redirectClearing(location, request, APPROVAL_COOKIE);
+  };
   const now = Date.now();
   const pending = await env.DB.prepare(
     `UPDATE github_approval_states SET used_at = ?
@@ -258,9 +270,8 @@ async function completeProductionApproval(args: {
     .bind(now, args.state, now)
     .first<{ request_id: string; user_id: string; repo_name: string; private: number }>();
   const code = url.searchParams.get('code');
-  const settings = new URL('/settings#organizations', url.origin);
   if (!pending || !app || !code) {
-    return redirectClearing(settings, request, APPROVAL_COOKIE);
+    return back(pending && app ? 'GitHub authorization was cancelled.' : null);
   }
   const owner = await env.DB.prepare('SELECT org_id FROM production_requests WHERE id = ?')
     .bind(pending.request_id)
@@ -268,39 +279,62 @@ async function completeProductionApproval(args: {
   const session = await getAuthSession(env, request);
   const membership = session && owner ? await findMembership(env.DB, owner.org_id, session.user.id) : null;
   if (!owner || session?.user.id !== pending.user_id || membership?.role !== 'admin' || membership.pausedAt !== null) {
-    return Response.json({ error: 'Only the admin who started the approval can finish it.' }, { status: 403 });
+    return back('Only the admin who started the approval can finish it.');
   }
   const productionRequest = await findPendingProductionRequest(env.DB, owner.org_id, pending.request_id);
   const installation = await findGitHubInstallation(env.DB, owner.org_id);
   if (!productionRequest || !installation) {
-    return redirectClearing(settings, request, APPROVAL_COOKIE);
+    return back('That request was already decided, or GitHub is no longer connected.');
   }
   // One approval at a time: two admins approving together must not create two repositories.
   if (!(await claimProductionRequest(env.DB, productionRequest.id))) {
-    return Response.json({ error: 'Another admin is already approving that request.' }, { status: 409 });
+    return back('Another admin is already approving that request.');
   }
+  const fail = async (message: string) => {
+    await releaseProductionRequest(env.DB, productionRequest.id);
+    return back(message);
+  };
   try {
     const userToken = await app.userToken(code);
     const login = await app.userLogin(userToken);
     if (installation.accountType === 'User' && login !== installation.accountLogin) {
-      await releaseProductionRequest(env.DB, productionRequest.id);
-      return Response.json(
-        { error: `Sign in to GitHub as ${installation.accountLogin} to create the repository there.` },
-        { status: 403 },
+      return await fail(`Sign in to GitHub as ${installation.accountLogin} to create the repository there.`);
+    }
+    const repoOwner = installation.accountType === 'Organization' ? installation.accountLogin : null;
+    const fullName = `${installation.accountLogin}/${pending.repo_name}`;
+    const created = await app
+      .createRepository(userToken, {
+        owner: repoOwner,
+        name: pending.repo_name,
+        private: pending.private === 1,
+        description: productionRequest.title,
+      })
+      .catch((error: GitHubError | Error) => {
+        if (error instanceof GitHubError && error.status === 422) {
+          return null;
+        }
+        throw error;
+      });
+    // Taken already: an approval that created it and then couldn't reach it, retried after the admin gave
+    // the App access. Such a repository holds only GitHub's first commit; any other is refused below.
+    const repository = created ?? (await app.findRepository(userToken, fullName));
+    if (!repository) {
+      return await fail(`GitHub refused the repository name ${pending.repo_name}. Approve again with another.`);
+    }
+    await app.addRepositoryToInstallation(userToken, installation.installationId, repository.id);
+    const client = await app
+      .repository(
+        installation.installationId,
+        { id: repository.id, fullName: repository.full_name },
+        { contents: 'write' },
+      )
+      .catch(() => null);
+    if (!client) {
+      return await fail(
+        `${repository.full_name} is on GitHub, but CloudChef's GitHub App can't reach it. On GitHub, add it to the ` +
+          "App's repository access (your settings, Applications, Configure), then approve again with the same name.",
       );
     }
-    const repository = await app.createRepository(userToken, {
-      owner: installation.accountType === 'Organization' ? installation.accountLogin : null,
-      name: pending.repo_name,
-      private: pending.private === 1,
-      description: productionRequest.title,
-    });
-    await app.addRepositoryToInstallation(userToken, installation.installationId, repository.id);
-    const client = await app.repository(
-      installation.installationId,
-      { id: repository.id, fullName: repository.full_name },
-      { contents: 'write' },
-    );
     // The README commit GitHub makes for a new repository can take a moment to appear.
     let head: string | null = null;
     for (let attempt = 0; attempt < 5 && !head; attempt += 1) {
@@ -310,11 +344,10 @@ async function completeProductionApproval(args: {
       }
     }
     if (!head) {
-      await releaseProductionRequest(env.DB, productionRequest.id);
-      return Response.json(
-        { error: 'GitHub created the repository but not its first branch. Try again.' },
-        { status: 502 },
-      );
+      return await fail('GitHub created the repository but not its first branch yet. Approve again in a minute.');
+    }
+    if (!created && (await client.commitCount(repository.default_branch)) > 1) {
+      return await fail(`A repository named ${pending.repo_name} already exists. Approve again with another name.`);
     }
     await client.commit({
       branch: repository.default_branch,
@@ -332,21 +365,12 @@ async function completeProductionApproval(args: {
       name: productionRequest.title,
       repository: { id: repository.id, fullName: repository.full_name, defaultBranch: repository.default_branch },
     });
-    const done = new URL(`/settings?promoted=${encodeURIComponent(projectId)}#organizations`, url.origin);
-    return redirectClearing(done, request, APPROVAL_COOKIE);
+    return back(`${productionRequest.title} is now ${repository.full_name}.`, projectId);
   } catch (error) {
-    await releaseProductionRequest(env.DB, productionRequest.id);
     if (error instanceof GitHubError) {
-      return Response.json(
-        {
-          error:
-            error.status === 422
-              ? `GitHub refused the repository name ${pending.repo_name}: it may already exist. Approve again with another.`
-              : error.message,
-        },
-        { status: error.status >= 500 ? 502 : 400 },
-      );
+      return await fail(error.message);
     }
+    await releaseProductionRequest(env.DB, productionRequest.id);
     throw error;
   }
 }

@@ -113,6 +113,15 @@ export class RepositoryClient {
     return commit.sha;
   }
 
+  /** How many commits a branch has, counting up to `limit`. */
+  async commitCount(branch: string, limit = 2): Promise<number> {
+    const commits = await this.call(
+      `/commits?sha=${encodeURIComponent(branch)}&per_page=${limit}`,
+      z.array(z.looseObject({ sha: z.string() })),
+    );
+    return commits.length;
+  }
+
   /** Merges `head` into `base` on GitHub. */
   async merge(base: string, head: string, message: string): Promise<MergeOutcome> {
     const response = await fetchGitHub(this.request, `${this.path}/merges`, this.token, {
