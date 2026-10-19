@@ -258,8 +258,13 @@ overrides:
   'nanoid@<3.3.18': '3.3.18'
   'postcss@<=8.5.22': '8.5.25'
   'qs@<6.16.0': '6.16.0'
-  'smol-toml@<1.7.1': '1.8.0'
-  'sharp@<0.35.4': '0.35.4'
+  'postcss-selector-parser@<7.1.6': '7.1.6'
+  'proxy-addr@>=1.1.0 <2.0.8': '2.0.8'
+  '@modelcontextprotocol/client@>=2.0.0 <2.2.0': '2.2.0'
+  '@modelcontextprotocol/sdk@>=1.12.0 <1.31.0': '1.31.0'
+  'source-map-js@>=1.0.0 <1.2.2': '1.2.2'
+  'smol-toml@<1.8.1': '1.9.1'
+  'sharp@<0.35.5': '0.35.5'
   'undici@>=7.0.0 <7.29.1': '7.29.1'
 `;
     expect(findBuildApprovalErrors(reviewed, 'pnpm-workspace.yaml')).toEqual([]);
@@ -285,8 +290,8 @@ overrides:
         'pnpm-workspace.yaml overrides must pin nanoid@<3.3.18 to 3.3.18.',
         'pnpm-workspace.yaml overrides must pin postcss@<=8.5.22 to 8.5.25.',
         'pnpm-workspace.yaml overrides must pin qs@<6.16.0 to 6.16.0.',
-        'pnpm-workspace.yaml overrides must pin smol-toml@<1.7.1 to 1.8.0.',
-        'pnpm-workspace.yaml overrides must pin sharp@<0.35.4 to 0.35.4.',
+        'pnpm-workspace.yaml overrides must pin smol-toml@<1.8.1 to 1.9.1.',
+        'pnpm-workspace.yaml overrides must pin sharp@<0.35.5 to 0.35.5.',
         'pnpm-workspace.yaml overrides must pin undici@>=7.0.0 <7.29.1 to 7.29.1.',
       ]),
     );

@@ -7,8 +7,8 @@ A package whose package-level evidence is <not published> remains exact-version 
 This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
-Production packages: 680
-Inventory SHA-256: 9d8e5e1cab7dada3f633d6da90ac4926ef55959183ec1e9fb82337b8b72bc176
+Production packages: 677
+Inventory SHA-256: 54b0a7315ce31bdeaba5cf82ce178cec90820a1e86961b1f481288e28d124e19
 
 PACKAGE INVENTORY
 =================
@@ -246,15 +246,6 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b)
 
-@babel/code-frame@7.27.1
-Declared license: MIT
-Author: The Babel Team (https://babel.dev/team)
-Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-code-frame"}
-Homepage: https://babel.dev/docs/en/next/babel-code-frame
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
-
 @babel/code-frame@7.29.7
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
@@ -305,15 +296,6 @@ Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-core"}
 Homepage: https://babel.dev/docs/en/next/babel-core
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
-
-@babel/generator@7.29.7
-Declared license: MIT
-Author: The Babel Team (https://babel.dev/team)
-Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-generator"}
-Homepage: https://babel.dev/docs/en/next/babel-generator
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
@@ -525,15 +507,6 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 4be9d87b56a306293223b490c0d0b245e9e94f39884147bf051a6c7b825aeb30)
 
-@babel/parser@7.29.7
-Declared license: MIT
-Author: The Babel Team (https://babel.dev/team)
-Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-parser"}
-Homepage: https://babel.dev/docs/en/next/babel-parser
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 2e97627cb278aa7556fb9e8817368302301a595b6c7582512b8d74c57b773652)
-
 @babel/parser@7.29.8
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
@@ -606,15 +579,6 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/traverse@7.29.7
-Declared license: MIT
-Author: The Babel Team (https://babel.dev/team)
-Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-traverse"}
-Homepage: https://babel.dev/docs/en/next/babel-traverse
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
-
 @babel/traverse@7.29.8
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
@@ -629,15 +593,6 @@ Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-traverse"}
 Homepage: https://babel.dev/docs/en/next/babel-traverse
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
-
-@babel/types@7.29.7
-Declared license: MIT
-Author: The Babel Team (https://babel.dev/team)
-Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-types"}
-Homepage: https://babel.dev/docs/en/next/babel-types
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
@@ -1211,7 +1166,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 9672b5ea831c360425e95b806b302e502582dd9718b056f29c40cf241daecb68)
 
-@modelcontextprotocol/client@2.0.0
+@modelcontextprotocol/client@2.2.0
 Declared license: MIT
 Author: Anthropic, PBC (https://anthropic.com)
 Repository: {"type":"git","url":"git+https://github.com/modelcontextprotocol/typescript-sdk.git"}
@@ -1229,7 +1184,16 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a)
 
-@modelcontextprotocol/sdk@1.30.0
+@modelcontextprotocol/core@2.2.0
+Declared license: MIT
+Author: Anthropic, PBC (https://anthropic.com)
+Repository: {"type":"git","url":"git+https://github.com/modelcontextprotocol/typescript-sdk.git"}
+Homepage: https://modelcontextprotocol.io
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a)
+
+@modelcontextprotocol/sdk@1.31.0
 Declared license: MIT
 Author: Anthropic, PBC (https://anthropic.com)
 Repository: {"type":"git","url":"git+https://github.com/modelcontextprotocol/typescript-sdk.git"}
@@ -1865,7 +1829,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 dd5fd3a2e8ca256521b80e46d7fb0aa953c842ef1420fb31f4b1f08ae31d82e7)
 
-@tanstack/history@1.162.0
+@tanstack/history@1.162.5
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/history"}
@@ -1919,7 +1883,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/react-router@1.170.19
+@tanstack/react-router@1.170.45
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/react-router"}
@@ -1928,7 +1892,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/react-start@1.168.36
+@tanstack/react-start@1.169.3
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/react-start"}
@@ -1937,7 +1901,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/react-start-client@1.168.17
+@tanstack/react-start-client@1.168.43
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/react-start-client"}
@@ -1946,7 +1910,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/react-start-rsc@0.1.35
+@tanstack/react-start-rsc@0.1.64
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/react-start-rsc"}
@@ -1955,7 +1919,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/react-start-server@1.167.24
+@tanstack/react-start-server@1.167.51
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/react-start-server"}
@@ -1964,7 +1928,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/react-store@0.9.3
+@tanstack/react-store@0.11.2
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"https://github.com/TanStack/store.git","directory":"packages/react-store"}
@@ -1973,7 +1937,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 cb4a7917af22bd56340e877f10a5c5aa4fded7af2459162630ff7fcb48bb45c7)
 
-@tanstack/router-core@1.171.16
+@tanstack/router-core@1.171.38
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/router-core"}
@@ -1982,7 +1946,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/router-generator@1.167.22
+@tanstack/router-generator@1.167.45
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/router-generator"}
@@ -1991,7 +1955,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/router-plugin@1.168.24
+@tanstack/router-plugin@1.168.47
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/router-plugin"}
@@ -2000,7 +1964,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/router-utils@1.162.2
+@tanstack/router-utils@1.162.4
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/router-utils"}
@@ -2009,7 +1973,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/start-client-core@1.170.15
+@tanstack/start-client-core@1.170.38
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/start-client-core"}
@@ -2027,7 +1991,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/start-plugin-core@1.171.27
+@tanstack/start-plugin-core@1.171.54
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/start-plugin-core"}
@@ -2036,7 +2000,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/start-server-core@1.169.19
+@tanstack/start-server-core@1.169.44
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/start-server-core"}
@@ -2045,7 +2009,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/start-storage-context@1.167.18
+@tanstack/start-storage-context@1.167.40
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/start-storage-context"}
@@ -2054,7 +2018,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/store@0.9.3
+@tanstack/store@0.11.2
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/store.git","directory":"packages/store"}
@@ -2924,6 +2888,15 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 eda81a415869e67809f6a9f3fd6056062cb83a462118e07eec5e92b2e0c40ce9)
 
+diff@9.0.0
+Declared license: BSD-3-Clause
+Author: <not published>
+Repository: {"type":"git","url":"https://github.com/kpdecker/jsdiff.git"}
+Homepage: <not published>
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 eda81a415869e67809f6a9f3fd6056062cb83a462118e07eec5e92b2e0c40ce9)
+
 dunder-proto@1.0.1
 Declared license: MIT
 Author: Jordan Harband <ljharb@gmail.com>
@@ -3212,10 +3185,10 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a5edccac92c3aa845694dcfaa72a0c098c1ae40d5ca6a37e4e59d778cf8e29bd)
 
-fetchdts@0.1.7
+fetchdts@0.2.0
 Declared license: MIT
 Author: {"name":"Daniel Roe","email":"daniel@roe.dev","url":"https://roe.dev"}
-Repository: unjs/fetchdts
+Repository: {"type":"git","url":"unjs/fetchdts"}
 Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
@@ -3400,15 +3373,6 @@ Homepage: https://github.com/ljharb/gopd#readme
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 d90bf0a089da4cf43d644ed240a0b3825dcdb705e64e38371d56995a4cc9e4c5)
-
-h3@2.0.1-rc.20
-Declared license: MIT
-Author: <not published>
-Repository: h3js/h3
-Homepage: https://h3.dev
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 46231df5a7733c3f52f11b71f3df61813007745b62b09031acfb45fb42d75082)
 
 has-flag@4.0.0
 Declared license: MIT
@@ -4854,6 +4818,15 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9)
 
+picomatch@4.0.7
+Declared license: MIT
+Author: Jon Schlinkert (https://github.com/jonschlinkert)
+Repository: micromatch/picomatch
+Homepage: https://github.com/micromatch/picomatch
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9)
+
 pkce-challenge@5.0.1
 Declared license: MIT
 Author: crouchcd
@@ -4927,7 +4900,7 @@ Published license/notice files:
 - google/LICENSE (SHA-256 4ab87e6e3c0c0b78e47c77d49ec10c048f8a519fb8062e6e3217e3e6e9b0c6e9)
 - LICENSE (SHA-256 49d6a1c9a623784c61c6cb70f773f3457faceb1914a13c8560a9823b7631950c)
 
-proxy-addr@2.0.7
+proxy-addr@2.0.8
 Declared license: MIT
 Author: Douglas Christopher Wilson <doug@somethingdoug.com>
 Repository: jshttp/proxy-addr
@@ -5215,15 +5188,6 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE.md (SHA-256 fa1bd040c5bdeefe65b3821cebf474f2733ce65df13089bd151dda1778e62fe8)
 
-rou3@0.8.1
-Declared license: MIT
-Author: <not published>
-Repository: h3js/rou3
-Homepage: <not published>
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 46231df5a7733c3f52f11b71f3df61813007745b62b09031acfb45fb42d75082)
-
 router@2.2.0
 Declared license: MIT
 Author: Douglas Christopher Wilson <doug@somethingdoug.com>
@@ -5314,7 +5278,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 25a328069fe771f8ed5b6f983ed4b0e6c84b3312ac0f69b28c3d52dc277962c9)
 
-seroval@1.6.2
+seroval@1.6.11
 Declared license: MIT
 Author: Alexis Munsayac
 Repository: {"url":"https://github.com/lxsmnsyc/seroval.git","type":"git"}
@@ -5323,7 +5287,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 2bd8a2c61751fc47dcd214f864b6fcdbcb518995fbf497c81a06c3bfe8d1d9d4)
 
-seroval-plugins@1.6.2
+seroval-plugins@1.6.11
 Declared license: MIT
 Author: Alexis Munsayac
 Repository: {"url":"https://github.com/lxsmnsyc/seroval.git","type":"git"}
@@ -5440,7 +5404,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 d4c2065e2b936e62a4eb400efb4576edec9ca1388a9f78aa288e147275e7bc8b)
 
-smol-toml@1.8.0
+smol-toml@1.9.1
 Declared license: BSD-3-Clause
 Author: Cynthia Rey <cynthia@cynthia.dev>
 Repository: {"type":"git","url":"github:squirrelchat/smol-toml"}
@@ -5476,7 +5440,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 6cb0631f71c7749763fd3dd1d5bee52dd1070ec17f2edc1710079ad070bd2fbd)
 
-source-map-js@1.2.1
+source-map-js@1.2.2
 Declared license: BSD-3-Clause
 Author: Valentin 7rulnik Semirulnik <v7rulnik@gmail.com>
 Repository: 7rulnik/source-map-js
@@ -5512,10 +5476,10 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 60a3f6e4d7b29b4321359e683b36cf198d24f58e24582070f56e6fa89d5ee2be)
 
-srvx@0.11.22
+srvx@1.0.6
 Declared license: MIT
 Author: <not published>
-Repository: h3js/srvx
+Repository: {"type":"git","url":"h3js/srvx"}
 Homepage: https://srvx.h3.dev
 Package-level license evidence: published
 Published license/notice files:
@@ -6105,6 +6069,15 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8)
 
+zod@4.6.7
+Declared license: MIT
+Author: Colin McDonnell <zod@colinhacks.com>
+Repository: {"type":"git","url":"git+https://github.com/colinhacks/zod.git"}
+Homepage: https://zod.dev
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8)
+
 zod-to-json-schema@3.25.2
 Declared license: ISC
 Author: Stefan Terdell
@@ -6395,8 +6368,9 @@ Felix Geisendörfer (felix@debuggable.com)
 
 SHA-256 0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a
 Used by:
-- @modelcontextprotocol/client@2.0.0:LICENSE
+- @modelcontextprotocol/client@2.2.0:LICENSE
 - @modelcontextprotocol/core@2.0.0:LICENSE
+- @modelcontextprotocol/core@2.2.0:LICENSE
 - @modelcontextprotocol/server@2.0.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 The MCP project is undergoing a licensing transition from the MIT License to the Apache License, Version 2.0 ("Apache-2.0"). All new code and specification contributions to the project are licensed under Apache-2.0. Documentation contributions (excluding specifications) are licensed under CC-BY-4.0.
@@ -7346,14 +7320,12 @@ SOFTWARE.
 
 SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76
 Used by:
-- @babel/code-frame@7.27.1:LICENSE
 - @babel/code-frame@7.29.7:LICENSE
 - @babel/code-frame@8.0.0:LICENSE
 - @babel/compat-data@7.29.7:LICENSE
 - @babel/compat-data@8.0.0:LICENSE
 - @babel/core@7.29.7:LICENSE
 - @babel/core@8.0.1:LICENSE
-- @babel/generator@7.29.7:LICENSE
 - @babel/generator@7.29.8:LICENSE
 - @babel/generator@8.0.0:LICENSE
 - @babel/helper-annotate-as-pure@8.0.0:LICENSE
@@ -7381,10 +7353,8 @@ Used by:
 - @babel/runtime@7.29.7:LICENSE
 - @babel/template@7.29.7:LICENSE
 - @babel/template@8.0.0:LICENSE
-- @babel/traverse@7.29.7:LICENSE
 - @babel/traverse@7.29.8:LICENSE
 - @babel/traverse@8.0.0:LICENSE
-- @babel/types@7.29.7:LICENSE
 - @babel/types@7.29.8:LICENSE
 - @babel/types@8.0.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
@@ -8504,8 +8474,8 @@ SOFTWARE.
 
 SHA-256 2bd8a2c61751fc47dcd214f864b6fcdbcb518995fbf497c81a06c3bfe8d1d9d4
 Used by:
-- seroval-plugins@1.6.2:LICENSE
-- seroval@1.6.2:LICENSE
+- seroval-plugins@1.6.11:LICENSE
+- seroval@1.6.11:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License Copyright (c) 2025 Alexis Munsayac <alexis.munsayac@gmail.com>
 
@@ -8598,7 +8568,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 SHA-256 2e97627cb278aa7556fb9e8817368302301a595b6c7582512b8d74c57b773652
 Used by:
-- @babel/parser@7.29.7:LICENSE
 - @babel/parser@7.29.8:LICENSE
 - @babel/parser@8.0.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
@@ -11586,6 +11555,7 @@ SOFTWARE.
 SHA-256 3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8
 Used by:
 - zod@4.4.3:LICENSE
+- zod@4.6.7:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -11935,11 +11905,9 @@ THE SOFTWARE.
 
 SHA-256 46231df5a7733c3f52f11b71f3df61813007745b62b09031acfb45fb42d75082
 Used by:
-- h3@2.0.1-rc.20:LICENSE
 - jiti@1.21.7:LICENSE
 - jiti@2.7.0:LICENSE
-- rou3@0.8.1:LICENSE
-- srvx@0.11.22:LICENSE
+- srvx@1.0.6:LICENSE
 - ufo@1.6.4:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
@@ -13934,7 +13902,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 5e13dbbc1d120fc2a03cecde7c91424ae2d7de11b63d58ded2f4431e261ee50d
 Used by:
-- @modelcontextprotocol/sdk@1.30.0:LICENSE
+- @modelcontextprotocol/sdk@1.31.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -15249,7 +15217,7 @@ THE SOFTWARE.
 
 SHA-256 6cb0631f71c7749763fd3dd1d5bee52dd1070ec17f2edc1710079ad070bd2fbd
 Used by:
-- source-map-js@1.2.1:LICENSE
+- source-map-js@1.2.2:LICENSE
 - source-map@0.7.6:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 
@@ -17445,7 +17413,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 a174fd5d58dfec7ad7f92c8a37fd17297e95f478565bb73946aa3a76b8c0747e
 Used by:
-- fetchdts@0.1.7:LICENCE
+- fetchdts@0.2.0:LICENCE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -17684,23 +17652,23 @@ THE SOFTWARE.
 
 SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7
 Used by:
-- @tanstack/history@1.162.0:LICENSE
+- @tanstack/history@1.162.5:LICENSE
 - @tanstack/query-core@5.101.4:LICENSE
 - @tanstack/react-query@5.101.4:LICENSE
-- @tanstack/react-router@1.170.19:LICENSE
-- @tanstack/react-start-client@1.168.17:LICENSE
-- @tanstack/react-start-rsc@0.1.35:LICENSE
-- @tanstack/react-start-server@1.167.24:LICENSE
-- @tanstack/react-start@1.168.36:LICENSE
-- @tanstack/router-core@1.171.16:LICENSE
-- @tanstack/router-generator@1.167.22:LICENSE
-- @tanstack/router-plugin@1.168.24:LICENSE
-- @tanstack/router-utils@1.162.2:LICENSE
-- @tanstack/start-client-core@1.170.15:LICENSE
+- @tanstack/react-router@1.170.45:LICENSE
+- @tanstack/react-start-client@1.168.43:LICENSE
+- @tanstack/react-start-rsc@0.1.64:LICENSE
+- @tanstack/react-start-server@1.167.51:LICENSE
+- @tanstack/react-start@1.169.3:LICENSE
+- @tanstack/router-core@1.171.38:LICENSE
+- @tanstack/router-generator@1.167.45:LICENSE
+- @tanstack/router-plugin@1.168.47:LICENSE
+- @tanstack/router-utils@1.162.4:LICENSE
+- @tanstack/start-client-core@1.170.38:LICENSE
 - @tanstack/start-fn-stubs@1.162.0:LICENSE
-- @tanstack/start-plugin-core@1.171.27:LICENSE
-- @tanstack/start-server-core@1.169.19:LICENSE
-- @tanstack/start-storage-context@1.167.18:LICENSE
+- @tanstack/start-plugin-core@1.171.54:LICENSE
+- @tanstack/start-server-core@1.169.44:LICENSE
+- @tanstack/start-storage-context@1.167.40:LICENSE
 - @tanstack/virtual-file-routes@1.162.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
@@ -18064,7 +18032,7 @@ SOFTWARE.
 SHA-256 a7996721249a136fbcfc1c201bcb5f414f38a701d4a24f28abe65e16cfcce813
 Used by:
 - etag@1.8.1:LICENSE
-- proxy-addr@2.0.7:LICENSE
+- proxy-addr@2.0.8:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 (The MIT License)
 
@@ -19926,8 +19894,8 @@ THE SOFTWARE.
 
 SHA-256 cb4a7917af22bd56340e877f10a5c5aa4fded7af2459162630ff7fcb48bb45c7
 Used by:
-- @tanstack/react-store@0.9.3:LICENSE
-- @tanstack/store@0.9.3:LICENSE
+- @tanstack/react-store@0.11.2:LICENSE
+- @tanstack/store@0.11.2:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -20307,6 +20275,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 SHA-256 d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9
 Used by:
 - picomatch@4.0.5:LICENSE
+- picomatch@4.0.7:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 The MIT License (MIT)
 
@@ -22158,6 +22127,7 @@ SOFTWARE.
 SHA-256 eda81a415869e67809f6a9f3fd6056062cb83a462118e07eec5e92b2e0c40ce9
 Used by:
 - diff@8.0.4:LICENSE
+- diff@9.0.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 BSD 3-Clause License
 
@@ -23495,7 +23465,7 @@ Repository: https://github.com/yargs/yargs-parser.git
 
 SHA-256 fa5659948374d4f555594f47f6da073b40dc503e921aeeece30df4362b3051a5
 Used by:
-- smol-toml@1.8.0:LICENSE
+- smol-toml@1.9.1:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (c) Squirrel Chat et al., All rights reserved.
 
