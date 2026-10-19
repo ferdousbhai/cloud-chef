@@ -19,15 +19,14 @@ describe('builder skills', () => {
       kind: 'file',
       content: expect.stringContaining('name: project-stack'),
     });
-    await expect(reader.read('/__skills__/frontend-design/SKILL.md')).resolves.toEqual({
-      kind: 'file',
-      content: expect.stringContaining('name: frontend-design'),
-    });
-    await expect(reader.read('/__skills__/frontend-design')).resolves.toEqual({
+    // Cloudflare's skills are served with their references and license.
+    await expect(reader.read('/__skills__/durable-objects')).resolves.toEqual({
       kind: 'directory',
-      content: 'SKILL.md',
+      content: 'LICENSE\nSKILL.md\nreferences/',
     });
-    await expect(reader.read('/__skills__/frontend-design/LICENSE.txt')).resolves.toBeNull();
+    await expect(reader.read('/__skills__/durable-objects/references/rules.md')).resolves.toMatchObject({
+      kind: 'file',
+    });
     await expect(reader.read('/__skills__/nothing/SKILL.md')).resolves.toBeNull();
     // The overlay is not a traversal into the project workspace.
     await expect(reader.read('/__skills__/../home/project/package.json')).resolves.toBeNull();

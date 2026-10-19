@@ -571,9 +571,9 @@ describe('minimal Workers AI tool surface', () => {
     await expect(executeTool(tools.ls, { path: '/__skills__/react-start' })).resolves.toMatchObject({
       error: expect.stringContaining('not part of the project workspace'),
     });
-    await expect(
-      executeTool(tools.grep, { pattern: 'design', path: '//__skills__//frontend-design' }),
-    ).resolves.toMatchObject({ error: expect.stringContaining('not part of the project workspace') });
+    await expect(executeTool(tools.grep, { pattern: 'design', path: '//__skills__//cf-cli' })).resolves.toMatchObject({
+      error: expect.stringContaining('not part of the project workspace'),
+    });
     expect(workspace.listProjectEntries).not.toHaveBeenCalled();
     expect(workspace.searchProjectFiles).not.toHaveBeenCalled();
   });

@@ -1,5 +1,4 @@
 import { parse } from 'yaml';
-import frontendDesignSkill from './skills/frontend-design/SKILL.md?raw';
 /*
  * Lives outside .server/ because the exported project's Cursor rules embed the same stack-selection
  * text, and that module is bundled for the browser.
@@ -21,7 +20,6 @@ const MAX_BUILDER_SKILL_PROMPT_CHARS = 16_000;
 const BUNDLED_SKILLS: readonly BundledSkillSource[] = [
   { name: 'project-stack', files: new Map([['SKILL.md', projectStackSkill]]) },
   ...CLOUDFLARE_SKILLS.map(({ name, files }) => ({ name, files: new Map(files) })),
-  { name: 'frontend-design', files: new Map([['SKILL.md', frontendDesignSkill]]) },
 ];
 
 export type BuilderSkillReadResult = { kind: 'file' | 'directory'; content: string };
@@ -93,7 +91,7 @@ function renderPrompt(skills: readonly BundledSkill[]): string {
     '',
     ...skills.map(({ name, description }) => `- ${BUILDER_SKILL_ROOT}/${name}/SKILL.md — ${description}`),
     '',
-    'Read a full Cloudflare page with exec by appending /index.md to any developers.cloudflare.com URL; never fetch llms.txt or llms-full.txt, which exceed the turn budget.',
+    'Never fetch llms.txt or llms-full.txt, which exceed the turn budget.',
     "Where a skill's advice conflicts with this workspace, the workspace wins: `cf` is already installed and has no credential here, so never run `cf auth` or install it; send Cloudflare API requests with the cloudflare_request tool when you have it; never start `cf dev`, `wrangler dev`, or other dev servers; and in a CloudChef starter app, follow project-stack.",
     '</builder_skills>',
   ].join('\n');
