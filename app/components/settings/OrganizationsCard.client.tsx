@@ -10,7 +10,14 @@ import {
   switchWorkspace,
 } from '~/lib/auth-client';
 import { ReauthenticateButtons } from './ReauthenticateButtons.client';
-import { MyOrgProjects, OrgProjectsSection, orgGitHubSchema, orgProjectSchema } from './OrgProjectsSection.client';
+import {
+  MyOrgProjects,
+  OrgProjectsSection,
+  orgGitHubSchema,
+  orgProjectSchema,
+  ownRequestSchema,
+  productionRequestSchema,
+} from './OrgProjectsSection.client';
 import { messageOf, noContentSchema, postJson, run } from './organization-requests.client';
 
 const roleSchema = z.enum(['admin', 'member']);
@@ -30,6 +37,7 @@ const organizationsSchema = z.object({
             email: z.string(),
             role: roleSchema,
             pausedAt: z.number().nullable(),
+            draftsAllowed: z.boolean(),
             usage: z.object({ turns: z.number(), inputTokens: z.number(), outputTokens: z.number() }),
           }),
         )
@@ -37,6 +45,8 @@ const organizationsSchema = z.object({
       invites: z.array(z.object({ id: z.string(), email: z.string(), role: roleSchema })).nullable(),
       github: orgGitHubSchema,
       projects: z.array(orgProjectSchema),
+      productionRequests: z.array(productionRequestSchema).nullable(),
+      ownRequests: z.array(ownRequestSchema),
     }),
   ),
 });
@@ -44,7 +54,7 @@ const createdSchema = z.object({ orgId: z.string() });
 const invitedSchema = z.object({ inviteUrl: z.string(), emailed: z.boolean() });
 const memberUpdatedSchema = z.object({ ok: z.literal(true), workspaceDeleted: z.boolean().optional() });
 
-type MemberAction = 'pause' | 'resume' | 'remove' | 'make_admin' | 'make_member';
+type MemberAction = 'pause' | 'resume' | 'remove' | 'make_admin' | 'make_member' | 'allow_drafts' | 'disallow_drafts';
 
 type Organization = z.infer<typeof organizationsSchema>['organizations'][number];
 
@@ -252,6 +262,7 @@ function OrganizationRow({
             github={organization.github}
             projects={organization.projects}
             members={organization.members ?? []}
+            productionRequests={organization.productionRequests ?? []}
             onChanged={onChanged}
             onMessage={setMessage}
             onSignInRequired={onSignInRequired}
@@ -333,7 +344,7 @@ function OrganizationRow({
         </>
       ) : (
         <>
-          <MyOrgProjects projects={organization.projects} />
+          <MyOrgProjects projects={organization.projects} requests={organization.ownRequests} />
           <Button
             className="mt-2"
             size="xs"
@@ -408,6 +419,17 @@ function MemberRow({
         <Button size="xs" variant="subtle" onClick={() => act(member.pausedAt ? 'resume' : 'pause')}>
           {member.pausedAt ? 'Resume' : 'Pause'}
         </Button>
+        {member.role === 'member' ? (
+          // Without their own apps, a member works only on the GitHub projects they're given and never
+          // gets the organization's Cloudflare authorization.
+          <Button
+            size="xs"
+            variant="subtle"
+            onClick={() => act(member.draftsAllowed ? 'disallow_drafts' : 'allow_drafts')}
+          >
+            {member.draftsAllowed ? 'Only GitHub projects' : 'Allow own apps'}
+          </Button>
+        ) : null}
         <Button size="xs" variant="subtle" onClick={() => act(member.role === 'admin' ? 'make_member' : 'make_admin')}>
           {member.role === 'admin' ? 'Make member' : 'Make admin'}
         </Button>

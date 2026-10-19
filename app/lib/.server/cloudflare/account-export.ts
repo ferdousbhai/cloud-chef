@@ -23,6 +23,7 @@ const SECTION_NAMES = [
   'organizationInvites',
   'organizationUsage',
   'organizationProjects',
+  'productionRequests',
   'authSessions',
   'oauthStates',
 ] as const;
@@ -129,6 +130,16 @@ type ExportedProjectAccess = {
   grantedAt: string;
 };
 
+/** A draft this person asked to make a real project. Its files went to the admins with the request. */
+type ExportedProductionRequest = {
+  organizationId: string;
+  title: string;
+  note: string | null;
+  status: string;
+  createdAt: string;
+  decidedAt: string | null;
+};
+
 type ExportedAuthSession = {
   id: string;
   createdAt: string;
@@ -172,6 +183,7 @@ type ControlPlaneExport = {
     organizationInvites: ExportedSection<BoundedList<{ invites: ExportedInvite[] }>>;
     organizationUsage: ExportedSection<BoundedList<{ usage: ExportedUsageDay[] }>>;
     organizationProjects: ExportedSection<BoundedList<{ projects: ExportedProjectAccess[] }>>;
+    productionRequests: ExportedSection<BoundedList<{ requests: ExportedProductionRequest[] }>>;
     authSessions: ExportedSection<BoundedList<{ sessions: ExportedAuthSession[] }>>;
     oauthStates: ExportedSection<BoundedList<{ states: ExportedOAuthState[] }>>;
   };
@@ -194,6 +206,7 @@ export async function exportControlPlaneAccount(args: { env: Env; userId: string
     organizationInvites: await exportSection('organizationInvites', () => readInvites(db, args.userId)),
     organizationUsage: await exportSection('organizationUsage', () => readUsage(db, args.userId)),
     organizationProjects: await exportSection('organizationProjects', () => readProjectAccess(db, args.userId)),
+    productionRequests: await exportSection('productionRequests', () => readProductionRequests(db, args.userId)),
     authSessions: await exportSection('authSessions', () => readAuthSessions(db, args.userId)),
     oauthStates: await exportSection('oauthStates', () => readOAuthStates(db, args.userId)),
   };
@@ -550,4 +563,35 @@ async function readProjectAccess(
     grantedAt: new Date(row.granted_at).toISOString(),
   }));
   return { projects, ...boundsOf(rows.results, projects.length) };
+}
+
+async function readProductionRequests(
+  db: D1Database,
+  userId: string,
+): Promise<BoundedList<{ requests: ExportedProductionRequest[] }>> {
+  const rows = await db
+    .prepare(
+      `SELECT org_id, title, note, status, created_at, decided_at, COUNT(*) OVER () AS total_rows
+       FROM production_requests WHERE requested_by = ?
+       ORDER BY created_at DESC LIMIT ?`,
+    )
+    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
+    .all<{
+      org_id: string;
+      title: string;
+      note: string | null;
+      status: string;
+      created_at: number;
+      decided_at: number | null;
+      total_rows: number;
+    }>();
+  const requests = rows.results.map((row) => ({
+    organizationId: row.org_id,
+    title: row.title,
+    note: row.note,
+    status: row.status,
+    createdAt: new Date(row.created_at).toISOString(),
+    decidedAt: row.decided_at === null ? null : new Date(row.decided_at).toISOString(),
+  }));
+  return { requests, ...boundsOf(rows.results, requests.length) };
 }

@@ -45,6 +45,19 @@ const commitSchema = z.strictObject({
   publish: z.boolean(),
 });
 const statusSchema = z.strictObject({ ...identityFields, sha: z.string().regex(/^[0-9a-f]{40}$/) });
+const MAX_SNAPSHOT_BASE64 = 1_500_000;
+const MAX_PENDING_REQUESTS_PER_MEMBER = 5;
+const productionRequestSchema = z.strictObject({
+  userId: identityFields.userId,
+  connectionId: identityFields.connectionId,
+  connectionGeneration: identityFields.connectionGeneration,
+  title: z.string().trim().min(1).max(80),
+  note: z.string().trim().max(1_000),
+  previewUrl: z.url().max(2_048).nullable(),
+  /** The draft's files as gzipped JSON `[{ path, contentBase64, executable }]`, base64. */
+  snapshot: z.string().min(1).max(MAX_SNAPSHOT_BASE64),
+  files: z.number().int().min(1).max(MAX_FILES),
+});
 
 type ProjectAccess = { repository: RepositoryClient; defaultBranch: string; userId: string };
 
@@ -183,6 +196,42 @@ export async function runtimeGitHubStatusAction(args: {
     }
     throw error;
   }
+}
+
+/**
+ * A member asking for a draft built in the organization's account to become a real project: an admin
+ * reviews it and, approving, creates its GitHub repository. The draft's source comes with the request.
+ */
+export async function runtimeRequestProductionAction(args: { request: Request; env: Env }): Promise<Response> {
+  const body = await readBody(args.request, productionRequestSchema, MAX_SNAPSHOT_BASE64 + 8 * 1024);
+  if (body instanceof Response) {
+    return body;
+  }
+  const authenticated = await authenticateRuntime(args.env, args.request, body);
+  if (authenticated instanceof Response) {
+    return authenticated;
+  }
+  const orgId = authenticated.connection.orgId;
+  if (!orgId) {
+    return json({ error: "Production requests are for an organization's drafts." }, 409);
+  }
+  const pending = await args.env.DB.prepare(
+    `SELECT COUNT(*) AS count FROM production_requests WHERE requested_by = ? AND org_id = ? AND status = 'pending'`,
+  )
+    .bind(body.userId, orgId)
+    .first<{ count: number }>();
+  if ((pending?.count ?? 0) >= MAX_PENDING_REQUESTS_PER_MEMBER) {
+    return json({ error: 'You already have several requests waiting. An admin will get to them.' }, 429);
+  }
+  const id = crypto.randomUUID();
+  await args.env.DB.prepare(
+    `INSERT INTO production_requests
+       (id, org_id, requested_by, title, note, preview_url, snapshot_gzip_base64, snapshot_files, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+  )
+    .bind(id, orgId, body.userId, body.title, body.note || null, body.previewUrl, body.snapshot, body.files, Date.now())
+    .run();
+  return json({ requestId: id }, 201);
 }
 
 /**

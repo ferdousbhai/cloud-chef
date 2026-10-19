@@ -468,6 +468,14 @@ export function useBuilderAgentChat(args: {
     return builderAgent.call('deployValidatedRevision', [], { timeout: 30 * 60_000 });
   }, [builderAgent]);
 
+  const requestProduction = useCallback(
+    async (input: { title: string; note: string }) => {
+      await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
+      await builderAgent.call('requestProduction', [input], { timeout: 2 * 60_000 });
+    },
+    [builderAgent],
+  );
+
   const decideCloudflareExecution = useCallback<CloudflareExecutionDecisionHandler>(
     async (executionId, decision) => {
       const method = decision === 'approve' ? 'approveCloudflareExecution' : 'rejectCloudflareExecution';
@@ -582,6 +590,7 @@ export function useBuilderAgentChat(args: {
     deployment: builderAgent.state?.deployment ?? null,
     publication: builderAgent.state?.publication ?? null,
     deployValidatedRevision,
+    requestProduction,
     cloudflareExecutions: builderAgent.state?.cloudflareExecutions ?? [],
     decideCloudflareExecution,
     workspacePresentationState,

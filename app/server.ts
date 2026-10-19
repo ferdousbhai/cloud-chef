@@ -30,9 +30,12 @@ import {
   runtimeGitHubCommitAction,
   runtimeGitHubSnapshotAction,
   runtimeGitHubStatusAction,
+  runtimeRequestProductionAction,
 } from './server-handlers/runtime-github';
 import {
+  approveProductionRequestAction,
   completeGitHubInstallAction,
+  declineProductionRequestAction,
   disconnectGitHubAction,
   GITHUB_RETURN_PATH,
   linkGitHubProjectAction,
@@ -190,6 +193,14 @@ const exactRoutes = new Map<string, ServerRoute>(
       method: 'GET',
       handler: (request, env) => listGitHubRepositoriesAction({ request, env }),
     },
+    '/api/organizations/production-requests/approve': {
+      method: 'POST',
+      handler: (request, env) => approveProductionRequestAction({ request, env }),
+    },
+    '/api/organizations/production-requests/decline': {
+      method: 'POST',
+      handler: (request, env) => declineProductionRequestAction({ request, env }),
+    },
     '/api/organizations/projects/link': {
       method: 'POST',
       handler: (request, env) => linkGitHubProjectAction({ request, env }),
@@ -209,6 +220,10 @@ const exactRoutes = new Map<string, ServerRoute>(
     '/api/cloudflare/runtime-github/commit': {
       method: 'POST',
       handler: (request, env) => runtimeGitHubCommitAction({ request, env }),
+    },
+    '/api/cloudflare/runtime-github/request-production': {
+      method: 'POST',
+      handler: (request, env) => runtimeRequestProductionAction({ request, env }),
     },
     '/api/cloudflare/runtime-github/status': {
       method: 'POST',

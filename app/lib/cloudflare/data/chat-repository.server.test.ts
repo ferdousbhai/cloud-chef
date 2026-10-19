@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ensureInitialChat, markChatStarted } from './chat-repository.server';
+import { ensureInitialChat, markChatStarted, openLinkedChat } from './chat-repository.server';
 import { discardEmptyChat } from './chat-service.server';
 import type { ChatRow } from './types';
 
@@ -81,6 +81,26 @@ function count(sqlite: DatabaseSync, table: string): number {
 }
 
 /** The real user-workspace schema, so the partial unique index and agent_name uniqueness apply. */
+describe('openLinkedChat', () => {
+  it('opens one chat per GitHub project, already bound to it, and returns to it after', async () => {
+    const { sqlite, db } = workspaceDatabase();
+    const first = await openLinkedChat(db, { sessionId: 'session', id: 'first-id', orgProjectId: 'project-1' });
+    expect(first).toEqual({ initialId: 'first-id', created: true });
+    // Bound before its agent ever starts: seeding reads the project from the row.
+    expect(sqlite.prepare("SELECT org_project_id FROM chats WHERE initial_id = 'first-id'").get()).toEqual({
+      org_project_id: 'project-1',
+    });
+    expect(sqlite.prepare('SELECT agent_name FROM chat_transcripts').all()).toEqual([{ agent_name: 'first-id' }]);
+
+    await expect(
+      openLinkedChat(db, { sessionId: 'session', id: 'second-id', orgProjectId: 'project-1' }),
+    ).resolves.toEqual({ initialId: 'first-id', created: false });
+    await expect(
+      openLinkedChat(db, { sessionId: 'session', id: 'other-id', orgProjectId: 'project-2' }),
+    ).resolves.toEqual({ initialId: 'other-id', created: true });
+  });
+});
+
 function workspaceDatabase() {
   const sqlite = new DatabaseSync(':memory:');
   const directory = new URL('../../../../user-workspace-migrations/', import.meta.url).pathname;

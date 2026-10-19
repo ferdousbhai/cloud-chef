@@ -83,6 +83,12 @@ describe('control-plane account export', () => {
       truncated: false,
       projects: [],
     });
+    expect(exported.sections.productionRequests).toEqual({
+      status: 'exported',
+      total: 0,
+      truncated: false,
+      requests: [],
+    });
     expect(exported.sections.authSessions).toEqual({
       status: 'exported',
       total: 1,
@@ -208,6 +214,7 @@ describe('control-plane account export', () => {
       'organizationInvites',
       'organizationUsage',
       'organizationProjects',
+      'productionRequests',
       'authSessions',
       'oauthStates',
     ]);

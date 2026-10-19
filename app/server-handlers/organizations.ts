@@ -17,6 +17,8 @@ import {
   findGitHubInstallation,
   listAccessibleProjects,
   listOrgProjects,
+  listOwnProductionRequests,
+  listPendingProductionRequests,
 } from '~/lib/cloudflare/data/org-projects.server';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
@@ -41,7 +43,7 @@ const contextSchema = z.strictObject({ connectionId: z.string().min(1).max(128) 
 const memberSchema = z.strictObject({
   orgId: z.string().uuid(),
   userId: z.string().min(1).max(128),
-  action: z.enum(['pause', 'resume', 'remove', 'make_admin', 'make_member']),
+  action: z.enum(['pause', 'resume', 'remove', 'make_admin', 'make_member', 'allow_drafts', 'disallow_drafts']),
   /** On removal, also delete their workspace (chats, project files) from the organization's account. */
   deleteWorkspace: z.boolean().default(true),
 });
@@ -78,22 +80,27 @@ export function listOrganizationsAction({ request, env }: { request: Request; en
     const withProjects = await Promise.all(
       organizations.map(async (organization) => {
         const admin = organization.members !== null;
-        const [github, projects] = await Promise.all([
+        const [github, projects, productionRequests, ownRequests] = await Promise.all([
           findGitHubInstallation(env.DB, organization.orgId),
           admin
             ? listOrgProjects(env.DB, organization.orgId)
             : listAccessibleProjects(env.DB, organization.orgId, session.user.id),
+          admin ? listPendingProductionRequests(env.DB, organization.orgId) : null,
+          listOwnProductionRequests(env.DB, organization.orgId, session.user.id),
         ]);
         return {
           ...organization,
           github: github ? { accountLogin: github.accountLogin, accountType: github.accountType } : null,
-          projects: projects.map(({ id, name, repoFullName, defaultBranch, memberIds }) => ({
+          projects: projects.map(({ id, name, repoFullName, defaultBranch, origin, memberIds }) => ({
             id,
             name,
             repoFullName,
             defaultBranch,
+            origin,
             memberIds,
           })),
+          productionRequests,
+          ownRequests,
         };
       }),
     );

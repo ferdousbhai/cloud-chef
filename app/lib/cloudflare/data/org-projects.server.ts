@@ -16,6 +16,8 @@ type OrgProject = {
   repoId: number;
   repoFullName: string;
   defaultBranch: string;
+  /** 'promoted': created from a member's approved draft, and still to be connected to a pipeline. */
+  origin: 'linked' | 'promoted';
   /** Members granted access. Admins work on every project, so they aren't listed. */
   memberIds: string[];
 };
@@ -66,10 +68,11 @@ type ProjectRow = {
   repo_id: number;
   repo_full_name: string;
   default_branch: string;
+  origin: 'linked' | 'promoted';
 };
 
 const PROJECT_COLUMNS =
-  'projects.id, projects.org_id, projects.name, projects.repo_id, projects.repo_full_name, projects.default_branch';
+  'projects.id, projects.org_id, projects.name, projects.repo_id, projects.repo_full_name, projects.default_branch, projects.origin';
 
 /** Every project of an organization with who may work on it: an admin's view. */
 export async function listOrgProjects(db: D1Database, orgId: string): Promise<OrgProject[]> {
@@ -219,5 +222,159 @@ function toProject(row: ProjectRow): Omit<OrgProject, 'memberIds'> {
     repoId: row.repo_id,
     repoFullName: row.repo_full_name,
     defaultBranch: row.default_branch,
+    origin: row.origin,
   };
+}
+
+/** A draft a member asked to make a real project, as an admin reviews it. */
+type ProductionRequest = {
+  id: string;
+  title: string;
+  note: string | null;
+  previewUrl: string | null;
+  files: number;
+  requesterName: string;
+  requesterEmail: string;
+  createdAt: number;
+};
+
+/** One of a member's own production requests, with what was decided. */
+type OwnProductionRequest = {
+  id: string;
+  title: string;
+  status: 'pending' | 'approved' | 'declined';
+  decisionNote: string | null;
+};
+
+/** The organization's requests waiting for an admin. */
+export async function listPendingProductionRequests(db: D1Database, orgId: string): Promise<ProductionRequest[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT requests.id, requests.title, requests.note, requests.preview_url, requests.snapshot_files,
+              requests.created_at, users.name, users.email
+       FROM production_requests AS requests
+       JOIN "user" AS users ON users.id = requests.requested_by
+       WHERE requests.org_id = ? AND requests.status = 'pending'
+       ORDER BY requests.created_at`,
+    )
+    .bind(orgId)
+    .all<{
+      id: string;
+      title: string;
+      note: string | null;
+      preview_url: string | null;
+      snapshot_files: number;
+      created_at: number;
+      name: string;
+      email: string;
+    }>();
+  return results.map((row) => ({
+    id: row.id,
+    title: row.title,
+    note: row.note,
+    previewUrl: row.preview_url,
+    files: row.snapshot_files,
+    requesterName: row.name,
+    requesterEmail: row.email,
+    createdAt: row.created_at,
+  }));
+}
+
+/** A member's ten latest requests in an organization. */
+export async function listOwnProductionRequests(
+  db: D1Database,
+  orgId: string,
+  userId: string,
+): Promise<OwnProductionRequest[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, title, status, decision_note FROM production_requests
+       WHERE org_id = ? AND requested_by = ? ORDER BY created_at DESC LIMIT 10`,
+    )
+    .bind(orgId, userId)
+    .all<{ id: string; title: string; status: 'pending' | 'approved' | 'declined'; decision_note: string | null }>();
+  return results.map((row) => ({ id: row.id, title: row.title, status: row.status, decisionNote: row.decision_note }));
+}
+
+/** A request still waiting for a decision, with the draft's files, or null. */
+export async function findPendingProductionRequest(db: D1Database, orgId: string, requestId: string) {
+  const row = await db
+    .prepare(
+      `SELECT id, requested_by, title, snapshot_gzip_base64 FROM production_requests
+       WHERE id = ? AND org_id = ? AND status = 'pending'`,
+    )
+    .bind(requestId, orgId)
+    .first<{ id: string; requested_by: string; title: string; snapshot_gzip_base64: string }>();
+  return row
+    ? { id: row.id, requestedBy: row.requested_by, title: row.title, snapshot: row.snapshot_gzip_base64 }
+    : null;
+}
+
+export async function declineProductionRequest(
+  db: D1Database,
+  args: { orgId: string; actorId: string; requestId: string; note: string; now?: number },
+): Promise<void> {
+  await requireAdmin(db, args.orgId, args.actorId);
+  const declined = await db
+    .prepare(
+      `UPDATE production_requests SET status = 'declined', decided_by = ?, decided_at = ?, decision_note = ?,
+         snapshot_gzip_base64 = ''
+       WHERE id = ? AND org_id = ? AND status = 'pending'`,
+    )
+    .bind(args.actorId, args.now ?? Date.now(), args.note || null, args.requestId, args.orgId)
+    .run();
+  if (declined.meta.changes !== 1) {
+    throw new OrganizationError('That request was already decided.', 409);
+  }
+}
+
+/**
+ * Records an approved request: its new repository becomes an organization project its requester may work
+ * on, and the request keeps only the decision (the draft's files now live in GitHub).
+ */
+export async function recordApprovedRequest(
+  db: D1Database,
+  args: {
+    orgId: string;
+    actorId: string;
+    requestId: string;
+    requestedBy: string;
+    name: string;
+    repository: { id: number; fullName: string; defaultBranch: string };
+    now?: number;
+  },
+): Promise<string> {
+  const now = args.now ?? Date.now();
+  const projectId = crypto.randomUUID();
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO org_projects (id, org_id, name, repo_id, repo_full_name, default_branch, origin, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'promoted', ?, ?)`,
+      )
+      .bind(
+        projectId,
+        args.orgId,
+        args.name,
+        args.repository.id,
+        args.repository.fullName,
+        args.repository.defaultBranch,
+        args.actorId,
+        now,
+      ),
+    db
+      .prepare(
+        `INSERT INTO org_project_access (project_id, user_id, granted_by, granted_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(project_id, user_id) DO NOTHING`,
+      )
+      .bind(projectId, args.requestedBy, args.actorId, now),
+    db
+      .prepare(
+        `UPDATE production_requests SET status = 'approved', project_id = ?, decided_by = ?, decided_at = ?,
+           snapshot_gzip_base64 = ''
+         WHERE id = ? AND org_id = ?`,
+      )
+      .bind(projectId, args.actorId, now, args.requestId, args.orgId),
+  ]);
+  return projectId;
 }

@@ -129,7 +129,8 @@ type RuntimeRoute =
   | 'runtime-access'
   | 'runtime-github/snapshot'
   | 'runtime-github/commit'
-  | 'runtime-github/status';
+  | 'runtime-github/status'
+  | 'runtime-github/request-production';
 
 export function runtimeCredentialEndpoint(value: string, route: RuntimeRoute = 'runtime-credential'): URL {
   let endpoint: URL;

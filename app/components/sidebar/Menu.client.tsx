@@ -18,6 +18,7 @@ import { PlusIcon } from '@radix-ui/react-icons';
 import { removeChatHistoryItem, useChatHistory } from '~/lib/cloudflare/chat-history-db';
 import { ProjectTitle } from '~/components/ProjectTitle';
 import { OrgProjectsList } from './OrgProjectsList.client';
+import { authClient } from '~/lib/auth-client';
 import { Link } from '@tanstack/react-router';
 
 const menuVariants = {
@@ -52,6 +53,9 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
   const accountUserId = userId ?? null;
   const activeChatId = useChatId();
   const history = useChatHistory(accountUserId);
+  const { data: session } = authClient.useSession();
+  // A member limited to the organization's GitHub projects can't start apps of their own here.
+  const draftsAllowed = session?.context?.kind !== 'organization' || session.context.draftsAllowed;
   const list = history.projects;
   const [deleteTarget, setDeleteTarget] = useState<ChatHistorySummary | null>(null);
 
@@ -141,15 +145,17 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
       <div aria-hidden className="h-[var(--header-height)] shrink-0 border-b" />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="min-w-0 space-y-3 px-4 pb-5 pt-4">
-          <LinkButton
-            className="min-h-11 w-full min-w-0 max-w-full overflow-hidden rounded-lg px-4 no-underline"
-            to="/"
-            reloadDocument
-            onClick={onClose}
-            icon={<PlusIcon className="size-4 shrink-0" />}
-          >
-            <span className="truncate">Start new project</span>
-          </LinkButton>
+          {draftsAllowed ? (
+            <LinkButton
+              className="min-h-11 w-full min-w-0 max-w-full overflow-hidden rounded-lg px-4 no-underline"
+              to="/"
+              reloadDocument
+              onClick={onClose}
+              icon={<PlusIcon className="size-4 shrink-0" />}
+            >
+              <span className="truncate">Start new project</span>
+            </LinkButton>
+          ) : null}
           <div className="relative min-w-0">
             <TextInput
               id="search-projects"

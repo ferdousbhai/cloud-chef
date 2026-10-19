@@ -57,6 +57,12 @@ export async function pruneCloudflareAuthData(args: { db: D1Database; now?: numb
       .bind(now, limit),
     args.db
       .prepare(
+        `DELETE FROM github_approval_states
+         WHERE id IN (SELECT id FROM github_approval_states WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`,
+      )
+      .bind(now, limit),
+    args.db
+      .prepare(
         `DELETE FROM cloudflare_credentials
          WHERE handle IN (
            SELECT credential.handle

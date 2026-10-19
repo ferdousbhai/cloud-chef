@@ -6,6 +6,7 @@ import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-
 import { GitHubApp } from '~/lib/.server/github/github-app';
 import { bytesToBase64 } from '~/lib/hex-digest';
 import { runtimeGitHubCommitAction, runtimeGitHubSnapshotAction, runtimeGitHubStatusAction } from './runtime-github';
+import { runtimeCredentialAction } from './runtime-credential';
 
 const ORIGIN = 'https://cloudchef.build';
 const ENCRYPTION_KEY = btoa('k'.repeat(32));
@@ -166,7 +167,7 @@ async function setup(options: { tarball?: Uint8Array<ArrayBuffer>; mergeStatus?:
       headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: sara.id, connectionId: 'conn-1', connectionGeneration: 2, ...body }),
     });
-  return { env, sara, call, ...github };
+  return { database, env, sara, call, ...github };
 }
 
 const SITE = '11111111-1111-4111-8111-111111111111';
@@ -317,5 +318,18 @@ describe('a member working on a GitHub project', () => {
       previewUrl: 'https://cloudchef-ada-site.ada.workers.dev',
       detailsUrl: 'https://dash.cloudflare.com/builds/1',
     });
+  });
+
+  it("never hands the organization's Cloudflare authorization to a member limited to GitHub projects", async () => {
+    const { database, env, sara, call } = await setup();
+    database.prepare('UPDATE organization_members SET drafts_allowed = 0 WHERE user_id = ?').run(sara.id);
+    const withheld = await runtimeCredentialAction({ request: call('/api/cloudflare/runtime-credential', {}), env });
+    expect(withheld.status).toBe(403);
+    expect(await withheld.json()).toMatchObject({ code: 'cloudflare_token_withheld' });
+
+    // Allowed drafts again, the request goes on to the credential itself (unreadable in this test).
+    database.prepare('UPDATE organization_members SET drafts_allowed = 1 WHERE user_id = ?').run(sara.id);
+    const allowed = await runtimeCredentialAction({ request: call('/api/cloudflare/runtime-credential', {}), env });
+    expect(allowed.status).toBe(503);
   });
 });

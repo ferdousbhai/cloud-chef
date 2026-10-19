@@ -113,6 +113,24 @@ export async function linkedBuildStatus(
   );
 }
 
+/** Asks the organization's admins to make a draft a real project; its files travel with the request. */
+export async function requestProductionReview(
+  env: RuntimeEnv,
+  identity: Identity,
+  body: { title: string; note: string; previewUrl: string | null; snapshot: string; files: number },
+): Promise<void> {
+  const response = await post(
+    env,
+    'runtime-github/request-production',
+    { ...pick(identity), ...body },
+    COMMIT_TIMEOUT_MS,
+  );
+  if (!response.ok) {
+    throw new Error(await failureMessage(response, 'CloudChef could not send the request.'));
+  }
+  await response.body?.cancel().catch(() => undefined);
+}
+
 function pick(identity: Identity) {
   return {
     userId: identity.userId,
@@ -123,10 +141,11 @@ function pick(identity: Identity) {
 
 function post(
   env: RuntimeEnv,
-  route: 'runtime-github/snapshot' | 'runtime-github/commit' | 'runtime-github/status',
+  route:
+    'runtime-github/snapshot' | 'runtime-github/commit' | 'runtime-github/status' | 'runtime-github/request-production',
   body: Record<
     string,
-    string | number | boolean | { path: string; contentBase64: string | null; executable: boolean }[]
+    string | number | boolean | null | { path: string; contentBase64: string | null; executable: boolean }[]
   >,
   timeoutMs: number,
 ): Promise<Response> {

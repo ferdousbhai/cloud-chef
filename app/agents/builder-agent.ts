@@ -90,10 +90,11 @@ import type {
 } from './builder-workspace-types';
 import { builderTemplateSeedId, loadBuilderTemplate } from './builder-template';
 import { parentBuilderWorkspaceSeedId, seedBuilderWorkspace } from './builder-workspace-seed';
-import { linkedWorkspaceChanges, seedLinkedWorkspace } from './linked-project-workspace';
+import { linkedWorkspaceChanges, packDraftSnapshot, seedLinkedWorkspace } from './linked-project-workspace';
 import {
   commitLinkedProject,
   linkedBuildStatus,
+  requestProductionReview,
   streamLinkedProjectSnapshot,
   type LinkedBuildStatus,
 } from '~/lib/.server/cloudflare/linked-project-client';
@@ -797,6 +798,39 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       checkpoint,
       messages: this.messages,
     };
+  }
+
+  /**
+   * Asks the organization's admins to make this draft a real project: approved, it becomes a GitHub
+   * repository that deploys through its own pipeline. Only a validated revision can be sent.
+   */
+  @callable()
+  async requestProduction(input: { title: string; note: string }): Promise<{ requested: true }> {
+    await this.hydrateDurableIdentity({ required: true, reason: 'request_production' });
+    const identity = runtimeIdentity(this.env);
+    if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1' || !identity) {
+      throw new Error("Production requests are for drafts in an organization's account.");
+    }
+    if (await this.workspace.linkedProject()) {
+      throw new Error('This project is already on GitHub: ask the agent to publish it.');
+    }
+    const checkpoint = await this.workspace.checkpoint();
+    if (!(await this.workspace.hasSuccessfulValidation(checkpoint.revision))) {
+      throw new Error('Finish and validate the app first: only a validated draft can be sent for review.');
+    }
+    const title = input.title.trim().slice(0, 80);
+    if (!title) {
+      throw new Error('Name the app for your admin.');
+    }
+    const { snapshot, files } = await packDraftSnapshot(this.workspace);
+    await requestProductionReview(this.env, identity, {
+      title,
+      note: input.note.trim().slice(0, 1_000),
+      previewUrl: this.state.deployment?.productionUrl ?? this.currentPreviewState().published?.url ?? null,
+      snapshot,
+      files,
+    });
+    return { requested: true };
   }
 
   /** The organization GitHub project this workspace works on, or null for a CloudChef app. */

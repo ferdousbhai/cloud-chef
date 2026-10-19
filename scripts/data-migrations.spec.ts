@@ -8,6 +8,7 @@ const controlPlaneTables = [
   'cloudflare_credentials',
   'cloudflare_oauth_states',
   'email_sign_in_tokens',
+  'github_approval_states',
   'github_install_states',
   'github_installations',
   'google_sign_in_states',
@@ -17,6 +18,7 @@ const controlPlaneTables = [
   'organization_members',
   'organization_usage_daily',
   'organizations',
+  'production_requests',
   'user',
   'user_computer_runtimes',
 ];

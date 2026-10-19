@@ -22,7 +22,7 @@ type LinkedChange = { path: string; contentBase64: string | null; executable: bo
  * they arrive: a repository never sits in the agent's memory whole.
  */
 export async function seedLinkedWorkspace(
-  workspace: BuilderWorkspaceApi,
+  workspace: Pick<BuilderWorkspaceApi, 'beginSeed' | 'appendSeed' | 'commitSeed' | 'abortSeed' | 'setLinkedProject'>,
   orgProjectId: string,
   lines: AsyncIterable<LinkedSnapshotLine>,
 ): Promise<BuilderWorkspaceState> {
@@ -94,7 +94,7 @@ export async function seedLinkedWorkspace(
  * new, and every file that's gone. This is exactly what GitHub needs to show the workspace as it is.
  */
 export async function linkedWorkspaceChanges(
-  workspace: BuilderWorkspaceApi,
+  workspace: Pick<BuilderWorkspaceApi, 'refresh' | 'listFiles' | 'readFile'>,
   linked: BuilderWorkspaceLinkedProject,
 ): Promise<LinkedChange[]> {
   const base = new Map(linked.baseManifest.map((file) => [file.path, file.sha256]));
@@ -123,4 +123,40 @@ export async function linkedWorkspaceChanges(
 
 function projectPath(path: string): string {
   return path.startsWith(`${WORK_DIR}/`) ? path.slice(WORK_DIR.length + 1) : path;
+}
+
+/**
+ * A draft's files at its current revision, as the gzipped JSON a production request carries
+ * (`[{ path, contentBase64 }]`, base64): read page by page from the workspace's own sync feed.
+ */
+export async function packDraftSnapshot(
+  workspace: Pick<BuilderWorkspaceApi, 'getSyncPage'>,
+): Promise<{ snapshot: string; files: number }> {
+  let files: { path: string; contentBase64: string }[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await workspace.getSyncPage(cursor ? { fromRevision: 0, cursor } : { fromRevision: 0 });
+    if (page.restart) {
+      files = [];
+      cursor = undefined;
+      continue;
+    }
+    for (const entry of page.entries) {
+      const path = projectPath(entry.path);
+      if (entry.kind !== 'write' || EXCLUDED_ROOTS.has(path.split('/')[0] ?? '')) {
+        continue;
+      }
+      files.push({
+        path,
+        contentBase64:
+          entry.encoding === 'base64' ? entry.content : bytesToBase64(new TextEncoder().encode(entry.content)),
+      });
+    }
+    if (!page.nextCursor) {
+      break;
+    }
+    cursor = page.nextCursor;
+  }
+  const compressed = new Blob([JSON.stringify(files)]).stream().pipeThrough(new CompressionStream('gzip'));
+  return { snapshot: bytesToBase64(new Uint8Array(await new Response(compressed).arrayBuffer())), files: files.length };
 }

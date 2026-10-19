@@ -57,6 +57,7 @@ interface BaseChatProps {
   deployment?: BuilderDeploymentState | null;
   publication?: BuilderPublicationState | null;
   onDeploy?: () => Promise<BuilderDeploymentState>;
+  onRequestProduction?: (input: { title: string; note: string }) => Promise<void>;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 
@@ -82,6 +83,7 @@ export function BaseChat({
   deployment,
   publication,
   onDeploy,
+  onRequestProduction,
   cloudflareExecutions,
   onCloudflareExecutionDecision,
   subchats,
@@ -294,7 +296,12 @@ export function BaseChat({
                       )}
                       {deployment ? (
                         <div className="mb-2">
-                          <DeploymentStatus deployment={deployment} publication={publication} onRetry={onDeploy} />
+                          <DeploymentStatus
+                            deployment={deployment}
+                            publication={publication}
+                            onRetry={onDeploy}
+                            onRequestProduction={onRequestProduction}
+                          />
                         </div>
                       ) : null}
                       {(!subchats || (currentSubchatIndex >= subchats.length - 1 && isSubchatLoaded)) && (

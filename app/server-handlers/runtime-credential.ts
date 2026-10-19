@@ -1,4 +1,4 @@
-import { canUseConnection } from '~/lib/cloudflare/data/organization-access.server';
+import { canUseConnection, findMembership } from '~/lib/cloudflare/data/organization-access.server';
 import { z } from 'zod';
 import { InvalidJsonBodyError, PayloadTooLargeError, readJsonBodyWithLimit } from '~/lib/bounded-body';
 import {
@@ -42,6 +42,17 @@ export async function runtimeCredentialAction(args: { request: Request; env: Env
   const authenticated = await authenticateRuntime(args.env, args.request, body);
   if (authenticated instanceof Response) {
     return authenticated;
+  }
+  // A member who only works on GitHub projects reaches production through GitHub alone: their
+  // workspace is never handed the organization's Cloudflare authorization.
+  if (authenticated.connection.orgId) {
+    const membership = await findMembership(args.env.DB, authenticated.connection.orgId, body.userId);
+    if (!membership?.draftsAllowed) {
+      return credentialResponse(
+        { code: 'cloudflare_token_withheld', error: 'Your organization lets you work on its GitHub projects only.' },
+        403,
+      );
+    }
   }
   try {
     const accessToken = await D1CloudflareCredentialVault.fromEnv(args.env).resolve(authenticated.credentialHandle, {

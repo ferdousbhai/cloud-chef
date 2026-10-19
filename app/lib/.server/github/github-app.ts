@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { createGitHubAppJwt } from './app-jwt';
-import { callGitHub, GitHubError, type GitHubRequestInit } from './github-api';
+import { callGitHub, fetchGitHub, GitHubError, type GitHubRequestInit } from './github-api';
 import { RepositoryClient } from './repository-client';
 
 const OAUTH_TOKEN_URL = 'https://github.com/login/oauth/access_token';
@@ -51,6 +51,55 @@ export class GitHubApp {
   /** Where an admin installs the App, choosing the account and repositories it may reach. */
   installUrl(): string {
     return `https://github.com/apps/${encodeURIComponent(this.config.slug)}/installations/new`;
+  }
+
+  /** Where an admin authorizes CloudChef to act as them on GitHub once (to create a repository). */
+  authorizeUrl(state: string, redirectUri: string): string {
+    const url = new URL('https://github.com/login/oauth/authorize');
+    url.searchParams.set('client_id', this.config.clientId);
+    url.searchParams.set('redirect_uri', redirectUri);
+    url.searchParams.set('state', state);
+    return url.toString();
+  }
+
+  /** The login of the GitHub user behind `userToken`. */
+  async userLogin(userToken: string): Promise<string> {
+    return (await this.call('/user', userToken, z.looseObject({ login: z.string() }))).login;
+  }
+
+  /**
+   * Creates a repository as the GitHub user behind `userToken`: in the organization `owner` when it is
+   * one, else in their own account. It starts with a README, so its default branch exists.
+   */
+  async createRepository(
+    userToken: string,
+    args: { owner: string | null; name: string; private: boolean; description: string },
+  ): Promise<GitHubRepository> {
+    return this.call(
+      args.owner ? `/orgs/${encodeURIComponent(args.owner)}/repos` : '/user/repos',
+      userToken,
+      gitHubRepositorySchema,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          name: args.name,
+          private: args.private,
+          description: args.description,
+          auto_init: true,
+        }),
+      },
+    );
+  }
+
+  /**
+   * Adds a repository to an installation limited to selected repositories. An installation covering all
+   * of the account's repositories already includes it, and GitHub refuses the call then: not an error.
+   */
+  async addRepositoryToInstallation(userToken: string, installationId: number, repositoryId: number): Promise<void> {
+    const request = this.request;
+    await fetchGitHub(request, `/user/installations/${installationId}/repositories/${repositoryId}`, userToken, {
+      method: 'PUT',
+    }).then((response) => response.body?.cancel());
   }
 
   /** Exchanges the code GitHub returns after installing (user authorization during installation). */

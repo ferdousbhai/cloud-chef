@@ -22,6 +22,7 @@ type OrganizationMember = {
   role: OrganizationRole;
   joinedAt: number;
   pausedAt: number | null;
+  draftsAllowed: boolean;
   /** This calendar month's Workers AI use in the organization's account (UTC). */
   usage: { turns: number; inputTokens: number; outputTokens: number };
 };
@@ -189,7 +190,7 @@ export async function listOrganizations(
   const { results } = await db
     .prepare(
       `SELECT members.org_id, organizations.name AS org_name, members.role, members.paused_at,
-              connections.account_name, connections.status AS connection_status
+              members.drafts_allowed, connections.account_name, connections.status AS connection_status
        FROM organization_members AS members
        JOIN organizations ON organizations.id = members.org_id
        LEFT JOIN cloudflare_connections AS connections ON connections.org_id = members.org_id
@@ -202,6 +203,7 @@ export async function listOrganizations(
       org_name: string;
       role: OrganizationRole;
       paused_at: number | null;
+      drafts_allowed: number;
       account_name: string | null;
       connection_status: string | null;
     }>();
@@ -213,6 +215,7 @@ export async function listOrganizations(
         orgName: row.org_name,
         role: row.role,
         pausedAt: row.paused_at,
+        draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
         connection:
           row.connection_status === null
             ? null
@@ -229,6 +232,7 @@ async function listMembers(db: D1Database, orgId: string, now: number): Promise<
   const { results } = await db
     .prepare(
       `SELECT members.user_id, users.name, users.email, members.role, members.joined_at, members.paused_at,
+              members.drafts_allowed,
               COALESCE(SUM(usage.turns), 0) AS turns,
               COALESCE(SUM(usage.input_tokens), 0) AS input_tokens,
               COALESCE(SUM(usage.output_tokens), 0) AS output_tokens
@@ -248,6 +252,7 @@ async function listMembers(db: D1Database, orgId: string, now: number): Promise<
       role: OrganizationRole;
       joined_at: number;
       paused_at: number | null;
+      drafts_allowed: number;
       turns: number;
       input_tokens: number;
       output_tokens: number;
@@ -259,6 +264,7 @@ async function listMembers(db: D1Database, orgId: string, now: number): Promise<
     role: row.role,
     joinedAt: row.joined_at,
     pausedAt: row.paused_at,
+    draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
     usage: { turns: row.turns, inputTokens: row.input_tokens, outputTokens: row.output_tokens },
   }));
 }
@@ -275,7 +281,7 @@ async function listPendingInvites(db: D1Database, orgId: string, now: number): P
   return results.map((row) => ({ id: row.id, email: row.email, role: row.role, expiresAt: row.expires_at }));
 }
 
-type MemberAction = 'pause' | 'resume' | 'remove' | 'make_admin' | 'make_member';
+type MemberAction = 'pause' | 'resume' | 'remove' | 'make_admin' | 'make_member' | 'allow_drafts' | 'disallow_drafts';
 
 /**
  * An admin's change to one member, or a member leaving (`remove` on themselves). An organization
@@ -320,10 +326,15 @@ export async function updateMember(
               'UPDATE organization_members SET paused_at = NULL WHERE org_id = ? AND user_id = ?',
               [args.orgId, args.userId],
             ]
-          : [
-              'UPDATE organization_members SET role = ? WHERE org_id = ? AND user_id = ?',
-              [args.action === 'make_admin' ? 'admin' : 'member', args.orgId, args.userId],
-            ];
+          : args.action === 'allow_drafts' || args.action === 'disallow_drafts'
+            ? [
+                'UPDATE organization_members SET drafts_allowed = ? WHERE org_id = ? AND user_id = ?',
+                [args.action === 'allow_drafts' ? 1 : 0, args.orgId, args.userId],
+              ]
+            : [
+                'UPDATE organization_members SET role = ? WHERE org_id = ? AND user_id = ?',
+                [args.action === 'make_admin' ? 'admin' : 'member', args.orgId, args.userId],
+              ];
   const result = await db
     .prepare(write + keepsAnAdmin)
     .bind(...values)

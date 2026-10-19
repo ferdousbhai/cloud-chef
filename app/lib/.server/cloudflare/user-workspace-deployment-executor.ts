@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { deploymentPlanResourceName, isCurrentDeploymentPlan } from './deployment-plan';
 import {
   claimApprovedDeployment,
@@ -418,6 +419,8 @@ function activity(args: UserOwnedDeploymentArgs, sequence: number, message: stri
   });
 }
 
+const tokenWithheldSchema = z.object({ code: z.literal('cloudflare_token_withheld'), error: z.string() });
+
 export async function resolveFreshCloudflareAccessToken(
   env: {
     CLOUDCHEF_CONTROL_PLANE_ENDPOINT?: string;
@@ -470,6 +473,11 @@ export async function resolveFreshCloudflareAccessToken(
     body = isCredentialResponseBody(parsed) ? parsed : null;
   } catch {
     body = null;
+  }
+  // Said plainly: the member works on the organization's GitHub projects only, so drafts can't deploy.
+  const withheld = tokenWithheldSchema.safeParse(body);
+  if (response.status === 403 && withheld.success) {
+    throw new Error(withheld.data.error);
   }
   if (
     !response.ok ||

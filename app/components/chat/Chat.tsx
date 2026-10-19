@@ -291,6 +291,7 @@ const AuthenticatedChat = memo(
       deployment,
       publication,
       deployValidatedRevision,
+      requestProduction,
       cloudflareExecutions,
       decideCloudflareExecution,
       workspacePresentationState,
@@ -383,6 +384,7 @@ const AuthenticatedChat = memo(
         deployment={deployment}
         publication={publication}
         onDeploy={deployValidatedRevision}
+        onRequestProduction={requestProduction}
         cloudflareExecutions={cloudflareExecutions}
         onCloudflareExecutionDecision={decideCloudflareExecution}
         runtimeNotice={workspaceSyncNotice(workspacePresentationState, workspacePreparing, retryWorkspacePresentation)}
