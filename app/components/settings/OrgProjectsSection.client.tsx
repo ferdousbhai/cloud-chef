@@ -215,7 +215,7 @@ export function OrgProjectsSection({
             aria-label="Repository"
             value={repoId}
             onChange={(event) => setRepoId(event.target.value)}
-            className="min-w-0 flex-1 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 text-sm"
+            className="min-w-48 flex-1 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 text-sm"
           >
             <option value="">Choose a repository</option>
             {repositories

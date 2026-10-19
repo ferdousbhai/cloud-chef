@@ -26,12 +26,15 @@ export function SettingsContent({ authorizationError }: { authorizationError?: s
           <h1 className="sr-only">Settings</h1>
 
           <div className="app-page-content !mt-0 settings-grid">
-            <div className="grid content-start gap-3">
+            <div className="grid min-w-0 content-start gap-3">
               <ProfileCard />
               <CloudflareCard initialError={authorizationError} />
-              <OrganizationsCard />
             </div>
-            <AccountDataCard />
+            {/* Organizations hold the most controls (projects, people, requests): they get the wide column. */}
+            <div className="grid min-w-0 content-start gap-3">
+              <OrganizationsCard />
+              <AccountDataCard />
+            </div>
           </div>
         </div>
         <TrustFooter className="mt-4" />
