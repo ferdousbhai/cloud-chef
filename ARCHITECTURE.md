@@ -72,7 +72,8 @@ An organization can work on existing apps kept in GitHub, which stays their sour
 CloudChef's GitHub App on the account holding them, choosing its repositories, and links repositories as projects,
 choosing which members may work on each (`app/server-handlers/github-projects.ts`,
 `app/lib/cloudflare/data/org-projects.server.ts`). The installation is recorded only after the returning admin's own
-GitHub authorization shows they can reach it. No GitHub token is stored: each operation mints an installation token
+GitHub authorization shows they control it: their own account, or a GitHub organization they own (the App needs the
+Members read permission to check that). No GitHub token is stored: each operation mints an installation token
 limited to one repository and the permissions it needs (`app/lib/.server/github/`).
 
 Opening a project creates a chat bound to it (`chats.org_project_id`) before its agent starts, and the agent seeds the
