@@ -122,7 +122,9 @@ export const MessageInput = memo(function MessageInput({
           </div>
         </div>
       </div>
-      {authState.kind === 'unauthenticated' && <CloudflareConnectLegalNotice className="mx-auto mt-2 w-full px-1" />}
+      {authState.kind === 'unauthenticated' && (
+        <CloudflareConnectLegalNotice className="mx-auto mt-2 w-full px-1" signInLink />
+      )}
       {controller.refinement && (
         <PromptRefinementDialog
           key={controller.refinement.questions.map((question) => question.id).join(':')}

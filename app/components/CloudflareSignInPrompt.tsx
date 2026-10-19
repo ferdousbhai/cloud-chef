@@ -23,11 +23,16 @@ export function CloudflareSignInPrompt({
   title,
   description,
   initialError = null,
+  returnTo,
 }: {
   title: string;
   description?: string;
   initialError?: string | null;
+  /** Where signing in returns to; this page by default. */
+  returnTo?: string;
 }) {
+  const returnURL = () =>
+    createCloudflareReturnURL(returnTo ? new URL(returnTo, window.location.origin).href : undefined);
   const { data: session } = authClient.useSession();
   const [busy, setBusy] = useState<'cloudflare' | 'google' | 'email' | null>(null);
   const [error, setError] = useState<string | null>(initialError);
@@ -51,7 +56,7 @@ export function CloudflareSignInPrompt({
     event.preventDefault();
     const address = email.trim();
     void run('email', async () => {
-      await requestEmailSignInLink(address, createCloudflareReturnURL());
+      await requestEmailSignInLink(address, returnURL());
       setEmailSentTo(address);
     });
   };
@@ -78,7 +83,7 @@ export function CloudflareSignInPrompt({
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
             loading={busy === 'cloudflare'}
-            onClick={() => void run('cloudflare', () => signInWithCloudflare(createCloudflareReturnURL()))}
+            onClick={() => void run('cloudflare', () => signInWithCloudflare(returnURL()))}
           >
             Connect Cloudflare
           </Button>
@@ -104,7 +109,7 @@ export function CloudflareSignInPrompt({
               <Button
                 variant="neutral"
                 loading={busy === 'google'}
-                onClick={() => void run('google', () => signInWithGoogle(createCloudflareReturnURL()))}
+                onClick={() => void run('google', () => signInWithGoogle(returnURL()))}
               >
                 Continue with Google
               </Button>
