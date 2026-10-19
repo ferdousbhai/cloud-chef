@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Button } from '~/components/ui/primitives/Button';
-import { authClient, createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
+import {
+  authClient,
+  createCloudflareReturnURL,
+  ReauthenticationRequiredError,
+  signInWithCloudflare,
+} from '~/lib/auth-client';
 import { z } from 'zod';
+import { ReauthenticateButtons } from './ReauthenticateButtons.client';
 
 const connectionStatusSchema = z.looseObject({
   accountName: z.string().nullish(),
@@ -26,6 +32,12 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(initialError);
+  // Attaching a Cloudflare login to a Google or emailed-link account asks for a recent sign-in first.
+  const [reauthenticateReason, setReauthenticateReason] = useState<string | null>(null);
+  const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
+  const admin = organization?.role === 'admin';
+  // An organization member can't change its connection; they may connect an account of their own.
+  const offersOwnAccount = organization !== null && !session?.contexts.some((option) => option.kind === 'personal');
 
   useEffect(() => {
     let canceled = false;
@@ -70,13 +82,21 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
     try {
       await signInWithCloudflare(createCloudflareReturnURL(window.location.href));
     } catch (connectionError) {
-      setError(connectionError instanceof Error ? connectionError.message : 'Unable to connect Cloudflare.');
+      if (connectionError instanceof ReauthenticationRequiredError) {
+        setReauthenticateReason(connectionError.message);
+      } else {
+        setError(connectionError instanceof Error ? connectionError.message : 'Unable to connect Cloudflare.');
+      }
       setConnecting(false);
     }
   };
 
   return (
-    <section id="cloudflare" className="app-card w-full p-4" aria-labelledby="cloudflare-heading">
+    <section
+      id="cloudflare"
+      className="app-card w-full min-w-0 p-4 [overflow-wrap:anywhere]"
+      aria-labelledby="cloudflare-heading"
+    >
       <div className="flex flex-col items-start gap-3">
         <div className="min-w-0 w-full break-words">
           <h2 id="cloudflare-heading" className="app-card-title">
@@ -89,9 +109,12 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
           ) : connection ? (
             <p className="mt-1 text-sm text-content-secondary">
               Connected{connection.accountName ? ` to ${connection.accountName}` : ''}.
-              {connection.oauthScopeGrantStatus ? ` ${GRANT_STATUS_SENTENCES[connection.oauthScopeGrantStatus]}` : ''}
+              {/* What to reauthorize is for whoever can: the account's owner, or an organization's admins. */}
+              {connection.oauthScopeGrantStatus && (!organization || admin)
+                ? ` ${GRANT_STATUS_SENTENCES[connection.oauthScopeGrantStatus]}`
+                : ''}
             </p>
-          ) : (
+          ) : organization ? null : (
             <p className="mt-1 max-w-2xl text-sm text-content-secondary">
               Connect Cloudflare to build and deploy. Cloudflare bills this account directly.
             </p>
@@ -100,13 +123,14 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
         {organization ? (
           <>
             <p className="text-sm text-content-secondary">
-              This is {organization.orgName}&apos;s Cloudflare account; its admins manage the connection.
+              This is {organization.orgName}&apos;s Cloudflare account; its admins manage the connection
+              {admin ? ' (as one, you reconnect it under Organizations).' : '.'}
             </p>
-            {session?.contexts.some((option) => option.kind === 'personal') ? null : (
+            {offersOwnAccount ? (
               <Button size="sm" variant="neutral" loading={connecting} onClick={() => void connect()}>
                 Connect your own Cloudflare account
               </Button>
-            )}
+            ) : null}
           </>
         ) : !loading ? (
           <Button
@@ -119,12 +143,26 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
           </Button>
         ) : null}
       </div>
+      {reauthenticateReason ? (
+        <div role="status" className="mt-3 text-sm text-content-secondary">
+          <p>
+            {linkSentTo
+              ? `Open the link sent to ${linkSentTo}, then come back here and connect Cloudflare again.`
+              : reauthenticateReason}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <ReauthenticateButtons onError={setError} onLinkSent={setLinkSentTo} />
+          </div>
+        </div>
+      ) : null}
       {error ? (
         <p className="mt-3 text-sm text-bolt-elements-icon-error" role="alert">
           {error}
         </p>
       ) : null}
-      <p className="mt-3 text-xs text-content-tertiary">Requires Cloudflare Workers Paid and Containers.</p>
+      {organization && !admin && !offersOwnAccount ? null : (
+        <p className="mt-3 text-xs text-content-tertiary">Requires Cloudflare Workers Paid and Containers.</p>
+      )}
     </section>
   );
 }

@@ -120,30 +120,34 @@ export async function completeGitHubInstallAction({
     return completeProductionApproval({ request, env, app, state: approvalState });
   }
   const state = readCookie(request, STATE_COOKIE);
-  const settings = new URL('/settings#organizations', url.origin);
+  // This is a browser coming back from GitHub: every outcome returns to Settings, which says what happened.
+  const back = (message: string) => redirect(settingsWithMessage(url.origin, message), request);
   // The state GitHub carries back must be the one this browser started with: a link carrying someone
   // else's installation and code can't finish an admin's half-finished connection.
   if (!state || url.searchParams.get('state') !== state) {
     // Changing the App's repositories on GitHub returns here too, with nothing to record.
-    return redirect(settings, request);
+    return back('Back from GitHub. Repository access you changed there applies to your linked projects.');
   }
   const now = Date.now();
   const pending = await env.DB.prepare(
     `UPDATE github_install_states SET used_at = ?
      WHERE id = ? AND used_at IS NULL AND expires_at > ?
-     RETURNING org_id, user_id, return_to`,
+     RETURNING org_id, user_id`,
   )
     .bind(now, state, now)
-    .first<{ org_id: string; user_id: string; return_to: string }>();
+    .first<{ org_id: string; user_id: string }>();
   const installationId = Number(url.searchParams.get('installation_id'));
   const code = url.searchParams.get('code');
-  if (!pending || !app || !code || !Number.isSafeInteger(installationId) || installationId <= 0) {
-    return redirect(settings, request);
+  if (!pending || !app) {
+    return back('That GitHub connection expired or was already finished. Connect GitHub again.');
+  }
+  if (!code || !Number.isSafeInteger(installationId) || installationId <= 0) {
+    return back('GitHub was not connected: the installation was cancelled. Connect GitHub again.');
   }
   const session = await getAuthSession(env, request);
   const membership = session ? await findMembership(env.DB, pending.org_id, session.user.id) : null;
   if (session?.user.id !== pending.user_id || membership?.role !== 'admin' || membership.pausedAt !== null) {
-    return Response.json({ error: 'Only the admin who started connecting GitHub can finish it.' }, { status: 403 });
+    return back('Only the admin who started connecting GitHub can finish it.');
   }
   try {
     const userToken = await app.userToken(code);
@@ -156,10 +160,7 @@ export async function completeGitHubInstallAction({
         ? installation.account.login === (await app.userLogin(userToken))
         : await app.isOrganizationOwner(userToken, installation.account.login));
     if (!installation || !controls) {
-      return Response.json(
-        { error: 'Only the owner of that GitHub account or organization can connect it.' },
-        { status: 403 },
-      );
+      return back('Only the owner of that GitHub account or organization can connect it.');
     }
     await saveGitHubInstallation(env.DB, {
       orgId: pending.org_id,
@@ -170,13 +171,13 @@ export async function completeGitHubInstallAction({
         accountType: installation.account.type,
       },
     });
+    return back(`Connected GitHub (${installation.account.login}).`);
   } catch (error) {
     if (error instanceof GitHubError) {
-      return Response.json({ error: error.message }, { status: error.status >= 500 ? 502 : 400 });
+      return back(`GitHub was not connected: ${error.message}`);
     }
     throw error;
   }
-  return redirect(new URL(safeReturnTo(pending.return_to, url.origin), url.origin), request);
 }
 
 /**
@@ -255,14 +256,10 @@ async function completeProductionApproval(args: {
   const url = new URL(request.url);
   // This is a browser coming back from GitHub: every outcome returns to Settings, which says what happened.
   const back = (message: string | null, promoted?: string) => {
-    const location = new URL('/settings', url.origin);
-    if (message) {
-      location.searchParams.set('github_message', message);
-    }
+    const location = settingsWithMessage(url.origin, message);
     if (promoted) {
       location.searchParams.set('promoted', promoted);
     }
-    location.hash = 'organizations';
     return redirectClearing(location, request, APPROVAL_COOKIE);
   };
   const now = Date.now();
@@ -525,6 +522,16 @@ async function withGitHub<T>(call: () => Promise<T>): Promise<T | Response> {
     }
     throw error;
   }
+}
+
+/** Settings' organizations, saying what a return from GitHub did. */
+function settingsWithMessage(origin: string, message: string | null): URL {
+  const location = new URL('/settings', origin);
+  if (message) {
+    location.searchParams.set('github_message', message);
+  }
+  location.hash = 'organizations';
+  return location;
 }
 
 /** Back to CloudChef, with the installation's browser state cleared. */
