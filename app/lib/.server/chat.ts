@@ -13,6 +13,7 @@ import type { WorkersAiModel, WorkersAiModelId } from '~/lib/workers-ai-model';
 import type { PiSteeringQueue } from './llm/pi-steering';
 import type { BuilderTurnBudgetReport } from './llm/builder-turn-budget';
 import type { CloudflareApiModelToolContext } from './llm/cloudflare-api-model-tools';
+import type { ModelTurnUsage } from './llm/workers-ai-telemetry';
 
 type Messages = CloudChefMessage[];
 
@@ -38,6 +39,7 @@ export async function createChatResponseFromBody({
   runWithKeepAlive,
   steering,
   onSettled,
+  onModelUsage,
 }: {
   abortSignal?: AbortSignal;
   body: ChatRequestBody;
@@ -59,6 +61,7 @@ export async function createChatResponseFromBody({
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
   steering: PiSteeringQueue;
   onSettled: (budget: BuilderTurnBudgetReport) => void;
+  onModelUsage?: (usage: ModelTurnUsage) => void;
 }) {
   const { messages, modelId } = body;
   const transcriptMessages = messages ?? [];
@@ -84,6 +87,7 @@ export async function createChatResponseFromBody({
       runWithKeepAlive,
       steering,
       onSettled,
+      onModelUsage,
     });
 
     return createPiStreamResponse(dataStream);

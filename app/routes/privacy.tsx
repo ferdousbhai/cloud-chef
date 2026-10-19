@@ -20,12 +20,15 @@ function PrivacyPage() {
   return (
     <TrustPage
       title={TRUST_PAGE_HEADINGS.privacy}
-      summary="CloudChef’s own account stores only the records needed to authenticate you, connect Cloudflare, locate your user-owned runtime, and operate the service, plus narrow product telemetry if you opt in. Project and conversation data stays in the Cloudflare account you connect; the browser keeps only rebuildable in-memory views."
+      summary="CloudChef’s own account stores only the records needed to authenticate you, connect Cloudflare, locate your user-owned runtime, and operate the service, plus narrow product telemetry if you opt in. Project and conversation data stays in the Cloudflare account you build in: your own, or your organization’s; the browser keeps only rebuildable in-memory views."
     >
       <TrustSection title="What CloudChef stores in its own account">
         <p>The operator control plane stores:</p>
         <ul>
-          <li>your Cloudflare user identity and account details</li>
+          <li>your sign-in identity: Cloudflare, Google, or a verified email address</li>
+          <li>your Cloudflare account details, if you connect one</li>
+          <li>organizations you belong to, your role, and invites sent to your address</li>
+          <li>per-day counts of model turns and tokens used in an organization&apos;s account</li>
           <li>hashed authentication sessions</li>
           <li>encrypted OAuth credentials</li>
           <li>granted scopes and connection status</li>
@@ -62,13 +65,32 @@ function PrivacyPage() {
         </p>
       </TrustSection>
 
+      <TrustSection title="Organizations">
+        <p>
+          An organization shares one Cloudflare account among the people its admins invite. Members sign in with Google
+          or an emailed link and do not need Cloudflare logins of their own. Each member builds in a separate workspace
+          in the organization&apos;s account, so their chats, transcripts, project files, and deployed applications are
+          stored there, under that account&apos;s controls. Its administrators, and anyone with access to that
+          Cloudflare account, can read them. The organization, not CloudChef&apos;s operator, decides how that account
+          is used.
+        </p>
+        <p>
+          Admins see each member&apos;s name, email, role, and this month&apos;s count of model turns and tokens in the
+          organization&apos;s account. Those counts contain no prompt, response, or project content. An admin can pause
+          a member, who then cannot open their workspace or use the organization&apos;s Cloudflare authorization, or
+          remove them, which also deletes their workspace from the organization&apos;s account; applications they
+          deployed stay there.
+        </p>
+      </TrustSection>
+
       <TrustSection title="Data, purposes, and legal bases">
         <ul>
           <li>
-            <strong>Account and authentication:</strong> Cloudflare identity, name, email, avatar, session records,
-            OAuth state, and connection status. These are used to authenticate you and provide the service you request,
-            including steps taken before and during the service agreement. The identity and authorization fields are
-            required to use signed-in features; without them, CloudChef cannot provide those features.
+            <strong>Account and authentication:</strong> your Cloudflare or Google identity or verified email, name,
+            email, avatar, session records, sign-in links and OAuth state, connection status, and organization
+            memberships. These are used to authenticate you and provide the service you request, including steps taken
+            before and during the service agreement. The identity and authorization fields are required to use signed-in
+            features; without them, CloudChef cannot provide those features.
           </li>
           <li>
             <strong>Cloudflare connection:</strong> account identifiers, granted scopes, runtime locators, and encrypted
@@ -182,7 +204,8 @@ function PrivacyPage() {
       <TrustSection title="Retention in the operator control plane">
         <p>In the operator control plane:</p>
         <ul>
-          <li>OAuth authorization state expires after 10 minutes</li>
+          <li>OAuth authorization and Google sign-in state expires after 10 minutes</li>
+          <li>emailed sign-in links after 15 minutes, and organization invites after 7 days</li>
           <li>authentication sessions after 30 days</li>
           <li>unreferenced encrypted credential records become eligible for removal after 24 hours</li>
         </ul>
@@ -212,14 +235,17 @@ function PrivacyPage() {
           <li>authentication sessions</li>
           <li>encrypted Cloudflare credentials</li>
           <li>connection metadata and granted scopes</li>
-          <li>your runtime locator</li>
+          <li>your runtime locators and organization memberships</li>
         </ul>
         <p>
           It also asks Cloudflare to revoke CloudChef’s authorization, and tells you when Cloudflare did not confirm
-          that revocation so you can remove it yourself. Because erasure is irreversible it requires a Cloudflare
-          sign-in completed in the last ten minutes, an exact typed confirmation, and an explicit acknowledgement of
-          what is retained. Repeating it is harmless. If you have already revoked CloudChef’s authorization you can no
-          longer sign in, so use the request path below instead.
+          that revocation so you can remove it yourself. Because erasure is irreversible it requires a sign-in completed
+          in the last ten minutes, an exact typed confirmation, and an explicit acknowledgement of what is retained.
+          Erasure leaves an organization&apos;s Cloudflare authorization alone while others still build in it; if you
+          are its only remaining member, the organization is removed and its authorization revoked too. If you are the
+          only admin of an organization others belong to, make someone else an admin first. Repeating it is harmless. If
+          you have already revoked CloudChef’s authorization you can no longer sign in, so use the request path below
+          instead.
         </p>
         <p>
           Settings also contains a self-service export of those same operator-held records. It saves a JSON file,
@@ -229,15 +255,16 @@ function PrivacyPage() {
           <li>your identity and profile</li>
           <li>your Cloudflare connection metadata and granted scopes</li>
           <li>the existence, storage time, and key version of your encrypted credential record</li>
-          <li>your runtime locator</li>
+          <li>your runtime locators</li>
+          <li>your organization memberships, invites addressed to you, and your daily usage counts</li>
           <li>your authentication-session and OAuth-state records</li>
         </ul>
         <p>
           Encrypted credential material, initialisation vectors, credential handles, and session token hashes are never
-          exported. Because a single file discloses your whole account record, the export requires the same Cloudflare
-          sign-in completed in the last ten minutes that erasure requires. Each section is bounded at 200 records and
-          reports the untruncated count beside them, and a section that could not be read is named in the file, which
-          reports itself incomplete rather than looking whole.
+          exported. Because a single file discloses your whole account record, the export requires the same sign-in
+          completed in the last ten minutes that erasure requires. Each section is bounded at 200 records and reports
+          the untruncated count beside them, and a section that could not be read is named in the file, which reports
+          itself incomplete rather than looking whole.
         </p>
       </TrustSection>
 

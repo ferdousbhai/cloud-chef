@@ -1,3 +1,4 @@
+import { canUseConnection } from '~/lib/cloudflare/data/organization-access.server';
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import {
   USER_WORKSPACE_DATA_MIGRATIONS,
@@ -97,20 +98,42 @@ const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
 };
 
 /** Start or inspect the one durable Workflow for this connection and runtime build. */
+/**
+ * The resources of one person's workspace in one Cloudflare account. Named from the account and the
+ * person, so members of an organization each get their own in its shared account, and removing a
+ * member can find theirs again.
+ */
+export async function workspaceRuntimeNames(
+  connection: { accountId: string; id: string; orgId: string | null },
+  userId: string,
+): Promise<{ workerName: string; databaseName: string }> {
+  // A person's own workspace keeps the name it always had; an organization's also names the
+  // connection, so it never collides with their own in the same Cloudflare account.
+  const seed = connection.orgId
+    ? `${connection.accountId}:${userId}:${connection.id}`
+    : `${connection.accountId}:${userId}`;
+  const suffix = (await sha256Hex(seed)).slice(0, 16);
+  return { workerName: `cloudchef-workspace-${suffix}`, databaseName: `cloudchef-data-${suffix}` };
+}
+
 export async function startUserWorkspaceRuntimeProvisioning(args: {
   env: Pick<Env, 'USER_WORKSPACE_RUNTIME_PROVISIONING'>;
   userId: string;
   connectionId: string;
   connectionGeneration: number;
   retry?: boolean;
+  /** Whether the ready workspace is there after all; read again before rebuilding a finished one. */
+  isReady?: () => Promise<boolean>;
 }): Promise<UserWorkspaceRuntimeProvisioningLaunchResult> {
   const params: ProvisioningParams = {
     userId: args.userId,
     connectionId: args.connectionId,
     connectionGeneration: args.connectionGeneration,
   };
+  // One Workflow per person per connection: members of an organization share its connection, and each
+  // gets their own workspace in its account.
   const id = `workspace-${await sha256Hex(
-    `${params.connectionId}\0${params.connectionGeneration}\0${USER_WORKSPACE_RUNTIME_SHA256}\0${USER_WORKSPACE_SANDBOX_BASE_IMAGE}`,
+    `${params.userId}\0${params.connectionId}\0${params.connectionGeneration}\0${USER_WORKSPACE_RUNTIME_SHA256}\0${USER_WORKSPACE_SANDBOX_BASE_IMAGE}`,
   )}`;
   try {
     await args.env.USER_WORKSPACE_RUNTIME_PROVISIONING.createBatch([
@@ -135,6 +158,15 @@ export async function startUserWorkspaceRuntimeProvisioning(args: {
   }
   if (error) {
     return error;
+  }
+  // Finished and ready, yet the caller found no ready workspace: it was removed since, say when its
+  // owner left an organization and was invited back. Build it again rather than wait forever.
+  if (status.status === 'complete') {
+    // It may have finished just after the caller looked: then the next poll finds it ready.
+    if (!(await args.isReady?.())) {
+      await instance.restart();
+    }
+    return { status: 'preparing' };
   }
   return status.status === 'errored' || status.status === 'terminated'
     ? { status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null }
@@ -163,9 +195,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
     const connection = await expectedConnection(args.env, params, dependencies.requireConnection);
     const accessToken = await dependencies.resolveCredential(args.env, connection.credentialHandle);
     const accountApi = dependencies.createAccountApi(connection.accountId, accessToken);
-    const suffix = (await sha256Hex(`${connection.accountId}:${params.userId}`)).slice(0, 16);
-    const workerName = `cloudchef-workspace-${suffix}`;
-    const databaseName = `cloudchef-data-${suffix}`;
+    const { workerName, databaseName } = await workspaceRuntimeNames(connection, params.userId);
 
     const inspection = await args.step.do('inspect account', STEP_CONFIG, async () => {
       const entitlement = await accountApi.readWorkspaceContainersEntitlement();
@@ -187,6 +217,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
       userId: params.userId,
       accountId: connection.accountId,
       connectionGeneration: params.connectionGeneration,
+      organizationConnectionId: connection.orgId ? connection.id : null,
     });
     const databaseId = await args.step.do('prepare workspace database', STEP_CONFIG, async () => {
       const database = await accountApi.ensureD1Database(databaseName);
@@ -194,6 +225,9 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
       return database.id;
     });
     const namespaceId = await args.step.do('deploy workspace Worker', STEP_CONFIG, async () => {
+      // Asked again here and before the locator is written: a member removed from their organization
+      // while this ran must not get their workspace back.
+      await expectedConnection(args.env, params, dependencies.requireConnection);
       const deployed = await accountApi.deployWorkspaceRuntimeWorker({
         workerName,
         source: USER_WORKSPACE_RUNTIME_SOURCE,
@@ -205,6 +239,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         connectionGeneration: connection.generation,
         oauthScopeGrantStatus: connection.oauthScopeGrantStatus,
         endpoint,
+        sharedAccount: connection.orgId !== null,
       });
       await Promise.all([
         accountApi.configureWorkspaceRuntimeGcSchedule(workerName),
@@ -227,8 +262,9 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         request: fetch,
       }),
     );
-    await args.step.do('mark workspace ready', STEP_CONFIG, () =>
-      dependencies.upsertRuntime({
+    await args.step.do('mark workspace ready', STEP_CONFIG, async () => {
+      await expectedConnection(args.env, params, dependencies.requireConnection);
+      await dependencies.upsertRuntime({
         db: args.env.DB,
         userId: params.userId,
         connectionId: connection.id,
@@ -237,8 +273,8 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         endpoint,
         runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
         imageDigest: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
-      }),
-    );
+      });
+    });
     return { status: 'ready' };
   } catch (error) {
     // Only the message is logged: the thrown messages on this path are fixed, while the error
@@ -258,7 +294,7 @@ async function expectedConnection(
   }
   const connection = await requireConnection(env.DB, params.connectionId);
   if (
-    connection.userId !== params.userId ||
+    !(await canUseConnection(env.DB, params.userId, connection)) ||
     connection.generation !== params.connectionGeneration ||
     !connection.credentialHandle ||
     missingUserWorkspaceRuntimeCapabilities(connection).length > 0

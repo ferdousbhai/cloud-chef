@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button } from '~/components/ui/primitives/Button';
-import { createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
+import { authClient, createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
 import { z } from 'zod';
 
 const connectionStatusSchema = z.looseObject({
@@ -19,6 +19,9 @@ const GRANT_STATUS_SENTENCES = {
 type ConnectionStatus = z.infer<typeof connectionStatusSchema>;
 
 export function CloudflareCard({ initialError = null }: { initialError?: string | null }) {
+  const { data: session } = authClient.useSession();
+  // In an organization's account, its admins connect and reauthorize it (in Organizations below).
+  const organization = session?.context?.kind === 'organization' ? session.context : null;
   const [connection, setConnection] = useState<ConnectionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -28,6 +31,10 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
     let canceled = false;
     void fetch('/api/cloudflare/connection')
       .then(async (response) => {
+        // Signed in without an account to build in yet: nothing connected, which isn't an error.
+        if (response.status === 401) {
+          return null;
+        }
         if (!response.ok) {
           throw new Error('Unable to load Cloudflare connection status.');
         }
@@ -90,7 +97,18 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
             </p>
           )}
         </div>
-        {!loading ? (
+        {organization ? (
+          <>
+            <p className="text-sm text-content-secondary">
+              This is {organization.orgName}&apos;s Cloudflare account; its admins manage the connection.
+            </p>
+            {session?.contexts.some((option) => option.kind === 'personal') ? null : (
+              <Button size="sm" variant="neutral" loading={connecting} onClick={() => void connect()}>
+                Connect your own Cloudflare account
+              </Button>
+            )}
+          </>
+        ) : !loading ? (
           <Button
             size="sm"
             variant={connection ? 'neutral' : 'primary'}

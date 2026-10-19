@@ -38,6 +38,7 @@ type CloudflareApiRuntimeEnv = Pick<
   | 'CLOUDCHEF_CONNECTION_ID'
   | 'CLOUDCHEF_CONNECTION_GENERATION'
   | 'CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS'
+  | 'CLOUDCHEF_SHARED_ACCOUNT'
 >;
 
 /**
@@ -49,6 +50,12 @@ type CloudflareApiRuntimeEnv = Pick<
 export async function readCloudflareApiRuntimeAdmission(
   env: CloudflareApiRuntimeEnv,
 ): Promise<CloudflareApiRuntimeAdmission | null> {
+  // Never in an organization's account: its authorization reaches every member's workspace, Worker
+  // code, storage and the admin's own profile, even read-only. Members change their resources through
+  // the deployment pipeline, which touches only their own.
+  if (env.CLOUDCHEF_SHARED_ACCOUNT === '1') {
+    return null;
+  }
   const identity = runtimeIdentity(env);
   if (!identity) {
     return null;
@@ -78,7 +85,8 @@ export async function readCloudflareApiRuntimeAdmission(
   };
 }
 
-function runtimeIdentity(env: CloudflareApiRuntimeEnv): CloudflareApiRuntimeIdentity | null {
+/** The person, account and connection generation a user-owned runtime was provisioned for, from its bindings. */
+export function runtimeIdentity(env: CloudflareApiRuntimeEnv): CloudflareApiRuntimeIdentity | null {
   const connectionGeneration = Number(env.CLOUDCHEF_CONNECTION_GENERATION);
   const oauthScopeGrantStatus = env.CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS;
   if (

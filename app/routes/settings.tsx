@@ -1,5 +1,6 @@
 import { CloudChefAuthProvider, useCloudChefAuth } from '~/components/chat/CloudChefAuthWrapper';
 import { createFileRoute } from '@tanstack/react-router';
+import { authClient } from '~/lib/auth-client';
 import { ClientSettingsContent } from '~/components/ClientRouteComponents';
 import { createPrivatePageHead } from '~/lib/social-meta';
 import { Loading } from '~/components/Loading';
@@ -33,12 +34,20 @@ function Settings() {
 
 function SettingsRouteContent() {
   const auth = useCloudChefAuth();
+  // Settings is where someone signed in without a Cloudflare account creates an organization or
+  // connects one, so it opens for any session, not only one with an account to build in.
+  const { data: session, isPending } = authClient.useSession();
   const search = Route.useSearch();
   const authorizationError =
     search.cloudflare_authorization === CLOUDFLARE_AUTHORIZATION_ERROR_VALUE
       ? CLOUDFLARE_AUTHORIZATION_ERROR_MESSAGE
       : null;
-  return <SettingsRouteView authKind={auth.kind} authorizationError={authorizationError} />;
+  return (
+    <SettingsRouteView
+      authKind={auth.kind === 'unauthenticated' && session && !isPending ? 'fullyLoggedIn' : auth.kind}
+      authorizationError={authorizationError}
+    />
+  );
 }
 
 function SettingsRouteView({

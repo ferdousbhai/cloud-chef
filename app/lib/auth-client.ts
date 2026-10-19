@@ -3,7 +3,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { z } from 'zod';
 import type { CloudflareAuthSession } from '~/lib/.server/auth';
 import { disposeClientCollections } from '~/lib/cloudflare/client-collections';
-import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
+import { rememberTabWorkspace, resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { captureProductEvent } from '~/lib/telemetry.client';
 import { CLOUDFLARE_AUTHORIZATION_ERROR_PARAM } from '~/lib/cloudflare/authorization-recovery';
 import { clearPendingSubmit, recordPendingSubmit } from '~/lib/stores/pending-submit';
@@ -16,6 +16,18 @@ type AuthState = {
   data: CloudflareAuthSession | null;
   isPending: boolean;
 };
+
+const workspaceContextSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('personal'), connectionId: z.string(), accountName: z.string().nullable() }),
+  z.object({
+    kind: z.literal('organization'),
+    connectionId: z.string(),
+    accountName: z.string().nullable(),
+    orgId: z.string(),
+    orgName: z.string(),
+    role: z.enum(['admin', 'member']),
+  }),
+]);
 
 /** Typed against the server contract, so a drift in `CloudflareAuthSession` fails to compile here. */
 const cloudflareAuthSessionSchema: z.ZodType<CloudflareAuthSession> = z.object({
@@ -31,12 +43,18 @@ const cloudflareAuthSessionSchema: z.ZodType<CloudflareAuthSession> = z.object({
     email: z.string(),
     image: z.string().nullable(),
   }),
+  context: workspaceContextSchema.nullable(),
+  contexts: z.array(workspaceContextSchema),
 });
 
 const authorizationStartSchema = z.looseObject({
   authorizationUrl: z.string().optional().catch(undefined),
+  code: z.string().optional().catch(undefined),
   error: z.string().optional().catch(undefined),
 });
+
+/** Refused until the person signs in again (Cloudflare, Google or an emailed link): their session is too old. */
+export class ReauthenticationRequiredError extends Error {}
 
 const requestErrorSchema = z.looseObject({ error: z.string().optional().catch(undefined) });
 
@@ -68,6 +86,7 @@ async function loadSession() {
       }
       const session = cloudflareAuthSessionSchema.safeParse(await response.json());
       setState({ data: session.success ? session.data : null, isPending: false });
+      rememberTabWorkspace(session.success ? (session.data.context?.connectionId ?? null) : null);
     })
     .catch(() => setState({ data: null, isPending: false }))
     .finally(() => {
@@ -98,7 +117,7 @@ export const authClient = {
  */
 export async function signInWithCloudflare(
   callbackURL = window.location.href,
-  options: { continuePrompt?: string } = {},
+  options: { continuePrompt?: string; organizationId?: string } = {},
 ) {
   captureCloudflareConnectStarted();
   clearPendingSubmit();
@@ -110,12 +129,15 @@ export async function signInWithCloudflare(
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ callbackURL }),
+      body: JSON.stringify({ callbackURL, organizationId: options.organizationId }),
     });
     const parsed = authorizationStartSchema.safeParse(await response.json().catch(() => null));
     const payload = parsed.success ? parsed.data : null;
     if (!response.ok || !payload?.authorizationUrl) {
-      throw new Error(payload?.error ?? 'Unable to start Cloudflare authorization.');
+      const message = payload?.error ?? 'Unable to start Cloudflare authorization.';
+      throw payload?.code === 'reauthentication_required'
+        ? new ReauthenticationRequiredError(message)
+        : new Error(message);
     }
     window.location.assign(payload.authorizationUrl);
   } catch (error) {
@@ -123,6 +145,93 @@ export async function signInWithCloudflare(
     clearPendingSubmit();
     throw error;
   }
+}
+
+/** Sign in with Google: for people without a Cloudflare login, such as members of an organization. */
+export async function signInWithGoogle(callbackURL = window.location.href) {
+  clearPendingSubmit();
+  const response = await fetch('/api/auth/google/start', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ callbackURL }),
+  });
+  const parsed = authorizationStartSchema.safeParse(await response.json().catch(() => null));
+  const payload = parsed.success ? parsed.data : null;
+  if (!response.ok || !payload?.authorizationUrl) {
+    throw new Error(payload?.error ?? 'Unable to start Google sign-in.');
+  }
+  window.location.assign(payload.authorizationUrl);
+}
+
+/** Emails a one-time sign-in link to `email`; the link returns to `callbackURL`. */
+export async function requestEmailSignInLink(email: string, callbackURL = window.location.href) {
+  clearPendingSubmit();
+  const response = await fetch('/api/auth/email/start', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, callbackURL }),
+  });
+  if (!response.ok) {
+    const parsed = requestErrorSchema.safeParse(await response.json().catch(() => null));
+    throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Unable to send a sign-in link.');
+  }
+}
+
+/** The address an emailed sign-in link is for, without using it up. */
+export async function describeEmailSignIn(token: string): Promise<string> {
+  const response = await fetch('/api/auth/email/describe', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const parsed = requestErrorSchema.safeParse(body);
+    throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'This sign-in link is not valid.');
+  }
+  return z.object({ email: z.string() }).parse(body).email;
+}
+
+/** Completes a sign-in from an emailed link; returns where to go next. */
+export async function completeEmailSignIn(token: string): Promise<string> {
+  const response = await fetch('/api/auth/email/complete', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const parsed = requestErrorSchema.safeParse(body);
+    throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Unable to sign in with this link.');
+  }
+  const parsed = z.object({ returnTo: z.string() }).safeParse(body);
+  return parsed.success ? parsed.data.returnTo : '/';
+}
+
+/**
+ * Switches to another Cloudflare account this person builds in (their own, or an organization's).
+ * Chats and the workspace belong to one account, so everything loaded for the current one is
+ * dropped and the builder reopens.
+ */
+export async function switchWorkspace(connectionId: string) {
+  const response = await fetch('/api/context', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ connectionId }),
+  });
+  if (!response.ok) {
+    const parsed = requestErrorSchema.safeParse(await response.json().catch(() => null));
+    throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Unable to switch accounts.');
+  }
+  await disposeClientCollections();
+  resetUserRuntimeSession();
+  clearPendingSubmit();
+  window.location.assign('/');
 }
 
 export function createCloudflareReturnURL(returnURL = window.location.href, origin = window.location.origin): string {

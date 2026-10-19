@@ -34,6 +34,8 @@ const migrationPolicies = [
       '0018_remove_user_workspace_runtime_resources.sql':
         'd7f9e902632e82e7750e6bfd4cd986d981a14b4199188f1bdc00f17e79664918',
       '0019_remove_dead_control_plane_schema.sql': 'cf136090e98b908ec89166f224a7416381d4d67feffe8f12058f041c3d35073a',
+      '0020_member_sign_in.sql': 'b5b04da2845b9f4d03dcd2df2f438fb11076091b00a4c031f8197ec41fd6d82e',
+      '0021_organizations.sql': 'c181f20c983af3a41e36fb9723d9e4987b2e997cef044ae814e22ac1d6421f61',
     },
     contractAllowlist: {
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -56,6 +58,10 @@ const migrationPolicies = [
       // upgrade-deferral columns all lost their last reader and writer with the workspace-lifecycle
       // simplification.
       '0019_remove_dead_control_plane_schema.sql': 'cf136090e98b908ec89166f224a7416381d4d67feffe8f12058f041c3d35073a',
+      // A connection can belong to an organization, and a runtime is keyed by (user, connection): SQLite
+      // can't relax NOT NULL or change a primary key in place, so both tables are rebuilt with every row
+      // copied. The runtime rows step aside first so dropping the connections can't cascade to them.
+      '0021_organizations.sql': 'c181f20c983af3a41e36fb9723d9e4987b2e997cef044ae814e22ac1d6421f61',
     },
   },
   {

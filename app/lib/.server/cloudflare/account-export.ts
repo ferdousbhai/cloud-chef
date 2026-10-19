@@ -4,7 +4,7 @@ import { findCloudflareConnectionForUser } from './cloudflare-connection-reposit
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
  * kept for years stays readable against the shape it was written in.
  */
-export const ACCOUNT_EXPORT_SCHEMA_VERSION = 1;
+export const ACCOUNT_EXPORT_SCHEMA_VERSION = 2;
 
 /**
  * Per-section ceiling on rows. Sign-in sessions and OAuth state are the only
@@ -18,7 +18,10 @@ const SECTION_NAMES = [
   'account',
   'cloudflareConnection',
   'encryptedCredential',
-  'computerRuntime',
+  'computerRuntimes',
+  'organizations',
+  'organizationInvites',
+  'organizationUsage',
   'authSessions',
   'oauthStates',
 ] as const;
@@ -50,6 +53,9 @@ type ExportedAccount = {
   emailVerified: boolean;
   image: string | null;
   cloudflareSubject: string | null;
+  googleSubject: string | null;
+  /** When CloudChef last proved the email by an emailed link or Google. */
+  emailProvenAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -84,6 +90,34 @@ type ExportedComputerRuntime = {
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+/** An organization this person belongs to. Its Cloudflare connection and credential are its own, not theirs. */
+type ExportedMembership = {
+  organizationId: string;
+  organizationName: string;
+  role: string;
+  joinedAt: string;
+  pausedAt: string | null;
+};
+
+/** An invite addressed to this person's email, accepted or not. */
+type ExportedInvite = {
+  organizationName: string;
+  role: string;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+};
+
+/** One day's model use in an organization's account, as its admins see it. */
+type ExportedUsageDay = {
+  organizationId: string;
+  day: string;
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
 };
 
 type ExportedAuthSession = {
@@ -124,7 +158,10 @@ type ControlPlaneExport = {
     account: ExportedSection<{ account: ExportedAccount | null }>;
     cloudflareConnection: ExportedSection<{ connection: ExportedCloudflareConnection | null }>;
     encryptedCredential: ExportedSection<{ encryptedCredential: ExportedEncryptedCredential | null }>;
-    computerRuntime: ExportedSection<{ computerRuntime: ExportedComputerRuntime | null }>;
+    computerRuntimes: ExportedSection<BoundedList<{ computerRuntimes: ExportedComputerRuntime[] }>>;
+    organizations: ExportedSection<BoundedList<{ memberships: ExportedMembership[] }>>;
+    organizationInvites: ExportedSection<BoundedList<{ invites: ExportedInvite[] }>>;
+    organizationUsage: ExportedSection<BoundedList<{ usage: ExportedUsageDay[] }>>;
     authSessions: ExportedSection<BoundedList<{ sessions: ExportedAuthSession[] }>>;
     oauthStates: ExportedSection<BoundedList<{ states: ExportedOAuthState[] }>>;
   };
@@ -142,7 +179,10 @@ export async function exportControlPlaneAccount(args: { env: Env; userId: string
     account: await exportSection('account', () => readAccount(db, args.userId)),
     cloudflareConnection: await exportSection('cloudflareConnection', () => readCloudflareConnection(db, args.userId)),
     encryptedCredential: await exportSection('encryptedCredential', () => readEncryptedCredential(db, args.userId)),
-    computerRuntime: await exportSection('computerRuntime', () => readComputerRuntime(db, args.userId)),
+    computerRuntimes: await exportSection('computerRuntimes', () => readComputerRuntimes(db, args.userId)),
+    organizations: await exportSection('organizations', () => readMemberships(db, args.userId)),
+    organizationInvites: await exportSection('organizationInvites', () => readInvites(db, args.userId)),
+    organizationUsage: await exportSection('organizationUsage', () => readUsage(db, args.userId)),
     authSessions: await exportSection('authSessions', () => readAuthSessions(db, args.userId)),
     oauthStates: await exportSection('oauthStates', () => readOAuthStates(db, args.userId)),
   };
@@ -182,6 +222,8 @@ type UserRow = {
   emailVerified: number;
   image: string | null;
   cloudflare_subject: string | null;
+  google_subject: string | null;
+  email_proven_at: number | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -189,7 +231,8 @@ type UserRow = {
 async function readAccount(db: D1Database, userId: string): Promise<{ account: ExportedAccount | null }> {
   const row = await db
     .prepare(
-      `SELECT id, name, email, emailVerified, image, cloudflare_subject, createdAt, updatedAt
+      `SELECT id, name, email, emailVerified, image, cloudflare_subject, google_subject, email_proven_at,
+              createdAt, updatedAt
        FROM "user" WHERE id = ?`,
     )
     .bind(userId)
@@ -202,6 +245,8 @@ async function readAccount(db: D1Database, userId: string): Promise<{ account: E
       emailVerified: row.emailVerified === 1,
       image: row.image,
       cloudflareSubject: row.cloudflare_subject,
+      googleSubject: row.google_subject,
+      emailProvenAt: optionalIsoTimestamp(row.email_proven_at),
       createdAt: isoTimestamp(row.createdAt),
       updatedAt: isoTimestamp(row.updatedAt),
     },
@@ -270,31 +315,64 @@ type ComputerRuntimeRow = {
   updated_at: number;
 };
 
-async function readComputerRuntime(
+/** One workspace runtime per Cloudflare account the person builds in: their own, and each organization's. */
+async function readComputerRuntimes(
   db: D1Database,
   userId: string,
-): Promise<{ computerRuntime: ExportedComputerRuntime | null }> {
-  const row = await db
+): Promise<BoundedList<{ computerRuntimes: ExportedComputerRuntime[] }>> {
+  const rows = await db
     .prepare(
       `SELECT connection_id, connection_generation, worker_name, endpoint, runtime_version,
-              status, last_error, created_at, updated_at
-       FROM user_computer_runtimes WHERE user_id = ?`,
+              status, last_error, created_at, updated_at, COUNT(*) OVER () AS total_rows
+       FROM user_computer_runtimes WHERE user_id = ?
+       ORDER BY created_at DESC LIMIT ?`,
     )
-    .bind(userId)
-    .first<ComputerRuntimeRow>();
-  return {
-    computerRuntime: row && {
-      connectionId: row.connection_id,
-      connectionGeneration: row.connection_generation,
-      workerName: row.worker_name,
-      endpoint: row.endpoint,
-      runtimeVersion: row.runtime_version,
-      status: row.status,
-      lastError: row.last_error,
-      createdAt: isoTimestamp(row.created_at),
-      updatedAt: isoTimestamp(row.updated_at),
-    },
-  };
+    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
+    .all<ComputerRuntimeRow & { total_rows: number }>();
+  const computerRuntimes = rows.results.map((row) => ({
+    connectionId: row.connection_id,
+    connectionGeneration: row.connection_generation,
+    workerName: row.worker_name,
+    endpoint: row.endpoint,
+    runtimeVersion: row.runtime_version,
+    status: row.status,
+    lastError: row.last_error,
+    createdAt: isoTimestamp(row.created_at),
+    updatedAt: isoTimestamp(row.updated_at),
+  }));
+  return { computerRuntimes, ...boundsOf(rows.results, computerRuntimes.length) };
+}
+
+async function readMemberships(
+  db: D1Database,
+  userId: string,
+): Promise<BoundedList<{ memberships: ExportedMembership[] }>> {
+  const rows = await db
+    .prepare(
+      `SELECT members.org_id, organizations.name, members.role, members.joined_at, members.paused_at,
+              COUNT(*) OVER () AS total_rows
+       FROM organization_members AS members
+       JOIN organizations ON organizations.id = members.org_id
+       WHERE members.user_id = ?
+       ORDER BY members.joined_at LIMIT ?`,
+    )
+    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
+    .all<{
+      org_id: string;
+      name: string;
+      role: string;
+      joined_at: number;
+      paused_at: number | null;
+      total_rows: number;
+    }>();
+  const memberships = rows.results.map((row) => ({
+    organizationId: row.org_id,
+    organizationName: row.name,
+    role: row.role,
+    joinedAt: isoTimestamp(row.joined_at),
+    pausedAt: optionalIsoTimestamp(row.paused_at),
+  }));
+  return { memberships, ...boundsOf(rows.results, memberships.length) };
 }
 
 type AuthSessionRow = {
@@ -342,8 +420,8 @@ async function readOAuthStates(db: D1Database, userId: string): Promise<BoundedL
   const rows = await db
     .prepare(
       `SELECT id, status, return_to, expires_at, created_at, updated_at, COUNT(*) OVER () AS total_rows
-       FROM cloudflare_oauth_states WHERE authenticated_user_id = ?
-       ORDER BY created_at DESC LIMIT ?`,
+       FROM cloudflare_oauth_states WHERE authenticated_user_id = ?1 OR linking_user_id = ?1
+       ORDER BY created_at DESC LIMIT ?2`,
     )
     .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
     .all<OAuthStateRow>();
@@ -358,6 +436,66 @@ async function readOAuthStates(db: D1Database, userId: string): Promise<BoundedL
     updatedAt: isoTimestamp(row.updated_at),
   }));
   return { states, ...boundsOf(rows.results, states.length) };
+}
+
+async function readInvites(db: D1Database, userId: string): Promise<BoundedList<{ invites: ExportedInvite[] }>> {
+  const rows = await db
+    .prepare(
+      `SELECT organizations.name, invites.role, invites.created_at, invites.expires_at, invites.accepted_at,
+              COUNT(*) OVER () AS total_rows
+       FROM organization_invites AS invites
+       JOIN organizations ON organizations.id = invites.org_id
+       -- Only to an email CloudChef proved: one a Cloudflare login merely reports says nothing about
+       -- who holds it, and the invites to it aren't this person's to see.
+       WHERE invites.email = (SELECT email FROM "user" WHERE id = ? AND email_proven_at IS NOT NULL) COLLATE NOCASE
+       ORDER BY invites.created_at DESC LIMIT ?`,
+    )
+    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
+    .all<{
+      name: string;
+      role: string;
+      created_at: number;
+      expires_at: number;
+      accepted_at: number | null;
+      total_rows: number;
+    }>();
+  // The invite token's hash authenticates acceptance, so only the record of the invite is exported.
+  const invites = rows.results.map((row) => ({
+    organizationName: row.name,
+    role: row.role,
+    createdAt: isoTimestamp(row.created_at),
+    expiresAt: isoTimestamp(row.expires_at),
+    acceptedAt: optionalIsoTimestamp(row.accepted_at),
+  }));
+  return { invites, ...boundsOf(rows.results, invites.length) };
+}
+
+async function readUsage(db: D1Database, userId: string): Promise<BoundedList<{ usage: ExportedUsageDay[] }>> {
+  const rows = await db
+    .prepare(
+      `SELECT org_id, day, turns, input_tokens, output_tokens, cached_tokens, COUNT(*) OVER () AS total_rows
+       FROM organization_usage_daily WHERE user_id = ?
+       ORDER BY day DESC LIMIT ?`,
+    )
+    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
+    .all<{
+      org_id: string;
+      day: string;
+      turns: number;
+      input_tokens: number;
+      output_tokens: number;
+      cached_tokens: number;
+      total_rows: number;
+    }>();
+  const usage = rows.results.map((row) => ({
+    organizationId: row.org_id,
+    day: row.day,
+    turns: row.turns,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    cachedTokens: row.cached_tokens,
+  }));
+  return { usage, ...boundsOf(rows.results, usage.length) };
 }
 
 type ExportSectionBounds = { total: number; truncated: boolean };

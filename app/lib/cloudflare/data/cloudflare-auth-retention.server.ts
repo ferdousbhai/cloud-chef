@@ -1,5 +1,7 @@
 const CLOUDFLARE_AUTH_RETENTION_SWEEP_LIMIT = 100;
 export const UNREFERENCED_CREDENTIAL_RETENTION_MS = 24 * 60 * 60 * 1000;
+/** The window of the per-address limit on sign-in emails (`EMAIL_SIGN_IN_LINKS_PER_HOUR`). */
+const EMAIL_SIGN_IN_TOKEN_RETENTION_MS = 60 * 60 * 1000;
 
 export async function pruneCloudflareAuthData(args: { db: D1Database; now?: number; limit?: number }): Promise<void> {
   const now = args.now ?? Date.now();
@@ -30,6 +32,21 @@ export async function pruneCloudflareAuthData(args: { db: D1Database; now?: numb
            ORDER BY expires_at, id
            LIMIT ?
          )`,
+      )
+      .bind(now, limit),
+    args.db
+      .prepare(
+        // Kept an hour after they're sent, used or not: they count toward each address's hourly limit.
+        `DELETE FROM email_sign_in_tokens
+         WHERE token_hash IN (
+           SELECT token_hash FROM email_sign_in_tokens WHERE created_at <= ? ORDER BY created_at LIMIT ?
+         )`,
+      )
+      .bind(now - EMAIL_SIGN_IN_TOKEN_RETENTION_MS, limit),
+    args.db
+      .prepare(
+        `DELETE FROM google_sign_in_states
+         WHERE id IN (SELECT id FROM google_sign_in_states WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`,
       )
       .bind(now, limit),
     args.db

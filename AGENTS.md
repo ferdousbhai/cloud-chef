@@ -5,6 +5,8 @@ Cloudflare control plane, builder agent, user-owned workspace runtime, and gener
 ## Code index
 
 - `app/server.ts` — control-plane Worker dispatch and scheduled maintenance
+- `app/lib/.server/auth.ts`, `app/server-handlers/email-auth.ts`, `app/server-handlers/google-auth.ts` — sessions and sign-in (Cloudflare, Google, emailed link); a session's context is the connection it builds in
+- `app/lib/cloudflare/data/organization-access.server.ts`, `app/lib/cloudflare/data/organizations.server.ts`, `app/server-handlers/organizations.ts` — organizations, invites, members, and `canUseConnection`, the one check for who may use a connection
 - `app/workflows/user-workspace-runtime-provisioning.ts` — durable background provisioning of user workspace runtimes
 - `app/agents/builder-agent.ts` — builder lifecycle and recovery
 - `app/lib/.server/chat.ts` and `app/lib/.server/llm/` — model and tool orchestration

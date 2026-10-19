@@ -1,5 +1,5 @@
 {
-  "total": 1234,
+  "total": 1219,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -101,17 +101,15 @@
       "anti-slop/require-safety-comment-for-type-assertion": 19
     },
     "app/lib/.server/auth.test.ts": {
-      "anti-slop/no-chained-type-assertions": 9,
-      "anti-slop/require-safety-comment-for-type-assertion": 34
+      "anti-slop/no-chained-type-assertions": 8,
+      "anti-slop/require-safety-comment-for-type-assertion": 32
     },
     "app/lib/.server/chat.test.ts": {
       "anti-slop/no-module-mocking": 2,
       "anti-slop/require-safety-comment-for-type-assertion": 2
     },
     "app/lib/.server/cloudflare/account-deletion.test.ts": {
-      "anti-slop/no-chained-type-assertions": 1,
-      "anti-slop/no-known-value-widening": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 9
+      "anti-slop/require-safety-comment-for-type-assertion": 3
     },
     "app/lib/.server/cloudflare/account-export.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
@@ -185,10 +183,6 @@
       "anti-slop/no-unknown-parameters": 18,
       "anti-slop/no-unknown-returns": 3,
       "anti-slop/require-safety-comment-for-type-assertion": 1
-    },
-    "app/lib/.server/cloudflare/user-workspace-runtime-repository.test.ts": {
-      "anti-slop/no-chained-type-assertions": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 3
     },
     "app/lib/.server/cloudflare/workers-ai-billing-context.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,

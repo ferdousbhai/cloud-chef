@@ -119,6 +119,7 @@ vi.mock('./workers-ai-telemetry', () => ({
   recordFirstMeaningfulWorkersAiProgress: vi.fn(),
   recordFirstBuilderMutation: vi.fn(),
   recordWorkersAiFinish: mocks.recordFinish,
+  turnUsage: () => ({ inputTokens: 0, outputTokens: 0, cachedTokens: 0 }),
 }));
 import { piAgentRunner } from './pi-agent-runner';
 import { PiSteeringQueue } from './pi-steering';

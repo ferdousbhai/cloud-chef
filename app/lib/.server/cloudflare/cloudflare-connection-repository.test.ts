@@ -12,7 +12,7 @@ describe('activateCloudflareConnection', () => {
     await expect(
       activateCloudflareConnection({
         db: database.db,
-        userId: 'user-1',
+        owner: { kind: 'user', userId: 'user-1' },
         accountId: 'account-1',
         accountName: 'Account',
         credentialHandle: 'credential-loser',
@@ -37,7 +37,7 @@ describe('activateCloudflareConnection', () => {
     await expect(
       activateCloudflareConnection({
         db: database.db,
-        userId: 'user-1',
+        owner: { kind: 'user', userId: 'user-1' },
         accountId: 'account-2',
         accountName: 'New account',
         credentialHandle: 'credential-new',
@@ -62,7 +62,7 @@ describe('activateCloudflareConnection', () => {
     await expect(
       activateCloudflareConnection({
         db: database.db,
-        userId: 'user-1',
+        owner: { kind: 'user', userId: 'user-1' },
         accountId: 'account-2',
         accountName: 'New account',
         credentialHandle: 'credential-committed',
@@ -91,7 +91,7 @@ describe('activateCloudflareConnection', () => {
     await expect(
       activateCloudflareConnection({
         db: database.db,
-        userId: 'user-1',
+        owner: { kind: 'user', userId: 'user-1' },
         accountId: 'account-2',
         accountName: 'New account',
         credentialHandle: 'credential-committed',
@@ -119,7 +119,7 @@ describe('activateCloudflareConnection', () => {
     await expect(
       activateCloudflareConnection({
         db: database.db,
-        userId: 'user-1',
+        owner: { kind: 'user', userId: 'user-1' },
         accountId: 'account-2',
         accountName: 'New account',
         credentialHandle: 'credential-loser',
@@ -144,7 +144,7 @@ describe('activateCloudflareConnection', () => {
     await expect(
       activateCloudflareConnection({
         db,
-        userId: 'user-new',
+        owner: { kind: 'user', userId: 'user-new' },
         accountId: 'account-new',
         accountName: null,
         credentialHandle: 'credential-new',
@@ -167,7 +167,7 @@ describe('activateCloudflareConnection', () => {
     await expect(
       activateCloudflareConnection({
         db,
-        userId: 'user-new',
+        owner: { kind: 'user', userId: 'user-new' },
         accountId: 'account-new',
         accountName: null,
         credentialHandle: 'credential-new',

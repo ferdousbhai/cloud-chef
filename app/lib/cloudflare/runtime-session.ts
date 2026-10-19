@@ -1,6 +1,7 @@
 import { atom } from 'nanostores';
 import { z } from 'zod';
 import { aiGatewayCreditStatusSchema, type AiGatewayCreditStatus } from './ai-gateway-credit';
+import { WORKSPACE_HEADER } from './workspace-header';
 
 type UserRuntimeSession = {
   endpoint: string;
@@ -9,6 +10,17 @@ type UserRuntimeSession = {
   aiGatewayCreditStatus?: AiGatewayCreditStatus;
   correlationId?: string;
 };
+
+/**
+ * The Cloudflare account this tab opened with. The session's account is shared by every tab, so if
+ * another tab switches it, this one must not quietly start working in the new account: its requests
+ * name the account it expects, and a mismatch reloads it.
+ */
+let tabWorkspace: string | null = null;
+
+export function rememberTabWorkspace(connectionId: string | null) {
+  tabWorkspace ??= connectionId;
+}
 
 /** `workspace_preparing` is not a failure: the workspace is being built and has not answered yet. */
 const userRuntimeErrorCodeSchema = z.enum([
@@ -157,6 +169,9 @@ async function requestUserRuntimeSession(
       headers.set('CloudChef-Runtime-Provisioning-Retry', '1');
     }
     retryProvisioning = false;
+    if (tabWorkspace) {
+      headers.set(WORKSPACE_HEADER, tabWorkspace);
+    }
     const response = await fetch('/api/cloudflare/runtime-session', {
       method: 'POST',
       credentials: 'same-origin',
@@ -164,6 +179,11 @@ async function requestUserRuntimeSession(
     });
     const parsed = runtimeSessionPayloadSchema.safeParse(await response.json().catch(() => null));
     const payload = parsed.success ? parsed.data : null;
+    if (response.status === 409 && payload?.code === 'workspace_switched') {
+      // Another tab switched accounts: reopen in the one the session now uses.
+      window.location.reload();
+      throw new Error('This tab is reopening in the account another tab switched to.');
+    }
     if (response.status === 409 && payload?.code === 'workspace_preparing') {
       if (!isCurrent()) {
         throw new Error('The runtime session request was canceled.');

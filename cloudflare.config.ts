@@ -40,6 +40,9 @@ export default defineConfig({
       // Deployment credentials are supplied by the CI environment, not as Worker runtime secrets.
       CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: bindings.secret(),
       CLOUDFLARE_OAUTH_CLIENT_SECRET: bindings.secret(),
+      // Sign in with Google, for people without a Cloudflare login. Unset, the option reports itself unavailable.
+      GOOGLE_OAUTH_CLIENT_ID: bindings.secret(),
+      GOOGLE_OAUTH_CLIENT_SECRET: bindings.secret(),
       ...deployVar('COMMIT_SHA'),
       ...deployVar('CLOUDFLARE_OAUTH_CLIENT_ID'),
       // Migrations live in migrations/; scripts/apply-d1-migrations.mjs applies them to this database id.
@@ -52,6 +55,9 @@ export default defineConfig({
       CF_VERSION_METADATA: bindings.versionMetadata(),
       CLOUDFLARE_OAUTH_START_RATE_LIMITER: bindings.rateLimit({ namespace: '1002', simple: { limit: 10, period: 60 } }),
       CLIENT_TELEMETRY_RATE_LIMITER: bindings.rateLimit({ namespace: '1003', simple: { limit: 120, period: 60 } }),
+      SIGN_IN_RATE_LIMITER: bindings.rateLimit({ namespace: '1004', simple: { limit: 10, period: 60 } }),
+      // Emailed sign-in links (app/server-handlers/email-auth.ts), sent through Cloudflare Email Service.
+      SIGN_IN_EMAIL: bindings.sendEmail({ allowedSenderAddresses: ['noreply@cloudchef.build'] }),
     },
     exports: {
       UserWorkspaceRuntimeProvisioningWorkflow: exports.workflow({

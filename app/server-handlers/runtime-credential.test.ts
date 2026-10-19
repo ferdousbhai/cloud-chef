@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
+import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 
 const mocks = vi.hoisted(() => ({
   requireActiveCloudflareConnection: vi.fn(),
@@ -7,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('~/lib/.server/cloudflare/cloudflare-connection-repository', () => ({
-  requireActiveCloudflareConnection: mocks.requireActiveCloudflareConnection,
+  findActiveCloudflareConnection: mocks.requireActiveCloudflareConnection,
 }));
 vi.mock('~/lib/.server/cloudflare/cloudflare-credential-vault', () => ({
   D1CloudflareCredentialVault: {
@@ -15,7 +16,7 @@ vi.mock('~/lib/.server/cloudflare/cloudflare-credential-vault', () => ({
   },
 }));
 
-import { runtimeCredentialAction } from './runtime-credential';
+import { runtimeAccessAction, runtimeCredentialAction, runtimeUsageAction } from './runtime-credential';
 
 function testEnv(encryptionKey: string = encryptionKeyBase64): Env {
   // SAFETY: `requireActiveCloudflareConnection` and the credential resolver are both mocked here,
@@ -108,6 +109,49 @@ describe('runtimeCredentialAction', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Cloudflare connection is unavailable.' });
   });
 
+  it("serves an organization's token to each unpaused member's runtime, and to no one else", async () => {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES
+        ('member-1', 'Sam', 'sam@acme.com', 1, 1, 1),
+        ('outsider', 'Eve', 'eve@example.com', 1, 1, 1);
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('org-1', 'Acme', 1, 1), ('org-2', 'Other', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+        ('org-1', 'member-1', 'member', 1),
+        ('org-2', 'outsider', 'admin', 1);
+    `);
+    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, userId: null, orgId: 'org-1' });
+    const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: encryptionKeyBase64 });
+    const ask = async (userId: string) =>
+      (
+        await runtimeCredentialAction({
+          request: request(await runtimeSecret(userId, 'connection-1'), {
+            userId,
+            connectionId: 'connection-1',
+            connectionGeneration: 3,
+          }),
+          env,
+        })
+      ).status;
+
+    expect(await ask('member-1')).toBe(200);
+    expect(await ask('outsider')).toBe(401);
+    // Each member's runtime has its own secret: one member's can't fetch the token as another.
+    const borrowed = await runtimeCredentialAction({
+      request: request(await runtimeSecret('member-1', 'connection-1'), {
+        userId: 'outsider',
+        connectionId: 'connection-1',
+        connectionGeneration: 3,
+      }),
+      env,
+    });
+    expect(borrowed.status).toBe(401);
+    database.exec(`UPDATE organization_members SET paused_at = 2 WHERE user_id = 'member-1'`);
+    expect(await ask('member-1')).toBe(401);
+    database.exec(`DELETE FROM organization_members WHERE user_id = 'member-1'`);
+    expect(await ask('member-1')).toBe(401);
+  });
+
   it('fails closed when the broker secret cannot be derived', async () => {
     const response = await runtimeCredentialAction({
       request: request(await runtimeSecret()),
@@ -117,6 +161,87 @@ describe('runtimeCredentialAction', () => {
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({ error: 'Cloudflare connection is unavailable.' });
     expect(mocks.resolve).not.toHaveBeenCalled();
+  });
+});
+
+describe('runtimeUsageAction', () => {
+  it("adds each member's model use to their organization's daily totals, and records nothing for personal accounts", async () => {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('member-1', 'Sam', 'sam@acme.com', 1, 1, 1);
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('org-1', 'Acme', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('org-1', 'member-1', 'member', 1);
+    `);
+    const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: encryptionKeyBase64 });
+    const report = async (secret: string) =>
+      runtimeUsageAction({
+        request: new Request('https://cloudchef.build/api/cloudflare/runtime-usage', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: 'member-1',
+            connectionId: 'connection-1',
+            connectionGeneration: 3,
+            inputTokens: 100,
+            outputTokens: 20,
+            cachedTokens: 40,
+          }),
+        }),
+        env,
+        now: Date.UTC(2026, 9, 18),
+      });
+
+    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, userId: null, orgId: 'org-1' });
+    expect((await report(await runtimeSecret('member-1', 'connection-1'))).status).toBe(204);
+    expect((await report(await runtimeSecret('member-1', 'connection-1'))).status).toBe(204);
+    // A person's own-account secret is no good for their organization's connection.
+    expect((await report(await runtimeSecret('member-1'))).status).toBe(401);
+    expect((await report('x'.repeat(43))).status).toBe(401);
+    expect(database.prepare('SELECT * FROM organization_usage_daily').all()).toEqual([
+      {
+        org_id: 'org-1',
+        user_id: 'member-1',
+        day: '2026-10-18',
+        turns: 2,
+        input_tokens: 200,
+        output_tokens: 40,
+        cached_tokens: 80,
+      },
+    ]);
+
+    // Someone's own account: authenticated, but nothing to record.
+    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, userId: 'member-1', orgId: null });
+    database.exec('DELETE FROM organization_usage_daily');
+    expect((await report(await runtimeSecret('member-1'))).status).toBe(204);
+    expect(database.prepare('SELECT COUNT(*) AS rows FROM organization_usage_daily').get()).toEqual({ rows: 0 });
+  });
+});
+
+describe('runtimeAccessAction', () => {
+  it("says a member may build until they're paused", async () => {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('member-1', 'Sam', 'sam@acme.com', 1, 1, 1);
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('org-1', 'Acme', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('org-1', 'member-1', 'member', 1);
+    `);
+    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, userId: null, orgId: 'org-1' });
+    const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: encryptionKeyBase64 });
+    const ask = async () =>
+      (
+        await runtimeAccessAction({
+          request: request(await runtimeSecret('member-1', 'connection-1'), {
+            userId: 'member-1',
+            connectionId: 'connection-1',
+            connectionGeneration: 3,
+          }),
+          env,
+        })
+      ).status;
+
+    expect(await ask()).toBe(204);
+    database.exec(`UPDATE organization_members SET paused_at = 2`);
+    expect(await ask()).toBe(401);
   });
 });
 
@@ -135,10 +260,12 @@ function request(
   });
 }
 
-function runtimeSecret(): Promise<string> {
+/** A runtime's secret: a person's own (the default), or, given its connection, an organization's. */
+function runtimeSecret(userId = connection.userId, organizationConnectionId: string | null = null): Promise<string> {
   return deriveUserWorkspaceRuntimeSecret({
     encryptionKeyBase64,
-    userId: connection.userId,
+    userId,
+    organizationConnectionId,
     accountId: connection.accountId,
     connectionGeneration: connection.generation,
   });

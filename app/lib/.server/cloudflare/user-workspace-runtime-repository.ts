@@ -16,11 +16,21 @@ type UserWorkspaceRuntimeRow = {
 
 const RUNTIME_COLUMNS = 'connection_id, connection_generation, endpoint, runtime_version, image_digest';
 
-/** The ready runtime locator for a user; provisioning state lives in Cloudflare Workflows. */
-export async function findUserWorkspaceRuntime(db: D1Database, userId: string): Promise<UserWorkspaceRuntime | null> {
+/**
+ * The ready runtime locator for a person in one Cloudflare account (their own, or an organization's);
+ * provisioning state lives in Cloudflare Workflows.
+ */
+export async function findUserWorkspaceRuntime(
+  db: D1Database,
+  userId: string,
+  connectionId: string,
+): Promise<UserWorkspaceRuntime | null> {
   const row = await db
-    .prepare(`SELECT ${RUNTIME_COLUMNS} FROM user_computer_runtimes WHERE user_id = ? AND status = 'ready'`)
-    .bind(userId)
+    .prepare(
+      `SELECT ${RUNTIME_COLUMNS} FROM user_computer_runtimes
+       WHERE user_id = ? AND connection_id = ? AND status = 'ready'`,
+    )
+    .bind(userId, connectionId)
     .first<UserWorkspaceRuntimeRow>();
   return row
     ? {
@@ -51,8 +61,7 @@ export async function upsertUserWorkspaceRuntime(args: {
          user_id, connection_id, connection_generation, worker_name, endpoint,
          runtime_version, image_digest, status, last_error, created_at, updated_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', NULL, ?, ?)
-       ON CONFLICT(user_id) DO UPDATE SET
-         connection_id = excluded.connection_id,
+       ON CONFLICT(user_id, connection_id) DO UPDATE SET
          connection_generation = excluded.connection_generation,
          worker_name = excluded.worker_name,
          endpoint = excluded.endpoint,

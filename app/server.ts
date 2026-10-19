@@ -11,9 +11,24 @@ import {
   startCloudflareConnectionAction,
 } from './server-handlers/cloudflare-integration';
 import { authSessionAction, signOutAction } from './server-handlers/auth';
+import {
+  completeEmailSignInAction,
+  describeEmailSignInAction,
+  startEmailSignInAction,
+} from './server-handlers/email-auth';
+import {
+  acceptInviteAction,
+  createOrganizationAction,
+  inviteToOrganizationAction,
+  listOrganizationsAction,
+  revokeInviteAction,
+  switchContextAction,
+  updateMemberAction,
+} from './server-handlers/organizations';
+import { completeGoogleSignInAction, GOOGLE_RETURN_PATH, startGoogleSignInAction } from './server-handlers/google-auth';
 import { deleteAccountAction } from './server-handlers/account-deletion';
 import { exportAccountAction } from './server-handlers/account-export';
-import { runtimeCredentialAction } from './server-handlers/runtime-credential';
+import { runtimeAccessAction, runtimeCredentialAction, runtimeUsageAction } from './server-handlers/runtime-credential';
 import { clientTelemetryAction } from './server-handlers/client-telemetry';
 import { pruneCloudflareAuthDataBestEffort } from './lib/cloudflare/data/cloudflare-auth-retention.server';
 import { CSP_NONCE_REQUEST_HEADER } from './lib/csp-nonce';
@@ -89,7 +104,7 @@ function withApplicationSecurityHeaders(response: Response, pathname: string, no
   applyHstsFloor(headers);
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
-  if (pathname === '/connect/return') {
+  if (pathname === '/connect/return' || pathname === GOOGLE_RETURN_PATH) {
     headers.set('Cache-Control', 'no-store');
     headers.set('Pragma', 'no-cache');
   } else if (isHtml) {
@@ -131,6 +146,54 @@ const exactRoutes = new Map<string, ServerRoute>(
       method: 'POST',
       handler: (request, env) => signOutAction({ request, env }),
     },
+    '/api/auth/email/start': {
+      method: 'POST',
+      handler: (request, env) => startEmailSignInAction({ request, env }),
+    },
+    '/api/auth/email/describe': {
+      method: 'POST',
+      handler: (request, env) => describeEmailSignInAction({ request, env }),
+    },
+    '/api/auth/email/complete': {
+      method: 'POST',
+      handler: (request, env) => completeEmailSignInAction({ request, env }),
+    },
+    '/api/auth/google/start': {
+      method: 'POST',
+      handler: (request, env) => startGoogleSignInAction({ request, env }),
+    },
+    '/api/organizations': {
+      method: 'GET',
+      handler: (request, env) => listOrganizationsAction({ request, env }),
+    },
+    '/api/organizations/create': {
+      method: 'POST',
+      handler: (request, env) => createOrganizationAction({ request, env }),
+    },
+    '/api/organizations/invite': {
+      method: 'POST',
+      handler: (request, env) => inviteToOrganizationAction({ request, env }),
+    },
+    '/api/organizations/accept': {
+      method: 'POST',
+      handler: (request, env) => acceptInviteAction({ request, env }),
+    },
+    '/api/organizations/member': {
+      method: 'POST',
+      handler: (request, env) => updateMemberAction({ request, env }),
+    },
+    '/api/organizations/invite/revoke': {
+      method: 'POST',
+      handler: (request, env) => revokeInviteAction({ request, env }),
+    },
+    '/api/context': {
+      method: 'POST',
+      handler: (request, env) => switchContextAction({ request, env }),
+    },
+    [GOOGLE_RETURN_PATH]: {
+      method: 'GET',
+      handler: (request, env) => completeGoogleSignInAction({ request, env }),
+    },
     '/api/account/delete': {
       method: 'POST',
       handler: (request, env) => deleteAccountAction({ request, env }),
@@ -154,6 +217,14 @@ const exactRoutes = new Map<string, ServerRoute>(
     '/api/cloudflare/runtime-credential': {
       method: 'POST',
       handler: (request, env) => runtimeCredentialAction({ request, env }),
+    },
+    '/api/cloudflare/runtime-access': {
+      method: 'POST',
+      handler: (request, env) => runtimeAccessAction({ request, env }),
+    },
+    '/api/cloudflare/runtime-usage': {
+      method: 'POST',
+      handler: (request, env) => runtimeUsageAction({ request, env }),
     },
     '/connect/return': {
       method: CLOUDFLARE_CONNECTION_CALLBACK_METHOD,

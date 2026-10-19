@@ -396,6 +396,21 @@ export class UserCloudflareAccountApi {
     await this.deleteOptional(`/workers/scripts/${encodeURIComponent(workerName)}?force=true`);
   }
 
+  /**
+   * Remove one person's workspace: its container application, then its Worker (with the Durable
+   * Objects that hold their chats and project files), then its database. Each step is skipped when
+   * already gone, so a retry after a partial failure finishes the job.
+   */
+  async deleteWorkspaceRuntime(names: { workerName: string; databaseName: string }): Promise<void> {
+    const applications = await this.callContainer<unknown>('/applications', { method: 'GET' });
+    const application = existingContainerApplication(applications, names.workerName);
+    if (application) {
+      await this.deleteOptional(`/containers/applications/${encodeURIComponent(application.id)}`);
+    }
+    await this.deleteManagedWorker(names.workerName);
+    await this.deleteD1Database(names.databaseName);
+  }
+
   /** The id Cloudflare holds for a database name, or null when the account has no such database. */
   async findD1DatabaseId(resourceName: string): Promise<string | null> {
     requireCloudflareResourceName(resourceName);
@@ -945,6 +960,8 @@ export class UserCloudflareAccountApi {
     connectionGeneration: number;
     oauthScopeGrantStatus: CloudflareOAuthScopeGrantStatus;
     endpoint: string;
+    /** An organization's account, shared with the other members' workspaces. */
+    sharedAccount: boolean;
   }): Promise<{ namespaceId: string }> {
     requireWorkerName(args.workerName);
     if (!/^[a-f0-9]{64}$/.test(args.runtimeVersion) || args.controlPlaneSecret.length < 32) {
@@ -980,6 +997,7 @@ export class UserCloudflareAccountApi {
         { type: 'plain_text', name: 'CLOUDCHEF_USER_RUNTIME_ENDPOINT', text: args.endpoint },
         { type: 'plain_text', name: 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT', text: CLOUDCHEF_CONTROL_PLANE_ENDPOINT },
         { type: 'plain_text', name: 'CLOUDCHEF_USER_RUNTIME', text: '1' },
+        { type: 'plain_text', name: 'CLOUDCHEF_SHARED_ACCOUNT', text: args.sharedAccount ? '1' : '0' },
         { type: 'plain_text', name: 'CLOUDCHEF_RUNTIME_VERSION', text: args.runtimeVersion },
       ],
       exports: {

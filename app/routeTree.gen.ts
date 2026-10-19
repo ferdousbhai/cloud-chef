@@ -10,16 +10,23 @@
 
 import { Route as rootRouteImport } from './routes/__root';
 import { Route as IndexRouteImport } from './routes/index';
+import { Route as JoinRouteImport } from './routes/join';
 import { Route as PrivacyRouteImport } from './routes/privacy';
 import { Route as SecurityRouteImport } from './routes/security';
 import { Route as SettingsRouteImport } from './routes/settings';
 import { Route as SupportRouteImport } from './routes/support';
 import { Route as TermsRouteImport } from './routes/terms';
 import { Route as ChatIdRouteImport } from './routes/chat.$id';
+import { Route as SignInEmailRouteImport } from './routes/sign-in.email';
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any);
+const JoinRoute = JoinRouteImport.update({
+  id: '/join',
+  path: '/join',
   getParentRoute: () => rootRouteImport,
 } as any);
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -52,73 +59,92 @@ const ChatIdRoute = ChatIdRouteImport.update({
   path: '/chat/$id',
   getParentRoute: () => rootRouteImport,
 } as any);
+const SignInEmailRoute = SignInEmailRouteImport.update({
+  id: '/sign-in/email',
+  path: '/sign-in/email',
+  getParentRoute: () => rootRouteImport,
+} as any);
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute;
+  '/join': typeof JoinRoute;
   '/privacy': typeof PrivacyRoute;
   '/security': typeof SecurityRoute;
   '/settings': typeof SettingsRoute;
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
   '/chat/$id': typeof ChatIdRoute;
+  '/sign-in/email': typeof SignInEmailRoute;
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute;
+  '/join': typeof JoinRoute;
   '/privacy': typeof PrivacyRoute;
   '/security': typeof SecurityRoute;
   '/settings': typeof SettingsRoute;
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
   '/chat/$id': typeof ChatIdRoute;
+  '/sign-in/email': typeof SignInEmailRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   '/': typeof IndexRoute;
+  '/join': typeof JoinRoute;
   '/privacy': typeof PrivacyRoute;
   '/security': typeof SecurityRoute;
   '/settings': typeof SettingsRoute;
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
   '/chat/$id': typeof ChatIdRoute;
+  '/sign-in/email': typeof SignInEmailRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
   fullPaths:
     | '/'
+    | '/join'
     | '/privacy'
     | '/security'
     | '/settings'
     | '/support'
     | '/terms'
-    | '/chat/$id';
+    | '/chat/$id'
+    | '/sign-in/email';
   fileRoutesByTo: FileRoutesByTo;
   to:
     | '/'
+    | '/join'
     | '/privacy'
     | '/security'
     | '/settings'
     | '/support'
     | '/terms'
-    | '/chat/$id';
+    | '/chat/$id'
+    | '/sign-in/email';
   id:
     | '__root__'
     | '/'
+    | '/join'
     | '/privacy'
     | '/security'
     | '/settings'
     | '/support'
     | '/terms'
-    | '/chat/$id';
+    | '/chat/$id'
+    | '/sign-in/email';
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
+  JoinRoute: typeof JoinRoute;
   PrivacyRoute: typeof PrivacyRoute;
   SecurityRoute: typeof SecurityRoute;
   SettingsRoute: typeof SettingsRoute;
   SupportRoute: typeof SupportRoute;
   TermsRoute: typeof TermsRoute;
   ChatIdRoute: typeof ChatIdRoute;
+  SignInEmailRoute: typeof SignInEmailRoute;
 }
 
 declare module '@tanstack/react-router' {
@@ -128,6 +154,13 @@ declare module '@tanstack/react-router' {
       path: '/';
       fullPath: '/';
       preLoaderRoute: typeof IndexRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    '/join': {
+      id: '/join';
+      path: '/join';
+      fullPath: '/join';
+      preLoaderRoute: typeof JoinRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     '/privacy': {
@@ -172,17 +205,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    '/sign-in/email': {
+      id: '/sign-in/email';
+      path: '/sign-in/email';
+      fullPath: '/sign-in/email';
+      preLoaderRoute: typeof SignInEmailRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  JoinRoute: JoinRoute,
   PrivacyRoute: PrivacyRoute,
   SecurityRoute: SecurityRoute,
   SettingsRoute: SettingsRoute,
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
   ChatIdRoute: ChatIdRoute,
+  SignInEmailRoute: SignInEmailRoute,
 };
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

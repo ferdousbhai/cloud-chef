@@ -59,6 +59,11 @@ function TermsPage() {
           You authorize only the Cloudflare scopes shown during connection and must keep your CloudChef and Cloudflare
           access secure.
         </p>
+        <p>
+          An organization&apos;s admin who connects its Cloudflare account authorizes CloudChef to act in that account
+          for every member they invite, and the organization is responsible for the charges its members incur there.
+          Members build and deploy in that account under its administrators&apos; control.
+        </p>
       </TrustSection>
       <TrustSection title="Your inputs and generated output">
         <p>

@@ -1,0 +1,235 @@
+import { z } from 'zod';
+import { isRecentSignIn, reauthenticationRequired } from '~/lib/.server/account-reauthentication';
+import { getAuthSession, normalizeEmail, setSessionContext, type CloudflareAuthSession } from '~/lib/.server/auth';
+import { hasSameOrigin, readJsonRequest } from '~/lib/.server/request-guards';
+import { findCloudflareConnectionForOrganization } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
+import {
+  acceptInvite,
+  createInvite,
+  createOrganization,
+  listOrganizations,
+  OrganizationError,
+  requireAdmin,
+  revokeInvite,
+  updateMember,
+} from '~/lib/cloudflare/data/organizations.server';
+import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
+import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
+import { workspaceRuntimeNames } from '~/workflows/user-workspace-runtime-provisioning';
+
+/**
+ * Organizations: an admin connects the organization's Cloudflare account and invites people by email;
+ * they sign in (Google or an emailed link), accept, and build in that account. Every handler needs a
+ * session and a same-origin request; admin-only ones check the role on each call.
+ */
+const ORGANIZATION_INVITE_PATH = '/join';
+const SENDER = { email: 'noreply@cloudchef.build', name: 'CloudChef' };
+
+const createSchema = z.strictObject({ name: z.string().trim().min(1).max(80) });
+const inviteSchema = z.strictObject({
+  orgId: z.string().uuid(),
+  email: z.email().max(254),
+  role: z.enum(['admin', 'member']).default('member'),
+});
+const acceptSchema = z.strictObject({ token: z.string().min(32).max(128) });
+const contextSchema = z.strictObject({ connectionId: z.string().min(1).max(128) });
+const memberSchema = z.strictObject({
+  orgId: z.string().uuid(),
+  userId: z.string().min(1).max(128),
+  action: z.enum(['pause', 'resume', 'remove', 'make_admin', 'make_member']),
+  /** On removal, also delete their workspace (chats, project files) from the organization's account. */
+  deleteWorkspace: z.boolean().default(true),
+});
+const revokeInviteSchema = z.strictObject({ orgId: z.string().uuid(), inviteId: z.string().uuid() });
+
+type Handler = (args: { request: Request; env: Env; session: CloudflareAuthSession }) => Promise<Response>;
+
+/** Runs `handler` for a signed-in, same-origin request, turning organization errors into responses. */
+async function signedIn(request: Request, env: Env, handler: Handler): Promise<Response> {
+  if (request.method !== 'GET' && !hasSameOrigin(request)) {
+    return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
+  }
+  const session = await getAuthSession(env, request);
+  if (!session) {
+    return Response.json({ error: 'Sign in first.' }, { status: 401 });
+  }
+  try {
+    return await handler({ request, env, session });
+  } catch (error) {
+    if (error instanceof OrganizationError) {
+      return Response.json(error.code ? { error: error.message, code: error.code } : { error: error.message }, {
+        status: error.status,
+      });
+    }
+    throw error;
+  }
+}
+
+export function listOrganizationsAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async ({ session }) =>
+    Response.json(
+      { organizations: await listOrganizations(env.DB, session.user.id) },
+      { headers: { 'Cache-Control': 'private, no-store' } },
+    ),
+  );
+}
+
+export function createOrganizationAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, createSchema, 'Give the organization a name.');
+    if ('response' in body) {
+      return body.response;
+    }
+    // Creating one goes straight on to connecting its Cloudflare account, which needs a recent sign-in:
+    // asking first leaves no organization behind with nothing connected.
+    if (!isRecentSignIn(session)) {
+      return reauthenticationRequired('Sign in again to confirm it is you, then create the organization.');
+    }
+    const orgId = await createOrganization(env.DB, session.user.id, body.data.name);
+    return Response.json({ orgId }, { status: 201 });
+  });
+}
+
+/**
+ * Invites someone by email: the link is emailed to them and returned, so the admin can also pass it
+ * on themselves. Only the invited address can accept it.
+ */
+export function inviteToOrganizationAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, inviteSchema, 'Enter a valid email address.');
+    if ('response' in body) {
+      return body.response;
+    }
+    const { orgId, role } = body.data;
+    const email = normalizeEmail(body.data.email);
+    const admin = await requireAdmin(env.DB, orgId, session.user.id);
+    // Invites are email CloudChef sends with text an admin chose, so they're rate-limited per admin.
+    const { success } = await env.SIGN_IN_RATE_LIMITER.limit({ key: `invite:${session.user.id}` });
+    if (!success) {
+      return Response.json({ error: 'Too many invites at once. Try again in a minute.' }, { status: 429 });
+    }
+    const { token, expiresAt } = await createInvite(env.DB, { orgId, email, role, invitedBy: session.user.id });
+    const link = new URL(ORGANIZATION_INVITE_PATH, new URL(request.url).origin);
+    link.searchParams.set('token', token);
+    const emailed = await sendInvite(env, { to: email, orgName: admin.orgName, inviter: session.user.name, link });
+    return Response.json({ inviteUrl: link.toString(), expiresAt, emailed }, { status: 201 });
+  });
+}
+
+export function acceptInviteAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, acceptSchema, 'This invite link is not valid.');
+    if ('response' in body) {
+      return body.response;
+    }
+    const { orgId } = await acceptInvite(env.DB, { token: body.data.token, userId: session.user.id });
+    // Straight into the organization's account, once its admin has connected one.
+    const connection = await findCloudflareConnectionForOrganization(env.DB, orgId);
+    if (connection?.status === 'active') {
+      await setSessionContext(env, request, connection.id);
+    }
+    return Response.json({ orgId });
+  });
+}
+
+/**
+ * An admin pausing, resuming, removing, promoting or demoting a member, or a member leaving. Pausing
+ * or removing takes effect at the person's next request: the credential broker and the workspace
+ * session both ask about membership every time.
+ */
+export function updateMemberAction({
+  request,
+  env,
+  deleteWorkspace = deleteMemberWorkspace,
+}: {
+  request: Request;
+  env: Env;
+  deleteWorkspace?: typeof deleteMemberWorkspace;
+}): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, memberSchema, 'Choose a member and what to do.');
+    if ('response' in body) {
+      return body.response;
+    }
+    const { orgId, userId, action } = body.data;
+    await updateMember(env.DB, { orgId, actorId: session.user.id, userId, action });
+    if (action !== 'remove' || !body.data.deleteWorkspace) {
+      return Response.json({ ok: true });
+    }
+    // Their access is already gone; their workspace in the account is cleaned up best-effort, and the
+    // admin is told if it has to be removed by hand.
+    const workspaceDeleted = await deleteWorkspace(env, orgId, userId).then(
+      () => true,
+      () => {
+        console.error('Unable to delete a removed member workspace');
+        return false;
+      },
+    );
+    return Response.json({ ok: true, workspaceDeleted });
+  });
+}
+
+export function revokeInviteAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, revokeInviteSchema, 'Choose an invite to revoke.');
+    if ('response' in body) {
+      return body.response;
+    }
+    await revokeInvite(env.DB, { ...body.data, actorId: session.user.id });
+    return new Response(null, { status: 204 });
+  });
+}
+
+/** Deletes a person's workspace from an organization's Cloudflare account, with the organization's authorization. */
+async function deleteMemberWorkspace(env: Env, orgId: string, userId: string): Promise<void> {
+  const connection = await findCloudflareConnectionForOrganization(env.DB, orgId);
+  if (connection?.status !== 'active' || !connection.credentialHandle) {
+    throw new Error('The organization has no active Cloudflare connection.');
+  }
+  const accessToken = await D1CloudflareCredentialVault.fromEnv(env).resolve(connection.credentialHandle);
+  await new UserCloudflareAccountApi(connection.accountId, accessToken).deleteWorkspaceRuntime(
+    await workspaceRuntimeNames(connection, userId),
+  );
+}
+
+/** Switches the session to another Cloudflare account the person may build in. */
+export function switchContextAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async () => {
+    const body = await readJsonRequest(request, contextSchema, 'Choose an account to build in.');
+    if ('response' in body) {
+      return body.response;
+    }
+    if (!(await setSessionContext(env, request, body.data.connectionId))) {
+      return Response.json({ error: "You can't build in that account." }, { status: 403 });
+    }
+    return new Response(null, { status: 204 });
+  });
+}
+
+/** Emails an invite; false when email isn't configured or sending failed (the admin still has the link). */
+async function sendInvite(
+  env: Env,
+  invite: { to: string; orgName: string; inviter: string; link: URL },
+): Promise<boolean> {
+  const text = [
+    `${invite.inviter} invited you to build apps with ${invite.orgName} on CloudChef.`,
+    '',
+    `Accept the invite: ${invite.link.toString()}`,
+    '',
+    `Sign in with this address (${invite.to}), with Google or an emailed link; you don't need a Cloudflare`,
+    `login. What you build is stored in ${invite.orgName}'s Cloudflare account, where its administrators can`,
+    'see it. The invite works once, within 7 days.',
+  ].join('\n');
+  try {
+    await env.SIGN_IN_EMAIL.send({
+      from: SENDER,
+      to: invite.to,
+      subject: `${invite.orgName} invited you to CloudChef`,
+      text,
+    });
+    return true;
+  } catch {
+    console.error('Unable to send an organization invite');
+    return false;
+  }
+}

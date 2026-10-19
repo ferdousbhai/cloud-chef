@@ -127,9 +127,16 @@ import {
   readCloudflareApiRuntimeAdmission,
   type CloudflareApiRuntimeAdmission,
   type CloudflareApiRuntimeIdentity,
+  runtimeIdentity,
 } from '~/lib/.server/cloudflare/cloudflare-api-runtime-controls';
 import { CloudflareApiClient, type CloudflareApiOutcome } from '~/lib/.server/cloudflare/cloudflare-api-client';
-import { resolveUserWorkspaceCloudflareAccessToken } from '~/lib/.server/cloudflare/user-workspace-cloudflare-credential';
+import {
+  confirmUserWorkspaceAccess,
+  reportUserWorkspaceModelUsage,
+  resolveUserWorkspaceCloudflareAccessToken,
+} from '~/lib/.server/cloudflare/user-workspace-cloudflare-credential';
+import { turnUsage, type ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
+import type { Usage } from '@earendil-works/pi-ai';
 import { requireWorkersAiBuilderModel } from '~/lib/.server/llm/workers-ai-model-catalog';
 import type {
   CloudflareApiModelToolContext,
@@ -496,6 +503,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     };
 
     try {
+      await this.requireOrganizationAccess();
       const cloudflareApi = await this.createCloudflareApiToolContext(durableIdentity.transcript);
       if (shouldGenerateTitle) {
         await this.scheduleTitleGeneration(
@@ -524,6 +532,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         onSettled: () => {
           settleSteering();
         },
+        onModelUsage: (usage) => this.reportModelUsage(usage),
         compaction: {
           current: this.contextCompaction.getCompaction(),
           pending: compactionPending,
@@ -1045,9 +1054,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
     // Start model work before persistence so the background request leaves the
     // critical chat path as soon as the first prompt is accepted.
-    const conversationTitlePromise = generateConversationTitle(args.prompt, args.accountCredentials);
+    // Naming the chat is model use too, counted toward an organization member's usage.
+    const countUsage = (usage: Usage) => this.reportModelUsage(turnUsage(usage));
+    const conversationTitlePromise = generateConversationTitle(args.prompt, args.accountCredentials, countUsage);
     const projectTitlePromise =
-      args.firstPrompt && args.subchatIndex === 0 ? generateProjectTitle(args.prompt, args.accountCredentials) : null;
+      args.firstPrompt && args.subchatIndex === 0
+        ? generateProjectTitle(args.prompt, args.accountCredentials, countUsage)
+        : null;
     const provisionalTitle = args.firstPrompt ? deriveProvisionalTitle(args.prompt) : null;
 
     if (provisionalTitle) {
@@ -1138,6 +1151,34 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const template = await loadBuilderTemplate();
     return this.seedWorkspace(builderTemplateSeedId(), template);
+  }
+
+  /**
+   * In an organization's account, each turn first asks the control plane whether this member may still
+   * build: the model runs on the organization's Workers AI, and a paused or removed member must stop at
+   * their next turn even in a workspace they already have open.
+   */
+  private async requireOrganizationAccess(): Promise<void> {
+    if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1') {
+      return;
+    }
+    const identity = runtimeIdentity(this.env);
+    if (!identity || !(await confirmUserWorkspaceAccess(this.env, identity))) {
+      throw new Response("You no longer have access to this organization's account.", { status: 403 });
+    }
+  }
+
+  /** Each finished turn's token counts go to the control plane, which keeps them for organization admins. */
+  private reportModelUsage(usage: ModelTurnUsage): void {
+    const identity = runtimeIdentity(this.env);
+    if (!identity) {
+      return;
+    }
+    this.ctx.waitUntil(
+      reportUserWorkspaceModelUsage(this.env, identity, usage).catch(() => {
+        console.warn('Unable to report model usage to the control plane');
+      }),
+    );
   }
 
   private async createCloudflareApiToolContext(

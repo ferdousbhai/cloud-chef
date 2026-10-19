@@ -33,6 +33,8 @@ vi.mock('~/lib/.server/auth', () => ({
 }));
 vi.mock('~/lib/.server/cloudflare/cloudflare-connection-repository', () => ({
   findCloudflareConnectionForUser: mocks.findConnection,
+  findCloudflareConnectionForOwner: mocks.findConnection,
+  findActiveCloudflareConnection: mocks.findConnection,
   requireActiveCloudflareConnection: mocks.requireActiveConnection,
   activateCloudflareConnection: mocks.activateConnection,
   CloudflareConnectionChangedError: mocks.CloudflareConnectionChangedError,
@@ -70,6 +72,8 @@ describe('Cloudflare-only authentication', () => {
       image: null,
     });
     mocks.findConnection.mockResolvedValue(null);
+    // Signed out unless a test says otherwise.
+    mocks.getAuthSession.mockResolvedValue(null);
     mocks.requireActiveConnection.mockResolvedValue(activeConnection());
     mocks.vault.storeOAuthCredential.mockResolvedValue('credential-1');
     mocks.vault.deleteIfUnreferenced.mockResolvedValue(true);
@@ -112,7 +116,7 @@ describe('Cloudflare-only authentication', () => {
   });
 
   it('returns only connection metadata needed by settings and the isolated-staging guard', async () => {
-    mocks.getAuthSession.mockResolvedValue({ user: { id: 'user-1' } });
+    mocks.getAuthSession.mockResolvedValue(signedInSession);
     mocks.findConnection.mockResolvedValue(activeConnection());
 
     const response = await cloudflareConnectionStatusAction({
@@ -137,7 +141,7 @@ describe('Cloudflare-only authentication', () => {
     ['on a superseded image', runtimeRow({ imageDigest: `docker.io/cloudflare/sandbox:x@sha256:${'a'.repeat(64)}` })],
     ['provisioned before the image was recorded', runtimeRow({ imageDigest: null })],
   ])('starts background provisioning for an %s runtime', async (_case, initialRuntime) => {
-    mocks.getAuthSession.mockResolvedValue({ user: { id: 'user-1' } });
+    mocks.getAuthSession.mockResolvedValue(signedInSession);
     mocks.findConnection.mockResolvedValue(activeConnection());
     const provision = vi.fn().mockResolvedValue({ status: 'preparing' });
     const response = await cloudflareRuntimeSessionAction({
@@ -154,11 +158,12 @@ describe('Cloudflare-only authentication', () => {
       connectionId: 'connection-1',
       connectionGeneration: 1,
       retry: false,
+      isReady: expect.any(Function),
     });
   });
 
   it('surfaces a durable asynchronous provisioning failure without exposing its private detail', async () => {
-    mocks.getAuthSession.mockResolvedValue({ user: { id: 'user-1' } });
+    mocks.getAuthSession.mockResolvedValue(signedInSession);
     mocks.findConnection.mockResolvedValue(activeConnection());
     const response = await cloudflareRuntimeSessionAction({
       request: runtimeSessionRequest(),
@@ -184,7 +189,7 @@ describe('Cloudflare-only authentication', () => {
 
   it('mints an opaque correlation ID and logs it beside the grant it issued', async () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
-    mocks.getAuthSession.mockResolvedValue({ user: { id: 'user-1' } });
+    mocks.getAuthSession.mockResolvedValue(signedInSession);
     mocks.findConnection.mockResolvedValue(activeConnection());
 
     const response = await cloudflareRuntimeSessionAction({
@@ -202,7 +207,7 @@ describe('Cloudflare-only authentication', () => {
   });
 
   it('falls back to an unknown credit status when the optional check fails', async () => {
-    mocks.getAuthSession.mockResolvedValue({ user: { id: 'user-1' } });
+    mocks.getAuthSession.mockResolvedValue(signedInSession);
     mocks.findConnection.mockResolvedValue(activeConnection());
     const response = await cloudflareRuntimeSessionAction({
       request: runtimeSessionRequest(),
@@ -217,7 +222,7 @@ describe('Cloudflare-only authentication', () => {
   it('does not block runtime access when the credit check stalls', async () => {
     vi.useFakeTimers();
     try {
-      mocks.getAuthSession.mockResolvedValue({ user: { id: 'user-1' } });
+      mocks.getAuthSession.mockResolvedValue(signedInSession);
       mocks.findConnection.mockResolvedValue(activeConnection());
       const pendingResponse = cloudflareRuntimeSessionAction({
         request: runtimeSessionRequest(),
@@ -237,8 +242,22 @@ describe('Cloudflare-only authentication', () => {
     }
   });
 
+  it('sends a tab that opened in another account back to reload, rather than into the new one', async () => {
+    mocks.getAuthSession.mockResolvedValue(signedInSession);
+    mocks.findConnection.mockResolvedValue(activeConnection());
+    const response = await cloudflareRuntimeSessionAction({
+      request: new Request('https://cloudchef.build/api/cloudflare/runtime-session', {
+        method: 'POST',
+        headers: { Origin: 'https://cloudchef.build', 'CloudChef-Workspace': 'organization-connection' },
+      }),
+      env: runtimeEnv([null]),
+    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ code: 'workspace_switched' });
+  });
+
   it('reuses a current runtime without provisioning', async () => {
-    mocks.getAuthSession.mockResolvedValue({ user: { id: 'user-1' } });
+    mocks.getAuthSession.mockResolvedValue(signedInSession);
     mocks.findConnection.mockResolvedValue(activeConnection());
     const provision = vi.fn();
     const response = await cloudflareRuntimeSessionAction({
@@ -252,7 +271,7 @@ describe('Cloudflare-only authentication', () => {
   });
 
   it('returns no capability when automatic provisioning fails', async () => {
-    mocks.getAuthSession.mockResolvedValue({ user: { id: 'user-1' } });
+    mocks.getAuthSession.mockResolvedValue(signedInSession);
     mocks.findConnection.mockResolvedValue(activeConnection());
     const response = await cloudflareRuntimeSessionAction({
       request: runtimeSessionRequest(),
@@ -269,7 +288,7 @@ describe('Cloudflare-only authentication', () => {
   });
 
   it('requires reauthorization when the connection is missing a current workspace capability', async () => {
-    mocks.getAuthSession.mockResolvedValue({ user: { id: 'user-1' } });
+    mocks.getAuthSession.mockResolvedValue(signedInSession);
     mocks.findConnection.mockResolvedValue(
       activeConnection(1, ['workers', 'containers', 'd1', 'r2', 'durable_objects', 'workers_ai']),
     );
@@ -314,6 +333,28 @@ describe('Cloudflare-only authentication', () => {
     expect(orchestrator.startConnection).toHaveBeenCalledWith({
       returnUrl: expect.stringContaining('/connect/return?state='),
     });
+  });
+
+  it('asks for a recent sign-in before attaching a Cloudflare login to a signed-in account', async () => {
+    const database = oauthDatabase();
+    const orchestrator = fakeOrchestrator();
+    // Signed in by email an hour ago, with no Cloudflare login yet: a borrowed session must not attach one.
+    mocks.getAuthSession.mockResolvedValue({
+      ...signedInSession,
+      session: { ...signedInSession.session, createdAt: Date.now() - 60 * 60_000 },
+    });
+    const response = await startCloudflareConnectionAction({
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
+        body: JSON.stringify({ callbackURL: 'https://cloudchef.build/settings' }),
+      }),
+      env: database.env,
+      orchestrator,
+    });
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({ code: 'reauthentication_required' });
+    expect(orchestrator.startConnection).not.toHaveBeenCalled();
   });
 
   it('rejects cross-origin OAuth initiation', async () => {
@@ -465,7 +506,7 @@ describe('Cloudflare-only authentication', () => {
     );
     expect(mocks.activateConnection).toHaveBeenCalledWith(
       expect.objectContaining({
-        userId: 'user-1',
+        owner: { kind: 'user', userId: 'user-1' },
         accountId: ACCOUNT_ID,
         credentialHandle: 'credential-1',
         expectedGeneration: null,
@@ -964,6 +1005,13 @@ describe('Cloudflare-only authentication', () => {
   });
 });
 
+/** Signed in, building in their own Cloudflare account. */
+const signedInSession = {
+  session: { id: 'session-1', userId: 'user-1', expiresAt: Date.now() + 60_000, createdAt: Date.now() },
+  user: { id: 'user-1' },
+  context: { kind: 'personal', connectionId: 'connection-1', accountName: 'User Cloudflare' },
+};
+
 function activeConnection(
   generation = 1,
   grantedCapabilities = ['workers', 'containers', 'd1', 'r2', 'kv', 'durable_objects', 'workers_ai'],
@@ -971,6 +1019,7 @@ function activeConnection(
   return {
     id: 'connection-1',
     userId: 'user-1',
+    orgId: null,
     accountId: ACCOUNT_ID,
     accountName: 'User Cloudflare',
     status: 'active' as const,

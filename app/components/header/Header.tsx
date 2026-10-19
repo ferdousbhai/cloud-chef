@@ -7,6 +7,7 @@ import { HamburgerMenuIcon, PersonIcon, GearIcon, ExitIcon } from '@radix-ui/rea
 import { profileStore, setProfile } from '~/lib/stores/profile';
 import { Menu as MenuComponent, MenuItem as MenuItemComponent } from '@ui/Menu';
 import { signOutOfCloudChef } from '~/lib/auth-client';
+import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { BrandLink } from '~/components/BrandLink';
 import { Button } from '@ui/Button';
 import { ThemeSwitch } from '~/components/ui/ThemeSwitch';
@@ -104,6 +105,7 @@ export function Header({ hideSidebarIcon = false }: { hideSidebarIcon?: boolean 
           {profile && (
             <>
               <div className="hidden items-center gap-1 lg:flex">
+                <WorkspaceSwitcher />
                 <LinkButton variant="subtle" size="xs" to="/settings" icon={<GearIcon />}>
                   Settings
                 </LinkButton>

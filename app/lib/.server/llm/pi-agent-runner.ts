@@ -61,6 +61,8 @@ import {
   recordFirstMeaningfulWorkersAiProgress,
   recordFirstWorkersAiResponse,
   recordWorkersAiFinish,
+  turnUsage,
+  type ModelTurnUsage,
 } from './workers-ai-telemetry';
 import { getValidatedBuildCompletion } from './workers-ai-tools';
 import { createPiToolBundle } from './pi-tools-adapter';
@@ -109,6 +111,8 @@ interface PiAgentOptions {
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
   steering: PiSteeringQueue;
   onSettled: (budget: BuilderTurnBudgetReport) => void;
+  /** A finished turn's token counts, for an organization's per-member usage. */
+  onModelUsage?: (usage: ModelTurnUsage) => void;
 }
 
 type PiPreparationStage = 'tool_setup' | 'model_input' | 'prompt_metrics' | 'message_conversion';
@@ -730,7 +734,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       if (finalContextTokens >= modelCompactionPolicy(handle.model.contextWindow).proactiveTokens) {
         compaction.requestDurableCompaction?.();
       }
-      recordWorkersAiFinish({
+      const turnUsage = recordWorkersAiFinish({
         usage: totalUsage,
         finishReason: finalAssistant?.stopReason ?? 'stop',
         firstUserMessage,
@@ -740,8 +744,14 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
         providerModel: modelId,
         startedAt,
       });
+      options.onModelUsage?.(turnUsage);
       terminalReason = abortSignal?.aborted ? 'cancelled' : 'completed';
     } catch (cause) {
+      // A turn that fails part-way has still used the tokens it got through; the organization pays for them.
+      const failedUsage = turnUsage(totalUsage);
+      if (failedUsage.inputTokens + failedUsage.outputTokens > 0) {
+        options.onModelUsage?.(failedUsage);
+      }
       const error = budgetErrorForFailure(cause);
       terminalReason =
         error instanceof BuilderTurnBudgetExceededError ? error.reason : abortSignal?.aborted ? 'cancelled' : 'failed';

@@ -1,5 +1,5 @@
-import { DatabaseSync, type SQLInputValue, type StatementSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
+import { controlPlaneDatabase } from '~/test/control-plane-d1';
 import { findUserWorkspaceRuntime, upsertUserWorkspaceRuntime } from './user-workspace-runtime-repository';
 
 describe('workspace runtime locator', () => {
@@ -9,8 +9,26 @@ describe('workspace runtime locator', () => {
     await upsertUserWorkspaceRuntime(runtimeArgs(db, { runtimeVersion: 'a'.repeat(64), now: 1 }));
     await upsertUserWorkspaceRuntime(runtimeArgs(db, { runtimeVersion: 'b'.repeat(64), now: 2 }));
 
-    await expect(findUserWorkspaceRuntime(db, 'user-1')).resolves.toMatchObject({
+    await expect(findUserWorkspaceRuntime(db, 'user-1', 'connection-1')).resolves.toMatchObject({
       runtimeVersion: 'b'.repeat(64),
+    });
+  });
+
+  it('keeps a separate runtime for each account a person builds in', async () => {
+    const db = runtimeDatabase();
+
+    await upsertUserWorkspaceRuntime(runtimeArgs(db, { runtimeVersion: 'a'.repeat(64), now: 1 }));
+    await upsertUserWorkspaceRuntime({
+      ...runtimeArgs(db, { runtimeVersion: 'b'.repeat(64), now: 2 }),
+      connectionId: 'org-connection',
+      endpoint: 'https://org-workspace.example',
+    });
+
+    await expect(findUserWorkspaceRuntime(db, 'user-1', 'connection-1')).resolves.toMatchObject({
+      endpoint: 'https://workspace.example',
+    });
+    await expect(findUserWorkspaceRuntime(db, 'user-1', 'org-connection')).resolves.toMatchObject({
+      endpoint: 'https://org-workspace.example',
     });
   });
 
@@ -26,7 +44,7 @@ describe('workspace runtime locator', () => {
       )
       .run();
 
-    await expect(findUserWorkspaceRuntime(db, 'user-1')).resolves.toBeNull();
+    await expect(findUserWorkspaceRuntime(db, 'user-1', 'connection-1')).resolves.toBeNull();
   });
 });
 
@@ -44,43 +62,17 @@ function runtimeArgs(db: D1Database, overrides: { runtimeVersion: string; now: n
   };
 }
 
+/** A user with their own connection, and an organization connection they also build in. */
 function runtimeDatabase(): D1Database {
-  const database = new DatabaseSync(':memory:');
+  const { database, db } = controlPlaneDatabase();
   database.exec(`
-    CREATE TABLE user_computer_runtimes (
-      user_id TEXT PRIMARY KEY,
-      connection_id TEXT NOT NULL,
-      connection_generation INTEGER NOT NULL,
-      worker_name TEXT NOT NULL,
-      endpoint TEXT NOT NULL,
-      runtime_version TEXT NOT NULL,
-      status TEXT NOT NULL,
-      last_error TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      image_digest TEXT
-    );
+    INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt)
+      VALUES ('user-1', 'User', 'user@example.com', 1, 1, 1);
+    INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('org-1', 'Acme', 1, 1);
+    INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+      VALUES ('connection-1', 'user-1', 'account-1', 'active', 1, 1);
+    INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at)
+      VALUES ('org-connection', 'org-1', 'account-2', 'active', 1, 1);
   `);
-  return {
-    prepare(query: string) {
-      return prepared(database.prepare(query));
-    },
-  } as unknown as D1Database;
-}
-
-function prepared(statement: StatementSync) {
-  let values: SQLInputValue[] = [];
-  return {
-    bind(...next: SQLInputValue[]) {
-      values = next;
-      return this;
-    },
-    async first<T>() {
-      return (statement.get(...values) as T | undefined) ?? null;
-    },
-    async run() {
-      const result = statement.run(...values);
-      return { success: true, meta: { changes: Number(result.changes) } };
-    },
-  };
+  return db;
 }

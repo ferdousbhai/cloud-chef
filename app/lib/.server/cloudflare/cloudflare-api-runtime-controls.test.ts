@@ -44,6 +44,7 @@ describe('Cloudflare API runtime controls', () => {
 
   it.each([
     { label: 'unknown grant', env: testEnv(enabledRows, 'unknown') },
+    { label: 'shared organization account', env: { ...testEnv(), CLOUDCHEF_SHARED_ACCOUNT: '1' } },
     { label: 'missing row', env: testEnv(enabledRows.slice(1)) },
     {
       label: 'malformed row',

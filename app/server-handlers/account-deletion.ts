@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { clearAuthSessionCookie } from '~/lib/.server/auth';
 import { requireRecentlyAuthenticatedSession } from '~/lib/.server/account-reauthentication';
-import { eraseControlPlaneAccount } from '~/lib/.server/cloudflare/account-deletion';
+import {
+  eraseControlPlaneAccount,
+  OrganizationAdminRequiredError,
+  organizationsNeedingAnotherAdmin,
+} from '~/lib/.server/cloudflare/account-deletion';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
 
@@ -17,7 +21,7 @@ export async function deleteAccountAction({ request, env }: { request: Request; 
   const session = await requireRecentlyAuthenticatedSession(
     env,
     request,
-    'Reconnect Cloudflare to confirm it is you, then delete your CloudChef account data.',
+    'Sign in again to confirm it is you, then delete your CloudChef account data.',
   );
   if (session instanceof Response) {
     return session;
@@ -32,7 +36,25 @@ export async function deleteAccountAction({ request, env }: { request: Request; 
     );
   }
 
-  const erasure = await eraseControlPlaneAccount({ env, userId: session.user.id });
+  const needingAdmin = await organizationsNeedingAnotherAdmin(env.DB, session.user.id);
+  if (needingAdmin.length > 0) {
+    return Response.json(
+      {
+        error: `You're the only admin of ${needingAdmin.join(', ')}. Make someone else an admin first, so the organization isn't left without one.`,
+      },
+      { status: 409 },
+    );
+  }
+
+  let erasure: Awaited<ReturnType<typeof eraseControlPlaneAccount>>;
+  try {
+    erasure = await eraseControlPlaneAccount({ env, userId: session.user.id });
+  } catch (error) {
+    if (error instanceof OrganizationAdminRequiredError) {
+      return Response.json({ error: error.message }, { status: 409 });
+    }
+    throw error;
+  }
   console.info({
     event: 'control_plane_account_erased',
     erasedAt: new Date().toISOString(),

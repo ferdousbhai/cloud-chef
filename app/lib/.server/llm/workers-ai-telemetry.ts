@@ -12,12 +12,27 @@ interface FinishTelemetryOptions {
   startedAt: number;
 }
 
-export function recordWorkersAiFinish(options: FinishTelemetryOptions): void {
+/** One finished model turn's token counts, as reported to an organization's admins. */
+export type ModelTurnUsage = { inputTokens: number; outputTokens: number; cachedTokens: number };
+
+/** A turn's token counts so far, whether it finished or failed. */
+export function turnUsage(usage: Usage): ModelTurnUsage {
+  const inputTokens = normalizeUsage(usage.input);
+  return {
+    inputTokens,
+    outputTokens: normalizeUsage(usage.output),
+    cachedTokens: workersAiPromptCacheTelemetry(usage, inputTokens).cachedInputTokens,
+  };
+}
+
+/** Logs a finished model turn and returns its token counts. */
+export function recordWorkersAiFinish(options: FinishTelemetryOptions): ModelTurnUsage {
   const usage = {
     inputTokens: normalizeUsage(options.usage.input),
     outputTokens: normalizeUsage(options.usage.output),
     totalTokens: normalizeUsage(options.usage.totalTokens),
   };
+  const promptCache = workersAiPromptCacheTelemetry(options.usage, usage.inputTokens);
   console.info({
     event: 'workers_ai_finished',
     firstUserMessage: options.firstUserMessage,
@@ -28,8 +43,13 @@ export function recordWorkersAiFinish(options: FinishTelemetryOptions): void {
     estimatedContextTokens: options.estimatedContextTokens,
     promptCharacterCounts: options.promptCharacterCounts,
     durationMs: Date.now() - options.startedAt,
-    promptCache: workersAiPromptCacheTelemetry(options.usage, usage.inputTokens),
+    promptCache,
   });
+  return {
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cachedTokens: promptCache.cachedInputTokens,
+  };
 }
 
 type WorkersAiPromptCacheTelemetry = {

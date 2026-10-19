@@ -34,10 +34,23 @@ describe('Cloudflare authorization retention', () => {
     database
       .prepare('INSERT INTO cloudflare_connections (id, credential_handle) VALUES (?, ?)')
       .run('connection-1', 'credential-referenced');
+    const insertEmailToken = database.prepare(
+      'INSERT INTO email_sign_in_tokens (token_hash, created_at) VALUES (?, ?)',
+    );
+    // Sent over an hour ago, and one sent 20 minutes ago: expired, but still counting toward the hourly limit.
+    for (const hash of ['link-1', 'link-2', 'link-3']) {
+      insertEmailToken.run(hash, now - 61 * 60_000);
+    }
+    insertEmailToken.run('link-live', now - 20 * 60_000);
+    const insertGoogleState = database.prepare('INSERT INTO google_sign_in_states (id, expires_at) VALUES (?, ?)');
+    insertGoogleState.run('google-expired', now - 1);
+    insertGoogleState.run('google-live', now + 1);
 
     await expect(pruneCloudflareAuthData({ db, now, limit: 2 })).resolves.toBeUndefined();
     expect(values(database, 'cloudflare_oauth_states', 'id')).toEqual(['state-3', 'state-live']);
     expect(values(database, 'cloudflare_auth_sessions', 'id')).toEqual(['session-3', 'session-live']);
+    expect(values(database, 'email_sign_in_tokens', 'token_hash')).toEqual(['link-3', 'link-live']);
+    expect(values(database, 'google_sign_in_states', 'id')).toEqual(['google-live']);
     expect(values(database, 'cloudflare_credentials', 'handle')).toEqual([
       'credential-3',
       'credential-fresh',
@@ -89,6 +102,14 @@ function retentionDatabase(): { database: DatabaseSyncInstance; db: D1Database }
     CREATE TABLE cloudflare_connections (
       id TEXT PRIMARY KEY,
       credential_handle TEXT REFERENCES cloudflare_credentials(handle)
+    );
+    CREATE TABLE email_sign_in_tokens (
+      token_hash TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE google_sign_in_states (
+      id TEXT PRIMARY KEY,
+      expires_at INTEGER NOT NULL
     );
   `);
   const db = {

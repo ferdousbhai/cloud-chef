@@ -1,3 +1,6 @@
+import type { Usage } from '@earendil-works/pi-ai';
+import { organizationModelAccess } from '~/lib/.server/cloudflare/user-workspace-cloudflare-credential';
+import { turnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import type { Tool } from '@earendil-works/pi-ai';
 import { z } from 'zod';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
@@ -48,6 +51,11 @@ export async function userRuntimeEnhancePromptAction({
       return Response.json({ error: 'Invalid prompt' }, { status: 400 });
     }
     const { prompt, answers } = parsedRequest.data;
+    const access = await organizationModelAccess(env);
+    if (!access.allowed) {
+      return Response.json({ error: "You no longer have access to this organization's account." }, { status: 403 });
+    }
+    let usage: Usage | null = null;
     const accountCredentials = await getUserWorkersAiCredentials(env, userId);
     // Prompt refinement runs the builder's own pinned model, and pi-ai's static catalog does not
     // list it. Without the discovered metadata `getPiModel` falls back to its own defaults and
@@ -63,8 +71,16 @@ export async function userRuntimeEnhancePromptAction({
         prompt: JSON.stringify({ draft: prompt, priorDecisions: answers }),
         tool: promptRefinementTool,
         maxTokens: ENHANCE_PROMPT_MAX_OUTPUT_TOKENS,
+        onUsage: (spent) => {
+          usage = spent;
+        },
       }),
     );
+    if (access.report && usage) {
+      await access.report(turnUsage(usage)).catch(() => {
+        console.warn('Unable to report prompt enhancement usage to the control plane');
+      });
+    }
     if (!result.success) {
       throw new Error('Workers AI returned an invalid prompt refinement result.');
     }

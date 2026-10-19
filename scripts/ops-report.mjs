@@ -330,7 +330,8 @@ export function coreStatements(now) {
         runtimes.updated_at AS updated_at
       FROM "user" AS users
       JOIN cloudflare_connections AS connections ON connections.user_id = users.id
-      LEFT JOIN user_computer_runtimes AS runtimes ON runtimes.user_id = users.id
+      LEFT JOIN user_computer_runtimes AS runtimes
+        ON runtimes.user_id = users.id AND runtimes.connection_id = connections.id
       WHERE connections.status = 'active'
       ORDER BY users.createdAt
       LIMIT ${RUNTIME_ROW_LIMIT}`,

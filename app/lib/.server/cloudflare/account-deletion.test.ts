@@ -1,10 +1,8 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { join } from 'node:path';
-import type { DatabaseSync as DatabaseSyncInstance, SQLInputValue } from 'node:sqlite';
+import type { DatabaseSync as DatabaseSyncInstance } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
-import { eraseControlPlaneAccount } from './account-deletion';
+import { eraseControlPlaneAccount, OrganizationAdminRequiredError } from './account-deletion';
 import { D1CloudflareCredentialVault } from './cloudflare-credential-vault';
+import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 
 const ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
 
@@ -40,6 +38,76 @@ describe('control-plane account erasure', () => {
 
     expect(rowCount(database, 'user')).toBe(1);
     expect(rowCount(database, 'cloudflare_connections')).toBe(1);
+  });
+
+  it("never revokes an organization's grant while others still build in it, but takes a sole member's organization along", async () => {
+    const { database, db } = controlPlaneDatabase();
+    const revoke = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+    const vault = new D1CloudflareCredentialVault(db, ENCRYPTION_KEY, {
+      clientId: 'client',
+      clientSecret: 'secret',
+      request: revoke,
+    });
+    const shared = await vault.storeOAuthCredential({
+      accessToken: 'a',
+      refreshToken: 'r',
+      expiresAt: Date.now() + 3_600_000,
+    });
+    const solo = await vault.storeOAuthCredential({
+      accessToken: 'b',
+      refreshToken: 's',
+      expiresAt: Date.now() + 3_600_000,
+    });
+    seedAccount(database, null, 'user-1');
+    seedAccount(database, null, 'user-2');
+    database.exec(`
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('shared', 'Acme', 1, 1), ('solo', 'Side', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+        ('shared', 'user-1', 'member', 1), ('shared', 'user-2', 'admin', 1), ('solo', 'user-1', 'admin', 1);
+    `);
+    database
+      .prepare(
+        `INSERT INTO cloudflare_connections (id, org_id, account_id, status, credential_handle, created_at, updated_at)
+         VALUES (?, ?, 'org-account', 'active', ?, 1, 1)`,
+      )
+      .run('shared-connection', 'shared', shared);
+    database
+      .prepare(
+        `INSERT INTO cloudflare_connections (id, org_id, account_id, status, credential_handle, created_at, updated_at)
+         VALUES (?, ?, 'side-account', 'active', ?, 1, 1)`,
+      )
+      .run('solo-connection', 'solo', solo);
+
+    await eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'user-1', vault });
+
+    expect(revoke).toHaveBeenCalledOnce();
+    expect(database.prepare('SELECT id, status FROM cloudflare_connections WHERE org_id IS NOT NULL').all()).toEqual([
+      { id: 'shared-connection', status: 'active' },
+    ]);
+    expect(database.prepare('SELECT id FROM organizations').all()).toEqual([{ id: 'shared' }]);
+  });
+
+  it('never lets the last active admins both leave an organization others still belong to', async () => {
+    const { database, db } = controlPlaneDatabase();
+    for (const userId of ['admin-a', 'admin-b', 'member']) {
+      seedAccount(database, null, userId);
+    }
+    database.exec(`
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('org', 'Acme', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+        ('org', 'admin-a', 'admin', 1), ('org', 'admin-b', 'admin', 1), ('org', 'member', 'member', 1);
+    `);
+
+    await eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'admin-a' });
+    await expect(eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'admin-b' })).rejects.toBeInstanceOf(
+      OrganizationAdminRequiredError,
+    );
+    expect(database.prepare("SELECT user_id FROM organization_members WHERE role = 'admin'").all()).toEqual([
+      { user_id: 'admin-b' },
+    ]);
+    expect(database.prepare("SELECT status FROM cloudflare_connections WHERE user_id = 'admin-b'").get()).toEqual({
+      status: 'active',
+    });
   });
 });
 
@@ -79,32 +147,6 @@ function seedAccount(database: DatabaseSyncInstance, credentialHandle: string | 
        VALUES (?, ?, 1, 'worker', 'https://runtime.example', 'sha', 'ready', NULL, 1, 1)`,
     )
     .run(userId, `connection-${userId}`);
-}
-
-function controlPlaneDatabase(): { database: DatabaseSyncInstance; db: D1Database } {
-  const require = createRequire(import.meta.url);
-  const { DatabaseSync } = require('node:sqlite') as {
-    DatabaseSync: new (location: string) => DatabaseSyncInstance;
-  };
-  const database = new DatabaseSync(':memory:');
-  database.exec('PRAGMA foreign_keys = ON;');
-  for (const migration of readdirSync('migrations').sort()) {
-    database.exec(readFileSync(join('migrations', migration), 'utf8'));
-  }
-  const db = {
-    prepare(sql: string) {
-      const statement = (values: unknown[]) => ({
-        run: async () => {
-          const result = database.prepare(sql).run(...(values as SQLInputValue[]));
-          return { success: true, meta: { changes: Number(result.changes) } } as D1Result;
-        },
-        first: async () => database.prepare(sql).get(...(values as SQLInputValue[])) ?? null,
-      });
-      return { ...statement([]), bind: (...values: unknown[]) => statement(values) };
-    },
-    batch: async (statements: D1PreparedStatement[]) => Promise.all(statements.map((statement) => statement.run())),
-  } as unknown as D1Database;
-  return { database, db };
 }
 
 function rowCount(database: DatabaseSyncInstance, table: string): number {

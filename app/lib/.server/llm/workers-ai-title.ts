@@ -3,19 +3,22 @@ import { CLOUDFLARE_PROJECT_TITLE_MODEL } from '~/lib/workers-ai-model';
 import { getPiModel } from './pi-ai-models';
 import type { WorkersAiAccountCredentials } from './pi-ai-models';
 import { completeText } from './pi-ai-invoke';
+import type { Usage } from '@earendil-works/pi-ai';
 
 export function generateProjectTitle(
   prompt: string,
   accountCredentials: WorkersAiAccountCredentials,
+  onUsage?: (usage: Usage) => void,
 ): Promise<string | null> {
-  return generateModelTitle(prompt, 'project', accountCredentials);
+  return generateModelTitle(prompt, 'project', accountCredentials, onUsage);
 }
 
 export function generateConversationTitle(
   prompt: string,
   accountCredentials: WorkersAiAccountCredentials,
+  onUsage?: (usage: Usage) => void,
 ): Promise<string | null> {
-  return generateModelTitle(prompt, 'conversation', accountCredentials);
+  return generateModelTitle(prompt, 'conversation', accountCredentials, onUsage);
 }
 
 /**
@@ -28,6 +31,7 @@ async function generateModelTitle(
   prompt: string,
   subject: TitleSubject,
   accountCredentials: WorkersAiAccountCredentials,
+  onUsage?: (usage: Usage) => void,
 ): Promise<string | null> {
   const handle = getPiModel(accountCredentials, CLOUDFLARE_PROJECT_TITLE_MODEL);
   const generated = await generateTitle({
@@ -36,6 +40,7 @@ async function generateModelTitle(
         prompt: request.prompt,
         maxTokens: request.maxOutputTokens,
         temperature: request.temperature,
+        onUsage,
       }),
     }),
     prompt,

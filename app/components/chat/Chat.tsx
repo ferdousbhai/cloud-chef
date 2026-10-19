@@ -7,6 +7,7 @@ import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { BaseChat } from './BaseChat.client';
 import { useChatId } from '~/lib/stores/chatId';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
+import { authClient } from '~/lib/auth-client';
 import type { ChatProps } from './chat-types';
 import { UnauthenticatedChat } from './UnauthenticatedChat';
 import { workspacePresentationId, useBuilderAgentChat, type WorkspacePresentationState } from './useBuilderAgentChat';
@@ -125,6 +126,9 @@ function WorkspaceRuntimeConnectionError({
 }) {
   const planRequired = code === 'workspace_plan_required';
   const reauthorizationRequired = code === 'cloudflare_reauthorization_required';
+  // An organization's connection is reauthorized by its admins, from its settings.
+  const { data: session } = authClient.useSession();
+  const organization = session?.context?.kind === 'organization' ? session.context : null;
   // Preparation that outran the readiness deadline is still preparation, not a refusal.
   if (code === 'workspace_preparing') {
     return (
@@ -152,7 +156,17 @@ function WorkspaceRuntimeConnectionError({
             <li>Select “Try again” to finish creating the workspace.</li>
           </ol>
         ) : null}
-        {reauthorizationRequired ? (
+        {reauthorizationRequired && organization && organization.role !== 'admin' ? (
+          <p className="mx-auto mt-5 max-w-md text-sm text-content-secondary">
+            Ask an admin of {organization.orgName} to reconnect its Cloudflare account, then select “Try again”.
+          </p>
+        ) : reauthorizationRequired && organization ? (
+          <ol className="mx-auto mt-5 max-w-md list-decimal space-y-2 pl-5 text-left text-sm text-content-secondary">
+            <li>Open {organization.orgName}&apos;s settings below and reconnect its Cloudflare account.</li>
+            <li>Approve the updated permissions.</li>
+            <li>Return to the builder and select “Try again”.</li>
+          </ol>
+        ) : reauthorizationRequired ? (
           <ol className="mx-auto mt-5 max-w-md list-decimal space-y-2 pl-5 text-left text-sm text-content-secondary">
             <li>Open your Cloudflare account settings below.</li>
             <li>Reauthorize CloudChef and approve the updated permissions.</li>
@@ -173,9 +187,17 @@ function WorkspaceRuntimeConnectionError({
           <Button variant={planRequired ? 'neutral' : 'primary'} onClick={onRetry}>
             Try again
           </Button>
-          <LinkButton to="/settings" hash="cloudflare" variant={reauthorizationRequired ? 'primary' : 'neutral'}>
-            {reauthorizationRequired ? 'Reauthorize Cloudflare' : 'Cloudflare account'}
-          </LinkButton>
+          {organization ? (
+            organization.role === 'admin' ? (
+              <LinkButton to="/settings" hash="organizations" variant={reauthorizationRequired ? 'primary' : 'neutral'}>
+                {reauthorizationRequired ? 'Open organization settings' : 'Organization settings'}
+              </LinkButton>
+            ) : null
+          ) : (
+            <LinkButton to="/settings" hash="cloudflare" variant={reauthorizationRequired ? 'primary' : 'neutral'}>
+              {reauthorizationRequired ? 'Reauthorize Cloudflare' : 'Cloudflare account'}
+            </LinkButton>
+          )}
         </div>
       </section>
     </div>

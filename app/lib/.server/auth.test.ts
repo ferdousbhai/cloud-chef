@@ -1,5 +1,6 @@
+import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { describe, expect, it, vi } from 'vitest';
-import { createAuthSession, getAuthSession, prepareAuthSession, upsertCloudflareUser } from './auth';
+import { createAuthSession, getAuthSession, prepareAuthSession, setSessionContext, upsertCloudflareUser } from './auth';
 
 describe('Cloudflare auth sessions', () => {
   it('stores only a hash of the opaque cookie and uses secure production cookie attributes', async () => {
@@ -86,39 +87,41 @@ describe('Cloudflare auth sessions', () => {
     await expect(createAuthSession({ DB: db } as Env, prepared)).rejects.toBe(acknowledgementError);
   });
 
-  it('accepts a valid session only through an active Cloudflare connection', async () => {
-    let query = '';
-    let values: unknown[] = [];
-    const env = {
-      DB: {
-        prepare: (sql: string) => {
-          query = sql;
-          return {
-            bind: (...bound: unknown[]) => {
-              values = bound;
-              return {
-                first: async () => ({
-                  session_id: 'session-1',
-                  user_id: 'user-1',
-                  expires_at: Date.now() + 60_000,
-                  name: 'Person',
-                  email: 'person@example.com',
-                  image: null,
-                }),
-              };
-            },
-          };
-        },
-      },
-    } as unknown as Env;
-    const session = await getAuthSession(
-      env,
-      new Request('https://cloudchef.build/', { headers: { cookie: 'cloudchef_session=opaque-token' } }),
-    );
+  it('accepts a session without a Cloudflare connection, and offers each account the person may build in', async () => {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt)
+        VALUES ('user-1', 'Person', 'person@example.com', 1, 1, 1);
+    `);
+    const env = envWith({ DB: db });
+    const prepared = await prepareAuthSession('user-1');
+    const cookie = (await createAuthSession(env, prepared)).split(';')[0];
+    const request = () => new Request('https://cloudchef.build/', { headers: { cookie } });
 
-    expect(query).toContain("connections.status = 'active'");
-    expect(values[0]).toMatch(/^[0-9a-f]{64}$/);
-    expect(session?.user.id).toBe('user-1');
+    // Signed in by email: a session, but nowhere to build yet.
+    await expect(getAuthSession(env, request())).resolves.toMatchObject({ context: null, contexts: [] });
+
+    database.exec(`
+      INSERT INTO cloudflare_connections (id, user_id, account_id, account_name, status, created_at, updated_at)
+        VALUES ('personal', 'user-1', 'account-1', 'Mine', 'active', 1, 1);
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('org-1', 'Acme', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('org-1', 'user-1', 'member', 1);
+      INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
+        VALUES ('acme', 'org-1', 'account-2', 'Acme', 'active', 1, 1);
+    `);
+    const both = await getAuthSession(env, request());
+    expect(both?.contexts.map((option) => option.connectionId)).toEqual(['personal', 'acme']);
+    expect(both?.context?.connectionId).toBe('personal');
+
+    // A chosen organization sticks, until the person is paused there.
+    await expect(setSessionContext(env, request(), 'acme')).resolves.toBe(true);
+    await expect(getAuthSession(env, request())).resolves.toMatchObject({
+      context: { kind: 'organization', orgName: 'Acme', role: 'member' },
+    });
+    database.exec(`UPDATE organization_members SET paused_at = 2`);
+    const paused = await getAuthSession(env, request());
+    expect(paused?.context?.connectionId).toBe('personal');
+    await expect(setSessionContext(env, request(), 'acme')).resolves.toBe(false);
   });
 
   it('adopts a matching legacy email so existing projects remain owned by the same user', async () => {
@@ -139,6 +142,7 @@ describe('Cloudflare auth sessions', () => {
                     email: 'person@example.com',
                     image: null,
                     cloudflare_subject: null,
+                    email_proven_at: null,
                   };
                 }
                 return null;
@@ -214,6 +218,7 @@ describe('Cloudflare auth sessions', () => {
                     email: 'person@example.com',
                     image: null,
                     cloudflare_subject: null,
+                    email_proven_at: null,
                   };
                 }
                 return null;
@@ -311,6 +316,7 @@ function racedUserDb(match: 'subject' | 'email' | 'none') {
     email: 'person@example.com',
     image: null,
     cloudflare_subject: match === 'subject' ? 'cf-user-1' : null,
+    email_proven_at: null,
   };
   const db = {
     prepare(sql: string) {
@@ -368,6 +374,7 @@ function subjectAwareEmailDb(options: { cloudflareSubject: string | null; update
                   email: 'person@example.com',
                   image: null,
                   cloudflare_subject: options.cloudflareSubject,
+                  email_proven_at: null,
                 };
               }
               return null;
@@ -448,6 +455,7 @@ function userMutationDb(options: {
                     email: current.email,
                     image: current.image,
                     cloudflare_subject: current.subject,
+                    email_proven_at: null,
                   };
                 }
                 return null;

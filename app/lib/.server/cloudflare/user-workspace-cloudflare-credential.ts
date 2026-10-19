@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import type { CloudflareAccessTokenResolution } from './cloudflare-api-client';
-import type { CloudflareApiRuntimeIdentity } from './cloudflare-api-runtime-controls';
+import { runtimeIdentity, type CloudflareApiRuntimeIdentity } from './cloudflare-api-runtime-controls';
+import type { ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 
 const RUNTIME_CREDENTIAL_TIMEOUT_MS = 30_000;
 const MAX_RUNTIME_CREDENTIAL_RESPONSE_BYTES = 8 * 1024;
@@ -49,10 +50,85 @@ export async function resolveUserWorkspaceCloudflareAccessToken(
   return parsed.data.accessToken;
 }
 
-function runtimeCredentialEndpoint(value: string): URL {
+/**
+ * Reports one finished model turn's token counts to the control plane, which keeps them for an
+ * organization's admins. Best-effort: usage accounting never holds up or fails a turn.
+ */
+export async function reportUserWorkspaceModelUsage(
+  env: RuntimeCredentialEnv,
+  identity: CloudflareConnectionIdentity,
+  usage: ModelTurnUsage,
+): Promise<void> {
+  const response = await fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, 'runtime-usage'), {
+    method: 'POST',
+    headers: { authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      userId: identity.userId,
+      connectionId: identity.connectionId,
+      connectionGeneration: identity.connectionGeneration,
+      ...usage,
+    }),
+    redirect: 'manual',
+    signal: AbortSignal.timeout(RUNTIME_CREDENTIAL_TIMEOUT_MS),
+  });
+  await response.body?.cancel().catch(() => undefined);
+}
+
+/**
+ * Whether the control plane still lets this runtime's person build: false once they are paused or
+ * removed from the organization that owns the connection. Errors, like an unreachable control plane,
+ * are thrown, not read as a refusal.
+ */
+export async function confirmUserWorkspaceAccess(
+  env: RuntimeCredentialEnv,
+  identity: CloudflareConnectionIdentity,
+): Promise<boolean> {
+  const response = await fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, 'runtime-access'), {
+    method: 'POST',
+    headers: { authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      userId: identity.userId,
+      connectionId: identity.connectionId,
+      connectionGeneration: identity.connectionGeneration,
+    }),
+    redirect: 'manual',
+    signal: AbortSignal.timeout(RUNTIME_CREDENTIAL_TIMEOUT_MS),
+  });
+  await response.body?.cancel().catch(() => undefined);
+  if (response.status === 401) {
+    return false;
+  }
+  if (!response.ok) {
+    throw new Error('The CloudChef control plane could not confirm workspace access.');
+  }
+  return true;
+}
+
+/**
+ * Model calls outside a builder turn (prompt enhancement) in an organization's account: refused once
+ * the member is paused or removed, and counted toward their usage. Elsewhere, always allowed and not
+ * counted (only organizations keep per-member usage).
+ */
+export async function organizationModelAccess(
+  env: RuntimeCredentialEnv & Parameters<typeof runtimeIdentity>[0],
+): Promise<{ allowed: false } | { allowed: true; report: ((usage: ModelTurnUsage) => Promise<void>) | null }> {
+  if (env.CLOUDCHEF_SHARED_ACCOUNT !== '1') {
+    return { allowed: true, report: null };
+  }
+  const identity = runtimeIdentity(env);
+  if (!identity || !(await confirmUserWorkspaceAccess(env, identity))) {
+    return { allowed: false };
+  }
+  return { allowed: true, report: (usage) => reportUserWorkspaceModelUsage(env, identity, usage) };
+}
+
+function runtimeCredentialEndpoint(
+  value: string,
+  route: 'runtime-credential' | 'runtime-usage' | 'runtime-access' = 'runtime-credential',
+): URL {
   let endpoint: URL;
   try {
-    endpoint = new URL('/api/cloudflare/runtime-credential', value);
+    endpoint = new URL(`/api/cloudflare/${route}`, value);
   } catch {
     throw new Error('The CloudChef control-plane endpoint is invalid.');
   }

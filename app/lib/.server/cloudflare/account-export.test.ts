@@ -33,6 +33,8 @@ describe('control-plane account export', () => {
         emailVerified: true,
         image: null,
         cloudflareSubject: 'user-1',
+        googleSubject: null,
+        emailProvenAt: null,
         createdAt: '1970-01-01T00:00:00.001Z',
         updatedAt: '1970-01-01T00:00:00.001Z',
       },
@@ -57,10 +59,24 @@ describe('control-plane account export', () => {
       status: 'exported',
       encryptedCredential: { keyVersion: 3, storedAt: '1970-01-01T00:00:00.001Z', rotatedAt: null },
     });
-    expect(exported.sections.computerRuntime).toMatchObject({
+    expect(exported.sections.computerRuntimes).toMatchObject({
       status: 'exported',
-      computerRuntime: { workerName: 'worker', endpoint: 'https://runtime.example', status: 'ready' },
+      total: 1,
+      computerRuntimes: [{ workerName: 'worker', endpoint: 'https://runtime.example', status: 'ready' }],
     });
+    expect(exported.sections.organizations).toEqual({
+      status: 'exported',
+      total: 0,
+      truncated: false,
+      memberships: [],
+    });
+    expect(exported.sections.organizationInvites).toEqual({
+      status: 'exported',
+      total: 0,
+      truncated: false,
+      invites: [],
+    });
+    expect(exported.sections.organizationUsage).toEqual({ status: 'exported', total: 0, truncated: false, usage: [] });
     expect(exported.sections.authSessions).toEqual({
       status: 'exported',
       total: 1,
@@ -113,7 +129,12 @@ describe('control-plane account export', () => {
     expect(exported.status).toBe('complete');
     expect(exported.sections.cloudflareConnection).toEqual({ status: 'exported', connection: null });
     expect(exported.sections.encryptedCredential).toEqual({ status: 'exported', encryptedCredential: null });
-    expect(exported.sections.computerRuntime).toEqual({ status: 'exported', computerRuntime: null });
+    expect(exported.sections.computerRuntimes).toEqual({
+      status: 'exported',
+      total: 0,
+      truncated: false,
+      computerRuntimes: [],
+    });
     expect(exported.sections.authSessions).toEqual({ status: 'exported', total: 0, truncated: false, sessions: [] });
     expect(exported.sections.oauthStates).toEqual({ status: 'exported', total: 0, truncated: false, states: [] });
   });
@@ -176,7 +197,10 @@ describe('control-plane account export', () => {
       'account',
       'cloudflareConnection',
       'encryptedCredential',
-      'computerRuntime',
+      'computerRuntimes',
+      'organizations',
+      'organizationInvites',
+      'organizationUsage',
       'authSessions',
       'oauthStates',
     ]);

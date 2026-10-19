@@ -19,8 +19,19 @@ const mocks = vi.hoisted(() => ({
 vi.mock('file-saver', () => ({ default: { saveAs: mocks.saveAs } }));
 
 vi.mock('~/lib/auth-client', () => ({
+  authClient: {
+    useSession: () => ({
+      data: {
+        user: { id: 'user-1', email: 'user@example.com' },
+        contexts: [{ kind: 'personal', connectionId: 'connection-1', accountName: null }],
+      },
+      isPending: false,
+    }),
+  },
   createCloudflareReturnURL: mocks.createCloudflareReturnURL,
+  requestEmailSignInLink: vi.fn(),
   signInWithCloudflare: mocks.signInWithCloudflare,
+  signInWithGoogle: vi.fn(),
 }));
 vi.mock('~/lib/cloudflare/client-collections', () => ({
   disposeClientCollections: mocks.disposeClientCollections,
@@ -135,7 +146,7 @@ describe('AccountDataCard', () => {
 
     await act(async () => button('Download account data').click());
     expect(mocks.saveAs).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain('Confirm it is you in Cloudflare, then download again');
+    expect(document.body.textContent).toContain('Sign in again to confirm it is you, then download again');
 
     await act(async () => button('Reconnect Cloudflare').click());
     expect(mocks.signInWithCloudflare).toHaveBeenCalledOnce();
@@ -210,7 +221,7 @@ describe('AccountDataCard', () => {
     await fillConfirmation();
 
     await act(async () => button('Permanently delete').click());
-    expect(document.body.textContent).toContain('Confirm it is you in Cloudflare');
+    expect(document.body.textContent).toContain('Sign in again to confirm it is you');
 
     await act(async () => button('Reconnect Cloudflare').click());
     expect(mocks.signInWithCloudflare).toHaveBeenCalledOnce();

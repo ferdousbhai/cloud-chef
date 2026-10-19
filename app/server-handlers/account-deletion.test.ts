@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   clearAuthSessionCookie: vi.fn(() => 'cloudchef_session=; Path=/; HttpOnly; Max-Age=0'),
   getAuthSession: vi.fn(),
   eraseControlPlaneAccount: vi.fn(),
+  organizationsNeedingAnotherAdmin: vi.fn(async (): Promise<string[]> => []),
 }));
 
 vi.mock('~/lib/.server/auth', () => ({
@@ -12,6 +13,8 @@ vi.mock('~/lib/.server/auth', () => ({
 }));
 vi.mock('~/lib/.server/cloudflare/account-deletion', () => ({
   eraseControlPlaneAccount: mocks.eraseControlPlaneAccount,
+  organizationsNeedingAnotherAdmin: mocks.organizationsNeedingAnotherAdmin,
+  OrganizationAdminRequiredError: class extends Error {},
 }));
 
 import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
@@ -45,6 +48,17 @@ describe('deleteAccountAction', () => {
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
     mocks.getAuthSession.mockResolvedValue(freshSession());
     mocks.eraseControlPlaneAccount.mockResolvedValue({ cloudflareAuthorizationRevoked: true });
+  });
+
+  it('refuses while the person is the only admin of an organization others still belong to', async () => {
+    mocks.getAuthSession.mockResolvedValueOnce({
+      session: { id: 'session-1', userId: 'user-1', expiresAt: Date.now() + 60_000, createdAt: Date.now() },
+      user: { id: 'user-1', name: 'Ada', email: 'ada@acme.com', image: null },
+    });
+    mocks.organizationsNeedingAnotherAdmin.mockResolvedValueOnce(['Acme']);
+    const response = await deleteAccountAction({ request: deletionRequest(validBody), env });
+    expect(response.status).toBe(409);
+    expect(mocks.eraseControlPlaneAccount).not.toHaveBeenCalled();
   });
 
   it('erases the control plane, expires the cookie, and reports the revocation outcome', async () => {

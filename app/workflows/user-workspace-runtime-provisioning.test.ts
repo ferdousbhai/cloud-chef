@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 
 const mocks = {
@@ -22,6 +23,7 @@ const mocks = {
 import {
   runUserWorkspaceRuntimeProvisioningWorkflow,
   startUserWorkspaceRuntimeProvisioning,
+  workspaceRuntimeNames,
   type UserWorkspaceRuntimeProvisioningDependencies,
   type UserWorkspaceRuntimeProvisioningStep,
   USER_WORKSPACE_REQUIRED_CAPABILITIES,
@@ -30,6 +32,7 @@ import {
 const connection: CloudflareConnection = {
   id: 'connection-1',
   userId: 'user-1',
+  orgId: null,
   accountId: '0af9e0921b880657d84a6c07307f8aef',
   accountName: 'Account',
   status: 'active',
@@ -86,6 +89,53 @@ describe('workspace runtime provisioning Workflow', () => {
     expect(get).toHaveBeenCalledWith(firstId);
   });
 
+  it("gives each member of an organization their own workspace in the organization's account", async () => {
+    const instance = workflowInstance(vi.fn<WorkflowInstance['status']>().mockResolvedValue({ status: 'running' }));
+    const createBatch = vi
+      .fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch']>()
+      .mockResolvedValue([instance]);
+    const env = workflowEnv(createBatch, vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>());
+
+    await startUserWorkspaceRuntimeProvisioning({ ...launchArgs(env), userId: 'member-1' });
+    await startUserWorkspaceRuntimeProvisioning({ ...launchArgs(env), userId: 'member-2' });
+
+    const [first, second] = createBatch.mock.calls.map((call) => call[0][0]);
+    expect(first.params).toMatchObject({ userId: 'member-1' });
+    expect(second.params).toMatchObject({ userId: 'member-2', connectionId: launchArgs(env).connectionId });
+    expect(second.id).not.toBe(first.id);
+  });
+
+  it("keeps a person's own workspace and their organization's apart in one Cloudflare account", async () => {
+    const personal = await workspaceRuntimeNames({ accountId: 'account-1', id: 'mine', orgId: null }, 'user-1');
+    const organization = await workspaceRuntimeNames({ accountId: 'account-1', id: 'acme', orgId: 'org-1' }, 'user-1');
+    expect(organization.workerName).not.toBe(personal.workerName);
+    expect(organization.databaseName).not.toBe(personal.databaseName);
+    // A person's own workspace keeps the name it has always had.
+    expect(personal.workerName).toBe(`cloudchef-workspace-${(await sha256Hex('account-1:user-1')).slice(0, 16)}`);
+  });
+
+  it('builds a workspace again when its finished Workflow left nothing ready, as after leaving and rejoining', async () => {
+    const instance = workflowInstance(
+      vi.fn<WorkflowInstance['status']>().mockResolvedValue({ status: 'complete', output: { status: 'ready' } }),
+    );
+    const env = workflowEnv(
+      vi
+        .fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch']>()
+        .mockRejectedValue(new Error('instance with id workspace-... already exists')),
+      vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>().mockResolvedValue(instance),
+    );
+
+    await expect(startUserWorkspaceRuntimeProvisioning(launchArgs(env))).resolves.toEqual({ status: 'preparing' });
+    expect(vi.mocked(instance.restart)).toHaveBeenCalledOnce();
+
+    // Finished just after the caller looked: no second build.
+    vi.mocked(instance.restart).mockClear();
+    await expect(
+      startUserWorkspaceRuntimeProvisioning({ ...launchArgs(env), isReady: async () => true }),
+    ).resolves.toEqual({ status: 'preparing' });
+    expect(vi.mocked(instance.restart)).not.toHaveBeenCalled();
+  });
+
   it('restarts a failed target only on explicit retry', async () => {
     const instance = workflowInstance(
       vi.fn<WorkflowInstance['status']>().mockResolvedValue({
@@ -123,6 +173,18 @@ describe('workspace runtime provisioning Workflow', () => {
       });
     }
     expect(mocks.accountApi.ensureD1Database).not.toHaveBeenCalled();
+  });
+
+  it("doesn't deploy a workspace for someone who lost access while it was being prepared", async () => {
+    // Allowed when the run starts; removed (here: someone else's connection) by the time it deploys.
+    mocks.requireActiveConnection
+      .mockResolvedValueOnce(connection)
+      .mockResolvedValue({ ...connection, userId: 'someone-else' });
+
+    await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs())).resolves.toMatchObject({
+      status: 'error',
+    });
+    expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
   });
 
   it('fails closed when the connection cannot provision the runtime', async () => {

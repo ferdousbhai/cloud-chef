@@ -37,11 +37,41 @@ origin-bound capability and communicates directly with that Worker for chat, pro
 operations. Generated-application D1 and R2 resources are created later only when the validated deployment plan
 requires them. Cloudflare meters those resources to the user's account.
 
+## Accounts, Organizations, and Contexts
+
+A Cloudflare connection belongs to one person (their own account) or to an organization (its admins connect the
+organization's account once). Sign-in is separate from connecting: Cloudflare, Google, or an emailed one-time link
+creates a session, and a session works in one context, a connection the person may use, chosen with the workspace
+switcher. People without Cloudflare logins of their own build in an organization's account.
+
+Each person gets their own workspace runtime per connection, named from `sha256(accountId:userId)` for their own
+account and `sha256(accountId:userId:connectionId)` for an organization's (with the runtime secret bound the same
+way), so a person's own and organization workspaces never collide, and members of one
+organization have separate Workers, D1 databases, Durable Objects, and containers in its account, keyed in
+`user_computer_runtimes` by (user, connection). Every control-plane path that hands out a workspace or a token asks
+one question, `canUseConnection` (`app/lib/cloudflare/data/organization-access.server.ts`): the connection's owner, or
+an active, unpaused member of the organization that owns it. The credential broker asks it after the runtime proves
+its secret, so pausing or removing a member stops their runtime at its next call, without a
+redeploy. In an organization's account the runtime also asks (`/api/cloudflare/runtime-access`) before
+each model turn, since the model runs on the organization's Workers AI without a token from the broker. A member's
+runtime reports each model turn's token counts to `/api/cloudflare/runtime-usage`, authenticated the same way, and the
+control plane keeps per-day counts for the organization's admins; no content reaches it.
+
+An organization's authorization reaches every workspace in its account, so in a shared account
+(`CLOUDCHEF_SHARED_ACCOUNT`) the agent's direct `cloudflare_request` tool is not offered at all, reads
+included: a member's changes go through the deployment pipeline, which touches only their own resources.
+A tab names the
+account it opened in on each runtime-session request and reloads if another tab switched the session.
+
+An organization keeps at least one active admin. Erasing a member's account never revokes the organization's
+authorization; erasing its last member removes the organization and revokes it.
+
 ## State Ownership
 
 | State                                                                                             | Authoritative owner                                  |
 | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | Identity, OAuth credentials, sessions, connection metadata, runtime locators                      | CloudChef control-plane D1                           |
+| Organizations, memberships, invites, per-member daily usage counts                                | CloudChef control-plane D1                           |
 | Chat catalog, transcript identity, deployment plans and resources, Agent garbage-collection queue | User workspace D1                                    |
 | Agent messages, turn state, compaction, and resumable execution                                   | User-owned `BuilderAgent` DO SQLite                  |
 | Project bytes, numeric revision, change index, tool journal, and validation receipts              | User-owned `ProjectWorkspace` Computer VFS/DO SQLite |
@@ -261,3 +291,5 @@ decision record is `scripts/evaluations/DECISIONS.md`.
 User input, generated code, model output, and repository context are untrusted. Secrets remain in server-side
 Cloudflare bindings; generated-project actions reject secret files. Generated code never executes in the CloudChef
 control-plane Worker. Runtime capabilities are short-lived and bound to the authenticated user and browser origin.
+A member's chats, transcripts, and project files live in their organization's Cloudflare account, where its
+administrators and account holders can read them; the product says so when someone accepts an invite.

@@ -2,9 +2,15 @@ import type { CloudflareOAuthScopeGrantStatus } from './cloudflare-oauth-scope-m
 
 export type CloudflareConnectionStatus = 'linking' | 'active' | 'revoked' | 'error';
 
+/** Who a connection belongs to: one person's own Cloudflare account, or an organization's. */
+export type CloudflareConnectionOwner = { kind: 'user'; userId: string } | { kind: 'organization'; orgId: string };
+
 export type CloudflareConnection = {
   id: string;
-  userId: string;
+  /** The person whose own connection this is; null for an organization's. */
+  userId: string | null;
+  /** The organization whose connection this is; null for a person's own. */
+  orgId: string | null;
   accountId: string;
   accountName: string | null;
   status: CloudflareConnectionStatus;
@@ -32,7 +38,8 @@ export class CloudflareConnectionChangedError extends Error {
 
 type CloudflareConnectionRow = {
   id: string;
-  user_id: string;
+  user_id: string | null;
+  org_id: string | null;
   account_id: string;
   account_name: string | null;
   status: CloudflareConnectionStatus;
@@ -49,7 +56,7 @@ type CloudflareConnectionRow = {
   connection_generation: number;
 };
 
-const CONNECTION_COLUMNS = `id, user_id, account_id, account_name, status, credential_handle,
+const CONNECTION_COLUMNS = `id, user_id, org_id, account_id, account_name, status, credential_handle,
               granted_capabilities_json, requested_oauth_scopes_json, granted_oauth_scopes_json,
               oauth_scope_profile_version, oauth_scope_grant_status, oauth_grant_updated_at,
               ai_billing_enabled, connected_at, updated_at, connection_generation`;
@@ -69,10 +76,34 @@ export async function findCloudflareConnectionForUser(
   return row ? connectionFromRow(row) : null;
 }
 
-export async function requireActiveCloudflareConnection(
+export async function findCloudflareConnectionForOrganization(
+  db: D1Database,
+  orgId: string,
+): Promise<CloudflareConnection | null> {
+  const row = await db
+    .prepare(
+      `SELECT ${CONNECTION_COLUMNS}
+       FROM cloudflare_connections
+       WHERE org_id = ?`,
+    )
+    .bind(orgId)
+    .first<CloudflareConnectionRow>();
+  return row ? connectionFromRow(row) : null;
+}
+
+export function findCloudflareConnectionForOwner(
+  db: D1Database,
+  owner: CloudflareConnectionOwner,
+): Promise<CloudflareConnection | null> {
+  return owner.kind === 'user'
+    ? findCloudflareConnectionForUser(db, owner.userId)
+    : findCloudflareConnectionForOrganization(db, owner.orgId);
+}
+
+export async function findActiveCloudflareConnection(
   db: D1Database,
   connectionId: string,
-): Promise<CloudflareConnection> {
+): Promise<CloudflareConnection | null> {
   const row = await db
     .prepare(
       `SELECT ${CONNECTION_COLUMNS}
@@ -81,15 +112,31 @@ export async function requireActiveCloudflareConnection(
     )
     .bind(connectionId)
     .first<CloudflareConnectionRow>();
-  if (!row) {
+  return row ? connectionFromRow(row) : null;
+}
+
+export async function requireActiveCloudflareConnection(
+  db: D1Database,
+  connectionId: string,
+): Promise<CloudflareConnection> {
+  const connection = await findActiveCloudflareConnection(db, connectionId);
+  if (!connection) {
     throw new Error('An active Cloudflare connection is required.');
   }
-  return connectionFromRow(row);
+  return connection;
+}
+
+function ownerColumn(owner: CloudflareConnectionOwner): 'user_id' | 'org_id' {
+  return owner.kind === 'user' ? 'user_id' : 'org_id';
+}
+
+function ownerId(owner: CloudflareConnectionOwner): string {
+  return owner.kind === 'user' ? owner.userId : owner.orgId;
 }
 
 export async function activateCloudflareConnection(args: {
   db: D1Database;
-  userId: string;
+  owner: CloudflareConnectionOwner;
   accountId: string;
   accountName: string | null;
   credentialHandle: string;
@@ -123,17 +170,17 @@ export async function activateCloudflareConnection(args: {
         ? await args.db
             .prepare(
               `INSERT INTO cloudflare_connections (
-        id, user_id, account_id, account_name, status, credential_handle,
+        id, ${ownerColumn(args.owner)}, account_id, account_name, status, credential_handle,
         granted_capabilities_json, requested_oauth_scopes_json, granted_oauth_scopes_json,
         oauth_scope_profile_version, oauth_scope_grant_status, oauth_grant_updated_at,
         ai_billing_enabled, connected_at, created_at, updated_at
       ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(user_id) DO NOTHING
+      ON CONFLICT(${ownerColumn(args.owner)}) DO NOTHING
       RETURNING ${CONNECTION_COLUMNS}`,
             )
             .bind(
               connectionId,
-              args.userId,
+              ownerId(args.owner),
               args.accountId,
               args.accountName,
               args.credentialHandle,
@@ -157,7 +204,7 @@ export async function activateCloudflareConnection(args: {
                  granted_oauth_scopes_json = ?, oauth_scope_profile_version = ?, oauth_scope_grant_status = ?,
                  oauth_grant_updated_at = ?, ai_billing_enabled = ?, connected_at = ?,
                  connection_generation = connection_generation + 1, updated_at = ?
-             WHERE user_id = ? AND connection_generation = ?
+             WHERE ${ownerColumn(args.owner)} = ? AND connection_generation = ?
              RETURNING ${CONNECTION_COLUMNS}`,
             )
             .bind(
@@ -173,7 +220,7 @@ export async function activateCloudflareConnection(args: {
               args.aiBillingEnabled ? 1 : 0,
               now,
               now,
-              args.userId,
+              ownerId(args.owner),
               args.expectedGeneration,
             )
             .first<CloudflareConnectionRow>();
@@ -204,15 +251,15 @@ async function isExactActivatedCloudflareConnection(
     .prepare(
       `SELECT ${CONNECTION_COLUMNS}
        FROM cloudflare_connections
-       WHERE user_id = ?`,
+       WHERE ${ownerColumn(args.owner)} = ?`,
     )
-    .bind(args.userId)
+    .bind(ownerId(args.owner))
     .first<CloudflareConnectionRow>();
   const intendedGeneration = args.expectedGeneration === null ? 1 : args.expectedGeneration + 1;
   if (
     !row ||
     (args.expectedGeneration === null && row.id !== args.connectionId) ||
-    row.user_id !== args.userId ||
+    (args.owner.kind === 'user' ? row.user_id : row.org_id) !== ownerId(args.owner) ||
     row.account_id !== args.accountId ||
     row.account_name !== args.accountName ||
     row.status !== 'active' ||
@@ -237,6 +284,7 @@ function connectionFromRow(row: CloudflareConnectionRow): CloudflareConnection {
   return {
     id: row.id,
     userId: row.user_id,
+    orgId: row.org_id,
     accountId: row.account_id,
     accountName: row.account_name,
     status: row.status,

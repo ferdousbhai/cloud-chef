@@ -19,7 +19,9 @@ export function useCloudChefAuth() {
 export function CloudChefAuthProvider({ children }: { children: React.ReactNode }) {
   const storedUserId = useUserIdOrNullOrLoading();
   const { data: authSession, isPending } = authClient.useSession();
-  const userId = authSession?.user.id ?? null;
+  // Signed in by email or Google without a Cloudflare account to build in is, for building, not signed in:
+  // the sign-in prompts say who you are and offer to connect one.
+  const userId = authSession?.context ? authSession.user.id : null;
 
   useIsomorphicLayoutEffect(() => {
     userIdStore.set(isPending ? undefined : userId);

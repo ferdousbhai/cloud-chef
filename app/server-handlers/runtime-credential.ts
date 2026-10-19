@@ -1,6 +1,10 @@
+import { canUseConnection } from '~/lib/cloudflare/data/organization-access.server';
 import { z } from 'zod';
 import { InvalidJsonBodyError, PayloadTooLargeError, readJsonBodyWithLimit } from '~/lib/bounded-body';
-import { requireActiveCloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
+import {
+  findActiveCloudflareConnection,
+  type CloudflareConnection,
+} from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 
@@ -35,44 +39,12 @@ export async function runtimeCredentialAction(args: { request: Request; env: Env
     throw error;
   }
 
-  const encryptionKey = args.env.CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY;
-  const bearer = readBearerToken(args.request);
-  if (!encryptionKey || !bearer) {
-    return credentialResponse({ error: 'Unauthorized.' }, 401);
+  const authenticated = await authenticateRuntime(args.env, args.request, body);
+  if (authenticated instanceof Response) {
+    return authenticated;
   }
-
-  let connection;
   try {
-    connection = await requireActiveCloudflareConnection(args.env.DB, body.connectionId);
-  } catch {
-    return credentialResponse({ error: 'Unauthorized.' }, 401);
-  }
-  if (
-    connection.userId !== body.userId ||
-    connection.generation !== body.connectionGeneration ||
-    !connection.credentialHandle
-  ) {
-    return credentialResponse({ error: 'Unauthorized.' }, 401);
-  }
-
-  let expected: string;
-  try {
-    expected = await deriveUserWorkspaceRuntimeSecret({
-      encryptionKeyBase64: encryptionKey,
-      userId: body.userId,
-      accountId: connection.accountId,
-      connectionGeneration: body.connectionGeneration,
-    });
-  } catch {
-    console.error('Unable to derive the user workspace runtime credential');
-    return credentialResponse({ error: 'Cloudflare connection is unavailable.' }, 503);
-  }
-  if (!constantTimeEqual(bearer, expected)) {
-    return credentialResponse({ error: 'Unauthorized.' }, 401);
-  }
-
-  try {
-    const accessToken = await D1CloudflareCredentialVault.fromEnv(args.env).resolve(connection.credentialHandle, {
+    const accessToken = await D1CloudflareCredentialVault.fromEnv(args.env).resolve(authenticated.credentialHandle, {
       forceRefresh: body.forceRefresh,
     });
     return credentialResponse({ accessToken }, 200);
@@ -80,6 +52,127 @@ export async function runtimeCredentialAction(args: { request: Request; env: Env
     console.error('Unable to resolve the user workspace runtime credential');
     return credentialResponse({ error: 'Cloudflare connection is unavailable.' }, 503);
   }
+}
+
+const runtimeUsageRequestSchema = z
+  .object({
+    userId: z.string().min(1).max(512),
+    connectionId: z.string().min(1).max(512),
+    connectionGeneration: z.number().int().positive(),
+    inputTokens: z.number().int().min(0).max(100_000_000),
+    outputTokens: z.number().int().min(0).max(100_000_000),
+    cachedTokens: z.number().int().min(0).max(100_000_000),
+  })
+  .strict();
+
+/**
+ * A workspace runtime reporting one finished model turn's token counts. Recorded only for an
+ * organization's account, where admins see each member's use; counts only, never content.
+ */
+export async function runtimeUsageAction(args: { request: Request; env: Env; now?: number }): Promise<Response> {
+  let body: z.infer<typeof runtimeUsageRequestSchema>;
+  try {
+    body = runtimeUsageRequestSchema.parse(
+      await readJsonBodyWithLimit(args.request, MAX_RUNTIME_CREDENTIAL_REQUEST_BYTES, 'Workspace runtime usage report'),
+    );
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError || error instanceof InvalidJsonBodyError || error instanceof z.ZodError) {
+      return credentialResponse({ error: 'Invalid workspace runtime usage report.' }, 400);
+    }
+    throw error;
+  }
+  const authenticated = await authenticateRuntime(args.env, args.request, body);
+  if (authenticated instanceof Response) {
+    return authenticated;
+  }
+  const orgId = authenticated.connection.orgId;
+  if (orgId) {
+    const day = new Date(args.now ?? Date.now()).toISOString().slice(0, 10);
+    await args.env.DB.prepare(
+      `INSERT INTO organization_usage_daily (org_id, user_id, day, turns, input_tokens, output_tokens, cached_tokens)
+       VALUES (?, ?, ?, 1, ?, ?, ?)
+       ON CONFLICT(org_id, user_id, day) DO UPDATE SET
+         turns = turns + 1,
+         input_tokens = input_tokens + excluded.input_tokens,
+         output_tokens = output_tokens + excluded.output_tokens,
+         cached_tokens = cached_tokens + excluded.cached_tokens`,
+    )
+      .bind(orgId, body.userId, day, body.inputTokens, body.outputTokens, body.cachedTokens)
+      .run();
+  }
+  return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+}
+
+const runtimeAccessRequestSchema = z
+  .object({
+    userId: z.string().min(1).max(512),
+    connectionId: z.string().min(1).max(512),
+    connectionGeneration: z.number().int().positive(),
+  })
+  .strict();
+
+/**
+ * Whether a workspace runtime's person may still build: asked before each model turn in an
+ * organization's account, whose Workers AI the organization pays for, so pausing or removing a member
+ * stops their next turn even in a workspace they already have open.
+ */
+export async function runtimeAccessAction(args: { request: Request; env: Env }): Promise<Response> {
+  let body: z.infer<typeof runtimeAccessRequestSchema>;
+  try {
+    body = runtimeAccessRequestSchema.parse(
+      await readJsonBodyWithLimit(args.request, MAX_RUNTIME_CREDENTIAL_REQUEST_BYTES, 'Workspace runtime access check'),
+    );
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError || error instanceof InvalidJsonBodyError || error instanceof z.ZodError) {
+      return credentialResponse({ error: 'Invalid workspace runtime access check.' }, 400);
+    }
+    throw error;
+  }
+  const authenticated = await authenticateRuntime(args.env, args.request, body);
+  return authenticated instanceof Response
+    ? authenticated
+    : new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+}
+
+type RuntimeIdentity = { userId: string; connectionId: string; connectionGeneration: number };
+
+/**
+ * A workspace runtime proving who it is: its secret, derived from the person, the account and the
+ * connection generation, must match, and only then is the person asked about: they must still be the
+ * connection's owner, or an unpaused member of the organization that owns it. Pausing or removing
+ * them stops their runtime at its very next call.
+ */
+async function authenticateRuntime(
+  env: Env,
+  request: Request,
+  identity: RuntimeIdentity,
+): Promise<{ connection: CloudflareConnection; credentialHandle: string } | Response> {
+  const encryptionKey = env.CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY;
+  const bearer = readBearerToken(request);
+  if (!encryptionKey || !bearer) {
+    return credentialResponse({ error: 'Unauthorized.' }, 401);
+  }
+  const connection = await findActiveCloudflareConnection(env.DB, identity.connectionId);
+  if (!connection || connection.generation !== identity.connectionGeneration || !connection.credentialHandle) {
+    return credentialResponse({ error: 'Unauthorized.' }, 401);
+  }
+  let expected: string;
+  try {
+    expected = await deriveUserWorkspaceRuntimeSecret({
+      encryptionKeyBase64: encryptionKey,
+      userId: identity.userId,
+      accountId: connection.accountId,
+      connectionGeneration: identity.connectionGeneration,
+      organizationConnectionId: connection.orgId ? connection.id : null,
+    });
+  } catch {
+    console.error('Unable to derive the user workspace runtime credential');
+    return credentialResponse({ error: 'Cloudflare connection is unavailable.' }, 503);
+  }
+  if (!constantTimeEqual(bearer, expected) || !(await canUseConnection(env.DB, identity.userId, connection))) {
+    return credentialResponse({ error: 'Unauthorized.' }, 401);
+  }
+  return { connection, credentialHandle: connection.credentialHandle };
 }
 
 function readBearerToken(request: Request): string | null {

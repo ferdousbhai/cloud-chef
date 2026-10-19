@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Button } from '@ui/Button';
 import { TextInput } from '@ui/TextInput';
 import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
-import { createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
+import { authClient } from '~/lib/auth-client';
 import { disposeClientCollections } from '~/lib/cloudflare/client-collections';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
+import { takeReauthenticationSwitchedAccount } from '~/lib/stores/reauthentication';
+import { ReauthenticateButtons } from './ReauthenticateButtons.client';
 import { z } from 'zod';
 
 /** Failure envelopes returned by the account deletion and export endpoints. */
@@ -97,15 +99,21 @@ export function AccountDataCard() {
     setError(null);
   };
 
-  const reauthenticate = async (purpose: 'export' | 'delete') => {
-    const reportError = purpose === 'export' ? setExportError : setError;
-    reportError(null);
-    try {
-      await signInWithCloudflare(createCloudflareReturnURL(window.location.href));
-    } catch (authorizationError) {
-      reportError(authorizationError instanceof Error ? authorizationError.message : 'Unable to reconnect Cloudflare.');
+  const { data: session } = authClient.useSession();
+  const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
+  // A fresh sign-in that landed in another account than the one that asked for it: export and
+  // erasure would act on that other account, so they wait until the person signs back in.
+  const [switchedAccount, setSwitchedAccount] = useState(false);
+  const userId = session?.user.id ?? null;
+  useEffect(() => {
+    if (userId && takeReauthenticationSwitchedAccount(userId)) {
+      setSwitchedAccount(true);
     }
-  };
+  }, [userId]);
+
+  const reauthenticateButtons = (purpose: 'export' | 'delete') => (
+    <ReauthenticateButtons onError={purpose === 'export' ? setExportError : setError} onLinkSent={setLinkSentTo} />
+  );
 
   return (
     <section id="your-data" className="app-card w-full p-4" aria-labelledby="account-data-heading">
@@ -124,8 +132,15 @@ export function AccountDataCard() {
 
       <h3 className="mt-3 text-sm font-medium text-content-primary">Account data</h3>
       <p className="mt-1 max-w-2xl text-sm text-content-secondary">
-        Export your CloudChef account record as JSON. Reconnecting Cloudflare may be required.
+        Export your CloudChef account record as JSON. Signing in again may be required.
       </p>
+      {switchedAccount && session ? (
+        <p className="mt-2 max-w-2xl text-sm text-bolt-elements-icon-error" role="alert">
+          You signed in again as {session.user.email}, a different account than the one you started with. Export and
+          deletion are off here so they can&apos;t act on the wrong account; sign out and back in as the account you
+          meant.
+        </p>
+      ) : null}
       <details className="mt-2 text-sm text-content-secondary">
         <summary className="cursor-pointer py-1 text-content-primary">What’s included?</summary>
         <p className="mt-1 max-w-2xl">
@@ -143,20 +158,18 @@ export function AccountDataCard() {
           size="sm"
           variant="neutral"
           loading={exportPhase === 'downloading'}
-          disabled={exportPhase === 'downloading'}
+          disabled={exportPhase === 'downloading' || switchedAccount}
           onClick={() => void downloadAccountData()}
         >
           Download account data
         </Button>
-        {exportPhase === 'reauthenticate' ? (
-          <Button size="sm" variant="neutral" onClick={() => void reauthenticate('export')}>
-            Reconnect Cloudflare
-          </Button>
-        ) : null}
+        {exportPhase === 'reauthenticate' ? reauthenticateButtons('export') : null}
       </div>
       {exportPhase === 'reauthenticate' ? (
         <p className="mt-2 max-w-2xl text-sm text-content-secondary" role="status">
-          Confirm it is you in Cloudflare, then download again.
+          {linkSentTo
+            ? `Open the link sent to ${linkSentTo}, then download again.`
+            : 'Sign in again to confirm it is you, then download again.'}
         </p>
       ) : null}
       {unavailableSections.length > 0 ? (
@@ -263,11 +276,13 @@ export function AccountDataCard() {
               </label>
               {phase === 'reauthenticate' ? (
                 <div role="status" className="text-sm text-content-secondary">
-                  <p>Confirm it is you in Cloudflare, then return here and delete again.</p>
+                  <p>
+                    {linkSentTo
+                      ? `Open the link sent to ${linkSentTo}, then return here and delete again.`
+                      : 'Sign in again to confirm it is you, then return here and delete again.'}
+                  </p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <Button size="sm" variant="neutral" onClick={() => void reauthenticate('delete')}>
-                      Reconnect Cloudflare
-                    </Button>
+                    {reauthenticateButtons('delete')}
                     <Button size="sm" variant="neutral" onClick={cancelDeletion}>
                       Cancel
                     </Button>
@@ -279,7 +294,7 @@ export function AccountDataCard() {
                     size="sm"
                     variant="danger"
                     loading={phase === 'deleting'}
-                    disabled={!confirmed || phase === 'deleting'}
+                    disabled={!confirmed || phase === 'deleting' || switchedAccount}
                     onClick={() => void requestDeletion()}
                   >
                     Permanently delete

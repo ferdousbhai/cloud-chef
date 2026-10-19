@@ -1,4 +1,4 @@
-import { normalizeContext, type Message, type Tool, type ToolCall } from '@earendil-works/pi-ai';
+import { normalizeContext, type Message, type Tool, type ToolCall, type Usage } from '@earendil-works/pi-ai';
 import type { ModelHandle } from './pi-ai-models';
 
 class AgentTurnError extends Error {
@@ -25,6 +25,8 @@ export async function completeText(
     maxTokens?: number;
     temperature?: number;
     signal?: AbortSignal;
+    /** The call's token counts, once the model answered (for an organization's per-member usage). */
+    onUsage?: (usage: Usage) => void;
   },
 ): Promise<string> {
   const messages: Message[] = [{ role: 'user', content: args.prompt, timestamp: Date.now() }];
@@ -34,6 +36,7 @@ export async function completeText(
     signal: args.signal,
   });
   const message = await stream.result();
+  args.onUsage?.(message.usage);
   if (message.stopReason === 'error' || message.stopReason === 'aborted') {
     args.signal?.throwIfAborted();
     const errorMessage = message.errorMessage ?? 'The model request failed.';
@@ -51,6 +54,8 @@ export async function completeToolCall(
     maxTokens?: number;
     temperature?: number;
     signal?: AbortSignal;
+    /** The call's token counts, once the model answered (for an organization's per-member usage). */
+    onUsage?: (usage: Usage) => void;
   },
 ): Promise<Record<string, unknown>> {
   const stream = await handle.stream(
@@ -68,6 +73,7 @@ export async function completeToolCall(
     },
   );
   const message = await stream.result();
+  args.onUsage?.(message.usage);
   if (message.stopReason === 'error' || message.stopReason === 'aborted') {
     args.signal?.throwIfAborted();
     const errorMessage = message.errorMessage ?? 'The model request failed.';
