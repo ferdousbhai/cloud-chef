@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { toolFailure, toolSuccess } from 'cloudchef-agent/tool-result';
+import { lineEditBaseTag } from 'cloudchef-agent/line-edit';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import {
@@ -240,6 +241,38 @@ describe('minimal Workers AI tool surface', () => {
     });
     expect(workspace.validate).not.toHaveBeenCalled();
     await expect(workspace.readText(path)).resolves.toMatchObject({ content: 'one\nTWO\nthree\nfour\n' });
+  });
+
+  it('returns the diff of an edit and warns when it changes the bracket balance of source', async () => {
+    const source = '/home/project/src/list.tsx';
+    const notes = '/home/project/NOTES.md';
+    const workspace = workspaceStub({
+      files: { [source]: 'const a = f(\n  1,\n);\n', [notes]: 'one (\ntwo )\n' },
+    });
+    const tools = createWorkersAiTools(workspace, operationContext());
+    const sourceRead = { base: lineEditBaseTag((await workspace.readText(source)).sha256) };
+    const notesRead = { base: lineEditBaseTag((await workspace.readText(notes)).sha256) };
+
+    const edited = await executeTool(tools.edit, {
+      path: source,
+      base: sourceRead.base,
+      edits: [{ startLine: 2, endLine: 3, content: '  2,' }],
+    });
+
+    expect(edited).toMatchObject({
+      diff: '@@ original lines 2-3 -> new line 2 @@\n 1:const a = f(\n-2:  1,\n-3:);\n+2:  2,',
+      warning:
+        'The edit was applied, but the file now has 1 more "(" than ")" than before (a dropped ")"?). Check the diff and fix it if that was not intended.',
+    });
+    await expect(workspace.readText(source)).resolves.toMatchObject({ content: 'const a = f(\n  2,\n' });
+
+    const prose = await executeTool(tools.edit, {
+      path: notes,
+      base: notesRead.base,
+      edits: [{ oldText: 'two )', newText: 'two' }],
+    });
+    expect(prose).toMatchObject({ diff: expect.stringContaining('+2:two') });
+    expect(prose).not.toHaveProperty('warning');
   });
 
   it('does not mask an indeterminate workspace settlement as an ordinary tool error or timeout', async () => {

@@ -303,7 +303,10 @@ function streamingExecTool(workspace: BuilderWorkspaceApi): Tool {
 function lineAnchoredEditTool(workspace: BuilderWorkspaceApi): Tool {
   return {
     description:
-      'Edit one existing file by replacing numbered original line ranges or inserting after an original line. The base tag must come from the latest read or successful edit. All operations address the same original snapshot and must not overlap.',
+      'Edit one existing file. The base tag must come from the latest read or successful edit; every operation addresses that same original snapshot, and operations must not overlap. ' +
+      'Prefer {oldText,newText} for small changes: oldText is copied exactly from the file, without the "N:" line-number prefixes, and must occur exactly once. ' +
+      '{startLine,endLine,content} replaces original lines startLine through endLine inclusive, so content must restate every line in that range you mean to keep; {afterLine,content} inserts without removing anything. ' +
+      'The result diff shows each changed region (removed lines under their original numbers, added lines and context under the new ones). Check it for a line removed by accident, and fix any reported bracket imbalance before moving on.',
     inputSchema: lineEditToolParameters,
     execute: async (input, options) => {
       const parsed: LineEditToolInput = lineEditToolParameters.parse(input);
@@ -329,16 +332,34 @@ function lineAnchoredEditTool(workspace: BuilderWorkspaceApi): Tool {
       options.abortSignal?.throwIfAborted();
       const after = await workspace.readText(parsed.path, options.abortSignal);
       options.abortSignal?.throwIfAborted();
-      return {
+      const result: LineEditToolResult = {
         path: after.path,
         base: lineEditBaseTag(after.sha256),
         editsApplied: applied.editsApplied,
         firstChangedLine: applied.firstChangedLine,
         totalLines: countLogicalLines(after.content),
+        diff: applied.diff,
       };
+      if (applied.bracketImbalance.length > 0 && BRACKETED_SOURCE_PATH.test(parsed.path)) {
+        result.warning = `The edit was applied, but the file now has ${applied.bracketImbalance.join('; ')}. Check the diff and fix it if that was not intended.`;
+      }
+      return result;
     },
   };
 }
+
+type LineEditToolResult = {
+  path: string;
+  base: string;
+  editsApplied: number;
+  firstChangedLine: number;
+  totalLines: number;
+  diff: string;
+  warning?: string;
+};
+
+/** Files whose brackets must balance, where an edit that changes the balance is worth flagging. */
+const BRACKETED_SOURCE_PATH = /\.(?:[cm]?[jt]sx?|json|jsonc|css|scss|vue|svelte|astro)$/i;
 
 function countLogicalLines(content: string): number {
   if (content.length === 0) {

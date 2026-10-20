@@ -31,10 +31,10 @@ describe('streamedToolInput', () => {
       streamedToolInput({
         input: {
           path: '/home/project/a.ts',
-          edits: [{ content: 'one' }, { content: 'three' }, { afterLine: 2 }],
+          edits: [{ content: 'one' }, { content: 'three' }, { afterLine: 2 }, { oldText: 'x', newText: 'four' }],
         },
       }).characters,
-    ).toBe(8);
+    ).toBe(12);
   });
 
   it('counts the raw prefix while nothing has been decoded yet', () => {

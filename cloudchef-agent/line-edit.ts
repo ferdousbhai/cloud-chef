@@ -26,7 +26,19 @@ const insertionSchema = z
   })
   .strict();
 
-const lineEditOperationSchema = z.union([replacementSchema, insertionSchema]);
+const textReplacementSchema = z
+  .object({
+    oldText: z
+      .string()
+      .min(1)
+      .describe(
+        'Exact current text to replace, copied from the file without the "N:" line-number prefixes. Must occur exactly once.',
+      ),
+    newText: z.string().describe('Replacement text. Use an empty string to delete oldText.'),
+  })
+  .strict();
+
+const lineEditOperationSchema = z.union([textReplacementSchema, replacementSchema, insertionSchema]);
 export type LineEditOperation = z.infer<typeof lineEditOperationSchema>;
 
 export const lineEditToolParameters = z.object({
@@ -39,7 +51,9 @@ export const lineEditToolParameters = z.object({
     .array(lineEditOperationSchema)
     .min(1)
     .max(LINE_EDIT_MAX_OPERATIONS)
-    .describe('Non-overlapping operations addressed against the original numbered lines.'),
+    .describe(
+      'Non-overlapping operations against the same original snapshot: {oldText,newText} exact replacements (preferred for small changes), {startLine,endLine,content} line-range replacements, or {afterLine,content} insertions.',
+    ),
 });
 
 export type LineEditToolInput = z.infer<typeof lineEditToolParameters>;
@@ -69,7 +83,23 @@ type AppliedLineEdits = {
   content: string;
   editsApplied: number;
   firstChangedLine: number;
+  /** Each changed region as removed and added lines with a little surrounding context, bounded. */
+  diff: string;
+  /** Bracket pairs whose balance the edit changed, as notes for the model to check. */
+  bracketImbalance: string[];
 };
+
+/** Unchanged lines shown on each side of a changed region in an edit's diff. */
+const LINE_EDIT_DIFF_CONTEXT_LINES = 2;
+/** Removed or added lines shown per region before the middle is elided. */
+const LINE_EDIT_DIFF_MAX_SIDE_LINES = 16;
+const LINE_EDIT_DIFF_MAX_CHARS = 6_000;
+const LINE_EDIT_DIFF_MAX_LINE_CHARS = 240;
+const BRACKET_PAIRS = [
+  ['(', ')'],
+  ['{', '}'],
+  ['[', ']'],
+] as const;
 
 /** Compact display tag; edit execution always verifies it against the live full SHA-256. */
 export function lineEditBaseTag(sha256: string): string {
@@ -162,8 +192,11 @@ export function applyLineEdits(original: string, operations: readonly LineEditOp
   }
 
   const parsed = parseText(original);
+  const located = locateText(parsed);
   const planned = operations.map((operation, operationIndex) =>
-    planOperation(operation, operationIndex, parsed.lines.length),
+    'oldText' in operation
+      ? planTextReplacement(operation, operationIndex, parsed, located)
+      : planOperation(operation, operationIndex, parsed.lines.length),
   );
   assertOperationsDoNotOverlap(planned);
 
@@ -182,7 +215,212 @@ export function applyLineEdits(original: string, operations: readonly LineEditOp
     content,
     editsApplied: planned.length,
     firstChangedLine: Math.min(...planned.map((operation) => operation.index + 1)),
+    diff: renderDiff(parsed.lines, nextLines, planned),
+    bracketImbalance: bracketImbalance(parsed.lines, planned),
   };
+}
+
+type LocatedText = {
+  /** The logical lines joined with LF, plus the final newline when the file has one. */
+  text: string;
+  /** Offset of each line's first character; one more entry than lines when the text ends in a newline. */
+  lineStarts: number[];
+};
+
+function locateText(parsed: ParsedText): LocatedText {
+  const text = parsed.lines.join('\n') + (parsed.hasFinalNewline && parsed.lines.length > 0 ? '\n' : '');
+  const lineStarts = [0];
+  for (let index = text.indexOf('\n'); index !== -1; index = text.indexOf('\n', index + 1)) {
+    lineStarts.push(index + 1);
+  }
+  return { text, lineStarts };
+}
+
+function lineIndexAt(located: LocatedText, offset: number): number {
+  let low = 0;
+  let high = located.lineStarts.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (located.lineStarts[middle]! <= offset) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return low;
+}
+
+/**
+ * Resolve an exact-text replacement to the whole original lines it touches, so it plans, overlaps,
+ * and applies exactly like a line-range replacement.
+ *
+ * The match must be unique: a replacement that could land in two places is exactly the silent
+ * damage this form exists to prevent.
+ */
+function planTextReplacement(
+  operation: { oldText: string; newText: string },
+  operationIndex: number,
+  parsed: ParsedText,
+  located: LocatedText,
+): PlannedReplacement {
+  if (operation.oldText.length === 0) {
+    throw new Error(`edits[${operationIndex}].oldText must not be empty.`);
+  }
+  const oldText = operation.oldText.replace(/\r\n|\r/g, '\n');
+  const newText = operation.newText.replace(/\r\n|\r/g, '\n');
+  const occurrences = countOccurrences(located.text, oldText);
+  if (occurrences === 0) {
+    throw new Error(
+      `edits[${operationIndex}].oldText was not found. Copy it exactly from the latest read, including whitespace and without the "N:" line-number prefixes.`,
+    );
+  }
+  if (occurrences > 1) {
+    throw new Error(
+      `edits[${operationIndex}].oldText occurs ${occurrences} times. Include enough surrounding text to make it unique, or use a line range.`,
+    );
+  }
+  const matchStart = located.text.indexOf(oldText);
+  const matchEnd = matchStart + oldText.length;
+  const startIndex = lineIndexAt(located, matchStart);
+  // The line holding the position just after the match: a match that ends with a newline takes
+  // the next line too, whole, as its suffix, so deleting "line\n" removes the line.
+  const endPositionIndex = lineIndexAt(located, matchEnd);
+  const endIndex = Math.min(endPositionIndex, parsed.lines.length - 1);
+  const regionStart = located.lineStarts[startIndex]!;
+  const regionEnd = regionStart + parsed.lines.slice(startIndex, endIndex + 1).join('\n').length;
+  let replacement =
+    located.text.slice(regionStart, matchStart) +
+    newText +
+    located.text.slice(Math.min(matchEnd, regionEnd), regionEnd);
+  if (endPositionIndex > endIndex && replacement.endsWith('\n')) {
+    // The match consumed the file's final newline, which the rejoin restores on its own.
+    replacement = replacement.slice(0, -1);
+  }
+  return {
+    kind: 'replace',
+    operationIndex,
+    index: startIndex,
+    deleteCount: endIndex - startIndex + 1,
+    startLine: startIndex + 1,
+    endLine: endIndex + 1,
+    contentLines: replacement.split('\n'),
+  };
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  let count = 0;
+  for (let index = haystack.indexOf(needle); index !== -1; index = haystack.indexOf(needle, index + 1)) {
+    count += 1;
+  }
+  return count;
+}
+
+/**
+ * The changed regions as the model should check them: removed lines under their original numbers,
+ * added lines and context under the new numbers a following read would print.
+ */
+function renderDiff(before: readonly string[], after: readonly string[], planned: readonly PlannedOperation[]): string {
+  const hunks: string[] = [];
+  let shift = 0;
+  let used = 0;
+  const ordered = [...planned].sort((left, right) => left.index - right.index || left.deleteCount - right.deleteCount);
+  for (const [position, operation] of ordered.entries()) {
+    const newStart = operation.index + shift;
+    const added = operation.contentLines.length;
+    shift += added - operation.deleteCount;
+    const lines: string[] = [
+      `@@ original ${rangeLabel(operation.index, operation.deleteCount)} -> new ${rangeLabel(newStart, added)} @@`,
+    ];
+    for (let index = Math.max(0, newStart - LINE_EDIT_DIFF_CONTEXT_LINES); index < newStart; index += 1) {
+      lines.push(diffLine(' ', index, after[index]!));
+    }
+    lines.push(
+      ...elided(
+        before.slice(operation.index, operation.index + operation.deleteCount),
+        (text, offset) => diffLine('-', operation.index + offset, text),
+        'removed',
+      ),
+      ...elided(
+        after.slice(newStart, newStart + added),
+        (text, offset) => diffLine('+', newStart + offset, text),
+        'added',
+      ),
+    );
+    const contextEnd = Math.min(after.length, newStart + added + LINE_EDIT_DIFF_CONTEXT_LINES);
+    for (let index = newStart + added; index < contextEnd; index += 1) {
+      lines.push(diffLine(' ', index, after[index]!));
+    }
+    const hunk = lines.join('\n');
+    if (used + hunk.length > LINE_EDIT_DIFF_MAX_CHARS) {
+      hunks.push(`… ${ordered.length - position} more changed region(s) omitted; read the file to check them.`);
+      break;
+    }
+    hunks.push(hunk);
+    used += hunk.length + 1;
+  }
+  return hunks.join('\n');
+}
+
+function rangeLabel(index: number, count: number): string {
+  if (count === 0) {
+    return `after line ${index}`;
+  }
+  return count === 1 ? `line ${index + 1}` : `lines ${index + 1}-${index + count}`;
+}
+
+function diffLine(marker: ' ' | '-' | '+', index: number, text: string): string {
+  const shown =
+    text.length <= LINE_EDIT_DIFF_MAX_LINE_CHARS ? text : `${text.slice(0, LINE_EDIT_DIFF_MAX_LINE_CHARS)}…`;
+  return `${marker}${index + 1}:${shown}`;
+}
+
+function elided(lines: readonly string[], render: (text: string, offset: number) => string, label: string): string[] {
+  if (lines.length <= LINE_EDIT_DIFF_MAX_SIDE_LINES) {
+    return lines.map(render);
+  }
+  const head = LINE_EDIT_DIFF_MAX_SIDE_LINES / 2;
+  const tailStart = lines.length - head;
+  return [
+    ...lines.slice(0, head).map(render),
+    `… ${tailStart - head} more ${label} line(s)`,
+    ...lines.slice(tailStart).map((text, offset) => render(text, tailStart + offset)),
+  ];
+}
+
+/**
+ * Bracket pairs whose open/close balance differs between the replaced and the replacement text.
+ *
+ * A line-range edit that drops a closing `}` or `)` it did not mean to is the commonest silent
+ * damage, and it shows up as exactly this difference. It is a hint, not a parse: brackets inside
+ * strings or comments count too, so the edit still applies and the caller only reports it.
+ */
+function bracketImbalance(before: readonly string[], planned: readonly PlannedOperation[]): string[] {
+  const removed = planned
+    .map((operation) => before.slice(operation.index, operation.index + operation.deleteCount).join('\n'))
+    .join('\n');
+  const added = planned.map((operation) => operation.contentLines.join('\n')).join('\n');
+  const notes: string[] = [];
+  for (const [open, close] of BRACKET_PAIRS) {
+    const change = balance(added, open, close) - balance(removed, open, close);
+    if (change > 0) {
+      notes.push(`${change} more "${open}" than "${close}" than before (a dropped "${close}"?)`);
+    } else if (change < 0) {
+      notes.push(`${-change} more "${close}" than "${open}" than before (a dropped "${open}"?)`);
+    }
+  }
+  return notes;
+}
+
+function balance(text: string, open: string, close: string): number {
+  let count = 0;
+  for (const character of text) {
+    if (character === open) {
+      count += 1;
+    } else if (character === close) {
+      count -= 1;
+    }
+  }
+  return count;
 }
 
 type PlannedInsertion = {
@@ -206,7 +444,9 @@ type PlannedReplacement = {
 
 type PlannedOperation = PlannedInsertion | PlannedReplacement;
 
-function planOperation(operation: LineEditOperation, operationIndex: number, totalLines: number): PlannedOperation {
+type LineAnchoredOperation = Exclude<LineEditOperation, { oldText: string }>;
+
+function planOperation(operation: LineAnchoredOperation, operationIndex: number, totalLines: number): PlannedOperation {
   if ('afterLine' in operation) {
     if (!Number.isSafeInteger(operation.afterLine) || operation.afterLine < 0) {
       throw new Error(`edits[${operationIndex}].afterLine must be a non-negative integer.`);
