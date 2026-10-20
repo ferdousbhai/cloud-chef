@@ -10,7 +10,9 @@ const workloadTables = [
   'deployment_activity',
   'deployment_resources',
   'deployments',
+  'runtime_activity',
   'runtime_controls',
+  'runtime_upgrade_window',
 ];
 
 describe('user-owned workspace D1 schema', () => {

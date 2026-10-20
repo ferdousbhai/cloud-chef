@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
+import type { UserWorkspaceRuntime } from '~/lib/.server/cloudflare/user-workspace-runtime-repository';
 
 const mocks = {
   requireActiveConnection: vi.fn(),
@@ -8,6 +9,9 @@ const mocks = {
   deriveSecret: vi.fn(),
   waitForReadiness: vi.fn(),
   upsertRuntime: vi.fn(),
+  findRuntime: vi.fn(),
+  claimUpgradeWindow: vi.fn(),
+  now: vi.fn(),
   accountApi: {
     readWorkspaceContainersEntitlement: vi.fn(),
     getWorkersSubdomain: vi.fn(),
@@ -21,13 +25,17 @@ const mocks = {
 };
 
 import {
+  LEGACY_RUNTIME_QUIET_MS,
   runUserWorkspaceRuntimeProvisioningWorkflow,
   startUserWorkspaceRuntimeProvisioning,
+  UPGRADE_MAX_WAIT_MS,
   workspaceRuntimeNames,
   type UserWorkspaceRuntimeProvisioningDependencies,
   type UserWorkspaceRuntimeProvisioningStep,
   USER_WORKSPACE_REQUIRED_CAPABILITIES,
 } from './user-workspace-runtime-provisioning';
+
+const NOW = 100 * 60 * 60_000;
 
 const connection: CloudflareConnection = {
   id: 'connection-1',
@@ -55,6 +63,9 @@ const dependencies = {
   deriveSecret: mocks.deriveSecret,
   waitForReadiness: mocks.waitForReadiness,
   upsertRuntime: mocks.upsertRuntime,
+  findRuntime: mocks.findRuntime,
+  claimUpgradeWindow: mocks.claimUpgradeWindow,
+  now: mocks.now,
 } satisfies UserWorkspaceRuntimeProvisioningDependencies;
 
 describe('workspace runtime provisioning Workflow', () => {
@@ -68,6 +79,8 @@ describe('workspace runtime provisioning Workflow', () => {
     mocks.accountApi.ensureD1Database.mockResolvedValue({ id: 'database-1', name: 'database' });
     mocks.accountApi.deployWorkspaceRuntimeWorker.mockResolvedValue({ namespaceId: 'namespace-1' });
     mocks.upsertRuntime.mockResolvedValue(undefined);
+    mocks.findRuntime.mockResolvedValue(null);
+    mocks.now.mockReturnValue(NOW);
   });
 
   it('uses one deterministic instance for repeated requests', async () => {
@@ -187,6 +200,94 @@ describe('workspace runtime provisioning Workflow', () => {
     expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
   });
 
+  describe('upgrading a live workspace', () => {
+    let endpoint: string;
+
+    beforeEach(async () => {
+      endpoint = `https://${(await workspaceRuntimeNames(connection, 'user-1')).workerName}.user.workers.dev`;
+      mocks.findRuntime.mockResolvedValue(liveRuntime(endpoint));
+    });
+
+    it('redeploys only once the workspace grants the window, waiting while it is busy', async () => {
+      mocks.claimUpgradeWindow
+        .mockResolvedValueOnce({ status: 'busy', busy: 1 })
+        .mockResolvedValueOnce({ status: 'busy', busy: 1 })
+        .mockResolvedValueOnce({ status: 'granted' });
+      const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async () => {
+        expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
+      });
+
+      await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
+        status: 'ready',
+      });
+
+      expect(sleep.mock.calls.map(([, duration]) => duration)).toEqual([30_000, 60_000]);
+      expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
+      expect(mocks.claimUpgradeWindow).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoint, targetVersion: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+      );
+    });
+
+    it('gives up without redeploying a workspace that never goes quiet', async () => {
+      mocks.claimUpgradeWindow.mockResolvedValue({ status: 'busy', busy: 2 });
+      let now = NOW;
+      mocks.now.mockImplementation(() => now);
+      const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async (_name, duration) => {
+        now += duration;
+      });
+
+      await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
+        status: 'deferred',
+      });
+
+      expect(now - NOW).toBeGreaterThanOrEqual(UPGRADE_MAX_WAIT_MS);
+      expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
+      expect(mocks.upsertRuntime).not.toHaveBeenCalled();
+    });
+
+    it('upgrades a runtime too old to report activity only after no session for longer than a turn runs', async () => {
+      mocks.claimUpgradeWindow.mockResolvedValue({ status: 'unsupported' });
+      let now = NOW;
+      mocks.now.mockImplementation(() => now);
+      mocks.findRuntime.mockResolvedValue({ ...liveRuntime(endpoint), lastSessionAt: NOW - 60_000 });
+      const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async (_name, duration) => {
+        expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
+        now += duration;
+      });
+
+      await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
+        status: 'ready',
+      });
+
+      expect(now).toBe(NOW - 60_000 + LEGACY_RUNTIME_QUIET_MS);
+      expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
+    });
+
+    it('records the protocol the new runtime speaks', async () => {
+      mocks.claimUpgradeWindow.mockResolvedValue({ status: 'granted' });
+
+      await runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs());
+
+      expect(mocks.upsertRuntime).toHaveBeenCalledWith(expect.objectContaining({ protocolVersion: 1 }));
+    });
+
+    it("doesn't wait on a runtime of an earlier connection generation, which can no longer be asked", async () => {
+      mocks.findRuntime.mockResolvedValue({ ...liveRuntime(endpoint), connectionGeneration: 0 });
+
+      await runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs());
+
+      expect(mocks.claimUpgradeWindow).not.toHaveBeenCalled();
+      expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
+    });
+  });
+
+  it('deploys a first workspace without asking for an upgrade window', async () => {
+    await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs())).resolves.toEqual({ status: 'ready' });
+
+    expect(mocks.claimUpgradeWindow).not.toHaveBeenCalled();
+    expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
+  });
+
   it('fails closed when the connection cannot provision the runtime', async () => {
     mocks.requireActiveConnection.mockResolvedValueOnce({ ...connection, grantedCapabilities: [] });
 
@@ -199,11 +300,23 @@ describe('workspace runtime provisioning Workflow', () => {
   });
 });
 
+function liveRuntime(endpoint: string): UserWorkspaceRuntime {
+  return {
+    connectionId: 'connection-1',
+    connectionGeneration: 1,
+    endpoint,
+    runtimeVersion: '0'.repeat(64),
+    imageDigest: null,
+    protocolVersion: null,
+    lastSessionAt: 0,
+  };
+}
+
 function launchArgs(env: Pick<Env, 'USER_WORKSPACE_RUNTIME_PROVISIONING'>) {
   return { env, userId: 'user-1', connectionId: 'connection-1', connectionGeneration: 1 };
 }
 
-function workflowArgs() {
+function workflowArgs(sleep: UserWorkspaceRuntimeProvisioningStep['sleep'] = async () => undefined) {
   return {
     // SAFETY: these tests inject every external dependency, so only the two Env fields read by orchestration are needed.
     env: {
@@ -219,6 +332,7 @@ function workflowArgs() {
       ) {
         return operation();
       },
+      sleep,
     } satisfies UserWorkspaceRuntimeProvisioningStep,
     dependencies,
   };

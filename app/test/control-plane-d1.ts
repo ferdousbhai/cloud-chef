@@ -11,10 +11,19 @@ const sqlite: typeof NodeSqlite = require('node:sqlite');
 
 /** An in-memory control-plane database with every migration applied, behind the D1 API CloudChef uses. */
 export function controlPlaneDatabase(): ControlPlaneTestDatabase {
+  return migratedDatabase('migrations');
+}
+
+/** An in-memory user workspace database, as a workspace runtime's own D1 holds it. */
+export function userWorkspaceDatabase(): ControlPlaneTestDatabase {
+  return migratedDatabase('user-workspace-migrations');
+}
+
+function migratedDatabase(directory: string): ControlPlaneTestDatabase {
   const database = new sqlite.DatabaseSync(':memory:');
   database.exec('PRAGMA foreign_keys = ON;');
-  for (const migration of readdirSync('migrations').sort()) {
-    database.exec(readFileSync(join('migrations', migration), 'utf8'));
+  for (const migration of readdirSync(directory).sort()) {
+    database.exec(readFileSync(join(directory, migration), 'utf8'));
   }
   return { database, db: new SqliteD1Database(database) };
 }

@@ -374,9 +374,10 @@ export function useBuilderAgentChat(args: {
               return;
             }
             setWorkspacePresentation({ gate, state: 'reconnecting' });
-            // Re-admission is what discovers a release in progress: the control plane answers
-            // `409 workspace_preparing` while the new runtime image builds, and this poll is what
-            // publishes that to the browser and hands the agent a usable capability afterwards.
+            // Re-admission is what discovers a runtime being rebuilt: the control plane answers
+            // `409 workspace_preparing` while a runtime that cannot serve this browser is prepared,
+            // and this poll publishes that and hands the agent a usable capability afterwards. A
+            // runtime merely from an earlier release keeps answering while its upgrade waits.
             await refreshUserRuntimeSession().catch((sessionError) =>
               logger.warn('Unable to refresh the user-owned runtime session while reconnecting', sessionError),
             );

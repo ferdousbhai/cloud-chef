@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { controlPlaneDatabase } from '~/test/control-plane-d1';
-import { findUserWorkspaceRuntime, upsertUserWorkspaceRuntime } from './user-workspace-runtime-repository';
+import {
+  findUserWorkspaceRuntime,
+  recordUserWorkspaceRuntimeSession,
+  upsertUserWorkspaceRuntime,
+} from './user-workspace-runtime-repository';
 
 describe('workspace runtime locator', () => {
   it('stores and replaces the ready runtime for a user', async () => {
@@ -32,6 +36,31 @@ describe('workspace runtime locator', () => {
     });
   });
 
+  it('records the protocol a runtime speaks, and counts its provisioning as its latest use', async () => {
+    const db = runtimeDatabase();
+    await upsertUserWorkspaceRuntime(runtimeArgs(db, { runtimeVersion: 'a'.repeat(64), now: 1_000 }));
+
+    await expect(findUserWorkspaceRuntime(db, 'user-1', 'connection-1')).resolves.toMatchObject({
+      protocolVersion: 1,
+      lastSessionAt: 1_000,
+    });
+  });
+
+  it('records when a session was last issued, at most once a minute', async () => {
+    const db = runtimeDatabase();
+    await upsertUserWorkspaceRuntime(runtimeArgs(db, { runtimeVersion: 'a'.repeat(64), now: 1_000 }));
+
+    await recordUserWorkspaceRuntimeSession(db, { userId: 'user-1', connectionId: 'connection-1', now: 30_000 });
+    await expect(findUserWorkspaceRuntime(db, 'user-1', 'connection-1')).resolves.toMatchObject({
+      lastSessionAt: 1_000,
+    });
+
+    await recordUserWorkspaceRuntimeSession(db, { userId: 'user-1', connectionId: 'connection-1', now: 61_001 });
+    await expect(findUserWorkspaceRuntime(db, 'user-1', 'connection-1')).resolves.toMatchObject({
+      lastSessionAt: 61_001,
+    });
+  });
+
   it('does not return an unfinished legacy row', async () => {
     const db = runtimeDatabase();
     await db
@@ -58,6 +87,7 @@ function runtimeArgs(db: D1Database, overrides: { runtimeVersion: string; now: n
     endpoint: 'https://workspace.example',
     runtimeVersion: overrides.runtimeVersion,
     imageDigest: 'docker.io/cloudflare/sandbox@sha256:test',
+    protocolVersion: 1,
     now: overrides.now,
   };
 }

@@ -1,6 +1,12 @@
+import { z } from 'zod';
+import { readJsonBodyWithLimit } from '../../app/lib/bounded-body';
+import { claimRuntimeUpgradeWindow } from '../../app/lib/.server/cloudflare/user-workspace-runtime-activity';
 import { readUserWorkspaceRuntimeHealth } from '../../app/lib/.server/cloudflare/user-workspace-runtime-health';
 
 const READINESS_WORKSPACE_NAME = 'cloudchef-runtime-readiness';
+const UPGRADE_WINDOW_PATH = '/v1/upgrade-window';
+const MAX_UPGRADE_WINDOW_REQUEST_BYTES = 1_024;
+const upgradeWindowRequestSchema = z.object({ targetVersion: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 
 type RuntimeReadinessEnv = {
   CONTROL_PLANE_SECRET: string;
@@ -12,12 +18,20 @@ type RuntimeReadinessEnv = {
   };
 };
 
-/** Prove that the Worker, D1, Durable Object, VFS, Sandbox, and FUSE path all work. */
+/**
+ * The routes only the control plane calls, authenticated with the runtime's secret: readiness, and
+ * the window an upgrade claims before it redeploys this Worker.
+ */
 export async function routeUserWorkspaceRuntimeControlPlaneRequest(
   request: Request,
   env: RuntimeReadinessEnv,
+  now: () => number = Date.now,
 ): Promise<Response | null> {
-  if (request.method !== 'GET' || new URL(request.url).pathname !== '/v1/readiness') {
+  const pathname = new URL(request.url).pathname;
+  if (request.method === 'POST' && pathname === UPGRADE_WINDOW_PATH) {
+    return claimUpgradeWindow(request, env, now());
+  }
+  if (request.method !== 'GET' || pathname !== '/v1/readiness') {
     return null;
   }
   if (!authorized(request, env.CONTROL_PLANE_SECRET)) {
@@ -33,6 +47,38 @@ export async function routeUserWorkspaceRuntimeControlPlaneRequest(
       { ok: false, runtimeVersion: env.CLOUDCHEF_RUNTIME_VERSION },
       { status: 503, headers: noStoreHeaders() },
     );
+  }
+}
+
+/**
+ * Grant the window only while no agent is doing work a redeploy would cut off. Work that starts inside
+ * it waits on this version until the new one arrives, so the control plane can redeploy at once.
+ */
+async function claimUpgradeWindow(request: Request, env: RuntimeReadinessEnv, now: number): Promise<Response> {
+  if (!authorized(request, env.CONTROL_PLANE_SECRET)) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders() });
+  }
+  const targetVersion = await readTargetVersion(request);
+  if (!targetVersion) {
+    return Response.json({ error: 'Invalid upgrade window request.' }, { status: 400, headers: noStoreHeaders() });
+  }
+  try {
+    return Response.json(await claimRuntimeUpgradeWindow(env.DB, { targetVersion, now }), {
+      headers: noStoreHeaders(),
+    });
+  } catch {
+    return Response.json({ error: 'Workspace activity is unavailable.' }, { status: 503, headers: noStoreHeaders() });
+  }
+}
+
+async function readTargetVersion(request: Request): Promise<string | null> {
+  try {
+    const body = upgradeWindowRequestSchema.safeParse(
+      await readJsonBodyWithLimit(request, MAX_UPGRADE_WINDOW_REQUEST_BYTES, 'Upgrade window request'),
+    );
+    return body.success ? body.data.targetVersion : null;
+  } catch {
+    return null;
   }
 }
 

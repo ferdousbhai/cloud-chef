@@ -135,11 +135,8 @@ describe('Cloudflare-only authentication', () => {
   it.each([
     ['absent', null],
     ['stale connection', runtimeRow({ connectionGeneration: 0 })],
-    ['stale version', runtimeRow({ runtimeVersion: '0'.repeat(64) })],
-    // A row pinned to a different image than the current one, or one that never recorded an image,
-    // must re-provision so a base-image bump reaches workspaces that were provisioned before it.
-    ['on a superseded image', runtimeRow({ imageDigest: `docker.io/cloudflare/sandbox:x@sha256:${'a'.repeat(64)}` })],
-    ['provisioned before the image was recorded', runtimeRow({ imageDigest: null })],
+    // A runtime speaking another protocol cannot serve this release's browser, so it waits for the upgrade.
+    ['incompatible', runtimeRow({ runtimeVersion: '0'.repeat(64), protocolVersion: 2 })],
   ])('starts background provisioning for an %s runtime', async (_case, initialRuntime) => {
     mocks.getAuthSession.mockResolvedValue(signedInSession);
     mocks.findConnection.mockResolvedValue(activeConnection());
@@ -160,6 +157,55 @@ describe('Cloudflare-only authentication', () => {
       retry: false,
       isReady: expect.any(Function),
     });
+  });
+
+  it.each([
+    ['from an earlier release', runtimeRow({ runtimeVersion: '0'.repeat(64) })],
+    ['recorded with the current protocol', runtimeRow({ runtimeVersion: '0'.repeat(64), protocolVersion: 1 })],
+    // A row pinned to a different image than the current one, or one that never recorded an image,
+    // is upgraded so a base-image bump reaches workspaces that were provisioned before it.
+    ['on a superseded image', runtimeRow({ imageDigest: `docker.io/cloudflare/sandbox:x@sha256:${'a'.repeat(64)}` })],
+    ['provisioned before the image was recorded', runtimeRow({ imageDigest: null })],
+  ])(
+    'keeps a runtime %s working while its upgrade waits for nothing to be running in it',
+    async (_case, initialRuntime) => {
+      mocks.getAuthSession.mockResolvedValue(signedInSession);
+      mocks.findConnection.mockResolvedValue(activeConnection());
+      const provision = vi.fn().mockResolvedValue({ status: 'preparing' });
+      const env = runtimeEnv([initialRuntime]);
+      const response = await cloudflareRuntimeSessionAction({
+        request: runtimeSessionRequest(),
+        env,
+        provision,
+        readAiGatewayCreditStatus: vi.fn().mockResolvedValue('available'),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        endpoint: 'https://workspace.example',
+        token: expect.any(String),
+      });
+      expect(provision).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', connectionId: 'connection-1', connectionGeneration: 1 }),
+      );
+      // The session counts as use, so a runtime too old to report its activity is not upgraded under it.
+      expect(sessionsRecorded(env)).toBe(1);
+    },
+  );
+
+  it('keeps an earlier runtime working when its upgrade cannot be started', async () => {
+    mocks.getAuthSession.mockResolvedValue(signedInSession);
+    mocks.findConnection.mockResolvedValue(activeConnection());
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const response = await cloudflareRuntimeSessionAction({
+      request: runtimeSessionRequest(),
+      env: runtimeEnv([runtimeRow({ runtimeVersion: '0'.repeat(64) })]),
+      provision: vi.fn().mockRejectedValue(new Error('Workflows is unavailable')),
+      readAiGatewayCreditStatus: vi.fn().mockResolvedValue('available'),
+    });
+
+    expect(response.status).toBe(200);
+    error.mockRestore();
   });
 
   it('surfaces a durable asynchronous provisioning failure without exposing its private detail', async () => {
@@ -1041,6 +1087,7 @@ function runtimeRow(
     connectionGeneration?: number;
     runtimeVersion?: string;
     imageDigest?: string | null;
+    protocolVersion?: number | null;
   } = {},
 ) {
   return {
@@ -1051,6 +1098,8 @@ function runtimeRow(
     endpoint: 'https://workspace.example',
     runtime_version: overrides.runtimeVersion ?? USER_WORKSPACE_RUNTIME_SHA256,
     image_digest: overrides.imageDigest === undefined ? USER_WORKSPACE_SANDBOX_BASE_IMAGE : overrides.imageDigest,
+    protocol_version: overrides.protocolVersion ?? null,
+    last_session_at: 100,
     created_at: 100,
     updated_at: 100,
   };
@@ -1063,10 +1112,23 @@ function runtimeSessionRequest() {
   });
 }
 
+const recordedSessions = new WeakMap<Env, { count: number }>();
+
 function runtimeEnv(rows: Array<ReturnType<typeof runtimeRow> | null>): Env {
   const queue = [...rows];
+  const sessions = { count: 0 };
   const db = {
     prepare(sql: string) {
+      if (sql.startsWith('UPDATE user_computer_runtimes SET last_session_at')) {
+        return {
+          bind: () => ({
+            run: async () => {
+              sessions.count += 1;
+              return { meta: { changes: 1 } };
+            },
+          }),
+        };
+      }
       if (!sql.includes('FROM user_computer_runtimes')) {
         throw new Error(`Unexpected SQL: ${sql}`);
       }
@@ -1075,10 +1137,16 @@ function runtimeEnv(rows: Array<ReturnType<typeof runtimeRow> | null>): Env {
       };
     },
   } as unknown as D1Database;
-  return {
+  const env = {
     DB: db,
     CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: btoa(String.fromCharCode(...new Uint8Array(32).fill(1))),
   } as unknown as Env;
+  recordedSessions.set(env, sessions);
+  return env;
+}
+
+function sessionsRecorded(env: Env): number {
+  return recordedSessions.get(env)?.count ?? 0;
 }
 
 function fakeOrchestrator(): CloudflareOrchestrator {

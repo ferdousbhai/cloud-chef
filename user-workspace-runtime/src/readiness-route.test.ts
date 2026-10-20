@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { waitForUserWorkspaceRuntimeReadiness } from '../../app/lib/.server/cloudflare/user-workspace-runtime-readiness';
+import { claimUserWorkspaceRuntimeUpgradeWindow } from '../../app/lib/.server/cloudflare/user-workspace-runtime-upgrade-window';
+import { recordRuntimeActivity } from '../../app/lib/.server/cloudflare/user-workspace-runtime-activity';
+import { userWorkspaceDatabase } from '../../app/test/control-plane-d1';
 import { routeUserWorkspaceRuntimeControlPlaneRequest } from './readiness-route';
 
 const runtimeVersion = 'a'.repeat(64);
@@ -56,6 +59,114 @@ describe('user workspace runtime control-plane readiness route', () => {
     expect(response).toBeNull();
   });
 });
+
+describe('user workspace runtime upgrade window route', () => {
+  const targetVersion = 'b'.repeat(64);
+
+  it('grants the window to the control plane while nothing runs, and refuses it while a turn does', async () => {
+    const { db } = userWorkspaceDatabase();
+    const request = routedFetch(upgradeWindowEnv(db), () => 1_000_000);
+
+    await expect(
+      claimUserWorkspaceRuntimeUpgradeWindow({
+        endpoint: 'https://workspace-runtime.example',
+        controlPlaneSecret,
+        targetVersion,
+        request,
+      }),
+    ).resolves.toEqual({ status: 'granted' });
+
+    await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now: 1_000_000 });
+    await expect(
+      claimUserWorkspaceRuntimeUpgradeWindow({
+        endpoint: 'https://workspace-runtime.example',
+        controlPlaneSecret,
+        targetVersion,
+        request,
+      }),
+    ).resolves.toEqual({ status: 'busy', busy: 1 });
+  });
+
+  it('refuses anyone without the runtime secret', async () => {
+    const { db } = userWorkspaceDatabase();
+    const response = await routeUserWorkspaceRuntimeControlPlaneRequest(
+      new Request('https://workspace-runtime.example/v1/upgrade-window', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${'x'.repeat(32)}` },
+        body: JSON.stringify({ targetVersion }),
+      }),
+      upgradeWindowEnv(db),
+    );
+
+    expect(response?.status).toBe(401);
+  });
+
+  it('rejects a request that does not name a runtime version', async () => {
+    const { db } = userWorkspaceDatabase();
+    const response = await routeUserWorkspaceRuntimeControlPlaneRequest(
+      new Request('https://workspace-runtime.example/v1/upgrade-window', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${controlPlaneSecret}` },
+        body: JSON.stringify({ targetVersion: 'latest' }),
+      }),
+      upgradeWindowEnv(db),
+    );
+
+    expect(response?.status).toBe(400);
+  });
+
+  it('reports a runtime from before the window existed as unable to say, never as idle', async () => {
+    // Such a runtime routes the request to its browser API, which wants a capability and refuses it.
+    const request = vi.fn<typeof fetch>(async () => Response.json({ error: 'Unauthorized' }, { status: 401 }));
+
+    await expect(
+      claimUserWorkspaceRuntimeUpgradeWindow({
+        endpoint: 'https://workspace-runtime.example',
+        controlPlaneSecret,
+        targetVersion,
+        request,
+      }),
+    ).resolves.toEqual({ status: 'unsupported' });
+  });
+
+  it('fails rather than guess when the runtime cannot read its activity', async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ error: 'unavailable' }, { status: 503 }));
+
+    await expect(
+      claimUserWorkspaceRuntimeUpgradeWindow({
+        endpoint: 'https://workspace-runtime.example',
+        controlPlaneSecret,
+        targetVersion,
+        request,
+      }),
+    ).rejects.toThrow('HTTP 503');
+  });
+});
+
+type ControlPlaneRouteEnv = Parameters<typeof routeUserWorkspaceRuntimeControlPlaneRequest>[1];
+
+function upgradeWindowEnv(db: D1Database): ControlPlaneRouteEnv {
+  return {
+    CONTROL_PLANE_SECRET: controlPlaneSecret,
+    CLOUDCHEF_RUNTIME_VERSION: runtimeVersion,
+    DB: db,
+    PROJECT_WORKSPACE: {
+      idFromName: () => {
+        throw new Error('The upgrade window needs no Durable Object.');
+      },
+      get: () => {
+        throw new Error('The upgrade window needs no Durable Object.');
+      },
+    },
+  };
+}
+
+function routedFetch(env: ControlPlaneRouteEnv, now: () => number) {
+  return vi.fn<typeof fetch>(async (input, init) => {
+    const response = await routeUserWorkspaceRuntimeControlPlaneRequest(new Request(input, init), env, now);
+    return response ?? new Response(null, { status: 404 });
+  });
+}
 
 function runtimeEnv(projectWorkspace: { idFromName: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn> }) {
   return {

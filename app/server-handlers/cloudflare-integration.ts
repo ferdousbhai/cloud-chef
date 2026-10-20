@@ -37,8 +37,10 @@ import {
 } from '~/workflows/user-workspace-runtime-provisioning';
 import {
   findUserWorkspaceRuntime,
+  recordUserWorkspaceRuntimeSession,
   type UserWorkspaceRuntime,
 } from '~/lib/.server/cloudflare/user-workspace-runtime-repository';
+import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import { mintRuntimeCapability } from '~/lib/cloudflare/runtime-capability';
@@ -206,20 +208,22 @@ export async function cloudflareRuntimeSessionAction({
       { status: 409, headers: { 'Cache-Control': 'private, no-store' } },
     );
   }
-  const runtime = await findUserWorkspaceRuntime(env.DB, session.user.id, connection.id);
-  if (!isCurrentWorkspaceRuntime(runtime, connection)) {
+  const found = await findUserWorkspaceRuntime(env.DB, session.user.id, connection.id);
+  const usable = usableWorkspaceRuntime(found, connection);
+  const provisioning = {
+    env,
+    userId: session.user.id,
+    connectionId: connection.id,
+    connectionGeneration: connection.generation,
+    retry: request.headers.get(RUNTIME_PROVISIONING_RETRY_HEADER) === '1',
+    isReady: async () =>
+      isCurrentWorkspaceRuntime(await findUserWorkspaceRuntime(env.DB, session.user.id, connection.id), connection),
+  };
+  if (!usable) {
     try {
-      const provisioning = await provision({
-        env,
-        userId: session.user.id,
-        connectionId: connection.id,
-        connectionGeneration: connection.generation,
-        retry: request.headers.get(RUNTIME_PROVISIONING_RETRY_HEADER) === '1',
-        isReady: async () =>
-          isCurrentWorkspaceRuntime(await findUserWorkspaceRuntime(env.DB, session.user.id, connection.id), connection),
-      });
-      if (provisioning.status === 'error') {
-        return workspaceProvisioningFailureResponse(provisioning.errorCode, provisioning.upgradeUrl);
+      const started = await provision(provisioning);
+      if (started.status === 'error') {
+        return workspaceProvisioningFailureResponse(started.errorCode, started.upgradeUrl);
       }
     } catch (error) {
       console.error('Unable to submit the workspace provisioning Workflow', error);
@@ -230,7 +234,7 @@ export async function cloudflareRuntimeSessionAction({
         code: 'workspace_preparing',
         error: 'CloudChef is still preparing your workspace.',
         // An existing workspace is being upgraded to this CloudChef release, not set up for the first time.
-        upgrading: runtime !== null,
+        upgrading: found !== null,
       },
       {
         status: 409,
@@ -240,6 +244,20 @@ export async function cloudflareRuntimeSessionAction({
       },
     );
   }
+  const { runtime, upgradePending } = usable;
+  if (upgradePending) {
+    // The runtime is from an earlier release but speaks this one's protocol: the browser keeps working
+    // with it while the upgrade waits, in the background, for a moment nothing is running in it.
+    await provision(provisioning).then(
+      (started) => {
+        if (started.status === 'error') {
+          console.warn({ event: 'runtime_upgrade_unavailable', errorCode: started.errorCode });
+        }
+      },
+      (error: Error) => console.error('Unable to submit the workspace upgrade Workflow', error.message),
+    );
+  }
+  await recordUserWorkspaceRuntimeSession(env.DB, { userId: session.user.id, connectionId: connection.id });
   const secret = await deriveUserWorkspaceRuntimeSecret({
     encryptionKeyBase64: env.CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY,
     userId: session.user.id,
@@ -257,6 +275,7 @@ export async function cloudflareRuntimeSessionAction({
     correlationId,
     connectionGeneration: connection.generation,
     runtimeVersion: runtime.runtimeVersion,
+    upgradePending,
   });
   const [capability, aiGatewayCreditStatus] = await Promise.all([
     mintRuntimeCapability({
@@ -341,10 +360,32 @@ type ReadAiGatewayCreditStatus = (args: {
   connection: CloudflareConnection;
 }) => Promise<AiGatewayCreditStatus>;
 
-function isCurrentWorkspaceRuntime(
+/**
+ * The runtime a session can be issued for: the current one, or one from an earlier release that serves
+ * this connection generation and speaks this release's protocol, whose upgrade then waits for a safe
+ * moment. A runtime for another connection generation holds a secret that no longer authenticates, and
+ * one that speaks another protocol cannot serve this release's browser: both are prepared again first.
+ */
+function usableWorkspaceRuntime(
   runtime: UserWorkspaceRuntime | null,
   connection: CloudflareConnection,
-): runtime is UserWorkspaceRuntime {
+): { runtime: UserWorkspaceRuntime; upgradePending: boolean } | null {
+  if (
+    runtime === null ||
+    runtime.connectionId !== connection.id ||
+    runtime.connectionGeneration !== connection.generation
+  ) {
+    return null;
+  }
+  if (isCurrentWorkspaceRuntime(runtime, connection)) {
+    return { runtime, upgradePending: false };
+  }
+  return (runtime.protocolVersion ?? 1) === USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION
+    ? { runtime, upgradePending: true }
+    : null;
+}
+
+function isCurrentWorkspaceRuntime(runtime: UserWorkspaceRuntime | null, connection: CloudflareConnection): boolean {
   return (
     runtime !== null &&
     runtime.connectionId === connection.id &&
