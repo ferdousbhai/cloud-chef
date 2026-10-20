@@ -36,8 +36,10 @@ Run the same complete pipeline used by CI:
 pnpm run validate
 ```
 
-Useful narrower checks are `validate:root`, `validate:agent`, `validate:template`, `test`, `test:workerd`, `typecheck`,
-and `lint`. Generated files produced by verification must leave the worktree clean.
+`scripts/validate.mjs` runs the steps of `validate:root`, `validate:agent`, and `validate:template` side by side, one per
+core (`VALIDATE_CONCURRENCY` overrides that), and stops at the first failure with that check's full output. Useful
+narrower checks, run serially, are `validate:root`, `validate:agent`, `validate:template`, `test`, `test:workerd`,
+`typecheck`, and `lint`. Generated files produced by verification must leave the worktree clean.
 
 `pnpm run verify:licenses` checks installed production dependencies against the reviewed license-expression allowlist
 and verifies `public/THIRD_PARTY_LICENSES.txt`. Run `pnpm run licenses:generate` after a root production dependency
@@ -136,9 +138,9 @@ and token selection aligned with that file. Runtime secrets remain on the Worker
 Cloudflare Workers Builds runs the full `pnpm run validate` on every non-production branch, which uploads an undeployed
 Worker version (`scripts/workers-builds-checks.mjs`). A push to `main` skips that validation, so prove a change on its
 branch or locally first: it regenerates the checked-in outputs, runs the production deploy command only from the exact
-Workers Builds checkout, applies control-plane D1 migrations, rebuilds with the exact 40-character commit ID and OAuth client ID in the environment (which
-`cloudflare.config.ts` binds as plain-text vars), deploys that build with `cf deploy --prebuilt`, and then probes `https://cloudchef.build/api/version` until
-five consecutive responses report that commit, a live Worker version ID, configured OAuth bindings, and
+Workers Builds checkout, applies control-plane D1 migrations while it rebuilds with the exact 40-character commit ID and OAuth client ID in the environment (which
+`cloudflare.config.ts` binds as plain-text vars), deploys that build with `cf deploy --prebuilt` once both have succeeded, and then probes `https://cloudchef.build/api/version`
+every 5 seconds, from the moment the deploy returns, until five consecutive responses report that commit, a live Worker version ID, configured OAuth bindings, and
 `Cache-Control: no-store`.
 
 Cloudflare Workers Builds is the normal production release path. The deploy wrapper also supports

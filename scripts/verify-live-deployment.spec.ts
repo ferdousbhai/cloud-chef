@@ -66,4 +66,49 @@ describe('deployment version verification', () => {
     ).resolves.toBeUndefined();
     expect(fetchImplementation).toHaveBeenCalledTimes(3);
   });
+  it('probes as soon as the deploy returns and still needs five consecutive matches 5 seconds apart', async () => {
+    const current = { sha: expectedSha, versionId, oauthConfigured: true };
+    const previous = { sha: 'a'.repeat(40), versionId, oauthConfigured: true };
+    const responses = [current, previous, current, current, current, current, current];
+    const delays: number[] = [];
+    const fetchImplementation = vi.fn(async () =>
+      Response.json(responses.shift(), { headers: { 'Cache-Control': 'no-store' } }),
+    );
+
+    await verifyLocalDeployment({
+      expectedSha,
+      fetchImplementation,
+      waitImplementation: async (delay?: number) => {
+        delays.push(delay ?? 0);
+      },
+      log: vi.fn(),
+    });
+
+    // A probe that sees the previous version resets the count, so this took seven probes, not five.
+    expect(fetchImplementation).toHaveBeenCalledTimes(7);
+    expect(delays).toEqual([5_000, 5_000, 5_000, 5_000, 5_000, 5_000]);
+  });
+
+  it('gives a slow rollout as long to converge as the former 60-second wait did', async () => {
+    const delays: number[] = [];
+    const fetchImplementation = vi.fn(async () =>
+      Response.json(
+        { sha: 'a'.repeat(40), versionId, oauthConfigured: true },
+        { headers: { 'Cache-Control': 'no-store' } },
+      ),
+    );
+
+    await expect(
+      verifyLocalDeployment({
+        expectedSha,
+        fetchImplementation,
+        waitImplementation: async (delay?: number) => {
+          delays.push(delay ?? 0);
+        },
+        log: vi.fn(),
+      }),
+    ).rejects.toThrow('did not return the expected version');
+    // Formerly 60 s of waiting, then 15 probes 5 s apart.
+    expect(delays.reduce((sum, delay) => sum + delay, 0)).toBeGreaterThanOrEqual(60_000 + 14 * 5_000);
+  });
 });

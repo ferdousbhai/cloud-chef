@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import {
   deployAndVerifyProduction,
+  deployFromWorkersBuilds,
   deployProduction,
   findUnexpectedDeployChanges,
   resolveCurrentCommitSha,
@@ -13,6 +14,7 @@ import {
   validateWorkersBuildMetadata,
   verifyBuiltDeployVars,
   BUILT_WORKER_CONFIG_PATH,
+  WORKERS_BUILDS_PRE_DEPLOY_STEPS,
 } from './deploy-production.mjs';
 
 const commitSha = 'a'.repeat(40);
@@ -99,14 +101,13 @@ describe('production deploy wrapper', () => {
     expect(packageJson.scripts['deploy:preflight']).toBeUndefined();
     expect(packageJson.scripts['deploy:production']).toBeUndefined();
     expect(packageJson.scripts['release:production']).toBeUndefined();
-    expectOrdered(packageJson.scripts['workers-builds:deploy'], [
-      'scripts/deploy-production.mjs --check-workers-builds',
-      'pnpm run provision:production:check',
-      'pnpm run verify:production-config',
-      'pnpm run verify:workers-builds-config',
-      'pnpm run d1:bookmark:production',
-      'pnpm run d1:migrations:apply:production',
-      '&& node scripts/deploy-production.mjs',
+    expect(packageJson.scripts['workers-builds:deploy']).toBe('node scripts/deploy-production.mjs --workers-builds');
+    expectOrdered(WORKERS_BUILDS_PRE_DEPLOY_STEPS.join(' && '), [
+      'provision:production:check',
+      'verify:production-config',
+      'verify:workers-builds-config',
+      'd1:bookmark:production',
+      'd1:migrations:apply:production',
     ]);
     expect(existsSync(new URL('../.github/workflows/deploy.yml', import.meta.url))).toBe(false);
   });
@@ -275,6 +276,118 @@ describe('production deploy wrapper', () => {
       }),
     ).resolves.toBe(commitSha);
     expect(verifyLocal).toHaveBeenCalledWith({ expectedSha: commitSha });
+  });
+
+  describe('Workers Builds deploy step', () => {
+    /**
+     * A clean checkout at the build's commit, and every pnpm step succeeding except `failStep`.
+     * `onStep` lets a test finish the build at a chosen point.
+     */
+    function workersBuildSpawn(events: string[], { failStep = '', onStep = (_step: string) => {} } = {}) {
+      return vi.fn((command: string, args: readonly string[]) => {
+        if (command === 'git') {
+          return { status: 0, stdout: args.includes('rev-parse') ? `${commitSha}\n` : '', stderr: '' };
+        }
+        const step = args[0] === 'run' ? (args[1] ?? '') : args.slice(1).join(' ');
+        events.push(step);
+        onStep(step);
+        return { status: step === failStep ? 1 : 0 };
+      });
+    }
+
+    function deferredBuild(events: string[], status = 0) {
+      const build = { finish: () => {} };
+      const spawnBuild = vi.fn(
+        () =>
+          new Promise<{ status: number; output: string }>((resolve) => {
+            events.push('build started');
+            build.finish = () => {
+              events.push('build finished');
+              resolve({ status, output: 'vite output\n' });
+            };
+          }),
+      );
+      return { spawnBuild, build };
+    }
+
+    it('builds while the checks and migrations run, and deploys only after both', async () => {
+      const events: string[] = [];
+      const { spawnBuild, build } = deferredBuild(events);
+      const verifyLocal = vi.fn(async () => undefined);
+      const log = vi.fn();
+      const spawn = workersBuildSpawn(events, {
+        onStep: (step) => {
+          if (step === 'd1:migrations:apply:production') {
+            build.finish();
+          }
+        },
+      });
+
+      await expect(
+        deployFromWorkersBuilds({
+          clientId: 'oauth-client-id',
+          env: workersBuildEnv,
+          spawn,
+          spawnBuild,
+          readBuiltConfig,
+          verifyLocal,
+          log,
+        }),
+      ).resolves.toBe(commitSha);
+
+      expect(events).toEqual([
+        'build started',
+        ...WORKERS_BUILDS_PRE_DEPLOY_STEPS,
+        'build finished',
+        'cf deploy --prebuilt',
+      ]);
+      expect(spawnBuild).toHaveBeenCalledWith('pnpm', ['exec', 'vite', 'build'], {
+        env: { ...workersBuildEnv, COMMIT_SHA: commitSha, CLOUDFLARE_OAUTH_CLIENT_ID: 'oauth-client-id' },
+      });
+      expect(log).toHaveBeenCalledWith('vite output\n');
+      expect(verifyLocal).toHaveBeenCalledWith({ expectedSha: commitSha });
+    });
+
+    it('deploys nothing when a check or migration fails, and waits for the build first', async () => {
+      const events: string[] = [];
+      const { spawnBuild, build } = deferredBuild(events);
+      const verifyLocal = vi.fn(async () => undefined);
+      const deploy = deployFromWorkersBuilds({
+        clientId: 'oauth-client-id',
+        env: workersBuildEnv,
+        spawn: workersBuildSpawn(events, { failStep: 'd1:migrations:apply:production' }),
+        spawnBuild,
+        readBuiltConfig,
+        verifyLocal,
+        log: vi.fn(),
+      });
+      build.finish();
+
+      await expect(deploy).rejects.toThrow(
+        'd1:migrations:apply:production failed with exit status 1. Nothing was deployed.',
+      );
+      expect(events).not.toContain('cf deploy --prebuilt');
+      expect(events.at(-1)).toBe('build finished');
+      expect(verifyLocal).not.toHaveBeenCalled();
+    });
+
+    it('deploys nothing when the build fails, even after every check passed', async () => {
+      const events: string[] = [];
+      const { spawnBuild, build } = deferredBuild(events, 1);
+      const deploy = deployFromWorkersBuilds({
+        clientId: 'oauth-client-id',
+        env: workersBuildEnv,
+        spawn: workersBuildSpawn(events),
+        spawnBuild,
+        readBuiltConfig,
+        verifyLocal: vi.fn(async () => undefined),
+        log: vi.fn(),
+      });
+      build.finish();
+
+      await expect(deploy).rejects.toThrow('Vite build failed with exit status 1.');
+      expect(events).not.toContain('cf deploy --prebuilt');
+    });
   });
 
   it('propagates process failures', () => {

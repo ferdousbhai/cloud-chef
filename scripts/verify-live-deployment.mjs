@@ -2,10 +2,17 @@ import { setTimeout as wait } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 
 const VERSION_URL = 'https://cloudchef.build/api/version';
-const DEFAULT_STABILIZATION_MS = 60_000;
+/**
+ * Probing starts as soon as the deploy returns. It used to wait a blind 60 seconds first, which was a
+ * third of every release, though the very first probe after that wait already saw the new version.
+ * Nothing is accepted any sooner than it was: the version must still answer correctly on five
+ * consecutive probes 5 seconds apart, a probe that sees the old version resets the count, and the
+ * attempt budget covers the old wait as well, so the deadline for converging is unchanged.
+ */
+const DEFAULT_STABILIZATION_MS = 0;
 const DEFAULT_CHECK_INTERVAL_MS = 5_000;
 const DEFAULT_CONSECUTIVE_CHECKS = 5;
-const DEFAULT_MAX_LOCAL_ATTEMPTS = 15;
+const DEFAULT_MAX_LOCAL_ATTEMPTS = 27;
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
 
 function headerValue(headers, name) {
@@ -106,8 +113,10 @@ export async function verifyLocalDeployment({
 } = {}) {
   expectedSha = validateExpectedSha(expectedSha);
 
-  log(`Waiting ${stabilizationMs / 1000}s for Worker routing to stabilize.`);
-  await waitImplementation(stabilizationMs);
+  if (stabilizationMs > 0) {
+    log(`Waiting ${stabilizationMs / 1000}s for Worker routing to stabilize.`);
+    await waitImplementation(stabilizationMs);
+  }
 
   let consecutiveSuccesses = 0;
   let lastErrors = ['no probes completed'];

@@ -349,10 +349,10 @@ export function verifyStackAlignment() {
     errors.push('package.json must declare Apache-2.0 licensing.');
   }
   errors.push(
+    // The runner schedules exactly the steps of validate:root, validate:agent, and validate:template;
+    // scripts/validate.spec.ts proves the two never drift apart.
     ...findMissingCommandSteps(rootPackage.scripts?.validate, 'package.json scripts.validate', [
-      'validate:root',
-      'validate:agent',
-      'validate:template',
+      'scripts/validate.mjs',
     ]),
     ...findMissingCommandSteps(rootPackage.scripts?.['validate:agent'], 'package.json scripts.validate:agent', [
       'cloudchef-agent',
