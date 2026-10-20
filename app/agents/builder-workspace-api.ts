@@ -183,7 +183,7 @@ export type BuilderWorkspaceDirectoryEntry = {
  * journalled as tool operations and never need reattaching.
  */
 export type WorkspaceListingRequest = {
-  /** Absolute project directory; the project root when omitted. */
+  /** Absolute project directory, or one file; the project root when omitted. */
   path?: string;
   recursive?: boolean;
   limit?: number;

@@ -79,6 +79,28 @@ describe('workspace discovery listing', () => {
     ).rejects.toThrow(/ENOENT/);
   });
 
+  it('lists just that file when the path names a file rather than a directory', async () => {
+    const fs = fakeFilesystem({
+      '/home/project/src/lib/media.ts': 'export {};',
+      '/home/project/src/lib/other.ts': 'export {};',
+    });
+
+    for (const recursive of [false, true]) {
+      const listing = await enumerateProjectEntries(fs, scope('/home/project/src/lib/media.ts'), {
+        recursive,
+        limit: 10,
+      });
+
+      expect(listing).toEqual({
+        path: '/home/project/src/lib/media.ts',
+        recursive,
+        entries: [{ path: '/home/project/src/lib/media.ts', type: 'file' }],
+        entryCount: 1,
+        truncated: false,
+      });
+    }
+  });
+
   it('terminates on a directory cycle instead of walking forever', async () => {
     // A symlinked directory that resolves back onto its own ancestor is the shape that makes a
     // naive recursive walk non-terminating and takes the Durable Object down with it.

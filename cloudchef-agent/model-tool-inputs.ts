@@ -51,7 +51,10 @@ export const MODEL_TOOL_INPUT_SCHEMAS = {
     limit: z.number().int().min(1).optional(),
   }),
   ls: z.object({
-    path: z.string().optional().describe('Absolute project directory. Defaults to the project root.'),
+    path: z
+      .string()
+      .optional()
+      .describe('Absolute project directory, or one file, to list. Defaults to the project root.'),
     recursive: z.boolean().optional().describe('List the whole tree beneath the directory instead of its contents.'),
     limit: z.number().int().min(1).optional().describe('Maximum entries to return.'),
   }),
