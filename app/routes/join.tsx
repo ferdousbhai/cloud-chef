@@ -24,7 +24,7 @@ const errorSchema = z.looseObject({
  */
 export const Route = createFileRoute('/join')({
   validateSearch: joinSearchSchema,
-  head: () => createPrivatePageHead('Join an organization | CloudChef', 'Accept an invite to build with your team.'),
+  head: () => createPrivatePageHead('Join a team | CloudChef', 'Accept an invite to build with your team.'),
   component: Join,
 });
 
@@ -113,7 +113,7 @@ function Join() {
 
   if (!isPending && !session && sessionError) {
     return (
-      <JoinCard title="Join an organization on CloudChef">
+      <JoinCard title="Join a team on CloudChef">
         <SessionCheckError className="mt-4" />
       </JoinCard>
     );
@@ -186,11 +186,11 @@ function Join() {
       <section className="app-error-card app-card m-auto shrink-0" aria-labelledby="join-heading">
         <BrandLink />
         <h1 id="join-heading" className="app-page-title mt-4 !text-2xl">
-          Join your organization on CloudChef
+          Join your team on CloudChef
         </h1>
         <p className="app-page-lede break-words">
           {invite.inviterName} invited you to {invite.orgName}. You&apos;re signed in as{' '}
-          <span className="break-all">{session.user.email}</span>. What you build is stored in the organization&apos;s
+          <span className="break-all">{session.user.email}</span>. What you build is stored in the team&apos;s
           Cloudflare account, where its administrators can see it.
         </p>
         {signedInAsInvited ? null : (

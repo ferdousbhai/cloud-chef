@@ -11,7 +11,7 @@ import { Modal } from '@ui/Modal';
 export type ProductionRequestOutcome = keyof typeof SENT_MESSAGES;
 
 const SENT_MESSAGES = {
-  requested: "Sent to your organization's admins for review.",
+  requested: "Sent to your team's admins for review.",
   updated: 'Updated your request: your admins now see this version.',
   unchanged: 'Your admins already have this version.',
 } as const;

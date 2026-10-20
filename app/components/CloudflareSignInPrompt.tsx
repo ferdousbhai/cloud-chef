@@ -81,7 +81,7 @@ export function CloudflareSignInPrompt({
       {session ? (
         <p className="app-page-lede break-words">
           You&apos;re signed in as <span className="break-all">{session.user.email}</span>. Connect a Cloudflare account
-          to build in it, or ask your organization&apos;s admin to invite this address.
+          to build in it, or ask your team&apos;s admin to invite this address.
         </p>
       ) : null}
       {error && (
@@ -99,7 +99,7 @@ export function CloudflareSignInPrompt({
         {session ? (
           <>
             <LinkButton to="/settings" variant="neutral">
-              Create an organization
+              Create a team
             </LinkButton>
             <Button
               variant="neutral"
@@ -117,7 +117,7 @@ export function CloudflareSignInPrompt({
       </div>
       {session ? null : (
         <div className="mt-6 border-t border-bolt-elements-borderColor pt-4">
-          <p className="text-sm text-content-secondary">No Cloudflare login? Sign in to join your organization.</p>
+          <p className="text-sm text-content-secondary">No Cloudflare login? Sign in to join your team.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               variant="neutral"

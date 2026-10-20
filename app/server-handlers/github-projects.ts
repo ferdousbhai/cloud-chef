@@ -67,7 +67,7 @@ export function startGitHubInstallAction({ request, env }: { request: Request; e
     if (!app) {
       return Response.json({ error: UNAVAILABLE }, { status: 503 });
     }
-    const body = await readJsonRequest(request, startSchema, 'Choose an organization.');
+    const body = await readJsonRequest(request, startSchema, 'Choose a team.');
     if ('response' in body) {
       return body.response;
     }
@@ -390,7 +390,7 @@ export function listGitHubRepositoriesAction({
     const orgId = new URL(request.url).searchParams.get('orgId') ?? '';
     const parsed = orgSchema.safeParse({ orgId });
     if (!parsed.success) {
-      return Response.json({ error: 'Choose an organization.' }, { status: 400 });
+      return Response.json({ error: 'Choose a team.' }, { status: 400 });
     }
     await requireAdmin(env.DB, orgId, session.user.id);
     const installation = await findGitHubInstallation(env.DB, orgId);
@@ -478,7 +478,7 @@ export function setProjectAccessAction({ request, env }: { request: Request; env
 
 export function disconnectGitHubAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, orgSchema, 'Choose an organization.');
+    const body = await readJsonRequest(request, orgSchema, 'Choose a team.');
     if ('response' in body) {
       return body.response;
     }

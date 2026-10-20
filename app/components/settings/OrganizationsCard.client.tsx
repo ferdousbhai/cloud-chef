@@ -95,7 +95,7 @@ export function OrganizationsCard() {
     const response = await fetch('/api/organizations', { credentials: 'same-origin' });
     const parsed = organizationsSchema.safeParse(await response.json().catch(() => null));
     if (!response.ok || !parsed.success) {
-      throw new Error('Unable to load your organizations.');
+      throw new Error('Unable to load your teams.');
     }
     setOrganizations(parsed.data.organizations);
     setError(null);
@@ -105,7 +105,7 @@ export function OrganizationsCard() {
   const reload = useCallback(
     () =>
       load().catch((loadError: Error) => {
-        setError(messageOf(loadError, 'Unable to load your organizations.'));
+        setError(messageOf(loadError, 'Unable to load your teams.'));
       }),
     [load],
   );
@@ -143,7 +143,7 @@ export function OrganizationsCard() {
       setError(
         created
           ? `Created ${orgName}, but connecting its Cloudflare account didn't start: ${reason} Use its "Connect its Cloudflare account" button below.`
-          : messageOf(createError instanceof Error ? createError : null, 'Unable to create the organization.'),
+          : messageOf(createError instanceof Error ? createError : null, 'Unable to create the team.'),
       );
       setBusy(false);
       void reload();
@@ -159,7 +159,7 @@ export function OrganizationsCard() {
       aria-labelledby="organizations-heading"
     >
       <h2 id="organizations-heading" className="app-card-title">
-        Organizations
+        Teams
       </h2>
       <p className="mt-1 max-w-2xl text-sm text-content-secondary">
         Share one Cloudflare account with the people you work with. They sign in with Google or an emailed link, without
@@ -182,8 +182,8 @@ export function OrganizationsCard() {
       ) : null}
       {organizations?.length === 0 ? (
         <p className="mt-3 text-sm text-content-secondary">
-          You&apos;re not in an organization yet. Name one below to create it: you become its admin, connect the
-          Cloudflare account it builds in (yours works), then invite people and link GitHub repositories.
+          You&apos;re not in a team yet. Name one below to create it: you become its admin, connect the Cloudflare
+          account it builds in (yours works), then invite people and link GitHub repositories.
         </p>
       ) : null}
       <div className="mt-3 grid min-w-0 gap-3">
@@ -219,8 +219,8 @@ export function OrganizationsCard() {
         <TextInput
           required
           maxLength={80}
-          placeholder="Organization name"
-          aria-label="Organization name"
+          placeholder="Team name"
+          aria-label="Team name"
           value={name}
           onChange={(event) => setName(event.target.value)}
           className="min-w-0 flex-1"
@@ -644,8 +644,8 @@ function MemberRow({
         <div className="flex flex-wrap items-center gap-1">
           <span className="mr-auto min-w-0 text-xs text-content-secondary">
             {confirming === 'remove'
-              ? `Remove ${member.name || member.email}? Their workspace in the organization's account is deleted.`
-              : 'Make yourself a member? You lose admin access to this organization until another admin gives it back.'}
+              ? `Remove ${member.name || member.email}? Their workspace in the team's account is deleted.`
+              : 'Make yourself a member? You lose admin access to this team until another admin gives it back.'}
           </span>
           <Button size="xs" variant="danger" onClick={() => act(confirming)}>
             {confirming === 'remove' ? 'Remove and delete their workspace' : 'Make me a member'}

@@ -53,7 +53,7 @@ export async function userRuntimeEnhancePromptAction({
     const { prompt, answers } = parsedRequest.data;
     const access = await organizationModelAccess(env);
     if (!access.allowed) {
-      return Response.json({ error: "You no longer have access to this organization's account." }, { status: 403 });
+      return Response.json({ error: "You no longer have access to this team's account." }, { status: 403 });
     }
     let usage: Usage | null = null;
     const accountCredentials = await getUserWorkersAiCredentials(env, userId);
