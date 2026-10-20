@@ -4,7 +4,8 @@ import { createPiStreamResponse } from './llm/pi-stream';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { ModelInputBudgetExceededError } from './llm/model-input';
 import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
-import type { WorkersAiAccountCredentials, WorkersAiGatewayMetadata } from './llm/pi-ai-models';
+import type { WorkersAiAccountCredentials } from './llm/pi-ai-models';
+import type { WorkersAiGatewayLogging } from './llm/workers-ai-gateway';
 import type { ContextCompaction } from './llm/context-compaction';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
@@ -34,7 +35,7 @@ export async function createChatResponseFromBody({
   turnContext,
   accountCredentials,
   sessionAffinity,
-  gatewayMetadata,
+  gatewayLogging,
   workspace,
   cloudflareApi,
   linkedProject,
@@ -58,7 +59,7 @@ export async function createChatResponseFromBody({
   turnContext?: ChatTurnContext;
   accountCredentials: WorkersAiAccountCredentials;
   sessionAffinity: string;
-  gatewayMetadata?: WorkersAiGatewayMetadata;
+  gatewayLogging?: WorkersAiGatewayLogging;
   workspace: BuilderWorkspaceApi;
   cloudflareApi?: CloudflareApiModelToolContext;
   linkedProject?: LinkedProjectModelToolContext;
@@ -86,7 +87,7 @@ export async function createChatResponseFromBody({
       compaction,
       accountCredentials,
       sessionAffinity,
-      gatewayMetadata,
+      gatewayLogging,
       workspace,
       cloudflareApi,
       linkedProject,

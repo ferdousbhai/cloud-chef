@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { CLOUDFLARE_PROJECT_TITLE_MODEL } from '~/lib/workers-ai-model';
-import { workersAiGatewayOptions } from './pi-ai-models';
+import { getPiModel } from './pi-ai-models';
+import { completeText } from './pi-ai-invoke';
+import {
+  workersAiGatewayLogging,
+  type WorkersAiGatewayLogging,
+  type WorkersAiGatewayOptions,
+} from './workers-ai-gateway';
 
 /**
  * The title call site deliberately pass no `WorkersAiModel`, because pi-ai's own
@@ -53,15 +59,37 @@ describe('Pi Workers AI catalog thinking formats', () => {
   });
 });
 
-describe('AI Gateway routing', () => {
-  it("logs every request in the account's default gateway, filed under the conversation, never cached", () => {
-    expect(workersAiGatewayOptions({ chat: 'chat-1', user: 'user-1', agent: 'chat-1' })).toEqual({
+describe('the gateway options a model request is sent with', () => {
+  /** The gateway options the binding receives for one title request made with `gatewayLogging`. */
+  async function gatewayOf(gatewayLogging?: WorkersAiGatewayLogging): Promise<WorkersAiGatewayOptions | undefined> {
+    const received: (WorkersAiGatewayOptions | undefined)[] = [];
+    const binding = {
+      run: async (_model: string, _inputs: Record<string, string>, options: { gateway?: WorkersAiGatewayOptions }) => {
+        received.push(options.gateway);
+        return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+      },
+    };
+    // SAFETY: the binding adapter calls only `run`, with the raw-response options this stand-in reads.
+    const handle = getPiModel({ binding: binding as Ai }, CLOUDFLARE_PROJECT_TITLE_MODEL, {
+      gatewayLogging,
+    });
+    await completeText(handle, { prompt: 'Name this' }).catch(() => '');
+    expect(received).toHaveLength(1);
+    return received[0];
+  }
+
+  it("carries the person's choice to the binding, and logs nothing a caller didn't say it may", async () => {
+    expect(await gatewayOf(workersAiGatewayLogging(true, { chat: 'chat-1' }))).toEqual({
       id: 'default',
       collectLog: true,
       skipCache: true,
-      metadata: { chat: 'chat-1', user: 'user-1', agent: 'chat-1' },
+      metadata: { chat: 'chat-1' },
     });
-    // Title and prompt-enhancement requests have no conversation to file under, and are logged all the same.
-    expect(workersAiGatewayOptions()).toEqual({ id: 'default', collectLog: true, skipCache: true });
+    expect(await gatewayOf(workersAiGatewayLogging(false, { chat: 'chat-1' }))).toEqual({
+      id: 'default',
+      collectLog: false,
+      skipCache: true,
+    });
+    expect(await gatewayOf()).toEqual({ id: 'default', collectLog: false, skipCache: true });
   });
 });

@@ -35,6 +35,7 @@ describe('control-plane account export', () => {
         cloudflareSubject: 'user-1',
         googleSubject: null,
         emailProvenAt: null,
+        aiGatewayContentLogging: true,
         createdAt: '1970-01-01T00:00:00.001Z',
         updatedAt: '1970-01-01T00:00:00.001Z',
       },

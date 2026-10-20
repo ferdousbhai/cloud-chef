@@ -18,6 +18,12 @@ import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cl
 import { modelTokenEstimateSafetyTokens } from 'cloudchef-agent/context-limits';
 import type { WorkersAiModel, WorkersAiRuntimeModelId } from '~/lib/workers-ai-model';
 import { recordPiStage } from './pi-telemetry';
+import {
+  WORKERS_AI_GATEWAY_UNLOGGED,
+  workersAiGatewayOptions,
+  type WorkersAiGatewayLogging,
+  type WorkersAiGatewayOptions,
+} from './workers-ai-gateway';
 
 // Keep the runtime on the Workers-AI-only catalog; importing unrelated provider SDKs would
 // add Node-only code to every user-owned runtime.
@@ -203,7 +209,7 @@ function makeHandle(args: HandleArgs): ModelHandle {
 export function getPiModel(
   accountCredentials: WorkersAiAccountCredentials,
   modelId: WorkersAiRuntimeModelId,
-  settings?: { model?: WorkersAiModel; sessionAffinity?: string; gatewayMetadata?: WorkersAiGatewayMetadata },
+  settings?: { model?: WorkersAiModel; sessionAffinity?: string; gatewayLogging?: WorkersAiGatewayLogging },
 ): ModelHandle {
   const catalog = catalogModel(modelId);
   const model: Model<Api> = {
@@ -227,7 +233,12 @@ export function getPiModel(
     // Pi's OpenAI-compatible serializer requires a non-empty key before calling custom fetch.
     // The binding adapter forwards only the reviewed session-affinity header.
     apiKey: 'workers-ai-binding',
-    fetch: createWorkersAiBindingFetch(accountCredentials.binding, model, settings?.gatewayMetadata),
+    // Unless the caller says the person allows it, a request is not logged.
+    fetch: createWorkersAiBindingFetch(
+      accountCredentials.binding,
+      model,
+      settings?.gatewayLogging ?? WORKERS_AI_GATEWAY_UNLOGGED,
+    ),
     sessionAffinity: settings?.sessionAffinity,
   });
 }
@@ -239,36 +250,12 @@ type WorkersAiBindingInputs = Record<string, unknown> & {
   reasoning_effort?: string;
 };
 
-/** What a request's AI Gateway log is filed under, to find a conversation's requests: at most five keys. */
-export type WorkersAiGatewayMetadata = Partial<Record<'chat' | 'user' | 'agent', string>>;
-
-type WorkersAiGatewayOptions = {
-  id: string;
-  collectLog: boolean;
-  skipCache: boolean;
-  metadata?: WorkersAiGatewayMetadata;
-};
-
 type WorkersAiRawRunOptions = {
   returnRawResponse: true;
   signal: AbortSignal;
   extraHeaders?: Record<string, string>;
   gateway?: WorkersAiGatewayOptions;
 };
-
-/**
- * Every model request goes through the account's default AI Gateway, which logs it there: requests and
- * responses stay in the connected account, beside its transcripts, so the account can review what a
- * conversation sent and got back. Paid models need the gateway anyway, for Unified Billing credits.
- * Caching stays off: a builder turn is never a repeat.
- */
-export function workersAiGatewayOptions(metadata?: WorkersAiGatewayMetadata): WorkersAiGatewayOptions {
-  const options: WorkersAiGatewayOptions = { id: 'default', collectLog: true, skipCache: true };
-  if (metadata) {
-    options.metadata = metadata;
-  }
-  return options;
-}
 
 type WorkersAiRawBinding = {
   run(model: string, inputs: WorkersAiBindingInputs, options: WorkersAiRawRunOptions): Promise<Response>;
@@ -277,7 +264,7 @@ type WorkersAiRawBinding = {
 function createWorkersAiBindingFetch(
   binding: Ai,
   model: Model<Api>,
-  gatewayMetadata: WorkersAiGatewayMetadata | undefined,
+  gatewayLogging: WorkersAiGatewayLogging,
 ): FetchFunction {
   const modelId = model.id;
   return async (input, init) => {
@@ -296,7 +283,7 @@ function createWorkersAiBindingFetch(
     const options: WorkersAiRawRunOptions = {
       returnRawResponse: true,
       signal: request.signal,
-      gateway: workersAiGatewayOptions(gatewayMetadata),
+      gateway: workersAiGatewayOptions(gatewayLogging),
     };
     if (sessionAffinity) {
       options.extraHeaders = { 'x-session-affinity': sessionAffinity };

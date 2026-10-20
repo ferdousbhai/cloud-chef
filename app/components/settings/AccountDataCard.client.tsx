@@ -148,9 +148,9 @@ export function AccountDataCard() {
       <details className="mt-2 text-sm text-content-secondary">
         <summary className="cursor-pointer py-1 text-content-primary">What’s included?</summary>
         <p className="mt-1 max-w-2xl">
-          Your identity and email, connection metadata and granted scopes, credential storage dates, workspace runtime
-          address, and sign-in and authorization session records. Credentials, credential handles, encryption vectors,
-          and session tokens are excluded.
+          Your identity and email, your AI request logs setting, connection metadata and granted scopes, credential
+          storage dates, workspace runtime address, and sign-in and authorization session records. Credentials,
+          credential handles, encryption vectors, and session tokens are excluded.
         </p>
         <p className="mt-2 max-w-2xl">
           Chats, transcripts, project files, and deployment records are not included. They live in your Cloudflare

@@ -146,9 +146,11 @@ import {
 import { CloudflareApiClient, type CloudflareApiOutcome } from '~/lib/.server/cloudflare/cloudflare-api-client';
 import {
   confirmUserWorkspaceAccess,
+  modelRequestAccess,
   reportUserWorkspaceModelUsage,
   resolveUserWorkspaceCloudflareAccessToken,
 } from '~/lib/.server/cloudflare/user-workspace-cloudflare-credential';
+import { workersAiGatewayLogging, type WorkersAiGatewayLogging } from '~/lib/.server/llm/workers-ai-gateway';
 import { turnUsage, type ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import type { Usage } from '@earendil-works/pi-ai';
 import { requireWorkersAiBuilderModel } from '~/lib/.server/llm/workers-ai-model-catalog';
@@ -423,7 +425,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         return { status: 'error', error: 'missing title generation recovery data' };
       }
       const credentials = await getUserWorkersAiCredentials(this.env, this.userId);
-      await this.generateTitlesForPrompt({ ...job, accountCredentials: credentials });
+      // Asked again: the person may have turned logging off since the turn that started this.
+      const access = await modelRequestAccess(this.env).catch(() => null);
+      await this.generateTitlesForPrompt({
+        ...job,
+        accountCredentials: credentials,
+        gatewayLogging: workersAiGatewayLogging(access?.allowed === true && access.contentLogging),
+      });
       return { status: 'completed', snapshot: ctx.snapshot };
     }
     if (ctx.name === PREVIEW_PUBLICATION_FIBER) {
@@ -531,7 +539,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     };
 
     try {
-      await this.requireOrganizationAccess();
+      const { contentLogging } = await this.requireModelAccess();
       const cloudflareApi = await this.createCloudflareApiToolContext(durableIdentity.transcript);
       const linkedProject = await this.createLinkedProjectToolContext();
       if (shouldGenerateTitle) {
@@ -544,6 +552,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
             subchatIndex,
           },
           accountCredentials,
+          workersAiGatewayLogging(contentLogging),
         );
       }
       const compactionPending = await this.hasPendingContextCompaction();
@@ -553,8 +562,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         turnContext,
         accountCredentials,
         sessionAffinity: await createWorkersAiSessionAffinity(transcript, modelId),
-        // The turn's requests are found in the account's AI Gateway logs by chat (its URL id) and member.
-        gatewayMetadata: { chat: chatInitialId, user: durableIdentity.userId, agent: transcript.agentName },
+        // When the person allows logging, the turn's requests are found in the account's AI Gateway logs
+        // by chat (its URL id) and member; otherwise they are neither logged nor labelled.
+        gatewayLogging: workersAiGatewayLogging(contentLogging, {
+          chat: chatInitialId,
+          user: durableIdentity.userId,
+          agent: transcript.agentName,
+        }),
         workspace: this.workspace,
         cloudflareApi,
         linkedProject,
@@ -1141,12 +1155,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private async scheduleTitleGeneration(
     job: TitleGenerationJob,
     accountCredentials: Awaited<ReturnType<typeof getUserWorkersAiCredentials>>,
+    gatewayLogging: WorkersAiGatewayLogging,
   ): Promise<void> {
     await this.startFiber(
       TITLE_GENERATION_FIBER,
       async (fiber) => {
         fiber.stash({ ...job, version: 1 });
-        await this.generateTitlesForPrompt({ ...job, accountCredentials });
+        await this.generateTitlesForPrompt({ ...job, accountCredentials, gatewayLogging });
       },
       {
         idempotencyKey: `${TITLE_GENERATION_FIBER}:${job.subchatIndex}:${job.promptGeneration}`,
@@ -1158,6 +1173,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private async generateTitlesForPrompt(
     args: TitleGenerationJob & {
       accountCredentials: Awaited<ReturnType<typeof getUserWorkersAiCredentials>>;
+      gatewayLogging: WorkersAiGatewayLogging;
     },
   ): Promise<void> {
     const ownerId = this.ownerId;
@@ -1169,10 +1185,15 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     // critical chat path as soon as the first prompt is accepted.
     // Naming the chat is model use too, counted toward an organization member's usage.
     const countUsage = (usage: Usage) => this.reportModelUsage(turnUsage(usage));
-    const conversationTitlePromise = generateConversationTitle(args.prompt, args.accountCredentials, countUsage);
+    const conversationTitlePromise = generateConversationTitle(
+      args.prompt,
+      args.accountCredentials,
+      args.gatewayLogging,
+      countUsage,
+    );
     const projectTitlePromise =
       args.firstPrompt && args.subchatIndex === 0
-        ? generateProjectTitle(args.prompt, args.accountCredentials, countUsage)
+        ? generateProjectTitle(args.prompt, args.accountCredentials, args.gatewayLogging, countUsage)
         : null;
     const provisionalTitle = args.firstPrompt ? deriveProvisionalTitle(args.prompt) : null;
 
@@ -1407,25 +1428,25 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return status;
   }
 
-  /**
-   * In an organization's account, each turn first asks the control plane whether this member may still
-   * build: the model runs on the organization's Workers AI, and a paused or removed member must stop at
-   * their next turn even in a workspace they already have open.
-   */
   /** Whether this person is now an active admin of the organization whose account this runtime uses. */
   private async isOrganizationAdmin(): Promise<boolean> {
     const identity = runtimeIdentity(this.env);
     return identity ? (await confirmUserWorkspaceAccess(this.env, identity))?.organizationAdmin === true : false;
   }
 
-  private async requireOrganizationAccess(): Promise<void> {
-    if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1') {
-      return;
-    }
-    const identity = runtimeIdentity(this.env);
-    if (!identity || !(await confirmUserWorkspaceAccess(this.env, identity))) {
+  /**
+   * Each turn first asks the control plane about this person. In an organization's account, whether
+   * they may still build: the model runs on the organization's Workers AI, and a paused or removed
+   * member must stop at their next turn even in a workspace they already have open. Anywhere, whether
+   * they let its model requests be logged with their content in the account's AI Gateway (when that
+   * can't be learned, they aren't).
+   */
+  private async requireModelAccess(): Promise<{ contentLogging: boolean }> {
+    const access = await modelRequestAccess(this.env);
+    if (!access.allowed) {
       throw new Response("You no longer have access to this team's account.", { status: 403 });
     }
+    return { contentLogging: access.contentLogging };
   }
 
   /** Each finished turn's token counts go to the control plane, which keeps them for organization admins. */

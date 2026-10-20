@@ -10,6 +10,7 @@ import { createChatResponseFromBody } from './chat';
 import { ModelInputBudgetExceededError } from './llm/model-input';
 import { PiSteeringQueue } from './llm/pi-steering';
 import { DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
+import type { WorkersAiGatewayLogging } from './llm/workers-ai-gateway';
 
 describe('chat provider error boundary', () => {
   beforeEach(() => {
@@ -40,10 +41,19 @@ describe('chat provider error boundary', () => {
       await expect(createResponse()).rejects.toMatchObject({ status });
     },
   );
+
+  it("hands the runner the turn's gateway logging, so an opted-out person's turn stays unlogged", async () => {
+    piAgentRunner.mockResolvedValueOnce(new ReadableStream({ start: (controller) => controller.close() }));
+
+    await createResponse(DEFAULT_WORKERS_AI_MODEL, { collectLog: false });
+
+    expect(piAgentRunner).toHaveBeenCalledWith(expect.objectContaining({ gatewayLogging: { collectLog: false } }));
+  });
 });
 
-function createResponse(model = DEFAULT_WORKERS_AI_MODEL) {
+function createResponse(model = DEFAULT_WORKERS_AI_MODEL, gatewayLogging?: WorkersAiGatewayLogging) {
   return createChatResponseFromBody({
+    gatewayLogging,
     body: { messages: [], modelId: model.id },
     model,
     firstUserMessage: true,

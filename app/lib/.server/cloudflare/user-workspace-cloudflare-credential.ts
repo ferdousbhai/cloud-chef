@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import type { CloudflareAccessTokenResolution } from './cloudflare-api-client';
-import { runtimeIdentity, type CloudflareApiRuntimeIdentity } from './cloudflare-api-runtime-controls';
+import {
+  runtimeIdentity,
+  type CloudflareApiRuntimeEnv,
+  type CloudflareApiRuntimeIdentity,
+} from './cloudflare-api-runtime-controls';
 import type { ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 
 const RUNTIME_CREDENTIAL_TIMEOUT_MS = 30_000;
@@ -74,19 +78,25 @@ export async function reportUserWorkspaceModelUsage(
   await response.body?.cancel().catch(() => undefined);
 }
 
-/**
- * Whether the control plane still lets this runtime's person build: false once they are paused or
- * removed from the organization that owns the connection. Errors, like an unreachable control plane,
- * are thrown, not read as a refusal.
- */
-/**
- * Whether this person may still use the runtime's account, and in an organization's whether they are
- * one of its active admins; null when they may not.
- */
-export async function confirmUserWorkspaceAccess(
+/** What the control plane says about this runtime's person, asked before each model request. */
+export type UserWorkspaceAccess = {
+  /** Whether they are an active admin of the organization whose account this is. */
+  organizationAdmin: boolean;
+  /** Whether their model requests may be logged with their content in the account's AI Gateway. */
+  aiGatewayContentLogging: boolean;
+};
+
+export type ConfirmUserWorkspaceAccess = (
   env: RuntimeCredentialEnv,
   identity: CloudflareConnectionIdentity,
-): Promise<{ organizationAdmin: boolean } | null> {
+) => Promise<UserWorkspaceAccess | null>;
+
+/**
+ * Whether this person may still use the runtime's account (null once they are paused or removed from
+ * the organization that owns the connection), and what they may do there. Errors, like an unreachable
+ * control plane, are thrown, not read as a refusal.
+ */
+export const confirmUserWorkspaceAccess: ConfirmUserWorkspaceAccess = async (env, identity) => {
   const response = await fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, 'runtime-access'), {
     method: 'POST',
     headers: { authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`, 'content-type': 'application/json' },
@@ -107,27 +117,55 @@ export async function confirmUserWorkspaceAccess(
     throw new Error('The CloudChef control plane could not confirm workspace access.');
   }
   const parsed = accessResponseSchema.safeParse(await response.json().catch(() => null));
-  return { organizationAdmin: parsed.success && parsed.data.organizationAdmin };
-}
+  return parsed.success ? parsed.data : { organizationAdmin: false, aiGatewayContentLogging: false };
+};
 
-const accessResponseSchema = z.object({ organizationAdmin: z.boolean() });
+// Anything the control plane leaves out is read as the narrower answer: not an admin, and, since a
+// person's opt-out must hold, not logged.
+const accessResponseSchema = z.object({
+  organizationAdmin: z.boolean().catch(false),
+  aiGatewayContentLogging: z.boolean().catch(false),
+});
+
+type ModelRequestAccess =
+  | { allowed: false }
+  | {
+      allowed: true;
+      /** Whether this request may be logged with its content in the account's AI Gateway. */
+      contentLogging: boolean;
+      /** Counts the request toward an organization member's usage; null elsewhere. */
+      report: ((usage: ModelTurnUsage) => Promise<void>) | null;
+    };
 
 /**
- * Model calls outside a builder turn (prompt enhancement) in an organization's account: refused once
- * the member is paused or removed, and counted toward their usage. Elsewhere, always allowed and not
- * counted (only organizations keep per-member usage).
+ * Asked before each model request. In an organization's account it is refused once the member is
+ * paused or removed, and counted toward their usage; elsewhere it is always allowed and not counted
+ * (only organizations keep per-member usage). Either way the person's own choice decides whether
+ * the request's content is logged in the account's AI Gateway, and when that can't be learned (no
+ * runtime identity, an unreachable control plane), it isn't logged.
  */
-export async function organizationModelAccess(
-  env: RuntimeCredentialEnv & Parameters<typeof runtimeIdentity>[0],
-): Promise<{ allowed: false } | { allowed: true; report: ((usage: ModelTurnUsage) => Promise<void>) | null }> {
-  if (env.CLOUDCHEF_SHARED_ACCOUNT !== '1') {
-    return { allowed: true, report: null };
-  }
+export async function modelRequestAccess(
+  env: RuntimeCredentialEnv & CloudflareApiRuntimeEnv,
+  confirm: ConfirmUserWorkspaceAccess = confirmUserWorkspaceAccess,
+): Promise<ModelRequestAccess> {
+  const organization = env.CLOUDCHEF_SHARED_ACCOUNT === '1';
   const identity = runtimeIdentity(env);
-  if (!identity || !(await confirmUserWorkspaceAccess(env, identity))) {
+  if (!identity) {
+    return organization ? { allowed: false } : { allowed: true, contentLogging: false, report: null };
+  }
+  if (!organization) {
+    const access = await confirm(env, identity).catch(() => null);
+    return { allowed: true, contentLogging: access?.aiGatewayContentLogging === true, report: null };
+  }
+  const access = await confirm(env, identity);
+  if (!access) {
     return { allowed: false };
   }
-  return { allowed: true, report: (usage) => reportUserWorkspaceModelUsage(env, identity, usage) };
+  return {
+    allowed: true,
+    contentLogging: access.aiGatewayContentLogging,
+    report: (usage) => reportUserWorkspaceModelUsage(env, identity, usage),
+  };
 }
 
 /** The control plane's runtime-facing routes, authenticated with the runtime's own secret. */

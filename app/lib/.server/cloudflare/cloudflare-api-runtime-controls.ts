@@ -29,7 +29,7 @@ type RuntimeControlRow = {
   enabled: number;
 };
 
-type CloudflareApiRuntimeEnv = Pick<
+export type CloudflareApiRuntimeEnv = Pick<
   Env,
   | 'DB'
   | 'CLOUDCHEF_USER_RUNTIME'

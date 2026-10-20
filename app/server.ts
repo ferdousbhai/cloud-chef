@@ -48,6 +48,7 @@ import {
 } from './server-handlers/github-projects';
 import { deleteAccountAction } from './server-handlers/account-deletion';
 import { exportAccountAction } from './server-handlers/account-export';
+import { aiGatewayLoggingAction, updateAiGatewayLoggingAction } from './server-handlers/ai-gateway-logging';
 import { runtimeAccessAction, runtimeCredentialAction, runtimeUsageAction } from './server-handlers/runtime-credential';
 import { clientTelemetryAction } from './server-handlers/client-telemetry';
 import { pruneCloudflareAuthDataBestEffort } from './lib/cloudflare/data/cloudflare-auth-retention.server';
@@ -281,6 +282,14 @@ const exactRoutes = new Map<string, ServerRoute>(
     '/api/account/export': {
       method: 'POST',
       handler: (request, env) => exportAccountAction({ request, env }),
+    },
+    '/api/settings/ai-gateway-logging': {
+      method: 'GET',
+      handler: (request, env) => aiGatewayLoggingAction({ request, env }),
+    },
+    '/api/settings/ai-gateway-logging/update': {
+      method: 'POST',
+      handler: (request, env) => updateAiGatewayLoggingAction({ request, env }),
     },
     '/api/cloudflare/connection': {
       method: 'GET',

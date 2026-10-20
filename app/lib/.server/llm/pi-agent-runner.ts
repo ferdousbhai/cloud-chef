@@ -54,7 +54,8 @@ import { ModelInputBudgetExceededError, modelCompactionPolicy, prepareModelInput
 import { modelMessagesToPi } from './pi-message-conversion';
 import { recordPiStage, recordPiTurnBudget } from './pi-telemetry';
 import { createToolTimeAccounting } from './tool-time-accounting';
-import { getPiModel, type WorkersAiAccountCredentials, type WorkersAiGatewayMetadata } from './pi-ai-models';
+import { getPiModel, type WorkersAiAccountCredentials } from './pi-ai-models';
+import type { WorkersAiGatewayLogging } from './workers-ai-gateway';
 import { appendDeterministicCompletion, normalizeTextPartBoundaries } from './workers-ai-stream';
 import {
   recordFirstBuilderMutation,
@@ -106,8 +107,8 @@ interface PiAgentOptions {
   };
   accountCredentials: WorkersAiAccountCredentials;
   sessionAffinity: string;
-  /** Files the turn's model requests in the account's AI Gateway logs. */
-  gatewayMetadata?: WorkersAiGatewayMetadata;
+  /** Whether the turn's model requests are logged in the account's AI Gateway, and under what; unlogged when absent. */
+  gatewayLogging?: WorkersAiGatewayLogging;
   workspace: BuilderWorkspaceApi;
   cloudflareApi?: CloudflareApiModelToolContext;
   /** Set when the workspace is one of an organization's GitHub projects. */
@@ -186,7 +187,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     compaction,
     accountCredentials,
     sessionAffinity,
-    gatewayMetadata,
+    gatewayLogging,
     workspace,
     cloudflareApi,
     linkedProject,
@@ -199,7 +200,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   logger.debug('Starting Pi agent runner');
   const startedAt = Date.now();
   const modelId = model.id;
-  const handle = getPiModel(accountCredentials, modelId, { model, sessionAffinity, gatewayMetadata });
+  const handle = getPiModel(accountCredentials, modelId, { model, sessionAffinity, gatewayLogging });
   // Real signals, so an in-flight model stream is bounded too — not just the gaps between turns.
   const wallClockSignal = AbortSignal.timeout(BUILDER_TURN_WALL_CLOCK_MS);
   const inactivityController = new AbortController();

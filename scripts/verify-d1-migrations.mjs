@@ -41,6 +41,7 @@ const migrationPolicies = [
       '0024_invite_projects.sql': '35fc087ca702efb95141a43fa845fdb8fdcb1aa9ecdb81b3028cedd13f67e404',
       '0025_production_request_drafts.sql': '48d36c51d715d702696740fc2221aff6dc1ba73d98b3b9d5b0883dc81a15a24c',
       '0026_invite_drafts.sql': '7727a243df91e2ebd84a465dbd43d173d75f32ae9dc483ebdf5451ef82a55651',
+      '0027_ai_gateway_content_logging.sql': '1ce6663769be8183f49933e933aa1499b84f26527f46942f125e8b67d6810e25',
     },
     contractAllowlist: {
       // Explicit pre-launch clean break: the Computer locator replaced this
