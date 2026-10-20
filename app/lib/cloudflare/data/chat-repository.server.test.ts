@@ -102,6 +102,21 @@ describe('startLinkedChat', () => {
     ]);
   });
 
+  it('starts one conversation when two tabs start one at once', async () => {
+    const { sqlite, db } = workspaceDatabase();
+    await openLinkedChat(db, { ...project, id: 'first-id' });
+    sqlite.prepare('UPDATE chats SET has_messages = 1').run();
+
+    const [one, other] = await Promise.all([
+      startLinkedChat(db, { ...project, id: 'tab-a' }),
+      startLinkedChat(db, { ...project, id: 'tab-b' }),
+    ]);
+    expect(other).toEqual(one);
+    expect(
+      sqlite.prepare('SELECT COUNT(*) AS current FROM chats WHERE archived_at IS NULL AND is_deleted = 0').get(),
+    ).toEqual({ current: 1 });
+  });
+
   it('continues the agent holding the current workspace when the conversation has a later subchat', async () => {
     const { sqlite, db } = workspaceDatabase();
     await openLinkedChat(db, { ...project, id: 'first-id' });
