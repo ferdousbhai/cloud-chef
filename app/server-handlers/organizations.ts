@@ -39,6 +39,8 @@ const inviteSchema = z.strictObject({
   role: z.enum(['admin', 'member']).default('member'),
   /** The organization's GitHub projects they get on joining. */
   projectIds: z.array(z.string().uuid()).max(500).default([]),
+  /** Whether they may build new apps of their own, not only work on the projects they're given. */
+  draftsAllowed: z.boolean().default(true),
 });
 const acceptSchema = z.strictObject({ token: z.string().min(32).max(128) });
 const contextSchema = z.strictObject({ connectionId: z.string().min(1).max(128) });
@@ -131,7 +133,7 @@ export function inviteToOrganizationAction({ request, env }: { request: Request;
     if ('response' in body) {
       return body.response;
     }
-    const { orgId, role, projectIds } = body.data;
+    const { orgId, role, projectIds, draftsAllowed } = body.data;
     const email = normalizeEmail(body.data.email);
     const admin = await requireAdmin(env.DB, orgId, session.user.id);
     // Invites are email CloudChef sends with text an admin chose, so they're rate-limited per admin.
@@ -145,6 +147,7 @@ export function inviteToOrganizationAction({ request, env }: { request: Request;
       role,
       invitedBy: session.user.id,
       projectIds,
+      draftsAllowed,
     });
     const link = new URL(ORGANIZATION_INVITE_PATH, new URL(request.url).origin);
     link.searchParams.set('token', token);

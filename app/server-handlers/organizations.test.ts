@@ -67,9 +67,15 @@ async function createOrg(env: Env, cookie: string, { connect = true } = {}) {
   return orgId;
 }
 
-async function invite(env: Env, cookie: string, orgId: string, email: string) {
+async function invite(
+  env: Env,
+  cookie: string,
+  orgId: string,
+  email: string,
+  options: { draftsAllowed?: boolean } = {},
+) {
   const response = await inviteToOrganizationAction({
-    request: post(cookie, '/api/organizations/invite', { orgId, email }),
+    request: post(cookie, '/api/organizations/invite', { orgId, email, ...options }),
     env,
   });
   return { status: response.status, body: response.ok ? invitedSchema.parse(await response.json()) : null };
@@ -99,13 +105,13 @@ describe('organizations', () => {
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toEqual({ orgId, switched: true });
 
-    // Sam now works in Acme's account, as a member who builds new apps only once an admin allows it.
+    // Sam now works in Acme's account, as a member who may build new apps of their own (the invite's default).
     const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
     expect(session?.context).toMatchObject({
       kind: 'organization',
       connectionId: 'acme-connection',
       role: 'member',
-      draftsAllowed: false,
+      draftsAllowed: true,
     });
 
     // The admin sees members and invites; the member sees neither.
@@ -125,6 +131,30 @@ describe('organizations', () => {
       .object({ organizations: z.array(z.object({ members: z.null(), invites: z.null() })) })
       .safeParse(await asMember.json());
     expect(memberView.success).toBe(true);
+  });
+
+  it('joins with GitHub projects only when the inviting admin unticks building new apps', async () => {
+    const { env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com', { draftsAllowed: false });
+
+    const listed = await listOrganizationsAction({
+      request: new Request(`${ORIGIN}/api/organizations`, { headers: { cookie: admin.cookie } }),
+      env,
+    });
+    const invites = z
+      .object({ organizations: z.array(z.object({ invites: z.array(z.object({ draftsAllowed: z.boolean() })) })) })
+      .parse(await listed.json()).organizations[0].invites;
+    expect(invites).toEqual([expect.objectContaining({ draftsAllowed: false })]);
+
+    const sam = await signIn('sam@acme.com');
+    await acceptInviteAction({
+      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
+      env,
+    });
+    const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
+    expect(session?.context).toMatchObject({ kind: 'organization', role: 'member', draftsAllowed: false });
   });
 
   it("joins an organization whose Cloudflare connection isn't active without switching into it", async () => {

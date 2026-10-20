@@ -38,7 +38,15 @@ const organizationsSchema = z.object({
         )
         .nullable(),
       invites: z
-        .array(z.object({ id: z.string(), email: z.string(), role: roleSchema, projectIds: z.array(z.string()) }))
+        .array(
+          z.object({
+            id: z.string(),
+            email: z.string(),
+            role: roleSchema,
+            projectIds: z.array(z.string()),
+            draftsAllowed: z.boolean(),
+          }),
+        )
         .nullable(),
       github: orgGitHubSchema,
       projects: z.array(orgProjectSchema),
@@ -261,6 +269,7 @@ function OrganizationRow({
   const [role, setRole] = useState<'member' | 'admin'>('member');
   // The projects a new member gets: every project until the admin unticks some.
   const [chosenProjects, setChosenProjects] = useState<ReadonlySet<string> | null>(null);
+  const [draftsAllowed, setDraftsAllowed] = useState(true);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [inviteFeedback, setInviteFeedback] = useState<Feedback>(null);
   const [peopleFeedback, setPeopleFeedback] = useState<Feedback>(null);
@@ -295,6 +304,7 @@ function OrganizationRow({
           // Admins work on every project.
           projectIds:
             role === 'member' ? projects.filter((project) => projectIds.has(project.id)).map(({ id }) => id) : [],
+          draftsAllowed: role === 'admin' || draftsAllowed,
         },
         invitedSchema,
       );
@@ -399,6 +409,7 @@ function OrganizationRow({
                   {pending.role === 'member' && pending.projectIds.length > 0
                     ? ` · ${pending.projectIds.length} ${pending.projectIds.length === 1 ? 'project' : 'projects'}`
                     : ''}
+                  {pending.role === 'member' && !pending.draftsAllowed ? ' · GitHub projects only' : ''}
                 </span>
                 <Button size="xs" variant="subtle" onClick={() => revoke(pending.id)}>
                   Revoke
@@ -431,6 +442,16 @@ function OrganizationRow({
                 Invite
               </Button>
             </div>
+            {role === 'member' ? (
+              <label className="flex min-w-0 items-center gap-1 text-xs text-content-secondary">
+                <input
+                  type="checkbox"
+                  checked={draftsAllowed}
+                  onChange={(event) => setDraftsAllowed(event.target.checked)}
+                />
+                Can build new apps of their own, not only the projects they get
+              </label>
+            ) : null}
             {role === 'member' && projects.length > 0 ? (
               <fieldset className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-xs text-content-secondary">
                 <legend className="mb-1">Projects they get</legend>

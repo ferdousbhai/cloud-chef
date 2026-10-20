@@ -28,7 +28,14 @@ type OrganizationMember = {
   usage: { turns: number; inputTokens: number; outputTokens: number };
 };
 
-type PendingInvite = { id: string; email: string; role: OrganizationRole; expiresAt: number; projectIds: string[] };
+type PendingInvite = {
+  id: string;
+  email: string;
+  role: OrganizationRole;
+  expiresAt: number;
+  projectIds: string[];
+  draftsAllowed: boolean;
+};
 
 type OrganizationSummary = Membership & {
   /** The organization's Cloudflare account, once an admin has connected it. */
@@ -66,7 +73,8 @@ const MAX_INVITES_PER_DAY = 100;
 
 /**
  * A one-time invite for `email`; the link carries the token, and only its hash is stored. `projectIds`
- * are the organization's GitHub projects the person gets on joining (others are ignored).
+ * are the organization's GitHub projects the person gets on joining (others are ignored); a member may
+ * build new apps of their own unless `draftsAllowed` is false.
  */
 export async function createInvite(
   db: D1Database,
@@ -76,6 +84,7 @@ export async function createInvite(
     role: OrganizationRole;
     invitedBy: string;
     projectIds?: string[];
+    draftsAllowed?: boolean;
     now?: number;
   },
 ): Promise<{ token: string; expiresAt: number }> {
@@ -109,8 +118,8 @@ export async function createInvite(
   await db
     .prepare(
       `INSERT INTO organization_invites
-         (id, org_id, email, role, token_hash, invited_by, expires_at, created_at, project_ids)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, org_id, email, role, token_hash, invited_by, expires_at, created_at, project_ids, drafts_allowed)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       crypto.randomUUID(),
@@ -122,6 +131,7 @@ export async function createInvite(
       expiresAt,
       now,
       projectIds.length > 0 ? JSON.stringify(projectIds) : null,
+      args.draftsAllowed === false ? 0 : 1,
     )
     .run();
   return { token, expiresAt };
@@ -180,7 +190,7 @@ export async function acceptInvite(
       // An invite speaks for the admin who sent it: once they're removed, paused or no longer an admin,
       // it lapses, so a removed admin can't come back through an invite they sent themselves.
       `SELECT invites.id, invites.org_id, invites.email, invites.role, invites.expires_at, invites.accepted_at,
-              invites.invited_by, invites.project_ids
+              invites.invited_by, invites.project_ids, invites.drafts_allowed
        FROM organization_invites AS invites
        JOIN organization_members AS inviter
          ON inviter.org_id = invites.org_id AND inviter.user_id = invites.invited_by
@@ -197,6 +207,7 @@ export async function acceptInvite(
       accepted_at: number | null;
       invited_by: string;
       project_ids: string | null;
+      drafts_allowed: number;
     }>();
   if (!invite || invite.accepted_at !== null || invite.expires_at <= now) {
     throw new OrganizationError('This invite has been used or has expired. Ask for a new one.', 410);
@@ -229,12 +240,12 @@ export async function acceptInvite(
   const joining = [
     db
       .prepare(
-        // A member builds new apps of their own only once an admin allows it; until then, they work on the
-        // GitHub projects they're given. (Admins may always.)
+        // A member builds new apps of their own if the inviting admin allowed it; otherwise they work on the
+        // GitHub projects they're given until an admin does. (Admins may always.)
         `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(org_id, user_id) DO NOTHING`,
       )
-      .bind(invite.org_id, args.userId, invite.role, now, invite.role === 'admin' ? 1 : 0),
+      .bind(invite.org_id, args.userId, invite.role, now, invite.role === 'admin' ? 1 : invite.drafts_allowed),
   ];
   if (invite.project_ids !== null) {
     // The projects the inviting admin chose, those still in the organization, granted in their name.
@@ -350,18 +361,26 @@ async function listMembers(db: D1Database, orgId: string, now: number): Promise<
 async function listPendingInvites(db: D1Database, orgId: string, now: number): Promise<PendingInvite[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, email, role, expires_at, project_ids FROM organization_invites
+      `SELECT id, email, role, expires_at, project_ids, drafts_allowed FROM organization_invites
        WHERE org_id = ? AND accepted_at IS NULL AND expires_at > ?
        ORDER BY created_at DESC`,
     )
     .bind(orgId, now)
-    .all<{ id: string; email: string; role: OrganizationRole; expires_at: number; project_ids: string | null }>();
+    .all<{
+      id: string;
+      email: string;
+      role: OrganizationRole;
+      expires_at: number;
+      project_ids: string | null;
+      drafts_allowed: number;
+    }>();
   return results.map((row) => ({
     id: row.id,
     email: row.email,
     role: row.role,
     expiresAt: row.expires_at,
     projectIds: storedProjectIds(row.project_ids),
+    draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
   }));
 }
 
