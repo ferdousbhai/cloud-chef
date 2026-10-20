@@ -51,6 +51,13 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
   #files: BuilderWorkspaceFileMetadata[] = [];
   /** Whether `#files` holds a snapshot; seeding and sync pages set `#state` without one. */
   #filesLoaded = false;
+  /**
+   * Bumped whenever a shell command may have changed files behind the cache's back; a refresh
+   * clears it only if no command ran meanwhile, so a later write never bases itself on the
+   * revision from before that command.
+   */
+  #commandGeneration = 0;
+  #refreshedGeneration = 0;
   #stubPromise: Promise<ProjectWorkspaceStub> | null = null;
   #activeTool: { toolCallId: string; toolName: string } | null = null;
   #activeValidationToolCallId: string | null = null;
@@ -124,7 +131,11 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
           if (this.#activeTool) {
             request.operationKey = `tool:${this.#activeTool.toolCallId}`;
           }
-          return (await this.#stub()).execute(request);
+          try {
+            return await (await this.#stub()).execute(request);
+          } finally {
+            this.#invalidateAfterCommand();
+          }
         },
       }),
     },
@@ -154,31 +165,46 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
   }
 
   async refresh(): Promise<BuilderWorkspaceState> {
+    const generation = this.#commandGeneration;
     const stub = await this.#stub();
     const snapshot = await stub.getWorkspaceSnapshot();
     this.#state = snapshot.state;
     this.#files = snapshot.files;
     this.#filesLoaded = true;
+    this.#refreshedGeneration = Math.max(this.#refreshedGeneration, generation);
     return snapshot.state;
   }
 
   /**
-   * The cached state, read from the workspace first when this client has none yet.
+   * The cached state, read from the workspace first when this client has none yet or a command
+   * has run since it was read.
    *
    * A Builder Agent that restarted (eviction, a runtime upgrade, a recovered turn) builds a fresh
-   * client, and its first file mutation may come before anything has refreshed it. A stale cache
-   * is left alone: the workspace rejects a write against an old revision as a conflict.
+   * client, and its first file mutation may come before anything has refreshed it. A command
+   * (a formatter, a patch script, an install) commits its file changes as a new revision the
+   * cache never saw, so the next write would otherwise fail once as a conflict. Any other stale
+   * cache is left alone: the workspace rejects a write against an old revision as a conflict, and
+   * the edit tool's content hash still rejects an edit made against an outdated read.
    */
   async #loadedState(): Promise<BuilderWorkspaceState> {
-    return this.#state ?? this.refresh();
+    return this.#state && !this.#changedByCommand() ? this.#state : this.refresh();
   }
 
-  /** The cached file list, read from the workspace first when this client has not loaded one. */
+  /** The cached file list, read from the workspace first when this client has not loaded one or a command has run since. */
   async #loadedFiles(): Promise<BuilderWorkspaceFileMetadata[]> {
-    if (!this.#filesLoaded) {
+    if (!this.#filesLoaded || this.#changedByCommand()) {
       await this.refresh();
     }
     return this.#files;
+  }
+
+  #changedByCommand(): boolean {
+    return this.#refreshedGeneration < this.#commandGeneration;
+  }
+
+  /** A command may have changed any file, however it ended; the next mutation reads the workspace first. */
+  #invalidateAfterCommand(): void {
+    this.#commandGeneration += 1;
   }
 
   getState(): BuilderWorkspaceState {
@@ -299,6 +325,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
         args.abortSignal,
       );
     } catch (error) {
+      this.#invalidateAfterCommand();
       args.abortSignal?.removeEventListener('abort', cancel);
       if (args.abortSignal?.aborted) {
         cancel();
@@ -396,6 +423,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       }
       throw error;
     } finally {
+      this.#invalidateAfterCommand();
       if (updateTimer) {
         clearTimeout(updateTimer);
       }

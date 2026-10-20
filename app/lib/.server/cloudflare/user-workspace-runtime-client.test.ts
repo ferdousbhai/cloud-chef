@@ -1104,6 +1104,70 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     expect(client.getState().revision).toBe(6);
   });
 
+  it.each(['executeCommand', 'computer.runtime.exec'] as const)(
+    'reads the workspace again after %s so the next write bases itself on the revision the command committed',
+    async (runner) => {
+      // A formatter or patch script commits its file changes as a new revision the cache never
+      // saw; without the reread the next write fails once as "The project changed".
+      const state = (revision: number) => ({
+        initialized: true,
+        revision,
+        resetRevision: 0,
+        fileCount: 0,
+        totalBytes: 0,
+        seeding: false,
+      });
+      let revision = 3;
+      const encoder = new TextEncoder();
+      const { client, calls } = harness((operation, value) => {
+        if (operation === 'getWorkspaceSnapshot') {
+          return { state: state(revision), files: [] };
+        }
+        if (operation === 'executeStream' || operation === 'execute') {
+          revision += 1;
+          const result = { exitCode: 0, stdout: '', stderr: '' };
+          return operation === 'execute'
+            ? result
+            : new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(
+                    encoder.encode(`${JSON.stringify({ type: 'result', streamTruncated: false, result })}\n`),
+                  );
+                  controller.close();
+                },
+              });
+        }
+        if (operation === 'applyChanges') {
+          if (record(value).baseRevision !== revision) {
+            return { ok: false, conflict: true, state: state(revision) };
+          }
+          revision += 1;
+          return { ok: true, state: state(revision), changedPaths: ['/home/project/a.ts'] };
+        }
+        return undefined;
+      });
+
+      await client.refresh();
+      if (runner === 'executeCommand') {
+        await client.executeCommand({ command: 'npx prettier --write .' });
+      } else {
+        const runtime = client.computer.runtime;
+        if (!runtime) {
+          throw new Error('The workspace client exposes no Computer runtime.');
+        }
+        await (await runtime.exec('npx prettier --write .', { cwd: '/home/project', encoding: 'utf8' })).result();
+      }
+      await client.computer.fs.writeFile('/home/project/a.ts', encoder.encode('new'));
+      await client.computer.fs.writeFile('/home/project/b.ts', encoder.encode('new'));
+
+      expect(calls.filter((call) => call.operation === 'applyChanges').map((call) => record(call.value))).toEqual([
+        expect.objectContaining({ baseRevision: 4 }),
+        expect.objectContaining({ baseRevision: 5 }),
+      ]);
+      expect(client.getState().revision).toBe(6);
+    },
+  );
+
   it.each(['writeFile', 'rm'] as const)(
     'loads the workspace before a fresh client %s and still reports a conflict as a project change',
     async (operation) => {
@@ -1273,6 +1337,7 @@ function harness(respond: (operation: string, value: unknown) => unknown, userId
     readWorkspaceFile: method('readWorkspaceFile'),
     streamWorkspaceFile: method('streamWorkspaceFile'),
     executeStream: method('executeStream'),
+    execute: method('execute'),
     cancelExecution: method('cancelExecution'),
     getWorkspaceSnapshot: method('getWorkspaceSnapshot'),
     applyChanges: method('applyChanges'),
