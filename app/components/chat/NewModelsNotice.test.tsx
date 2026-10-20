@@ -10,8 +10,8 @@ import { NewModelsNotice } from './NewModelsNotice.client';
 const SEEN_KEY = 'cloudchef_seen_builder_models_v1';
 const deepseek: WorkersAiModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
-  id: '@cf/deepseek-ai/deepseek-v4-flash-0731',
-  label: 'DeepSeek V4 Flash 0731',
+  id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+  label: 'DeepSeek V4.1 Flash 1017',
   createdAt: '2026-08-26T00:00:00.000Z',
 };
 
@@ -49,7 +49,7 @@ describe('NewModelsNotice', () => {
 
     const notice = document.querySelector('[role="status"]');
     expect(notice?.textContent).toContain('New on Workers AI');
-    expect(notice?.textContent).toContain('DeepSeek V4 Flash 0731');
+    expect(notice?.textContent).toContain('DeepSeek V4.1 Flash 1017');
     expect(notice?.textContent).toContain('available in the model picker');
 
     await act(async () => notice?.querySelector('button')?.click());

@@ -1,7 +1,7 @@
 import { transcriptIdentitySchema, type TranscriptIdentity } from 'cloudchef-agent/transcript';
 import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import type { UIMessage } from 'ai';
-import { workersAiModelIdSchema, type WorkersAiModelId } from '~/lib/workers-ai-model';
+import { currentBuilderModelId, workersAiModelIdSchema, type WorkersAiModelId } from '~/lib/workers-ai-model';
 import { z } from 'zod';
 
 const MAX_BUILDER_AGENT_NAME_LENGTH = 512;
@@ -140,7 +140,8 @@ export function requireBuilderRequestScope(
     chatInitialId: chatInitialId.data,
     subchatIndex: subchatIndex.data,
     transcript,
-    modelId: modelId.data,
+    // A request recorded before a builder model was retired is replayed on its replacement.
+    modelId: currentBuilderModelId(modelId.data),
   };
 }
 

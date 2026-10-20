@@ -99,7 +99,27 @@ export function validateWorkersAiModelCatalogPayload(
   return { defaultModelId, models };
 }
 
-export const CLOUDFLARE_ALTERNATIVE_BUILDER_MODEL = '@cf/deepseek-ai/deepseek-v4-flash-0731' satisfies WorkersAiModelId;
+/**
+ * DeepSeek V4.1 Flash (2026-10-17): 1M context, function calling, and reasoning, cheaper than the
+ * V4 Flash it replaced on every rate. Pi's static catalog does not list it yet, so its request
+ * shape comes from its V4 Flash sibling (`PI_CATALOG_SIBLINGS` in `pi-ai-models.ts`).
+ */
+export const CLOUDFLARE_ALTERNATIVE_BUILDER_MODEL =
+  '@cf/deepseek-ai/deepseek-v4.1-flash-1017' satisfies WorkersAiModelId;
+
+/**
+ * Builder models CloudChef once offered, each with the model that replaced it. A browser that saved
+ * one as its preference, or a request recorded with one before the swap, keeps working on the
+ * replacement instead of falling back to the default or being refused.
+ */
+const RETIRED_BUILDER_MODELS: ReadonlyMap<string, WorkersAiModelId> = new Map([
+  ['@cf/deepseek-ai/deepseek-v4-flash-0731', CLOUDFLARE_ALTERNATIVE_BUILDER_MODEL],
+]);
+
+/** The model a builder request or saved preference names, with a retired model read as its replacement. */
+export function currentBuilderModelId(modelId: WorkersAiModelId): WorkersAiModelId {
+  return RETIRED_BUILDER_MODELS.get(modelId) ?? modelId;
+}
 
 export function isSupportedBuilderModel(modelId: string): modelId is WorkersAiModelId {
   return modelId === CLOUDFLARE_WORKERS_AI_MODEL || modelId === CLOUDFLARE_ALTERNATIVE_BUILDER_MODEL;

@@ -2,6 +2,7 @@ import { atom } from 'nanostores';
 import { z } from 'zod';
 import {
   CLOUDFLARE_WORKERS_AI_MODEL,
+  currentBuilderModelId,
   DEFAULT_WORKERS_AI_MODEL,
   isWorkersAiModelId,
   isSupportedBuilderModel,
@@ -136,11 +137,15 @@ export function syncBuilderModelPreference(event: Pick<StorageEvent, 'key' | 'ne
     return;
   }
   const models = builderModelsStore.get();
+  const saved = readSavedModelId(event.newValue);
   builderModelStore.set(
-    isWorkersAiModelId(event.newValue) && models.some(({ id }) => id === event.newValue)
-      ? event.newValue
-      : builderDefaultModelStore.get(),
+    saved !== null && models.some(({ id }) => id === saved) ? saved : builderDefaultModelStore.get(),
   );
+}
+
+/** A saved preference for a retired model reads as the model that replaced it. */
+function readSavedModelId(value: string | null): WorkersAiModelId | null {
+  return isWorkersAiModelId(value) ? currentBuilderModelId(value) : null;
 }
 
 function applyUnseenModels(models: readonly WorkersAiModel[], storage?: BuilderModelStorage): void {
@@ -185,9 +190,9 @@ function applyStoredModelPreference(storage?: BuilderModelStorage): void {
   const defaultModel = builderDefaultModelStore.get();
   const models = builderModelsStore.get();
   try {
-    const persisted = (storage ?? localStorage).getItem(BUILDER_MODEL_STORAGE_KEY);
+    const persisted = readSavedModelId((storage ?? localStorage).getItem(BUILDER_MODEL_STORAGE_KEY));
     builderModelStore.set(
-      isWorkersAiModelId(persisted) &&
+      persisted !== null &&
         isSupportedBuilderModel(persisted) &&
         (!catalogInstalled || models.some(({ id }) => id === persisted))
         ? persisted

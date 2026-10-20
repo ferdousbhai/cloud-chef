@@ -17,12 +17,13 @@ import {
   loadBuilderModelPreference,
   markBuilderModelsSeen,
   orderBuilderModelsForDisplay,
+  syncBuilderModelPreference,
 } from './builder-model.client';
 
 const alternativeModel: WorkersAiModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
-  id: '@cf/deepseek-ai/deepseek-v4-flash-0731',
-  label: 'DeepSeek V4 Flash 0731',
+  id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+  label: 'DeepSeek V4.1 Flash 1017',
   contextTokens: 128_000,
   requiresPaid: false,
   vision: false,
@@ -58,6 +59,26 @@ describe('builder model preference', () => {
     expect(builderModelStore.get()).toBe(alternativeModel.id);
 
     loadBuilderModelPreference({ getItem: () => '@cf/example/retired' });
+    expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+  });
+
+  it('moves a saved preference for the retired DeepSeek V4 Flash to the V4.1 Flash that replaced it', () => {
+    const retired = '@cf/deepseek-ai/deepseek-v4-flash-0731';
+
+    installBuilderModelCatalog(catalog, { getItem: () => retired });
+    expect(builderModelStore.get()).toBe(alternativeModel.id);
+
+    // Another tab still writing the old id lands on the replacement too.
+    syncBuilderModelPreference({ key: 'cloudchef_builder_model_v2', newValue: retired });
+    expect(builderModelStore.get()).toBe(alternativeModel.id);
+  });
+
+  it('falls back to the default when the replacement is not in this account catalog', () => {
+    installBuilderModelCatalog(
+      { defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] },
+      { getItem: () => '@cf/deepseek-ai/deepseek-v4-flash-0731' },
+    );
+
     expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
   });
 
