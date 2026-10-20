@@ -32,6 +32,34 @@ function applyControlPlaneMigrations(db: DatabaseSync): void {
 }
 
 describe('CloudChef control-plane D1 schema', () => {
+  test('counts every runtime as just used when the upgrade window arrives, so none is upgraded under a running turn', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    const migrations = readdirSync('migrations')
+      .filter((file) => file.endsWith('.sql'))
+      .sort();
+    const upgradeWindow = migrations.indexOf('0028_workspace_runtime_upgrade_window.sql');
+    for (const migration of migrations.slice(0, upgradeWindow)) {
+      db.exec(readFileSync(`migrations/${migration}`, 'utf8'));
+    }
+    db.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt)
+        VALUES ('user-1', 'User', 'user@example.com', 1, 1, 1);
+      INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+        VALUES ('connection-1', 'user-1', 'account-1', 'active', 1, 1);
+      INSERT INTO user_computer_runtimes (user_id, connection_id, connection_generation, worker_name, endpoint,
+        runtime_version, status, created_at, updated_at)
+        VALUES ('user-1', 'connection-1', 1, 'worker', 'https://workspace.example', 'old', 'ready', 1, 1);
+    `);
+    const before = Date.now() - 1_000;
+
+    db.exec(readFileSync(`migrations/${migrations[upgradeWindow]}`, 'utf8'));
+
+    const row = db.prepare('SELECT protocol_version, last_session_at FROM user_computer_runtimes').get();
+    expect(row?.protocol_version).toBeNull();
+    expect(Number(row?.last_session_at)).toBeGreaterThanOrEqual(before);
+  });
+
   test('ends with only the current control-plane and Computer locator schema', () => {
     const db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys = ON');

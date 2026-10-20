@@ -8,6 +8,8 @@ declare global {
     PROJECT_WORKSPACE: DurableObjectNamespace<ProjectWorkspaceRpc>;
     CLOUDCHEF_USER_RUNTIME: string;
     CLOUDCHEF_USER_ID: string;
+    /** The SHA-256 of the runtime bundle this Worker runs. */
+    CLOUDCHEF_RUNTIME_VERSION: string;
     CLOUDCHEF_CONTROL_PLANE_ENDPOINT: string;
     CONTROL_PLANE_SECRET: string;
     CLOUDFLARE_ACCOUNT_ID: string;

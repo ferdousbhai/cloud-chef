@@ -12,7 +12,13 @@ import {
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { waitForUserWorkspaceRuntimeReadiness } from '~/lib/.server/cloudflare/user-workspace-runtime-readiness';
-import { upsertUserWorkspaceRuntime } from '~/lib/.server/cloudflare/user-workspace-runtime-repository';
+import {
+  findUserWorkspaceRuntime,
+  upsertUserWorkspaceRuntime,
+} from '~/lib/.server/cloudflare/user-workspace-runtime-repository';
+import { claimUserWorkspaceRuntimeUpgradeWindow } from '~/lib/.server/cloudflare/user-workspace-runtime-upgrade-window';
+import { RUNTIME_BUSY_LEASE_MS } from '~/lib/.server/cloudflare/user-workspace-runtime-activity';
+import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import { sha256Hex } from '~/lib/hex-digest';
 import { z } from 'zod';
@@ -51,7 +57,11 @@ const provisioningErrorSchema = z.object({
   upgradeUrl: z.string().nullable().optional(),
 });
 
-export type UserWorkspaceRuntimeProvisioningResult = { status: 'ready' } | ProvisioningError;
+/**
+ * `deferred`: the live runtime never went quiet for long enough to upgrade it before the Workflow gave
+ * up waiting. It keeps working, and the next session request starts the wait again.
+ */
+export type UserWorkspaceRuntimeProvisioningResult = { status: 'ready' } | { status: 'deferred' } | ProvisioningError;
 export type UserWorkspaceRuntimeProvisioningLaunchResult = { status: 'preparing' } | ProvisioningError;
 
 const STEP_CONFIG = {
@@ -63,9 +73,29 @@ const LONG_STEP_CONFIG = {
   timeout: '30 minutes',
 } as const;
 
+/** The first wait for a busy workspace, doubled each time it is still busy, up to the longest. */
+const UPGRADE_FIRST_WAIT_MS = 30_000;
+const UPGRADE_LONGEST_WAIT_MS = 5 * 60_000;
+/**
+ * How long one Workflow waits for a workspace to go quiet. Past it the Workflow ends without upgrading,
+ * and the next session request starts another; it never upgrades a busy workspace.
+ */
+export const UPGRADE_MAX_WAIT_MS = 12 * 60 * 60_000;
+/**
+ * A runtime too old to report its activity is upgraded only once no session was issued for it for
+ * longer than a turn can run, since a turn needs a session to start and runs at most that long.
+ */
+export const LEGACY_RUNTIME_QUIET_MS = RUNTIME_BUSY_LEASE_MS;
+const LEGACY_RUNTIME_LONGEST_WAIT_MS = 30 * 60_000;
+
 export type UserWorkspaceRuntimeProvisioningStep = {
   do<T>(name: string, config: typeof STEP_CONFIG | typeof LONG_STEP_CONFIG, operation: () => Promise<T>): Promise<T>;
+  sleep(name: string, duration: number): Promise<void>;
 };
+
+/** What a deploy attempt found: deployed, or a live workspace still busy, to try again after `waitMs`. */
+type DeployAttempt =
+  { status: 'deployed'; namespaceId: string } | { status: 'busy'; checkedAt: number; waitMs: number };
 
 type ProvisioningAccountApi = Pick<
   UserCloudflareAccountApi,
@@ -86,6 +116,9 @@ export type UserWorkspaceRuntimeProvisioningDependencies = {
   deriveSecret: typeof deriveUserWorkspaceRuntimeSecret;
   waitForReadiness: typeof waitForUserWorkspaceRuntimeReadiness;
   upsertRuntime: typeof upsertUserWorkspaceRuntime;
+  findRuntime: typeof findUserWorkspaceRuntime;
+  claimUpgradeWindow: typeof claimUserWorkspaceRuntimeUpgradeWindow;
+  now: () => number;
 };
 
 const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
@@ -95,6 +128,9 @@ const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
   deriveSecret: deriveUserWorkspaceRuntimeSecret,
   waitForReadiness: waitForUserWorkspaceRuntimeReadiness,
   upsertRuntime: upsertUserWorkspaceRuntime,
+  findRuntime: findUserWorkspaceRuntime,
+  claimUpgradeWindow: claimUserWorkspaceRuntimeUpgradeWindow,
+  now: Date.now,
 };
 
 /** Start or inspect the one durable Workflow for this connection and runtime build. */
@@ -224,29 +260,66 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
       await accountApi.applyD1Migrations(database.id, USER_WORKSPACE_DATA_MIGRATIONS);
       return database.id;
     });
-    const namespaceId = await args.step.do('deploy workspace Worker', STEP_CONFIG, async () => {
-      // Asked again here and before the locator is written: a member removed from their organization
-      // while this ran must not get their workspace back.
-      await expectedConnection(args.env, params, dependencies.requireConnection);
-      const deployed = await accountApi.deployWorkspaceRuntimeWorker({
-        workerName,
-        source: USER_WORKSPACE_RUNTIME_SOURCE,
-        controlPlaneSecret,
-        runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
-        databaseId,
-        userId: params.userId,
-        connectionId: connection.id,
-        connectionGeneration: connection.generation,
-        oauthScopeGrantStatus: connection.oauthScopeGrantStatus,
-        endpoint,
-        sharedAccount: connection.orgId !== null,
-      });
-      await Promise.all([
-        accountApi.configureWorkspaceRuntimeGcSchedule(workerName),
-        accountApi.enableWorkerSubdomain(workerName),
-      ]);
-      return deployed.namespaceId;
+    // A runtime already serving this connection generation is an upgrade: redeploying it resets its
+    // Durable Objects, so it waits for a moment when none of them is working.
+    const upgradeStartedAt = await args.step.do('inspect live workspace', STEP_CONFIG, async () => {
+      const live = await dependencies.findRuntime(args.env.DB, params.userId, connection.id);
+      return live && live.connectionGeneration === params.connectionGeneration && live.endpoint === endpoint
+        ? dependencies.now()
+        : null;
     });
+    let namespaceId: string;
+    for (let attempt = 0; ; attempt += 1) {
+      const outcome: DeployAttempt = await args.step.do(
+        `deploy workspace Worker (attempt ${attempt + 1})`,
+        STEP_CONFIG,
+        async () => {
+          // Asked again here and before the locator is written: a member removed from their organization
+          // while this ran must not get their workspace back.
+          await expectedConnection(args.env, params, dependencies.requireConnection);
+          if (upgradeStartedAt !== null) {
+            const waitMs = await waitBeforeUpgrade({
+              dependencies,
+              db: args.env.DB,
+              params,
+              endpoint,
+              controlPlaneSecret,
+              attempt,
+            });
+            if (waitMs !== null) {
+              return { status: 'busy', checkedAt: dependencies.now(), waitMs };
+            }
+          }
+          const deployed = await accountApi.deployWorkspaceRuntimeWorker({
+            workerName,
+            source: USER_WORKSPACE_RUNTIME_SOURCE,
+            controlPlaneSecret,
+            runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
+            databaseId,
+            userId: params.userId,
+            connectionId: connection.id,
+            connectionGeneration: connection.generation,
+            oauthScopeGrantStatus: connection.oauthScopeGrantStatus,
+            endpoint,
+            sharedAccount: connection.orgId !== null,
+          });
+          await Promise.all([
+            accountApi.configureWorkspaceRuntimeGcSchedule(workerName),
+            accountApi.enableWorkerSubdomain(workerName),
+          ]);
+          return { status: 'deployed', namespaceId: deployed.namespaceId };
+        },
+      );
+      if (outcome.status === 'deployed') {
+        namespaceId = outcome.namespaceId;
+        break;
+      }
+      if (upgradeStartedAt !== null && outcome.checkedAt - upgradeStartedAt >= UPGRADE_MAX_WAIT_MS) {
+        console.warn({ event: 'runtime_upgrade_deferred', reason: 'workspace_never_idle', attempts: attempt + 1 });
+        return { status: 'deferred' };
+      }
+      await args.step.sleep(`wait for an idle workspace (attempt ${attempt + 1})`, outcome.waitMs);
+    }
     await args.step.do('deploy Sandbox container', LONG_STEP_CONFIG, () =>
       accountApi.ensureWorkspaceRuntimeContainer({
         applicationName: workerName,
@@ -273,6 +346,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         endpoint,
         runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
         imageDigest: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+        protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
       });
     });
     return { status: 'ready' };
@@ -282,6 +356,41 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
     console.error('Workspace runtime provisioning failed', error instanceof Error ? error.message : 'Unknown error');
     return { status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null };
   }
+}
+
+/**
+ * How long to wait before trying to upgrade a live workspace again, or null to upgrade it now. A
+ * runtime that reports its activity is asked for the upgrade window, granted only while nothing in it
+ * runs; one too old to report it is upgraded once no session was issued for it for longer than any
+ * turn runs.
+ */
+async function waitBeforeUpgrade(args: {
+  dependencies: UserWorkspaceRuntimeProvisioningDependencies;
+  db: D1Database;
+  params: ProvisioningParams;
+  endpoint: string;
+  controlPlaneSecret: string;
+  attempt: number;
+}): Promise<number | null> {
+  const window = await args.dependencies.claimUpgradeWindow({
+    endpoint: args.endpoint,
+    controlPlaneSecret: args.controlPlaneSecret,
+    targetVersion: USER_WORKSPACE_RUNTIME_SHA256,
+  });
+  if (window.status === 'granted') {
+    return null;
+  }
+  if (window.status === 'busy') {
+    console.info({ event: 'runtime_upgrade_waiting', reason: 'workspace_busy', busy: window.busy });
+    return Math.min(UPGRADE_FIRST_WAIT_MS * 2 ** Math.min(args.attempt, 10), UPGRADE_LONGEST_WAIT_MS);
+  }
+  const live = await args.dependencies.findRuntime(args.db, args.params.userId, args.params.connectionId);
+  const quietFor = args.dependencies.now() - (live?.lastSessionAt ?? 0);
+  if (quietFor >= LEGACY_RUNTIME_QUIET_MS) {
+    return null;
+  }
+  console.info({ event: 'runtime_upgrade_waiting', reason: 'legacy_runtime_recently_used' });
+  return Math.min(LEGACY_RUNTIME_QUIET_MS - quietFor, LEGACY_RUNTIME_LONGEST_WAIT_MS);
 }
 
 async function expectedConnection(

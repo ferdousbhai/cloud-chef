@@ -42,6 +42,7 @@ const migrationPolicies = [
       '0025_production_request_drafts.sql': '48d36c51d715d702696740fc2221aff6dc1ba73d98b3b9d5b0883dc81a15a24c',
       '0026_invite_drafts.sql': '7727a243df91e2ebd84a465dbd43d173d75f32ae9dc483ebdf5451ef82a55651',
       '0027_ai_gateway_content_logging.sql': '1ce6663769be8183f49933e933aa1499b84f26527f46942f125e8b67d6810e25',
+      '0028_workspace_runtime_upgrade_window.sql': '1ab6abb5acb8e4874a450bb4b2590cb39563c8e0f0d98f699dcc363e53692b9c',
     },
     contractAllowlist: {
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -85,6 +86,7 @@ const migrationPolicies = [
       '0009_cloudflare_api_runtime_controls.sql': 'ba63b747dab79622f544d3379a0bae48512b5d6a6d09d67ed3dcaf83c82e46f1',
       '0010_linked_projects.sql': '3207539eadd37e6dd7eae1e241b2924ce13400f70af79ecca57ca6840444e371',
       '0011_linked_chat_history.sql': '48e8758a86aa97c46923d1b4170766c03d30d43f0111da9a9d057df06b4bc37e',
+      '0012_runtime_activity.sql': 'e8d8983002c40833631722252c30dab9eca7688264efbb9afa16400ae19c8339',
     },
     contractAllowlist: {
       // Chat identity has one immutable key; remove the unused alternate URL column and index.

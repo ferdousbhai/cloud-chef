@@ -109,3 +109,14 @@ export type BuilderPreviewSuccess = {
 };
 
 export const USER_WORKSPACE_RUNTIME_SERVICE = 'cloudchef-user-workspace-runtime';
+
+/**
+ * The contract between this runtime and the browser and control plane that talk to it: its routes,
+ * request and response shapes, Agent callables and state, and its calls to the control plane. A
+ * release whose runtime still speaks the protocol of the one a workspace runs keeps that runtime
+ * working until nothing is running in it, then upgrades it; a release that bumps this number makes the
+ * browser wait for the upgrade instead, still only once nothing is running. Bump it only for a change
+ * the previous runtime cannot serve: a new route or callable the browser relies on, or one it changed
+ * or removed.
+ */
+export const USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION = 1;

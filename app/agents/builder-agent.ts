@@ -67,6 +67,7 @@ import {
   type BuilderTranscriptBinding,
 } from './builder-request-policy';
 import { initializeBuilderAgentSchema } from './builder-agent-schema';
+import { BuilderRuntimeActivity, isBuilderAgentBusy } from './builder-runtime-activity';
 import { rethrowAgentRejection } from './builder-agent-rejection';
 import {
   BuilderAgentIdentityMismatchError,
@@ -316,6 +317,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private userId: string | null = null;
   private transcriptBinding: BuilderTranscriptBinding | null = null;
   private activeSteering: { turnId: string; queue: PiSteeringQueue } | null = null;
+  /** Tells the control plane, through the runtime, when a redeploy would cut this agent's work off. */
+  private readonly runtimeActivity: BuilderRuntimeActivity;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -323,6 +326,15 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     this.identityRepository = new BuilderAgentIdentityRepository(ctx.storage);
     this.cloudflareExecutions = new BuilderCloudflareExecutionRepository(ctx.storage);
     this.workspace = new UserWorkspaceRuntimeClient(env, ctx.id.toString(), () => this.userId);
+    this.runtimeActivity = new BuilderRuntimeActivity({
+      db: env.DB,
+      agentName: () => this.name,
+      runtimeVersion: env.CLOUDCHEF_RUNTIME_VERSION,
+    });
+  }
+
+  override onStateChanged(state: BuilderAgentState | undefined): void {
+    void this.runtimeActivity.observe(isBuilderAgentBusy(state));
   }
 
   async onStart(props?: BuilderAgentProps) {
@@ -530,6 +542,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       ...this.state,
       activeTurn: turn,
     });
+    // Before any model work: a Worker upgrade that found this workspace idle a moment ago lands first.
+    await this.runtimeActivity.admit();
     const steering = new PiSteeringQueue();
     this.activeSteering = { turnId: turn.id, queue: steering };
     const settleSteering = () => {
@@ -766,6 +780,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       executionId: proposal.executionId,
       proposalSha256: proposal.proposalSha256,
     };
+    await this.runtimeActivity.admit();
     const fiber = await this.startFiber(
       CLOUDFLARE_EXECUTION_FIBER,
       async (context) => {
@@ -1782,6 +1797,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!options.retry && current?.revision === job.revision && current.status !== 'ready') {
       return;
     }
+    await this.runtimeActivity.admit();
     this.setState({
       ...this.state,
       deployment: { status: 'deploying', ...job },
@@ -1881,6 +1897,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.cancelPreview();
     }
 
+    await this.runtimeActivity.admit();
     const previewId = crypto.randomUUID();
     const job: PreviewPublicationJob = {
       previewId,

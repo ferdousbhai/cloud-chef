@@ -37,6 +37,31 @@ origin-bound capability and communicates directly with that Worker for chat, pro
 operations. Generated-application D1 and R2 resources are created later only when the validated deployment plan
 requires them. Cloudflare meters those resources to the user's account.
 
+## Runtime Upgrades
+
+Redeploying a workspace Worker resets its Durable Objects, which ends whatever they are running. A CloudChef
+release therefore never redeploys a runtime that is working. `USER_WORKSPACE_RUNTIME_SHA256` is the digest of the
+runtime bundle itself, so a control-plane-only release leaves every runtime alone. When a runtime is from an earlier
+release but serves the same connection generation and speaks the same `USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION`
+(`user-workspace-runtime/src/protocol.ts`), the runtime-session request keeps issuing sessions for it and starts the
+provisioning Workflow in the background; the browser shows no preparation. A missing runtime, one for an earlier
+connection generation, or one speaking another protocol is prepared before a session is issued, as before.
+
+The runtime is the source of truth for whether it is busy, since a turn keeps running with no tab open. Every
+`BuilderAgent` records in the runtime's D1 (`runtime_activity`) whether it is running a turn, validation, preview or
+production publication, or approved Cloudflare request, and for two minutes after it stops. Before redeploying, the
+Workflow asks the runtime, with its secret, for the upgrade window (`POST /v1/upgrade-window`): one statement grants
+it only when no row is active. Work that starts records itself first and then waits out a window claimed for another
+version, so it starts on the new Worker rather than being cut off on the old one. A busy workspace is asked again
+with backoff (30 seconds doubling to 5 minutes); after 12 hours the Workflow ends without upgrading, and the next
+session request starts another. A busy row a Durable Object never cleared stops counting after the turn wall clock
+plus 30 minutes. A runtime from before the window existed cannot answer, so it is upgraded only once the control
+plane has issued no session for it for that long, since a turn needs a session to start.
+
+Because a deferred runtime keeps serving the current browser and control plane, runtime routes, callables, state, and
+control-plane calls must stay compatible with the previous runtime, and user-workspace D1 migrations, applied before
+the deferred redeploy, must be additive. A change the previous runtime cannot serve bumps the protocol version.
+
 ## Accounts, Organizations, and Contexts
 
 A Cloudflare connection belongs to one person (their own account) or to an organization (its admins connect the
