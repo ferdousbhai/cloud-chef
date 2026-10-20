@@ -283,7 +283,7 @@ describe('production deploy wrapper', () => {
      * A clean checkout at the build's commit, and every pnpm step succeeding except `failStep`.
      * `onStep` lets a test finish the build at a chosen point.
      */
-    function workersBuildSpawn(events: string[], { failStep = '', onStep = (_step: string) => {} } = {}) {
+    function workersBuildSpawn(events: string[], { failStep = '', onStep = (_step: string): void => undefined } = {}) {
       return vi.fn((command: string, args: readonly string[]) => {
         if (command === 'git') {
           return { status: 0, stdout: args.includes('rev-parse') ? `${commitSha}\n` : '', stderr: '' };
@@ -296,7 +296,7 @@ describe('production deploy wrapper', () => {
     }
 
     function deferredBuild(events: string[], status = 0) {
-      const build = { finish: () => {} };
+      const build = { finish: (): void => undefined };
       const spawnBuild = vi.fn(
         () =>
           new Promise<{ status: number; output: string }>((resolve) => {
