@@ -126,6 +126,22 @@ describe('user-owned workspace D1 schema', () => {
     ]);
   });
 
+  test('allows one current conversation per GitHub project, beside any archived ones', () => {
+    const db = database();
+    const insert = (id: string, archivedAt: number | null) =>
+      db
+        .prepare(
+          `INSERT INTO chats (id, creator_id, initial_id, timestamp, org_project_id, archived_at)
+           VALUES (?, 'user-1', ?, '2026-10-20T00:00:00.000Z', 'project-1', ?)`,
+        )
+        .run(id, id, archivedAt);
+    insert('earlier', 1);
+    insert('current', null);
+    expect(() => insert('second-current', null)).toThrow(/UNIQUE/);
+    insert('also-earlier', 2);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM chats').get()).toEqual({ count: 3 });
+  });
+
   test('removes the alternate URL identity without changing chat rows', () => {
     const db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys = ON');

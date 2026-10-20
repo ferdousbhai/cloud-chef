@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ensureInitialChat, openLinkedChat } from './chat-repository.server';
+import { ensureInitialChat, listLinkedChatHistory, openLinkedChat, startLinkedChat } from './chat-repository.server';
 import { discardEmptyChat } from './chat-service.server';
 
 describe('ensureInitialChat', () => {
@@ -64,6 +64,62 @@ describe('openLinkedChat', () => {
   });
 });
 
+describe('startLinkedChat', () => {
+  const project = { sessionId: 'session', orgProjectId: 'project-1' };
+
+  it('keeps an empty current conversation, since it is already new', async () => {
+    const { db } = workspaceDatabase();
+    await openLinkedChat(db, { ...project, id: 'first-id' });
+    await expect(startLinkedChat(db, { ...project, id: 'second-id' })).resolves.toEqual({ initialId: 'first-id' });
+  });
+
+  it('archives the current conversation and starts one that continues its workspace', async () => {
+    const { sqlite, db } = workspaceDatabase();
+    await openLinkedChat(db, { ...project, id: 'first-id' });
+    sqlite.prepare("UPDATE chats SET has_messages = 1, description = 'Fix the footer'").run();
+
+    await expect(startLinkedChat(db, { ...project, id: 'second-id' })).resolves.toEqual({ initialId: 'second-id' });
+    expect(
+      sqlite
+        .prepare(
+          'SELECT initial_id, archived_at IS NOT NULL AS archived, continues_agent_name FROM chats ORDER BY archived_at IS NULL',
+        )
+        .all(),
+    ).toEqual([
+      { initial_id: 'first-id', archived: 1, continues_agent_name: null },
+      { initial_id: 'second-id', archived: 0, continues_agent_name: 'first-id' },
+    ]);
+    expect(sqlite.prepare("SELECT agent_name FROM chat_transcripts WHERE agent_name = 'second-id'").get()).toEqual({
+      agent_name: 'second-id',
+    });
+    // Opening the project now returns to the new conversation; the old one is listed as earlier.
+    await expect(openLinkedChat(db, { ...project, id: 'third-id' })).resolves.toEqual({
+      initialId: 'second-id',
+      created: false,
+    });
+    await expect(listLinkedChatHistory(db, project)).resolves.toEqual([
+      { initialId: 'first-id', description: 'Fix the footer', archivedAt: expect.any(Number) },
+    ]);
+  });
+
+  it('continues the agent holding the current workspace when the conversation has a later subchat', async () => {
+    const { sqlite, db } = workspaceDatabase();
+    await openLinkedChat(db, { ...project, id: 'first-id' });
+    sqlite
+      .prepare(
+        `INSERT INTO chat_transcripts (chat_id, subchat_index, generation, agent_name, transition_token, created_at, updated_at)
+         SELECT id, 1, 0, 'first-id--transcript-1-0', 'token', 1, 1 FROM chats`,
+      )
+      .run();
+    sqlite.prepare('UPDATE chats SET has_messages = 1, last_subchat_index = 1').run();
+
+    await startLinkedChat(db, { ...project, id: 'second-id' });
+    expect(sqlite.prepare("SELECT continues_agent_name FROM chats WHERE initial_id = 'second-id'").get()).toEqual({
+      continues_agent_name: 'first-id--transcript-1-0',
+    });
+  });
+});
+
 function workspaceDatabase() {
   const sqlite = new DatabaseSync(':memory:');
   const directory = new URL('../../../../user-workspace-migrations/', import.meta.url).pathname;
@@ -72,6 +128,7 @@ function workspaceDatabase() {
   }
   const bound = (query: string, values: SQLInputValue[]) => ({
     first: async () => sqlite.prepare(query).get(...values) ?? null,
+    all: async () => ({ results: sqlite.prepare(query).all(...values) }),
     run: async () => {
       const result = sqlite.prepare(query).run(...values);
       // SAFETY: the repository reads only `meta.changes`, which this reports from SQLite itself.

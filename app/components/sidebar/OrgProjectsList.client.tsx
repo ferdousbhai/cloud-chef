@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { useStore } from '@nanostores/react';
+import { Link } from '@tanstack/react-router';
+import { format } from 'date-fns';
+import { ChevronDownIcon, PlusIcon } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';
 import { executeDataOperation } from '~/lib/cloudflare/client';
-import { api } from '~/lib/cloudflare/data-api';
+import { api, type DataOperationResult } from '~/lib/cloudflare/data-api';
 import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
 
@@ -16,7 +19,8 @@ type OrgProject = z.infer<typeof projectsSchema>['projects'][number];
 
 /**
  * The organization's GitHub projects this person may work on, above their own apps. Opening one starts
- * (or returns to) the chat whose workspace is that repository.
+ * (or returns to) the project's current conversation, whose workspace is that repository; a new
+ * conversation takes the workspace along, and the earlier ones stay to read.
  */
 export function OrgProjectsList({
   userId,
@@ -32,6 +36,7 @@ export function OrgProjectsList({
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [opening, setOpening] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
   // Opening a project waits on the workspace; while it's set up or updated, say so.
   const workspacePreparing = useStore(userWorkspacePreparingStore);
   const workspaceUpgrading = useStore(userWorkspaceUpgradingStore);
@@ -86,14 +91,13 @@ export function OrgProjectsList({
     return null;
   }
 
-  const open = async (project: OrgProject) => {
+  const open = async (project: OrgProject, fresh: boolean) => {
     setOpening(project.id);
     try {
-      const { initialId } = await executeDataOperation(api.messages.openLinkedChat, {
-        sessionId: userId,
-        id: crypto.randomUUID(),
-        orgProjectId: project.id,
-      });
+      const args = { sessionId: userId, id: crypto.randomUUID(), orgProjectId: project.id };
+      const { initialId } = fresh
+        ? await executeDataOperation(api.messages.startLinkedChat, args)
+        : await executeDataOperation(api.messages.openLinkedChat, args);
       onNavigate();
       window.location.assign(`/chat/${encodeURIComponent(initialId)}`);
     } catch {
@@ -107,25 +111,130 @@ export function OrgProjectsList({
       <h2 className="px-1 pb-2 text-xs font-black tracking-widest text-content-secondary uppercase">GitHub projects</h2>
       <div className="space-y-1.5">
         {shown.map((project) => (
-          <button
-            key={project.id}
-            type="button"
-            disabled={opening !== null}
-            onClick={() => void open(project)}
-            className="flex w-full min-w-0 flex-col rounded-lg px-3 py-2 text-left hover:bg-[var(--bolt-elements-item-backgroundActive)] disabled:opacity-60"
-          >
-            <span className="truncate font-medium text-content-primary">
-              {opening === project.id ? `Opening ${project.name}…` : project.name}
-            </span>
-            <span className="truncate text-xs text-content-tertiary">{project.repoFullName}</span>
-            {opening === project.id && workspacePreparing ? (
-              <span className="mt-1 text-xs text-content-secondary" role="status">
-                {workspacePreparingMessage(workspaceUpgrading)}
-              </span>
+          <div key={project.id} className="min-w-0">
+            <div className="flex min-w-0 items-start gap-1">
+              <button
+                type="button"
+                disabled={opening !== null}
+                onClick={() => void open(project, false)}
+                className="flex min-w-0 flex-1 flex-col rounded-lg px-3 py-2 text-left hover:bg-[var(--bolt-elements-item-backgroundActive)] disabled:opacity-60"
+              >
+                <span className="truncate font-medium text-content-primary">
+                  {opening === project.id ? `Opening ${project.name}…` : project.name}
+                </span>
+                <span className="truncate text-xs text-content-tertiary">{project.repoFullName}</span>
+                {opening === project.id && workspacePreparing ? (
+                  <span className="mt-1 text-xs text-content-secondary" role="status">
+                    {workspacePreparingMessage(workspaceUpgrading)}
+                  </span>
+                ) : null}
+              </button>
+              <Button
+                className="mt-2"
+                size="xs"
+                variant="neutral"
+                inline
+                icon={
+                  <ChevronDownIcon
+                    className={expanded === project.id ? 'rotate-180 transition-transform' : 'transition-transform'}
+                  />
+                }
+                tip="Conversations"
+                aria-label={`${project.name} conversations`}
+                aria-expanded={expanded === project.id}
+                onClick={() => setExpanded((current) => (current === project.id ? null : project.id))}
+              />
+            </div>
+            {expanded === project.id ? (
+              <ProjectConversations
+                userId={userId}
+                project={project}
+                disabled={opening !== null}
+                onStart={() => void open(project, true)}
+                onNavigate={onNavigate}
+              />
             ) : null}
-          </button>
+          </div>
         ))}
       </div>
     </section>
+  );
+}
+
+type EarlierConversation = DataOperationResult<'messages.linkedChatHistory'>[number];
+
+/** Start a new conversation on a project, or read an earlier one (which takes no more messages). */
+function ProjectConversations({
+  userId,
+  project,
+  disabled,
+  onStart,
+  onNavigate,
+}: {
+  userId: string;
+  project: OrgProject;
+  disabled: boolean;
+  onStart: () => void;
+  onNavigate: () => void;
+}) {
+  const [earlier, setEarlier] = useState<EarlierConversation[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void executeDataOperation(api.messages.linkedChatHistory, { sessionId: userId, orgProjectId: project.id })
+      .then((conversations) => {
+        if (!cancelled) {
+          setEarlier(conversations);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLoadFailed(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, project.id]);
+
+  return (
+    <div className="ml-3 grid gap-1 border-l border-bolt-elements-borderColor py-1 pl-3 text-xs">
+      <Button
+        className="justify-self-start"
+        size="xs"
+        variant="neutral"
+        icon={<PlusIcon />}
+        disabled={disabled}
+        onClick={onStart}
+      >
+        New conversation
+      </Button>
+      <p className="text-content-tertiary">Changes you haven&apos;t published come along.</p>
+      {loadFailed ? (
+        <p className="text-content-secondary">Earlier conversations could not be loaded.</p>
+      ) : earlier && earlier.length > 0 ? (
+        <>
+          <h3 className="mt-1 font-medium text-content-secondary">Earlier conversations</h3>
+          <ul className="grid gap-0.5">
+            {earlier.map((conversation) => (
+              <li key={conversation.initialId} className="min-w-0">
+                <Link
+                  to="/chat/$id"
+                  params={{ id: conversation.initialId }}
+                  onClick={onNavigate}
+                  className="flex min-w-0 gap-2 rounded px-1 py-0.5 text-content-secondary hover:bg-[var(--bolt-elements-item-backgroundActive)]"
+                >
+                  <span className="min-w-0 flex-1 truncate">{conversation.description || 'Untitled conversation'}</span>
+                  <span className="shrink-0 text-content-tertiary">
+                    {format(new Date(conversation.archivedAt), 'PP')}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </div>
   );
 }

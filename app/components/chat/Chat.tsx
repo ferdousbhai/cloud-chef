@@ -282,6 +282,8 @@ const AuthenticatedChat = memo(
       initialMessages.length > 0 || hasMultipleSubchats || pendingInitialMessage !== null,
     );
     const { showChat } = useStore(chatStore);
+    // A newer conversation on this GitHub project took over: this one stays to read, not to work in.
+    const archivedLinkedChat = useStore(workbenchStore.linkedProject)?.archived === true;
 
     const {
       messages,
@@ -384,7 +386,11 @@ const AuthenticatedChat = memo(
         currentError={error}
         buildProgress={buildProgress}
         messages={visibleMessages}
-        disabledReason={null}
+        disabledReason={
+          archivedLinkedChat
+            ? 'This conversation continues in a newer one. Open the project from GitHub projects in the sidebar to keep working.'
+            : null
+        }
         deployment={deployment}
         publication={publication}
         onDeploy={deployValidatedRevision}

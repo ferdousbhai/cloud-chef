@@ -83,6 +83,7 @@ const migrationPolicies = [
       '0008_cloudflare_mcp_runtime_controls.sql': '43f98431a6cce8cdec9ff1d65d42b79aa13740e87c12278a2a134b43394761c6',
       '0009_cloudflare_api_runtime_controls.sql': 'ba63b747dab79622f544d3379a0bae48512b5d6a6d09d67ed3dcaf83c82e46f1',
       '0010_linked_projects.sql': '3207539eadd37e6dd7eae1e241b2924ce13400f70af79ecca57ca6840444e371',
+      '0011_linked_chat_history.sql': '48e8758a86aa97c46923d1b4170766c03d30d43f0111da9a9d057df06b4bc37e',
     },
     contractAllowlist: {
       // Chat identity has one immutable key; remove the unused alternate URL column and index.
@@ -90,6 +91,9 @@ const migrationPolicies = [
       // BuilderAgent now owns transcript content and revisions. Rebuild the D1
       // catalog table once to remove checkpoint columns that no runtime reads.
       '0007_builder_agent_transcript_authority.sql': 'ab725f59263f1c754bbef8b3a930bc00bcc63c2978e597b3e169a0d4c84ec616',
+      // One conversation per GitHub project becomes one current conversation: the narrower index is
+      // created first, so the rule is never unenforced, and the old one can only go.
+      '0011_linked_chat_history.sql': '48e8758a86aa97c46923d1b4170766c03d30d43f0111da9a9d057df06b4bc37e',
     },
   },
   {

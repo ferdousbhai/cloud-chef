@@ -253,7 +253,8 @@ export type BuilderAgentState = {
 };
 
 /** What the browser shows of a GitHub project: which repository, and the branch its pipeline deploys. */
-export type BuilderLinkedProjectSummary = { repository: string; defaultBranch: string };
+/** `archived`: a newer conversation on the project took over from this one, which is kept only to read. */
+export type BuilderLinkedProjectSummary = { repository: string; defaultBranch: string; archived?: boolean };
 
 /** Durable transcript as the agent currently holds it, returned after a cancel or an explicit reload. */
 type BuilderTranscriptSnapshot = {
@@ -483,6 +484,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const body = options?.body ?? {};
     const messages = this.messages;
+    // A conversation a newer one took over is kept to read: working here would edit an old copy of the
+    // project and publish it over the newer one's work.
+    if ((await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId: durableIdentity.ownerId })).archived) {
+      throw new Response('This conversation continues in a newer one. Open the project to keep working.', {
+        status: 409,
+      });
+    }
     const { chatInitialId, subchatIndex, transcript, modelId } = requireBuilderRequestScope(
       body,
       durableIdentity.transcript,
@@ -853,12 +861,22 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   /** Tells the browser whether this is a GitHub project, so it never offers what only a CloudChef app has. */
   private async publishLinkedProjectState(): Promise<void> {
     const linked = await this.workspace.linkedProject();
-    this.showLinkedProject(linked ? { repository: linked.repository, defaultBranch: linked.defaultBranch } : null);
+    const archived =
+      linked !== null &&
+      this.userId !== null &&
+      (await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId: this.userId })).archived;
+    this.showLinkedProject(
+      linked ? { repository: linked.repository, defaultBranch: linked.defaultBranch, archived } : null,
+    );
   }
 
   private showLinkedProject(next: BuilderLinkedProjectSummary | null): void {
     const current = this.state.linkedProject ?? null;
-    if (current?.repository === next?.repository && current?.defaultBranch === next?.defaultBranch) {
+    if (
+      current?.repository === next?.repository &&
+      current?.defaultBranch === next?.defaultBranch &&
+      (current?.archived ?? false) === (next?.archived ?? false)
+    ) {
       return;
     }
     this.setState({ ...this.state, linkedProject: next });
@@ -1257,9 +1275,27 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         },
       );
     }
-    const orgProjectId = this.userId
+    const { orgProjectId, continuesAgentName } = this.userId
       ? await loadChatOrgProject(this.env.DB, { agentName: binding.agentName, ownerId: this.userId })
-      : null;
+      : { orgProjectId: null, continuesAgentName: null };
+    if (orgProjectId && continuesAgentName) {
+      // A new conversation on the project starts from the last one's workspace, relative to the same
+      // commit, so what it hadn't published yet carries over. One that never opened the project has none.
+      const previousAgent: Pick<BuilderAgent, 'getLinkedProject' | 'getWorkspaceState'> =
+        this.env.BuilderAgent.getByName(continuesAgentName);
+      const linked = (await previousAgent.getWorkspaceState()).initialized
+        ? await previousAgent.getLinkedProject()
+        : null;
+      if (linked?.orgProjectId === orgProjectId) {
+        const previous = await this.loadParentWorkspace(continuesAgentName);
+        return seedBuilderWorkspace(
+          this.workspace,
+          parentBuilderWorkspaceSeedId(previous.targetRevision),
+          previous.entries,
+          () => this.workspace.setLinkedProject(linked),
+        );
+      }
+    }
     if (orgProjectId) {
       const identity = runtimeIdentity(this.env);
       if (!identity) {
