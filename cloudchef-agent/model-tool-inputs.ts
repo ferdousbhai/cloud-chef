@@ -57,7 +57,10 @@ export const MODEL_TOOL_INPUT_SCHEMAS = {
   }),
   grep: z.object({
     pattern: z.string().min(1).describe('Literal single-line text to find. Not a regular expression or glob.'),
-    path: z.string().optional().describe('Absolute project directory to search. Defaults to the project root.'),
+    path: z
+      .string()
+      .optional()
+      .describe('Absolute project directory, or one file, to search. Defaults to the project root.'),
     ignoreCase: z.boolean().optional().describe('Match without regard to letter case.'),
     limit: z.number().int().min(1).optional().describe('Maximum matches to return.'),
   }),

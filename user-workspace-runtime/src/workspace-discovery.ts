@@ -184,7 +184,7 @@ export async function scanProjectFiles(
   options: ProjectSearchOptions,
 ): Promise<ProjectSearchResult> {
   const needle = options.ignoreCase ? options.pattern.toLowerCase() : options.pattern;
-  const walk = walkProject(fs, scope, true);
+  const walk = await searchWalk(fs, scope);
   const matches: ProjectSearchMatch[] = [];
   let filesOpened = 0;
   let filesScanned = 0;
@@ -308,6 +308,24 @@ function walkProject(fs: DiscoveryFilesystem, scope: DiscoveryScope, recursive: 
   }
 
   return { entries: visit(scope.path, 1), stopped: () => stopped };
+}
+
+/**
+ * What one search reads: the tree beneath a directory, or exactly the one file the path names.
+ *
+ * Models grep the file they just read as naturally as a directory, and the VFS refuses to list a
+ * file (`ENOTDIR`), so a file scope is answered as that file rather than walked. Anything that is
+ * not a file, including a path that does not exist, takes the walk, which reports it as it would.
+ */
+async function searchWalk(fs: DiscoveryFilesystem, scope: DiscoveryScope): Promise<ProjectWalk> {
+  if (scope.path !== scope.root && (await fileSize(fs, scope.path)) !== null) {
+    return { entries: singleEntry({ path: scope.path, type: 'file' }), stopped: () => false };
+  }
+  return walkProject(fs, scope, true);
+}
+
+async function* singleEntry(entry: ProjectEntry): AsyncGenerator<ProjectEntry> {
+  yield entry;
 }
 
 function isPrunedTree(path: string, scope: DiscoveryScope): boolean {

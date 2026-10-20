@@ -227,6 +227,32 @@ describe('workspace discovery search', () => {
     );
     expect(bytes).toBeLessThanOrEqual(DISCOVERY_MAX_OUTPUT_BYTES);
   });
+
+  it('searches just the one file when the path names a file rather than a directory', async () => {
+    const fs = fakeFilesystem({
+      '/home/project/src/lib/media.ts': 'const a = 1;\nexport const hotspotPosition = 0;\n',
+      '/home/project/src/lib/other.ts': 'hotspotPosition;\n',
+    });
+
+    const result = await scanProjectFiles(fs, scope('/home/project/src/lib/media.ts'), {
+      pattern: 'hotspotPosition',
+      ignoreCase: false,
+      limit: 10,
+    });
+
+    expect(result.matches).toEqual([
+      { path: '/home/project/src/lib/media.ts', line: 2, text: 'export const hotspotPosition = 0;' },
+    ]);
+    expect(result).toMatchObject({ path: '/home/project/src/lib/media.ts', filesScanned: 1, truncated: false });
+  });
+
+  it('still surfaces a search path that does not exist', async () => {
+    const fs = fakeFilesystem({ '/home/project/src/app.ts': 'needle\n' });
+
+    await expect(
+      scanProjectFiles(fs, scope('/home/project/src/missing.ts'), { pattern: 'needle', ignoreCase: false, limit: 10 }),
+    ).rejects.toThrow(/ENOENT/);
+  });
 });
 
 describe('workspace discovery request validation', () => {
@@ -267,8 +293,15 @@ function fakeFilesystem(files: Record<string, string>): DiscoveryFilesystem {
   }
   const missing = (path: string) => Object.assign(new Error(`ENOENT: no such path: ${path}`), { code: 'ENOENT' });
 
+  // The Computer VFS refuses to list a file, so this does too.
+  const notDirectory = (path: string) =>
+    Object.assign(new Error(`not a directory: ${path}: ${path}`), { code: 'ENOTDIR' });
+
   return {
     async readdir(path) {
+      if (files[path] !== undefined) {
+        throw notDirectory(path);
+      }
       if (!directories.has(path)) {
         throw missing(path);
       }
@@ -285,6 +318,9 @@ function fakeFilesystem(files: Record<string, string>): DiscoveryFilesystem {
       return [...names].map(([name, isDirectory]) => ({ name, isFile: !isDirectory, isDirectory }));
     },
     async stat(path) {
+      if (directories.has(path)) {
+        return { size: 0, isFile: false };
+      }
       const content = files[path];
       if (content === undefined) {
         throw missing(path);
