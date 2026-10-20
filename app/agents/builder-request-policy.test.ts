@@ -58,6 +58,20 @@ describe('BuilderAgent request policy', () => {
     });
   });
 
+  it('runs a request recorded with a retired builder model on the model that replaced it', () => {
+    expect(
+      requireBuilderRequestScope(
+        {
+          chatInitialId: 'chat',
+          subchatIndex: 2,
+          modelId: '@cf/deepseek-ai/deepseek-v4-flash-0731',
+          transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
+        },
+        binding,
+      ).modelId,
+    ).toBe('@cf/deepseek-ai/deepseek-v4.1-flash-1017');
+  });
+
   it.each([
     [{ chatInitialId: 'other-chat' }, 409],
     [{ subchatIndex: 10_001 }, 400],

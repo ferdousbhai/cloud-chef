@@ -96,15 +96,9 @@ export function findWorkersBuildsConfigErrors({
     errors,
     'package.json scripts.workers-builds:deploy',
     scripts?.['workers-builds:deploy'],
-    [
-      'node scripts/deploy-production.mjs --check-workers-builds',
-      'pnpm run provision:production:check',
-      'pnpm run verify:production-config',
-      'pnpm run verify:workers-builds-config',
-      'pnpm run d1:bookmark:production',
-      'pnpm run d1:migrations:apply:production',
-      'node scripts/deploy-production.mjs',
-    ].join(' && '),
+    // Validates the release inputs, runs WORKERS_BUILDS_PRE_DEPLOY_STEPS beside the Worker build,
+    // then deploys the build and verifies it live.
+    'node scripts/deploy-production.mjs --workers-builds',
   );
   requireEqual(
     errors,

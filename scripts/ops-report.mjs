@@ -2,9 +2,10 @@
  * Read-only operational report for the CloudChef platform.
  *
  * This replaces the deployed `admin.cloudchef.build` dashboard. It reads the production
- * control-plane D1 database and the control-plane Worker's own invocation analytics through the
- * operator's own Wrangler authentication, so there is nothing to deploy and no secret to hold.
- * Every statement it issues is a `SELECT` and every API call it makes is a read.
+ * control-plane D1 database, the control-plane Worker's own Workers Logs, and the Workers AI
+ * catalog through the operator's own `cf` CLI login (`cf auth login`, or `CLOUDFLARE_API_TOKEN`),
+ * so there is nothing to deploy and no secret to hold. Every statement it issues is a `SELECT`,
+ * every command it runs is a read, and the one log query is a dry run that saves nothing.
  *
  * The primary reader is a coding agent, so the report leads with what is wrong, says which
  * parts it could not read instead of printing a reassuring zero, and offers `--json`.
@@ -14,10 +15,12 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
 
 const execFileAsync = promisify(execFile);
 
 const DATABASE_NAME = 'cloudchef';
+const PLACEHOLDER_D1_ID = '00000000-0000-0000-0000-000000000000';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RUNTIME_BUNDLE_PATH = resolve(ROOT, 'app/generated/user-workspace-runtime.generated.ts');
 const RUNTIME_SHA_PATTERN = /USER_WORKSPACE_RUNTIME_SHA256 = "([a-f0-9]{64})"/;
@@ -28,7 +31,6 @@ const RUNTIME_SHA_PATTERN = /USER_WORKSPACE_RUNTIME_SHA256 = "([a-f0-9]{64})"/;
 const WORKERS_AI_MODEL_PATH = resolve(ROOT, 'app/lib/workers-ai-model.ts');
 const PINNED_BUILDER_MODEL_PATTERN = /CLOUDFLARE_WORKERS_AI_MODEL = '(@cf\/[^']+)'/;
 const BUILDER_CONTEXT_FLOOR_PATTERN = /MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS = ([\d_]+)/;
-const MODEL_CATALOG_ENDPOINT = 'https://api.cloudflare.com/client/v4/accounts';
 /** One page covers the Workers AI text-generation catalog with room to spare. */
 const MODEL_CATALOG_PAGE_SIZE = 100;
 
@@ -45,11 +47,14 @@ const WORKER_SCRIPT_NAME = 'cloudchef';
 /** How far back the invocation read looks. */
 const WORKER_INVOCATION_WINDOW_MS = DAY;
 /**
- * Invocation outcomes that are not the Worker failing: it answered, or the caller went away.
- * The list is deliberately the benign one rather than the failing one, so an outcome Cloudflare
- * adds later is counted as a fault and named, instead of quietly dropping out of the total.
+ * Invocation outcomes (`$workers.outcome` in Workers Logs) that are not the Worker failing: it
+ * answered, or the caller went away. The list is deliberately the benign one rather than the
+ * failing one, so an outcome Cloudflare adds later is counted as a fault and named, instead of
+ * quietly dropping out of the total.
  */
-const BENIGN_INVOCATION_STATUSES = ['success', 'clientDisconnected', 'canceled', 'responseStreamDisconnected'];
+const BENIGN_INVOCATION_STATUSES = ['ok', 'canceled', 'clientDisconnected', 'responseStreamDisconnected'];
+/** The Workers Logs field each invocation's outcome is recorded under. */
+const OUTCOME_FIELD = '$workers.outcome';
 /** A fault share at or above this is an outage rather than the occasional bad request. */
 const INVOCATION_FAULT_ERROR_RATE = 0.01;
 /** Below this the adaptive dataset counted every invocation, so calling the counts sampled would mislead. */
@@ -110,18 +115,6 @@ function formatDuration(ms) {
 /** Collapse whitespace and bound a provider string before it reaches a terminal. */
 function bounded(value, limit = 240) {
   return String(value).replaceAll(/\s+/g, ' ').trim().slice(0, limit);
-}
-
-/**
- * Whatever a Cloudflare REST or GraphQL envelope says about why it refused, joined into one string,
- * or `''` when it said nothing. Both operator reads quote it: the status code alone names a class of
- * failure, never which scope or account the credential is actually missing.
- */
-function cloudflareErrorMessages(payload) {
-  return (Array.isArray(payload?.errors) ? payload.errors : [])
-    .map((entry) => entry?.message)
-    .filter((message) => typeof message === 'string')
-    .join('; ');
 }
 
 /** A generation or content hash is unreadable in full and unambiguous at twelve characters. */
@@ -219,20 +212,24 @@ function classifyConnections(rows) {
 }
 
 /**
- * Strict read of one `workersInvocationsAdaptive` group. The analytics schema is not ours, so a
- * shape that does not match is reported as drift rather than counted as zero invocations.
+ * Strict read of one Workers Logs aggregate, one per invocation outcome. The telemetry schema is
+ * not ours, so a shape that does not match is reported as drift rather than counted as zero
+ * invocations.
  * @param {Record<string, unknown>} row
  */
 function readInvocationGroup(row) {
-  const status = row?.dimensions?.status;
+  const groups = Array.isArray(row?.groups) ? row.groups : [];
+  const status = groups.find((group) => group?.key === OUTCOME_FIELD)?.value;
   if (typeof status !== 'string' || status === '') {
-    throw new Error('workersInvocationsAdaptive groups have no `dimensions.status`, so this report cannot read them.');
+    throw new Error(`Workers Logs aggregates have no \`${OUTCOME_FIELD}\` group, so this report cannot read them.`);
   }
-  const requests = row?.sum?.requests;
+  const requests = row?.count;
   if (!Number.isFinite(requests)) {
-    throw new Error(`workersInvocationsAdaptive.sum.requests holds ${describeValue(requests)}, not a number.`);
+    throw new Error(
+      `The Workers Logs count for ${bounded(status, 40)} holds ${describeValue(requests)}, not a number.`,
+    );
   }
-  const sampleInterval = row?.avg?.sampleInterval;
+  const sampleInterval = row?.sampleInterval;
   return {
     status,
     requests: Number(requests),
@@ -245,10 +242,9 @@ function readInvocationGroup(row) {
  *
  * This is the one part of the platform CloudChef can observe without asking anybody for
  * anything: `cloudchef` is its own Worker in its own account. It answers "is it serving, and is
- * it throwing" from invocation outcomes. It deliberately does not claim to answer "what did it
- * throw" — the message text lives in Workers Logs, which needs an observability grant this
- * credential does not carry, so the sentence says that out loud rather than implying the counts
- * are the whole story.
+ * it throwing" from the outcome Workers Logs records for each invocation. Logs are head-sampled
+ * (`cloudflare.config.ts`), so the counts are of logged invocations rather than every one, which
+ * leaves the fault share, the thing the status is judged on, unchanged.
  *
  * @param {ReadonlyArray<Record<string, unknown>>} rows one group per invocation status
  * @param {{ windowMs?: number }} [options]
@@ -276,9 +272,8 @@ function describeWorkerInvocations(rows, { windowMs = WORKER_INVOCATION_WINDOW_M
     faulted,
     byStatus,
     sampleInterval: sampleInterval || null,
-    // Named here because the analytics answer and the logs answer are different questions, and
-    // an operator reading "no faults" should know which one they were given.
-    logsAvailable: false,
+    // The counts come from Workers Logs, so the exception text is one query away.
+    logsAvailable: true,
   };
 
   if (groups.length === 0) {
@@ -291,11 +286,11 @@ function describeWorkerInvocations(rows, { windowMs = WORKER_INVOCATION_WINDOW_M
     };
   }
 
-  const note = sampled ? ` Counts are extrapolated from roughly 1 invocation in ${sampleInterval.toFixed(1)}.` : '';
+  const note = sampled ? ` The log query sampled roughly 1 invocation in ${sampleInterval.toFixed(1)}.` : '';
   if (faulted === 0) {
     return {
       level: 'ok',
-      sentence: `${WORKER_SCRIPT_NAME} served ${total} ${plural(total, 'invocation')} in the last ${window} and none of them failed inside the Worker.${note}`,
+      sentence: `${WORKER_SCRIPT_NAME} logged ${total} ${plural(total, 'invocation')} in the last ${window} and none of them failed inside the Worker.${note}`,
       detail,
     };
   }
@@ -306,14 +301,14 @@ function describeWorkerInvocations(rows, { windowMs = WORKER_INVOCATION_WINDOW_M
     .join(', ');
   return {
     level: faulted >= total * INVOCATION_FAULT_ERROR_RATE ? 'error' : 'attention',
-    sentence: `${WORKER_SCRIPT_NAME} failed inside the Worker on ${faulted} of ${total} ${plural(total, 'invocation')} in the last ${window} (${named}).${note} Workers Logs holds the exception text, and reading it needs an observability grant this credential does not carry.`,
+    sentence: `${WORKER_SCRIPT_NAME} failed inside the Worker on ${faulted} of ${total} ${plural(total, 'invocation')} in the last ${window} (${named}).${note} Read the exception text with \`cf observability telemetry query\` (view \`events\`, filtered on \`${OUTCOME_FIELD}\`).`,
     detail,
   };
 }
 
 /**
  * The statements read in one batch. They target tables that have existed since the first
- * migration, so a failure here means Wrangler or the network, not a schema gap.
+ * migration, so a failure here means the cf CLI, its login, or the network, not a schema gap.
  * @param {number} now
  */
 export function coreStatements(now) {
@@ -339,223 +334,153 @@ export function coreStatements(now) {
 }
 
 /**
+ * Run one read through the operator's `cf` CLI login. `cf` resolves the account itself, from
+ * `CLOUDFLARE_ACCOUNT_ID` or the single account the login can see, and asks when that is ambiguous,
+ * so the report holds no account or credential of its own.
+ *
+ * @param {readonly string[]} args the `cf` command and its flags
+ * @param {{ run?: typeof execFileAsync; env?: Record<string, string | undefined> }} [options]
+ * @returns {Promise<unknown>} the parsed JSON answer
+ */
+async function runCf(args, { run = execFileAsync, env = process.env } = {}) {
+  let stdout;
+  try {
+    ({ stdout } = await run('pnpm', ['exec', 'cf', ...args], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      // cf reports usage unless told not to; a read-only status report must not phone home.
+      env: { ...env, CF_SEND_TELEMETRY: 'false' },
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: 120_000,
+    }));
+  } catch (error) {
+    throw new Error(describeCfFailure(error));
+  }
+  const parsed = extractJson(stdout);
+  if (parsed === null) {
+    throw new Error(`\`cf ${args.slice(0, 3).join(' ')}\` did not return JSON: ${bounded(stdout, 200)}`);
+  }
+  return parsed;
+}
+
+/**
+ * The control-plane database's id. `cf d1 query` addresses a database by id, so it is read from
+ * `cloudflare.config.ts` rather than repeated here.
+ */
+async function resolveDatabaseId() {
+  const config = await loadCommittedWranglerConfig();
+  const database = config?.d1_databases?.find((binding) => binding?.binding === 'DB');
+  if (!database?.database_id || database.database_id === PLACEHOLDER_D1_ID) {
+    throw new Error('cloudflare.config.ts binds DB to no provisioned D1 database id, so there is nothing to read.');
+  }
+  return database.database_id;
+}
+
+/**
  * Run read-only SQL against production D1 as the authenticated operator.
  *
  * @param {string} sql one or more `;`-separated SELECT statements
- * @param {{ run?: typeof execFileAsync }} [options]
+ * @param {{ run?: typeof execFileAsync; env?: Record<string, string | undefined>; databaseId?: string }} [options]
  * @returns {Promise<Array<Array<Record<string, unknown>>>>} rows per statement
  */
-async function queryProduction(sql, { run = execFileAsync } = {}) {
-  let stdout;
-  try {
-    ({ stdout } = await run(
-      'pnpm',
-      ['exec', 'wrangler', 'd1', 'execute', DATABASE_NAME, '--remote', '--json', '--command', sql],
-      { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 120_000 },
-    ));
-  } catch (error) {
-    throw new Error(describeWranglerFailure(error));
-  }
-  return parseD1Response(stdout);
-}
-
-const GRAPHQL_ENDPOINT = 'https://api.cloudflare.com/client/v4/graphql';
-
-/**
- * One day of the control-plane Worker's invocations, grouped by outcome.
- *
- * `workersInvocationsAdaptive` is the Workers analytics dataset, not Workers Logs. It is read
- * here because it is what the operator's existing Wrangler grant can already see: the same
- * credential is refused by `workers/observability/telemetry/query`, which needs an observability
- * permission Wrangler's OAuth grant does not include.
- */
-export const WORKER_INVOCATIONS_QUERY = `query CloudChefInvocations($account: string!, $script: string!, $from: Time!, $to: Time!) {
-  viewer {
-    accounts(filter: { accountTag: $account }) {
-      workersInvocationsAdaptive(
-        limit: 100
-        filter: { scriptName: $script, datetime_geq: $from, datetime_leq: $to }
-      ) {
-        dimensions { status }
-        sum { requests }
-        avg { sampleInterval }
-      }
-    }
-  }
-}`;
-
-/**
- * The account holding the control-plane Worker.
- *
- * Wrangler picks an account per command from the same two places, so this follows it rather than
- * inventing a third: `CLOUDFLARE_ACCOUNT_ID` wins, and otherwise a single authenticated account
- * is unambiguous. More than one is a question only the operator can answer, so it is asked
- * instead of guessed.
- *
- * @param {{ run: typeof execFileAsync; env: Record<string, string | undefined> }} options
- * @returns {Promise<string>}
- */
-async function resolveAnalyticsAccount({ run, env }) {
-  const configured = env.CLOUDFLARE_ACCOUNT_ID?.trim();
-  if (configured) {
-    return configured;
-  }
-  let stdout;
-  try {
-    ({ stdout } = await run('pnpm', ['exec', 'wrangler', 'whoami', '--json'], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      timeout: 120_000,
-    }));
-  } catch (error) {
-    throw new Error(describeWranglerFailure(error));
-  }
-  const accounts = (extractJson(stdout)?.accounts ?? []).filter((account) => typeof account?.id === 'string');
-  if (accounts.length === 1) {
-    return accounts[0].id;
-  }
-  if (accounts.length === 0) {
-    throw new Error('Wrangler is not authenticated against any Cloudflare account, so the Worker cannot be read.');
-  }
-  const names = accounts.map((account) => account.name ?? account.id).join(', ');
-  throw new Error(
-    `Wrangler is authenticated against ${accounts.length} accounts (${names}); set CLOUDFLARE_ACCOUNT_ID to say which one runs the control-plane Worker.`,
-  );
+export async function queryProduction(sql, { run = execFileAsync, env = process.env, databaseId } = {}) {
+  const id = databaseId ?? (await resolveDatabaseId());
+  return parseD1Response(await runCf(['d1', 'query', id, '--sql', sql], { run, env }));
 }
 
 /**
- * The operator's own Cloudflare credential, borrowed for one read and never stored.
+ * One day of the control-plane Worker's invocations, counted per outcome from Workers Logs.
  *
- * `wrangler auth token` is the supported accessor for whatever Wrangler is already using —
- * an API token from the environment, an OAuth token from the login state, or a global API key —
- * so this keeps the report's posture intact: no secret of its own, no secret to deploy.
+ * Only invocation events (`cf-worker-event`) carry an outcome, so console lines are not counted as
+ * invocations. `dry` runs the query without saving it or its results to the account, which keeps
+ * the read a read.
  *
- * @param {{ run: typeof execFileAsync }} options
- * @returns {Promise<Record<string, string>>} request headers
+ * @param {number} now
  */
-async function readOperatorCredential({ run }) {
-  let stdout;
-  try {
-    ({ stdout } = await run('pnpm', ['exec', 'wrangler', 'auth', 'token', '--json'], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      timeout: 120_000,
-    }));
-  } catch (error) {
-    // This command writes the credential itself to stdout, so only stderr is ever quoted back.
-    const reason = bounded(error?.stderr, 200) || 'Wrangler gave no reason.';
-    throw new Error(`Wrangler could not produce a credential for the Worker read: ${reason}`);
-  }
-  const credential = extractJson(stdout);
-  if (credential?.type === 'api_key') {
-    if (typeof credential.key !== 'string' || typeof credential.email !== 'string') {
-      throw new Error('Wrangler reported a global API key without an email, which cannot be used to authenticate.');
-    }
-    return { 'x-auth-key': credential.key, 'x-auth-email': credential.email };
-  }
-  if (typeof credential?.token !== 'string' || credential.token === '') {
-    throw new Error('Wrangler returned no usable credential; run `wrangler login`.');
-  }
-  return { authorization: `Bearer ${credential.token}` };
+export function workerInvocationsQuery(now) {
+  return {
+    queryId: 'cloudchef-ops-report-invocations',
+    dry: true,
+    view: 'calculations',
+    ignoreSeries: true,
+    timeframe: { from: now - WORKER_INVOCATION_WINDOW_MS, to: now },
+    parameters: {
+      datasets: ['cloudflare-workers'],
+      filters: [
+        { key: '$workers.scriptName', operation: 'eq', type: 'string', value: WORKER_SCRIPT_NAME },
+        { key: '$metadata.type', operation: 'eq', type: 'string', value: 'cf-worker-event' },
+      ],
+      calculations: [{ operator: 'count', alias: 'invocations' }],
+      groupBys: [{ type: 'string', value: OUTCOME_FIELD }],
+      limit: 100,
+    },
+  };
 }
 
 /**
  * Read the control-plane Worker's invocations as the authenticated operator.
  *
- * `account` and `headers` accept the resolution `main` shares between the two operator reads, as
- * values or as promises; omitting them resolves a private pair, which is what every standalone
- * caller does.
- *
- * @param {{
- *   now?: number;
- *   run?: typeof execFileAsync;
- *   fetchImpl?: typeof fetch;
- *   env?: Record<string, string | undefined>;
- *   account?: string | Promise<string>;
- *   headers?: Record<string, string> | Promise<Record<string, string>>;
- * }} [options]
- * @returns {Promise<Array<Record<string, unknown>>>} one group per invocation status
+ * @param {{ now?: number; run?: typeof execFileAsync; env?: Record<string, string | undefined> }} [options]
+ * @returns {Promise<Array<Record<string, unknown>>>} one aggregate per invocation outcome
  */
-export async function readWorkerInvocations({
-  now = Date.now(),
-  run = execFileAsync,
-  fetchImpl = fetch,
-  env = process.env,
-  account: sharedAccount,
-  headers: sharedHeaders,
-} = {}) {
-  const [account, headers] = await Promise.all([
-    sharedAccount ?? resolveAnalyticsAccount({ run, env }),
-    sharedHeaders ?? readOperatorCredential({ run }),
-  ]);
-  const response = await fetchImpl(GRAPHQL_ENDPOINT, {
-    method: 'POST',
-    headers: { ...headers, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      query: WORKER_INVOCATIONS_QUERY,
-      variables: {
-        account,
-        script: WORKER_SCRIPT_NAME,
-        from: new Date(now - WORKER_INVOCATION_WINDOW_MS).toISOString(),
-        to: new Date(now).toISOString(),
-      },
-    }),
-  });
-  return readInvocationGroups(response.ok ? await response.json().catch(() => null) : null, response.status);
+export async function readWorkerInvocations({ now = Date.now(), run = execFileAsync, env = process.env } = {}) {
+  const payload = await runCf(
+    ['observability', 'telemetry', 'query', '--body', JSON.stringify(workerInvocationsQuery(now))],
+    { run, env },
+  );
+  return readInvocationGroups(payload);
 }
 
 /**
- * The rows out of one GraphQL answer, or the reason there are none.
- *
- * GraphQL answers a refused read with HTTP 200 and an `errors` array, so the envelope is checked
- * before the payload: an account this credential may not read must not arrive as an empty window.
+ * The aggregates out of one telemetry answer, or the reason there are none. A query that did not
+ * complete must not arrive as an empty window, which would read as a Worker that stopped serving.
  *
  * @param {unknown} payload
- * @param {number} httpStatus
  */
-function readInvocationGroups(payload, httpStatus) {
-  if (payload === null) {
-    throw new Error(`Cloudflare analytics answered HTTP ${httpStatus} with no readable body.`);
+function readInvocationGroups(payload) {
+  const status = payload?.run?.status;
+  if (status !== undefined && status !== 'COMPLETED') {
+    throw new Error(`The Workers Logs query finished as ${bounded(status, 40)}, not COMPLETED.`);
   }
-  const messages = cloudflareErrorMessages(payload);
-  if (messages !== '') {
-    throw new Error(bounded(`Cloudflare analytics refused the read: ${messages}`, 400));
+  const calculations = payload?.calculations;
+  if (!Array.isArray(calculations)) {
+    throw new Error('The Workers Logs query returned no `calculations`, so the invocations cannot be counted.');
   }
-  const groups = payload?.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive;
-  if (!Array.isArray(groups)) {
-    throw new Error('Cloudflare analytics returned no `workersInvocationsAdaptive` result for this account.');
+  const aggregates = calculations[0]?.aggregates ?? [];
+  if (!Array.isArray(aggregates)) {
+    throw new Error('The Workers Logs query returned `aggregates` that are not a list.');
   }
-  return groups;
+  return aggregates;
 }
 
-/** Turn a failed `wrangler d1 execute --json` into the one sentence an operator can act on. */
-function describeWranglerFailure(error) {
-  const output = [error?.stdout, error?.stderr].filter((value) => typeof value === 'string').join('\n');
-  const envelope = extractJson(output);
-  const notes = Array.isArray(envelope?.error?.notes)
-    ? envelope.error.notes.map((note) => note?.text).filter((text) => typeof text === 'string')
-    : [];
-  const message = [envelope?.error?.text, ...notes].filter(Boolean).join(' ');
-  if (message) {
-    return bounded(notes.length > 0 ? notes.join('; ') : message, 400);
+/**
+ * Turn a failed `cf` command into the sentence an operator can act on. `cf` reports a failure as
+ * a boxed block on stderr (`┌ APIError`, `│ [7500] no such table: …`, `└`); the box lines carry
+ * the reason and everything else is pnpm's own wrapper noise.
+ */
+function describeCfFailure(error) {
+  const stderr = typeof error?.stderr === 'string' ? error.stderr : '';
+  const boxed = stderr
+    .split('\n')
+    .filter((line) => line.startsWith('│'))
+    .map((line) => line.slice(1).trim())
+    .filter(Boolean);
+  if (boxed.length > 0) {
+    return bounded(boxed.join(' '), 400);
   }
-  const raw = bounded(output, 400);
-  if (raw) {
-    return raw;
-  }
-  return bounded(error?.message ?? 'Wrangler produced no output.', 400);
+  return bounded(stderr || error?.message || 'cf produced no output.', 400);
 }
 
-/** `wrangler --json` returns one envelope per statement; this keeps only the rows. */
-export function parseD1Response(stdout) {
-  const parsed = extractJson(stdout);
+/** `cf d1 query` returns one envelope per statement; this keeps only the rows. */
+export function parseD1Response(answer) {
+  const parsed = typeof answer === 'string' ? extractJson(answer) : answer;
   if (!Array.isArray(parsed)) {
-    throw new Error('Wrangler did not return a D1 result array.');
+    throw new Error('cf did not return a D1 result array.');
   }
   return parsed.map((result) => (Array.isArray(result?.results) ? result.results : []));
 }
 
-/** Wrangler occasionally prefixes its JSON with a blank line or a banner. */
+/** A CLI may prefix its JSON with a blank line or a banner. */
 function extractJson(text) {
   if (typeof text !== 'string') {
     return null;
@@ -605,41 +530,27 @@ export async function readPinnedBuilderModel(readFileImpl = readFile) {
 /**
  * The account-visible Workers AI text-generation catalog, read as the authenticated operator.
  *
- * `account` and `headers` accept the resolution `main` shares between the two operator reads, as
- * values or as promises; omitting them resolves a private pair, which is what every standalone
- * caller does.
- *
- * @param {{
- *   run?: typeof execFileAsync;
- *   fetchImpl?: typeof fetch;
- *   env?: Record<string, string | undefined>;
- *   account?: string | Promise<string>;
- *   headers?: Record<string, string> | Promise<Record<string, string>>;
- * }} [options]
+ * @param {{ run?: typeof execFileAsync; env?: Record<string, string | undefined> }} [options]
  * @returns {Promise<Array<Record<string, unknown>>>}
  */
-export async function readWorkersAiCatalog({
-  run = execFileAsync,
-  fetchImpl = fetch,
-  env = process.env,
-  account: sharedAccount,
-  headers: sharedHeaders,
-} = {}) {
-  const [account, headers] = await Promise.all([
-    sharedAccount ?? resolveAnalyticsAccount({ run, env }),
-    sharedHeaders ?? readOperatorCredential({ run }),
-  ]);
-  const url = `${MODEL_CATALOG_ENDPOINT}/${account}/ai/models/search?task=Text+Generation&hide_experimental=true&per_page=${MODEL_CATALOG_PAGE_SIZE}`;
-  const response = await fetchImpl(url, { headers });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok || !Array.isArray(payload?.result)) {
-    // Cloudflare names the reason — a credential without the AI scope answers 403 saying exactly
-    // that — and a bare status code sends an operator looking in the wrong place.
-    const reason = bounded(cloudflareErrorMessages(payload), 200);
-    const detail = reason === '' ? '.' : `: ${reason}`;
-    throw new Error(`The Workers AI catalog could not be read (HTTP ${response.status})${detail}`);
+export async function readWorkersAiCatalog({ run = execFileAsync, env = process.env } = {}) {
+  const payload = await runCf(
+    [
+      'ai',
+      'models',
+      'list',
+      '--task',
+      'Text Generation',
+      '--hide-experimental',
+      '--per-page',
+      String(MODEL_CATALOG_PAGE_SIZE),
+    ],
+    { run, env },
+  );
+  if (!Array.isArray(payload)) {
+    throw new Error('`cf ai models list` did not return a list of models.');
   }
-  return payload.result;
+  return payload;
 }
 
 function catalogProperty(entry, id) {
@@ -694,8 +605,7 @@ export function describeBuilderModel(catalog, pin) {
   return { level, sentence, detail: { pinned: pin.id, listed: true, candidates } };
 }
 
-const BUILDER_MODEL_CHECK_HINT =
-  "Read from the Workers AI model search API with the operator's own Wrangler authentication.";
+const BUILDER_MODEL_CHECK_HINT = "Read with `cf ai models list` through the operator's own cf login.";
 
 function buildBuilderModelCheck(catalogAttempt, pin) {
   if (!pin) {
@@ -765,7 +675,7 @@ export async function collectReport({
     generatedAt: now,
     generatedAtIso: new Date(now).toISOString(),
     database: DATABASE_NAME,
-    source: 'wrangler d1 execute --remote (read-only)',
+    source: 'cf d1 query (read-only)',
     desiredRuntimeVersion,
     controlPlaneReadable: core.ok,
     status,
@@ -827,7 +737,7 @@ function check(id, title, status, sentence, { at = null, now = null, detail = {}
 }
 
 /** The hint every unreadable Worker check carries, since the read is not a D1 one. */
-const WORKER_CHECK_HINT = `Read from the Workers analytics GraphQL API for the "${WORKER_SCRIPT_NAME}" script with the operator's own Wrangler authentication.`;
+const WORKER_CHECK_HINT = `Read from Workers Logs for the "${WORKER_SCRIPT_NAME}" script with \`cf observability telemetry query\` through the operator's own cf login.`;
 
 function buildWorkerCheck(invocationsAttempt, now) {
   if (!invocationsAttempt.ok) {
@@ -956,7 +866,7 @@ const GROUPS = [
 export function renderReport(report) {
   const lines = [
     `CloudChef platform — ${report.generatedAtIso.replace('T', ' ').slice(0, 16)} UTC`,
-    `read-only from control-plane D1 "${report.database}" and Workers analytics, via wrangler`,
+    `read-only from control-plane D1 "${report.database}", Workers Logs, and the Workers AI catalog, via the cf CLI`,
     '',
     report.headline,
   ];
@@ -996,8 +906,9 @@ function expandCheck(item) {
 const USAGE = `Usage: pnpm run ops [-- --json]
 
 Reports the operational state of the CloudChef platform by reading production
-control-plane D1 and the control-plane Worker's own invocation analytics with the
-operator's own Wrangler authentication. Read-only.
+control-plane D1, the control-plane Worker's own Workers Logs, and the Workers AI
+catalog through the operator's own cf CLI login (\`cf auth login\`, or
+CLOUDFLARE_API_TOKEN). Read-only.
 
   --json   emit the structured report instead of the terminal one
   --help   show this message
@@ -1012,24 +923,28 @@ async function main(argv) {
   }
   const desiredRuntimeVersion = await readDesiredRuntimeVersion();
   const pinnedBuilderModel = await readPinnedBuilderModel();
-  // Both operator reads need the same account and the same credential, so they are resolved once
-  // rather than twice: two concurrent `wrangler auth token` calls point two processes at the same
-  // OAuth login state, where one can race the other's token refresh. Handed over unawaited so a
-  // Wrangler failure still lands in each reader's own check instead of aborting the whole report,
-  // with a catch attached so the shared rejection is never an unhandled one.
-  const account = resolveAnalyticsAccount({ run: execFileAsync, env: process.env });
-  const headers = readOperatorCredential({ run: execFileAsync });
-  void account.catch(() => undefined);
-  void headers.catch(() => undefined);
+  // One cf process at a time: concurrent ones share one OAuth login state, where one can race the
+  // other's token refresh. A failed read still lands in its own check; the next one runs regardless.
+  const serially = oneAtATime();
   const report = await collectReport({
-    query: queryProduction,
-    readInvocations: ({ now }) => readWorkerInvocations({ now, account, headers }),
-    readModelCatalog: () => readWorkersAiCatalog({ account, headers }),
+    query: (sql) => serially(() => queryProduction(sql)),
+    readInvocations: ({ now }) => serially(() => readWorkerInvocations({ now })),
+    readModelCatalog: () => serially(() => readWorkersAiCatalog()),
     desiredRuntimeVersion,
     pinnedBuilderModel,
   });
   console.log(argv.includes('--json') ? JSON.stringify(report, null, 2) : renderReport(report));
   return report.controlPlaneReadable ? 0 : 1;
+}
+
+/** Run each call after the previous one settles, whether it resolved or not. */
+function oneAtATime() {
+  let tail = Promise.resolve();
+  return (read) => {
+    const result = tail.then(read);
+    tail = result.catch(() => undefined);
+    return result;
+  };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

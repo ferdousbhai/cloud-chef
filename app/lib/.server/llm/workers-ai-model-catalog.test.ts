@@ -49,7 +49,7 @@ describe('Workers AI live model catalog', () => {
             { property_id: 'vision', value: 'true' },
           ],
         }),
-        model('@cf/deepseek-ai/deepseek-v4-flash-0731'),
+        model('@cf/deepseek-ai/deepseek-v4.1-flash-1017'),
         model('@hf/example/partner'),
         model('@cf/example/no-tools', {
           properties: [{ property_id: 'context_window', value: '131072' }],
@@ -74,7 +74,10 @@ describe('Workers AI live model catalog', () => {
       page: 1,
       per_page: 100,
     });
-    expect(models.map(({ id }) => id)).toEqual(['@cf/zai-org/glm-5.3-flash', '@cf/deepseek-ai/deepseek-v4-flash-0731']);
+    expect(models.map(({ id }) => id)).toEqual([
+      '@cf/zai-org/glm-5.3-flash',
+      '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+    ]);
     expect(models[0]).toMatchObject({
       label: 'GLM 5.3 Flash',
       contextTokens: 1_048_576,
@@ -87,7 +90,7 @@ describe('Workers AI live model catalog', () => {
   it('carries the catalog publication date through, and omits an unusable one', async () => {
     const binding = {
       models: vi.fn(async () => [
-        model('@cf/deepseek-ai/deepseek-v4-flash-0731', { createdAt: '2026-08-26 00:00:00.000' }),
+        model('@cf/deepseek-ai/deepseek-v4.1-flash-1017', { createdAt: '2026-08-26 00:00:00.000' }),
         model(CLOUDFLARE_WORKERS_AI_MODEL, { createdAt: 'sometime last week' }),
       ]),
     };
@@ -117,7 +120,7 @@ describe('Workers AI live model catalog', () => {
 
   it('promotes only the selected Flash alternative, never a newer Pro or unrelated model', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const flash = { ...DEFAULT_WORKERS_AI_MODEL, id: '@cf/deepseek-ai/deepseek-v4-flash-0731' as const };
+    const flash = { ...DEFAULT_WORKERS_AI_MODEL, id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017' as const };
     const pro = { ...flash, id: '@cf/deepseek-ai/deepseek-v4-pro-0813' as const };
     const other = { ...flash, id: '@cf/openai/gpt-oss-120b' as const };
     expect(resolveBuilderDefaultModel([pro, other, flash])).toBe(flash);
@@ -154,22 +157,22 @@ describe('Workers AI live model catalog', () => {
 
   it('fails the builder over to a replacement when the pin is absent from a successful read', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const binding = { models: vi.fn(async () => [model('@cf/deepseek-ai/deepseek-v4-flash-0731')]) };
+    const binding = { models: vi.fn(async () => [model('@cf/deepseek-ai/deepseek-v4.1-flash-1017')]) };
 
     await expect(requireWorkersAiBuilderModel(binding, CLOUDFLARE_WORKERS_AI_MODEL)).resolves.toMatchObject({
-      id: '@cf/deepseek-ai/deepseek-v4-flash-0731',
+      id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
     });
     warn.mockRestore();
   });
 
   it('validates non-default selections against the current account catalog', async () => {
-    const selected = model('@cf/deepseek-ai/deepseek-v4-flash-0731');
+    const selected = model('@cf/deepseek-ai/deepseek-v4.1-flash-1017');
     const binding = { models: vi.fn(async () => [selected]) };
 
     await expect(
-      requireWorkersAiBuilderModel(binding, '@cf/deepseek-ai/deepseek-v4-flash-0731'),
+      requireWorkersAiBuilderModel(binding, '@cf/deepseek-ai/deepseek-v4.1-flash-1017'),
     ).resolves.toMatchObject({
-      id: '@cf/deepseek-ai/deepseek-v4-flash-0731',
+      id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
     });
     await expect(requireWorkersAiBuilderModel(binding, '@cf/example/missing')).rejects.toMatchObject({ status: 400 });
   });

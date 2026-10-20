@@ -1,5 +1,7 @@
-import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { spawn as spawnAsync, spawnSync } from 'node:child_process';
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { verifyLocalDeployment } from './verify-live-deployment.mjs';
 
@@ -382,12 +384,131 @@ export async function deployAndVerifyProduction({
   return deployedSha;
 }
 
+/**
+ * The Workers Builds deploy step's checks, in order: the account resources and committed config are
+ * what this release expects, then a D1 restore point is recorded before the migrations it protects.
+ * Each one must pass before anything is deployed.
+ */
+export const WORKERS_BUILDS_PRE_DEPLOY_STEPS = Object.freeze([
+  'provision:production:check',
+  'verify:production-config',
+  'verify:workers-builds-config',
+  'd1:bookmark:production',
+  'd1:migrations:apply:production',
+]);
+
+/**
+ * @typedef {(command: string, args: readonly string[], options: Record<string, unknown>) => Promise<{
+ *   status: number | null;
+ *   output: string;
+ * }>} BufferedSpawn
+ */
+
+/**
+ * Output goes to a file rather than a pipe: the checks beside it run synchronously and block this
+ * process's event loop, and a pipe nobody drains would stall the build as soon as it filled.
+ * @type {BufferedSpawn}
+ */
+function spawnBuffered(command, args, options) {
+  const directory = mkdtempSync(join(tmpdir(), 'cloudchef-build-'));
+  const logPath = join(directory, 'build.log');
+  const fd = openSync(logPath, 'w');
+  const read = () => {
+    try {
+      return readFileSync(logPath, 'utf8');
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  };
+  return new Promise((resolveRun, reject) => {
+    const child = spawnAsync(command, args, { ...options, stdio: ['ignore', fd, fd] });
+    closeSync(fd);
+    child.once('error', (error) => {
+      read();
+      reject(error);
+    });
+    child.once('close', (status) => resolveRun({ status, output: read() }));
+  });
+}
+
+/**
+ * The Workers Builds deploy step. The Worker build reads nothing the checks write, so it runs while
+ * they do instead of after them; `cf deploy` still waits for both, so a failed check or migration
+ * deploys nothing, exactly as when they ran one after another. The build's output is printed in one
+ * piece when it finishes, so it never interleaves with the checks' output.
+ *
+ * @param {{
+ *   clientId?: string;
+ *   env?: Record<string, string | undefined>;
+ *   spawn?: DeploySpawn;
+ *   spawnBuild?: BufferedSpawn;
+ *   readBuiltConfig?: (path: string) => string;
+ *   verifyLocal?: typeof verifyLocalDeployment;
+ *   log?: (text: string) => void;
+ * }} [options]
+ */
+export async function deployFromWorkersBuilds({
+  clientId = process.env[CLIENT_ID_ENV],
+  env = process.env,
+  spawn = spawnSync,
+  spawnBuild = spawnBuffered,
+  readBuiltConfig,
+  verifyLocal = verifyLocalDeployment,
+  log = (text) => process.stdout.write(text),
+} = {}) {
+  validateOAuthClientId(clientId);
+  const commitSha = resolveDeployableCommitSha({ spawn, env });
+  const notVerified = ' Live verification was not run.';
+  // Settled either way, so a failed check never leaves the build's rejection unobserved.
+  const build = spawnBuild('pnpm', VITE_BUILD_ARGS, { env: deployVarsEnv(clientId, commitSha, env) }).then(
+    (result) => ({ result, error: undefined }),
+    (error) => ({ result: undefined, error }),
+  );
+  let checkError;
+  try {
+    for (const step of WORKERS_BUILDS_PRE_DEPLOY_STEPS) {
+      runPnpmStep(spawn, ['run', step], { stdio: 'inherit', env }, step, ' Nothing was deployed.');
+    }
+  } catch (error) {
+    checkError = error;
+  }
+  const { result, error: buildError } = await build;
+  if (result) {
+    log(result.output);
+  }
+  if (checkError) {
+    throw checkError;
+  }
+  if (buildError) {
+    throw buildError;
+  }
+  if (result?.status !== 0) {
+    throw new Error(`Vite build failed with exit status ${result?.status}.${notVerified}`);
+  }
+  verifyBuiltDeployVars(clientId, commitSha, readBuiltConfig);
+  runPnpmStep(
+    spawn,
+    CF_DEPLOY_ARGS,
+    { stdio: 'inherit', env: deployVarsEnv(clientId, commitSha, env) },
+    'cf deploy',
+    notVerified,
+  );
+  await verifyLocal({ expectedSha: commitSha });
+  return commitSha;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const main = async () => {
     const [command, ...extraArgs] = process.argv.slice(2);
-    const allowed = new Set([undefined, '--check-workers-builds', '--local']);
+    const allowed = new Set([undefined, '--check-workers-builds', '--workers-builds', '--local']);
     if (extraArgs.length > 0 || !allowed.has(command)) {
-      throw new Error('Usage: node scripts/deploy-production.mjs [--check-workers-builds | --local]');
+      throw new Error(
+        'Usage: node scripts/deploy-production.mjs [--check-workers-builds | --workers-builds | --local]',
+      );
+    }
+    if (command === '--workers-builds') {
+      await deployFromWorkersBuilds();
+      return;
     }
     const local = command === '--local';
     const clientId = validateOAuthClientId(process.env[CLIENT_ID_ENV]);

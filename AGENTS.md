@@ -40,7 +40,8 @@ pnpm run ops
 pnpm run ops:json
 ```
 
-The ops commands read production state through the operator's Wrangler authentication and must remain read-only.
+The ops commands read production state through the operator's `cf` CLI login (`cf auth login`, or
+`CLOUDFLARE_API_TOKEN`) and must remain read-only.
 
 ## Cloudflare CLI
 

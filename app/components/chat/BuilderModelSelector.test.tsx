@@ -20,8 +20,8 @@ import { BuilderModelSelector } from './BuilderModelSelector.client';
 
 const alternativeModel: WorkersAiModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
-  id: '@cf/deepseek-ai/deepseek-v4-flash-0731',
-  label: 'DeepSeek V4 Flash 0731',
+  id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+  label: 'DeepSeek V4.1 Flash 1017',
   description: 'Cloudflare-hosted open-weight reasoning model.',
   vision: false,
 };
@@ -71,7 +71,7 @@ describe('BuilderModelSelector', () => {
     expect(menu?.textContent).toContain('Cloudflare Workers AI');
     expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(2);
     const alternative = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
-      item.textContent?.includes('DeepSeek V4 Flash 0731'),
+      item.textContent?.includes('DeepSeek V4.1 Flash 1017'),
     );
 
     await act(async () => alternative?.click());
@@ -91,7 +91,7 @@ describe('BuilderModelSelector', () => {
     });
 
     const alternative = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
-      item.textContent?.includes('DeepSeek V4 Flash 0731'),
+      item.textContent?.includes('DeepSeek V4.1 Flash 1017'),
     );
     expect(alternative?.textContent).toContain('New');
     expect(alternative?.textContent).toContain('added Aug 26');

@@ -54,13 +54,50 @@ type WorkersAiCatalogModel = (typeof CLOUDFLARE_WORKERS_AI_MODELS)[keyof typeof 
 
 const WORKERS_AI_CATALOG = new Map<string, WorkersAiCatalogModel>(Object.entries(CLOUDFLARE_WORKERS_AI_MODELS));
 
-function catalogModel(modelId: string): WorkersAiCatalogModel | undefined {
-  return WORKERS_AI_CATALOG.get(modelId);
+/**
+ * Builder models Pi's static catalog does not list yet, each with the Pi-characterised sibling whose
+ * entry it is served with until Pi lists it, and the model's own published rates. Without an entry a
+ * model gets no `compat` at all, and a DeepSeek model then loses the `thinkingFormat: 'deepseek'`
+ * request shape (`thinking: { type: 'disabled' }`, and an empty `reasoning_content` replayed on every
+ * assistant turn, which DeepSeek requires once a transcript holds a tool call).
+ *
+ * Kept to a reviewed, same-family sibling: a reference conversation (user, assistant tool call, tool
+ * result, assistant) in exactly this shape was answered by the model on Workers AI before it was
+ * offered. Pi's own entry wins as soon as Pi lists the model, so an entry here is temporary by design.
+ */
+const PI_CATALOG_SIBLINGS: ReadonlyMap<string, { sibling: string; cost: ModelCost }> = new Map([
+  [
+    '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+    {
+      sibling: '@cf/deepseek-ai/deepseek-v4-flash-0731',
+      // USD per million tokens, as Cloudflare published them on 2026-10-17.
+      cost: { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0 },
+    },
+  ],
+]);
+
+/** What `getPiModel` reads from a catalog entry, so an entry can be served under another model's id. */
+type PiCatalogEntry = Pick<Model<Api>, 'name' | 'reasoning' | 'input' | 'cost' | 'contextWindow'> & {
+  compat?: OpenAICompletionsCompat;
+};
+
+function catalogModel(modelId: string): PiCatalogEntry | undefined {
+  const listed = WORKERS_AI_CATALOG.get(modelId);
+  if (listed) {
+    return listed;
+  }
+  const mapping = PI_CATALOG_SIBLINGS.get(modelId);
+  const sibling = mapping ? WORKERS_AI_CATALOG.get(mapping.sibling) : undefined;
+  if (!mapping || !sibling) {
+    return undefined;
+  }
+  return { ...sibling, name: modelId, cost: mapping.cost };
 }
 
 /**
  * CloudChef states only what the binding path requires, and Pi's own catalog entry supplies the
- * rest — `compat.thinkingFormat` included, which Pi sets only for the DeepSeek v4 entries.
+ * rest — `compat.thinkingFormat` included, which Pi sets only for the DeepSeek v4 entries (and
+ * `PI_CATALOG_SIBLINGS` lends to a DeepSeek model Pi does not list yet).
  *
  * CloudChef used to name a thinking dialect itself, by model-id prefix, for the families Pi does
  * not characterise. That is gone because it was measured to do nothing: Cloudflare ignores every
@@ -76,7 +113,7 @@ function catalogModel(modelId: string): WorkersAiCatalogModel | undefined {
  * never does. So no thinking directive reaches the provider at all, which is what was already
  * happening in substance.
  */
-function workersAiCompat(catalog: WorkersAiCatalogModel | undefined): OpenAICompletionsCompat {
+function workersAiCompat(catalog: PiCatalogEntry | undefined): OpenAICompletionsCompat {
   return {
     supportsStore: false,
     supportsDeveloperRole: false,

@@ -239,12 +239,19 @@ function isMainModule() {
   return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
 }
 
+/**
+ * Each profile copies the template into its own temporary directory, so they share nothing and
+ * `pnpm run validate` runs them side by side; with no flag they run one after another.
+ */
+export const TEMPLATE_PROFILES = Object.freeze({
+  '--web-only': verifyTemplate,
+  '--agent-only': verifyAgentCapabilityTemplate,
+  '--worker-only': verifyWorkerTemplateProfile,
+});
+
 if (isMainModule()) {
-  if (process.argv.includes('--worker-only')) {
-    await verifyWorkerTemplateProfile();
-  } else {
-    await verifyTemplate();
-    await verifyAgentCapabilityTemplate();
-    await verifyWorkerTemplateProfile();
+  const selected = Object.entries(TEMPLATE_PROFILES).filter(([flag]) => process.argv.includes(flag));
+  for (const [, verify] of selected.length > 0 ? selected : Object.entries(TEMPLATE_PROFILES)) {
+    await verify();
   }
 }

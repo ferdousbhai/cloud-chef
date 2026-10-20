@@ -9,6 +9,7 @@ import {
   targetsStaging,
   workflowPathsFromDirectoryEntries,
 } from '../template/scripts/lib/project-policy.mjs';
+import { WORKERS_BUILDS_PRE_DEPLOY_STEPS } from './deploy-production.mjs';
 import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
 import { findWorkerObservabilityErrors, findWorkerRuntimeSecretErrors } from './lib/worker-policy.mjs';
 import { runVerifierIfMain } from './run-verifier.mjs';
@@ -229,14 +230,19 @@ function verifyScripts(errors, pkg, label) {
   );
   errors.push(
     ...findMissingCommandSteps(scripts['workers-builds:deploy'], `${label} Workers Builds deploy script`, [
-      'scripts/deploy-production.mjs --check-workers-builds',
-      'provision:production:check',
-      'verify:production-config',
-      'verify:workers-builds-config',
-      'd1:bookmark:production',
-      'd1:migrations:apply:production',
-      'scripts/deploy-production.mjs',
+      'scripts/deploy-production.mjs --workers-builds',
     ]),
+    // That mode runs these before `cf deploy`, beside the Worker build.
+    ...findMissingCommandSteps(
+      WORKERS_BUILDS_PRE_DEPLOY_STEPS.join(' && '),
+      `${label} Workers Builds pre-deploy steps`,
+      [
+        'provision:production:check',
+        'verify:production-config',
+        'verify:workers-builds-config',
+        'd1:bookmark:production && d1:migrations:apply:production',
+      ],
+    ),
   );
   errors.push(
     ...findMissingCommandSteps(scripts['d1:migrations:apply:production'], `${label} D1 migration script`, [
