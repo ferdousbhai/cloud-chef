@@ -787,6 +787,15 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       clearTimeout(firstProgressTimer);
       steering.close();
       toolAccounting.settle();
+      // A GitHub project's validation hands off to publish_preview rather than deployment, so it never
+      // sets the deployment completion; whether its current revision is validated is read from the record.
+      const validated =
+        currentValidatedBuildCompletion !== undefined ||
+        (linkedProject !== undefined &&
+          (await workspace
+            .checkpoint()
+            .then((checkpoint) => workspace.hasSuccessfulValidation(checkpoint.revision))
+            .catch(() => false)));
       const budget: BuilderTurnBudgetReport = {
         terminalReason,
         stepCount,
@@ -794,7 +803,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
         elapsedMs: Date.now() - startedAt,
         toolWallClockMs: toolAccounting.wallClockMs(),
         toolMsByName: toolAccounting.byName(),
-        lastValidationState: currentValidatedBuildCompletion === undefined ? 'unvalidated' : 'validated',
+        lastValidationState: validated ? 'validated' : 'unvalidated',
       };
       recordPiTurnBudget(modelId, budget);
       onSettled(budget);

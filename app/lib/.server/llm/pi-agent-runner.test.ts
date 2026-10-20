@@ -719,6 +719,33 @@ describe('piAgentRunner', () => {
     );
   });
 
+  it("reports a GitHub project's turn as validated when its current revision is", async () => {
+    const onSettled = vi.fn();
+    mocks.getValidatedBuildCompletion.mockReturnValue(undefined);
+    mocks.piRun.mockImplementation(async (_ctx: AgentContext, _cfg: StopAwareLoopConfig, emit: RunnerEventSink) => {
+      await emit({
+        type: 'turn_end',
+        message: assistantMessage([{ type: 'text', text: 'Published' }]),
+        toolResults: [],
+      });
+    });
+    const workspace = {
+      checkpoint: async () => ({ workspaceRevision: 3, revision: 'rev-3' }),
+      hasSuccessfulValidation: async (revision: string) => revision === 'rev-3',
+    };
+
+    await collectChunks(
+      await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, {}, undefined, {
+        onSettled,
+        // SAFETY: the runner reads only checkpoint and hasSuccessfulValidation from this workspace here.
+        workspace: workspace as unknown as Parameters<typeof piAgentRunner>[0]['workspace'],
+        linkedProject: { repository: 'ada/site', defaultBranch: 'main', publish: vi.fn() },
+      }),
+    );
+
+    expect(onSettled).toHaveBeenCalledWith(expect.objectContaining({ lastValidationState: 'validated' }));
+  });
+
   it('feeds an automatic validation failure back into the same turn for repair', async () => {
     mocks.getValidatedBuildCompletion.mockImplementation(
       (
