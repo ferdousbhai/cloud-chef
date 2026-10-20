@@ -175,6 +175,44 @@ async function setup(options: { tarball?: Uint8Array<ArrayBuffer>; mergeStatus?:
   return { database, env, sara, call, ...github };
 }
 
+/**
+ * The control-plane database with another tab in it: the first time a statement is prepared that
+ * matches `query`, `meanwhile` runs first, as a concurrent request would between a check and its write.
+ */
+class RacingD1Database implements D1Database {
+  private raced = false;
+
+  constructor(
+    private readonly db: D1Database,
+    private readonly query: string,
+    private readonly meanwhile: () => void,
+  ) {}
+
+  prepare(query: string): D1PreparedStatement {
+    if (!this.raced && query.includes(this.query)) {
+      this.raced = true;
+      this.meanwhile();
+    }
+    return this.db.prepare(query);
+  }
+
+  batch<T>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
+    return this.db.batch<T>(statements);
+  }
+
+  exec(query: string): Promise<D1ExecResult> {
+    return this.db.exec(query);
+  }
+
+  withSession(constraintOrBookmark?: D1SessionBookmark | D1SessionConstraint): D1DatabaseSession {
+    return this.db.withSession(constraintOrBookmark);
+  }
+
+  dump(): Promise<ArrayBuffer> {
+    return this.db.dump();
+  }
+}
+
 const SITE = '11111111-1111-4111-8111-111111111111';
 const lineSchema = z.looseObject({});
 
@@ -431,6 +469,29 @@ describe('a member working on a GitHub project', () => {
       const adopted = await send(call, env, { title: 'BOOKINGS', draftRevision: 'rev-2' });
       expect(await adopted.json()).toEqual({ requestId, outcome: 'updated' });
       expect(requests(database)).toEqual([expect.objectContaining({ draft_id: 'chat-1', draft_revision: 'rev-2' })]);
+    });
+
+    it('replaces the request another tab recorded for the same draft between the check and the insert', async () => {
+      const { database, env, sara, call } = await setup();
+      const racing = envWith({
+        ...env,
+        DB: new RacingD1Database(env.DB, 'INSERT OR IGNORE INTO production_requests', () => {
+          database
+            .prepare(
+              `INSERT INTO production_requests
+                 (id, org_id, requested_by, draft_id, draft_revision, title, note, preview_url,
+                  snapshot_gzip_base64, snapshot_files, status, created_at)
+               VALUES ('other-tab', 'org-1', ?, 'chat-1', 'rev-1', 'Bookings', NULL, NULL, 'H4sI', 1, 'pending', 1)`,
+            )
+            .run(sara.id);
+        }),
+      });
+      const sent = await send(call, racing, { draftRevision: 'rev-2' });
+      expect(sent.status).toBe(200);
+      expect(await sent.json()).toEqual({ requestId: 'other-tab', outcome: 'updated' });
+      expect(requests(database)).toEqual([
+        expect.objectContaining({ id: 'other-tab', draft_id: 'chat-1', draft_revision: 'rev-2', status: 'pending' }),
+      ]);
     });
   });
 });
