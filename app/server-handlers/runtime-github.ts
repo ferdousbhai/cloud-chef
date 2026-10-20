@@ -216,7 +216,7 @@ export async function runtimeRequestProductionAction(args: { request: Request; e
   }
   const orgId = authenticated.connection.orgId;
   if (!orgId) {
-    return json({ error: "Production requests are for an organization's drafts." }, 409);
+    return json({ error: "Production requests are for a team's drafts." }, 409);
   }
   return sendProductionRequest(args.env.DB, orgId, body, true);
 }
@@ -353,7 +353,7 @@ async function openProject(
   const app = args.app === undefined ? gitHubAppFromEnv(args.env) : args.app;
   const installation = await findGitHubInstallation(args.env.DB, project.orgId);
   if (!app || !installation) {
-    return json({ error: "The organization's GitHub isn't connected. Ask an admin to connect it." }, 409);
+    return json({ error: "The team's GitHub isn't connected. Ask an admin to connect it." }, 409);
   }
   try {
     return {

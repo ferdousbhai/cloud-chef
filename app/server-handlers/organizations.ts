@@ -114,7 +114,7 @@ export function listOrganizationsAction({ request, env }: { request: Request; en
 
 export function createOrganizationAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, createSchema, 'Give the organization a name.');
+    const body = await readJsonRequest(request, createSchema, 'Give the team a name.');
     if ('response' in body) {
       return body.response;
     }
@@ -250,7 +250,7 @@ export function revokeInviteAction({ request, env }: { request: Request; env: En
 async function deleteMemberWorkspace(env: Env, orgId: string, userId: string): Promise<void> {
   const connection = await findCloudflareConnectionForOrganization(env.DB, orgId);
   if (connection?.status !== 'active' || !connection.credentialHandle) {
-    throw new Error('The organization has no active Cloudflare connection.');
+    throw new Error('The team has no active Cloudflare connection.');
   }
   const accessToken = await D1CloudflareCredentialVault.fromEnv(env).resolve(connection.credentialHandle);
   await new UserCloudflareAccountApi(connection.accountId, accessToken).deleteWorkspaceRuntime(

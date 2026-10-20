@@ -40,7 +40,7 @@ export async function deleteAccountAction({ request, env }: { request: Request; 
   if (needingAdmin.length > 0) {
     return Response.json(
       {
-        error: `You're the only admin of ${needingAdmin.join(', ')}. Make someone else an admin first, so the organization isn't left without one.`,
+        error: `You're the only admin of ${needingAdmin.join(', ')}. Make someone else an admin first, so the team isn't left without one.`,
       },
       { status: 409 },
     );

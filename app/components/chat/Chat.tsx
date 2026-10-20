@@ -194,7 +194,7 @@ function WorkspaceRuntimeConnectionError({
           {organization ? (
             organization.role === 'admin' ? (
               <LinkButton to="/settings" hash="organizations" variant={reauthorizationRequired ? 'primary' : 'neutral'}>
-                {reauthorizationRequired ? 'Open organization settings' : 'Organization settings'}
+                {reauthorizationRequired ? 'Open team settings' : 'Team settings'}
               </LinkButton>
             ) : null
           ) : (

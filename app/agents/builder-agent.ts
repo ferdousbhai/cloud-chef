@@ -827,7 +827,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const durableIdentity = await this.hydrateDurableIdentity({ required: true, reason: 'request_production' });
     const identity = runtimeIdentity(this.env);
     if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1' || !identity || !durableIdentity) {
-      throw new Error("Production requests are for drafts in an organization's account.");
+      throw new Error("Production requests are for drafts in a team's account.");
     }
     if (await this.workspace.linkedProject()) {
       throw new Error('This project is already on GitHub: ask the agent to publish it.');
@@ -1338,7 +1338,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const linked = await this.workspace.linkedProject();
     const identity = runtimeIdentity(this.env);
     if (!linked || !identity) {
-      return toolFailure("This workspace is not one of the organization's GitHub projects.");
+      return toolFailure("This workspace is not one of the team's GitHub projects.");
     }
     const checkpoint = await this.workspace.checkpoint();
     if (!(await this.workspace.hasSuccessfulValidation(checkpoint.revision))) {
@@ -1424,7 +1424,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const identity = runtimeIdentity(this.env);
     if (!identity || !(await confirmUserWorkspaceAccess(this.env, identity))) {
-      throw new Response("You no longer have access to this organization's account.", { status: 403 });
+      throw new Response("You no longer have access to this team's account.", { status: 403 });
     }
   }
 

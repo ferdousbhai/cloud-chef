@@ -193,7 +193,7 @@ export async function setProjectAccess(
     .bind(args.projectId, args.orgId)
     .first<{ id: string }>();
   if (!project) {
-    throw new OrganizationError('That project is not in this organization.', 404);
+    throw new OrganizationError('That project is not in this team.', 404);
   }
   if (!args.allowed) {
     await db
@@ -203,7 +203,7 @@ export async function setProjectAccess(
     return;
   }
   if (!(await findMembership(db, args.orgId, args.userId))) {
-    throw new OrganizationError('That person is not in this organization.', 404);
+    throw new OrganizationError('That person is not in this team.', 404);
   }
   await db
     .prepare(

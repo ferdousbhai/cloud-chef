@@ -124,7 +124,7 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
           <>
             <p className="text-sm text-content-secondary">
               This is {organization.orgName}&apos;s Cloudflare account; its admins manage the connection
-              {admin ? ' (as one, you reconnect it under Organizations).' : '.'}
+              {admin ? ' (as one, you reconnect it under Teams).' : '.'}
             </p>
             {offersOwnAccount ? (
               <Button size="sm" variant="neutral" loading={connecting} onClick={() => void connect()}>

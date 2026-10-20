@@ -22,7 +22,7 @@ export function WorkspaceSwitcher() {
         variant: 'subtle',
         size: 'xs',
         // The button names the workspace briefly; its Cloudflare account is in the tooltip and the menu.
-        title: current ? `${fullLabel(current)}. Switch account or manage organizations` : 'Manage organizations',
+        title: current ? `${fullLabel(current)}. Switch account or manage teams` : 'Manage teams',
         children: <span className="max-w-56 truncate">{current ? shortLabel(current) : 'No workspace'}</span>,
       }}
     >
@@ -65,9 +65,7 @@ export function WorkspaceMenuItems() {
       ))}
       <MenuItem action={organizations}>
         <PlusIcon aria-hidden />
-        {session.contexts.some((option) => option.kind === 'organization')
-          ? 'Manage organizations'
-          : 'Create an organization'}
+        {session.contexts.some((option) => option.kind === 'organization') ? 'Manage teams' : 'Create a team'}
       </MenuItem>
     </>
   );

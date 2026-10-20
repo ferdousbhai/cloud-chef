@@ -31,7 +31,7 @@ function SignIn() {
   return (
     <CloudflareSignInPrompt
       title="Sign in to CloudChef."
-      description="Use Cloudflare to build in your own account, or Google or an emailed link to build in your organization's."
+      description="Use Cloudflare to build in your own account, or Google or an emailed link to build in your team's."
       returnTo="/"
     />
   );

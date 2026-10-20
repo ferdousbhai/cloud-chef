@@ -97,7 +97,7 @@ export function ReauthorizeInterstitial() {
           </Button>
           {admin ? (
             <a className={buttonClassNames({ variant: 'primary', size: 'sm' })} href="/settings#organizations">
-              Open organization settings
+              Open team settings
             </a>
           ) : null}
         </div>

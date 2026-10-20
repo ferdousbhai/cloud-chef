@@ -19,7 +19,7 @@ export async function eraseControlPlaneAccount(args: {
   // A member's own erasure never touches the grant of an organization others still build in.
   // Nothing is written until every check passes: an erasure that must be refused changes nothing.
   if ((await organizationsNeedingAnotherAdmin(db, args.userId)).length > 0) {
-    throw new OrganizationAdminRequiredError('Make someone else an admin of your organization first.');
+    throw new OrganizationAdminRequiredError('Make someone else an admin of your team first.');
   }
   const soleOrgIds = await soleMemberOrganizations(db, args.userId);
   await leaveOrganizations(db, args.userId);
@@ -135,7 +135,7 @@ async function leaveOrganizations(db: D1Database, userId: string): Promise<void>
     .bind(userId)
     .first<{ remaining: number }>();
   if ((left?.remaining ?? 0) > 0) {
-    throw new OrganizationAdminRequiredError('Make someone else an admin of your organization first.');
+    throw new OrganizationAdminRequiredError('Make someone else an admin of your team first.');
   }
 }
 

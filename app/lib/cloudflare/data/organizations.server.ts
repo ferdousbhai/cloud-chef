@@ -62,7 +62,7 @@ export async function createOrganization(db: D1Database, userId: string, name: s
 export async function requireAdmin(db: D1Database, orgId: string, userId: string): Promise<Membership> {
   const membership = await findMembership(db, orgId, userId);
   if (membership?.role !== 'admin' || membership.pausedAt !== null) {
-    throw new OrganizationError("Only an organization's admin can do that.", 403);
+    throw new OrganizationError("Only a team's admin can do that.", 403);
   }
   return membership;
 }
@@ -101,7 +101,7 @@ export async function createInvite(
     .bind(args.orgId, now, now - 24 * 60 * 60_000)
     .first<{ connected: number; pending: number; today: number }>();
   if (!limits?.connected) {
-    throw new OrganizationError("Connect the organization's Cloudflare account before inviting people.", 409);
+    throw new OrganizationError("Connect the team's Cloudflare account before inviting people.", 409);
   }
   if (limits.today >= MAX_INVITES_PER_DAY) {
     throw new OrganizationError(`${MAX_INVITES_PER_DAY} invites a day is the limit. Try again tomorrow.`, 409);
@@ -414,7 +414,7 @@ export async function updateMember(
   }
   const target = await findMembership(db, args.orgId, args.userId);
   if (!target) {
-    throw new OrganizationError('That person is not in this organization.', 404);
+    throw new OrganizationError('That person is not in this team.', 404);
   }
   const losesAdmin =
     target.role === 'admin' &&
@@ -457,7 +457,7 @@ export async function updateMember(
     .bind(...values)
     .run();
   if (losesAdmin && result.meta.changes === 0) {
-    throw new OrganizationError('Make someone else an admin first: an organization always needs one.', 409);
+    throw new OrganizationError('Make someone else an admin first: a team always needs one.', 409);
   }
   if (args.action === 'remove') {
     // Their workspace locator in the organization's account and their access to its projects go with them.

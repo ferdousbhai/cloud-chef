@@ -399,10 +399,7 @@ export async function startCloudflareConnectionAction(args: {
     if (payload.organizationId) {
       const membership = signedIn ? await findMembership(args.env.DB, payload.organizationId, signedIn.user.id) : null;
       if (membership?.role !== 'admin' || membership.pausedAt !== null) {
-        return Response.json(
-          { error: "Only an organization's admin can connect its Cloudflare account." },
-          { status: 403 },
-        );
+        return Response.json({ error: "Only a team's admin can connect its Cloudflare account." }, { status: 403 });
       }
     }
     const state = crypto.randomUUID();
@@ -519,7 +516,7 @@ export async function completeCloudflareConnectionAction(args: {
         const admin = oauthState.linking_user_id;
         const membership = admin ? await findMembership(args.env.DB, orgId, admin) : null;
         if (!admin || membership?.role !== 'admin' || membership.pausedAt !== null) {
-          throw new IdentityConflictError("Only an organization's admin can connect its Cloudflare account.");
+          throw new IdentityConflictError("Only a team's admin can connect its Cloudflare account.");
         }
         userId = admin;
         owner = { kind: 'organization', orgId };
