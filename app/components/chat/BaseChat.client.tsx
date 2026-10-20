@@ -28,7 +28,7 @@ import type { BuildProgress } from './build-progress';
 import type { SubchatSummary } from './subchat-model';
 import type { BuilderDeploymentState } from '~/agents/builder-deployment-command';
 import type { BuilderPublicationState } from '~/agents/builder-publication-progress';
-import { DeploymentStatus } from './DeploymentStatus.client';
+import { DeploymentStatus, type ProductionRequestOutcome } from './DeploymentStatus.client';
 import type {
   CloudflareExecutionDecisionHandler,
   CloudflareExecutionPublicState,
@@ -58,7 +58,7 @@ interface BaseChatProps {
   deployment?: BuilderDeploymentState | null;
   publication?: BuilderPublicationState | null;
   onDeploy?: () => Promise<BuilderDeploymentState>;
-  onRequestProduction?: (input: { title: string; note: string }) => Promise<void>;
+  onRequestProduction?: (input: { title: string; note: string }) => Promise<ProductionRequestOutcome>;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 

@@ -39,6 +39,8 @@ const buildStatusSchema = z.object({
 });
 export type LinkedBuildStatus = z.infer<typeof buildStatusSchema>;
 
+const productionRequestSentSchema = z.object({ outcome: z.enum(['requested', 'updated', 'unchanged']) });
+
 const errorSchema = z.object({ error: z.string() });
 
 /** A project's default branch, file by file, as the control plane streams it. */
@@ -119,12 +121,23 @@ export async function linkedBuildStatus(
   );
 }
 
+/** Whether the admins now see a new request, this draft's request updated to the revision sent, or no change. */
+export type ProductionRequestOutcome = z.infer<typeof productionRequestSentSchema>['outcome'];
+
 /** Asks the organization's admins to make a draft a real project; its files travel with the request. */
 export async function requestProductionReview(
   env: RuntimeEnv,
   identity: Identity,
-  body: { title: string; note: string; previewUrl: string | null; snapshot: string; files: number },
-): Promise<void> {
+  body: {
+    draftId: string;
+    draftRevision: string;
+    title: string;
+    note: string;
+    previewUrl: string | null;
+    snapshot: string;
+    files: number;
+  },
+): Promise<{ outcome: ProductionRequestOutcome }> {
   const response = await post(
     env,
     'runtime-github/request-production',
@@ -134,7 +147,9 @@ export async function requestProductionReview(
   if (!response.ok) {
     throw new Error(await failureMessage(response, 'CloudChef could not send the request.'));
   }
-  await response.body?.cancel().catch(() => undefined);
+  return productionRequestSentSchema.parse(
+    await readJsonBodyWithLimit(response, MAX_JSON_RESPONSE_BYTES, 'Production request response'),
+  );
 }
 
 function pick(identity: Identity) {

@@ -337,23 +337,100 @@ describe('a member working on a GitHub project', () => {
     const allowed = await runtimeCredentialAction({ request: call('/api/cloudflare/runtime-credential', {}), env });
     expect(allowed.status).toBe(503);
   });
-  it('sends a draft for review once, however many times the same request is submitted', async () => {
-    const { database, env, call } = await setup();
-    const request = (title: string) =>
-      call('/api/cloudflare/runtime-github/request-production', {
-        title,
-        note: '',
-        previewUrl: null,
-        snapshot: 'H4sI',
-        files: 1,
+  describe('production requests', () => {
+    const send = (
+      call: Awaited<ReturnType<typeof setup>>['call'],
+      env: Awaited<ReturnType<typeof setup>>['env'],
+      draft: { draftId?: string; draftRevision?: string; title?: string; note?: string },
+    ) =>
+      runtimeRequestProductionAction({
+        request: call('/api/cloudflare/runtime-github/request-production', {
+          draftId: draft.draftId ?? 'chat-1',
+          draftRevision: draft.draftRevision ?? 'rev-1',
+          title: draft.title ?? 'Bookings',
+          note: draft.note ?? '',
+          previewUrl: null,
+          snapshot: 'H4sI',
+          files: 1,
+        }),
+        env,
       });
-    const sent = await runtimeRequestProductionAction({ request: request('Bookings'), env });
-    expect(sent.status).toBe(201);
-    const again = await runtimeRequestProductionAction({ request: request(' bookings '), env });
-    expect(again.status).toBe(409);
-    expect(await again.json()).toEqual({ error: "“bookings” is already waiting for your admins' review." });
-    const other = await runtimeRequestProductionAction({ request: request('Invoices'), env });
-    expect(other.status).toBe(201);
-    expect(database.prepare('SELECT COUNT(*) AS count FROM production_requests').get()).toEqual({ count: 2 });
+    const requests = (database: Awaited<ReturnType<typeof setup>>['database']) =>
+      database
+        .prepare('SELECT id, draft_id, draft_revision, title, note, status, updated_at FROM production_requests')
+        .all();
+
+    it('replaces the waiting request when the same draft is sent again with a newer version', async () => {
+      const { database, env, call } = await setup();
+      const sent = await send(call, env, {});
+      expect(sent.status).toBe(201);
+      const { requestId } = z.object({ requestId: z.string() }).parse(await sent.json());
+
+      const updated = await send(call, env, {
+        draftRevision: 'rev-2',
+        title: 'Bookings v2',
+        note: 'Now with a calendar',
+      });
+      expect(updated.status).toBe(200);
+      expect(await updated.json()).toEqual({ requestId, outcome: 'updated' });
+      expect(requests(database)).toEqual([
+        {
+          id: requestId,
+          draft_id: 'chat-1',
+          draft_revision: 'rev-2',
+          title: 'Bookings v2',
+          note: 'Now with a calendar',
+          status: 'pending',
+          updated_at: expect.any(Number),
+        },
+      ]);
+    });
+
+    it('treats the same version sent again (a reload, a second tab) as already sent', async () => {
+      const { database, env, call } = await setup();
+      const sent = await send(call, env, {});
+      const { requestId } = z.object({ requestId: z.string() }).parse(await sent.json());
+      const again = await send(call, env, {});
+      expect(again.status).toBe(200);
+      expect(await again.json()).toEqual({ requestId, outcome: 'unchanged' });
+      expect(requests(database)).toEqual([expect.objectContaining({ id: requestId, updated_at: null })]);
+    });
+
+    it('asks a different draft under the same name for its own name, and sends one with its own', async () => {
+      const { database, env, call } = await setup();
+      await send(call, env, {});
+      const sameName = await send(call, env, { draftId: 'chat-2', title: ' bookings ' });
+      expect(sameName.status).toBe(409);
+      expect(await sameName.json()).toEqual({
+        error: 'Another app of yours named “bookings” is waiting for review. Give this one its own name.',
+      });
+      const ownName = await send(call, env, { draftId: 'chat-2', title: 'Invoices' });
+      expect(ownName.status).toBe(201);
+      expect(requests(database)).toHaveLength(2);
+    });
+
+    it('leaves a request an admin is approving as they saw it, and tells the member to wait', async () => {
+      const { database, env, call } = await setup();
+      await send(call, env, {});
+      database.prepare("UPDATE production_requests SET status = 'approving', claimed_at = ?").run(Date.now());
+      const meanwhile = await send(call, env, { draftRevision: 'rev-2' });
+      expect(meanwhile.status).toBe(409);
+      expect(await meanwhile.json()).toEqual({
+        error: 'An admin is approving “Bookings” right now. Wait for their decision before sending it again.',
+      });
+      expect(requests(database)).toEqual([
+        expect.objectContaining({ draft_revision: 'rev-1', status: 'approving', updated_at: null }),
+      ]);
+    });
+
+    it('lets a draft take over a request sent under its name before drafts were tracked', async () => {
+      const { database, env, call } = await setup();
+      const sent = await send(call, env, {});
+      const { requestId } = z.object({ requestId: z.string() }).parse(await sent.json());
+      database.prepare('UPDATE production_requests SET draft_id = NULL, draft_revision = NULL').run();
+      const adopted = await send(call, env, { title: 'BOOKINGS', draftRevision: 'rev-2' });
+      expect(await adopted.json()).toEqual({ requestId, outcome: 'updated' });
+      expect(requests(database)).toEqual([expect.objectContaining({ draft_id: 'chat-1', draft_revision: 'rev-2' })]);
+    });
   });
 });

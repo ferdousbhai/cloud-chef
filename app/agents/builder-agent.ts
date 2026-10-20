@@ -95,6 +95,7 @@ import {
   commitLinkedProject,
   linkedBuildStatus,
   requestProductionReview,
+  type ProductionRequestOutcome,
   streamLinkedProjectSnapshot,
   type LinkedSnapshotLine,
   type LinkedBuildStatus,
@@ -812,10 +813,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    * repository that deploys through its own pipeline. Only a validated revision can be sent.
    */
   @callable()
-  async requestProduction(input: { title: string; note: string }): Promise<{ requested: true }> {
-    await this.hydrateDurableIdentity({ required: true, reason: 'request_production' });
+  async requestProduction(input: { title: string; note: string }): Promise<{ outcome: ProductionRequestOutcome }> {
+    const durableIdentity = await this.hydrateDurableIdentity({ required: true, reason: 'request_production' });
     const identity = runtimeIdentity(this.env);
-    if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1' || !identity) {
+    if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1' || !identity || !durableIdentity) {
       throw new Error("Production requests are for drafts in an organization's account.");
     }
     if (await this.workspace.linkedProject()) {
@@ -830,14 +831,17 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Error('Name the app for your admin.');
     }
     const { snapshot, files } = await packDraftSnapshot(this.workspace);
-    await requestProductionReview(this.env, identity, {
+    // The chat is the draft: sent again from it, the request is replaced rather than repeated.
+    const { outcome } = await requestProductionReview(this.env, identity, {
+      draftId: durableIdentity.transcript.chatInitialId,
+      draftRevision: checkpoint.revision,
       title,
       note: input.note.trim().slice(0, 1_000),
       previewUrl: this.state.deployment?.productionUrl ?? this.currentPreviewState().published?.url ?? null,
       snapshot,
       files,
     });
-    return { requested: true };
+    return { outcome };
   }
 
   /** The organization GitHub project this workspace works on, or null for a CloudChef app. */

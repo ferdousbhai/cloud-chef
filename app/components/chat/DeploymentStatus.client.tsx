@@ -7,6 +7,15 @@ import { TextInput } from '@ui/TextInput';
 import { authClient } from '~/lib/auth-client';
 import { Modal } from '@ui/Modal';
 
+/** A new request for the admins, this draft's waiting request replaced with the revision sent, or no change. */
+export type ProductionRequestOutcome = keyof typeof SENT_MESSAGES;
+
+const SENT_MESSAGES = {
+  requested: "Sent to your organization's admins for review.",
+  updated: 'Updated your request: your admins now see this version.',
+  unchanged: 'Your admins already have this version.',
+} as const;
+
 export function DeploymentStatus({
   deployment,
   publication,
@@ -16,7 +25,7 @@ export function DeploymentStatus({
   deployment: BuilderDeploymentState;
   publication?: BuilderPublicationState | null;
   onRetry?: () => Promise<BuilderDeploymentState>;
-  onRequestProduction?: (input: { title: string; note: string }) => Promise<void>;
+  onRequestProduction?: (input: { title: string; note: string }) => Promise<ProductionRequestOutcome>;
 }) {
   const { data: session } = authClient.useSession();
   // In an organization's account, a deployed draft can be sent to its admins to become a real project.
@@ -94,45 +103,57 @@ function RetryDeployment({ onRetry }: { onRetry: () => Promise<BuilderDeployment
 
 /**
  * Sends a deployed draft to the organization's admins, who can make it a real project on GitHub. The
- * form opens in a dialog: in the composer's dock it pushed the composer off a short phone screen.
+ * form opens in a dialog: in the composer's dock it pushed the composer off a short phone screen. Sent
+ * again from the same chat, the draft replaces its request while it waits, so admins see the latest.
  */
-function RequestProduction({ onRequest }: { onRequest: (input: { title: string; note: string }) => Promise<void> }) {
+function RequestProduction({
+  onRequest,
+}: {
+  onRequest: (input: { title: string; note: string }) => Promise<ProductionRequestOutcome>;
+}) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
-  const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState<ProductionRequestOutcome | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  if (state === 'sent') {
-    return <p className="text-content-secondary">Sent to your organization&apos;s admins for review.</p>;
-  }
   const close = () => {
-    if (state !== 'sending') {
+    if (!sending) {
       setOpen(false);
     }
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    setState('sending');
+    setSending(true);
     setError(null);
     try {
-      await onRequest({ title, note });
-      setState('sent');
+      setSent(await onRequest({ title, note }));
       setOpen(false);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'The request could not be sent.');
-      setState('idle');
+    } finally {
+      setSending(false);
     }
   };
   return (
     <>
+      {sent ? (
+        <p className="text-content-secondary" role="status">
+          {SENT_MESSAGES[sent]}
+        </p>
+      ) : null}
       <Button size="sm" variant="neutral" onClick={() => setOpen(true)}>
-        Request production
+        {sent ? 'Update request' : 'Request production'}
       </Button>
       {open ? (
         <Modal
           title="Request production"
-          description="Your admins can make this app a real project: its own GitHub repository, deployed by its own pipeline."
+          description={
+            sent
+              ? 'Your request waiting for review is replaced with this version, unless an admin has started approving it.'
+              : 'Your admins can make this app a real project: its own GitHub repository, deployed by its own pipeline.'
+          }
           onClose={close}
         >
           <form className="grid gap-2 text-sm" onSubmit={(event) => void submit(event)}>
@@ -157,11 +178,11 @@ function RequestProduction({ onRequest }: { onRequest: (input: { title: string; 
               </p>
             ) : null}
             <div className="flex justify-end gap-2">
-              <Button size="sm" variant="neutral" disabled={state === 'sending'} onClick={close}>
+              <Button size="sm" variant="neutral" disabled={sending} onClick={close}>
                 Cancel
               </Button>
-              <Button size="sm" type="submit" loading={state === 'sending'}>
-                Send for review
+              <Button size="sm" type="submit" loading={sending}>
+                {sent ? 'Send this version' : 'Send for review'}
               </Button>
             </div>
           </form>

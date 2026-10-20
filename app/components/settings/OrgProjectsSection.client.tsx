@@ -23,6 +23,7 @@ export const productionRequestSchema = z.object({
   files: z.number(),
   requesterName: z.string(),
   requesterEmail: z.string(),
+  updatedAt: z.number().nullable(),
 });
 export const ownRequestSchema = z.object({
   id: z.string(),
@@ -459,6 +460,9 @@ function ProductionRequestRow({
         <span className="text-content-secondary">
           from {pending.requesterName || pending.requesterEmail} wants to go to production
         </span>
+        {pending.updatedAt ? (
+          <span className="text-xs text-content-tertiary"> · updated {timeAgo(pending.updatedAt)}</span>
+        ) : null}
       </span>
       {pending.note ? <span className="text-xs text-content-secondary">{pending.note}</span> : null}
       {pending.previewUrl ? (
@@ -552,4 +556,21 @@ export function MyOrgProjects({
       ) : null}
     </>
   );
+}
+
+/** How long ago a moment was, roughly: "just now", "5 min ago", "3 h ago", "2 days ago". */
+function timeAgo(at: number): string {
+  const minutes = Math.floor((Date.now() - at) / 60_000);
+  if (minutes < 1) {
+    return 'just now';
+  }
+  if (minutes < 60) {
+    return `${minutes} min ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours} h ago`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? 'day' : 'days'} ago`;
 }

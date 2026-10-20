@@ -476,7 +476,8 @@ export function useBuilderAgentChat(args: {
   const requestProduction = useCallback(
     async (input: { title: string; note: string }) => {
       await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
-      await builderAgent.call('requestProduction', [input], { timeout: 2 * 60_000 });
+      const { outcome } = await builderAgent.call('requestProduction', [input], { timeout: 2 * 60_000 });
+      return outcome;
     },
     [builderAgent],
   );

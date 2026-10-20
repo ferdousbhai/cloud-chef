@@ -51,6 +51,9 @@ const productionRequestSchema = z.strictObject({
   userId: identityFields.userId,
   connectionId: identityFields.connectionId,
   connectionGeneration: identityFields.connectionGeneration,
+  /** The builder holding the draft, and the validated revision sent: the same draft sent again replaces its request. */
+  draftId: z.string().min(1).max(256),
+  draftRevision: z.string().min(1).max(256),
   title: z.string().trim().min(1).max(80),
   note: z.string().trim().max(1_000),
   previewUrl: z.url().max(2_048).nullable(),
@@ -215,29 +218,119 @@ export async function runtimeRequestProductionAction(args: { request: Request; e
   if (!orgId) {
     return json({ error: "Production requests are for an organization's drafts." }, 409);
   }
-  // A request already waiting under the same name is this one sent again (a reload, a second tab):
-  // the admins would only see the same draft twice.
-  const pending = await args.env.DB.prepare(
-    `SELECT COUNT(*) AS count, COALESCE(SUM(title = ? COLLATE NOCASE), 0) AS same_title
-     FROM production_requests WHERE requested_by = ? AND org_id = ? AND status = 'pending'`,
-  )
+  return sendProductionRequest(args.env.DB, orgId, body, true);
+}
+
+type ProductionRequestBody = z.infer<typeof productionRequestSchema>;
+
+/**
+ * A draft has at most one open request: sent again (an improved revision, a reload, a second tab), it
+ * replaces what the admins see, keeping its place in their list. A request sent before drafts were
+ * tracked is adopted by the draft that sends the same name.
+ */
+async function sendProductionRequest(
+  db: D1Database,
+  orgId: string,
+  body: ProductionRequestBody,
+  retryOnRace: boolean,
+): Promise<Response> {
+  const open = await db
+    .prepare(
+      `SELECT id, status, title, note, draft_revision FROM production_requests
+       WHERE org_id = ? AND requested_by = ? AND status IN ('pending', 'approving')
+         AND (draft_id = ? OR (draft_id IS NULL AND title = ? COLLATE NOCASE))
+       ORDER BY draft_id IS NULL LIMIT 1`,
+    )
+    .bind(orgId, body.userId, body.draftId, body.title)
+    .first<{
+      id: string;
+      status: 'pending' | 'approving';
+      title: string;
+      note: string | null;
+      draft_revision: string | null;
+    }>();
+  const beingApproved = (title: string) =>
+    json(
+      { error: `An admin is approving “${title}” right now. Wait for their decision before sending it again.` },
+      409,
+    );
+  if (open?.status === 'approving') {
+    return beingApproved(open.title);
+  }
+  if (open) {
+    if (open.draft_revision === body.draftRevision && open.title === body.title && (open.note ?? '') === body.note) {
+      return json({ requestId: open.id, outcome: 'unchanged' }, 200);
+    }
+    // Only a request still waiting is replaced: one an admin has started approving keeps what they saw.
+    const updated = await db
+      .prepare(
+        `UPDATE production_requests
+         SET draft_id = ?, draft_revision = ?, title = ?, note = ?, preview_url = ?, snapshot_gzip_base64 = ?,
+             snapshot_files = ?, updated_at = ?
+         WHERE id = ? AND status = 'pending'`,
+      )
+      .bind(
+        body.draftId,
+        body.draftRevision,
+        body.title,
+        body.note || null,
+        body.previewUrl,
+        body.snapshot,
+        body.files,
+        Date.now(),
+        open.id,
+      )
+      .run();
+    return updated.meta.changes === 1
+      ? json({ requestId: open.id, outcome: 'updated' }, 200)
+      : beingApproved(open.title);
+  }
+  const pending = await db
+    .prepare(
+      `SELECT COUNT(*) AS count, COALESCE(SUM(title = ? COLLATE NOCASE), 0) AS same_title
+       FROM production_requests WHERE requested_by = ? AND org_id = ? AND status = 'pending'`,
+    )
     .bind(body.title, body.userId, orgId)
     .first<{ count: number; same_title: number }>();
   if ((pending?.same_title ?? 0) > 0) {
-    return json({ error: `“${body.title}” is already waiting for your admins' review.` }, 409);
+    return json(
+      { error: `Another app of yours named “${body.title}” is waiting for review. Give this one its own name.` },
+      409,
+    );
   }
   if ((pending?.count ?? 0) >= MAX_PENDING_REQUESTS_PER_MEMBER) {
     return json({ error: 'You already have several requests waiting. An admin will get to them.' }, 429);
   }
   const id = crypto.randomUUID();
-  await args.env.DB.prepare(
-    `INSERT INTO production_requests
-       (id, org_id, requested_by, title, note, preview_url, snapshot_gzip_base64, snapshot_files, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-  )
-    .bind(id, orgId, body.userId, body.title, body.note || null, body.previewUrl, body.snapshot, body.files, Date.now())
+  // Ignored only when another send for the same draft got in first: that one is then replaced instead.
+  const inserted = await db
+    .prepare(
+      `INSERT OR IGNORE INTO production_requests
+         (id, org_id, requested_by, draft_id, draft_revision, title, note, preview_url, snapshot_gzip_base64,
+          snapshot_files, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    )
+    .bind(
+      id,
+      orgId,
+      body.userId,
+      body.draftId,
+      body.draftRevision,
+      body.title,
+      body.note || null,
+      body.previewUrl,
+      body.snapshot,
+      body.files,
+      Date.now(),
+    )
     .run();
-  return json({ requestId: id }, 201);
+  if (inserted.meta.changes === 1) {
+    return json({ requestId: id, outcome: 'requested' }, 201);
+  }
+  if (!retryOnRace) {
+    throw new Error('The production request was neither recorded nor found.');
+  }
+  return sendProductionRequest(db, orgId, body, false);
 }
 
 /**

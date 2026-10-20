@@ -242,6 +242,8 @@ type ProductionRequest = {
   requesterName: string;
   requesterEmail: string;
   createdAt: number;
+  /** When the member last sent a newer version of the draft, or null. */
+  updatedAt: number | null;
 };
 
 /** One of a member's own production requests, with what was decided. */
@@ -257,7 +259,7 @@ export async function listPendingProductionRequests(db: D1Database, orgId: strin
   const { results } = await db
     .prepare(
       `SELECT requests.id, requests.title, requests.note, requests.preview_url, requests.snapshot_files,
-              requests.created_at, users.name, users.email
+              requests.created_at, requests.updated_at, users.name, users.email
        FROM production_requests AS requests
        JOIN "user" AS users ON users.id = requests.requested_by
        WHERE requests.org_id = ?
@@ -272,6 +274,7 @@ export async function listPendingProductionRequests(db: D1Database, orgId: strin
       preview_url: string | null;
       snapshot_files: number;
       created_at: number;
+      updated_at: number | null;
       name: string;
       email: string;
     }>();
@@ -284,6 +287,7 @@ export async function listPendingProductionRequests(db: D1Database, orgId: strin
     requesterName: row.name,
     requesterEmail: row.email,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
   }));
 }
 
