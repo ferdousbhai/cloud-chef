@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { CLOUDFLARE_PROJECT_TITLE_MODEL } from '~/lib/workers-ai-model';
+import { workersAiGatewayOptions } from './pi-ai-models';
 
 /**
  * The title call site deliberately pass no `WorkersAiModel`, because pi-ai's own
@@ -49,5 +50,18 @@ describe('Pi Workers AI catalog thinking formats', () => {
       ['@cf/deepseek-ai/deepseek-v4-flash-0731', 'deepseek'],
       ['@cf/deepseek-ai/deepseek-v4-pro-0813', 'deepseek'],
     ]);
+  });
+});
+
+describe('AI Gateway routing', () => {
+  it("logs every request in the account's default gateway, filed under the conversation, never cached", () => {
+    expect(workersAiGatewayOptions({ chat: 'chat-1', user: 'user-1', agent: 'chat-1' })).toEqual({
+      id: 'default',
+      collectLog: true,
+      skipCache: true,
+      metadata: { chat: 'chat-1', user: 'user-1', agent: 'chat-1' },
+    });
+    // Title and prompt-enhancement requests have no conversation to file under, and are logged all the same.
+    expect(workersAiGatewayOptions()).toEqual({ id: 'default', collectLog: true, skipCache: true });
   });
 });

@@ -203,7 +203,7 @@ function makeHandle(args: HandleArgs): ModelHandle {
 export function getPiModel(
   accountCredentials: WorkersAiAccountCredentials,
   modelId: WorkersAiRuntimeModelId,
-  settings?: { model?: WorkersAiModel; sessionAffinity?: string },
+  settings?: { model?: WorkersAiModel; sessionAffinity?: string; gatewayMetadata?: WorkersAiGatewayMetadata },
 ): ModelHandle {
   const catalog = catalogModel(modelId);
   const model: Model<Api> = {
@@ -227,7 +227,7 @@ export function getPiModel(
     // Pi's OpenAI-compatible serializer requires a non-empty key before calling custom fetch.
     // The binding adapter forwards only the reviewed session-affinity header.
     apiKey: 'workers-ai-binding',
-    fetch: createWorkersAiBindingFetch(accountCredentials.binding, model, settings?.model?.requiresPaid === true),
+    fetch: createWorkersAiBindingFetch(accountCredentials.binding, model, settings?.gatewayMetadata),
     sessionAffinity: settings?.sessionAffinity,
   });
 }
@@ -239,12 +239,36 @@ type WorkersAiBindingInputs = Record<string, unknown> & {
   reasoning_effort?: string;
 };
 
+/** What a request's AI Gateway log is filed under, to find a conversation's requests: at most five keys. */
+export type WorkersAiGatewayMetadata = Partial<Record<'chat' | 'user' | 'agent', string>>;
+
+type WorkersAiGatewayOptions = {
+  id: string;
+  collectLog: boolean;
+  skipCache: boolean;
+  metadata?: WorkersAiGatewayMetadata;
+};
+
 type WorkersAiRawRunOptions = {
   returnRawResponse: true;
   signal: AbortSignal;
   extraHeaders?: Record<string, string>;
-  gateway?: { id: string; collectLog?: boolean; skipCache?: boolean };
+  gateway?: WorkersAiGatewayOptions;
 };
+
+/**
+ * Every model request goes through the account's default AI Gateway, which logs it there: requests and
+ * responses stay in the connected account, beside its transcripts, so the account can review what a
+ * conversation sent and got back. Paid models need the gateway anyway, for Unified Billing credits.
+ * Caching stays off: a builder turn is never a repeat.
+ */
+export function workersAiGatewayOptions(metadata?: WorkersAiGatewayMetadata): WorkersAiGatewayOptions {
+  const options: WorkersAiGatewayOptions = { id: 'default', collectLog: true, skipCache: true };
+  if (metadata) {
+    options.metadata = metadata;
+  }
+  return options;
+}
 
 type WorkersAiRawBinding = {
   run(model: string, inputs: WorkersAiBindingInputs, options: WorkersAiRawRunOptions): Promise<Response>;
@@ -253,7 +277,7 @@ type WorkersAiRawBinding = {
 function createWorkersAiBindingFetch(
   binding: Ai,
   model: Model<Api>,
-  routeThroughDefaultGateway: boolean,
+  gatewayMetadata: WorkersAiGatewayMetadata | undefined,
 ): FetchFunction {
   const modelId = model.id;
   return async (input, init) => {
@@ -269,10 +293,11 @@ function createWorkersAiBindingFetch(
     const rawBinding = binding as WorkersAiRawBinding;
     recordPiStage('binding_run_start', modelId);
     const sessionAffinity = request.headers.get('x-session-affinity');
-    const options: WorkersAiRawRunOptions = { returnRawResponse: true, signal: request.signal };
-    if (routeThroughDefaultGateway) {
-      options.gateway = { id: 'default', collectLog: false, skipCache: true };
-    }
+    const options: WorkersAiRawRunOptions = {
+      returnRawResponse: true,
+      signal: request.signal,
+      gateway: workersAiGatewayOptions(gatewayMetadata),
+    };
     if (sessionAffinity) {
       options.extraHeaders = { 'x-session-affinity': sessionAffinity };
     }

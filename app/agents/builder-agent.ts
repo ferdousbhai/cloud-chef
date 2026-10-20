@@ -553,6 +553,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         turnContext,
         accountCredentials,
         sessionAffinity: await createWorkersAiSessionAffinity(transcript, modelId),
+        // The turn's requests are found in the account's AI Gateway logs by chat (its URL id) and member.
+        gatewayMetadata: { chat: chatInitialId, user: durableIdentity.userId, agent: transcript.agentName },
         workspace: this.workspace,
         cloudflareApi,
         linkedProject,

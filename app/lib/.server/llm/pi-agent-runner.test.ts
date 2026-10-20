@@ -3,6 +3,7 @@ import type { AgentContext, AgentMessage, AgentLoopConfig } from '@earendil-work
 import type { AssistantMessage, ToolResultMessage } from '@earendil-works/pi-ai';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { PiStreamChunk } from './pi-stream';
+import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type WorkersAiModelId } from '~/lib/workers-ai-model';
 
 type UIMessageChunk = PiStreamChunk;
@@ -729,7 +730,7 @@ describe('piAgentRunner', () => {
         toolResults: [],
       });
     });
-    const workspace = {
+    const workspace: Pick<BuilderWorkspaceApi, 'checkpoint' | 'hasSuccessfulValidation'> = {
       checkpoint: async () => ({ workspaceRevision: 3, revision: 'rev-3' }),
       hasSuccessfulValidation: async (revision: string) => revision === 'rev-3',
     };
@@ -738,7 +739,7 @@ describe('piAgentRunner', () => {
       await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, {}, undefined, {
         onSettled,
         // SAFETY: the runner reads only checkpoint and hasSuccessfulValidation from this workspace here.
-        workspace: workspace as unknown as Parameters<typeof piAgentRunner>[0]['workspace'],
+        workspace: workspace as BuilderWorkspaceApi,
         linkedProject: { repository: 'ada/site', defaultBranch: 'main', publish: vi.fn() },
       }),
     );

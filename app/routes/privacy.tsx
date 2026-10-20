@@ -71,8 +71,8 @@ function PrivacyPage() {
           or an emailed link and do not need Cloudflare logins of their own. Each member builds in a separate workspace
           in the organization&apos;s account, so their chats, transcripts, project files, and deployed applications are
           stored there, under that account&apos;s controls. Its administrators, and anyone with access to that
-          Cloudflare account, can read them. The organization, not CloudChef&apos;s operator, decides how that account
-          is used.
+          Cloudflare account, can read them, including the AI Gateway logs of each member&apos;s model requests. The
+          organization, not CloudChef&apos;s operator, decides how that account is used.
         </p>
         <p>
           Admins see each member&apos;s name, email, role, and this month&apos;s count of model turns and tokens in the
@@ -156,9 +156,13 @@ function PrivacyPage() {
           The user-owned workspace runtime sends the prompt, conversation context, and project files needed for a
           request to the configured builder model through Cloudflare AI in the connected account. The in-chat model
           selector loads the current Cloudflare-hosted catalog from that account and offers models compatible with the
-          builder’s function-calling and context requirements. Paid-model calls are routed through the account’s default
-          AI Gateway so accounts configured for Unified Billing can use prepaid credits; per-request controls skip AI
-          Gateway caching and log collection. Cloudflare describes its handling of Workers AI content in its{' '}
+          builder’s function-calling and context requirements. Every request goes through the account’s default AI
+          Gateway, which logs it in that account: what was sent (the prompt, conversation context, and project files)
+          and the model’s reply, labelled with the conversation and the person who sent it, so the account can review
+          what a conversation did. The logs follow AI Gateway’s retention settings in that account, and anyone with
+          access to the account can read them; CloudChef’s operator receives no copy. Accounts configured for Unified
+          Billing use prepaid credits through the same gateway, and AI Gateway caching is skipped. Cloudflare describes
+          its handling of Workers AI content in its{' '}
           <a href="https://developers.cloudflare.com/workers-ai/platform/data-usage/">Workers AI data-usage notice</a>.
           CloudChef does not use AI to make decisions that produce legal or similarly significant effects about you.
         </p>
@@ -296,10 +300,10 @@ function PrivacyPage() {
           sign-in. Settings lists exactly what to clear.
         </p>
         <p>
-          Workspace Worker and Computer container logs, and generated-application Worker logs and traces, remain in your
-          connected Cloudflare account. Their access and retention follow that account’s permissions, plan, product
-          settings, and Cloudflare controls. CloudChef does not copy them into the operator’s log or trace store, and
-          removing a project does not immediately erase provider-retained observability.
+          Workspace Worker and Computer container logs, AI Gateway request logs, and generated-application Worker logs
+          and traces, remain in your connected Cloudflare account. Their access and retention follow that account’s
+          permissions, plan, product settings, and Cloudflare controls. CloudChef does not copy them into the operator’s
+          log or trace store, and removing a project does not immediately erase provider-retained observability.
         </p>
         <p>
           Removing a project hides it from the active project list and makes its Agent and workspace eligible for

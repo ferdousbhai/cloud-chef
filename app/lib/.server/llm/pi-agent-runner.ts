@@ -54,7 +54,7 @@ import { ModelInputBudgetExceededError, modelCompactionPolicy, prepareModelInput
 import { modelMessagesToPi } from './pi-message-conversion';
 import { recordPiStage, recordPiTurnBudget } from './pi-telemetry';
 import { createToolTimeAccounting } from './tool-time-accounting';
-import { getPiModel, type WorkersAiAccountCredentials } from './pi-ai-models';
+import { getPiModel, type WorkersAiAccountCredentials, type WorkersAiGatewayMetadata } from './pi-ai-models';
 import { appendDeterministicCompletion, normalizeTextPartBoundaries } from './workers-ai-stream';
 import {
   recordFirstBuilderMutation,
@@ -106,6 +106,8 @@ interface PiAgentOptions {
   };
   accountCredentials: WorkersAiAccountCredentials;
   sessionAffinity: string;
+  /** Files the turn's model requests in the account's AI Gateway logs. */
+  gatewayMetadata?: WorkersAiGatewayMetadata;
   workspace: BuilderWorkspaceApi;
   cloudflareApi?: CloudflareApiModelToolContext;
   /** Set when the workspace is one of an organization's GitHub projects. */
@@ -184,6 +186,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     compaction,
     accountCredentials,
     sessionAffinity,
+    gatewayMetadata,
     workspace,
     cloudflareApi,
     linkedProject,
@@ -196,7 +199,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   logger.debug('Starting Pi agent runner');
   const startedAt = Date.now();
   const modelId = model.id;
-  const handle = getPiModel(accountCredentials, modelId, { model, sessionAffinity });
+  const handle = getPiModel(accountCredentials, modelId, { model, sessionAffinity, gatewayMetadata });
   // Real signals, so an in-flight model stream is bounded too — not just the gaps between turns.
   const wallClockSignal = AbortSignal.timeout(BUILDER_TURN_WALL_CLOCK_MS);
   const inactivityController = new AbortController();
