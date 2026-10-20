@@ -62,3 +62,6 @@ user-workspace-container/.build/
 
 # Temporary project trees the production-build security tests create in the repository root.
 .cloudchef-runtime-security-*
+
+# Agent worktrees: local checkouts, never committed.
+.claude/worktrees/

@@ -31,5 +31,5 @@
     "**/.client/**/*.ts",
     "**/.client/**/*.tsx"
   ],
-  "exclude": ["template", "cloudchef-agent"]
+  "exclude": ["template", "cloudchef-agent", ".claude"]
 }

@@ -50,7 +50,8 @@ export default defineConfig((config) => {
         : undefined,
     },
     test: {
-      exclude: [...configDefaults.exclude, 'e2e/**'],
+      // Agent worktrees are whole checkouts of this repository; their tests belong to their own runs.
+      exclude: [...configDefaults.exclude, 'e2e/**', '.claude/worktrees/**'],
     },
     plugins: [
       !isTest && agents(),
