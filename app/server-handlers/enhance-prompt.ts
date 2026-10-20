@@ -1,5 +1,10 @@
 import type { Usage } from '@earendil-works/pi-ai';
-import { organizationModelAccess } from '~/lib/.server/cloudflare/user-workspace-cloudflare-credential';
+import {
+  confirmUserWorkspaceAccess,
+  modelRequestAccess,
+  type ConfirmUserWorkspaceAccess,
+} from '~/lib/.server/cloudflare/user-workspace-cloudflare-credential';
+import { workersAiGatewayLogging } from '~/lib/.server/llm/workers-ai-gateway';
 import { turnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import type { Tool } from '@earendil-works/pi-ai';
 import { z } from 'zod';
@@ -38,10 +43,13 @@ export async function userRuntimeEnhancePromptAction({
   request,
   env,
   userId,
+  confirmAccess = confirmUserWorkspaceAccess,
 }: {
   request: Request;
   env: Env;
   userId: string;
+  /** Asks the control plane about this person; the real call unless a test stands in for it. */
+  confirmAccess?: ConfirmUserWorkspaceAccess;
 }) {
   try {
     const parsedRequest = promptRefinementRequestSchema.safeParse(
@@ -51,7 +59,7 @@ export async function userRuntimeEnhancePromptAction({
       return Response.json({ error: 'Invalid prompt' }, { status: 400 });
     }
     const { prompt, answers } = parsedRequest.data;
-    const access = await organizationModelAccess(env);
+    const access = await modelRequestAccess(env, confirmAccess);
     if (!access.allowed) {
       return Response.json({ error: "You no longer have access to this team's account." }, { status: 403 });
     }
@@ -59,12 +67,15 @@ export async function userRuntimeEnhancePromptAction({
     const accountCredentials = await getUserWorkersAiCredentials(env, userId);
     // Prompt refinement runs the builder's own pinned model, and pi-ai's static catalog does not
     // list it. Without the discovered metadata `getPiModel` falls back to its own defaults and
-    // drives a million-token reasoning model as a 128k non-reasoning one — and a falsy
-    // `requiresPaid` also skips the gateway routing the identical model gets on the builder path.
+    // drives a million-token reasoning model as a 128k non-reasoning one.
     // Resolving it through the catalog is what keeps the two paths the same model, and it inherits
     // the pin's retirement failover for free.
     const model = await requireWorkersAiBuilderModel(accountCredentials.binding, CLOUDFLARE_WORKERS_AI_MODEL);
-    const handle = getPiModel(accountCredentials, model.id, { model });
+    // The draft goes to the model, so it is logged in the account's AI Gateway only if the person allows it.
+    const handle = getPiModel(accountCredentials, model.id, {
+      model,
+      gatewayLogging: workersAiGatewayLogging(access.contentLogging),
+    });
     const result = promptRefinementResultSchema.safeParse(
       await completeToolCall(handle, {
         systemPrompt: PROMPT_REFINEMENT_SYSTEM_PROMPT,

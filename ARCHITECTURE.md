@@ -53,7 +53,12 @@ one question, `canUseConnection` (`app/lib/cloudflare/data/organization-access.s
 an active, unpaused member of the organization that owns it. The credential broker asks it after the runtime proves
 its secret, so pausing or removing a member stops their runtime at its next call, without a
 redeploy. In an organization's account the runtime also asks (`/api/cloudflare/runtime-access`) before
-each model turn, since the model runs on the organization's Workers AI without a token from the broker. A member's
+each model turn, since the model runs on the organization's Workers AI without a token from the broker.
+The same answer carries the person's own AI Gateway content-logging choice (`user.ai_gateway_content_logging`,
+set in Settings), which the runtime asks for before every builder turn, title, and prompt enhancement in any
+account: model requests always go through the account's default gateway, logged (and labelled with chat and
+person) only when that answer says so. An unreachable control plane or a missing answer means unlogged, and no
+organization setting overrides a person's opt-out. A member's
 runtime reports each model turn's token counts to `/api/cloudflare/runtime-usage`, authenticated the same way, and the
 control plane keeps per-day counts for the organization's admins; no content reaches it.
 

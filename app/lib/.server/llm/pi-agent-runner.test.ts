@@ -161,6 +161,18 @@ describe('piAgentRunner', () => {
     expect(mocks.recordFinish).not.toHaveBeenCalled();
   });
 
+  it("sends the turn's model requests with the gateway logging the turn was given", async () => {
+    const gatewayLogging = { collectLog: false } as const;
+
+    await collectChunks(await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, {}, undefined, { gatewayLogging }));
+
+    expect(mocks.getPiModel).toHaveBeenCalledWith(
+      { binding: expect.anything() },
+      CLOUDFLARE_WORKERS_AI_MODEL,
+      expect.objectContaining({ sessionAffinity: 'opaque-session', gatewayLogging }),
+    );
+  });
+
   it('classifies pre-stream preparation failures without exposing their cause', async () => {
     mocks.prepareModelInput.mockRejectedValueOnce(new Error('private prompt details'));
 

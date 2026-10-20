@@ -1,4 +1,5 @@
 import { canUseConnection, findMembership } from '~/lib/cloudflare/data/organization-access.server';
+import { readAiGatewayContentLogging } from '~/lib/cloudflare/data/ai-gateway-logging.server';
 import { z } from 'zod';
 import { InvalidJsonBodyError, PayloadTooLargeError, readJsonBodyWithLimit } from '~/lib/bounded-body';
 import {
@@ -123,9 +124,10 @@ const runtimeAccessRequestSchema = z
   .strict();
 
 /**
- * Whether a workspace runtime's person may still build: asked before each model turn in an
- * organization's account, whose Workers AI the organization pays for, so pausing or removing a member
- * stops their next turn even in a workspace they already have open.
+ * Whether a workspace runtime's person may still build, and whether their model requests may be logged
+ * with their content in the account's AI Gateway: asked before each model request. In an organization's
+ * account, whose Workers AI the organization pays for, pausing or removing a member stops their next
+ * turn even in a workspace they already have open.
  */
 export async function runtimeAccessAction(args: { request: Request; env: Env }): Promise<Response> {
   let body: z.infer<typeof runtimeAccessRequestSchema>;
@@ -147,7 +149,11 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
   const orgId = authenticated.connection.orgId;
   const membership = orgId ? await findMembership(args.env.DB, orgId, body.userId) : null;
   return Response.json(
-    { organizationAdmin: membership?.role === 'admin' && membership.pausedAt === null },
+    {
+      organizationAdmin: membership?.role === 'admin' && membership.pausedAt === null,
+      // The person's own choice, wherever they build: a team's admins can't turn it back on for them.
+      aiGatewayContentLogging: await readAiGatewayContentLogging(args.env.DB, body.userId),
+    },
     { headers: { 'Cache-Control': 'no-store' } },
   );
 }

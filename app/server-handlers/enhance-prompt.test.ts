@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
+import { envWith } from '~/test/control-plane-d1';
 
 const mocks = vi.hoisted(() => ({
   completeToolCall: vi.fn(),
@@ -88,6 +89,8 @@ describe('userRuntimeEnhancePromptAction billing', () => {
     // pinned model still runs, from its reviewed literal.
     expect(mocks.getPiModel).toHaveBeenCalledWith(credentials, CLOUDFLARE_WORKERS_AI_MODEL, {
       model: DEFAULT_WORKERS_AI_MODEL,
+      // No runtime identity to ask about the person's choice: nothing is logged.
+      gatewayLogging: { collectLog: false },
     });
   });
 
@@ -99,9 +102,39 @@ describe('userRuntimeEnhancePromptAction billing', () => {
 
     expect(response.status).toBe(200);
     // Without this, `getPiModel` would size the builder's own million-token reasoning model as a
-    // 128k non-reasoning one and skip the gateway routing the builder path gives it.
+    // 128k non-reasoning one.
     expect(mocks.getPiModel).toHaveBeenCalledWith(credentials, CLOUDFLARE_WORKERS_AI_MODEL, {
       model: expect.objectContaining({ contextTokens: 1_048_576, reasoning: true, requiresPaid: true }),
+      gatewayLogging: { collectLog: false },
+    });
+  });
+
+  it("logs the draft in the account's AI Gateway only when the person allows it", async () => {
+    const env = envWith({
+      CLOUDCHEF_USER_RUNTIME: '1',
+      CLOUDCHEF_USER_ID: 'user-1',
+      CLOUDFLARE_ACCOUNT_ID: 'account-1',
+      CLOUDCHEF_CONNECTION_ID: 'connection-1',
+      CLOUDCHEF_CONNECTION_GENERATION: '3',
+      CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS: 'full',
+    });
+    const enhance = (aiGatewayContentLogging: boolean) =>
+      userRuntimeEnhancePromptAction({
+        request: request(),
+        env,
+        userId: 'user-1',
+        confirmAccess: async () => ({ organizationAdmin: false, aiGatewayContentLogging }),
+      });
+
+    expect((await enhance(true)).status).toBe(200);
+    expect(mocks.getPiModel).toHaveBeenLastCalledWith(expect.anything(), CLOUDFLARE_WORKERS_AI_MODEL, {
+      model: expect.anything(),
+      gatewayLogging: { collectLog: true },
+    });
+    expect((await enhance(false)).status).toBe(200);
+    expect(mocks.getPiModel).toHaveBeenLastCalledWith(expect.anything(), CLOUDFLARE_WORKERS_AI_MODEL, {
+      model: expect.anything(),
+      gatewayLogging: { collectLog: false },
     });
   });
 

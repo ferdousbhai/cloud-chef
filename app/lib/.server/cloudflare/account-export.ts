@@ -4,7 +4,7 @@ import { findCloudflareConnectionForUser } from './cloudflare-connection-reposit
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
  * kept for years stays readable against the shape it was written in.
  */
-export const ACCOUNT_EXPORT_SCHEMA_VERSION = 2;
+export const ACCOUNT_EXPORT_SCHEMA_VERSION = 3;
 
 /**
  * Per-section ceiling on rows. Sign-in sessions and OAuth state are the only
@@ -58,6 +58,8 @@ type ExportedAccount = {
   googleSubject: string | null;
   /** When CloudChef last proved the email by an emailed link or Google. */
   emailProvenAt: string | null;
+  /** Whether their model requests are logged with their content in the connected account's AI Gateway. */
+  aiGatewayContentLogging: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -248,6 +250,7 @@ type UserRow = {
   cloudflare_subject: string | null;
   google_subject: string | null;
   email_proven_at: number | null;
+  ai_gateway_content_logging: number;
   createdAt: number;
   updatedAt: number;
 };
@@ -256,7 +259,7 @@ async function readAccount(db: D1Database, userId: string): Promise<{ account: E
   const row = await db
     .prepare(
       `SELECT id, name, email, emailVerified, image, cloudflare_subject, google_subject, email_proven_at,
-              createdAt, updatedAt
+              ai_gateway_content_logging, createdAt, updatedAt
        FROM "user" WHERE id = ?`,
     )
     .bind(userId)
@@ -271,6 +274,7 @@ async function readAccount(db: D1Database, userId: string): Promise<{ account: E
       cloudflareSubject: row.cloudflare_subject,
       googleSubject: row.google_subject,
       emailProvenAt: optionalIsoTimestamp(row.email_proven_at),
+      aiGatewayContentLogging: row.ai_gateway_content_logging === 1,
       createdAt: isoTimestamp(row.createdAt),
       updatedAt: isoTimestamp(row.updatedAt),
     },
