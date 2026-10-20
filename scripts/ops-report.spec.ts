@@ -1,13 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   collectReport,
   describeBuilderModel,
   readPinnedBuilderModel,
   coreStatements,
   parseD1Response,
+  queryProduction,
   readWorkerInvocations,
+  readWorkersAiCatalog,
   renderReport,
-  WORKER_INVOCATIONS_QUERY,
+  workerInvocationsQuery,
 } from './ops-report.mjs';
 
 const NOW = Date.UTC(2026, 7, 18, 12, 0, 0);
@@ -23,83 +25,100 @@ describe('read-only production access', () => {
     }
   });
 
-  it('reads the named Worker through the exact authenticated analytics query', async () => {
-    const calls: Array<{ url: string; init: RequestInit }> = [];
-    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
-      calls.push({ url: String(input), init: init ?? {} });
-      return Response.json({
-        data: {
-          viewer: {
-            accounts: [
-              {
-                workersInvocationsAdaptive: [
-                  {
-                    dimensions: { status: 'success' },
-                    sum: { requests: 1, errors: 0 },
-                    avg: { sampleInterval: 1 },
-                  },
-                ],
-              },
-            ],
-          },
-        },
-      });
-    });
-    const run = async (_file: string, args: string[]) => {
-      if (args.includes('whoami')) {
-        return { stdout: JSON.stringify({ accounts: [{ id: 'account-1', name: 'One' }] }) };
-      }
-      return { stdout: JSON.stringify({ type: 'oauth', token: 'oauth-token' }) };
+  it('queries the database cloudflare.config.ts binds as DB through cf, without telemetry', async () => {
+    const calls: Array<{ args: string[]; env: Record<string, string | undefined> }> = [];
+    const run = async (_file: string, args: string[], options: { env: Record<string, string | undefined> }) => {
+      calls.push({ args, env: options.env });
+      return { stdout: JSON.stringify([{ results: [{ total: 2 }], success: true }]) };
     };
 
-    // SAFETY: the fake implements the two exec invocations this reader makes; no child process is started.
-    await readWorkerInvocations({ now: NOW, run: run as never, fetchImpl, env: {} });
+    // SAFETY: the fake implements the one exec invocation this reader makes; no child process is started.
+    await expect(queryProduction('SELECT 1 AS total', { run: run as never, env: {} })).resolves.toEqual([
+      [{ total: 2 }],
+    ]);
+
+    expect(calls).toEqual([
+      {
+        args: ['exec', 'cf', 'd1', 'query', expect.stringMatching(/^[0-9a-f-]{36}$/), '--sql', 'SELECT 1 AS total'],
+        env: { CF_SEND_TELEMETRY: 'false' },
+      },
+    ]);
+    expect(calls[0]?.args[4]).not.toBe('00000000-0000-0000-0000-000000000000');
+  });
+
+  it("reads the named Worker's outcomes from Workers Logs with a dry-run query that saves nothing", async () => {
+    const calls: string[][] = [];
+    const run = async (_file: string, args: string[]) => {
+      calls.push(args);
+      return {
+        stdout: JSON.stringify({
+          run: { status: 'COMPLETED' },
+          calculations: [{ aggregates: healthyInvocationRows() }],
+        }),
+      };
+    };
+
+    // SAFETY: the fake implements the one exec invocation this reader makes; no child process is started.
+    await expect(readWorkerInvocations({ now: NOW, run: run as never, env: {} })).resolves.toEqual(
+      healthyInvocationRows(),
+    );
 
     expect(calls).toHaveLength(1);
-    const [call] = calls;
-    expect(call?.url).toBe('https://api.cloudflare.com/client/v4/graphql');
-    expect(new Headers(call?.init.headers).get('authorization')).toBe('Bearer oauth-token');
-    const body = JSON.parse(String(call?.init.body));
-    expect(body).toEqual({
-      query: WORKER_INVOCATIONS_QUERY,
-      variables: {
-        account: 'account-1',
-        script: 'cloudchef',
-        from: new Date(NOW - DAY).toISOString(),
-        to: new Date(NOW).toISOString(),
+    expect(calls[0]?.slice(0, 6)).toEqual(['exec', 'cf', 'observability', 'telemetry', 'query', '--body']);
+    const body = JSON.parse(calls[0]?.[6] ?? 'null');
+    expect(body).toEqual(workerInvocationsQuery(NOW));
+    expect(body).toMatchObject({
+      dry: true,
+      timeframe: { from: NOW - DAY, to: NOW },
+      parameters: {
+        filters: expect.arrayContaining([
+          { key: '$workers.scriptName', operation: 'eq', type: 'string', value: 'cloudchef' },
+        ]),
+        groupBys: [{ type: 'string', value: '$workers.outcome' }],
       },
     });
   });
 
-  it('never includes credential command output in an operator error', async () => {
+  it('reads the builder-capable Workers AI catalog through cf', async () => {
+    const calls: string[][] = [];
     const run = async (_file: string, args: string[]) => {
-      if (args.includes('whoami')) {
-        return { stdout: JSON.stringify({ accounts: [{ id: 'account-1' }] }) };
-      }
+      calls.push(args);
+      return { stdout: JSON.stringify([catalogEntry(PIN.id, '2026-05-01')]) };
+    };
+
+    // SAFETY: the fake implements the one exec invocation this reader makes; no child process is started.
+    await expect(readWorkersAiCatalog({ run: run as never, env: {} })).resolves.toHaveLength(1);
+    expect(calls).toEqual([
+      ['exec', 'cf', 'ai', 'models', 'list', '--task', 'Text Generation', '--hide-experimental', '--per-page', '100'],
+    ]);
+  });
+
+  it("quotes only cf's own reason in an operator error, never what it wrote to stdout", async () => {
+    const run = async () => {
       throw Object.assign(new Error('Command failed'), {
-        stdout: 'super-secret-token',
-        stderr: 'Not logged in. Please run `wrangler login`.',
+        stdout: 'row data that is not an error',
+        stderr:
+          "\n┌ Error\n│ No authentication token found.\n│\n│ Run 'cf auth login' to authenticate via OAuth\n└\n[ELIFECYCLE] Command failed.",
       });
     };
-    const fetchImpl = vi.fn<typeof fetch>(async () => {
-      throw new Error('fetch must not run');
-    });
 
-    // SAFETY: the fake implements the two exec invocations this reader makes; no child process is started.
-    const read = readWorkerInvocations({
-      now: NOW,
-      run: run as never,
-      fetchImpl,
-      env: {},
-    });
+    // SAFETY: the fake implements the one exec invocation this reader makes; no child process is started.
+    const read = readWorkerInvocations({ now: NOW, run: run as never, env: {} });
 
-    await expect(read).rejects.toThrow('Not logged in. Please run `wrangler login`.');
-    await expect(read).rejects.not.toThrow(/super-secret-token/);
+    await expect(read).rejects.toThrow("No authentication token found. Run 'cf auth login' to authenticate via OAuth");
+    await expect(read).rejects.not.toThrow(/row data|ELIFECYCLE/);
+  });
+
+  it('treats a log query that did not complete as unreadable rather than as an idle Worker', async () => {
+    const run = async () => ({ stdout: JSON.stringify({ run: { status: 'FAILED' }, calculations: [] }) });
+
+    // SAFETY: the fake implements the one exec invocation this reader makes; no child process is started.
+    await expect(readWorkerInvocations({ now: NOW, run: run as never, env: {} })).rejects.toThrow('finished as FAILED');
   });
 });
 
 describe('production report', () => {
-  it('does not turn malformed Wrangler output into an empty healthy result', () => {
+  it('does not turn malformed cf output into an empty healthy result', () => {
     expect(() => parseD1Response('not json at all')).toThrow('did not return a D1 result array');
   });
 
@@ -152,7 +171,7 @@ describe('production report', () => {
     expect(rendered).toContain("runtime bbbbbbbbbbbb, not this checkout's aaaaaaaaaaaa");
   });
 
-  it('marks control-plane checks unknown when Wrangler cannot read D1', async () => {
+  it('marks control-plane checks unknown when cf cannot read D1', async () => {
     const report = await collectReport({
       query: async () => {
         throw new Error('You are not authenticated.');
@@ -175,6 +194,43 @@ describe('production report', () => {
         .map((item: { id: string }) => item.id),
     ).toEqual(expect.arrayContaining(['users', 'cloudflare-accounts', 'sessions', 'workspace-runtimes']));
     expect(renderReport(report)).not.toContain('Everything is healthy');
+  });
+});
+
+describe('control-plane Worker check', () => {
+  it('counts every outcome but the benign ones as a fault and points at the exception text', async () => {
+    const report = await collectReport({
+      query: fixtureQuery(healthyRows()),
+      readInvocations: async () => [...healthyInvocationRows(), invocationRow('exception', 12)],
+      readModelCatalog: healthyCatalog,
+      now: NOW,
+      desiredRuntimeVersion: CURRENT_RUNTIME,
+      pinnedBuilderModel: PIN,
+    });
+    const worker = report.checks.find((item: { id: string }) => item.id === 'control-plane-worker');
+
+    expect(worker).toMatchObject({
+      status: 'error',
+      detail: { invocations: 655, faulted: 12, byStatus: { ok: 640, canceled: 3, exception: 12 }, logsAvailable: true },
+    });
+    expect(worker?.sentence).toContain('(exception 12)');
+    expect(worker?.sentence).toContain('cf observability telemetry query');
+  });
+
+  it('reports a Workers Logs shape it cannot read as drift, not as zero invocations', async () => {
+    const report = await collectReport({
+      query: fixtureQuery(healthyRows()),
+      readInvocations: async () => [{ groups: [], count: 5 }],
+      readModelCatalog: healthyCatalog,
+      now: NOW,
+      desiredRuntimeVersion: CURRENT_RUNTIME,
+      pinnedBuilderModel: PIN,
+    });
+
+    expect(report.checks.find((item: { id: string }) => item.id === 'control-plane-worker')).toMatchObject({
+      status: 'unknown',
+      detail: { schemaMismatch: true },
+    });
   });
 });
 
@@ -277,12 +333,14 @@ function fixtureQuery(rows: Rows) {
   return async () => rows;
 }
 
+function invocationRow(outcome: string, count: number) {
+  return { groups: [{ key: '$workers.outcome', value: outcome }], groupKey: outcome, count, sampleInterval: 1 };
+}
+
+function healthyInvocationRows() {
+  return [invocationRow('ok', 640), invocationRow('canceled', 3)];
+}
+
 async function healthyInvocations() {
-  return [
-    {
-      dimensions: { status: 'success' },
-      sum: { requests: 640, errors: 0 },
-      avg: { sampleInterval: 1 },
-    },
-  ];
+  return healthyInvocationRows();
 }

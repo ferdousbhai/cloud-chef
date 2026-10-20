@@ -30,28 +30,29 @@ A `COULD NOT BE READ` entry naming a table that "does not exist in production ye
 applied. Report it as unknown.
 
 The `Control-plane Worker` check counts invocation **outcomes**, not log lines. "None of them failed inside the Worker"
-means no invocation ended in `scriptThrew`, `exceededCpu`, or any other non-benign status in the last 24 hours; it says
-nothing about handled errors, logged warnings, or anything a request logged on its way to a 200. The exception text
-lives in Workers Logs, which needs an observability grant Wrangler's own OAuth token does not carry
-(`detail.logsAvailable` is `false` for exactly that reason), so do not report this check as "no errors in the logs". A
-window with no invocations at all is reported as needing attention, because this Worker serves cloudchef.build and fires
-a cron every 15 minutes.
+means no invocation ended in `exception`, `exceededCpu`, or any other non-benign outcome in the last 24 hours; it says
+nothing about handled errors, logged warnings, or anything a request logged on its way to a 200, so do not report this
+check as "no errors in the logs". The counts come from Workers Logs, which are head-sampled, so they are logged
+invocations rather than every one; the fault share is what the status is judged on. When it names faults, the exception
+text is one `cf observability telemetry query` away (view `events`, filtered on `$workers.outcome`). A window with no
+invocations at all is reported as needing attention, because this Worker serves cloudchef.build and fires a cron every
+15 minutes.
 
 The JSON mode carries the same information as `status` (`ok` / `attention` / `unknown` / `error`), `headline`, and a
 `checks` array where each entry has `id`, `title`, `status`, `sentence`, `at`, `relative`, and a `detail` object.
 
 Exit status is 0 whenever a report was produced, including an unhealthy one, and 1 when the control plane could not be
-read at all - typically because Wrangler is not authenticated. Judge health from `status`/`headline`, not from the exit
+read at all - typically because `cf` is not logged in (`cf auth login`). Judge health from `status`/`headline`, not from the exit
 code.
 
 ## What it is
 
-`scripts/ops-report.mjs`, a plain ESM Node script with no dependencies. It reads production control-plane D1 with
-`wrangler d1 execute cloudchef --remote --json` under the operator's existing Cloudflare authentication, and reads the
-control-plane Worker's invocations from the Workers analytics GraphQL API with the credential `wrangler auth token`
-hands back. Every statement is a `SELECT` and every API call is a read; the tool never writes, deletes, or upgrades
-anything, and holds no credential of its own. If Wrangler is authenticated against more than one account, set
-`CLOUDFLARE_ACCOUNT_ID` so the Worker read knows which one to ask about.
+`scripts/ops-report.mjs`, a plain ESM Node script. It reads production control-plane D1 with `cf d1 query` (the
+database id comes from `cloudflare.config.ts`), the control-plane Worker's invocation outcomes from Workers Logs with
+`cf observability telemetry query` run as a dry run, which saves no query or result, and the Workers AI catalog with
+`cf ai models list`, all under the operator's existing `cf` login. Every statement is a `SELECT` and every command is a
+read; the tool never writes, deletes, or upgrades anything, and holds no credential of its own. If the login can see more
+than one account, set `CLOUDFLARE_ACCOUNT_ID` so `cf` knows which one to ask about.
 
 Runtime staleness is measured against `app/generated/user-workspace-runtime.generated.ts`, the workspace runtime build
 of the current checkout. If that generated file is absent the report says staleness is unknown rather than guessing;
