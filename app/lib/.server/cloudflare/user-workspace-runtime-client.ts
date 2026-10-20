@@ -49,6 +49,8 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
   readonly #executionCancellations = new Map<string, Promise<void>>();
   #state: BuilderWorkspaceState | null = null;
   #files: BuilderWorkspaceFileMetadata[] = [];
+  /** Whether `#files` holds a snapshot; seeding and sync pages set `#state` without one. */
+  #filesLoaded = false;
   #stubPromise: Promise<ProjectWorkspaceStub> | null = null;
   #activeTool: { toolCallId: string; toolName: string } | null = null;
   #activeValidationToolCallId: string | null = null;
@@ -56,7 +58,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
   readonly computer: BuilderWorkspaceApi['computer'] = {
     fs: {
       stat: async (path) => {
-        const file = this.#files.find((candidate) => candidate.path === path);
+        const file = (await this.#loadedFiles()).find((candidate) => candidate.path === path);
         if (!file) {
           throw new WorkspaceFileNotFoundError(path);
         }
@@ -73,7 +75,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
         const text = new TextDecoder('utf-8', { fatal: true }).decode(content);
         const result = await this.applyClientChanges(
           this.#attributeToActiveTool({
-            baseRevision: this.getState().revision,
+            baseRevision: (await this.#loadedState()).revision,
             changes: [{ kind: 'write', path, content: text, mode: options?.mode }],
           }),
         );
@@ -88,7 +90,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       rm: async (path) => {
         const result = await this.applyClientChanges(
           this.#attributeToActiveTool({
-            baseRevision: this.getState().revision,
+            baseRevision: (await this.#loadedState()).revision,
             changes: [{ kind: 'delete', path }],
           }),
         );
@@ -108,7 +110,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       find: async (directory, pattern, options) => {
         const prefix = directory === '' || directory.endsWith('/') ? directory : `${directory}/`;
         const offset = options?.offset ?? 0;
-        return this.#files
+        return (await this.#loadedFiles())
           .filter((file) => prefix === '' || file.path === directory || file.path.startsWith(prefix))
           .filter((file) => pattern === undefined || file.path.includes(pattern))
           .slice(offset, options?.limit === undefined ? undefined : offset + options.limit)
@@ -156,7 +158,27 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     const snapshot = await stub.getWorkspaceSnapshot();
     this.#state = snapshot.state;
     this.#files = snapshot.files;
+    this.#filesLoaded = true;
     return snapshot.state;
+  }
+
+  /**
+   * The cached state, read from the workspace first when this client has none yet.
+   *
+   * A Builder Agent that restarted (eviction, a runtime upgrade, a recovered turn) builds a fresh
+   * client, and its first file mutation may come before anything has refreshed it. A stale cache
+   * is left alone: the workspace rejects a write against an old revision as a conflict.
+   */
+  async #loadedState(): Promise<BuilderWorkspaceState> {
+    return this.#state ?? this.refresh();
+  }
+
+  /** The cached file list, read from the workspace first when this client has not loaded one. */
+  async #loadedFiles(): Promise<BuilderWorkspaceFileMetadata[]> {
+    if (!this.#filesLoaded) {
+      await this.refresh();
+    }
+    return this.#files;
   }
 
   getState(): BuilderWorkspaceState {
@@ -618,6 +640,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     await (await this.#stub()).deleteProject();
     this.#state = null;
     this.#files = [];
+    this.#filesLoaded = false;
   }
 
   async #executeTool<T>(

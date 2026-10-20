@@ -1064,6 +1064,107 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     expect(stub.applyChanges).toHaveBeenCalledOnce();
   });
 
+  it('loads the workspace for a file mutation when a restarted agent never refreshed it', async () => {
+    const state = (revision: number) => ({
+      initialized: true,
+      revision,
+      resetRevision: 0,
+      fileCount: 1,
+      totalBytes: 3,
+      seeding: false,
+    });
+    const file = {
+      path: '/home/project/a.ts',
+      encoding: 'utf8',
+      size: 3,
+      mode: 0o100755,
+      sha256: 'a'.repeat(64),
+      revision: 4,
+    };
+    let revision = 4;
+    const { client, calls } = harness((operation) => {
+      if (operation === 'getWorkspaceSnapshot') {
+        return { state: state(revision), files: [file] };
+      }
+      if (operation === 'applyChanges') {
+        revision += 1;
+        return { ok: true, state: state(revision), changedPaths: ['/home/project/a.ts'] };
+      }
+      return undefined;
+    });
+
+    await expect(client.computer.fs.stat('/home/project/a.ts')).resolves.toMatchObject({ size: 3, mode: 0o100755 });
+    await client.computer.fs.writeFile('/home/project/a.ts', new TextEncoder().encode('new'));
+    await client.computer.fs.rm('/home/project/a.ts');
+
+    expect(calls.filter((call) => call.operation === 'applyChanges').map((call) => record(call.value))).toEqual([
+      expect.objectContaining({ baseRevision: 4 }),
+      expect.objectContaining({ baseRevision: 5 }),
+    ]);
+    expect(client.getState().revision).toBe(6);
+  });
+
+  it.each(['writeFile', 'rm'] as const)(
+    'loads the workspace before a fresh client %s and still reports a conflict as a project change',
+    async (operation) => {
+      const state = (revision: number) => ({
+        initialized: true,
+        revision,
+        resetRevision: 0,
+        fileCount: 0,
+        totalBytes: 0,
+        seeding: false,
+      });
+      const { client, calls } = harness((name) => {
+        if (name === 'getWorkspaceSnapshot') {
+          return { state: state(7), files: [] };
+        }
+        if (name === 'applyChanges') {
+          return { ok: false, conflict: true, state: state(8) };
+        }
+        return undefined;
+      });
+
+      const attempt =
+        operation === 'writeFile'
+          ? client.computer.fs.writeFile('/home/project/a.ts', new TextEncoder().encode('new'))
+          : client.computer.fs.rm('/home/project/a.ts');
+
+      await expect(attempt).rejects.toThrow('The project changed while the');
+      expect(calls.map((call) => call.operation)).toEqual([
+        'initializeProjectIdentity',
+        'getWorkspaceSnapshot',
+        'applyChanges',
+      ]);
+      expect(record(calls[2]!.value)).toMatchObject({ baseRevision: 7 });
+      expect(client.getState().revision).toBe(8);
+    },
+  );
+
+  it('lists files for find from the workspace when nothing has loaded them', async () => {
+    const { client } = harness((operation) =>
+      operation === 'getWorkspaceSnapshot'
+        ? {
+            state: { initialized: true, revision: 1, resetRevision: 0, fileCount: 1, totalBytes: 1, seeding: false },
+            files: [
+              {
+                path: '/home/project/src/a.ts',
+                encoding: 'utf8',
+                size: 1,
+                mode: 0o100644,
+                sha256: 'b'.repeat(64),
+                revision: 1,
+              },
+            ],
+          }
+        : undefined,
+    );
+
+    await expect(client.computer.fs.find('/home/project/src')).resolves.toEqual([
+      { path: '/home/project/src/a.ts', type: 'file' },
+    ]);
+  });
+
   it('transports file bytes and streams through the authenticated project RPC', async () => {
     const bytes = new Uint8Array([0, 1, 2, 255]);
     const stream = new Blob([bytes]).stream();

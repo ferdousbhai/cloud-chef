@@ -2003,8 +2003,18 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       logger.warn('Unable to refresh workspace revision for preview failure');
       return null;
     });
-    const revision = refreshed?.revision ?? this.workspace.getState().revision;
+    // A restarted agent's client may hold no state at all, and the refresh just failed; the job's
+    // revision is then the last one known, and the failure is still recorded.
+    const revision = refreshed?.revision ?? this.cachedWorkspaceRevision() ?? job.workspaceRevision;
     this.setPreviewState(failedBuilderPreviewState(this.currentPreviewState(), revision, error));
+  }
+
+  private cachedWorkspaceRevision(): number | null {
+    try {
+      return this.workspace.getState().revision;
+    } catch {
+      return null;
+    }
   }
 
   private previewFiberKey(previewId: string): string {
