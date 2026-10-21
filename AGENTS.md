@@ -49,7 +49,8 @@ named one) when they report a problem: the person, runtime, and usage from contr
 and deployments from the workspace's own `cloudchef-data-<suffix>` D1; the workspace Worker's Workers Logs over the
 conversation (turns, budgets, model finishes, warnings, errors); every model request filed under the chat in AI
 Gateway, with the conversation (user messages, assistant text, tool calls and errors) from the latest one; and, for
-a GitHub project, the member branch's commits and their Workers Builds check runs through the operator's `gh` login.
+a GitHub project, the conversation's branch's commits and their Workers Builds check runs through the operator's `gh`
+login (the latest of the member's branches, since which one is the chat's isn't recorded).
 
 ## Cloudflare CLI
 

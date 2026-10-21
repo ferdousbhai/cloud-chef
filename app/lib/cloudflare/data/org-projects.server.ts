@@ -340,8 +340,10 @@ export async function declineProductionRequest(
   await requireAdmin(db, args.orgId, args.actorId);
   const declined = await db
     .prepare(
+      // The decision keeps only the request's title and file count: the draft, its note and its preview
+      // link go.
       `UPDATE production_requests SET status = 'declined', decided_by = ?, decided_at = ?, decision_note = ?,
-         snapshot_gzip_base64 = ''
+         snapshot_gzip_base64 = '', note = NULL, preview_url = NULL
        WHERE id = ? AND org_id = ? AND ${OPEN_REQUEST}`,
     )
     .bind(
@@ -367,27 +369,53 @@ export function lapsedApprovalClaimBefore(now: number): number {
  * Claims a request for an admin who is about to authorize CloudChef on GitHub, so that what they
  * reviewed is what becomes the repository: while claimed, the member can't replace the draft, and no
  * other admin can approve or decline it. The same admin approving again (a tab closed on GitHub) takes
- * over their own claim. Returns the claim's time, which the approval's state records, or null when
- * the request is decided, another admin holds it, or its requester is no longer in the team.
+ * over their own claim. The claim and the approval's state (`approval`, created at the claim's time)
+ * are written together, so a claim never exists without the state that finishes or releases it.
+ * Returns the claim's time, or null when the request is decided, another admin holds it, or its
+ * requester is no longer in the team.
  */
 export async function claimProductionRequestForApproval(
   db: D1Database,
-  args: { orgId: string; requestId: string; adminId: string; now?: number },
+  args: {
+    orgId: string;
+    requestId: string;
+    adminId: string;
+    approval: { state: string; repoName: string; private: boolean; ttlMs: number };
+    now?: number;
+  },
 ): Promise<number | null> {
   const now = args.now ?? Date.now();
-  const claimed = await db
-    .prepare(
-      `UPDATE production_requests SET status = 'approving', claimed_at = ?
-       WHERE id = ? AND org_id = ? AND ${REQUESTER_IS_MEMBER} AND (
-         ${OPEN_REQUEST}
-         OR (status = 'approving' AND EXISTS (
-           SELECT 1 FROM github_approval_states AS states
-           WHERE states.request_id = production_requests.id AND states.user_id = ? AND states.used_at IS NULL
-             AND states.created_at = production_requests.claimed_at)))`,
-    )
-    .bind(now, args.requestId, args.orgId, lapsedApprovalClaimBefore(now), args.adminId)
-    .run();
-  return claimed.meta.changes === 1 ? now : null;
+  const [claimed] = await db.batch([
+    db
+      .prepare(
+        `UPDATE production_requests SET status = 'approving', claimed_at = ?
+         WHERE id = ? AND org_id = ? AND ${REQUESTER_IS_MEMBER} AND (
+           ${OPEN_REQUEST}
+           OR (status = 'approving' AND EXISTS (
+             SELECT 1 FROM github_approval_states AS states
+             WHERE states.request_id = production_requests.id AND states.user_id = ? AND states.used_at IS NULL
+               AND states.created_at = production_requests.claimed_at)))`,
+      )
+      .bind(now, args.requestId, args.orgId, lapsedApprovalClaimBefore(now), args.adminId),
+    // Only with the claim just made: the request is now this admin's, claimed at this moment.
+    db
+      .prepare(
+        `INSERT INTO github_approval_states (id, request_id, user_id, repo_name, private, expires_at, created_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (
+           SELECT 1 FROM production_requests WHERE id = ?2 AND status = 'approving' AND claimed_at = ?7
+         )`,
+      )
+      .bind(
+        args.approval.state,
+        args.requestId,
+        args.adminId,
+        args.approval.repoName,
+        args.approval.private ? 1 : 0,
+        now + args.approval.ttlMs,
+        now,
+      ),
+  ]);
+  return claimed?.meta.changes === 1 ? now : null;
 }
 
 /**
@@ -432,7 +460,10 @@ export async function releaseApprovalClaim(db: D1Database, requestId: string, cl
 
 /**
  * Records an approved request: its new repository becomes an organization project its requester may work
- * on, and the request keeps only the decision (the draft's files now live in GitHub).
+ * on, and the request keeps only its title, file count and the decision (the draft's files now live in
+ * GitHub). Only while this approval's claim (`claimedAt`) still holds and its requester is still in the
+ * team: a request withdrawn meanwhile (its requester left or was removed, which declines it) records
+ * nothing, and null is returned.
  */
 export async function recordApprovedRequest(
   db: D1Database,
@@ -442,19 +473,35 @@ export async function recordApprovedRequest(
     requestId: string;
     requestedBy: string;
     name: string;
+    claimedAt: number;
     repository: { id: number; fullName: string; defaultBranch: string };
     now?: number;
   },
-): Promise<string> {
+): Promise<string | null> {
   const now = args.now ?? Date.now();
   const projectId = crypto.randomUUID();
-  await db.batch([
+  // The decision is written first, and the project and its access only behind it, all in one batch: the
+  // request approved by this claim, with no project yet, is what the later statements look for.
+  const approvedByThisClaim = `EXISTS (
+    SELECT 1 FROM production_requests
+    WHERE id = ?1 AND status = 'approved' AND claimed_at = ?2 AND project_id IS NULL
+  )`;
+  const [approved] = await db.batch([
+    db
+      .prepare(
+        `UPDATE production_requests SET status = 'approved', decided_by = ?, decided_at = ?,
+           snapshot_gzip_base64 = '', note = NULL, preview_url = NULL
+         WHERE id = ? AND org_id = ? AND status = 'approving' AND claimed_at = ? AND ${REQUESTER_IS_MEMBER}`,
+      )
+      .bind(args.actorId, now, args.requestId, args.orgId, args.claimedAt),
     db
       .prepare(
         `INSERT INTO org_projects (id, org_id, name, repo_id, repo_full_name, default_branch, origin, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'promoted', ?, ?)`,
+         SELECT ?3, ?4, ?5, ?6, ?7, ?8, 'promoted', ?9, ?10 WHERE ${approvedByThisClaim}`,
       )
       .bind(
+        args.requestId,
+        args.claimedAt,
         projectId,
         args.orgId,
         args.name,
@@ -464,24 +511,21 @@ export async function recordApprovedRequest(
         args.actorId,
         now,
       ),
-    // Access only for a requester still in the team: one removed while the repository was being made
-    // gets nothing.
     db
       .prepare(
         `INSERT INTO org_project_access (project_id, user_id, granted_by, granted_at)
-         SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (
-           SELECT 1 FROM organization_members WHERE org_id = ?5 AND user_id = ?2
-         )
+         SELECT ?3, ?4, ?5, ?6 WHERE ${approvedByThisClaim}
+           AND EXISTS (SELECT 1 FROM org_projects WHERE id = ?3)
          ON CONFLICT(project_id, user_id) DO NOTHING`,
       )
-      .bind(projectId, args.requestedBy, args.actorId, now, args.orgId),
+      .bind(args.requestId, args.claimedAt, projectId, args.requestedBy, args.actorId, now),
     db
       .prepare(
-        `UPDATE production_requests SET status = 'approved', project_id = ?, decided_by = ?, decided_at = ?,
-           snapshot_gzip_base64 = ''
-         WHERE id = ? AND org_id = ? AND status = 'approving'`,
+        `UPDATE production_requests SET project_id = ?3
+         WHERE id = ?1 AND status = 'approved' AND claimed_at = ?2 AND project_id IS NULL
+           AND EXISTS (SELECT 1 FROM org_projects WHERE id = ?3)`,
       )
-      .bind(projectId, args.actorId, now, args.requestId, args.orgId),
+      .bind(args.requestId, args.claimedAt, projectId),
   ]);
-  return projectId;
+  return approved?.meta.changes === 1 ? projectId : null;
 }

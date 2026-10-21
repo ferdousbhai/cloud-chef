@@ -161,8 +161,8 @@ The `cloudchef` Worker is connected to `ferdousbhai/cloud-chef` in Workers Build
 specified in `workers-builds.production.json`: keep the dashboard commands, branch controls, build variables,
 and token selection aligned with that file. Runtime secrets remain on the Worker and are not build variables.
 
-Cloudflare Workers Builds runs the full `pnpm run validate` on every non-production branch, which uploads an undeployed
-Worker version (`scripts/workers-builds-checks.mjs`). A push to `main` validates too, inside the deploy step, so a
+Cloudflare Workers Builds runs the full `pnpm run validate` on every non-production branch
+(`scripts/workers-builds-checks.mjs`) and uploads nothing (`pnpm run workers-builds:branch`). A push to `main` validates too, inside the deploy step, so a
 release that fails validation deploys and migrates nothing. Its build command only regenerates the checked-in outputs
 and checks the release inputs. The deploy command (`scripts/deploy-production.mjs --workers-builds`), which runs only
 from the exact Workers Builds checkout, then runs `pnpm run validate` with the exact 40-character commit ID and OAuth
@@ -250,8 +250,8 @@ pnpm run ops:session -- <chat id | user email | user id>   # one member's recent
 
 `scripts/ops-session.mjs` reads, with `cf` and `gh` only, what an operator otherwise gathers by hand when someone
 reports a problem: control-plane D1, the workspace's own D1 (found with `cf d1 list` in the runtime's account), dry-run
-Workers Logs queries for the workspace Worker, AI Gateway logs filed under the chat, and the member branch's commits
-and check runs for a GitHub project. It refuses any `cf` command outside a read-only allowlist, and a source it cannot
+Workers Logs queries for the workspace Worker, AI Gateway logs filed under the chat, and, for a GitHub project, the
+commits and check runs on the conversation's branch (the latest of the member's: which one is the chat's isn't recorded). It refuses any `cf` command outside a read-only allowlist, and a source it cannot
 read is reported as unknown with the reason. Conversation content exists only for people who kept AI Gateway logging on.
 
 `scripts/ops-report.mjs` reads production control-plane D1 with `cf d1 query`, the control-plane Worker's invocation

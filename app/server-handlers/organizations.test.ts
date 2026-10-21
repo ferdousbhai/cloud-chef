@@ -309,13 +309,11 @@ describe('organizations', () => {
     const orgIds = database.prepare('SELECT id FROM organizations ORDER BY name').all();
     const [first, second] = orgIds.map((row) => z.object({ id: z.string() }).parse(row).id);
     const insert = database.prepare(
-      `INSERT INTO organization_invites (id, org_id, email, role, token_hash, invited_by, expires_at, created_at)
-       VALUES (?, ?, ?, 'member', ?, ?, ?, ?)`,
+      `INSERT INTO organization_quota_events (kind, user_id, org_id, created_at) VALUES ('invite', ?, ?, ?)`,
     );
     for (let index = 0; index < 100; index += 1) {
-      insert.run(crypto.randomUUID(), first, `p${index}@acme.com`, `hash-${index}`, admin.userId, 1, Date.now());
+      insert.run(admin.userId, first, Date.now());
     }
-    database.prepare('UPDATE organization_invites SET expires_at = 1').run();
     await env.DB.prepare(
       `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
        VALUES ('second-connection', ?, 'account-2', 'Second', 'active', 1, 1)`,
@@ -323,6 +321,57 @@ describe('organizations', () => {
       .bind(second)
       .run();
     expect((await invite(env, admin.cookie, second, 'sam@acme.com')).status).toBe(409);
+  });
+
+  it("doesn't give a team's creation back when the team is deleted, until 30 days have passed", async () => {
+    const { database, env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const create = (name: string) =>
+      createOrganizationAction({ request: post(admin.cookie, '/api/organizations/create', { name }), env });
+    for (let index = 0; index < 10; index += 1) {
+      expect((await create(`Team ${index}`)).status).toBe(201);
+    }
+    database.prepare(`DELETE FROM organizations WHERE name = 'Team 0'`).run();
+
+    const again = await create('Team 10');
+    expect(again.status).toBe(409);
+    expect(await again.json()).toEqual({ error: 'You can have up to 10 teams, and create up to 10 in 30 days.' });
+    expect(database.prepare('SELECT COUNT(*) AS count FROM organizations').get()?.count).toBe(9);
+
+    database.prepare('UPDATE organization_quota_events SET created_at = ?').run(Date.now() - 31 * 24 * 60 * 60_000);
+    expect((await create('Team 10')).status).toBe(201);
+    // Nine teams before, and the tenth: the limit on teams one has stands as well.
+    expect((await create('Team 11')).status).toBe(409);
+  });
+
+  it('counts a revoked invite, and one from a deleted team, toward the daily limits', async () => {
+    const { database, env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const insert = database.prepare(
+      `INSERT INTO organization_quota_events (kind, user_id, org_id, created_at) VALUES ('invite', ?, ?, ?)`,
+    );
+    for (let index = 0; index < 99; index += 1) {
+      insert.run(admin.userId, orgId, Date.now());
+    }
+    expect((await invite(env, admin.cookie, orgId, 'sam@acme.com')).status).toBe(201);
+    database.prepare('DELETE FROM organization_invites').run();
+
+    expect((await invite(env, admin.cookie, orgId, 'kim@acme.com')).status).toBe(409);
+
+    // The team deleted, its invites go, but what its admin sent still counts for them in another.
+    database.prepare('DELETE FROM organizations WHERE id = ?').run(orgId);
+    const otherOrgId = await createOrganizationAction({
+      request: post(admin.cookie, '/api/organizations/create', { name: 'Other' }),
+      env,
+    }).then(async (response) => createdSchema.parse(await response.json()).orgId);
+    await env.DB.prepare(
+      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
+       VALUES ('other-connection', ?, 'account-other', 'Other', 'active', 1, 1)`,
+    )
+      .bind(otherOrgId)
+      .run();
+    expect((await invite(env, admin.cookie, otherOrgId, 'kim@acme.com')).status).toBe(409);
   });
 
   it('lets only admins invite, and only to accounts a person may use', async () => {
@@ -696,6 +745,14 @@ describe('a team’s name and deletion', () => {
          VALUES (?, 'acme-connection', 1, 'worker', 'https://runtime.example', 'sha', 'ready', NULL, 1, 1)`,
       )
       .run(sam.userId);
+    database
+      .prepare(
+        `INSERT INTO user_computer_runtimes
+           (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
+            last_error, created_at, updated_at)
+         VALUES (?, 'acme-connection', 1, 'worker-2', 'https://runtime-2.example', 'sha', 'ready', NULL, 1, 1)`,
+      )
+      .run(admin.userId);
     await invite(env, admin.cookie, orgId, 'kim@acme.com');
 
     // A member can't delete it.
@@ -754,7 +811,63 @@ describe('a team’s name and deletion', () => {
       workspacesLeft: 0,
       cloudflareAuthorizationRevoked: true,
     });
-    expect(deleted).toEqual([admin.userId]);
+    // They never opened a workspace there, so there was none to delete.
+    expect(deleted).toEqual([]);
     expect(database.prepare('SELECT COUNT(*) AS count FROM organizations').get()).toEqual({ count: 0 });
+  });
+
+  it('reports no workspace left behind for a team whose connection lapsed, and tries none', async () => {
+    const { database, env, admin, sam, orgId } = await team();
+    database
+      .prepare(
+        `INSERT INTO user_computer_runtimes
+           (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
+            last_error, created_at, updated_at)
+         VALUES (?, 'acme-connection', 1, 'worker', 'https://runtime.example', 'sha', 'ready', NULL, 1, 1)`,
+      )
+      .run(sam.userId);
+    database.prepare("UPDATE cloudflare_connections SET status = 'revoked'").run();
+
+    const { response, deleted } = remove(env, admin.cookie, orgId, { failFor: sam.userId });
+
+    expect(await (await response).json()).toMatchObject({ deleted: true, workspacesLeft: 0 });
+    expect(deleted).toEqual([]);
+  });
+
+  it("deletes a large team's workspaces a few at a time, and each of them", async () => {
+    const { database, env, admin, orgId } = await team();
+    const insertRuntime = database.prepare(
+      `INSERT INTO user_computer_runtimes
+         (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
+          last_error, created_at, updated_at)
+       VALUES (?, 'acme-connection', 1, ?, 'https://runtime.example', 'sha', 'ready', NULL, 1, 1)`,
+    );
+    const owners: string[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      const person = await upsertVerifiedEmailUser(env.DB, { email: `p${index}@acme.com` });
+      insertRuntime.run(person.id, `worker-${index}`);
+      owners.push(person.id);
+    }
+    let running = 0;
+    let mostAtOnce = 0;
+    const deleted: string[] = [];
+
+    const response = await deleteOrganizationAction({
+      request: post(admin.cookie, '/api/organizations/delete', { orgId }),
+      env,
+      deleteWorkspace: async (_env, _orgId, userId) => {
+        running += 1;
+        mostAtOnce = Math.max(mostAtOnce, running);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        running -= 1;
+        deleted.push(userId);
+      },
+      revokeGrant: async () => true,
+    });
+
+    expect(await response.json()).toMatchObject({ deleted: true, workspacesLeft: 0 });
+    expect(deleted.toSorted()).toEqual(owners.toSorted());
+    expect(mostAtOnce).toBeGreaterThan(1);
+    expect(mostAtOnce).toBeLessThanOrEqual(4);
   });
 });

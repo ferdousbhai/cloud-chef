@@ -12,8 +12,9 @@
  *   nothing, paged by `$metadata.id`): turns, turn budgets, model finishes, warnings, and errors
  * - AI Gateway logs filed under the chat (`metadata.chat`): every model request, and the conversation
  *   as the latest request and response carried it (user messages, assistant text, tool calls and errors)
- * - for a chat on a GitHub project: the member branch's latest commits and their check runs (Workers
- *   Builds), through the operator's own `gh` login
+ * - for a chat on a GitHub project: the conversation's branch's latest commits and their check runs (Workers
+ *   Builds), through the operator's own `gh` login; which branch is the chat's isn't recorded, so the
+ *   latest of the member's is read and the others are listed
  *
  * Everything goes through the operator's existing `cf` and `gh` logins. Every D1 statement is a
  * `SELECT`, every `cf` command is on a read-only allowlist, and `gh` is only asked for GETs. No secret
@@ -45,6 +46,9 @@ const MAX_WINDOW_MS = 7 * DAY;
 const CHATS_PER_WORKSPACE = 5;
 const USAGE_DAYS = 14;
 const COMMITS = 5;
+/** Of a member's branches on a project, how many are listed (latest commit first), and read at once. */
+const BRANCHES_LISTED = 20;
+const BRANCH_READS_AT_ONCE = 8;
 
 /** The only `cf` commands this script runs. Each one reads. */
 const READ_ONLY_CF_COMMANDS = Object.freeze([
@@ -644,17 +648,29 @@ async function readGithub({ cf, gh, controlPlaneDatabaseId, projectId, owner, no
     return { project, branch: member, commits: null };
   }
   // Each conversation commits to its own `<member>-<key>` branch (a workspace opened before that, to the
-  // member's one branch): the one most recently pushed is the session's.
-  const branches = await attempt(() => gh(`repos/${project.repo_full_name}/git/matching-refs/heads/${member}`));
-  const refs = branches.ok && Array.isArray(branches.value) ? branches.value : [];
-  const heads = await Promise.all(
-    refs.slice(0, 20).map(async (ref) => {
-      const name = String(ref.ref ?? '').replace(/^refs\/heads\//, '');
-      const commit = await attempt(() => gh(`repos/${project.repo_full_name}/commits/${ref.object?.sha}`));
-      return { name, at: commit.ok ? (commit.value?.commit?.committer?.date ?? '') : '' };
-    }),
-  );
-  const branch = heads.filter((head) => head.name).sort((a, b) => b.at.localeCompare(a.at))[0]?.name ?? member;
+  // member's one branch). The key is the workspace's own and isn't kept in D1, so which branch is this
+  // chat's can't be told from here: all of the member's are listed by their last commit, and the
+  // latest one's commits are read. `matching-refs` matches by prefix, so another member whose branch
+  // starts with this one's name is filtered out.
+  const matching = await attempt(() => gh(`repos/${project.repo_full_name}/git/matching-refs/heads/${member}`));
+  const own = new RegExp(`^${member.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:-[a-z0-9]{8,32})?$`);
+  const refs = (matching.ok && Array.isArray(matching.value) ? matching.value : [])
+    .map((ref) => ({ name: String(ref.ref ?? '').replace(/^refs\/heads\//, ''), sha: ref.object?.sha }))
+    .filter((ref) => own.test(ref.name));
+  const heads = [];
+  for (let start = 0; start < refs.length; start += BRANCH_READS_AT_ONCE) {
+    heads.push(
+      ...(await Promise.all(
+        refs.slice(start, start + BRANCH_READS_AT_ONCE).map(async (ref) => {
+          const commit = await attempt(() => gh(`repos/${project.repo_full_name}/commits/${ref.sha}`));
+          return { name: ref.name, lastCommitAt: commit.ok ? (commit.value?.commit?.committer?.date ?? '') : '' };
+        }),
+      )),
+    );
+  }
+  heads.sort((a, b) => b.lastCommitAt.localeCompare(a.lastCommitAt) || a.name.localeCompare(b.name));
+  const branch = heads[0]?.name ?? member;
+  const branches = { total: heads.length, latest: heads.slice(0, BRANCHES_LISTED) };
   const commits = note(
     `GitHub commits on ${branch}`,
     await attempt(async () => {
@@ -684,7 +700,7 @@ async function readGithub({ cf, gh, controlPlaneDatabaseId, projectId, owner, no
       );
     }),
   );
-  return { project, branch, commits };
+  return { project, branch, branches, commits };
 }
 
 function time(value) {
@@ -784,8 +800,16 @@ export function renderSession(session) {
       push('');
     }
     if (session.github) {
-      const { project, branch, commits } = session.github;
-      push(`GitHub project ${project?.repo_full_name ?? 'unknown'} branch ${branch ?? 'unknown'}`);
+      const { project, branch, branches, commits } = session.github;
+      // Which of the member's branches is this chat's isn't recorded, so the latest is shown, and the rest named.
+      const of = branches ? ` (latest of ${branches.total} by last commit; the chat's own isn't recorded)` : '';
+      push(`GitHub project ${project?.repo_full_name ?? 'unknown'} branch ${branch ?? 'unknown'}${of}`);
+      for (const other of branches?.latest.slice(1) ?? []) {
+        push(`  also ${other.name}, last commit ${other.lastCommitAt || 'unknown'}`);
+      }
+      if (branches && branches.total > branches.latest.length) {
+        push(`  and ${branches.total - branches.latest.length} older`);
+      }
       for (const commit of commits ?? []) {
         push(`  ${commit.sha.slice(0, 7)} ${commit.at} ${commit.message}`);
         for (const check of Array.isArray(commit.checks) ? commit.checks : []) {
@@ -882,7 +906,8 @@ const USAGE = `Usage: pnpm run ops:session -- <chat id | user email | user id> [
 
 Reconstructs a member's most recent session (or the named chat) from production, read-only:
 control-plane D1, the workspace's own D1, the workspace Worker's Workers Logs, AI Gateway logs
-filed under the chat, and, for a GitHub project, the member branch's commits and check runs.
+filed under the chat, and, for a GitHub project, the conversation's branch's commits and check runs
+(the latest of the member's branches, the rest listed).
 Reads through the operator's own cf and gh logins.
 
   --json   emit the structured session instead of the terminal one

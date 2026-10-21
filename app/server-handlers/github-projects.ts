@@ -216,10 +216,13 @@ export function approveProductionRequestAction({
       return Response.json({ error: app ? 'Connect GitHub first.' : UNAVAILABLE }, { status: 409 });
     }
     // Claimed now, not on the way back: the member can't swap the draft while the admin is on GitHub.
+    // The claim and the state that finishes it are written together.
+    const state = crypto.randomUUID();
     const now = await claimProductionRequestForApproval(env.DB, {
       orgId: body.data.orgId,
       requestId: body.data.requestId,
       adminId: session.user.id,
+      approval: { state, repoName: body.data.repoName, private: body.data.private, ttlMs: STATE_TTL_MS },
     });
     if (now === null) {
       throw new OrganizationError(
@@ -227,21 +230,6 @@ export function approveProductionRequestAction({
         409,
       );
     }
-    const state = crypto.randomUUID();
-    await env.DB.prepare(
-      `INSERT INTO github_approval_states (id, request_id, user_id, repo_name, private, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(
-        state,
-        body.data.requestId,
-        session.user.id,
-        body.data.repoName,
-        body.data.private ? 1 : 0,
-        now + STATE_TTL_MS,
-        now,
-      )
-      .run();
     const redirectUri = new URL(GITHUB_RETURN_PATH, publicOrigin(request)).toString();
     return Response.json(
       { authorizeUrl: app.authorizeUrl(state, redirectUri) },
@@ -407,9 +395,11 @@ async function completeProductionApproval(args: {
       requestId: productionRequest.id,
       requestedBy: productionRequest.requestedBy,
       name: productionRequest.title,
+      claimedAt: productionRequest.claimedAt,
       repository: { id: repository.id, fullName: repository.full_name, defaultBranch: repository.default_branch },
     });
-    return back('approved', projectId);
+    // Its requester left or was removed while the repository was being made: it isn't a project.
+    return projectId === null ? back('approval_withdrawn') : back('approved', projectId);
   } catch (error) {
     if (error instanceof GitHubError) {
       console.error('GitHub refused part of a production approval', error.status);

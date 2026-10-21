@@ -85,6 +85,12 @@ describe('control-plane account export', () => {
       truncated: false,
       invites: [],
     });
+    expect(exported.sections.organizationQuotaEvents).toEqual({
+      status: 'exported',
+      total: 0,
+      truncated: false,
+      events: [],
+    });
     expect(exported.sections.organizationUsage).toEqual({ status: 'exported', total: 0, truncated: false, usage: [] });
     expect(exported.sections.organizationProjects).toEqual({
       status: 'exported',
@@ -234,6 +240,7 @@ describe('control-plane account export', () => {
       'computerRuntimes',
       'organizations',
       'organizationInvites',
+      'organizationQuotaEvents',
       'organizationUsage',
       'organizationProjects',
       'productionRequests',
@@ -273,6 +280,8 @@ describe('control-plane account export', () => {
         VALUES ('${APPROVAL_STATE}', 'request-1', 'user-1', 'site', 1, 21, 3);
       INSERT INTO email_sign_in_tokens (token_hash, email, return_to, expires_at, created_at)
         VALUES ('${EMAIL_TOKEN_HASH}', 'user-1@example.test', '/join', 30, 4);
+      INSERT INTO organization_quota_events (kind, user_id, org_id, created_at)
+        VALUES ('team', 'user-1', 'gone-team', 5), ('invite', 'user-1', 'acme', 6);
     `);
 
     const exported = await exportControlPlaneAccount({ env: envWith({ DB: db }), userId: 'user-1' });
@@ -292,6 +301,16 @@ describe('control-plane account export', () => {
     });
     expect(exported.sections.organizationInvites).toMatchObject({
       invites: [{ organizationName: 'Acme', projectIds: ['project-1'], draftsAllowed: false }],
+    });
+    // What they sent and created counts toward the limits even after the team is gone, so it is theirs to see.
+    expect(exported.sections.organizationQuotaEvents).toEqual({
+      status: 'exported',
+      total: 2,
+      truncated: false,
+      events: [
+        { kind: 'invite', organizationId: 'acme', createdAt: '1970-01-01T00:00:00.006Z' },
+        { kind: 'team', organizationId: 'gone-team', createdAt: '1970-01-01T00:00:00.005Z' },
+      ],
     });
     expect(exported.sections.productionRequests).toMatchObject({
       total: 2,

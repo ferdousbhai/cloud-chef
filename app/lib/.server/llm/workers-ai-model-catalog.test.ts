@@ -18,6 +18,7 @@ import {
   resolveBuilderDefaultModel,
   WorkersAiModelCatalogUnavailableError,
 } from './workers-ai-model-catalog';
+import { piWorkersAiModel, withReasoningLevels } from './pi-model-catalog';
 
 const eligibleProperties = [
   { property_id: 'context_window', value: '131072' },
@@ -141,7 +142,10 @@ describe('Workers AI live model catalog', () => {
     const other = { ...pro, id: '@cf/openai/gpt-oss-120b' as const };
 
     expect(resolveBuilderDefaultModel([pro, other])).toBe(pro);
-    expect(resolveBuilderDefaultModel([])).toBe(DEFAULT_WORKERS_AI_MODEL);
+    expect(resolveBuilderDefaultModel([])).toMatchObject({
+      ...DEFAULT_WORKERS_AI_MODEL,
+      reasoningLevels: expect.any(Array),
+    });
     expect(warn).toHaveBeenLastCalledWith({
       event: 'workers_ai_default_model_retired',
       pinned: CLOUDFLARE_WORKERS_AI_MODEL,
@@ -175,12 +179,19 @@ describe('Workers AI live model catalog', () => {
   it('keeps the pinned default available when catalog discovery is down', async () => {
     const binding = { models: vi.fn(async () => Promise.reject(new Error('down'))) };
 
-    await expect(requireWorkersAiBuilderModel(binding, CLOUDFLARE_WORKERS_AI_MODEL)).resolves.toBe(
-      DEFAULT_WORKERS_AI_MODEL,
-    );
+    const model = await requireWorkersAiBuilderModel(binding, CLOUDFLARE_WORKERS_AI_MODEL);
+    expect(model).toMatchObject(DEFAULT_WORKERS_AI_MODEL);
     await expect(readWorkersAiBuilderModelCatalog(binding)).rejects.toBeInstanceOf(
       WorkersAiModelCatalogUnavailableError,
     );
+    // With the efforts Pi lists for it, as the live catalog offers them: a chosen effort still runs.
+    const piModel = piWorkersAiModel(CLOUDFLARE_WORKERS_AI_MODEL);
+    const levels = (piModel && withReasoningLevels(piModel).reasoningLevels) ?? [];
+    expect(levels.length).toBeGreaterThan(0);
+    expect(model.reasoningLevels).toEqual(levels);
+    for (const level of levels) {
+      expect(requireBuilderReasoningLevel(model, level)).toBe(level);
+    }
   });
 });
 

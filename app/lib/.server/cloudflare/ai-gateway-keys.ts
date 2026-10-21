@@ -14,17 +14,6 @@ import { GATEWAY_PROVIDER_SLUGS, type GatewayKey, type GatewayProviderSlug } fro
 export const AI_GATEWAY_ID = 'default';
 
 /**
- * The aliases CloudChef links a pasted key under; any other alias is a key added outside CloudChef.
- * There are two so a replacement goes on under the one not in use before the key it replaces is
- * removed: a key Cloudflare refuses never leaves the provider without one.
- */
-export const CLOUDCHEF_KEY_ALIASES = ['cloudchef', 'cloudchef-2'] as const;
-
-export function isCloudChefKeyAlias(alias: string): boolean {
-  return CLOUDCHEF_KEY_ALIASES.some((candidate) => candidate === alias);
-}
-
-/**
  * The Secrets Store secret Cloudflare keeps a key CloudChef linked under `alias` in: AI Gateway names
  * a provider key's secret `{gateway}_{provider}_{alias}`. The name is CloudChef's, so relinking and
  * unlinking delete it.
@@ -65,8 +54,22 @@ export function canManageAiGatewayKeys(connection: Pick<CloudflareConnection, 'g
 }
 
 /**
+ * Newest first, by when Cloudflare last changed each key; keys it gives no time for go last, by alias.
+ * Whatever order Cloudflare lists them in, the same key comes first.
+ */
+function newestFirst(a: AiGatewayProviderKey, b: AiGatewayProviderKey): number {
+  const at = (key: AiGatewayProviderKey) => {
+    const parsed = key.modifiedAt === null ? Number.NaN : Date.parse(key.modifiedAt);
+    return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+  };
+  return at(b) - at(a) || (a.alias < b.alias ? -1 : a.alias > b.alias ? 1 : 0);
+}
+
+/**
  * The key each gateway provider's requests use on the account's default gateway: the provider's
  * default key when it has one, and otherwise its first. Providers CloudChef does not offer are left out.
+ * Two defaults happen when a replaced key's removal failed after its replacement went on as the
+ * default; the newer is the replacement, so it is the one used.
  */
 export async function findGatewayKeys(
   api: Pick<GatewayKeyAccountApi, 'listAiGatewayProviderKeys'>,
@@ -75,7 +78,11 @@ export async function findGatewayKeys(
   const found = new Map<GatewayProviderSlug, AiGatewayProviderKey>();
   for (const provider of GATEWAY_PROVIDER_SLUGS) {
     const own = keys.filter(({ providerSlug }) => providerSlug === provider);
-    const key = own.find(({ isDefault }) => isDefault) ?? own.at(0);
+    const key =
+      own
+        .filter(({ isDefault }) => isDefault)
+        .toSorted(newestFirst)
+        .at(0) ?? own.at(0);
     if (key) {
       found.set(provider, key);
     }

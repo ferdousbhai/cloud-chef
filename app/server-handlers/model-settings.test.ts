@@ -661,6 +661,32 @@ describe('Settings: models', () => {
     ]);
   });
 
+  it('uses the newer of two default keys, as when a replaced key could not be removed, whatever their order', async () => {
+    const { env, cloudflare, database } = await setup();
+    const key = (alias: string, modifiedAt: string) => ({
+      id: `config-${alias}`,
+      provider_slug: 'anthropic',
+      alias,
+      default_config: true,
+      secret_id: `secret-${alias}`,
+      secret_preview: 'sk...wxyz',
+      gateway_id: 'default',
+      modified_at: modifiedAt,
+    });
+    const replaced = key('cloudchef-2', '2026-01-01T00:00:00.000Z');
+    const replacement = key('cloudchef', '2026-02-01T00:00:00.000Z');
+
+    for (const order of [
+      [replaced, replacement],
+      [replacement, replaced],
+    ]) {
+      cloudflare.providers.splice(0, cloudflare.providers.length, ...order);
+      expect(await linkedGatewayKeys(env, connectionOf(database), cloudflare.openAccountApi)).toEqual([
+        { provider: 'anthropic', alias: 'cloudchef' },
+      ]);
+    }
+  });
+
   it('links and unlinks each provider on its own', async () => {
     const { env, admin, cloudflare, database } = await setup();
     const openAccountApi = cloudflare.openAccountApi;

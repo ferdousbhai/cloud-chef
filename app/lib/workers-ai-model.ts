@@ -179,6 +179,22 @@ export function gatewayModelProvider(modelId: BuilderModelId): GatewayProviderSl
  */
 export type GatewayKey = { provider: GatewayProviderSlug; alias: string };
 
+/**
+ * The aliases CloudChef links a pasted key under; any other alias is a key added outside CloudChef.
+ * There are two so a replacement goes on under the one not in use before the key it replaces is
+ * removed: a key Cloudflare refuses never leaves the provider without one.
+ */
+export const CLOUDCHEF_KEY_ALIASES = ['cloudchef', 'cloudchef-2'] as const;
+
+export function isCloudChefKeyAlias(alias: string): boolean {
+  return CLOUDCHEF_KEY_ALIASES.some((candidate) => candidate === alias);
+}
+
+/** The CloudChef alias a replacement for a key under `alias` goes on under; null for any other alias. */
+export function otherCloudChefKeyAlias(alias: string): string | null {
+  return isCloudChefKeyAlias(alias) ? (CLOUDCHEF_KEY_ALIASES.find((candidate) => candidate !== alias) ?? null) : null;
+}
+
 export const gatewayKeysSchema = z.array(
   z.object({ provider: gatewayProviderSlugSchema, alias: z.string().min(1).max(128) }),
 );

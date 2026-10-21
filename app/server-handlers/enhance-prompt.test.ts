@@ -88,7 +88,7 @@ describe('userRuntimeEnhancePromptAction billing', () => {
     // This binding cannot answer a catalog read, which is the discovery-unavailable path: the
     // pinned model still runs, from its reviewed literal.
     expect(mocks.getPiModel).toHaveBeenCalledWith(credentials, CLOUDFLARE_WORKERS_AI_MODEL, {
-      model: DEFAULT_WORKERS_AI_MODEL,
+      model: expect.objectContaining(DEFAULT_WORKERS_AI_MODEL),
       // No runtime identity to ask about the person's choice: nothing is logged.
       gatewayLogging: { collectLog: false },
     });

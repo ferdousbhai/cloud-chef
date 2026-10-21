@@ -13,6 +13,7 @@ import {
   declineProductionRequestAction,
 } from './github-projects';
 import { listOrganizationsAction } from './organizations';
+import { updateMember } from '~/lib/cloudflare/data/organizations.server';
 
 const ORIGIN = 'https://cloudchef.build';
 const ORG = '33333333-3333-4333-8333-333333333333';
@@ -37,6 +38,9 @@ const DRAFT_FILES = [
   },
 ];
 
+/** What else happens while an approval runs: `commit` while CloudChef commits the draft. */
+type DuringApproval = { commit?: () => Promise<void> };
+
 /** GitHub as the approval sees it: the admin `ada`, a new repository, and what CloudChef wrote to it. */
 async function fakeGitHub(options: { appCannotReach?: boolean } = {}) {
   const pair = await crypto.subtle.generateKey(
@@ -46,10 +50,14 @@ async function fakeGitHub(options: { appCannotReach?: boolean } = {}) {
   );
   const der = new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey));
   const calls: { method: string; path: string; body: string | null }[] = [];
+  const during: DuringApproval = {};
   const request: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
     const method = init?.method ?? 'GET';
     calls.push({ method, path: url.pathname, body: init?.body ? String(init.body) : null });
+    if (url.pathname.endsWith('/git/commits') && method === 'POST') {
+      await during.commit?.();
+    }
     if (url.pathname === '/login/oauth/access_token') {
       return Response.json({ access_token: 'user-token' });
     }
@@ -100,7 +108,7 @@ async function fakeGitHub(options: { appCannotReach?: boolean } = {}) {
     },
     request,
   );
-  return { app, calls };
+  return { app, calls, during };
 }
 
 async function setup(options: { appCannotReach?: boolean } = {}) {
@@ -193,9 +201,22 @@ describe('production requests', () => {
       origin: 'promoted',
     });
     expect(database.prepare('SELECT user_id FROM org_project_access').get()).toEqual({ user_id: sara.userId });
-    expect(database.prepare('SELECT status, snapshot_gzip_base64 FROM production_requests').get()).toEqual({
+    // The request keeps only its title, file count and the decision.
+    expect(
+      database
+        .prepare(
+          `SELECT status, title, snapshot_files, snapshot_gzip_base64, note, preview_url, project_id IS NOT NULL AS linked
+           FROM production_requests`,
+        )
+        .get(),
+    ).toEqual({
       status: 'approved',
+      title: 'Recipe box',
+      snapshot_files: 2,
       snapshot_gzip_base64: '',
+      note: null,
+      preview_url: null,
+      linked: 1,
     });
 
     // Sara sees it decided.
@@ -207,6 +228,69 @@ describe('production requests', () => {
       .object({ organizations: z.array(z.object({ ownRequests: z.array(z.object({ status: z.string() })) })) })
       .parse(await listed.json());
     expect(view.organizations[0].ownRequests).toEqual([expect.objectContaining({ status: 'approved' })]);
+  });
+
+  it('makes no project of a request withdrawn while its repository was being made, and says so', async () => {
+    const { database, env, admin, sara, app, during } = await setup();
+    const started = await approveProductionRequestAction({
+      request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+        orgId: ORG,
+        requestId: REQUEST,
+        repoName: 'new-app',
+        private: true,
+      }),
+      env,
+      app,
+    });
+    const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+    const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+    // Sara is removed while CloudChef commits her draft.
+    during.commit = () =>
+      updateMember(env.DB, { orgId: ORG, actorId: admin.userId, userId: sara.userId, action: 'remove' });
+
+    const returned = await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+      }),
+      env,
+      app,
+    });
+
+    expect(returnedMessage(returned)).toContain('the request was withdrawn and the repository is not a project');
+    expect(database.prepare('SELECT COUNT(*) AS n FROM org_projects').get()).toEqual({ n: 0 });
+    expect(database.prepare('SELECT COUNT(*) AS n FROM org_project_access').get()).toEqual({ n: 0 });
+    expect(database.prepare('SELECT status, project_id, note FROM production_requests').get()).toEqual({
+      status: 'declined',
+      project_id: null,
+      note: null,
+    });
+  });
+
+  it('claims a request only together with the approval that finishes it', async () => {
+    const { database, env, admin, app } = await setup();
+    database.exec(`
+      CREATE TRIGGER refuse_approval_state BEFORE INSERT ON github_approval_states
+      BEGIN SELECT RAISE(ABORT, 'refused'); END;
+    `);
+
+    await expect(
+      approveProductionRequestAction({
+        request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+          orgId: ORG,
+          requestId: REQUEST,
+          repoName: 'new-app',
+          private: true,
+        }),
+        env,
+        app,
+      }),
+    ).rejects.toThrow('refused');
+
+    // Nothing holds the request: it can still be decided at once.
+    expect(database.prepare('SELECT status, claimed_at FROM production_requests').get()).toEqual({
+      status: 'pending',
+      claimed_at: null,
+    });
   });
 
   it("hands the request back, saying what to do, when CloudChef's App can't reach the new repository", async () => {

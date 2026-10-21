@@ -10,6 +10,7 @@ import {
   deleteOrganizationRecords,
   describeInvite,
   listOrganizations,
+  organizationWorkspaceOwners,
   OrganizationError,
   prepareOrganizationDeletion,
   renameOrganization,
@@ -67,6 +68,8 @@ const memberSchema = z.strictObject({
 const revokeInviteSchema = z.strictObject({ orgId: z.string().uuid(), inviteId: z.string().uuid() });
 const renameSchema = z.strictObject({ orgId: z.string().uuid(), name: teamNameSchema });
 const deleteSchema = z.strictObject({ orgId: z.string().uuid() });
+/** How many members' workspaces a team's deletion deletes at once. */
+const WORKSPACE_DELETION_CONCURRENCY = 4;
 
 type Handler = (args: { request: Request; env: Env; session: CloudflareAuthSession }) => Promise<Response>;
 
@@ -309,23 +312,26 @@ export function deleteOrganizationAction({
       return body.response;
     }
     const { orgId } = body.data;
-    const { memberIds } = await prepareOrganizationDeletion(env.DB, { orgId, actorId: session.user.id });
-    const connection = await findCloudflareConnectionForOrganization(env.DB, orgId);
+    await prepareOrganizationDeletion(env.DB, { orgId, actorId: session.user.id });
+    // Only the workspaces there are, in an account CloudChef can still reach: a team never connected,
+    // or whose connection lapsed, has none to delete and none to report left behind.
+    const owners = await organizationWorkspaceOwners(env.DB, orgId);
     let workspacesLeft = 0;
-    if (connection) {
-      for (const userId of memberIds) {
-        // A workspace that can't be deleted (no authorization, Cloudflare unreachable) is reported.
-        const deleted = await deleteWorkspace(env, orgId, userId).then(
-          () => true,
-          () => false,
-        );
-        if (!deleted) {
-          workspacesLeft += 1;
-        }
-      }
-      if (workspacesLeft > 0) {
-        console.error('Unable to delete every workspace of a deleted team');
-      }
+    // A few at a time, so a large team is neither one long sequence nor a burst at Cloudflare's API.
+    for (let start = 0; start < owners.length; start += WORKSPACE_DELETION_CONCURRENCY) {
+      const outcomes = await Promise.all(
+        owners.slice(start, start + WORKSPACE_DELETION_CONCURRENCY).map((userId) =>
+          // A workspace that can't be deleted (no authorization, Cloudflare unreachable) is reported.
+          deleteWorkspace(env, orgId, userId).then(
+            () => true,
+            () => false,
+          ),
+        ),
+      );
+      workspacesLeft += outcomes.filter((deleted) => !deleted).length;
+    }
+    if (workspacesLeft > 0) {
+      console.error('Unable to delete every workspace of a deleted team');
     }
     const credentialHandle = await revokeOrganizationConnection(env.DB, orgId);
     const cloudflareAuthorizationRevoked = credentialHandle

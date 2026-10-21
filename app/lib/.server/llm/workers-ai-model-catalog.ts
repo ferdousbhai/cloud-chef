@@ -162,7 +162,7 @@ export async function requireWorkersAiBuilderModel(
     // reviewed against CloudChef's tool protocol, so it still runs from its reviewed literal;
     // any other id is a claim only the catalog can confirm, so the outage surfaces instead.
     if (error instanceof WorkersAiModelCatalogUnavailableError && modelId === CLOUDFLARE_WORKERS_AI_MODEL) {
-      return DEFAULT_WORKERS_AI_MODEL;
+      return reviewedDefaultModel();
     }
     throw error;
   }
@@ -182,6 +182,17 @@ export async function requireWorkersAiBuilderModel(
 }
 
 /**
+ * The pinned model's reviewed literal, with the reasoning efforts Pi's catalog lists for it, as the
+ * live catalog would offer them: an effort the person chose stands while the catalog is unreachable.
+ */
+function reviewedDefaultModel(): BuilderModel {
+  const piModel = piWorkersAiModel(DEFAULT_WORKERS_AI_MODEL.id);
+  return piModel && DEFAULT_WORKERS_AI_MODEL.reasoning
+    ? { ...DEFAULT_WORKERS_AI_MODEL, ...withReasoningLevels(piModel) }
+    : DEFAULT_WORKERS_AI_MODEL;
+}
+
+/**
  * The pinned model while the account serves it. Once it is retired, the first model the account
  * offers takes its place; only an account offering none keeps the reviewed literal.
  */
@@ -191,7 +202,7 @@ export function resolveBuilderDefaultModel(models: readonly BuilderModel[]): Bui
     return pinned;
   }
   const offered = models.at(0);
-  const chosen = offered ?? DEFAULT_WORKERS_AI_MODEL;
+  const chosen = offered ?? reviewedDefaultModel();
   console.warn({
     event: 'workers_ai_default_model_retired',
     pinned: CLOUDFLARE_WORKERS_AI_MODEL,

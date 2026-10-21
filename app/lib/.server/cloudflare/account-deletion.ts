@@ -25,14 +25,18 @@ export async function eraseControlPlaneAccount(args: {
   if ((await organizationsNeedingAnotherAdmin(db, args.userId)).length > 0) {
     throw new OrganizationAdminRequiredError('Make someone else an admin of your team first.');
   }
-  // While each team's authorization still works: nothing reaches those workspaces once they're gone.
+  const teams = await teamsWithWorkspaces(db, args.userId);
+  const soleOrgIds = await soleMemberOrganizations(db, args.userId);
+  // Leaving is the last check (it refuses, changing nothing, if a team was left without an admin
+  // meanwhile), so it goes before anything that can't be undone.
+  await leaveOrganizations(db, args.userId);
+  // While each team's authorization still works: nothing reaches those workspaces once it's revoked.
   const workspacesLeftIn = await deleteTeamWorkspaces(
     args.env,
     args.userId,
+    teams,
     args.deleteWorkspace ?? deleteTeamWorkspace,
   );
-  const soleOrgIds = await soleMemberOrganizations(db, args.userId);
-  await leaveOrganizations(db, args.userId);
   const soleOrganizations = await revokeSoleMemberOrganizations(db, args.userId, soleOrgIds);
   const credentialHandle = await revokeConnection(db, args.userId);
   const handles = [credentialHandle, ...soleOrganizations.handles].filter((handle) => handle !== null);
@@ -90,24 +94,34 @@ export async function eraseControlPlaneAccount(args: {
 }
 
 /**
- * Deletes this person's workspace in every team account they build in, one at a time; the names of
- * the teams where it couldn't be. A team without an active connection has no workspace CloudChef can
- * reach, so it isn't tried.
+ * The teams this person has a workspace in, in an account CloudChef can reach: a team without an
+ * active connection has no workspace CloudChef can delete, so it isn't tried.
  */
-async function deleteTeamWorkspaces(env: Env, userId: string, deleteWorkspace: DeleteTeamWorkspace): Promise<string[]> {
-  const { results } = await env.DB.prepare(
-    `SELECT DISTINCT organizations.id, organizations.name
-     FROM organization_members AS mine
-     JOIN organizations ON organizations.id = mine.org_id
-     JOIN cloudflare_connections AS connections ON connections.org_id = mine.org_id AND connections.status = 'active'
-     JOIN user_computer_runtimes AS runtimes ON runtimes.connection_id = connections.id AND runtimes.user_id = mine.user_id
-     WHERE mine.user_id = ?
-     ORDER BY organizations.name`,
-  )
+async function teamsWithWorkspaces(db: D1Database, userId: string): Promise<{ id: string; name: string }[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT DISTINCT organizations.id, organizations.name
+       FROM organization_members AS mine
+       JOIN organizations ON organizations.id = mine.org_id
+       JOIN cloudflare_connections AS connections ON connections.org_id = mine.org_id AND connections.status = 'active'
+       JOIN user_computer_runtimes AS runtimes ON runtimes.connection_id = connections.id AND runtimes.user_id = mine.user_id
+       WHERE mine.user_id = ?
+       ORDER BY organizations.name`,
+    )
     .bind(userId)
     .all<{ id: string; name: string }>();
+  return results;
+}
+
+/** Deletes this person's workspace in each of those teams, one at a time; the names of the teams where it couldn't be. */
+async function deleteTeamWorkspaces(
+  env: Env,
+  userId: string,
+  teams: { id: string; name: string }[],
+  deleteWorkspace: DeleteTeamWorkspace,
+): Promise<string[]> {
   const left: string[] = [];
-  for (const team of results) {
+  for (const team of teams) {
     try {
       await deleteWorkspace(env, team.id, userId);
     } catch {

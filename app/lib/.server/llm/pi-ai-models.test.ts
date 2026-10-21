@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { CLOUDFLARE_PROJECT_TITLE_MODEL, type BuilderModelId } from '~/lib/workers-ai-model';
 import { gatewayKeyRejectedMessage, getPiModel, type WorkersAiAccountCredentials } from './pi-ai-models';
 import { completeText } from './pi-ai-invoke';
+import type { ProviderRequestBody } from './provider-default-reasoning';
 import {
   workersAiGatewayLogging,
   type WorkersAiGatewayLogging,
@@ -149,6 +150,7 @@ describe("a gateway provider's model", () => {
     max_tokens?: number;
     thinking?: { type: string };
     tool_choice?: { type: string } | string;
+    reasoning?: { effort?: string; summary?: string };
   };
 
   /** One universal request the gateway binding received. */
@@ -158,12 +160,12 @@ describe("a gateway provider's model", () => {
   };
 
   /** A gateway binding that records each request and answers it with `answer`. */
-  function gatewayBinding(answer: () => Response) {
+  function gatewayBinding(answer: (request: GatewayCall['request']) => Response) {
     const calls: GatewayCall[] = [];
     const gateway = (gatewayId: string) => ({
       run: async (request: GatewayCall['request']) => {
-        calls.push({ gatewayId, request });
-        return answer();
+        calls.push({ gatewayId, request: structuredClone(request) });
+        return answer(request);
       },
     });
     // SAFETY: the gateway transport calls only `gateway(id).run(request, options)`, which this implements.
@@ -405,6 +407,95 @@ describe("a gateway provider's model", () => {
     expect(calls.map(({ request }) => request.headers['cf-aig-metadata'])).toEqual([undefined, undefined]);
   });
 
+  const unverified = () =>
+    Response.json(
+      {
+        error: {
+          message:
+            'Your organization must be verified to generate reasoning summaries. Please go to: https://platform.openai.com/settings/organization/general and click on Verify Organization.',
+          type: 'invalid_request_error',
+          param: 'reasoning.summary',
+          code: 'unsupported_value',
+        },
+      },
+      { status: 400 },
+    );
+
+  it("asks an unverified OpenAI organization's key for reasoning summaries once, then never again", async () => {
+    const { calls, credentials } = gatewayBinding((request) =>
+      request.query.reasoning?.summary === undefined ? openaiResponsesStream('Hello', 'gpt-5') : unverified(),
+    );
+
+    const first = await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyAlias: 'cloudchef' });
+
+    expect(first.stopReason).toBe('stop');
+    expect(calls.map(({ request }) => request.query.reasoning?.summary)).toEqual(['auto', undefined]);
+    // The rest of the request is unchanged.
+    expect(calls[1]?.request.query).toEqual({ ...calls[0]?.request.query, reasoning: undefined });
+
+    await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyAlias: 'cloudchef' });
+    expect(calls).toHaveLength(3);
+    expect(calls[2]?.request.query.reasoning?.summary).toBeUndefined();
+
+    // Another key on the same account is asked afresh.
+    await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyAlias: 'cloudchef-2' });
+    expect(calls.slice(3).map(({ request }) => request.query.reasoning?.summary)).toEqual(['auto', undefined]);
+  });
+
+  it('keeps reasoning summaries for a verified organization, and retries no other refusal', async () => {
+    const verified = gatewayBinding(() => openaiResponsesStream('Hello', 'gpt-5'));
+    await streamOnce(verified.credentials, 'openai/gpt-5');
+    expect(verified.calls.map(({ request }) => request.query.reasoning?.summary)).toEqual(['auto']);
+
+    const other = gatewayBinding(() =>
+      Response.json(
+        { error: { message: 'Invalid value for reasoning.summary', param: 'reasoning.summary' } },
+        { status: 400 },
+      ),
+    );
+    const refused = await streamOnce(other.credentials, 'openai/gpt-5');
+    expect(refused.stopReason).toBe('error');
+    expect(other.calls).toHaveLength(1);
+  });
+
+  it("uses a key's replacement under CloudChef's other alias when the turn's alias is refused, for the rest of the turn", async () => {
+    const { calls, credentials } = gatewayBinding((request) =>
+      request.headers['cf-aig-byok-alias'] === 'cloudchef-2'
+        ? anthropicStream('Hello')
+        : Response.json({ type: 'error', error: { type: 'authentication_error', message: 'no key' } }, { status: 401 }),
+    );
+    const handle = getPiModel(credentials, opus, { gatewayKeyAlias: 'cloudchef' });
+    const context = normalizeContext({
+      systemPrompt: 'You are a builder.',
+      tools: [READ_FILE_TOOL],
+      messages: [{ role: 'user', content: 'Build a todo app.', timestamp: 1 }],
+    });
+
+    const first = await handle.stream(handle.model, context, { toolChoice: 'auto' }).result();
+    const second = await handle.stream(handle.model, context, { toolChoice: 'auto' }).result();
+
+    expect([first.stopReason, second.stopReason]).toEqual(['stop', 'stop']);
+    expect(calls.map(({ request }) => request.headers['cf-aig-byok-alias'])).toEqual([
+      'cloudchef',
+      'cloudchef-2',
+      'cloudchef-2',
+    ]);
+  });
+
+  it('tries no other alias for a key CloudChef did not link, nor more than once for its own', async () => {
+    const refused = () =>
+      Response.json({ type: 'error', error: { type: 'authentication_error', message: 'no key' } }, { status: 401 });
+    const dashboard = gatewayBinding(refused);
+    const theirs = await streamOnce(dashboard.credentials, opus, { gatewayKeyAlias: 'team-key' });
+    expect(theirs.errorMessage).toContain(gatewayKeyRejectedMessage('anthropic'));
+    expect(dashboard.calls).toHaveLength(1);
+
+    const own = gatewayBinding(refused);
+    const ours = await streamOnce(own.credentials, opus, { gatewayKeyAlias: 'cloudchef' });
+    expect(ours.errorMessage).toContain(gatewayKeyRejectedMessage('anthropic'));
+    expect(own.calls.map(({ request }) => request.headers['cf-aig-byok-alias'])).toEqual(['cloudchef', 'cloudchef-2']);
+  });
+
   it('reports a missing or rejected key as one the account must fix in Settings, naming the provider', async () => {
     const refused = () =>
       Response.json(
@@ -475,5 +566,31 @@ describe('the output budget a Workers AI request asks for', () => {
   it('keeps a small budget the caller chose, and lifts only an unstated one to the floor', async () => {
     expect(await maxCompletionTokens(64)).toBe(64);
     expect(await maxCompletionTokens()).toBeGreaterThanOrEqual(4_096);
+  });
+});
+
+describe('a Workers AI request body CloudChef cannot read', () => {
+  it('goes to the binding as written, without its model, as a gateway request would', async () => {
+    const sent: Array<{ model: string; inputs: ProviderRequestBody }> = [];
+    const run = async (model: string, inputs: ProviderRequestBody) => {
+      sent.push({ model, inputs });
+      return Response.json({ errors: [{ message: 'stop here' }] }, { status: 400 });
+    };
+    // SAFETY: the binding fetch calls only the raw-response `run`, which this implements.
+    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL);
+    const context = normalizeContext({ messages: [{ role: 'user', content: 'Name this', timestamp: 1 }] });
+
+    // `thinking` as a number is no shape Pi writes, so the body can't be read as one.
+    const message = await handle
+      .stream(handle.model, context, {
+        onPayload: (payload) => Object.assign(z.looseObject({}).parse(payload), { thinking: 7 }),
+      })
+      .result();
+
+    expect(message.stopReason).toBe('error');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.model).toBe(CLOUDFLARE_PROJECT_TITLE_MODEL);
+    expect(sent[0]?.inputs).toMatchObject({ thinking: 7, stream: true });
+    expect(Object.keys(sent[0]?.inputs ?? {})).not.toContain('model');
   });
 });

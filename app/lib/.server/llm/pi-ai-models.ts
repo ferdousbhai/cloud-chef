@@ -24,9 +24,11 @@ import {
 import { thinkingBudgetForLevel } from '@earendil-works/pi-ai/api/simple-options';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { modelTokenEstimateSafetyTokens } from 'cloudchef-agent/context-limits';
+import { z } from 'zod';
 import {
   GATEWAY_PROVIDERS,
   gatewayModelProvider,
+  otherCloudChefKeyAlias,
   type BuilderModel,
   type BuilderModelId,
   type GatewayProviderSlug,
@@ -426,7 +428,8 @@ function getGatewayPiModel(
     endpoint: `${new URL(entry.model.baseUrl).pathname}/${transport.endpoint}`.replace(/^\/+/, ''),
     forwardedHeaders: transport.forwardedHeaders,
     gatewayLogging,
-    keyAlias,
+    // Shared by every request of this turn: a replacement key found by one is used by the rest.
+    key: { alias: keyAlias },
   };
   const handle: ModelHandle = {
     model: entry.model,
@@ -472,6 +475,13 @@ type GatewayRequestHeaders = WorkersAiGatewayHeaders &
  * the provider API's own (its version and betas), plus the gateway's: which of the account's keys
  * for the provider to use when it is not the default one, whether to log the request, filed under the
  * chat and person when logged, as the person chose in Settings, and never cached.
+ *
+ * Two refusals are answered once each by a corrected request. OpenAI refuses reasoning summaries to
+ * an organization it hasn't verified, so that request goes again without one, and requests with that
+ * key ask for none from then on. And a key CloudChef linked is replaced by linking the new one under
+ * its other alias and then removing the old: a turn that looked its key up before that sends the old
+ * alias, which is refused once it's gone, so the request goes again under the other alias, and the
+ * rest of the turn uses it.
  */
 function createGatewayFetch(
   binding: Ai,
@@ -480,7 +490,7 @@ function createGatewayFetch(
     endpoint: string;
     forwardedHeaders: readonly string[];
     gatewayLogging: WorkersAiGatewayLogging;
-    keyAlias: string;
+    key: { alias: string };
     /** The model this request is for, and whether it asked for a reasoning level. */
     reasoning: { model: Model<Api>; requested: boolean; summaries: boolean };
   },
@@ -493,31 +503,66 @@ function createGatewayFetch(
     if (url.origin !== GATEWAY_BINDING_ORIGIN || endpoint !== route.endpoint) {
       throw new Error(`CloudChef sends this model only ${route.endpoint} requests.`);
     }
-    const headers: GatewayRequestHeaders = {
-      'content-type': 'application/json',
-      ...workersAiGatewayHeaders(route.gatewayLogging),
-    };
-    if (route.keyAlias !== DEFAULT_GATEWAY_KEY_ALIAS) {
-      headers['cf-aig-byok-alias'] = route.keyAlias;
-    }
+    const forwarded: Record<string, string> = {};
     for (const name of route.forwardedHeaders) {
       const value = request.headers.get(name);
       if (value) {
-        headers[name] = value;
+        forwarded[name] = value;
       }
     }
+    const send = (alias: string, query: ProviderRequestBody | WrittenBody) => {
+      const headers: GatewayRequestHeaders = {
+        'content-type': 'application/json',
+        ...workersAiGatewayHeaders(route.gatewayLogging),
+        ...forwarded,
+      };
+      if (alias !== DEFAULT_GATEWAY_KEY_ALIAS) {
+        headers['cf-aig-byok-alias'] = alias;
+      }
+      return binding
+        .gateway(GATEWAY_ID)
+        .run({ provider: route.provider, endpoint, headers, query }, { signal: request.signal });
+    };
+    let alias = route.key.alias;
+    const summariesRefused = refusedSummaryKeys(binding);
     // A body whose reasoning fields are not shaped as Pi writes them goes exactly as written.
     const body = await request.json();
     const parsed = providerRequestBodySchema.safeParse(body);
     const query = parsed.success
       ? withProviderDefaultReasoning(route.reasoning.model, parsed.data, {
           requested: route.reasoning.requested,
-          summaries: route.reasoning.summaries,
+          summaries: route.reasoning.summaries && !summariesRefused.has(`${route.provider}:${alias}`),
         })
-      : body;
-    const response = await binding
-      .gateway(GATEWAY_ID)
-      .run({ provider: route.provider, endpoint, headers, query }, { signal: request.signal });
+      : writtenBodySchema.parse(body);
+    let response = await send(alias, query);
+    let triedOtherAlias = false;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const otherAlias = otherCloudChefKeyAlias(alias);
+      if (
+        response.status === 400 &&
+        parsed.success &&
+        parsed.data.reasoning?.summary !== undefined &&
+        refusesReasoningSummaries(await readText(response.clone()))
+      ) {
+        summariesRefused.add(`${route.provider}:${alias}`);
+        delete parsed.data.reasoning.summary;
+        if (Object.keys(parsed.data.reasoning).length === 0) {
+          delete parsed.data.reasoning;
+        }
+      } else if ((response.status === 401 || response.status === 403) && otherAlias && !triedOtherAlias) {
+        triedOtherAlias = true;
+        alias = otherAlias;
+      } else {
+        break;
+      }
+      await response.body?.cancel().catch(() => undefined);
+      request.signal.throwIfAborted();
+      recordPiStage('gateway_corrected_retry', route.reasoning.model.id);
+      response = await send(alias, query);
+    }
+    if (triedOtherAlias && response.status !== 401 && response.status !== 403) {
+      route.key.alias = alias;
+    }
     if (response.status === 401 || response.status === 403) {
       await response.body?.cancel().catch(() => undefined);
       // `error.message` is where both Anthropic's and OpenAI's SDKs read a refusal, so each reports
@@ -533,8 +578,40 @@ function createGatewayFetch(
   };
 }
 
+/**
+ * The keys (`provider:alias`) each account's AI binding found refused reasoning summaries, so later
+ * requests with them ask for none. Held as long as the binding is, in this isolate.
+ */
+const SUMMARIES_REFUSED = new WeakMap<Ai, Set<string>>();
+
+function refusedSummaryKeys(binding: Ai): Set<string> {
+  let refused = SUMMARIES_REFUSED.get(binding);
+  if (!refused) {
+    refused = new Set();
+    SUMMARIES_REFUSED.set(binding, refused);
+  }
+  return refused;
+}
+
+/**
+ * OpenAI's refusal of a reasoning summary to an organization it hasn't verified: "Your organization
+ * must be verified to generate reasoning summaries", on the `reasoning.summary` parameter. Both
+ * halves are required, so no other 400 is retried.
+ */
+function refusesReasoningSummaries(body: string): boolean {
+  return /reasoning[ ._]summar/i.test(body) && /verif/i.test(body);
+}
+
+async function readText(response: Response): Promise<string> {
+  return response.text().catch(() => '');
+}
+
 /** The OpenAI-compatible body Pi serialises, forwarded to the binding verbatim apart from `model`. */
 type WorkersAiBindingInputs = ProviderRequestBody;
+
+/** Any JSON object body, sent as written: it is read for nothing. */
+const writtenBodySchema = z.looseObject({});
+type WrittenBody = z.infer<typeof writtenBodySchema>;
 
 type WorkersAiRawRunOptions = {
   returnRawResponse: true;
@@ -544,7 +621,7 @@ type WorkersAiRawRunOptions = {
 };
 
 type WorkersAiRawBinding = {
-  run(model: string, inputs: WorkersAiBindingInputs, options: WorkersAiRawRunOptions): Promise<Response>;
+  run(model: string, inputs: WorkersAiBindingInputs | WrittenBody, options: WorkersAiRawRunOptions): Promise<Response>;
 };
 
 function createWorkersAiBindingFetch(
@@ -557,16 +634,10 @@ function createWorkersAiBindingFetch(
     recordPiStage('binding_fetch_enter', modelId);
     const request = new Request(input, init);
     request.signal.throwIfAborted();
-    let payload = withProviderDefaultReasoning(model, providerRequestBodySchema.parse(await request.json()), {
-      requested: reasoningRequested,
-    });
-    // The model is the first binding argument; keeping it out of inputs matches env.AI.run().
-    delete payload.model;
     // SAFETY: `Ai.run` is generic over the generated `AiModelList`, which does not enumerate every
     // Workers AI model CloudChef can be pointed at. The binding itself accepts any model id, so the
     // raw-response entry point is reached through the non-generic contract it actually implements.
     const rawBinding = binding as WorkersAiRawBinding;
-    recordPiStage('binding_run_start', modelId);
     const sessionAffinity = request.headers.get('x-session-affinity');
     const options: WorkersAiRawRunOptions = {
       returnRawResponse: true,
@@ -576,6 +647,21 @@ function createWorkersAiBindingFetch(
     if (sessionAffinity) {
       options.extraHeaders = { 'x-session-affinity': sessionAffinity };
     }
+    const body = await request.json();
+    const parsed = providerRequestBodySchema.safeParse(body);
+    if (!parsed.success) {
+      // As on the gateway: a body whose reasoning fields are not shaped as Pi writes them goes exactly
+      // as written (bar `model`), with none of the corrections below, which read those fields.
+      const { model: _model, ...written } = writtenBodySchema.parse(body);
+      recordPiStage('binding_run_start', modelId);
+      const response = await rawBinding.run(modelId, written, options);
+      recordPiStage('binding_run_response', modelId, response.status);
+      return response;
+    }
+    let payload = withProviderDefaultReasoning(model, parsed.data, { requested: reasoningRequested });
+    // The model is the first binding argument; keeping it out of inputs matches env.AI.run().
+    delete payload.model;
+    recordPiStage('binding_run_start', modelId);
     let response = await rawBinding.run(modelId, payload, options);
     recordPiStage('binding_run_response', modelId, response.status);
     // A completion-cap rejection can reveal a second, smaller total-context limit. Allow both
