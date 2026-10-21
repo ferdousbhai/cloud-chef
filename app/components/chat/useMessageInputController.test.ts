@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   clearPromptIfUnchanged,
+  getMessageInputPrimaryAction,
+  getMessageInputPrimaryActionLabel,
   preservePromptForAuthentication,
   replacePromptIfUnchanged,
   submitMessageInput,
@@ -105,5 +107,38 @@ describe('replacePromptIfUnchanged', () => {
 
     expect(replacePromptIfUnchanged('original input', sourceRevision, 'enhanced original')).toBe(false);
     expect(messageInputStore.get()).toBe('original input');
+  });
+});
+
+describe('getMessageInputPrimaryAction', () => {
+  const connected = { authKind: 'fullyLoggedIn' as const };
+
+  it('stops a running turn from a closed composer even with text typed', () => {
+    const action = getMessageInputPrimaryAction({ ...connected, isStreaming: true, hasInput: true, disabled: true });
+
+    expect(action).toBe('stop');
+    expect(getMessageInputPrimaryActionLabel(action, true)).toBe('Stop');
+  });
+
+  it('sends guidance typed into an open composer while a turn runs, and says so', () => {
+    const action = getMessageInputPrimaryAction({ ...connected, isStreaming: true, hasInput: true, disabled: false });
+
+    expect(action).toBe('send');
+    expect(getMessageInputPrimaryActionLabel(action, true)).toBe('Send guidance');
+  });
+
+  it('stops a running turn when nothing is typed', () => {
+    const action = getMessageInputPrimaryAction({ ...connected, isStreaming: true, hasInput: false, disabled: false });
+
+    expect(action).toBe('stop');
+  });
+
+  it('never sends from a closed composer when no turn is running', () => {
+    expect(getMessageInputPrimaryAction({ ...connected, isStreaming: false, hasInput: true, disabled: true })).toBe(
+      'wait',
+    );
+    expect(getMessageInputPrimaryAction({ ...connected, isStreaming: false, hasInput: true, disabled: false })).toBe(
+      'send',
+    );
   });
 });

@@ -35,6 +35,8 @@ interface MessageInputControllerOptions {
   onStop: () => void;
   onSend: (message: string, onAccepted?: () => void) => Promise<boolean>;
   prefillEnabled?: boolean;
+  /** The composer is closed: nothing typed can be sent, though a running turn can still be stopped. */
+  disabled?: boolean;
 }
 
 interface PromptRefinementSession {
@@ -49,6 +51,7 @@ export function useMessageInputController({
   onStop,
   onSend,
   prefillEnabled = true,
+  disabled = false,
 }: MessageInputControllerOptions) {
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [refinement, setRefinement] = useState<PromptRefinementSession | null>(null);
@@ -120,8 +123,14 @@ export function useMessageInputController({
     }
   }, [authState.kind, send]);
 
+  const primaryAction = getMessageInputPrimaryAction({
+    authKind: authState.kind,
+    isStreaming,
+    hasInput: input.trim().length > 0,
+    disabled,
+  });
   const runPrimaryAction = useCallback(() => {
-    switch (getMessageInputPrimaryAction(authState.kind, isStreaming, input.trim().length > 0)) {
+    switch (primaryAction) {
       case 'stop':
         onStop();
         return;
@@ -135,7 +144,7 @@ export function useMessageInputController({
       case 'wait':
         return;
     }
-  }, [authState.kind, input, isStreaming, onStop, send, signIn]);
+  }, [primaryAction, onStop, send, signIn]);
 
   const handleButtonClick = runPrimaryAction;
 
@@ -271,6 +280,7 @@ export function useMessageInputController({
     handleKeyDown,
     input,
     isEnhancing,
+    primaryAction,
     refinement,
     signIn,
   };
@@ -304,27 +314,44 @@ function hasFailedCloudflareAuthorization(search: string): boolean {
   return new URLSearchParams(search).get(CLOUDFLARE_AUTHORIZATION_ERROR_PARAM) === CLOUDFLARE_AUTHORIZATION_ERROR_VALUE;
 }
 
-function getMessageInputPrimaryAction(
-  authKind: 'loading' | 'unauthenticated' | 'fullyLoggedIn',
-  isStreaming: boolean,
-  hasInput = false,
-): 'stop' | 'sign-in' | 'send' | 'wait' {
+type MessageInputPrimaryAction = 'stop' | 'sign-in' | 'send' | 'wait';
+
+/**
+ * What the composer's primary button (and Enter) does. While a turn runs, text typed into an open
+ * composer is sent as guidance that steers it, and otherwise the button stops the turn: a closed
+ * composer can never send, so it only ever stops.
+ */
+export function getMessageInputPrimaryAction({
+  authKind,
+  isStreaming,
+  hasInput,
+  disabled,
+}: {
+  authKind: 'loading' | 'unauthenticated' | 'fullyLoggedIn';
+  isStreaming: boolean;
+  hasInput: boolean;
+  disabled: boolean;
+}): MessageInputPrimaryAction {
   if (isStreaming) {
-    return hasInput ? 'send' : 'stop';
+    return hasInput && !disabled ? 'send' : 'stop';
   }
-  if (authKind === 'loading') {
+  if (disabled || authKind === 'loading') {
     return 'wait';
   }
   return authKind === 'unauthenticated' ? 'sign-in' : 'send';
 }
 
 export function getMessageInputPrimaryActionLabel(
-  authKind: 'loading' | 'unauthenticated' | 'fullyLoggedIn',
+  action: MessageInputPrimaryAction,
   isStreaming: boolean,
-  hasInput = false,
-): 'Stop' | 'Connect Cloudflare' | 'Send' {
-  const action = getMessageInputPrimaryAction(authKind, isStreaming, hasInput);
-  return action === 'stop' ? 'Stop' : action === 'sign-in' ? 'Connect Cloudflare' : 'Send';
+): 'Stop' | 'Connect Cloudflare' | 'Send' | 'Send guidance' {
+  if (action === 'stop') {
+    return 'Stop';
+  }
+  if (action === 'sign-in') {
+    return 'Connect Cloudflare';
+  }
+  return isStreaming ? 'Send guidance' : 'Send';
 }
 
 /**

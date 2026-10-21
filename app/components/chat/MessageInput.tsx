@@ -56,10 +56,11 @@ export const MessageInput = memo(function MessageInput({
     onStop,
     onSend,
     prefillEnabled: !chatStarted && prefillAllowed,
+    disabled,
   });
-  const { authState, input } = controller;
+  const { authState, input, primaryAction } = controller;
   const { data: session, error: sessionError } = authClient.useSession();
-  const primaryActionLabel = getMessageInputPrimaryActionLabel(authState.kind, isStreaming, input.trim().length > 0);
+  const primaryActionLabel = getMessageInputPrimaryActionLabel(primaryAction, isStreaming);
   const hasActiveSession = authState.kind === 'fullyLoggedIn';
   const modelSelector = shouldOfferBuilderModelSelector(authState.kind) && (
     <BuilderModelSelector disabled={disabled || isStreaming || sendMessageInProgress} />
@@ -98,8 +99,15 @@ export const MessageInput = memo(function MessageInput({
         size="xs"
         className={classNames('ml-1 h-8 min-w-8 rounded', !chatStarted ? 'cloudchef-message-input__send' : '')}
         aria-label={primaryActionLabel}
+        // The icon follows the action: guidance typed while a turn runs is sent, not a stop.
         icon={
-          sendMessageInProgress ? <Spinner className="text-white" /> : !isStreaming ? <ArrowRightIcon /> : <StopIcon />
+          sendMessageInProgress ? (
+            <Spinner className="text-white" />
+          ) : primaryAction === 'stop' ? (
+            <StopIcon />
+          ) : (
+            <ArrowRightIcon />
+          )
         }
       />
     </>
