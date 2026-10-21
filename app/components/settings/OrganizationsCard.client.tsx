@@ -20,6 +20,7 @@ import {
   productionRequestSchema,
 } from './OrgProjectsSection.client';
 import { messageOf, noContentSchema, postJson, RequestError, run } from './organization-requests.client';
+import { ReauthenticateButtons } from './ReauthenticateButtons';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 
 const roleSchema = z.enum(['admin', 'member']);
@@ -705,9 +706,13 @@ function DeleteTeam({
 }) {
   const [deleting, setDeleting] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  // Deleting asks for a sign-in within the last few minutes, as erasing an account does.
+  const [reauthenticate, setReauthenticate] = useState(false);
+  const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
   const remove = async () => {
     setDeleting(true);
     setFeedback(null);
+    setReauthenticate(false);
     try {
       const outcome = await postJson('/api/organizations/delete', { orgId }, teamDeletedSchema);
       const notice = [
@@ -730,9 +735,13 @@ function DeleteTeam({
       }
       reloadAt('/settings#organizations');
     } catch (deleteError) {
-      setFeedback(
-        errorFeedback(messageOf(deleteError instanceof Error ? deleteError : null, 'Unable to delete the team.')),
-      );
+      if (deleteError instanceof RequestError && deleteError.code === 'reauthentication_required') {
+        setReauthenticate(true);
+      } else {
+        setFeedback(
+          errorFeedback(messageOf(deleteError instanceof Error ? deleteError : null, 'Unable to delete the team.')),
+        );
+      }
       setDeleting(false);
     }
   };
@@ -762,6 +771,21 @@ function DeleteTeam({
           Cancel
         </Button>
       </div>
+      {reauthenticate ? (
+        <div role="status" className="grid gap-2">
+          <p>
+            {linkSentTo
+              ? `Open the link sent to ${linkSentTo}, then return here and delete ${orgName} again.`
+              : `Sign in again to confirm it is you, then return here and delete ${orgName} again.`}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <ReauthenticateButtons
+              onError={(message) => setFeedback(errorFeedback(message))}
+              onLinkSent={setLinkSentTo}
+            />
+          </div>
+        </div>
+      ) : null}
       <FeedbackLine feedback={feedback} className="" />
     </div>
   );

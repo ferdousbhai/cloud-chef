@@ -10,7 +10,8 @@ import { getAuthSession, type CloudflareAuthSession } from '~/lib/.server/auth';
  * every operator-held record about a person — identity, email, connected Cloudflare
  * account, granted scopes, runtime address, and sign-in history — in a file that is then
  * kept and forwarded. A borrowed session must reach neither more easily than the other,
- * so both gates deliberately share this one window.
+ * so both gates deliberately share this one window. Deleting a team, irreversible for all its
+ * members, asks for the same.
  */
 export const ACCOUNT_REAUTHENTICATION_WINDOW_MS = 10 * 60_000;
 

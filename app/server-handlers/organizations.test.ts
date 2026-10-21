@@ -787,6 +787,24 @@ describe('a team’s name and deletion', () => {
     expect(database.prepare('SELECT name FROM organizations').all()).toEqual([{ name: 'Acme Labs' }]);
   });
 
+  it('is deleted only from a sign-in within the last few minutes, as an account is erased', async () => {
+    const { database, env, admin, orgId } = await team();
+    const stale = await prepareAuthSession(admin.userId, undefined, Date.now() - 60 * 60_000);
+    const staleCookie = (await createAuthSession(env, stale)).split(';')[0];
+
+    const { response, deleted, revoked } = remove(env, staleCookie, orgId);
+    const refused = await response;
+
+    expect(refused.status).toBe(401);
+    await expect(refused.json()).resolves.toEqual({
+      code: 'reauthentication_required',
+      error: 'Sign in again to confirm it is you, then delete the team.',
+    });
+    expect({ deleted, revoked }).toEqual({ deleted: [], revoked: [] });
+    expect(database.prepare('SELECT COUNT(*) AS n FROM organizations').get()).toEqual({ n: 1 });
+    expect((await remove(env, admin.cookie, orgId).response).status).toBe(200);
+  });
+
   it("is deleted by an admin with every member's workspace and every record of it, its grant revoked", async () => {
     const { database, env, admin, sam, orgId } = await team();
     database

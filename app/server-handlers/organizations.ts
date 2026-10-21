@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { publicOrigin } from '~/lib/.server/public-origin';
 import { getAuthSession, normalizeEmail, setSessionContext, type CloudflareAuthSession } from '~/lib/.server/auth';
 import { hasSameOrigin, readJsonRequest } from '~/lib/.server/request-guards';
+import { isRecentSignIn, reauthenticationRequired } from '~/lib/.server/account-reauthentication';
 import { findCloudflareConnectionForOrganization } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import {
   acceptInvite,
@@ -307,6 +308,10 @@ export function deleteOrganizationAction({
   revokeGrant?: typeof revokeCloudflareGrant;
 }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
+    // Irreversible for everyone in it, so only from a fresh sign-in, as erasing an account is.
+    if (!isRecentSignIn(session)) {
+      return reauthenticationRequired('Sign in again to confirm it is you, then delete the team.');
+    }
     const body = await readJsonRequest(request, deleteSchema, 'Choose a team.');
     if ('response' in body) {
       return body.response;
