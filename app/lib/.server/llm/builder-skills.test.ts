@@ -42,6 +42,10 @@ describe('builder skills', () => {
     expect(linked.prompt).toContain('/__skills__/cf-cli/SKILL.md');
   });
 
+  it('promises cloudflare_request only as a tool the agent may have, since it comes with the Cloudflare API control', () => {
+    expect(createBuilderSkillContext().prompt).toContain('cloudflare_request, when you have it, sends them');
+  });
+
   // Regression for #125: the catalog once advertised /home/project/node_modules/..., which a
   // freshly seeded workspace cannot serve — node_modules is never part of the seed and the
   // reviewed installer only rewrites package.json and pnpm-lock.yaml. Every advertised path

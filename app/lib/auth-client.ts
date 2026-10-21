@@ -10,6 +10,7 @@ import {
   CLOUDFLARE_CONNECT_MESSAGE_PARAM,
 } from '~/lib/cloudflare/authorization-recovery';
 import { clearPendingSubmit, recordPendingSubmit } from '~/lib/stores/pending-submit';
+import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
 
 const captureCloudflareConnectStarted = createClientOnlyFn(() => {
   void captureProductEvent('cloudflare_connect_started');
@@ -134,10 +135,19 @@ export const authClient = {
  * resume one. Every other connect start — settings, the account card, a bare sign-in screen —
  * clears any pending continuation here, so returning from one of those can never start a
  * build the person did not ask for in that moment.
+ *
+ * Resolves false when the person stays for edits not yet saved; otherwise the page is leaving.
  */
-export async function signInWithCloudflare(
+export function signInWithCloudflare(
   callbackURL = window.location.href,
   options: { continuePrompt?: string; organizationId?: string } = {},
+): Promise<boolean> {
+  return leavePage(() => startCloudflareAuthorization(callbackURL, options));
+}
+
+async function startCloudflareAuthorization(
+  callbackURL: string,
+  options: { continuePrompt?: string; organizationId?: string },
 ) {
   captureCloudflareConnectStarted();
   clearPendingSubmit();
@@ -167,8 +177,15 @@ export async function signInWithCloudflare(
   }
 }
 
-/** Sign in with Google: for people without a Cloudflare login, such as members of an organization. */
-export async function signInWithGoogle(callbackURL = window.location.href) {
+/**
+ * Sign in with Google: for people without a Cloudflare login, such as members of an organization. Resolves
+ * false when the person stays for edits not yet saved; otherwise the page is leaving.
+ */
+export function signInWithGoogle(callbackURL = window.location.href): Promise<boolean> {
+  return leavePage(() => startGoogleSignIn(callbackURL));
+}
+
+async function startGoogleSignIn(callbackURL: string) {
   clearPendingSubmit();
   const response = await fetch('/api/auth/google/start', {
     method: 'POST',
@@ -235,9 +252,14 @@ export async function completeEmailSignIn(token: string): Promise<string> {
 /**
  * Switches to another Cloudflare account this person builds in (their own, or an organization's).
  * Chats and the workspace belong to one account, so everything loaded for the current one is
- * dropped and the builder reopens.
+ * dropped and the builder reopens. Resolves false, switching nothing, when the person stays for edits not
+ * yet saved.
  */
-export async function switchWorkspace(connectionId: string) {
+export function switchWorkspace(connectionId: string): Promise<boolean> {
+  return leavePage(() => switchAndReopen(connectionId));
+}
+
+async function switchAndReopen(connectionId: string) {
   const response = await fetch('/api/context', {
     method: 'POST',
     credentials: 'same-origin',
@@ -279,7 +301,12 @@ export function createCloudflareReturnURL(returnURL = window.location.href, orig
   return `${expectedOrigin}/`;
 }
 
-export async function signOutOfCloudChef(callbackURL = window.location.origin) {
+/** Resolves false, still signed in, when the person stays for edits not yet saved. */
+export function signOutOfCloudChef(callbackURL = window.location.origin): Promise<boolean> {
+  return leavePage(() => signOutAndLeave(callbackURL));
+}
+
+async function signOutAndLeave(callbackURL: string) {
   const response = await fetch('/api/auth/sign-out', { method: 'POST', credentials: 'same-origin' });
   if (!response.ok) {
     const parsed = requestErrorSchema.safeParse(await response.json().catch(() => null));

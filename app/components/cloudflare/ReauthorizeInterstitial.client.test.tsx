@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => {
   const context: CurrentContext = { current: { kind: 'personal' } };
   return {
     createCloudflareReturnURL: vi.fn(() => 'https://cloudchef.build/'),
-    signInWithCloudflare: vi.fn(async () => undefined),
+    signInWithCloudflare: vi.fn(async () => true),
     context,
   };
 });
@@ -94,6 +94,19 @@ describe('ReauthorizeInterstitial', () => {
     await mount();
     await clickButton('Reauthorize Cloudflare');
     expect(mocks.signInWithCloudflare).toHaveBeenCalledWith('https://cloudchef.build/');
+  });
+
+  it('can reauthorize again after the person stays for edits not yet saved', async () => {
+    mocks.signInWithCloudflare.mockResolvedValueOnce(false);
+    stageConnection('unknown');
+    await mount();
+    await clickButton('Reauthorize Cloudflare');
+
+    const reauthorize = [...document.querySelectorAll('button')].find(
+      (element) => element.textContent === 'Reauthorize Cloudflare',
+    );
+    expect(reauthorize?.disabled).toBe(false);
+    expect(reauthorize?.getAttribute('aria-busy')).toBeNull();
   });
 
   it("sends an organization's admin to its settings rather than to their own Cloudflare login", async () => {

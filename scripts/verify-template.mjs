@@ -4,7 +4,11 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { readCloudflareProject, writeCloudflareProject } from '../template/scripts/lib/cloudflare-project-files.mjs';
+import {
+  cloudflareConfigErrors,
+  readCloudflareProject,
+  writeCloudflareProject,
+} from '../template/scripts/lib/cloudflare-project-files.mjs';
 import {
   CF_BUILT_WORKER_MODULE,
   CF_GENERATED_BINDING_TYPES,
@@ -43,10 +47,25 @@ function requireFailure(cwd, args) {
   }
 }
 
+/**
+ * A new workspace is seeded with the committed cloudflare.config.ts as is, and the template's typecheck
+ * regenerates it before anything else here reads it, so a stale committed one would otherwise pass.
+ */
+export function verifyCommittedCloudflareConfig(templateDir) {
+  const { project, errors } = readCloudflareProject(templateDir);
+  const stale = errors.length > 0 ? errors : cloudflareConfigErrors(templateDir, project);
+  if (stale.length > 0) {
+    throw new Error(
+      `The template's committed Cloudflare configuration is not what its project renders (run pnpm --dir template run cf-typegen):\n${stale.join('\n')}`,
+    );
+  }
+}
+
 export async function verifyTemplate() {
   const tempDir = await mkdtemp(join(tmpdir(), 'cloudchef-template-'));
   try {
     await copyCanonicalTemplateSource(tempDir);
+    verifyCommittedCloudflareConfig(tempDir);
     const generatedBindingsPath = join(tempDir, CF_GENERATED_BINDING_TYPES);
     if (existsSync(generatedBindingsPath)) {
       throw new Error('The canonical template source must not contain generated Worker binding types.');

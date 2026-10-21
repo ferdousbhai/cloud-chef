@@ -73,7 +73,10 @@ export function ReauthorizeInterstitial() {
   const reconnect = async () => {
     setReconnecting(true);
     try {
-      await signInWithCloudflare(createCloudflareReturnURL(window.location.href));
+      // Staying for edits not yet saved leaves this modal to use again.
+      if (!(await signInWithCloudflare(createCloudflareReturnURL(window.location.href)))) {
+        setReconnecting(false);
+      }
     } catch {
       setReconnecting(false);
     }

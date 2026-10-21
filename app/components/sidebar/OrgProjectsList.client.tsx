@@ -10,6 +10,7 @@ import { executeDataOperation } from '~/lib/cloudflare/client';
 import { api, type DataOperationResult } from '~/lib/cloudflare/data-api';
 import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
+import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
 
 const projectsSchema = z.object({
   projects: z.array(z.object({ id: z.string(), name: z.string(), repoFullName: z.string() })),
@@ -94,12 +95,18 @@ export function OrgProjectsList({
   const open = async (project: OrgProject, fresh: boolean) => {
     setOpening(project.id);
     try {
-      const args = { sessionId: userId, id: crypto.randomUUID(), orgProjectId: project.id };
-      const { initialId } = fresh
-        ? await executeDataOperation(api.messages.startLinkedChat, args)
-        : await executeDataOperation(api.messages.openLinkedChat, args);
-      onNavigate();
-      window.location.assign(`/chat/${encodeURIComponent(initialId)}`);
+      // A new conversation archives the current one, so staying for edits not yet saved must come first.
+      const left = await leavePage(async () => {
+        const args = { sessionId: userId, id: crypto.randomUUID(), orgProjectId: project.id };
+        const { initialId } = fresh
+          ? await executeDataOperation(api.messages.startLinkedChat, args)
+          : await executeDataOperation(api.messages.openLinkedChat, args);
+        onNavigate();
+        window.location.assign(`/chat/${encodeURIComponent(initialId)}`);
+      });
+      if (!left) {
+        setOpening(null);
+      }
     } catch {
       toast.error(`${project.name} could not be opened. Try again.`);
       setOpening(null);

@@ -11,7 +11,7 @@ import {
   RouterProvider,
 } from '@tanstack/react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useUnsavedEditsGuard } from './useUnsavedEditsGuard';
+import { leavePage, useUnsavedEditsGuard } from './useUnsavedEditsGuard';
 
 let root: Root | undefined;
 
@@ -77,6 +77,54 @@ describe('useUnsavedEditsGuard', () => {
 
     expect(confirm).not.toHaveBeenCalled();
     expect(router.state.location.hash).toBe('files');
+  });
+
+  it('asks before a page leave runs, and runs nothing when the person stays', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await renderGuardedChat(true);
+    const leave = vi.fn(async () => undefined);
+
+    await expect(leavePage(leave)).resolves.toBe(false);
+
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(leave).not.toHaveBeenCalled();
+    expect(pageUnloadIsHeld()).toBe(true);
+  });
+
+  it('lets the unload a confirmed page leave ends in through without asking again', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await renderGuardedChat(true);
+    let unloadHeldDuringLeave: boolean | undefined;
+
+    await expect(
+      leavePage(async () => {
+        unloadHeldDuringLeave = pageUnloadIsHeld();
+      }),
+    ).resolves.toBe(true);
+
+    expect(unloadHeldDuringLeave).toBe(false);
+  });
+
+  it('guards the page again when a confirmed page leave fails', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await renderGuardedChat(true);
+
+    await expect(leavePage(async () => Promise.reject(new Error('sign-out failed')))).rejects.toThrow(
+      'sign-out failed',
+    );
+
+    expect(pageUnloadIsHeld()).toBe(true);
+  });
+
+  it('leaves without asking when no edits are at risk', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await renderGuardedChat(false);
+    const leave = vi.fn(async () => undefined);
+
+    await expect(leavePage(leave)).resolves.toBe(true);
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(leave).toHaveBeenCalledOnce();
   });
 
   it('holds nothing back without edits at risk', async () => {

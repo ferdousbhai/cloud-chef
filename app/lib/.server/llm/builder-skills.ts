@@ -101,7 +101,7 @@ function renderPrompt(skills: readonly BundledSkill[], linkedProject: boolean): 
     ...skills.map(({ name, description }) => `- ${BUILDER_SKILL_ROOT}/${name}/SKILL.md — ${description}`),
     '',
     'llms.txt and llms-full.txt files are too large to read whole; use search_cloudflare_docs instead.',
-    "Where a skill's advice conflicts with this workspace, the workspace wins: `cf` is installed and has no credential here, so it plans requests (`--dry-run`) and cloudflare_request sends them; `cf auth` and dev servers do not work" +
+    "Where a skill's advice conflicts with this workspace, the workspace wins: `cf` is installed and has no credential here, so it plans requests (`--dry-run`) and cloudflare_request, when you have it, sends them; `cf auth` and dev servers do not work" +
       (linkedProject ? '.' : '; and project-stack describes this project.'),
     '</builder_skills>',
   ].join('\n');
