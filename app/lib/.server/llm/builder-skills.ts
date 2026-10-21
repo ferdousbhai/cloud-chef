@@ -37,10 +37,19 @@ type BundledSkillSource = { name: string; files: ReadonlyMap<string, string> };
 
 type BundledSkill = { name: string; description: string; files: ReadonlyMap<string, string> };
 
-/** Load the references bundled into this Worker. No network, no storage, no generation. */
-export function createBuilderSkillContext(): BuilderSkillContext {
-  const skills = BUNDLED_SKILLS.map(({ name, files }) => parseSkill(name, files));
-  return { prompt: renderPrompt(skills), reader: createReader(skills) };
+/** CloudChef's own skill, which describes its starter app and so means nothing in a GitHub project. */
+const STARTER_APP_SKILL = 'project-stack';
+
+/**
+ * Load the references bundled into this Worker. No network, no storage, no generation. A GitHub
+ * project is not a CloudChef starter app, so its catalog leaves out the starter app's skill.
+ */
+export function createBuilderSkillContext(options: { linkedProject?: boolean } = {}): BuilderSkillContext {
+  const linkedProject = options.linkedProject === true;
+  const skills = BUNDLED_SKILLS.filter(({ name }) => !linkedProject || name !== STARTER_APP_SKILL).map(
+    ({ name, files }) => parseSkill(name, files),
+  );
+  return { prompt: renderPrompt(skills, linkedProject), reader: createReader(skills) };
 }
 
 export function isBuilderSkillPath(path: string): boolean {
@@ -84,15 +93,16 @@ function parseSkill(name: string, files: ReadonlyMap<string, string>): BundledSk
   return { name, description: declared.description.trim(), files };
 }
 
-function renderPrompt(skills: readonly BundledSkill[]): string {
+function renderPrompt(skills: readonly BundledSkill[], linkedProject: boolean): string {
   const prompt = [
     '<builder_skills>',
-    `Before implementation, use read to load the SKILL.md for each relevant reference below, then read only the files it points to. Files under ${BUILDER_SKILL_ROOT}/ are read-only and outside the project workspace.`,
+    'Reference skills, read-only and outside the project. Read a SKILL.md when its topic matters to the work; it points to the files worth reading next.',
     '',
     ...skills.map(({ name, description }) => `- ${BUILDER_SKILL_ROOT}/${name}/SKILL.md — ${description}`),
     '',
-    'Never fetch llms.txt or llms-full.txt, which exceed the turn budget.',
-    "Where a skill's advice conflicts with this workspace, the workspace wins: `cf` is already installed and has no credential here, so never run `cf auth` or install it; send Cloudflare API requests with the cloudflare_request tool when you have it; never start `cf dev`, `wrangler dev`, or other dev servers; and in a CloudChef starter app, follow project-stack.",
+    'llms.txt and llms-full.txt files are too large to read whole; use search_cloudflare_docs instead.',
+    "Where a skill's advice conflicts with this workspace, the workspace wins: `cf` is installed and has no credential here, so it plans requests (`--dry-run`) and cloudflare_request sends them; `cf auth` and dev servers do not work" +
+      (linkedProject ? '.' : '; and project-stack describes this project.'),
     '</builder_skills>',
   ].join('\n');
   if (prompt.length > MAX_BUILDER_SKILL_PROMPT_CHARS) {

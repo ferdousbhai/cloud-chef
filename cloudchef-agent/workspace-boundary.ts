@@ -13,8 +13,8 @@ import { path } from './utils/path.js';
 import { getAbsolutePath } from './utils/workDir.js';
 
 const SERVER_REJECTION =
-  'Rejected: long-running servers are not available in this workspace. CloudChef publishes the hosted preview ' +
-  'automatically after validation. Finish the change, then validate the project.';
+  'Rejected: long-running servers are not available in this workspace, and nothing could reach one. Use validate ' +
+  'to build and check the project.';
 
 const PROCESS_REJECTION =
   'Rejected: process management is handled by the CloudChef platform. Do not kill or signal processes; if a ' +

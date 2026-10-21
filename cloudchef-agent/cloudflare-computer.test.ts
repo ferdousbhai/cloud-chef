@@ -124,8 +124,8 @@ describe('Cloudflare Computer preview contract', () => {
     ).toBe(true);
     expect(COMPUTER_SHELL_TOOL_OPTIONS.backends['container-shell'].description).toContain('public network access');
     expect(COMPUTER_SHELL_TOOL_OPTIONS.backends['container-shell'].description).toContain('pnpm');
-    expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('do not start development, preview, watch');
-    expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('CloudChef manages previews after validation');
+    expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('development, preview, watch');
+    expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('long-running servers are refused');
   });
 });
 

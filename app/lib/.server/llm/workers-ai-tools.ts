@@ -251,12 +251,10 @@ function canonicalValidationTool(linked: boolean): Tool {
   return {
     description: linked
       ? "Install dependencies and run the repository's own checks (its typecheck, lint, test, and build scripts, " +
-        'whichever it has). A passing run marks the exact current revision ready for publish_preview or publish. ' +
-        'Call it once after finishing changes.'
-      : 'Run the complete canonical project validation (typecheck, lint, stack verification, and production build). ' +
-        'A passing run marks the exact current revision deployable; CloudChef then publishes the hosted preview and ' +
-        'deployment automatically. Call it once after finishing changes instead of running typecheck, lint, or build ' +
-        'individually.',
+        'whichever it has), reporting each failure.'
+      : 'Install dependencies and run the full project validation: typecheck, lint, stack verification, and the ' +
+        'production build, reporting each failure. It is the same build the hosted preview and deployment use, so a ' +
+        'passing run of the current revision is reused when it publishes.',
     inputSchema: MODEL_TOOL_INPUT_SCHEMAS.validate,
   };
 }

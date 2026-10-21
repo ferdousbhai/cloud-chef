@@ -215,7 +215,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     return reason ? new BuilderTurnLimitError(reason) : error;
   };
   const { skillContext, piTools } = await withPreparationStage('tool_setup', async () => {
-    const skillContext = createBuilderSkillContext();
+    const skillContext = createBuilderSkillContext({ linkedProject: linkedProject !== undefined });
     return {
       skillContext,
       piTools: createPiToolBundle(

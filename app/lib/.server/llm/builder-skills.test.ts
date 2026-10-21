@@ -32,6 +32,16 @@ describe('builder skills', () => {
     await expect(reader.read('/__skills__/../home/project/package.json')).resolves.toBeNull();
   });
 
+  it("leaves CloudChef's starter-app skill out of a GitHub project's catalog", async () => {
+    const app = createBuilderSkillContext();
+    const linked = createBuilderSkillContext({ linkedProject: true });
+
+    expect(app.prompt).toContain('/__skills__/project-stack/SKILL.md');
+    expect(linked.prompt).not.toContain('project-stack');
+    await expect(linked.reader.read('/__skills__/project-stack/SKILL.md')).resolves.toBeNull();
+    expect(linked.prompt).toContain('/__skills__/cf-cli/SKILL.md');
+  });
+
   // Regression for #125: the catalog once advertised /home/project/node_modules/..., which a
   // freshly seeded workspace cannot serve — node_modules is never part of the seed and the
   // reviewed installer only rewrites package.json and pnpm-lock.yaml. Every advertised path

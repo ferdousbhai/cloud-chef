@@ -205,9 +205,10 @@ builds against. The one skill CloudChef maintains ships in this repository and i
 through the existing `read` tool under `/__skills__/<skill>/`; no activation or separate resource-reader tool is
 added. That namespace is a read-only control-plane overlay: it never enters the project VFS, revision, or deployment
 artifact, project files cannot shadow it, and it never appears in `ls` or `grep`, which are asked only about the
-project. The evergreen system prompt establishes only authority, safety, and
-workflow precedence; concrete product and API guidance comes from retrieval, while code and deployment boundaries
-remain enforced by project validation. A documentation search that fails returns a failed tool result the model can
+project. The system prompt (`cloudchef-agent/prompts/system.ts`) describes only the environment — the workspace and
+its tools, the kind of project (a CloudChef app, or a team's GitHub project, whose catalog omits project-stack), and
+how changes are published — and leaves to the model what it can decide itself; concrete product and API guidance
+comes from retrieval, while code and deployment boundaries remain enforced by project validation. A documentation search that fails returns a failed tool result the model can
 act on, rather than ending the turn.
 
 Cloudflare account work goes through Cloudflare's `cf` CLI and one Worker-side tool. The container's `cf` launcher
