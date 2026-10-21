@@ -29,6 +29,9 @@ const GITHUB_RETURN_MESSAGES = {
   repository_not_ready: 'GitHub created the repository but not its first branch yet. Approve again in a minute.',
   repository_name_taken: 'A repository with that name already exists. Approve again with another name.',
   draft_too_large: 'This draft is larger than CloudChef can commit. Ask the member to slim it down and send it again.',
+  draft_unreadable:
+    "CloudChef can't read this draft's files, so nothing was created on GitHub. Decline the request, and ask the " +
+    'member to send it again.',
   approval_failed: 'GitHub refused part of the approval. Approve again.',
   approval_withdrawn:
     'The repository was created on GitHub, but its requester left the team while it was being made, so the ' +

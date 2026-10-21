@@ -61,6 +61,16 @@ async function gzippedTarball(
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
+async function gzipBase64(value: string): Promise<string> {
+  const stream = new Blob([value]).stream().pipeThrough(new CompressionStream('gzip'));
+  return bytesToBase64(new Uint8Array(await new Response(stream).arrayBuffer()));
+}
+
+/** A draft's files as a production request carries them. */
+function draftSnapshot(): Promise<string> {
+  return gzipBase64(JSON.stringify([{ path: 'src/app.tsx', contentBase64: btoa('export const app = 1;') }]));
+}
+
 /** One repository on GitHub: its default branch, the member branch if pushed, and what was written. */
 type CheckRun = {
   name: string;
@@ -626,20 +636,29 @@ describe('a member working on a GitHub project', () => {
     const send = (
       call: Awaited<ReturnType<typeof setup>>['call'],
       env: Awaited<ReturnType<typeof setup>>['env'],
-      draft: { draftId?: string; draftRevision?: string; title?: string; note?: string; previewUrl?: string },
+      draft: {
+        draftId?: string;
+        draftRevision?: string;
+        title?: string;
+        note?: string;
+        previewUrl?: string;
+        snapshot?: string;
+      },
     ) =>
-      runtimeRequestProductionAction({
-        request: call('/api/cloudflare/runtime-github/request-production', {
-          draftId: draft.draftId ?? 'chat-1',
-          draftRevision: draft.draftRevision ?? 'rev-1',
-          title: draft.title ?? 'Bookings',
-          note: draft.note ?? '',
-          previewUrl: draft.previewUrl ?? null,
-          snapshot: 'H4sI',
-          files: 1,
+      draftSnapshot().then((snapshot) =>
+        runtimeRequestProductionAction({
+          request: call('/api/cloudflare/runtime-github/request-production', {
+            draftId: draft.draftId ?? 'chat-1',
+            draftRevision: draft.draftRevision ?? 'rev-1',
+            title: draft.title ?? 'Bookings',
+            note: draft.note ?? '',
+            previewUrl: draft.previewUrl ?? null,
+            snapshot: draft.snapshot ?? snapshot,
+            files: 1,
+          }),
+          env,
         }),
-        env,
-      });
+      );
     const requests = (database: Awaited<ReturnType<typeof setup>>['database']) =>
       database
         .prepare('SELECT id, draft_id, draft_revision, title, note, status, updated_at FROM production_requests')
@@ -651,6 +670,24 @@ describe('a member working on a GitHub project', () => {
       const refused = await send(call, env, {});
       expect(refused.status).toBe(403);
       expect(await refused.json()).toMatchObject({ code: 'drafts_not_allowed' });
+      expect(requests(database)).toEqual([]);
+    });
+
+    it("refuses a draft whose files can't be read, before any admin sees it", async () => {
+      const { database, env, call } = await setup();
+      for (const snapshot of [
+        'not base64!',
+        btoa('not gzip'),
+        await gzipBase64('not json'),
+        await gzipBase64(JSON.stringify({ path: 'src/app.tsx' })),
+        await gzipBase64(JSON.stringify([{ path: 'src/app.tsx', contentBase64: 'not base64!' }])),
+      ]) {
+        const refused = await send(call, env, { snapshot });
+        expect(refused.status).toBe(400);
+        expect(await refused.json()).toEqual({ error: "The draft's files could not be read. Send it again." });
+      }
+      const tooLarge = await send(call, env, { snapshot: await gzipBase64(' '.repeat(25 * 1024 * 1024)) });
+      expect(tooLarge.status).toBe(413);
       expect(requests(database)).toEqual([]);
     });
 

@@ -8,7 +8,7 @@ import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-ap
 import type { RepositoryClient } from '~/lib/.server/github/repository-client';
 import { readCookie, readJsonRequest, safeReturnTo } from '~/lib/.server/request-guards';
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
-import { promotedDraftFiles, promotedWorkerName } from '~/lib/.server/github/promote-draft';
+import { promotedDraftFiles, promotedWorkerName, readDraftSnapshot } from '~/lib/.server/github/promote-draft';
 import {
   declineProductionRequest,
   findGitHubInstallation,
@@ -331,6 +331,11 @@ async function completeProductionApproval(args: {
     return back(message);
   };
   try {
+    // Read before anything is made on GitHub: a draft that can't be committed leaves no empty repository.
+    const draft = await readDraftSnapshot(productionRequest.snapshot);
+    if (!draft) {
+      return await fail('draft_unreadable');
+    }
     const userToken = await app.userToken(code);
     const login = await app.userLogin(userToken);
     if (installation.accountType === 'User' && login !== installation.accountLogin) {
@@ -388,7 +393,7 @@ async function completeProductionApproval(args: {
       parent: head,
       baseTree: await client.commitTree(head),
       message: `${productionRequest.title}, from CloudChef`,
-      changes: await promotedDraftFiles(productionRequest.snapshot, promotedWorkerName(pending.repo_name)),
+      changes: promotedDraftFiles(draft, promotedWorkerName(pending.repo_name)),
       branchExists: true,
     });
     const projectId = await recordApprovedRequest(env.DB, {

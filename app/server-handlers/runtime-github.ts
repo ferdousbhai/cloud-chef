@@ -2,7 +2,9 @@ import { z } from 'zod';
 import { GitHubError } from '~/lib/.server/github/github-api';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
 import type { RepositoryClient } from '~/lib/.server/github/repository-client';
+import { readDraftSnapshot } from '~/lib/.server/github/promote-draft';
 import { readRepositoryTarball } from '~/lib/.server/github/tarball';
+import { PayloadTooLargeError } from '~/lib/bounded-body';
 import { bytesToBase64, bytesToHex } from '~/lib/hex-digest';
 import {
   findAccessibleProject,
@@ -320,6 +322,17 @@ export async function runtimeRequestProductionAction(args: { request: Request; e
   const membership = await findMembership(args.env.DB, orgId, authenticated.identity.userId);
   if (!membership?.draftsAllowed) {
     return json({ code: 'drafts_not_allowed', error: 'Your team lets you work on its GitHub projects only.' }, 403);
+  }
+  // Read now, as an approval will, so a draft that couldn't become a repository never reaches the admins.
+  try {
+    if (!(await readDraftSnapshot(authenticated.body.snapshot))) {
+      return json({ error: "The draft's files could not be read. Send it again." }, 400);
+    }
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) {
+      return json({ error: 'This draft is larger than CloudChef can commit. Slim it down and send it again.' }, 413);
+    }
+    throw error;
   }
   return sendProductionRequest(
     args.env.DB,

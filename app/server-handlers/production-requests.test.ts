@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { createAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { GitHubApp } from '~/lib/.server/github/github-app';
-import { promotedDraftFiles } from '~/lib/.server/github/promote-draft';
+import { promotedDraftFiles, readDraftSnapshot } from '~/lib/.server/github/promote-draft';
 import { bytesToBase64 } from '~/lib/hex-digest';
 import { PayloadTooLargeError } from '~/lib/bounded-body';
 import {
@@ -547,6 +547,41 @@ describe('production requests', () => {
     expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'pending' });
   });
 
+  it('creates nothing on GitHub for a draft whose files cannot be read, and says to decline it', async () => {
+    const { database, env, admin, app, calls } = await setup();
+    database.prepare('UPDATE production_requests SET snapshot_gzip_base64 = ?').run(await gzipBase64('not json'));
+    const started = await approveProductionRequestAction({
+      request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+        orgId: ORG,
+        requestId: REQUEST,
+        repoName: 'new-app',
+        private: true,
+      }),
+      env,
+      app,
+    });
+    const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+    const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+
+    const returned = await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+      }),
+      env,
+      app,
+    });
+    expect(returned.status).toBe(303);
+    expect(returnedMessage(returned)).toBe(
+      "CloudChef can't read this draft's files, so nothing was created on GitHub. Decline the request, and ask the " +
+        'member to send it again.',
+    );
+    expect(calls.some((call) => call.path === '/user/repos')).toBe(false);
+    expect(database.prepare('SELECT status, claimed_at FROM production_requests').get()).toEqual({
+      status: 'pending',
+      claimed_at: null,
+    });
+  });
+
   it('hands the request back when the admin cancels on GitHub', async () => {
     const { database, env, admin, app } = await setup();
     const started = await approveProductionRequestAction({
@@ -675,7 +710,10 @@ describe('production requests', () => {
 
 describe('promotedDraftFiles', () => {
   it("renames the draft's Cloudflare resources to the app's own", async () => {
-    const files = await promotedDraftFiles(await gzipBase64(JSON.stringify(DRAFT_FILES)), 'new-app');
+    const files = promotedDraftFiles(
+      (await readDraftSnapshot(await gzipBase64(JSON.stringify(DRAFT_FILES)))) ?? [],
+      'new-app',
+    );
     const project = files.find((file) => file.path === 'cloudflare.project.json');
     expect(JSON.parse(atob(project?.contentBase64 ?? ''))).toEqual({
       name: 'new-app',
@@ -689,6 +727,13 @@ describe('promotedDraftFiles', () => {
     // About 25 KB of gzip that would inflate to 25 MB.
     const bomb = await gzipBase64(' '.repeat(25 * 1024 * 1024));
     expect(atob(bomb).length).toBeLessThan(64 * 1024);
-    await expect(promotedDraftFiles(bomb, 'new-app')).rejects.toThrow(PayloadTooLargeError);
+    await expect(readDraftSnapshot(bomb)).rejects.toThrow(PayloadTooLargeError);
+  });
+
+  it('leaves a project file it cannot read as the draft had it', () => {
+    const unreadable = btoa('{ not json');
+    expect(promotedDraftFiles([{ path: 'cloudflare.project.json', contentBase64: unreadable }], 'new-app')).toEqual([
+      { path: 'cloudflare.project.json', contentBase64: unreadable, executable: false },
+    ]);
   });
 });
