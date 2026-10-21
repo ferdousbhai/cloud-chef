@@ -307,6 +307,10 @@ export class WorkbenchStore {
         }
       }
       this.flushPendingEditorChange();
+      if (!this.#editorStore.documents.get()[absolutePath]) {
+        // Reset accepted the workspace's deletion of this draft while it was being written: nothing is left to save.
+        return;
+      }
       if (!savedCurrentEdit || !isCurrentEdit()) {
         const next = new Set(this.unsavedFiles.get());
         next.add(absolutePath);

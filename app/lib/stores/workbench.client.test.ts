@@ -277,6 +277,30 @@ describe('WorkbenchStore editor flush boundaries', () => {
     },
   );
 
+  it('lets a local recreation reset while its save is in flight stay reset when the save lands', async () => {
+    const store = createStore();
+    let finishSave: (result: BuilderWorkspaceApplyResult) => void = () => undefined;
+    store.setWorkspaceChangeListener(
+      () =>
+        new Promise<BuilderWorkspaceApplyResult>((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    store.setDocumentContent(fileA, 'local edit');
+    store.applyWorkspaceSyncEntries([{ kind: 'delete', path: fileA, revision: 2 }]);
+    const save = store.saveUnsavedFiles();
+
+    store.resetCurrentDocument();
+    finishSave({
+      ok: true,
+      changedPaths: [fileA],
+      state: { initialized: true, revision: 3, resetRevision: 0, fileCount: 2, totalBytes: 4, seeding: false },
+    });
+
+    await expect(save).resolves.toBeUndefined();
+    expect(store.unsavedFiles.get()).not.toContain(fileA);
+  });
+
   it('treats a saved local recreation as durable again', async () => {
     const store = createStore();
     store.setWorkspaceChangeListener(async () => ({

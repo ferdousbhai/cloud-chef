@@ -58,6 +58,8 @@ export const EditorPanel = memo(function EditorPanel({
   const theme = useStore(themeStore);
   const activeFileSegments = editorDocument?.filePath.split('/');
   const activeFileUnsaved = editorDocument !== undefined && unsavedFiles?.has(editorDocument.filePath);
+  // A save being written lands whatever Reset discards, so Reset waits for it.
+  const savesInFlight = useStore(workbenchStore.savesInFlight);
   const editorRef = useRef<CodeMirrorEditorHandle>(null);
 
   useEffect(() => workbenchStore.registerPendingEditorChangeFlusher(() => editorRef.current?.flushPendingChange()), []);
@@ -96,6 +98,8 @@ export const EditorPanel = memo(function EditorPanel({
               {activeFileUnsaved && !readOnly && (
                 <div className="-mr-1.5 ml-auto flex gap-1">
                   <PanelHeaderButton
+                    disabled={savesInFlight}
+                    title={savesInFlight ? 'Saving…' : undefined}
                     onClick={() => {
                       editorRef.current?.flushPendingChange();
                       onFileReset?.();
