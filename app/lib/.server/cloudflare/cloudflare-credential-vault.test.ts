@@ -182,6 +182,37 @@ describe('D1CloudflareCredentialVault', () => {
     expect(request).toHaveBeenCalledOnce();
   });
 
+  it('answers a forced refresh asked again within a minute with the token it just rotated to', async () => {
+    const { db, rows } = createDb();
+    let issued = 0;
+    const request = vi.fn<typeof fetch>().mockImplementation(async () => {
+      issued += 1;
+      return Response.json({ access_token: `forced-${issued}`, expires_in: 3600 });
+    });
+    const vault = new D1CloudflareCredentialVault(db, encryptionKey(), {
+      clientId: 'client-1',
+      clientSecret: 'client-secret',
+      request,
+    });
+    const handle = await vault.storeOAuthCredential({
+      accessToken: 'still-valid-access',
+      refreshToken: 'refresh-token',
+      expiresAt: Date.now() + 60 * 60_000,
+    });
+
+    await expect(vault.resolve(handle, { forceRefresh: true })).resolves.toBe('forced-1');
+    await expect(vault.resolve(handle, { forceRefresh: true })).resolves.toBe('forced-1');
+    expect(request).toHaveBeenCalledOnce();
+
+    // A minute on, a forced refresh reaches Cloudflare again.
+    const stored = rows.get(handle);
+    if (!stored) {
+      throw new Error('The credential was not stored.');
+    }
+    rows.set(handle, { ...stored, rotated_at: Date.now() - 61_000 });
+    await expect(vault.resolve(handle, { forceRefresh: true })).resolves.toBe('forced-2');
+  });
+
   it('adopts only the exact OAuth refresh rotation that committed before acknowledgement failed', async () => {
     const acknowledgementError = new Error('credential rotation acknowledgement failed');
     const exact = createDb({ updateErrorAfterCommit: acknowledgementError });

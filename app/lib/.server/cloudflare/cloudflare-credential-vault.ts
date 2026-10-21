@@ -6,11 +6,18 @@ const AES_256_KEY_BYTES = 32;
 const OAUTH_REQUEST_TIMEOUT_MS = 30_000;
 const OAUTH_TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token';
 const OAUTH_REVOKE_URL = 'https://dash.cloudflare.com/oauth2/revoke';
+/**
+ * A forced refresh of a credential rotated more recently than this returns the token it was rotated
+ * to: the token is minutes old, and a caller asking again and again must not refresh with Cloudflare
+ * on every call.
+ */
+const FORCED_REFRESH_INTERVAL_MS = 60_000;
 
 type CredentialRow = {
   ciphertext_base64: string;
   iv_base64: string;
   created_at: number;
+  rotated_at: number | null;
 };
 
 export class D1CloudflareCredentialVault {
@@ -82,7 +89,9 @@ export class D1CloudflareCredentialVault {
     if (!oauthCredential) {
       return value;
     }
-    if (!options.forceRefresh && oauthCredential.expiresAt > Date.now() + 60_000) {
+    const now = Date.now();
+    const recentlyRotated = (row.rotated_at ?? 0) > now - FORCED_REFRESH_INTERVAL_MS;
+    if ((!options.forceRefresh || recentlyRotated) && oauthCredential.expiresAt > now + 60_000) {
       return oauthCredential.accessToken;
     }
     return this.refreshOAuthCredential(credentialHandle, oauthCredential, row);
@@ -264,7 +273,7 @@ export class D1CloudflareCredentialVault {
 
   private async readCredentialRow(credentialHandle: string): Promise<CredentialRow | null> {
     return this.db
-      .prepare(`SELECT ciphertext_base64, iv_base64, created_at FROM cloudflare_credentials WHERE handle = ?`)
+      .prepare(`SELECT ciphertext_base64, iv_base64, created_at, rotated_at FROM cloudflare_credentials WHERE handle = ?`)
       .bind(credentialHandle)
       .first<CredentialRow>();
   }
