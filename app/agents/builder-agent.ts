@@ -425,6 +425,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private startingTurns = 0;
   /** Publishes to GitHub under way: an archived conversation waits for them before its successor copies it. */
   private readonly runningLinkedPublishes = new Set<Promise<CloudChefToolResult>>();
+  /** Editor saves under way, from before their archive check: an archived conversation waits for them too. */
+  private readonly runningSaves = new Set<Promise<BuilderWorkspaceApplyResult>>();
   /** The seed of a new workspace under way, which every caller needing the workspace seeded shares. */
   private workspaceSeed: Promise<BuilderWorkspaceState> | null = null;
   /** Set once the GC outbox deletes this project: nothing may start publishing it again. */
@@ -1097,20 +1099,21 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
     }
     // A publish whose commit was already on its way runs to the end whatever the Stop: its commit moves
-    // this workspace's base, which the successor copies.
-    if (!(await this.waitForLinkedPublishes(LINKED_PUBLISH_SETTLE_MS))) {
+    // this workspace's base, which the successor copies. So does a save that found this conversation
+    // current: reported saved, it must be in the copy, not only here.
+    if (!(await this.waitForWorkspaceWrites(LINKED_PUBLISH_SETTLE_MS))) {
       throw new Error('The earlier conversation did not settle in time.');
     }
   }
 
-  /** Whether every publish to GitHub under way settled within `timeoutMs`. */
-  private async waitForLinkedPublishes(timeoutMs: number): Promise<boolean> {
-    if (this.runningLinkedPublishes.size === 0) {
+  /** Whether every publish to GitHub and editor save under way settled within `timeoutMs`. */
+  private async waitForWorkspaceWrites(timeoutMs: number): Promise<boolean> {
+    if (this.runningLinkedPublishes.size === 0 && this.runningSaves.size === 0) {
       return true;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const settled = await Promise.race([
-      Promise.allSettled(this.runningLinkedPublishes).then(() => true),
+      Promise.allSettled([...this.runningLinkedPublishes, ...this.runningSaves]).then(() => true),
       new Promise<boolean>((resolve) => {
         timer = setTimeout(() => resolve(false), timeoutMs);
       }),
@@ -1245,6 +1248,16 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   @callable()
   async applyWorkspaceClientChanges(request: WorkspaceApplyChangesRequest): Promise<BuilderWorkspaceApplyResult> {
+    const save = this.applyClientChanges(request);
+    this.runningSaves.add(save);
+    try {
+      return await save;
+    } finally {
+      this.runningSaves.delete(save);
+    }
+  }
+
+  private async applyClientChanges(request: WorkspaceApplyChangesRequest): Promise<BuilderWorkspaceApplyResult> {
     await this.refuseIfClosed();
     const result = await this.workspace.applyClientChanges(request);
     if (result.ok && result.changedPaths.length > 0) {
