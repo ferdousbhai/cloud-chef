@@ -1,6 +1,6 @@
 import { sha256Hex } from '~/lib/hex-digest';
 import { z } from 'zod';
-import { appResourceName } from '~/lib/cloudflare/app-resource-names';
+import { appResourceName, type AppResourceLogicalName } from '~/lib/cloudflare/app-resource-names';
 import type { DeploymentProjectProfile } from './deployment-project-profile';
 
 const DEPLOYMENT_PLAN_VERSION = 5 as const;
@@ -34,64 +34,66 @@ const deploymentPlanSchema = z.strictObject({
 
 export type DeploymentPlan = z.infer<typeof deploymentPlanSchema>;
 
+/** The account resources a plan may name, as (type, logical name): the ones a deployment creates. */
+export const APP_ACCOUNT_RESOURCES = [
+  ['worker', 'app'],
+  ['d1', 'DB'],
+  ['d1', 'DB_PREVIEW'],
+  ['d1', 'AGENT_SECURITY_DB'],
+  ['d1', 'AGENT_SECURITY_DB_PREVIEW'],
+  ['kv', 'APP_CACHE'],
+  ['r2', 'APP_STORAGE'],
+] as const satisfies readonly (readonly [DeploymentResourceType, AppResourceLogicalName])[];
+
+type AppAccountResource = (typeof APP_ACCOUNT_RESOURCES)[number];
+
+/** An account resource the project's deployments already use, by the name one of them gave it. */
+export type AdoptedDeploymentResource = { type: AppAccountResource[0]; logicalName: string; name: string };
+
+/**
+ * How a project's plans name its account resources: as its earlier deployments already do, and
+ * otherwise after the project's own identity, so every revision of it names the same ones.
+ */
+export type DeploymentResourceNaming = {
+  identity: string;
+  adopted: readonly AdoptedDeploymentResource[];
+};
+
+function projectResourceName(naming: DeploymentResourceNaming, [type, logicalName]: AppAccountResource): string {
+  return (
+    naming.adopted.find((resource) => resource.type === type && resource.logicalName === logicalName)?.name ??
+    appResourceName(naming.identity, logicalName)
+  );
+}
+
 export async function buildDeploymentPlanFromSource(args: {
   deploymentId: string;
   sourceSha256: string;
   project: DeploymentProjectProfile;
+  naming: DeploymentResourceNaming;
 }): Promise<{ plan: DeploymentPlan; digest: string }> {
   if (!/^[a-f0-9]{64}$/.test(args.sourceSha256)) {
     throw new Error('Deployment source digest is invalid.');
   }
   const project = deploymentProjectProfileSchema.parse(args.project);
+  const account = (resource: AppAccountResource) => ({
+    type: resource[0],
+    logicalName: resource[1],
+    proposedName: projectResourceName(args.naming, resource),
+  });
   const plan: DeploymentPlan = {
     version: DEPLOYMENT_PLAN_VERSION,
     deploymentId: args.deploymentId,
     sourceSha256: args.sourceSha256,
     project,
     resources: [
-      { type: 'worker', logicalName: 'app', proposedName: appResourceName(args.deploymentId, 'app') },
-      ...(project.bindings.d1
-        ? [
-            { type: 'd1' as const, logicalName: 'DB', proposedName: appResourceName(args.deploymentId, 'DB') },
-            {
-              type: 'd1' as const,
-              logicalName: 'DB_PREVIEW',
-              proposedName: appResourceName(args.deploymentId, 'DB_PREVIEW'),
-            },
-          ]
-        : []),
+      account(['worker', 'app']),
+      ...(project.bindings.d1 ? [account(['d1', 'DB']), account(['d1', 'DB_PREVIEW'])] : []),
       ...(project.bindings.appAgent
-        ? [
-            {
-              type: 'd1' as const,
-              logicalName: 'AGENT_SECURITY_DB',
-              proposedName: appResourceName(args.deploymentId, 'AGENT_SECURITY_DB'),
-            },
-            {
-              type: 'd1' as const,
-              logicalName: 'AGENT_SECURITY_DB_PREVIEW',
-              proposedName: appResourceName(args.deploymentId, 'AGENT_SECURITY_DB_PREVIEW'),
-            },
-          ]
+        ? [account(['d1', 'AGENT_SECURITY_DB']), account(['d1', 'AGENT_SECURITY_DB_PREVIEW'])]
         : []),
-      ...(project.bindings.r2
-        ? [
-            {
-              type: 'r2' as const,
-              logicalName: 'APP_STORAGE',
-              proposedName: appResourceName(args.deploymentId, 'APP_STORAGE'),
-            },
-          ]
-        : []),
-      ...(project.bindings.kv
-        ? [
-            {
-              type: 'kv' as const,
-              logicalName: 'APP_CACHE',
-              proposedName: appResourceName(args.deploymentId, 'APP_CACHE'),
-            },
-          ]
-        : []),
+      ...(project.bindings.r2 ? [account(['r2', 'APP_STORAGE'])] : []),
+      ...(project.bindings.kv ? [account(['kv', 'APP_CACHE'])] : []),
       ...(project.bindings.appAgent
         ? [{ type: 'durable_object' as const, logicalName: 'AppAgent', proposedName: 'AppAgent' }]
         : []),
@@ -100,6 +102,19 @@ export async function buildDeploymentPlanFromSource(args: {
   };
   const digest = await sha256Hex(new TextEncoder().encode(JSON.stringify(plan)));
   return { plan, digest };
+}
+
+/**
+ * Whether every account resource the plan names is the one the project's resources are named now. A
+ * plan made before the project settled on them, when each deployment named its own, would publish to
+ * an empty database at a new address.
+ */
+export function planNamesProjectResources(plan: DeploymentPlan, naming: DeploymentResourceNaming): boolean {
+  return APP_ACCOUNT_RESOURCES.every((resource) =>
+    plan.resources
+      .filter((planned) => planned.type === resource[0] && planned.logicalName === resource[1])
+      .every((planned) => planned.proposedName === projectResourceName(naming, resource)),
+  );
 }
 
 export function parseDeploymentPlanJson(value: string): DeploymentPlan {

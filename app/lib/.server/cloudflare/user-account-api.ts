@@ -312,6 +312,9 @@ export class UserCloudflareAccountApi {
     // path runs on every runtime upgrade for every existing account, where the answer is always
     // "all of them are already applied" and the reads were the entire cost.
     const receipts = await this.executeD1(databaseId, 'SELECT name, digest FROM cloudchef_runtime_migrations');
+    // Every receipt is checked before any migration runs, so a set this database refuses changes
+    // nothing in it rather than applying the migrations ahead of the one it refuses.
+    const pending: { name: string; sql: string; digest: string }[] = [];
     for (const migration of migrations) {
       if (!/^\d{4}_.+\.sql$/.test(migration.name) || !migration.sql.trim()) {
         throw new CloudflareAccountApiError('Invalid user-runtime D1 migration.');
@@ -322,11 +325,14 @@ export class UserCloudflareAccountApi {
         continue;
       }
       if (receipt?.digest) {
-        throw new CloudflareAccountApiError(`User-runtime D1 migration digest mismatch: ${migration.name}`);
+        throw new D1MigrationChangedError(migration.name);
       }
       if (receipt) {
         throw new CloudflareAccountApiError(`User-runtime D1 migration receipt lacks a digest: ${migration.name}`);
       }
+      pending.push({ ...migration, digest });
+    }
+    for (const { digest, ...migration } of pending) {
       try {
         await this.executeD1Batch(databaseId, [
           { sql: migration.sql },
@@ -352,7 +358,7 @@ export class UserCloudflareAccountApi {
           continue;
         }
         if (committedReceipt?.digest) {
-          throw new CloudflareAccountApiError(`User-runtime D1 migration digest mismatch: ${migration.name}`);
+          throw new D1MigrationChangedError(migration.name);
         }
         throw error;
       }
@@ -1641,6 +1647,14 @@ export class CloudflareAccountApiError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'CloudflareAccountApiError';
+  }
+}
+
+/** A migration the database already applied, under the same name, has different contents now. */
+export class D1MigrationChangedError extends CloudflareAccountApiError {
+  constructor(readonly migrationName: string) {
+    super(`User-runtime D1 migration digest mismatch: ${migrationName}`);
+    this.name = 'D1MigrationChangedError';
   }
 }
 

@@ -18,6 +18,7 @@ describe('builder system prompt', () => {
     expect(prompt).toContain('/home/project');
     expect(prompt).toContain('hosted preview');
     expect(prompt).toContain('You do not deploy it yourself.');
+    expect(prompt).toContain('onto the same address and the resources cloudflare.project.json declares each time');
     expect(prompt).not.toContain('publish_preview');
   });
 

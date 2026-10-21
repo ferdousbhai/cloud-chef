@@ -1,5 +1,9 @@
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
-import { deploymentPlanResourceName, parseDeploymentPlanJson } from '~/lib/.server/cloudflare/deployment-plan';
+import {
+  APP_ACCOUNT_RESOURCES,
+  deploymentPlanResourceName,
+  parseDeploymentPlanJson,
+} from '~/lib/.server/cloudflare/deployment-plan';
 import { createUserAccountApi } from '~/lib/.server/cloudflare/user-workspace-deployment-executor';
 import type { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { AGENT_GC_GRACE_PERIOD_MS, AGENT_GC_RETRY_BASE_MS } from './agent-gc.server';
@@ -26,6 +30,7 @@ type AppResourceGcCandidateRow = {
 type DeploymentPlanRow = {
   id: string;
   plan_json: string;
+  created_at: number;
 };
 
 type DeploymentResourceRow = {
@@ -35,8 +40,12 @@ type DeploymentResourceRow = {
   provider_resource_id: string;
 };
 
-/** One provider resource to delete: by the id provisioning recorded, or by the name the plan gives it. */
-type CleanupTarget = { type: 'worker' | 'd1' | 'kv' | 'r2'; by: 'id' | 'name'; value: string };
+/**
+ * One provider resource to delete: by the id provisioning recorded, or by the name the plan gives it.
+ * `name` is the name the deployment's plan gives it, when the plan can be read. A Worker's and a
+ * bucket's recorded id is its name.
+ */
+type CleanupTarget = { type: 'worker' | 'd1' | 'kv' | 'r2'; by: 'id' | 'name'; value: string; name: string | null };
 
 export function prepareAppResourceGcCandidateStatement(
   db: D1Database,
@@ -87,7 +96,7 @@ export async function sweepAppResourceGcCandidates(
   }
 
   const accountApi = options.accountApi ?? (await createUserAccountApi(env, fetch));
-  const sweep: CleanupSweep = { budget: APP_RESOURCE_GC_DEPLOYMENTS_PER_SWEEP, removed: new Set() };
+  const sweep: CleanupSweep = { budget: APP_RESOURCE_GC_DEPLOYMENTS_PER_SWEEP };
   for (const candidate of result.results) {
     if (sweep.budget === 0) {
       // Still due, so the next sweep starts with it.
@@ -97,11 +106,8 @@ export async function sweepAppResourceGcCandidates(
   }
 }
 
-/**
- * What is left of one sweep's work: deployments it may still release, and the resources it already
- * deleted, since a chat's deployments mostly name the same Worker, databases and bucket.
- */
-type CleanupSweep = { budget: number; removed: Set<string> };
+/** What is left of one sweep's work: the deployments it may still release. */
+type CleanupSweep = { budget: number };
 
 export async function sweepAppResourceGcCandidatesBestEffort(
   env: Parameters<typeof sweepAppResourceGcCandidates>[0],
@@ -125,8 +131,10 @@ type AppResourceCleanupApi = Pick<
 
 /**
  * Releases the candidate's deployments oldest first, each once every resource it recorded or its plan
- * names is gone: its row (and its resource records) is then deleted, so a retry resumes after it rather
- * than walking the chat's whole history again. The receipt completes once no deployment is left.
+ * names is gone or belongs to a deployment released after it too: its row (and its resource records)
+ * is then deleted, so a retry resumes after it rather than walking the chat's whole history again. A
+ * project's deployments share its resources, so the last of them deletes those, once. The receipt
+ * completes once no deployment is left.
  */
 async function cleanupCandidate(
   db: D1Database,
@@ -138,7 +146,7 @@ async function cleanupCandidate(
   try {
     const plans = await db
       .prepare(
-        `SELECT id, plan_json
+        `SELECT id, plan_json, created_at
          FROM deployments
          WHERE chat_id = ?
          ORDER BY created_at, id
@@ -166,7 +174,8 @@ async function cleanupCandidate(
         continue;
       }
       sweep.budget -= 1;
-      if (!(await removeTargets(accountApi, cleanupTargets(owned, plan), sweep.removed))) {
+      const targets = await unsharedTargets(db, candidate.chat_id, row, cleanupTargets(owned, plan));
+      if (!(await removeTargets(accountApi, targets))) {
         // An R2 bucket is still draining, a bounded batch at a time; the next sweep resumes here.
         break;
       }
@@ -227,17 +236,6 @@ function releaseDeployment(db: D1Database, deploymentId: string): Promise<D1Resu
 
 const CLEANUP_TYPES = ['worker', 'd1', 'kv', 'r2'] as const;
 
-/** The plan resources a deployment may have created, as (type, logical name). */
-const PLAN_RESOURCES = [
-  ['worker', 'app'],
-  ['d1', 'DB'],
-  ['d1', 'DB_PREVIEW'],
-  ['d1', 'AGENT_SECURITY_DB'],
-  ['d1', 'AGENT_SECURITY_DB_PREVIEW'],
-  ['kv', 'APP_CACHE'],
-  ['r2', 'APP_STORAGE'],
-] as const;
-
 /**
  * Everything a deployment recorded, by the provider id it was created with, and every resource its plan
  * names that it has no record of, by name: provisioning creates a resource before recording it, so a
@@ -252,20 +250,25 @@ function cleanupTargets(
   for (const resource of owned) {
     const type = CLEANUP_TYPES.find((candidate) => candidate === resource.resource_type);
     if (type) {
-      targets.push({ type, by: 'id', value: resource.provider_resource_id });
+      targets.push({
+        type,
+        by: 'id',
+        value: resource.provider_resource_id,
+        name: plan ? deploymentPlanResourceName(plan, type, resource.logical_name) : null,
+      });
     }
   }
   if (plan) {
     if (!deploymentPlanResourceName(plan, 'worker', 'app')) {
       throw new Error('Deployment cleanup plan has no valid Worker.');
     }
-    for (const [type, logicalName] of PLAN_RESOURCES) {
+    for (const [type, logicalName] of APP_ACCOUNT_RESOURCES) {
       const name = deploymentPlanResourceName(plan, type, logicalName);
       const isRecorded = owned.some(
         (resource) => resource.resource_type === type && resource.logical_name === logicalName,
       );
       if (name && !isRecorded) {
-        targets.push({ type, by: 'name', value: name });
+        targets.push({ type, by: 'name', value: name, name });
       }
     }
   }
@@ -274,20 +277,60 @@ function cleanupTargets(
 }
 
 /**
- * Deletes each target this sweep has not already removed. Returns false while an R2 bucket still has
- * objects, so the deployment is retried rather than released.
+ * The targets no deployment of the chat released after this one also has, by a record of the same
+ * provider id or a plan naming the same resource. A project's deployments all deploy onto its
+ * resources, so releasing one leaves them to the deployments after it, and the last one deletes them.
+ * A later plan is read as stored, so one this build cannot parse keeps what it names until a build
+ * that can releases it.
  */
-async function removeTargets(
-  accountApi: AppResourceCleanupApi,
+async function unsharedTargets(
+  db: D1Database,
+  chatId: string,
+  deployment: DeploymentPlanRow,
   targets: readonly CleanupTarget[],
-  removed: Set<string>,
-): Promise<boolean> {
+): Promise<CleanupTarget[]> {
+  const unshared: CleanupTarget[] = [];
+  for (const target of targets) {
+    const shared = await db
+      .prepare(
+        `SELECT 1 AS found FROM deployments
+         WHERE chat_id = ?1
+           AND (created_at > ?6 OR (created_at = ?6 AND id > ?2))
+           AND (
+             EXISTS (
+               SELECT 1 FROM deployment_resources
+               WHERE deployment_resources.deployment_id = deployments.id
+                 AND deployment_resources.resource_type = ?3
+                 AND deployment_resources.provider_resource_id = ?4
+             )
+             OR EXISTS (
+               SELECT 1
+               FROM json_each(
+                 CASE WHEN json_valid(deployments.plan_json) THEN deployments.plan_json ELSE '{}' END,
+                 '$.resources'
+               ) AS resource
+               WHERE json_extract(resource.value, '$.type') = ?3
+                 AND json_extract(resource.value, '$.proposedName') IN (?4, ?5)
+             )
+           )
+         LIMIT 1`,
+      )
+      .bind(chatId, deployment.id, target.type, target.value, target.name, deployment.created_at)
+      .first<{ found: number }>();
+    if (!shared) {
+      unshared.push(target);
+    }
+  }
+  return unshared;
+}
+
+/**
+ * Deletes each target. Returns false while an R2 bucket still has objects, so the deployment is retried
+ * rather than released.
+ */
+async function removeTargets(accountApi: AppResourceCleanupApi, targets: readonly CleanupTarget[]): Promise<boolean> {
   let drained = true;
   for (const target of targets) {
-    const key = `${target.type}:${target.by}:${target.value}`;
-    if (removed.has(key)) {
-      continue;
-    }
     if (target.type === 'worker') {
       await accountApi.deleteManagedWorker(target.value);
     } else if (target.type === 'd1') {
@@ -300,9 +343,7 @@ async function removeTargets(
         : accountApi.deleteKvNamespace(target.value));
     } else if (!(await accountApi.deleteR2Bucket(target.value))) {
       drained = false;
-      continue;
     }
-    removed.add(key);
   }
   return drained;
 }

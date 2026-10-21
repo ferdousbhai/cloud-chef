@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { deploymentPlanResourceName, isCurrentDeploymentPlan } from './deployment-plan';
+import { deploymentPlanResourceName, isCurrentDeploymentPlan, planNamesProjectResources } from './deployment-plan';
 import {
   claimApprovedDeployment,
   DeploymentConcurrencyLimitError,
   findDeploymentResource,
+  projectResourceNaming,
   recordDeploymentActivity,
   recordDeploymentResource,
   requireDeployment,
@@ -13,7 +14,7 @@ import {
 } from './deployment-repository';
 import { validatePreparedDeploymentArtifact, type PreparedDeploymentArtifact } from './deployment-artifact';
 import type { DeploymentProjectProfile } from './deployment-project-profile';
-import { UserCloudflareAccountApi, type ManagedWorkerVersionArgs } from './user-account-api';
+import { D1MigrationChangedError, UserCloudflareAccountApi, type ManagedWorkerVersionArgs } from './user-account-api';
 import { CLOUDCHEF_CONTROL_PLANE_ENDPOINT } from './user-workspace-runtime-policy';
 import { runtimeRequestHeaders } from './user-workspace-cloudflare-credential';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
@@ -108,6 +109,8 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
       executionGeneration: args.executionGeneration,
     });
     phase = 'provisioning';
+    // Decided while this deployment holds the project, so no other one can change the answer.
+    await requireProjectResources(args.env.DB, deployment);
     await activity(args, 10, 'Preparing Cloudflare resources');
     const accountApi = await createUserAccountApi(runtimeEnv, request);
     const reference = requireApprovedWorkspaceReference(deployment, 'deployment');
@@ -155,7 +158,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     // The last point at which stopping leaves production as it was.
     abortSignal?.throwIfAborted();
     await activity(args, 40, 'Applying database migrations');
-    await applyArtifactMigrations(publishApi, resources, artifact);
+    await applyArtifactMigrations(publishApi, resources, artifact, 'production');
     providerChangesPossible = true;
     await activity(args, 50, 'Uploading assets and publishing Worker');
     await publishApi.deployManagedWorker(
@@ -262,6 +265,7 @@ export async function executeUserOwnedPreview(
       readyAt: new Date(versionReceipt.createdAt).toISOString(),
     };
   }
+  await requireProjectResources(args.env.DB, deployment);
   const operationId = `preview:${deployment.id}:${args.executionGeneration}:${args.previewId}`;
   abortSignal?.throwIfAborted();
   const session = await beginPublicationSession(workspace, operationId, reference);
@@ -296,7 +300,7 @@ export async function executeUserOwnedPreview(
 
     const publishApi = await createUserAccountApi(runtimeEnv, request);
     await activity(args, 3, 'Applying preview database migrations');
-    await applyArtifactMigrations(publishApi, resources, artifact);
+    await applyArtifactMigrations(publishApi, resources, artifact, 'preview');
     abortSignal?.throwIfAborted();
     await activity(args, 4, 'Uploading assets and Worker preview version');
     const published = await publishApi.previewManagedWorker(
@@ -348,6 +352,18 @@ async function beginPublicationSession(
       finished = true;
     },
   };
+}
+
+/**
+ * Refuses a plan that names other account resources than the project's before it touches any: one
+ * made when each deployment named its own would publish to an empty database at a new address.
+ */
+async function requireProjectResources(db: D1Database, deployment: Deployment): Promise<void> {
+  if (!planNamesProjectResources(deployment.plan, await projectResourceNaming(db, deployment))) {
+    throw new Error(
+      'This publication was planned for Cloudflare resources the project no longer uses. Publish the project again.',
+    );
+  }
 }
 
 function publicationResourcePlan(plan: Deployment['plan'], bindings: PublicationD1Bindings): PublicationResourcePlan {
@@ -421,16 +437,30 @@ async function prepareValidatedArtifact(args: {
   );
 }
 
+/**
+ * Applies the migrations each database has not applied yet. The databases outlive every revision, so
+ * one that applied a migration never runs it again, and refuses it once its contents have changed.
+ */
 async function applyArtifactMigrations(
   accountApi: UserCloudflareAccountApi,
   resources: PublicationResources,
   artifact: PreparedDeploymentArtifact,
+  database: 'production' | 'preview',
 ): Promise<void> {
-  if (resources.d1) {
-    await accountApi.applyD1Migrations(resources.d1.id, artifact.migrations.DB);
-  }
-  if (resources.agentD1) {
-    await accountApi.applyD1Migrations(resources.agentD1.id, artifact.migrations.AGENT_SECURITY_DB);
+  try {
+    if (resources.d1) {
+      await accountApi.applyD1Migrations(resources.d1.id, artifact.migrations.DB);
+    }
+    if (resources.agentD1) {
+      await accountApi.applyD1Migrations(resources.agentD1.id, artifact.migrations.AGENT_SECURITY_DB);
+    }
+  } catch (error) {
+    if (error instanceof D1MigrationChangedError) {
+      throw new Error(
+        `The migration ${error.migrationName} was already applied to the ${database} database with different contents, and an applied migration never runs again. Restore it as it was, and make the change in a new migration.`,
+      );
+    }
+    throw error;
   }
 }
 

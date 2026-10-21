@@ -163,7 +163,7 @@ describe('builder deployment command', () => {
   });
 
   it('accepts recovery before the deterministic deployment row was created', async () => {
-    mocks.terminalizeInterrupted.mockResolvedValueOnce(null);
+    mocks.terminalizeInterrupted.mockResolvedValue(null);
 
     await expect(
       terminalizeInterruptedDeploymentForBuilder({
@@ -173,6 +173,55 @@ describe('builder deployment command', () => {
         validatedRevision: 'a'.repeat(64),
       }),
     ).resolves.toMatchObject({ status: 'failed', error: expect.stringContaining('before execution started') });
+  });
+
+  it('settles an interrupted deployment recorded under the identity it had before resources were the project’s', async () => {
+    mocks.terminalizeInterrupted.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: '33333333-3333-5333-8333-333333333333',
+      status: 'succeeded',
+      productionUrl: 'https://cloudchef-earlier.account.workers.dev',
+      error: null,
+    });
+    const workspace = workspaceStub();
+    workspace.hasSuccessfulValidation.mockResolvedValue(true);
+    const revision = 'a'.repeat(64);
+
+    await expect(
+      terminalizeInterruptedDeploymentForBuilder({
+        context: operationContext(),
+        workspace,
+        toolCallId: `deploy-command:7:${revision}`,
+        validatedRevision: revision,
+      }),
+    ).resolves.toEqual({
+      id: '33333333-3333-5333-8333-333333333333',
+      status: 'succeeded',
+      productionUrl: 'https://cloudchef-earlier.account.workers.dev',
+      error: null,
+    });
+    await deployValidatedRevisionForBuilder({
+      context: operationContext(),
+      workspace,
+      toolCallId: `deploy-command:7:${revision}`,
+      validatedRevision: revision,
+    });
+
+    const [current, previous] = mocks.terminalizeInterrupted.mock.calls.map(([input]) => input.deploymentId);
+    expect(previous).toMatch(/^[0-9a-f-]{36}$/);
+    expect(previous).not.toBe(current);
+    // A publication now is planned under the current identity, so a plan made before is never replayed.
+    expect(mocks.createDeployment).toHaveBeenCalledWith(expect.objectContaining({ deploymentId: current }));
+  });
+
+  it('looks no further than the current identity once it has a record', async () => {
+    await terminalizeInterruptedDeploymentForBuilder({
+      context: operationContext(),
+      workspace: workspaceStub(),
+      toolCallId: 'deploy-command:7:revision',
+      validatedRevision: 'a'.repeat(64),
+    });
+
+    expect(mocks.terminalizeInterrupted).toHaveBeenCalledOnce();
   });
 
   it('creates and executes one idempotent exact-revision deployment', async () => {

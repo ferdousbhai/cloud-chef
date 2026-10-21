@@ -9,6 +9,7 @@ import {
   DeploymentStateConflictError,
   listDeploymentActivity,
   prepareDeploymentRetry,
+  projectResourceNaming,
   requireDeploymentForUser,
   type Deployment,
 } from '~/lib/.server/cloudflare/deployment-repository';
@@ -47,10 +48,17 @@ export async function createOrReplayDeploymentPlanForUser(args: {
   if (!chat) {
     throw new DeploymentChatNotFoundError();
   }
+  const reference = workspaceReference(workspaceArgs);
   const { plan, digest } = await buildDeploymentPlanFromSource({
     deploymentId: workspaceArgs.deploymentId,
     sourceSha256: workspaceArgs.revision,
     project: workspaceArgs.project,
+    // The revision deploys onto the project's resources, not resources of its own.
+    naming: await projectResourceNaming(workspaceArgs.env.DB, {
+      userId: workspaceArgs.userId,
+      chatId: chat.id,
+      workspaceReference: reference,
+    }),
   });
   return publicDeployment(
     await createDeployment({
@@ -60,7 +68,7 @@ export async function createOrReplayDeploymentPlanForUser(args: {
       userId: workspaceArgs.userId,
       connectionId: connection.id,
       connectionGeneration: connection.generation,
-      workspaceReference: workspaceReference(workspaceArgs),
+      workspaceReference: reference,
       plan,
       planDigest: digest,
     }),

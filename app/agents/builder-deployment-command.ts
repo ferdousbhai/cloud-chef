@@ -93,12 +93,14 @@ export async function terminalizeInterruptedDeploymentForBuilder(args: {
   toolCallId: string;
   validatedRevision: string;
 }): Promise<BuilderDeploymentState> {
-  const deploymentId = await publicationDeploymentId(args.workspace.projectId, args.toolCallId, args.validatedRevision);
-  const deployment = await terminalizeInterruptedDeploymentForUser({
-    env: args.context.env,
-    userId: args.context.userId,
-    deploymentId,
-  });
+  const identity = [args.workspace.projectId, args.toolCallId, args.validatedRevision] as const;
+  const terminalize = async (deploymentId: string) =>
+    terminalizeInterruptedDeploymentForUser({ env: args.context.env, userId: args.context.userId, deploymentId });
+  // A deployment the runtime was upgraded under keeps its earlier identity, and left active it would
+  // hold the project's deployments forever.
+  const deployment =
+    (await terminalize(await publicationDeploymentId(...identity))) ??
+    (await terminalize(await previousPublicationDeploymentId(...identity)));
   return deployment
     ? {
         id: deployment.id,
@@ -198,7 +200,18 @@ async function planValidatedRevision(args: {
   return deploymentId;
 }
 
+/**
+ * The deployment record of one revision's publication: its identity and idempotency key, never the
+ * name of anything in the account, since every revision deploys onto the project's resources. It is
+ * derived apart from the identity a publication had when each deployment named its own resources, so
+ * a plan made then is never replayed for a revision published now.
+ */
 function publicationDeploymentId(projectId: string, toolCallId: string, revision: string): Promise<string> {
+  return deterministicDeploymentId(`project-resources:${projectId}:${toolCallId}:${revision}`);
+}
+
+/** The identity the same publication had before, still the one an interrupted record of it has. */
+function previousPublicationDeploymentId(projectId: string, toolCallId: string, revision: string): Promise<string> {
   return deterministicDeploymentId(`deployment:${projectId}:${toolCallId}:${revision}`);
 }
 
