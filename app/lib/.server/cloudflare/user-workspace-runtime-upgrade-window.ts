@@ -50,9 +50,23 @@ export async function claimUserWorkspaceRuntimeUpgradeWindow(args: {
 }
 
 /**
+ * The runtime would not open a window that lapsed again, since work started on it while none was open:
+ * the upgrade waits for that work, as it waits for a busy workspace before it redeploys.
+ */
+export class RuntimeUpgradeWindowRefusedError extends Error {
+  constructor(readonly busy: number) {
+    super('The workspace runtime started work while its upgrade window had lapsed.');
+    this.name = 'RuntimeUpgradeWindowRefusedError';
+  }
+}
+
+const holdRefusalSchema = z.object({ held: z.literal(false), busy: z.number().int().min(0) }).strict();
+
+/**
  * Keep the claimed window open (`hold`) while the upgrade rolls out the container image and waits for
  * the new runtime, or close it (`release`) once that runtime serves. Asked of the runtime just deployed,
- * which has these routes; any failure throws, for the Workflow step to retry.
+ * which has these routes. A hold of a window that lapsed while work started throws
+ * `RuntimeUpgradeWindowRefusedError`; any other failure throws, for the Workflow step to retry.
  */
 export async function changeUserWorkspaceRuntimeUpgradeWindow(args: {
   change: 'hold' | 'release';
@@ -67,6 +81,14 @@ export async function changeUserWorkspaceRuntimeUpgradeWindow(args: {
     body: JSON.stringify({ targetVersion: args.targetVersion }),
     signal: AbortSignal.timeout(UPGRADE_WINDOW_TIMEOUT_MS),
   });
+  if (args.change === 'hold' && response.status === 409) {
+    const refusal = holdRefusalSchema.safeParse(
+      await readJsonBodyWithLimit(response, MAX_UPGRADE_WINDOW_RESPONSE_BYTES, 'Workspace runtime upgrade window'),
+    );
+    if (refusal.success) {
+      throw new RuntimeUpgradeWindowRefusedError(refusal.data.busy);
+    }
+  }
   await response.body?.cancel().catch(() => undefined);
   if (!response.ok) {
     throw new Error(`The workspace runtime could not ${args.change} its upgrade window (HTTP ${response.status}).`);

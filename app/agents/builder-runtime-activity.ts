@@ -15,6 +15,25 @@ const UPGRADE_WINDOW_POLL_MS = 1_000;
  */
 export const UNRECORDED_ADMISSION_WAIT_MS = 60_000;
 
+/** Why admitted work did not start: an upgrade kept its window open for longer than the work may wait. */
+export class RuntimeUpgradeWaitExceededError extends Error {
+  constructor() {
+    super('The workspace is being upgraded. Send your message again in a minute.');
+    this.name = 'RuntimeUpgradeWaitExceededError';
+  }
+}
+
+/**
+ * How admitted work waits out an upgrade window. `signal` calls the wait off (it rejects with the
+ * signal's reason); past `maxWaitMs` of an open window it rejects with `RuntimeUpgradeWaitExceededError`;
+ * `onWaiting` hears when the work starts and stops being held by an open window.
+ */
+type RuntimeAdmissionOptions = {
+  signal?: AbortSignal;
+  maxWaitMs?: number;
+  onWaiting?: (waiting: boolean) => void;
+};
+
 /**
  * Whether the agent's own turn is running: the turn and the validation it runs. Only the turn sets and
  * clears these. Previews, deployments, approved Cloudflare requests and workspace seeding are counted
@@ -62,13 +81,16 @@ export class BuilderRuntimeActivity {
    * Admit work that keeps the agent busy through its own state, such as a turn: recorded and held back
    * by an upgrade window exactly like `run`, then counted by that state.
    */
-  async admit(): Promise<void> {
-    (await this.begin())();
+  async admit(options: RuntimeAdmissionOptions = {}): Promise<void> {
+    (await this.begin(options))();
   }
 
-  /** Run work a redeploy would cut off, counted busy from before it is admitted until it settles. */
-  async run<T>(work: () => Promise<T>): Promise<T> {
-    const end = await this.begin();
+  /**
+   * Run work a redeploy would cut off, counted busy from before it is admitted until it settles. An
+   * aborted `signal` calls it off while it still waits for an upgrade window, before `work` starts.
+   */
+  async run<T>(work: () => Promise<T>, options: RuntimeAdmissionOptions = {}): Promise<T> {
+    const end = await this.begin(options);
     try {
       return await work();
     } finally {
@@ -82,7 +104,7 @@ export class BuilderRuntimeActivity {
    * the new runtime serves instead of being cut off. Returns the call that ends the work; it is counted
    * until then, whatever the agent's state says meanwhile.
    */
-  private async begin(): Promise<() => void> {
+  private async begin(options: RuntimeAdmissionOptions): Promise<() => void> {
     this.running += 1;
     let ended = false;
     const end = () => {
@@ -93,7 +115,7 @@ export class BuilderRuntimeActivity {
       }
     };
     try {
-      await this.waitForUpgradeWindow();
+      await this.waitForUpgradeWindow(options);
     } catch (error) {
       end();
       throw error;
@@ -105,29 +127,65 @@ export class BuilderRuntimeActivity {
    * Fail safe: work starts only once its busy row is written and no window is open. While the database
    * cannot say, it retries, up to `UNRECORDED_ADMISSION_WAIT_MS`.
    */
-  private async waitForUpgradeWindow(): Promise<void> {
-    const giveUpAt = this.now() + UNRECORDED_ADMISSION_WAIT_MS;
-    for (;;) {
-      const recorded = await this.record();
-      const now = this.now();
-      const window = recorded
-        ? await readRuntimeUpgradeWindow(this.dependencies.db, now).then(
-            (open) => ({ open }),
-            () => null,
-          )
-        : null;
-      if (window && !window.open) {
-        return;
+  private async waitForUpgradeWindow(options: RuntimeAdmissionOptions): Promise<void> {
+    const { signal, maxWaitMs, onWaiting } = options;
+    const startedAt = this.now();
+    const giveUpAt = startedAt + UNRECORDED_ADMISSION_WAIT_MS;
+    let waiting = false;
+    try {
+      for (;;) {
+        signal?.throwIfAborted();
+        const recorded = await this.record();
+        const now = this.now();
+        const window = recorded
+          ? await readRuntimeUpgradeWindow(this.dependencies.db, now).then(
+              (open) => ({ open }),
+              () => null,
+            )
+          : null;
+        signal?.throwIfAborted();
+        if (window && !window.open) {
+          return;
+        }
+        if (window?.open) {
+          if (maxWaitMs !== undefined && now - startedAt >= maxWaitMs) {
+            throw new RuntimeUpgradeWaitExceededError();
+          }
+          if (!waiting) {
+            waiting = true;
+            onWaiting?.(true);
+          }
+          await this.pause(Math.min(UPGRADE_WINDOW_POLL_MS, Math.max(0, window.open.expiresAt - now)), signal);
+          continue;
+        }
+        if (now >= giveUpAt) {
+          logger.warn('Starting work the workspace runtime could not record as busy');
+          return;
+        }
+        await this.pause(UPGRADE_WINDOW_POLL_MS, signal);
       }
-      if (window?.open) {
-        await this.sleep(Math.min(UPGRADE_WINDOW_POLL_MS, Math.max(0, window.open.expiresAt - now)));
-        continue;
+    } finally {
+      if (waiting) {
+        onWaiting?.(false);
       }
-      if (now >= giveUpAt) {
-        logger.warn('Starting work the workspace runtime could not record as busy');
-        return;
-      }
-      await this.sleep(UPGRADE_WINDOW_POLL_MS);
+    }
+  }
+
+  /** Sleep between polls, cut short when `signal` aborts (the next poll then throws its reason). */
+  private async pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+    if (!signal) {
+      await this.sleep(ms);
+      return;
+    }
+    let onAbort: () => void = () => undefined;
+    const aborted = new Promise<void>((resolve) => {
+      onAbort = resolve;
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      await Promise.race([this.sleep(ms), aborted]);
+    } finally {
+      signal.removeEventListener('abort', onAbort);
     }
   }
 

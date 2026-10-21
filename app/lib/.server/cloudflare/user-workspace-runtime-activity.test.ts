@@ -80,11 +80,39 @@ describe('workspace runtime activity', () => {
     // Work that started meanwhile recorded itself busy, which would refuse a fresh claim.
     await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now: NOW + 1_000 });
 
-    await holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW + RUNTIME_UPGRADE_WINDOW_MS - 1 });
+    await expect(
+      holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW + RUNTIME_UPGRADE_WINDOW_MS - 1 }),
+    ).resolves.toEqual({ held: true });
 
     await expect(readRuntimeUpgradeWindow(db, NOW + RUNTIME_UPGRADE_WINDOW_MS)).resolves.toEqual({
       targetVersion: NEW_VERSION,
       expiresAt: NOW + 2 * RUNTIME_UPGRADE_WINDOW_MS - 1,
+    });
+  });
+
+  it('opens a lapsed window again only while nothing started after it lapsed', async () => {
+    const { db } = userWorkspaceDatabase();
+    const lapsed = NOW + RUNTIME_UPGRADE_WINDOW_MS;
+    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW });
+
+    // A retry's backoff outlasted the window, but nothing started: the upgrade goes on.
+    await expect(holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: lapsed + 1_000 })).resolves.toEqual({
+      held: true,
+    });
+    await releaseRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION });
+
+    // This time a turn started while no window was open: the rollout would cut it off.
+    await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now: lapsed + 2_000 });
+    await expect(holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: lapsed + 3_000 })).resolves.toEqual({
+      held: false,
+      busy: 1,
+    });
+    await expect(readRuntimeUpgradeWindow(db, lapsed + 3_000)).resolves.toBeNull();
+
+    // Once it ended, the upgrade goes on.
+    await recordRuntimeActivity(db, { agentName: 'chat-a', busy: false, now: lapsed + 4_000 });
+    await expect(holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: lapsed + 5_000 })).resolves.toEqual({
+      held: true,
     });
   });
 
