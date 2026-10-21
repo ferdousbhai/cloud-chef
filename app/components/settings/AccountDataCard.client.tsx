@@ -7,7 +7,7 @@ import { authClient } from '~/lib/auth-client';
 import { disposeClientCollections } from '~/lib/cloudflare/client-collections';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { takeReauthenticationSwitchedAccount } from '~/lib/stores/reauthentication';
-import { ReauthenticateButtons } from './ReauthenticateButtons.client';
+import { ReauthenticateButtons } from './ReauthenticateButtons';
 import { z } from 'zod';
 
 /** Failure envelopes returned by the account deletion and export endpoints. */

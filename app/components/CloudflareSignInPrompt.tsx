@@ -15,7 +15,7 @@ import {
   signOutOfCloudChef,
 } from '~/lib/auth-client';
 import { CloudflareConnectLegalNotice } from '~/components/CloudflareConnectLegalNotice';
-import { ReauthenticateButtons } from '~/components/settings/ReauthenticateButtons.client';
+import { ReauthenticateButtons } from '~/components/settings/ReauthenticateButtons';
 import { classNames } from '~/utils/classNames';
 
 /**
