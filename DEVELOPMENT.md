@@ -184,7 +184,14 @@ There is no deployed admin dashboard. The operational state of production is rep
 ```bash
 pnpm run ops        # Worker health, users, sessions, connected accounts, and runtime staleness
 pnpm run ops:json   # the same report, structured for a coding agent
+pnpm run ops:session -- <chat id | user email | user id>   # one member's recent session, reconstructed
 ```
+
+`scripts/ops-session.mjs` reads, with `cf` and `gh` only, what an operator otherwise gathers by hand when someone
+reports a problem: control-plane D1, the workspace's own D1 (found with `cf d1 list` in the runtime's account), dry-run
+Workers Logs queries for the workspace Worker, AI Gateway logs filed under the chat, and the member branch's commits
+and check runs for a GitHub project. It refuses any `cf` command outside a read-only allowlist, and a source it cannot
+read is reported as unknown with the reason. Conversation content exists only for people who kept AI Gateway logging on.
 
 `scripts/ops-report.mjs` reads production control-plane D1 with `cf d1 query`, the control-plane Worker's invocation
 outcomes from Workers Logs with a dry-run `cf observability telemetry query`, and the Workers AI catalog with
