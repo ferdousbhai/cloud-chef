@@ -105,8 +105,10 @@ const migrationPolicies = [
   {
     directory: 'template/migrations',
     legacyCutoff: 1,
+    // The starter's placeholder. A project's copy is its own once seeded, so a change here (as to its
+    // comment, when each project's databases came to outlive its revisions) reaches only new projects.
     checksums: {
-      '0001_app_data.sql': '114d3df6142196cb43a95e5896e1b9a8e8753514becf3400884b27acb5793d65',
+      '0001_app_data.sql': 'e4fbb51e181315da68082613a0c17936cdaf9887a151c435b7a56faf8a8cf346',
     },
     contractAllowlist: {},
   },

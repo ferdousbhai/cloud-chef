@@ -8,11 +8,13 @@ import {
   latestDeploymentActivity,
   listDeploymentActivity,
   prepareDeploymentRetry,
+  projectResourceNaming,
   recordDeploymentActivity,
   requireDeploymentForUser,
   transitionDeployment,
 } from './deployment-repository';
-import type { DeploymentPlan } from './deployment-plan';
+import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
+import { buildDeploymentPlanFromSource, planNamesProjectResources, type DeploymentPlan } from './deployment-plan';
 
 const sourceSha256 = 'a'.repeat(64);
 const planDigest = 'b'.repeat(64);
@@ -299,6 +301,183 @@ describe('deployment repository', () => {
     });
   });
 });
+
+describe('project resource naming', () => {
+  const reference = {
+    userId: 'user-1',
+    chatId: 'chat-1',
+    workspaceReference: `workspace-runtime:project:9:${sourceSha256}`,
+  };
+
+  it('names a project nothing has deployed yet after the project alone', async () => {
+    // Deployments that never succeeded created nothing production uses.
+    stored({ id: 'failed', status: 'failed', updatedAt: 5, names: { app: 'cloudchef-failed' } });
+    stored({ id: 'approved', status: 'approved', updatedAt: 6, names: { app: 'cloudchef-approved' } });
+
+    await expect(projectResourceNaming(db, reference)).resolves.toEqual({
+      identity: await appResourceIdentity('project'),
+      adopted: [],
+    });
+  });
+
+  it('keeps each resource as the latest succeeded deployment that has it named it', async () => {
+    stored({
+      id: 'oldest',
+      status: 'succeeded',
+      updatedAt: 10,
+      names: { app: 'cloudchef-oldest', DB: 'cloudchef-oldest', APP_STORAGE: 'cloudchef-oldest-storage' },
+    });
+    stored({
+      id: 'latest',
+      status: 'succeeded',
+      updatedAt: 30,
+      names: { app: 'cloudchef-latest', DB: 'cloudchef-latest' },
+    });
+    // Created later but succeeded earlier: production moved on from it.
+    stored({ id: 'zz-created-last', status: 'succeeded', updatedAt: 20, names: { app: 'cloudchef-middle' } });
+    stored({ id: 'running', status: 'deploying', updatedAt: 40, names: { app: 'cloudchef-running' } });
+    // Another project, another person's, and another chat's deployments name their own.
+    stored({ id: 'other-project', status: 'succeeded', updatedAt: 50, names: { app: 'x-1' }, project: 'other' });
+    stored({ id: 'project-prefix', status: 'succeeded', updatedAt: 50, names: { app: 'x-2' }, project: 'projectx' });
+    stored({ id: 'other-user', status: 'succeeded', updatedAt: 50, names: { app: 'x-3' }, userId: 'user-2' });
+    stored({ id: 'other-chat', status: 'succeeded', updatedAt: 50, names: { app: 'x-4' }, chatId: 'chat-2' });
+
+    const naming = await projectResourceNaming(db, reference);
+
+    expect(naming.identity).toBe(await appResourceIdentity('project'));
+    expect(sortedAdoptions(naming.adopted)).toEqual([
+      { type: 'd1', logicalName: 'DB', name: 'cloudchef-latest' },
+      { type: 'r2', logicalName: 'APP_STORAGE', name: 'cloudchef-oldest-storage' },
+      { type: 'worker', logicalName: 'app', name: 'cloudchef-latest' },
+    ]);
+  });
+
+  it('breaks a tie between deployments that succeeded together the same way every time', async () => {
+    stored({ id: 'deployment-a', status: 'succeeded', updatedAt: 10, names: { app: 'cloudchef-a' } });
+    stored({ id: 'deployment-b', status: 'succeeded', updatedAt: 10, names: { app: 'cloudchef-b' } });
+
+    await expect(projectResourceNaming(db, reference)).resolves.toMatchObject({
+      adopted: [{ type: 'worker', logicalName: 'app', name: 'cloudchef-b' }],
+    });
+  });
+
+  it('adopts only account resources, by their type', async () => {
+    sqlite
+      .prepare(
+        `INSERT INTO deployments (
+           id, chat_id, user_id, connection_id, connection_generation, workspace_reference,
+           status, plan_json, plan_digest, created_at, updated_at
+         ) VALUES ('bindings', 'chat-1', 'user-1', 'connection-1', 1, ?, 'succeeded', ?, 'digest', 1, 1)`,
+      )
+      .run(
+        `workspace-runtime:project:1:${sourceSha256}`,
+        JSON.stringify({
+          ...plan,
+          resources: [
+            { type: 'durable_object', logicalName: 'AppAgent', proposedName: 'AppAgent' },
+            { type: 'd1', logicalName: 'app', proposedName: 'cloudchef-misfiled' },
+            { type: 'worker', logicalName: 'app', proposedName: 'cloudchef-bindings' },
+          ],
+        }),
+      );
+
+    await expect(projectResourceNaming(db, reference)).resolves.toMatchObject({
+      adopted: [{ type: 'worker', logicalName: 'app', name: 'cloudchef-bindings' }],
+    });
+  });
+
+  it('plans the next revision of an app deployed before onto that deployment’s resources, and only it', async () => {
+    stored({
+      id: 'earlier',
+      status: 'succeeded',
+      updatedAt: 10,
+      names: { app: 'cloudchef-earlier', DB: 'cloudchef-earlier', DB_PREVIEW: 'cloudchef-earlier-preview' },
+    });
+    // Planned when each deployment named its own resources, and never deployed.
+    stored({
+      id: 'stale',
+      status: 'failed',
+      updatedAt: 11,
+      names: { app: 'cloudchef-stale', DB: 'cloudchef-stale', DB_PREVIEW: 'cloudchef-stale-preview' },
+    });
+    const project = {
+      type: 'web_app' as const,
+      bindings: { ai: false, d1: true, r2: false, kv: false, appAgent: false },
+    };
+    const { plan: next } = await buildDeploymentPlanFromSource({
+      deploymentId: 'next',
+      sourceSha256,
+      project,
+      naming: await projectResourceNaming(db, reference),
+    });
+    const stale = await requireDeploymentForUser(db, 'stale', 'user-1');
+
+    expect(next.resources.map(({ proposedName }) => proposedName)).toEqual([
+      'cloudchef-earlier',
+      'cloudchef-earlier',
+      'cloudchef-earlier-preview',
+    ]);
+    expect(planNamesProjectResources(next, await projectResourceNaming(db, reference))).toBe(true);
+    expect(planNamesProjectResources(stale.plan, await projectResourceNaming(db, reference))).toBe(false);
+  });
+
+  it('refuses a reference that is not a CloudChef project’s', async () => {
+    await expect(projectResourceNaming(db, { ...reference, workspaceReference: 'github:ada/site' })).rejects.toThrow(
+      'does not belong to a CloudChef project',
+    );
+  });
+});
+
+const RESOURCE_TYPES = {
+  app: 'worker',
+  DB: 'd1',
+  DB_PREVIEW: 'd1',
+  APP_STORAGE: 'r2',
+  APP_CACHE: 'kv',
+} as const;
+
+/** A deployment recorded as it is, with the account resource names its plan gives. */
+function stored(args: {
+  id: string;
+  status: 'approved' | 'deploying' | 'succeeded' | 'failed';
+  updatedAt: number;
+  names: Partial<Record<keyof typeof RESOURCE_TYPES, string>>;
+  project?: string;
+  userId?: string;
+  chatId?: string;
+}) {
+  if (args.chatId) {
+    sqlite
+      .prepare(`INSERT OR IGNORE INTO chats (id, creator_id, initial_id, timestamp) VALUES (?, 'user-1', ?, 'now')`)
+      .run(args.chatId, `initial-${args.chatId}`);
+  }
+  const resources = Object.entries(args.names).flatMap(([logicalName, proposedName]) => {
+    const type = Object.entries(RESOURCE_TYPES).find(([name]) => name === logicalName)?.[1];
+    return type ? [{ type, logicalName, proposedName }] : [];
+  });
+  sqlite
+    .prepare(
+      `INSERT INTO deployments (
+         id, chat_id, user_id, connection_id, connection_generation, workspace_reference,
+         status, plan_json, plan_digest, created_at, updated_at
+       ) VALUES (?, ?, ?, 'connection-1', 1, ?, ?, ?, 'digest', 1, ?)`,
+    )
+    .run(
+      args.id,
+      args.chatId ?? 'chat-1',
+      args.userId ?? 'user-1',
+      `workspace-runtime:${args.project ?? 'project'}:1:${sourceSha256}`,
+      args.status,
+      JSON.stringify({ ...plan, deploymentId: args.id, resources }),
+      args.updatedAt,
+    );
+}
+
+function sortedAdoptions(adopted: readonly { type: string; logicalName: string; name: string }[]) {
+  return [...adopted].sort((left, right) =>
+    `${left.type}:${left.logicalName}`.localeCompare(`${right.type}:${right.logicalName}`),
+  );
+}
 
 async function create(index: number, project = 'project') {
   return createDeployment({

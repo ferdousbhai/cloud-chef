@@ -1,8 +1,9 @@
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE } from './project-workspace-container-policy';
 import { describe, expect, test, vi } from 'vitest';
 import type { DeploymentPlan } from './deployment-plan';
 import { deploymentAssetHash, type DeploymentArtifactFile } from './deployment-artifact';
-import { CloudflareAccountApiError, UserCloudflareAccountApi } from './user-account-api';
+import { CloudflareAccountApiError, D1MigrationChangedError, UserCloudflareAccountApi } from './user-account-api';
 import { USER_WORKSPACE_RUNTIME_GC_CRON } from './user-workspace-runtime-policy';
 
 const plan: DeploymentPlan = {
@@ -1587,3 +1588,92 @@ describe('UserCloudflareAccountApi', () => {
     ).rejects.toThrow('ambiguous KV namespaces');
   });
 });
+
+describe('D1 migrations onto a database every revision deploys onto', () => {
+  const DATABASE_ID = '0123456789abcdef0123456789abcdef';
+  const notes = { name: '0001_notes.sql', sql: 'CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)' };
+  const titles = { name: '0002_titles.sql', sql: "ALTER TABLE notes ADD COLUMN title TEXT NOT NULL DEFAULT ''" };
+
+  test('applies only what the database has not applied yet, keeping its data', async () => {
+    const { database, request } = sqliteD1(DATABASE_ID);
+    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+
+    await api.applyD1Migrations(DATABASE_ID, [notes]);
+    database.exec("INSERT INTO notes (body) VALUES ('written in production')");
+    // The next revision adds a migration; replaying a set already applied changes nothing. Running
+    // either again would fail: the table and the column exist.
+    await api.applyD1Migrations(DATABASE_ID, [notes, titles]);
+    await api.applyD1Migrations(DATABASE_ID, [notes, titles]);
+
+    expect(
+      database
+        .prepare('SELECT id, body, title FROM notes')
+        .all()
+        .map((row) => ({ ...row })),
+    ).toEqual([{ id: 1, body: 'written in production', title: '' }]);
+    expect(
+      database
+        .prepare('SELECT name FROM cloudchef_runtime_migrations ORDER BY name')
+        .all()
+        .map((row) => row.name),
+    ).toEqual(['0001_notes.sql', '0002_titles.sql']);
+  });
+
+  test('refuses an applied migration that changed before it applies any of the set', async () => {
+    const { database, request } = sqliteD1(DATABASE_ID);
+    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+    const tags = { name: '0003_tags.sql', sql: 'CREATE TABLE tags (name TEXT PRIMARY KEY)' };
+    await api.applyD1Migrations(DATABASE_ID, [notes, tags]);
+
+    const changed = { ...tags, sql: 'CREATE TABLE tags (name TEXT PRIMARY KEY, color TEXT)' };
+    const refusal = api.applyD1Migrations(DATABASE_ID, [notes, titles, changed]);
+
+    await expect(refusal).rejects.toBeInstanceOf(D1MigrationChangedError);
+    await expect(refusal).rejects.toMatchObject({ migrationName: '0003_tags.sql' });
+    // The migration ahead of the changed one did not run either.
+    expect(
+      database
+        .prepare('PRAGMA table_info(notes)')
+        .all()
+        .map((column) => column.name),
+    ).toEqual(['id', 'body']);
+  });
+});
+
+/**
+ * The D1 query API over one in-memory SQLite database: a statement, or a batch that commits or rolls
+ * back whole, as D1 runs it.
+ */
+function sqliteD1(databaseId: string) {
+  const database = new DatabaseSync(':memory:');
+  const run = (statement: { sql: string; params?: SQLInputValue[] }) => ({
+    success: true,
+    results: database.prepare(statement.sql).all(...(statement.params ?? [])),
+  });
+  const request = vi.fn<typeof fetch>(async (input, init) => {
+    expect(String(input)).toContain(`/d1/database/${databaseId}/query`);
+    // SAFETY: the account API sends D1 exactly one of these two query shapes.
+    const body = JSON.parse(String(init?.body)) as
+      { sql: string; params: SQLInputValue[] } | { batch: { sql: string; params: SQLInputValue[] }[] };
+    try {
+      if ('batch' in body) {
+        database.exec('BEGIN');
+        try {
+          const result = body.batch.map(run);
+          database.exec('COMMIT');
+          return Response.json({ success: true, result });
+        } catch (error) {
+          database.exec('ROLLBACK');
+          throw error;
+        }
+      }
+      return Response.json({ success: true, result: [run(body)] });
+    } catch (error) {
+      return Response.json(
+        { success: false, errors: [{ code: 7500, message: error instanceof Error ? error.message : 'D1 failed' }] },
+        { status: 400 },
+      );
+    }
+  });
+  return { database, request };
+}

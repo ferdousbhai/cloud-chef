@@ -17,6 +17,8 @@ vi.mock('~/lib/.server/cloudflare/user-workspace-deployment-executor', () => ({
   executeUserOwnedPreview: mocks.executeUserOwnedPreview,
 }));
 
+import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
+import { DeploymentNotFoundError } from '~/lib/.server/cloudflare/deployment-repository';
 import { createOrReplayDeploymentPlanForUser, deployForUser, previewForUser } from './deployments';
 
 const project = { type: 'worker' as const, bindings: { ai: false, d1: false, r2: false, kv: false, appAgent: false } };
@@ -82,6 +84,29 @@ describe('deployment handlers', () => {
     expect(mocks.createDeployment).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceReference: `workspace-runtime:agent-1:7:${revision}` }),
     );
+    // Its Worker is the project's, whatever revision this is.
+    expect(mocks.createDeployment.mock.calls[0]?.[0].plan.resources).toEqual([
+      { type: 'worker', logicalName: 'app', proposedName: `cloudchef-${await appResourceIdentity('agent-1')}` },
+    ]);
+  });
+
+  it('plans a revision onto the resources the project’s earlier deployments already use', async () => {
+    mocks.requireDeployment.mockRejectedValueOnce(new DeploymentNotFoundError());
+
+    await createOrReplayDeploymentPlanForUser({
+      env: runtimeEnv(activeChatDb([{ type: 'worker', logical_name: 'app', name: 'cloudchef-earlier' }])),
+      userId: 'user-1',
+      chatId: 'chat-1',
+      deploymentId: 'deployment-2',
+      projectId: 'agent-1',
+      revision,
+      workspaceRevision: 8,
+      project,
+    });
+
+    expect(mocks.createDeployment.mock.calls[0]?.[0].plan.resources).toEqual([
+      { type: 'worker', logicalName: 'app', proposedName: 'cloudchef-earlier' },
+    ]);
   });
 
   it('executes a prepared deployment as one authenticated server operation', async () => {
@@ -118,9 +143,15 @@ describe('deployment handlers', () => {
   });
 });
 
-function activeChatDb(): D1Database {
+/** An active chat, whose project's succeeded deployments named the given account resources. */
+function activeChatDb(adopted: { type: string; logical_name: string; name: string }[] = []): D1Database {
   return {
-    prepare: vi.fn(() => ({ bind: vi.fn(() => ({ first: vi.fn(async () => ({ found: 1, id: 'chat-row-1' })) })) })),
+    prepare: vi.fn(() => ({
+      bind: vi.fn(() => ({
+        first: vi.fn(async () => ({ found: 1, id: 'chat-row-1' })),
+        all: vi.fn(async () => ({ results: adopted })),
+      })),
+    })),
   } as unknown as D1Database;
 }
 

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
-import { buildDeploymentPlanFromSource } from '~/lib/.server/cloudflare/deployment-plan';
+import { buildDeploymentPlanFromSource, type DeploymentResourceNaming } from '~/lib/.server/cloudflare/deployment-plan';
 import { userWorkspaceDatabase } from '~/test/control-plane-d1';
 import { AGENT_GC_RETRY_BASE_MS } from './agent-gc.server';
 import { sweepAppResourceGcCandidates } from './app-resource-gc.server';
@@ -96,9 +96,9 @@ describe('app resource garbage collection', () => {
 
     await sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi });
 
-    // The resources every deployment names alike are deleted once a sweep, not once a deployment.
-    expect(accountApi.deleteManagedWorker).toHaveBeenCalledTimes(1);
-    expect(accountApi.deleteR2Bucket).toHaveBeenCalledTimes(1);
+    // The resources every deployment names alike stay while a later deployment names them.
+    expect(accountApi.deleteManagedWorker).not.toHaveBeenCalled();
+    expect(accountApi.deleteR2Bucket).not.toHaveBeenCalled();
     expect(workspace.deploymentIds()).toEqual(['deployment-7', 'deployment-8']);
     expect(workspace.candidates()).toEqual([
       { chat_id: 'chat-row', not_before: 100 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
@@ -106,9 +106,111 @@ describe('app resource garbage collection', () => {
 
     await sweepAppResourceGcCandidates(workspace.env, { now: 100 + AGENT_GC_RETRY_BASE_MS, accountApi });
 
-    expect(accountApi.deleteManagedWorker).toHaveBeenCalledTimes(2);
+    // The last deployment deletes them, once.
+    expect(accountApi.deleteManagedWorker).toHaveBeenCalledTimes(1);
+    expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-deployment-1');
+    expect(accountApi.deleteD1Database).toHaveBeenCalledTimes(4);
+    expect(accountApi.deleteR2Bucket).toHaveBeenCalledTimes(1);
+    expect(accountApi.deleteKvNamespace).toHaveBeenCalledTimes(1);
     expect(workspace.deploymentIds()).toEqual([]);
     expect(workspace.candidates()).toEqual([]);
+  });
+
+  it('releases an earlier deployment without deleting what a later one still deploys onto', async () => {
+    const workspace = new AppResourceGcWorkspace();
+    // Two deployments from when each named its own resources, then one that adopted the latest's.
+    const first = await deploymentPlan({ identity: 'first', adopted: [] });
+    const second = await deploymentPlan({ identity: 'second', adopted: [] });
+    const adopting = await deploymentPlan({
+      identity: 'project',
+      adopted: second.resources.flatMap(({ type, logicalName, proposedName }) =>
+        type === 'worker' || type === 'd1' || type === 'r2' || type === 'kv'
+          ? [{ type, logicalName, name: proposedName }]
+          : [],
+      ),
+    });
+    workspace.deployment('deployment-1', JSON.stringify(first), [
+      ['worker', 'app', 'cloudchef-first'],
+      ['d1', 'DB', 'db-first'],
+    ]);
+    workspace.deployment('deployment-2', JSON.stringify(second), [
+      ['d1', 'DB', 'db-second'],
+      ['kv', 'APP_CACHE', 'kv-second'],
+    ]);
+    // Its own record of the database never landed: only its plan names it.
+    workspace.deployment('deployment-3', JSON.stringify(adopting), [['kv', 'APP_CACHE', 'kv-second']]);
+    const accountApi = cleanupApi(true);
+    accountApi.deleteManagedWorker.mockImplementation(async (name: string) => {
+      if (name === 'cloudchef-second') {
+        throw new Error('temporary provider failure');
+      }
+    });
+
+    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi });
+
+    // The first deployment's own resources went; the second's are the third's too, so they wait for it.
+    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([['cloudchef-first'], ['cloudchef-second']]);
+    expect(accountApi.deleteD1DatabaseById.mock.calls).toEqual([['db-first']]);
+    expect(accountApi.deleteD1Database.mock.calls.map(([name]) => name).sort()).toEqual([
+      'cloudchef-first-agent-security',
+      'cloudchef-first-preview',
+      'cloudchef-first-preview-agent',
+    ]);
+    expect(accountApi.deleteKvNamespaceById).not.toHaveBeenCalled();
+    expect(accountApi.deleteKvNamespace.mock.calls).toEqual([['cloudchef-first-cache']]);
+    expect(accountApi.deleteR2Bucket.mock.calls).toEqual([['cloudchef-first-storage']]);
+    expect(workspace.deploymentIds()).toEqual(['deployment-3']);
+
+    accountApi.deleteManagedWorker.mockReset();
+    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000 + AGENT_GC_RETRY_BASE_MS * 2, accountApi });
+
+    // The last deployment deletes them, by its record where it has one and by name where it has not.
+    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([['cloudchef-second']]);
+    expect(accountApi.deleteKvNamespaceById.mock.calls).toEqual([['kv-second']]);
+    expect(
+      accountApi.deleteD1Database.mock.calls
+        .map(([name]) => name)
+        .slice(3)
+        .sort(),
+    ).toEqual([
+      'cloudchef-second',
+      'cloudchef-second-agent-security',
+      'cloudchef-second-preview',
+      'cloudchef-second-preview-agent',
+    ]);
+    expect(accountApi.deleteR2Bucket.mock.calls.slice(1)).toEqual([['cloudchef-second-storage']]);
+    expect(workspace.deploymentIds()).toEqual([]);
+    expect(workspace.candidates()).toEqual([]);
+  });
+
+  it('leaves a Worker it recorded, under a plan it cannot read, to the later deployment naming it', async () => {
+    const workspace = new AppResourceGcWorkspace();
+    const plan = await deploymentPlan();
+    workspace.deployment('deployment-1', JSON.stringify({ version: 999 }), [
+      ['worker', 'app', 'cloudchef-deployment-1'],
+    ]);
+    workspace.deployment('deployment-2', JSON.stringify(plan));
+    const accountApi = cleanupApi(true);
+
+    await sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi });
+
+    // Released by the second deployment only, by the name its plan gives it.
+    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([['cloudchef-deployment-1']]);
+    expect(workspace.deploymentIds()).toEqual(['deployment-1']);
+  });
+
+  it('leaves a resource to a later deployment that only records it', async () => {
+    const workspace = new AppResourceGcWorkspace();
+    workspace.deployment('deployment-1', JSON.stringify(await deploymentPlan()), [['kv', 'APP_CACHE', 'kv-id-1']]);
+    // A plan this build cannot read, so only its record says it uses the namespace.
+    workspace.deployment('deployment-2', JSON.stringify({ version: 999 }), [['kv', 'APP_CACHE', 'kv-id-1']]);
+    const accountApi = cleanupApi(true);
+
+    await sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi });
+
+    // Deleted once, by the later deployment's record.
+    expect(accountApi.deleteKvNamespaceById.mock.calls).toEqual([['kv-id-1']]);
+    expect(workspace.deploymentIds()).toEqual(['deployment-2']);
   });
 
   it('keeps a failed sweep’s released deployments released', async () => {
@@ -162,11 +264,12 @@ describe('app resource garbage collection', () => {
   });
 });
 
-async function deploymentPlan() {
+async function deploymentPlan(naming: DeploymentResourceNaming = { identity: 'deployment-1', adopted: [] }) {
   return (
     await buildDeploymentPlanFromSource({
       deploymentId: 'deployment-1',
       sourceSha256: 'a'.repeat(64),
+      naming,
       project: {
         type: 'web_app',
         bindings: { ai: true, d1: true, r2: true, kv: true, appAgent: true },

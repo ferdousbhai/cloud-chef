@@ -385,9 +385,11 @@ to an isolated root, installs dependencies, runs typecheck/lint/stack verificati
 revision is asserted before and after validation and again before publication.
 
 Preview publication performs no container work. Through the same generation-checked credential broker used by
-production deployment, it provisions separate deterministic preview D1 databases, applies the artifact's migrations,
-uploads static assets, and posts an unpromoted Worker version with preview bindings. The browser receives that
-version's deterministic `workers.dev` preview URL. There is no dev/HMR mode, local preview database, Vite preview
+production deployment, it provisions the project's preview D1 databases (separate from production's, and like them
+kept from one revision to the next), applies the artifact's migrations they have not applied, uploads static assets,
+and posts an unpromoted Worker version with preview bindings to the project's Worker. The browser receives that
+version's deterministic `workers.dev` preview URL. A preview binds production's R2 bucket and KV namespace, which have
+no preview counterparts; the same revision deploys to production right after it. There is no dev/HMR mode, local preview database, Vite preview
 process, quick tunnel, preview expiry alarm, or preview-specific container keep-alive.
 
 Production consumes the same retained artifact for the same source digest, substitutes production bindings, uploads a
@@ -405,6 +407,24 @@ recoverable artifact cache.
 The deployment executor derives resource names and security-sensitive configuration on the server. It records managed
 Worker intent before publishing, then reads back the deployed version, script etag, bindings, variables, and schedules.
 Ambiguous publish outcomes remain visible for owner review rather than being silently discarded.
+
+A CloudChef app's account resources (its Worker and so its `workers.dev` address, `DB`, `AGENT_SECURITY_DB`, their
+preview databases, `APP_STORAGE`, and `APP_CACHE`) belong to the project, the `ProjectWorkspace` a chat (or subchat)
+builds in, not to a revision: every deployment replaces the Worker's version in place and keeps the data. A deployment
+id is only the record and idempotency key of one revision's publication. A plan names each resource as the latest
+succeeded deployment of the project that has it named it, and any other after the project's own identity
+(`projectResourceNaming`, `appResourceIdentity`). An app first deployed when each deployment named its own resources
+therefore adopts the one production last served, with its data and address; earlier ones stay until the chat is
+deleted. Only a succeeded deployment names a resource, and the executor, holding the project's one deployment slot,
+refuses a plan whose names differ from that answer before touching anything, so no deployment ever changes it. Those
+publications' ids are derived apart from the earlier ones, so a plan made before is never replayed; only recovery of an
+interrupted record looks up the earlier id. Each database keeps a receipt (name and digest) of every migration it
+applied: a deployment applies only the ones it lacks, and refuses before applying any when one it applied has changed,
+telling the model to make the change in a new migration. Generated-app migrations, the template's included, are
+therefore append-only.
+
+Deleting a chat releases its deployments oldest first. A deployment leaves a resource that a deployment released after
+it also records or names, so a project's shared resources are deleted once, by the last of its deployments.
 
 The workspace Worker never stores the user's OAuth access token as a binding. At deployment time it exchanges its
 derived, generation-specific runtime secret at the control plane for a freshly resolved token. The broker rechecks the
