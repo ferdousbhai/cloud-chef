@@ -493,6 +493,57 @@ describe('piAgentRunner', () => {
     expect(requestDurableCompaction).toHaveBeenCalled();
   });
 
+  it("lists only this turn's own inputs as current-turn inputs after a live rollover", async () => {
+    mocks.piMessages = [
+      { role: 'user', content: 'Earlier request: add a login page', timestamp: 1 },
+      assistantMessage([{ type: 'text', text: 'Login page added' }]),
+      { role: 'user', content: 'Build it', timestamp: 3 },
+    ];
+    mocks.piRun.mockImplementation(async (context: AgentContext, config: AgentLoopConfig, emit: RunnerEventSink) => {
+      await context.tools
+        ?.find((tool) => tool.name === 'new_context')
+        ?.execute('handoff', { handoff: 'Next: deploy.' });
+      const call: AssistantMessage = {
+        ...assistantMessage([]),
+        role: 'assistant',
+        api: 'openai-completions',
+        stopReason: 'toolUse',
+        content: [{ type: 'toolCall', id: 'handoff', name: 'new_context', arguments: { handoff: 'Next: deploy.' } }],
+      };
+      const result: ToolResultMessage = {
+        role: 'toolResult',
+        toolCallId: 'handoff',
+        toolName: 'new_context',
+        content: [{ type: 'text', text: 'Handoff accepted' }],
+        isError: false,
+        timestamp: 4,
+      };
+      context.messages.push({ role: 'user', content: 'Steer: use dark mode', timestamp: 4 }, call, result);
+      const next = await config.prepareNextTurn?.({
+        message: call,
+        context,
+        newMessages: [call, result],
+        toolResults: [result],
+      });
+      const record = JSON.stringify(next?.context?.messages[1]);
+      expect(record.split('current turn; search history')).toHaveLength(2);
+      expect(record).toContain('Steer: use dark mode');
+      expect(record.split('Earlier request: add a login page')).toHaveLength(2);
+      expect(record).toContain('earlier-1');
+      await emit({ type: 'turn_end', message: assistantMessage([{ type: 'text', text: 'Done' }]), toolResults: [] });
+    });
+    const chunks = await collectChunks(
+      await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, {}, new PiSteeringQueue(), {
+        messages: [
+          { id: 'earlier-1', role: 'user', parts: [{ type: 'text', text: 'Earlier request: add a login page' }] },
+          { id: 'reply-1', role: 'assistant', parts: [{ type: 'text', text: 'Login page added' }] },
+          { id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Build it' }] },
+        ],
+      }),
+    );
+    expect(chunks.some((chunk) => chunk.type === 'error')).toBe(false);
+  });
+
   it('compacts live tool-loop context before another model step', async () => {
     const requestDurableCompaction = vi.fn();
     mocks.piMessages = runtimeHistory();

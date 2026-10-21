@@ -309,6 +309,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     'message_conversion',
     () => withOldToolResultsCleared(modelMessagesToPi(modelInput.messages), modelInput.estimatedTokens).messages,
   );
+  const replayedMessages = new Set<AgentMessage>(piMessages);
   recordPiStage('prepared', modelId);
 
   const streamedToolCalls = new Map<number, { toolCallId: string; toolName: string }>();
@@ -528,8 +529,9 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     const compacted = compactPiContext({
       messages: source.messages,
       durableMessages: messages,
+      // Replayed requests are already listed under their real ids from the durable transcript.
       previousInputs: [...archivedMessages].filter(
-        (message) => message.role === 'user' && !checkpointReminders.has(message),
+        (message) => message.role === 'user' && !checkpointReminders.has(message) && !replayedMessages.has(message),
       ),
       handoff: manualHandoff,
     });
