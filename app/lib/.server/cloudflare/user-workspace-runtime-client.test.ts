@@ -271,6 +271,66 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     });
   });
 
+  it('reports a landed write whose stop arrives during its acknowledgement even when its journal row cannot be settled', async () => {
+    const controller = new AbortController();
+    const acknowledgement = deferred<unknown>();
+    const result = { path: '/project/a.ts' };
+    const { client, stub } = harness((operation) => {
+      if (operation === 'beginToolOperation') {
+        return { status: 'execute' };
+      }
+      if (operation === 'completeToolOperation') {
+        return acknowledgement.promise;
+      }
+      if (operation === 'cancelToolOperation') {
+        throw new Error('journal storage failed');
+      }
+      return { status: 'settled' };
+    });
+
+    const execution = client.executeToolOnce(
+      'call-landed-write-unsettled',
+      'write',
+      { path: '/project/a.ts' },
+      async () => result,
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(stub.completeToolOperation).toHaveBeenCalledOnce());
+    controller.abort(new DOMException('write stopped', 'AbortError'));
+    await vi.waitFor(() => expect(stub.cancelToolOperation).toHaveBeenCalled());
+    acknowledgement.resolve({ status: 'completed' });
+
+    await expect(execution).resolves.toEqual(result);
+  });
+
+  it('reports a write that finished as its stop arrived even when its journal row cannot be settled', async () => {
+    const controller = new AbortController();
+    const landed = { path: '/project/a.ts', bytesWritten: 5 };
+    const { client, stub } = harness((operation) => {
+      if (operation === 'beginToolOperation') {
+        return { status: 'execute' };
+      }
+      if (operation === 'cancelToolOperation') {
+        throw new Error('journal storage failed');
+      }
+      return { status: 'settled' };
+    });
+
+    await expect(
+      client.executeToolOnce(
+        'call-write-landed-unsettled',
+        'write',
+        { path: '/project/a.ts' },
+        async () => {
+          controller.abort(new DOMException('write timed out', 'TimeoutError'));
+          return landed;
+        },
+        controller.signal,
+      ),
+    ).resolves.toBe(landed);
+    expect(stub.cancelToolOperation).toHaveBeenCalled();
+  });
+
   it("reports a command's result when a stop lands after it but before its stream closes", async () => {
     const controller = new AbortController();
     const result = { exitCode: 0, stdout: 'done', stderr: '' };

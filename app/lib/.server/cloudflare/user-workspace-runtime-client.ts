@@ -763,16 +763,17 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       }
       if (abortSignal?.aborted) {
         // The tool finished before it saw its stop (a write's receipt is already committed, a command
-        // has exited), so its result is the outcome; the stop only settles the journal row behind it.
+        // has exited), so its result is the outcome; the stop only settles the journal row behind it,
+        // and a failure settling that row doesn't make the known result indeterminate.
         cancel();
-        await cancellation;
+        await cancellation?.catch(() => undefined);
         return result;
       }
       // From here the tool has landed, so its acknowledgement is not raced against a stop: a stop
       // arriving now only settles the journal row behind the result.
       try {
         const completed = await stub.completeToolOperation({ toolCallId, result });
-        await cancellation;
+        await cancellation?.catch(() => undefined);
         const committedFileMutation =
           (toolName === 'write' || toolName === 'edit') &&
           isComputerToolError(result) &&
@@ -781,7 +782,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       } catch (error) {
         if (abortSignal?.aborted) {
           cancel();
-          await cancellation;
+          await cancellation?.catch(() => undefined);
           return result;
         }
         if (toolName !== 'write' && toolName !== 'edit') {
