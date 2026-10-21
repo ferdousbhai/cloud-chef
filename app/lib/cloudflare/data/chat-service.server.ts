@@ -8,7 +8,7 @@ import {
   type ChatHistoryCursor,
   type SubchatCursor,
 } from '~/lib/cloudflare/data-pagination';
-import { SubchatLimitError } from './errors';
+import { DataNotFoundError, SubchatLimitError } from './errors';
 import { EMPTY_CHAT_DISCARD_PREDICATE } from './empty-chat.server';
 import { prepareAppResourceGcCandidateStatement } from './app-resource-gc.server';
 
@@ -230,7 +230,7 @@ export async function setSubchatDescription(
     .bind(args.description, args.sessionId, args.chatId, args.subchatIndex)
     .run();
   if (result.meta.changes === 0) {
-    throw new Error('Chat not found');
+    throw new DataNotFoundError('Chat not found');
   }
   return null;
 }

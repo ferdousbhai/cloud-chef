@@ -1,7 +1,7 @@
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { z } from 'zod';
 import { UnauthorizedError } from './auth.server';
-import { DataNotFoundError, SubchatLimitError } from './errors';
+import { ChatArchivedError, DataNotFoundError, SubchatLimitError } from './errors';
 import { InvalidJsonBodyError, PayloadTooLargeError } from '~/lib/bounded-body';
 import { isDurableObjectOverloadedError } from '~/lib/cloudflare/durable-object-rpc.server';
 
@@ -25,7 +25,7 @@ export function internalErrorResponse(error: unknown, fallback: string): Respons
   if (error instanceof DataNotFoundError) {
     return Response.json({ error: error.message }, { status: 404 });
   }
-  if (error instanceof SubchatLimitError) {
+  if (error instanceof SubchatLimitError || error instanceof ChatArchivedError) {
     return Response.json({ error: error.message }, { status: 409 });
   }
   if (error instanceof PayloadTooLargeError) {

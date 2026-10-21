@@ -32,6 +32,7 @@ import {
 import { sweepAgentGcCandidatesBestEffort } from './data/agent-gc.server';
 import { sweepAppResourceGcCandidatesBestEffort } from './data/app-resource-gc.server';
 import { ensureDataBindings, internalErrorResponse } from './data/http.server';
+import { ChatArchivedError } from './data/errors';
 import { requireChatTranscript, transcriptIdentity } from './data/transcript-repository.server';
 import { retryDurableObjectRpc } from './durable-object-rpc.server';
 import type { ChatTranscriptRow } from './data/types';
@@ -196,7 +197,7 @@ async function createSubchatFromAgent(env: Env, args: { sessionId: string; chatI
   const chat = await requireChat(env.DB, { id: args.chatId, sessionId: args.sessionId });
   // An earlier conversation on a GitHub project is kept to read: a subchat would work on its old copy.
   if (await isChatArchived(env.DB, { id: args.chatId, sessionId: args.sessionId })) {
-    throw new Error('This conversation continues in a newer one. Open the project to keep working.');
+    throw new ChatArchivedError();
   }
   const parent = await requireChatTranscript(env.DB, {
     chatId: chat.id,
