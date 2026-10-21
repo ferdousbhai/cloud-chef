@@ -180,7 +180,7 @@ export function useChatMessageSubmission(args: {
   };
 }
 
-export interface PendingUserMessage {
+interface PendingUserMessage {
   id: string;
   text: string;
   previousUserMessageCount: number;

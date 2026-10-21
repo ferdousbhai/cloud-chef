@@ -11,7 +11,7 @@ vi.mock('~/lib/stores/workbench.client', async () => {
   let workspaceId: string | null = null;
   let previewRequest: (() => Promise<BuilderPreviewState>) | null = null;
   const previewState = atom(idleState());
-  const linkedProject = atom<{ repository: string; defaultBranch: string } | null>(null);
+  const linkedProject = atom<{ repository: string; defaultBranch: string; archived?: boolean } | null>(null);
 
   return {
     workbenchStore: {
@@ -160,6 +160,20 @@ describe('useWorkbenchController preview requests', () => {
     expect(workbenchStore.saveCurrentDocument).toHaveBeenCalled();
     expect(requestPreview).not.toHaveBeenCalled();
     expect(controller()!.linkedProject).toEqual({ repository: 'ada/site', defaultBranch: 'main' });
+  });
+
+  it('never saves a file of a GitHub project conversation a newer one took over', async () => {
+    workbenchStore.activateWorkspace('account:chat--transcript-0-0');
+    workbenchStore.linkedProject.set({ repository: 'ada/site', defaultBranch: 'main', archived: true });
+
+    const controller = await mountController();
+
+    act(() => controller()!.onFileSave());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(workbenchStore.saveCurrentDocument).not.toHaveBeenCalled();
   });
 
   it('does not continue a pending save into preview after unmount', async () => {

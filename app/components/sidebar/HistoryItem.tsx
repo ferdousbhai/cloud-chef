@@ -85,6 +85,7 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
           <div className="flex shrink-0 items-center gap-0.5 text-content-tertiary opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
             <ChatActionButton
               toolTipContent="Rename"
+              label={`Rename ${description}`}
               icon={<Pencil1Icon />}
               onClick={() => {
                 toggleEditMode();
@@ -92,6 +93,7 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
             />
             <ChatActionButton
               toolTipContent="Remove"
+              label={`Remove ${description}`}
               icon={<TrashIcon />}
               onClick={() => {
                 handleDeleteClick(item);
@@ -106,22 +108,17 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
 
 const ChatActionButton = ({
   toolTipContent,
+  label,
   icon,
   onClick,
 }: {
   toolTipContent: string;
+  /** Names the project too: a screen reader's list of buttons otherwise reads "Rename, Remove" for every row. */
+  label: string;
   icon: React.ReactNode;
   onClick: () => void;
 }) => {
   return (
-    <Button
-      variant="neutral"
-      icon={icon}
-      inline
-      size="xs"
-      tip={toolTipContent}
-      aria-label={toolTipContent}
-      onClick={onClick}
-    />
+    <Button variant="neutral" icon={icon} inline size="xs" tip={toolTipContent} aria-label={label} onClick={onClick} />
   );
 };

@@ -16,6 +16,16 @@ const SENT_MESSAGES = {
   unchanged: 'Your admins already have this version.',
 } as const;
 
+/**
+ * An admin approves requests themselves, so theirs isn't "sent to your admins": it waits in Settings, under the
+ * team's GitHub projects, where approving it creates the repository.
+ */
+const ADMIN_SENT_MESSAGES = {
+  requested: "Added to your team's production requests. Approve it in Settings to create its repository.",
+  updated: 'Updated your request: Settings now shows this version to approve.',
+  unchanged: 'Settings already shows this version to approve.',
+} as const satisfies Record<ProductionRequestOutcome, string>;
+
 export function DeploymentStatus({
   deployment,
   publication,
@@ -29,7 +39,8 @@ export function DeploymentStatus({
 }) {
   const { data: session } = authClient.useSession();
   // In an organization's account, a deployed draft can be sent to its admins to become a real project.
-  const inOrganization = session?.context?.kind === 'organization';
+  const organization = session?.context?.kind === 'organization' ? session.context : null;
+  const admin = organization?.role === 'admin';
   const stage = publication?.lane === 'deployment' ? publicationStageLabel(publication) : null;
   useEffect(() => {
     if (deployment.status === 'succeeded') {
@@ -54,8 +65,8 @@ export function DeploymentStatus({
           ) : null}
         </p>
       ) : null}
-      {deployment.status === 'succeeded' && inOrganization && onRequestProduction ? (
-        <RequestProduction onRequest={onRequestProduction} />
+      {deployment.status === 'succeeded' && organization && onRequestProduction ? (
+        <RequestProduction admin={admin} onRequest={onRequestProduction} />
       ) : null}
       {deployment.status === 'succeeded' ? null : deployment.status === 'failed' ? (
         <>
@@ -107,8 +118,10 @@ function RetryDeployment({ onRetry }: { onRetry: () => Promise<BuilderDeployment
  * again from the same chat, the draft replaces its request while it waits, so admins see the latest.
  */
 function RequestProduction({
+  admin,
   onRequest,
 }: {
+  admin: boolean;
   onRequest: (input: { title: string; note: string }) => Promise<ProductionRequestOutcome>;
 }) {
   const [open, setOpen] = useState(false);
@@ -140,7 +153,7 @@ function RequestProduction({
     <>
       {sent ? (
         <p className="text-content-secondary" role="status">
-          {SENT_MESSAGES[sent]}
+          {(admin ? ADMIN_SENT_MESSAGES : SENT_MESSAGES)[sent]}
         </p>
       ) : null}
       <Button size="sm" variant="neutral" onClick={() => setOpen(true)}>
@@ -150,9 +163,13 @@ function RequestProduction({
         <Modal
           title="Request production"
           description={
-            sent
-              ? 'Your request waiting for review is replaced with this version, unless an admin has started approving it.'
-              : 'Your admins can make this app a real project: its own GitHub repository, deployed by its own pipeline.'
+            admin
+              ? sent
+                ? 'Your request waiting in Settings is replaced with this version, unless approving it has started.'
+                : 'Make this app a real project: its own GitHub repository, deployed by its own pipeline. You approve it in Settings.'
+              : sent
+                ? 'Your request waiting for review is replaced with this version, unless an admin has started approving it.'
+                : 'Your admins can make this app a real project: its own GitHub repository, deployed by its own pipeline.'
           }
           onClose={close}
         >
@@ -168,7 +185,7 @@ function RequestProduction({
             <TextInput
               maxLength={1000}
               placeholder="What it's for (optional)"
-              aria-label="Note for your admins"
+              aria-label={admin ? 'Note' : 'Note for your admins'}
               value={note}
               onChange={(event) => setNote(event.target.value)}
             />
@@ -182,7 +199,7 @@ function RequestProduction({
                 Cancel
               </Button>
               <Button size="sm" type="submit" loading={sending}>
-                {sent ? 'Send this version' : 'Send for review'}
+                {sent ? 'Send this version' : admin ? 'Add request' : 'Send for review'}
               </Button>
             </div>
           </form>

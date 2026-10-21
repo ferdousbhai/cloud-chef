@@ -37,8 +37,9 @@ export function LinkedProjectIntro({
               Working on {repository}
             </h1>
             <p className="mt-3 max-w-xl text-balance text-sm text-content-secondary">
-              Ask for a change. The agent edits a copy of {defaultBranch}, validates it, and sends it to your own branch
-              when you ask it to publish; the repository&apos;s pipeline builds the preview.
+              Ask for a change. The agent edits a copy of {defaultBranch}. Ask for a preview and it commits the change
+              to your own branch, where the repository&apos;s pipeline builds a preview; ask it to publish and it merges
+              the change into {defaultBranch}, which the pipeline puts live.
             </p>
             <Button
               className="mt-3"

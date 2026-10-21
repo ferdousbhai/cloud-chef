@@ -89,8 +89,26 @@ describe('seedLinkedWorkspace', () => {
           { path: 'README.md', sha256: await sha256Hex('hello'), executable: false },
           { path: 'src/app.ts', sha256: await sha256Hex('export {}'), executable: false },
         ],
+        // Its own branch, and modes the workspace now holds as GitHub's.
+        branchKey: expect.stringMatching(/^[a-z0-9]{12}$/),
+        workspaceModes: true,
       },
     ]);
+    expect(appended.flat().map((entry) => entry.mode)).toEqual([0o644, 0o644]);
+  });
+
+  it("writes each file with GitHub's mode, so an executable stays one in the workspace", async () => {
+    const { workspace, appended } = seedingWorkspace();
+    await seedLinkedWorkspace(
+      workspace,
+      'project-1',
+      lines([
+        { commit: COMMIT, defaultBranch: 'main', repository: 'ada/site' },
+        { ...file('scripts/build.sh', '#!/bin/sh'), executable: true },
+        { done: true, files: 1 },
+      ]),
+    );
+    expect(appended.flat()).toEqual([expect.objectContaining({ path: '/home/project/scripts/build.sh', mode: 0o755 })]);
   });
 
   it('abandons a download that failed or ended early, so the next open starts over', async () => {
@@ -172,5 +190,67 @@ describe('linkedWorkspaceChanges', () => {
       { path: 'src/new.ts', contentBase64: btoa('new'), executable: true },
       { path: 'old.txt', contentBase64: null, executable: false },
     ]);
+  });
+
+  it("sends a change of executable bit alone, either way, once the workspace holds GitHub's modes", async () => {
+    const files: BuilderWorkspaceFileMetadata[] = [
+      {
+        path: '/home/project/run.sh',
+        encoding: 'utf8',
+        size: 2,
+        mode: 0o644,
+        sha256: await sha256Hex('#!'),
+        revision: 1,
+      },
+      {
+        path: '/home/project/tool.sh',
+        encoding: 'utf8',
+        size: 2,
+        mode: 0o755,
+        sha256: await sha256Hex('#?'),
+        revision: 1,
+      },
+      {
+        path: '/home/project/same.sh',
+        encoding: 'utf8',
+        size: 2,
+        mode: 0o755,
+        sha256: await sha256Hex('ok'),
+        revision: 1,
+      },
+    ];
+    const contents = new Map([
+      ['/home/project/run.sh', '#!'],
+      ['/home/project/tool.sh', '#?'],
+      ['/home/project/same.sh', 'ok'],
+    ]);
+    const workspace: Pick<BuilderWorkspaceApi, 'refresh' | 'listFiles' | 'readFile'> = {
+      refresh: async () => state,
+      listFiles: () => files,
+      readFile: async (path) => {
+        const bytes = new TextEncoder().encode(contents.get(path) ?? '');
+        return { path, bytes, encoding: 'utf8', size: bytes.length, mode: 0o644, sha256: '', revision: 1 };
+      },
+    };
+    const linked: BuilderWorkspaceLinkedProject = {
+      orgProjectId: 'project-1',
+      repository: 'ada/site',
+      defaultBranch: 'main',
+      baseCommit: COMMIT,
+      baseManifest: [
+        { path: 'run.sh', sha256: await sha256Hex('#!'), executable: true },
+        { path: 'tool.sh', sha256: await sha256Hex('#?'), executable: false },
+        { path: 'same.sh', sha256: await sha256Hex('ok'), executable: true },
+      ],
+      workspaceModes: true,
+    };
+    const { changes } = await linkedWorkspaceChanges(workspace, linked);
+    expect(changes).toEqual([
+      { path: 'run.sh', contentBase64: btoa('#!'), executable: false },
+      { path: 'tool.sh', contentBase64: btoa('#?'), executable: true },
+    ]);
+    // A workspace seeded before it kept modes can't tell a removed bit from one it never had.
+    const legacy = await linkedWorkspaceChanges(workspace, { ...linked, workspaceModes: undefined });
+    expect(legacy.changes).toEqual([{ path: 'tool.sh', contentBase64: btoa('#?'), executable: true }]);
   });
 });

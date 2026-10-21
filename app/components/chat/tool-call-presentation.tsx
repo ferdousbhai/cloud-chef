@@ -9,7 +9,8 @@ import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
 import { formatStreamedSize, streamedToolInput } from './streaming-tool-input';
 import { z, type ZodType } from 'zod';
 import { cloudflareApiRequestDisplaySchema, cloudflareApiRequestIsRead } from 'cloudchef-agent/cloudflare-api';
-import { toolFailure, toolResultSucceeded } from 'cloudchef-agent/tool-result';
+import { isCloudChefToolResult, toolFailure, toolResultSucceeded } from 'cloudchef-agent/tool-result';
+import { linkedPublishView, type LinkedPublishView } from '~/lib/common/linked-publish';
 
 const MAX_TOOL_TITLE_VALUE_CHARACTERS = 160;
 /** Keyed by the model-facing tool name, which arrives as an unconstrained string on the invocation. */
@@ -26,6 +27,8 @@ const STOPPED_TOOL_TITLES = new Map<string, string>([
   ['publish_preview', 'GitHub preview stopped'],
   ['publish', 'Publishing stopped'],
   ['fetch_site', 'Site read stopped'],
+  ['history', 'History search stopped'],
+  ['new_context', 'Context handoff stopped'],
 ]);
 
 const cloudflareRequestMethodSchema = cloudflareApiRequestDisplaySchema.pick({ method: true });
@@ -51,7 +54,23 @@ export function normalizeToolInvocation(invocation: CloudChefToolInvocation | un
     : invocation;
 }
 
-export function statusIcon(status: ToolActivityStatus, invocation: CloudChefToolInvocation): ReactNode {
+/**
+ * `publish` is the view of a GitHub publish as of now (see useLinkedPublishView); without it, it is worked
+ * out here. A publish whose pipeline is still building shows its spinner in the title, never a check beside it.
+ */
+export function statusIcon(
+  status: ToolActivityStatus,
+  invocation: CloudChefToolInvocation,
+  publish: LinkedPublishView | null = linkedPublishView(invocation, Date.now()),
+): ReactNode {
+  if (publish && status !== 'aborted' && status !== 'running' && status !== 'pending') {
+    if (publish.building) {
+      return null;
+    }
+    return publish.kind === 'not_sent' || publish.kind === 'failed' || publish.kind === 'conflict'
+      ? icon(<Cross2Icon />, 'text-bolt-elements-icon-error')
+      : icon(<CheckIcon />, 'text-bolt-elements-icon-success');
+  }
   if (isErrorResult(invocation)) {
     return icon(<Cross2Icon />, 'text-bolt-elements-icon-error');
   }
@@ -68,7 +87,11 @@ export function statusIcon(status: ToolActivityStatus, invocation: CloudChefTool
   return null;
 }
 
-export function toolTitle(invocation: CloudChefToolInvocation, status: ToolActivityStatus): ReactNode {
+export function toolTitle(
+  invocation: CloudChefToolInvocation,
+  status: ToolActivityStatus,
+  publish: LinkedPublishView | null = linkedPublishView(invocation, Date.now()),
+): ReactNode {
   if (status === 'aborted') {
     return STOPPED_TOOL_TITLES.get(invocation.toolName) ?? 'Tool stopped';
   }
@@ -95,10 +118,11 @@ export function toolTitle(invocation: CloudChefToolInvocation, status: ToolActiv
       );
     }
     case 'validate':
-      return titleRow(
-        status === 'running' ? 'Validating the project' : 'Validated the project',
-        <CheckIcon className="text-content-secondary" />,
-      );
+      return status === 'running' || status === 'pending'
+        ? titleRow('Validating the project')
+        : validationFailed(invocation)
+          ? titleRow('Validation failed', <Cross2Icon className="text-content-secondary" />)
+          : titleRow('Validated the project', <CheckIcon className="text-content-secondary" />);
     case 'search_cloudflare_docs':
       return titleRow(
         status === 'running' ? 'Searching Cloudflare docs' : 'Searched Cloudflare docs',
@@ -117,23 +141,30 @@ export function toolTitle(invocation: CloudChefToolInvocation, status: ToolActiv
           );
     }
     case 'publish_preview':
-      return isErrorResult(invocation)
-        ? titleRow('Preview not sent', <Cross2Icon className="text-content-secondary" />)
-        : isPipelineBuilding(invocation)
-          ? titleRow('Preview building on GitHub', <Spinner />)
-          : titleRow(
-              status === 'running' ? 'Sending a preview to GitHub' : 'Sent a preview to GitHub',
-              <CheckIcon className="text-content-secondary" />,
-            );
     case 'publish':
-      return isErrorResult(invocation)
-        ? titleRow('Publishing failed', <Cross2Icon className="text-content-secondary" />)
-        : isPipelineBuilding(invocation)
-          ? titleRow('Published to GitHub, deploying', <Spinner />)
-          : titleRow(
-              status === 'running' ? 'Publishing to GitHub' : 'Published to GitHub',
-              <CheckIcon className="text-content-secondary" />,
-            );
+      if (publish) {
+        return titleRow(
+          publish.title,
+          publish.building ? (
+            <Spinner />
+          ) : publish.kind === 'not_sent' || publish.kind === 'failed' || publish.kind === 'conflict' ? (
+            <Cross2Icon className="text-content-secondary" />
+          ) : (
+            <CheckIcon className="text-content-secondary" />
+          ),
+        );
+      }
+      return titleRow(
+        invocation.toolName === 'publish' ? 'Publishing to GitHub' : 'Sending a preview to GitHub',
+        <Pencil1Icon className="text-content-secondary" />,
+      );
+    case 'history':
+      return historyTitle(invocation, status);
+    case 'new_context':
+      return titleRow(
+        status === 'running' ? 'Handing off to a fresh context' : 'Handed off to a fresh context',
+        <Pencil1Icon className="text-content-secondary" />,
+      );
     case 'fetch_site': {
       const args = MODEL_TOOL_INPUT_SCHEMAS.fetch_site.safeParse(invocation.input);
       const address = args.success ? siteAddressLabel(args.data.url) : 'the live site';
@@ -147,11 +178,32 @@ export function toolTitle(invocation: CloudChefToolInvocation, status: ToolActiv
   }
 }
 
-/** A GitHub publish whose commit is in, while the repository's pipeline is still building it. */
-const pipelineBuildingSchema = z.looseObject({ data: z.looseObject({ build: z.literal('pending') }) });
+const historyInputSchema = z.looseObject({ op: z.string(), query: z.string().optional() });
 
-function isPipelineBuilding(invocation: CloudChefToolInvocation): boolean {
-  return invocation.state === 'output-available' && pipelineBuildingSchema.safeParse(invocation.output).success;
+function historyTitle(invocation: CloudChefToolInvocation, status: ToolActivityStatus): ReactNode {
+  const input = historyInputSchema.safeParse(invocation.input).data;
+  const running = status === 'running';
+  const title =
+    input?.op === 'search' && input.query
+      ? `${running ? 'Searching' : 'Searched'} the conversation for ${compactToolLabel(input.query)}`
+      : input?.op === 'read'
+        ? `${running ? 'Reading' : 'Read'} an earlier message`
+        : `${running ? 'Searching' : 'Searched'} the conversation`;
+  return titleRow(title, <MagnifyingGlassIcon className="text-content-secondary" />);
+}
+
+const validationAttachmentSchema = z.looseObject({ validation: z.unknown().optional() });
+
+/** A validation's verdict rides in `validation`; the tool call itself succeeds either way. */
+function validationFailed(invocation: CloudChefToolInvocation): boolean {
+  if (invocation.state === 'output-error' || invocation.state === 'output-denied') {
+    return true;
+  }
+  if (invocation.state !== 'output-available') {
+    return false;
+  }
+  const attached = validationAttachmentSchema.safeParse(invocation.output).data?.validation;
+  return isCloudChefToolResult(attached) ? !attached.ok : !toolResultSucceeded(invocation.output);
 }
 
 /** A site address as a person reads it: host and path, without the scheme. */
@@ -169,6 +221,9 @@ function icon(content: ReactNode, color: string): ReactNode {
 }
 
 function isErrorResult(invocation: CloudChefToolInvocation): boolean {
+  if (invocation.toolName === 'validate') {
+    return validationFailed(invocation);
+  }
   return (
     invocation.state === 'output-error' ||
     invocation.state === 'output-denied' ||

@@ -147,11 +147,14 @@ async function findLinkedChat(db: D1Database, args: { sessionId: string; orgProj
  * A new conversation on a GitHub project. The current one is archived (kept to read, closed to new
  * messages) and the new one continues its workspace, so changes not yet published carry over. A current
  * conversation that is still empty is already new, and is returned as it is.
+ *
+ * `archivedAgentNames` are the agents of the conversation just archived, which the caller tells to stop:
+ * archived, they refuse new work, and the new conversation copies the workspace only once they have settled.
  */
 export async function startLinkedChat(
   db: D1Database,
   args: { sessionId: string; id: string; orgProjectId: string },
-): Promise<{ initialId: string }> {
+): Promise<{ initialId: string; archivedAgentNames: string[] }> {
   const current = await db
     .prepare(
       `SELECT chats.id, chats.initial_id, chats.has_messages, transcripts.agent_name
@@ -165,10 +168,10 @@ export async function startLinkedChat(
     .bind(args.sessionId, args.orgProjectId)
     .first<{ id: string; initial_id: string; has_messages: number; agent_name: string }>();
   if (!current) {
-    return openLinkedChat(db, args);
+    return { initialId: (await openLinkedChat(db, args)).initialId, archivedAgentNames: [] };
   }
   if (current.has_messages === 0) {
-    return { initialId: current.initial_id };
+    return { initialId: current.initial_id, archivedAgentNames: [] };
   }
   const id = crypto.randomUUID();
   const now = Date.now();
@@ -198,11 +201,28 @@ export async function startLinkedChat(
   } catch (error) {
     const raced = await findLinkedChat(db, args);
     if (raced && raced !== current.initial_id) {
-      return { initialId: raced };
+      return { initialId: raced, archivedAgentNames: [] };
     }
     throw error;
   }
-  return { initialId: args.id };
+  const { results } = await db
+    .prepare('SELECT agent_name FROM chat_transcripts WHERE chat_id = ? ORDER BY subchat_index')
+    .bind(current.id)
+    .all<{ agent_name: string }>();
+  return { initialId: args.id, archivedAgentNames: results.map((row) => row.agent_name) };
+}
+
+/** Whether a chat is an earlier conversation on a GitHub project, kept only to read. */
+export async function isChatArchived(db: D1Database, args: { id: string; sessionId: string }): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT archived_at FROM chats
+       WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
+       LIMIT 1`,
+    )
+    .bind(args.sessionId, args.id)
+    .first<{ archived_at: number | null }>();
+  return row !== null && row.archived_at !== null;
 }
 
 /** The project's earlier conversations, newest first. */

@@ -1,8 +1,7 @@
 import type { StreamStatus } from '~/lib/common/types';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 
-export type BuildProgressPhase =
-  'planning' | 'thinking' | 'creating' | 'saving' | 'running' | 'validating' | 'recovering';
+type BuildProgressPhase = 'planning' | 'thinking' | 'creating' | 'saving' | 'running' | 'validating' | 'recovering';
 
 export type BuildProgress = {
   phase: BuildProgressPhase;

@@ -16,6 +16,11 @@ const EXCLUDED_ROOTS = new Set(['node_modules', 'dist', '.output', '.tanstack', 
 /** One file change for GitHub: new or changed content, or `null` to delete it. */
 type LinkedChange = { path: string; contentBase64: string | null; executable: boolean };
 
+/** A new key for a workspace's own branch on GitHub (see `BuilderWorkspaceLinkedProject.branchKey`). */
+export function newLinkedBranchKey(): string {
+  return crypto.randomUUID().replaceAll('-', '').slice(0, 12);
+}
+
 /**
  * Seeds a workspace from a GitHub project's default branch, streamed from the control plane, and records
  * the commit and each file's hash, so later changes can be told from what GitHub has. Batches go in as
@@ -63,7 +68,13 @@ export async function seedLinkedWorkspace(
       const bytes = Uint8Array.from(atob(line.contentBase64), (char) => char.charCodeAt(0));
       manifest.push({ path: line.path, sha256: await sha256Hex(bytes), executable: line.executable });
       totalBytes += bytes.length;
-      const entry = { path: `${WORK_DIR}/${line.path}`, content: line.contentBase64, encoding: 'base64' as const };
+      // GitHub's mode goes in with the file, so the workspace's own modes are the repository's.
+      const entry = {
+        path: `${WORK_DIR}/${line.path}`,
+        content: line.contentBase64,
+        encoding: 'base64' as const,
+        mode: line.executable ? 0o755 : 0o644,
+      };
       if (
         batch.length >= BUILDER_WORKSPACE_SYNC_BATCH_FILES ||
         batchCharacters + entry.content.length > BUILDER_WORKSPACE_SYNC_BATCH_BYTES * 6
@@ -88,6 +99,8 @@ export async function seedLinkedWorkspace(
       defaultBranch: head.defaultBranch,
       baseCommit: head.commit,
       baseManifest: manifest,
+      branchKey: newLinkedBranchKey(),
+      workspaceModes: true,
     });
     return await workspace.commitSeed(seedId, { fileCount: manifest.length, totalBytes });
   } catch (error) {
@@ -97,9 +110,9 @@ export async function seedLinkedWorkspace(
 }
 
 /**
- * The workspace's changes against its base commit: every file whose content differs or is new, and every
- * file that's gone. This is exactly what GitHub needs to show the workspace as it is. Also returns the
- * workspace's own manifest, which becomes the base once the changes are merged.
+ * The workspace's changes against its base commit: every file whose content or executable bit differs or
+ * is new, and every file that's gone. This is exactly what GitHub needs to show the workspace as it is.
+ * Also returns the workspace's own manifest, which becomes the base once the changes are merged.
  */
 export async function linkedWorkspaceChanges(
   workspace: Pick<BuilderWorkspaceApi, 'refresh' | 'listFiles' | 'readFile'>,
@@ -117,9 +130,11 @@ export async function linkedWorkspaceChanges(
     const path = projectPath(file.path);
     present.add(path);
     const before = base.get(path);
-    const executable = (file.mode & 0o111) !== 0 || before?.executable === true;
+    // A workspace seeded before it kept GitHub's modes holds every file as non-executable, so there an
+    // executable at the base stays one: only a workspace with GitHub's modes can tell a removed bit.
+    const executable = (file.mode & 0o111) !== 0 || (!linked.workspaceModes && before?.executable === true);
     manifest.push({ path, sha256: file.sha256, executable });
-    if (before?.sha256 === file.sha256) {
+    if (before?.sha256 === file.sha256 && (before.executable ?? false) === executable) {
       continue;
     }
     const read = await workspace.readFile(file.path);
