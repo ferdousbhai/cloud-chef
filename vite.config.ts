@@ -31,6 +31,13 @@ export default defineConfig((config) => {
       client: {
         build: {
           sourcemap: false,
+          rolldownOptions: {
+            experimental: {
+              // Rolldown 1.2.14 (Vite 8.3) folds the Markdown renderer's chunk into Chat when it judges the
+              // separate load redundant, which takes Chat past the 500 kB raw bundle budget. Keep it apart.
+              chunkOptimization: { avoidRedundantChunkLoads: false },
+            },
+          },
         },
       },
     },
