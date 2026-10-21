@@ -50,6 +50,22 @@ describe('app resource garbage collection', () => {
     expect(database.candidates).toEqual([]);
   });
 
+  it('deletes the Worker the plan names when an upload landed but was never recorded', async () => {
+    const database = new AppResourceGcDatabase([JSON.stringify(await deploymentPlan())], 0, [
+      { deployment_id: 'deployment-1', resource_type: 'd1', provider_resource_id: 'db-id-1' },
+    ]);
+    const accountApi = cleanupApi(true);
+
+    await expect(sweepAppResourceGcCandidates(database.env, { now: 100, accountApi })).resolves.toBeUndefined();
+
+    expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-deployment-1');
+    expect(accountApi.deleteManagedWorker.mock.invocationCallOrder[0]).toBeLessThan(
+      accountApi.deleteD1DatabaseById.mock.invocationCallOrder[0]!,
+    );
+    expect(accountApi.deleteD1Database).not.toHaveBeenCalled();
+    expect(database.candidates).toEqual([]);
+  });
+
   it('retries the receipt while a recorded R2 bucket is still draining', async () => {
     const database = new AppResourceGcDatabase([JSON.stringify({ version: 999 })], 0, [
       { deployment_id: 'deployment-1', resource_type: 'r2', provider_resource_id: 'cloudchef-app-1-storage' },

@@ -57,7 +57,9 @@ type RuntimeUpgradeWindowHolder = string | null;
  * Claim the upgrade window only if no work is running or just ended, in one statement, so work that
  * records itself as it starts either stops the claim or sees the window it lost to. A window another
  * upgrade holds open is not taken over: the claim is refused, as for a busy workspace, until it is
- * released or lapses.
+ * released or lapses. Its own holder's claim of a window still open is renewed whatever is busy, as a
+ * hold is: a retried step claims again, perhaps of the Worker it already redeployed, and work that
+ * started meanwhile is waiting for exactly this window to close.
  */
 export async function claimRuntimeUpgradeWindow(
   db: ActivityDatabase,
@@ -77,13 +79,19 @@ export async function claimRuntimeUpgradeWindow(
     .prepare(
       `INSERT INTO runtime_upgrade_window (id, target_version, expires_at, holder)
        SELECT 1, ?, ?, ?
-       WHERE NOT EXISTS (
-         SELECT 1 FROM runtime_activity
-         WHERE (busy = 1 AND updated_at > ?) OR (busy = 0 AND updated_at > ?)
+       WHERE (
+         NOT EXISTS (
+           SELECT 1 FROM runtime_activity
+           WHERE (busy = 1 AND updated_at > ?) OR (busy = 0 AND updated_at > ?)
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM runtime_upgrade_window
+           WHERE id = 1 AND expires_at > ? AND ? IS NOT NULL AND holder IS NOT ?
+         )
        )
-       AND NOT EXISTS (
+       OR EXISTS (
          SELECT 1 FROM runtime_upgrade_window
-         WHERE id = 1 AND expires_at > ? AND ? IS NOT NULL AND holder IS NOT ?
+         WHERE id = 1 AND expires_at > ? AND ? IS NOT NULL AND holder = ?
        )
        ON CONFLICT(id) DO UPDATE SET
          target_version = excluded.target_version,
@@ -96,6 +104,9 @@ export async function claimRuntimeUpgradeWindow(
       holder,
       busySince,
       quietSince,
+      args.now,
+      holder,
+      holder,
       args.now,
       holder,
       holder,

@@ -148,6 +148,30 @@ describe('workspace runtime activity', () => {
       await expect(holdRuntimeUpgradeWindow(db, { ...first, now: NOW + 4_000 })).resolves.toEqual({ held: true });
     });
 
+    it('the holder claiming again renews its open window though work is now waiting on it, and no other does', async () => {
+      const { db } = userWorkspaceDatabase();
+      await claimRuntimeUpgradeWindow(db, { ...first, now: NOW });
+      // A turn started while the window was open: it recorded itself busy and waits for the window.
+      await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now: NOW + 1_000 });
+
+      await expect(claimRuntimeUpgradeWindow(db, { ...second, now: NOW + 2_000 })).resolves.toEqual({
+        granted: false,
+        busy: 1,
+      });
+      await expect(claimRuntimeUpgradeWindow(db, { ...first, now: NOW + 3_000 })).resolves.toEqual({ granted: true });
+      await expect(readRuntimeUpgradeWindow(db, NOW + 3_000)).resolves.toEqual({
+        targetVersion: NEW_VERSION,
+        expiresAt: NOW + 3_000 + RUNTIME_UPGRADE_WINDOW_MS,
+      });
+
+      // Once it lapsed, the work runs, and even the holder waits for it.
+      const lapsed = NOW + 3_000 + RUNTIME_UPGRADE_WINDOW_MS;
+      await expect(claimRuntimeUpgradeWindow(db, { ...first, now: lapsed })).resolves.toEqual({
+        granted: false,
+        busy: 1,
+      });
+    });
+
     it('only the holder releases the window, and the other may claim it once it has, or once it lapsed', async () => {
       const { db } = userWorkspaceDatabase();
       await claimRuntimeUpgradeWindow(db, { ...first, now: NOW });

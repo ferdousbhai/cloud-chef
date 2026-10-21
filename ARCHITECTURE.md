@@ -45,7 +45,10 @@ runtime bundle itself, so a control-plane-only release leaves every runtime alon
 release but serves the same connection generation and speaks the same `USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION`
 (`user-workspace-runtime/src/protocol.ts`), the runtime-session request keeps issuing sessions for it and starts the
 provisioning Workflow in the background; the browser shows no preparation. A missing runtime, one for an earlier
-connection generation, or one speaking another protocol is prepared before a session is issued, as before.
+connection generation, or one speaking another protocol is prepared before a session is issued, as before. A
+runtime of an earlier generation (a reconnect, whose redeploy rotates its secret) still waits for the upgrade window,
+asked with the secret derived for the generation it was deployed with; only one that refuses that secret and the
+new one is redeployed at once, as a first workspace is.
 
 The runtime is the source of truth for whether it is busy, since a turn keeps running with no tab open. Every
 `BuilderAgent` records in the runtime's D1 (`runtime_activity`) whether it is working, and for two minutes after it
@@ -60,7 +63,9 @@ it (`DELETE`) once the runtime serves; the rollout replaces running containers a
 it completes. Each of these is its own Workflow step, so a retry never claims the window again or redeploys. Each
 call names the Workflow instance holding the window (a `cloudchef-upgrade-holder` header, which a runtime from
 before holders ignores): another upgrade's claim or renewal is refused while it is open, as for a busy workspace,
-and only its holder releases it; a window claimed without a holder may be renewed or released by any. Work
+and only its holder releases it; a window claimed without a holder may be renewed or released by any. The holder's
+own claim of its window still open is granted whatever is busy, so a retried deploy step (which may find the Worker
+it already redeployed) keeps the window rather than letting it lapse under work waiting for it. Work
 that starts records itself first and then waits while any window is open, on the old Worker or the new one; a
 window lapses five minutes after its last renewal, which bounds the wait when an upgrade stops partway. A turn
 waits at most three minutes, then asks to be sent again; a Stop calls its wait off. A step's retries can outlast
@@ -80,7 +85,8 @@ still serve their connection's generation and protocol, most recently used first
 sweep (so a page of upgrades all still waiting never keeps it from the rest), skips anyone who may no longer use
 the connection, and starts or restarts the same gated Workflow instance a session request would name, at most 10
 per sweep. An upgrade still waiting is left alone; one that gave up waiting is restarted; one that failed is
-restarted on one sweep in four, so at most hourly. First-time provisioning never goes through the sweep: it lists only
+restarted on one sweep in four, so at most hourly, unless it failed after redeploying the Worker (which then serves
+without its container image or schedule), which every sweep restarts. First-time provisioning never goes through the sweep: it lists only
 runtimes that are already ready. A busy row a Durable Object never cleared stops counting after the turn wall clock
 plus 30 minutes. A runtime from before the window existed cannot answer, so it is upgraded only once the control
 plane has issued no session for it for that long, since a turn needs a session to start.

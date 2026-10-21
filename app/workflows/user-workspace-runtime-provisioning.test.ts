@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import type { UserWorkspaceRuntime } from '~/lib/.server/cloudflare/user-workspace-runtime-repository';
-import { RuntimeUpgradeWindowRefusedError } from '~/lib/.server/cloudflare/user-workspace-runtime-upgrade-window';
+import {
+  RuntimeSecretRefusedError,
+  RuntimeUpgradeWindowRefusedError,
+} from '~/lib/.server/cloudflare/user-workspace-runtime-upgrade-window';
 
 const mocks = {
   requireActiveConnection: vi.fn(),
@@ -237,6 +240,26 @@ describe('workspace runtime provisioning Workflow', () => {
         await expect(sweepUserWorkspaceRuntimeUpgrade(sweepArgs(env))).resolves.toBe('restarted');
         expect(instance.restart).toHaveBeenCalledOnce();
       }
+    });
+
+    it('restarts on every sweep an upgrade that failed after redeploying the Worker', async () => {
+      const instance = workflowInstance(
+        vi.fn<WorkflowInstance['status']>().mockResolvedValue({
+          status: 'complete',
+          output: { status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null, redeployed: true },
+        }),
+      );
+      const env = workflowEnv(
+        existing(),
+        vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>().mockResolvedValue(instance),
+      );
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      await expect(sweepUserWorkspaceRuntimeUpgrade(sweepArgs(env, { restartFailed: false }))).resolves.toBe(
+        'restarted',
+      );
+      expect(instance.restart).toHaveBeenCalledOnce();
+      warn.mockRestore();
     });
 
     it('waits again after an upgrade gave up waiting, unless the runtime is current after all', async () => {
@@ -524,6 +547,27 @@ describe('workspace runtime provisioning Workflow', () => {
       expect(mocks.accountApi.ensureWorkspaceRuntimeContainer).toHaveBeenCalledTimes(2);
     });
 
+    it('says when it failed after redeploying the Worker, and not when it failed before', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      mocks.claimUpgradeWindow.mockRejectedValueOnce(new Error('HTTP 503'));
+
+      await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs())).resolves.toEqual({
+        status: 'error',
+        errorCode: 'workspace_preparation_failed',
+        upgradeUrl: null,
+      });
+
+      mocks.claimUpgradeWindow.mockResolvedValue({ status: 'granted' });
+      mocks.accountApi.ensureWorkspaceRuntimeContainer.mockRejectedValueOnce(new Error('Rollout unavailable'));
+      await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs())).resolves.toEqual({
+        status: 'error',
+        errorCode: 'workspace_preparation_failed',
+        upgradeUrl: null,
+        redeployed: true,
+      });
+      error.mockRestore();
+    });
+
     it('is ready even when the window could not be released early, since it lapses on its own', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
       mocks.claimUpgradeWindow.mockResolvedValue({ status: 'granted' });
@@ -538,13 +582,68 @@ describe('workspace runtime provisioning Workflow', () => {
       warn.mockRestore();
     });
 
-    it("doesn't wait on a runtime of an earlier connection generation, which can no longer be asked", async () => {
-      mocks.findRuntime.mockResolvedValue({ ...liveRuntime(endpoint), connectionGeneration: 0 });
+    describe('of an earlier connection generation, after a reconnect', () => {
+      beforeEach(() => {
+        mocks.findRuntime.mockResolvedValue({ ...liveRuntime(endpoint), connectionGeneration: 0 });
+        mocks.deriveSecret.mockImplementation(async ({ connectionGeneration }: { connectionGeneration: number }) =>
+          `secret-${connectionGeneration}`.padEnd(64, 's'),
+        );
+      });
 
-      await runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs());
+      it("waits for it to go quiet, asking with that generation's secret, before redeploying it", async () => {
+        mocks.claimUpgradeWindow.mockResolvedValueOnce({ status: 'busy', busy: 1 }).mockResolvedValue({
+          status: 'granted',
+        });
+        const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async () => {
+          expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
+        });
 
-      expect(mocks.claimUpgradeWindow).not.toHaveBeenCalled();
-      expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
+        await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
+          status: 'ready',
+        });
+
+        expect(mocks.claimUpgradeWindow.mock.calls.map(([args]) => args.controlPlaneSecret)).toEqual([
+          'secret-0'.padEnd(64, 's'),
+          'secret-0'.padEnd(64, 's'),
+        ]);
+        expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledWith(
+          expect.objectContaining({ controlPlaneSecret: 'secret-1'.padEnd(64, 's') }),
+        );
+        // The redeployed Worker has this generation's secret, through which the window is held.
+        expect(new Set(mocks.changeUpgradeWindow.mock.calls.map(([args]) => args.controlPlaneSecret))).toEqual(
+          new Set(['secret-1'.padEnd(64, 's')]),
+        );
+      });
+
+      it("asks with this generation's secret when a retry finds the Worker it already redeployed", async () => {
+        mocks.claimUpgradeWindow
+          .mockRejectedValueOnce(new RuntimeSecretRefusedError())
+          .mockResolvedValueOnce({ status: 'granted' });
+
+        await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs())).resolves.toEqual({
+          status: 'ready',
+        });
+
+        expect(mocks.claimUpgradeWindow.mock.calls.map(([args]) => args.controlPlaneSecret)).toEqual([
+          'secret-0'.padEnd(64, 's'),
+          'secret-1'.padEnd(64, 's'),
+        ]);
+        expect(mocks.changeUpgradeWindow).toHaveBeenCalled();
+      });
+
+      it('redeploys it as a first workspace when it refuses both secrets', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        mocks.claimUpgradeWindow.mockRejectedValue(new RuntimeSecretRefusedError());
+
+        await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs())).resolves.toEqual({
+          status: 'ready',
+        });
+
+        expect(mocks.claimUpgradeWindow).toHaveBeenCalledTimes(2);
+        expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
+        expect(mocks.changeUpgradeWindow).not.toHaveBeenCalled();
+        warn.mockRestore();
+      });
     });
   });
 
