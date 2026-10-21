@@ -478,6 +478,68 @@ describe('organizations', () => {
     expect(database.prepare('SELECT user_id FROM organization_members').all()).toEqual([{ user_id: sam.userId }]);
   });
 
+  it("deletes another member's workspace only from a sign-in within the last few minutes", async () => {
+    const { database, env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
+    const sam = await signIn('sam@acme.com');
+    await acceptInviteAction({
+      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
+      env,
+    });
+    const stale = await prepareAuthSession(admin.userId, undefined, Date.now() - 60 * 60_000);
+    const staleCookie = (await createAuthSession(env, stale)).split(';')[0];
+    const deleted: string[] = [];
+    const remove = (cookie: string, deleteWorkspace: boolean) =>
+      updateMemberAction({
+        request: post(cookie, '/api/organizations/member', {
+          orgId,
+          userId: sam.userId,
+          action: 'remove',
+          deleteWorkspace,
+        }),
+        env,
+        deleteWorkspace: async (_env, _orgId, removed) => {
+          deleted.push(removed);
+        },
+      });
+
+    const refused = await remove(staleCookie, true);
+    expect(refused.status).toBe(401);
+    await expect(refused.json()).resolves.toEqual({
+      code: 'reauthentication_required',
+      error: 'Sign in again to confirm it is you, then remove them.',
+    });
+    expect(deleted).toEqual([]);
+    expect(database.prepare('SELECT COUNT(*) AS n FROM organization_members').get()).toEqual({ n: 2 });
+
+    // Removing them while keeping their workspace deletes nothing, so the same session may.
+    expect((await remove(staleCookie, false)).status).toBe(200);
+    expect(deleted).toEqual([]);
+    expect(database.prepare('SELECT COUNT(*) AS n FROM organization_members').get()).toEqual({ n: 1 });
+  });
+
+  it('lets a member leave, deleting their own workspace, from a sign-in made a while ago', async () => {
+    const { env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
+    const sam = await signIn('sam@acme.com');
+    await acceptInviteAction({
+      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
+      env,
+    });
+    const stale = await prepareAuthSession(sam.userId, undefined, Date.now() - 60 * 60_000);
+    const staleCookie = (await createAuthSession(env, stale)).split(';')[0];
+    const left = await updateMemberAction({
+      request: post(staleCookie, '/api/organizations/member', { orgId, userId: sam.userId, action: 'remove' }),
+      env,
+      deleteWorkspace: async () => undefined,
+    });
+    expect(left.status).toBe(200);
+  });
+
   it("lapses an admin's invites once they're no longer an admin", async () => {
     const { database, env, signIn } = await setup();
     const admin = await signIn('ada@acme.com');
