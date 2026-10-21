@@ -77,7 +77,7 @@ function commitPlan(changes: CommitChange[]) {
 export function commitSizeRefusal(changes: CommitChange[]): string | null {
   const { trees, blobs } = commitPlan(changes);
   return blobs.length + trees.length + 2 > MAX_COMMIT_REQUESTS
-    ? `This holds ${blobs.length} files that aren't text (images, fonts, archives) or are over 1 MB, more than ` +
+    ? `This holds ${blobs.length} files that aren't text (images, fonts, archives), are over 1 MB, or are empty, more than ` +
         'CloudChef can commit to GitHub at once. Slim them down and try again.'
     : null;
 }
