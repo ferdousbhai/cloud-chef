@@ -68,6 +68,7 @@ import { applyAtomicWorkspaceChanges, type AtomicWorkspaceChange } from './atomi
 import { ComputerAdmissionControl } from './computer-admission';
 import { isComputerContainerCallback } from './container-fetch-routing';
 import { CONTAINER_PNPM_STORE_DIR } from './container-toolchain';
+import { matchDeploymentRoute } from './deployment-route';
 import { routeUserWorkspaceRuntimeControlPlaneRequest } from './readiness-route';
 import { scheduleUserWorkspaceRuntimeMaintenance } from './scheduled-maintenance';
 import {
@@ -3027,14 +3028,15 @@ async function handleUserRequest(
       userId: capability.subject,
     });
   } else {
-    const deployment = /^\/v1\/deployments\/([^/]+)(?:\/(deploy))?$/.exec(url.pathname);
-    if (deployment && (request.method === 'GET' || request.method === 'POST')) {
-      const operation = deployment[2] === 'deploy' ? 'deploy' : 'get';
+    const deployment = matchDeploymentRoute(request.method, url.pathname);
+    if (deployment && 'allow' in deployment) {
+      response = Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: deployment.allow } });
+    } else if (deployment) {
       response = await userRuntimeDeploymentAction({
         env: sharedEnv,
         userId: capability.subject,
-        deploymentId: decodeURIComponent(deployment[1]!),
-        operation,
+        deploymentId: deployment.deploymentId,
+        operation: deployment.operation,
       });
     } else {
       response = Response.json({ error: 'Not found' }, { status: 404 });
