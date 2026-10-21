@@ -1,5 +1,5 @@
 {
-  "total": 1146,
+  "total": 1142,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -244,9 +244,6 @@
     "app/lib/.server/llm/pi-ai-invoke.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1
     },
-    "app/lib/.server/llm/pi-ai-models.ts": {
-      "anti-slop/no-unsafe-dictionary-type": 1
-    },
     "app/lib/.server/llm/pi-message-conversion.ts": {
       "anti-slop/no-runtime-typeof": 1
     },
@@ -402,7 +399,6 @@
       "anti-slop/no-unsafe-dictionary-type": 1
     },
     "app/routes/settings.tsx": {
-      "anti-slop/no-runtime-typeof": 1,
       "anti-slop/no-unsafe-dictionary-type": 1
     },
     "app/server-handlers/account-deletion.test.ts": {
@@ -532,9 +528,6 @@
     },
     "scripts/ops-report.mjs": {
       "anti-slop/no-runtime-typeof": 9
-    },
-    "scripts/provision-cloudflare-production.mjs": {
-      "anti-slop/no-runtime-typeof": 2
     },
     "scripts/record-d1-time-travel-bookmark.mjs": {
       "anti-slop/no-runtime-typeof": 2

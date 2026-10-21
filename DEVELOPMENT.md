@@ -58,19 +58,37 @@ license diligence but do not replace legal review.
 ## Configuration
 
 `cloudflare.config.ts` is the source of truth for the control-plane Worker, built by `vite build` with the Cloudflare
-Vite plugin and deployed with the `cf` CLI. It contains one D1 binding for identity,
-authentication, encrypted Cloudflare credentials, connection metadata, and user-runtime discovery. Configure the two
-declared secret values in Cloudflare; never store them in source or local environment files.
+Vite plugin and deployed with the `cf` CLI. It contains one D1 binding (`DB`, schema in `migrations/`) holding:
+
+- people, sign-in sessions, and sign-in state (Cloudflare OAuth, Google, and emailed-link tokens);
+- Cloudflare connections with their encrypted credentials and OAuth grants, and each connection's default builder
+  model (`default_builder_model`);
+- teams (organizations), their members and invites, and daily per-member model usage (`organization_usage_daily`);
+- GitHub projects: App installations, linked repositories, member access, and production requests;
+- per-person settings such as AI Gateway content logging;
+- user workspace runtime discovery, provisioning leases, and upgrade state, plus daily maintenance receipts.
+
+It declares these secrets, which are configured in Cloudflare and never stored in source or local environment files:
+
+- `CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY` — encrypts stored Cloudflare credentials; required.
+- `CLOUDFLARE_OAUTH_CLIENT_SECRET` — the Cloudflare OAuth client's secret; required. Its client ID,
+  `CLOUDFLARE_OAUTH_CLIENT_ID`, is a deploy-time variable, as is `COMMIT_SHA`.
+- `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — Sign in with Google; unset, that option reports itself
+  unavailable.
+- `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY` (PKCS#8), `GITHUB_APP_SLUG` — CloudChef's
+  GitHub App for team projects kept in GitHub; unset, those projects report themselves unavailable.
 
 The checked-in D1 ID belongs to CloudChef production. Before provisioning a fork in another account, replace it with
 `00000000-0000-0000-0000-000000000000`. The provisioner refuses to replace an unknown non-placeholder ID.
 
-Builder references are not mirrored. Cloudflare's documentation is retrieved live by the `search_cloudflare_docs`
-tool, and a framework's packaged skills are read from the project's own `node_modules`, so neither needs syncing or
-pinning. The
-single exception is `app/lib/.server/llm/skills/frontend-design/`, which is vendored into this repository, bundled
-into the Worker, and maintained by hand — edit it like any other source file. Its frontmatter `name` and `description`
-are what the system prompt catalogs, so keep them accurate.
+The builder's skills (`app/lib/.server/llm/builder-skills.ts`) are bundled into the Worker and served read-only
+under `/__skills__/`: CloudChef's own `project-stack` (`app/lib/guidance/project-stack/SKILL.md`, edited by hand like
+any other source file), and Cloudflare's official skills from github.com/cloudflare/skills, vendored at a pinned
+commit into `app/lib/.server/llm/skills/cloudflare-skills.vendored.ts`. Do not edit that file; update it with
+`pnpm run skills:sync` (optionally `-- <commit>`), which also names the skills it takes. Each skill's frontmatter
+`name` and `description` are what the system prompt catalogs. The rest of Cloudflare's documentation is retrieved live
+by the `search_cloudflare_docs` tool, and a framework's packaged skills are read from the project's own
+`node_modules`, so neither needs syncing or pinning.
 
 The OAuth callback is `https://<deployment-origin>/connect/return`. Keep its permissions aligned with
 `CLOUDFLARE_OAUTH_SCOPES` in `cloudflare.config.ts`. Those permissions let CloudChef create a workspace runtime in the
@@ -149,9 +167,10 @@ release that fails validation deploys and migrates nothing. Its build command on
 and checks the release inputs. The deploy command (`scripts/deploy-production.mjs --workers-builds`), which runs only
 from the exact Workers Builds checkout, then runs `pnpm run validate` with the exact 40-character commit ID and OAuth
 client ID in the environment (which `cloudflare.config.ts` binds as plain-text vars). Validation's `build:check` is
-therefore the release build itself, so there is no separate build and the gate costs only the checks beside it. The
-account and config checks (`provision:production:check`, `verify:production-config`, `verify:workers-builds-config`)
-run at the same time. Only after validation passes does it record a D1 restore point and apply the control-plane D1
+therefore the release build itself, so there is no separate build and the gate costs only the checks beside it.
+Validation includes the committed-config checks (`verify:production-config`, `verify:workers-builds-config`), so the
+deploy step does not run them again; the account check (`provision:production:check`, which only reads the account
+with `cf d1 list`) runs at the same time. Only after validation passes does it record a D1 restore point and apply the control-plane D1
 migrations. It confirms the checkout is still clean, deploys that build with `cf deploy --prebuilt`, and then probes
 `https://cloudchef.build/api/version` every 5 seconds, from the moment the deploy returns, until five consecutive
 responses report that commit, a live Worker version ID, configured OAuth bindings, and `Cache-Control: no-store`.
@@ -169,16 +188,50 @@ redirect to the canonical `https://cloudchef.build` origin with the path and que
 these routes needs a Workers Builds token that may attach a custom domain in the `ghostbuild.dev` zone; attaching them
 once by hand is equivalent, and later deploys are no-ops for routes that already exist.
 
-For an emergency rollback from a clean checkout of current `main`, inspect and promote an immutable version with
-Wrangler, which addresses the Worker by name and needs no config file (cf has no rollback command yet):
+For an emergency rollback from a clean checkout of current `main`, inspect and promote an immutable version with `cf`,
+which addresses the Worker by name and needs no config file:
 
 ```bash
-pnpm exec wrangler versions view '<version-id>' --name cloudchef --json
-pnpm exec wrangler rollback '<version-id>' --name cloudchef --message '<reason>'
+pnpm exec cf workers versions list --worker-id cloudchef
+pnpm exec cf workers versions get '<version-id>' --worker-id cloudchef
+pnpm exec cf workers deployments create --worker cloudchef --body \
+  '{"strategy":"percentage","versions":[{"version_id":"<version-id>","percentage":100}],"annotations":{"workers/message":"<reason>"}}'
 ```
 
+Add `--dry-run` to the last command to see the request without sending it. Cloudflare refuses to roll back past a
+change to the Worker's secrets unless `--bypass-deployment-checks` is given; check that the older version works with
+the current secrets before passing it.
+
 Rollback changes the Worker version but not D1 data. If a release also changed control-plane data, use the recovery
-bookmark recorded by the release pipeline. Run `pnpm run provision:production` separately only when bootstrapping the
+bookmark recorded by the release pipeline (below).
+
+### Failed release after migrations
+
+The deploy step records a D1 Time Travel bookmark (`d1:bookmark:production`, which prints a `### Pre-migration D1
+restore point` summary and a `CLOUDCHEF_D1_RESTORE_RECEIPT` JSON line into the Workers Builds log) and then applies the
+control-plane migrations. A failure before the bookmark changes nothing. A failure from the migrations on leaves
+production in one of these states, and its error says which:
+
+- **The migrations failed** ("may be partially migrated"). D1 has the migrations before the failing one, and
+  possibly part of that one; `cf d1 migrations apply` records each migration only once it has succeeded. Nothing was
+  deployed, so the previous Worker is still serving.
+- **A later step failed** ("was already migrated through `<migration>`"): the built-output check or `cf deploy`
+  (nothing deployed; the previous Worker serves against the new schema), or the live probe (the new Worker is
+  deployed but did not report the release).
+
+To recover, first read the failure; `pnpm exec cf d1 migrations list <database-id>` lists the
+migrations not yet applied.
+Migrations are written to be additive, so the previous Worker usually runs correctly on the new schema, and the fix is
+to correct the cause and release again; the migrations step then applies only what is still pending. Restore the
+bookmark only when the schema change itself is the problem, since a restore also discards every write made since it
+was recorded:
+
+```bash
+pnpm exec cf d1 time-travel restore '<database-id>' --bookmark='<bookmark from the build log>'
+```
+
+The receipt's `databaseId` and the summary's restore command name the database. After a restore, roll the Worker back
+(above) to a version built for the restored schema. Run `pnpm run provision:production` separately only when bootstrapping the
 control-plane D1 or intentionally reconciling its checked-in identifier.
 
 Generated applications deploy independently inside the user workspace runtime. AppAgent projects provision `DB` for
@@ -190,7 +243,7 @@ the artifact, supplies the trusted bindings, and promotes the exact uploaded Wor
 There is no deployed admin dashboard. The operational state of production is reported from a terminal:
 
 ```bash
-pnpm run ops        # Worker health, users, sessions, connected accounts, and runtime staleness
+pnpm run ops        # Worker health, builder model, users, sessions, connected accounts, and runtime staleness
 pnpm run ops:json   # the same report, structured for a coding agent
 pnpm run ops:session -- <chat id | user email | user id>   # one member's recent session, reconstructed
 ```

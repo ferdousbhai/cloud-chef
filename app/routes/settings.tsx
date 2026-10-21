@@ -9,17 +9,18 @@ import {
   CLOUDFLARE_AUTHORIZATION_ERROR_MESSAGE,
   CLOUDFLARE_AUTHORIZATION_ERROR_PARAM,
   CLOUDFLARE_AUTHORIZATION_ERROR_VALUE,
+  CLOUDFLARE_CONNECT_MESSAGE_MAX_LENGTH,
+  CLOUDFLARE_CONNECT_MESSAGE_PARAM,
 } from '~/lib/cloudflare/authorization-recovery';
+import { z } from 'zod';
 
-type SettingsSearch = {
-  cloudflare_authorization?: string;
-};
+const settingsSearchSchema = z.object({
+  [CLOUDFLARE_AUTHORIZATION_ERROR_PARAM]: z.string().optional().catch(undefined),
+  [CLOUDFLARE_CONNECT_MESSAGE_PARAM]: z.string().max(CLOUDFLARE_CONNECT_MESSAGE_MAX_LENGTH).optional().catch(undefined),
+});
 
 export const Route = createFileRoute('/settings')({
-  validateSearch: (search: Record<string, unknown>): SettingsSearch =>
-    typeof search[CLOUDFLARE_AUTHORIZATION_ERROR_PARAM] === 'string'
-      ? { cloudflare_authorization: search[CLOUDFLARE_AUTHORIZATION_ERROR_PARAM] }
-      : {},
+  validateSearch: (search: Record<string, unknown>) => settingsSearchSchema.parse(search),
   head: () => createPrivatePageHead('Settings | CloudChef', 'Manage your CloudChef and Cloudflare connection.'),
   component: Settings,
 });
@@ -39,9 +40,10 @@ function SettingsRouteContent() {
   const { data: session, isPending } = authClient.useSession();
   const search = Route.useSearch();
   const authorizationError =
-    search.cloudflare_authorization === CLOUDFLARE_AUTHORIZATION_ERROR_VALUE
+    search.cloudflare_message ??
+    (search.cloudflare_authorization === CLOUDFLARE_AUTHORIZATION_ERROR_VALUE
       ? CLOUDFLARE_AUTHORIZATION_ERROR_MESSAGE
-      : null;
+      : null);
   return (
     <SettingsRouteView
       authKind={auth.kind === 'unauthenticated' && session && !isPending ? 'fullyLoggedIn' : auth.kind}
@@ -58,10 +60,10 @@ function SettingsRouteView({
   authorizationError?: string | null;
 }) {
   if (authKind === 'loading') {
-    return <Loading message="Checking your Cloudflare session…" />;
+    return <Loading message="Checking your session…" />;
   }
   if (authKind === 'unauthenticated') {
-    return <CloudflareSignInPrompt title="Connect Cloudflare to open settings." initialError={authorizationError} />;
+    return <CloudflareSignInPrompt title="Sign in to open settings." initialError={authorizationError} />;
   }
   return <ClientSettingsContent authorizationError={authorizationError} />;
 }

@@ -74,25 +74,64 @@ describe('workspace runtime locator', () => {
       });
     await ready({ connectionId: 'connection-1', now: 1_000 });
     await ready({ connectionId: 'org-connection', endpoint: 'https://org.example', now: 2_000 });
-    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10 })).resolves.toEqual([
+    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10, rotation: 0 })).resolves.toEqual([
       { userId: 'user-1', connectionId: 'org-connection', connectionGeneration: 1 },
       { userId: 'user-1', connectionId: 'connection-1', connectionGeneration: 1 },
     ]);
-    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 1 })).resolves.toHaveLength(1);
+    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 1, rotation: 0 })).resolves.toHaveLength(1);
 
     // Current; on another image; speaking another protocol; for a connection generation since replaced.
     await ready({ connectionId: 'connection-1', runtimeVersion: current.runtimeVersion });
     await ready({ connectionId: 'org-connection', runtimeVersion: current.runtimeVersion, imageDigest: 'old-image' });
-    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10 })).resolves.toEqual([
+    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10, rotation: 0 })).resolves.toEqual([
       { userId: 'user-1', connectionId: 'org-connection', connectionGeneration: 1 },
     ]);
     await ready({ connectionId: 'org-connection', protocolVersion: 1 });
-    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10 })).resolves.toEqual([]);
+    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10, rotation: 0 })).resolves.toEqual([]);
     await ready({ connectionId: 'org-connection' });
     await db.prepare(`UPDATE cloudflare_connections SET connection_generation = 2 WHERE id = 'org-connection'`).run();
-    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10 })).resolves.toEqual([]);
+    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10, rotation: 0 })).resolves.toEqual([]);
     await db.prepare(`UPDATE cloudflare_connections SET connection_generation = 1, status = 'revoked'`).run();
-    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10 })).resolves.toEqual([]);
+    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10, rotation: 0 })).resolves.toEqual([]);
+  });
+
+  it('reads a later page of the outdated runtimes on each sweep, wrapping around to the first', async () => {
+    const db = runtimeDatabase();
+    const current = { runtimeVersion: 'c'.repeat(64), imageDigest: 'image@sha256:current', protocolVersion: 1 };
+    for (const [connectionId, now] of [
+      ['connection-a', 3_000],
+      ['connection-b', 2_000],
+      ['connection-c', 1_000],
+    ] as const) {
+      const userId = `user-of-${connectionId}`;
+      await db
+        .prepare(
+          `INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, 'User', ?, 1, 1, 1)`,
+        )
+        .bind(userId, `${userId}@example.com`)
+        .run();
+      await db
+        .prepare(
+          `INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+           VALUES (?, ?, ?, 'active', 1, 1)`,
+        )
+        .bind(connectionId, userId, `account-${connectionId}`)
+        .run();
+      await upsertUserWorkspaceRuntime({
+        ...runtimeArgs(db, { runtimeVersion: 'a'.repeat(64), now }),
+        userId,
+        connectionId,
+        endpoint: `https://${connectionId}.example`,
+      });
+    }
+    const sweep = async (rotation: number) =>
+      (await listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 2, rotation })).map(
+        ({ connectionId }) => connectionId,
+      );
+
+    await expect(sweep(0)).resolves.toEqual(['connection-a', 'connection-b']);
+    await expect(sweep(1)).resolves.toEqual(['connection-c', 'connection-a']);
+    await expect(sweep(2)).resolves.toEqual(['connection-b', 'connection-c']);
   });
 
   it('does not return an unfinished legacy row', async () => {

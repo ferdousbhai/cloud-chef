@@ -39,6 +39,17 @@ export type GatewayModelId = `${GatewayProviderSlug}/${string}`;
 /** A model the builder can run on: a Workers AI model, or a provider's model when the account has a key. */
 export type BuilderModelId = WorkersAiModelId | GatewayModelId;
 
+/**
+ * The reasoning efforts a person can choose for a model, weakest first, in Pi's vocabulary. "Off" is
+ * never one of them: CloudChef does not turn a reasoning model's reasoning off, and choosing nothing
+ * — "Provider default" — sends no level at all, so the provider applies its own default effort.
+ */
+export const BUILDER_REASONING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+export type BuilderReasoningLevel = (typeof BUILDER_REASONING_LEVELS)[number];
+
+export const builderReasoningLevelSchema = z.enum(BUILDER_REASONING_LEVELS);
+
 export type BuilderModel = {
   id: BuilderModelId;
   label: string;
@@ -47,6 +58,12 @@ export type BuilderModel = {
   requiresPaid: boolean;
   reasoning: boolean;
   vision: boolean;
+  /**
+   * The efforts the person may choose for this model, from Pi's catalog, weakest first. Absent for a
+   * model that does not reason, or one served by a runtime that predates the field: either way the
+   * picker offers no effort control and the provider's default applies.
+   */
+  reasoningLevels?: BuilderReasoningLevel[];
   /**
    * When Cloudflare added this model to the account-visible catalog, as an ISO timestamp. Optional
    * on purpose: a user-owned runtime built before this field existed still serves a valid catalog,
@@ -115,6 +132,7 @@ const builderModelSchema = z.object({
   requiresPaid: z.boolean(),
   reasoning: z.boolean(),
   vision: z.boolean(),
+  reasoningLevels: z.array(builderReasoningLevelSchema).max(BUILDER_REASONING_LEVELS.length).optional(),
   // A runtime that predates this field simply omits it, so an absent value must stay valid.
   createdAt: z.string().min(1).max(64).optional(),
 });
@@ -128,6 +146,19 @@ export type BuilderModelCatalogPayload = {
   defaultModelId: BuilderModelId;
   models: BuilderModel[];
 };
+
+/**
+ * A builder model id as an older CloudChef wrote it. Claude models were briefly named by their bare
+ * Anthropic id (`claude-opus-5-5`) before every gateway provider's models took the provider's slug as
+ * a prefix (`anthropic/claude-opus-5-5`); a preference or an admin's default saved in between names
+ * the same model under the old spelling, so it is read under the new one rather than dropped.
+ */
+export function upgradeLegacyBuilderModelId<T extends string | null | undefined>(value: T): T | GatewayModelId {
+  const legacy = legacyClaudeModelIdSchema.safeParse(value);
+  return legacy.success ? `anthropic/${legacy.data}` : value;
+}
+
+const legacyClaudeModelIdSchema = z.string().regex(/^claude-[a-z0-9][a-z0-9._-]*$/);
 
 export function isWorkersAiModelId(value: string | null | undefined): value is WorkersAiModelId {
   return value !== null && value !== undefined && workersAiModelIdSchema.safeParse(value).success;

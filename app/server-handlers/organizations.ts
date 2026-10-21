@@ -7,11 +7,15 @@ import {
   acceptInvite,
   createInvite,
   createOrganization,
+  deleteOrganizationRecords,
   describeInvite,
   listOrganizations,
   OrganizationError,
+  prepareOrganizationDeletion,
+  renameOrganization,
   requireAdmin,
   revokeInvite,
+  revokeOrganizationConnection,
   updateMember,
 } from '~/lib/cloudflare/data/organizations.server';
 import {
@@ -22,8 +26,7 @@ import {
   listPendingProductionRequests,
 } from '~/lib/cloudflare/data/org-projects.server';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
-import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
-import { workspaceRuntimeNames } from '~/workflows/user-workspace-runtime-provisioning';
+import { deleteTeamWorkspace } from '~/lib/.server/cloudflare/team-workspace';
 
 /**
  * Organizations: an admin connects the organization's Cloudflare account and invites people by email;
@@ -37,12 +40,12 @@ const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\u2028\u2029]/gu;
 const LINK_LIKE = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S*|\S*@\S+|\S*\w\.[a-z]{2,}\S*/gi;
 const SENDER = { email: 'noreply@cloudchef.build', name: 'CloudChef' };
 
-const createSchema = z.strictObject({
-  name: z
-    .string()
-    .transform((name) => name.replace(CONTROL_CHARACTERS, ' ').replace(/\s+/g, ' ').trim())
-    .pipe(z.string().min(1).max(80)),
-});
+/** A team's name: one line, without control characters. */
+const teamNameSchema = z
+  .string()
+  .transform((name) => name.replace(CONTROL_CHARACTERS, ' ').replace(/\s+/g, ' ').trim())
+  .pipe(z.string().min(1).max(80));
+const createSchema = z.strictObject({ name: teamNameSchema });
 const inviteSchema = z.strictObject({
   orgId: z.string().uuid(),
   email: z.email().max(254),
@@ -62,6 +65,8 @@ const memberSchema = z.strictObject({
   deleteWorkspace: z.boolean().default(true),
 });
 const revokeInviteSchema = z.strictObject({ orgId: z.string().uuid(), inviteId: z.string().uuid() });
+const renameSchema = z.strictObject({ orgId: z.string().uuid(), name: teamNameSchema });
+const deleteSchema = z.strictObject({ orgId: z.string().uuid() });
 
 type Handler = (args: { request: Request; env: Env; session: CloudflareAuthSession }) => Promise<Response>;
 
@@ -184,10 +189,17 @@ export async function describeInviteAction({ request, env }: { request: Request;
   if ('response' in body) {
     return body.response;
   }
-  const invite = await describeInvite(env.DB, body.data.token);
-  return invite
-    ? Response.json(invite, { headers: { 'Cache-Control': 'no-store' } })
-    : Response.json({ error: 'This invite has been used or has expired. Ask for a new one.' }, { status: 410 });
+  try {
+    const invite = await describeInvite(env.DB, body.data.token);
+    return invite
+      ? Response.json(invite, { headers: { 'Cache-Control': 'no-store' } })
+      : Response.json({ error: 'This invite has been used or has expired. Ask for a new one.' }, { status: 410 });
+  } catch (error) {
+    if (error instanceof OrganizationError) {
+      return Response.json({ error: error.message, code: error.code }, { status: error.status });
+    }
+    throw error;
+  }
 }
 
 export function acceptInviteAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
@@ -216,11 +228,11 @@ export function acceptInviteAction({ request, env }: { request: Request; env: En
 export function updateMemberAction({
   request,
   env,
-  deleteWorkspace = deleteMemberWorkspace,
+  deleteWorkspace = deleteTeamWorkspace,
 }: {
   request: Request;
   env: Env;
-  deleteWorkspace?: typeof deleteMemberWorkspace;
+  deleteWorkspace?: typeof deleteTeamWorkspace;
 }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const body = await readJsonRequest(request, memberSchema, 'Choose a member and what to do.');
@@ -256,16 +268,75 @@ export function revokeInviteAction({ request, env }: { request: Request; env: En
   });
 }
 
-/** Deletes a person's workspace from an organization's Cloudflare account, with the organization's authorization. */
-async function deleteMemberWorkspace(env: Env, orgId: string, userId: string): Promise<void> {
-  const connection = await findCloudflareConnectionForOrganization(env.DB, orgId);
-  if (connection?.status !== 'active' || !connection.credentialHandle) {
-    throw new Error('The team has no active Cloudflare connection.');
-  }
-  const accessToken = await D1CloudflareCredentialVault.fromEnv(env).resolve(connection.credentialHandle);
-  await new UserCloudflareAccountApi(connection.accountId, accessToken).deleteWorkspaceRuntime(
-    await workspaceRuntimeNames(connection, userId),
-  );
+export function renameOrganizationAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, renameSchema, 'Give the team a name.');
+    if ('response' in body) {
+      return body.response;
+    }
+    await renameOrganization(env.DB, { ...body.data, actorId: session.user.id });
+    return new Response(null, { status: 204 });
+  });
+}
+
+/** Revokes a Cloudflare grant with Cloudflare; false when it could not be (the admin revokes it there). */
+async function revokeCloudflareGrant(env: Env, credentialHandle: string): Promise<boolean> {
+  return D1CloudflareCredentialVault.fromEnv(env).revokeOAuthCredential(credentialHandle);
+}
+
+/**
+ * An admin deleting their team, or its only member leaving it. Each member's workspace (chats and
+ * project files) is deleted from the team's Cloudflare account first, best-effort, while its
+ * authorization still works; then the connection is revoked, CloudChef's grant on the account is
+ * revoked with Cloudflare, and the team's records are deleted, as erasing its last member would.
+ * Apps deployed from those workspaces, and their databases and storage, stay in the account, and so
+ * does CloudChef's GitHub App on the GitHub account it was installed on.
+ */
+export function deleteOrganizationAction({
+  request,
+  env,
+  deleteWorkspace = deleteTeamWorkspace,
+  revokeGrant = revokeCloudflareGrant,
+}: {
+  request: Request;
+  env: Env;
+  deleteWorkspace?: typeof deleteTeamWorkspace;
+  revokeGrant?: typeof revokeCloudflareGrant;
+}): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, deleteSchema, 'Choose a team.');
+    if ('response' in body) {
+      return body.response;
+    }
+    const { orgId } = body.data;
+    const { memberIds } = await prepareOrganizationDeletion(env.DB, { orgId, actorId: session.user.id });
+    const connection = await findCloudflareConnectionForOrganization(env.DB, orgId);
+    let workspacesLeft = 0;
+    if (connection) {
+      for (const userId of memberIds) {
+        // A workspace that can't be deleted (no authorization, Cloudflare unreachable) is reported.
+        const deleted = await deleteWorkspace(env, orgId, userId).then(
+          () => true,
+          () => false,
+        );
+        if (!deleted) {
+          workspacesLeft += 1;
+        }
+      }
+      if (workspacesLeft > 0) {
+        console.error('Unable to delete every workspace of a deleted team');
+      }
+    }
+    const credentialHandle = await revokeOrganizationConnection(env.DB, orgId);
+    const cloudflareAuthorizationRevoked = credentialHandle
+      ? await revokeGrant(env, credentialHandle).catch(() => {
+          console.warn('Unable to revoke the Cloudflare grant of a deleted team');
+          return false;
+        })
+      : true;
+    await deleteOrganizationRecords(env.DB, { orgId, credentialHandle });
+    return Response.json({ deleted: true, workspacesLeft, cloudflareAuthorizationRevoked });
+  });
 }
 
 /** Switches the session to another Cloudflare account the person may build in. */

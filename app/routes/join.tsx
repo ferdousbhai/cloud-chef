@@ -38,6 +38,8 @@ function Join() {
   const [error, setError] = useState<string | null>(token ? null : 'This invite link is incomplete.');
   // What the link is for: the organization, who sent it, and the address it was emailed to.
   const [invite, setInvite] = useState<Invite | 'invalid' | null>(null);
+  // Why the link can't be used, when that's more than "used or expired": its sender lost admin rights.
+  const [lapsedReason, setLapsedReason] = useState<string | null>(null);
   // Refused because CloudChef hasn't proven this account's email yet (it came from a Cloudflare login), though
   // it is the invited address: proving it now, while signed in, keeps it one account instead of starting another.
   const [needsProof, setNeedsProof] = useState(false);
@@ -59,7 +61,14 @@ function Join() {
       body: JSON.stringify({ token }),
     })
       .then(async (response) => {
-        const parsed = inviteSchema.safeParse(await response.json().catch(() => null));
+        const payload: unknown = await response.json().catch(() => null);
+        const parsed = inviteSchema.safeParse(payload);
+        if (!response.ok) {
+          const refusal = errorSchema.safeParse(payload);
+          if (refusal.success && refusal.data.code === 'inviter_not_admin' && refusal.data.error) {
+            setLapsedReason(refusal.data.error);
+          }
+        }
         setInvite(response.ok && parsed.success ? parsed.data : 'invalid');
       })
       .catch(() => setInvite('invalid'));
@@ -125,8 +134,8 @@ function Join() {
     return (
       <JoinCard title="This invite can't be used">
         <p className="app-page-lede">
-          {token ? 'It has been used or has expired.' : 'The link is incomplete.'} Ask the person who invited you to
-          send a new one.
+          {lapsedReason ??
+            `${token ? 'It has been used or has expired.' : 'The link is incomplete.'} Ask the person who invited you to send a new one.`}
         </p>
       </JoinCard>
     );

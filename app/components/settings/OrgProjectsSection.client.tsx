@@ -342,7 +342,12 @@ function ProjectRow({
         </span>
         {confirmingUnlink ? (
           <>
-            <Button size="xs" variant="danger" onClick={unlink}>
+            <Button
+              size="xs"
+              variant="danger"
+              aria-label={`Unlink ${project.name} (the repository stays on GitHub)`}
+              onClick={unlink}
+            >
               Unlink (the repository stays on GitHub)
             </Button>
             <Button size="xs" variant="subtle" onClick={() => setConfirmingUnlink(false)}>
@@ -350,7 +355,12 @@ function ProjectRow({
             </Button>
           </>
         ) : (
-          <Button size="xs" variant="subtle" onClick={() => setConfirmingUnlink(true)}>
+          <Button
+            size="xs"
+            variant="subtle"
+            aria-label={`Unlink ${project.name}`}
+            onClick={() => setConfirmingUnlink(true)}
+          >
             Unlink
           </Button>
         )}
@@ -365,11 +375,16 @@ function ProjectRow({
         </p>
       ) : null}
       {contributors.length > 0 ? (
-        <div className="flex flex-wrap gap-3 text-xs text-content-secondary">
+        <div
+          className="flex flex-wrap gap-3 text-xs text-content-secondary"
+          role="group"
+          aria-label={`Who may work on ${project.name}`}
+        >
           {contributors.map((member) => (
             <label key={member.userId} className="flex min-w-0 items-center gap-1 [overflow-wrap:anywhere]">
               <input
                 type="checkbox"
+                aria-label={`${member.name || member.email} may work on ${project.name}`}
                 checked={saving.get(member.userId) ?? allowed.has(member.userId)}
                 disabled={saving.has(member.userId)}
                 onChange={(event) => void setAccess(member.userId, event.target.checked)}
@@ -470,19 +485,17 @@ function ProductionRequestRow({
           Try the draft
         </a>
       ) : null}
-      {!githubConnected ? (
-        <span className="text-xs text-content-tertiary">Connect GitHub to approve it into a repository.</span>
-      ) : declining ? (
+      {declining ? (
         <div className="flex flex-wrap items-center gap-2">
           <TextInput
             maxLength={1_000}
             placeholder="Why, for them (optional)"
-            aria-label="Note to the requester"
+            aria-label={`Note to ${pending.requesterName || pending.requesterEmail} about ${pending.title}`}
             value={decisionNote}
             onChange={(event) => setDecisionNote(event.target.value)}
             className="min-w-0 flex-1"
           />
-          <Button size="xs" variant="danger" onClick={decline}>
+          <Button size="xs" variant="danger" aria-label={`Decline ${pending.title}`} onClick={decline}>
             Decline request
           </Button>
           <Button size="xs" variant="subtle" onClick={() => setDeclining(false)}>
@@ -491,27 +504,53 @@ function ProductionRequestRow({
         </div>
       ) : (
         <>
+          {/* Approving needs GitHub to create the repository; declining never does. */}
+          {githubConnected ? null : (
+            <span className="text-xs text-content-tertiary">Connect GitHub to approve it into a repository.</span>
+          )}
           <div className="flex flex-wrap items-center gap-2">
-            <TextInput
-              aria-label="Repository name"
-              aria-invalid={!validName}
-              aria-describedby={validName ? undefined : hintId}
-              value={repoName}
-              onChange={(event) => setRepoName(event.target.value)}
-              className="min-w-0 flex-1"
-            />
-            <label className="flex items-center gap-1 text-xs">
-              <input type="checkbox" checked={privateRepo} onChange={(event) => setPrivateRepo(event.target.checked)} />
-              Private
-            </label>
-            <Button size="xs" variant="primary" disabled={!validName} loading={approving} onClick={approve}>
-              Approve and create repository
-            </Button>
-            <Button size="xs" variant="subtle" disabled={approving} onClick={() => setDeclining(true)}>
+            {githubConnected ? (
+              <>
+                <TextInput
+                  aria-label={`Repository name for ${pending.title}`}
+                  aria-invalid={!validName}
+                  aria-describedby={validName ? undefined : hintId}
+                  value={repoName}
+                  onChange={(event) => setRepoName(event.target.value)}
+                  className="min-w-0 flex-1"
+                />
+                <label className="flex items-center gap-1 text-xs">
+                  <input
+                    type="checkbox"
+                    aria-label={`Private repository for ${pending.title}`}
+                    checked={privateRepo}
+                    onChange={(event) => setPrivateRepo(event.target.checked)}
+                  />
+                  Private
+                </label>
+                <Button
+                  size="xs"
+                  variant="primary"
+                  disabled={!validName}
+                  loading={approving}
+                  aria-label={`Approve ${pending.title} and create its repository`}
+                  onClick={approve}
+                >
+                  Approve and create repository
+                </Button>
+              </>
+            ) : null}
+            <Button
+              size="xs"
+              variant="subtle"
+              disabled={approving}
+              aria-label={`Decline ${pending.title}`}
+              onClick={() => setDeclining(true)}
+            >
               Decline
             </Button>
           </div>
-          {validName ? null : (
+          {!githubConnected || validName ? null : (
             <span id={hintId} className="text-xs text-bolt-elements-icon-error">
               Use up to 100 letters, digits, dots, dashes or underscores.
             </span>

@@ -48,3 +48,27 @@ export async function claimUserWorkspaceRuntimeUpgradeWindow(args: {
   }
   return claim.data.granted ? { status: 'granted' } : { status: 'busy', busy: claim.data.busy };
 }
+
+/**
+ * Keep the claimed window open (`hold`) while the upgrade rolls out the container image and waits for
+ * the new runtime, or close it (`release`) once that runtime serves. Asked of the runtime just deployed,
+ * which has these routes; any failure throws, for the Workflow step to retry.
+ */
+export async function changeUserWorkspaceRuntimeUpgradeWindow(args: {
+  change: 'hold' | 'release';
+  endpoint: string;
+  controlPlaneSecret: string;
+  targetVersion: string;
+  request?: typeof fetch;
+}): Promise<void> {
+  const response = await (args.request ?? fetch)(new URL('/v1/upgrade-window', args.endpoint), {
+    method: args.change === 'hold' ? 'PUT' : 'DELETE',
+    headers: { authorization: `Bearer ${args.controlPlaneSecret}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ targetVersion: args.targetVersion }),
+    signal: AbortSignal.timeout(UPGRADE_WINDOW_TIMEOUT_MS),
+  });
+  await response.body?.cancel().catch(() => undefined);
+  if (!response.ok) {
+    throw new Error(`The workspace runtime could not ${args.change} its upgrade window (HTTP ${response.status}).`);
+  }
+}

@@ -1,4 +1,5 @@
 import type { Api, Model } from '@earendil-works/pi-ai';
+import { getSupportedThinkingLevels } from '@earendil-works/pi-ai/models';
 import { CLOUDFLARE_AI_GATEWAY_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-ai-gateway.models';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { OPENROUTER_MODELS } from '@earendil-works/pi-ai/providers/openrouter.models';
@@ -10,6 +11,7 @@ import {
   isWorkersAiModelId,
   MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS,
   type BuilderModel,
+  type BuilderReasoningLevel,
   type GatewayProviderSlug,
 } from '~/lib/workers-ai-model';
 
@@ -60,11 +62,51 @@ type PiGatewayModel = {
   builderModel: BuilderModel;
 };
 
+/**
+ * The efforts a person may choose for a model: the levels Pi's catalog says the model supports, in
+ * Pi's order, without "off" — CloudChef never offers turning reasoning off — and without "minimal"
+ * unless the model maps it to a value of its own (on the rest Pi folds it into "low", so it would only
+ * repeat that row). Undefined for a model that does not reason.
+ */
+function builderReasoningLevels(model: Model<Api>): BuilderReasoningLevel[] | undefined {
+  if (!model.reasoning) {
+    return undefined;
+  }
+  const levels = getSupportedThinkingLevels(model).filter(
+    (level): level is BuilderReasoningLevel =>
+      level !== 'off' && (level !== 'minimal' || (model.thinkingLevelMap?.minimal ?? null) !== null),
+  );
+  return levels.length > 0 ? levels : undefined;
+}
+
 function chatModels(catalog: Readonly<Record<string, PiCatalogModel>>, api: Api): Map<string, PiCatalogModel> {
   return new Map(Object.values(catalog).flatMap((model) => (model.api === api ? [[model.id, model] as const] : [])));
 }
 
 const WORKERS_AI_CATALOG = chatModels(CLOUDFLARE_WORKERS_AI_MODELS, 'openai-completions');
+
+/**
+ * Entries Pi lists as chat models that cannot drive a build, by what their ids say they are. Pi's
+ * catalog records input modalities but not output ones, and nothing about routing or batch-only
+ * serving, so these are matched on the id — each row a kind of model, never a single model, so a new
+ * entry of the same kind is excluded without an edit here.
+ */
+const NON_BUILDER_MODEL_KINDS: readonly { kind: string; id: RegExp }[] = [
+  // Served only through OpenRouter's asynchronous batch API: a streamed builder request never completes.
+  { kind: 'batch-only variant', id: /:batch$/ },
+  // OpenRouter's routers choose a different model per request, so no window, tool protocol, or
+  // reasoning setting holds from one step of a turn to the next.
+  { kind: 'model router', id: /^openrouter\// },
+  // Their output is speech or pictures, not the text and tool calls a build is made of.
+  { kind: 'audio or image model', id: /(^|[/-])(audio|image|tts|realtime)(-|$)/ },
+  { kind: 'search-only model', id: /(^|[/-])search(-|$)/ },
+  { kind: 'safety classifier', id: /safeguard/ },
+];
+
+/** Whether Pi's entry is a model a builder can be driven with, by its kind. */
+function isBuilderCapableKind(piModelId: string): boolean {
+  return !NON_BUILDER_MODEL_KINDS.some(({ id }) => id.test(piModelId));
+}
 
 function gatewayApi(api: Api): GatewayApi | null {
   return GATEWAY_APIS.find((candidate) => candidate === api) ?? null;
@@ -87,6 +129,7 @@ function gatewayCatalog(): Map<string, PiGatewayModel> {
           api === null ||
           !piModel.baseUrl.startsWith(upstreamBaseUrl) ||
           piModel.contextWindow < MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS ||
+          !isBuilderCapableKind(piModel.id) ||
           !isBuilderModelId(id) ||
           catalog.has(id)
         ) {
@@ -105,12 +148,19 @@ function gatewayCatalog(): Map<string, PiGatewayModel> {
             requiresPaid: false,
             reasoning: piModel.reasoning,
             vision: piModel.input.includes('image'),
+            ...withReasoningLevels(piModel),
           },
         });
       }
     }
   }
   return catalog;
+}
+
+/** The `reasoningLevels` field for a builder model, present only when there are levels to offer. */
+export function withReasoningLevels(model: Model<Api>): Pick<BuilderModel, 'reasoningLevels'> {
+  const reasoningLevels = builderReasoningLevels(model);
+  return reasoningLevels ? { reasoningLevels } : {};
 }
 
 const GATEWAY_CATALOG = gatewayCatalog();

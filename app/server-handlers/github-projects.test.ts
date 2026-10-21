@@ -242,6 +242,41 @@ describe('GitHub projects', () => {
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM github_installations').first()).toEqual({ n: 0 });
   });
 
+  it("reports changing the installation's repositories as done, and records nothing for another installation", async () => {
+    const { env, orgId, admin, app } = await setup();
+    await install(env, app, admin.cookie, orgId);
+    const changeRepositories = async (installationId: number) => {
+      const started = await startGitHubInstallAction({
+        request: post(admin.cookie, '/api/organizations/github/start', { orgId }),
+        env: envWith({
+          ...env,
+          GITHUB_APP_CLIENT_ID: 'Iv1.test',
+          GITHUB_APP_CLIENT_SECRET: 'secret',
+          GITHUB_APP_PRIVATE_KEY: 'unused',
+          GITHUB_APP_SLUG: 'cloudchef',
+        }),
+      });
+      const state = /cloudchef_github_state=([^;]+)/.exec(started.headers.get('set-cookie') ?? '')?.[1] ?? '';
+      // GitHub returns from "Configure" with no authorization code.
+      return completeGitHubInstallAction({
+        request: new Request(
+          `${ORIGIN}/github/return?installation_id=${installationId}&setup_action=update&state=${state}`,
+          { headers: { cookie: `${admin.cookie}; cloudchef_github_state=${state}` } },
+        ),
+        env,
+        app,
+      });
+    };
+
+    expect(githubMessage(await changeRepositories(INSTALLATION_ID))).toBe(
+      'Updated which repositories CloudChef can reach on GitHub.',
+    );
+    expect(githubMessage(await changeRepositories(INSTALLATION_ID + 1))).toMatch(/cancelled/);
+    expect(await env.DB.prepare('SELECT installation_id FROM github_installations').all()).toMatchObject({
+      results: [{ installation_id: INSTALLATION_ID }],
+    });
+  });
+
   it("refuses an installation the admin can see but doesn't own", async () => {
     const { env, orgId, admin } = await setup();
     const { pem } = await pkcs8Pem();

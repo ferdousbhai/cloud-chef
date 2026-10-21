@@ -48,18 +48,27 @@ provisioning Workflow in the background; the browser shows no preparation. A mis
 connection generation, or one speaking another protocol is prepared before a session is issued, as before.
 
 The runtime is the source of truth for whether it is busy, since a turn keeps running with no tab open. Every
-`BuilderAgent` records in the runtime's D1 (`runtime_activity`) whether it is running a turn, validation, preview or
-production publication, or approved Cloudflare request, and for two minutes after it stops. Before redeploying, the
-Workflow asks the runtime, with its secret, for the upgrade window (`POST /v1/upgrade-window`): one statement grants
-it only when no row is active. Work that starts records itself first and then waits out a window claimed for another
-version, so it starts on the new Worker rather than being cut off on the old one. A busy workspace is asked again
-with backoff (30 seconds doubling to 5 minutes); after 12 hours the Workflow ends without upgrading, and the next
-session request, or the next sweep, starts another.
+`BuilderAgent` records in the runtime's D1 (`runtime_activity`) whether it is working, and for two minutes after it
+stops. Its turn (and the validation it runs) counts from its state; a preview or production publication, an
+approved Cloudflare request, a GitHub build watch, and seeding a new workspace count while their work actually runs
+(`BuilderRuntimeActivity.run` in `app/agents/builder-runtime-activity.ts`), never from the preview or deployment
+records in state, which an editor save or a cancellation rewrites while that work continues. Before redeploying,
+the Workflow asks the runtime, with its secret, for the upgrade window (`POST /v1/upgrade-window`): one statement
+grants it only when no row is active. It then redeploys the Worker, configures it, rolls out the container image,
+and waits for the new runtime to be ready, renewing the window on the new runtime (`PUT`) throughout, and releases
+it (`DELETE`) once the runtime serves; the rollout replaces running containers at once, so nothing may start before
+it completes. Each of these is its own Workflow step, so a retry never claims the window again or redeploys. Work
+that starts records itself first and then waits while any window is open, on the old Worker or the new one; a
+window lapses five minutes after its last renewal, which bounds the wait when an upgrade stops partway. Work that
+cannot record itself or read the window retries for a minute before it starts anyway. A busy workspace is asked
+again with backoff (30 seconds doubling to 5 minutes); after 12 hours the Workflow ends without upgrading, and the
+next session request, or the next sweep, starts another.
 
 A runtime whose owner does not come back would otherwise stay on an old release, and a failed upgrade would stay
 failed until the browser's explicit retry. The control plane's 15-minute cron therefore also sweeps
 (`app/lib/.server/cloudflare/user-workspace-runtime-upgrade-sweep.ts`): it lists ready runtimes that are outdated but
-still serve their connection's generation and protocol, most recently used first, skips anyone who may no longer use
+still serve their connection's generation and protocol, most recently used first and a further page of them on each
+sweep (so a page of upgrades all still waiting never keeps it from the rest), skips anyone who may no longer use
 the connection, and starts or restarts the same gated Workflow instance a session request would name, at most 10
 per sweep. An upgrade still waiting is left alone; one that gave up waiting is restarted; one that failed is
 restarted on one sweep in four, so at most hourly. First-time provisioning never goes through the sweep: it lists only
@@ -163,15 +172,27 @@ recording the commit and each file's hash. The runtime never holds a GitHub toke
 calls are authenticated like the credential broker and re-check the member's access to the project, and that the
 project belongs to the organization the runtime runs for (`app/server-handlers/runtime-github.ts`). Validation runs the
 repository's own `typecheck`, `lint`, `test`, and `build` scripts. The agent's `publish_preview` commits the workspace's
-changes, one commit on top of the commit it was opened from, to the member's own branch, and `publish` also merges
-that branch into the default branch; the repository's own pipeline (Workers Builds) previews and deploys, and its check
-runs report the build and the preview link. The template's automatic hosted preview and deployment don't run for these
-workspaces.
+changes, one commit on top of the commit it was opened from, to the conversation's own branch
+(`cloudchef/<member>-<key>`, the key kept with the workspace's link), and `publish` also merges that branch into the
+default branch; the repository's own pipeline (Workers Builds) previews and deploys, and its check runs report the build
+and the preview link. A subchat gets its own key, since its parent can go on working; a new conversation keeps the
+one it continues, which no longer writes. A workspace keeps GitHub's file modes, so an executable bit changed alone is
+committed. Once the commit is on GitHub there's no taking it back: a Stop or the tool's deadline calls a publish off
+only before it, and after it the real result lands in place of the stopped call's error. The template's automatic
+hosted preview and deployment don't run for these workspaces.
+
+A project has one current conversation per member. Starting a new one archives the current one (kept to read): its
+agent refuses new turns, steering, saves, approvals and publishing, its running turn is stopped, and the new
+conversation copies its workspace and link only once it has settled. Removing the current conversation makes the
+latest archived one current again.
 
 A publish returns as soon as its commit is on GitHub. The pipeline takes minutes, so a durable fiber watches its check
 runs (`app/agents/linked-project-build.ts`) and, once the turn that published has ended, puts the result and preview
-link in place of that publish's output, as an approved Cloudflare request's result lands: the person sees the card
-update, and the next turn reads it. CloudChef does not serve its own instant preview of these workspaces: their builds,
+link in place of that publish's output, as an approved Cloudflare request's result lands: the person sees the card and
+the status above the composer update (`app/lib/common/linked-publish.ts` reads them from the output's data, never from
+the summary written for the model), and the next turn reads it. Workers Builds' own check runs decide once it has
+posted one; until then, for a few minutes, other checks finishing don't count as the build. Any finished run that did
+not pass (cancelled, timed out, waiting for an action) fails it. CloudChef does not serve its own instant preview of these workspaces: their builds,
 Worker names, and bindings (D1, R2, and more, under any names) are the repository's own, and CloudChef's hosted preview
 deploys only its starter apps' configuration, rebuilt from trusted inputs; a member limited to GitHub projects has no
 Cloudflare token for it anyway.
@@ -179,7 +200,7 @@ Cloudflare token for it anyway.
 The agent's `fetch_site` reads the project's live site, its pages and the JSON they load, which is where a site's copy
 from its database or CMS shows. It reaches only the https origins the control plane reports for the repository
 (`/api/cloudflare/runtime-github/site`): the website set on GitHub and the links its pipeline posted for the default
-branch and the member's branch, never an address the workspace names. It sends only GETs, follows redirects only
+branch and the conversation's branch, never an address the workspace names. It sends only GETs, follows redirects only
 within those origins, and reads at most 2 MB of a text response. There is no database tool: a database's identity
 would come from the workspace's own configuration, D1 has no read-only query mode, and a member limited to GitHub
 projects holds no Cloudflare token.
@@ -264,11 +285,14 @@ stall or inject into the container. Both tools are bounded in the spirit of Comp
 `truncated` so the model narrows the path or the pattern instead of paging blindly. A recursive walk shows
 `node_modules` and build output but does not descend into them, unless one of them is the requested path; that is how
 the model still reads the framework version the project installed.
-Reference guidance is retrieved rather than mirrored. Cloudflare's own documentation is searched live through the
+Reference guidance is mostly retrieved rather than mirrored. Cloudflare's documentation is searched live through the
 `search_cloudflare_docs` tool, one stateless request to the public `docs.mcp.cloudflare.com` endpoint that returns
 ranked excerpts with their source URLs; a full page is read by appending `/index.md` to any documentation URL.
 Framework references are read from the packages the project itself installed, so they always match the version it
-builds against. The one skill CloudChef maintains ships in this repository and is bundled into the Worker, exposed
+builds against. The builder's skills (`app/lib/.server/llm/builder-skills.ts`) are bundled into the Worker: CloudChef's
+own `project-stack`, which covers only what is specific to its starter app, and Cloudflare's official skills, vendored
+from github.com/cloudflare/skills at a pinned commit into `app/lib/.server/llm/skills/cloudflare-skills.vendored.ts`
+by `pnpm run skills:sync`, so they stay Cloudflare's current guidance rather than a hand-written copy. They are exposed
 through the existing `read` tool under `/__skills__/<skill>/`; no activation or separate resource-reader tool is
 added. That namespace is a read-only control-plane overlay: it never enters the project VFS, revision, or deployment
 artifact, project files cannot shadow it, and it never appears in `ls` or `grep`, which are asked only about the
@@ -303,7 +327,9 @@ Tool-call arguments stream to the browser as the model produces them. `exec` add
 stdout/stderr updates while retaining only a bounded final tail for the model; completion still waits for the Container's
 filesystem pull to become durable. The Pi loop enforces a total turn limit, a model-stream inactivity limit, and a first-progress
 deadline against a hung provider stream; there is no model-step ceiling. Each tool has a deadline against a hung
-operation, and a tool stopped by it is an ordinary failed result the model acts on, not the end of the turn. A cancellation requested before a Container process handle exists is retained and applied
+operation, and a tool stopped by it is an ordinary failed result the model acts on, not the end of the turn. A tool that
+completes as its deadline passes reports what it did; one that has not settled a minute after being stopped ends its
+call with an outcome reported as unknown, since the turn's inactivity watchdog is paused while a tool runs. A cancellation requested before a Container process handle exists is retained and applied
 as soon as that handle becomes available. Approved `pnpm add <packages>` and `pnpm install --lockfile-only` commands route to
 the reviewed dependency installer rather than an unrestricted package-manager shell. The model decides when to run the full
 validation and what to tell the user; the runtime neither validates on its behalf nor writes its final message.
@@ -311,7 +337,16 @@ Production deployment is not a model capability: when a turn that changed a Clou
 publishes the hosted preview and then admits a durable deployment fiber that runs one authenticated, idempotent server
 operation. Each builds the exact revision it was asked for (reusing a validation of that revision when the model
 already ran one), prepares the exact-revision plan, and executes it in the user's account. A failed build or
-deployment is shown to the user and told to the model at the start of its next turn. The browser can request a retry but is not responsible for starting deployment. Preview and deployment use
+deployment is shown to the user and told to the model at the start of its next turn. The browser can request a retry but is not responsible for starting deployment.
+A turn that changes the app, however it ends, durably records that production must catch up (`publicationPending`),
+and only production serving the current revision (`productionRevision`) clears it, so a publication cut short is
+redone: at the next turn's end, even one that changed nothing, and when a restarted agent starts. No automatic
+publication starts while a turn runs, since it holds the workspace's operation lane. The person's next message stops
+the one in flight: a preview at its next step, a deployment until just before its migrations and upload (past that it
+finishes, since stopping would leave production half changed), and a stopped preview never deploys. A deployment that
+failed for a reason that passes (a busy workspace, another deployment of the project, an interruption, an unreachable
+credential broker) is retried after 30 seconds, 2 minutes, and 8 minutes; a failed build waits for the next turn. A
+project deploys one revision at a time; a person's projects deploy independently. Preview and deployment use
 checkpoints from the same VFS, so a publication never ships a revision other than the one it was asked for.
 
 ## Preview Boundary

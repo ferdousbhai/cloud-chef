@@ -15,6 +15,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -31,6 +32,17 @@ const RUNTIME_SHA_PATTERN = /USER_WORKSPACE_RUNTIME_SHA256 = "([a-f0-9]{64})"/;
 const WORKERS_AI_MODEL_PATH = resolve(ROOT, 'app/lib/workers-ai-model.ts');
 const PINNED_BUILDER_MODEL_PATTERN = /CLOUDFLARE_WORKERS_AI_MODEL = '(@cf\/[^']+)'/;
 const BUILDER_CONTEXT_FLOOR_PATTERN = /MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS = ([\d_]+)/;
+/**
+ * The Workers AI models Pi lists as chat models, from the same Pi catalog the runtime filters on
+ * (`app/lib/.server/llm/pi-model-catalog.ts`): a model Pi does not list is never offered, since
+ * CloudChef would have to guess its request shape, so it is never a candidate here either.
+ * @type {ReadonlySet<string>}
+ */
+export const PI_WORKERS_AI_MODEL_IDS = new Set(
+  Object.values(CLOUDFLARE_WORKERS_AI_MODELS).flatMap((model) =>
+    model.api === 'openai-completions' ? [model.id] : [],
+  ),
+);
 /** One page covers the Workers AI text-generation catalog with room to spare. */
 const MODEL_CATALOG_PAGE_SIZE = 100;
 
@@ -563,28 +575,36 @@ function catalogPublishedTime(entry) {
 }
 
 /**
- * Whether the pinned builder model is still the one to run.
+ * Whether the pinned platform default builder model is still the one to run.
  *
- * The filter below is the same one `readWorkersAiBuilderModelCatalog` applies — native source,
- * text generation, function calling, and a window at or above the builder's floor — because that
- * is now the whole of what makes a model a failover candidate. What this report deliberately does
- * not reproduce is the *ordering* beneath the pin, which is a human judgement about which families
- * have been run end to end rather than a property test. So these are candidates worth a reference
- * build before re-pinning, not a prediction of what the runtime would choose.
+ * The pin (`CLOUDFLARE_WORKERS_AI_MODEL`) is the default for every account whose admin has not
+ * chosen its own (`cloudflare_connections.default_builder_model`); a provider model an account runs
+ * with its own key on its AI Gateway is that account's choice, not this check's concern. The filter
+ * below is the one `readWorkersAiBuilderModelCatalog` applies — native source, text generation,
+ * function calling, a window at or above the builder's floor, and listed in Pi's
+ * `cloudflare-workers-ai` catalog — because that is the whole of what makes a Workers AI model one
+ * the runtime offers. What this report deliberately does not reproduce is a ranking: candidates
+ * are worth a reference build before re-pinning, not a prediction of what anyone should choose.
+ *
+ * @param {ReadonlySet<string>} [piModelIds] the Workers AI models Pi lists
  */
-export function describeBuilderModel(catalog, pin) {
+export function describeBuilderModel(catalog, pin, piModelIds = PI_WORKERS_AI_MODEL_IDS) {
   const usable = catalog.filter(
     (entry) =>
       entry.source === 1 &&
       entry.task?.name === 'Text Generation' &&
+      piModelIds.has(entry.name) &&
       catalogProperty(entry, 'function_calling') === 'true' &&
       Number(catalogProperty(entry, 'context_window')) >= pin.minimumContextTokens,
   );
   const pinned = usable.find((entry) => entry.name === pin.id);
   if (!pinned) {
+    const reason = piModelIds.has(pin.id)
+      ? "is no longer listed as builder-capable in this account's Workers AI catalog"
+      : "is not listed in Pi's Workers AI catalog";
     return {
       level: 'error',
-      sentence: `The pinned builder model ${bounded(pin.id, 120)} is no longer listed in this account's Workers AI catalog, so every build is running on the failover model instead of the reviewed one.`,
+      sentence: `The pinned default builder model ${bounded(pin.id, 120)} ${reason}, so every account without its own default model is building on the first model the runtime offers instead of the reviewed one.`,
       detail: { pinned: pin.id, listed: false, candidates: [] },
     };
   }
@@ -597,10 +617,10 @@ export function describeBuilderModel(catalog, pin) {
           .filter((entry) => entry.name !== pin.id && catalogPublishedTime(entry) > pinnedPublished)
           .map((entry) => entry.name);
   let level = 'ok';
-  let sentence = `The pinned builder model ${bounded(pin.id, 120)} is current; nothing newer has been published to this account's catalog.`;
+  let sentence = `The pinned default builder model ${bounded(pin.id, 120)} is current; no newer builder-capable Workers AI model that Pi lists has been published to this account's catalog.`;
   if (candidates.length > 0) {
     level = 'attention';
-    sentence = `${candidates.length} builder-capable ${plural(candidates.length, 'model')} published since the pinned ${bounded(pin.id, 120)}: ${bounded(candidates.join(', '), 400)}. Worth a reference build before re-pinning; this report ranks nothing, so being listed here is not a recommendation.`;
+    sentence = `${candidates.length} builder-capable Workers AI ${plural(candidates.length, 'model')} that Pi lists published since the pinned default ${bounded(pin.id, 120)}: ${bounded(candidates.join(', '), 400)}. Worth a reference build before re-pinning; this report ranks nothing, so being listed here is not a recommendation.`;
   }
   return { level, sentence, detail: { pinned: pin.id, listed: true, candidates } };
 }

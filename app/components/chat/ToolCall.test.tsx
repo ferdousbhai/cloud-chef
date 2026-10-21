@@ -220,18 +220,39 @@ describe('ToolCall', () => {
     expect(container.textContent).toContain('Stopped before this tool returned a result.');
     expect(container.textContent).toContain('Validation stopped');
   });
-  it('titles a failed publish as a failure, and links what the pipeline reported instead of dumping it', async () => {
+  it('titles a publish by what reached GitHub, and links what the pipeline reported instead of dumping it', async () => {
     const failed: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'output-available',
       toolCallId: 'publish-1',
       toolName: 'publish',
       input: { message: 'Update the hero' },
-      output: { version: 1, ok: false, summary: 'Run validate on the current changes first.' },
+      output: { version: 1, ok: false, summary: 'Nothing has changed since this workspace was opened.' },
     };
     await act(async () => root.render(<ToolCall partId={makePartId('message-8', 0)} invocation={failed} />));
-    expect(container.textContent).toContain('Publishing failed');
-    expect(container.textContent).not.toContain('Published to GitHub');
+    expect(container.textContent).toContain('Not published');
+
+    const deployFailed: CloudChefToolInvocation = {
+      ...failed,
+      toolCallId: 'publish-3',
+      output: {
+        version: 1,
+        ok: false,
+        summary: "Committed merged into main, but the pipeline's build failed.",
+        data: {
+          branch: 'cloudchef/sara',
+          commit: 'c'.repeat(40),
+          live: true,
+          build: 'failure',
+          previewUrl: null,
+          detailsUrl: 'https://dash.cloudflare.com/builds/1',
+          defaultBranch: 'main',
+        },
+      },
+    };
+    await act(async () => root.render(<ToolCall partId={makePartId('message-13', 0)} invocation={deployFailed} />));
+    expect(container.textContent).toContain('Merged into main; deploy failed');
+    expect(container.textContent).not.toContain('Not published');
 
     const sent: CloudChefToolInvocation = {
       type: 'dynamic-tool',
@@ -242,9 +263,12 @@ describe('ToolCall', () => {
       output: {
         version: 1,
         ok: true,
-        summary: 'Committed on the branch cloudchef/sara; the pipeline built it.',
+        summary: 'Committed on the branch cloudchef/sara; the pipeline built it. Tell the user.',
         data: {
+          branch: 'cloudchef/sara',
           commit: 'c'.repeat(40),
+          live: false,
+          build: 'success',
           previewUrl: 'https://cloudchef-ada-site.ada.workers.dev',
           detailsUrl: 'javascript:alert(1)',
         },
@@ -252,10 +276,11 @@ describe('ToolCall', () => {
     };
     await act(async () => root.render(<ToolCall partId={makePartId('message-9', 0)} invocation={sent} />));
     await act(async () => container.querySelector('button')?.click());
-    expect(container.textContent).toContain('Sent a preview to GitHub');
+    expect(container.textContent).toContain('Preview ready on cloudchef/sara');
     const links = [...container.querySelectorAll('a')].map((link) => [link.textContent, link.getAttribute('href')]);
     expect(links).toEqual([['Open the preview', 'https://cloudchef-ada-site.ada.workers.dev']]);
     expect(container.textContent).not.toContain('"commit"');
+    expect(container.textContent).not.toContain('Tell the user');
   });
 
   it('shows a GitHub preview as building until its pipeline result lands, and names the site page it read', async () => {
@@ -268,21 +293,46 @@ describe('ToolCall', () => {
       output: {
         version: 1,
         ok: true,
-        summary: "Committed on the branch cloudchef/sara. The repository's pipeline is building it now.",
-        data: { commit: 'c'.repeat(40), build: 'pending', previewUrl: null, detailsUrl: null },
+        summary: "Committed on the branch cloudchef/sara. Don't wait or poll for it.",
+        data: {
+          branch: 'cloudchef/sara',
+          commit: 'c'.repeat(40),
+          live: false,
+          build: 'pending',
+          previewUrl: null,
+          detailsUrl: null,
+          startedAt: Date.now(),
+        },
       },
     };
     await act(async () => root.render(<ToolCall partId={makePartId('message-10', 0)} invocation={building} />));
-    expect(container.textContent).toContain('Preview building on GitHub');
-    expect(container.textContent).not.toContain('Sent a preview to GitHub');
+    expect(container.textContent).toContain('Building a preview of cloudchef/sara');
+    expect(container.querySelector('.text-bolt-elements-icon-success')).toBeNull();
+    await act(async () => container.querySelector('button')?.click());
+    expect(container.textContent).not.toContain("Don't wait or poll");
 
     const live: CloudChefToolInvocation = {
       ...building,
       toolName: 'publish',
       toolCallId: 'publish-2',
+      output: {
+        version: 1,
+        ok: true,
+        summary: 'Committed.',
+        data: {
+          branch: 'cloudchef/sara',
+          commit: 'c'.repeat(40),
+          live: true,
+          build: 'pending',
+          previewUrl: null,
+          detailsUrl: null,
+          startedAt: Date.now(),
+          defaultBranch: 'main',
+        },
+      },
     };
     await act(async () => root.render(<ToolCall partId={makePartId('message-11', 0)} invocation={live} />));
-    expect(container.textContent).toContain('Published to GitHub, deploying');
+    expect(container.textContent).toContain('Merged into main; deploying');
 
     const read: CloudChefToolInvocation = {
       type: 'dynamic-tool',
@@ -294,5 +344,125 @@ describe('ToolCall', () => {
     };
     await act(async () => root.render(<ToolCall partId={makePartId('message-12', 0)} invocation={read} />));
     expect(container.textContent).toContain('Read example.com/about');
+  });
+
+  it('stops spinning on a GitHub build CloudChef no longer follows', async () => {
+    const stale: CloudChefToolInvocation = {
+      type: 'dynamic-tool',
+      state: 'output-available',
+      toolCallId: 'publish-preview-3',
+      toolName: 'publish_preview',
+      input: { message: 'Update the hero' },
+      output: {
+        version: 1,
+        ok: true,
+        summary: 'Committed.',
+        data: {
+          branch: 'cloudchef/sara',
+          commit: 'c'.repeat(40),
+          live: false,
+          build: 'pending',
+          previewUrl: null,
+          detailsUrl: null,
+          startedAt: Date.now() - 5 * 60 * 60_000,
+        },
+      },
+    };
+    await act(async () => root.render(<ToolCall partId={makePartId('message-14', 0)} invocation={stale} />));
+    expect(container.textContent).toContain('Committed to cloudchef/sara');
+    expect(container.textContent).not.toContain('Building');
+  });
+
+  it('titles a failed validation as failed, with no success check', async () => {
+    const invocation: CloudChefToolInvocation = {
+      type: 'dynamic-tool',
+      state: 'output-available',
+      toolCallId: 'validate-3',
+      toolName: 'validate',
+      input: {},
+      output: { validation: { version: 1, ok: false, summary: 'Lint failed.' } },
+    };
+    await act(async () => root.render(<ToolCall partId={makePartId('message-15', 0)} invocation={invocation} />));
+    expect(container.textContent).toContain('Validation failed');
+    expect(container.textContent).not.toContain('Validated the project');
+    expect(container.querySelector('.text-bolt-elements-icon-success')).toBeNull();
+  });
+
+  it('shows listings, searches, and history as readable rows, not JSON', async () => {
+    const listing: CloudChefToolInvocation = {
+      type: 'dynamic-tool',
+      state: 'output-available',
+      toolCallId: 'ls-1',
+      toolName: 'ls',
+      input: { path: '/home/project/src' },
+      output: {
+        path: '/home/project/src',
+        recursive: false,
+        entries: [
+          { path: '/home/project/src/routes', type: 'dir' },
+          { path: '/home/project/src/main.tsx', type: 'file' },
+        ],
+        entryCount: 2,
+        truncated: false,
+        revision: 3,
+      },
+    };
+    await act(async () => root.render(<ToolCall partId={makePartId('message-16', 0)} invocation={listing} />));
+    await act(async () => container.querySelector('button')?.click());
+    expect(container.textContent).toContain('src/routes/');
+    expect(container.textContent).toContain('src/main.tsx');
+    expect(container.textContent).not.toContain('"entries"');
+
+    const search: CloudChefToolInvocation = {
+      type: 'dynamic-tool',
+      state: 'output-available',
+      toolCallId: 'grep-1',
+      toolName: 'grep',
+      input: { pattern: 'hero' },
+      output: {
+        pattern: 'hero',
+        path: '/home/project',
+        matches: [{ path: '/home/project/src/main.tsx', line: 12, text: '  const hero = 1;' }],
+        matchCount: 1,
+        filesScanned: 4,
+        filesSkipped: 0,
+        truncated: false,
+        revision: 3,
+      },
+    };
+    await act(async () => root.render(<ToolCall partId={makePartId('message-17', 0)} invocation={search} />));
+    await act(async () => container.querySelector('button')?.click());
+    expect(container.textContent).toContain('src/main.tsx:12');
+    expect(container.textContent).not.toContain('"matches"');
+
+    const history: CloudChefToolInvocation = {
+      type: 'dynamic-tool',
+      state: 'output-available',
+      toolCallId: 'history-1',
+      toolName: 'history',
+      input: { op: 'search', query: 'pricing page' },
+      output: {
+        totalMatches: 1,
+        nextOffset: null,
+        entries: [{ id: 'live-1', role: 'user', excerpt: 'Add a pricing page' }],
+      },
+    };
+    await act(async () => root.render(<ToolCall partId={makePartId('message-18', 0)} invocation={history} />));
+    await act(async () => container.querySelector('button')?.click());
+    expect(container.textContent).toContain('Searched the conversation for pricing page');
+    expect(container.textContent).toContain('1 earlier message matched.');
+    expect(container.textContent).not.toContain('"totalMatches"');
+
+    const handoff: CloudChefToolInvocation = {
+      type: 'dynamic-tool',
+      state: 'output-available',
+      toolCallId: 'new-context-1',
+      toolName: 'new_context',
+      input: { handoff: 'Goal: ship pricing.' },
+      output: { success: true, message: 'Fresh context requested after this tool batch.' },
+    };
+    await act(async () => root.render(<ToolCall partId={makePartId('message-19', 0)} invocation={handoff} />));
+    expect(container.textContent).toContain('Handed off to a fresh context');
+    expect(container.textContent).not.toContain('new_context');
   });
 });

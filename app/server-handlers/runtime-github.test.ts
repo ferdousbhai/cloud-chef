@@ -62,7 +62,30 @@ async function gzippedTarball(
 }
 
 /** One repository on GitHub: its default branch, the member branch if pushed, and what was written. */
-function fakeRepository(options: { tarball: Uint8Array<ArrayBuffer>; mergeStatus?: number; homepage?: string | null }) {
+type CheckRun = {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  details_url?: string;
+  output: { title?: string; summary?: string };
+  app?: { slug: string };
+};
+
+const WORKERS_BUILDS_SUCCESS: CheckRun = {
+  name: 'Workers Builds: site',
+  status: 'completed',
+  conclusion: 'success',
+  details_url: 'https://dash.cloudflare.com/builds/1',
+  output: { title: 'Preview ready', summary: 'Preview URL: https://cloudchef-ada-site.ada.workers.dev' },
+  app: { slug: 'cloudflare-workers-and-pages' },
+};
+
+function fakeRepository(options: {
+  tarball: Uint8Array<ArrayBuffer>;
+  mergeStatus?: number;
+  homepage?: string | null;
+  checkRuns?: CheckRun[];
+}) {
   const refs = new Map<string, string>([['main', MAIN_HEAD]]);
   const writes: { method: string; path: string; body: string | null }[] = [];
   let tokenRequest: string | null = null;
@@ -89,18 +112,7 @@ function fakeRepository(options: { tarball: Uint8Array<ArrayBuffer>; mergeStatus
       return Response.json({ sha: path.slice(13), tree: { sha: `tree-of-${path.slice(13, 19)}` } });
     }
     if (method === 'GET' && path.includes('/check-runs')) {
-      return Response.json({
-        check_runs: [
-          {
-            name: 'Workers Builds: site',
-            status: 'completed',
-            conclusion: 'success',
-            details_url: 'https://dash.cloudflare.com/builds/1',
-            output: { title: 'Preview ready', summary: 'Preview URL: https://cloudchef-ada-site.ada.workers.dev' },
-            app: { slug: 'cloudflare-workers-and-pages' },
-          },
-        ],
-      });
+      return Response.json({ check_runs: options.checkRuns ?? [WORKERS_BUILDS_SUCCESS] });
     }
     writes.push({ method, path, body });
     if (path === '/git/blobs') {
@@ -132,7 +144,13 @@ function fakeRepository(options: { tarball: Uint8Array<ArrayBuffer>; mergeStatus
 const PRIVATE_KEY = { pem: '' };
 
 async function setup(
-  options: { tarball?: Uint8Array<ArrayBuffer>; mergeStatus?: number; grant?: boolean; homepage?: string | null } = {},
+  options: {
+    tarball?: Uint8Array<ArrayBuffer>;
+    mergeStatus?: number;
+    grant?: boolean;
+    homepage?: string | null;
+    checkRuns?: CheckRun[];
+  } = {},
 ) {
   const pair = await crypto.subtle.generateKey(
     { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
@@ -178,6 +196,7 @@ async function setup(
     tarball: options.tarball ?? (await gzippedTarball([{ path: 'README.md', content: 'hello\n' }])),
     mergeStatus: options.mergeStatus,
     homepage: options.homepage,
+    checkRuns: options.checkRuns,
   });
   const call = (path: string, body: Record<string, string | number | boolean | null | object[]>, bearer = secret) =>
     new Request(`${ORIGIN}${path}`, {
@@ -389,7 +408,70 @@ describe('a member working on a GitHub project', () => {
       state: 'success',
       previewUrl: 'https://cloudchef-ada-site.ada.workers.dev',
       detailsUrl: 'https://dash.cloudflare.com/builds/1',
+      conclusion: null,
+      workersBuilds: true,
     });
+  });
+
+  it('counts any finished run that did not pass as failed, and judges by Workers Builds once it has a check', async () => {
+    const status = async (checkRuns: CheckRun[]) => {
+      const { env, app, call } = await setup({ checkRuns });
+      const response = await runtimeGitHubStatusAction({
+        request: call('/api/cloudflare/runtime-github/status', { orgProjectId: SITE, sha: 'c'.repeat(40) }),
+        env,
+        app,
+      });
+      return response.json();
+    };
+    const ci: CheckRun = {
+      name: 'test',
+      status: 'completed',
+      conclusion: 'success',
+      output: {},
+      app: { slug: 'github-actions' },
+    };
+    for (const conclusion of ['cancelled', 'action_required', 'startup_failure', 'timed_out', 'stale']) {
+      expect(await status([{ ...WORKERS_BUILDS_SUCCESS, conclusion }])).toMatchObject({ state: 'failure', conclusion });
+    }
+    // Skipped and neutral runs let the build stand.
+    expect(await status([WORKERS_BUILDS_SUCCESS, { ...ci, conclusion: 'skipped' }])).toMatchObject({
+      state: 'success',
+    });
+    // A CI workflow finishing before Workers Builds posts its check is not the build, and says so.
+    expect(await status([ci])).toMatchObject({ state: 'success', workersBuilds: false });
+    // Once Workers Builds has a check, a failed CI run elsewhere doesn't decide, and its own pending run does.
+    expect(
+      await status([
+        { ...ci, conclusion: 'failure' },
+        { ...WORKERS_BUILDS_SUCCESS, status: 'in_progress', conclusion: null },
+      ]),
+    ).toMatchObject({ state: 'pending', workersBuilds: true });
+  });
+
+  it("commits to the conversation's own branch when the workspace names one, and refuses a malformed name", async () => {
+    const { env, app, call, writes } = await setup();
+    const commit = (branchKey: string) =>
+      runtimeGitHubCommitAction({
+        request: call('/api/cloudflare/runtime-github/commit', {
+          orgProjectId: SITE,
+          branchKey,
+          baseCommit: BASE,
+          message: 'Update',
+          publish: false,
+          changes: [{ path: 'a.txt', contentBase64: btoa('a'), executable: false }],
+        }),
+        env,
+        app,
+      });
+    const response = await commit('k3y4chat0001');
+    expect(await response.json()).toEqual({
+      commit: 'c'.repeat(40),
+      branch: expect.stringMatching(/^cloudchef\/sara-a-[a-z0-9]{6}-k3y4chat0001$/),
+    });
+    expect(JSON.parse(writes.find((write) => write.path === '/git/refs')?.body ?? '{}')).toMatchObject({
+      ref: expect.stringMatching(/^refs\/heads\/cloudchef\/sara-a-[a-z0-9]{6}-k3y4chat0001$/),
+    });
+    expect((await commit('../main')).status).toBe(400);
   });
 
   it("names the project's live site from what GitHub knows: its homepage and its pipeline's links", async () => {

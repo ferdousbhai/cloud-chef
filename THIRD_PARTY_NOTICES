@@ -14,12 +14,13 @@ license expression fails validation until it is reviewed and explicitly added to
 
 --------------------------------------------------------------------------------
 
-Anthropic Agent Skills
-https://github.com/anthropics/skills
+Cloudflare Skills
+https://github.com/cloudflare/skills
 
-The frontend-design skill at app/lib/.server/llm/skills/frontend-design/ is vendored unchanged from
-anthropics/skills at revision f17010c9bb483898c1d9c9f42dde2b3a98889434. Its full license terms are in
-the LICENSE.txt kept alongside it.
+Licensed under the Apache License, Version 2.0. Cloudflare's official agent skills are vendored
+unchanged into app/lib/.server/llm/skills/cloudflare-skills.vendored.ts by
+scripts/sync-cloudflare-skills.mjs, at the revision named in that file's header, with each skill's
+LICENSE file kept alongside it.
 
 --------------------------------------------------------------------------------
 

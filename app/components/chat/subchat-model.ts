@@ -2,7 +2,7 @@ import type { SubchatSummary } from '~/lib/cloudflare/data-api';
 
 export type { SubchatSummary };
 
-export interface SubchatOption {
+interface SubchatOption {
   label: string;
   value: number;
 }

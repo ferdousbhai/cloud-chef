@@ -26,7 +26,12 @@ import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 
 const logger = createScopedLogger('EnhancePrompt');
-const ENHANCE_PROMPT_MAX_OUTPUT_TOKENS = 2_048;
+/**
+ * The refined prompt is short, but the pinned model reasons before it calls the tool, and that
+ * reasoning spends the same output budget; the request's budget is now exactly what is asked for,
+ * so it leaves room for both.
+ */
+const ENHANCE_PROMPT_MAX_OUTPUT_TOKENS = 4_096;
 // Derived from the supported prompt size so the transport never rejects a prompt the product
 // accepts: worst-case four UTF-8 bytes per character, plus room for the JSON envelope and answers.
 const MAX_ENHANCE_PROMPT_REQUEST_BYTES = 4 * MAX_USER_MESSAGE_CHARACTERS + 64 * 1024;
@@ -65,11 +70,10 @@ export async function userRuntimeEnhancePromptAction({
     }
     let usage: Usage | null = null;
     const accountCredentials = await getUserWorkersAiCredentials(env, userId);
-    // Prompt refinement runs the builder's own pinned model, and pi-ai's static catalog does not
-    // list it. Without the discovered metadata `getPiModel` falls back to its own defaults and
-    // drives a million-token reasoning model as a 128k non-reasoning one.
-    // Resolving it through the catalog is what keeps the two paths the same model, and it inherits
-    // the pin's retirement failover for free.
+    // Prompt refinement runs the builder's own pinned model, resolved through the account's live
+    // catalog rather than Pi's static entry alone: the live catalog says whether the account still
+    // serves the pin and gives the window and capabilities Cloudflare reports for it now, so the two
+    // paths stay the same model, and refinement inherits the pin's retirement failover for free.
     const model = await requireWorkersAiBuilderModel(accountCredentials.binding, CLOUDFLARE_WORKERS_AI_MODEL);
     // The draft goes to the model, so it is logged in the account's AI Gateway only if the person allows it.
     const handle = getPiModel(accountCredentials, model.id, {

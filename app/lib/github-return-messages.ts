@@ -11,10 +11,15 @@ const GITHUB_RETURN_MESSAGES = {
   install_not_owner: 'Only the owner of that GitHub account or organization can connect it.',
   install_failed: 'GitHub refused the connection. Connect GitHub again.',
   connected: 'Connected GitHub.',
+  repositories_updated: 'Updated which repositories CloudChef can reach on GitHub.',
+  github_unavailable: 'GitHub is not configured for this environment.',
+  approval_expired: 'That approval expired. Approve again.',
   approval_cancelled: 'GitHub authorization was cancelled.',
   approval_other_admin: 'Only the admin who started the approval can finish it.',
   github_disconnected: 'GitHub is no longer connected.',
-  approval_changed: 'That request was decided, or changed, while you were on GitHub. Review it and approve again.',
+  approval_changed:
+    'That request was decided or changed, or its requester left the team, while you were on GitHub. ' +
+    'Review it and approve again.',
   approval_wrong_account:
     "Sign in to GitHub as the account CloudChef's GitHub App is installed on to create the repository there.",
   repository_name_refused: 'GitHub refused that repository name. Approve again with another.',

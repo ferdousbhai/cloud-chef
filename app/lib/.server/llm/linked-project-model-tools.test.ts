@@ -31,6 +31,7 @@ describe("a GitHub project's tools", () => {
       { input: { message: 'Ship it', live: true }, toolCallId: 'call-live' },
     ]);
     expect(tools.publish_preview.description).toContain('Do not wait or poll');
+    expect(tools.publish.description).toContain('above the chat composer');
   });
 
   it('reads the live site with its validated input only', async () => {

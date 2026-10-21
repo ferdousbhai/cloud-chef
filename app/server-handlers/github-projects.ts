@@ -144,6 +144,14 @@ export async function completeGitHubInstallAction({
   if (!pending || !app) {
     return back('install_expired');
   }
+  if (!code && url.searchParams.get('setup_action') === 'update') {
+    // Changing the repositories of the installation this team already has returns without a code:
+    // there is nothing new to record, and nothing is recorded for any other installation.
+    const current = await findGitHubInstallation(env.DB, pending.org_id);
+    if (current && current.installationId === installationId) {
+      return back('repositories_updated');
+    }
+  }
   if (!code || !Number.isSafeInteger(installationId) || installationId <= 0) {
     return back('install_cancelled');
   }
@@ -214,7 +222,10 @@ export function approveProductionRequestAction({
       adminId: session.user.id,
     });
     if (now === null) {
-      throw new OrganizationError('That request was already decided, or another admin is approving it.', 409);
+      throw new OrganizationError(
+        'That request was already decided, its requester left the team, or another admin is approving it.',
+        409,
+      );
     }
     const state = crypto.randomUUID();
     await env.DB.prepare(
@@ -280,11 +291,27 @@ async function completeProductionApproval(args: {
     .bind(now, args.state, now)
     .first<{ request_id: string; user_id: string; repo_name: string; private: number; created_at: number }>();
   const code = url.searchParams.get('code');
-  if (!pending || !app || !code) {
+  if (!app) {
     if (pending) {
       await releaseApprovalClaim(env.DB, pending.request_id, pending.created_at);
     }
-    return back(pending && app ? 'approval_cancelled' : null);
+    return back('github_unavailable');
+  }
+  if (!pending) {
+    // Its claim on the request ends with it, so the request is open again at once.
+    const expired = await env.DB.prepare(
+      'SELECT request_id, created_at FROM github_approval_states WHERE id = ? AND used_at IS NULL',
+    )
+      .bind(args.state)
+      .first<{ request_id: string; created_at: number }>();
+    if (expired) {
+      await releaseApprovalClaim(env.DB, expired.request_id, expired.created_at);
+    }
+    return back('approval_expired');
+  }
+  if (!code) {
+    await releaseApprovalClaim(env.DB, pending.request_id, pending.created_at);
+    return back('approval_cancelled');
   }
   const owner = await env.DB.prepare('SELECT org_id FROM production_requests WHERE id = ?')
     .bind(pending.request_id)

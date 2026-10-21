@@ -13,7 +13,7 @@ import {
   ownRequestSchema,
   productionRequestSchema,
 } from './OrgProjectsSection.client';
-import { messageOf, noContentSchema, postJson, run } from './organization-requests.client';
+import { messageOf, noContentSchema, postJson, RequestError, run } from './organization-requests.client';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 
 const roleSchema = z.enum(['admin', 'member']);
@@ -59,6 +59,14 @@ const organizationsSchema = z.object({
 const createdSchema = z.object({ orgId: z.string() });
 const invitedSchema = z.object({ inviteUrl: z.string(), emailed: z.boolean() });
 const memberUpdatedSchema = z.object({ ok: z.literal(true), workspaceDeleted: z.boolean().optional() });
+const teamDeletedSchema = z.object({
+  deleted: z.literal(true),
+  workspacesLeft: z.number(),
+  cloudflareAuthorizationRevoked: z.boolean(),
+});
+
+/** Where a deleted team's outcome waits across the reload that follows it. */
+const TEAM_DELETED_NOTICE_KEY = 'cloudchef:team-deleted';
 
 type MemberAction = 'pause' | 'resume' | 'remove' | 'make_admin' | 'make_member' | 'allow_drafts' | 'disallow_drafts';
 
@@ -78,7 +86,8 @@ export function OrganizationsCard() {
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
-  // What a return from GitHub (connecting it, or approving a production request) has to say, shown once.
+  // What a return from GitHub (connecting it, or approving a production request) or deleting a team has
+  // to say, shown once.
   const [githubMessage, setGitHubMessage] = useState<string | null>(null);
   const scrolledToHash = useRef(false);
   useEffect(() => {
@@ -89,6 +98,15 @@ export function OrganizationsCard() {
       url.searchParams.delete('github_message');
       url.searchParams.delete('promoted');
       window.history.replaceState(null, '', url);
+    }
+    try {
+      const deleted = window.sessionStorage.getItem(TEAM_DELETED_NOTICE_KEY);
+      if (deleted) {
+        window.sessionStorage.removeItem(TEAM_DELETED_NOTICE_KEY);
+        setGitHubMessage(deleted);
+      }
+    } catch {
+      // Without session storage the reload after deleting a team just doesn't repeat what happened.
     }
   }, []);
 
@@ -276,6 +294,8 @@ function OrganizationRow({
   const [peopleFeedback, setPeopleFeedback] = useState<Feedback>(null);
   const [connectFeedback, setConnectFeedback] = useState<Feedback>(null);
   const [busy, setBusy] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const admin = organization.role === 'admin' && organization.pausedAt === null;
   const connection = organization.connection;
   const projects = organization.projects;
@@ -343,13 +363,36 @@ function OrganizationRow({
 
   return (
     <div className="min-w-0 rounded-lg border border-bolt-elements-borderColor p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="min-w-0 flex-1 truncate font-medium" title={organization.orgName}>
-          {organization.orgName}
-        </h3>
-        <span className="text-xs text-content-secondary">{organization.pausedAt ? 'paused' : organization.role}</span>
-        {connectionId && !current ? <OpenButton connectionId={connectionId} /> : null}
-      </div>
+      {renaming ? (
+        <RenameTeam
+          orgId={organization.orgId}
+          orgName={organization.orgName}
+          onDone={async (renamed) => {
+            setRenaming(false);
+            if (renamed) {
+              await onChanged();
+            }
+          }}
+        />
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="min-w-0 flex-1 truncate font-medium" title={organization.orgName}>
+            {organization.orgName}
+          </h3>
+          <span className="text-xs text-content-secondary">{organization.pausedAt ? 'paused' : organization.role}</span>
+          {admin ? (
+            <Button
+              size="xs"
+              variant="subtle"
+              aria-label={`Rename ${organization.orgName}`}
+              onClick={() => setRenaming(true)}
+            >
+              Rename
+            </Button>
+          ) : null}
+          {connectionId && !current ? <OpenButton connectionId={connectionId} /> : null}
+        </div>
+      )}
       <p className="mt-1 text-sm text-content-secondary">
         {connection === null
           ? 'No Cloudflare account connected yet.'
@@ -412,7 +455,12 @@ function OrganizationRow({
                     : ''}
                   {pending.role === 'member' && !pending.draftsAllowed ? ' · GitHub projects only' : ''}
                 </span>
-                <Button size="xs" variant="subtle" onClick={() => revoke(pending.id)}>
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  aria-label={`Revoke the invite to ${pending.email}`}
+                  onClick={() => revoke(pending.id)}
+                >
                   Revoke
                 </Button>
               </li>
@@ -479,6 +527,13 @@ function OrganizationRow({
               onFocus={(event) => event.target.select()}
             />
           ) : null}
+          {deleting ? (
+            <DeleteTeam orgId={organization.orgId} orgName={organization.orgName} onCancel={() => setDeleting(false)} />
+          ) : (
+            <Button className="mt-3" size="xs" variant="subtle" onClick={() => setDeleting(true)}>
+              Delete {organization.orgName}
+            </Button>
+          )}
         </>
       ) : (
         <>
@@ -512,21 +567,42 @@ function LeaveOrganization({
   const [confirming, setConfirming] = useState(onCancel !== undefined);
   const [leaving, setLeaving] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  // The only one left: leaving would leave the team empty, so it is deleted instead, once confirmed.
+  const [soleMember, setSoleMember] = useState(false);
   const leave = async () => {
     setLeaving(true);
-    await run(
-      async () => {
-        await updateMember(orgId, myUserId, 'remove');
-      },
-      () => window.location.assign('/settings'),
-      (message) => {
-        if (message !== null) {
-          setLeaving(false);
-        }
-        setFeedback(errorFeedback(message));
-      },
-    );
+    setFeedback(null);
+    try {
+      await updateMember(orgId, myUserId, 'remove');
+      window.location.assign('/settings');
+    } catch (leaveError) {
+      setLeaving(false);
+      if (leaveError instanceof RequestError && leaveError.code === 'sole_member') {
+        setSoleMember(true);
+        return;
+      }
+      setFeedback(
+        errorFeedback(messageOf(leaveError instanceof Error ? leaveError : null, 'That did not work. Try again.')),
+      );
+    }
   };
+  if (soleMember) {
+    return (
+      <DeleteTeam
+        orgId={orgId}
+        orgName={orgName}
+        intro={`You're the only one in ${orgName}, so leaving deletes the team.`}
+        onCancel={() => {
+          setSoleMember(false);
+          if (onCancel) {
+            onCancel();
+          } else {
+            setConfirming(false);
+          }
+        }}
+      />
+    );
+  }
   return (
     <div className="mt-2 grid min-w-0 gap-1">
       {confirming ? (
@@ -554,6 +630,136 @@ function LeaveOrganization({
   );
 }
 
+/** An admin renaming their team, in place of its heading. */
+function RenameTeam({
+  orgId,
+  orgName,
+  onDone,
+}: {
+  orgId: string;
+  orgName: string;
+  onDone: (renamed: boolean) => Promise<void>;
+}) {
+  const [name, setName] = useState(orgName);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setFeedback(null);
+    try {
+      await postJson('/api/organizations/rename', { orgId, name: name.trim() }, noContentSchema);
+      await onDone(true);
+    } catch (renameError) {
+      setFeedback(
+        errorFeedback(messageOf(renameError instanceof Error ? renameError : null, 'Unable to rename the team.')),
+      );
+      setSaving(false);
+    }
+  };
+  return (
+    <form className="grid min-w-0 gap-1" onSubmit={(event) => void save(event)}>
+      <div className="flex flex-wrap items-center gap-2">
+        <TextInput
+          required
+          maxLength={80}
+          aria-label={`New name for ${orgName}`}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          className="min-w-0 flex-1"
+        />
+        <Button type="submit" size="xs" variant="neutral" loading={saving} disabled={name.trim().length === 0}>
+          Save
+        </Button>
+        <Button size="xs" variant="subtle" disabled={saving} onClick={() => void onDone(false)}>
+          Cancel
+        </Button>
+      </div>
+      <FeedbackLine feedback={feedback} className="" />
+    </form>
+  );
+}
+
+/**
+ * Deleting a team, confirmed first, since it can't be undone: what goes, and what stays in the team's
+ * Cloudflare and GitHub accounts. Settings reloads afterwards, saying how it went, as this session may
+ * have been building in the team's account.
+ */
+function DeleteTeam({
+  orgId,
+  orgName,
+  intro,
+  onCancel,
+}: {
+  orgId: string;
+  orgName: string;
+  intro?: string;
+  onCancel: () => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const remove = async () => {
+    setDeleting(true);
+    setFeedback(null);
+    try {
+      const outcome = await postJson('/api/organizations/delete', { orgId }, teamDeletedSchema);
+      const notice = [
+        `Deleted ${orgName}.`,
+        ...(outcome.workspacesLeft > 0
+          ? [
+              `${outcome.workspacesLeft} ${outcome.workspacesLeft === 1 ? 'workspace' : 'workspaces'} couldn't be deleted from its Cloudflare account; remove ${outcome.workspacesLeft === 1 ? 'it' : 'them'} in the Cloudflare dashboard.`,
+            ]
+          : []),
+        ...(outcome.cloudflareAuthorizationRevoked
+          ? []
+          : [
+              "CloudChef's access to its Cloudflare account couldn't be revoked; revoke it in the Cloudflare dashboard.",
+            ]),
+      ].join(' ');
+      try {
+        window.sessionStorage.setItem(TEAM_DELETED_NOTICE_KEY, notice);
+      } catch {
+        // Settings still reloads without the team; it just doesn't say how the deletion went.
+      }
+      window.location.assign('/settings#organizations');
+    } catch (deleteError) {
+      setFeedback(
+        errorFeedback(messageOf(deleteError instanceof Error ? deleteError : null, 'Unable to delete the team.')),
+      );
+      setDeleting(false);
+    }
+  };
+  return (
+    <div
+      className="mt-3 grid min-w-0 gap-2 text-sm text-content-secondary"
+      role="group"
+      aria-label={`Delete ${orgName}`}
+    >
+      {intro ? <p className="text-content-primary">{intro}</p> : null}
+      <p>
+        Delete {orgName}? Everyone&apos;s workspace in its Cloudflare account, with their chats and project files there,
+        is deleted. Its members, invites, linked GitHub projects, production requests and usage are removed from
+        CloudChef, and CloudChef&apos;s access to the Cloudflare account is revoked. This can&apos;t be undone.
+      </p>
+      <p>
+        What stays: apps deployed from those workspaces, with their databases and storage, and the account&apos;s AI
+        Gateway keys stay in the Cloudflare account; the repositories, and CloudChef&apos;s GitHub App, stay on GitHub
+        until you remove them there. To stop CloudChef using the Cloudflare account while keeping the team, revoke its
+        access in the Cloudflare dashboard instead; an admin reconnects it here later.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="xs" variant="danger" loading={deleting} onClick={() => void remove()}>
+          Delete {orgName}
+        </Button>
+        <Button size="xs" variant="subtle" disabled={deleting} onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+      <FeedbackLine feedback={feedback} className="" />
+    </div>
+  );
+}
+
 type Member = NonNullable<Organization['members']>[number];
 
 /** A member in an admin's view: their role, projects and this month's use, and what the admin can change. */
@@ -576,24 +782,35 @@ function MemberRow({
   onFeedback: (feedback: Feedback) => void;
 }) {
   const [confirming, setConfirming] = useState<'remove' | 'make_member' | null>(null);
-  const act = (action: MemberAction) =>
-    void run(
-      async () => {
-        const result = await updateMember(orgId, member.userId, action);
-        if (result.workspaceDeleted === false) {
-          onFeedback(
-            errorFeedback(
-              `${member.email} is removed. Their workspace couldn't be deleted from the Cloudflare account; remove it there.`,
-            ),
-          );
-        }
-      },
-      async () => {
-        setConfirming(null);
-        await onChanged();
-      },
-      (message) => onFeedback(errorFeedback(message)),
-    );
+  // One change at a time: a second click while one is in flight would repeat it.
+  const [busy, setBusy] = useState(false);
+  const who = member.name || member.email;
+  const act = async (action: MemberAction) => {
+    setBusy(true);
+    onFeedback(null);
+    try {
+      const result = await updateMember(orgId, member.userId, action);
+      if (result.workspaceDeleted === false) {
+        onFeedback(
+          errorFeedback(
+            `${member.email} is removed. Their workspace couldn't be deleted from the Cloudflare account; remove it there.`,
+          ),
+        );
+      }
+    } catch (actionError) {
+      // Already gone (removed from another tab, or by another admin): the list catches up below.
+      if (!(action === 'remove' && actionError instanceof RequestError && actionError.status === 404)) {
+        onFeedback(
+          errorFeedback(messageOf(actionError instanceof Error ? actionError : null, 'That did not work. Try again.')),
+        );
+        setBusy(false);
+        return;
+      }
+    }
+    setConfirming(null);
+    await onChanged();
+    setBusy(false);
+  };
   const tokens = member.usage.inputTokens + member.usage.outputTokens;
   const theirProjects = projects.filter((project) => project.memberIds.includes(member.userId));
   const projectsLine =
@@ -648,10 +865,10 @@ function MemberRow({
               ? `Remove ${member.name || member.email}? Their workspace in the team's account is deleted.`
               : 'Make yourself a member? You lose admin access to this team until another admin gives it back.'}
           </span>
-          <Button size="xs" variant="danger" onClick={() => act(confirming)}>
+          <Button size="xs" variant="danger" loading={busy} onClick={() => void act(confirming)}>
             {confirming === 'remove' ? 'Remove and delete their workspace' : 'Make me a member'}
           </Button>
-          <Button size="xs" variant="subtle" onClick={() => setConfirming(null)}>
+          <Button size="xs" variant="subtle" disabled={busy} onClick={() => setConfirming(null)}>
             Cancel
           </Button>
         </div>
@@ -662,7 +879,13 @@ function MemberRow({
             tokens
           </span>
           {self ? null : (
-            <Button size="xs" variant="subtle" onClick={() => act(member.pausedAt ? 'resume' : 'pause')}>
+            <Button
+              size="xs"
+              variant="subtle"
+              disabled={busy}
+              aria-label={`${member.pausedAt ? 'Resume' : 'Pause'} ${who}`}
+              onClick={() => void act(member.pausedAt ? 'resume' : 'pause')}
+            >
               {member.pausedAt ? 'Resume' : 'Pause'}
             </Button>
           )}
@@ -672,7 +895,9 @@ function MemberRow({
             <Button
               size="xs"
               variant="subtle"
-              onClick={() => act(member.draftsAllowed ? 'disallow_drafts' : 'allow_drafts')}
+              disabled={busy}
+              aria-label={`${member.draftsAllowed ? 'Stop new apps for' : 'Allow new apps for'} ${who}`}
+              onClick={() => void act(member.draftsAllowed ? 'disallow_drafts' : 'allow_drafts')}
             >
               {member.draftsAllowed ? 'Stop new apps' : 'Allow new apps'}
             </Button>
@@ -680,15 +905,23 @@ function MemberRow({
           <Button
             size="xs"
             variant="subtle"
+            disabled={busy}
+            aria-label={self ? undefined : `${member.role === 'admin' ? 'Make member' : 'Make admin'}: ${who}`}
             onClick={() =>
               member.role === 'admin' && self
                 ? setConfirming('make_member')
-                : act(member.role === 'admin' ? 'make_member' : 'make_admin')
+                : void act(member.role === 'admin' ? 'make_member' : 'make_admin')
             }
           >
             {member.role === 'admin' ? 'Make member' : 'Make admin'}
           </Button>
-          <Button size="xs" variant="subtle" onClick={() => setConfirming('remove')}>
+          <Button
+            size="xs"
+            variant="subtle"
+            disabled={busy}
+            aria-label={self ? undefined : `Remove ${who}`}
+            onClick={() => setConfirming('remove')}
+          >
             {self ? 'Leave' : 'Remove'}
           </Button>
         </div>

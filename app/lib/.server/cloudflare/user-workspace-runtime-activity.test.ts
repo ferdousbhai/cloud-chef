@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { userWorkspaceDatabase } from '~/test/control-plane-d1';
 import {
   claimRuntimeUpgradeWindow,
+  holdRuntimeUpgradeWindow,
   readRuntimeUpgradeWindow,
   recordRuntimeActivity,
+  releaseRuntimeUpgradeWindow,
   RUNTIME_BUSY_LEASE_MS,
   RUNTIME_QUIET_PERIOD_MS,
   RUNTIME_UPGRADE_WINDOW_MS,
@@ -70,5 +72,30 @@ describe('workspace runtime activity', () => {
 
     await expect(readRuntimeUpgradeWindow(db, NOW + RUNTIME_UPGRADE_WINDOW_MS - 1)).resolves.not.toBeNull();
     await expect(readRuntimeUpgradeWindow(db, NOW + RUNTIME_UPGRADE_WINDOW_MS)).resolves.toBeNull();
+  });
+
+  it('keeps a claimed window open while the upgrade finishes, though work is now waiting on it', async () => {
+    const { db } = userWorkspaceDatabase();
+    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW });
+    // Work that started meanwhile recorded itself busy, which would refuse a fresh claim.
+    await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now: NOW + 1_000 });
+
+    await holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW + RUNTIME_UPGRADE_WINDOW_MS - 1 });
+
+    await expect(readRuntimeUpgradeWindow(db, NOW + RUNTIME_UPGRADE_WINDOW_MS)).resolves.toEqual({
+      targetVersion: NEW_VERSION,
+      expiresAt: NOW + 2 * RUNTIME_UPGRADE_WINDOW_MS - 1,
+    });
+  });
+
+  it('releases only the window of the upgrade that finished', async () => {
+    const { db } = userWorkspaceDatabase();
+    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW });
+
+    await releaseRuntimeUpgradeWindow(db, { targetVersion: 'c'.repeat(64) });
+    await expect(readRuntimeUpgradeWindow(db, NOW)).resolves.not.toBeNull();
+
+    await releaseRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION });
+    await expect(readRuntimeUpgradeWindow(db, NOW)).resolves.toBeNull();
   });
 });

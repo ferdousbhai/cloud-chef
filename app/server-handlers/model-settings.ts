@@ -5,9 +5,10 @@ import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-c
 import {
   AI_GATEWAY_ID,
   canManageAiGatewayKeys,
-  CLOUDCHEF_KEY_ALIAS,
+  CLOUDCHEF_KEY_ALIASES,
   cloudchefKeySecretName,
   findGatewayKeys,
+  isCloudChefKeyAlias,
   openGatewayKeyAccountApi,
   type GatewayKeyAccountApi,
   type OpenGatewayKeyAccountApi,
@@ -143,13 +144,22 @@ export function linkGatewayKeyAction({ request, env, openAccountApi = openGatewa
           );
         }
         const { authenticationTurnedOn } = await api.prepareAiGatewayForKeys(AI_GATEWAY_ID, firstStore.id);
-        await removeProviderKeys(api, provider, { onlyCloudChefs: false });
-        await api.addAiGatewayProviderKey(AI_GATEWAY_ID, {
+        const alias = await freeCloudChefAlias(api, provider);
+        // The new key goes on first, so a key Cloudflare refuses leaves the provider's keys as they were.
+        const added = await api.addAiGatewayProviderKey(AI_GATEWAY_ID, {
           providerSlug: provider,
-          alias: CLOUDCHEF_KEY_ALIAS,
+          alias,
           secret: apiKey,
         });
-        return keysResponse(await gatewayKeysStatus(api), { authenticationTurnedOn });
+        let previousKeysRemain = false;
+        try {
+          await removeProviderKeys(api, provider, { keep: added.id });
+        } catch {
+          // The new key is on and is the provider's default; the replaced ones only linger.
+          console.warn('Unable to remove a replaced provider key from the account’s AI Gateway');
+          previousKeysRemain = true;
+        }
+        return keysResponse(await gatewayKeysStatus(api), { authenticationTurnedOn, previousKeysRemain });
       });
     },
     { manage: true },
@@ -232,23 +242,61 @@ async function withAccountApi(
 }
 
 /**
- * Removes one provider's keys from the gateway (only CloudChef's own, or every one), then the secret
- * Cloudflare kept CloudChef's in: the name is CloudChef's, and a new key under the same alias cannot
- * be stored while it is there. No other secret is touched, whoever made it.
+ * The CloudChef alias a new key for `provider` goes under: one no key of the provider has. When both
+ * are taken (a replacement interrupted before its cleanup), the one the provider's requests do not
+ * use is removed first, so the key in use stays until its replacement is on. A secret left under the
+ * free alias without its key is deleted too, since Cloudflare refuses a key whose secret name is taken.
+ */
+async function freeCloudChefAlias(api: GatewayKeyAccountApi, provider: GatewayProviderSlug): Promise<string> {
+  const keys = (await api.listAiGatewayProviderKeys(AI_GATEWAY_ID)).filter(
+    ({ providerSlug }) => providerSlug === provider,
+  );
+  const inUse = keys.find(({ isDefault }) => isDefault) ?? keys.at(0);
+  const alias =
+    CLOUDCHEF_KEY_ALIASES.find((candidate) => !keys.some((key) => key.alias === candidate)) ??
+    CLOUDCHEF_KEY_ALIASES.find((candidate) => candidate !== inUse?.alias) ??
+    CLOUDCHEF_KEY_ALIASES[0];
+  for (const key of keys) {
+    if (key.alias === alias) {
+      await api.deleteAiGatewayProviderKey(AI_GATEWAY_ID, key.id);
+    }
+  }
+  await deleteCloudChefSecrets(api, [cloudchefKeySecretName(provider, alias)]);
+  return alias;
+}
+
+/**
+ * Removes one provider's keys from the gateway (CloudChef's own, or every one but `keep`), then the
+ * secrets Cloudflare kept CloudChef's removed ones in: those names are CloudChef's, and a new key
+ * under the same alias cannot be stored while one is there. Unlinking also clears a CloudChef secret
+ * left without its key. No other secret is touched, whoever made it.
  */
 async function removeProviderKeys(
   api: GatewayKeyAccountApi,
   provider: GatewayProviderSlug,
-  { onlyCloudChefs }: { onlyCloudChefs: boolean },
+  scope: { onlyCloudChefs: true } | { keep: string },
 ): Promise<void> {
+  const removedAliases = new Set<string>();
   for (const key of await api.listAiGatewayProviderKeys(AI_GATEWAY_ID)) {
-    if (key.providerSlug === provider && (!onlyCloudChefs || key.alias === CLOUDCHEF_KEY_ALIAS)) {
+    const removed = 'keep' in scope ? key.id !== scope.keep : isCloudChefKeyAlias(key.alias);
+    if (key.providerSlug === provider && removed) {
       await api.deleteAiGatewayProviderKey(AI_GATEWAY_ID, key.id);
+      removedAliases.add(key.alias);
     }
   }
-  const secretName = cloudchefKeySecretName(provider);
+  const cleared = CLOUDCHEF_KEY_ALIASES.filter((alias) => !('keep' in scope) || removedAliases.has(alias));
+  await deleteCloudChefSecrets(
+    api,
+    cleared.map((alias) => cloudchefKeySecretName(provider, alias)),
+  );
+}
+
+async function deleteCloudChefSecrets(api: GatewayKeyAccountApi, names: readonly string[]): Promise<void> {
+  if (names.length === 0) {
+    return;
+  }
   for (const secret of await api.listAiGatewaySecrets()) {
-    if (secret.name === secretName) {
+    if (names.includes(secret.name)) {
       await api.deleteSecret(secret.storeId, secret.id);
     }
   }
@@ -267,7 +315,7 @@ async function gatewayKeysStatus(api: GatewayKeyAccountApi): Promise<GatewayKeys
             ? {
                 alias: key.alias || 'default',
                 secretPreview: key.secretPreview,
-                addedByCloudChef: key.alias === CLOUDCHEF_KEY_ALIAS,
+                addedByCloudChef: isCloudChefKeyAlias(key.alias),
               }
             : null,
         };
@@ -286,7 +334,10 @@ function settingsResponse(body: {
   return Response.json(body, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
-function keysResponse(keys: GatewayKeysStatus, extra: { authenticationTurnedOn?: boolean } = {}): Response {
+function keysResponse(
+  keys: GatewayKeysStatus,
+  extra: { authenticationTurnedOn?: boolean; previousKeysRemain?: boolean } = {},
+): Response {
   return Response.json({ keys, ...extra }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 

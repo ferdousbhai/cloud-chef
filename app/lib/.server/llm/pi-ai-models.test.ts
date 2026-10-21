@@ -127,8 +127,10 @@ describe('a DeepSeek model Pi characterises', () => {
     expect(calls).toHaveLength(1);
     const [call] = calls;
     expect(call?.model).toBe(v4Flash);
+    // Pi writes `thinking: { type: 'disabled' }` when no level is asked for; CloudChef sends no
+    // directive instead, so the model reasons at its own default.
+    expect(call?.inputs).not.toHaveProperty('thinking');
     expect(call?.inputs).toMatchObject({
-      thinking: { type: 'disabled' },
       messages: expect.arrayContaining([
         expect.objectContaining({ role: 'assistant', reasoning_content: '', tool_calls: expect.any(Array) }),
         expect.objectContaining({ role: 'tool', tool_call_id: 'call_1' }),
@@ -453,5 +455,25 @@ describe('the gateway options a model request is sent with', () => {
       skipCache: true,
     });
     expect(await gatewayOf()).toEqual({ id: 'default', collectLog: false, skipCache: true });
+  });
+});
+
+describe('the output budget a Workers AI request asks for', () => {
+  async function maxCompletionTokens(maxTokens?: number): Promise<number | undefined> {
+    const sent: Array<{ max_completion_tokens?: number }> = [];
+    const run = async (_model: string, inputs: { max_completion_tokens?: number }) => {
+      sent.push(inputs);
+      return Response.json({ errors: [{ message: 'stop here' }] }, { status: 400 });
+    };
+    // SAFETY: the binding fetch calls only the raw-response `run`, which this implements.
+    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL);
+    const context = normalizeContext({ messages: [{ role: 'user', content: 'Name this', timestamp: 1 }] });
+    await handle.stream(handle.model, context, maxTokens === undefined ? {} : { maxTokens }).result();
+    return sent[0]?.max_completion_tokens;
+  }
+
+  it('keeps a small budget the caller chose, and lifts only an unstated one to the floor', async () => {
+    expect(await maxCompletionTokens(64)).toBe(64);
+    expect(await maxCompletionTokens()).toBeGreaterThanOrEqual(4_096);
   });
 });

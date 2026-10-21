@@ -121,13 +121,17 @@ export async function deployValidatedRevisionForBuilder(args: {
   validatedRevision: string;
   /** Called once the plan exists, so the caller can follow the stages it is about to record. */
   onPlanned?: (deploymentId: string) => void;
+  /** Honored until the deployment starts changing production; see `executeUserOwnedDeployment`. */
+  abortSignal?: AbortSignal;
 }): Promise<BuilderDeploymentState> {
+  args.abortSignal?.throwIfAborted();
   const deploymentId = await planValidatedRevision({ ...args, publication: 'Deployment' });
   args.onPlanned?.(deploymentId);
   const deployment = await deployForUser({
     env: args.context.env,
     userId: args.context.userId,
     deploymentId,
+    abortSignal: args.abortSignal,
   });
   return {
     id: deployment.id,
@@ -150,7 +154,9 @@ export async function previewValidatedRevisionForBuilder(args: {
   validatedRevision: string;
   /** Called once the plan exists, so the caller can follow the stages it is about to record. */
   onPlanned?: (deploymentId: string) => void;
+  abortSignal?: AbortSignal;
 }) {
+  args.abortSignal?.throwIfAborted();
   const deploymentId = await planValidatedRevision({ ...args, publication: 'Preview' });
   args.onPlanned?.(deploymentId);
   return previewForUser({
@@ -158,6 +164,7 @@ export async function previewValidatedRevisionForBuilder(args: {
     userId: args.context.userId,
     deploymentId,
     previewId: args.previewId,
+    abortSignal: args.abortSignal,
   });
 }
 

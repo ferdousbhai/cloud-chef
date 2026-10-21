@@ -9,8 +9,12 @@ export class OrganizationError extends Error {
   constructor(
     message: string,
     readonly status: 400 | 403 | 404 | 409 | 410,
-    /** Set when the client can do something specific about it: `email_unproven` asks for a Google or emailed-link sign-in. */
-    readonly code?: 'email_unproven',
+    /**
+     * Set when the client can do something specific about it: `email_unproven` asks for a Google or
+     * emailed-link sign-in, `inviter_not_admin` says an invite lapsed with its sender's admin rights, and
+     * `sole_member` that leaving would leave the team empty, so it is deleted instead.
+     */
+    readonly code?: 'email_unproven' | 'inviter_not_admin' | 'sole_member',
   ) {
     super(message);
   }
@@ -69,6 +73,82 @@ export async function createOrganization(db: D1Database, userId: string, name: s
   return orgId;
 }
 
+/** An admin renames their team. */
+export async function renameOrganization(
+  db: D1Database,
+  args: { orgId: string; actorId: string; name: string; now?: number },
+): Promise<void> {
+  await requireAdmin(db, args.orgId, args.actorId);
+  await db
+    .prepare('UPDATE organizations SET name = ?, updated_at = ? WHERE id = ?')
+    .bind(args.name, args.now ?? Date.now(), args.orgId)
+    .run();
+}
+
+/**
+ * Who may delete a team, and whose workspaces in its Cloudflare account go with it: an active admin,
+ * or its only member (leaving would leave nobody). Changes nothing.
+ */
+export async function prepareOrganizationDeletion(
+  db: D1Database,
+  args: { orgId: string; actorId: string },
+): Promise<{ orgName: string; memberIds: string[] }> {
+  const membership = await findMembership(db, args.orgId, args.actorId);
+  if (!membership) {
+    throw new OrganizationError('That team no longer exists, or you are not in it.', 404);
+  }
+  const { results } = await db
+    .prepare('SELECT user_id FROM organization_members WHERE org_id = ? ORDER BY joined_at')
+    .bind(args.orgId)
+    .all<{ user_id: string }>();
+  const memberIds = results.map((row) => row.user_id);
+  const soleMember = memberIds.length === 1 && memberIds[0] === args.actorId;
+  if (!soleMember && (membership.role !== 'admin' || membership.pausedAt !== null)) {
+    throw new OrganizationError("Only a team's admin can delete it.", 403);
+  }
+  return { orgName: membership.orgName, memberIds };
+}
+
+/**
+ * Stops the team's Cloudflare connection from being used (its grant is revoked next, with the handle
+ * returned), so nothing builds there while the team's records are deleted.
+ */
+export async function revokeOrganizationConnection(db: D1Database, orgId: string): Promise<string | null> {
+  const revoked = await db
+    .prepare(
+      `UPDATE cloudflare_connections SET status = 'revoked', updated_at = ? WHERE org_id = ?
+       RETURNING credential_handle`,
+    )
+    .bind(Date.now(), orgId)
+    .first<{ credential_handle: string | null }>();
+  return revoked?.credential_handle ?? null;
+}
+
+/**
+ * Deletes a team's records, as erasing its last member does: the team, and with it (by their foreign
+ * keys) its memberships, invites, usage counts, GitHub installation and connection states, linked
+ * projects and who may work on each, production requests and their drafts, its Cloudflare connection
+ * and every workspace locator in it. The connection's stored authorization goes too.
+ */
+export async function deleteOrganizationRecords(
+  db: D1Database,
+  args: { orgId: string; credentialHandle: string | null },
+): Promise<void> {
+  await db.batch([
+    db.prepare('DELETE FROM organizations WHERE id = ?').bind(args.orgId),
+    ...(args.credentialHandle
+      ? [
+          db
+            .prepare(
+              `DELETE FROM cloudflare_credentials
+               WHERE handle = ?1 AND NOT EXISTS (SELECT 1 FROM cloudflare_connections WHERE credential_handle = ?1)`,
+            )
+            .bind(args.credentialHandle),
+        ]
+      : []),
+  ]);
+}
+
 export async function requireAdmin(db: D1Database, orgId: string, userId: string): Promise<Membership> {
   const membership = await findMembership(db, orgId, userId);
   if (membership?.role !== 'admin' || membership.pausedAt !== null) {
@@ -109,12 +189,21 @@ export async function createInvite(
          (SELECT COUNT(*) FROM cloudflare_connections WHERE org_id = ?1 AND status = 'active') AS connected,
          (SELECT COUNT(*) FROM organization_invites WHERE org_id = ?1 AND accepted_at IS NULL AND expires_at > ?2) AS pending,
          (SELECT COUNT(*) FROM organization_invites WHERE org_id = ?1 AND created_at > ?3) AS today,
-         (SELECT COUNT(*) FROM organization_invites WHERE invited_by = ?4 AND created_at > ?3) AS by_inviter`,
+         (SELECT COUNT(*) FROM organization_members AS members JOIN "user" AS users ON users.id = members.user_id
+          WHERE members.org_id = ?1 AND users.email = ?4 COLLATE NOCASE) AS already_member,
+         (SELECT COUNT(*) FROM organization_invites WHERE invited_by = ?5 AND created_at > ?3) AS by_inviter`,
     )
-    .bind(args.orgId, now, now - 24 * 60 * 60_000, args.invitedBy)
-    .first<{ connected: number; pending: number; today: number; by_inviter: number }>();
+    .bind(args.orgId, now, now - 24 * 60 * 60_000, args.email, args.invitedBy)
+    .first<{ connected: number; pending: number; today: number; already_member: number; by_inviter: number }>();
   if (!limits?.connected) {
     throw new OrganizationError("Connect the team's Cloudflare account before inviting people.", 409);
+  }
+  // Accepting never changes a member's role, so an invite to someone already in would do nothing.
+  if (limits.already_member > 0) {
+    throw new OrganizationError(
+      `${args.email} is already in the team. To change what they can do, use Make admin or the other buttons by their name.`,
+      409,
+    );
   }
   if (limits.by_inviter >= MAX_INVITES_PER_INVITER_PER_DAY) {
     throw new OrganizationError(
@@ -169,14 +258,10 @@ async function orgProjectIds(db: D1Database, orgId: string, projectIds: string[]
 }
 
 /**
- * Joins the organization an invite is for. The invite must be unused and unexpired, and addressed to
- * an email CloudChef proved this person holds (an emailed link or Google): a forwarded link is useless
- * to anyone else, and so is an email merely reported by another sign-in.
- */
-/**
  * What an invite link says before anyone signs in: the organization, who sent it, and the address it's
  * for. Only the link's holder can ask, and the address is the one the link was emailed to. Null when the
- * invite is used, expired, or its sender is no longer an active admin.
+ * invite is used or expired; refused with `inviter_not_admin` when its sender is no longer an active
+ * admin, which is why it lapsed.
  */
 export async function describeInvite(
   db: D1Database,
@@ -185,20 +270,41 @@ export async function describeInvite(
 ): Promise<{ orgName: string; email: string; inviterName: string } | null> {
   const row = await db
     .prepare(
-      `SELECT organizations.name AS org_name, invites.email, users.name AS inviter_name
+      `SELECT organizations.name AS org_name, invites.email, users.name AS inviter_name,
+              EXISTS (
+                SELECT 1 FROM organization_members AS inviter
+                WHERE inviter.org_id = invites.org_id AND inviter.user_id = invites.invited_by
+                  AND inviter.role = 'admin' AND inviter.paused_at IS NULL
+              ) AS inviter_is_admin
        FROM organization_invites AS invites
        JOIN organizations ON organizations.id = invites.org_id
-       JOIN organization_members AS inviter
-         ON inviter.org_id = invites.org_id AND inviter.user_id = invites.invited_by
-            AND inviter.role = 'admin' AND inviter.paused_at IS NULL
-       JOIN "user" AS users ON users.id = invites.invited_by
+       LEFT JOIN "user" AS users ON users.id = invites.invited_by
        WHERE invites.token_hash = ? AND invites.accepted_at IS NULL AND invites.expires_at > ?`,
     )
     .bind(await sha256Hex(token), now)
-    .first<{ org_name: string; email: string; inviter_name: string }>();
-  return row ? { orgName: row.org_name, email: row.email, inviterName: row.inviter_name } : null;
+    .first<{ org_name: string; email: string; inviter_name: string | null; inviter_is_admin: number }>();
+  if (!row) {
+    return null;
+  }
+  if (!row.inviter_is_admin || row.inviter_name === null) {
+    throw inviterNotAdmin(row.org_name);
+  }
+  return { orgName: row.org_name, email: row.email, inviterName: row.inviter_name };
 }
 
+function inviterNotAdmin(orgName: string): OrganizationError {
+  return new OrganizationError(
+    `Whoever sent this invite is no longer an admin of ${orgName}, so it no longer works. Ask one of its admins for a new one.`,
+    410,
+    'inviter_not_admin',
+  );
+}
+
+/**
+ * Joins the organization an invite is for. The invite must be unused and unexpired, and addressed to
+ * an email CloudChef proved this person holds (an emailed link or Google): a forwarded link is useless
+ * to anyone else, and so is an email merely reported by another sign-in.
+ */
 export async function acceptInvite(
   db: D1Database,
   args: { token: string; userId: string; now?: number },
@@ -209,11 +315,14 @@ export async function acceptInvite(
       // An invite speaks for the admin who sent it: once they're removed, paused or no longer an admin,
       // it lapses, so a removed admin can't come back through an invite they sent themselves.
       `SELECT invites.id, invites.org_id, invites.email, invites.role, invites.expires_at, invites.accepted_at,
-              invites.invited_by, invites.project_ids, invites.drafts_allowed
+              invites.invited_by, invites.project_ids, invites.drafts_allowed, organizations.name AS org_name,
+              EXISTS (
+                SELECT 1 FROM organization_members AS inviter
+                WHERE inviter.org_id = invites.org_id AND inviter.user_id = invites.invited_by
+                  AND inviter.role = 'admin' AND inviter.paused_at IS NULL
+              ) AS inviter_is_admin
        FROM organization_invites AS invites
-       JOIN organization_members AS inviter
-         ON inviter.org_id = invites.org_id AND inviter.user_id = invites.invited_by
-            AND inviter.role = 'admin' AND inviter.paused_at IS NULL
+       JOIN organizations ON organizations.id = invites.org_id
        WHERE invites.token_hash = ?`,
     )
     .bind(await sha256Hex(args.token))
@@ -227,9 +336,14 @@ export async function acceptInvite(
       invited_by: string;
       project_ids: string | null;
       drafts_allowed: number;
+      org_name: string;
+      inviter_is_admin: number;
     }>();
   if (!invite || invite.accepted_at !== null || invite.expires_at <= now) {
     throw new OrganizationError('This invite has been used or has expired. Ask for a new one.', 410);
+  }
+  if (!invite.inviter_is_admin) {
+    throw inviterNotAdmin(invite.org_name);
   }
   const person = await db
     .prepare('SELECT email, email_proven_at FROM "user" WHERE id = ?')
@@ -435,6 +549,19 @@ export async function updateMember(
   if (!target) {
     throw new OrganizationError('That person is not in this team.', 404);
   }
+  if (leaving) {
+    const others = await db
+      .prepare('SELECT COUNT(*) AS count FROM organization_members WHERE org_id = ? AND user_id <> ?')
+      .bind(args.orgId, args.userId)
+      .first<{ count: number }>();
+    if ((others?.count ?? 0) === 0) {
+      throw new OrganizationError(
+        `You're the only one in ${target.orgName}, so leaving deletes the team.`,
+        409,
+        'sole_member',
+      );
+    }
+  }
   const losesAdmin =
     target.role === 'admin' &&
     target.pausedAt === null &&
@@ -479,8 +606,23 @@ export async function updateMember(
     throw new OrganizationError('Make someone else an admin first: a team always needs one.', 409);
   }
   if (args.action === 'remove') {
-    // Their workspace locator in the organization's account and their access to its projects go with them.
+    // Their workspace locator in the organization's account and their access to its projects go with
+    // them, and their open production requests are declined: nobody may approve work for someone gone.
     await db.batch([
+      db
+        .prepare(
+          `UPDATE production_requests
+           SET status = 'declined', decided_by = ?, decided_at = ?, decision_note = ?, snapshot_gzip_base64 = '',
+               claimed_at = NULL
+           WHERE org_id = ? AND requested_by = ? AND status IN ('pending', 'approving')`,
+        )
+        .bind(
+          args.actorId,
+          now,
+          leaving ? 'They left the team.' : 'They were removed from the team.',
+          args.orgId,
+          args.userId,
+        ),
       db
         .prepare(
           `DELETE FROM user_computer_runtimes

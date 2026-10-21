@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { waitForUserWorkspaceRuntimeReadiness } from '../../app/lib/.server/cloudflare/user-workspace-runtime-readiness';
-import { claimUserWorkspaceRuntimeUpgradeWindow } from '../../app/lib/.server/cloudflare/user-workspace-runtime-upgrade-window';
-import { recordRuntimeActivity } from '../../app/lib/.server/cloudflare/user-workspace-runtime-activity';
+import {
+  changeUserWorkspaceRuntimeUpgradeWindow,
+  claimUserWorkspaceRuntimeUpgradeWindow,
+} from '../../app/lib/.server/cloudflare/user-workspace-runtime-upgrade-window';
+import {
+  readRuntimeUpgradeWindow,
+  recordRuntimeActivity,
+  RUNTIME_UPGRADE_WINDOW_MS,
+} from '../../app/lib/.server/cloudflare/user-workspace-runtime-activity';
 import { userWorkspaceDatabase } from '../../app/test/control-plane-d1';
 import { routeUserWorkspaceRuntimeControlPlaneRequest } from './readiness-route';
 
@@ -85,6 +92,37 @@ describe('user workspace runtime upgrade window route', () => {
         request,
       }),
     ).resolves.toEqual({ status: 'busy', busy: 1 });
+  });
+
+  it('holds the claimed window while work waits on it, and releases it once the upgrade serves', async () => {
+    const { db } = userWorkspaceDatabase();
+    let now = 1_000_000;
+    const request = routedFetch(upgradeWindowEnv(db), () => now);
+    const args = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, request };
+    await claimUserWorkspaceRuntimeUpgradeWindow(args);
+    await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now });
+
+    now += RUNTIME_UPGRADE_WINDOW_MS - 1;
+    await changeUserWorkspaceRuntimeUpgradeWindow({ ...args, change: 'hold' });
+    await expect(readRuntimeUpgradeWindow(db, now + 1)).resolves.toMatchObject({ targetVersion });
+
+    await changeUserWorkspaceRuntimeUpgradeWindow({ ...args, change: 'release' });
+    await expect(readRuntimeUpgradeWindow(db, now)).resolves.toBeNull();
+  });
+
+  it('refuses to hold or release the window without the runtime secret', async () => {
+    const { db } = userWorkspaceDatabase();
+    for (const method of ['PUT', 'DELETE']) {
+      const response = await routeUserWorkspaceRuntimeControlPlaneRequest(
+        new Request('https://workspace-runtime.example/v1/upgrade-window', {
+          method,
+          headers: { authorization: `Bearer ${'x'.repeat(32)}` },
+          body: JSON.stringify({ targetVersion }),
+        }),
+        upgradeWindowEnv(db),
+      );
+      expect(response?.status).toBe(401);
+    }
   });
 
   it('refuses anyone without the runtime secret', async () => {

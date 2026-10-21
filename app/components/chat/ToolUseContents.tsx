@@ -1,12 +1,7 @@
 import { memo, useEffect, useState } from 'react';
 import { z } from 'zod';
 import { isToolInvocationInProgress, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
-import {
-  isCloudChefToolResult,
-  toolResultSucceeded,
-  toolResultSummary,
-  type CloudChefToolResult,
-} from 'cloudchef-agent/tool-result';
+import { isCloudChefToolResult, toolResultSucceeded, toolResultSummary } from 'cloudchef-agent/tool-result';
 import { ToolResultFrame } from './ToolResultFrame';
 import { captureProductEvent } from '~/lib/telemetry.client';
 import {
@@ -18,6 +13,8 @@ import {
 } from 'cloudchef-agent/cloudflare-api';
 import { Button } from '~/components/ui/primitives/Button';
 import { isToolActivityStatusActive, type ToolActivityStatus } from '~/lib/common/types';
+import { linkedPublishView, type LinkedPublishView } from '~/lib/common/linked-publish';
+import { getRelativePath } from 'cloudchef-agent/utils/workDir';
 
 export const ToolUseContents = memo(function ToolUseContents({
   invocation,
@@ -25,12 +22,15 @@ export const ToolUseContents = memo(function ToolUseContents({
   progress,
   cloudflareExecution,
   onCloudflareExecutionDecision,
+  publish,
 }: {
   invocation: CloudChefToolInvocation;
   status: ToolActivityStatus;
   progress?: unknown;
   cloudflareExecution?: CloudflareExecutionPublicState;
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
+  /** A GitHub publish's view as of now (useLinkedPublishView); worked out here when absent. */
+  publish?: LinkedPublishView | null;
 }) {
   // A stopped or finished call keeps whatever invocation state the provider last streamed, so the
   // invocation alone cannot say whether work is still happening. The card's own status can, and a
@@ -55,18 +55,35 @@ export const ToolUseContents = memo(function ToolUseContents({
   if (invocation.toolName === 'validate') {
     return <ValidationToolContents invocation={invocation} />;
   }
-  return invocation.toolName === 'read' ||
+  if (invocation.toolName === 'publish' || invocation.toolName === 'publish_preview') {
+    const view = publish ?? linkedPublishView(invocation, Date.now());
+    return view ? <PublishContents view={view} /> : <StructuredResultTool invocation={invocation} />;
+  }
+  if (
+    invocation.toolName === 'read' ||
     invocation.toolName === 'write' ||
     invocation.toolName === 'edit' ||
     invocation.toolName === 'exec' ||
     invocation.toolName === 'search_cloudflare_docs' ||
-    invocation.toolName === 'publish_preview' ||
-    invocation.toolName === 'fetch_site' ||
-    invocation.toolName === 'publish' ? (
-    <StructuredResultTool invocation={invocation} />
-  ) : (
-    <pre className="overflow-x-auto whitespace-pre-wrap">{JSON.stringify(invocation, null, 2)}</pre>
-  );
+    invocation.toolName === 'fetch_site'
+  ) {
+    return <StructuredResultTool invocation={invocation} />;
+  }
+  if (invocation.state === 'output-error') {
+    return <ToolResultFrame>{invocation.errorText ?? 'This tool call failed.'}</ToolResultFrame>;
+  }
+  switch (invocation.toolName) {
+    case 'ls':
+      return <ListingContents invocation={invocation} />;
+    case 'grep':
+      return <SearchContents invocation={invocation} />;
+    case 'history':
+      return <HistoryContents invocation={invocation} />;
+    case 'new_context':
+      return <ToolResultFrame>CloudChef carries a summary of the work so far into a fresh context.</ToolResultFrame>;
+    default:
+      return <pre className="overflow-x-auto whitespace-pre-wrap">{JSON.stringify(invocation, null, 2)}</pre>;
+  }
 });
 
 function unfinishedToolSummary(status: ToolActivityStatus): string {
@@ -496,9 +513,7 @@ function StructuredResultTool({ invocation }: { invocation: CloudChefToolInvocat
         {invocation.output.coverage !== undefined ? (
           <pre className="whitespace-pre-wrap">{JSON.stringify(invocation.output.coverage, null, 2)}</pre>
         ) : null}
-        {invocation.toolName === 'publish' || invocation.toolName === 'publish_preview' ? (
-          <PublishResultLinks result={invocation.output} />
-        ) : invocation.output.data !== undefined ? (
+        {invocation.output.data !== undefined ? (
           <pre className="whitespace-pre-wrap">{JSON.stringify(invocation.output.data, null, 2)}</pre>
         ) : null}
       </div>
@@ -506,32 +521,150 @@ function StructuredResultTool({ invocation }: { invocation: CloudChefToolInvocat
   );
 }
 
-/** Only a web link the pipeline reported is offered; anything else in the result stays out of the card. */
-const webUrlSchema = z
-  .url({ protocol: /^https?$/ })
-  .nullable()
-  .optional()
-  .catch(undefined);
-const publishResultLinksSchema = z.looseObject({ previewUrl: webUrlSchema, detailsUrl: webUrlSchema });
+/** What became of a GitHub publish, in the person's words, with the links its pipeline reported. */
+function PublishContents({ view }: { view: LinkedPublishView }) {
+  return (
+    <ToolResultFrame>
+      <div className="space-y-2">
+        <div>{view.detail}</div>
+        <PublishLinks view={view} />
+      </div>
+    </ToolResultFrame>
+  );
+}
 
-/** What GitHub's pipeline made of a publish: its preview and its build details, as links. */
-function PublishResultLinks({ result }: { result: CloudChefToolResult }) {
-  const links = publishResultLinksSchema.safeParse(result.data).data;
-  if (!links?.previewUrl && !links?.detailsUrl) {
+/** Only web links the pipeline reported are offered (the view keeps nothing else). */
+export function PublishLinks({ view }: { view: LinkedPublishView }) {
+  if (!view.previewUrl && !view.detailsUrl) {
     return null;
   }
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1">
-      {links.previewUrl ? (
-        <a className="underline" href={links.previewUrl} target="_blank" rel="noopener noreferrer">
+      {view.previewUrl ? (
+        <a className="underline" href={view.previewUrl} target="_blank" rel="noopener noreferrer">
           Open the preview
         </a>
       ) : null}
-      {links.detailsUrl ? (
-        <a className="underline" href={links.detailsUrl} target="_blank" rel="noopener noreferrer">
+      {view.detailsUrl ? (
+        <a className="underline" href={view.detailsUrl} target="_blank" rel="noopener noreferrer">
           Build details
         </a>
       ) : null}
     </div>
   );
+}
+
+const MAX_LISTED_ROWS = 40;
+
+const listingOutputSchema = z.looseObject({
+  entries: z.array(z.looseObject({ path: z.string(), type: z.string() })),
+  entryCount: z.number().optional(),
+  truncated: z.boolean().optional(),
+});
+
+const searchOutputSchema = z.looseObject({
+  matches: z.array(z.looseObject({ path: z.string(), line: z.number(), text: z.string() })),
+  matchCount: z.number().optional(),
+  truncated: z.boolean().optional(),
+});
+
+const historySearchOutputSchema = z.looseObject({
+  totalMatches: z.number(),
+  entries: z.array(z.looseObject({ role: z.string(), excerpt: z.string() })),
+});
+const historyReadOutputSchema = z.looseObject({ role: z.string(), text: z.string() });
+
+function moreRows(shown: number, total: number, truncated: boolean | undefined): string | null {
+  const hidden = total - shown;
+  return hidden > 0 ? `…and ${hidden} more` : truncated ? '…and more' : null;
+}
+
+function ListingContents({ invocation }: { invocation: CloudChefToolInvocation }) {
+  const listing = listingOutputSchema.safeParse(invocation.output).data;
+  if (!listing) {
+    return <ToolResultFrame>{toolResultSummary(invocation.output)}</ToolResultFrame>;
+  }
+  const shown = listing.entries.slice(0, MAX_LISTED_ROWS);
+  const more = moreRows(shown.length, listing.entryCount ?? listing.entries.length, listing.truncated);
+  return (
+    <ToolResultFrame>
+      {shown.length === 0 ? (
+        'Nothing here.'
+      ) : (
+        <ul className="max-h-56 overflow-auto text-xs leading-5 text-content-secondary">
+          {shown.map((entry) => (
+            <li key={entry.path} className="truncate">
+              {getRelativePath(entry.path) || entry.path}
+              {entry.type === 'dir' ? '/' : ''}
+            </li>
+          ))}
+          {more ? <li className="text-content-tertiary">{more}</li> : null}
+        </ul>
+      )}
+    </ToolResultFrame>
+  );
+}
+
+function SearchContents({ invocation }: { invocation: CloudChefToolInvocation }) {
+  const search = searchOutputSchema.safeParse(invocation.output).data;
+  if (!search) {
+    return <ToolResultFrame>{toolResultSummary(invocation.output)}</ToolResultFrame>;
+  }
+  const shown = search.matches.slice(0, MAX_LISTED_ROWS);
+  const more = moreRows(shown.length, search.matchCount ?? search.matches.length, search.truncated);
+  return (
+    <ToolResultFrame>
+      {shown.length === 0 ? (
+        'No matches.'
+      ) : (
+        <ul className="max-h-56 overflow-auto text-xs leading-5 text-content-secondary">
+          {shown.map((match) => (
+            <li key={`${match.path}:${match.line}`} className="truncate">
+              <span className="text-content-primary">
+                {getRelativePath(match.path) || match.path}:{match.line}
+              </span>{' '}
+              {match.text.trim()}
+            </li>
+          ))}
+          {more ? <li className="text-content-tertiary">{more}</li> : null}
+        </ul>
+      )}
+    </ToolResultFrame>
+  );
+}
+
+const MAX_HISTORY_TEXT = 600;
+
+function HistoryContents({ invocation }: { invocation: CloudChefToolInvocation }) {
+  const search = historySearchOutputSchema.safeParse(invocation.output).data;
+  if (search) {
+    return (
+      <ToolResultFrame>
+        <div className="space-y-1 text-xs leading-5 text-content-secondary">
+          <div>
+            {search.totalMatches === 0
+              ? 'Nothing earlier in the conversation matched.'
+              : `${search.totalMatches} earlier message${search.totalMatches === 1 ? '' : 's'} matched.`}
+          </div>
+          {search.entries.slice(0, 5).map((entry, index) => (
+            <p key={index} className="line-clamp-2">
+              <span className="text-content-primary">{entry.role === 'user' ? 'You' : 'CloudChef'}:</span>{' '}
+              {entry.excerpt}
+            </p>
+          ))}
+        </div>
+      </ToolResultFrame>
+    );
+  }
+  const read = historyReadOutputSchema.safeParse(invocation.output).data;
+  if (read) {
+    return (
+      <ToolResultFrame>
+        <p className="whitespace-pre-wrap text-xs leading-5 text-content-secondary">
+          {read.text.length > MAX_HISTORY_TEXT ? `${read.text.slice(0, MAX_HISTORY_TEXT)}…` : read.text}
+        </p>
+      </ToolResultFrame>
+    );
+  }
+  return <ToolResultFrame>{toolResultSummary(invocation.output)}</ToolResultFrame>;
 }

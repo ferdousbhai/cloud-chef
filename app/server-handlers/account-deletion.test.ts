@@ -47,7 +47,7 @@ describe('deleteAccountAction', () => {
     vi.clearAllMocks();
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
     mocks.getAuthSession.mockResolvedValue(freshSession());
-    mocks.eraseControlPlaneAccount.mockResolvedValue({ cloudflareAuthorizationRevoked: true });
+    mocks.eraseControlPlaneAccount.mockResolvedValue({ cloudflareAuthorizationRevoked: true, workspacesLeftIn: [] });
   });
 
   it('refuses while the person is the only admin of an organization others still belong to', async () => {
@@ -65,7 +65,11 @@ describe('deleteAccountAction', () => {
     const response = await deleteAccountAction({ request: deletionRequest(validBody), env });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ status: 'deleted', cloudflareAuthorizationRevoked: true });
+    await expect(response.json()).resolves.toEqual({
+      status: 'deleted',
+      cloudflareAuthorizationRevoked: true,
+      workspacesLeftIn: [],
+    });
     expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(mocks.eraseControlPlaneAccount).toHaveBeenCalledWith({ env, userId: 'user-1' });
@@ -113,10 +117,17 @@ describe('deleteAccountAction', () => {
   });
 
   it('reports an unrevoked grant so the user can remove it in Cloudflare', async () => {
-    mocks.eraseControlPlaneAccount.mockResolvedValue({ cloudflareAuthorizationRevoked: false });
+    mocks.eraseControlPlaneAccount.mockResolvedValue({
+      cloudflareAuthorizationRevoked: false,
+      workspacesLeftIn: ['Acme'],
+    });
 
     const response = await deleteAccountAction({ request: deletionRequest(validBody), env });
 
-    await expect(response.json()).resolves.toEqual({ status: 'deleted', cloudflareAuthorizationRevoked: false });
+    await expect(response.json()).resolves.toEqual({
+      status: 'deleted',
+      cloudflareAuthorizationRevoked: false,
+      workspacesLeftIn: ['Acme'],
+    });
   });
 });

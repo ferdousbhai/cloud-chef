@@ -5,6 +5,7 @@ import {
   lineEditBaseTag,
   type LineEditOperation,
   lineEditToolParameters,
+  logicalLines,
 } from './line-edit.js';
 
 const SHA = 'ab'.repeat(32);
@@ -139,6 +140,65 @@ describe('line-anchored editing', () => {
     expect(() =>
       applyLineEdits('a\nb\n', [
         { oldText: 'a', newText: 'A' },
+        { startLine: 1, endLine: 1, content: 'other' },
+      ]),
+    ).toThrow('overlap');
+  });
+
+  it("keeps every line's own ending and rewrites only the lines an edit changes", () => {
+    // A lone CR inside an LF file is content, not a line break.
+    expect(applyLineEdits('x = "\r";\ny\n', [{ oldText: 'y', newText: 'Y' }]).content).toBe('x = "\r";\nY\n');
+    expect(applyLineEdits('x = "\r";\ny\n', [{ startLine: 2, endLine: 2, content: 'Y' }]).content).toBe(
+      'x = "\r";\nY\n',
+    );
+    expect(logicalLines('x = "\r";\ny\n')).toEqual(['x = "\r";', 'y']);
+    // A file mixing CRLF and LF keeps both.
+    expect(applyLineEdits('a\r\nb\nc\n', [{ oldText: 'b', newText: 'B' }]).content).toBe('a\r\nB\nc\n');
+    expect(applyLineEdits('a\r\nb\nc\n', [{ startLine: 3, endLine: 3, content: 'C' }]).content).toBe('a\r\nb\nC\n');
+    expect(applyLineEdits('a\nb\r\nc', [{ afterLine: 3, content: 'd' }]).content).toBe('a\nb\r\nc\nd');
+    // A file with CR line endings throughout still reads them as line breaks.
+    expect(applyLineEdits('a\rb\rc\r', [{ oldText: 'b', newText: 'B' }]).content).toBe('a\rB\rc\r');
+    expect(applyLineEdits('a\rb\r', [{ startLine: 2, endLine: 2, content: 'B\nB2' }]).content).toBe('a\rB\rB2\r');
+  });
+
+  it('deletes a line through the end of the file without leaving a blank line behind', () => {
+    expect(applyLineEdits('a\nb\n', [{ oldText: 'b\n', newText: '' }]).content).toBe('a\n');
+    expect(applyLineEdits('a\r\nb\r\n', [{ oldText: 'b\r\n', newText: '' }]).content).toBe('a\r\n');
+    expect(applyLineEdits('a\nb\n', [{ oldText: 'a\nb\n', newText: '' }]).content).toBe('');
+    expect(applyLineEdits('a\nb\nc\n', [{ oldText: 'b\n', newText: '' }]).content).toBe('a\nc\n');
+  });
+
+  it("keeps an insertion's trailing newline in an empty file, and the file's own one elsewhere", () => {
+    expect(applyLineEdits('', [{ afterLine: 0, content: 'hello\n' }]).content).toBe('hello\n');
+    expect(applyLineEdits('', [{ afterLine: 0, content: 'hello' }]).content).toBe('hello');
+    expect(applyLineEdits('a\n', [{ afterLine: 1, content: 'b' }]).content).toBe('a\nb\n');
+    expect(applyLineEdits('a', [{ afterLine: 1, content: 'b\n' }]).content).toBe('a\nb\n');
+  });
+
+  it('applies two exact-text replacements on one line when their text does not overlap', () => {
+    expect(
+      applyLineEdits('call(alpha, beta);\nnext\n', [
+        { oldText: 'beta', newText: 'BETA' },
+        { oldText: 'alpha', newText: 'ALPHA' },
+      ]),
+    ).toMatchObject({ content: 'call(ALPHA, BETA);\nnext\n', editsApplied: 2 });
+    // A line removed with its newline, and the next line edited, are one change.
+    expect(
+      applyLineEdits('a\nb\nc\n', [
+        { oldText: 'b\n', newText: '' },
+        { oldText: 'c', newText: 'C' },
+      ]).content,
+    ).toBe('a\nC\n');
+    expect(() =>
+      applyLineEdits('call(alpha, beta);\n', [
+        { oldText: 'alpha, b', newText: 'x' },
+        { oldText: 'beta', newText: 'y' },
+      ]),
+    ).toThrow('overlap');
+    // A line range still may not overlap an exact-text replacement on its lines.
+    expect(() =>
+      applyLineEdits('call(alpha, beta);\n', [
+        { oldText: 'alpha', newText: 'x' },
         { startLine: 1, endLine: 1, content: 'other' },
       ]),
     ).toThrow('overlap');

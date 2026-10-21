@@ -1,7 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
 
 const DATABASE_NAME = 'cloudchef';
+const PLACEHOLDER_D1_ID = '00000000-0000-0000-0000-000000000000';
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
 const BUILD_UUID_PATTERN = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 export const D1_RESTORE_RECEIPT_MARKER = 'CLOUDCHEF_D1_RESTORE_RECEIPT';
@@ -18,16 +20,33 @@ export function parseD1TimeTravelBookmark(output) {
   return bookmark;
 }
 
-export function formatD1RestoreSummary(bookmark, { buildUuid, commitSha, provider }) {
+/**
+ * `cf d1` addresses a database by id, so read it from cloudflare.config.ts rather than repeating it.
+ * @param {Record<string, any>} config Wrangler-format view of cloudflare.config.ts.
+ */
+export function controlPlaneDatabaseId(config) {
+  const database = config?.d1_databases?.find((binding) => binding?.binding === 'DB');
+  if (!database?.database_id || database.database_id === PLACEHOLDER_D1_ID) {
+    throw new Error('cloudflare.config.ts must bind DB to a provisioned D1 database id.');
+  }
+  return database.database_id;
+}
+
+/** @param {string} databaseId */
+export function d1BookmarkArgs(databaseId) {
+  return ['exec', 'cf', 'd1', 'time-travel', 'get-bookmark', databaseId];
+}
+
+export function formatD1RestoreSummary(bookmark, { buildUuid, commitSha, provider, databaseId }) {
   return [
     '### Pre-migration D1 restore point',
     '',
-    `- Database: \`${DATABASE_NAME}\``,
+    `- Database: \`${DATABASE_NAME}\` (\`${databaseId}\`)`,
     `- Commit: \`${commitSha}\``,
     `- Build: \`${buildUuid}\``,
     `- Provider: \`${provider}\``,
     `- Bookmark: \`${bookmark}\``,
-    `- Restore command: \`pnpm exec wrangler d1 time-travel restore ${DATABASE_NAME} --bookmark=${bookmark}\``,
+    `- Restore command: \`pnpm exec cf d1 time-travel restore ${databaseId} --bookmark=${bookmark}\``,
     '',
   ].join('\n');
 }
@@ -52,21 +71,30 @@ export function resolveReleaseIdentity({ env = process.env } = {}) {
   return { buildUuid, commitSha, provider: 'cloudflare-workers-builds' };
 }
 
+/**
+ * @param {{
+ *   databaseId: string;
+ *   query?: () => string;
+ *   identity?: { buildUuid: string; commitSha: string; provider: string };
+ * }} options
+ */
 export function recordD1TimeTravelBookmark({
+  databaseId,
   query = () =>
-    execFileSync('pnpm', ['exec', 'wrangler', 'd1', 'time-travel', 'info', DATABASE_NAME, '--json'], {
+    execFileSync('pnpm', d1BookmarkArgs(databaseId), {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'inherit'],
     }),
   identity = resolveReleaseIdentity(),
-} = {}) {
+}) {
   const bookmark = parseD1TimeTravelBookmark(query());
-  const summary = formatD1RestoreSummary(bookmark, identity);
+  const summary = formatD1RestoreSummary(bookmark, { ...identity, databaseId });
   const receipt = {
     bookmark,
     buildUuid: identity.buildUuid || null,
     commitSha: identity.commitSha,
     database: DATABASE_NAME,
+    databaseId,
     provider: identity.provider,
   };
 
@@ -75,5 +103,5 @@ export function recordD1TimeTravelBookmark({
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  recordD1TimeTravelBookmark();
+  recordD1TimeTravelBookmark({ databaseId: controlPlaneDatabaseId(await loadCommittedWranglerConfig()) });
 }

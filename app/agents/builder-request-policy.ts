@@ -1,7 +1,12 @@
 import { transcriptIdentitySchema, type TranscriptIdentity } from 'cloudchef-agent/transcript';
 import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import type { UIMessage } from 'ai';
-import { builderModelIdSchema, type BuilderModelId } from '~/lib/workers-ai-model';
+import {
+  builderModelIdSchema,
+  builderReasoningLevelSchema,
+  type BuilderModelId,
+  type BuilderReasoningLevel,
+} from '~/lib/workers-ai-model';
 import { z } from 'zod';
 
 const MAX_BUILDER_AGENT_NAME_LENGTH = 512;
@@ -104,6 +109,7 @@ type BuilderChatRequestBody = {
   subchatIndex?: unknown;
   transcript?: unknown;
   modelId?: unknown;
+  reasoningLevel?: unknown;
 };
 
 type BuilderRequestScope = {
@@ -111,6 +117,8 @@ type BuilderRequestScope = {
   subchatIndex: number;
   transcript: TranscriptIdentity;
   modelId: BuilderModelId;
+  /** The reasoning effort the person chose; absent for the provider's default. */
+  reasoningLevel?: BuilderReasoningLevel;
 };
 
 const chatInitialIdSchema = z.string().min(1).max(MAX_BUILDER_AGENT_NAME_LENGTH);
@@ -133,15 +141,23 @@ export function requireBuilderRequestScope(
   if (!modelId.success) {
     throw new Response('Invalid builder model', { status: 400 });
   }
+  const reasoningLevel = builderReasoningLevelSchema.optional().safeParse(body.reasoningLevel ?? undefined);
+  if (!reasoningLevel.success) {
+    throw new Response('Invalid reasoning effort', { status: 400 });
+  }
   if (chatInitialId.data !== binding?.chatInitialId) {
     throw new Response('Initial chat identifier does not match this transcript', { status: 409 });
   }
-  return {
+  const scope: BuilderRequestScope = {
     chatInitialId: chatInitialId.data,
     subchatIndex: subchatIndex.data,
     transcript,
     modelId: modelId.data,
   };
+  if (reasoningLevel.data !== undefined) {
+    scope.reasoningLevel = reasoningLevel.data;
+  }
+  return scope;
 }
 
 export function requireBuilderTranscriptIdentity(

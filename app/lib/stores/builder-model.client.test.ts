@@ -11,12 +11,17 @@ import {
   builderModelCatalogStatusStore,
   builderModelsStore,
   builderModelStore,
+  builderModelRequestFields,
   builderNewModelsStore,
+  builderReasoningChoicesStore,
+  builderReasoningLevelFor,
   installBuilderModelCatalog,
   loadBuilderModelCatalog,
   loadBuilderModelPreference,
   markBuilderModelsSeen,
   orderBuilderModelsForDisplay,
+  setBuilderModel,
+  setBuilderReasoningLevel,
   syncBuilderModelPreference,
 } from './builder-model.client';
 
@@ -160,5 +165,88 @@ describe('new Workers AI models', () => {
       alternativeModel.id,
       claudeModel.id,
     ]);
+  });
+});
+
+describe('a Claude preference saved under its old bare id', () => {
+  it('restores the same model under its anthropic/ id', () => {
+    const storage = memoryStorage({ cloudchef_builder_model_v2: 'claude-opus-5-5' });
+    installBuilderModelCatalog({ ...catalog, models: [...catalog.models, claudeModel] }, storage);
+    expect(builderModelStore.get()).toBe('anthropic/claude-opus-5-5');
+
+    syncBuilderModelPreference({ key: 'cloudchef_builder_model_v2', newValue: 'claude-opus-5-5' });
+    expect(builderModelStore.get()).toBe('anthropic/claude-opus-5-5');
+  });
+});
+
+describe('the reasoning effort chosen per model', () => {
+  const REASONING_KEY = 'cloudchef_builder_reasoning_v1';
+  const opus: BuilderModel = { ...claudeModel, reasoningLevels: ['low', 'medium', 'high', 'xhigh', 'max'] };
+  const gpt: BuilderModel = {
+    ...claudeModel,
+    id: 'openai/gpt-5',
+    label: 'GPT-5',
+    reasoningLevels: ['minimal', 'low', 'medium', 'high'],
+  };
+
+  beforeEach(() => {
+    installBuilderModelCatalog({ ...catalog, models: [...catalog.models, opus, gpt] }, memoryStorage());
+    loadBuilderModelPreference(memoryStorage());
+  });
+
+  it('starts at the provider default, and persists a choice for that model alone', () => {
+    const storage = memoryStorage();
+    expect(builderModelRequestFields(opus.id).reasoningLevel).toBeUndefined();
+
+    setBuilderReasoningLevel(opus.id, 'xhigh', storage);
+
+    expect(builderModelRequestFields(opus.id).reasoningLevel).toBe('xhigh');
+    expect(builderModelRequestFields(gpt.id).reasoningLevel).toBeUndefined();
+    expect(JSON.parse(storage.read(REASONING_KEY) ?? 'null')).toEqual({ [opus.id]: 'xhigh' });
+
+    loadBuilderModelPreference(storage);
+    expect(builderReasoningChoicesStore.get()).toEqual({ [opus.id]: 'xhigh' });
+
+    setBuilderReasoningLevel(opus.id, undefined, storage);
+    expect(builderModelRequestFields(opus.id).reasoningLevel).toBeUndefined();
+    expect(JSON.parse(storage.read(REASONING_KEY) ?? 'null')).toEqual({});
+  });
+
+  it("carries the chosen effort in a turn's request, and no effort field at all for the default", () => {
+    expect(builderModelRequestFields(opus.id)).toEqual({ modelId: opus.id });
+    setBuilderReasoningLevel(opus.id, 'high', memoryStorage());
+    expect(builderModelRequestFields(opus.id)).toEqual({ modelId: opus.id, reasoningLevel: 'high' });
+    expect(builderModelRequestFields(gpt.id)).toEqual({ modelId: gpt.id });
+  });
+
+  it('falls back to the provider default when the model no longer offers the saved effort', () => {
+    expect(builderReasoningLevelFor(gpt, { [gpt.id]: 'xhigh' })).toBeUndefined();
+    expect(builderReasoningLevelFor({ ...opus, reasoningLevels: undefined }, { [opus.id]: 'high' })).toBeUndefined();
+    expect(builderReasoningLevelFor(gpt, { [gpt.id]: 'minimal' })).toBe('minimal');
+  });
+
+  it('keeps each model its own effort across a switch', () => {
+    const storage = memoryStorage();
+    setBuilderModel(opus.id, storage);
+    setBuilderReasoningLevel(opus.id, 'max', storage);
+    setBuilderModel(gpt.id, storage);
+    expect(builderModelRequestFields(builderModelStore.get()).reasoningLevel).toBeUndefined();
+    setBuilderModel(opus.id, storage);
+    expect(builderModelRequestFields(builderModelStore.get()).reasoningLevel).toBe('max');
+  });
+
+  it('skips unreadable entries one by one, and never reads off', () => {
+    loadBuilderModelPreference(
+      memoryStorage({
+        [REASONING_KEY]: JSON.stringify({ [opus.id]: 'high', [gpt.id]: 'off', 'not a model': 'low', x: 3 }),
+      }),
+    );
+    expect(builderReasoningChoicesStore.get()).toEqual({ [opus.id]: 'high' });
+
+    loadBuilderModelPreference(memoryStorage({ [REASONING_KEY]: '{not json' }));
+    expect(builderReasoningChoicesStore.get()).toEqual({});
+
+    syncBuilderModelPreference({ key: REASONING_KEY, newValue: JSON.stringify({ [gpt.id]: 'low' }) });
+    expect(builderReasoningChoicesStore.get()).toEqual({ [gpt.id]: 'low' });
   });
 });

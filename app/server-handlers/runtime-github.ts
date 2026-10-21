@@ -26,8 +26,15 @@ const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 
 const projectFields = { ...bodyIdentityFields, orgProjectId: z.string().uuid() };
 const snapshotSchema = z.strictObject(projectFields);
+/** Names the workspace's own branch (`cloudchef/<member>-<branchKey>`); without it, the member's one branch. */
+const branchKeySchema = z
+  .string()
+  .regex(/^[a-z0-9]{8,32}$/)
+  .optional();
+const siteSchema = z.strictObject({ ...projectFields, branchKey: branchKeySchema });
 const commitSchema = z.strictObject({
   ...projectFields,
+  branchKey: branchKeySchema,
   baseCommit: z.string().regex(/^[0-9a-f]{40}$/),
   message: z.string().trim().min(1).max(2_000),
   changes: z
@@ -82,43 +89,68 @@ export async function runtimeGitHubSnapshotAction(args: {
   }
   const tarball = await access.repository.tarball(commit);
   const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const line = (value: JsonBody) => controller.enqueue(encoder.encode(`${JSON.stringify(value)}\n`));
-      line({ commit, defaultBranch: access.defaultBranch, repository: access.repository.fullName });
-      let files = 0;
-      let total = 0;
-      try {
-        for await (const entry of readRepositoryTarball(tarball)) {
-          files += 1;
-          total += entry.bytes.length;
-          if (files > MAX_FILES || entry.bytes.length > MAX_FILE_BYTES || total > MAX_TOTAL_BYTES) {
-            line({ error: 'This repository is larger than a CloudChef workspace holds (10,000 files, 64 MB).' });
-            controller.close();
-            return;
-          }
-          line({
-            path: entry.path,
-            contentBase64: bytesToBase64(entry.bytes),
-            executable: entry.executable,
-            blobSha: await gitBlobSha(entry.bytes),
-          });
-        }
-        line({ done: true, files });
-      } catch {
-        line({ error: 'The repository download failed. Try again.' });
-      }
-      controller.close();
-    },
+  const lines = snapshotLines(readRepositoryTarball(tarball), {
+    commit,
+    defaultBranch: access.defaultBranch,
+    repository: access.repository.fullName,
   });
+  // Pulled: a line is read from GitHub only once the runtime has taken the last one, so a slow reader
+  // never makes the whole repository queue up in this Worker's memory.
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        const next = await lines.next();
+        if (next.done) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(encoder.encode(`${JSON.stringify(next.value)}\n`));
+      },
+      async cancel() {
+        await lines.return(undefined);
+      },
+    },
+    { highWaterMark: 0 },
+  );
   return new Response(stream, { headers: { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store' } });
 }
 
+/** The snapshot's lines: the commit, each file, then `done`, or an `error` line that ends it. */
+async function* snapshotLines(
+  entries: AsyncIterable<{ path: string; bytes: Uint8Array; executable: boolean }>,
+  head: { commit: string; defaultBranch: string; repository: string },
+): AsyncGenerator<JsonBody> {
+  yield head;
+  let files = 0;
+  let total = 0;
+  try {
+    for await (const entry of entries) {
+      files += 1;
+      total += entry.bytes.length;
+      if (files > MAX_FILES || entry.bytes.length > MAX_FILE_BYTES || total > MAX_TOTAL_BYTES) {
+        yield { error: 'This repository is larger than a CloudChef workspace holds (10,000 files, 64 MB).' };
+        return;
+      }
+      yield {
+        path: entry.path,
+        contentBase64: bytesToBase64(entry.bytes),
+        executable: entry.executable,
+        blobSha: await gitBlobSha(entry.bytes),
+      };
+    }
+  } catch {
+    yield { error: 'The repository download failed. Try again.' };
+    return;
+  }
+  yield { done: true, files };
+}
+
 /**
- * Commits the workspace's changes, relative to the commit it was opened from, to the member's own
- * branch (`cloudchef/<name>`): one commit on top of that base, replacing the branch's last one, so the
- * branch always shows exactly the workspace. With `publish`, the branch is then merged into the default
- * branch, which the repository's pipeline deploys.
+ * Commits the workspace's changes, relative to the commit it was opened from, to the workspace's own
+ * branch (`cloudchef/<name>-<branchKey>`): one commit on top of that base, replacing the branch's last one,
+ * so the branch always shows exactly the workspace. Each conversation has its own key (one that continues
+ * another keeps it), so two never overwrite each other's branch. With `publish`, the branch is then merged
+ * into the default branch, which the repository's pipeline deploys.
  */
 export async function runtimeGitHubCommitAction(args: {
   request: Request;
@@ -131,7 +163,7 @@ export async function runtimeGitHubCommitAction(args: {
   }
   const { access, body } = opened;
   try {
-    const branch = await memberBranch(args.env.DB, access.userId);
+    const branch = await memberBranch(args.env.DB, access.userId, body.branchKey);
     const branchHead = await access.repository.branchHead(branch);
     const commit = await access.repository.commit({
       branch,
@@ -193,7 +225,7 @@ export async function runtimeGitHubStatusAction(args: {
 /**
  * The project's live site, for the model to read its content: the https origins GitHub knows for the
  * repository. Its homepage (the website its admins set on GitHub), and the links its pipeline posted for
- * the default branch's head and the member's own branch. Nothing the workspace says is trusted here: a
+ * the default branch's head and the conversation's own branch. Nothing the workspace says is trusted here: a
  * workspace's own config could name any address.
  */
 export async function runtimeGitHubSiteAction(args: {
@@ -201,16 +233,16 @@ export async function runtimeGitHubSiteAction(args: {
   env: Env;
   app?: GitHubApp | null;
 }): Promise<Response> {
-  const opened = await openProject(args, snapshotSchema, MAX_SNAPSHOT_REQUEST_BYTES, {
+  const opened = await openProject(args, siteSchema, MAX_SNAPSHOT_REQUEST_BYTES, {
     contents: 'read',
     checks: 'read',
   });
   if (opened instanceof Response) {
     return opened;
   }
-  const { access } = opened;
+  const { access, body } = opened;
   try {
-    const branch = await memberBranch(args.env.DB, access.userId);
+    const branch = await memberBranch(args.env.DB, access.userId, body.branchKey);
     const [homepage, heads] = await Promise.all([
       access.repository.homepage(),
       Promise.all([access.repository.branchHead(access.defaultBranch), access.repository.branchHead(branch)]),
@@ -482,17 +514,21 @@ async function openProject<T extends z.infer<typeof snapshotSchema>>(
   }
 }
 
-/** The member's own branch: their email's name part, made safe for git. */
-async function memberBranch(db: D1Database, userId: string): Promise<string> {
+/**
+ * The workspace's own branch: the member's email's name part, made safe for git, then the workspace's key.
+ * Without a key (a workspace opened before branches were per conversation), the member's one branch.
+ */
+async function memberBranch(db: D1Database, userId: string, branchKey: string | undefined): Promise<string> {
   const user = await db.prepare('SELECT email FROM "user" WHERE id = ?').bind(userId).first<{ email: string }>();
   const name = (user?.email.split('@')[0] ?? 'member')
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return `cloudchef/${name || 'member'}-${userId
+  const member = `cloudchef/${name || 'member'}-${userId
     .slice(0, 6)
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '0')}`;
+  return branchKey ? `${member}-${branchKey}` : member;
 }
 
 /** Git's object id for file contents: SHA-1 of `blob <size>\0<bytes>`. */

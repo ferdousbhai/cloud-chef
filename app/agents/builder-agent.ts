@@ -36,6 +36,14 @@ import {
   type BuilderPublicationState,
 } from './builder-publication-progress';
 import { latestDeploymentActivity } from '~/lib/.server/cloudflare/deployment-repository';
+import {
+  automaticDeploymentRetrySchema,
+  nextAutomaticDeploymentRetry,
+  PublicationSupersededError,
+  type AutomaticDeploymentRetry,
+  type DeploymentFailure,
+} from './builder-publication-retry';
+import { isRetryableDurableObjectError } from '~/lib/cloudflare/durable-object-rpc.server';
 import { generateConversationTitle, generateProjectTitle } from '~/lib/.server/llm/workers-ai-title';
 import { markChatStarted } from '~/lib/cloudflare/data/chat-repository.server';
 import {
@@ -90,11 +98,18 @@ import type {
 } from './builder-workspace-types';
 import { builderTemplateSeedId, loadBuilderTemplate } from './builder-template';
 import { parentBuilderWorkspaceSeedId, seedBuilderWorkspace } from './builder-workspace-seed';
-import { linkedWorkspaceChanges, packDraftSnapshot, seedLinkedWorkspace } from './linked-project-workspace';
+import {
+  linkedWorkspaceChanges,
+  newLinkedBranchKey,
+  packDraftSnapshot,
+  seedLinkedWorkspace,
+} from './linked-project-workspace';
 import {
   LINKED_BUILD_WATCH_MS,
+  WORKERS_BUILDS_APPEAR_MS,
   linkedBuildSettledResult,
   linkedBuildStartedResult,
+  linkedBuildUnfollowedResult,
   linkedBuildWatchSchema,
   watchLinkedBuild,
   withLinkedBuildResult,
@@ -124,7 +139,7 @@ import { waitForCancellationBeforeDeadline } from './builder-cancellation';
 import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
-import { toolFailure, toolSuccess, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
+import { toolFailure, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import {
   BuilderCloudflareExecutionRepository,
   CLOUDFLARE_EXECUTION_RISK_NOTE,
@@ -165,7 +180,7 @@ import {
 import { workersAiGatewayLogging, type WorkersAiGatewayLogging } from '~/lib/.server/llm/workers-ai-gateway';
 import { turnUsage, type ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import type { Usage } from '@earendil-works/pi-ai';
-import { requireBuilderModel } from '~/lib/.server/llm/workers-ai-model-catalog';
+import { requireBuilderModel, requireBuilderReasoningLevel } from '~/lib/.server/llm/workers-ai-model-catalog';
 import type {
   CloudflareApiModelToolContext,
   ModelToolExecutionOptions,
@@ -186,6 +201,12 @@ const CONTEXT_COMPACTION_FIBER = 'background:context_compaction';
 const PREVIEW_PUBLICATION_FIBER = 'background:builder_preview';
 const DEPLOYMENT_FIBER = 'background:builder_deployment';
 const DEPLOYMENT_INTERRUPTED_MESSAGE = 'Deployment was interrupted. Retry to reconcile the exact revision.';
+/**
+ * How long a new turn waits for the automatic publication it stopped to let go of the workspace. A
+ * publication stops at its next step, or finishes its last API calls once it has started changing
+ * production; a turn change that still meets it waits a while longer in the runtime client.
+ */
+const PUBLICATION_STOP_WAIT_MS = 30_000;
 const TITLE_GENERATION_FIBER = 'background:title_generation';
 const CLOUDFLARE_EXECUTION_FIBER = 'background:cloudflare_execution';
 const LINKED_BUILD_FIBER = 'background:linked_build';
@@ -199,6 +220,9 @@ const TITLE_GENERATION_JOB_MAX_PROMPT_CHARACTERS = 4_000;
  */
 const PUBLICATION_ACTIVITY_INTERVAL_MS = 2_000;
 const CHAT_CANCELLATION_SETTLE_TIMEOUT_MS = 4.5 * 60 * 1000;
+/** A copy of another workspace starts over when that one changes meanwhile; it changing this often is a fault. */
+const MAX_WORKSPACE_COPY_RESTARTS = 5;
+const ARCHIVED_CONVERSATION_MESSAGE = 'This conversation continues in a newer one. Open the project to keep working.';
 
 /** Fiber metadata survives a Durable Object restart, so every job is re-parsed before it is resumed. */
 const previewPublicationJobSchema = z.object({
@@ -217,6 +241,25 @@ const deploymentJobSchema = z.object({
   revision: z.string().regex(/^[a-f0-9]{64}$/),
 }) satisfies z.ZodType<BuilderWorkspaceCheckpoint>;
 type DeploymentJob = z.infer<typeof deploymentJobSchema>;
+/** Kept beside the job in a deployment fiber's metadata: whether a turn started it, and how many retries preceded it. */
+const deploymentRunSchema = z.object({
+  automatic: z.boolean().default(false),
+  attempt: z.number().int().min(0).default(0),
+});
+type DeploymentRun = z.infer<typeof deploymentRunSchema>;
+
+/**
+ * The publication commands, the agent's boundary with the deployment executor and the user's
+ * account. The BuilderAgent harness replaces them, as it replaces the ProjectWorkspace.
+ */
+const builderPublisher = {
+  preview: previewValidatedRevisionForBuilder,
+  deploy: deployValidatedRevisionForBuilder,
+  terminalize: terminalizeInterruptedDeploymentForBuilder,
+};
+
+/** A publication this agent instance is running: a new turn stops the automatic ones and waits for them. */
+type RunningPublication = { automatic: boolean; controller: AbortController; settled: Promise<void> };
 
 /** Owner identifiers reach this Durable Object over RPC, so they are re-checked at every entry point. */
 const transcriptOwnerIdSchema = z.string().min(1).max(512);
@@ -262,6 +305,14 @@ export type BuilderAgentState = {
     stage: BuilderValidationStage;
   } | null;
   deployment?: BuilderDeploymentState | null;
+  /** The revision production last promoted, kept so a publication that never finished is redone. */
+  productionRevision?: string | null;
+  /**
+   * A turn changed this CloudChef app and production has not caught up yet. Set as the turn settles
+   * and cleared only once production serves the current revision, so a cancelled, failed, or
+   * restart-interrupted publication is redone at the next turn's end or the agent's next start.
+   */
+  publicationPending?: boolean;
   /** The step the running preview or deployment publication last recorded, while it is running. */
   publication?: BuilderPublicationState | null;
   contextCompactionRequestedTurnId?: string | null;
@@ -304,6 +355,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     preview: idleBuilderPreviewState(),
     validationProgress: null,
     deployment: null,
+    productionRevision: null,
+    publicationPending: false,
     publication: null,
     contextCompactionRequestedTurnId: null,
     cloudflareExecutions: [],
@@ -332,8 +385,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private userId: string | null = null;
   private transcriptBinding: BuilderTranscriptBinding | null = null;
   private activeSteering: { turnId: string; queue: PiSteeringQueue } | null = null;
-  /** The turn whose model ran a tool that can change the project, so its end publishes the app. */
-  private projectChangedTurnId: string | null = null;
+  private readonly publisher = builderPublisher;
+  private readonly runningPublications = new Set<RunningPublication>();
+  /** Set once the GC outbox deletes this project: nothing may start publishing it again. */
+  private destroying = false;
   /** Tells the control plane, through the runtime, when a redeploy would cut this agent's work off. */
   private readonly runtimeActivity: BuilderRuntimeActivity;
 
@@ -346,7 +401,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     this.runtimeActivity = new BuilderRuntimeActivity({
       db: env.DB,
       agentName: () => this.name,
-      runtimeVersion: env.CLOUDCHEF_RUNTIME_VERSION,
     });
   }
 
@@ -361,6 +415,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.hydrateDurableIdentity({ required: false, reason: 'agent_start' });
     }
     this.refreshCloudflareExecutionState();
+    // A publication a turn asked for may not have reached production before this instance stopped.
+    if (this.state.publicationPending && this.userId) {
+      this.ctx.waitUntil(
+        this.resumeUnfinishedPublication().catch(() => logger.warn('Unable to resume the unfinished publication')),
+      );
+    }
   }
 
   override onError(...args: [connection: Connection, cause: unknown] | [cause: unknown]): void {
@@ -380,9 +440,20 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    */
   async scheduleDestroyForGc(ownerId: string): Promise<void> {
     await this.initializeGcIdentity(ownerId);
-    const pendingPreviewId = this.state.preview?.pendingId;
-    if (pendingPreviewId) {
-      await this.cancelFiberByKey(this.previewFiberKey(pendingPreviewId), 'Project deletion').catch(() => undefined);
+    this.destroying = true;
+    for (const publication of this.runningPublications) {
+      publication.controller.abort(new Error('Project deletion'));
+    }
+    // Every background job that would publish or watch this project stops with it.
+    const live = await this.listFibers({ status: ['pending', 'running', 'interrupted'] }).catch(() => []);
+    for (const fiber of live) {
+      if (
+        fiber.name === PREVIEW_PUBLICATION_FIBER ||
+        fiber.name === DEPLOYMENT_FIBER ||
+        fiber.name === LINKED_BUILD_FIBER
+      ) {
+        await this.cancelFiber(fiber.fiberId, 'Project deletion').catch(() => undefined);
+      }
     }
     await this.workspace.deleteProject();
     await this._cf_scheduleDestroy();
@@ -468,7 +539,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (!job) {
         return { status: 'error', error: 'missing preview publication recovery data' };
       }
-      await this.runPreviewPublication(job);
+      await this.runtimeActivity.run(() => this.runPreviewPublication(job));
       return { status: 'completed', snapshot: ctx.snapshot };
     }
     if (ctx.name === DEPLOYMENT_FIBER) {
@@ -476,15 +547,19 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (!job || !this.userId || !this.transcriptBinding) {
         return { status: 'error', error: 'missing deployment recovery data' };
       }
+      const run = deploymentRunSchema.safeParse(ctx.metadata ?? {}).data ?? { automatic: false, attempt: 0 };
       const error = new Error(DEPLOYMENT_INTERRUPTED_MESSAGE);
       try {
-        await this.retry(() => this.terminalizeDeployment(job));
+        await this.runtimeActivity.run(() => this.retry(() => this.terminalizeDeployment(job)));
       } catch {
         logger.error('Unable to terminalize the interrupted deployment');
-        this.failDeployment(job, new Error('Interrupted deployment recovery is pending. Retry to continue.'));
+        const pending = new Error('Interrupted deployment recovery is pending. Retry to continue.');
+        this.failDeployment(job, pending);
+        await this.scheduleAutomaticDeploymentRetry(job, run, { message: pending.message, retryable: false });
         return { status: 'error', error: 'Interrupted deployment recovery did not settle safely.' };
       }
       this.failDeployment(job, error);
+      await this.scheduleAutomaticDeploymentRetry(job, run, { message: error.message, retryable: false });
       return { status: 'error', error: error.message };
     }
     if (ctx.name === LINKED_BUILD_FIBER) {
@@ -492,7 +567,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (!watch) {
         return { status: 'error', error: 'missing linked build recovery data' };
       }
-      await this.keepAliveWhile(() => this.runLinkedBuildWatch(watch));
+      await this.runtimeActivity.run(() => this.keepAliveWhile(() => this.runLinkedBuildWatch(watch)));
       return { status: 'completed', snapshot: ctx.snapshot };
     }
     if (ctx.name === CLOUDFLARE_EXECUTION_FIBER) {
@@ -532,11 +607,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     // A conversation a newer one took over is kept to read: working here would edit an old copy of the
     // project and publish it over the newer one's work.
     if ((await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId: durableIdentity.ownerId })).archived) {
-      throw new Response('This conversation continues in a newer one. Open the project to keep working.', {
-        status: 409,
-      });
+      throw new Response(ARCHIVED_CONVERSATION_MESSAGE, { status: 409 });
     }
-    const { chatInitialId, subchatIndex, transcript, modelId } = requireBuilderRequestScope(
+    const { chatInitialId, subchatIndex, transcript, modelId, reasoningLevel } = requireBuilderRequestScope(
       body,
       durableIdentity.transcript,
     );
@@ -546,8 +619,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       modelId,
       async () => (await readAccountModelSettings(this.env)).gatewayKeys,
     );
+    const chosenReasoningLevel = requireBuilderReasoningLevel(model, reasoningLevel);
     if (!options?.continuation) {
-      await this.cancelPreview();
+      // The person is talking to the builder again: the publication of the last turn must not hold the
+      // workspace this turn edits. It publishes again, with this turn's changes, when this turn ends.
+      await this.stopAutomaticPublications();
       await markChatStarted(this.env.DB, {
         sessionId: durableIdentity.ownerId,
         chatId: chatInitialId,
@@ -582,6 +658,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     };
 
     try {
+      // Again now that the turn is visible: a newer conversation that took over meanwhile either saw this
+      // turn and stopped it, or archived this one before this read.
+      await this.refuseIfArchived();
       const { contentLogging } = await this.requireModelAccess();
       const cloudflareApi = await this.createCloudflareApiToolContext(durableIdentity.transcript);
       const linkedProject = await this.createLinkedProjectToolContext();
@@ -621,8 +700,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         steering,
         onSettled: (report) => {
           settleSteering();
-          if (report.changedProject) {
-            this.projectChangedTurnId = turn.id;
+          if (report.changedProject && !this.state.publicationPending) {
+            this.setState({ ...this.state, publicationPending: true });
           }
         },
         onModelUsage: (usage) => this.reportModelUsage(usage),
@@ -647,6 +726,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         },
         body: { messages, modelId },
         model,
+        reasoningLevel: chosenReasoningLevel,
       });
     } catch (error) {
       steering.close();
@@ -748,16 +828,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
     }
     const validatedSnapshot = await this.refreshDeploymentReadiness();
-    const changedProject = this.projectChangedTurnId === currentTurn.id;
-    this.projectChangedTurnId = null;
-    // A finished turn that changed a CloudChef app publishes it: the preview builds the exact revision
-    // (unless the model already validated it) and production follows. A GitHub project previews and
-    // deploys through its own pipeline, when the agent publishes to it.
-    if (status === 'completed' && (changedProject || validatedSnapshot) && !(await this.workspace.linkedProject())) {
-      const snapshot = validatedSnapshot ?? (await this.workspace.checkpoint().catch(() => null));
-      if (snapshot) {
-        await this.publishRevision(snapshot);
-      }
+    // A turn that changed a CloudChef app, or one before it whose publication never reached production,
+    // publishes it however the turn ended: the preview builds the exact revision (unless the model
+    // already validated it) and production follows. A GitHub project previews and deploys through its
+    // own pipeline, when the agent publishes to it.
+    if (this.state.publicationPending || (status === 'completed' && validatedSnapshot)) {
+      await this.publishLatestRevision(validatedSnapshot);
     }
   }
 
@@ -776,6 +852,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!active || this.state.activeTurn?.id !== active.turnId) {
       throw new Response('The builder is not currently running.', { status: 409 });
     }
+    await this.refuseIfArchived();
 
     const message: UIMessage = {
       id: `steering-${crypto.randomUUID()}`,
@@ -807,6 +884,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     await this.waitForCloudflareDecisionBoundary();
     const binding = await this.requireCurrentCloudflareExecutionBinding('approve_cloudflare_execution');
+    await this.refuseIfArchived();
     const proposal = await this.cloudflareExecutions.verify(parsed.data.executionId, binding);
     if (
       proposal.status === 'rejected' ||
@@ -825,7 +903,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       CLOUDFLARE_EXECUTION_FIBER,
       async (context) => {
         context.stash(job);
-        await this.runApprovedCloudflareExecution(job, binding);
+        await this.runtimeActivity.run(() => this.runApprovedCloudflareExecution(job, binding));
       },
       {
         idempotencyKey: `cloudflare-execution:${proposal.executionId}`,
@@ -885,6 +963,57 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       checkpoint,
       messages: this.messages,
     };
+  }
+
+  /**
+   * A newer conversation on this GitHub project has taken over (this chat is archived): stop the turn
+   * running here and return once nothing more can change this workspace, so the copy the newer one takes
+   * next is final. Saves, steering, approvals and publishing are already refused here. Its build watch
+   * keeps running: it only reads GitHub and fills in this transcript's publish result.
+   *
+   * An internal Durable Object RPC, not `@callable`: the data API calls it when the new conversation
+   * starts, and the new conversation's agent before it copies this workspace.
+   */
+  async settleForSuccessor(ownerId: string): Promise<void> {
+    if (!transcriptOwnerIdSchema.safeParse(ownerId).success) {
+      throw new Response('Invalid transcript owner', { status: 400 });
+    }
+    const identity = await this.hydrateDurableIdentity({ required: false, reason: 'settle_for_successor' });
+    if (!identity) {
+      // Never started, so nothing runs here.
+      return;
+    }
+    if (identity.ownerId !== ownerId) {
+      throw new Response('Agent not found.', { status: 404 });
+    }
+    if (!(await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId })).archived) {
+      throw new Response('This conversation is still the current one.', { status: 409 });
+    }
+    this.showLinkedProject(this.state.linkedProject ? { ...this.state.linkedProject, archived: true } : null);
+    if (this.state.activeTurn) {
+      await this.cancelActiveTurn();
+      return;
+    }
+    const settled = await this.waitUntilStable({
+      timeout: CHAT_CANCELLATION_SETTLE_TIMEOUT_MS,
+      pendingInteraction: () => false,
+    });
+    if (!settled) {
+      throw new Error('The earlier conversation did not settle in time.');
+    }
+  }
+
+  /** A conversation a newer one took over is kept to read: nothing may change its project or publish it. */
+  private async refuseIfArchived(): Promise<void> {
+    if (await this.isArchivedConversation()) {
+      throw new Response(ARCHIVED_CONVERSATION_MESSAGE, { status: 409 });
+    }
+  }
+
+  private async isArchivedConversation(): Promise<boolean> {
+    const ownerId =
+      this.ownerId ?? (await this.hydrateDurableIdentity({ required: true, reason: 'archive_check' }))?.ownerId;
+    return ownerId ? (await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId })).archived : false;
   }
 
   /**
@@ -987,6 +1116,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   @callable()
   async applyWorkspaceClientChanges(request: WorkspaceApplyChangesRequest): Promise<BuilderWorkspaceApplyResult> {
+    await this.refuseIfArchived();
     const result = await this.workspace.applyClientChanges(request);
     if (result.ok && result.changedPaths.length > 0) {
       this.setState({
@@ -1016,7 +1146,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (retry) {
       await this.terminalizeDeployment(snapshot);
     }
-    await this.scheduleDeployment(snapshot, { retry });
+    await this.scheduleDeployment(snapshot, { retry, run: { automatic: false, attempt: 0 } });
     return this.state.deployment ?? { status: 'deploying', ...snapshot };
   }
 
@@ -1329,21 +1459,23 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (current.initialized) {
       return current;
     }
+    // Seeding writes the whole project into the workspace: a redeploy partway would leave it half seeded.
+    return this.runtimeActivity.run(() => this.seedNewWorkspace(binding));
+  }
+
+  private async seedNewWorkspace(binding: BuilderTranscriptBinding): Promise<BuilderWorkspaceState> {
     if (binding.parentAgentName) {
-      const parent = await this.loadParentWorkspace(binding.parentAgentName);
       // A subchat of a GitHub project keeps working on it, relative to the same commit: linked before its
-      // seed commits, so it never exists as an ordinary draft holding the repository's code.
-      const parentAgent: Pick<BuilderAgent, 'getLinkedProject'> = this.env.BuilderAgent.getByName(
-        binding.parentAgentName,
-      );
-      const linked = await parentAgent.getLinkedProject();
+      // seed commits, so it never exists as an ordinary draft holding the repository's code. The parent can
+      // go on working too, so the subchat gets its own branch.
+      const parent = await this.loadLinkedWorkspaceCopy(binding.parentAgentName);
       return seedBuilderWorkspace(
         this.workspace,
         parentBuilderWorkspaceSeedId(parent.targetRevision),
         parent.entries,
         async () => {
-          if (linked) {
-            await this.workspace.setLinkedProject(linked);
+          if (parent.linked) {
+            await this.workspace.setLinkedProject({ ...parent.linked, branchKey: newLinkedBranchKey() });
           }
         },
       );
@@ -1354,18 +1486,22 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (orgProjectId && continuesAgentName) {
       // A new conversation on the project starts from the last one's workspace, relative to the same
       // commit, so what it hadn't published yet carries over. One that never opened the project has none.
-      const previousAgent: Pick<BuilderAgent, 'getLinkedProject' | 'getWorkspaceState'> =
+      // The last one stops first, so the copy is final; it is archived, so this one takes over its branch.
+      const previousAgent: Pick<BuilderAgent, 'getLinkedProject' | 'getWorkspaceState' | 'settleForSuccessor'> =
         this.env.BuilderAgent.getByName(continuesAgentName);
+      await previousAgent.settleForSuccessor(this.userId ?? '');
       const linked = (await previousAgent.getWorkspaceState()).initialized
         ? await previousAgent.getLinkedProject()
         : null;
       if (linked?.orgProjectId === orgProjectId) {
-        const previous = await this.loadParentWorkspace(continuesAgentName);
+        const previous = await this.loadLinkedWorkspaceCopy(continuesAgentName);
+        const continued = previous.linked?.orgProjectId === orgProjectId ? previous.linked : linked;
         return seedBuilderWorkspace(
           this.workspace,
           parentBuilderWorkspaceSeedId(previous.targetRevision),
           previous.entries,
-          () => this.workspace.setLinkedProject(linked),
+          () =>
+            this.workspace.setLinkedProject({ ...continued, branchKey: continued.branchKey ?? newLinkedBranchKey() }),
         );
       }
     }
@@ -1412,12 +1548,20 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!linked || !identity) {
       return toolFailure("This workspace is not one of the team's GitHub projects.");
     }
+    if (await this.isArchivedConversation()) {
+      return toolFailure(`${ARCHIVED_CONVERSATION_MESSAGE} Nothing was sent to GitHub.`);
+    }
     const { changes, manifest } = await linkedWorkspaceChanges(this.workspace, linked);
     if (changes.length === 0) {
       return toolFailure(`Nothing has changed since this workspace was opened from ${linked.repository}.`);
     }
+    // The last moment a Stop or the tool's deadline can call it off. Once GitHub has the commit (and the
+    // merge), there's no taking it back: everything below runs to the end, and its result is the real one
+    // even if the turn ended meanwhile; the build watch then puts it in place of the stopped call's error.
+    options.abortSignal?.throwIfAborted();
     const result = await commitLinkedProject(this.env, identity, {
       orgProjectId: linked.orgProjectId,
+      branchKey: linked.branchKey,
       baseCommit: linked.baseCommit,
       message: input.message,
       publish: input.live,
@@ -1427,7 +1571,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return toolFailure(
         `${result.error ?? 'The changes overlap with newer work.'} Nothing went live. The work is saved on the ` +
           `branch ${result.branch} of ${linked.repository}; an admin can merge it there.`,
-        { branch: result.branch, commit: result.commit },
+        { branch: result.branch, commit: result.commit, conflict: true, defaultBranch: linked.defaultBranch },
       );
     }
     if (input.live && result.published) {
@@ -1443,23 +1587,22 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       where: input.live ? `merged into ${linked.defaultBranch}` : `on the branch ${result.branch}`,
       live: input.live,
       startedAt: Date.now(),
+      defaultBranch: linked.defaultBranch,
     };
     try {
       await this.startFiber(
         LINKED_BUILD_FIBER,
         async (fiber) => {
           fiber.stash(watch);
-          await this.keepAliveWhile(() => this.runLinkedBuildWatch(watch, fiber.signal));
+          await this.runtimeActivity.run(() =>
+            this.keepAliveWhile(() => this.runLinkedBuildWatch(watch, fiber.signal)),
+          );
         },
         { idempotencyKey: `${LINKED_BUILD_FIBER}:${this.name}:${watch.toolCallId}`, metadata: watch },
       );
     } catch {
       logger.warn('Unable to start watching the linked project build');
-      return toolSuccess(
-        `Committed ${watch.where}. CloudChef could not follow the repository's pipeline for it; its build ` +
-          'result is on GitHub.',
-        { branch: watch.branch, commit: watch.sha, live: watch.live },
-      );
+      return linkedBuildUnfollowedResult(watch);
     }
     return linkedBuildStartedResult(watch);
   }
@@ -1470,18 +1613,27 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    */
   private async runLinkedBuildWatch(watch: LinkedBuildWatch, signal?: AbortSignal): Promise<void> {
     const identity = runtimeIdentity(this.env);
-    if (!identity) {
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const build = identity
+      ? await watchLinkedBuild({
+          poll: async () => {
+            // A call stopped after its commit shows as failed until its result lands: while the pipeline
+            // builds, it at least says what is on GitHub.
+            await this.landLinkedBuildOutput(watch, linkedBuildStartedResult(watch), { onlyFailed: true });
+            return linkedBuildStatus(this.env, identity, watch.orgProjectId, watch.sha);
+          },
+          sleep,
+          now: Date.now,
+          deadline: watch.startedAt + LINKED_BUILD_WATCH_MS,
+          workersBuildsGraceUntil: watch.startedAt + WORKERS_BUILDS_APPEAR_MS,
+          signal,
+        })
+      : null;
+    if (signal?.aborted) {
+      // Stopped with the agent: recovery runs the watch again.
       return;
     }
-    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-    const build = await watchLinkedBuild({
-      poll: () => linkedBuildStatus(this.env, identity, watch.orgProjectId, watch.sha),
-      sleep,
-      now: Date.now,
-      deadline: watch.startedAt + LINKED_BUILD_WATCH_MS,
-      signal,
-    });
-    const output = linkedBuildSettledResult(watch, build);
+    const output = build ? linkedBuildSettledResult(watch, build) : linkedBuildUnfollowedResult(watch);
     console.info({
       event: 'linked_build_settled',
       build: output.data?.build ?? 'none',
@@ -1491,14 +1643,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     let missingSince: number | null = null;
     while (!signal?.aborted && Date.now() < landingDeadline) {
       if (!this.state.activeTurn) {
-        const messages = withLinkedBuildResult(this.messages, watch.toolCallId, output);
-        if (messages) {
-          // SAFETY: these are the agent's existing AI SDK messages with only one already-terminal tool
-          // output replaced by another JSON-serializable output; no part discriminant or state changes.
-          await this.persistMessages(messages as UIMessage[]);
-          if (this.state.transcript) {
-            await this.advanceTranscriptCheckpoint(this.state.transcript);
-          }
+        if (await this.landLinkedBuildOutput(watch, output)) {
           return;
         }
         missingSince ??= Date.now();
@@ -1512,6 +1657,28 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
   }
 
+  /** Puts `output` in place of a watched publish's output once no turn is running; whether it landed. */
+  private async landLinkedBuildOutput(
+    watch: LinkedBuildWatch,
+    output: CloudChefToolResult,
+    options: { onlyFailed?: boolean } = {},
+  ): Promise<boolean> {
+    if (this.state.activeTurn) {
+      return false;
+    }
+    const messages = withLinkedBuildResult(this.messages, watch.toolCallId, output, options);
+    if (!messages) {
+      return false;
+    }
+    // SAFETY: these are the agent's existing AI SDK messages with only one terminal tool part of a publish
+    // changed: its JSON-serializable output replaced, or a stopped call's error replaced by its real output.
+    await this.persistMessages(messages as UIMessage[]);
+    if (this.state.transcript) {
+      await this.advanceTranscriptCheckpoint(this.state.transcript);
+    }
+    return true;
+  }
+
   /** Reads a page of the project's own live site: only addresses GitHub reports for this repository. */
   private async fetchLinkedSite(
     input: LinkedSiteFetchInput,
@@ -1523,7 +1690,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return toolFailure("This workspace is not one of the team's GitHub projects.");
     }
     return fetchLinkedSitePage(input, {
-      origins: () => linkedSiteOrigins(this.env, identity, linked.orgProjectId),
+      origins: () => linkedSiteOrigins(this.env, identity, linked.orgProjectId, linked.branchKey),
       fetch: (request, init) => fetch(request, init),
       signal: options.abortSignal,
     });
@@ -1790,6 +1957,27 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     this.setState({ ...this.state, cloudflareExecutions });
   }
 
+  /**
+   * Another workspace's files with the GitHub project it is linked to, read so they belong together: the
+   * link (and its base commit) is the same before and after the files are copied, or the copy starts over.
+   */
+  private async loadLinkedWorkspaceCopy(agentName: string): Promise<{
+    entries: BuilderWorkspaceFileInput[];
+    targetRevision: number;
+    linked: BuilderWorkspaceLinkedProject | null;
+  }> {
+    const agent: Pick<BuilderAgent, 'getLinkedProject'> = this.env.BuilderAgent.getByName(agentName);
+    for (let attempt = 0; attempt <= MAX_WORKSPACE_COPY_RESTARTS; attempt += 1) {
+      const before = await agent.getLinkedProject();
+      const copy = await this.loadParentWorkspace(agentName);
+      const after = await agent.getLinkedProject();
+      if (before?.orgProjectId === after?.orgProjectId && before?.baseCommit === after?.baseCommit) {
+        return { ...copy, linked: after };
+      }
+    }
+    throw new Error('The workspace kept changing while it was being copied. Open the conversation again.');
+  }
+
   private async loadParentWorkspace(
     parentAgentName: string,
   ): Promise<{ entries: BuilderWorkspaceFileInput[]; targetRevision: number }> {
@@ -1801,6 +1989,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const entries: BuilderWorkspaceFileInput[] = [];
     let cursor: string | undefined;
+    let restarts = 0;
     while (true) {
       const request: WorkspaceSyncPageRequest = { fromRevision: 0 };
       if (cursor) {
@@ -1808,13 +1997,25 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
       const page = await parent.getWorkspaceSyncPage(request);
       if (page.restart) {
+        restarts += 1;
+        if (restarts > MAX_WORKSPACE_COPY_RESTARTS) {
+          throw new Error('The workspace kept changing while it was being copied. Open the conversation again.');
+        }
         entries.length = 0;
         cursor = undefined;
         continue;
       }
       for (const entry of page.entries) {
         if (entry.kind === 'write') {
-          entries.push({ path: entry.path, content: entry.content, encoding: entry.encoding });
+          const input: BuilderWorkspaceFileInput = {
+            path: entry.path,
+            content: entry.content,
+            encoding: entry.encoding,
+          };
+          if (entry.mode !== undefined) {
+            input.mode = entry.mode;
+          }
+          entries.push(input);
         }
       }
       if (!page.nextCursor) {
@@ -1834,7 +2035,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!userId || !transcriptBinding) {
       throw new Response('Agent authentication is required.', { status: 401 });
     }
-    return terminalizeInterruptedDeploymentForBuilder({
+    return this.publisher.terminalize({
       context: {
         env: this.env,
         userId,
@@ -1844,6 +2045,98 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       toolCallId: deploymentToolCallId(job.workspaceRevision, job.revision),
       validatedRevision: job.revision,
     });
+  }
+
+  /**
+   * Publish the current revision of a CloudChef app unless production already serves it. Never while
+   * a turn runs: its end publishes, and a publication would hold the workspace the turn edits.
+   */
+  private async publishLatestRevision(validated: BuilderWorkspaceCheckpoint | null): Promise<void> {
+    if (this.destroying || this.state.activeTurn || (await this.workspace.linkedProject().catch(() => null))) {
+      return;
+    }
+    const snapshot = validated ?? (await this.workspace.checkpoint().catch(() => null));
+    if (!snapshot) {
+      return;
+    }
+    if (snapshot.revision === this.state.productionRevision) {
+      if (this.state.publicationPending) {
+        this.setState({ ...this.state, publicationPending: false });
+      }
+      return;
+    }
+    if (!this.state.publicationPending) {
+      this.setState({ ...this.state, publicationPending: true });
+    }
+    await this.publishRevision(snapshot);
+  }
+
+  /**
+   * A restarted agent finishes what a turn asked for: a publication interrupted before it reached
+   * production, or one whose fiber never started, runs again. One still running or awaiting its
+   * recovery hook finishes on its own.
+   */
+  private async resumeUnfinishedPublication(): Promise<void> {
+    if (!this.state.publicationPending || this.state.activeTurn || this.destroying) {
+      return;
+    }
+    const live = await this.listFibers({
+      status: ['pending', 'running', 'interrupted'],
+    });
+    if (live.some((fiber) => fiber.name === PREVIEW_PUBLICATION_FIBER || fiber.name === DEPLOYMENT_FIBER)) {
+      return;
+    }
+    const preview = this.currentPreviewState();
+    if (preview.pendingId && (preview.status === 'queued' || preview.status === 'building')) {
+      // Its fiber is gone: nothing will ever settle it, and it would hold back its replacement.
+      this.setPreviewState({ ...preview, status: 'cancelled', pendingId: null, error: null });
+    }
+    await this.refreshDeploymentReadiness();
+    await this.publishLatestRevision(null);
+  }
+
+  /** Stop the automatic publications this instance is running, and give them a moment to let go of the workspace. */
+  private async stopAutomaticPublications(): Promise<void> {
+    await this.cancelPreview();
+    const stopping = [...this.runningPublications].filter((publication) => publication.automatic);
+    if (stopping.length === 0) {
+      return;
+    }
+    for (const publication of stopping) {
+      publication.controller.abort(new PublicationSupersededError());
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.all(stopping.map((publication) => publication.settled)),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, PUBLICATION_STOP_WAIT_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+  }
+
+  /** Run one publication where a new turn can stop it: its signal also aborts when the turn's stop does. */
+  private async trackPublication(
+    automatic: boolean,
+    signal: AbortSignal | undefined,
+    run: (signal: AbortSignal) => Promise<void>,
+  ): Promise<void> {
+    const controller = new AbortController();
+    const execution = run(signal ? AbortSignal.any([signal, controller.signal]) : controller.signal);
+    const publication: RunningPublication = {
+      automatic,
+      controller,
+      settled: execution.then(
+        () => undefined,
+        () => undefined,
+      ),
+    };
+    this.runningPublications.add(publication);
+    try {
+      await execution;
+    } finally {
+      this.runningPublications.delete(publication);
+    }
   }
 
   /**
@@ -1858,7 +2151,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return null;
     });
     if (!preview?.pendingId) {
-      await this.scheduleDeployment(snapshot).catch(() => logger.warn('Unable to queue the automatic deployment'));
+      await this.scheduleAutomaticDeployment(snapshot);
     }
   }
 
@@ -1875,10 +2168,23 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!validated) {
       return;
     }
-    await this.scheduleDeployment(checkpoint).catch(() => logger.warn('Unable to queue the automatic deployment'));
+    await this.scheduleAutomaticDeployment(checkpoint);
   }
 
-  private async scheduleDeployment(job: DeploymentJob, options: { retry?: boolean } = {}): Promise<void> {
+  /** Production follows the turn that asked for it, unless a newer turn is running or production already serves it. */
+  private async scheduleAutomaticDeployment(job: DeploymentJob, attempt = 0): Promise<void> {
+    if (this.destroying || this.state.activeTurn || job.revision === this.state.productionRevision) {
+      return;
+    }
+    await this.scheduleDeployment(job, { retry: attempt > 0, run: { automatic: true, attempt } }).catch(() =>
+      logger.warn('Unable to queue the automatic deployment'),
+    );
+  }
+
+  private async scheduleDeployment(
+    job: DeploymentJob,
+    options: { retry?: boolean; run: DeploymentRun },
+  ): Promise<void> {
     const current = this.state.deployment;
     if (!options.retry && current?.revision === job.revision && current.status !== 'ready') {
       return;
@@ -1888,25 +2194,89 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       ...this.state,
       deployment: { status: 'deploying', ...job },
     });
+    const { run } = options;
     try {
       // No per-revision fiber key: it would hand back a settled fiber without running it.
       await this.startFiber(
         DEPLOYMENT_FIBER,
         async (fiber) => {
           fiber.stash(job);
-          try {
-            await this.runDeployment(job);
-          } catch (error) {
-            this.failDeployment(job, error);
-            throw error;
-          }
+          // Counted busy while it runs, whatever later rewrites the deployment record.
+          await this.runtimeActivity.run(() =>
+            this.trackPublication(run.automatic, fiber.signal, async (signal) => {
+              try {
+                await this.runDeployment(job, signal);
+              } catch (error) {
+                if (signal.aborted) {
+                  // Stopped before it changed production: not a failure, and the latest revision
+                  // publishes when the turn that stopped it ends.
+                  this.setDeploymentResult(job, null);
+                  return;
+                }
+                this.failDeployment(job, error);
+                await this.scheduleAutomaticDeploymentRetry(job, run, {
+                  message: deploymentErrorMessage(error),
+                  retryable: isRetryableDurableObjectError(error),
+                });
+                throw error;
+              }
+            }),
+          );
         },
-        { metadata: job },
+        { metadata: { ...job, ...run } },
       );
     } catch (error) {
       this.failDeployment(job, error);
       throw error;
     }
+  }
+
+  /** Retry an automatic deployment that failed for a reason that may pass, with backoff. */
+  private async scheduleAutomaticDeploymentRetry(
+    job: DeploymentJob,
+    run: DeploymentRun,
+    failure: DeploymentFailure,
+  ): Promise<void> {
+    const next =
+      run.automatic && !this.destroying
+        ? nextAutomaticDeploymentRetry({ ...job, attempt: run.attempt }, failure)
+        : null;
+    if (!next) {
+      return;
+    }
+    await this.schedule(next.delaySeconds, 'retryAutomaticDeployment', next.retry, { idempotent: true }).catch(() =>
+      logger.warn('Unable to schedule the automatic deployment retry'),
+    );
+  }
+
+  /**
+   * A scheduled retry of an automatic deployment. It runs only while the failed revision is still the
+   * one to publish and nothing else is publishing it; a turn running now publishes when it ends.
+   */
+  async retryAutomaticDeployment(payload: AutomaticDeploymentRetry): Promise<void> {
+    const retry = automaticDeploymentRetrySchema.safeParse(payload).data;
+    if (!retry) {
+      return;
+    }
+    await this.hydrateDurableIdentity({ required: false, reason: 'automatic_deployment_retry' });
+    if (!this.userId || !this.transcriptBinding || !this.state.publicationPending) {
+      return;
+    }
+    const job: DeploymentJob = { workspaceRevision: retry.workspaceRevision, revision: retry.revision };
+    const snapshot = await this.workspace.checkpoint().catch(() => null);
+    const current = this.state.deployment;
+    if (
+      snapshot?.revision !== job.revision ||
+      snapshot.workspaceRevision !== job.workspaceRevision ||
+      (current?.revision === job.revision && current.status === 'deploying') ||
+      (await this.workspace.linkedProject().catch(() => null))
+    ) {
+      return;
+    }
+    if (current?.revision === job.revision && current.status === 'failed') {
+      await this.terminalizeDeployment(job).catch(() => logger.warn('Unable to terminalize the failed deployment'));
+    }
+    await this.scheduleAutomaticDeployment(job, retry.attempt);
   }
 
   /** Interrupted fibers count: their recovery hook, not the readiness check, settles them. */
@@ -1915,7 +2285,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return live.some((fiber) => deploymentJobSchema.safeParse(fiber.metadata).data?.revision === revision);
   }
 
-  private async runDeployment(job: DeploymentJob): Promise<BuilderDeploymentState> {
+  private async runDeployment(job: DeploymentJob, abortSignal: AbortSignal): Promise<BuilderDeploymentState> {
     const userId = this.userId;
     const transcriptBinding = this.transcriptBinding;
     if (!userId || !transcriptBinding) {
@@ -1926,10 +2296,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       job,
       'deployment',
       `${deploymentToolCallId(job.workspaceRevision, job.revision)}:validation`,
+      abortSignal,
     );
     const deployment = await this.withPublicationActivity('deployment', (onPlanned) =>
       this.keepAliveWhile(() =>
-        deployValidatedRevisionForBuilder({
+        this.publisher.deploy({
           context: {
             env: this.env,
             userId,
@@ -1939,11 +2310,15 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           toolCallId: deploymentToolCallId(job.workspaceRevision, job.revision),
           validatedRevision: job.revision,
           onPlanned,
+          abortSignal,
         }),
       ),
     );
     const revisionBoundDeployment = { ...deployment, ...job };
     this.setDeploymentResult(job, revisionBoundDeployment);
+    if (deployment.status === 'succeeded') {
+      await this.recordProductionRevision(job.revision);
+    }
     console.info({
       event: 'builder_deployment_settled',
       status: revisionBoundDeployment.status,
@@ -1952,13 +2327,23 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return revisionBoundDeployment;
   }
 
+  /** Production serves this revision now; the publication a turn asked for is done once it is the current one. */
+  private async recordProductionRevision(revision: string): Promise<void> {
+    const current = await this.workspace.checkpoint().catch(() => null);
+    this.setState({
+      ...this.state,
+      productionRevision: revision,
+      publicationPending: current?.revision === revision ? false : this.state.publicationPending,
+    });
+  }
+
   private failDeployment(job: DeploymentJob, error: unknown): BuilderDeploymentState {
     const deployment = { status: 'failed' as const, ...job, error: deploymentErrorMessage(error) };
     this.setDeploymentResult(job, deployment);
     return deployment;
   }
 
-  private setDeploymentResult(job: DeploymentJob, deployment: BuilderDeploymentState): void {
+  private setDeploymentResult(job: DeploymentJob, deployment: BuilderDeploymentState | null): void {
     if (this.state.deployment?.revision !== job.revision) {
       return;
     }
@@ -2054,7 +2439,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         PREVIEW_PUBLICATION_FIBER,
         async (fiber) => {
           fiber.stash(job);
-          await this.runPreviewPublication(job, fiber.signal);
+          // Counted busy while it runs: cancelling marks the preview cancelled at once, while the build
+          // it aborts can still be finishing.
+          await this.runtimeActivity.run(() => this.runPreviewPublication(job, fiber.signal));
         },
         {
           idempotencyKey: this.previewFiberKey(previewId),
@@ -2071,8 +2458,22 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return this.currentPreviewState();
   }
 
-  private async runPreviewPublication(job: PreviewPublicationJob, abortSignal?: AbortSignal): Promise<void> {
+  private runPreviewPublication(job: PreviewPublicationJob, fiberSignal?: AbortSignal): Promise<void> {
+    // A new turn stops every preview, a manual one included, as it always has.
+    return this.trackPublication(true, fiberSignal, (abortSignal) => this.publishPreview(job, abortSignal));
+  }
+
+  private async publishPreview(job: PreviewPublicationJob, abortSignal: AbortSignal): Promise<void> {
     if (!this.isCurrentPreviewJob(job.previewId)) {
+      // Recovered after it published but before production was scheduled behind it.
+      const preview = this.currentPreviewState();
+      if (
+        !abortSignal.aborted &&
+        preview.status === 'ready' &&
+        preview.published?.snapshotRevision === job.snapshotRevision
+      ) {
+        await this.schedulePipelineDeploymentAfterPreview(job);
+      }
       return;
     }
     try {
@@ -2091,13 +2492,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         `preview:${job.previewId}:validation`,
         abortSignal,
       );
-      abortSignal?.throwIfAborted();
+      abortSignal.throwIfAborted();
       if (!this.isCurrentPreviewJob(job.previewId)) {
         return;
       }
       const success = await this.withPublicationActivity('preview', (onPlanned) =>
         this.keepAliveWhile(() =>
-          previewValidatedRevisionForBuilder({
+          this.publisher.preview({
             context: {
               env: this.env,
               userId,
@@ -2108,10 +2509,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
             previewId: job.previewId,
             validatedRevision: validatedSnapshot.revision,
             onPlanned,
+            abortSignal,
           }),
         ),
       );
-      if (!this.isCurrentPreviewJob(job.previewId)) {
+      if (abortSignal.aborted || !this.isCurrentPreviewJob(job.previewId)) {
         return;
       }
       const currentSnapshot = await this.workspace.checkpoint();
@@ -2129,6 +2531,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       });
       await this.schedulePipelineDeploymentAfterPreview(job);
     } catch (error) {
+      // A cancelled or superseded preview is not a failure, and never deploys production.
+      if (abortSignal.aborted || !this.isCurrentPreviewJob(job.previewId)) {
+        return;
+      }
       await this.failPreviewPublication(
         job,
         (error instanceof Error ? error.message : 'The Workers preview publication failed.').slice(-4_000),
@@ -2138,12 +2544,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /**
-   * Deployment follows a settled pipeline preview — never a manual "Build preview", which must not
-   * promote to the public production URL. A failed preview still deploys behind the pipeline so one
-   * broken preview never costs the user the production deployment.
+   * Deployment follows a settled pipeline preview, or any preview of a revision a turn asked to publish
+   * — never a manual "Build preview" alone, which must not promote to the public production URL. A
+   * failed preview still deploys behind the pipeline so one broken preview never costs the user the
+   * production deployment.
    */
   private async schedulePipelineDeploymentAfterPreview(job: PreviewPublicationJob): Promise<void> {
-    if (job.autoDeploy) {
+    if (job.autoDeploy || this.state.publicationPending) {
       await this.scheduleDeploymentAfterPreview(job);
     }
   }

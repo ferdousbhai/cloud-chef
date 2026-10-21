@@ -16,7 +16,12 @@ import {
   type OpenAICompletionsOptions,
 } from '@earendil-works/pi-ai/api/openai-completions';
 import { streamSimple as openaiResponsesStreamSimple } from '@earendil-works/pi-ai/api/openai-responses';
-import { stream as anthropicMessagesStream, type AnthropicOptions } from '@earendil-works/pi-ai/api/anthropic-messages';
+import {
+  stream as anthropicMessagesStream,
+  type AnthropicEffort,
+  type AnthropicOptions,
+} from '@earendil-works/pi-ai/api/anthropic-messages';
+import { thinkingBudgetForLevel } from '@earendil-works/pi-ai/api/simple-options';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { modelTokenEstimateSafetyTokens } from 'cloudchef-agent/context-limits';
 import {
@@ -28,6 +33,11 @@ import {
 } from '~/lib/workers-ai-model';
 import { GATEWAY_BINDING_ORIGIN, piGatewayModel, type GatewayApi } from './pi-model-catalog';
 import { recordPiStage } from './pi-telemetry';
+import {
+  providerRequestBodySchema,
+  withProviderDefaultReasoning,
+  type ProviderRequestBody,
+} from './provider-default-reasoning';
 import {
   WORKERS_AI_GATEWAY_UNLOGGED,
   workersAiGatewayHeaders,
@@ -90,10 +100,11 @@ function catalogModel(modelId: string): PiCatalogEntry | undefined {
  *
  * With no dialect named, Pi resolves the format from its own provider detection, which for a
  * Cloudflare base URL is the `"openai"` default: a bare `reasoning_effort`, and not even that
- * unless a caller asks for an effort (`builderThinkingLevel` in `pi-agent-runner.ts` currently
- * sends none) or the model carries a `thinkingLevelMap.off` string, which the model built below
- * never does. So no thinking directive reaches the provider at all, which is what was already
- * happening in substance.
+ * unless the person chose a level (`builderThinkingLevel` in `pi-agent-runner.ts`) or the model
+ * carries a `thinkingLevelMap.off` string, which the model built below never does. With no level
+ * chosen, no thinking directive reaches the provider at all — the DeepSeek dialect's
+ * `thinking: { type: 'disabled' }` included, which the binding fetch strips — so each model
+ * reasons at its own default.
  */
 function workersAiCompat(catalog: PiCatalogEntry | undefined): OpenAICompletionsCompat {
   return {
@@ -155,19 +166,21 @@ function availableOutputTokens(model: Model<Api>, context: TranscriptContext): n
 }
 
 /**
- * A caller that asked for a specific output size (the context summarizer, prompt refinement) keeps
- * it, clamped to what physically fits. A caller that asked for nothing gets everything left. Both
- * are then lifted to `MINIMUM_OUTPUT_TOKENS`, which is never omitted and never zero.
+ * A caller that asked for nothing gets everything left, lifted to `MINIMUM_OUTPUT_TOKENS`. A caller
+ * that asked for a specific output size (the context summarizer, prompt refinement, a title) keeps
+ * it, clamped to what physically fits — but the floor never raises a small request above what the
+ * caller asked for, so a 64-token title stays a 64-token title. Neither is ever omitted or zero.
  */
 function requestOutputTokens(model: Model<Api>, context: TranscriptContext, requested: number | undefined): number {
-  const available = availableOutputTokens(model, context);
-  return Math.max(MINIMUM_OUTPUT_TOKENS, requested === undefined ? available : Math.min(requested, available));
+  const available = Math.max(MINIMUM_OUTPUT_TOKENS, availableOutputTokens(model, context));
+  return requested === undefined ? available : Math.max(1, Math.min(requested, available));
 }
 
 type HandleArgs = {
   model: Model<Api>;
   apiKey?: string;
-  fetch?: FetchFunction;
+  /** The transport for one request, told whether that request asked for a reasoning level. */
+  fetch?: (reasoningRequested: boolean) => FetchFunction;
   sessionAffinity?: string;
 };
 
@@ -196,8 +209,8 @@ function makeHandle(args: HandleArgs): ModelHandle {
       // accepts `reasoning` and hands the adapter `reasoningEffort`, while the api-level `stream`
       // this calls reads only `reasoningEffort`. Every caller here speaks the `reasoning` spelling —
       // `builderThinkingLevel` in `pi-agent-runner.ts`, and the agent loop that forwards it — so
-      // without this one assignment the field is silently dropped and every request goes out with
-      // `thinking: { type: 'disabled' }` and no effort at all. The mapping is done here rather than
+      // without this one assignment a level the person chose would be silently dropped. The mapping
+      // is done here rather than
       // by switching to `streamSimple`, because that entry point re-clamps `maxTokens` with Pi's own
       // estimator and would quietly undo `requestOutputTokens` — including the
       // `MINIMUM_OUTPUT_TOKENS` floor that exists to keep Workers AI's 256-token default from
@@ -214,7 +227,7 @@ function makeHandle(args: HandleArgs): ModelHandle {
         merged.apiKey = args.apiKey;
       }
       if (args.fetch !== undefined) {
-        merged.fetch = args.fetch;
+        merged.fetch = args.fetch(streamOptions.reasoning !== undefined);
       }
       if (Object.keys(headers).length > 0) {
         merged.headers = headers;
@@ -240,6 +253,7 @@ export function getPiModel(
     return getGatewayPiModel(accountCredentials, modelId, {
       gatewayLogging: settings?.gatewayLogging ?? WORKERS_AI_GATEWAY_UNLOGGED,
       keyAlias: settings?.gatewayKeyAlias ?? DEFAULT_GATEWAY_KEY_ALIAS,
+      sessionAffinity: settings?.sessionAffinity,
     });
   }
   const catalog = catalogModel(modelId);
@@ -265,11 +279,11 @@ export function getPiModel(
     // The binding adapter forwards only the reviewed session-affinity header.
     apiKey: 'workers-ai-binding',
     // Unless the caller says the person allows it, a request is not logged.
-    fetch: createWorkersAiBindingFetch(
-      accountCredentials.binding,
-      model,
-      settings?.gatewayLogging ?? WORKERS_AI_GATEWAY_UNLOGGED,
-    ),
+    fetch: (reasoningRequested) =>
+      createWorkersAiBindingFetch(accountCredentials.binding, model, {
+        gatewayLogging: settings?.gatewayLogging ?? WORKERS_AI_GATEWAY_UNLOGGED,
+        reasoningRequested,
+      }),
     sessionAffinity: settings?.sessionAffinity,
   });
 }
@@ -333,12 +347,21 @@ const GATEWAY_TRANSPORTS = {
         apiKey: GATEWAY_PLACEHOLDER_KEY,
         fetch,
         maxTokens,
-        // Pi turns this into adaptive thinking for the models Anthropic manages it on, and a thinking
-        // budget for older ones; an effort is sent only when the caller asked for one.
+        // Thinking is always on for a reasoning model. Pi turns this into adaptive thinking for the
+        // models Anthropic manages it on, at the model's own default effort, and a thinking budget
+        // for older ones; a level is sent only when the person chose one.
         thinkingEnabled: model.reasoning,
       };
-      if (reasoning !== undefined) {
-        merged.effort = reasoning === 'minimal' ? 'low' : reasoning;
+      if (reasoning !== undefined && model.reasoning) {
+        if (
+          model.compat !== undefined &&
+          'forceAdaptiveThinking' in model.compat &&
+          model.compat.forceAdaptiveThinking
+        ) {
+          merged.effort = anthropicEffort(model, reasoning);
+        } else {
+          merged.thinkingBudgetTokens = Math.min(thinkingBudgetForLevel(reasoning), Math.max(1_024, maxTokens - 1_024));
+        }
       }
       return ANTHROPIC_MESSAGES_STREAM(model, context, merged);
     },
@@ -350,10 +373,24 @@ const GATEWAY_TRANSPORTS = {
   },
   'openai-completions': {
     endpoint: 'chat/completions',
-    forwardedHeaders: [],
+    // OpenRouter's sticky routing reads the session id Pi sends here, which keeps a chat on the
+    // provider that holds its cached prefix.
+    forwardedHeaders: ['x-session-id'],
     stream: (args) => OPENAI_COMPLETIONS_STREAM(args.model, args.context, simpleGatewayOptions(args)),
   },
 } satisfies Record<GatewayApi, GatewayTransport>;
+
+/**
+ * Anthropic's effort for a level the person chose, in the model's own vocabulary where Pi's
+ * catalog maps it (`xhigh`, `max`), and Pi's reading of the generic levels otherwise.
+ */
+function anthropicEffort(model: Model<Api>, level: NonNullable<ModelStreamOptions['reasoning']>): AnthropicEffort {
+  const mapped = model.thinkingLevelMap?.[level];
+  if (mapped === 'low' || mapped === 'medium' || mapped === 'high' || mapped === 'xhigh' || mapped === 'max') {
+    return mapped;
+  }
+  return level === 'minimal' ? 'low' : level === 'xhigh' || level === 'max' ? 'high' : level;
+}
 
 /** What a request sent with a key the provider refused, or with none on the gateway, reports. */
 export function gatewayKeyRejectedMessage(provider: GatewayProviderSlug): string {
@@ -373,20 +410,24 @@ export function gatewayKeyRejectedMessage(provider: GatewayProviderSlug): string
 function getGatewayPiModel(
   accountCredentials: WorkersAiAccountCredentials,
   modelId: BuilderModelId,
-  { gatewayLogging, keyAlias }: { gatewayLogging: WorkersAiGatewayLogging; keyAlias: string },
+  {
+    gatewayLogging,
+    keyAlias,
+    sessionAffinity,
+  }: { gatewayLogging: WorkersAiGatewayLogging; keyAlias: string; sessionAffinity?: string },
 ): ModelHandle {
   const entry = piGatewayModel(modelId);
   if (!entry) {
     throw new Error(`Pi does not list the model "${modelId}".`);
   }
   const transport = GATEWAY_TRANSPORTS[entry.api];
-  const fetch = createGatewayFetch(accountCredentials.binding, {
+  const route = {
     provider: entry.provider,
     endpoint: `${new URL(entry.model.baseUrl).pathname}/${transport.endpoint}`.replace(/^\/+/, ''),
     forwardedHeaders: transport.forwardedHeaders,
     gatewayLogging,
     keyAlias,
-  });
+  };
   const handle: ModelHandle = {
     model: entry.model,
     stream: (streamModel, context, options = {}) => {
@@ -395,10 +436,21 @@ function getGatewayPiModel(
       return transport.stream({
         model: streamModel,
         context,
-        fetch,
+        fetch: createGatewayFetch(accountCredentials.binding, {
+          ...route,
+          reasoning: {
+            model: streamModel,
+            requested: options.reasoning !== undefined,
+            // Only OpenAI's own Responses API is known to stream reasoning summaries on request.
+            summaries: entry.provider === 'openai',
+          },
+        }),
         maxTokens: Math.min(streamModel.maxTokens, requestOutputTokens(streamModel, context, options.maxTokens)),
         options: {
+          // The chat's affinity key: OpenAI Responses sends it as `prompt_cache_key`, OpenRouter as
+          // its session id, so a chat's requests keep reusing its cached prefix.
           ...options,
+          sessionId: options.sessionId ?? sessionAffinity,
           onResponse: async (response, responseModel) => {
             handle.lastResponse = { status: response.status };
             await options.onResponse?.(response, responseModel);
@@ -429,6 +481,8 @@ function createGatewayFetch(
     forwardedHeaders: readonly string[];
     gatewayLogging: WorkersAiGatewayLogging;
     keyAlias: string;
+    /** The model this request is for, and whether it asked for a reasoning level. */
+    reasoning: { model: Model<Api>; requested: boolean; summaries: boolean };
   },
 ): FetchFunction {
   return async (input, init) => {
@@ -452,9 +506,18 @@ function createGatewayFetch(
         headers[name] = value;
       }
     }
+    // A body whose reasoning fields are not shaped as Pi writes them goes exactly as written.
+    const body = await request.json();
+    const parsed = providerRequestBodySchema.safeParse(body);
+    const query = parsed.success
+      ? withProviderDefaultReasoning(route.reasoning.model, parsed.data, {
+          requested: route.reasoning.requested,
+          summaries: route.reasoning.summaries,
+        })
+      : body;
     const response = await binding
       .gateway(GATEWAY_ID)
-      .run({ provider: route.provider, endpoint, headers, query: await request.json() }, { signal: request.signal });
+      .run({ provider: route.provider, endpoint, headers, query }, { signal: request.signal });
     if (response.status === 401 || response.status === 403) {
       await response.body?.cancel().catch(() => undefined);
       // `error.message` is where both Anthropic's and OpenAI's SDKs read a refusal, so each reports
@@ -471,11 +534,7 @@ function createGatewayFetch(
 }
 
 /** The OpenAI-compatible body Pi serialises, forwarded to the binding verbatim apart from `model`. */
-type WorkersAiBindingInputs = Record<string, unknown> & {
-  model?: string;
-  max_completion_tokens?: number;
-  reasoning_effort?: string;
-};
+type WorkersAiBindingInputs = ProviderRequestBody;
 
 type WorkersAiRawRunOptions = {
   returnRawResponse: true;
@@ -491,14 +550,16 @@ type WorkersAiRawBinding = {
 function createWorkersAiBindingFetch(
   binding: Ai,
   model: Model<Api>,
-  gatewayLogging: WorkersAiGatewayLogging,
+  { gatewayLogging, reasoningRequested }: { gatewayLogging: WorkersAiGatewayLogging; reasoningRequested: boolean },
 ): FetchFunction {
   const modelId = model.id;
   return async (input, init) => {
     recordPiStage('binding_fetch_enter', modelId);
     const request = new Request(input, init);
     request.signal.throwIfAborted();
-    let payload = await request.json<WorkersAiBindingInputs>();
+    let payload = withProviderDefaultReasoning(model, providerRequestBodySchema.parse(await request.json()), {
+      requested: reasoningRequested,
+    });
     // The model is the first binding argument; keeping it out of inputs matches env.AI.run().
     delete payload.model;
     // SAFETY: `Ai.run` is generic over the generated `AiModelList`, which does not enumerate every
@@ -604,10 +665,9 @@ function withinProviderContextLimit(
  * low.` Were `builderThinkingLevel` sending `high`, a user selecting that model would 400 on every
  * single request, and a GLM retirement that failed over to it would break every build at once.
  *
- * The lane is dormant as it stands: `BUILDER_THINKING_LEVEL` in `pi-agent-runner.ts` is `undefined`,
- * so no builder request carries `reasoning_effort` at all and nothing ever reaches this replay. It
- * stays because that is one constant away from changing, and the repair has to exist before the
- * directive comes back rather than after the first account-wide 400.
+ * The picker offers only the levels Pi's catalog lists for a model, and the server checks the
+ * choice against the same list, so this lane is reached only when Pi's catalog and the provider
+ * disagree. With no level chosen no builder request carries `reasoning_effort` at all.
  *
  * The rejection names the supported set verbatim, so it is read rather than guessed, and the
  * strongest offered value wins: the builder writes software, which is the work reasoning is for, so

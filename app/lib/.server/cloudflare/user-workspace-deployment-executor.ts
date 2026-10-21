@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { deploymentPlanResourceName, isCurrentDeploymentPlan } from './deployment-plan';
 import {
   claimApprovedDeployment,
+  DeploymentConcurrencyLimitError,
   findDeploymentResource,
   recordDeploymentActivity,
   recordDeploymentResource,
@@ -23,6 +24,12 @@ type UserOwnedDeploymentArgs = {
   connectionId: string;
   executionGeneration: number;
   request?: typeof fetch;
+  /**
+   * Stops the publication at its next step while stopping is still clean: before migrations run and
+   * the version is uploaded. Past that point it finishes, since stopping would leave production half
+   * changed.
+   */
+  abortSignal?: AbortSignal;
 };
 
 type UserOwnedRuntimeContext = {
@@ -84,7 +91,9 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
   let phase: DeploymentStatus = 'approved';
   let providerChangesPossible = false;
   let session: PublicationSession | null = null;
+  const abortSignal = args.abortSignal;
   try {
+    abortSignal?.throwIfAborted();
     const { runtimeEnv, connectionGeneration, request } = requireUserOwnedRuntimeContext(args);
     let deployment = await requireDeployment(args.env.DB, args.deploymentId);
     requireExecutionIdentity(deployment, args);
@@ -102,13 +111,16 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     const reference = requireApprovedWorkspaceReference(deployment, 'deployment');
     const workspace = runtimeEnv.PROJECT_WORKSPACE.get(runtimeEnv.PROJECT_WORKSPACE.idFromName(reference.projectId));
     const operationId = `${deployment.id}:${args.executionGeneration}`;
+    abortSignal?.throwIfAborted();
     session = await beginPublicationSession(workspace, operationId, reference);
+    abortSignal?.throwIfAborted();
 
     const resourcePlan = publicationResourcePlan(deployment.plan, PRODUCTION_D1_BINDINGS);
     // Provisioning can create account resources before it fails, so a plan that names any of them
     // makes provider cleanup possible from here on.
     providerChangesPossible = Boolean(resourcePlan.d1 || resourcePlan.agentD1 || resourcePlan.r2 || resourcePlan.kv);
     const resources = await ensurePublicationResources({ db: args.env.DB, deployment, accountApi, resourcePlan });
+    abortSignal?.throwIfAborted();
     await activity(args, 20, 'Cloudflare resources ready');
     await transitionDeployment({
       db: args.env.DB,
@@ -138,6 +150,8 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     // client retries once if Cloudflare reports that the token expired.
     const publishApi = await createUserAccountApi(runtimeEnv, request);
     await workspace.assertDeploymentSession({ sessionId: session.sessionId });
+    // The last point at which stopping leaves production as it was.
+    abortSignal?.throwIfAborted();
     await activity(args, 40, 'Applying database migrations');
     await applyArtifactMigrations(publishApi, resources, artifact);
     providerChangesPossible = true;
@@ -150,19 +164,45 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     await publishApi.enableWorkerSubdomain(workerName);
     await recordResource(args.env.DB, deployment.id, 'worker', 'app', workerName);
     const workersSubdomain = await publishApi.getWorkersSubdomain();
+    const productionUrl = `https://${workerName}.${workersSubdomain}.workers.dev`;
     await transitionDeployment({
       db: args.env.DB,
       deploymentId: deployment.id,
       executionGeneration: args.executionGeneration,
       expectedStatus: 'deploying',
       nextStatus: 'succeeded',
-      productionUrl: `https://${workerName}.${workersSubdomain}.workers.dev`,
+      productionUrl,
     });
-    await activity(args, 80, 'Deployment complete');
-    await session.finish('completed');
-    return requireDeployment(args.env.DB, deployment.id);
+    phase = 'succeeded';
+    // Production is promoted and recorded: what follows is bookkeeping, and its failure must not
+    // report a live deployment as failed.
+    await activity(args, 80, 'Deployment complete').catch(() =>
+      console.error('Unable to record the completed deployment activity'),
+    );
+    await session
+      .finish('completed')
+      .catch(() => console.error('Unable to finalize the completed ProjectWorkspace deployment session'));
+    return await requireDeployment(args.env.DB, deployment.id).catch(() => ({
+      ...deployment,
+      status: 'succeeded' as const,
+      productionUrl,
+      errorCode: null,
+      errorMessage: null,
+    }));
   } catch (error) {
-    if (phase !== 'approved') {
+    if (phase === 'approved' && error instanceof DeploymentConcurrencyLimitError) {
+      // Refused before it started: record it as failed, so it reads as what it is and retries
+      // through the same path as any other failed deployment.
+      await transitionDeployment({
+        db: args.env.DB,
+        deploymentId: args.deploymentId,
+        executionGeneration: args.executionGeneration,
+        expectedStatus: 'approved',
+        nextStatus: 'failed',
+        errorCode: 'deployment_concurrency_limited',
+        errorMessage: safeError(error),
+      }).catch(() => console.error('Unable to persist the refused user-owned deployment'));
+    } else if (phase !== 'approved' && phase !== 'succeeded') {
       await transitionDeployment({
         db: args.env.DB,
         deploymentId: args.deploymentId,
@@ -196,6 +236,8 @@ export async function executeUserOwnedPreview(
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(args.previewId)) {
     throw new Error('Preview identity is invalid.');
   }
+  const abortSignal = args.abortSignal;
+  abortSignal?.throwIfAborted();
   const { runtimeEnv, connectionGeneration, request } = requireUserOwnedRuntimeContext(args);
   const deployment = await requireDeployment(args.env.DB, args.deploymentId);
   requirePreviewExecutionIdentity(deployment, args, connectionGeneration);
@@ -219,8 +261,11 @@ export async function executeUserOwnedPreview(
     };
   }
   const operationId = `preview:${deployment.id}:${args.executionGeneration}:${args.previewId}`;
+  abortSignal?.throwIfAborted();
   const session = await beginPublicationSession(workspace, operationId, reference);
   try {
+    // A preview promotes nothing, so it stops at any step; each check releases the workspace sooner.
+    abortSignal?.throwIfAborted();
     await activity(args, 1, 'Preparing Cloudflare preview resources');
     const provisionApi = await createUserAccountApi(runtimeEnv, request);
     const resources = await ensurePublicationResources({
@@ -229,6 +274,7 @@ export async function executeUserOwnedPreview(
       accountApi: provisionApi,
       resourcePlan: publicationResourcePlan(deployment.plan, PREVIEW_D1_BINDINGS),
     });
+    abortSignal?.throwIfAborted();
     await activity(args, 2, 'Cloudflare preview resources ready');
 
     const profile = deployment.plan.project;
@@ -244,10 +290,12 @@ export async function executeUserOwnedPreview(
       resources,
     });
     await workspace.assertDeploymentSession({ sessionId: session.sessionId });
+    abortSignal?.throwIfAborted();
 
     const publishApi = await createUserAccountApi(runtimeEnv, request);
     await activity(args, 3, 'Applying preview database migrations');
     await applyArtifactMigrations(publishApi, resources, artifact);
+    abortSignal?.throwIfAborted();
     await activity(args, 4, 'Uploading assets and Worker preview version');
     const published = await publishApi.previewManagedWorker(
       managedWorkerVersionArgs({ workerName, profile, reference, artifact, resources }),

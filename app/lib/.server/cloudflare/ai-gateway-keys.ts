@@ -13,16 +13,24 @@ import { GATEWAY_PROVIDER_SLUGS, type GatewayKey, type GatewayProviderSlug } fro
  */
 export const AI_GATEWAY_ID = 'default';
 
-/** The alias CloudChef links a pasted key under; any other alias is a key added outside CloudChef. */
-export const CLOUDCHEF_KEY_ALIAS = 'cloudchef';
+/**
+ * The aliases CloudChef links a pasted key under; any other alias is a key added outside CloudChef.
+ * There are two so a replacement goes on under the one not in use before the key it replaces is
+ * removed: a key Cloudflare refuses never leaves the provider without one.
+ */
+export const CLOUDCHEF_KEY_ALIASES = ['cloudchef', 'cloudchef-2'] as const;
+
+export function isCloudChefKeyAlias(alias: string): boolean {
+  return CLOUDCHEF_KEY_ALIASES.some((candidate) => candidate === alias);
+}
 
 /**
- * The Secrets Store secret Cloudflare keeps a key CloudChef linked in: AI Gateway names a provider
- * key's secret `{gateway}_{provider}_{alias}`. The name is CloudChef's, so relinking and unlinking
- * delete it.
+ * The Secrets Store secret Cloudflare keeps a key CloudChef linked under `alias` in: AI Gateway names
+ * a provider key's secret `{gateway}_{provider}_{alias}`. The name is CloudChef's, so relinking and
+ * unlinking delete it.
  */
-export function cloudchefKeySecretName(provider: GatewayProviderSlug): string {
-  return `${AI_GATEWAY_ID}_${provider}_${CLOUDCHEF_KEY_ALIAS}`;
+export function cloudchefKeySecretName(provider: GatewayProviderSlug, alias: string): string {
+  return `${AI_GATEWAY_ID}_${provider}_${alias}`;
 }
 
 /** What Settings and the runtimes need of the connected account's Cloudflare API. */

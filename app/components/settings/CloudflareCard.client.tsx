@@ -7,7 +7,7 @@ import {
   signInWithCloudflare,
 } from '~/lib/auth-client';
 import { z } from 'zod';
-import { ReauthenticateButtons } from './ReauthenticateButtons.client';
+import { ReauthenticateButtons } from './ReauthenticateButtons';
 
 const connectionStatusSchema = z.looseObject({
   accountName: z.string().nullish(),

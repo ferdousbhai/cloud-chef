@@ -26,12 +26,25 @@ export type BuilderWorkspaceLinkedProject = {
    * the workspace keeps no file modes, so GitHub's are carried here to commit them back unchanged.
    */
   baseManifest: { path: string; sha256: string; executable?: boolean }[];
+  /**
+   * Names this workspace's own branch on GitHub (`cloudchef/<member>-<branchKey>`), so two conversations
+   * never overwrite each other's branch; a conversation that continues another keeps its key. Absent on
+   * workspaces opened before branches were per conversation, which use the member's one branch.
+   */
+  branchKey?: string;
+  /**
+   * The workspace's file modes are GitHub's: it was seeded with them, so a file's executable bit is read
+   * from the workspace alone and a mode-only change is a change. Absent on workspaces seeded before.
+   */
+  workspaceModes?: boolean;
 };
 
 export type BuilderWorkspaceFileInput = {
   path: string;
   content: string;
   encoding?: BuilderWorkspaceEncoding;
+  /** The file's mode (0o755 for an executable), when the seed carries it. */
+  mode?: number;
 };
 
 export type BuilderWorkspaceClientChange =
@@ -65,6 +78,8 @@ export type BuilderWorkspaceSyncEntry =
       size: number;
       sha256: string;
       revision: number;
+      /** The file's mode, so a workspace copied from this one keeps its executables. */
+      mode?: number;
     }
   | {
       kind: 'delete';

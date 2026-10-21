@@ -131,6 +131,50 @@ describe('BuilderModelSelector', () => {
     expect(localStorage.getItem('cloudchef_builder_model_v2')).toBe('anthropic/claude-opus-5-5');
   });
 
+  it('shows the reasoning effort beside the model, offers the efforts the model lists, and keeps each per model', async () => {
+    const claude: BuilderModel = {
+      ...alternativeModel,
+      id: 'anthropic/claude-opus-5-5',
+      label: 'Claude Opus 5.5',
+      reasoningLevels: ['low', 'high', 'max'],
+    };
+    await renderSelector(() => installBuilderModelCatalog({ ...catalog, models: [...catalog.models, claude] }));
+    const trigger = () => document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
+    const open = async () =>
+      act(async () => {
+        trigger()?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+      });
+    const efforts = () => [
+      ...document.querySelectorAll<HTMLElement>(
+        '[aria-labelledby="builder-reasoning-effort-label"] [role="menuitemradio"]',
+      ),
+    ];
+
+    // GLM has no efforts listed here, so the picker shows none.
+    expect(trigger()?.textContent).not.toContain('·');
+    await open();
+    expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Reasoning effort');
+    const claudeItem = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
+      item.textContent?.includes('Claude Opus 5.5'),
+    );
+    await act(async () => claudeItem?.click());
+
+    expect(trigger()?.textContent).toContain('· Default');
+    expect(trigger()?.getAttribute('aria-label')).toContain('reasoning effort provider default');
+    await open();
+    expect(efforts().map((item) => item.textContent)).toEqual(['Provider default', 'Low', 'High', 'Max']);
+    expect(efforts()[0]?.getAttribute('aria-checked')).toBe('true');
+    await act(async () => efforts()[2]?.click());
+
+    expect(trigger()?.textContent).toContain('· High');
+    expect(JSON.parse(localStorage.getItem('cloudchef_builder_reasoning_v1') ?? 'null')).toEqual({
+      'anthropic/claude-opus-5-5': 'high',
+    });
+    // Choosing an effort leaves the menu open on the model list.
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    expect(efforts()[2]?.getAttribute('aria-checked')).toBe('true');
+  });
+
   it('closes the menu and prevents changes when a turn becomes active', async () => {
     await renderSelector();
 

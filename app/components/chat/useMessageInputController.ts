@@ -37,7 +37,7 @@ interface MessageInputControllerOptions {
   prefillEnabled?: boolean;
 }
 
-export interface PromptRefinementSession {
+interface PromptRefinementSession {
   sourceInput: string;
   sourceRevision: number;
   answers: PromptRefinementAnswer[];

@@ -1,8 +1,9 @@
 import { spawn as spawnAsync, spawnSync } from 'node:child_process';
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
+import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { D1_RESTORE_RECEIPT_MARKER } from './record-d1-time-travel-bookmark.mjs';
 import { verifyLocalDeployment } from './verify-live-deployment.mjs';
 
 const CLIENT_ID_ENV = 'CLOUDFLARE_OAUTH_CLIENT_ID';
@@ -385,17 +386,49 @@ export async function deployAndVerifyProduction({
 }
 
 /**
- * The Workers Builds deploy step's checks, in order: the account resources and committed config are
- * what this release expects, then a D1 restore point is recorded before the migrations it protects.
- * Each one must pass before anything is deployed.
+ * The Workers Builds deploy step's checks, in order: the account resources are what this release
+ * expects, then a D1 restore point is recorded before the migrations it protects. Each one must pass
+ * before anything is deployed. The committed-config checks (`verify:production-config`,
+ * `verify:workers-builds-config`) are not repeated here: they are part of `pnpm run validate`, which
+ * every step after the account check waits for.
  */
 export const WORKERS_BUILDS_PRE_DEPLOY_STEPS = Object.freeze([
   'provision:production:check',
-  'verify:production-config',
-  'verify:workers-builds-config',
   'd1:bookmark:production',
   'd1:migrations:apply:production',
 ]);
+
+const D1_MIGRATIONS_STEP = 'd1:migrations:apply:production';
+const MIGRATIONS_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), '../migrations');
+const RESTORE_POINT_IN_LOG = `the bookmark is in this build's log, under "Pre-migration D1 restore point" (and the ${D1_RESTORE_RECEIPT_MARKER} line), with its restore command`;
+
+/**
+ * The newest control-plane migration in this checkout, which is the last one applied once
+ * `d1:migrations:apply:production` succeeds, since it applies every pending one in order.
+ * @param {(path: string) => string[]} [listMigrations]
+ * @returns {string | null}
+ */
+export function latestControlPlaneMigration(listMigrations = (path) => readdirSync(path)) {
+  return (
+    listMigrations(MIGRATIONS_DIRECTORY)
+      .filter((name) => name.endsWith('.sql'))
+      .sort()
+      .at(-1) ?? null
+  );
+}
+
+/**
+ * What a failure after the migrations must also say: production D1 is already on the new schema
+ * whether or not this release's Worker is live, and where its pre-migration restore point is.
+ * @param {string | null} latestMigration
+ */
+export function migratedD1Note(latestMigration) {
+  const through = latestMigration ? ` through ${latestMigration}` : '';
+  return ` Control-plane D1 was already migrated${through}; ${RESTORE_POINT_IN_LOG}. See "Failed release after migrations" in DEVELOPMENT.md before restoring.`;
+}
+
+/** What a failure of the migrations themselves must also say. */
+export const PARTIALLY_MIGRATED_D1_NOTE = ` Control-plane D1 may be partially migrated; ${RESTORE_POINT_IN_LOG}. See "Failed release after migrations" in DEVELOPMENT.md.`;
 
 /**
  * The pre-deploy steps that change production data. They wait for the validation gate, so a release that
@@ -452,7 +485,8 @@ function spawnBuffered(command, args, options) {
  * one `cf deploy` ships. The checks that read only the account and the committed config run meanwhile;
  * the D1 restore point and migrations wait for validation to pass, and `cf deploy` waits for everything.
  * A failed check, validation, or migration therefore deploys nothing, and failed validation migrates
- * nothing. Validation's output is printed in one piece when it finishes, so it never interleaves with
+ * nothing. A failure from the migrations on says that D1 was (or may have been partly) migrated and
+ * where the restore point is, since the Worker serving traffic may now predate the schema. Validation's output is printed in one piece when it finishes, so it never interleaves with
  * the checks' output.
  *
  * @param {{
@@ -463,6 +497,7 @@ function spawnBuffered(command, args, options) {
  *   readBuiltConfig?: (path: string) => string;
  *   verifyLocal?: typeof verifyLocalDeployment;
  *   log?: (text: string) => void;
+ *   latestMigration?: () => string | null;
  * }} [options]
  */
 export async function deployFromWorkersBuilds({
@@ -473,6 +508,7 @@ export async function deployFromWorkersBuilds({
   readBuiltConfig,
   verifyLocal = verifyLocalDeployment,
   log = (text) => process.stdout.write(text),
+  latestMigration = () => latestControlPlaneMigration(),
 } = {}) {
   validateOAuthClientId(clientId);
   const commitSha = resolveDeployableCommitSha({ spawn, env });
@@ -503,7 +539,9 @@ export async function deployFromWorkersBuilds({
       if (WORKERS_BUILDS_AFTER_VALIDATION_STEPS.includes(step)) {
         await validated;
       }
-      runPnpmStep(spawn, ['run', step], { stdio: 'inherit', env }, step, nothingDeployed);
+      const failureSuffix =
+        step === D1_MIGRATIONS_STEP ? `${nothingDeployed}${PARTIALLY_MIGRATED_D1_NOTE}` : nothingDeployed;
+      runPnpmStep(spawn, ['run', step], { stdio: 'inherit', env }, step, failureSuffix);
     }
     await validated;
   } catch (error) {
@@ -511,15 +549,21 @@ export async function deployFromWorkersBuilds({
     await settled;
     throw error;
   }
-  verifyBuiltDeployVars(clientId, commitSha, readBuiltConfig);
-  runPnpmStep(
-    spawn,
-    CF_DEPLOY_ARGS,
-    { stdio: 'inherit', env: deployVarsEnv(clientId, commitSha, env) },
-    'cf deploy',
-    ' Live verification was not run.',
-  );
-  await verifyLocal({ expectedSha: commitSha });
+  // From here on production D1 is on this release's schema, so every failure says so.
+  try {
+    verifyBuiltDeployVars(clientId, commitSha, readBuiltConfig);
+    runPnpmStep(
+      spawn,
+      CF_DEPLOY_ARGS,
+      { stdio: 'inherit', env: deployVarsEnv(clientId, commitSha, env) },
+      'cf deploy',
+      ' Live verification was not run.',
+    );
+    await verifyLocal({ expectedSha: commitSha });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message}${migratedD1Note(latestMigration())}`, { cause: error });
+  }
   return commitSha;
 }
 

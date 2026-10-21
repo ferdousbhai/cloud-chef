@@ -20,7 +20,7 @@ import { systemPrompt } from 'cloudchef-agent/prompts/system';
 import { toolResultSucceeded } from 'cloudchef-agent/tool-result';
 import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { logger } from 'cloudchef-agent/utils/logger';
-import type { BuilderModel } from '~/lib/workers-ai-model';
+import type { BuilderModel, BuilderReasoningLevel } from '~/lib/workers-ai-model';
 import {
   WORKSPACE_TOOL_OPERATION_INDETERMINATE_CODE,
   WorkspaceToolOperationIndeterminateError,
@@ -90,6 +90,8 @@ interface PiAgentOptions {
   firstUserMessage: boolean;
   messages: Messages;
   model: BuilderModel;
+  /** The reasoning effort the person chose for this model; absent for the provider's default. */
+  reasoningLevel?: BuilderReasoningLevel;
   turnContext?: ChatTurnContext;
   compaction: {
     current: ContextCompaction | null;
@@ -119,34 +121,25 @@ interface PiAgentOptions {
 type PiPreparationStage = 'tool_setup' | 'model_input' | 'prompt_metrics' | 'message_conversion';
 
 /**
- * The reasoning directive every builder turn carries, or `undefined` to send none.
+ * The reasoning level a builder turn asks for: the person's choice for this model, or `undefined`
+ * — "Provider default" — when they made none.
  *
- * Measured twice against production Workers AI on GLM 5.3 Flash — same prompt, independent runs,
- * characters of reasoning returned:
- *
- *     no directive   1392 / 2300        medium   1556 / 2682
- *     low             156 /  229        high      507 /  626
- *
- * `high` is not "more effort" on this provider. It returns roughly a third of the reasoning that
- * sending nothing does, and `medium` is the only value that beats the no-directive baseline, so the
- * `'high'` this used to send would have made the builder think *less* — the opposite of what its
- * name, and the comment that stood here, both claimed.
- *
- * That comment also claimed a bare `thinking: disabled` makes GLM reason until `length` and return
- * empty content. It does not: Cloudflare ignores `thinking` altogether — toggling it moves the
- * reasoning volume not at all, while the documented `chat_template_kwargs.enable_thinking` takes it
- * to zero — and until the `options.reasoning` → `reasoningEffort` wiring was repaired, no effort
- * value reached the provider at all. Both halves of the mechanism it described were inert, which
- * means the 26m26s end-to-end build on 2026-09-02 ran with no directive of any kind.
- *
- * So no directive is what stays, because it is the only configuration a real build has verified.
- * `medium` is the candidate worth a reference build rather than a blind change: a one-prompt probe
- * measures how much a model thinks, never whether it builds better software.
+ * The rule: CloudChef never turns a reasoning model's reasoning off, on any provider. With no
+ * level chosen, no reasoning directive is sent and each provider reasons at its own default effort
+ * — measured on Workers AI GLM 5.3 Flash, no directive returned about as much reasoning as `medium`
+ * and several times what `low` or `high` did, and the 26-minute reference build on 2026-09-02 ran
+ * that way. Pi's adapters read "no level" as "off" on some APIs (OpenAI Responses and its OpenRouter
+ * dialect send effort `none`, DeepSeek-style dialects `thinking: disabled`), so the transports in
+ * `pi-ai-models.ts` strip exactly those values before a request leaves (`provider-default-reasoning.ts`),
+ * keep thinking on for Claude (adaptive at Claude's default effort where Anthropic manages it), and ask
+ * OpenAI Responses for the encrypted reasoning a `store: false` tool turn has to replay. A level the
+ * person chose is sent as chosen, in the model's own vocabulary; "off" is never offered.
  */
-const BUILDER_THINKING_LEVEL: 'medium' | undefined = undefined;
-
-function builderThinkingLevel(model: { reasoning: boolean }): 'medium' | undefined {
-  return model.reasoning ? BUILDER_THINKING_LEVEL : undefined;
+function builderThinkingLevel(
+  model: { reasoning: boolean },
+  chosen: BuilderReasoningLevel | undefined,
+): BuilderReasoningLevel | undefined {
+  return model.reasoning ? chosen : undefined;
 }
 
 /**
@@ -601,7 +594,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
         afterToolCall: async ({ result, isError }) =>
           !isError && !toolResultSucceeded(result.details) ? { isError: true } : undefined,
         maxTokens: handle.model.maxTokens,
-        reasoning: builderThinkingLevel(handle.model),
+        reasoning: builderThinkingLevel(handle.model, options.reasoningLevel),
         toolChoice: 'auto',
       };
 

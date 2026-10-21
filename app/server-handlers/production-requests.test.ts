@@ -308,7 +308,7 @@ describe('production requests', () => {
       app,
     });
     expect(returnedMessage(returned)).toBe(
-      'That request was decided, or changed, while you were on GitHub. Review it and approve again.',
+      'That request was decided or changed, or its requester left the team, while you were on GitHub. Review it and approve again.',
     );
     expect(calls.some((call) => call.path === '/user/repos')).toBe(false);
     expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'pending' });
@@ -388,6 +388,55 @@ describe('production requests', () => {
       env,
     });
     expect(again.status).toBe(409);
+  });
+
+  it('says an approval that expired at GitHub has to be started again', async () => {
+    const { database, env, admin, app } = await setup();
+    const started = await approveProductionRequestAction({
+      request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+        orgId: ORG,
+        requestId: REQUEST,
+        repoName: 'new-app',
+        private: true,
+      }),
+      env,
+      app,
+    });
+    const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+    const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+    database.prepare('UPDATE github_approval_states SET expires_at = 1').run();
+
+    const returned = await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+      }),
+      env,
+      app,
+    });
+
+    expect(returnedMessage(returned)).toBe('That approval expired. Approve again.');
+    expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'pending' });
+  });
+
+  it('refuses to approve a request from someone no longer in the team', async () => {
+    const { database, env, admin, sara, app } = await setup();
+    database.prepare('DELETE FROM organization_members WHERE user_id = ?').run(sara.userId);
+
+    const started = await approveProductionRequestAction({
+      request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+        orgId: ORG,
+        requestId: REQUEST,
+        repoName: 'new-app',
+        private: true,
+      }),
+      env,
+      app,
+    });
+
+    expect(started.status).toBe(409);
+    expect(await started.json()).toEqual({
+      error: 'That request was already decided, its requester left the team, or another admin is approving it.',
+    });
   });
 });
 

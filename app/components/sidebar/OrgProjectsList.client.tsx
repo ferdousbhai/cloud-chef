@@ -210,10 +210,16 @@ function ProjectConversations({
       >
         New conversation
       </Button>
-      <p className="text-content-tertiary">Changes you haven&apos;t published come along.</p>
+      <p className="text-content-tertiary">
+        The current conversation stops and stays to read; changes you haven&apos;t published come along.
+      </p>
       {loadFailed ? (
         <p className="text-content-secondary">Earlier conversations could not be loaded.</p>
-      ) : earlier && earlier.length > 0 ? (
+      ) : earlier === null ? (
+        <p className="text-content-tertiary" role="status">
+          Loading earlier conversations…
+        </p>
+      ) : earlier.length > 0 ? (
         <>
           <h3 className="mt-1 font-medium text-content-secondary">Earlier conversations</h3>
           <ul className="grid gap-0.5">
