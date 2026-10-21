@@ -2196,8 +2196,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return;
     }
     if (this.productionServes(snapshot.revision)) {
-      if (this.state.publicationPending) {
-        this.setState({ ...this.state, publicationPending: false });
+      // Recorded as a deployment records it: the next change clears a legacy deployment record that
+      // may be the only evidence, and a return to this revision would then redeploy it.
+      if (this.state.publicationPending || this.state.productionRevision !== snapshot.revision) {
+        this.setState({ ...this.state, productionRevision: snapshot.revision, publicationPending: false });
       }
       return;
     }

@@ -476,6 +476,27 @@ describe('BuilderAgent automatic publication', () => {
     expect(harness.agent.state.publicationPending).toBe(false);
   });
 
+  it("records the revision an agent's legacy deployment record says production serves, so a return to it does not redeploy", async () => {
+    let current = CHECKPOINT;
+    const deploy = vi.fn<BuilderPublisher['deploy']>(async () => ({ status: 'succeeded' }));
+    const harness = await publicationHarness({ publisher: { deploy }, checkpoint: () => current });
+    const { productionRevision: _, ...legacy } = harness.agent.state;
+    harness.agent.setState({ ...legacy, deployment: { status: 'succeeded', id: 'deployment-1', ...CHECKPOINT } });
+    await finishChangingTurn(harness);
+    await settle();
+    expect(harness.agent.state.productionRevision).toBe(CHECKPOINT.revision);
+    // An editor change clears the deployment record, and undoing it returns to the same content.
+    current = NEXT_CHECKPOINT;
+    harness.agent.setState({ ...harness.agent.state, deployment: null });
+    current = CHECKPOINT;
+
+    await finishChangingTurn(harness);
+
+    await settle();
+    expect(deploy).not.toHaveBeenCalled();
+    expect(harness.agent.state.publicationPending).toBe(false);
+  });
+
   it('a scheduled retry of a revision production already serves records the publication done', async () => {
     const deploy = vi.fn<BuilderPublisher['deploy']>(async () => ({ status: 'succeeded' }));
     const harness = await publicationHarness({ publisher: { deploy } });
