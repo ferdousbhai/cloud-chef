@@ -141,6 +141,14 @@ export async function completeGitHubInstallAction({
   if (!pending || !app) {
     return back('That GitHub connection expired or was already finished. Connect GitHub again.');
   }
+  if (!code && url.searchParams.get('setup_action') === 'update') {
+    // Changing the repositories of the installation this team already has returns without a code:
+    // there is nothing new to record, and nothing is recorded for any other installation.
+    const current = await findGitHubInstallation(env.DB, pending.org_id);
+    if (current && current.installationId === installationId) {
+      return back(`Updated which repositories CloudChef can reach on ${current.accountLogin}.`);
+    }
+  }
   if (!code || !Number.isSafeInteger(installationId) || installationId <= 0) {
     return back('GitHub was not connected: the installation was cancelled. Connect GitHub again.');
   }
@@ -204,7 +212,7 @@ export function approveProductionRequestAction({
       return Response.json({ error: app ? 'Connect GitHub first.' : UNAVAILABLE }, { status: 409 });
     }
     if (!(await findPendingProductionRequest(env.DB, body.data.orgId, body.data.requestId))) {
-      throw new OrganizationError('That request was already decided.', 409);
+      throw new OrganizationError('That request was already decided, or its requester left the team.', 409);
     }
     const state = crypto.randomUUID();
     const now = Date.now();
@@ -271,8 +279,14 @@ async function completeProductionApproval(args: {
     .bind(now, args.state, now)
     .first<{ request_id: string; user_id: string; repo_name: string; private: number }>();
   const code = url.searchParams.get('code');
-  if (!pending || !app || !code) {
-    return back(pending && app ? 'GitHub authorization was cancelled.' : null);
+  if (!app) {
+    return back(UNAVAILABLE);
+  }
+  if (!pending) {
+    return back('That approval expired. Approve again.');
+  }
+  if (!code) {
+    return back('GitHub authorization was cancelled.');
   }
   const owner = await env.DB.prepare('SELECT org_id FROM production_requests WHERE id = ?')
     .bind(pending.request_id)
@@ -285,7 +299,7 @@ async function completeProductionApproval(args: {
   const productionRequest = await findPendingProductionRequest(env.DB, owner.org_id, pending.request_id);
   const installation = await findGitHubInstallation(env.DB, owner.org_id);
   if (!productionRequest || !installation) {
-    return back('That request was already decided, or GitHub is no longer connected.');
+    return back('That request was already decided or its requester left the team, or GitHub is no longer connected.');
   }
   // One approval at a time: two admins approving together must not create two repositories.
   if (!(await claimProductionRequest(env.DB, productionRequest.id))) {
