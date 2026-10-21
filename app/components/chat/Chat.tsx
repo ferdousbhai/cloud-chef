@@ -283,7 +283,10 @@ const AuthenticatedChat = memo(
     );
     const { showChat } = useStore(chatStore);
     // A newer conversation on this GitHub project took over: this one stays to read, not to work in.
-    const archivedLinkedChat = useStore(workbenchStore.linkedProject)?.archived === true;
+    const linkedProject = useStore(workbenchStore.linkedProject);
+    const archivedLinkedChat = linkedProject?.archived === true;
+    // A GitHub project already exists: its first turn changes it rather than creating a project.
+    const isProjectUpdate = currentSubchatIndex > 0 || linkedProject !== null;
 
     const {
       messages,
@@ -328,7 +331,7 @@ const AuthenticatedChat = memo(
     const buildProgress = useBuildProgress({
       streamStatus,
       isRecovering,
-      isProjectUpdate: currentSubchatIndex > 0,
+      isProjectUpdate,
       activeToolNames,
       validationStage,
       toolActivityRevision: activityRevision,

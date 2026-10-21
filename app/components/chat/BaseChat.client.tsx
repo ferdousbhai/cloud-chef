@@ -324,7 +324,7 @@ export function BaseChat({
                               isRecovering={isRecovering}
                               currentError={currentError}
                               buildProgress={buildProgress}
-                              isProjectUpdate={currentSubchatIndex > 0}
+                              isProjectUpdate={currentSubchatIndex > 0 || linkedProject !== null}
                               submissionPending={sendMessageInProgress}
                               resendMessage={resendMessage}
                             />
