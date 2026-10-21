@@ -58,6 +58,8 @@ export type LinkedPublishView = {
   detail: string;
   /** The spinner shows only while the pipeline is building and still followed. */
   building: boolean;
+  /** When a building view stops being followed (epoch ms), so it can be shown again then; null otherwise. */
+  followDeadline: number | null;
   previewUrl: string | null;
   detailsUrl: string | null;
 };
@@ -94,6 +96,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
         `${capitalize(target)} changed since this workspace was opened and overlaps these changes, so nothing ` +
         `went live. The work is saved on the branch ${conflict.branch}; an admin can merge it there.`,
       building: false,
+      followDeadline: null,
       previewUrl: null,
       detailsUrl: null,
     };
@@ -106,6 +109,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
           title: live ? 'Published to GitHub' : 'Sent a preview to GitHub',
           detail: output.summary,
           building: false,
+          followDeadline: null,
           previewUrl: null,
           detailsUrl: null,
         }
@@ -125,6 +129,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
             "The repository's pipeline is building it, usually in about two minutes. The result " +
             `${data.live ? '' : 'and its preview link '}will show here.`,
           building: true,
+          followDeadline: data.startedAt === undefined ? null : data.startedAt + LINKED_BUILD_FOLLOW_MS,
           ...links,
         };
       }
@@ -141,6 +146,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
           ? "The repository's pipeline built and deployed it."
           : `The repository's pipeline built ${data.branch}.`,
         building: false,
+        followDeadline: null,
         ...links,
       };
     case 'failure':
@@ -151,6 +157,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
           `The commit is on GitHub, but the repository's pipeline ${failedVerb(data.conclusion)}` +
           `${data.live ? ', so the change is not live yet' : ''}.`,
         building: false,
+        followDeadline: null,
         ...links,
       };
     case 'none':
@@ -162,6 +169,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
         links,
       );
     case 'unfollowed':
+    default:
       return unknown(
         committed,
         "CloudChef could not follow the repository's pipeline. Its result is on GitHub.",
@@ -193,6 +201,7 @@ function notSent(live: boolean, detail: string): LinkedPublishView {
     title: live ? 'Not published' : 'Preview not sent',
     detail,
     building: false,
+    followDeadline: null,
     previewUrl: null,
     detailsUrl: null,
   };
@@ -203,7 +212,7 @@ function unknown(
   detail: string,
   links: { previewUrl: string | null; detailsUrl: string | null },
 ): LinkedPublishView {
-  return { kind: 'unknown', title, detail, building: false, ...links };
+  return { kind: 'unknown', title, detail, building: false, followDeadline: null, ...links };
 }
 
 function failedVerb(conclusion: string | null | undefined): string {

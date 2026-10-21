@@ -29,6 +29,7 @@ import type { SubchatSummary } from './subchat-model';
 import type { BuilderDeploymentState } from '~/agents/builder-deployment-command';
 import type { BuilderPublicationState } from '~/agents/builder-publication-progress';
 import { DeploymentStatus, type ProductionRequestOutcome } from './DeploymentStatus.client';
+import { LinkedPublishStatus } from './LinkedPublishStatus';
 import type {
   CloudflareExecutionDecisionHandler,
   CloudflareExecutionPublicState,
@@ -316,6 +317,7 @@ export function BaseChat({
                           />
                         </div>
                       ) : null}
+                      {linkedProject && isSubchatLoaded ? <LinkedPublishStatus messages={messages} /> : null}
                       {(!subchats || (currentSubchatIndex >= subchats.length - 1 && isSubchatLoaded)) && (
                         <>
                           {!disabledReason && (

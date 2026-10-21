@@ -6,6 +6,8 @@ import type { PartId } from 'cloudchef-agent/partId';
 import { ToolUseContents } from './ToolUseContents';
 import { normalizeToolInvocation, statusIcon, toolTitle } from './tool-call-presentation';
 import { ExpandableToolCard } from './ExpandableToolCard';
+import { useLinkedPublishView } from './useLinkedPublishView';
+import { linkedPublishView } from '~/lib/common/linked-publish';
 import { invocationStatus, toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { toolProgressStore } from '~/lib/stores/tool-progress.client';
 import type {
@@ -33,6 +35,7 @@ export const ToolCall = memo(function ToolCall({
     [activity?.invocation, rawInvocation],
   );
   const status = activity?.status ?? invocationStatus(invocation);
+  const publish = useLinkedPublishView((now) => linkedPublishView(invocation, now));
   const cloudflareExecution = cloudflareExecutions?.find((execution) => execution.toolCallId === invocation.toolCallId);
   const expanded =
     showAction || status === 'pending' || status === 'running' || cloudflareExecution?.status === 'awaiting_approval';
@@ -47,9 +50,9 @@ export const ToolCall = memo(function ToolCall({
       header={
         <div className="flex items-center gap-1.5">
           <div className="w-full text-[13px] font-medium leading-4 text-content-primary">
-            {toolTitle(invocation, status)}
+            {toolTitle(invocation, status, publish)}
           </div>
-          {statusIcon(status, invocation)}
+          {statusIcon(status, invocation, publish)}
         </div>
       }
       onToggle={toggleAction}
@@ -62,6 +65,7 @@ export const ToolCall = memo(function ToolCall({
               progress={progress}
               cloudflareExecution={cloudflareExecution}
               onCloudflareExecutionDecision={onCloudflareExecutionDecision}
+              publish={publish}
             />
           </div>
         </motion.div>
