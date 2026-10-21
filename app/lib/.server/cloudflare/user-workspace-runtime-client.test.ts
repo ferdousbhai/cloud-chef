@@ -179,6 +179,26 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     }
   });
 
+  it("reports a command's result when a stop lands after it but before its stream closes", async () => {
+    const controller = new AbortController();
+    const result = { exitCode: 0, stdout: 'done', stderr: '' };
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(streamController) {
+        streamController.enqueue(
+          encoder.encode(`${JSON.stringify({ type: 'result', streamTruncated: false, result })}\n`),
+        );
+      },
+    });
+    const { client } = harness((operation) => (operation === 'executeStream' ? stream : undefined));
+
+    const execution = client.executeCommand({ command: 'echo done', abortSignal: controller.signal });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort(new DOMException('exec stopped', 'AbortError'));
+
+    await expect(execution).resolves.toEqual(result);
+  });
+
   it('terminalizes a committed mutation whose display acknowledgement was interrupted', async () => {
     const pending = {
       kind: 'workspace-mutation-receipt',

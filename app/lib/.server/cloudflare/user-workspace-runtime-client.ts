@@ -372,6 +372,10 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     };
     try {
       while (true) {
+        if (finalResult && args.abortSignal?.aborted) {
+          // The command has exited and reported; a stop landing before the stream closes is too late.
+          return finalResult;
+        }
         args.abortSignal?.throwIfAborted();
         const { done, value } = await raceAgainstAbort(reader.read(), args.abortSignal);
         if (done) {
@@ -408,9 +412,11 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       if (!finalResult) {
         throw new Error('The command stream ended without a final result.');
       }
-      args.abortSignal?.throwIfAborted();
       return finalResult;
     } catch (error) {
+      if (finalResult && args.abortSignal?.aborted) {
+        return finalResult;
+      }
       if (args.abortSignal?.aborted) {
         cancel();
         await cancellation;
