@@ -7,6 +7,7 @@ import { GitHubApp } from '~/lib/.server/github/github-app';
 import { promotedDraftFiles, readDraftSnapshot } from '~/lib/.server/github/promote-draft';
 import { bytesToBase64 } from '~/lib/hex-digest';
 import { PayloadTooLargeError } from '~/lib/bounded-body';
+import { GitHubError } from '~/lib/.server/github/github-api';
 import {
   approveProductionRequestAction,
   completeGitHubInstallAction,
@@ -714,7 +715,11 @@ describe('production requests', () => {
 
   it('hands the request back and returns to Settings when D1 or the network fails during an approval', async () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const approveWith = async (fails: (query: string) => boolean, during?: DuringApproval['commit']) => {
+    const approveWith = async (
+      fails: (query: string) => boolean,
+      during?: DuringApproval['commit'],
+      draft: { snapshot?: string; message?: string } = {},
+    ) => {
       const { database, env, admin, app, during: duringApproval } = await setup();
       const started = await approveProductionRequestAction({
         request: post(admin.cookie, '/api/organizations/production-requests/approve', {
@@ -729,6 +734,9 @@ describe('production requests', () => {
       const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
       const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
       duringApproval.commit = during;
+      if (draft.snapshot) {
+        database.prepare('UPDATE production_requests SET snapshot_gzip_base64 = ?').run(draft.snapshot);
+      }
       const failing = withStatementHook(env.DB, (query) => {
         if (fails(query)) {
           throw new Error('D1_ERROR: storage operation exceeded timeout');
@@ -742,7 +750,7 @@ describe('production requests', () => {
         app,
       });
       expect(returned.status).toBe(303);
-      expect(returnedMessage(returned)).toBe('GitHub refused part of the approval. Approve again.');
+      expect(returnedMessage(returned)).toBe(draft.message ?? 'GitHub refused part of the approval. Approve again.');
       expect(returned.headers.get('Set-Cookie')).toContain('cloudchef_github_approval=;');
       return database.prepare('SELECT status, claimed_at, project_id FROM production_requests').get();
     };
@@ -766,6 +774,33 @@ describe('production requests', () => {
         (query) => query.includes("SET status = 'approved'") || query.includes("SET status = 'pending'"),
       ),
     ).toMatchObject({ status: 'approving' });
+    // Nor when GitHub refuses, or the draft is too large, and D1 can't release the claim.
+    const releaseFails = (query: string) => query.includes("SET status = 'pending'");
+    expect(
+      await approveWith(releaseFails, async () => {
+        throw new GitHubError('Server Error', 502);
+      }),
+    ).toMatchObject({ status: 'approving' });
+    expect(
+      await approveWith(releaseFails, undefined, {
+        snapshot: await gzipBase64(' '.repeat(25 * 1024 * 1024)),
+        message: 'This draft is larger than CloudChef can commit. Ask the member to slim it down and send it again.',
+      }),
+    ).toMatchObject({ status: 'approving' });
+    // D1 fails at any step before GitHub is asked: the claim is released once this return has used its state.
+    for (const step of [
+      'SELECT org_id FROM production_requests',
+      'FROM cloudflare_auth_sessions',
+      'FROM organization_members',
+      'FROM github_installations',
+      'UPDATE production_requests SET claimed_at',
+    ]) {
+      expect(await approveWith((query) => query.includes(step))).toEqual(released);
+    }
+    // Using the state itself fails: nothing says this return holds the claim, which lapses later.
+    expect(await approveWith((query) => query.includes('UPDATE github_approval_states'))).toMatchObject({
+      status: 'approving',
+    });
     logged.mockRestore();
   });
 
