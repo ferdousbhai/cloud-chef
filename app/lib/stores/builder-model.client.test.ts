@@ -202,6 +202,20 @@ describe('a saved model before the live catalog arrives', () => {
   });
 });
 
+describe('a model chosen in another tab before the live catalog arrives', () => {
+  it('is adopted as a saved preference would be, then checked once the catalog arrives', async () => {
+    // A fresh module, so no catalog has been installed yet.
+    vi.resetModules();
+    const fresh = await import('./builder-model.client');
+
+    fresh.syncBuilderModelPreference({ key: 'cloudchef_builder_model_v2', newValue: claudeModel.id });
+    expect(fresh.builderModelStore.get()).toBe(claudeModel.id);
+
+    fresh.installBuilderModelCatalog(catalog, memoryStorage({ cloudchef_builder_model_v2: claudeModel.id }));
+    expect(fresh.builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+  });
+});
+
 describe('the reasoning effort chosen per model', () => {
   const REASONING_KEY = 'cloudchef_builder_reasoning_v1';
   const opus: BuilderModel = { ...claudeModel, reasoningLevels: ['low', 'medium', 'high', 'xhigh', 'max'] };

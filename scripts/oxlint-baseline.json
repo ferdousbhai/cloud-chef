@@ -1,5 +1,5 @@
 {
-  "total": 1142,
+  "total": 1141,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -266,7 +266,7 @@
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/no-unknown-parameters": 2,
       "anti-slop/no-unknown-returns": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 4
+      "anti-slop/require-safety-comment-for-type-assertion": 3
     },
     "app/lib/.server/llm/workers-ai-tools.ts": {
       "anti-slop/no-runtime-typeof": 3,

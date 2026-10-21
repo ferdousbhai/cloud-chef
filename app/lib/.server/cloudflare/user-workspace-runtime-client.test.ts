@@ -135,6 +135,50 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     }
   });
 
+  it("stops waiting out a publication for a write once the write's tool is stopped, so it never lands later", async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const reason = new DOMException('write stopped', 'AbortError');
+      let attempts = 0;
+      const { client } = harness((operation) => {
+        if (operation === 'beginToolOperation') {
+          return { status: 'execute' };
+        }
+        if (operation === 'getWorkspaceSnapshot') {
+          return {
+            state: { initialized: true, revision: 1, resetRevision: 0, fileCount: 0, totalBytes: 0, seeding: false },
+            files: [],
+          };
+        }
+        if (operation === 'applyChanges') {
+          attempts += 1;
+          throw new Error('[workspace_operation_conflict] deployment is running; retry after 2700000ms.');
+        }
+        return { status: 'settled' };
+      });
+
+      const execution = client.executeToolOnce(
+        'call-stopped-write',
+        'write',
+        { path: '/home/project/a.ts' },
+        () => client.computer.fs.writeFile('/home/project/a.ts', new TextEncoder().encode('new')),
+        controller.signal,
+      );
+      const outcome = expect(execution).rejects.toBe(reason);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(attempts).toBeGreaterThan(1);
+      controller.abort(reason);
+      await outcome;
+      const attemptsAtStop = attempts;
+
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect(attempts).toBe(attemptsAtStop);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('terminalizes a committed mutation whose display acknowledgement was interrupted', async () => {
     const pending = {
       kind: 'workspace-mutation-receipt',
@@ -450,6 +494,35 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
 
       await Promise.resolve();
       expect(state.content).toBe('before');
+    },
+  );
+
+  it.each(['write', 'edit', 'exec'] as const)(
+    'reports a %s call that finished as its stop arrived as finished, settling its journal row',
+    async (toolName) => {
+      const controller = new AbortController();
+      const landed = { path: '/project/a.ts', bytesWritten: 5 };
+      const { client, stub } = harness((operation) =>
+        operation === 'beginToolOperation' ? { status: 'execute' } : { status: 'settled' },
+      );
+
+      await expect(
+        client.executeToolOnce(
+          `call-${toolName}-landed`,
+          toolName,
+          { path: '/project/a.ts' },
+          async () => {
+            controller.abort(new DOMException(`${toolName} timed out`, 'TimeoutError'));
+            return landed;
+          },
+          controller.signal,
+        ),
+      ).resolves.toBe(landed);
+      expect(stub.cancelToolOperation).toHaveBeenCalledWith({
+        toolCallId: `call-${toolName}-landed`,
+        error: 'The workspace tool operation was cancelled after its execution settled.',
+      });
+      expect(stub.completeToolOperation).not.toHaveBeenCalled();
     },
   );
 

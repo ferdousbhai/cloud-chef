@@ -69,7 +69,10 @@ export function BuilderModelSelector({
   const newModels = useStore(builderNewModelsStore);
   const catalogStatus = useStore(builderModelCatalogStatusStore);
   const reasoningChoices = useStore(builderReasoningChoicesStore);
-  const model = builderModelFor(modelId, models, reasoningChoices);
+  const model = builderModelFor(modelId, models, reasoningChoices, catalogStatus);
+  // A saved model the catalog has not described (still loading, or failed to load) is the one turns
+  // run on, so the menu lists it, selected, beside the models it can switch to.
+  const standingIn = !models.some(({ id }) => id === model.id);
   const reasoningLevels = model.reasoningLevels ?? [];
   const reasoningLevel = builderReasoningLevelFor(model, reasoningChoices);
   // Shown only for a model with efforts to choose from; "Default" is no level chosen.
@@ -81,7 +84,10 @@ export function BuilderModelSelector({
         : REASONING_LEVEL_LABELS[reasoningLevel];
   const [openRequested, setOpenRequested] = useState(false);
   const open = !disabled && openRequested;
-  const orderedModels = useMemo(() => orderBuilderModelsForDisplay(models, defaultModelId), [defaultModelId, models]);
+  const orderedModels = useMemo(
+    () => orderBuilderModelsForDisplay(standingIn ? [...models, model] : models, defaultModelId),
+    [defaultModelId, model, models, standingIn],
+  );
   // What was new when this picker last opened. Opening records the sighting, but the badge is the
   // reason the user opened the picker, so it stays legible for the rest of this session.
   const [openedWithNewIds, setOpenedWithNewIds] = useState<readonly BuilderModel['id'][]>([]);
@@ -218,7 +224,9 @@ export function BuilderModelSelector({
           </DropdownMenu.RadioGroup>
           {catalogStatus === 'error' && (
             <p role="status" className="mx-2 mb-1 mt-2 text-xs leading-5 text-content-tertiary">
-              Catalog unavailable. Only the default model is available.
+              {standingIn
+                ? `Catalog unavailable. Turns still use your saved model, ${model.label}, which is checked when a turn starts; choose the default model to switch.`
+                : 'Catalog unavailable. Only the default model is available.'}
             </p>
           )}
         </DropdownMenu.Content>

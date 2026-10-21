@@ -109,48 +109,55 @@ describe('minimal Workers AI tool surface', () => {
     expect(workspace.computer.fs.writeFile).not.toHaveBeenCalled();
   });
 
-  it('waits for an in-flight edit write to settle and skips the post-write read after cancellation', async () => {
+  it('reports an edit that landed as its stop arrived as applied, with the base of the file it wrote', async () => {
     const path = '/home/project/src/app.ts';
     const workspace = workspaceStub({ files: { [path]: 'before\n' } });
-    const write = deferred<void>();
+    const controller = new AbortController();
     const commitWrite = workspace.computer.fs.writeFile;
     workspace.computer.fs.writeFile = vi.fn(async (writePath, content, options) => {
-      await write.promise;
+      controller.abort(new DOMException('edit timed out', 'TimeoutError'));
       await commitWrite(writePath, content, options);
     });
     const tools = createWorkersAiTools(workspace, operationContext());
-    const controller = new AbortController();
-    const reason = new DOMException('edit timed out', 'TimeoutError');
-
-    const execution = executeTool(
+    const landed = await executeTool(
       tools.edit,
       {
         path,
-        base: ((await executeTool(tools.read, { path })) as { base: string }).base,
+        base: lineEditBaseTag(await sha256('before\n')),
         edits: [{ startLine: 1, endLine: 1, content: 'after' }],
       },
       controller.signal,
     );
-    await vi.waitFor(() => expect(workspace.computer.fs.writeFile).toHaveBeenCalledOnce());
-    controller.abort(reason);
 
-    let settled = false;
-    void execution.then(
-      () => {
-        settled = true;
-      },
-      () => {
-        settled = true;
-      },
-    );
-    await Promise.resolve();
-    expect(settled).toBe(false);
+    // The stopped edit skips its read-back, and its base is the one the next read returns.
+    const base = lineEditBaseTag(await sha256('after\n'));
+    expect(landed).toMatchObject({
+      path,
+      base,
+      editsApplied: 1,
+      totalLines: 1,
+      diff: expect.stringContaining('+1:after'),
+    });
+    expect(workspace.readText).toHaveBeenCalledOnce();
+    await expect(executeTool(tools.read, { path })).resolves.toMatchObject({ base });
+  });
 
-    write.resolve();
-    await expect(execution).rejects.toBe(reason);
-    expect(workspace.readText).toHaveBeenCalledTimes(2);
-    await expect(workspace.readText(path)).resolves.toMatchObject({ content: 'after\n' });
-    await Promise.resolve();
+  it('reports a write that landed as its stop arrived as written', async () => {
+    const path = '/home/project/src/app.ts';
+    const workspace = workspaceStub({ files: { [path]: 'before\n' } });
+    const controller = new AbortController();
+    const commitWrite = workspace.computer.fs.writeFile;
+    workspace.computer.fs.writeFile = vi.fn(async (writePath, content, options) => {
+      controller.abort(new DOMException('write timed out', 'TimeoutError'));
+      await commitWrite(writePath, content, options);
+    });
+    const tools = createWorkersAiTools(workspace, operationContext());
+
+    await expect(executeTool(tools.write, { path, content: 'after\n' }, controller.signal)).resolves.toEqual({
+      path,
+      bytesWritten: 6,
+    });
+    expect(workspace.computer.fs.writeFile).toHaveBeenCalledOnce();
     await expect(workspace.readText(path)).resolves.toMatchObject({ content: 'after\n' });
   });
 
@@ -171,37 +178,6 @@ describe('minimal Workers AI tool surface', () => {
     await expect(execution).rejects.toBe(reason);
     expect(workspace.computer.fs.writeFile).not.toHaveBeenCalled();
     await expect(workspace.readText(path)).resolves.toMatchObject({ content: 'before\n' });
-  });
-
-  it('waits for an in-flight write to settle before reporting timeout and leaves no later write', async () => {
-    const path = '/home/project/src/app.ts';
-    const workspace = workspaceStub({ files: { [path]: 'before\n' } });
-    const write = deferred<void>();
-    const commitWrite = workspace.computer.fs.writeFile;
-    workspace.computer.fs.writeFile = vi.fn(async (writePath, content, options) => {
-      await write.promise;
-      await commitWrite(writePath, content, options);
-    });
-    const tools = createWorkersAiTools(workspace, operationContext());
-    const controller = new AbortController();
-    const reason = new DOMException('write timed out', 'TimeoutError');
-
-    const execution = executeTool(tools.write, { path, content: 'after\n' }, controller.signal);
-    await vi.waitFor(() => expect(workspace.computer.fs.writeFile).toHaveBeenCalledOnce());
-    controller.abort(reason);
-
-    let settled = false;
-    void execution.catch(() => {
-      settled = true;
-    });
-    await Promise.resolve();
-    expect(settled).toBe(false);
-
-    write.resolve();
-    await expect(execution).rejects.toBe(reason);
-    await expect(workspace.readText(path)).resolves.toMatchObject({ content: 'after\n' });
-    await Promise.resolve();
-    await expect(workspace.readText(path)).resolves.toMatchObject({ content: 'after\n' });
   });
 
   it('rejects stale line edits and applies an exact-snapshot edit without an intermediate validation', async () => {
@@ -306,10 +282,14 @@ describe('minimal Workers AI tool surface', () => {
     ).rejects.toBe(indeterminate);
   });
 
-  it('propagates cancellation through exec and rejects a result completed after abort', async () => {
-    const command = deferred<{ exitCode: number; stdout: string; stderr: string }>();
+  it('propagates cancellation through exec and reports a command stopped mid-run as stopped', async () => {
     const workspace = workspaceStub();
-    workspace.executeCommand = vi.fn(() => command.promise);
+    workspace.executeCommand = vi.fn<BuilderWorkspaceApi['executeCommand']>(
+      ({ abortSignal }) =>
+        new Promise<never>((_resolve, reject) => {
+          abortSignal?.addEventListener('abort', () => reject(abortSignal.reason), { once: true });
+        }),
+    );
     const tools = createWorkersAiTools(workspace, operationContext());
     const controller = new AbortController();
     const reason = new DOMException('exec timed out', 'TimeoutError');
@@ -321,9 +301,23 @@ describe('minimal Workers AI tool surface', () => {
       ),
     );
     controller.abort(reason);
-    command.resolve({ exitCode: 0, stdout: 'late\n', stderr: '' });
 
     await expect(execution).rejects.toBe(reason);
+  });
+
+  it('reports a command that ran to completion as its stop arrived', async () => {
+    const command = deferred<{ exitCode: number; stdout: string; stderr: string }>();
+    const workspace = workspaceStub();
+    workspace.executeCommand = vi.fn(() => command.promise);
+    const tools = createWorkersAiTools(workspace, operationContext());
+    const controller = new AbortController();
+
+    const execution = executeTool(tools.exec, { command: 'pnpm test' }, controller.signal);
+    await vi.waitFor(() => expect(workspace.executeCommand).toHaveBeenCalledOnce());
+    controller.abort(new DOMException('exec timed out', 'TimeoutError'));
+    command.resolve({ exitCode: 0, stdout: 'done\n', stderr: '' });
+
+    await expect(execution).resolves.toMatchObject({ command: 'pnpm test', exitCode: 0, stdout: 'done\n' });
   });
 
   it('preserves command output while marking a non-zero exit as a tool failure', async () => {

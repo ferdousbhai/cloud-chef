@@ -197,6 +197,54 @@ describe('BuilderModelSelector', () => {
   });
 });
 
+describe('BuilderModelSelector without a catalog', () => {
+  it('lists the saved model, selected, and says turns still use it when the catalog fails to load', async () => {
+    // Fresh modules, so no catalog has been installed yet; React is fresh with them so the picker
+    // and the renderer share one copy.
+    vi.resetModules();
+    const { createElement, act: freshAct } = await import('react');
+    const { createRoot: freshCreateRoot } = await import('react-dom/client');
+    const fresh = await import('~/lib/stores/builder-model.client');
+    const { BuilderModelSelector: FreshSelector } = await import('./BuilderModelSelector.client');
+    const savedModel = 'anthropic/claude-opus-5-5';
+    localStorage.setItem('cloudchef_builder_model_v2', savedModel);
+    const failingCatalog = () => fresh.loadBuilderModelCatalog(async () => new Response(null, { status: 503 }));
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const freshRoot = freshCreateRoot(container);
+    try {
+      await freshAct(async () => {
+        freshRoot.render(createElement(FreshSelector, { catalogLoader: failingCatalog }));
+        await Promise.resolve();
+      });
+      expect(fresh.builderModelCatalogStatusStore.get()).toBe('error');
+      expect(fresh.builderModelRequestFields()).toEqual({ modelId: savedModel });
+
+      const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
+      expect(trigger?.title).not.toContain('Loading the model catalog');
+      expect(trigger?.title).toContain('checked when a turn starts');
+      await freshAct(async () => {
+        trigger?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+      });
+
+      const items = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+      expect(items.map((item) => [item.textContent?.includes(savedModel), item.getAttribute('aria-checked')])).toEqual(
+        expect.arrayContaining([[true, 'true']]),
+      );
+      expect(document.querySelector('[role="status"]')?.textContent).toContain(
+        `Turns still use your saved model, ${savedModel}`,
+      );
+
+      const defaultItem = items.find((item) => item.textContent?.includes('GLM 5.3 Flash'));
+      await freshAct(async () => defaultItem?.click());
+      expect(fresh.builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+    } finally {
+      await freshAct(async () => freshRoot.unmount());
+    }
+  });
+});
+
 async function renderSelector(catalogLoader: () => void = installTestCatalog) {
   const container = document.createElement('div');
   document.body.appendChild(container);
