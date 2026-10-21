@@ -55,7 +55,7 @@ export async function sweepAgentGcCandidates(
             candidates.not_before, candidates.attempts
      FROM agent_gc_candidates AS candidates
      INNER JOIN chats ON chats.id = candidates.chat_id
-     WHERE candidates.not_before <= ?
+     WHERE candidates.not_before <= ? AND chats.is_deleted = 1
      ORDER BY candidates.not_before, candidates.chat_id, candidates.subchat_index
      LIMIT ?`,
   )

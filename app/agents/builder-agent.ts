@@ -514,11 +514,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       `SELECT 1 AS found
        FROM chat_transcripts AS transcripts
        INNER JOIN chats ON chats.id = transcripts.chat_id
-       WHERE transcripts.agent_name = ? AND chats.creator_id = ?
+       WHERE transcripts.agent_name = ? AND chats.creator_id = ? AND chats.is_deleted = 1
        LIMIT 1`,
     )
       .bind(this.name, ownerId)
       .first<{ found: number }>();
+    // Only a deleted chat's agent: one revived since its sweep read the outbox keeps its project.
     if (!owned) {
       throw new Response('Agent not found.', { status: 404 });
     }

@@ -452,6 +452,7 @@ describe('BuilderAgent automatic publication', () => {
     await finishChangingTurn(harness);
     await eventually(() => deployments.length === 1);
 
+    harness.deleteChat();
     await harness.agent.scheduleDestroyForGc('owner-1').catch(() => undefined);
 
     expect(deployments[0]?.abortSignal?.aborted).toBe(true);
@@ -534,9 +535,18 @@ describe('BuilderAgent automatic publication', () => {
     expect(deploy).not.toHaveBeenCalled();
   });
 
+  it('a chat revived before the GC sweep reached it keeps its project', async () => {
+    const harness = await publicationHarness();
+
+    await expect(harness.agent.scheduleDestroyForGc('owner-1')).rejects.toMatchObject({ status: 404 });
+    expect(harness.deleteProject).not.toHaveBeenCalled();
+    await expect(harness.agent.requestPreview()).resolves.toMatchObject({ status: 'queued' });
+  });
+
   it('a project being deleted refuses a preview', async () => {
     const preview = vi.fn<BuilderPublisher['preview']>();
     const harness = await publicationHarness({ publisher: { preview } });
+    harness.deleteChat();
     await harness.agent.scheduleDestroyForGc('owner-1').catch(() => undefined);
 
     await expect(harness.agent.requestPreview()).rejects.toMatchObject({ status: 409 });

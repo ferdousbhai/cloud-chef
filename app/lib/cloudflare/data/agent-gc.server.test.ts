@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { envWith, userWorkspaceDatabase } from '~/test/control-plane-d1';
 import {
   AGENT_GC_GRACE_PERIOD_MS,
   AGENT_GC_RETRY_BASE_MS,
@@ -58,6 +59,32 @@ describe('BuilderAgent garbage collection', () => {
     await expect(sweepAgentGcCandidates(database.env, { now: 100 })).resolves.toBeUndefined();
     expect(database.scheduleDestroy).not.toHaveBeenCalled();
     expect(database.candidates).toHaveLength(1);
+  });
+
+  it('passes over a chat revived since it was deleted', async () => {
+    const { database, db } = userWorkspaceDatabase();
+    database.exec(`
+      INSERT INTO chats (id, creator_id, initial_id, description, timestamp, is_deleted) VALUES
+        ('chat-deleted', 'owner', 'deleted', 'Deleted', '2026-10-20T00:00:00.000Z', 1),
+        ('chat-revived', 'owner', 'revived', 'Revived', '2026-10-20T00:00:00.000Z', 0);
+      INSERT INTO agent_gc_candidates (chat_id, initial_id, subchat_index, max_generation, not_before, created_at)
+      VALUES ('chat-deleted', 'deleted', 0, 0, 50, 0), ('chat-revived', 'revived', 0, 0, 50, 0);
+    `);
+    const scheduled: string[] = [];
+    const env = envWith({
+      DB: db,
+      // SAFETY: the sweep calls only `getByName(...).scheduleDestroyForGc`, which this fake implements.
+      BuilderAgent: {
+        getByName: (name: string) => ({
+          scheduleDestroyForGc: async () => {
+            scheduled.push(name);
+          },
+        }),
+      } as never,
+    });
+
+    await sweepAgentGcCandidates(env, { now: 100 });
+    expect(scheduled).toEqual(['deleted']);
   });
 
   it('caps concurrent Agent destruction work even when a caller asks for more', async () => {
