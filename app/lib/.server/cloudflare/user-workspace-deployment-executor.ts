@@ -46,20 +46,33 @@ type WorkspaceReference = ReturnType<typeof parseWorkspaceReference>;
 type PublicationSession = { sessionId: string; finish(status: 'completed' | 'failed'): Promise<void> };
 
 /**
- * Deployment binds the production databases and promotes the version it uploads; preview binds the
- * per-project preview databases and leaves the version unpromoted. Everything between — resource
- * provisioning, artifact preparation, migrations, upload — is the same path.
+ * Deployment publishes to the project's Worker with its production databases, bucket and namespace;
+ * preview publishes to the project's preview Worker with resources of its own, so a preview never
+ * reads or writes production's data. Everything between — resource provisioning, artifact
+ * preparation, migrations, upload and promotion — is the same path.
  */
-const PRODUCTION_D1_BINDINGS = { app: 'DB', agentSecurity: 'AGENT_SECURITY_DB' } as const;
-const PREVIEW_D1_BINDINGS = { app: 'DB_PREVIEW', agentSecurity: 'AGENT_SECURITY_DB_PREVIEW' } as const;
-type PublicationD1Bindings = typeof PRODUCTION_D1_BINDINGS | typeof PREVIEW_D1_BINDINGS;
+const PRODUCTION_BINDINGS = {
+  worker: 'app',
+  app: 'DB',
+  agentSecurity: 'AGENT_SECURITY_DB',
+  storage: 'APP_STORAGE',
+  cache: 'APP_CACHE',
+} as const;
+const PREVIEW_BINDINGS = {
+  worker: 'app_preview',
+  app: 'DB_PREVIEW',
+  agentSecurity: 'AGENT_SECURITY_DB_PREVIEW',
+  storage: 'APP_STORAGE_PREVIEW',
+  cache: 'APP_CACHE_PREVIEW',
+} as const;
+type PublicationBindings = typeof PRODUCTION_BINDINGS | typeof PREVIEW_BINDINGS;
 
 /** Which of the plan's provider resources this publication needs, before any of them exist. */
 type PublicationResourcePlan = {
-  d1: PublicationD1Bindings['app'] | null;
-  agentD1: PublicationD1Bindings['agentSecurity'] | null;
-  r2: boolean;
-  kv: boolean;
+  d1: PublicationBindings['app'] | null;
+  agentD1: PublicationBindings['agentSecurity'] | null;
+  r2: PublicationBindings['storage'] | null;
+  kv: PublicationBindings['cache'] | null;
 };
 
 type PublicationResources = {
@@ -120,7 +133,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     session = await beginPublicationSession(workspace, operationId, reference);
     abortSignal?.throwIfAborted();
 
-    const resourcePlan = publicationResourcePlan(deployment.plan, PRODUCTION_D1_BINDINGS);
+    const resourcePlan = publicationResourcePlan(deployment.plan, PRODUCTION_BINDINGS);
     // Provisioning can create account resources before it fails, so a plan that names any of them
     // makes provider cleanup possible from here on.
     providerChangesPossible = Boolean(resourcePlan.d1 || resourcePlan.agentD1 || resourcePlan.r2 || resourcePlan.kv);
@@ -136,7 +149,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     });
     phase = 'deploying';
     deployment = await requireDeployment(args.env.DB, deployment.id);
-    const workerName = requireResourceName(deployment, 'worker', 'app');
+    const workerName = requireResourceName(deployment, PRODUCTION_BINDINGS.worker);
     const profile = deployment.plan.project;
     const artifact = await prepareValidatedArtifact({
       workspace,
@@ -167,9 +180,8 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     await activity(args, 60, 'Configuring public Cloudflare route');
     await publishApi.configureManagedWorkerSchedule(workerName, profile.bindings.appAgent);
     await publishApi.enableWorkerSubdomain(workerName);
-    await recordResource(args.env.DB, deployment.id, 'worker', 'app', workerName);
-    const workersSubdomain = await publishApi.getWorkersSubdomain();
-    const productionUrl = `https://${workerName}.${workersSubdomain}.workers.dev`;
+    await recordResource(args.env.DB, deployment.id, 'worker', PRODUCTION_BINDINGS.worker, workerName);
+    const productionUrl = workersDevUrl(workerName, await publishApi.getWorkersSubdomain());
     await transitionDeployment({
       db: args.env.DB,
       deploymentId: deployment.id,
@@ -234,7 +246,10 @@ export type UserOwnedPreviewResult = {
   readyAt: string;
 };
 
-/** Publish one validated artifact as an unpromoted Worker version in the user's account. */
+/**
+ * Publish one validated artifact as the active version of the project's preview Worker, with the
+ * preview's own databases, bucket and namespace, and return its workers.dev address.
+ */
 export async function executeUserOwnedPreview(
   args: UserOwnedDeploymentArgs & { previewId: string },
 ): Promise<UserOwnedPreviewResult> {
@@ -248,7 +263,7 @@ export async function executeUserOwnedPreview(
   requirePreviewExecutionIdentity(deployment, args, connectionGeneration);
   const reference = requireApprovedWorkspaceReference(deployment, 'preview');
   const workspace = runtimeEnv.PROJECT_WORKSPACE.get(runtimeEnv.PROJECT_WORKSPACE.idFromName(reference.projectId));
-  const workerName = requireResourceName(deployment, 'worker', 'app');
+  const workerName = requireResourceName(deployment, PREVIEW_BINDINGS.worker);
   const versionReceipt = await findDeploymentResource(
     args.env.DB,
     deployment.id,
@@ -259,7 +274,7 @@ export async function executeUserOwnedPreview(
     const accountApi = await createUserAccountApi(runtimeEnv, request);
     return {
       id: versionReceipt.providerResourceId,
-      url: await accountApi.readManagedWorkerPreviewUrl(workerName, versionReceipt.providerResourceId),
+      url: workersDevUrl(workerName, await accountApi.getWorkersSubdomain()),
       workspaceRevision: reference.workspaceRevision,
       snapshotRevision: reference.revision,
       readyAt: new Date(versionReceipt.createdAt).toISOString(),
@@ -270,7 +285,8 @@ export async function executeUserOwnedPreview(
   abortSignal?.throwIfAborted();
   const session = await beginPublicationSession(workspace, operationId, reference);
   try {
-    // A preview promotes nothing, so it stops at any step; each check releases the workspace sooner.
+    // A preview reaches nothing production serves, so it stops at any step; each check releases the
+    // workspace sooner.
     abortSignal?.throwIfAborted();
     await activity(args, 1, 'Preparing Cloudflare preview resources');
     const provisionApi = await createUserAccountApi(runtimeEnv, request);
@@ -278,7 +294,7 @@ export async function executeUserOwnedPreview(
       db: args.env.DB,
       deployment,
       accountApi: provisionApi,
-      resourcePlan: publicationResourcePlan(deployment.plan, PREVIEW_D1_BINDINGS),
+      resourcePlan: publicationResourcePlan(deployment.plan, PREVIEW_BINDINGS),
     });
     abortSignal?.throwIfAborted();
     await activity(args, 2, 'Cloudflare preview resources ready');
@@ -302,11 +318,13 @@ export async function executeUserOwnedPreview(
     await activity(args, 3, 'Applying preview database migrations');
     await applyArtifactMigrations(publishApi, resources, artifact, 'preview');
     abortSignal?.throwIfAborted();
-    await activity(args, 4, 'Uploading assets and Worker preview version');
-    const published = await publishApi.previewManagedWorker(
+    await activity(args, 4, 'Uploading assets and publishing the preview Worker');
+    const published = await publishApi.deployManagedWorker(
       managedWorkerVersionArgs({ workerName, profile, reference, artifact, resources }),
     );
-    await recordResource(args.env.DB, deployment.id, 'worker', 'app', workerName);
+    await publishApi.configureManagedWorkerSchedule(workerName, profile.bindings.appAgent);
+    await publishApi.enableWorkerSubdomain(workerName);
+    await recordResource(args.env.DB, deployment.id, 'worker', PREVIEW_BINDINGS.worker, workerName);
     await recordResource(
       args.env.DB,
       deployment.id,
@@ -314,13 +332,14 @@ export async function executeUserOwnedPreview(
       `preview:${args.previewId}`,
       published.workerVersionId,
     );
+    const url = workersDevUrl(workerName, await publishApi.getWorkersSubdomain());
     const checkpoint = await workspace.assertDeploymentSession({ sessionId: session.sessionId });
     const readyAt = new Date().toISOString();
     await activity(args, 5, 'Workers preview ready');
     await session.finish('completed');
     return {
       id: published.workerVersionId,
-      url: published.previewUrl,
+      url,
       workspaceRevision: checkpoint.workspaceRevision,
       snapshotRevision: checkpoint.revision,
       readyAt,
@@ -366,12 +385,12 @@ async function requireProjectResources(db: D1Database, deployment: Deployment): 
   }
 }
 
-function publicationResourcePlan(plan: Deployment['plan'], bindings: PublicationD1Bindings): PublicationResourcePlan {
+function publicationResourcePlan(plan: Deployment['plan'], bindings: PublicationBindings): PublicationResourcePlan {
   return {
     d1: deploymentPlanResourceName(plan, 'd1', bindings.app) ? bindings.app : null,
     agentD1: deploymentPlanResourceName(plan, 'd1', bindings.agentSecurity) ? bindings.agentSecurity : null,
-    r2: deploymentPlanResourceName(plan, 'r2', 'APP_STORAGE') !== null,
-    kv: deploymentPlanResourceName(plan, 'kv', 'APP_CACHE') !== null,
+    r2: deploymentPlanResourceName(plan, 'r2', bindings.storage) ? bindings.storage : null,
+    kv: deploymentPlanResourceName(plan, 'kv', bindings.cache) ? bindings.cache : null,
   };
 }
 
@@ -392,12 +411,12 @@ async function ensurePublicationResources(args: {
     await recordResource(db, deployment.id, 'd1', resourcePlan.agentD1, resources.agentD1.id);
   }
   if (resourcePlan.r2) {
-    resources.r2 = await accountApi.ensureR2ForPlan(deployment.plan);
-    await recordResource(db, deployment.id, 'r2', 'APP_STORAGE', resources.r2.id);
+    resources.r2 = await accountApi.ensureR2ForPlan(deployment.plan, resourcePlan.r2);
+    await recordResource(db, deployment.id, 'r2', resourcePlan.r2, resources.r2.id);
   }
   if (resourcePlan.kv) {
-    resources.kv = await accountApi.ensureKvForPlan(deployment.plan);
-    await recordResource(db, deployment.id, 'kv', 'APP_CACHE', resources.kv.id);
+    resources.kv = await accountApi.ensureKvForPlan(deployment.plan, resourcePlan.kv);
+    await recordResource(db, deployment.id, 'kv', resourcePlan.kv, resources.kv.id);
   }
   return resources;
 }
@@ -684,12 +703,16 @@ function requireApprovedWorkspaceReference(deployment: Deployment, publication: 
   return reference;
 }
 
-function requireResourceName(deployment: Deployment, type: 'worker', logicalName: string): string {
-  const name = deploymentPlanResourceName(deployment.plan, type, logicalName);
+function requireResourceName(deployment: Deployment, logicalName: PublicationBindings['worker']): string {
+  const name = deploymentPlanResourceName(deployment.plan, 'worker', logicalName);
   if (!name) {
-    throw new Error(`Approved deployment plan has an invalid ${type} resource.`);
+    throw new Error('Approved deployment plan has an invalid worker resource.');
   }
   return name;
+}
+
+function workersDevUrl(workerName: string, workersSubdomain: string): string {
+  return `https://${workerName}.${workersSubdomain}.workers.dev`;
 }
 
 function recordResource(

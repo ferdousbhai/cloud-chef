@@ -145,8 +145,8 @@ export async function deployValidatedRevisionForBuilder(args: {
 
 /**
  * Preview the same validated revision under the same deployment plan. Passing the deployment's own
- * tool-call identity is what makes the preview an unpromoted version of that exact deployment
- * rather than a second publication with resources of its own.
+ * tool-call identity is what publishes the preview to the preview resources that exact deployment's
+ * plan names, the project's, rather than as a second publication with a plan of its own.
  */
 export async function previewValidatedRevisionForBuilder(args: {
   context: BuilderDeploymentContext;

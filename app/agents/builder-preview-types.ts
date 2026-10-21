@@ -13,7 +13,7 @@ export type BuilderPreviewState = {
   error: string | null;
   /**
    * The last Worker version that published successfully. It stays visible through a later failed
-   * or cancelled publication, because the version itself is immutable and still serving.
+   * or cancelled publication, which leaves the preview Worker serving it.
    */
   published: BuilderPreviewSuccess | null;
 };

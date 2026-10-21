@@ -41,7 +41,7 @@ describe('builder deployment command', () => {
     });
     mocks.previewForUser.mockResolvedValue({
       id: '22222222-2222-4222-8222-222222222222',
-      url: 'https://22222222-cloudchef-app.account.workers.dev',
+      url: 'https://cloudchef-app-preview.account.workers.dev',
       workspaceRevision: 7,
       snapshotRevision: 'a'.repeat(64),
       readyAt: '2026-08-30T00:00:00.000Z',

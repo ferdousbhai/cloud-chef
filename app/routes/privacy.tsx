@@ -341,9 +341,9 @@ function PrivacyPage() {
           That control deliberately deletes nothing inside your own Cloudflare account, and nothing in a team&apos;s but
           your workspace there.{' '}
           <strong>
-            Workers and their unpromoted preview versions, production and preview D1 databases, R2 buckets, KV
-            namespaces, Containers, Durable Objects, and Agents that CloudChef deployed are retained, keep running, keep
-            billing to your account, and are yours to remove.
+            Production and preview Workers, production and preview D1 databases, R2 buckets, KV namespaces, Containers,
+            Durable Objects, and Agents that CloudChef deployed are retained, keep running, keep billing to your
+            account, and are yours to remove.
           </strong>{' '}
           Chats, transcripts, project files, and deployment records also stay there under that account’s controls, and
           the account export does not contain them: download individual project source with Download code in the project

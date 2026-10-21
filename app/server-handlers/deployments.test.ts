@@ -58,7 +58,7 @@ describe('deployment handlers', () => {
     mocks.executeUserOwnedDeployment.mockResolvedValue(deployment('succeeded'));
     mocks.executeUserOwnedPreview.mockResolvedValue({
       id: 'version-1',
-      url: 'https://12345678-cloudchef-app.account.workers.dev',
+      url: 'https://cloudchef-app-preview.account.workers.dev',
       workspaceRevision: 7,
       snapshotRevision: revision,
       readyAt: '2026-08-30T00:00:00.000Z',
@@ -84,9 +84,11 @@ describe('deployment handlers', () => {
     expect(mocks.createDeployment).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceReference: `workspace-runtime:agent-1:7:${revision}` }),
     );
-    // Its Worker is the project's, whatever revision this is.
+    // Its Worker, and its preview's, are the project's, whatever revision this is.
+    const identity = await appResourceIdentity('agent-1');
     expect(mocks.createDeployment.mock.calls[0]?.[0].plan.resources).toEqual([
-      { type: 'worker', logicalName: 'app', proposedName: `cloudchef-${await appResourceIdentity('agent-1')}` },
+      { type: 'worker', logicalName: 'app', proposedName: `cloudchef-${identity}` },
+      { type: 'worker', logicalName: 'app_preview', proposedName: `cloudchef-${identity}-preview` },
     ]);
   });
 
@@ -104,8 +106,14 @@ describe('deployment handlers', () => {
       project,
     });
 
+    // The preview Worker no earlier deployment had is named after the project.
     expect(mocks.createDeployment.mock.calls[0]?.[0].plan.resources).toEqual([
       { type: 'worker', logicalName: 'app', proposedName: 'cloudchef-earlier' },
+      {
+        type: 'worker',
+        logicalName: 'app_preview',
+        proposedName: `cloudchef-${await appResourceIdentity('agent-1')}-preview`,
+      },
     ]);
   });
 
@@ -125,7 +133,7 @@ describe('deployment handlers', () => {
     });
   });
 
-  it('executes preview as an unpromoted sibling of the authenticated deployment', async () => {
+  it('executes preview as a sibling of the authenticated deployment', async () => {
     mocks.requireDeployment.mockResolvedValue(deployment());
     const env = runtimeEnv(activeChatDb());
 

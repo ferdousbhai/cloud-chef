@@ -19,7 +19,9 @@ const plan: DeploymentPlan = {
       proposedName: 'cloudchef-deployment-1-agent-security',
     },
     { type: 'r2', logicalName: 'APP_STORAGE', proposedName: 'cloudchef-deployment-1-storage' },
+    { type: 'r2', logicalName: 'APP_STORAGE_PREVIEW', proposedName: 'cloudchef-deployment-1-preview-storage' },
     { type: 'kv', logicalName: 'APP_CACHE', proposedName: 'cloudchef-deployment-1-cache' },
+    { type: 'kv', logicalName: 'APP_CACHE_PREVIEW', proposedName: 'cloudchef-deployment-1-preview-cache' },
   ],
 };
 
@@ -375,6 +377,37 @@ describe('UserCloudflareAccountApi', () => {
     });
     expect(request).toHaveBeenCalledTimes(2);
     expect(request.mock.calls.every((call) => call[1]?.method === 'GET')).toBe(true);
+  });
+
+  test('provisions the preview bucket and namespace under their own plan names', async () => {
+    const namespaceId = 'abcdef0123456789abcdef0123456789';
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ success: true, result: { name: 'cloudchef-deployment-1-preview-storage' } }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          success: true,
+          result: [
+            { id: '0123456789abcdef0123456789abcdef', title: 'cloudchef-deployment-1-cache' },
+            { id: namespaceId, title: 'cloudchef-deployment-1-preview-cache' },
+          ],
+        }),
+      );
+    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+
+    await expect(api.ensureR2ForPlan(plan, 'APP_STORAGE_PREVIEW')).resolves.toEqual({
+      id: 'cloudchef-deployment-1-preview-storage',
+      name: 'cloudchef-deployment-1-preview-storage',
+    });
+    await expect(api.ensureKvForPlan(plan, 'APP_CACHE_PREVIEW')).resolves.toEqual({
+      id: namespaceId,
+      name: 'cloudchef-deployment-1-preview-cache',
+    });
+    expect(String(request.mock.calls[0]?.[0])).toBe(
+      'https://api.cloudflare.com/client/v4/accounts/account-1/r2/buckets/cloudchef-deployment-1-preview-storage',
+    );
   });
 
   test('creates only the KV namespace fixed by the approved plan', async () => {
@@ -826,7 +859,7 @@ describe('UserCloudflareAccountApi', () => {
         r2BucketName: 'cloudchef-storage',
         kvNamespaceId: '0123456789abcdef0123456789abcdef',
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ workerVersionId });
 
     expect(request.mock.calls.map(([url]) => String(url))).toEqual([
       'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-app/assets-upload-session',
@@ -906,7 +939,7 @@ describe('UserCloudflareAccountApi', () => {
         workersAi: false,
         appAgent: false,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ workerVersionId });
 
     expect(request.mock.calls.map(([url]) => String(url))).toEqual([
       'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/deployments',
@@ -959,129 +992,13 @@ describe('UserCloudflareAccountApi', () => {
         workersAi: false,
         appAgent: false,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ workerVersionId });
 
     expect(request.mock.calls.map(([url, init]) => `${init?.method} ${String(url)}`)).toEqual([
       'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/deployments',
       'PUT https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker?excludeScript=true&bindings_inherit=strict',
       'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/deployments',
       `GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/versions/${workerVersionId}`,
-    ]);
-  });
-
-  test('creates an empty Worker resource before the first unpromoted preview version', async () => {
-    const module = await artifactFile('index.js', 'export default {}');
-    const workerVersionId = '12345678-1234-4234-8234-123456789abc';
-    const subdomain = { enabled: false, previews_enabled: true };
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ success: false, errors: [{ code: 10007 }] }), { status: 404 }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ success: false, errors: [{ code: 10007 }] }), { status: 404 }),
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          success: true,
-          result: { id: 'a'.repeat(32), name: 'cloudchef-worker', deployed_on: null },
-        }),
-      )
-      .mockResolvedValueOnce(Response.json({ success: true, result: { id: workerVersionId } }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: subdomain }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: subdomain }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: subdomain }))
-      .mockResolvedValueOnce(
-        Response.json({ success: true, result: { id: workerVersionId, metadata: { has_preview: true } } }),
-      )
-      .mockResolvedValueOnce(Response.json({ success: true, result: { subdomain: 'account-subdomain' } }));
-
-    await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).previewManagedWorker({
-        workerName: 'cloudchef-worker',
-        projectType: 'worker',
-        sourceSha256: 'a'.repeat(64),
-        mainModule: 'index.js',
-        modules: [module],
-        assets: [],
-        workerFirstAssets: false,
-        workersAi: false,
-        appAgent: false,
-      }),
-    ).resolves.toEqual({
-      workerVersionId,
-      previewUrl: 'https://12345678-cloudchef-worker.account-subdomain.workers.dev',
-    });
-    expect(request.mock.calls.map(([url, init]) => `${init?.method} ${String(url)}`)).toEqual([
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/deployments',
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/workers/cloudchef-worker',
-      'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/workers',
-      'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/versions',
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/subdomain',
-      'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/subdomain',
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/subdomain',
-      `GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/versions/${workerVersionId}`,
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/subdomain',
-    ]);
-    expect(JSON.parse(String(request.mock.calls[2]?.[1]?.body))).toMatchObject({
-      name: 'cloudchef-worker',
-      subdomain: { enabled: false, previews_enabled: true },
-    });
-  });
-
-  test('uploads an unpromoted Worker version and derives its preview URL', async () => {
-    const module = await artifactFile('index.js', 'export default { fetch() { return new Response("ok") } }');
-    const workerVersionId = '12345678-1234-4234-8234-123456789abc';
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json({
-          success: true,
-          result: {
-            deployments: [
-              {
-                id: 'production-deployment',
-                created_on: '2026-07-21T00:00:00Z',
-                versions: [{ percentage: 100, version_id: '00000000-0000-4000-8000-000000000000' }],
-              },
-            ],
-          },
-        }),
-      )
-      .mockResolvedValueOnce(Response.json({ success: true, result: { id: workerVersionId } }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: { enabled: true, previews_enabled: true } }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: { enabled: true, previews_enabled: true } }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: { enabled: true, previews_enabled: true } }))
-      .mockResolvedValueOnce(
-        Response.json({ success: true, result: { id: workerVersionId, metadata: { has_preview: true } } }),
-      )
-      .mockResolvedValueOnce(Response.json({ success: true, result: { subdomain: 'account-subdomain' } }));
-
-    await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).previewManagedWorker({
-        workerName: 'cloudchef-worker',
-        projectType: 'worker',
-        sourceSha256: 'a'.repeat(64),
-        mainModule: 'index.js',
-        modules: [module],
-        assets: [],
-        workerFirstAssets: false,
-        workersAi: false,
-        appAgent: false,
-      }),
-    ).resolves.toEqual({
-      workerVersionId,
-      previewUrl: 'https://12345678-cloudchef-worker.account-subdomain.workers.dev',
-    });
-
-    expect(request.mock.calls.map(([url, init]) => `${init?.method} ${String(url)}`)).toEqual([
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/deployments',
-      'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/versions',
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/subdomain',
-      'POST https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/subdomain',
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/subdomain',
-      `GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/cloudchef-worker/versions/${workerVersionId}`,
-      'GET https://api.cloudflare.com/client/v4/accounts/account-1/workers/subdomain',
     ]);
   });
 
@@ -1173,7 +1090,7 @@ describe('UserCloudflareAccountApi', () => {
 
   test('reads back the exact managed schedule and public subdomain state', async () => {
     const schedule = { schedules: [{ cron: '0 3 * * *' }] };
-    const subdomain = { enabled: true, previews_enabled: true };
+    const subdomain = { enabled: true, previews_enabled: false };
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ success: true, result: schedule }))
@@ -1185,6 +1102,19 @@ describe('UserCloudflareAccountApi', () => {
     await expect(api.configureManagedWorkerSchedule('cloudchef-app', true)).resolves.toBeUndefined();
     await expect(api.enableWorkerSubdomain('cloudchef-app')).resolves.toBeUndefined();
     expect(request.mock.calls.map(([, init]) => init?.method)).toEqual(['PUT', 'GET', 'POST', 'GET']);
+    // Only the active version is served: an earlier one, bound to the data it shipped with, is not.
+    expect(JSON.parse(String(request.mock.calls[2]?.[1]?.body))).toEqual({ enabled: true, previews_enabled: false });
+  });
+
+  test('refuses a Worker that still serves its versions at preview URLs', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ success: true, result: { enabled: true, previews_enabled: false } }))
+      .mockResolvedValueOnce(Response.json({ success: true, result: { enabled: true, previews_enabled: true } }));
+
+    await expect(
+      new UserCloudflareAccountApi('account-1', 'token', request).enableWorkerSubdomain('cloudchef-app'),
+    ).rejects.toThrow('invalid managed Worker subdomain state');
   });
 
   test('rejects missing schedule readback when the expected schedule set is empty', async () => {

@@ -379,18 +379,21 @@ checkpoints from the same VFS, so a publication never ships a revision other tha
 
 ## Preview Boundary
 
-A preview is one immutable, checkpoint-bound Worker version in the user's account. Full validation copies the project
+A preview is one checkpoint-bound revision published as a separate app in the user's account: the project's preview
+Worker, with its own `workers.dev` address, preview D1 databases, R2 bucket, and KV namespace, none of them
+production's. Full validation copies the project
 to an isolated root, installs dependencies, runs typecheck/lint/stack verification, performs the production build and
 `cf deploy --prebuilt` dry run against a trusted `worker.config.json`, and retains the deployable module/asset/migration artifact under the content revision. The exact
 revision is asserted before and after validation and again before publication.
 
 Preview publication performs no container work. Through the same generation-checked credential broker used by
-production deployment, it provisions the project's preview D1 databases (separate from production's, and like them
-kept from one revision to the next), applies the artifact's migrations they have not applied, uploads static assets,
-and posts an unpromoted Worker version with preview bindings to the project's Worker. The browser receives that
-version's deterministic `workers.dev` preview URL. A preview binds production's R2 bucket and KV namespace, which have
-no preview counterparts; the same revision deploys to production right after it. There is no dev/HMR mode, local preview database, Vite preview
-process, quick tunnel, preview expiry alarm, or preview-specific container keep-alive.
+production deployment, it provisions the project's preview resources (created on a project's first preview, and like
+production's kept from one revision to the next), applies the artifact's migrations the preview databases have not
+applied, uploads static assets, and publishes the revision as the preview Worker's active version, exactly as a
+deployment publishes production's. The browser receives the preview Worker's `workers.dev` address, which serves that
+revision until the next preview replaces it. Neither Worker serves versioned preview URLs (`previews_enabled` is off),
+so no earlier version stays reachable against the data it was published with. There is no dev/HMR mode, local preview
+database, Vite preview process, quick tunnel, preview expiry alarm, or preview-specific container keep-alive.
 
 Production consumes the same retained artifact for the same source digest, substitutes production bindings, uploads a
 second immutable version, and promotes that exact version. If Computer recycled after validation, artifact preparation
@@ -408,8 +411,8 @@ The deployment executor derives resource names and security-sensitive configurat
 Worker intent before publishing, then reads back the deployed version, script etag, bindings, variables, and schedules.
 Ambiguous publish outcomes remain visible for owner review rather than being silently discarded.
 
-A CloudChef app's account resources (its Worker and so its `workers.dev` address, `DB`, `AGENT_SECURITY_DB`, their
-preview databases, `APP_STORAGE`, and `APP_CACHE`) belong to the project, the `ProjectWorkspace` a chat (or subchat)
+A CloudChef app's account resources (its Worker and so its `workers.dev` address, `DB`, `AGENT_SECURITY_DB`,
+`APP_STORAGE`, `APP_CACHE`, and the preview Worker and preview counterpart of each) belong to the project, the `ProjectWorkspace` a chat (or subchat)
 builds in, not to a revision: every deployment replaces the Worker's version in place and keeps the data. A deployment
 id is only the record and idempotency key of one revision's publication. A plan names each resource as the latest
 succeeded deployment of the project that has it named it, and any other after the project's own identity

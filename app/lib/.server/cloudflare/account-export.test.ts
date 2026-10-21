@@ -137,7 +137,7 @@ describe('control-plane account export', () => {
       truncated: false,
       states: [{ status: 'completed', returnTo: '/' }],
     });
-    expect(exported.omits.join('\n')).toContain('unpromoted preview versions');
+    expect(exported.omits.join('\n')).toContain('Production and preview Workers');
     expect(exported.omits.join('\n')).toContain('production and preview D1 databases');
   });
 

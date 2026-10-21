@@ -13,10 +13,20 @@ describe('app resource garbage collection', () => {
 
     await expect(sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi })).resolves.toBeUndefined();
 
-    expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-deployment-1');
+    // Production's Worker, bucket and namespace, and the preview's own.
+    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
+      ['cloudchef-deployment-1'],
+      ['cloudchef-deployment-1-preview'],
+    ]);
     expect(accountApi.deleteD1Database).toHaveBeenCalledTimes(4);
-    expect(accountApi.deleteKvNamespace).toHaveBeenCalledWith('cloudchef-deployment-1-cache');
-    expect(accountApi.deleteR2Bucket).toHaveBeenCalledWith('cloudchef-deployment-1-storage');
+    expect(accountApi.deleteKvNamespace.mock.calls).toEqual([
+      ['cloudchef-deployment-1-cache'],
+      ['cloudchef-deployment-1-preview-cache'],
+    ]);
+    expect(accountApi.deleteR2Bucket.mock.calls).toEqual([
+      ['cloudchef-deployment-1-storage'],
+      ['cloudchef-deployment-1-preview-storage'],
+    ]);
     expect(workspace.candidates()).toEqual([]);
     expect(workspace.deploymentIds()).toEqual([]);
   });
@@ -107,11 +117,13 @@ describe('app resource garbage collection', () => {
     await sweepAppResourceGcCandidates(workspace.env, { now: 100 + AGENT_GC_RETRY_BASE_MS, accountApi });
 
     // The last deployment deletes them, once.
-    expect(accountApi.deleteManagedWorker).toHaveBeenCalledTimes(1);
-    expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-deployment-1');
+    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
+      ['cloudchef-deployment-1'],
+      ['cloudchef-deployment-1-preview'],
+    ]);
     expect(accountApi.deleteD1Database).toHaveBeenCalledTimes(4);
-    expect(accountApi.deleteR2Bucket).toHaveBeenCalledTimes(1);
-    expect(accountApi.deleteKvNamespace).toHaveBeenCalledTimes(1);
+    expect(accountApi.deleteR2Bucket).toHaveBeenCalledTimes(2);
+    expect(accountApi.deleteKvNamespace).toHaveBeenCalledTimes(2);
     expect(workspace.deploymentIds()).toEqual([]);
     expect(workspace.candidates()).toEqual([]);
   });
@@ -149,7 +161,11 @@ describe('app resource garbage collection', () => {
     await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi });
 
     // The first deployment's own resources went; the second's are the third's too, so they wait for it.
-    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([['cloudchef-first'], ['cloudchef-second']]);
+    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
+      ['cloudchef-first'],
+      ['cloudchef-first-preview'],
+      ['cloudchef-second'],
+    ]);
     expect(accountApi.deleteD1DatabaseById.mock.calls).toEqual([['db-first']]);
     expect(accountApi.deleteD1Database.mock.calls.map(([name]) => name).sort()).toEqual([
       'cloudchef-first-agent-security',
@@ -157,16 +173,23 @@ describe('app resource garbage collection', () => {
       'cloudchef-first-preview-agent',
     ]);
     expect(accountApi.deleteKvNamespaceById).not.toHaveBeenCalled();
-    expect(accountApi.deleteKvNamespace.mock.calls).toEqual([['cloudchef-first-cache']]);
-    expect(accountApi.deleteR2Bucket.mock.calls).toEqual([['cloudchef-first-storage']]);
+    expect(accountApi.deleteKvNamespace.mock.calls).toEqual([
+      ['cloudchef-first-cache'],
+      ['cloudchef-first-preview-cache'],
+    ]);
+    expect(accountApi.deleteR2Bucket.mock.calls).toEqual([
+      ['cloudchef-first-storage'],
+      ['cloudchef-first-preview-storage'],
+    ]);
     expect(workspace.deploymentIds()).toEqual(['deployment-3']);
 
     accountApi.deleteManagedWorker.mockReset();
     await sweepAppResourceGcCandidates(workspace.env, { now: 1_000 + AGENT_GC_RETRY_BASE_MS * 2, accountApi });
 
     // The last deployment deletes them, by its record where it has one and by name where it has not.
-    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([['cloudchef-second']]);
+    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([['cloudchef-second'], ['cloudchef-second-preview']]);
     expect(accountApi.deleteKvNamespaceById.mock.calls).toEqual([['kv-second']]);
+    expect(accountApi.deleteKvNamespace.mock.calls.slice(2)).toEqual([['cloudchef-second-preview-cache']]);
     expect(
       accountApi.deleteD1Database.mock.calls
         .map(([name]) => name)
@@ -178,7 +201,10 @@ describe('app resource garbage collection', () => {
       'cloudchef-second-preview',
       'cloudchef-second-preview-agent',
     ]);
-    expect(accountApi.deleteR2Bucket.mock.calls.slice(1)).toEqual([['cloudchef-second-storage']]);
+    expect(accountApi.deleteR2Bucket.mock.calls.slice(2)).toEqual([
+      ['cloudchef-second-storage'],
+      ['cloudchef-second-preview-storage'],
+    ]);
     expect(workspace.deploymentIds()).toEqual([]);
     expect(workspace.candidates()).toEqual([]);
   });
@@ -195,7 +221,10 @@ describe('app resource garbage collection', () => {
     await sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi });
 
     // Released by the second deployment only, by the name its plan gives it.
-    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([['cloudchef-deployment-1']]);
+    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
+      ['cloudchef-deployment-1'],
+      ['cloudchef-deployment-1-preview'],
+    ]);
     expect(workspace.deploymentIds()).toEqual(['deployment-1']);
   });
 
@@ -242,7 +271,7 @@ describe('app resource garbage collection', () => {
 
     await expect(sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi })).resolves.toBeUndefined();
 
-    expect(accountApi.deleteManagedWorker).toHaveBeenCalledTimes(1);
+    expect(accountApi.deleteManagedWorker).toHaveBeenCalledTimes(2);
     expect(workspace.deploymentIds()).toEqual(['deployment-1']);
     expect(workspace.candidates()).toEqual([
       { chat_id: 'chat-row', not_before: 100 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },

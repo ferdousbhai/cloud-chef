@@ -4,16 +4,20 @@ const APP_RESOURCE_PREFIX = 'cloudchef-';
 
 /**
  * Suffix per logical binding name. The Worker anchors the app and carries no suffix, and neither
- * does the application database - they are distinguished by resource type, not by name.
+ * does the application database - they are distinguished by resource type, not by name, as the
+ * preview Worker and the preview database are.
  */
 const APP_RESOURCE_SUFFIXES = {
   app: '',
+  app_preview: '-preview',
   DB: '',
   DB_PREVIEW: '-preview',
   AGENT_SECURITY_DB: '-agent-security',
   AGENT_SECURITY_DB_PREVIEW: '-preview-agent',
   APP_STORAGE: '-storage',
+  APP_STORAGE_PREVIEW: '-preview-storage',
   APP_CACHE: '-cache',
+  APP_CACHE_PREVIEW: '-preview-cache',
 } as const;
 
 export type AppResourceLogicalName = keyof typeof APP_RESOURCE_SUFFIXES;

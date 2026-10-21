@@ -14,8 +14,6 @@ const mocks = vi.hoisted(() => ({
     ensureKvForPlan: vi.fn(),
     applyD1Migrations: vi.fn(),
     deployManagedWorker: vi.fn(),
-    previewManagedWorker: vi.fn(),
-    readManagedWorkerPreviewUrl: vi.fn(),
     configureManagedWorkerSchedule: vi.fn(),
     enableWorkerSubdomain: vi.fn(),
     getWorkersSubdomain: vi.fn(),
@@ -64,10 +62,6 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     });
     mocks.accountApi.deployManagedWorker.mockResolvedValue({
       workerVersionId: '11111111-1111-4111-8111-111111111111',
-    });
-    mocks.accountApi.previewManagedWorker.mockResolvedValue({
-      workerVersionId: '22222222-2222-4222-8222-222222222222',
-      previewUrl: 'https://22222222-cloudchef-deployment-1.user-subdomain.workers.dev',
     });
     mocks.findDeploymentResource.mockResolvedValue(null);
     // The project's resources are named as these plans name them.
@@ -293,7 +287,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     );
   });
 
-  it('binds and migrates only the preview D1 when uploading an unpromoted version', async () => {
+  it('publishes a preview to the project’s preview Worker, binding and migrating only the preview databases', async () => {
     const revision = 'd'.repeat(64);
     const plan = {
       version: 5,
@@ -305,6 +299,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
       },
       resources: [
         { type: 'worker', logicalName: 'app', proposedName: 'cloudchef-deployment-1' },
+        { type: 'worker', logicalName: 'app_preview', proposedName: 'cloudchef-deployment-1-preview' },
         { type: 'd1', logicalName: 'DB', proposedName: 'cloudchef-deployment-1' },
         { type: 'd1', logicalName: 'DB_PREVIEW', proposedName: 'cloudchef-deployment-1-preview' },
         {
@@ -403,7 +398,9 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
         request,
       }),
     ).resolves.toMatchObject({
-      id: '22222222-2222-4222-8222-222222222222',
+      id: '11111111-1111-4111-8111-111111111111',
+      // The preview Worker's own address, serving the revision as its active version.
+      url: 'https://cloudchef-deployment-1-preview.user-subdomain.workers.dev',
       workspaceRevision: 7,
       snapshotRevision: revision,
     });
@@ -415,6 +412,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     expect(prepareDeploymentArtifact).toHaveBeenCalledWith(
       expect.objectContaining({
         operationId: 'preview:deployment-1:4:preview-1',
+        workerName: 'cloudchef-deployment-1-preview',
         d1DatabaseId: 'preview-database-id',
         d1DatabaseName: 'cloudchef-deployment-1-preview',
         agentSecurityD1DatabaseId: 'preview-agent-database-id',
@@ -427,14 +425,39 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     expect(mocks.accountApi.applyD1Migrations).toHaveBeenCalledWith('preview-agent-database-id', [
       { name: '0001_agent.sql', sql: 'CREATE TABLE agent_data (id TEXT);' },
     ]);
-    expect(mocks.accountApi.previewManagedWorker).toHaveBeenCalledWith(
+    expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledOnce();
+    expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledWith(
       expect.objectContaining({
+        workerName: 'cloudchef-deployment-1-preview',
         d1DatabaseId: 'preview-database-id',
         agentSecurityD1DatabaseId: 'preview-agent-database-id',
+        appAgent: true,
         sourceSha256: revision,
       }),
     );
-    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
+    expect(mocks.accountApi.configureManagedWorkerSchedule).toHaveBeenCalledWith(
+      'cloudchef-deployment-1-preview',
+      true,
+    );
+    expect(mocks.accountApi.enableWorkerSubdomain).toHaveBeenCalledWith('cloudchef-deployment-1-preview');
+    expect(mocks.accountApi.enableWorkerSubdomain).not.toHaveBeenCalledWith('cloudchef-deployment-1');
+    expect(mocks.recordDeploymentResource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resourceType: 'worker',
+        logicalName: 'app_preview',
+        providerResourceId: 'cloudchef-deployment-1-preview',
+      }),
+    );
+    expect(mocks.recordDeploymentResource).not.toHaveBeenCalledWith(
+      expect.objectContaining({ resourceType: 'worker', logicalName: 'app' }),
+    );
+    expect(mocks.recordDeploymentResource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resourceType: 'worker_version',
+        logicalName: 'preview:preview-1',
+        providerResourceId: '11111111-1111-4111-8111-111111111111',
+      }),
+    );
     expect(finishDeploymentSession).toHaveBeenCalledWith({
       sessionId: 'preview:deployment-1:4:preview-1',
       status: 'completed',
@@ -519,7 +542,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
       executeUserOwnedPreview({ ...execution, previewId: 'preview-1', abortSignal: controller.signal }),
     ).rejects.toThrow('A newer turn superseded this publication.');
 
-    expect(mocks.accountApi.previewManagedWorker).not.toHaveBeenCalled();
+    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
     expect(workspace.finishDeploymentSession).toHaveBeenCalledWith({
       sessionId: 'preview:deployment-1:4:preview-1',
       status: 'failed',
@@ -567,7 +590,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     );
 
     expect(mocks.accountApi.ensureD1ForPlan).not.toHaveBeenCalled();
-    expect(mocks.accountApi.previewManagedWorker).not.toHaveBeenCalled();
+    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
     expect(workspace.beginDeploymentSession).not.toHaveBeenCalled();
   });
 
@@ -614,14 +637,79 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).rejects.toThrow(
       'The migration 0002_notes.sql was already applied to the preview database',
     );
-    expect(mocks.accountApi.previewManagedWorker).not.toHaveBeenCalled();
+    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
+  });
+
+  it('gives a preview a bucket and namespace of its own, never production’s', async () => {
+    const { execution, deployment, workspace } = await workerDeployment({ storage: true });
+    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
+
+    await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).resolves.toMatchObject({
+      url: 'https://cloudchef-deployment-1-preview.user-subdomain.workers.dev',
+    });
+
+    expect(mocks.accountApi.ensureR2ForPlan.mock.calls).toEqual([[deployment.plan, 'APP_STORAGE_PREVIEW']]);
+    expect(mocks.accountApi.ensureKvForPlan.mock.calls).toEqual([[deployment.plan, 'APP_CACHE_PREVIEW']]);
+    expect(workspace.prepareDeploymentArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workerName: 'cloudchef-deployment-1-preview',
+        r2BucketName: 'cloudchef-deployment-1-preview-storage',
+        kvNamespaceId: 'b'.repeat(32),
+      }),
+    );
+    expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workerName: 'cloudchef-deployment-1-preview',
+        r2BucketName: 'cloudchef-deployment-1-preview-storage',
+        kvNamespaceId: 'b'.repeat(32),
+      }),
+    );
+    expect(mocks.recordDeploymentResource.mock.calls.map(([record]) => record.logicalName)).toEqual([
+      'APP_STORAGE_PREVIEW',
+      'APP_CACHE_PREVIEW',
+      'app_preview',
+      'preview:preview-1',
+    ]);
+  });
+
+  it('deploys production onto production’s bucket and namespace', async () => {
+    const { execution } = await workerDeployment({ storage: true });
+
+    await expect(executeUserOwnedDeployment(execution)).resolves.toMatchObject({ status: 'succeeded' });
+
+    expect(mocks.accountApi.ensureR2ForPlan.mock.calls.map(([, logicalName]) => logicalName)).toEqual(['APP_STORAGE']);
+    expect(mocks.accountApi.ensureKvForPlan.mock.calls.map(([, logicalName]) => logicalName)).toEqual(['APP_CACHE']);
+    expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workerName: 'cloudchef-deployment-1',
+        r2BucketName: 'cloudchef-deployment-1-storage',
+        kvNamespaceId: 'a'.repeat(32),
+      }),
+    );
+  });
+
+  it('answers a preview it already published with the preview Worker’s address', async () => {
+    const { execution, deployment, workspace } = await workerDeployment();
+    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
+    mocks.findDeploymentResource.mockResolvedValueOnce({
+      providerResourceId: '33333333-3333-4333-8333-333333333333',
+      createdAt: 1,
+    });
+
+    await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).resolves.toMatchObject({
+      id: '33333333-3333-4333-8333-333333333333',
+      url: 'https://cloudchef-deployment-1-preview.user-subdomain.workers.dev',
+    });
+    expect(workspace.beginDeploymentSession).not.toHaveBeenCalled();
+    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
   });
 });
 
 /** An approved deployment of a plain Worker, with the runtime bindings and ProjectWorkspace it publishes through. */
-async function workerDeployment(options: { d1?: boolean } = {}) {
+async function workerDeployment(options: { d1?: boolean; storage?: boolean } = {}) {
   const revision = 'a'.repeat(64);
   const d1 = options.d1 === true;
+  const storage = options.storage === true;
   const deployment = {
     id: 'deployment-1',
     chatId: 'chat-1',
@@ -635,9 +723,22 @@ async function workerDeployment(options: { d1?: boolean } = {}) {
       version: 5,
       deploymentId: 'deployment-1',
       sourceSha256: revision,
-      project: { type: 'worker', bindings: { ai: false, d1, r2: false, kv: false, appAgent: false } },
+      project: { type: 'worker', bindings: { ai: false, d1, r2: storage, kv: storage, appAgent: false } },
       resources: [
         { type: 'worker', logicalName: 'app', proposedName: 'cloudchef-deployment-1' },
+        { type: 'worker', logicalName: 'app_preview', proposedName: 'cloudchef-deployment-1-preview' },
+        ...(storage
+          ? [
+              { type: 'r2', logicalName: 'APP_STORAGE', proposedName: 'cloudchef-deployment-1-storage' },
+              {
+                type: 'r2',
+                logicalName: 'APP_STORAGE_PREVIEW',
+                proposedName: 'cloudchef-deployment-1-preview-storage',
+              },
+              { type: 'kv', logicalName: 'APP_CACHE', proposedName: 'cloudchef-deployment-1-cache' },
+              { type: 'kv', logicalName: 'APP_CACHE_PREVIEW', proposedName: 'cloudchef-deployment-1-preview-cache' },
+            ]
+          : []),
         ...(d1
           ? [
               { type: 'd1', logicalName: 'DB', proposedName: 'cloudchef-deployment-1' },
@@ -653,6 +754,17 @@ async function workerDeployment(options: { d1?: boolean } = {}) {
     createdAt: 1,
     updatedAt: 1,
   };
+  if (storage) {
+    mocks.accountApi.ensureR2ForPlan.mockImplementation(async (_plan, logicalName) => {
+      const name =
+        logicalName === 'APP_STORAGE' ? 'cloudchef-deployment-1-storage' : 'cloudchef-deployment-1-preview-storage';
+      return { id: name, name };
+    });
+    mocks.accountApi.ensureKvForPlan.mockImplementation(async (_plan, logicalName) => ({
+      id: (logicalName === 'APP_CACHE' ? 'a' : 'b').repeat(32),
+      name: logicalName === 'APP_CACHE' ? 'cloudchef-deployment-1-cache' : 'cloudchef-deployment-1-preview-cache',
+    }));
+  }
   if (d1) {
     mocks.accountApi.ensureD1ForPlan.mockImplementation(async (_plan, logicalName) => ({
       id: `${logicalName}-database-id`,

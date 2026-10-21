@@ -414,6 +414,8 @@ describe('project resource naming', () => {
 
     expect(next.resources.map(({ proposedName }) => proposedName)).toEqual([
       'cloudchef-earlier',
+      // A preview Worker of its own, which no deployment before had.
+      `cloudchef-${await appResourceIdentity('project')}-preview`,
       'cloudchef-earlier',
       'cloudchef-earlier-preview',
     ]);

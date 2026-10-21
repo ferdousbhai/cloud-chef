@@ -114,7 +114,7 @@ export type BuilderWorkspaceApplyResult =
       state: BuilderWorkspaceState;
     };
 
-/** One unpromoted Worker version, bound to the exact checkpoint validation built it from. */
+/** One preview publication: the preview Worker's version, bound to the exact checkpoint validation built it from. */
 export type BuilderPreviewSuccess = {
   id: string;
   url: string;

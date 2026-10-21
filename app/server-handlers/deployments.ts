@@ -149,7 +149,7 @@ export async function deployForUser(args: {
   );
 }
 
-/** Create an unpromoted preview version under the same plan and credential boundary as deployment. */
+/** Publish the project's preview Worker under the same plan and credential boundary as deployment. */
 export async function previewForUser(args: {
   env: Env;
   deploymentId: string;

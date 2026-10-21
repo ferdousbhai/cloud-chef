@@ -17,8 +17,8 @@ export const DEPLOYMENT_SECURITY_CLEANUP_CRON = '0 3 * * *';
  */
 export const DEPLOYMENT_ASSETS_RUN_WORKER_FIRST = ['/*', '!/assets/*'] as const;
 /**
- * Managed applications intentionally expose unpromoted Worker versions through
- * versioned workers.dev preview URLs. Production workers.dev routing remains
- * enabled as well.
+ * A Worker CloudChef publishes serves only its active version, at its workers.dev address. Versioned
+ * preview URLs would keep every earlier version reachable, each bound to the data it was published
+ * with, so they stay off: a preview is the active version of the project's preview Worker instead.
  */
-export const DEPLOYMENT_PREVIEW_URLS_ENABLED = true as const;
+export const DEPLOYMENT_PREVIEW_URLS_ENABLED = false as const;
