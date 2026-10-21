@@ -1,6 +1,6 @@
 ---
 name: platform-status
-description: Report the operational state of the CloudChef platform - whether the control-plane Worker is serving without throwing, connected Cloudflare accounts, workspace runtime staleness, users, and sign-in sessions. Use whenever asked for a platform update, a production status report, whether anything is broken or needs attention, or how CloudChef is doing. Replaces the retired admin.cloudchef.build dashboard.
+description: Report the operational state of the CloudChef platform - whether the control-plane Worker is serving without throwing, whether the pinned default builder model is still current, connected Cloudflare accounts, workspace runtime staleness, users, and sign-in sessions. Use whenever asked for a platform update, a production status report, whether anything is broken or needs attention, or how CloudChef is doing. Replaces the retired admin.cloudchef.build dashboard.
 ---
 
 # Platform status
@@ -13,7 +13,21 @@ pnpm run ops
 
 Add `pnpm run ops:json` when you need to reason over the result structurally rather than quote it.
 
-It takes a few seconds; it runs one combined read-only D1 statement against production plus the Workers analytics read.
+It takes a few seconds: one combined read-only D1 statement against production, one dry-run Workers Logs query
+(`cf o11y telemetry query`), and one Workers AI catalog read (`cf ai models list`), run one `cf` process at a time.
+
+## The checks
+
+Six checks, in this order in `--json`:
+
+| Check (`id`)                                  | What it answers                                                                                       |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Control-plane Worker (`control-plane-worker`) | Invocation outcomes of the `cloudchef` Worker over the last 24 hours, from Workers Logs.              |
+| Builder model (`builder-model`)               | Whether the pinned default builder model is still served, and whether anything newer is worth a look. |
+| Cloudflare accounts (`cloudflare-accounts`)   | Connected accounts by status, and any connection missing its stored credential.                       |
+| Workspace runtimes (`workspace-runtimes`)     | Each connected account's workspace runtime: status, and whether it is on this checkout's build.       |
+| Users (`users`)                               | Total users and sign-ups this week against last week.                                                 |
+| Sign-in sessions (`sessions`)                 | Unexpired sign-in sessions.                                                                           |
 
 ## Reading the output
 
@@ -38,6 +52,22 @@ text is one `cf o11y telemetry query` away (view `events`, filtered on `$workers
 invocations at all is reported as needing attention, because this Worker serves cloudchef.build and fires a cron every
 15 minutes.
 
+The `Builder model` check is about the platform default only: `CLOUDFLARE_WORKERS_AI_MODEL` in
+`app/lib/workers-ai-model.ts`, which every account runs on unless its admin chose its own default
+(`cloudflare_connections.default_builder_model`). Models an account runs through its own AI Gateway provider keys
+(BYOK: Anthropic, OpenAI, xAI, OpenRouter) are that account's choice and are not checked. A Workers AI model counts as
+builder-capable here exactly when the runtime would offer it: native, text generation, function calling, a context
+window at or above `MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS`, and listed in Pi's `cloudflare-workers-ai` catalog (the
+`@earendil-works/pi-ai` package this checkout installs).
+
+- `BROKEN`: the pin is not builder-capable in the account's live catalog, or Pi does not list it. Accounts without
+  their own default are then building on whatever model the runtime offers first.
+- `NEEDS ATTENTION`: `detail.candidates` names builder-capable models Cloudflare published after the pin. They are
+  candidates for a reference build before re-pinning, not a ranking or a recommendation; report them as such.
+- `HEALTHY`: nothing newer that the runtime would offer.
+
+The catalog is read for whichever account `cf` resolves, so the answer is about that account's catalog.
+
 The JSON mode carries the same information as `status` (`ok` / `attention` / `unknown` / `error`), `headline`, and a
 `checks` array where each entry has `id`, `title`, `status`, `sentence`, `at`, `relative`, and a `detail` object.
 
@@ -49,8 +79,8 @@ code.
 
 `scripts/ops-report.mjs`, a plain ESM Node script. It reads production control-plane D1 with `cf d1 query` (the
 database id comes from `cloudflare.config.ts`), the control-plane Worker's invocation outcomes from Workers Logs with
-`cf o11y telemetry query` run as a dry run, which saves no query or result, and the Workers AI catalog with
-`cf ai models list`, all under the operator's existing `cf` login. Every statement is a `SELECT` and every command is a
+`cf o11y telemetry query` run as a dry run, which saves no query or result (`o11y` is what cf 1.0.0-beta.20 calls the
+former `observability` commands), and the Workers AI catalog with `cf ai models list`, all under the operator's existing `cf` login. Every statement is a `SELECT` and every command is a
 read; the tool never writes, deletes, or upgrades anything, and holds no credential of its own. If the login can see more
 than one account, set `CLOUDFLARE_ACCOUNT_ID` so `cf` knows which one to ask about.
 

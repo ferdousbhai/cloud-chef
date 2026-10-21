@@ -241,7 +241,7 @@ the artifact, supplies the trusted bindings, and promotes the exact uploaded Wor
 There is no deployed admin dashboard. The operational state of production is reported from a terminal:
 
 ```bash
-pnpm run ops        # Worker health, users, sessions, connected accounts, and runtime staleness
+pnpm run ops        # Worker health, builder model, users, sessions, connected accounts, and runtime staleness
 pnpm run ops:json   # the same report, structured for a coding agent
 pnpm run ops:session -- <chat id | user email | user id>   # one member's recent session, reconstructed
 ```
