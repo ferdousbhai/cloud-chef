@@ -582,6 +582,43 @@ describe('production requests', () => {
     });
   });
 
+  it('creates nothing on GitHub for a draft holding a GitHub Actions workflow, and says to decline it', async () => {
+    const { database, env, admin, app, calls } = await setup();
+    database
+      .prepare('UPDATE production_requests SET snapshot_gzip_base64 = ?')
+      .run(
+        await gzipBase64(
+          JSON.stringify([...DRAFT_FILES, { path: '.github/workflows/deploy.yml', contentBase64: btoa('on: push') }]),
+        ),
+      );
+    const started = await approveProductionRequestAction({
+      request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+        orgId: ORG,
+        requestId: REQUEST,
+        repoName: 'new-app',
+        private: true,
+      }),
+      env,
+      app,
+    });
+    const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+    const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+
+    const returned = await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+      }),
+      env,
+      app,
+    });
+    expect(returnedMessage(returned)).toContain('GitHub Actions workflows');
+    expect(calls.some((call) => call.path === '/user/repos')).toBe(false);
+    expect(database.prepare('SELECT status, claimed_at FROM production_requests').get()).toEqual({
+      status: 'pending',
+      claimed_at: null,
+    });
+  });
+
   it('hands the request back when the admin cancels on GitHub', async () => {
     const { database, env, admin, app } = await setup();
     const started = await approveProductionRequestAction({
@@ -710,10 +747,8 @@ describe('production requests', () => {
 
 describe('promotedDraftFiles', () => {
   it("renames the draft's Cloudflare resources to the app's own", async () => {
-    const files = promotedDraftFiles(
-      (await readDraftSnapshot(await gzipBase64(JSON.stringify(DRAFT_FILES)))) ?? [],
-      'new-app',
-    );
+    const draft = await readDraftSnapshot(await gzipBase64(JSON.stringify(DRAFT_FILES)));
+    const files = promotedDraftFiles(draft && 'files' in draft ? draft.files : [], 'new-app');
     const project = files.find((file) => file.path === 'cloudflare.project.json');
     expect(JSON.parse(atob(project?.contentBase64 ?? ''))).toEqual({
       name: 'new-app',
@@ -729,6 +764,15 @@ describe('promotedDraftFiles', () => {
     expect(atob(bomb).length).toBeLessThan(64 * 1024);
     await expect(readDraftSnapshot(bomb)).rejects.toThrow(PayloadTooLargeError);
   });
+
+  it.each(['.github/workflows/ci.yml', '/src/app.tsx', 'src//app.tsx', 'src/../app.tsx', '.git/config', 'src/'])(
+    'refuses a draft holding %s, which GitHub would not take from CloudChef',
+    async (path) => {
+      expect(
+        await readDraftSnapshot(await gzipBase64(JSON.stringify([...DRAFT_FILES, { path, contentBase64: btoa('x') }]))),
+      ).toEqual({ refused: expect.stringContaining(path) });
+    },
+  );
 
   it('leaves a project file it cannot read as the draft had it', () => {
     const unreadable = btoa('{ not json');

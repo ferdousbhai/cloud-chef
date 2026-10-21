@@ -28,6 +28,7 @@ describe('builder system prompt', () => {
     expect(prompt).toContain('publish_preview commits them to your branch');
     expect(prompt).toContain('publish merges them into main');
     expect(prompt).toContain('only when the person wants the change live');
+    expect(prompt).toContain("can't commit changes to GitHub Actions workflows");
     expect(prompt).not.toContain('CloudChef app');
   });
 

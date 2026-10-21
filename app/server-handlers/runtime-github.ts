@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { GitHubError } from '~/lib/.server/github/github-api';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
 import type { RepositoryClient } from '~/lib/.server/github/repository-client';
+import { commitPathRefusal } from '~/lib/.server/github/commit-paths';
 import { readDraftSnapshot } from '~/lib/.server/github/promote-draft';
 import { readRepositoryTarball } from '~/lib/.server/github/tarball';
 import { PayloadTooLargeError } from '~/lib/bounded-body';
@@ -173,6 +174,10 @@ export async function runtimeGitHubCommitAction(args: {
     return opened;
   }
   const { access, body } = opened;
+  const refused = commitPathRefusal(body.changes.map((change) => change.path));
+  if (refused) {
+    return json({ error: refused }, 400);
+  }
   try {
     const branch = await memberBranch(args.env.DB, access.userId, body.branchKey);
     const branchHead = await access.repository.branchHead(branch);
@@ -334,8 +339,12 @@ export async function runtimeRequestProductionAction(args: { request: Request; e
   }
   // Read now, as an approval will, so a draft that couldn't become a repository never reaches the admins.
   try {
-    if (!(await readDraftSnapshot(authenticated.body.snapshot))) {
+    const draft = await readDraftSnapshot(authenticated.body.snapshot);
+    if (!draft) {
       return json({ error: "The draft's files could not be read. Send it again." }, 400);
+    }
+    if ('refused' in draft) {
+      return json({ error: draft.refused }, 400);
     }
   } catch (error) {
     if (error instanceof PayloadTooLargeError) {

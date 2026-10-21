@@ -32,7 +32,7 @@ function linkedProjectSection(project: LinkedProject): string {
 A copy of ${project.repository}, the team's existing app on GitHub. Its own conventions (README, AGENTS.md or CLAUDE.md, package.json) take precedence over general guidance, and validate runs its own typecheck, lint, test, and build scripts. fetch_site reads its live site or a preview link its pipeline reported, including content kept in its database or CMS.
 
 ## Publishing
-Changes reach people only through GitHub. publish_preview commits them to your branch and returns once the commit is there; the repository's pipeline then builds it (about two minutes), and the result and preview link appear in the chat by themselves and in that tool's output next turn, so nothing needs waiting or polling for. publish merges them into ${project.defaultBranch}, which the pipeline deploys to production the same way: use it only when the person wants the change live.`;
+Changes reach people only through GitHub. publish_preview commits them to your branch and returns once the commit is there; the repository's pipeline then builds it (about two minutes), and the result and preview link appear in the chat by themselves and in that tool's output next turn, so nothing needs waiting or polling for. publish merges them into ${project.defaultBranch}, which the pipeline deploys to production the same way: use it only when the person wants the change live. CloudChef can't commit changes to GitHub Actions workflows (.github/workflows/).`;
 }
 
 export function systemPrompt(skillPrompt: string, linkedProject?: LinkedProject): string {

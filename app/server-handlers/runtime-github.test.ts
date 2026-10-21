@@ -400,6 +400,30 @@ describe('a member working on a GitHub project', () => {
     expect(writes.some((write) => write.path === '/merges')).toBe(false);
   });
 
+  it.each(['.github/workflows/ci.yml', '/src/hero.tsx', 'src/./hero.tsx', '.git/hooks/pre-commit'])(
+    'refuses a change to %s before anything is written to GitHub',
+    async (path) => {
+      const { env, app, call, writes } = await setup();
+      const response = await runtimeGitHubCommitAction({
+        request: call('/api/cloudflare/runtime-github/commit', {
+          orgProjectId: SITE,
+          baseCommit: BASE,
+          message: 'Publish',
+          publish: true,
+          changes: [
+            { path: 'src/hero.tsx', contentBase64: btoa('new hero'), executable: false },
+            { path, contentBase64: null, executable: false },
+          ],
+        }),
+        env,
+        app,
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: expect.stringContaining(path) });
+      expect(writes).toEqual([]);
+    },
+  );
+
   it('publishes by merging into the default branch, and reports overlapping changes', async () => {
     const published = await setup();
     const change = [{ path: 'a.txt', contentBase64: btoa('a'), executable: false }];
@@ -716,6 +740,22 @@ describe('a member working on a GitHub project', () => {
       }
       const tooLarge = await send(call, env, { snapshot: await gzipBase64(' '.repeat(25 * 1024 * 1024)) });
       expect(tooLarge.status).toBe(413);
+      expect(requests(database)).toEqual([]);
+    });
+
+    it('refuses a draft holding a GitHub Actions workflow or a path GitHub refuses, saying what to remove', async () => {
+      const { database, env, call } = await setup();
+      const draft = (path: string) => gzipBase64(JSON.stringify([{ path, contentBase64: btoa('on: push') }]));
+      const workflow = await send(call, env, { snapshot: await draft('.github/workflows/deploy.yml') });
+      expect(workflow.status).toBe(400);
+      expect(await workflow.json()).toEqual({
+        error:
+          "GitHub Actions workflow files (.github/workflows/deploy.yml) can't be published through CloudChef. " +
+          'Remove the changes under .github/workflows/ and try again: Workers Builds deploys the project.',
+      });
+      const malformed = await send(call, env, { snapshot: await draft('src/../app.tsx') });
+      expect(malformed.status).toBe(400);
+      expect(await malformed.json()).toMatchObject({ error: expect.stringContaining('src/../app.tsx') });
       expect(requests(database)).toEqual([]);
     });
 

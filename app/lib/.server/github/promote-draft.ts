@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PayloadTooLargeError, readBodyBytesWithLimit } from '~/lib/bounded-body';
+import { commitPathRefusal } from './commit-paths';
 
 /**
  * The most a draft's files may decompress to. The request holds at most 1.5 MB of gzip, which could
@@ -29,11 +30,13 @@ export function promotedWorkerName(repoName: string): string {
 
 /**
  * A draft's files, from the gzipped JSON `[{ path, contentBase64 }]` its request carries, or null when
- * it holds anything else. Read when the member's runtime sends the request, so a draft that can't be read
- * is refused then, and again before an approval creates anything on GitHub. A draft that inflates past
- * the limit throws `PayloadTooLargeError`.
+ * it holds anything else; `refused`, saying why, when GitHub would refuse to commit them. Read when the
+ * member's runtime sends the request, so such a draft is refused then, and again before an approval
+ * creates anything on GitHub. A draft that inflates past the limit throws `PayloadTooLargeError`.
  */
-export async function readDraftSnapshot(snapshotGzipBase64: string): Promise<DraftFile[] | null> {
+export async function readDraftSnapshot(
+  snapshotGzipBase64: string,
+): Promise<{ files: DraftFile[] } | { refused: string } | null> {
   try {
     const bytes = await readBodyBytesWithLimit(
       new Response(new Blob([base64Bytes(snapshotGzipBase64)]).stream().pipeThrough(new DecompressionStream('gzip'))),
@@ -41,7 +44,11 @@ export async function readDraftSnapshot(snapshotGzipBase64: string): Promise<Dra
       "The draft's files",
     );
     const parsed = snapshotSchema.safeParse(JSON.parse(new TextDecoder().decode(bytes)));
-    return parsed.success ? parsed.data : null;
+    if (!parsed.success) {
+      return null;
+    }
+    const refused = commitPathRefusal(parsed.data.map((file) => file.path));
+    return refused ? { refused } : { files: parsed.data };
   } catch (error) {
     if (error instanceof PayloadTooLargeError) {
       throw error;

@@ -336,6 +336,9 @@ async function completeProductionApproval(args: {
     if (!draft) {
       return await fail('draft_unreadable');
     }
+    if ('refused' in draft) {
+      return await fail('draft_refused');
+    }
     const userToken = await app.userToken(code);
     const login = await app.userLogin(userToken);
     if (installation.accountType === 'User' && login !== installation.accountLogin) {
@@ -393,7 +396,7 @@ async function completeProductionApproval(args: {
       parent: head,
       baseTree: await client.commitTree(head),
       message: `${productionRequest.title}, from CloudChef`,
-      changes: promotedDraftFiles(draft, promotedWorkerName(pending.repo_name)),
+      changes: promotedDraftFiles(draft.files, promotedWorkerName(pending.repo_name)),
       branchExists: true,
     });
     const projectId = await recordApprovedRequest(env.DB, {
