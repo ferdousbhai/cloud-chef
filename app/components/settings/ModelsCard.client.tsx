@@ -149,6 +149,8 @@ export function ModelsCard() {
         defaultResponseSchema,
       );
       setSettings((current) => (current ? { ...current, defaultModelId } : current));
+      // The catalog names the default, and new chats in this browser start on the one it names.
+      void reloadBuilderModelCatalog();
       return 'Saved. New chats start on this model; anyone can still switch.';
     });
 

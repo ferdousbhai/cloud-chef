@@ -173,13 +173,14 @@ export function loadBuilderModelCatalog(
 /**
  * Loads the account's catalog with a request of its own. A request still in flight is superseded:
  * whatever it fetches is discarded, and it settles when this one does. The runtime lets the browser
- * keep its catalog for a minute, so this request bypasses that cache to see the change.
+ * keep its catalog for a minute, so this request skips that cache to see the change and replaces the
+ * cached catalog with it, so a plain load in the next minute cannot bring the old one back.
  */
 export function reloadBuilderModelCatalog(
   request: typeof fetchUserRuntime = fetchUserRuntime,
   storage?: BuilderModelStorage,
 ): Promise<void> {
-  return requestBuilderModelCatalog(request, storage, { cache: 'no-store' });
+  return requestBuilderModelCatalog(request, storage, { cache: 'reload' });
 }
 
 function requestBuilderModelCatalog(

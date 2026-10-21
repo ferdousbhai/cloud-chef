@@ -132,10 +132,10 @@ describe('builder model preference', () => {
     expect(loadBuilderModelCatalog(request, storage)).toBe(beforeChange);
     const afterChange = reloadBuilderModelCatalog(request, storage);
     expect(request).toHaveBeenCalledTimes(2);
-    // Only the reload bypasses the browser's cached catalog; a plain load may use it.
+    // Only the reload skips the browser's cached catalog, replacing it; a plain load may use it.
     expect(request).toHaveBeenNthCalledWith(1, '/v1/models', { headers: { Accept: 'application/json' } });
     expect(request).toHaveBeenNthCalledWith(2, '/v1/models', {
-      cache: 'no-store',
+      cache: 'reload',
       headers: { Accept: 'application/json' },
     });
     let beforeChangeSettled = false;

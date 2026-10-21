@@ -4,7 +4,11 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
-import { builderModelCatalogStatusStore, installBuilderModelCatalog } from '~/lib/stores/builder-model.client';
+import {
+  builderDefaultModelStore,
+  builderModelCatalogStatusStore,
+  installBuilderModelCatalog,
+} from '~/lib/stores/builder-model.client';
 import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type BuilderModel } from '~/lib/workers-ai-model';
 import { ModelsCard } from './ModelsCard.client';
 
@@ -32,6 +36,9 @@ const fetchMock = vi.fn(async (input: string, init?: RequestInit): Promise<Respo
   }
   if (input === '/api/settings/models/keys/link' && init?.method === 'POST') {
     return Response.json({ keys: linked, authenticationTurnedOn: false, previousKeysRemain: false });
+  }
+  if (input === '/api/settings/models/default' && init?.method === 'POST') {
+    return Response.json({ defaultModelId: claudeModel.id });
   }
   if (input === '/api/cloudflare/runtime-session') {
     return Response.json({ endpoint: RUNTIME, token: 'runtime-token', expiresAt: Date.now() + 3_600_000 });
@@ -111,6 +118,28 @@ describe('ModelsCard', () => {
     expect(fetchMock.mock.calls.filter(([url]) => url === `${RUNTIME}/v1/models`)).toHaveLength(2);
     expect(defaultModelChoices()).toContain('Claude Opus 5.5 (Anthropic)');
     expect(builderModelCatalogStatusStore.get()).toBe('ready');
+  });
+
+  it('starts new chats on a newly chosen default by requesting the catalog again', async () => {
+    catalogAnswers = [
+      async () =>
+        Response.json({ defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL, claudeModel] }),
+    ];
+    catalogAnswer = async () =>
+      Response.json({ defaultModelId: claudeModel.id, models: [DEFAULT_WORKERS_AI_MODEL, claudeModel] });
+    await render();
+    await settle();
+    expect(builderDefaultModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+
+    const select = document.querySelector<HTMLElement>('#default-model');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, claudeModel.id);
+      select?.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await settle();
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === `${RUNTIME}/v1/models`)).toHaveLength(2);
+    expect(builderDefaultModelStore.get()).toBe(claudeModel.id);
   });
 
   it('says a failed refresh shows the models last listed, rather than that none could be loaded', async () => {
