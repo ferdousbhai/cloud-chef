@@ -87,6 +87,21 @@ organization setting overrides a person's opt-out. A member's
 runtime reports each model turn's token counts to `/api/cloudflare/runtime-usage`, authenticated the same way, and the
 control plane keeps per-day counts for the organization's admins; no content reaches it.
 
+The models a workspace offers come from Pi's catalogs (`app/lib/.server/llm/pi-model-catalog.ts`): the
+account's live Workers AI catalog where Pi lists the model, and Pi's `cloudflare-ai-gateway` Claude models while
+the account's default AI Gateway holds an Anthropic key. A model Pi does not list is not offered. The key is the
+account's own (BYOK), kept in its Secrets Store and attached to the gateway as the `anthropic` provider key; an
+organization's admins, or the person whose own account it is, link or unlink it in Settings with the connection's
+Cloudflare authorization (`aig.write`, `secrets-store.write`), and a pasted key goes to Cloudflare once, never into
+CloudChef's storage. A Claude request runs Pi's Anthropic Messages implementation in the runtime and is sent by the
+Workers AI binding as a universal request to `env.AI.gateway('default')`, which the gateway authenticates as the
+account itself: no gateway token exists and no provider credential leaves the Worker, so the gateway adds the stored
+key. The logging choice above rides as `cf-aig-*` headers. The runtime asks the control plane
+(`/api/cloudflare/runtime-models`) for its catalog and before each Claude turn whether the key is still on the
+gateway, which the control plane asks Cloudflare each time; no answer means no Claude. The same answer carries the
+account's default model (`cloudflare_connections.default_builder_model`), chosen by its admins; everyone can still
+switch, and a saved choice the account no longer offers falls back to it.
+
 An organization's authorization reaches every workspace in its account, so in a shared account
 (`CLOUDCHEF_SHARED_ACCOUNT`) the agent's direct `cloudflare_request` tool is offered only to the
 organization's active admins, asked of the control plane (`/api/cloudflare/runtime-access`) each time it is
