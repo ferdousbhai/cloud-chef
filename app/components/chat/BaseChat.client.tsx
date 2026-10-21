@@ -320,7 +320,7 @@ export function BaseChat({
                       {linkedProject && isSubchatLoaded ? <LinkedPublishStatus messages={messages} /> : null}
                       {(!subchats || (currentSubchatIndex >= subchats.length - 1 && isSubchatLoaded)) && (
                         <>
-                          {!disabledReason && (
+                          {(!disabledReason || isStreaming) && (
                             <StreamingIndicator
                               streamStatus={streamStatus}
                               isRecovering={isRecovering}

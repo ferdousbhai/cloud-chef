@@ -87,11 +87,11 @@ export const MessageInput = memo(function MessageInput({
         />
       )}
       <Button
+        // A closed composer still stops a running turn: only sending waits for it to open.
         disabled={
-          (!isStreaming && input.trim().length === 0) ||
+          (!isStreaming && (input.trim().length === 0 || disabled)) ||
           authState.kind === 'loading' ||
-          sendMessageInProgress ||
-          disabled
+          sendMessageInProgress
         }
         tip={authState.kind === 'unauthenticated' ? 'Connect Cloudflare to continue' : undefined}
         onClick={controller.handleButtonClick}
