@@ -23,6 +23,12 @@ describe('builder system prompt', () => {
     expect(prompt).not.toContain('publish_preview');
   });
 
+  it('says a subchat is published as an app of its own, not onto its parent’s address and data', () => {
+    expect(systemPrompt('')).toContain(
+      "a subchat starts from its parent's files but is published as its own app, with its own address and data",
+    );
+  });
+
   it("describes a GitHub project's pipeline and keeps production behind the person's say-so", () => {
     const prompt = systemPrompt('', { repository: 'ada/site', defaultBranch: 'main' });
 

@@ -25,7 +25,7 @@ const CLOUDCHEF_APP = `## This project
 A CloudChef app. The project-stack skill describes how it is wired and what its checks enforce.
 
 ## Publishing
-When your turn ends after changing the project, CloudChef builds the current revision (reusing your passing validate of that exact revision), publishes it as a hosted preview the person can open (a separate app with its own address, databases, bucket and namespace, so trying it never touches production's data), then deploys it to production in their account, onto the same address and the resources cloudflare.project.json declares each time, so its data carries over. You do not deploy it yourself. If the build or deployment fails, the person sees why, and you are told at the start of the next turn.`;
+When your turn ends after changing the project, CloudChef builds the current revision (reusing your passing validate of that exact revision), publishes it as a hosted preview the person can open (a separate app with its own address, databases, bucket and namespace, so trying it never touches production's data), then deploys it to production in their account, onto the same address and the resources cloudflare.project.json declares each time, so its data carries over (a subchat starts from its parent's files but is published as its own app, with its own address and data). You do not deploy it yourself. If the build or deployment fails, the person sees why, and you are told at the start of the next turn.`;
 
 function linkedProjectSection(project: LinkedProject): string {
   return `## This project

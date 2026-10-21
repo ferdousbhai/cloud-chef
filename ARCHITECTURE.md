@@ -413,7 +413,9 @@ Ambiguous publish outcomes remain visible for owner review rather than being sil
 
 A CloudChef app's account resources (its Worker and so its `workers.dev` address, `DB`, `AGENT_SECURITY_DB`,
 `APP_STORAGE`, `APP_CACHE`, and the preview Worker and preview counterpart of each) belong to the project, the `ProjectWorkspace` a chat (or subchat)
-builds in, not to a revision: every deployment replaces the Worker's version in place and keeps the data. A deployment
+builds in, not to a revision: every deployment replaces the Worker's version in place and keeps the data. A subchat
+starts from its parent's files in a workspace of its own, so it publishes as an app of its own, with its own address
+and empty data; it never adopts its parent's resources, which the parent may still be deploying onto. A deployment
 id is only the record and idempotency key of one revision's publication. A plan names each resource as the latest
 succeeded deployment of the project that has it named it, and any other after the project's own identity
 (`projectResourceNaming`, `appResourceIdentity`). An app first deployed when each deployment named its own resources
