@@ -8,6 +8,17 @@ const claimResponseSchema = z.union([
   z.object({ granted: z.literal(false), busy: z.number().int().min(0) }).strict(),
 ]);
 
+/** Names the upgrade asking, so another cannot claim, renew or release the window it holds. */
+const UPGRADE_WINDOW_HOLDER_HEADER = 'cloudchef-upgrade-holder';
+
+function upgradeWindowHeaders(controlPlaneSecret: string, holder: string | undefined): HeadersInit {
+  const headers = new Headers({ authorization: `Bearer ${controlPlaneSecret}`, 'content-type': 'application/json' });
+  if (holder) {
+    headers.set(UPGRADE_WINDOW_HOLDER_HEADER, holder);
+  }
+  return headers;
+}
+
 /**
  * `unsupported`: a runtime from before the upgrade window existed, which answers the route as a
  * browser request without a capability. It cannot say whether it is busy.
@@ -24,14 +35,23 @@ export async function claimUserWorkspaceRuntimeUpgradeWindow(args: {
   endpoint: string;
   controlPlaneSecret: string;
   targetVersion: string;
+  /** The upgrade's Workflow instance; a runtime from before holders ignores it. */
+  holder?: string;
   request?: typeof fetch;
 }): Promise<UserWorkspaceRuntimeUpgradeWindow> {
   const response = await (args.request ?? fetch)(new URL('/v1/upgrade-window', args.endpoint), {
     method: 'POST',
-    headers: { authorization: `Bearer ${args.controlPlaneSecret}`, 'content-type': 'application/json' },
+    headers: upgradeWindowHeaders(args.controlPlaneSecret, args.holder),
     body: JSON.stringify({ targetVersion: args.targetVersion }),
     signal: AbortSignal.timeout(UPGRADE_WINDOW_TIMEOUT_MS),
   });
+  // A runtime with the route refuses a wrong secret itself, marked `no-store`; one from before it
+  // answers as its browser routes do, unmarked. Only that one cannot say whether it is busy: a refused
+  // secret is a failure to retry, never a reason to redeploy without asking.
+  if (response.status === 401 && response.headers.get('cache-control') === 'no-store') {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error('The workspace runtime refused the control plane secret for its upgrade window.');
+  }
   if (response.status === 401 || response.status === 404) {
     await response.body?.cancel().catch(() => undefined);
     return { status: 'unsupported' };
@@ -73,11 +93,13 @@ export async function changeUserWorkspaceRuntimeUpgradeWindow(args: {
   endpoint: string;
   controlPlaneSecret: string;
   targetVersion: string;
+  /** The upgrade's Workflow instance, the one that claimed the window. */
+  holder?: string;
   request?: typeof fetch;
 }): Promise<void> {
   const response = await (args.request ?? fetch)(new URL('/v1/upgrade-window', args.endpoint), {
     method: args.change === 'hold' ? 'PUT' : 'DELETE',
-    headers: { authorization: `Bearer ${args.controlPlaneSecret}`, 'content-type': 'application/json' },
+    headers: upgradeWindowHeaders(args.controlPlaneSecret, args.holder),
     body: JSON.stringify({ targetVersion: args.targetVersion }),
     signal: AbortSignal.timeout(UPGRADE_WINDOW_TIMEOUT_MS),
   });

@@ -183,6 +183,56 @@ describe('user workspace runtime upgrade window route', () => {
     ).resolves.toEqual({ status: 'unsupported' });
   });
 
+  it('fails, never redeploying unasked, when a runtime with the window refuses the secret', async () => {
+    const { db } = userWorkspaceDatabase();
+    const request = routedFetch(upgradeWindowEnv(db), () => 1_000_000);
+
+    await expect(
+      claimUserWorkspaceRuntimeUpgradeWindow({
+        endpoint: 'https://workspace-runtime.example',
+        controlPlaneSecret: 'x'.repeat(32),
+        targetVersion,
+        request,
+      }),
+    ).rejects.toThrow('refused the control plane secret');
+  });
+
+  it("keeps one upgrade's window from another, named by the holder each sends", async () => {
+    const { db } = userWorkspaceDatabase();
+    const request = routedFetch(upgradeWindowEnv(db), () => 1_000_000);
+    const base = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, request };
+    await expect(claimUserWorkspaceRuntimeUpgradeWindow({ ...base, holder: 'workspace-first' })).resolves.toEqual({
+      status: 'granted',
+    });
+
+    await expect(claimUserWorkspaceRuntimeUpgradeWindow({ ...base, holder: 'workspace-second' })).resolves.toEqual({
+      status: 'busy',
+      busy: 0,
+    });
+    await expect(
+      changeUserWorkspaceRuntimeUpgradeWindow({ ...base, holder: 'workspace-second', change: 'hold' }),
+    ).rejects.toBeInstanceOf(RuntimeUpgradeWindowRefusedError);
+    await changeUserWorkspaceRuntimeUpgradeWindow({ ...base, holder: 'workspace-second', change: 'release' });
+    await expect(readRuntimeUpgradeWindow(db, 1_000_000)).resolves.not.toBeNull();
+
+    await changeUserWorkspaceRuntimeUpgradeWindow({ ...base, holder: 'workspace-first', change: 'release' });
+    await expect(readRuntimeUpgradeWindow(db, 1_000_000)).resolves.toBeNull();
+  });
+
+  it('rejects a holder that is not an instance name', async () => {
+    const { db } = userWorkspaceDatabase();
+    const response = await routeUserWorkspaceRuntimeControlPlaneRequest(
+      new Request('https://workspace-runtime.example/v1/upgrade-window', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${controlPlaneSecret}`, 'cloudchef-upgrade-holder': 'two words' },
+        body: JSON.stringify({ targetVersion }),
+      }),
+      upgradeWindowEnv(db),
+    );
+
+    expect(response?.status).toBe(400);
+  });
+
   it('fails rather than guess when the runtime cannot read its activity', async () => {
     const request = vi.fn<typeof fetch>(async () => Response.json({ error: 'unavailable' }, { status: 503 }));
 

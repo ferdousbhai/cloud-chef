@@ -12,6 +12,12 @@ const UPGRADE_WINDOW_PATH = '/v1/upgrade-window';
 const MAX_UPGRADE_WINDOW_REQUEST_BYTES = 1_024;
 const UPGRADE_WINDOW_METHODS = new Set(['POST', 'PUT', 'DELETE']);
 const upgradeWindowRequestSchema = z.object({ targetVersion: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
+/**
+ * The upgrade asking, named by its Workflow instance. A header, not a body field: a runtime from before
+ * holders refuses a body field it does not know, and the claim goes to the runtime being replaced.
+ */
+const UPGRADE_WINDOW_HOLDER_HEADER = 'cloudchef-upgrade-holder';
+const upgradeWindowHolderSchema = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/);
 
 type RuntimeReadinessEnv = {
   CONTROL_PLANE_SECRET: string;
@@ -66,20 +72,24 @@ async function upgradeWindow(request: Request, env: RuntimeReadinessEnv, now: nu
     return Response.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders() });
   }
   const targetVersion = await readTargetVersion(request);
-  if (!targetVersion) {
+  const holderHeader = request.headers.get(UPGRADE_WINDOW_HOLDER_HEADER);
+  // A control plane from before holders names none, and its calls work as they always did.
+  const holder = holderHeader === null ? null : upgradeWindowHolderSchema.safeParse(holderHeader).data;
+  if (!targetVersion || holder === undefined) {
     return Response.json({ error: 'Invalid upgrade window request.' }, { status: 400, headers: noStoreHeaders() });
   }
   try {
     if (request.method === 'PUT') {
-      // A lapsed window is not opened again over work that started meanwhile: the upgrade waits for it.
-      const hold = await holdRuntimeUpgradeWindow(env.DB, { targetVersion, now });
+      // A lapsed window is not opened again over work that started meanwhile, nor another upgrade's
+      // open window taken over: the upgrade waits for either.
+      const hold = await holdRuntimeUpgradeWindow(env.DB, { targetVersion, now, holder });
       return Response.json(hold, { status: hold.held ? 200 : 409, headers: noStoreHeaders() });
     }
     if (request.method === 'DELETE') {
-      await releaseRuntimeUpgradeWindow(env.DB, { targetVersion });
+      await releaseRuntimeUpgradeWindow(env.DB, { targetVersion, holder });
       return Response.json({ released: true }, { headers: noStoreHeaders() });
     }
-    return Response.json(await claimRuntimeUpgradeWindow(env.DB, { targetVersion, now }), {
+    return Response.json(await claimRuntimeUpgradeWindow(env.DB, { targetVersion, now, holder }), {
       headers: noStoreHeaders(),
     });
   } catch {

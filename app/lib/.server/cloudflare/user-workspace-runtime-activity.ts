@@ -47,13 +47,23 @@ export async function recordRuntimeActivity(
 type RuntimeUpgradeWindowClaim = { granted: true } | { granted: false; busy: number };
 
 /**
+ * The upgrade asking, named by its Workflow instance: another may not claim, renew or release a window
+ * it holds open. Null is a control plane from before holders, whose calls work as they always did, and
+ * a window claimed by one has no holder, so any upgrade may renew or release it.
+ */
+type RuntimeUpgradeWindowHolder = string | null;
+
+/**
  * Claim the upgrade window only if no work is running or just ended, in one statement, so work that
- * records itself as it starts either stops the claim or sees the window it lost to.
+ * records itself as it starts either stops the claim or sees the window it lost to. A window another
+ * upgrade holds open is not taken over: the claim is refused, as for a busy workspace, until it is
+ * released or lapses.
  */
 export async function claimRuntimeUpgradeWindow(
   db: ActivityDatabase,
-  args: { targetVersion: string; now: number },
+  args: { targetVersion: string; now: number; holder?: RuntimeUpgradeWindowHolder },
 ): Promise<RuntimeUpgradeWindowClaim> {
+  const holder = args.holder ?? null;
   const busySince = args.now - RUNTIME_BUSY_LEASE_MS;
   const quietSince = args.now - RUNTIME_QUIET_PERIOD_MS;
   await db
@@ -65,17 +75,31 @@ export async function claimRuntimeUpgradeWindow(
     .run();
   const claim = await db
     .prepare(
-      `INSERT INTO runtime_upgrade_window (id, target_version, expires_at)
-       SELECT 1, ?, ?
+      `INSERT INTO runtime_upgrade_window (id, target_version, expires_at, holder)
+       SELECT 1, ?, ?, ?
        WHERE NOT EXISTS (
          SELECT 1 FROM runtime_activity
          WHERE (busy = 1 AND updated_at > ?) OR (busy = 0 AND updated_at > ?)
        )
+       AND NOT EXISTS (
+         SELECT 1 FROM runtime_upgrade_window
+         WHERE id = 1 AND expires_at > ? AND ? IS NOT NULL AND holder IS NOT ?
+       )
        ON CONFLICT(id) DO UPDATE SET
          target_version = excluded.target_version,
-         expires_at = excluded.expires_at`,
+         expires_at = excluded.expires_at,
+         holder = excluded.holder`,
     )
-    .bind(args.targetVersion, args.now + RUNTIME_UPGRADE_WINDOW_MS, busySince, quietSince)
+    .bind(
+      args.targetVersion,
+      args.now + RUNTIME_UPGRADE_WINDOW_MS,
+      holder,
+      busySince,
+      quietSince,
+      args.now,
+      holder,
+      holder,
+    )
     .run();
   if (claim.meta.changes > 0) {
     return { granted: true };
@@ -107,24 +131,44 @@ type RuntimeUpgradeWindowHold = { held: true } | { held: false; busy: number };
 /**
  * Keep the window an upgrade claimed open while it finishes: the container rollout and readiness check
  * that follow the redeploy. A window still open is renewed whatever is busy, since work that starts
- * meanwhile records itself busy and waits for exactly this window to close. One that lapsed (a retry's
- * backoff outlasted it) is opened again only while nothing is busy, in one statement like the claim:
- * work that started while no window was open would be cut off by the rollout, so the upgrade waits.
+ * meanwhile records itself busy and waits for exactly this window to close, but only for its holder:
+ * another upgrade's open window is refused like a busy workspace. One that lapsed (a retry's backoff
+ * outlasted it) is opened again only while nothing is busy, in one statement like the claim: work that
+ * started while no window was open would be cut off by the rollout, so the upgrade waits.
  */
 export async function holdRuntimeUpgradeWindow(
   db: ActivityDatabase,
-  args: { targetVersion: string; now: number },
+  args: { targetVersion: string; now: number; holder?: RuntimeUpgradeWindowHolder },
 ): Promise<RuntimeUpgradeWindowHold> {
   const busySince = args.now - RUNTIME_BUSY_LEASE_MS;
+  const holder = args.holder ?? null;
   const hold = await db
     .prepare(
-      `INSERT INTO runtime_upgrade_window (id, target_version, expires_at)
-       SELECT 1, ?, ?
-       WHERE EXISTS (SELECT 1 FROM runtime_upgrade_window WHERE id = 1 AND expires_at > ?)
-          OR NOT EXISTS (SELECT 1 FROM runtime_activity WHERE busy = 1 AND updated_at > ?)
-       ON CONFLICT(id) DO UPDATE SET target_version = excluded.target_version, expires_at = excluded.expires_at`,
+      `INSERT INTO runtime_upgrade_window (id, target_version, expires_at, holder)
+       SELECT 1, ?, ?, ?
+       WHERE EXISTS (
+           SELECT 1 FROM runtime_upgrade_window
+           WHERE id = 1 AND expires_at > ? AND (? IS NULL OR holder IS NULL OR holder = ?)
+         )
+          OR (
+           NOT EXISTS (SELECT 1 FROM runtime_upgrade_window WHERE id = 1 AND expires_at > ?)
+           AND NOT EXISTS (SELECT 1 FROM runtime_activity WHERE busy = 1 AND updated_at > ?)
+         )
+       ON CONFLICT(id) DO UPDATE SET
+         target_version = excluded.target_version,
+         expires_at = excluded.expires_at,
+         holder = COALESCE(excluded.holder, runtime_upgrade_window.holder)`,
     )
-    .bind(args.targetVersion, args.now + RUNTIME_UPGRADE_WINDOW_MS, args.now, busySince)
+    .bind(
+      args.targetVersion,
+      args.now + RUNTIME_UPGRADE_WINDOW_MS,
+      holder,
+      args.now,
+      holder,
+      holder,
+      args.now,
+      busySince,
+    )
     .run();
   if (hold.meta.changes > 0) {
     return { held: true };
@@ -136,13 +180,20 @@ export async function holdRuntimeUpgradeWindow(
   return { held: false, busy: active?.busy ?? 0 };
 }
 
-/** Close the window once the upgrade to `targetVersion` is serving, so waiting work starts at once. */
+/**
+ * Close the window once the upgrade to `targetVersion` is serving, so waiting work starts at once. Only
+ * its holder closes it: another upgrade's release leaves it open.
+ */
 export async function releaseRuntimeUpgradeWindow(
   db: ActivityDatabase,
-  args: { targetVersion: string },
+  args: { targetVersion: string; holder?: RuntimeUpgradeWindowHolder },
 ): Promise<void> {
+  const holder = args.holder ?? null;
   await db
-    .prepare('DELETE FROM runtime_upgrade_window WHERE id = 1 AND target_version = ?')
-    .bind(args.targetVersion)
+    .prepare(
+      `DELETE FROM runtime_upgrade_window
+       WHERE id = 1 AND target_version = ? AND (? IS NULL OR holder IS NULL OR holder = ?)`,
+    )
+    .bind(args.targetVersion, holder, holder)
     .run();
 }

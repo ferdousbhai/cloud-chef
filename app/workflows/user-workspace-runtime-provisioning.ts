@@ -84,8 +84,10 @@ const LONG_STEP_CONFIG = {
 const UPGRADE_FIRST_WAIT_MS = 30_000;
 const UPGRADE_LONGEST_WAIT_MS = 5 * 60_000;
 /**
- * How long one Workflow waits for a workspace to go quiet. Past it the Workflow ends without upgrading,
- * and the next session request starts another; it never upgrades a busy workspace.
+ * How long one Workflow waits for a workspace to go quiet before it redeploys. Past it the Workflow ends
+ * without upgrading, and the next session request starts another; it never upgrades a busy workspace.
+ * Once it has redeployed the Worker it never gives up this way: the new Worker needs its container
+ * image and its schedule, so what follows waits as long as it must.
  */
 export const UPGRADE_MAX_WAIT_MS = 12 * 60 * 60_000;
 /**
@@ -107,8 +109,9 @@ type DeployAttempt =
   { status: 'deployed'; namespaceId: string } | { status: 'busy'; checkedAt: number; waitMs: number };
 
 /**
- * What a step that needs the upgrade window found: done, or work started while the window had lapsed,
- * to try again after `waitMs`. Undefined is a result recorded before steps reported one: done.
+ * What a step that needs the upgrade window found: done, or work started while the window had lapsed
+ * (or another upgrade holds it), to try again after `waitMs`. Undefined is a result recorded before
+ * steps reported one: done.
  */
 type HeldStepAttempt = { status: 'done' } | { status: 'busy'; checkedAt: number; waitMs: number } | undefined;
 
@@ -315,7 +318,8 @@ export class UserWorkspaceRuntimeProvisioningWorkflow extends WorkflowEntrypoint
 /** Provision the user-owned D1, Worker, and Sandbox container as one durable sequence. */
 export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
   env: Env;
-  event: { payload: ProvisioningParams };
+  /** `instanceId` names this upgrade to the runtime, as the holder of the window it claims. */
+  event: { payload: ProvisioningParams; instanceId?: string };
   step: UserWorkspaceRuntimeProvisioningStep;
   dependencies?: UserWorkspaceRuntimeProvisioningDependencies;
 }): Promise<UserWorkspaceRuntimeProvisioningResult> {
@@ -378,6 +382,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
               params,
               endpoint,
               controlPlaneSecret,
+              holder: args.event.instanceId,
               attempt,
             });
             if (waitMs !== null) {
@@ -413,25 +418,31 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
     // An upgrade keeps its window open on the runtime it just deployed until that runtime serves on the new
     // container image: the rollout replaces running containers at once, so work that started meanwhile
     // would be cut off, and the new Worker would talk to the old image. A first workspace has no window.
-    const window = { endpoint, controlPlaneSecret, targetVersion: USER_WORKSPACE_RUNTIME_SHA256 };
+    const window = {
+      endpoint,
+      controlPlaneSecret,
+      targetVersion: USER_WORKSPACE_RUNTIME_SHA256,
+      holder: args.event.instanceId,
+    };
     /**
      * One step after the redeploy, run with the window held. A retry's backoff can outlast the window,
      * and the runtime opens a lapsed window again only while nothing started meanwhile: when something
-     * did, the step waits for it like a busy workspace before the redeploy, never redeploying again.
-     * `prepare` runs first, outside the window, for what renewing the window itself needs.
+     * did, the step waits for it like a busy workspace before the redeploy, never redeploying again and
+     * never giving up, since the Worker it deployed is already serving. `prepare` runs first, outside
+     * the window, for what renewing the window itself needs.
      */
     const heldStep = async (
       name: string,
       config: typeof STEP_CONFIG | typeof LONG_STEP_CONFIG,
       operation: () => Promise<void>,
       prepare: () => Promise<void> = async () => undefined,
-    ): Promise<'done' | 'deferred'> => {
+    ): Promise<void> => {
       if (upgradeStartedAt === null) {
         await args.step.do(name, config, async () => {
           await prepare();
           await operation();
         });
-        return 'done';
+        return;
       }
       for (let attempt = 0; ; attempt += 1) {
         // The first attempt keeps the step's name, so a Workflow started before these waits replays it.
@@ -453,22 +464,14 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
           },
         );
         if (outcome?.status !== 'busy') {
-          return 'done';
-        }
-        if (outcome.checkedAt - upgradeStartedAt >= UPGRADE_MAX_WAIT_MS) {
-          console.warn({
-            event: 'runtime_upgrade_deferred',
-            reason: 'workspace_never_idle_after_redeploy',
-            step: name,
-          });
-          return 'deferred';
+          return;
         }
         await args.step.sleep(`wait for an idle workspace to ${name} (attempt ${attempt + 1})`, outcome.waitMs);
       }
     };
     // Their own steps after the deploy, so retrying them never claims the window again or redeploys. The
     // Worker's subdomain, through which the window is renewed, is enabled before the window is held.
-    const configured = await heldStep(
+    await heldStep(
       'configure workspace Worker',
       STEP_CONFIG,
       async () => {
@@ -478,20 +481,14 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         await accountApi.enableWorkerSubdomain(workerName);
       },
     );
-    if (configured === 'deferred') {
-      return { status: 'deferred' };
-    }
-    const rolledOut = await heldStep('deploy Sandbox container', LONG_STEP_CONFIG, async () => {
+    await heldStep('deploy Sandbox container', LONG_STEP_CONFIG, async () => {
       await accountApi.ensureWorkspaceRuntimeContainer({
         applicationName: workerName,
         namespaceId,
         image: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
       });
     });
-    if (rolledOut === 'deferred') {
-      return { status: 'deferred' };
-    }
-    const served = await heldStep('wait for workspace', LONG_STEP_CONFIG, async () => {
+    await heldStep('wait for workspace', LONG_STEP_CONFIG, async () => {
       await dependencies.waitForReadiness({
         endpoint,
         controlPlaneSecret,
@@ -499,9 +496,6 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         request: fetch,
       });
     });
-    if (served === 'deferred') {
-      return { status: 'deferred' };
-    }
     if (upgradeStartedAt !== null) {
       await args.step.do('release upgrade window', STEP_CONFIG, async () => {
         // The window lapses on its own shortly; failing to close it early only delays waiting work.
@@ -545,12 +539,14 @@ async function waitBeforeUpgrade(args: {
   params: ProvisioningParams;
   endpoint: string;
   controlPlaneSecret: string;
+  holder: string | undefined;
   attempt: number;
 }): Promise<number | null> {
   const window = await args.dependencies.claimUpgradeWindow({
     endpoint: args.endpoint,
     controlPlaneSecret: args.controlPlaneSecret,
     targetVersion: USER_WORKSPACE_RUNTIME_SHA256,
+    holder: args.holder,
   });
   if (window.status === 'granted') {
     return null;
@@ -580,7 +576,7 @@ function upgradeWaitMs(attempt: number): number {
  */
 async function whileHoldingUpgradeWindow<T>(
   dependencies: Pick<UserWorkspaceRuntimeProvisioningDependencies, 'changeUpgradeWindow' | 'sleep'>,
-  window: { endpoint: string; controlPlaneSecret: string; targetVersion: string },
+  window: { endpoint: string; controlPlaneSecret: string; targetVersion: string; holder: string | undefined },
   operation: () => Promise<T>,
 ): Promise<T> {
   // Refused (thrown) when the window lapsed while work started, before anything runs.
