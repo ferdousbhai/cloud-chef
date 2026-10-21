@@ -49,7 +49,7 @@ describe('Cloudflare authorization retention', () => {
     insertGitHubState.run('github-expired', now - 1);
     insertGitHubState.run('github-live', now + 1);
 
-    await expect(pruneCloudflareAuthData({ db, now, limit: 2 })).resolves.toBeUndefined();
+    await expect(pruneCloudflareAuthData({ db, now, limit: 2, rounds: 1 })).resolves.toBeUndefined();
     expect(values(database, 'cloudflare_oauth_states', 'id')).toEqual(['state-3', 'state-live']);
     expect(values(database, 'cloudflare_auth_sessions', 'id')).toEqual(['session-3', 'session-live']);
     expect(values(database, 'email_sign_in_tokens', 'token_hash')).toEqual(['link-3', 'link-live']);
@@ -62,8 +62,35 @@ describe('Cloudflare authorization retention', () => {
       'credential-referenced',
     ]);
 
-    await expect(pruneCloudflareAuthData({ db, now, limit: 2 })).resolves.toBeUndefined();
+    await expect(pruneCloudflareAuthData({ db, now, limit: 2, rounds: 1 })).resolves.toBeUndefined();
     expect(values(database, 'cloudflare_credentials', 'handle')).toContain('credential-referenced');
+  });
+
+  it('keeps deleting while a table still has a full batch, up to a bound per sweep', async () => {
+    const { database, db } = retentionDatabase();
+    const now = 2 * UNREFERENCED_CREDENTIAL_RETENTION_MS;
+    const insertState = database.prepare(
+      'INSERT INTO cloudflare_oauth_states (id, status, expires_at) VALUES (?, ?, ?)',
+    );
+    for (let index = 0; index < 250; index += 1) {
+      insertState.run(`state-${index}`, 'pending', now - 1);
+    }
+    insertState.run('state-live', 'pending', now + 1);
+    const insertSession = database.prepare('INSERT INTO cloudflare_auth_sessions (id, expires_at) VALUES (?, ?)');
+    for (let index = 0; index < 3; index += 1) {
+      insertSession.run(`session-${index}`, now - 1);
+    }
+
+    await pruneCloudflareAuthData({ db, now });
+    expect(values(database, 'cloudflare_oauth_states', 'id')).toEqual(['state-live']);
+    expect(values(database, 'cloudflare_auth_sessions', 'id')).toEqual([]);
+
+    // Bounded: at most `rounds` batches in one sweep.
+    for (let index = 0; index < 10; index += 1) {
+      insertState.run(`again-${index}`, 'pending', now - 1);
+    }
+    await pruneCloudflareAuthData({ db, now, limit: 2, rounds: 3 });
+    expect(values(database, 'cloudflare_oauth_states', 'id')).toHaveLength(5);
   });
 
   it('contains scheduled pruning failures', async () => {

@@ -1,17 +1,41 @@
 const CLOUDFLARE_AUTH_RETENTION_SWEEP_LIMIT = 100;
+/**
+ * How many batches one sweep may run: it goes on while any table still had a full batch to delete, so
+ * states created faster than one batch per sweep (every 15 minutes) are still cleared, up to 2,500 rows
+ * a table per sweep.
+ */
+const CLOUDFLARE_AUTH_RETENTION_SWEEP_ROUNDS = 25;
 export const UNREFERENCED_CREDENTIAL_RETENTION_MS = 24 * 60 * 60 * 1000;
 /** The window of the per-address limit on sign-in emails (`EMAIL_SIGN_IN_LINKS_PER_HOUR`). */
 const EMAIL_SIGN_IN_TOKEN_RETENTION_MS = 60 * 60 * 1000;
 
-export async function pruneCloudflareAuthData(args: { db: D1Database; now?: number; limit?: number }): Promise<void> {
+export async function pruneCloudflareAuthData(args: {
+  db: D1Database;
+  now?: number;
+  limit?: number;
+  rounds?: number;
+}): Promise<void> {
   const now = args.now ?? Date.now();
   const limit = args.limit ?? CLOUDFLARE_AUTH_RETENTION_SWEEP_LIMIT;
+  const rounds = args.rounds ?? CLOUDFLARE_AUTH_RETENTION_SWEEP_ROUNDS;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > CLOUDFLARE_AUTH_RETENTION_SWEEP_LIMIT) {
     throw new Error('Cloudflare auth retention sweep limit is invalid.');
   }
+  if (!Number.isSafeInteger(rounds) || rounds < 1 || rounds > CLOUDFLARE_AUTH_RETENTION_SWEEP_ROUNDS) {
+    throw new Error('Cloudflare auth retention sweep rounds are invalid.');
+  }
+  for (let round = 0; round < rounds; round += 1) {
+    const results = await pruneBatch(args.db, now, limit);
+    if (!results.some((result) => result.meta.changes >= limit)) {
+      return;
+    }
+  }
+}
+
+function pruneBatch(db: D1Database, now: number, limit: number): Promise<D1Result[]> {
   const credentialCreatedBefore = now - UNREFERENCED_CREDENTIAL_RETENTION_MS;
-  await args.db.batch([
-    args.db
+  return db.batch([
+    db
       .prepare(
         `DELETE FROM cloudflare_oauth_states
          WHERE id IN (
@@ -23,7 +47,7 @@ export async function pruneCloudflareAuthData(args: { db: D1Database; now?: numb
          )`,
       )
       .bind(now, limit),
-    args.db
+    db
       .prepare(
         `DELETE FROM cloudflare_auth_sessions
          WHERE id IN (
@@ -34,7 +58,7 @@ export async function pruneCloudflareAuthData(args: { db: D1Database; now?: numb
          )`,
       )
       .bind(now, limit),
-    args.db
+    db
       .prepare(
         // Kept an hour after they're sent, used or not: they count toward each address's hourly limit.
         `DELETE FROM email_sign_in_tokens
@@ -43,25 +67,25 @@ export async function pruneCloudflareAuthData(args: { db: D1Database; now?: numb
          )`,
       )
       .bind(now - EMAIL_SIGN_IN_TOKEN_RETENTION_MS, limit),
-    args.db
+    db
       .prepare(
         `DELETE FROM google_sign_in_states
          WHERE id IN (SELECT id FROM google_sign_in_states WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`,
       )
       .bind(now, limit),
-    args.db
+    db
       .prepare(
         `DELETE FROM github_install_states
          WHERE id IN (SELECT id FROM github_install_states WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`,
       )
       .bind(now, limit),
-    args.db
+    db
       .prepare(
         `DELETE FROM github_approval_states
          WHERE id IN (SELECT id FROM github_approval_states WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`,
       )
       .bind(now, limit),
-    args.db
+    db
       .prepare(
         `DELETE FROM cloudflare_credentials
          WHERE handle IN (
