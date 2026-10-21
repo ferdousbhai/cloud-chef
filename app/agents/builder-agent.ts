@@ -141,6 +141,7 @@ import {
   type BuilderPreviewState,
 } from './builder-preview-types';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
+import { previewWorkerUrl } from '~/lib/common/preview-url';
 import { waitForCancellationBeforeDeadline } from './builder-cancellation';
 import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
@@ -2756,7 +2757,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (publishing && current.workspaceRevision === workspace.revision) {
       return current;
     }
-    if (current.status === 'ready' && current.published?.snapshotRevision === snapshot.revision) {
+    // A preview published under an address the pane no longer frames is published again, not shown as failed.
+    if (
+      current.status === 'ready' &&
+      current.published?.snapshotRevision === snapshot.revision &&
+      previewWorkerUrl(current.published.url) !== null
+    ) {
       return current;
     }
     const stopped = () => options.epoch !== undefined && this.automaticPublicationStopped(options.epoch);

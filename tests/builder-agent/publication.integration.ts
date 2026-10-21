@@ -7,6 +7,7 @@ import {
   builderAgentHarness,
   CHAT_INITIAL_ID,
   eventually,
+  PREVIEW_URL,
   settle,
   type BuilderAgentHarness,
   type BuilderPublisher,
@@ -268,7 +269,7 @@ describe('BuilderAgent automatic publication', () => {
           await preview.promise;
           return {
             id: 'version-1',
-            url: 'https://preview.example.workers.dev',
+            url: PREVIEW_URL,
             workspaceRevision: 3,
             snapshotRevision: request.validatedRevision,
             readyAt: '2026-10-21T00:00:00.000Z',
@@ -297,7 +298,7 @@ describe('BuilderAgent automatic publication', () => {
           await preview.promise;
           return {
             id: 'version-1',
-            url: 'https://preview.example.workers.dev',
+            url: PREVIEW_URL,
             workspaceRevision: 3,
             snapshotRevision: request.validatedRevision,
             readyAt: '2026-10-21T00:00:00.000Z',
@@ -325,6 +326,35 @@ describe('BuilderAgent automatic publication', () => {
     await eventually(() => harness.agent.state.preview?.status === 'ready');
     await settle();
     expect(deploy).not.toHaveBeenCalled();
+  });
+
+  it('publishes again a preview of the same revision only when the pane would not frame its address', async () => {
+    const preview = vi.fn<BuilderPublisher['preview']>(async (request) => ({
+      id: 'version-2',
+      url: PREVIEW_URL,
+      workspaceRevision: 3,
+      snapshotRevision: request.validatedRevision,
+      readyAt: '2026-10-21T00:00:00.000Z',
+    }));
+    const harness = await publicationHarness({ publisher: { preview } });
+    previewServing(harness);
+
+    await expect(harness.agent.requestPreview()).resolves.toMatchObject({ status: 'ready' });
+    expect(preview).not.toHaveBeenCalled();
+
+    // Published before the preview Worker was named so cloudchef.build may frame it: shown as failed.
+    const earlier = harness.agent.state.preview!;
+    harness.agent.setState({
+      ...harness.agent.state,
+      preview: {
+        ...earlier,
+        published: { ...earlier.published!, url: 'https://cloudchef-app-preview.account.workers.dev' },
+      },
+    });
+    await harness.agent.requestPreview();
+
+    await eventually(() => harness.agent.state.preview?.published?.id === 'version-2');
+    expect(preview).toHaveBeenCalledOnce();
   });
 
   it('retries an automatic deployment that failed for a reason that passes', async () => {
@@ -413,7 +443,7 @@ describe('BuilderAgent automatic publication', () => {
         error: null,
         published: {
           id: 'version-1',
-          url: 'https://preview.example.workers.dev',
+          url: PREVIEW_URL,
           workspaceRevision: 3,
           snapshotRevision: CHECKPOINT.revision,
           readyAt: '2026-10-21T00:00:00.000Z',
@@ -587,7 +617,7 @@ function previewServing(harness: BuilderAgentHarness) {
       error: null,
       published: {
         id: 'version-1',
-        url: 'https://preview.example.workers.dev',
+        url: PREVIEW_URL,
         workspaceRevision: 3,
         snapshotRevision: CHECKPOINT.revision,
         readyAt: '2026-10-21T00:00:00.000Z',
