@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DatabaseSync as DatabaseSyncInstance, SQLInputValue } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
+import { envWith } from '~/test/control-plane-d1';
 import { ACCOUNT_EXPORT_ROW_LIMIT, ACCOUNT_EXPORT_SCHEMA_VERSION, exportControlPlaneAccount } from './account-export';
 
 // Values that exist in the control plane and must never leave it. Each is checked
@@ -274,7 +275,7 @@ describe('control-plane account export', () => {
         VALUES ('${EMAIL_TOKEN_HASH}', 'user-1@example.test', '/join', 30, 4);
     `);
 
-    const exported = await exportControlPlaneAccount({ env: { DB: db } as Env, userId: 'user-1' });
+    const exported = await exportControlPlaneAccount({ env: envWith({ DB: db }), userId: 'user-1' });
 
     expect(exported.sections.cloudflareConnection).toMatchObject({
       connection: {

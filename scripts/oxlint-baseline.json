@@ -1,5 +1,5 @@
 {
-  "total": 1154,
+  "total": 1153,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -402,7 +402,6 @@
       "anti-slop/no-unsafe-dictionary-type": 1
     },
     "app/routes/settings.tsx": {
-      "anti-slop/no-runtime-typeof": 1,
       "anti-slop/no-unsafe-dictionary-type": 1
     },
     "app/server-handlers/account-deletion.test.ts": {
