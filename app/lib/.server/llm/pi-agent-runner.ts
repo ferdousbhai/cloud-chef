@@ -533,6 +533,8 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       previousInputs: [...archivedMessages].filter(
         (message) => message.role === 'user' && !checkpointReminders.has(message) && !replayedMessages.has(message),
       ),
+      // The current prompt is listed from the durable transcript, without the context injected into it.
+      turnContext: turnContext?.content,
       handoff: manualHandoff,
     });
     if (!compacted) {
