@@ -21,10 +21,7 @@ type BuilderDeploymentWorkspace = Pick<
   'projectId' | 'checkpoint' | 'hasSuccessfulValidation' | 'prepareDeployment'
 >;
 
-type BuilderPreviewValidationWorkspace = Pick<
-  BuilderWorkspaceApi,
-  'checkpoint' | 'hasSuccessfulValidation' | 'validate'
->;
+type BuilderBuildWorkspace = Pick<BuilderWorkspaceApi, 'checkpoint' | 'hasSuccessfulValidation' | 'validate'>;
 
 export type BuilderDeploymentState = {
   status: 'ready' | 'deploying' | 'succeeded' | 'failed';
@@ -35,17 +32,22 @@ export type BuilderDeploymentState = {
   error?: string | null;
 };
 
-export async function validatedDeploymentCheckpoint(
+async function validatedDeploymentCheckpoint(
   workspace: Pick<BuilderWorkspaceApi, 'checkpoint' | 'hasSuccessfulValidation'>,
 ): Promise<BuilderWorkspaceCheckpoint | null> {
   const snapshot = await workspace.checkpoint();
   return (await workspace.hasSuccessfulValidation(snapshot.revision)) ? snapshot : null;
 }
 
-/** Validate the immutable checkpoint a manual preview request accepted before publishing it. */
-export async function validatePreviewCheckpointForBuilder(args: {
-  workspace: BuilderPreviewValidationWorkspace;
+/**
+ * Build the exact checkpoint a preview or deployment was asked for, unless a validation of that
+ * revision already produced its deployable artifact. The full validation is the build: it leaves the
+ * artifact that preview and production publish. Nothing is published from a different revision.
+ */
+export async function buildCheckpointForBuilder(args: {
+  workspace: BuilderBuildWorkspace;
   requestedSnapshot: BuilderWorkspaceCheckpoint;
+  publication: 'preview' | 'deployment';
   toolCallId: string;
   abortSignal?: AbortSignal;
   onStage?: WorkspaceValidationStageReporter;
@@ -53,13 +55,15 @@ export async function validatePreviewCheckpointForBuilder(args: {
   args.abortSignal?.throwIfAborted();
   const current = await args.workspace.checkpoint();
   if (!sameCheckpoint(current, args.requestedSnapshot)) {
-    throw new Error('The project changed after the preview was requested. Build the current revision instead.');
+    throw new Error(
+      `The project changed after the ${args.publication} was requested. Build the current revision instead.`,
+    );
   }
 
   if (!(await args.workspace.hasSuccessfulValidation(current.revision))) {
     const validationRequest: Parameters<BuilderWorkspaceApi['validate']>[0] = {
       toolCallId: args.toolCallId,
-      input: { source: 'preview' },
+      input: { source: args.publication },
     };
     if (args.onStage) {
       validationRequest.onStage = args.onStage;
@@ -69,16 +73,18 @@ export async function validatePreviewCheckpointForBuilder(args: {
     }
     const validation = await args.workspace.validate(validationRequest);
     if (!validation.ok) {
-      throw new Error(`Preview validation failed: ${validation.summary}`);
+      throw new Error(`The build failed: ${validation.summary}`);
     }
   }
 
   args.abortSignal?.throwIfAborted();
-  const validated = await validatedDeploymentCheckpoint(args.workspace);
-  if (!validated || !sameCheckpoint(validated, args.requestedSnapshot)) {
-    throw new Error('The project changed while the preview was being validated. Build the current revision instead.');
+  const built = await validatedDeploymentCheckpoint(args.workspace);
+  if (!built || !sameCheckpoint(built, args.requestedSnapshot)) {
+    throw new Error(
+      `The project changed while the ${args.publication} was being built. Build the current revision instead.`,
+    );
   }
-  return validated;
+  return built;
 }
 
 export async function terminalizeInterruptedDeploymentForBuilder(args: {
@@ -165,10 +171,10 @@ async function planValidatedRevision(args: {
 }): Promise<string> {
   const snapshot = await args.workspace.checkpoint();
   if (snapshot.revision !== args.validatedRevision) {
-    throw new Error('The durable project changed after validation. Run validation again.');
+    throw new Error('The project changed after it was built. Build the current revision instead.');
   }
   if (!(await args.workspace.hasSuccessfulValidation(snapshot.revision))) {
-    throw new Error(`${args.publication} requires full validation for this exact revision.`);
+    throw new Error(`${args.publication} has no build of this exact revision.`);
   }
   const source = await args.workspace.prepareDeployment(snapshot.revision);
   const deploymentId = await publicationDeploymentId(args.workspace.projectId, args.toolCallId, snapshot.revision);

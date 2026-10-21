@@ -233,15 +233,18 @@ implementation.
 
 Tool-call arguments stream to the browser as the model produces them. `exec` additionally streams bounded transient
 stdout/stderr updates while retaining only a bounded final tail for the model; completion still waits for the Container's
-filesystem pull to become durable. The Pi loop enforces a total turn limit, model-stream inactivity limit, and per-tool
-limits; there is no model-step ceiling. A cancellation requested before a Container process handle exists is retained and applied
+filesystem pull to become durable. The Pi loop enforces a total turn limit, a model-stream inactivity limit, and a first-progress
+deadline against a hung provider stream; there is no model-step ceiling. Each tool has a deadline against a hung
+operation, and a tool stopped by it is an ordinary failed result the model acts on, not the end of the turn. A cancellation requested before a Container process handle exists is retained and applied
 as soon as that handle becomes available. Approved `pnpm add <packages>` and `pnpm install --lockfile-only` commands route to
-the reviewed dependency installer rather than an unrestricted package-manager shell. After related mutations are complete,
-the model requests one full validation and receives its revision-bound receipt. Production deployment
-is not a model capability: after validation, `BuilderAgent` admits a durable deployment fiber that runs one authenticated,
-idempotent server operation, verifies the current receipt, prepares the exact-revision plan, and executes it in the user's
-account. The browser can request a retry but is not responsible for starting deployment. Preview and deployment use
-checkpoints from the same VFS, so deployment cannot proceed after the project changes.
+the reviewed dependency installer rather than an unrestricted package-manager shell. The model decides when to run the full
+validation and what to tell the user; the runtime neither validates on its behalf nor writes its final message.
+Production deployment is not a model capability: when a turn that changed a CloudChef app finishes, `BuilderAgent`
+publishes the hosted preview and then admits a durable deployment fiber that runs one authenticated, idempotent server
+operation. Each builds the exact revision it was asked for (reusing a validation of that revision when the model
+already ran one), prepares the exact-revision plan, and executes it in the user's account. A failed build or
+deployment is shown to the user and told to the model at the start of its next turn. The browser can request a retry but is not responsible for starting deployment. Preview and deployment use
+checkpoints from the same VFS, so a publication never ships a revision other than the one it was asked for.
 
 ## Preview Boundary
 

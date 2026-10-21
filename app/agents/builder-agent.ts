@@ -24,11 +24,10 @@ import { chatTurnContextSchema, type ChatTurnContext } from 'cloudchef-agent/tur
 import { getUserWorkersAiCredentials } from '~/lib/.server/cloudflare/workers-ai-billing-context';
 import type { UIMessage } from 'ai';
 import {
+  buildCheckpointForBuilder,
   deployValidatedRevisionForBuilder,
   previewValidatedRevisionForBuilder,
   terminalizeInterruptedDeploymentForBuilder,
-  validatePreviewCheckpointForBuilder,
-  validatedDeploymentCheckpoint,
   type BuilderDeploymentState,
 } from './builder-deployment-command';
 import {
@@ -112,7 +111,7 @@ import {
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import { waitForCancellationBeforeDeadline } from './builder-cancellation';
 import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
-import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
+import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
 import { toolFailure, toolSuccess, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import {
@@ -192,7 +191,7 @@ const previewPublicationJobSchema = z.object({
   snapshotRevision: z.string().min(1),
   requestedAt: z.number().int().positive(),
   // Manual "Build preview" requests must not promote to the public production URL. Only the
-  // validated-revision pipeline (publishValidatedRevision) opts into the deployment behind the preview.
+  // end-of-turn pipeline (publishRevision) opts into the deployment behind the preview.
   autoDeploy: z.boolean().default(true),
 });
 type PreviewPublicationJob = z.infer<typeof previewPublicationJobSchema>;
@@ -317,6 +316,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private userId: string | null = null;
   private transcriptBinding: BuilderTranscriptBinding | null = null;
   private activeSteering: { turnId: string; queue: PiSteeringQueue } | null = null;
+  /** The turn whose model ran a tool that can change the project, so its end publishes the app. */
+  private projectChangedTurnId: string | null = null;
   /** Tells the control plane, through the runtime, when a redeploy would cut this agent's work off. */
   private readonly runtimeActivity: BuilderRuntimeActivity;
 
@@ -526,7 +527,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       });
     }
     await this.advanceTranscriptCheckpoint(transcript);
-    const turnContext = parseTurnContext(body.turnContext);
+    const turnContext = withPublicationFailure(parseTurnContext(body.turnContext), this.publicationFailure());
     const userMessages = messages.filter((message: { role?: string }) => message.role === 'user');
     const firstUserMessage = !options?.continuation && userMessages.length === 1;
     const latestPrompt = !options?.continuation ? userMessages.at(-1) : undefined;
@@ -589,8 +590,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         onValidationStage: (toolCallId, stage) => this.setValidationProgress(toolCallId, stage),
         runWithKeepAlive: (operation) => this.keepAliveWhile(operation),
         steering,
-        onSettled: () => {
+        onSettled: (report) => {
           settleSteering();
+          if (report.changedProject) {
+            this.projectChangedTurnId = turn.id;
+          }
         },
         onModelUsage: (usage) => this.reportModelUsage(usage),
         compaction: {
@@ -715,9 +719,16 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
     }
     const validatedSnapshot = await this.refreshDeploymentReadiness();
-    // A GitHub project previews and deploys through its own pipeline, when the agent publishes to it.
-    if (status === 'completed' && validatedSnapshot && !(await this.workspace.linkedProject())) {
-      await this.publishValidatedRevision(validatedSnapshot);
+    const changedProject = this.projectChangedTurnId === currentTurn.id;
+    this.projectChangedTurnId = null;
+    // A finished turn that changed a CloudChef app publishes it: the preview builds the exact revision
+    // (unless the model already validated it) and production follows. A GitHub project previews and
+    // deploys through its own pipeline, when the agent publishes to it.
+    if (status === 'completed' && (changedProject || validatedSnapshot) && !(await this.workspace.linkedProject())) {
+      const snapshot = validatedSnapshot ?? (await this.workspace.checkpoint().catch(() => null));
+      if (snapshot) {
+        await this.publishRevision(snapshot);
+      }
     }
   }
 
@@ -849,7 +860,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   /**
    * Asks the organization's admins to make this draft a real project: approved, it becomes a GitHub
-   * repository that deploys through its own pipeline. Only a validated revision can be sent.
+   * repository that deploys through its own pipeline.
    */
   @callable()
   async requestProduction(input: { title: string; note: string }): Promise<{ outcome: ProductionRequestOutcome }> {
@@ -862,9 +873,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Error('This project is already on GitHub: ask the agent to publish it.');
     }
     const checkpoint = await this.workspace.checkpoint();
-    if (!(await this.workspace.hasSuccessfulValidation(checkpoint.revision))) {
-      throw new Error('Finish and validate the app first: only a validated draft can be sent for review.');
-    }
     const title = input.title.trim().slice(0, 80);
     if (!title) {
       throw new Error('Name the app for your admin.');
@@ -972,10 +980,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (await this.workspace.linkedProject()) {
       throw new Error('This project deploys through GitHub: ask the agent to publish it.');
     }
-    const snapshot = await validatedDeploymentCheckpoint(this.workspace);
-    if (!snapshot) {
-      throw new Error('The current project revision must pass validation before deployment.');
-    }
+    // The deployment builds the revision first when nothing has validated it yet.
+    const snapshot = await this.workspace.checkpoint();
     const current = this.state.deployment;
     const retry = current?.revision === snapshot.revision && current.status === 'failed';
     if (retry) {
@@ -1363,7 +1369,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /**
-   * Sends the validated workspace to GitHub: a commit on the member's branch, merged into the default
+   * Sends the workspace to GitHub: a commit on the member's branch, merged into the default
    * branch when it should go live. Then waits for the repository's pipeline to report the build, so the
    * agent can give the user the preview link or say it is live.
    */
@@ -1375,10 +1381,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const identity = runtimeIdentity(this.env);
     if (!linked || !identity) {
       return toolFailure("This workspace is not one of the team's GitHub projects.");
-    }
-    const checkpoint = await this.workspace.checkpoint();
-    if (!(await this.workspace.hasSuccessfulValidation(checkpoint.revision))) {
-      return toolFailure('Run validate on the current changes first: only validated work is sent to GitHub.');
     }
     const { changes, manifest } = await linkedWorkspaceChanges(this.workspace, linked);
     if (changes.length === 0) {
@@ -1761,14 +1763,14 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /**
-   * The user-visible critical path after validation: publish the hosted preview first, then run
+   * The user-visible critical path after a turn changed the app: publish the hosted preview first, then run
    * the production deployment behind it. The preview fiber schedules the deployment when it
    * settles; when no publication is pending (the preview is already serving this revision, or it
    * could not even be queued), the deployment starts directly instead of waiting on anything.
    */
-  private async publishValidatedRevision(snapshot: BuilderWorkspaceCheckpoint): Promise<void> {
-    const preview = await this.requestPreviewInternal({ validatedSnapshot: snapshot, autoDeploy: true }).catch(() => {
-      logger.warn('Unable to queue the validated preview publication');
+  private async publishRevision(snapshot: BuilderWorkspaceCheckpoint): Promise<void> {
+    const preview = await this.requestPreviewInternal({ snapshot, autoDeploy: true }).catch(() => {
+      logger.warn('Unable to queue the preview publication');
       return null;
     });
     if (!preview?.pendingId) {
@@ -1836,6 +1838,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Response('Agent authentication is required.', { status: 401 });
     }
     const startedAt = Date.now();
+    await this.buildCheckpoint(
+      job,
+      'deployment',
+      `${deploymentToolCallId(job.workspaceRevision, job.revision)}:validation`,
+    );
     const deployment = await this.withPublicationActivity('deployment', (onPlanned) =>
       this.keepAliveWhile(() =>
         deployValidatedRevisionForBuilder({
@@ -1874,8 +1881,51 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     this.setState({ ...this.state, deployment });
   }
 
+  /** The last automatic preview or deployment failure of a CloudChef app, for the model to act on. */
+  private publicationFailure(): string | null {
+    const preview = this.state.preview;
+    if (preview?.status === 'failed' && preview.error) {
+      return `the hosted preview of the latest changes failed. ${preview.error}`;
+    }
+    const deployment = this.state.deployment;
+    if (deployment?.status === 'failed' && deployment.error) {
+      return `the production deployment of the latest changes failed. ${deployment.error}`;
+    }
+    return null;
+  }
+
+  /** Builds the exact checkpoint a publication was asked for, showing the build's stages while it runs. */
+  private async buildCheckpoint(
+    snapshot: BuilderWorkspaceCheckpoint,
+    publication: 'preview' | 'deployment',
+    toolCallId: string,
+    abortSignal?: AbortSignal,
+  ): Promise<BuilderWorkspaceCheckpoint> {
+    const needsBuild = !(await this.workspace.hasSuccessfulValidation(snapshot.revision));
+    if (needsBuild) {
+      this.setValidationProgress(toolCallId, 'computer validation');
+    }
+    try {
+      const request: Parameters<typeof buildCheckpointForBuilder>[0] = {
+        workspace: this.workspace,
+        requestedSnapshot: { workspaceRevision: snapshot.workspaceRevision, revision: snapshot.revision },
+        publication,
+        toolCallId,
+        onStage: (stage) => this.setValidationProgress(toolCallId, stage),
+      };
+      if (abortSignal) {
+        request.abortSignal = abortSignal;
+      }
+      return await this.keepAliveWhile(() => buildCheckpointForBuilder(request));
+    } finally {
+      if (needsBuild) {
+        this.setValidationProgress(toolCallId, null);
+      }
+    }
+  }
+
   private async requestPreviewInternal(
-    options: { validatedSnapshot?: BuilderWorkspaceCheckpoint; autoDeploy?: boolean } = {},
+    options: { snapshot?: BuilderWorkspaceCheckpoint; autoDeploy?: boolean } = {},
   ): Promise<BuilderPreviewState> {
     if (!this.ownerId || !this.userId || !this.transcriptBinding) {
       throw new Response('Agent authentication is required.', { status: 401 });
@@ -1885,7 +1935,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Error('This project previews through GitHub: ask the agent for a preview of your branch.');
     }
     const current = this.currentPreviewState();
-    const snapshot = options.validatedSnapshot ?? (await this.workspace.checkpoint());
+    const snapshot = options.snapshot ?? (await this.workspace.checkpoint());
     const publishing = current.status === 'queued' || current.status === 'building';
     if (publishing && current.workspaceRevision === workspace.revision) {
       return current;
@@ -1951,31 +2001,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (!userId || !transcriptBinding) {
         throw new Response('Agent authentication is required.', { status: 401 });
       }
-      const validationToolCallId = `preview:${job.previewId}:validation`;
-      const needsValidation = !(await this.workspace.hasSuccessfulValidation(job.snapshotRevision));
-      if (needsValidation) {
-        this.setValidationProgress(validationToolCallId, 'computer validation');
-      }
-      let validatedSnapshot: BuilderWorkspaceCheckpoint;
-      try {
-        const validationRequest: Parameters<typeof validatePreviewCheckpointForBuilder>[0] = {
-          workspace: this.workspace,
-          requestedSnapshot: {
-            workspaceRevision: job.workspaceRevision,
-            revision: job.snapshotRevision,
-          },
-          toolCallId: validationToolCallId,
-          onStage: (stage) => this.setValidationProgress(validationToolCallId, stage),
-        };
-        if (abortSignal) {
-          validationRequest.abortSignal = abortSignal;
-        }
-        validatedSnapshot = await this.keepAliveWhile(() => validatePreviewCheckpointForBuilder(validationRequest));
-      } finally {
-        if (needsValidation) {
-          this.setValidationProgress(validationToolCallId, null);
-        }
-      }
+      const validatedSnapshot = await this.buildCheckpoint(
+        { workspaceRevision: job.workspaceRevision, revision: job.snapshotRevision },
+        'preview',
+        `preview:${job.previewId}:validation`,
+        abortSignal,
+      );
       abortSignal?.throwIfAborted();
       if (!this.isCurrentPreviewJob(job.previewId)) {
         return;
@@ -2083,31 +2114,31 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
       return null;
     }
-    const validatedSnapshot = await validatedDeploymentCheckpoint(this.workspace).catch(() => undefined);
-    if (validatedSnapshot === undefined) {
+    const snapshot = await this.workspace.checkpoint().catch(() => undefined);
+    const validated =
+      snapshot && (await this.workspace.hasSuccessfulValidation(snapshot.revision).catch(() => undefined));
+    if (!snapshot || validated === undefined) {
       // An unreadable workspace says nothing about the deployment, so keep the recorded one.
       logger.warn('Unable to refresh deployment readiness');
       return null;
     }
     const currentDeployment = this.state.deployment;
-    let deployment = validatedSnapshot
-      ? currentDeployment?.revision === validatedSnapshot.revision
+    // A deployment of the current revision is kept even before its build has finished.
+    let deployment =
+      currentDeployment?.revision === snapshot.revision
         ? currentDeployment
-        : { status: 'ready' as const, ...validatedSnapshot }
-      : null;
+        : validated
+          ? { status: 'ready' as const, ...snapshot }
+          : null;
     // A deploying record with no fiber working on its revision is orphaned: nothing would ever settle it.
-    if (
-      validatedSnapshot &&
-      deployment?.status === 'deploying' &&
-      !(await this.deploymentFiberRunning(validatedSnapshot.revision))
-    ) {
+    if (deployment?.status === 'deploying' && !(await this.deploymentFiberRunning(snapshot.revision))) {
       deployment = { ...deployment, status: 'failed', error: DEPLOYMENT_INTERRUPTED_MESSAGE };
     }
     this.setState({
       ...this.state,
       deployment,
     });
-    return validatedSnapshot;
+    return validated ? snapshot : null;
   }
 
   /**
@@ -2175,6 +2206,21 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       validationProgress: null,
     });
   }
+}
+
+const MAX_PUBLICATION_FAILURE_CHARACTERS = 4_000;
+
+/** Tells the model, in the next turn's workspace context, that the last automatic publication failed. */
+function withPublicationFailure(
+  turnContext: ChatTurnContext | undefined,
+  failure: string | null,
+): ChatTurnContext | undefined {
+  if (!failure) {
+    return turnContext;
+  }
+  const note = `CloudChef publication status: ${failure.slice(-MAX_PUBLICATION_FAILURE_CHARACTERS)}`;
+  const content = turnContext?.content ? `${note}\n\n${turnContext.content}` : note;
+  return { version: 1, content: content.slice(0, MAX_EPHEMERAL_CONTEXT_CHARACTERS) };
 }
 
 function parseTurnContext(value: unknown): ChatTurnContext | undefined {

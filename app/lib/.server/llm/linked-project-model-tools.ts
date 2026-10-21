@@ -9,7 +9,7 @@ import type { Tool } from 'cloudchef-agent/tool';
 export type LinkedProjectModelToolContext = {
   repository: string;
   defaultBranch: string;
-  /** Commits the validated workspace to the member's branch; `live` also merges it into the default branch. */
+  /** Commits the workspace to the member's branch; `live` also merges it into the default branch. */
   publish(
     input: { message: string; live: boolean },
     options: { abortSignal?: AbortSignal },
@@ -21,9 +21,9 @@ export function linkedProjectModelTools(context: LinkedProjectModelToolContext) 
   return {
     publish_preview: {
       description:
-        `Commit the validated workspace to your own branch of ${context.repository} on GitHub. Its pipeline builds ` +
-        'the branch and posts a preview link, which this tool waits for and returns. Run validate first; call this ' +
-        'when the user should see the change before it goes live.',
+        `Commit the workspace's changes to your own branch of ${context.repository} on GitHub. The repository's ` +
+        'pipeline builds the branch and posts a preview link; this tool waits for the build and returns its result ' +
+        'and the link.',
       inputSchema: MODEL_TOOL_INPUT_SCHEMAS.publish_preview,
       execute: (input, options) =>
         context.publish(
@@ -33,9 +33,9 @@ export function linkedProjectModelTools(context: LinkedProjectModelToolContext) 
     },
     publish: {
       description:
-        `Put the validated workspace live: commit it and merge it into ${context.defaultBranch} of ` +
-        `${context.repository}, which the repository's pipeline deploys to production. Run validate first, and ` +
-        'publish only when the user asks for the change to go live.',
+        `Put the workspace's changes live: commit them and merge them into ${context.defaultBranch} of ` +
+        `${context.repository}, which the repository's pipeline deploys to production. Use it only when the ` +
+        'user wants the change live. This tool waits for the build and returns its result.',
       inputSchema: MODEL_TOOL_INPUT_SCHEMAS.publish,
       execute: (input, options) =>
         context.publish({ message: MODEL_TOOL_INPUT_SCHEMAS.publish.parse(input).message, live: true }, options),
