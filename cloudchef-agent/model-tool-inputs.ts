@@ -25,7 +25,7 @@ export const CLOUDFLARE_API_MODEL_TOOL_NAMES = ['cloudflare_request'] as const;
 export type CloudflareApiModelToolName = (typeof CLOUDFLARE_API_MODEL_TOOL_NAMES)[number];
 
 /** Tools for a workspace opened from an organization's GitHub project: changes go back to GitHub. */
-export const LINKED_PROJECT_MODEL_TOOL_NAMES = ['publish_preview', 'publish'] as const;
+export const LINKED_PROJECT_MODEL_TOOL_NAMES = ['publish_preview', 'publish', 'fetch_site'] as const;
 export type LinkedProjectModelToolName = (typeof LINKED_PROJECT_MODEL_TOOL_NAMES)[number];
 
 export const MODEL_TOOL_NAMES = [
@@ -91,5 +91,22 @@ export const MODEL_TOOL_INPUT_SCHEMAS = {
       .min(1)
       .max(500)
       .describe('A short commit message saying what changed, for the project history.'),
+  }),
+  fetch_site: z.object({
+    url: z
+      .string()
+      .min(1)
+      .max(2_048)
+      .describe("An https address on the project's live site or one of its preview links, with any path and query."),
+    format: z
+      .enum(['text', 'html'])
+      .optional()
+      .describe('text (the default) strips an HTML page to its readable text; html returns the markup as served.'),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Character offset to continue a long response from: the previous result's nextCursor."),
   }),
 } as const satisfies Record<ModelToolName, ZodType>;

@@ -61,6 +61,7 @@ export const ToolUseContents = memo(function ToolUseContents({
     invocation.toolName === 'exec' ||
     invocation.toolName === 'search_cloudflare_docs' ||
     invocation.toolName === 'publish_preview' ||
+    invocation.toolName === 'fetch_site' ||
     invocation.toolName === 'publish' ? (
     <StructuredResultTool invocation={invocation} />
   ) : (

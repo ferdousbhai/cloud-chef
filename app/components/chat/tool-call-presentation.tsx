@@ -7,7 +7,7 @@ import { isToolInvocationInProgress, type CloudChefToolInvocation } from 'cloudc
 import { getRelativePath } from 'cloudchef-agent/utils/workDir';
 import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
 import { formatStreamedSize, streamedToolInput } from './streaming-tool-input';
-import type { ZodType } from 'zod';
+import { z, type ZodType } from 'zod';
 import { cloudflareApiRequestDisplaySchema, cloudflareApiRequestIsRead } from 'cloudchef-agent/cloudflare-api';
 import { toolFailure, toolResultSucceeded } from 'cloudchef-agent/tool-result';
 
@@ -25,6 +25,7 @@ const STOPPED_TOOL_TITLES = new Map<string, string>([
   ['cloudflare_request', 'Cloudflare API request stopped'],
   ['publish_preview', 'GitHub preview stopped'],
   ['publish', 'Publishing stopped'],
+  ['fetch_site', 'Site read stopped'],
 ]);
 
 const cloudflareRequestMethodSchema = cloudflareApiRequestDisplaySchema.pick({ method: true });
@@ -118,19 +119,48 @@ export function toolTitle(invocation: CloudChefToolInvocation, status: ToolActiv
     case 'publish_preview':
       return isErrorResult(invocation)
         ? titleRow('Preview not sent', <Cross2Icon className="text-content-secondary" />)
-        : titleRow(
-            status === 'running' ? 'Sending a preview to GitHub' : 'Sent a preview to GitHub',
-            <CheckIcon className="text-content-secondary" />,
-          );
+        : isPipelineBuilding(invocation)
+          ? titleRow('Preview building on GitHub', <Spinner />)
+          : titleRow(
+              status === 'running' ? 'Sending a preview to GitHub' : 'Sent a preview to GitHub',
+              <CheckIcon className="text-content-secondary" />,
+            );
     case 'publish':
       return isErrorResult(invocation)
         ? titleRow('Publishing failed', <Cross2Icon className="text-content-secondary" />)
-        : titleRow(
-            status === 'running' ? 'Publishing to GitHub' : 'Published to GitHub',
-            <CheckIcon className="text-content-secondary" />,
-          );
+        : isPipelineBuilding(invocation)
+          ? titleRow('Published to GitHub, deploying', <Spinner />)
+          : titleRow(
+              status === 'running' ? 'Publishing to GitHub' : 'Published to GitHub',
+              <CheckIcon className="text-content-secondary" />,
+            );
+    case 'fetch_site': {
+      const args = MODEL_TOOL_INPUT_SCHEMAS.fetch_site.safeParse(invocation.input);
+      const address = args.success ? siteAddressLabel(args.data.url) : 'the live site';
+      return titleRow(
+        `${status === 'running' ? 'Reading' : 'Read'} ${compactToolLabel(address)}`,
+        <MagnifyingGlassIcon className="text-content-secondary" />,
+      );
+    }
     default:
       return invocation.toolName;
+  }
+}
+
+/** A GitHub publish whose commit is in, while the repository's pipeline is still building it. */
+const pipelineBuildingSchema = z.looseObject({ data: z.looseObject({ build: z.literal('pending') }) });
+
+function isPipelineBuilding(invocation: CloudChefToolInvocation): boolean {
+  return invocation.state === 'output-available' && pipelineBuildingSchema.safeParse(invocation.output).success;
+}
+
+/** A site address as a person reads it: host and path, without the scheme. */
+function siteAddressLabel(value: string): string {
+  try {
+    const url = new URL(value);
+    return `${url.host}${url.pathname === '/' ? '' : url.pathname}`;
+  } catch {
+    return value;
   }
 }
 

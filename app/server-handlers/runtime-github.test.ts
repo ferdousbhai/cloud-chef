@@ -7,6 +7,7 @@ import { GitHubApp } from '~/lib/.server/github/github-app';
 import { bytesToBase64 } from '~/lib/hex-digest';
 import {
   runtimeGitHubCommitAction,
+  runtimeGitHubSiteAction,
   runtimeGitHubSnapshotAction,
   runtimeGitHubStatusAction,
   runtimeRequestProductionAction,
@@ -55,7 +56,7 @@ async function gzippedTarball(
 }
 
 /** One repository on GitHub: its default branch, the member branch if pushed, and what was written. */
-function fakeRepository(options: { tarball: Uint8Array<ArrayBuffer>; mergeStatus?: number }) {
+function fakeRepository(options: { tarball: Uint8Array<ArrayBuffer>; mergeStatus?: number; homepage?: string | null }) {
   const refs = new Map<string, string>([['main', MAIN_HEAD]]);
   const writes: { method: string; path: string; body: string | null }[] = [];
   let tokenRequest: string | null = null;
@@ -67,6 +68,9 @@ function fakeRepository(options: { tarball: Uint8Array<ArrayBuffer>; mergeStatus
     if (url.pathname.endsWith('/access_tokens')) {
       tokenRequest = body;
       return Response.json({ token: 'repo-token', expires_at: 'soon' }, { status: 201 });
+    }
+    if (method === 'GET' && path === '') {
+      return Response.json({ full_name: 'ada/site', homepage: options.homepage ?? null });
     }
     if (method === 'GET' && path.startsWith('/git/ref/heads/')) {
       const sha = refs.get(decodeURIComponent(path.slice('/git/ref/heads/'.length)));
@@ -121,7 +125,9 @@ function fakeRepository(options: { tarball: Uint8Array<ArrayBuffer>; mergeStatus
 
 const PRIVATE_KEY = { pem: '' };
 
-async function setup(options: { tarball?: Uint8Array<ArrayBuffer>; mergeStatus?: number; grant?: boolean } = {}) {
+async function setup(
+  options: { tarball?: Uint8Array<ArrayBuffer>; mergeStatus?: number; grant?: boolean; homepage?: string | null } = {},
+) {
   const pair = await crypto.subtle.generateKey(
     { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
     true,
@@ -165,6 +171,7 @@ async function setup(options: { tarball?: Uint8Array<ArrayBuffer>; mergeStatus?:
   const github = fakeRepository({
     tarball: options.tarball ?? (await gzippedTarball([{ path: 'README.md', content: 'hello\n' }])),
     mergeStatus: options.mergeStatus,
+    homepage: options.homepage,
   });
   const call = (path: string, body: Record<string, string | number | boolean | null | object[]>, bearer = secret) =>
     new Request(`${ORIGIN}${path}`, {
@@ -361,6 +368,42 @@ describe('a member working on a GitHub project', () => {
       previewUrl: 'https://cloudchef-ada-site.ada.workers.dev',
       detailsUrl: 'https://dash.cloudflare.com/builds/1',
     });
+  });
+
+  it("names the project's live site from what GitHub knows: its homepage and its pipeline's links", async () => {
+    const { env, app, call, tokenRequested } = await setup({ homepage: 'www.example.com' });
+    const response = await runtimeGitHubSiteAction({
+      request: call('/api/cloudflare/runtime-github/site', { orgProjectId: SITE }),
+      env,
+      app,
+    });
+    expect(response.status).toBe(200);
+    // The default branch's head reported the preview link; the member has no branch yet.
+    expect(await response.json()).toEqual({
+      origins: ['https://www.example.com', 'https://cloudchef-ada-site.ada.workers.dev'],
+    });
+    expect(JSON.parse(tokenRequested() ?? '{}')).toEqual({
+      permissions: { contents: 'read', checks: 'read' },
+      repository_ids: [11],
+    });
+
+    for (const homepage of ['http://example.com', 'https://127.0.0.1', 'https://localhost:8080', 'intranet', '']) {
+      const unsafe = await setup({ homepage });
+      const answered = await runtimeGitHubSiteAction({
+        request: unsafe.call('/api/cloudflare/runtime-github/site', { orgProjectId: SITE }),
+        env: unsafe.env,
+        app: unsafe.app,
+      });
+      expect(await answered.json()).toEqual({ origins: ['https://cloudchef-ada-site.ada.workers.dev'] });
+    }
+
+    const ungranted = await setup({ grant: false, homepage: 'example.com' });
+    const refused = await runtimeGitHubSiteAction({
+      request: ungranted.call('/api/cloudflare/runtime-github/site', { orgProjectId: SITE }),
+      env: ungranted.env,
+      app: ungranted.app,
+    });
+    expect(refused.status).toBe(403);
   });
 
   it("never hands the organization's Cloudflare authorization to a member limited to GitHub projects", async () => {

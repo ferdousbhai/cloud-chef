@@ -45,9 +45,11 @@ export const BUILDER_TOOL_DEADLINES_MS = {
   // Reads are one bounded API request; writes only persist an approval proposal. An approved
   // write runs later in its own durable fiber under the client's own deadline.
   cloudflare_request: 90_000,
-  // A commit, then waiting for the repository's pipeline to report the build and its preview link.
-  publish_preview: 8 * 60_000,
-  publish: 8 * 60_000,
+  // A commit, under its own two-minute request deadline; the pipeline's build is watched in the background.
+  publish_preview: 4 * 60_000,
+  publish: 4 * 60_000,
+  // A control-plane lookup of the site's addresses, then one bounded GET (with a few redirects).
+  fetch_site: 60_000,
 } as const satisfies Record<ModelToolName, number>;
 
 export class BuilderToolDeadlineError extends Error {

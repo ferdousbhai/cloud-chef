@@ -8,7 +8,7 @@ Cloudflare control plane, builder agent, user-owned workspace runtime, and gener
 - `app/lib/.server/auth.ts`, `app/server-handlers/email-auth.ts`, `app/server-handlers/google-auth.ts` — sessions and sign-in (Cloudflare, Google, emailed link); a session's context is the connection it builds in
 - `app/lib/cloudflare/data/organization-access.server.ts`, `app/lib/cloudflare/data/organizations.server.ts`, `app/server-handlers/organizations.ts` — organizations, invites, members, and `canUseConnection`, the one check for who may use a connection
 - `app/server-handlers/github-projects.ts`, `app/server-handlers/runtime-github.ts`, `app/lib/cloudflare/data/org-projects.server.ts`, `app/lib/.server/github/` — GitHub projects: the App installation, linked repositories and member access, production requests, and the runtime's snapshot, commit, and build-status calls
-- `app/agents/linked-project-workspace.ts`, `app/lib/.server/cloudflare/linked-project-client.ts`, `app/lib/.server/llm/linked-project-model-tools.ts` — a workspace opened from a GitHub project: seeding, its changes, and the publish tools
+- `app/agents/linked-project-workspace.ts`, `app/agents/linked-project-build.ts`, `app/lib/.server/cloudflare/linked-project-client.ts`, `app/lib/.server/llm/linked-project-model-tools.ts`, `app/lib/.server/llm/linked-site-fetch.ts` — a workspace opened from a GitHub project: seeding, its changes, the publish tools and their background build watch, and reading its live site
 - `app/workflows/user-workspace-runtime-provisioning.ts` — durable background provisioning of user workspace runtimes
 - `app/agents/builder-agent.ts` — builder lifecycle and recovery
 - `app/lib/.server/chat.ts` and `app/lib/.server/llm/` — model and tool orchestration

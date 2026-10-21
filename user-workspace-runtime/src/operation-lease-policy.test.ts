@@ -41,6 +41,8 @@ describe('operation lease policy', () => {
       // GitHub publishing reads the workspace's files and talks to the control plane; it holds no lane.
       'publish_preview',
       'publish',
+      // Reading the live site is one GET from the runtime Worker; it never touches the workspace.
+      'fetch_site',
     ]);
   });
 
