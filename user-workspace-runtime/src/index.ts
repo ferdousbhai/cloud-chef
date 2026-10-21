@@ -1409,6 +1409,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   async installDependenciesTool(value: unknown): Promise<CloudChefToolResult> {
+    await this.#admission.admitNewOperation();
     const input = record(value);
     const toolCallId = requireString(input.toolCallId, 'toolCallId', 512);
     const mode = input.mode === 'sync-lockfile' ? 'sync-lockfile' : input.mode === 'add' ? 'add' : null;
@@ -1533,6 +1534,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       }
       throw new Error('ProjectWorkspace validation is already running.');
     }
+    // Joining the validation already running starts nothing; a new one is new Container work.
+    await this.#admission.admitNewOperation();
     const cancellation = new ValidationCancellation();
     const validation = this.runValidationTool(toolCallId, input.input, cancellation, reportStage);
     const activeRecord = { toolCallId, inputJson, cancellation, promise: validation };
@@ -1818,6 +1821,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       return;
     }
 
+    // A session already open finishes; the switch stops a new one before its build and upload.
+    await this.#admission.admitNewOperation();
     const lease = this.#operationLane.acquire({
       owner,
       idempotencyKey,
