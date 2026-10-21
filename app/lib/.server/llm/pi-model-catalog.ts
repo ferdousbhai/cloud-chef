@@ -66,6 +66,29 @@ function chatModels(catalog: Readonly<Record<string, PiCatalogModel>>, api: Api)
 
 const WORKERS_AI_CATALOG = chatModels(CLOUDFLARE_WORKERS_AI_MODELS, 'openai-completions');
 
+/**
+ * Entries Pi lists as chat models that cannot drive a build, by what their ids say they are. Pi's
+ * catalog records input modalities but not output ones, and nothing about routing or batch-only
+ * serving, so these are matched on the id — each row a kind of model, never a single model, so a new
+ * entry of the same kind is excluded without an edit here.
+ */
+const NON_BUILDER_MODEL_KINDS: readonly { kind: string; id: RegExp }[] = [
+  // Served only through OpenRouter's asynchronous batch API: a streamed builder request never completes.
+  { kind: 'batch-only variant', id: /:batch$/ },
+  // OpenRouter's routers choose a different model per request, so no window, tool protocol, or
+  // reasoning setting holds from one step of a turn to the next.
+  { kind: 'model router', id: /^openrouter\// },
+  // Their output is speech or pictures, not the text and tool calls a build is made of.
+  { kind: 'audio or image model', id: /(^|[/-])(audio|image|tts|realtime)(-|$)/ },
+  { kind: 'search-only model', id: /(^|[/-])search(-|$)/ },
+  { kind: 'safety classifier', id: /safeguard/ },
+];
+
+/** Whether Pi's entry is a model a builder can be driven with, by its kind. */
+function isBuilderCapableKind(piModelId: string): boolean {
+  return !NON_BUILDER_MODEL_KINDS.some(({ id }) => id.test(piModelId));
+}
+
 function gatewayApi(api: Api): GatewayApi | null {
   return GATEWAY_APIS.find((candidate) => candidate === api) ?? null;
 }
@@ -87,6 +110,7 @@ function gatewayCatalog(): Map<string, PiGatewayModel> {
           api === null ||
           !piModel.baseUrl.startsWith(upstreamBaseUrl) ||
           piModel.contextWindow < MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS ||
+          !isBuilderCapableKind(piModel.id) ||
           !isBuilderModelId(id) ||
           catalog.has(id)
         ) {

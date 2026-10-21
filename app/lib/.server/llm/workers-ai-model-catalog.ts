@@ -97,9 +97,21 @@ export async function requireBuilderModel(
     throw new Response('The selected model is not compatible with the CloudChef builder.', { status: 400 });
   }
   // Fail closed: a provider's model is sent only while the account's gateway holds its own key for it.
-  const key = (await gatewayKeys().catch(() => [])).find((candidate) => candidate.provider === provider);
+  // A lookup that failed says nothing about whether the key is there, so it is reported as a check
+  // that could not be made — retryable — rather than as a key an admin has to go and link.
+  const { label } = GATEWAY_PROVIDERS[provider];
+  let keys: GatewayKey[];
+  try {
+    keys = await gatewayKeys();
+  } catch (error) {
+    console.warn({ event: 'gateway_key_lookup_failed', provider, error: String(error) });
+    throw new Response(`CloudChef could not check this account's ${label} key just now. Try again in a moment.`, {
+      status: 503,
+      headers: { 'retry-after': '5' },
+    });
+  }
+  const key = keys.find((candidate) => candidate.provider === provider);
   if (!key) {
-    const { label } = GATEWAY_PROVIDERS[provider];
     throw new Response(
       `${label} is not set up for this account. An admin can link a ${label} key in Settings, under Models.`,
       { status: 409 },

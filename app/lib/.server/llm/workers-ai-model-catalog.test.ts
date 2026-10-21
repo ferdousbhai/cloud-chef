@@ -228,6 +228,30 @@ describe('the builder catalog an account is offered', () => {
     expect(validateBuilderModelCatalogPayload(builderModelCatalogPayloadSchema.parse(all))).toEqual(all);
   });
 
+  it('offers no batch-only variant, model router, audio or image model, search-only model, or classifier', () => {
+    const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'default' }));
+    const ids = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], {
+      defaultModelId: null,
+      gatewayKeys: everyKey,
+    }).models.map(({ id }) => id);
+
+    for (const excluded of [
+      'openrouter/openai/gpt-5:batch',
+      'openrouter/openrouter/auto',
+      'openrouter/openrouter/auto-beta',
+      'openrouter/openrouter/free',
+      'openrouter/openai/gpt-audio',
+      'openrouter/google/gemini-3-pro-image',
+      'openrouter/relace/relace-search',
+      'openrouter/openai/gpt-oss-safeguard-20b',
+    ]) {
+      expect(ids).not.toContain(excluded);
+    }
+    expect(ids.filter((id) => id.endsWith(':batch') || id.startsWith('openrouter/openrouter/'))).toEqual([]);
+    // The same models stay offered in every form that can build.
+    expect(ids).toEqual(expect.arrayContaining(['openrouter/openai/gpt-5', 'openrouter/google/gemma-4-31b-it:free']));
+  });
+
   it("defaults to the model the account's admin chose while it is offered, and to the pin otherwise", () => {
     const chosen = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro], {
       defaultModelId: pro.id,
@@ -271,9 +295,13 @@ describe('the builder catalog an account is offered', () => {
     await expect(requireBuilderModel(binding, 'openrouter/openai/gpt-5', linked)).rejects.toMatchObject({
       status: 409,
     });
-    await expect(
-      requireBuilderModel(binding, 'anthropic/claude-opus-5-5', async () => Promise.reject(new Error('unreachable'))),
-    ).rejects.toMatchObject({ status: 409 });
+    // A lookup that failed is a check that could not be made — retryable, and still no request sent —
+    // not a key the admin has to link.
+    const unchecked = requireBuilderModel(binding, 'anthropic/claude-opus-5-5', async () =>
+      Promise.reject(new Error('unreachable')),
+    );
+    await expect(unchecked).rejects.toMatchObject({ status: 503 });
+    await expect(unchecked.catch((response: Response) => response.text())).resolves.toContain('could not check');
     await expect(requireBuilderModel(binding, 'anthropic/claude-imaginary-9', linked)).rejects.toMatchObject({
       status: 400,
     });
