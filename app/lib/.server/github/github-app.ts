@@ -14,7 +14,6 @@ type GitHubTokenPermissions = {
 
 const accountSchema = z.looseObject({ login: z.string(), type: z.enum(['User', 'Organization']) });
 const installationSchema = z.looseObject({ id: z.number().int(), account: accountSchema });
-const userInstallationsSchema = z.looseObject({ installations: z.array(installationSchema) });
 const tokenSchema = z.looseObject({ token: z.string().min(1), expires_at: z.string() });
 const userTokenSchema = z.looseObject({ access_token: z.string().min(1).optional(), error: z.string().optional() });
 const gitHubRepositorySchema = z.looseObject({
@@ -147,10 +146,24 @@ export class GitHubApp {
     return parsed.data.access_token;
   }
 
-  /** The installations the GitHub user behind `userToken` can reach: proof an installation is theirs. */
-  async userInstallations(userToken: string): Promise<GitHubInstallation[]> {
-    const page = await this.call(`/user/installations?per_page=100`, userToken, userInstallationsSchema);
-    return page.installations;
+  /**
+   * One of the App's installations, as the App sees it (the account it is on), or null when the App has
+   * none by that id or it is on an account that is neither a user nor an organization. Asked of the App, in
+   * one request, rather than found among the installations an admin can see (`/user/installations`, paged):
+   * seeing one proves nothing, and whether they control its account is checked on its own.
+   */
+  async installation(installationId: number): Promise<GitHubInstallation | null> {
+    const jwt = await createGitHubAppJwt(this.config.clientId, this.config.privateKey);
+    const response = await fetchGitHub(this.request, `/app/installations/${installationId}`, jwt);
+    if (!response.ok) {
+      await response.body?.cancel();
+      if (response.status === 404) {
+        return null;
+      }
+      throw new GitHubError(`GitHub refused the request (${response.status}).`, response.status);
+    }
+    const installation = installationSchema.safeParse(await response.json().catch(() => null));
+    return installation.success ? installation.data : null;
   }
 
   /** A token for `installationId`, limited to `repositoryIds` (all it reaches when empty) and `permissions`. */

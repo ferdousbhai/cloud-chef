@@ -163,9 +163,9 @@ export async function completeGitHubInstallAction({
   }
   try {
     const userToken = await app.userToken(code);
-    const installation = (await app.userInstallations(userToken)).find((candidate) => candidate.id === installationId);
-    // Seeing an installation isn't controlling it: anyone who can read one of an organization's repositories
-    // sees its installations. It must be the admin's own account, or an organization they own.
+    const installation = await app.installation(installationId);
+    // The App's installation on some account is not the admin's: it must be on their own account, or on an
+    // organization they own.
     const controls =
       installation &&
       (installation.account.type === 'User'

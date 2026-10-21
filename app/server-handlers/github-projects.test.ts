@@ -35,7 +35,7 @@ async function pkcs8Pem(): Promise<{ pem: string; publicKey: CryptoKey }> {
   };
 }
 
-/** GitHub as CloudChef sees it: one installation the user `ada-gh` can reach, and what was asked of it. */
+/** GitHub as CloudChef sees it: the App's one installation, on `ada`'s account, and what was asked of it. */
 function fakeGitHub(pem: string, login = 'ada') {
   const calls: { url: string; body: string | null }[] = [];
   const request: typeof fetch = async (input, init) => {
@@ -48,7 +48,17 @@ function fakeGitHub(pem: string, login = 'ada') {
       return Response.json({ login });
     }
     if (url.startsWith('https://api.github.com/user/installations')) {
-      return Response.json({ installations: [{ id: INSTALLATION_ID, account: { login: 'ada', type: 'User' } }] });
+      // The admin can see more installations than one page lists, and CloudChef's isn't on the first.
+      return Response.json({
+        total_count: 101,
+        installations: Array.from({ length: 100 }, (_, index) => ({
+          id: index + 1,
+          account: { login: `org-${index}`, type: 'Organization' },
+        })),
+      });
+    }
+    if (url === `https://api.github.com/app/installations/${INSTALLATION_ID}`) {
+      return Response.json({ id: INSTALLATION_ID, account: { login: 'ada', type: 'User' } });
     }
     if (url === `https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens`) {
       return Response.json({ token: 'installation-token', expires_at: '2026-10-19T12:00:00Z' }, { status: 201 });
@@ -170,7 +180,7 @@ describe('GitHub App', () => {
 });
 
 describe('GitHub projects', () => {
-  it('records an installation only when the returning admin can reach it', async () => {
+  it("records an installation only when it is the App's, on the returning admin's account", async () => {
     const { env, orgId, admin, app } = await setup();
     const forged = await install(env, app, admin.cookie, orgId, 999);
     expect(forged.status).toBe(303);
