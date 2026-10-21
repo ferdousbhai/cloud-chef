@@ -1,5 +1,5 @@
 {
-  "total": 1141,
+  "total": 1134,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -303,10 +303,6 @@
     "app/lib/cloudflare/data/agent-gc.server.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 7
-    },
-    "app/lib/cloudflare/data/app-resource-gc.server.test.ts": {
-      "anti-slop/no-chained-type-assertions": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 6
     },
     "app/lib/cloudflare/data/auth.server.ts": {
       "anti-slop/no-unknown-parameters": 1
