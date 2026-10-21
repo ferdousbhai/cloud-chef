@@ -130,7 +130,7 @@ describe('control-plane account erasure', () => {
     ]);
   });
 
-  it("deletes the person's workspace in each team's account once they've left, and names the teams where it couldn't be", async () => {
+  it("deletes the person's workspace in each team's account before they leave, and names the teams where it couldn't be", async () => {
     const { database, db } = controlPlaneDatabase();
     for (const userId of ['user-1', 'admin']) {
       seedAccount(database, null, userId);
@@ -163,10 +163,10 @@ describe('control-plane account erasure', () => {
       env: envWith({ DB: db }),
       userId: 'user-1',
       deleteWorkspace: async (_env, orgId, userId) => {
-        // Out of the team by now, with the team's connection still in place, when it's asked.
+        // Still in the team, with the team's connection in place, when it's asked: leaving comes last.
         expect(
           database.prepare('SELECT COUNT(*) AS count FROM organization_members WHERE user_id = ?').get(userId),
-        ).toEqual({ count: 0 });
+        ).toEqual({ count: 3 });
         expect(database.prepare('SELECT status FROM cloudflare_connections WHERE org_id = ?').get(orgId)).toEqual({
           status: 'active',
         });
@@ -190,23 +190,21 @@ describe('control-plane account erasure', () => {
     ).toEqual({ count: 0 });
   });
 
-  it('deletes no workspace when leaving their teams is refused', async () => {
+  it('deletes no workspace when the erasure is refused for a team left without an admin', async () => {
     const { database, db } = controlPlaneDatabase();
-    for (const userId of ['user-1', 'admin']) {
+    for (const userId of ['user-1', 'member']) {
       seedAccount(database, null, userId);
     }
     database.exec(`
       INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('acme', 'Acme', 1, 1);
       INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
-        ('acme', 'user-1', 'member', 1), ('acme', 'admin', 'admin', 1);
+        ('acme', 'user-1', 'admin', 1), ('acme', 'member', 'member', 1);
       INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at)
         VALUES ('acme-connection', 'acme', 'acme-account', 'active', 1, 1);
       INSERT INTO user_computer_runtimes
         (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
          last_error, created_at, updated_at)
         VALUES ('user-1', 'acme-connection', 1, 'worker', 'https://runtime.example', 'sha', 'ready', NULL, 1, 1);
-      CREATE TRIGGER refuse_leaving BEFORE DELETE ON organization_members
-      BEGIN SELECT RAISE(ABORT, 'refused'); END;
     `);
     const deleted: string[] = [];
 
@@ -218,11 +216,165 @@ describe('control-plane account erasure', () => {
           deleted.push(orgId);
         },
       }),
-    ).rejects.toThrow('refused');
+    ).rejects.toBeInstanceOf(OrganizationAdminRequiredError);
 
     expect(deleted).toEqual([]);
+    expect(rowCount(database, 'organization_members')).toBe(2);
+  });
+
+  it('names a team whose connection is no longer active as left behind, but not a team going with them', async () => {
+    const { database, db } = controlPlaneDatabase();
+    for (const userId of ['user-1', 'admin']) {
+      seedAccount(database, null, userId);
+    }
+    database.exec(`
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('acme', 'Acme', 1, 1), ('solo', 'Solo', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+        ('acme', 'user-1', 'member', 1), ('acme', 'admin', 'admin', 1), ('solo', 'user-1', 'admin', 1);
+      INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at) VALUES
+        ('acme-connection', 'acme', 'acme-account', 'revoked', 1, 1),
+        ('solo-connection', 'solo', 'solo-account', 'revoked', 1, 1);
+    `);
+    for (const connectionId of ['acme-connection', 'solo-connection']) {
+      insertRuntime(database, 'user-1', connectionId);
+    }
+    const deleted: string[] = [];
+
+    const erasure = await eraseControlPlaneAccount({
+      env: envWith({ DB: db }),
+      userId: 'user-1',
+      deleteWorkspace: async (_env, orgId) => {
+        deleted.push(orgId);
+      },
+    });
+
+    expect(deleted).toEqual([]);
+    expect(erasure.workspacesLeftIn).toEqual(['Acme']);
+  });
+
+  it('refuses at the write if another admin stepped down meanwhile, and a retry then finishes', async () => {
+    const { database, db } = controlPlaneDatabase();
+    for (const userId of ['user-1', 'admin']) {
+      seedAccount(database, null, userId);
+    }
+    database.exec(`
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('acme', 'Acme', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+        ('acme', 'user-1', 'member', 1), ('acme', 'admin', 'admin', 1);
+      CREATE TRIGGER refuse_leaving BEFORE DELETE ON organization_members
+      BEGIN SELECT RAISE(ABORT, 'refused'); END;
+    `);
+
+    await expect(eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'user-1' })).rejects.toThrow('refused');
+    expect(rowCount(database, 'organization_members')).toBe(2);
+    expect(database.prepare("SELECT status FROM cloudflare_connections WHERE user_id = 'user-1'").get()).toEqual({
+      status: 'active',
+    });
+
+    database.exec('DROP TRIGGER refuse_leaving');
+    await eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'user-1' });
+    expect(database.prepare('SELECT user_id FROM organization_members').all()).toEqual([{ user_id: 'admin' }]);
+  });
+
+  describe.each([
+    ['before revoking the teams only they belong to', /SET status = 'revoked', updated_at = \?1/, ['acme', 'solo']],
+    ['before leaving their teams', /DELETE FROM organization_members/, ['acme']],
+    ['before revoking their own connection', /WHERE user_id = \? AND status = 'active'/, ['acme']],
+    ['before the last write', /DELETE FROM "user"/, ['acme']],
+  ])('an erasure interrupted %s', (_stage, interruptedStatement, retriedWorkspaces) => {
+    it('is finished by a retry, which reports truthfully', async () => {
+      const { database, db } = controlPlaneDatabase();
+      const revoke = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+      const vault = new D1CloudflareCredentialVault(db, ENCRYPTION_KEY, {
+        clientId: 'client',
+        clientSecret: 'secret',
+        request: revoke,
+      });
+      const store = (refreshToken: string) =>
+        vault.storeOAuthCredential({ accessToken: 'a', refreshToken, expiresAt: Date.now() + 3_600_000 });
+      const [own, acme, solo] = [await store('own'), await store('acme'), await store('solo')];
+      seedAccount(database, own, 'user-1');
+      seedAccount(database, null, 'admin');
+      database.exec(`
+        INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('acme', 'Acme', 1, 1), ('solo', 'Solo', 1, 1);
+        INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+          ('acme', 'user-1', 'member', 1), ('acme', 'admin', 'admin', 1), ('solo', 'user-1', 'admin', 1);
+      `);
+      for (const [orgId, handle] of [
+        ['acme', acme],
+        ['solo', solo],
+      ]) {
+        database
+          .prepare(
+            `INSERT INTO cloudflare_connections (id, org_id, account_id, status, credential_handle, created_at, updated_at)
+             VALUES (?, ?, 'team-account', 'active', ?, 1, 1)`,
+          )
+          .run(`${orgId}-connection`, orgId, handle);
+        insertRuntime(database, 'user-1', `${orgId}-connection`);
+      }
+
+      await expect(
+        eraseControlPlaneAccount({
+          env: envWith({ DB: interruptedAt(db, interruptedStatement) }),
+          userId: 'user-1',
+          vault,
+          deleteWorkspace: async () => undefined,
+        }),
+      ).rejects.toThrow('interrupted');
+      const deleted: string[] = [];
+      const erasure = await eraseControlPlaneAccount({
+        env: envWith({ DB: db }),
+        userId: 'user-1',
+        vault,
+        deleteWorkspace: async (_env, orgId) => {
+          deleted.push(orgId);
+        },
+      });
+
+      expect(erasure).toEqual({ cloudflareAuthorizationRevoked: true, workspacesLeftIn: [] });
+      expect(deleted).toEqual(retriedWorkspaces);
+      expect(database.prepare('SELECT id FROM "user"').all()).toEqual([{ id: 'admin' }]);
+      expect(database.prepare('SELECT id FROM organizations').all()).toEqual([{ id: 'acme' }]);
+      expect(database.prepare('SELECT org_id, user_id FROM organization_members').all()).toEqual([
+        { org_id: 'acme', user_id: 'admin' },
+      ]);
+      expect(database.prepare('SELECT handle FROM cloudflare_credentials').all()).toEqual([{ handle: acme }]);
+      expect(rowCount(database, 'user_computer_runtimes')).toBe(1);
+      const revokedTokens = revoke.mock.calls.map(([, init]) => String(init?.body)).join(' ');
+      expect(revokedTokens).toContain('token=own');
+      expect(revokedTokens).toContain('token=solo');
+      expect(revokedTokens).not.toContain('token=acme');
+    });
   });
 });
+
+/** The database as an erasure sees it when the Worker stops just as it is about to run `statement`. */
+function interruptedAt(db: D1Database, statement: RegExp): D1Database {
+  return new Proxy(db, {
+    get(target, property) {
+      if (property === 'prepare') {
+        return (query: string) => {
+          if (statement.test(query)) {
+            throw new Error('interrupted');
+          }
+          return target.prepare(query);
+        };
+      }
+      return Reflect.get(target, property);
+    },
+  });
+}
+
+function insertRuntime(database: DatabaseSyncInstance, userId: string, connectionId: string): void {
+  database
+    .prepare(
+      `INSERT INTO user_computer_runtimes
+         (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
+          last_error, created_at, updated_at)
+       VALUES (?, ?, 1, 'worker', 'https://runtime.example', 'sha', 'ready', NULL, 1, 1)`,
+    )
+    .run(userId, connectionId);
+}
 
 function seedAccount(database: DatabaseSyncInstance, credentialHandle: string | null, userId = 'user-1'): void {
   database
