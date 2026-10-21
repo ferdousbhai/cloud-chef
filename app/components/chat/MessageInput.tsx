@@ -1,4 +1,12 @@
-import { memo, useContext, useEffect, useRef, type ChangeEventHandler, type KeyboardEventHandler } from 'react';
+import {
+  memo,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEventHandler,
+  type KeyboardEventHandler,
+} from 'react';
 import { ArrowRightIcon, StopIcon } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';
 import { KeyboardShortcut } from '@ui/KeyboardShortcut';
@@ -180,22 +188,33 @@ function PromptTextarea({
   disabled: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  // The textarea grows with its text, so only the box around it ever scrolls, and only once the text is
+  // taller than the box: an empty composer never shows a scrollbar.
+  const [overflowing, setOverflowing] = useState(false);
   useEffect(() => {
     if (ref.current) {
       ref.current.style.height = 'auto';
       ref.current.style.height = `${ref.current.scrollHeight}px`;
+      setOverflowing(ref.current.scrollHeight > maxHeight);
     }
-  }, [value]);
+  }, [value, maxHeight]);
 
   return (
-    <div className="relative overflow-y-auto" style={{ minHeight, maxHeight }}>
+    <div
+      className={classNames(
+        'relative',
+        overflowing
+          ? 'overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-macosScrollbar-thumb'
+          : 'overflow-y-hidden',
+      )}
+      style={{ minHeight, maxHeight }}
+    >
       <textarea
         ref={ref}
         rows={1}
         className={classNames(
-          'block w-full appearance-none resize-none bg-transparent px-3 py-3 text-sm leading-snug text-content-primary outline-none placeholder-content-tertiary',
+          'block w-full appearance-none resize-none overflow-hidden bg-transparent px-3 py-3 text-sm leading-snug text-content-primary outline-none placeholder-content-tertiary',
           'disabled:cursor-not-allowed disabled:opacity-50',
-          'scrollbar-thin scrollbar-track-transparent scrollbar-thumb-macosScrollbar-thumb',
         )}
         disabled={disabled}
         onKeyDown={onKeyDown}
@@ -203,7 +222,7 @@ function PromptTextarea({
         value={value}
         style={{ minHeight }}
         placeholder={placeholder}
-        aria-label={placeholder}
+        aria-label="Message to CloudChef"
         translate="no"
         data-gramm="false"
         maxLength={MAX_USER_MESSAGE_CHARACTERS}

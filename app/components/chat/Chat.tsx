@@ -216,16 +216,37 @@ const WORKSPACE_RELEASE_NOTICE = 'Preparing your workspace — a new release is 
  * still working through reads as a wait; a wait it has given up on says so and offers the retry,
  * because an unexplained "Loading project files…" is indistinguishable from a hang.
  */
-function workspaceSyncNotice(
-  state: WorkspacePresentationState,
-  workspacePreparing: boolean,
-  onRetry: () => void,
-): ReactNode {
+function workspaceSyncNotice(state: WorkspacePresentationState, workspacePreparing: boolean): ReactNode {
   if (state === 'ready') {
     return null;
   }
   if (state === 'presentation-error') {
     return 'Editor unavailable. Chat, builds, and previews still work.';
+  }
+  if (state === 'unavailable') {
+    // Said where the composer is closed: see chatDisabledReason.
+    return null;
+  }
+  if (workspacePreparing) {
+    return WORKSPACE_RELEASE_NOTICE;
+  }
+  return state === 'reconnecting' ? 'Reconnecting to your workspace…' : 'Loading project files…';
+}
+
+const ARCHIVED_LINKED_CHAT_REASON =
+  'This conversation continues in a newer one. Open the project from GitHub projects in the sidebar to keep working.';
+
+/**
+ * Why the composer is closed, or null while it sends. A workspace the browser gave up reaching closes it
+ * too: a message sent then would only fail, so the composer says it's paused and offers the retry.
+ */
+function chatDisabledReason(
+  archivedLinkedChat: boolean,
+  state: WorkspacePresentationState,
+  onRetry: () => void,
+): ReactNode | null {
+  if (archivedLinkedChat) {
+    return ARCHIVED_LINKED_CHAT_REASON;
   }
   if (state === 'unavailable') {
     return (
@@ -237,10 +258,7 @@ function workspaceSyncNotice(
       </span>
     );
   }
-  if (workspacePreparing) {
-    return WORKSPACE_RELEASE_NOTICE;
-  }
-  return state === 'reconnecting' ? 'Reconnecting to your workspace…' : 'Loading project files…';
+  return null;
 }
 
 const AuthenticatedChat = memo(
@@ -389,18 +407,14 @@ const AuthenticatedChat = memo(
         currentError={error}
         buildProgress={buildProgress}
         messages={visibleMessages}
-        disabledReason={
-          archivedLinkedChat
-            ? 'This conversation continues in a newer one. Open the project from GitHub projects in the sidebar to keep working.'
-            : null
-        }
+        disabledReason={chatDisabledReason(archivedLinkedChat, workspacePresentationState, retryWorkspacePresentation)}
         deployment={deployment}
         publication={publication}
         onDeploy={deployValidatedRevision}
         onRequestProduction={requestProduction}
         cloudflareExecutions={cloudflareExecutions}
         onCloudflareExecutionDecision={decideCloudflareExecution}
-        runtimeNotice={workspaceSyncNotice(workspacePresentationState, workspacePreparing, retryWorkspacePresentation)}
+        runtimeNotice={workspaceSyncNotice(workspacePresentationState, workspacePreparing)}
         sendMessageInProgress={sendMessageInProgress}
         subchats={visibleSubchats}
         onSubchatTitleChange={handleSubchatTitleChange}
