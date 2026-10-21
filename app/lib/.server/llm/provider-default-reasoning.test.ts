@@ -1,0 +1,349 @@
+import { describe, expect, it } from 'vitest';
+import { normalizeContext, type AssistantMessage, type TranscriptContext } from '@earendil-works/pi-ai';
+import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
+import { z } from 'zod';
+import { GATEWAY_PROVIDER_SLUGS, isWorkersAiModelId, type BuilderModelId } from '~/lib/workers-ai-model';
+import { getPiModel, type ModelStreamOptions } from './pi-ai-models';
+import { gatewayBuilderModels, piGatewayModel } from './pi-model-catalog';
+import { withProviderDefaultReasoning } from './provider-default-reasoning';
+
+const READ_FILE_TOOL = {
+  name: 'read_file',
+  description: 'Read a file.',
+  parameters: z.toJSONSchema(z.object({ path: z.string() })),
+};
+
+type Body = Record<string, unknown>;
+type GatewayRequest = { provider: string; endpoint: string; headers: Record<string, string>; query: Body };
+
+/** A binding whose gateway records each universal request and answers it with `answer`. */
+function gatewayBinding(answer: (request: GatewayRequest) => Response) {
+  const requests: GatewayRequest[] = [];
+  const gateway = () => ({
+    run: async (request: GatewayRequest) => {
+      requests.push(structuredClone(request));
+      return answer(request);
+    },
+  });
+  // SAFETY: the gateway transport calls only `gateway(id).run(request, options)`, which this implements.
+  return { requests, credentials: { binding: Object.assign({} as Ai, { gateway }) } };
+}
+
+/** A binding whose Workers AI `run` records each request body, refusing it so the stream ends. */
+function workersAiBinding() {
+  const bodies: Body[] = [];
+  const run = async (_model: string, inputs: Body) => {
+    bodies.push(structuredClone(inputs));
+    return Response.json({ errors: [{ message: 'stop here' }] }, { status: 400 });
+  };
+  // SAFETY: the binding fetch calls only the raw-response `run`, which this implements.
+  return { bodies, credentials: { binding: Object.assign({} as Ai, { run }) } };
+}
+
+const refused = () =>
+  Response.json({ error: { type: 'invalid_request_error', message: 'stop here' } }, { status: 400 });
+
+function sse(events: readonly object[]): Response {
+  const lines = events.map(
+    (event) => `event: ${String((event as { type: string }).type)}\ndata: ${JSON.stringify(event)}\n\n`,
+  );
+  return new Response(lines.join(''), { headers: { 'content-type': 'text/event-stream' } });
+}
+
+function userContext(): TranscriptContext {
+  return normalizeContext({
+    systemPrompt: 'You are a builder.',
+    tools: [READ_FILE_TOOL],
+    messages: [{ role: 'user', content: 'Build a todo app.', timestamp: 1 }],
+  });
+}
+
+async function streamOnce(
+  credentials: { binding: Ai },
+  modelId: BuilderModelId,
+  context: TranscriptContext = userContext(),
+  options: ModelStreamOptions = {},
+  settings: { sessionAffinity?: string } = {},
+): Promise<AssistantMessage> {
+  const handle = getPiModel(credentials, modelId, settings);
+  return handle.stream(handle.model, context, { toolChoice: 'auto', ...options }).result();
+}
+
+/** Every place a body could tell a model to stop reasoning, as `path=value` strings. */
+function reasoningOffDirectives(body: Body): string[] {
+  const found: string[] = [];
+  const visit = (value: unknown, path: string) => {
+    if (Array.isArray(value)) {
+      // Message history is the transcript, not a directive.
+      return;
+    }
+    if (typeof value !== 'object' || value === null) {
+      return;
+    }
+    for (const [key, child] of Object.entries(value)) {
+      const at = path ? `${path}.${key}` : key;
+      if (
+        (key === 'effort' || key === 'reasoning_effort' || key === 'thinking') &&
+        (child === 'none' || child === 'off')
+      ) {
+        found.push(`${at}=${String(child)}`);
+      }
+      if (key === 'type' && child === 'disabled') {
+        found.push(`${at}=disabled`);
+      }
+      if ((key === 'enable_thinking' || key === 'enabled') && child === false) {
+        found.push(`${at}=false`);
+      }
+      visit(child, at);
+    }
+  };
+  visit(body, '');
+  return found;
+}
+
+describe('a reasoning model asked for no level', () => {
+  const gatewayReasoningModels = gatewayBuilderModels(GATEWAY_PROVIDER_SLUGS).filter((model) => model.reasoning);
+
+  it('covers every API the gateway carries', () => {
+    const apis = new Set(gatewayReasoningModels.map((model) => piGatewayModel(model.id)?.api));
+    expect([...apis].sort()).toEqual(['anthropic-messages', 'openai-completions', 'openai-responses']);
+  });
+
+  it('is never told to stop reasoning, on any gateway provider', async () => {
+    const { requests, credentials } = gatewayBinding(refused);
+    const offenders: string[] = [];
+    for (const model of gatewayReasoningModels) {
+      requests.length = 0;
+      await streamOnce(credentials, model.id);
+      expect(requests, model.id).toHaveLength(1);
+      const [request] = requests;
+      const directives = reasoningOffDirectives(request!.query);
+      if (directives.length > 0) {
+        offenders.push(`${model.id}: ${directives.join(', ')}`);
+      }
+      const api = piGatewayModel(model.id)?.api;
+      if (api === 'openai-responses') {
+        // `store: false` means replayed reasoning needs its encrypted content, on every request.
+        expect(request!.query.include, model.id).toContain('reasoning.encrypted_content');
+      }
+      if (api === 'anthropic-messages') {
+        expect(request!.query.thinking, model.id).toMatchObject({
+          type: expect.stringMatching(/^(adaptive|enabled)$/),
+        });
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('is never told to stop reasoning on Workers AI', async () => {
+    const reasoningModels = Object.values(CLOUDFLARE_WORKERS_AI_MODELS).filter(
+      (model) => model.reasoning && isWorkersAiModelId(model.id),
+    );
+    expect(reasoningModels.length).toBeGreaterThan(0);
+    const { bodies, credentials } = workersAiBinding();
+    const offenders: string[] = [];
+    for (const model of reasoningModels) {
+      bodies.length = 0;
+      await streamOnce(credentials, model.id);
+      expect(bodies.length, model.id).toBeGreaterThan(0);
+      const directives = reasoningOffDirectives(bodies[0]!);
+      if (directives.length > 0) {
+        offenders.push(`${model.id}: ${directives.join(', ')}`);
+      }
+      // No level means no effort at all: the model reasons at its own default.
+      expect(bodies[0], model.id).not.toHaveProperty('reasoning_effort');
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('leaves the effort to OpenAI and asks it for reasoning summaries', async () => {
+    const { requests, credentials } = gatewayBinding(refused);
+    await streamOnce(credentials, 'openai/gpt-6-luna');
+    expect(requests[0]?.query).toMatchObject({ store: false, reasoning: { summary: 'auto' } });
+    expect(requests[0]?.query.reasoning).not.toHaveProperty('effort');
+  });
+
+  it('sends grok-4.3 and an OpenRouter reasoning model no effort at all', async () => {
+    const { requests, credentials } = gatewayBinding(refused);
+    await streamOnce(credentials, 'grok/grok-4.3');
+    await streamOnce(credentials, 'openrouter/openai/gpt-5.1');
+    expect(requests[0]?.query).not.toHaveProperty('reasoning');
+    expect(requests[0]?.query.include).toContain('reasoning.encrypted_content');
+    expect(requests[1]?.query).not.toHaveProperty('reasoning');
+    expect(requests[1]?.query).not.toHaveProperty('reasoning_effort');
+  });
+});
+
+describe('a reasoning model asked for a level', () => {
+  it('carries that level to the provider in its own vocabulary', async () => {
+    const { requests, credentials } = gatewayBinding(refused);
+    await streamOnce(credentials, 'openai/gpt-6-luna', userContext(), { reasoning: 'high' });
+    await streamOnce(credentials, 'openrouter/openai/gpt-5.1', userContext(), { reasoning: 'medium' });
+    await streamOnce(credentials, 'anthropic/claude-opus-5-5', userContext(), { reasoning: 'xhigh' });
+
+    expect(requests[0]?.query).toMatchObject({ reasoning: { effort: 'high' } });
+    expect(requests[0]?.query.include).toContain('reasoning.encrypted_content');
+    expect(requests[1]?.query).toMatchObject({ reasoning: { effort: 'medium' } });
+    expect(requests[2]?.query).toMatchObject({ thinking: { type: 'adaptive' }, output_config: { effort: 'xhigh' } });
+  });
+
+  it('gives a budget-thinking Claude a budget for that level', async () => {
+    const { requests, credentials } = gatewayBinding(refused);
+    await streamOnce(credentials, 'anthropic/claude-sonnet-4-5', userContext(), { reasoning: 'medium' });
+    expect(requests[0]?.query).toMatchObject({ thinking: { type: 'enabled', budget_tokens: 8_192 } });
+  });
+
+  it('carries a Workers AI level as written', async () => {
+    const { bodies, credentials } = workersAiBinding();
+    await streamOnce(credentials, '@cf/openai/gpt-oss-120b', userContext(), { reasoning: 'medium' });
+    expect(bodies[0]).toMatchObject({ reasoning_effort: 'medium' });
+  });
+});
+
+describe('a two-step tool turn on OpenAI Responses', () => {
+  const ENCRYPTED = 'gAAAA-encrypted-reasoning';
+
+  /** A first step that reasons, then calls `read_file`; Pi keeps the reasoning item as the signature. */
+  function reasoningThenToolCall(model: string): Response {
+    const reasoning = {
+      type: 'reasoning',
+      id: 'rs_1',
+      summary: [{ type: 'summary_text', text: 'Read the manifest first.' }],
+      encrypted_content: ENCRYPTED,
+    };
+    const call = {
+      type: 'function_call',
+      id: 'fc_1',
+      call_id: 'call_1',
+      name: 'read_file',
+      arguments: '{"path":"package.json"}',
+      status: 'completed',
+    };
+    const usage = {
+      input_tokens: 10,
+      output_tokens: 5,
+      total_tokens: 15,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens_details: { reasoning_tokens: 3 },
+    };
+    return sse([
+      { type: 'response.created', response: { id: 'resp_1', model, status: 'in_progress', output: [] } },
+      { type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: 'rs_1', summary: [] } },
+      { type: 'response.output_item.done', output_index: 0, item: reasoning },
+      { type: 'response.output_item.added', output_index: 1, item: { ...call, arguments: '', status: 'in_progress' } },
+      { type: 'response.function_call_arguments.delta', output_index: 1, item_id: 'fc_1', delta: call.arguments },
+      { type: 'response.function_call_arguments.done', output_index: 1, item_id: 'fc_1', arguments: call.arguments },
+      { type: 'response.output_item.done', output_index: 1, item: call },
+      {
+        type: 'response.completed',
+        response: { id: 'resp_1', model, status: 'completed', output: [reasoning, call], usage },
+      },
+    ]);
+  }
+
+  it.each(['openai/gpt-5.5', 'openai/gpt-6-luna'] as const)(
+    '%s replays the first step with its encrypted reasoning',
+    async (modelId) => {
+      const { requests, credentials } = gatewayBinding((request) =>
+        requests.length === 1 ? reasoningThenToolCall(String(request.query.model)) : refused(),
+      );
+      const context = userContext();
+      const first = await streamOnce(credentials, modelId, context);
+      expect(first.stopReason).toBe('toolUse');
+
+      const second: TranscriptContext = {
+        ...context,
+        messages: [
+          ...context.messages,
+          first,
+          {
+            role: 'toolResult',
+            toolCallId: first.content.find((block) => block.type === 'toolCall')!.id,
+            toolName: 'read_file',
+            content: [{ type: 'text', text: '{"name":"demo"}' }],
+            isError: false,
+            timestamp: 3,
+          },
+        ],
+      };
+      await streamOnce(credentials, modelId, second);
+
+      expect(requests).toHaveLength(2);
+      for (const request of requests) {
+        expect(request.query).toMatchObject({ store: false, include: ['reasoning.encrypted_content'] });
+        expect(reasoningOffDirectives(request.query)).toEqual([]);
+      }
+      const input = requests[1]!.query.input as Body[];
+      expect(input).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'reasoning', id: 'rs_1', encrypted_content: ENCRYPTED }),
+          expect.objectContaining({ type: 'function_call', id: 'fc_1', call_id: 'call_1' }),
+          expect.objectContaining({ type: 'function_call_output', call_id: 'call_1' }),
+        ]),
+      );
+      const reasoningAt = input.findIndex((item) => item.type === 'reasoning');
+      expect(input[reasoningAt + 1]).toMatchObject({ type: 'function_call', id: 'fc_1' });
+    },
+  );
+
+  it("keys a chat's requests to its cached prefix", async () => {
+    const { requests, credentials } = gatewayBinding(refused);
+    await streamOnce(credentials, 'openai/gpt-5.5', userContext(), {}, { sessionAffinity: 'chat-affinity-1' });
+    expect(requests[0]?.query).toMatchObject({ prompt_cache_key: 'chat-affinity-1' });
+  });
+});
+
+describe('withProviderDefaultReasoning', () => {
+  const responsesModel = piGatewayModel('openai/gpt-6-luna')!.model;
+  const completionsModel = piGatewayModel('openrouter/openai/gpt-5.1')!.model;
+
+  it('drops replayed reasoning it cannot replay, and unpairs the tool calls that followed it', () => {
+    const body = withProviderDefaultReasoning(
+      responsesModel,
+      {
+        input: [
+          { role: 'user', content: 'go' },
+          { type: 'reasoning', id: 'rs_lost', summary: [] },
+          { type: 'function_call', id: 'fc_a', call_id: 'a', name: 'read_file', arguments: '{}' },
+          { type: 'function_call_output', call_id: 'a', output: 'ok' },
+          { type: 'reasoning', id: 'rs_kept', summary: [], encrypted_content: 'x' },
+          { type: 'function_call', id: 'fc_b', call_id: 'b', name: 'read_file', arguments: '{}' },
+        ],
+      },
+      { requested: false },
+    );
+    expect(body.input).toEqual([
+      { role: 'user', content: 'go' },
+      { type: 'function_call', call_id: 'a', name: 'read_file', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'a', output: 'ok' },
+      { type: 'reasoning', id: 'rs_kept', summary: [], encrypted_content: 'x' },
+      { type: 'function_call', id: 'fc_b', call_id: 'b', name: 'read_file', arguments: '{}' },
+    ]);
+  });
+
+  it('never strips a level the caller asked for', () => {
+    expect(
+      withProviderDefaultReasoning(responsesModel, { reasoning: { effort: 'none' } }, { requested: true }).reasoning,
+    ).toEqual({ effort: 'none' });
+    expect(
+      withProviderDefaultReasoning(completionsModel, { reasoning: { effort: 'none' } }, { requested: true }).reasoning,
+    ).toEqual({ effort: 'none' });
+  });
+
+  it('removes only what means off, keeping the rest of a directive', () => {
+    expect(
+      withProviderDefaultReasoning(
+        completionsModel,
+        { chat_template_kwargs: { enable_thinking: false, preserve_thinking: true }, reasoning_effort: 'low' },
+        { requested: false },
+      ),
+    ).toEqual({ chat_template_kwargs: { preserve_thinking: true }, reasoning_effort: 'low' });
+  });
+
+  it('leaves a non-reasoning model alone', () => {
+    const plain = { ...completionsModel, reasoning: false };
+    expect(withProviderDefaultReasoning(plain, { reasoning_effort: 'none' }, { requested: false })).toEqual({
+      reasoning_effort: 'none',
+    });
+  });
+});
