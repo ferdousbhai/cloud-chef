@@ -62,7 +62,7 @@ describe('app resource garbage collection', () => {
     ]);
   });
 
-  it('deletes the Worker the plan names when an upload landed but was never recorded', async () => {
+  it('deletes by name every plan resource a deployment has no record of, after the Worker', async () => {
     const workspace = new AppResourceGcWorkspace();
     workspace.deployment('deployment-1', JSON.stringify(await deploymentPlan()), [['d1', 'DB', 'db-id-1']]);
     const accountApi = cleanupApi(true);
@@ -73,7 +73,16 @@ describe('app resource garbage collection', () => {
     expect(accountApi.deleteManagedWorker.mock.invocationCallOrder[0]).toBeLessThan(
       accountApi.deleteD1DatabaseById.mock.invocationCallOrder[0]!,
     );
-    expect(accountApi.deleteD1Database).not.toHaveBeenCalled();
+    expect(accountApi.deleteD1DatabaseById).toHaveBeenCalledWith('db-id-1');
+    // The recorded database is deleted by its id, and the others (a second database, its previews, the
+    // bucket and the namespace whose records never landed) by the names the plan gives them.
+    expect(accountApi.deleteD1Database.mock.calls.map(([name]) => name).sort()).toEqual([
+      'cloudchef-deployment-1-agent-security',
+      'cloudchef-deployment-1-preview',
+      'cloudchef-deployment-1-preview-agent',
+    ]);
+    expect(accountApi.deleteR2Bucket).toHaveBeenCalledWith('cloudchef-deployment-1-storage');
+    expect(accountApi.deleteKvNamespace).toHaveBeenCalledWith('cloudchef-deployment-1-cache');
     expect(workspace.candidates()).toEqual([]);
   });
 

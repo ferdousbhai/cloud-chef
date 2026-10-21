@@ -239,9 +239,10 @@ const PLAN_RESOURCES = [
 ] as const;
 
 /**
- * Everything a deployment recorded, by the provider id it was created with, or, when it recorded
- * nothing, every resource its plan names. The Worker is recorded only once it serves, so an upload that
- * failed after it landed left a Worker of the plan's name and no record of it.
+ * Everything a deployment recorded, by the provider id it was created with, and every resource its plan
+ * names that it has no record of, by name: provisioning creates a resource before recording it, so a
+ * failed record (or an upload that landed and failed after) leaves one only the plan's name finds.
+ * Deleting by name is idempotent, and a name already gone is skipped.
  */
 function cleanupTargets(
   owned: readonly DeploymentResourceRow[],
@@ -263,7 +264,7 @@ function cleanupTargets(
       const isRecorded = owned.some(
         (resource) => resource.resource_type === type && resource.logical_name === logicalName,
       );
-      if (name && (owned.length === 0 || (type === 'worker' && !isRecorded))) {
+      if (name && !isRecorded) {
         targets.push({ type, by: 'name', value: name });
       }
     }
