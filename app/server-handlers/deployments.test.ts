@@ -19,6 +19,7 @@ vi.mock('~/lib/.server/cloudflare/user-workspace-deployment-executor', () => ({
 
 import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
 import { DeploymentNotFoundError } from '~/lib/.server/cloudflare/deployment-repository';
+import { buildDeploymentPlanFromSource } from '~/lib/.server/cloudflare/deployment-plan';
 import { createOrReplayDeploymentPlanForUser, deployForUser, previewForUser } from './deployments';
 
 const project = { type: 'worker' as const, bindings: { ai: false, d1: false, r2: false, kv: false, appAgent: false } };
@@ -115,6 +116,39 @@ describe('deployment handlers', () => {
         proposedName: `cloudchef-${await appResourceIdentity('agent-1')}-preview`,
       },
     ]);
+  });
+
+  it('replays the plan stored under the id while it is still the plan the revision gets', async () => {
+    const { plan, digest } = await buildDeploymentPlanFromSource({
+      deploymentId: 'deployment-1',
+      sourceSha256: revision,
+      project,
+      naming: { identity: await appResourceIdentity('agent-1'), adopted: [] },
+    });
+    mocks.requireDeployment.mockResolvedValue({ ...deployment(), plan, planDigest: digest });
+    const publication = {
+      env: runtimeEnv(activeChatDb()),
+      userId: 'user-1',
+      chatId: 'chat-1',
+      deploymentId: 'deployment-1',
+      projectId: 'agent-1',
+      revision,
+      workspaceRevision: 7,
+      project,
+    };
+
+    await expect(createOrReplayDeploymentPlanForUser(publication)).resolves.toMatchObject({ id: 'deployment-1' });
+    expect(mocks.createDeployment).not.toHaveBeenCalled();
+
+    // Planned before the project's resources were named as they are now: the executor would refuse it.
+    mocks.requireDeployment.mockResolvedValue({ ...deployment(), plan, planDigest: 'b'.repeat(64) });
+    await expect(createOrReplayDeploymentPlanForUser(publication)).resolves.toBeNull();
+    // Planned under a connection since replaced: it could never run.
+    mocks.requireDeployment.mockResolvedValue({ ...deployment(), plan, planDigest: digest, connectionGeneration: 0 });
+    await expect(createOrReplayDeploymentPlanForUser(publication)).resolves.toBeNull();
+    mocks.requireDeployment.mockResolvedValue({ ...deployment(), plan, planDigest: digest, connectionId: 'other' });
+    await expect(createOrReplayDeploymentPlanForUser(publication)).resolves.toBeNull();
+    expect(mocks.createDeployment).not.toHaveBeenCalled();
   });
 
   it('executes a prepared deployment as one authenticated server operation', async () => {

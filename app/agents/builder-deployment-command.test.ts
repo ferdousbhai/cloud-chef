@@ -213,15 +213,102 @@ describe('builder deployment command', () => {
     expect(mocks.createDeployment).toHaveBeenCalledWith(expect.objectContaining({ deploymentId: current }));
   });
 
-  it('looks no further than the current identity once it has a record', async () => {
+  it('looks no further than the current identity’s plans once it has a record', async () => {
+    mocks.terminalizeInterrupted.mockReset().mockResolvedValueOnce(settled('11111111-1111-5111-8111-111111111111'));
+    mocks.terminalizeInterrupted.mockResolvedValue(null);
+
+    await expect(
+      terminalizeInterruptedDeploymentForBuilder({
+        context: operationContext(),
+        workspace: workspaceStub(),
+        toolCallId: 'deploy-command:7:revision',
+        validatedRevision: 'a'.repeat(64),
+      }),
+    ).resolves.toMatchObject({ id: '11111111-1111-5111-8111-111111111111' });
+
+    // Its first plan, then the next one it never made; never the identity from before.
+    expect(mocks.terminalizeInterrupted).toHaveBeenCalledTimes(2);
+  });
+
+  it('terminalizes every plan of the revision, and reports the latest, the one that ran', async () => {
+    mocks.terminalizeInterrupted
+      .mockReset()
+      .mockResolvedValueOnce(settled('11111111-1111-5111-8111-111111111111'))
+      .mockResolvedValueOnce(settled('22222222-2222-5222-8222-222222222222'))
+      .mockResolvedValue(null);
+    const revision = 'a'.repeat(64);
+
+    await expect(
+      terminalizeInterruptedDeploymentForBuilder({
+        context: operationContext(),
+        workspace: workspaceStub(),
+        toolCallId: `deploy-command:7:${revision}`,
+        validatedRevision: revision,
+      }),
+    ).resolves.toMatchObject({ id: '22222222-2222-5222-8222-222222222222' });
+
+    const terminalized = mocks.terminalizeInterrupted.mock.calls.map(([input]) => input.deploymentId);
+    expect(terminalized).toHaveLength(3);
+    expect(new Set(terminalized).size).toBe(3);
+  });
+
+  it('plans a revision again under its next id when the plan stored under one would no longer be its plan', async () => {
+    const workspace = workspaceStub();
+    workspace.hasSuccessfulValidation.mockResolvedValue(true);
+    const revision = 'a'.repeat(64);
+    const publish = () =>
+      deployValidatedRevisionForBuilder({
+        context: operationContext(),
+        workspace,
+        toolCallId: `deploy-command:7:${revision}`,
+        validatedRevision: revision,
+      });
+    // The first id holds a plan made before the project's resources were named as they are now.
+    mocks.createDeployment.mockResolvedValueOnce(null);
+
+    await publish();
+
+    const [stale, replanned] = mocks.createDeployment.mock.calls.map(([input]) => input.deploymentId);
+    expect(replanned).toMatch(/^[0-9a-f-]{36}$/);
+    expect(replanned).not.toBe(stale);
+    expect(mocks.deployForUser).toHaveBeenCalledOnce();
+    expect(mocks.deployForUser).toHaveBeenCalledWith(expect.objectContaining({ deploymentId: replanned }));
+
+    // The ids are the revision's own, so the next publication and recovery find the same ones.
+    vi.clearAllMocks();
+    mocks.createDeployment.mockResolvedValueOnce(null).mockResolvedValue({ id: replanned, status: 'approved' });
+    await publish();
+    expect(mocks.createDeployment.mock.calls.map(([input]) => input.deploymentId)).toEqual([stale, replanned]);
+    mocks.terminalizeInterrupted.mockResolvedValueOnce(settled(stale)).mockResolvedValueOnce(settled(replanned));
+    mocks.terminalizeInterrupted.mockResolvedValue(null);
     await terminalizeInterruptedDeploymentForBuilder({
       context: operationContext(),
-      workspace: workspaceStub(),
-      toolCallId: 'deploy-command:7:revision',
-      validatedRevision: 'a'.repeat(64),
+      workspace,
+      toolCallId: `deploy-command:7:${revision}`,
+      validatedRevision: revision,
     });
+    expect(mocks.terminalizeInterrupted.mock.calls.map(([input]) => input.deploymentId).slice(0, 2)).toEqual([
+      stale,
+      replanned,
+    ]);
+  });
 
-    expect(mocks.terminalizeInterrupted).toHaveBeenCalledOnce();
+  it('gives up on a revision planned again and again', async () => {
+    const workspace = workspaceStub();
+    workspace.hasSuccessfulValidation.mockResolvedValue(true);
+    mocks.createDeployment.mockResolvedValue(null);
+
+    await expect(
+      previewValidatedRevisionForBuilder({
+        context: operationContext(),
+        workspace,
+        toolCallId: 'deploy-command:7:revision',
+        previewId: 'preview-1',
+        validatedRevision: 'a'.repeat(64),
+      }),
+    ).rejects.toThrow('Preview of this revision was planned too many times');
+    expect(mocks.createDeployment).toHaveBeenCalledTimes(8);
+    expect(mocks.previewForUser).not.toHaveBeenCalled();
   });
 
   it('creates and executes one idempotent exact-revision deployment', async () => {
@@ -298,6 +385,10 @@ function workspaceStub() {
       } satisfies BuilderWorkspaceDeploymentPlan['project'],
     })),
   };
+}
+
+function settled(id: string) {
+  return { id, status: 'failed', productionUrl: null, error: { message: 'Deployment was interrupted.' } };
 }
 
 function operationContext() {

@@ -23,6 +23,12 @@ type BuilderDeploymentWorkspace = Pick<
 
 type BuilderBuildWorkspace = Pick<BuilderWorkspaceApi, 'checkpoint' | 'hasSuccessfulValidation' | 'validate'>;
 
+/**
+ * How many times one revision may be planned. A plan goes stale only when the project's resources or
+ * the Cloudflare connection change under it, which the revision's next plan settles.
+ */
+const MAX_PUBLICATION_PLANS = 8;
+
 export type BuilderDeploymentState = {
   status: 'ready' | 'deploying' | 'succeeded' | 'failed';
   workspaceRevision?: number;
@@ -96,11 +102,18 @@ export async function terminalizeInterruptedDeploymentForBuilder(args: {
   const identity = [args.workspace.projectId, args.toolCallId, args.validatedRevision] as const;
   const terminalize = async (deploymentId: string) =>
     terminalizeInterruptedDeploymentForUser({ env: args.context.env, userId: args.context.userId, deploymentId });
-  // A deployment the runtime was upgraded under keeps its earlier identity, and left active it would
-  // hold the project's deployments forever.
-  const deployment =
-    (await terminalize(await publicationDeploymentId(...identity))) ??
-    (await terminalize(await previousPublicationDeploymentId(...identity)));
+  // Each plan of the revision is terminalized, since any one of them left active would hold the
+  // project's deployments forever; the latest is the one that ran. A deployment the runtime was
+  // upgraded under keeps its earlier identity.
+  let deployment: Awaited<ReturnType<typeof terminalize>> = null;
+  for (let generation = 0; generation < MAX_PUBLICATION_PLANS; generation += 1) {
+    const planned = await terminalize(await publicationDeploymentId(...identity, generation));
+    if (!planned) {
+      break;
+    }
+    deployment = planned;
+  }
+  deployment ??= await terminalize(await previousPublicationDeploymentId(...identity));
   return deployment
     ? {
         id: deployment.id,
@@ -186,28 +199,49 @@ async function planValidatedRevision(args: {
     throw new Error(`${args.publication} has no build of this exact revision.`);
   }
   const source = await args.workspace.prepareDeployment(snapshot.revision);
-  const deploymentId = await publicationDeploymentId(args.workspace.projectId, args.toolCallId, snapshot.revision);
-  await createOrReplayDeploymentPlanForUser({
-    env: args.context.env,
-    userId: args.context.userId,
-    chatId: args.context.chatInitialId,
-    deploymentId,
-    projectId: args.workspace.projectId,
-    revision: source.revision,
-    workspaceRevision: source.workspaceRevision,
-    project: source.project,
-  });
-  return deploymentId;
+  // A plan stored under one id that the revision would no longer get is never replayed: the revision is
+  // planned again under the next.
+  for (let generation = 0; generation < MAX_PUBLICATION_PLANS; generation += 1) {
+    const deploymentId = await publicationDeploymentId(
+      args.workspace.projectId,
+      args.toolCallId,
+      snapshot.revision,
+      generation,
+    );
+    const planned = await createOrReplayDeploymentPlanForUser({
+      env: args.context.env,
+      userId: args.context.userId,
+      chatId: args.context.chatInitialId,
+      deploymentId,
+      projectId: args.workspace.projectId,
+      revision: source.revision,
+      workspaceRevision: source.workspaceRevision,
+      project: source.project,
+    });
+    if (planned) {
+      return deploymentId;
+    }
+  }
+  throw new Error(
+    `${args.publication} of this revision was planned too many times. Change the project and publish again.`,
+  );
 }
 
 /**
  * The deployment record of one revision's publication: its identity and idempotency key, never the
  * name of anything in the account, since every revision deploys onto the project's resources. It is
  * derived apart from the identity a publication had when each deployment named its own resources, so
- * a plan made then is never replayed for a revision published now.
+ * a plan made then is never replayed for a revision published now. Each later generation is the same
+ * revision planned again, once the plan of the one before went stale.
  */
-function publicationDeploymentId(projectId: string, toolCallId: string, revision: string): Promise<string> {
-  return deterministicDeploymentId(`project-resources:${projectId}:${toolCallId}:${revision}`);
+function publicationDeploymentId(
+  projectId: string,
+  toolCallId: string,
+  revision: string,
+  generation: number,
+): Promise<string> {
+  const publication = `project-resources:${projectId}:${toolCallId}:${revision}`;
+  return deterministicDeploymentId(generation === 0 ? publication : `${publication}:${generation}`);
 }
 
 /** The identity the same publication had before, still the one an interrupted record of it has. */

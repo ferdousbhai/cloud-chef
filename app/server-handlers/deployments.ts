@@ -22,6 +22,12 @@ import {
 
 type PublicDeployment = ReturnType<typeof publicDeployment>;
 
+/**
+ * Create the deployment plan of this id, or replay the one stored under it. A stored plan is replayed
+ * only while it is the plan this revision would get now, under the current connection: one made before
+ * the project's resources were named as they are now, or before the connection changed, is refused by
+ * the executor every time, so it answers null and the caller plans the revision under another id.
+ */
 export async function createOrReplayDeploymentPlanForUser(args: {
   env: Env;
   userId: string;
@@ -31,24 +37,21 @@ export async function createOrReplayDeploymentPlanForUser(args: {
   revision?: string;
   workspaceRevision?: number;
   project?: DeploymentProjectProfile;
-}) {
+}): Promise<PublicDeployment | null> {
   const workspaceArgs = requireWorkspaceDeploymentArgs(args);
-  try {
-    const existing = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId);
-    if (existing.workspaceReference === workspaceReference(workspaceArgs)) {
-      return publicDeployment(existing);
+  const reference = workspaceReference(workspaceArgs);
+  const stored = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId).catch((error) => {
+    if (error instanceof DeploymentNotFoundError) {
+      return null;
     }
-  } catch (error) {
-    if (!(error instanceof DeploymentNotFoundError)) {
-      throw error;
-    }
-  }
+    throw error;
+  });
+  const existing = stored?.workspaceReference === reference ? stored : null;
   const connection = runtimeCloudflareIdentity(workspaceArgs.env, workspaceArgs.userId);
   const chat = await findChat(workspaceArgs.env.DB, { id: workspaceArgs.chatId, sessionId: workspaceArgs.userId });
   if (!chat) {
     throw new DeploymentChatNotFoundError();
   }
-  const reference = workspaceReference(workspaceArgs);
   const { plan, digest } = await buildDeploymentPlanFromSource({
     deploymentId: workspaceArgs.deploymentId,
     sourceSha256: workspaceArgs.revision,
@@ -60,6 +63,13 @@ export async function createOrReplayDeploymentPlanForUser(args: {
       workspaceReference: reference,
     }),
   });
+  if (existing) {
+    const current =
+      existing.planDigest === digest &&
+      existing.connectionId === connection.id &&
+      existing.connectionGeneration === connection.generation;
+    return current ? publicDeployment(existing) : null;
+  }
   return publicDeployment(
     await createDeployment({
       db: workspaceArgs.env.DB,

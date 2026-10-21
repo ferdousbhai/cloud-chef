@@ -426,7 +426,9 @@ therefore adopts the one production last served, with its data and address; earl
 deleted. Only a succeeded deployment names a resource, and the executor, holding the project's one deployment slot,
 refuses a plan whose names differ from that answer before touching anything, so no deployment ever changes it. Those
 publications' ids are derived apart from the earlier ones, so a plan made before is never replayed; only recovery of an
-interrupted record looks up the earlier id. Each database keeps a receipt (name, digest, and, since
+interrupted record looks up the earlier id. Nor is a stored plan replayed once the revision would get another (the
+project's names, or the Cloudflare connection, changed since it was made): the revision is planned again under the
+next of its deterministic ids, and recovery terminalizes each of them. Each database keeps a receipt (name, digest, and, since
 receipts began keeping it, the SQL) of every migration it applied: a deployment applies only the ones it lacks, and
 refuses before applying any when one it applied has changed, telling the model to make the change in a new migration
 and restore the applied one, quoting its applied SQL when the receipt has it. Generated-app migrations, the template's
