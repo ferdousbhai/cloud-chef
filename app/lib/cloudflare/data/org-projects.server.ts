@@ -202,16 +202,20 @@ export async function setProjectAccess(
       .run();
     return;
   }
-  if (!(await findMembership(db, args.orgId, args.userId))) {
+  // Granted only while they are a member, in the one statement, so a removal racing it leaves no grant
+  // behind. An existing grant is kept as it was, and still counts as a change.
+  const granted = await db
+    .prepare(
+      `INSERT INTO org_project_access (project_id, user_id, granted_by, granted_at)
+       SELECT ?, ?, ?, ?
+       WHERE EXISTS (SELECT 1 FROM organization_members WHERE org_id = ? AND user_id = ?)
+       ON CONFLICT(project_id, user_id) DO UPDATE SET granted_at = org_project_access.granted_at`,
+    )
+    .bind(args.projectId, args.userId, args.actorId, args.now ?? Date.now(), args.orgId, args.userId)
+    .run();
+  if (granted.meta.changes === 0) {
     throw new OrganizationError('That person is not in this team.', 404);
   }
-  await db
-    .prepare(
-      `INSERT INTO org_project_access (project_id, user_id, granted_by, granted_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(project_id, user_id) DO NOTHING`,
-    )
-    .bind(args.projectId, args.userId, args.actorId, args.now ?? Date.now())
-    .run();
 }
 
 function toProject(row: ProjectRow): Omit<OrgProject, 'memberIds'> {
