@@ -10,6 +10,7 @@ import {
   lineAnchoredRead,
   lineEditBaseTag,
   lineEditToolParameters,
+  logicalLines,
   type LineEditToolInput,
 } from 'cloudchef-agent/line-edit';
 import {
@@ -314,8 +315,16 @@ function lineAnchoredEditTool(workspace: BuilderWorkspaceApi): Tool {
       if (mutationRejection) {
         return { path: parsed.path, error: mutationRejection };
       }
+      // The edited file is bounded like a write: an edit is not a way around the write cap.
+      const bytes = new TextEncoder().encode(applied.content);
+      if (bytes.byteLength > COMPUTER_AI_TOOL_OPTIONS.edit.maxBytes) {
+        return {
+          path: parsed.path,
+          error: `Edit rejected: the edited file would be ${bytes.byteLength} bytes, over the ${COMPUTER_AI_TOOL_OPTIONS.edit.maxBytes}-byte file cap. Split the file into smaller modules instead.`,
+        };
+      }
       options.abortSignal?.throwIfAborted();
-      await workspace.computer.fs.writeFile(parsed.path, new TextEncoder().encode(applied.content));
+      await workspace.computer.fs.writeFile(parsed.path, bytes);
       options.abortSignal?.throwIfAborted();
       const after = await workspace.readText(parsed.path, options.abortSignal);
       options.abortSignal?.throwIfAborted();
@@ -324,7 +333,8 @@ function lineAnchoredEditTool(workspace: BuilderWorkspaceApi): Tool {
         base: lineEditBaseTag(after.sha256),
         editsApplied: applied.editsApplied,
         firstChangedLine: applied.firstChangedLine,
-        totalLines: countLogicalLines(after.content),
+        // Numbered exactly as the next read will number them.
+        totalLines: logicalLines(after.content).length,
         diff: applied.diff,
       };
       if (applied.bracketImbalance.length > 0 && BRACKETED_SOURCE_PATH.test(parsed.path)) {
@@ -347,14 +357,6 @@ type LineEditToolResult = {
 
 /** Files whose brackets must balance, where an edit that changes the balance is worth flagging. */
 const BRACKETED_SOURCE_PATH = /\.(?:[cm]?[jt]sx?|json|jsonc|css|scss|vue|svelte|astro)$/i;
-
-function countLogicalLines(content: string): number {
-  if (content.length === 0) {
-    return 0;
-  }
-  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  return normalized.endsWith('\n') ? normalized.slice(0, -1).split('\n').length : normalized.split('\n').length;
-}
 
 function computerWorkspaceTool(
   toolName: WorkspaceToolName,

@@ -238,6 +238,23 @@ describe('minimal Workers AI tool surface', () => {
     await expect(workspace.readText(path)).resolves.toMatchObject({ content: 'one\nTWO\nthree\nfour\n' });
   });
 
+  it('refuses an edit that would grow the file past the write cap, writing nothing', async () => {
+    const path = '/home/project/src/app.ts';
+    const original = 'one\ntwo\n';
+    const workspace = workspaceStub({ files: { [path]: original } });
+    const tools = createWorkersAiTools(workspace, operationContext());
+    const read = (await executeTool(tools.read, { path })) as { base: string };
+
+    await expect(
+      executeTool(tools.edit, {
+        path,
+        base: read.base,
+        edits: [{ oldText: 'two', newText: 'x'.repeat(2 * 1024 * 1024) }],
+      }),
+    ).resolves.toMatchObject({ path, error: expect.stringContaining('byte file cap') });
+    await expect(workspace.readText(path)).resolves.toMatchObject({ content: original });
+  });
+
   it('returns the diff of an edit and warns when it changes the bracket balance of source', async () => {
     const source = '/home/project/src/list.tsx';
     const notes = '/home/project/NOTES.md';
