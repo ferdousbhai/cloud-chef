@@ -11,10 +11,11 @@ import {
   type BuilderModel,
   type BuilderModelCatalogPayload,
   type BuilderModelId,
+  type BuilderReasoningLevel,
   type GatewayKey,
   type WorkersAiModelId,
 } from '~/lib/workers-ai-model';
-import { gatewayBuilderModels, piGatewayModel, piWorkersAiModel } from './pi-model-catalog';
+import { gatewayBuilderModels, piGatewayModel, piWorkersAiModel, withReasoningLevels } from './pi-model-catalog';
 
 const MAX_CATALOG_MODELS = 100;
 
@@ -49,24 +50,28 @@ export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalog
   for (const entry of catalog) {
     const properties = new Map(entry.properties.map(({ property_id, value }) => [property_id, value]));
     const contextTokens = numericProperty(properties.get('context_window'));
+    const piModel = isWorkersAiModelId(entry.name) ? piWorkersAiModel(entry.name) : undefined;
     if (
       entry.source !== 1 ||
       entry.task.name !== 'Text Generation' ||
       !isWorkersAiModelId(entry.name) ||
-      piWorkersAiModel(entry.name) === undefined ||
+      piModel === undefined ||
       properties.get('function_calling') !== 'true' ||
       contextTokens < MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS
     ) {
       continue;
     }
+    const reasoning = properties.get('reasoning') === 'true';
     const model: BuilderModel = {
       id: entry.name,
       label: workersAiModelLabel(entry.name),
       description: boundedDescription(entry.description),
       contextTokens,
       requiresPaid: properties.get('require_workers_paid') === 'true',
-      reasoning: properties.get('reasoning') === 'true',
+      reasoning,
       vision: properties.get('vision') === 'true',
+      // The efforts Pi's catalog lists for the model, offered only while Cloudflare says it reasons.
+      ...(reasoning ? withReasoningLevels(piModel) : {}),
     };
     const createdAt = catalogEntryCreatedAt(entry);
     if (createdAt !== undefined) {
@@ -118,6 +123,29 @@ export async function requireBuilderModel(
     );
   }
   return { model, gatewayKeyAlias: key.alias };
+}
+
+/**
+ * The reasoning effort a turn runs at: none chosen means the provider's default, and a chosen one
+ * must be an effort the model offers. A level the picker could not have offered for this model is
+ * refused rather than mapped to something else, so a turn never runs at an effort nobody chose.
+ */
+export function requireBuilderReasoningLevel(
+  model: BuilderModel,
+  level: BuilderReasoningLevel | undefined,
+): BuilderReasoningLevel | undefined {
+  if (level === undefined) {
+    return undefined;
+  }
+  if (!model.reasoningLevels?.includes(level)) {
+    throw new Response(
+      `${model.label} does not offer the "${level}" reasoning effort. Choose another in the model picker.`,
+      {
+        status: 400,
+      },
+    );
+  }
+  return level;
 }
 
 export async function requireWorkersAiBuilderModel(

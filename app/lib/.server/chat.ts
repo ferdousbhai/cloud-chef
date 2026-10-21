@@ -10,7 +10,7 @@ import type { ContextCompaction } from './llm/context-compaction';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import { logProviderFailure } from './llm/provider-error-logging';
-import type { BuilderModel, BuilderModelId } from '~/lib/workers-ai-model';
+import type { BuilderModel, BuilderModelId, BuilderReasoningLevel } from '~/lib/workers-ai-model';
 import type { PiSteeringQueue } from './llm/pi-steering';
 import type { BuilderTurnReport } from './llm/builder-turn-limits';
 import type { CloudflareApiModelToolContext } from './llm/cloudflare-api-model-tools';
@@ -30,6 +30,7 @@ export async function createChatResponseFromBody({
   abortSignal,
   body,
   model,
+  reasoningLevel,
   compaction,
   firstUserMessage,
   turnContext,
@@ -49,6 +50,8 @@ export async function createChatResponseFromBody({
   abortSignal?: AbortSignal;
   body: ChatRequestBody;
   model: BuilderModel;
+  /** The reasoning effort the person chose for this model; absent for the provider's default. */
+  reasoningLevel?: BuilderReasoningLevel;
   compaction: {
     current: ContextCompaction | null;
     pending: boolean;
@@ -86,6 +89,7 @@ export async function createChatResponseFromBody({
       firstUserMessage,
       messages: transcriptMessages,
       model,
+      reasoningLevel,
       turnContext,
       compaction,
       accountCredentials,

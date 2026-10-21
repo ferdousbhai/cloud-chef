@@ -75,7 +75,28 @@ describe('BuilderAgent request policy', () => {
     },
   );
 
+  it('carries a chosen reasoning effort, and none for the provider default', () => {
+    const scope = (reasoningLevel: unknown) =>
+      requireBuilderRequestScope(
+        {
+          chatInitialId: 'chat',
+          subchatIndex: 2,
+          modelId: 'anthropic/claude-opus-5-5',
+          transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
+          reasoningLevel,
+        },
+        binding,
+      );
+    expect(scope('xhigh').reasoningLevel).toBe('xhigh');
+    expect(scope(undefined)).not.toHaveProperty('reasoningLevel');
+    expect(scope(null)).not.toHaveProperty('reasoningLevel');
+  });
+
   it.each([
+    [{ reasoningLevel: 'off' }, 400],
+    [{ reasoningLevel: 'none' }, 400],
+    [{ reasoningLevel: 'turbo' }, 400],
+    [{ reasoningLevel: 3 }, 400],
     [{ chatInitialId: 'other-chat' }, 409],
     [{ subchatIndex: 10_001 }, 400],
     [{ modelId: undefined }, 400],

@@ -165,7 +165,7 @@ import {
 import { workersAiGatewayLogging, type WorkersAiGatewayLogging } from '~/lib/.server/llm/workers-ai-gateway';
 import { turnUsage, type ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import type { Usage } from '@earendil-works/pi-ai';
-import { requireBuilderModel } from '~/lib/.server/llm/workers-ai-model-catalog';
+import { requireBuilderModel, requireBuilderReasoningLevel } from '~/lib/.server/llm/workers-ai-model-catalog';
 import type {
   CloudflareApiModelToolContext,
   ModelToolExecutionOptions,
@@ -536,7 +536,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         status: 409,
       });
     }
-    const { chatInitialId, subchatIndex, transcript, modelId } = requireBuilderRequestScope(
+    const { chatInitialId, subchatIndex, transcript, modelId, reasoningLevel } = requireBuilderRequestScope(
       body,
       durableIdentity.transcript,
     );
@@ -546,6 +546,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       modelId,
       async () => (await readAccountModelSettings(this.env)).gatewayKeys,
     );
+    const chosenReasoningLevel = requireBuilderReasoningLevel(model, reasoningLevel);
     if (!options?.continuation) {
       await this.cancelPreview();
       await markChatStarted(this.env.DB, {
@@ -647,6 +648,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         },
         body: { messages, modelId },
         model,
+        reasoningLevel: chosenReasoningLevel,
       });
     } catch (error) {
       steering.close();

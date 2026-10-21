@@ -1,4 +1,5 @@
 import type { Api, Model } from '@earendil-works/pi-ai';
+import { getSupportedThinkingLevels } from '@earendil-works/pi-ai/models';
 import { CLOUDFLARE_AI_GATEWAY_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-ai-gateway.models';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { OPENROUTER_MODELS } from '@earendil-works/pi-ai/providers/openrouter.models';
@@ -10,6 +11,7 @@ import {
   isWorkersAiModelId,
   MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS,
   type BuilderModel,
+  type BuilderReasoningLevel,
   type GatewayProviderSlug,
 } from '~/lib/workers-ai-model';
 
@@ -59,6 +61,23 @@ type PiGatewayModel = {
   model: PiCatalogModel;
   builderModel: BuilderModel;
 };
+
+/**
+ * The efforts a person may choose for a model: the levels Pi's catalog says the model supports, in
+ * Pi's order, without "off" — CloudChef never offers turning reasoning off — and without "minimal"
+ * unless the model maps it to a value of its own (on the rest Pi folds it into "low", so it would only
+ * repeat that row). Undefined for a model that does not reason.
+ */
+function builderReasoningLevels(model: Model<Api>): BuilderReasoningLevel[] | undefined {
+  if (!model.reasoning) {
+    return undefined;
+  }
+  const levels = getSupportedThinkingLevels(model).filter(
+    (level): level is BuilderReasoningLevel =>
+      level !== 'off' && (level !== 'minimal' || typeof model.thinkingLevelMap?.minimal === 'string'),
+  );
+  return levels.length > 0 ? levels : undefined;
+}
 
 function chatModels(catalog: Readonly<Record<string, PiCatalogModel>>, api: Api): Map<string, PiCatalogModel> {
   return new Map(Object.values(catalog).flatMap((model) => (model.api === api ? [[model.id, model] as const] : [])));
@@ -129,12 +148,19 @@ function gatewayCatalog(): Map<string, PiGatewayModel> {
             requiresPaid: false,
             reasoning: piModel.reasoning,
             vision: piModel.input.includes('image'),
+            ...withReasoningLevels(piModel),
           },
         });
       }
     }
   }
   return catalog;
+}
+
+/** The `reasoningLevels` field for a builder model, present only when there are levels to offer. */
+export function withReasoningLevels(model: Model<Api>): Pick<BuilderModel, 'reasoningLevels'> {
+  const reasoningLevels = builderReasoningLevels(model);
+  return reasoningLevels ? { reasoningLevels } : {};
 }
 
 const GATEWAY_CATALOG = gatewayCatalog();

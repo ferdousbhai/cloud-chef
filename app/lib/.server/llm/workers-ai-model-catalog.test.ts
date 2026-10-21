@@ -13,6 +13,7 @@ import {
   builderModelCatalogPayload,
   readWorkersAiBuilderModelCatalog,
   requireBuilderModel,
+  requireBuilderReasoningLevel,
   requireWorkersAiBuilderModel,
   resolveBuilderDefaultModel,
   WorkersAiModelCatalogUnavailableError,
@@ -98,6 +99,8 @@ describe('Workers AI live model catalog', () => {
       requiresPaid: true,
       reasoning: true,
       vision: true,
+      // Pi's catalog maps GLM 5.3 Flash's efforts to low, high, and max; there is no medium.
+      reasoningLevels: ['low', 'high', 'max'],
     });
   });
 
@@ -250,6 +253,37 @@ describe('the builder catalog an account is offered', () => {
     expect(ids.filter((id) => id.endsWith(':batch') || id.startsWith('openrouter/openrouter/'))).toEqual([]);
     // The same models stay offered in every form that can build.
     expect(ids).toEqual(expect.arrayContaining(['openrouter/openai/gpt-5', 'openrouter/google/gemma-4-31b-it:free']));
+  });
+
+  it("offers each reasoning model the efforts Pi lists for it, never off, and none to a model that doesn't reason", () => {
+    const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'default' }));
+    const { models } = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], {
+      defaultModelId: null,
+      gatewayKeys: everyKey,
+    });
+    const levelsOf = (id: string) => models.find((model) => model.id === id)?.reasoningLevels;
+
+    expect(levelsOf('anthropic/claude-opus-5-5')).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    expect(levelsOf('anthropic/claude-sonnet-4-5')).toEqual(['low', 'medium', 'high']);
+    expect(levelsOf('openai/gpt-5')).toEqual(['minimal', 'low', 'medium', 'high']);
+    expect(levelsOf('openai/gpt-6-luna')).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    expect(levelsOf('grok/grok-4.3')).toEqual(['low', 'medium', 'high']);
+    for (const model of models) {
+      if (!model.reasoning) {
+        expect(model.reasoningLevels, model.id).toBeUndefined();
+      }
+      expect(model.reasoningLevels ?? [], model.id).not.toContain('off');
+    }
+  });
+
+  it('runs a turn at an effort only when its model offers it', () => {
+    const opus = { ...DEFAULT_WORKERS_AI_MODEL, label: 'Opus', reasoningLevels: ['low', 'high', 'max'] as const };
+    const model = { ...opus, reasoningLevels: [...opus.reasoningLevels] };
+    expect(requireBuilderReasoningLevel(model, undefined)).toBeUndefined();
+    expect(requireBuilderReasoningLevel(model, 'max')).toBe('max');
+    expect(() => requireBuilderReasoningLevel(model, 'xhigh')).toThrow(expect.objectContaining({ status: 400 }));
+    const { reasoningLevels: _none, ...plain } = model;
+    expect(() => requireBuilderReasoningLevel(plain, 'low')).toThrow(expect.objectContaining({ status: 400 }));
   });
 
   it("defaults to the model the account's admin chose while it is offered, and to the pin otherwise", () => {
