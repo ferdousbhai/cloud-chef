@@ -639,10 +639,22 @@ async function readGithub({ cf, gh, controlPlaneDatabaseId, projectId, owner, no
   if (!project) {
     return { project: null };
   }
-  const branch = owner ? memberBranch(owner.email, owner.id) : null;
-  if (!gh || !branch) {
-    return { project, branch, commits: null };
+  const member = owner ? memberBranch(owner.email, owner.id) : null;
+  if (!gh || !member) {
+    return { project, branch: member, commits: null };
   }
+  // Each conversation commits to its own `<member>-<key>` branch (a workspace opened before that, to the
+  // member's one branch): the one most recently pushed is the session's.
+  const branches = await attempt(() => gh(`repos/${project.repo_full_name}/git/matching-refs/heads/${member}`));
+  const refs = branches.ok && Array.isArray(branches.value) ? branches.value : [];
+  const heads = await Promise.all(
+    refs.slice(0, 20).map(async (ref) => {
+      const name = String(ref.ref ?? '').replace(/^refs\/heads\//, '');
+      const commit = await attempt(() => gh(`repos/${project.repo_full_name}/commits/${ref.object?.sha}`));
+      return { name, at: commit.ok ? (commit.value?.commit?.committer?.date ?? '') : '' };
+    }),
+  );
+  const branch = heads.filter((head) => head.name).sort((a, b) => b.at.localeCompare(a.at))[0]?.name ?? member;
   const commits = note(
     `GitHub commits on ${branch}`,
     await attempt(async () => {

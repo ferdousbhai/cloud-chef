@@ -161,6 +161,18 @@ function fakeProduction() {
   const ghPaths: string[] = [];
   const gh = async (path: string) => {
     ghPaths.push(path);
+    // The member's legacy branch and a conversation's own branch, pushed later.
+    if (path.includes('/git/matching-refs/')) {
+      return [
+        { ref: 'refs/heads/cloudchef/sara-b86c65', object: { sha: 'old' } },
+        { ref: 'refs/heads/cloudchef/sara-b86c65-k3y4chat0001', object: { sha: 'new' } },
+      ];
+    }
+    if (path.endsWith('/commits/old') || path.endsWith('/commits/new')) {
+      return {
+        commit: { committer: { date: path.endsWith('new') ? '2026-10-20T13:40:15Z' : '2026-10-01T00:00:00Z' } },
+      };
+    }
     if (path.includes('/check-runs')) {
       return {
         check_runs: [
@@ -236,7 +248,7 @@ describe('ops:session reconstruction', () => {
       user: { id: USER },
       chat: { id: CHAT, workerName: WORKER, accountId: ACCOUNT, orgName: "Sara's sites" },
       gateway: { requests: [{ id: 'log-1', tokensIn: 100 }] },
-      github: { branch: 'cloudchef/sara-b86c65', project: { repo_full_name: 'acme/site' } },
+      github: { branch: 'cloudchef/sara-b86c65-k3y4chat0001', project: { repo_full_name: 'acme/site' } },
       unknown: [],
     });
     // Only its own request: the other matched the chat id under another key.
@@ -259,7 +271,10 @@ describe('ops:session reconstruction', () => {
     expect(body.timeframe.from).toBeLessThan(Date.parse('2026-10-20T12:59:00.000Z'));
     expect(body.timeframe.to).toBeGreaterThan(AT);
     expect(production.ghPaths).toEqual([
-      'repos/acme/site/commits?sha=cloudchef%2Fsara-b86c65&per_page=5',
+      'repos/acme/site/git/matching-refs/heads/cloudchef/sara-b86c65',
+      'repos/acme/site/commits/old',
+      'repos/acme/site/commits/new',
+      'repos/acme/site/commits?sha=cloudchef%2Fsara-b86c65-k3y4chat0001&per_page=5',
       'repos/acme/site/commits/da130d3aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/check-runs?per_page=20',
     ]);
 
