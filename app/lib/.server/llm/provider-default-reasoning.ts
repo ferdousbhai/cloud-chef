@@ -141,7 +141,7 @@ function withResponsesReasoning(
   body.input = withoutUnreplayableReasoning(body.input);
 }
 
-export type ProviderDefaultReasoningOptions = {
+type ProviderDefaultReasoningOptions = {
   /** Whether the caller asked for a reasoning level; when it did, the level stands as Pi wrote it. */
   requested: boolean;
   /** Whether the provider streams reasoning summaries on request (OpenAI's own Responses API). */
