@@ -18,13 +18,12 @@ export function isNeverPublished(path: string): boolean {
  */
 export function gitignoreMatcher(gitignores: readonly { path: string; content: string }[]): (path: string) => boolean {
   const scopes = gitignores
-    .map((file) => ({
-      directory: parentDirectory(file.path),
-      rules: ignore({ ignorecase: false }).add(file.content),
-    }))
+    .map((file) => ({ directory: parentDirectory(file.path), rules: parseRules(file.content) }))
     .sort((left, right) => depth(left.directory) - depth(right.directory));
   const directories = new Map<string, boolean>();
 
+  // Only the rules matching this exact path decide it: its directories are decided on their own, across
+  // every scope, by `ignoredDirectory`.
   function lastDecision(path: string): boolean {
     let ignored = false;
     for (const scope of scopes) {
@@ -32,11 +31,11 @@ export function gitignoreMatcher(gitignores: readonly { path: string; content: s
       if (!path.startsWith(prefix) || path.length === prefix.length) {
         continue;
       }
-      const result = scope.rules.test(path.slice(prefix.length));
-      if (result.ignored) {
-        ignored = true;
-      } else if (result.unignored) {
-        ignored = false;
+      const relative = path.slice(prefix.length);
+      for (const rule of scope.rules) {
+        if (rule.matches.test(relative).unignored) {
+          ignored = rule.ignores;
+        }
       }
     }
     return ignored;
@@ -56,6 +55,23 @@ export function gitignoreMatcher(gitignores: readonly { path: string; content: s
 
   // Nothing inside an ignored directory is re-included, by any file's rules: git never reads it.
   return (path) => ignoredDirectory(parentDirectory(path)) || lastDecision(path);
+}
+
+/**
+ * A `.gitignore`'s rules in order, each held as a negation: `ignore` tests a path's directories before
+ * the path itself and stops at one a rule ignores, but a negation never ignores, so its `unignored` says
+ * whether the pattern matches that exact path.
+ */
+function parseRules(content: string): { ignores: boolean; matches: ignore.Ignore }[] {
+  const rules: { ignores: boolean; matches: ignore.Ignore }[] = [];
+  for (const line of content.split(/\r?\n/)) {
+    if (!line.trim() || line.startsWith('#')) {
+      continue;
+    }
+    const ignores = !line.startsWith('!');
+    rules.push({ ignores, matches: ignore({ ignorecase: false }).add(ignores ? `!${line}` : line) });
+  }
+  return rules;
 }
 
 function parentDirectory(path: string): string {

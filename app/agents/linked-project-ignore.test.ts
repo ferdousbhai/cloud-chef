@@ -52,6 +52,55 @@ describe('gitignoreMatcher', () => {
     expect(generated('src/gen/types/api.ts')).toBe(true);
   });
 
+  // Each expectation here is what `git ls-files --others --exclude-standard` says of the same tree.
+  it("decides a file by the rules matching it, once a deeper file re-included the directory a parent's rule matched", () => {
+    const docs = gitignoreMatcher([
+      { path: '.gitignore', content: 'docs/*\n' },
+      { path: 'docs/.gitignore', content: '!api/\n' },
+    ]);
+    expect(docs('docs/api/x.md')).toBe(false);
+    expect(docs('docs/api/sub/y.md')).toBe(false);
+    expect(docs('docs/other.md')).toBe(true);
+    expect(docs('docs/guide/z.md')).toBe(true);
+
+    const packages = gitignoreMatcher([
+      { path: '.gitignore', content: 'pkg/*\n!pkg/keep/\n' },
+      { path: 'pkg/keep/.gitignore', content: '*.tmp\n' },
+    ]);
+    expect(packages('pkg/keep/a.ts')).toBe(false);
+    expect(packages('pkg/keep/n/b.ts')).toBe(false);
+    expect(packages('pkg/keep/a.tmp')).toBe(true);
+    expect(packages('pkg/drop/a.ts')).toBe(true);
+  });
+
+  it('follows git through an allow-list, a double star, directory-only rules and escapes', () => {
+    const allowList = gitignoreMatcher([{ path: '.gitignore', content: '*\n!*/\n!*.ts\n' }]);
+    expect(allowList('src/deep/c.ts')).toBe(false);
+    expect(allowList('src/b.js')).toBe(true);
+
+    const logs = gitignoreMatcher([{ path: '.gitignore', content: 'logs/**\n!logs/**/\n!*.txt\n' }]);
+    expect(logs('logs/d/b.txt')).toBe(false);
+    expect(logs('logs/d/b.log')).toBe(true);
+
+    const nested = gitignoreMatcher([
+      { path: 'a/.gitignore', content: '*.md\nsub/*\n' },
+      { path: 'a/b/.gitignore', content: '!README.md\n' },
+      { path: 'a/sub/.gitignore', content: '!*\n' },
+    ]);
+    expect(nested('a/b/README.md')).toBe(false);
+    expect(nested('a/b/other.md')).toBe(true);
+    // `sub/*` ignores what is directly in `a/sub`, and `a/sub/.gitignore` re-includes it.
+    expect(nested('a/sub/k.ts')).toBe(false);
+    expect(nested('a/sub/d/k.ts')).toBe(false);
+
+    const patterns = gitignoreMatcher([{ path: '.gitignore', content: 'out/\n\\#hash\n\\!bang\ntrail.txt   \n' }]);
+    expect(patterns('out')).toBe(false);
+    expect(patterns('x/out/a')).toBe(true);
+    expect(patterns('#hash')).toBe(true);
+    expect(patterns('!bang')).toBe(true);
+    expect(patterns('trail.txt')).toBe(true);
+  });
+
   it('ignores nothing without a .gitignore', () => {
     expect(gitignoreMatcher([])('coverage/index.html')).toBe(false);
   });
