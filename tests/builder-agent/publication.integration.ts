@@ -44,11 +44,16 @@ async function publicationHarness(
     publisher?: Partial<BuilderPublisher>;
     checkpoint?: () => BuilderWorkspaceCheckpoint | Promise<BuilderWorkspaceCheckpoint>;
     refresh?: BuilderWorkspaceApi['refresh'];
+    build?: Pick<BuilderWorkspaceApi, 'validate' | 'hasSuccessfulValidation'>;
   } = {},
 ) {
   const checkpoint = options.checkpoint ?? (() => CHECKPOINT);
   const deleteProject = vi.fn(async () => undefined);
-  const workspace: Partial<BuilderWorkspaceApi> = { checkpoint: async () => checkpoint(), deleteProject };
+  const workspace: Partial<BuilderWorkspaceApi> = {
+    checkpoint: async () => checkpoint(),
+    deleteProject,
+    ...options.build,
+  };
   if (options.refresh) {
     workspace.refresh = options.refresh;
   }
@@ -175,6 +180,63 @@ describe('BuilderAgent automatic publication', () => {
     await harness.endTurn();
     await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
     expect(deployments).toHaveLength(2);
+  });
+
+  it('records a deployment that failed after a stop came too late to call it off as failed, not stopped', async () => {
+    const deployments: DeployRequest[] = [];
+    const harness = await publicationHarness({
+      publisher: {
+        deploy: async (request) => {
+          deployments.push(request);
+          // Past its last stopping point the deployment finishes, and here its migration fails.
+          await untilStopped(request.abortSignal).catch(() => undefined);
+          throw new Error('Migration 0002_add_orders.sql failed: table orders already exists');
+        },
+      },
+    });
+    await finishChangingTurn(harness);
+    await eventually(() => deployments.length === 1);
+
+    await sendNextMessage(harness);
+
+    expect(deployments[0]?.abortSignal?.aborted).toBe(true);
+    await eventually(() => harness.agent.state.deployment?.status === 'failed');
+    expect(harness.agent.state.deployment).toMatchObject({
+      revision: CHECKPOINT.revision,
+      error: expect.stringContaining('Migration 0002_add_orders.sql failed'),
+    });
+    expect(harness.agent.state.failedPublicationRevision).toBe(CHECKPOINT.revision);
+    expect(harness.agent.state.publicationPending).toBe(true);
+  });
+
+  it("stops the last turn's deployment while it still builds, however the build ends", async () => {
+    const builds: AbortSignal[] = [];
+    const deploy = vi.fn<BuilderPublisher['deploy']>(async () => ({ status: 'succeeded' }));
+    const harness = await publicationHarness({
+      publisher: { deploy },
+      build: {
+        hasSuccessfulValidation: async () => false,
+        validate: async (request) => {
+          const signal = request.abortSignal ?? new AbortController().signal;
+          builds.push(signal);
+          // A stopped build reports itself as a failed one, not with the stop's reason.
+          await untilStopped(signal).catch(() => undefined);
+          return { version: 1, ok: false, summary: 'The build was cancelled.' };
+        },
+      },
+    });
+    // The preview already serves this revision, so production builds it straight away.
+    previewServing(harness);
+    await finishChangingTurn(harness);
+    await eventually(() => builds.length === 1);
+
+    await sendNextMessage(harness);
+
+    expect(builds[0]?.aborted).toBe(true);
+    await eventually(() => harness.agent.state.deployment === null);
+    expect(deploy).not.toHaveBeenCalled();
+    expect(harness.agent.state.failedPublicationRevision).toBeNull();
+    expect(harness.agent.state.publicationPending).toBe(true);
   });
 
   it('does not deploy while a turn is running; the turn publishes when it ends', async () => {
