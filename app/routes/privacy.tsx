@@ -13,9 +13,9 @@ export const Route = createFileRoute('/privacy')({
   component: PrivacyPage,
 });
 
-// Operative wording is untouched here. Only the presentation changed: the record inventories and
-// retention windows are rendered as the lists they already were, and the retention section — nine
-// paragraphs answering four separate questions — is split under headings that name each question.
+// The record inventories and retention windows are lists, and the retention section is split under
+// headings that name each question it answers. The inventories must match what the control plane
+// stores, erases, and exports (account-deletion.ts, account-export.ts).
 function PrivacyPage() {
   return (
     <TrustPage
@@ -27,9 +27,24 @@ function PrivacyPage() {
         <ul>
           <li>your sign-in identity: Cloudflare, Google, or a verified email address</li>
           <li>your Cloudflare account details, if you connect one</li>
-          <li>teams you belong to, your role, and invites sent to your address</li>
+          <li>
+            teams you belong to: their names, your role, whether you may build new apps of your own there, and invites
+            sent to your address (with the role and projects they give)
+          </li>
           <li>per-day counts of model turns and tokens used in a team&apos;s account</li>
-          <li>hashed authentication sessions</li>
+          <li>
+            a team&apos;s GitHub connection: the GitHub account CloudChef&apos;s GitHub App is installed on, the names
+            of the repositories linked as its projects, and who may work on each
+          </li>
+          <li>
+            production requests: a draft&apos;s title, note, preview URL, and its source files, kept with the request
+            until an admin approves or declines it, then only the decision
+          </li>
+          <li>
+            each account&apos;s model settings (the model new chats start on) and your choice whether AI Gateway logs
+            your model requests
+          </li>
+          <li>hashed authentication sessions and emailed sign-in links</li>
           <li>encrypted OAuth credentials</li>
           <li>granted scopes and connection status</li>
           <li>user-runtime names and endpoints</li>
@@ -40,7 +55,7 @@ function PrivacyPage() {
         <p>The control-plane database does not store:</p>
         <ul>
           <li>prompt or transcript bodies</li>
-          <li>project source</li>
+          <li>project source, except a draft sent as a production request, until it is decided</li>
           <li>deployment plans</li>
           <li>generated application data</li>
           <li>raw AI responses</li>
@@ -48,7 +63,8 @@ function PrivacyPage() {
         <p>
           Chat catalogs, transcripts, generated files, workspace state, deployment records, and generated Cloudflare
           resources are stored in the connected Cloudflare account. CloudChef accesses them to perform your requests,
-          but does not copy them into the operator control-plane database.
+          but does not copy them into the operator control-plane database; the one copy it keeps is a production
+          request&apos;s draft, described under Teams.
         </p>
       </TrustSection>
 
@@ -79,7 +95,13 @@ function PrivacyPage() {
           Admins see each member&apos;s name, email, role, and this month&apos;s count of model turns and tokens in the
           team&apos;s account. Those counts contain no prompt, response, or project content. An admin can pause a
           member, who then cannot open their workspace or use the team&apos;s Cloudflare authorization, or remove them,
-          which also deletes their workspace from the team&apos;s account; applications they deployed stay there.
+          which also deletes their workspace from the team&apos;s account and declines their open production requests;
+          applications they deployed stay there. An admin can rename the team or delete it. Deleting a team deletes
+          every member&apos;s workspace from its Cloudflare account, revokes CloudChef&apos;s authorization there, and
+          removes the team&apos;s records from CloudChef: its members, invites, usage counts, GitHub connection, linked
+          projects, and production requests. Applications deployed from it, with their databases and storage, stay in
+          the Cloudflare account, and the repositories and CloudChef&apos;s GitHub App stay on GitHub until removed
+          there.
         </p>
         <p>
           A team can also work on apps kept in GitHub. An admin installs CloudChef&apos;s GitHub App on the GitHub
@@ -260,19 +282,22 @@ function PrivacyPage() {
         <p>Settings contains a self-service control that erases every record the operator holds for your account:</p>
         <ul>
           <li>identity and profile</li>
-          <li>authentication sessions</li>
+          <li>authentication sessions and emailed sign-in links</li>
           <li>encrypted Cloudflare credentials</li>
-          <li>connection metadata and granted scopes</li>
+          <li>connection metadata, granted scopes, and model settings</li>
           <li>your runtime locators and team memberships</li>
+          <li>your production requests, and GitHub connections and approvals you started</li>
         </ul>
         <p>
-          It also asks Cloudflare to revoke CloudChef’s authorization, and tells you when Cloudflare did not confirm
-          that revocation so you can remove it yourself. Because erasure is irreversible it requires a sign-in completed
-          in the last ten minutes, an exact typed confirmation, and an explicit acknowledgement of what is retained.
-          Erasure leaves a team&apos;s Cloudflare authorization alone while others still build in it; if you are its
-          only remaining member, the team is removed and its authorization revoked too. If you are the only admin of a
-          team others belong to, make someone else an admin first. Repeating it is harmless. If you have already revoked
-          CloudChef’s authorization you can no longer sign in, so use the request path below instead.
+          It also deletes your workspace in each team&apos;s Cloudflare account, as leaving the team would, and says
+          which it could not reach. If you connected a Cloudflare account of your own, it asks Cloudflare to revoke
+          CloudChef’s authorization, and tells you when Cloudflare did not confirm that revocation so you can remove it
+          yourself. Because erasure is irreversible it requires a sign-in completed in the last ten minutes, an exact
+          typed confirmation, and an explicit acknowledgement of what is retained. Erasure leaves a team&apos;s
+          Cloudflare authorization alone while others still build in it; if you are its only remaining member, the team
+          is removed and its authorization revoked too. If you are the only admin of a team others belong to, make
+          someone else an admin first. Repeating it is harmless. If you sign in with Cloudflare and have already revoked
+          CloudChef’s authorization, you can no longer sign in that way, so use the request path below instead.
         </p>
         <p>
           Settings also contains a self-service export of those same operator-held records. It saves a JSON file,
@@ -280,15 +305,20 @@ function PrivacyPage() {
         </p>
         <ul>
           <li>your identity and profile, and whether your model requests are logged in AI Gateway</li>
-          <li>your Cloudflare connection metadata and granted scopes</li>
+          <li>your Cloudflare connection metadata, requested and granted scopes, and its default model</li>
           <li>the existence, storage time, and key version of your encrypted credential record</li>
           <li>your runtime locators</li>
           <li>your team memberships, invites addressed to you, and your daily usage counts</li>
-          <li>the GitHub projects you were given and the production requests you sent</li>
+          <li>
+            the GitHub projects you were given, and the production requests you sent, with a draft&apos;s source while
+            CloudChef still holds it
+          </li>
+          <li>GitHub connections and approvals you started, and sign-in links emailed to you</li>
           <li>your authentication-session and OAuth-state records</li>
         </ul>
         <p>
-          Encrypted credential material, initialisation vectors, credential handles, and session token hashes are never
+          Encrypted credential material, initialisation vectors, credential handles, session token hashes, and the
+          hashes and states that sign-in links, invites, and authorizations in progress are checked against are never
           exported. Because a single file discloses your whole account record, the export requires the same sign-in
           completed in the last ten minutes that erasure requires. Each section is bounded at 200 records and reports
           the untruncated count beside them, and a section that could not be read is named in the file, which reports
@@ -298,7 +328,8 @@ function PrivacyPage() {
 
       <TrustSection title="What removal does not delete">
         <p>
-          That control deliberately deletes nothing inside your own Cloudflare account.{' '}
+          That control deliberately deletes nothing inside your own Cloudflare account, and nothing in a team&apos;s but
+          your workspace there.{' '}
           <strong>
             Workers and their unpromoted preview versions, production and preview D1 databases, R2 buckets, KV
             namespaces, Containers, Durable Objects, and Agents that CloudChef deployed are retained, keep running, keep
@@ -349,11 +380,11 @@ function PrivacyPage() {
           sensitive information. CloudChef does not yet provide a verified confidential privacy inbox.
         </p>
         <p>
-          CloudChef may request proportionate information to verify control of the relevant Cloudflare identity before
-          disclosing or deleting data. Public-beta response targets are not legal deadlines; where privacy law sets a
-          deadline, including the GDPR’s usual one-month period, that deadline governs. Some rights and deletion
-          requests are subject to lawful exceptions, and current technical limits are described above rather than
-          treated as a waiver of those rights.
+          CloudChef may request proportionate information to verify control of the relevant sign-in identity
+          (Cloudflare, Google, or an email address) before disclosing or deleting data. Public-beta response targets are
+          not legal deadlines; where privacy law sets a deadline, including the GDPR’s usual one-month period, that
+          deadline governs. Some rights and deletion requests are subject to lawful exceptions, and current technical
+          limits are described above rather than treated as a waiver of those rights.
         </p>
       </TrustSection>
 
