@@ -1,5 +1,5 @@
 {
-  "total": 1154,
+  "total": 1146,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -101,8 +101,8 @@
       "anti-slop/require-safety-comment-for-type-assertion": 19
     },
     "app/lib/.server/auth.test.ts": {
-      "anti-slop/no-chained-type-assertions": 8,
-      "anti-slop/require-safety-comment-for-type-assertion": 32
+      "anti-slop/no-chained-type-assertions": 6,
+      "anti-slop/require-safety-comment-for-type-assertion": 28
     },
     "app/lib/.server/chat.test.ts": {
       "anti-slop/no-module-mocking": 2,

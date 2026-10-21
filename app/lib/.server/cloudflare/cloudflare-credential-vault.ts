@@ -273,7 +273,9 @@ export class D1CloudflareCredentialVault {
 
   private async readCredentialRow(credentialHandle: string): Promise<CredentialRow | null> {
     return this.db
-      .prepare(`SELECT ciphertext_base64, iv_base64, created_at, rotated_at FROM cloudflare_credentials WHERE handle = ?`)
+      .prepare(
+        `SELECT ciphertext_base64, iv_base64, created_at, rotated_at FROM cloudflare_credentials WHERE handle = ?`,
+      )
       .bind(credentialHandle)
       .first<CredentialRow>();
   }

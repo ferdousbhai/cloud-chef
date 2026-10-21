@@ -9,7 +9,7 @@ export const RUNTIME_GENERATION_HEADER = 'X-CloudChef-Connection-Generation';
 
 export type RuntimeIdentity = { userId: string; connectionId: string; connectionGeneration: number };
 
-export function runtimeIdentityHeaders(identity: RuntimeIdentity): Record<string, string> {
+export function runtimeIdentityHeaders(identity: RuntimeIdentity) {
   return {
     [RUNTIME_USER_HEADER]: identity.userId,
     [RUNTIME_CONNECTION_HEADER]: identity.connectionId,

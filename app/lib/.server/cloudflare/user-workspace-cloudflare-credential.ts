@@ -215,10 +215,7 @@ export async function readAccountModelSettings(
  * it is, in headers, so the control plane checks them before reading the body. The body still names
  * the same identity, as control planes from before the headers read it.
  */
-export function runtimeRequestHeaders(
-  env: RuntimeCredentialEnv,
-  identity: CloudflareConnectionIdentity,
-): Record<string, string> {
+export function runtimeRequestHeaders(env: RuntimeCredentialEnv, identity: CloudflareConnectionIdentity) {
   return {
     authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`,
     'content-type': 'application/json',

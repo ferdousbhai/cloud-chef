@@ -190,21 +190,17 @@ async function setup(
     path: string,
     body: string,
     options: { bearer?: string; userId?: string; generation?: string } = {},
-  ) =>
-    new Request(`${ORIGIN}${path}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${options.bearer ?? secret}`,
-        'Content-Type': 'application/json',
-        ...runtimeIdentityHeaders({
-          userId: options.userId ?? sara.id,
-          connectionId: 'conn-1',
-          connectionGeneration: 2,
-        }),
-        ...(options.generation === undefined ? {} : { [RUNTIME_GENERATION_HEADER]: options.generation }),
-      },
-      body,
+  ) => {
+    const headers = new Headers({
+      Authorization: `Bearer ${options.bearer ?? secret}`,
+      'Content-Type': 'application/json',
+      ...runtimeIdentityHeaders({ userId: options.userId ?? sara.id, connectionId: 'conn-1', connectionGeneration: 2 }),
     });
+    if (options.generation !== undefined) {
+      headers.set(RUNTIME_GENERATION_HEADER, options.generation);
+    }
+    return new Request(`${ORIGIN}${path}`, { method: 'POST', headers, body });
+  };
   return { database, env, sara, secret, call, callNamed, ...github };
 }
 
