@@ -22,8 +22,12 @@ export const RUNTIME_BUSY_RENEWAL_MS = 10 * 60_000;
  */
 export const RUNTIME_QUIET_PERIOD_MS = 2 * 60_000;
 
-/** How long a claimed upgrade holds new work back on the version it replaces. */
-export const RUNTIME_UPGRADE_WINDOW_MS = 2 * 60_000;
+/**
+ * How long a claimed or renewed upgrade window holds new work back. The upgrade renews it while it
+ * redeploys the Worker, rolls out the container image, and waits for the new runtime to be ready, and
+ * releases it when it is; this bounds the wait when an upgrade stops partway and never releases it.
+ */
+export const RUNTIME_UPGRADE_WINDOW_MS = 5 * 60_000;
 
 type ActivityDatabase = Pick<D1Database, 'prepare'>;
 
@@ -96,4 +100,33 @@ export async function readRuntimeUpgradeWindow(
     .bind(now)
     .first<{ target_version: string; expires_at: number }>();
   return row ? { targetVersion: row.target_version, expiresAt: row.expires_at } : null;
+}
+
+/**
+ * Keep the window an upgrade claimed open while it finishes: the container rollout and readiness check
+ * that follow the redeploy. Unconditional, unlike the claim, because work that starts meanwhile records
+ * itself busy and waits for exactly this window to close.
+ */
+export async function holdRuntimeUpgradeWindow(
+  db: ActivityDatabase,
+  args: { targetVersion: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO runtime_upgrade_window (id, target_version, expires_at) VALUES (1, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET target_version = excluded.target_version, expires_at = excluded.expires_at`,
+    )
+    .bind(args.targetVersion, args.now + RUNTIME_UPGRADE_WINDOW_MS)
+    .run();
+}
+
+/** Close the window once the upgrade to `targetVersion` is serving, so waiting work starts at once. */
+export async function releaseRuntimeUpgradeWindow(
+  db: ActivityDatabase,
+  args: { targetVersion: string },
+): Promise<void> {
+  await db
+    .prepare('DELETE FROM runtime_upgrade_window WHERE id = 1 AND target_version = ?')
+    .bind(args.targetVersion)
+    .run();
 }

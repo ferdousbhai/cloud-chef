@@ -48,18 +48,27 @@ provisioning Workflow in the background; the browser shows no preparation. A mis
 connection generation, or one speaking another protocol is prepared before a session is issued, as before.
 
 The runtime is the source of truth for whether it is busy, since a turn keeps running with no tab open. Every
-`BuilderAgent` records in the runtime's D1 (`runtime_activity`) whether it is running a turn, validation, preview or
-production publication, or approved Cloudflare request, and for two minutes after it stops. Before redeploying, the
-Workflow asks the runtime, with its secret, for the upgrade window (`POST /v1/upgrade-window`): one statement grants
-it only when no row is active. Work that starts records itself first and then waits out a window claimed for another
-version, so it starts on the new Worker rather than being cut off on the old one. A busy workspace is asked again
-with backoff (30 seconds doubling to 5 minutes); after 12 hours the Workflow ends without upgrading, and the next
-session request, or the next sweep, starts another.
+`BuilderAgent` records in the runtime's D1 (`runtime_activity`) whether it is working, and for two minutes after it
+stops. Its turn (and the validation it runs) counts from its state; a preview or production publication, an
+approved Cloudflare request, a GitHub build watch, and seeding a new workspace count while their work actually runs
+(`BuilderRuntimeActivity.run` in `app/agents/builder-runtime-activity.ts`), never from the preview or deployment
+records in state, which an editor save or a cancellation rewrites while that work continues. Before redeploying,
+the Workflow asks the runtime, with its secret, for the upgrade window (`POST /v1/upgrade-window`): one statement
+grants it only when no row is active. It then redeploys the Worker, configures it, rolls out the container image,
+and waits for the new runtime to be ready, renewing the window on the new runtime (`PUT`) throughout, and releases
+it (`DELETE`) once the runtime serves; the rollout replaces running containers at once, so nothing may start before
+it completes. Each of these is its own Workflow step, so a retry never claims the window again or redeploys. Work
+that starts records itself first and then waits while any window is open, on the old Worker or the new one; a
+window lapses five minutes after its last renewal, which bounds the wait when an upgrade stops partway. Work that
+cannot record itself or read the window retries for a minute before it starts anyway. A busy workspace is asked
+again with backoff (30 seconds doubling to 5 minutes); after 12 hours the Workflow ends without upgrading, and the
+next session request, or the next sweep, starts another.
 
 A runtime whose owner does not come back would otherwise stay on an old release, and a failed upgrade would stay
 failed until the browser's explicit retry. The control plane's 15-minute cron therefore also sweeps
 (`app/lib/.server/cloudflare/user-workspace-runtime-upgrade-sweep.ts`): it lists ready runtimes that are outdated but
-still serve their connection's generation and protocol, most recently used first, skips anyone who may no longer use
+still serve their connection's generation and protocol, most recently used first and a further page of them on each
+sweep (so a page of upgrades all still waiting never keeps it from the rest), skips anyone who may no longer use
 the connection, and starts or restarts the same gated Workflow instance a session request would name, at most 10
 per sweep. An upgrade still waiting is left alone; one that gave up waiting is restarted; one that failed is
 restarted on one sweep in four, so at most hourly. First-time provisioning never goes through the sweep: it lists only

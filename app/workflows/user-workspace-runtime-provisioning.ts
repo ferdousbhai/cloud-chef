@@ -16,8 +16,14 @@ import {
   findUserWorkspaceRuntime,
   upsertUserWorkspaceRuntime,
 } from '~/lib/.server/cloudflare/user-workspace-runtime-repository';
-import { claimUserWorkspaceRuntimeUpgradeWindow } from '~/lib/.server/cloudflare/user-workspace-runtime-upgrade-window';
-import { RUNTIME_BUSY_LEASE_MS } from '~/lib/.server/cloudflare/user-workspace-runtime-activity';
+import {
+  changeUserWorkspaceRuntimeUpgradeWindow,
+  claimUserWorkspaceRuntimeUpgradeWindow,
+} from '~/lib/.server/cloudflare/user-workspace-runtime-upgrade-window';
+import {
+  RUNTIME_BUSY_LEASE_MS,
+  RUNTIME_UPGRADE_WINDOW_MS,
+} from '~/lib/.server/cloudflare/user-workspace-runtime-activity';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import { sha256Hex } from '~/lib/hex-digest';
@@ -87,6 +93,8 @@ export const UPGRADE_MAX_WAIT_MS = 12 * 60 * 60_000;
  */
 export const LEGACY_RUNTIME_QUIET_MS = RUNTIME_BUSY_LEASE_MS;
 const LEGACY_RUNTIME_LONGEST_WAIT_MS = 30 * 60_000;
+/** How often an upgrade renews its window while a step that needs it runs: well inside its length. */
+export const UPGRADE_WINDOW_RENEWAL_MS = RUNTIME_UPGRADE_WINDOW_MS / 5;
 
 export type UserWorkspaceRuntimeProvisioningStep = {
   do<T>(name: string, config: typeof STEP_CONFIG | typeof LONG_STEP_CONFIG, operation: () => Promise<T>): Promise<T>;
@@ -118,7 +126,10 @@ export type UserWorkspaceRuntimeProvisioningDependencies = {
   upsertRuntime: typeof upsertUserWorkspaceRuntime;
   findRuntime: typeof findUserWorkspaceRuntime;
   claimUpgradeWindow: typeof claimUserWorkspaceRuntimeUpgradeWindow;
+  changeUpgradeWindow: typeof changeUserWorkspaceRuntimeUpgradeWindow;
   now: () => number;
+  /** Waits between renewals of the upgrade window. */
+  sleep: (ms: number) => Promise<void>;
 };
 
 const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
@@ -130,7 +141,9 @@ const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
   upsertRuntime: upsertUserWorkspaceRuntime,
   findRuntime: findUserWorkspaceRuntime,
   claimUpgradeWindow: claimUserWorkspaceRuntimeUpgradeWindow,
+  changeUpgradeWindow: changeUserWorkspaceRuntimeUpgradeWindow,
   now: Date.now,
+  sleep: (ms) => scheduler.wait(ms),
 };
 
 /** Start or inspect the one durable Workflow for this connection and runtime build. */
@@ -377,10 +390,6 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
             endpoint,
             sharedAccount: connection.orgId !== null,
           });
-          await Promise.all([
-            accountApi.configureWorkspaceRuntimeGcSchedule(workerName),
-            accountApi.enableWorkerSubdomain(workerName),
-          ]);
           return { status: 'deployed', namespaceId: deployed.namespaceId };
         },
       );
@@ -394,21 +403,47 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
       }
       await args.step.sleep(`wait for an idle workspace (attempt ${attempt + 1})`, outcome.waitMs);
     }
+    // An upgrade keeps its window open on the runtime it just deployed until that runtime serves on the
+    // new container image: the rollout replaces running containers at once, so work that started meanwhile
+    // would be cut off, and the new Worker would talk to the old image. A first workspace has no window.
+    const window = { endpoint, controlPlaneSecret, targetVersion: USER_WORKSPACE_RUNTIME_SHA256 };
+    const holdingWindow = <T>(operation: () => Promise<T>) =>
+      upgradeStartedAt === null ? operation() : whileHoldingUpgradeWindow(dependencies, window, operation);
+    // Its own step after the deploy, so retrying it never claims the window again or redeploys. It runs
+    // inside the window the deploy claimed, before the window is renewed through the Worker's subdomain.
+    await args.step.do('configure workspace Worker', STEP_CONFIG, async () => {
+      await Promise.all([
+        accountApi.configureWorkspaceRuntimeGcSchedule(workerName),
+        accountApi.enableWorkerSubdomain(workerName),
+      ]);
+    });
     await args.step.do('deploy Sandbox container', LONG_STEP_CONFIG, () =>
-      accountApi.ensureWorkspaceRuntimeContainer({
-        applicationName: workerName,
-        namespaceId,
-        image: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
-      }),
+      holdingWindow(() =>
+        accountApi.ensureWorkspaceRuntimeContainer({
+          applicationName: workerName,
+          namespaceId,
+          image: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+        }),
+      ),
     );
     await args.step.do('wait for workspace', LONG_STEP_CONFIG, () =>
-      dependencies.waitForReadiness({
-        endpoint,
-        controlPlaneSecret,
-        runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
-        request: fetch,
-      }),
+      holdingWindow(() =>
+        dependencies.waitForReadiness({
+          endpoint,
+          controlPlaneSecret,
+          runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
+          request: fetch,
+        }),
+      ),
     );
+    if (upgradeStartedAt !== null) {
+      await args.step.do('release upgrade window', STEP_CONFIG, async () => {
+        // The window lapses on its own shortly; failing to close it early only delays waiting work.
+        await dependencies.changeUpgradeWindow({ ...window, change: 'release' }).catch(() => {
+          console.warn({ event: 'runtime_upgrade_window_release_failed' });
+        });
+      });
+    }
     await args.step.do('mark workspace ready', STEP_CONFIG, async () => {
       await expectedConnection(args.env, params, dependencies.requireConnection);
       await dependencies.upsertRuntime({
@@ -465,6 +500,36 @@ async function waitBeforeUpgrade(args: {
   }
   console.info({ event: 'runtime_upgrade_waiting', reason: 'legacy_runtime_recently_used' });
   return Math.min(LEGACY_RUNTIME_QUIET_MS - quietFor, LEGACY_RUNTIME_LONGEST_WAIT_MS);
+}
+
+/**
+ * Run one upgrade step with its window held: renewed first, which fails the step when the new runtime
+ * cannot be asked, then every `UPGRADE_WINDOW_RENEWAL_MS` until the step settles. A renewal that fails
+ * midway is logged; the window then lapses at worst, never blocking work forever.
+ */
+async function whileHoldingUpgradeWindow<T>(
+  dependencies: Pick<UserWorkspaceRuntimeProvisioningDependencies, 'changeUpgradeWindow' | 'sleep'>,
+  window: { endpoint: string; controlPlaneSecret: string; targetVersion: string },
+  operation: () => Promise<T>,
+): Promise<T> {
+  await dependencies.changeUpgradeWindow({ ...window, change: 'hold' });
+  let stop: () => void = () => undefined;
+  const stopped = new Promise<boolean>((resolve) => {
+    stop = () => resolve(false);
+  });
+  const renewals = (async () => {
+    while (await Promise.race([dependencies.sleep(UPGRADE_WINDOW_RENEWAL_MS).then(() => true), stopped])) {
+      await dependencies.changeUpgradeWindow({ ...window, change: 'hold' }).catch(() => {
+        console.warn({ event: 'runtime_upgrade_window_renewal_failed' });
+      });
+    }
+  })();
+  try {
+    return await operation();
+  } finally {
+    stop();
+    await renewals;
+  }
 }
 
 async function expectedConnection(
