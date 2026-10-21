@@ -172,14 +172,17 @@ export async function startUserWorkspaceRuntimeProvisioning(args: {
     `${params.userId}\0${params.connectionId}\0${params.connectionGeneration}\0${USER_WORKSPACE_RUNTIME_SHA256}\0${USER_WORKSPACE_SANDBOX_BASE_IMAGE}`,
   )}`;
   try {
-    await args.env.USER_WORKSPACE_RUNTIME_PROVISIONING.createBatch([
-      { id, params, retention: { successRetention: '1 day', errorRetention: '1 day' } },
-    ]);
-    return { status: 'preparing' };
+    const { created } = await args.env.USER_WORKSPACE_RUNTIME_PROVISIONING.createBatch({
+      instances: [{ id, params, retention: { successRetention: '1 day', errorRetention: '1 day' } }],
+    });
+    if (created.length > 0) {
+      return { status: 'preparing' };
+    }
   } catch {
-    // The binding throws rather than returning an empty batch when the id already exists, which is
-    // the ordinary case on every poll after the first for this connection generation and runtime
-    // build. Inspecting the existing instance is the answer, not a preparation failure.
+    // An existing id is the ordinary case on every poll after the first for this connection
+    // generation and runtime build. The object form reports it as a per-instance error and the
+    // binding has also thrown for it, so either way inspecting the existing instance is the answer,
+    // not a preparation failure.
   }
 
   const instance = await args.env.USER_WORKSPACE_RUNTIME_PROVISIONING.get(id);

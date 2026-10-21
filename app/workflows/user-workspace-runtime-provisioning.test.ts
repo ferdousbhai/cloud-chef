@@ -87,32 +87,34 @@ describe('workspace runtime provisioning Workflow', () => {
     const status = vi.fn<WorkflowInstance['status']>().mockResolvedValue({ status: 'running' });
     const instance = workflowInstance(status);
     const createBatch = vi
-      .fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch']>()
-      .mockResolvedValueOnce([instance])
-      // The binding throws on a duplicate id; it never reports one as an empty batch.
-      .mockRejectedValueOnce(new Error('instance with id workspace-... already exists'));
+      .fn<CreateBatch>()
+      .mockResolvedValueOnce({ created: [instance], errors: [] })
+      // The object form reports a duplicate id as a per-instance error.
+      .mockResolvedValueOnce({
+        created: [],
+        errors: [{ index: 0, id: 'workspace-...', code: 409, message: 'instance already exists' }],
+      });
     const get = vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>().mockResolvedValue(instance);
     const env = workflowEnv(createBatch, get);
 
     await expect(startUserWorkspaceRuntimeProvisioning(launchArgs(env))).resolves.toEqual({ status: 'preparing' });
     await expect(startUserWorkspaceRuntimeProvisioning(launchArgs(env))).resolves.toEqual({ status: 'preparing' });
 
-    const firstId = createBatch.mock.calls[0][0][0].id;
-    expect(createBatch.mock.calls[1][0][0].id).toBe(firstId);
+    const firstId = createBatch.mock.calls[0][0].instances?.[0]?.id;
+    expect(firstId).toBeDefined();
+    expect(createBatch.mock.calls[1][0].instances?.[0]?.id).toBe(firstId);
     expect(get).toHaveBeenCalledWith(firstId);
   });
 
   it("gives each member of an organization their own workspace in the organization's account", async () => {
     const instance = workflowInstance(vi.fn<WorkflowInstance['status']>().mockResolvedValue({ status: 'running' }));
-    const createBatch = vi
-      .fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch']>()
-      .mockResolvedValue([instance]);
+    const createBatch = vi.fn<CreateBatch>().mockResolvedValue({ created: [instance], errors: [] });
     const env = workflowEnv(createBatch, vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>());
 
     await startUserWorkspaceRuntimeProvisioning({ ...launchArgs(env), userId: 'member-1' });
     await startUserWorkspaceRuntimeProvisioning({ ...launchArgs(env), userId: 'member-2' });
 
-    const [first, second] = createBatch.mock.calls.map((call) => call[0][0]);
+    const [first, second] = createBatch.mock.calls.map((call) => call[0].instances![0]!);
     expect(first.params).toMatchObject({ userId: 'member-1' });
     expect(second.params).toMatchObject({ userId: 'member-2', connectionId: launchArgs(env).connectionId });
     expect(second.id).not.toBe(first.id);
@@ -133,7 +135,8 @@ describe('workspace runtime provisioning Workflow', () => {
     );
     const env = workflowEnv(
       vi
-        .fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch']>()
+        .fn<CreateBatch>()
+        // The binding has also thrown for a duplicate id rather than reporting it.
         .mockRejectedValue(new Error('instance with id workspace-... already exists')),
       vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>().mockResolvedValue(instance),
     );
@@ -158,7 +161,8 @@ describe('workspace runtime provisioning Workflow', () => {
     );
     const env = workflowEnv(
       vi
-        .fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch']>()
+        .fn<CreateBatch>()
+        // The binding has also thrown for a duplicate id rather than reporting it.
         .mockRejectedValue(new Error('instance with id workspace-... already exists')),
       vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>().mockResolvedValue(instance),
     );
@@ -338,14 +342,19 @@ function workflowArgs(sleep: UserWorkspaceRuntimeProvisioningStep['sleep'] = asy
   };
 }
 
+/** The object form of `createBatch`; the array form is deprecated. */
+type CreateBatch = (options: WorkflowBatchCreateOptions<unknown>) => Promise<WorkflowBatchCreateResult>;
+
 function workflowEnv(
-  createBatch: Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch'],
+  createBatch: CreateBatch,
   get: Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get'],
 ): Pick<Env, 'USER_WORKSPACE_RUNTIME_PROVISIONING'> {
   return {
     USER_WORKSPACE_RUNTIME_PROVISIONING: {
       create: vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['create']>(),
-      createBatch,
+      // SAFETY: the binding overloads createBatch with its deprecated array form, which the
+      // provisioning code no longer calls.
+      createBatch: createBatch as Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch'],
       get,
       deleteBatch: vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['deleteBatch']>(),
     },

@@ -61,7 +61,7 @@ const rootRequiredPackages = [
   'react-dom',
   '@cloudflare/vite-plugin',
   'cf',
-  // Still needed by @cloudflare/vitest-pool-workers, local D1 migrations, and the read-only ops scripts.
+  // Still needed by @cloudflare/vitest-plugin, local D1 migrations, and the read-only ops scripts.
   'wrangler',
 ];
 const forbiddenLockfiles = ['package-lock.json'];

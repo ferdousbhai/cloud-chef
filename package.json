@@ -133,10 +133,10 @@
     "@babel/core": "^8.0.1",
     "@babel/plugin-proposal-decorators": "^8.0.2",
     "@blitz/eslint-plugin": "0.1.5",
-    "@cloudflare/config": "0.23.0",
-    "@cloudflare/vite-plugin": "2.0.0-beta.sha-52b0dc0e9",
-    "@cloudflare/vitest-pool-workers": "0.22.0",
-    "@cloudflare/workers-types": "5.20261004.1",
+    "@cloudflare/config": "0.27.0",
+    "@cloudflare/vite-plugin": "2.0.0-beta.v.3",
+    "@cloudflare/vitest-plugin": "1.4.6",
+    "@cloudflare/workers-types": "5.20261021.1",
     "@oxlint/plugins": "1.78.0",
     "@playwright/test": "1.62.1",
     "@types/file-saver": "^2.0.7",
@@ -146,7 +146,7 @@
     "@types/unist": "^3.0.3",
     "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "^10.5.4",
-    "cf": "1.0.0-beta.12",
+    "cf": "1.0.0-beta.20",
     "esbuild": "^0.28.1",
     "eslint": "9.39.5",
     "eslint-plugin-react": "^7.37.5",
@@ -167,7 +167,7 @@
     "vite-plugin-optimize-css-modules": "^1.4.0",
     "vite-plugin-wasm": "^3.6.0",
     "vitest": "^4.1.11",
-    "wrangler": "4.147.0"
+    "wrangler": "4.151.3"
   },
   "packageManager": "pnpm@11.14.0"
 }
