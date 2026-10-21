@@ -407,9 +407,12 @@ describe('ToolCall', () => {
         revision: 3,
       },
     };
-    await act(async () => root.render(<ToolCall partId={makePartId('message-16', 0)} invocation={listing} />));
+    await act(async () =>
+      root.render(<ToolCall partId={makePartId('message-16', 0)} invocation={listing} key={listing.toolCallId} />),
+    );
     await act(async () => container.querySelector('button')?.click());
-    expect(container.textContent).toContain('src/routes/');
+    // A fresh card per invocation (key), and the expanded body may load lazily: wait for it.
+    await vi.waitFor(() => expect(container.textContent).toContain('src/routes/'));
     expect(container.textContent).toContain('src/main.tsx');
     expect(container.textContent).not.toContain('"entries"');
 
@@ -430,9 +433,11 @@ describe('ToolCall', () => {
         revision: 3,
       },
     };
-    await act(async () => root.render(<ToolCall partId={makePartId('message-17', 0)} invocation={search} />));
+    await act(async () =>
+      root.render(<ToolCall partId={makePartId('message-17', 0)} invocation={search} key={search.toolCallId} />),
+    );
     await act(async () => container.querySelector('button')?.click());
-    expect(container.textContent).toContain('src/main.tsx:12');
+    await vi.waitFor(() => expect(container.textContent).toContain('src/main.tsx:12'));
     expect(container.textContent).not.toContain('"matches"');
 
     const history: CloudChefToolInvocation = {
@@ -447,9 +452,11 @@ describe('ToolCall', () => {
         entries: [{ id: 'live-1', role: 'user', excerpt: 'Add a pricing page' }],
       },
     };
-    await act(async () => root.render(<ToolCall partId={makePartId('message-18', 0)} invocation={history} />));
+    await act(async () =>
+      root.render(<ToolCall partId={makePartId('message-18', 0)} invocation={history} key={history.toolCallId} />),
+    );
     await act(async () => container.querySelector('button')?.click());
-    expect(container.textContent).toContain('Searched the conversation for pricing page');
+    await vi.waitFor(() => expect(container.textContent).toContain('Searched the conversation for pricing page'));
     expect(container.textContent).toContain('1 earlier message matched.');
     expect(container.textContent).not.toContain('"totalMatches"');
 
@@ -461,8 +468,10 @@ describe('ToolCall', () => {
       input: { handoff: 'Goal: ship pricing.' },
       output: { success: true, message: 'Fresh context requested after this tool batch.' },
     };
-    await act(async () => root.render(<ToolCall partId={makePartId('message-19', 0)} invocation={handoff} />));
-    expect(container.textContent).toContain('Handed off to a fresh context');
+    await act(async () =>
+      root.render(<ToolCall partId={makePartId('message-19', 0)} invocation={handoff} key={handoff.toolCallId} />),
+    );
+    await vi.waitFor(() => expect(container.textContent).toContain('Handed off to a fresh context'));
     expect(container.textContent).not.toContain('new_context');
   });
 });
