@@ -185,11 +185,9 @@ export async function upsertCloudflareUser(
     return { id: existingBySubject.id, name, email, image };
   }
 
-  const existingByEmail = await findAdoptableCloudflareUserByEmail(db, identity);
-  if (existingByEmail) {
-    await updateUser(db, existingByEmail.id, identity.subject, name, reportedEmail, image, now);
-    return { id: existingByEmail.id, name, email: reportedEmail, image };
-  }
+  // A Cloudflare login never takes over an existing account by the email Cloudflare reports, which
+  // CloudChef never checked: one already holding it is refused.
+  await refuseReportedEmailOfAnotherUser(db, identity);
   const email = reportedEmail;
 
   const id = crypto.randomUUID();
@@ -220,7 +218,7 @@ export async function upsertCloudflareUser(
     if (committed) {
       return { id, name, email, image };
     }
-    const racedUser = await findCloudflareUserBySubjectOrEmail(db, identity).catch((readError) => {
+    const racedUser = await findCloudflareUserBySubject(db, identity).catch((readError) => {
       console.warn('Unable to read raced Cloudflare user', readError);
       return null;
     });
@@ -363,48 +361,43 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-async function findCloudflareUserBySubjectOrEmail(
+/**
+ * The user a racing sign-in with the same Cloudflare identity created. A user created meanwhile with
+ * the same email is never adopted: the insert's own failure stands.
+ */
+async function findCloudflareUserBySubject(
   db: D1Database,
   identity: CloudflareOAuthIdentity,
 ): Promise<CloudflareAuthUser | null> {
-  const bySubject = await db
+  return db
     .prepare('SELECT id, name, email, image FROM "user" WHERE cloudflare_subject = ?')
     .bind(identity.subject)
     .first<CloudflareAuthUser>();
-  if (bySubject) {
-    return bySubject;
-  }
-  return findAdoptableCloudflareUserByEmail(db, identity);
 }
 
 /**
- * A user Cloudflare sign-in may take over by email: only one known through Cloudflare alone (from
- * before sign-in stored the subject). CloudChef never checked the email Cloudflare reports, so a user
- * whose email CloudChef proved, by a link or Google, is never adopted: they sign in their own way and
- * connect Cloudflare from there.
+ * Refuses a Cloudflare sign-in whose reported email belongs to another CloudChef user. CloudChef never
+ * checked the email Cloudflare reports, so it never adopts an account by it: a user known by another
+ * Cloudflare identity keeps it, and one who signs in with Google or an emailed link signs in that way
+ * and connects Cloudflare from there.
  */
-async function findAdoptableCloudflareUserByEmail(
-  db: D1Database,
-  identity: CloudflareOAuthIdentity,
-): Promise<CloudflareAuthUser | null> {
+async function refuseReportedEmailOfAnotherUser(db: D1Database, identity: CloudflareOAuthIdentity): Promise<void> {
   if (!identity.email) {
-    return null;
+    return;
   }
   const row = await db
-    .prepare(
-      'SELECT id, name, email, image, cloudflare_subject, email_proven_at FROM "user" WHERE email = ? COLLATE NOCASE',
-    )
+    .prepare('SELECT cloudflare_subject FROM "user" WHERE email = ? COLLATE NOCASE')
     .bind(identity.email)
-    .first<CloudflareAuthUserRow>();
-  if (row && row.cloudflare_subject !== null && row.cloudflare_subject !== identity.subject) {
+    .first<{ cloudflare_subject: string | null }>();
+  if (!row || row.cloudflare_subject === identity.subject) {
+    return;
+  }
+  if (row.cloudflare_subject !== null) {
     throw new Error('This verified email is already linked to a different Cloudflare identity.');
   }
-  if (row && row.cloudflare_subject === null && row.email_proven_at !== null) {
-    throw new IdentityConflictError(
-      'This email already has a CloudChef account. Sign in with Google or an emailed link, then connect Cloudflare in Settings.',
-    );
-  }
-  return row;
+  throw new IdentityConflictError(
+    'This email already has a CloudChef account. Sign in with Google or an emailed link, then connect Cloudflare in Settings.',
+  );
 }
 
 async function updateUser(

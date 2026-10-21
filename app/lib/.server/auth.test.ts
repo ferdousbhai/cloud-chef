@@ -1,4 +1,5 @@
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
+import { IdentityConflictError } from './identity-conflict-error';
 import { describe, expect, it, vi } from 'vitest';
 import { createAuthSession, getAuthSession, prepareAuthSession, setSessionContext, upsertCloudflareUser } from './auth';
 
@@ -124,48 +125,29 @@ describe('Cloudflare auth sessions', () => {
     await expect(setSessionContext(env, request(), 'acme')).resolves.toBe(false);
   });
 
-  it('adopts a matching legacy email so existing projects remain owned by the same user', async () => {
-    const updates: unknown[][] = [];
-    const db = {
-      prepare(sql: string) {
-        return {
-          bind(...values: unknown[]) {
-            return {
-              first: async () => {
-                if (sql.includes('cloudflare_subject =')) {
-                  return null;
-                }
-                if (sql.includes('WHERE email =')) {
-                  return {
-                    id: 'legacy-user',
-                    name: 'Old',
-                    email: 'person@example.com',
-                    image: null,
-                    cloudflare_subject: null,
-                    email_proven_at: null,
-                  };
-                }
-                return null;
-              },
-              run: async () => {
-                updates.push(values);
-                return { success: true, meta: { changes: 1 } };
-              },
-            };
-          },
-        };
-      },
-    } as unknown as D1Database;
+  it.each([
+    ['known only by an email no one proved', null],
+    ['whose email CloudChef proved', 5],
+  ])('never lets a Cloudflare login take over an account %s', async (_label, provenAt) => {
+    const { database, db } = controlPlaneDatabase();
+    database
+      .prepare(
+        `INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, email_proven_at)
+         VALUES ('existing', 'Old', 'person@example.com', 1, 1, 1, ?)`,
+      )
+      .run(provenAt);
 
     await expect(
       upsertCloudflareUser(
         db,
-        { subject: 'cf-user-1', email: 'person@example.com', name: 'Person', picture: null },
+        { subject: 'cf-user-1', email: 'Person@Example.com', name: 'Person', picture: null },
         'Account',
         123,
       ),
-    ).resolves.toMatchObject({ id: 'legacy-user', name: 'Person' });
-    expect(updates[0]).toEqual(['cf-user-1', 'Person', 'person@example.com', 1, null, 123, 'legacy-user', 'cf-user-1']);
+    ).rejects.toThrow(IdentityConflictError);
+    expect(database.prepare('SELECT id, name, cloudflare_subject FROM "user"').all()).toEqual([
+      { id: 'existing', name: 'Old', cloudflare_subject: null },
+    ]);
   });
 
   it('never reassigns a verified email already bound to a different Cloudflare subject', async () => {
@@ -181,63 +163,6 @@ describe('Cloudflare auth sessions', () => {
       ),
     ).rejects.toThrow('verified email is already linked to a different Cloudflare identity');
     expect(updates).toEqual([]);
-  });
-
-  it('preserves idempotent same-subject adoption by verified email', async () => {
-    const updates: unknown[][] = [];
-    const db = subjectAwareEmailDb({ cloudflareSubject: 'cf-user-1', updates });
-
-    await expect(
-      upsertCloudflareUser(
-        db,
-        { subject: 'cf-user-1', email: 'person@example.com', name: 'Person', picture: null },
-        'Account',
-        123,
-      ),
-    ).resolves.toMatchObject({ id: 'legacy-user', name: 'Person' });
-    expect(updates).toEqual([['cf-user-1', 'Person', 'person@example.com', 1, null, 123, 'legacy-user', 'cf-user-1']]);
-  });
-
-  it('fails closed if an unbound legacy row is concurrently linked before adoption updates it', async () => {
-    const db = {
-      prepare(sql: string) {
-        return {
-          bind() {
-            return {
-              first: async () => {
-                if (sql.includes('SELECT 1 AS found')) {
-                  return null;
-                }
-                if (sql.includes('WHERE cloudflare_subject = ?')) {
-                  return null;
-                }
-                if (sql.includes('WHERE email = ?')) {
-                  return {
-                    id: 'legacy-user',
-                    name: 'Old',
-                    email: 'person@example.com',
-                    image: null,
-                    cloudflare_subject: null,
-                    email_proven_at: null,
-                  };
-                }
-                return null;
-              },
-              run: async () => ({ success: true, meta: { changes: 0 } }),
-            };
-          },
-        };
-      },
-    } as unknown as D1Database;
-
-    await expect(
-      upsertCloudflareUser(
-        db,
-        { subject: 'cf-user-1', email: 'person@example.com', name: 'Person', picture: null },
-        'Account',
-        123,
-      ),
-    ).rejects.toThrow('Cloudflare user changed while authentication was being persisted');
   });
 
   it('adopts only an exact new user insert whose acknowledgement failed after commit', async () => {
@@ -274,7 +199,7 @@ describe('Cloudflare auth sessions', () => {
     await expect(upsertCloudflareUser(mismatched, identity, 'Account', 123)).rejects.toBe(acknowledgementError);
   });
 
-  it.each(['subject', 'email'] as const)(
+  it.each(['subject'] as const)(
     'adopts and exactly updates a concurrently inserted user matched by %s',
     async (match) => {
       const { db, updates } = racedUserDb(match);
@@ -290,6 +215,20 @@ describe('Cloudflare auth sessions', () => {
       expect(updates).toEqual([['cf-user-1', 'Person', 'person@example.com', 1, null, 123, 'raced-user', 'cf-user-1']]);
     },
   );
+
+  it('never adopts a user concurrently created with the same email', async () => {
+    const { db, insertError, updates } = racedUserDb('email');
+
+    await expect(
+      upsertCloudflareUser(
+        db,
+        { subject: 'cf-user-1', email: 'person@example.com', name: 'Person', picture: null },
+        'Account',
+        123,
+      ),
+    ).rejects.toBe(insertError);
+    expect(updates).toEqual([]);
+  });
 
   it('preserves the unique insert error when no matching raced identity appears', async () => {
     const { db, insertError, updates } = racedUserDb('none');
