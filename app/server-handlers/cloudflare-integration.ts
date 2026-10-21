@@ -48,6 +48,7 @@ import {
   CLOUDFLARE_AUTHORIZATION_ERROR_PARAM,
   CLOUDFLARE_AUTHORIZATION_ERROR_VALUE,
   CLOUDFLARE_CONNECT_MESSAGE_PARAM,
+  type CloudflareConnectMessage,
 } from '~/lib/cloudflare/authorization-recovery';
 import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { CLOUDCHEF_CAPABILITIES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
@@ -504,9 +505,7 @@ export async function completeCloudflareConnectionAction(args: {
   try {
     const { state, callbackUrl, providerRejectedAuthorization } = await readCloudflareCallback(args.request);
     if (readCookie(args.request, OAUTH_STATE_COOKIE) !== state) {
-      throw new ConnectReturnError(
-        'That Cloudflare authorization was started in another browser or tab. Connect Cloudflare again from here.',
-      );
+      throw new ConnectReturnError('other_browser');
     }
     const oauthState = await args.env.DB.prepare(
       `SELECT provider_session_id, return_to, expires_at, authenticated_user_id, linking_user_id, connecting_org_id
@@ -516,9 +515,7 @@ export async function completeCloudflareConnectionAction(args: {
       .bind(state)
       .first<PendingOAuthState>();
     if (!oauthState) {
-      throw new ConnectReturnError(
-        'That Cloudflare authorization was already finished, or is no longer known. Connect Cloudflare again if you need to.',
-      );
+      throw new ConnectReturnError('already_finished');
     }
     returnTo = oauthState.return_to;
     if (oauthState.expires_at <= Date.now()) {
@@ -528,7 +525,7 @@ export async function completeCloudflareConnectionAction(args: {
       )
         .bind(Date.now(), state)
         .run();
-      throw new ConnectReturnError('That Cloudflare authorization expired. Connect Cloudflare again.');
+      throw new ConnectReturnError('expired');
     }
     if (providerRejectedAuthorization) {
       await failOAuthState({ db: args.env.DB, stateId: state, expected: oauthState });
@@ -572,14 +569,21 @@ export async function completeCloudflareConnectionAction(args: {
         const admin = oauthState.linking_user_id;
         const membership = admin ? await findMembership(args.env.DB, orgId, admin) : null;
         if (!admin || membership?.role !== 'admin' || membership.pausedAt !== null) {
-          throw new IdentityConflictError("Only a team's admin can connect its Cloudflare account.");
+          throw new ConnectReturnError('admin_only');
         }
         userId = admin;
         owner = { kind: 'organization', orgId };
       } else {
-        const user = oauthState.linking_user_id
-          ? await attachCloudflareIdentity(args.env.DB, oauthState.linking_user_id, result.user.subject)
-          : await upsertCloudflareUser(args.env.DB, result.user, result.accountName);
+        const linkingUserId = oauthState.linking_user_id;
+        const user = await (
+          linkingUserId
+            ? attachCloudflareIdentity(args.env.DB, linkingUserId, result.user.subject)
+            : upsertCloudflareUser(args.env.DB, result.user, result.accountName)
+        ).catch((error: Error) => {
+          throw error instanceof IdentityConflictError
+            ? new ConnectReturnError(linkingUserId ? 'login_linked_elsewhere' : 'email_has_account')
+            : error;
+        });
         userId = user.id;
         owner = { kind: 'user', userId };
       }
@@ -650,9 +654,7 @@ export async function completeCloudflareConnectionAction(args: {
       const current = await getAuthSession(args.env, args.request);
       if (current?.user.id !== oauthState.linking_user_id) {
         // The connection is already active by now: only this browser's session is gone.
-        throw new ConnectReturnError(
-          'Cloudflare is connected, but your CloudChef session ended before it finished. Sign in again to build in it.',
-        );
+        throw new ConnectReturnError('session_ended');
       }
       sessionId = current.session.id;
       if (reproved) {
@@ -689,34 +691,33 @@ export async function completeCloudflareConnectionAction(args: {
       headers,
     });
   } catch (error) {
-    if (
-      error instanceof ConnectReturnError ||
-      error instanceof CloudflareOAuthError ||
-      error instanceof IdentityConflictError
-    ) {
-      return connectReturnFailure(args.request, returnTo, error.message);
+    if (error instanceof ConnectReturnError) {
+      return connectReturnFailure(args.request, returnTo, error.code);
+    }
+    if (error instanceof CloudflareOAuthError) {
+      // Its message can name scopes Cloudflare returned; the person gets fixed text and the log the detail.
+      console.warn({ event: 'cloudflare_connect_incomplete', message: error.message });
+      return connectReturnFailure(args.request, returnTo, 'authorization_incomplete');
     }
     // Anything else is classified (and an unexpected one logged) as the JSON routes do.
     const unexpected = cloudflareIntegrationErrorResponse(error).status >= 500;
-    return connectReturnFailure(
-      args.request,
-      returnTo,
-      unexpected
-        ? 'Cloudflare couldn’t be connected just now. Try again.'
-        : 'That Cloudflare authorization couldn’t be read. Connect Cloudflare again.',
-    );
+    return connectReturnFailure(args.request, returnTo, unexpected ? 'unavailable' : 'unreadable');
   }
 }
 
-/** A return from Cloudflare that cannot finish, with what to tell the person. */
-class ConnectReturnError extends Error {}
+/** A return from Cloudflare that cannot finish, with the code of what to tell the person. */
+class ConnectReturnError extends Error {
+  constructor(readonly code: CloudflareConnectMessage) {
+    super(code);
+  }
+}
 
 /**
  * Back to Settings (keeping where the person was headed) with why the return from Cloudflare did not
- * finish, and this browser's authorization state cleared. The message is CloudChef's own text.
+ * finish, and this browser's authorization state cleared. The URL carries a code Settings shows as text.
  */
-function connectReturnFailure(request: Request, returnTo: string | null, message: string): Response {
-  return settingsAfterConnectReturn(request, returnTo, [CLOUDFLARE_CONNECT_MESSAGE_PARAM, message]);
+function connectReturnFailure(request: Request, returnTo: string | null, code: CloudflareConnectMessage): Response {
+  return settingsAfterConnectReturn(request, returnTo, [CLOUDFLARE_CONNECT_MESSAGE_PARAM, code]);
 }
 
 /** Settings' Cloudflare card, carrying where the person was headed (`continue`) and why they are there. */

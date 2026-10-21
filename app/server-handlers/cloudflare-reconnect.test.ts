@@ -53,7 +53,7 @@ async function setup() {
   // Signed in an hour ago: too long ago for export or erasure.
   const stale = await prepareAuthSession(user.id, undefined, Date.now() - HOUR);
   const cookie = (await createAuthSession(env, stale)).split(';')[0];
-  return { database, env, user, cookie };
+  return { database, db, env, user, cookie };
 }
 
 /** Starts a connection while signed in, then comes back from Cloudflare as `orchestrator`'s login. */
@@ -124,9 +124,7 @@ describe('connecting Cloudflare while signed in', () => {
     const location = new URL(response.headers.get('location') ?? '');
     expect(location.pathname).toBe('/settings');
     expect(location.searchParams.get('continue')).toBe('/chat/project-1');
-    expect(location.searchParams.get('cloudflare_message')).toBe(
-      'Cloudflare is connected, but your CloudChef session ended before it finished. Sign in again to build in it.',
-    );
+    expect(location.searchParams.get('cloudflare_message')).toBe('session_ended');
     expect(response.headers.get('set-cookie')).not.toContain('cloudchef_session=');
     expect(database.prepare('SELECT status FROM cloudflare_connections WHERE user_id = ?').get(user.id)).toEqual({
       status: 'active',
@@ -137,5 +135,17 @@ describe('connecting Cloudflare while signed in', () => {
     const { env, cookie } = await setup();
     const refused = await connect(env, cookie, cloudflareAs('cf-new'));
     expect(refused.status).toBe(401);
+  });
+
+  it("names a Cloudflare login that is someone else's by a code, not by the error's own words", async () => {
+    const { database, db, env, user } = await setup();
+    const other = await upsertVerifiedEmailUser(db, { email: 'kim@corp.com' });
+    database.prepare('UPDATE "user" SET cloudflare_subject = ? WHERE id = ?').run('cf-sam', other.id);
+    const recent = (await createAuthSession(env, await prepareAuthSession(user.id))).split(';')[0];
+
+    const response = await connect(env, recent, cloudflareAs('cf-sam'));
+    expect(response.status).toBe(303);
+    const location = new URL(response.headers.get('location') ?? '');
+    expect(location.searchParams.get('cloudflare_message')).toBe('login_linked_elsewhere');
   });
 });

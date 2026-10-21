@@ -5,6 +5,7 @@ import type {
 } from '~/lib/.server/cloudflare/cloudflare-orchestrator';
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
 import { USER_WORKSPACE_SANDBOX_BASE_IMAGE } from '~/workflows/user-workspace-runtime-provisioning';
+import { cloudflareConnectMessageText } from '~/lib/cloudflare/authorization-recovery';
 
 /** Shaped like a real Cloudflare account id; a registry namespace is derived from it. */
 const ACCOUNT_ID = '0af9e0921b880657d84a6c07307f8aef';
@@ -55,14 +56,16 @@ import {
 
 /**
  * Where a return from Cloudflare that could not finish sends the browser: Settings, saying why. The
- * answer is the message Settings shows.
+ * answer is the message Settings shows for the code in the URL.
  */
 function returnFailure(response: Response): string | null {
   expect(response.status).toBe(303);
   const location = new URL(response.headers.get('location') ?? '');
   expect(location.pathname).toBe('/settings');
   expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
-  return location.searchParams.get('cloudflare_message');
+  const code = location.searchParams.get('cloudflare_message');
+  expect(code).toMatch(/^[a-z_]+$/);
+  return code === null ? null : cloudflareConnectMessageText(code);
 }
 
 describe('Cloudflare-only authentication', () => {

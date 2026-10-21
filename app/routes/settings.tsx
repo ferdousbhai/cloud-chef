@@ -9,14 +9,14 @@ import {
   CLOUDFLARE_AUTHORIZATION_ERROR_MESSAGE,
   CLOUDFLARE_AUTHORIZATION_ERROR_PARAM,
   CLOUDFLARE_AUTHORIZATION_ERROR_VALUE,
-  CLOUDFLARE_CONNECT_MESSAGE_MAX_LENGTH,
   CLOUDFLARE_CONNECT_MESSAGE_PARAM,
+  cloudflareConnectMessageText,
 } from '~/lib/cloudflare/authorization-recovery';
 import { z } from 'zod';
 
 const settingsSearchSchema = z.object({
   [CLOUDFLARE_AUTHORIZATION_ERROR_PARAM]: z.string().optional().catch(undefined),
-  [CLOUDFLARE_CONNECT_MESSAGE_PARAM]: z.string().max(CLOUDFLARE_CONNECT_MESSAGE_MAX_LENGTH).optional().catch(undefined),
+  [CLOUDFLARE_CONNECT_MESSAGE_PARAM]: z.string().optional().catch(undefined),
 });
 
 export const Route = createFileRoute('/settings')({
@@ -39,8 +39,9 @@ function SettingsRouteContent() {
   // connects one, so it opens for any session, not only one with an account to build in.
   const { data: session, isPending } = authClient.useSession();
   const search = Route.useSearch();
+  // The URL names a code; only CloudChef's own text for it is shown.
   const authorizationError =
-    search.cloudflare_message ??
+    (search.cloudflare_message ? cloudflareConnectMessageText(search.cloudflare_message) : null) ??
     (search.cloudflare_authorization === CLOUDFLARE_AUTHORIZATION_ERROR_VALUE
       ? CLOUDFLARE_AUTHORIZATION_ERROR_MESSAGE
       : null);
