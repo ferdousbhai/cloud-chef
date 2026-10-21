@@ -114,13 +114,18 @@ export async function seedLinkedWorkspace(
  * The workspace's changes against its base commit: every file whose content or executable bit differs or
  * is new, and every file that's gone. This is exactly what GitHub needs to show the workspace as it is.
  * As in git, a new file the project's `.gitignore` files ignore is left out (one GitHub already has is
- * sent whether or not it is ignored), and local secrets (`isNeverPublished`) never go, either way.
+ * sent whether or not it is ignored), and local secrets (`isNeverPublished`) never go, either way: those
+ * edited, removed, or new and not ignored come back as `heldBack`, for the model to tell the person.
  * Also returns the workspace's own manifest, which becomes the base once the changes are merged.
  */
 export async function linkedWorkspaceChanges(
   workspace: Pick<BuilderWorkspaceApi, 'refresh' | 'listFiles' | 'readFile'>,
   linked: BuilderWorkspaceLinkedProject,
-): Promise<{ changes: LinkedChange[]; manifest: BuilderWorkspaceLinkedProject['baseManifest'] }> {
+): Promise<{
+  changes: LinkedChange[];
+  manifest: BuilderWorkspaceLinkedProject['baseManifest'];
+  heldBack: string[];
+}> {
   const base = new Map(linked.baseManifest.map((file) => [file.path, file]));
   await workspace.refresh();
   const current = workspace
@@ -136,6 +141,7 @@ export async function linkedWorkspaceChanges(
   );
   const ignored = gitignoreMatcher(gitignores);
   const changes: LinkedChange[] = [];
+  const heldBack: string[] = [];
   // A secret GitHub has stays as GitHub has it: neither its edit nor its removal is sent.
   const manifest: BuilderWorkspaceLinkedProject['baseManifest'] = linked.baseManifest.filter((file) =>
     isNeverPublished(file.path),
@@ -144,7 +150,14 @@ export async function linkedWorkspaceChanges(
   for (const file of current) {
     const path = projectPath(file.path);
     const before = base.get(path);
-    if (isNeverPublished(path) || (!before && ignored(path))) {
+    if (!before && ignored(path)) {
+      continue;
+    }
+    if (isNeverPublished(path)) {
+      present.add(path);
+      if (before?.sha256 !== file.sha256) {
+        heldBack.push(path);
+      }
       continue;
     }
     present.add(path);
@@ -159,11 +172,16 @@ export async function linkedWorkspaceChanges(
     changes.push({ path, contentBase64: bytesToBase64(read.bytes), executable });
   }
   for (const path of base.keys()) {
-    if (!present.has(path) && !isNeverPublished(path)) {
+    if (present.has(path)) {
+      continue;
+    }
+    if (isNeverPublished(path)) {
+      heldBack.push(path);
+    } else {
       changes.push({ path, contentBase64: null, executable: false });
     }
   }
-  return { changes, manifest };
+  return { changes, manifest, heldBack };
 }
 
 function isGitignore(path: string): boolean {

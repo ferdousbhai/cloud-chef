@@ -124,9 +124,29 @@ export async function completeGitHubInstallAction({
   if (approvalState && url.searchParams.get('state') === approvalState) {
     return completeProductionApproval({ request, env, app, state: approvalState });
   }
-  const state = readCookie(request, STATE_COOKIE);
   // This is a browser coming back from GitHub: every outcome returns to Settings, which says what happened.
   const back = (message: GitHubReturnMessage) => redirect(settingsWithMessage(url.origin, message), request);
+  try {
+    return await completeInstallation({ request, env, app, back });
+  } catch (error) {
+    // Any failure GitHub's refusal isn't, such as D1's or the network's, still returns this browser to Settings.
+    console.error(
+      'A CloudChef installation failed',
+      error instanceof Error ? `${error.name}: ${error.message}` : 'not an Error',
+    );
+    return back('install_failed');
+  }
+}
+
+async function completeInstallation(args: {
+  request: Request;
+  env: Env;
+  app: GitHubApp | null;
+  back: (message: GitHubReturnMessage) => Response;
+}): Promise<Response> {
+  const { request, env, app, back } = args;
+  const url = new URL(request.url);
+  const state = readCookie(request, STATE_COOKIE);
   // The state GitHub carries back must be the one this browser started with: a link carrying someone
   // else's installation and code can't finish an admin's half-finished connection.
   if (!state || url.searchParams.get('state') !== state) {
@@ -190,12 +210,7 @@ export async function completeGitHubInstallAction({
       console.error('GitHub refused a CloudChef installation', error.status);
       return back('install_failed');
     }
-    // Any other failure, such as D1's or the network's, still returns this browser to Settings.
-    console.error(
-      'A CloudChef installation failed',
-      error instanceof Error ? `${error.name}: ${error.message}` : 'not an Error',
-    );
-    return back('install_failed');
+    throw error;
   }
 }
 
@@ -256,6 +271,9 @@ export function declineProductionRequestAction({ request, env }: { request: Requ
   });
 }
 
+/** The production request's claim an approval's return took over by using its state, once it has. */
+type ApprovalClaimHeld = { taken?: { requestId: string; claimedAt: number } };
+
 /**
  * Back from GitHub with the admin's authorization: create the repository as them (in the account the
  * organization's App is installed on), give the App access to it, commit the draft as its first version,
@@ -267,16 +285,42 @@ async function completeProductionApproval(args: {
   app: GitHubApp | null;
   state: string;
 }): Promise<Response> {
-  const { request, env, app } = args;
-  const url = new URL(request.url);
+  const url = new URL(args.request.url);
   // This is a browser coming back from GitHub: every outcome returns to Settings, which says what happened.
   const back = (message: GitHubReturnMessage | null, promoted?: string) => {
     const location = settingsWithMessage(url.origin, message);
     if (promoted) {
       location.searchParams.set('promoted', promoted);
     }
-    return redirectClearing(location, request, APPROVAL_COOKIE);
+    return redirectClearing(location, args.request, APPROVAL_COOKIE);
   };
+  const claim: ApprovalClaimHeld = {};
+  try {
+    return await finishProductionApproval({ ...args, back, claim });
+  } catch (error) {
+    // Any failure the steps don't answer themselves, such as D1's or the network's, hands the request back
+    // if D1 can, and returns this browser to Settings either way.
+    console.error(
+      'A production approval failed',
+      error instanceof Error ? `${error.name}: ${error.message}` : 'not an Error',
+    );
+    if (claim.taken) {
+      await releaseApprovalClaim(args.env.DB, claim.taken.requestId, claim.taken.claimedAt).catch(() => undefined);
+    }
+    return back('approval_failed');
+  }
+}
+
+async function finishProductionApproval(args: {
+  request: Request;
+  env: Env;
+  app: GitHubApp | null;
+  state: string;
+  back: (message: GitHubReturnMessage | null, promoted?: string) => Response;
+  claim: ApprovalClaimHeld;
+}): Promise<Response> {
+  const { request, env, app, back } = args;
+  const url = new URL(request.url);
   const now = Date.now();
   const pending = await env.DB.prepare(
     `UPDATE github_approval_states SET used_at = ?
@@ -285,6 +329,9 @@ async function completeProductionApproval(args: {
   )
     .bind(now, args.state, now)
     .first<{ request_id: string; user_id: string; repo_name: string; private: number; created_at: number }>();
+  if (pending) {
+    args.claim.taken = { requestId: pending.request_id, claimedAt: pending.created_at };
+  }
   const code = url.searchParams.get('code');
   if (!app) {
     if (pending) {
@@ -330,8 +377,10 @@ async function completeProductionApproval(args: {
     claimedAt: pending.created_at,
   });
   if (!productionRequest) {
+    args.claim.taken = undefined;
     return back('approval_changed');
   }
+  args.claim.taken = { requestId: productionRequest.id, claimedAt: productionRequest.claimedAt };
   const fail = async (message: GitHubReturnMessage) => {
     await releaseApprovalClaim(env.DB, productionRequest.id, productionRequest.claimedAt);
     return back(message);
@@ -425,18 +474,12 @@ async function completeProductionApproval(args: {
   } catch (error) {
     if (error instanceof GitHubError) {
       console.error('GitHub refused part of a production approval', error.status);
-      return await fail('approval_failed');
+      return await fail('approval_failed').catch(() => back('approval_failed'));
     }
     if (error instanceof PayloadTooLargeError) {
-      return await fail('draft_too_large');
+      return await fail('draft_too_large').catch(() => back('draft_too_large'));
     }
-    // Any other failure, such as D1's or the network's, hands the request back if D1 can, and returns this
-    // browser to Settings either way.
-    console.error(
-      'A production approval failed',
-      error instanceof Error ? `${error.name}: ${error.message}` : 'not an Error',
-    );
-    return await fail('approval_failed').catch(() => back('approval_failed'));
+    throw error;
   }
 }
 

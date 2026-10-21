@@ -23,6 +23,25 @@ export const LINKED_BUILD_POLL_MS = 10_000;
  */
 export const WORKERS_BUILDS_APPEAR_MS = 3 * 60_000;
 
+/** How many held-back paths a watch keeps; the summary names fewer. */
+export const LINKED_HELD_BACK_LIMIT = 20;
+
+/**
+ * What a publish's summary adds when it left out local secrets the workspace changed, so the model can
+ * tell the person: they stay as GitHub has them.
+ */
+export function linkedHeldBackNote(heldBack: readonly string[] | undefined): string {
+  if (!heldBack?.length) {
+    return '';
+  }
+  const named = heldBack.slice(0, 5).join(', ');
+  const more = heldBack.length > 5 ? ` and ${heldBack.length - 5} more` : '';
+  return (
+    ` Not sent, as local secrets CloudChef never publishes: ${named}${more}. GitHub keeps its own version` +
+    ' of any it has; tell the user if they meant to change them.'
+  );
+}
+
 /** Fiber metadata survives a Durable Object restart, so the watch is re-parsed before it resumes. */
 export const linkedBuildWatchSchema = z.object({
   toolCallId: z.string().min(1).max(256),
@@ -35,6 +54,8 @@ export const linkedBuildWatchSchema = z.object({
   startedAt: z.number().int().positive(),
   /** Absent from watches started before it was recorded. */
   defaultBranch: z.string().min(1).max(256).optional(),
+  /** Local secrets the workspace changed that the commit left out (`linkedWorkspaceChanges`). */
+  heldBack: z.array(z.string().min(1).max(4096)).max(LINKED_HELD_BACK_LIMIT).optional(),
 });
 export type LinkedBuildWatch = z.infer<typeof linkedBuildWatchSchema>;
 
@@ -68,7 +89,8 @@ export function linkedBuildStartedResult(watch: LinkedBuildWatch): CloudChefTool
     `Committed ${watch.where}. The repository's pipeline is building it now (usually about two minutes); it ` +
       `will be ${outcome} once that finishes, and the result${watch.live ? '' : ' and its preview link'} will ` +
       "appear in the chat by itself. Don't wait or poll for it: tell the user it's building, and carry on with " +
-      'anything else they asked for.',
+      'anything else they asked for.' +
+      linkedHeldBackNote(watch.heldBack),
     linkedBuildData(watch, 'pending'),
   );
 }
@@ -81,7 +103,8 @@ export function linkedBuildSettledResult(
   if (build.state === 'success') {
     const preview = build.previewUrl ? ` Preview: ${build.previewUrl}` : '';
     return toolSuccess(
-      `Committed ${watch.where}; the pipeline built it${watch.live ? ' and it is live' : ''}.${preview}`,
+      `Committed ${watch.where}; the pipeline built it${watch.live ? ' and it is live' : ''}.${preview}` +
+        linkedHeldBackNote(watch.heldBack),
       linkedBuildData(watch, 'success', build),
     );
   }
@@ -89,18 +112,20 @@ export function linkedBuildSettledResult(
     const conclusion = build.conclusion && build.conclusion !== 'failure' ? ` (${build.conclusion})` : '';
     return toolFailure(
       `Committed ${watch.where}, but the pipeline's build did not succeed${conclusion}` +
-        `${watch.live ? ', so the change is not live' : ''}. Details: ${build.detailsUrl ?? 'see the repository on GitHub'}.`,
+        `${watch.live ? ', so the change is not live' : ''}. Details: ${build.detailsUrl ?? 'see the repository on GitHub'}.` +
+        linkedHeldBackNote(watch.heldBack),
       linkedBuildData(watch, 'failure', build),
     );
   }
   if (build.state === 'pending') {
     return toolSuccess(
-      `Committed ${watch.where}; the pipeline was still building it after ${LINKED_BUILD_WATCH_MS / 60_000} minutes. Its result is on GitHub.`,
+      `Committed ${watch.where}; the pipeline was still building it after ${LINKED_BUILD_WATCH_MS / 60_000} minutes. Its result is on GitHub.` +
+        linkedHeldBackNote(watch.heldBack),
       linkedBuildData(watch, 'timed_out', build),
     );
   }
   return toolSuccess(
-    `Committed ${watch.where}. The repository reported no pipeline for it.`,
+    `Committed ${watch.where}. The repository reported no pipeline for it.` + linkedHeldBackNote(watch.heldBack),
     linkedBuildData(watch, 'none', build),
   );
 }
@@ -108,7 +133,8 @@ export function linkedBuildSettledResult(
 /** The publish tool's output when CloudChef could not follow the pipeline at all. */
 export function linkedBuildUnfollowedResult(watch: LinkedBuildWatch): CloudChefToolResult<LinkedPublishData> {
   return toolSuccess(
-    `Committed ${watch.where}. CloudChef could not follow the repository's pipeline for it; its build result is on GitHub.`,
+    `Committed ${watch.where}. CloudChef could not follow the repository's pipeline for it; its build result is on GitHub.` +
+      linkedHeldBackNote(watch.heldBack),
     linkedBuildData(watch, 'unfollowed'),
   );
 }

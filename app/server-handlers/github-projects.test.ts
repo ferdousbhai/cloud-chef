@@ -327,6 +327,54 @@ describe('GitHub projects', () => {
     logged.mockRestore();
   });
 
+  it('sends a browser back to Settings when D1 fails before GitHub is asked anything', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const returnFailing = async (failing: string, query: string) => {
+      const { env, orgId, admin, app } = await setup();
+      const started = await startGitHubInstallAction({
+        request: post(admin.cookie, '/api/organizations/github/start', { orgId }),
+        env: envWith({
+          ...env,
+          GITHUB_APP_CLIENT_ID: 'Iv1.test',
+          GITHUB_APP_CLIENT_SECRET: 'secret',
+          GITHUB_APP_PRIVATE_KEY: 'unused',
+          GITHUB_APP_SLUG: 'cloudchef',
+        }),
+      });
+      const state = /cloudchef_github_state=([^;]+)/.exec(started.headers.get('set-cookie') ?? '')?.[1] ?? '';
+      return completeGitHubInstallAction({
+        request: new Request(`${ORIGIN}/github/return?installation_id=${INSTALLATION_ID}&${query}&state=${state}`, {
+          headers: { cookie: `${admin.cookie}; cloudchef_github_state=${state}` },
+        }),
+        env: envWith({
+          ...env,
+          DB: withStatementHook(env.DB, (statement) => {
+            if (statement.includes(failing)) {
+              throw new Error('D1_ERROR: storage operation exceeded timeout');
+            }
+          }),
+        }),
+        app,
+      });
+    };
+
+    for (const [failing, query] of [
+      ['UPDATE github_install_states', 'code=c&setup_action=install'],
+      ['FROM github_installations', 'setup_action=update'],
+      ['FROM cloudflare_auth_sessions', 'code=c&setup_action=install'],
+      ['FROM organization_members', 'code=c&setup_action=install'],
+    ]) {
+      const returned = await returnFailing(failing ?? '', query ?? '');
+      expect(returned.status).toBe(303);
+      expect(githubMessage(returned)).toBe('GitHub refused the connection. Connect GitHub again.');
+    }
+    expect(logged).toHaveBeenCalledWith(
+      'A CloudChef installation failed',
+      'Error: D1_ERROR: storage operation exceeded timeout',
+    );
+    logged.mockRestore();
+  });
+
   it("doesn't let a member connect GitHub", async () => {
     const { env, orgId, member } = await setup();
     const started = await startGitHubInstallAction({

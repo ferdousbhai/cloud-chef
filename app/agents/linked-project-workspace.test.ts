@@ -283,7 +283,7 @@ async function publishingWorkspace(contents: Record<string, string>) {
 describe('what a publish leaves out', () => {
   it("leaves out new files the project's .gitignore files ignore, and local secrets either way", async () => {
     const workspace = await publishingWorkspace({
-      '.gitignore': 'coverage/\nbuild/\n',
+      '.gitignore': 'coverage/\nbuild/\n.env.ignored\n',
       'packages/api/.gitignore': 'generated/\n',
       'src/app.ts': 'export const changed = 1;',
       'coverage/index.html': 'report',
@@ -296,6 +296,10 @@ describe('what a publish leaves out', () => {
       'apps/web/.env.local': 'SECRET=2',
       '.env.example': 'SECRET=',
       'config/.env.production': 'PUBLIC_URL=https://changed.example',
+      'config/.env.test': 'UNCHANGED=1',
+      '.env.sample': 'SECRET=',
+      '.envrc': 'use flake',
+      '.env.ignored': 'SECRET=3',
     });
     const linked: BuilderWorkspaceLinkedProject = {
       orgProjectId: 'project-1',
@@ -303,18 +307,21 @@ describe('what a publish leaves out', () => {
       defaultBranch: 'main',
       baseCommit: COMMIT,
       baseManifest: [
-        { path: '.gitignore', sha256: await sha256Hex('coverage/\nbuild/\n') },
+        { path: '.gitignore', sha256: await sha256Hex('coverage/\nbuild/\n.env.ignored\n') },
         { path: 'src/app.ts', sha256: await sha256Hex('export {}') },
         // Already in the repository: ignored now, but git still tracks it, so its change goes.
         { path: 'build/tracked.js', sha256: await sha256Hex('tracked') },
         // A secret the repository committed stays as it is there, edited or removed.
         { path: 'config/.env.production', sha256: await sha256Hex('PUBLIC_URL=https://example') },
         { path: '.dev.vars.staging', sha256: await sha256Hex('TOKEN=0') },
+        { path: 'config/.env.test', sha256: await sha256Hex('UNCHANGED=1') },
+        // Files that only begin like a secret are ordinary ones: their edits go.
+        { path: '.envrc', sha256: await sha256Hex('use nix') },
       ],
       workspaceModes: true,
     };
 
-    const { changes, manifest } = await linkedWorkspaceChanges(workspace, linked);
+    const { changes, manifest, heldBack } = await linkedWorkspaceChanges(workspace, linked);
 
     expect(changes.map((change) => [change.path, change.contentBase64 === null ? 'delete' : 'write'])).toEqual([
       ['packages/api/.gitignore', 'write'],
@@ -322,13 +329,26 @@ describe('what a publish leaves out', () => {
       ['packages/api/src/index.ts', 'write'],
       ['build/tracked.js', 'write'],
       ['.env.example', 'write'],
+      ['.env.sample', 'write'],
+      ['.envrc', 'write'],
+    ]);
+    // What was left out that the person may have meant to send: edited, removed, or new and not ignored.
+    expect(heldBack).toEqual([
+      '.env',
+      '.dev.vars',
+      'apps/web/.env.local',
+      'config/.env.production',
+      '.dev.vars.staging',
     ]);
     expect(manifest.map((file) => file.path).sort()).toEqual([
       '.dev.vars.staging',
       '.env.example',
+      '.env.sample',
+      '.envrc',
       '.gitignore',
       'build/tracked.js',
       'config/.env.production',
+      'config/.env.test',
       'packages/api/.gitignore',
       'packages/api/src/index.ts',
       'src/app.ts',

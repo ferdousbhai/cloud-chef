@@ -110,11 +110,13 @@ import {
 } from './linked-project-workspace';
 import {
   LINKED_BUILD_WATCH_MS,
+  LINKED_HELD_BACK_LIMIT,
   WORKERS_BUILDS_APPEAR_MS,
   linkedBuildSettledResult,
   linkedBuildStartedResult,
   linkedBuildUnfollowedResult,
   linkedBuildWatchSchema,
+  linkedHeldBackNote,
   watchLinkedBuild,
   withLinkedBuildResult,
   type LinkedBuildWatch,
@@ -1718,9 +1720,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (closed) {
       return toolFailure(`${closed} Nothing was sent to GitHub.`);
     }
-    const { changes, manifest } = await linkedWorkspaceChanges(this.workspace, linked);
+    const { changes, manifest, heldBack } = await linkedWorkspaceChanges(this.workspace, linked);
     if (changes.length === 0) {
-      return toolFailure(`Nothing has changed since this workspace was opened from ${linked.repository}.`);
+      return toolFailure(
+        `Nothing has changed since this workspace was opened from ${linked.repository}.` + linkedHeldBackNote(heldBack),
+      );
     }
     // The last moment a Stop or the tool's deadline can call it off. Once GitHub has the commit (and the
     // merge), there's no taking it back: everything below runs to the end, and its result is the real one
@@ -1756,6 +1760,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       startedAt: Date.now(),
       defaultBranch: linked.defaultBranch,
     };
+    if (heldBack.length) {
+      watch.heldBack = heldBack.slice(0, LINKED_HELD_BACK_LIMIT);
+    }
     try {
       await this.startFiber(
         LINKED_BUILD_FIBER,

@@ -8,6 +8,7 @@ import {
   linkedBuildStartedResult,
   linkedBuildUnfollowedResult,
   linkedBuildWatchSchema,
+  linkedHeldBackNote,
   watchLinkedBuild,
   withLinkedBuildResult,
   type LinkedBuildWatch,
@@ -96,6 +97,26 @@ describe("a GitHub project's publish", () => {
     expect(linkedBuildSettledResult(watch, { state: 'none', previewUrl: null, detailsUrl: null }).summary).toContain(
       'reported no pipeline',
     );
+  });
+
+  it('names the local secrets it left out in every result, so the model can tell the person', () => {
+    const heldBack = ['.env', 'config/.env.production'];
+    const withSecrets: LinkedBuildWatch = { ...watch, heldBack };
+    expect(linkedBuildWatchSchema.parse(withSecrets)).toEqual(withSecrets);
+    for (const result of [
+      linkedBuildStartedResult(withSecrets),
+      linkedBuildSettledResult(withSecrets, built),
+      linkedBuildSettledResult(withSecrets, { state: 'failure', previewUrl: null, detailsUrl: null }),
+      linkedBuildSettledResult(withSecrets, pending),
+      linkedBuildSettledResult(withSecrets, { state: 'none', previewUrl: null, detailsUrl: null }),
+      linkedBuildUnfollowedResult(withSecrets),
+    ]) {
+      expect(result.summary).toContain(
+        'Not sent, as local secrets CloudChef never publishes: .env, config/.env.production.',
+      );
+    }
+    expect(linkedBuildStartedResult(watch).summary).not.toContain('Not sent');
+    expect(linkedHeldBackNote(['a', 'b', 'c', 'd', 'e', 'f', 'g'])).toContain(': a, b, c, d, e and 2 more.');
   });
 
   it('reads the status until the build finishes, riding out an unreadable read', async () => {
