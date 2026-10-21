@@ -34,6 +34,11 @@ export class WorkbenchStore {
   #workspaceGeneration = 0;
   #editVersions = new Map<AbsolutePath, number>();
   #pendingSaveCounts = new Map<AbsolutePath, number>();
+  /**
+   * Files the workspace deleted while the user still had edits, kept in the browser as recreations. Their
+   * files-store entry is the local text, not a durable baseline, so they stay unsaved until a save lands.
+   */
+  #stagedRecreations = new Set<AbsolutePath>();
   #savesInFlight = atom(false);
   showWorkbench: WritableAtom<boolean> = import.meta.hot?.data.showWorkbench ?? atom(false);
   currentView = workbenchCurrentView;
@@ -116,6 +121,7 @@ export class WorkbenchStore {
     // Its own unregister closure tears it down when the editor unmounts.
     this.#editVersions.clear();
     this.#pendingSaveCounts.clear();
+    this.#stagedRecreations.clear();
     this.#savesInFlight.set(false);
     this.#filesStore.setWorkspaceChangeListener(null);
     this.unsavedFiles.set(new Set());
@@ -141,6 +147,9 @@ export class WorkbenchStore {
     this.flushPendingEditorChange();
     const unsavedDocuments = this.#unsavedTextDocuments();
     this.#filesStore.applyWorkspaceSyncEntries(entries);
+    for (const entry of entries) {
+      this.#stagedRecreations.delete(getAbsolutePath(entry.path));
+    }
 
     const durableFiles = this.#filesStore.files.get();
     const nextUnsavedFiles = new Set<AbsolutePath>();
@@ -153,7 +162,7 @@ export class WorkbenchStore {
       // recreation, as a full snapshot does, rather than leaving a marker with nothing to save.
       const document = unsavedDocuments.get(filePath);
       if (document) {
-        this.#filesStore.stageUnsavedTextFile(filePath, document.value);
+        this.#stageRecreation(filePath, document.value);
         nextUnsavedFiles.add(filePath);
       }
     }
@@ -167,6 +176,11 @@ export class WorkbenchStore {
 
     const unsavedDocuments = this.#unsavedTextDocuments();
     this.#filesStore.replaceWorkspaceSnapshot(entries, preservedPaths);
+    for (const filePath of this.#stagedRecreations) {
+      if (!preservedPaths?.has(filePath)) {
+        this.#stagedRecreations.delete(filePath);
+      }
+    }
 
     const durableFiles = this.#filesStore.files.get();
     const nextUnsavedFiles = new Set<AbsolutePath>();
@@ -182,7 +196,7 @@ export class WorkbenchStore {
 
       // A full snapshot can race a local edit with a remote deletion. Keep the
       // local text as an unsaved recreation instead of silently discarding it.
-      this.#filesStore.stageUnsavedTextFile(filePath, document.value);
+      this.#stageRecreation(filePath, document.value);
       nextUnsavedFiles.add(filePath);
     }
 
@@ -227,7 +241,9 @@ export class WorkbenchStore {
     const originalContent = this.#filesStore.getFile(filePath)?.content;
     const unsavedChanges =
       originalContent !== undefined &&
-      (originalContent !== newContent || (this.#pendingSaveCounts.get(filePath) ?? 0) > 0);
+      (this.#stagedRecreations.has(filePath) ||
+        originalContent !== newContent ||
+        (this.#pendingSaveCounts.get(filePath) ?? 0) > 0);
     if (document.value !== newContent) {
       this.#editVersions.set(filePath, (this.#editVersions.get(filePath) ?? 0) + 1);
     }
@@ -297,6 +313,7 @@ export class WorkbenchStore {
         this.unsavedFiles.set(next);
         continue;
       }
+      this.#stagedRecreations.delete(absolutePath);
       const next = new Set(this.unsavedFiles.get());
       next.delete(absolutePath);
       this.unsavedFiles.set(next);
@@ -324,6 +341,16 @@ export class WorkbenchStore {
   resetCurrentDocument(): void {
     this.flushPendingEditorChange();
     const current = this.currentDocument.get();
+    if (current && this.#stagedRecreations.has(current.filePath)) {
+      // The workspace deleted this file; the browser held only the draft. Resetting accepts the deletion.
+      this.#stagedRecreations.delete(current.filePath);
+      this.#filesStore.discardUnsavedTextFile(current.filePath);
+      const next = new Set(this.unsavedFiles.get());
+      next.delete(current.filePath);
+      this.unsavedFiles.set(next);
+      this.setDocuments(this.#filesStore.files.get());
+      return;
+    }
     const file = current && this.#filesStore.getFile(current.filePath);
     if (current && file) {
       this.setDocumentContent(getAbsolutePath(current.filePath), file.content);
@@ -346,6 +373,11 @@ export class WorkbenchStore {
   async downloadZip(): Promise<void> {
     this.flushPendingEditorChange();
     await downloadProject({ ...this.files.get(), ...this.#visibleUnsavedTextFiles() }, description.value ?? 'project');
+  }
+
+  #stageRecreation(filePath: AbsolutePath, content: string): void {
+    this.#filesStore.stageUnsavedTextFile(filePath, content);
+    this.#stagedRecreations.add(filePath);
   }
 
   #unsavedTextDocuments(): Map<AbsolutePath, EditorDocument> {

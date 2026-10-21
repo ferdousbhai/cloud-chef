@@ -247,6 +247,53 @@ describe('WorkbenchStore editor flush boundaries', () => {
     );
   });
 
+  it.each([
+    {
+      path: 'delta',
+      deleteFileA: (store: WorkbenchStore) =>
+        store.applyWorkspaceSyncEntries([{ kind: 'delete', path: fileA, revision: 2 }]),
+    },
+    {
+      path: 'snapshot',
+      deleteFileA: (store: WorkbenchStore) => store.replaceWorkspaceSnapshot([syncWrite(fileB, 'b1')]),
+    },
+  ])(
+    'keeps a $path-deleted local recreation unsaved until saved, and Reset accepts the deletion',
+    ({ deleteFileA }) => {
+      const store = createStore();
+      store.setDocumentContent(fileA, 'local edit');
+      deleteFileA(store);
+
+      // Typing back to the staged text does not make it clean: nothing durable holds it.
+      store.setDocumentContent(fileA, 'local edit 2');
+      store.setDocumentContent(fileA, 'local edit');
+      expect(store.unsavedFiles.get()).toContain(fileA);
+
+      store.resetCurrentDocument();
+
+      expect(store.files.get()[fileA]).toBeUndefined();
+      expect(store.unsavedFiles.get()).not.toContain(fileA);
+      expect(store.currentDocument.get()?.filePath).toBe(fileB);
+    },
+  );
+
+  it('treats a saved local recreation as durable again', async () => {
+    const store = createStore();
+    store.setWorkspaceChangeListener(async () => ({
+      ok: true as const,
+      changedPaths: [fileA],
+      state: { initialized: true, revision: 3, resetRevision: 0, fileCount: 2, totalBytes: 4, seeding: false },
+    }));
+    store.setDocumentContent(fileA, 'local edit');
+    store.applyWorkspaceSyncEntries([{ kind: 'delete', path: fileA, revision: 2 }]);
+
+    await store.saveUnsavedFiles();
+    store.setDocumentContent(fileA, 'local edit 2');
+    store.setDocumentContent(fileA, 'local edit');
+
+    expect(store.unsavedFiles.get()).not.toContain(fileA);
+  });
+
   it('drops an unsaved marker with no text document when a delta deletes its file', () => {
     const store = createStore();
     const binaryFile = getAbsolutePath('/home/project/logo.png');
