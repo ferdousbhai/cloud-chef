@@ -38,8 +38,9 @@ export function Header({ hideSidebarIcon = false }: { hideSidebarIcon?: boolean 
 
   const handleLogout = async () => {
     try {
-      await signOutOfCloudChef();
-      setProfile(null);
+      if (await signOutOfCloudChef()) {
+        setProfile(null);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to sign out. Please try again.');
     }

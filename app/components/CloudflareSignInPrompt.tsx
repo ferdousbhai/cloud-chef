@@ -46,7 +46,7 @@ export function CloudflareSignInPrompt({
   const [reauthenticateReason, setReauthenticateReason] = useState<string | null>(null);
   const [reauthenticationLinkSentTo, setReauthenticationLinkSentTo] = useState<string | null>(null);
 
-  const run = async (kind: 'cloudflare' | 'google' | 'email' | 'sign-out', action: () => Promise<void>) => {
+  const run = async (kind: 'cloudflare' | 'google' | 'email' | 'sign-out', action: () => Promise<boolean | void>) => {
     setBusy(kind);
     setError(null);
     try {

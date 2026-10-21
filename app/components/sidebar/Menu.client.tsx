@@ -23,6 +23,7 @@ import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
 import { authClient } from '~/lib/auth-client';
 import { Link } from '@tanstack/react-router';
+import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
 
 const menuVariants = {
   closed: {
@@ -50,6 +51,26 @@ interface MenuProps {
   onClose: () => void;
 }
 
+/**
+ * Removes one of this person's projects. Removing the open one leaves it, so over editor edits not yet
+ * saved it asks first, before anything is deleted; removing another needs no such question.
+ */
+export async function removeProject(
+  sessionId: string,
+  chatId: string,
+  openChatId: string | undefined,
+  remove = removeChatHistoryItem,
+): Promise<void> {
+  if (openChatId !== chatId) {
+    await remove(sessionId, chatId);
+    return;
+  }
+  await leavePage(async () => {
+    await remove(sessionId, chatId);
+    window.location.replace('/');
+  });
+}
+
 export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const userId = useUserIdOrNullOrLoading();
@@ -74,10 +95,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
     }
 
     try {
-      await removeChatHistoryItem(accountUserId, item.initialId);
-      if (activeChatId === item.initialId) {
-        window.location.replace('/');
-      }
+      await removeProject(accountUserId, item.initialId, activeChatId);
     } catch (error) {
       toast.error('Failed to remove project');
       logger.error(error);

@@ -417,10 +417,11 @@ function OrganizationRow({
             variant={connection?.active ? 'neutral' : 'primary'}
             onClick={() =>
               void run(
-                () =>
-                  signInWithCloudflare(createCloudflareReturnURL(window.location.href), {
+                async () => {
+                  await signInWithCloudflare(createCloudflareReturnURL(window.location.href), {
                     organizationId: organization.orgId,
-                  }),
+                  });
+                },
                 () => undefined,
                 (message) => setConnectFeedback(errorFeedback(message)),
               )
