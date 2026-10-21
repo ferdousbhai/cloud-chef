@@ -215,7 +215,8 @@ const MAX_INVITES_PER_INVITER_PER_DAY = 100;
 /**
  * A one-time invite for `email`; the link carries the token, and only its hash is stored. `projectIds`
  * are the organization's GitHub projects the person gets on joining (others are ignored); a member may
- * build new apps of their own unless `draftsAllowed` is false.
+ * build new apps of their own unless `draftsAllowed` is false. It replaces any invite still waiting for
+ * the same email, whose link stops working: one person has one way in, the one sent last.
  */
 export async function createInvite(
   db: D1Database,
@@ -263,6 +264,13 @@ export async function createInvite(
       ),
     db
       .prepare(
+        `DELETE FROM organization_invites
+         WHERE org_id = ? AND email = ? COLLATE NOCASE AND accepted_at IS NULL AND id <> ?
+           AND EXISTS (SELECT 1 FROM organization_invites WHERE id = ?)`,
+      )
+      .bind(args.orgId, args.email, inviteId, inviteId),
+    db
+      .prepare(
         `INSERT INTO organization_quota_events (kind, user_id, org_id, created_at)
          SELECT 'invite', ?, ?, ? WHERE EXISTS (SELECT 1 FROM organization_invites WHERE id = ?)`,
       )
@@ -285,11 +293,13 @@ export async function createInvite(
 /**
  * What an invite is limited by, bound as ?1 org id, ?2 now, ?3 a day ago, ?4 the invited email, ?5
  * the inviter. Invites are email CloudChef sends: only an organization with its Cloudflare account
- * connected (a real Cloudflare login with access to it) sends them, and only so many.
+ * connected (a real Cloudflare login with access to it) sends them, and only so many. An invite waiting
+ * for the same email isn't counted as pending, since the new one replaces it.
  */
 const INVITE_LIMITS_SQL = `SELECT
   (SELECT COUNT(*) FROM cloudflare_connections WHERE org_id = ?1 AND status = 'active') AS connected,
-  (SELECT COUNT(*) FROM organization_invites WHERE org_id = ?1 AND accepted_at IS NULL AND expires_at > ?2) AS pending,
+  (SELECT COUNT(*) FROM organization_invites
+   WHERE org_id = ?1 AND accepted_at IS NULL AND expires_at > ?2 AND email <> ?4 COLLATE NOCASE) AS pending,
   (SELECT COUNT(*) FROM organization_quota_events
    WHERE org_id = ?1 AND kind = 'invite' AND created_at > ?3) AS today,
   (SELECT COUNT(*) FROM organization_members AS members JOIN "user" AS users ON users.id = members.user_id
@@ -462,6 +472,14 @@ export async function acceptInvite(
          ON CONFLICT(org_id, user_id) DO NOTHING`,
       )
       .bind(invite.org_id, args.userId, invite.role, now, invite.role === 'admin' ? 1 : invite.drafts_allowed),
+    // Any other invite waiting for them goes: once they're in, one left over would bring them back after
+    // they're removed, perhaps as an admin.
+    db
+      .prepare(
+        `DELETE FROM organization_invites
+         WHERE org_id = ? AND email = ? COLLATE NOCASE AND accepted_at IS NULL AND id <> ?`,
+      )
+      .bind(invite.org_id, invite.email, invite.id),
   ];
   if (invite.project_ids !== null) {
     // The projects the inviting admin chose, those still in the organization, granted in their name.
@@ -682,8 +700,9 @@ export async function updateMember(
                 [args.action === 'make_admin' ? 'admin' : 'member', args.orgId, args.userId],
               ];
   const membershipWrite = db.prepare(write + keepsAnAdmin).bind(...values);
-  // Their workspace locator in the organization's account and their access to its projects go with
-  // them, and their open production requests are declined: nobody may approve work for someone gone.
+  // Their workspace locator in the organization's account, their access to its projects and any invite
+  // still waiting for their email go with them, and their open production requests are declined: nobody
+  // may approve work for someone gone, and no invite left over brings them back.
   // All in the one write that removes them, and only once they're gone, so a refused removal keeps
   // everything and an interrupted one leaves no grant behind to come back if they're invited again.
   const gone = 'AND NOT EXISTS (SELECT 1 FROM organization_members WHERE org_id = ? AND user_id = ?)';
@@ -719,6 +738,13 @@ export async function updateMember(
                WHERE user_id = ? AND project_id IN (SELECT id FROM org_projects WHERE org_id = ?) ${gone}`,
             )
             .bind(args.userId, args.orgId, args.orgId, args.userId),
+          db
+            .prepare(
+              `DELETE FROM organization_invites
+               WHERE org_id = ? AND accepted_at IS NULL
+                 AND email = (SELECT email FROM "user" WHERE id = ?) COLLATE NOCASE ${gone}`,
+            )
+            .bind(args.orgId, args.userId, args.orgId, args.userId),
         ]
       : [membershipWrite],
   );
