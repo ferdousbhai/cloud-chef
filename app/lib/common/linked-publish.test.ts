@@ -48,6 +48,16 @@ describe('linkedPublishView', () => {
     expect(stale).toMatchObject({ kind: 'unknown', building: false, followDeadline: null });
   });
 
+  it('does not follow a pending build saved before outputs carried when it started', () => {
+    const { startedAt: _startedAt, ...saved } = data({});
+    expect(linkedPublishView(publish(toolSuccess('x', saved)), NOW)).toMatchObject({
+      kind: 'unknown',
+      building: false,
+      followDeadline: null,
+      detail: "CloudChef stopped following the repository's pipeline. Its result is on GitHub.",
+    });
+  });
+
   it('tells a merge conflict and a call that never reached GitHub apart', () => {
     expect(
       linkedPublishView(

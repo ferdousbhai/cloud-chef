@@ -33,7 +33,7 @@ export const linkedPublishDataSchema = z.looseObject({
   build: linkedBuildStateSchema,
   previewUrl: z.string().nullable(),
   detailsUrl: z.string().nullable(),
-  /** When the commit landed (epoch ms): a `pending` build older than LINKED_BUILD_FOLLOW_MS isn't followed. */
+  /** When the commit landed (epoch ms): a `pending` build without it, or older than LINKED_BUILD_FOLLOW_MS, isn't followed. */
   startedAt: z.number().optional(),
   defaultBranch: z.string().optional(),
   /** The pipeline's conclusion when it failed (`failure`, `cancelled`, `timed_out`, …). */
@@ -117,10 +117,11 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
   const target = data.defaultBranch ?? 'the default branch';
   const committed = data.live ? `Merged into ${target}` : `Committed to ${data.branch}`;
   const links = { previewUrl: webUrl(data.previewUrl), detailsUrl: webUrl(data.detailsUrl) };
-  const followed = data.startedAt === undefined || now - data.startedAt < LINKED_BUILD_FOLLOW_MS;
+  // An output saved before `startedAt` existed can't say whether its build is still followed, so it isn't.
+  const followDeadline = data.startedAt === undefined ? null : data.startedAt + LINKED_BUILD_FOLLOW_MS;
   switch (data.build) {
     case 'pending':
-      if (followed) {
+      if (followDeadline !== null && now < followDeadline) {
         return {
           kind: 'building',
           title: data.live ? `Merged into ${target}; deploying` : `Building a preview of ${data.branch}`,
@@ -128,7 +129,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
             "The repository's pipeline is building it, usually in about two minutes. The result " +
             `${data.live ? '' : 'and its preview link '}will show here.`,
           building: true,
-          followDeadline: data.startedAt === undefined ? null : data.startedAt + LINKED_BUILD_FOLLOW_MS,
+          followDeadline,
           ...links,
         };
       }
