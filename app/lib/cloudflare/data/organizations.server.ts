@@ -45,8 +45,18 @@ type OrganizationSummary = Membership & {
   invites: PendingInvite[] | null;
 };
 
+/** Teams one person may have created: each can send invite emails, so their number is bounded. */
+const MAX_ORGANIZATIONS_PER_CREATOR = 10;
+
 /** A new organization with its creator as admin; its Cloudflare account is connected next. */
 export async function createOrganization(db: D1Database, userId: string, name: string, now = Date.now()) {
+  const created = await db
+    .prepare('SELECT COUNT(*) AS count FROM organizations WHERE created_by = ?')
+    .bind(userId)
+    .first<{ count: number }>();
+  if ((created?.count ?? 0) >= MAX_ORGANIZATIONS_PER_CREATOR) {
+    throw new OrganizationError(`You can create up to ${MAX_ORGANIZATIONS_PER_CREATOR} teams.`, 409);
+  }
   const orgId = crypto.randomUUID();
   await db.batch([
     db
@@ -70,6 +80,8 @@ export async function requireAdmin(db: D1Database, orgId: string, userId: string
 /** Pending invites one organization may have at once, and invites it may send in a day. */
 const MAX_PENDING_INVITES = 50;
 const MAX_INVITES_PER_DAY = 100;
+/** Invites one person may send in a day, across all their teams. */
+const MAX_INVITES_PER_INVITER_PER_DAY = 100;
 
 /**
  * A one-time invite for `email`; the link carries the token, and only its hash is stored. `projectIds`
@@ -96,12 +108,19 @@ export async function createInvite(
       `SELECT
          (SELECT COUNT(*) FROM cloudflare_connections WHERE org_id = ?1 AND status = 'active') AS connected,
          (SELECT COUNT(*) FROM organization_invites WHERE org_id = ?1 AND accepted_at IS NULL AND expires_at > ?2) AS pending,
-         (SELECT COUNT(*) FROM organization_invites WHERE org_id = ?1 AND created_at > ?3) AS today`,
+         (SELECT COUNT(*) FROM organization_invites WHERE org_id = ?1 AND created_at > ?3) AS today,
+         (SELECT COUNT(*) FROM organization_invites WHERE invited_by = ?4 AND created_at > ?3) AS by_inviter`,
     )
-    .bind(args.orgId, now, now - 24 * 60 * 60_000)
-    .first<{ connected: number; pending: number; today: number }>();
+    .bind(args.orgId, now, now - 24 * 60 * 60_000, args.invitedBy)
+    .first<{ connected: number; pending: number; today: number; by_inviter: number }>();
   if (!limits?.connected) {
     throw new OrganizationError("Connect the team's Cloudflare account before inviting people.", 409);
+  }
+  if (limits.by_inviter >= MAX_INVITES_PER_INVITER_PER_DAY) {
+    throw new OrganizationError(
+      `${MAX_INVITES_PER_INVITER_PER_DAY} invites a day, across your teams, is the limit. Try again tomorrow.`,
+      409,
+    );
   }
   if (limits.today >= MAX_INVITES_PER_DAY) {
     throw new OrganizationError(`${MAX_INVITES_PER_DAY} invites a day is the limit. Try again tomorrow.`, 409);

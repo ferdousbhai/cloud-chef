@@ -31,9 +31,18 @@ import { workspaceRuntimeNames } from '~/workflows/user-workspace-runtime-provis
  * session and a same-origin request; admin-only ones check the role on each call.
  */
 const ORGANIZATION_INVITE_PATH = '/join';
+/** Control and formatting characters, newlines among them: never part of a name. */
+const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\u2028\u2029]/gu;
+/** A web address, or anything an email client may turn into a link, inside a name. */
+const LINK_LIKE = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S*|\S*@\S+|\S*\w\.[a-z]{2,}\S*/gi;
 const SENDER = { email: 'noreply@cloudchef.build', name: 'CloudChef' };
 
-const createSchema = z.strictObject({ name: z.string().trim().min(1).max(80) });
+const createSchema = z.strictObject({
+  name: z
+    .string()
+    .transform((name) => name.replace(CONTROL_CHARACTERS, ' ').replace(/\s+/g, ' ').trim())
+    .pipe(z.string().min(1).max(80)),
+});
 const inviteSchema = z.strictObject({
   orgId: z.string().uuid(),
   email: z.email().max(254),
@@ -273,11 +282,26 @@ export function switchContextAction({ request, env }: { request: Request; env: E
   });
 }
 
+/**
+ * A team's or a person's name as an invite email shows it: one line, no control characters, and no
+ * web or email address, since whoever chose the name could otherwise put their own link in an email
+ * CloudChef sends.
+ */
+function nameForEmail(name: string, fallback: string): string {
+  const plain = name.replace(CONTROL_CHARACTERS, ' ').replace(LINK_LIKE, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return /[\p{L}\p{N}]/u.test(plain) ? plain : fallback;
+}
+
 /** Emails an invite; false when email isn't configured or sending failed (the admin still has the link). */
 async function sendInvite(
   env: Env,
-  invite: { to: string; orgName: string; inviter: string; link: URL },
+  details: { to: string; orgName: string; inviter: string; link: URL },
 ): Promise<boolean> {
+  const invite = {
+    ...details,
+    orgName: nameForEmail(details.orgName, 'A team'),
+    inviter: nameForEmail(details.inviter, 'A team admin'),
+  };
   const text = [
     `${invite.inviter} invited you to build apps with ${invite.orgName} on CloudChef.`,
     '',

@@ -256,6 +256,72 @@ describe('organizations', () => {
     expect(sent).toHaveLength(0);
   });
 
+  it('keeps links and extra lines a team or admin put in their names out of invite emails', async () => {
+    const { database, env, sent, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    database.prepare(`UPDATE "user" SET name = ? WHERE id = ?`).run('Ada\r\nBcc: www.evil.example', admin.userId);
+    const created = await createOrganizationAction({
+      request: post(admin.cookie, '/api/organizations/create', {
+        name: 'Acme\nClaim your prize: https://evil.example/login or evil.example. Thanks',
+      }),
+      env,
+    });
+    const { orgId } = createdSchema.parse(await created.json());
+    expect(database.prepare('SELECT name FROM organizations').get()).toEqual({
+      name: 'Acme Claim your prize: https://evil.example/login or evil.example. Thanks',
+    });
+    await env.DB.prepare(
+      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
+       VALUES ('acme-connection', ?, 'account-acme', 'Acme', 'active', 1, 1)`,
+    )
+      .bind(orgId)
+      .run();
+
+    expect((await invite(env, admin.cookie, orgId, 'sam@acme.com')).status).toBe(201);
+    const email = z.object({ subject: z.string(), text: z.string() }).parse(JSON.parse(sent[0]));
+    expect(email.subject).toBe('Acme Claim your prize: or Thanks invited you to CloudChef');
+    expect(email.text).not.toContain('evil');
+    expect(email.text.split('\n')[0]).toBe(
+      'Ada Bcc: invited you to build apps with Acme Claim your prize: or Thanks on CloudChef.',
+    );
+  });
+
+  it('caps the teams one person creates, and the invites they send in a day across them', async () => {
+    const { database, env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    for (let index = 0; index < 10; index += 1) {
+      const created = await createOrganizationAction({
+        request: post(admin.cookie, '/api/organizations/create', { name: `Team ${index}` }),
+        env,
+      });
+      expect(created.status).toBe(201);
+    }
+    const eleventh = await createOrganizationAction({
+      request: post(admin.cookie, '/api/organizations/create', { name: 'Team 10' }),
+      env,
+    });
+    expect(eleventh.status).toBe(409);
+
+    // A hundred invites sent today from another of their teams: none more from this one.
+    const orgIds = database.prepare('SELECT id FROM organizations ORDER BY name').all();
+    const [first, second] = orgIds.map((row) => z.object({ id: z.string() }).parse(row).id);
+    const insert = database.prepare(
+      `INSERT INTO organization_invites (id, org_id, email, role, token_hash, invited_by, expires_at, created_at)
+       VALUES (?, ?, ?, 'member', ?, ?, ?, ?)`,
+    );
+    for (let index = 0; index < 100; index += 1) {
+      insert.run(crypto.randomUUID(), first, `p${index}@acme.com`, `hash-${index}`, admin.userId, 1, Date.now());
+    }
+    database.prepare('UPDATE organization_invites SET expires_at = 1').run();
+    await env.DB.prepare(
+      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
+       VALUES ('second-connection', ?, 'account-2', 'Second', 'active', 1, 1)`,
+    )
+      .bind(second)
+      .run();
+    expect((await invite(env, admin.cookie, second, 'sam@acme.com')).status).toBe(409);
+  });
+
   it('lets only admins invite, and only to accounts a person may use', async () => {
     const { env, signIn } = await setup();
     const admin = await signIn('ada@acme.com');
