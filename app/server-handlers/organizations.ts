@@ -25,8 +25,7 @@ import {
   listPendingProductionRequests,
 } from '~/lib/cloudflare/data/org-projects.server';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
-import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
-import { workspaceRuntimeNames } from '~/workflows/user-workspace-runtime-provisioning';
+import { deleteTeamWorkspace } from '~/lib/.server/cloudflare/team-workspace';
 
 /**
  * Organizations: an admin connects the organization's Cloudflare account and invites people by email;
@@ -219,11 +218,11 @@ export function acceptInviteAction({ request, env }: { request: Request; env: En
 export function updateMemberAction({
   request,
   env,
-  deleteWorkspace = deleteMemberWorkspace,
+  deleteWorkspace = deleteTeamWorkspace,
 }: {
   request: Request;
   env: Env;
-  deleteWorkspace?: typeof deleteMemberWorkspace;
+  deleteWorkspace?: typeof deleteTeamWorkspace;
 }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const body = await readJsonRequest(request, memberSchema, 'Choose a member and what to do.');
@@ -286,12 +285,12 @@ async function revokeCloudflareGrant(env: Env, credentialHandle: string): Promis
 export function deleteOrganizationAction({
   request,
   env,
-  deleteWorkspace = deleteMemberWorkspace,
+  deleteWorkspace = deleteTeamWorkspace,
   revokeGrant = revokeCloudflareGrant,
 }: {
   request: Request;
   env: Env;
-  deleteWorkspace?: typeof deleteMemberWorkspace;
+  deleteWorkspace?: typeof deleteTeamWorkspace;
   revokeGrant?: typeof revokeCloudflareGrant;
 }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
@@ -328,18 +327,6 @@ export function deleteOrganizationAction({
     await deleteOrganizationRecords(env.DB, { orgId, credentialHandle });
     return Response.json({ deleted: true, workspacesLeft, cloudflareAuthorizationRevoked });
   });
-}
-
-/** Deletes a person's workspace from an organization's Cloudflare account, with the organization's authorization. */
-async function deleteMemberWorkspace(env: Env, orgId: string, userId: string): Promise<void> {
-  const connection = await findCloudflareConnectionForOrganization(env.DB, orgId);
-  if (connection?.status !== 'active' || !connection.credentialHandle) {
-    throw new Error('The team has no active Cloudflare connection.');
-  }
-  const accessToken = await D1CloudflareCredentialVault.fromEnv(env).resolve(connection.credentialHandle);
-  await new UserCloudflareAccountApi(connection.accountId, accessToken).deleteWorkspaceRuntime(
-    await workspaceRuntimeNames(connection, userId),
-  );
 }
 
 /** Switches the session to another Cloudflare account the person may build in. */
