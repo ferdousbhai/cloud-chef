@@ -7,7 +7,8 @@ import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const configPath = resolve(rootDir, 'cloudflare.config.ts');
 const PLACEHOLDER_D1_ID = '00000000-0000-0000-0000-000000000000';
-const PLACEHOLDER_KV_ID = '00000000000000000000000000000000';
+/** `cf d1 list` pages; a page shorter than this is the last. */
+const D1_LIST_PAGE_SIZE = 100;
 const isDryRun = process.argv.includes('--dry-run');
 const isCheck = process.argv.includes('--check');
 
@@ -50,22 +51,23 @@ function getBinding(config, collectionName, bindingName) {
   return { binding: collection[index], index };
 }
 
-function runWrangler(args, options = {}) {
+function runCf(args) {
   if (isDryRun) {
-    console.log(`[dry-run] pnpm wrangler ${args.join(' ')}`);
+    console.log(`[dry-run] pnpm exec cf ${args.join(' ')}`);
     return { stdout: '', stderr: '', status: 0 };
   }
 
-  const result = spawnSync('pnpm', ['wrangler', ...args], {
+  const result = spawnSync('pnpm', ['exec', 'cf', ...args], {
     cwd: rootDir,
     encoding: 'utf8',
+    env: { ...process.env, CF_SEND_TELEMETRY: 'false' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  if (result.status !== 0 && !options.allowFailure) {
+  if (result.status !== 0) {
     fail(
       compactLines([
-        `pnpm wrangler ${args.join(' ')} failed with exit code ${result.status}.`,
+        `pnpm exec cf ${args.join(' ')} failed with exit code ${result.status}.`,
         result.stdout?.trim(),
         result.stderr?.trim(),
       ]),
@@ -177,16 +179,23 @@ export function requireMatchingD1Database(databases, configuredId, databaseName)
   return configuredDatabase;
 }
 
+/** Every D1 database in the account, read page by page with `cf d1 list` (a read, even in check mode). */
 function listD1Databases() {
   if (isDryRun) {
     return [];
   }
-  const result = runWrangler(['d1', 'list', '--json']);
-  const databases = parseJsonOutput(result.stdout, 'wrangler d1 list --json');
-  if (!Array.isArray(databases)) {
-    fail('wrangler d1 list --json returned an unexpected shape.');
+  const databases = [];
+  for (let page = 1; ; page++) {
+    const result = runCf(['d1', 'list', '--page', String(page), '--per-page', String(D1_LIST_PAGE_SIZE)]);
+    const listed = parseJsonOutput(result.stdout, 'cf d1 list');
+    if (!Array.isArray(listed)) {
+      fail('cf d1 list returned an unexpected shape.');
+    }
+    databases.push(...listed);
+    if (listed.length < D1_LIST_PAGE_SIZE) {
+      return databases;
+    }
   }
-  return databases;
 }
 
 function ensureD1Database(d1) {
@@ -223,7 +232,7 @@ function ensureD1Database(d1) {
 
   let database = databases.find((candidate) => d1DatabaseName(candidate) === databaseName);
   if (!database) {
-    runWrangler(['d1', 'create', databaseName]);
+    runCf(['d1', 'create', '--name', databaseName]);
     database = listD1Databases().find((candidate) => d1DatabaseName(candidate) === databaseName);
   }
 
@@ -275,144 +284,13 @@ function updateD1DatabaseId(raw, d1, databaseId) {
   return nextRaw;
 }
 
-function updateKvNamespaceId(raw, kv, namespaceId) {
-  const nextRaw = setBindingId(raw, 'APP_CACHE', kv.binding.id, namespaceId, PLACEHOLDER_KV_ID);
-  if (nextRaw !== raw) {
-    writeFileSync(configPath, nextRaw);
-    console.log(`Updated cloudflare.config.ts APP_CACHE KV namespace id to ${namespaceId}.`);
-  }
-  return nextRaw;
-}
-
-function ensureKvNamespace(kv) {
-  const title = kv.binding?.title ?? 'cloudchef-cloudflare-app-cache';
-  const configuredId = kv.binding?.id;
-  const hasConfiguredId = configuredId && configuredId !== PLACEHOLDER_KV_ID;
-  if (isCheck && !hasConfiguredId) {
-    fail('cloudflare.config.ts APP_CACHE must have a non-placeholder namespace id before production release.');
-  }
-  if (isDryRun) {
-    console.log(`[dry-run] Would ensure KV namespace ${title} exists.`);
-    return configuredId ?? PLACEHOLDER_KV_ID;
-  }
-  const list = parseJsonOutput(runWrangler(['kv', 'namespace', 'list']).stdout, 'wrangler kv namespace list');
-  if (!Array.isArray(list)) {
-    fail('wrangler kv namespace list returned an unexpected shape.');
-  }
-  const byId = hasConfiguredId ? list.find((item) => item?.id === configuredId) : undefined;
-  if (byId) {
-    return configuredId;
-  }
-  if (hasConfiguredId || isCheck) {
-    fail(`KV namespace ${title} must already exist before production release.`);
-  }
-  const existing = list.find((item) => item?.title === title);
-  if (typeof existing?.id === 'string') {
-    return existing.id;
-  }
-  runWrangler(['kv', 'namespace', 'create', title]);
-  const refreshed = parseJsonOutput(runWrangler(['kv', 'namespace', 'list']).stdout, 'wrangler kv namespace list');
-  const created = Array.isArray(refreshed) ? refreshed.find((item) => item?.title === title) : undefined;
-  if (typeof created?.id !== 'string') {
-    fail(`Unable to determine KV namespace id for ${title}.`);
-  }
-  return created.id;
-}
-
-export function r2BucketExists(output, bucketName) {
-  const expectedBucketName = bucketName.trim();
-  if (!expectedBucketName) {
-    return false;
-  }
-
-  return output.split('\n').some((line) => {
-    const trimmedLine = line.trim();
-    if (trimmedLine === expectedBucketName) {
-      return true;
-    }
-
-    const cells = trimmedLine.includes('│') ? trimmedLine.split('│') : trimmedLine.split(/\s+/);
-    return cells.some((cell) => cell.trim() === expectedBucketName);
-  });
-}
-
-function ensureR2Bucket(r2) {
-  const bucketName = r2.binding?.bucket_name;
-  if (!bucketName) {
-    fail('cloudflare.config.ts R2 bucket_name must be configured.');
-  }
-
-  if (isDryRun) {
-    console.log(`[dry-run] Would ensure R2 bucket ${bucketName} exists.`);
-    return;
-  }
-
-  const listResult = runWrangler(['r2', 'bucket', 'list']);
-  if (r2BucketExists(listResult.stdout, bucketName)) {
-    console.log(`R2 bucket ${bucketName} already exists.`);
-    return;
-  }
-  if (isCheck) {
-    fail(`R2 bucket ${bucketName} must already exist before production release.`);
-  }
-
-  const createResult = runWrangler(['r2', 'bucket', 'create', bucketName], {
-    allowFailure: true,
-  });
-  const combinedOutput = `${createResult.stdout}\n${createResult.stderr}`;
-  if (createResult.status !== 0 && !/already exists|exists already|bucket.*exists/i.test(combinedOutput)) {
-    fail(
-      compactLines([
-        `pnpm wrangler r2 bucket create ${bucketName} failed with exit code ${createResult.status}.`,
-        createResult.stdout?.trim(),
-        createResult.stderr?.trim(),
-      ]),
-    );
-  }
-  console.log(`R2 bucket ${bucketName} is available.`);
-}
-
 async function main() {
   validateArguments();
   const { raw, config } = await readConfig();
   const applicationD1 = getBinding(config, 'd1_databases', 'DB');
-  // The CloudChef control-plane Worker has no AppAgent, so AGENT_SECURITY_DB is optional.
-  const agentSecurityIndex = config.d1_databases.findIndex((binding) => binding?.binding === 'AGENT_SECURITY_DB');
-  const agentSecurityD1 =
-    agentSecurityIndex === -1
-      ? undefined
-      : {
-          binding: config.d1_databases[agentSecurityIndex],
-          index: agentSecurityIndex,
-        };
-  const r2 = Array.isArray(config.r2_buckets)
-    ? config.r2_buckets.find((binding) => binding?.binding === 'APP_STORAGE')
-    : undefined;
-  const kvIndex = Array.isArray(config.kv_namespaces)
-    ? config.kv_namespaces.findIndex((binding) => binding?.binding === 'APP_CACHE')
-    : -1;
-  const kv = kvIndex === -1 ? undefined : { binding: config.kv_namespaces[kvIndex], index: kvIndex };
-
   const applicationDatabaseId = ensureD1Database(applicationD1);
-  const agentSecurityDatabaseId = agentSecurityD1 ? ensureD1Database(agentSecurityD1) : undefined;
-  if (
-    agentSecurityDatabaseId &&
-    applicationDatabaseId !== PLACEHOLDER_D1_ID &&
-    applicationDatabaseId === agentSecurityDatabaseId
-  ) {
-    fail('DB and AGENT_SECURITY_DB must resolve to separate D1 databases.');
-  }
   if (!isCheck) {
-    const withApplicationDatabase = updateD1DatabaseId(raw, applicationD1, applicationDatabaseId);
-    if (agentSecurityD1 && agentSecurityDatabaseId) {
-      updateD1DatabaseId(withApplicationDatabase, agentSecurityD1, agentSecurityDatabaseId);
-    }
-  }
-  if (r2) {
-    ensureR2Bucket({ binding: r2 });
-  }
-  if (kv) {
-    updateKvNamespaceId(readFileSync(configPath, 'utf8'), kv, ensureKvNamespace(kv));
+    updateD1DatabaseId(raw, applicationD1, applicationDatabaseId);
   }
 }
 

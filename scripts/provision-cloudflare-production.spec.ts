@@ -4,7 +4,6 @@ import {
   d1DatabaseName,
   parseJsonOutput,
   requireMatchingD1Database,
-  r2BucketExists,
   setD1DatabaseId,
 } from './provision-cloudflare-production.mjs';
 
@@ -38,10 +37,10 @@ describe('Cloudflare production provisioning helpers', () => {
     expect(setD1DatabaseId(raw, 'DB', placeholderId, placeholderId)).toBe(raw);
   });
 
-  it('parses Wrangler JSON output even when Wrangler emits surrounding text', () => {
+  it('parses cf JSON output even when cf emits surrounding text', () => {
     const output = `\nListing D1 databases\n[\n  {"name":"cloudchef","uuid":"${databaseId}"}\n]\n`;
 
-    expect(parseJsonOutput(output, 'wrangler d1 list --json')).toEqual([{ name: 'cloudchef', uuid: databaseId }]);
+    expect(parseJsonOutput(output, 'cf d1 list')).toEqual([{ name: 'cloudchef', uuid: databaseId }]);
   });
 
   it('recognizes supported D1 list field variants', () => {
@@ -75,13 +74,5 @@ describe('Cloudflare production provisioning helpers', () => {
         'cloudchef',
       ),
     ).toEqual({ uuid: databaseId, name: 'cloudchef' });
-  });
-
-  it('detects R2 buckets from Wrangler list output', () => {
-    expect(r2BucketExists('name\nexample\n cloudchef-app-storage ', 'cloudchef-app-storage')).toBe(true);
-    expect(r2BucketExists('│ cloudchef-app-storage │ 2026-06-29 │', 'cloudchef-app-storage')).toBe(true);
-    expect(r2BucketExists('cloudchef-app-storage 2026-06-29', 'cloudchef-app-storage')).toBe(true);
-    expect(r2BucketExists('name\nexample\nother', 'cloudchef-app-storage')).toBe(false);
-    expect(r2BucketExists('name\nexample\ncloudchef-app-storage-old', 'cloudchef-app-storage')).toBe(false);
   });
 });

@@ -284,11 +284,7 @@ describe('builder model pin', () => {
   });
 
   it('treats a pin Pi does not list as broken, since the runtime would not offer it', () => {
-    const described = describeBuilderModel(
-      [catalogEntry(PIN.id, '2026-05-01')],
-      PIN,
-      new Set(['@cf/example/newer']),
-    );
+    const described = describeBuilderModel([catalogEntry(PIN.id, '2026-05-01')], PIN, new Set(['@cf/example/newer']));
 
     expect(described).toMatchObject({ level: 'error', detail: { listed: false } });
     expect(described.sentence).toContain("Pi's Workers AI catalog");
