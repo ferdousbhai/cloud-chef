@@ -8,7 +8,7 @@ This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
 Production packages: 676
-Inventory SHA-256: 15812256c1f6d168fac0da5b8acf8bb481d726980d2272f76f6ae22b30365c8e
+Inventory SHA-256: 00bcbf526a67dbbcaaace0cefc711f398fbcbe6457f3dbff4d40dd3cf8d41feb
 
 PACKAGE INVENTORY
 =================
@@ -1184,7 +1184,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a)
 
-@modelcontextprotocol/sdk@1.31.0
+@modelcontextprotocol/sdk@1.32.1
 Declared license: MIT
 Author: Anthropic, PBC (https://anthropic.com)
 Repository: {"type":"git","url":"git+https://github.com/modelcontextprotocol/typescript-sdk.git"}
@@ -13892,7 +13892,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 5e13dbbc1d120fc2a03cecde7c91424ae2d7de11b63d58ded2f4431e261ee50d
 Used by:
-- @modelcontextprotocol/sdk@1.31.0:LICENSE
+- @modelcontextprotocol/sdk@1.32.1:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
