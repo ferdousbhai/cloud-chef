@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   collectReport,
   describeBuilderModel,
+  PI_WORKERS_AI_MODEL_IDS,
   readPinnedBuilderModel,
   coreStatements,
   parseD1Response,
@@ -243,25 +244,54 @@ describe('builder model pin', () => {
     expect(pin?.minimumContextTokens).toBeGreaterThan(0);
   });
 
-  it('calls the pin current when nothing newer is published', () => {
+  it("reads Pi's Workers AI catalog, which lists the pin, so the default filter keeps it", () => {
+    expect(PI_WORKERS_AI_MODEL_IDS.has(PIN.id)).toBe(true);
     expect(describeBuilderModel([catalogEntry(PIN.id, '2026-05-01')], PIN)).toMatchObject({ level: 'ok' });
   });
 
-  it('names newer builder-capable models without claiming the runtime would pick them', () => {
+  it('calls the pin current when nothing newer is published', () => {
+    expect(describeBuilderModel([catalogEntry(PIN.id, '2026-05-01')], PIN, PI_IDS)).toMatchObject({ level: 'ok' });
+  });
+
+  it('names newer builder-capable models Pi lists without claiming anyone should pick them', () => {
     const described = describeBuilderModel(
       [catalogEntry(PIN.id, '2026-05-01'), catalogEntry('@cf/example/newer', '2026-09-01')],
       PIN,
+      PI_IDS,
     );
 
     expect(described.level).toBe('attention');
+    expect(described.detail.candidates).toEqual(['@cf/example/newer']);
     expect(described.sentence).toContain('@cf/example/newer');
     expect(described.sentence).toContain('not a recommendation');
   });
 
+  it('ignores newer models Pi does not list, since the runtime never offers them', () => {
+    const described = describeBuilderModel(
+      [catalogEntry(PIN.id, '2026-05-01'), catalogEntry('@cf/example/unlisted', '2026-09-01')],
+      PIN,
+      PI_IDS,
+    );
+
+    expect(described).toMatchObject({ level: 'ok', detail: { candidates: [] } });
+  });
+
   it('treats a pin missing from a readable catalog as broken, not merely stale', () => {
-    const described = describeBuilderModel([catalogEntry('@cf/example/other', '2026-09-01')], PIN);
+    const described = describeBuilderModel([catalogEntry('@cf/example/newer', '2026-09-01')], PIN, PI_IDS);
 
     expect(described).toMatchObject({ level: 'error', detail: { listed: false } });
+    expect(described.sentence).toContain("this account's Workers AI catalog");
+  });
+
+  it('treats a pin Pi does not list as broken, since the runtime would not offer it', () => {
+    const described = describeBuilderModel(
+      [catalogEntry(PIN.id, '2026-05-01')],
+      PIN,
+      new Set(['@cf/example/newer']),
+    );
+
+    expect(described).toMatchObject({ level: 'error', detail: { listed: false } });
+    expect(described.sentence).toContain("Pi's Workers AI catalog");
   });
 
   it('ignores models the builder could never run', () => {
@@ -274,18 +304,20 @@ describe('builder model pin', () => {
       { ...catalogEntry('@cf/example/partner', '2026-09-01'), source: 2 },
       catalogEntry('@cf/example/tiny', '2026-09-01', '16384'),
     ];
+    const piIds = new Set([PIN.id, '@cf/example/no-tools', '@cf/example/partner', '@cf/example/tiny']);
 
-    expect(describeBuilderModel(entries, PIN)).toMatchObject({ level: 'ok' });
+    expect(describeBuilderModel(entries, PIN, piIds)).toMatchObject({ level: 'ok' });
   });
 
   it('stays quiet when the pin itself is undated, since there is no "since" to measure', () => {
     const entries = [catalogEntry(PIN.id, undefined), catalogEntry('@cf/example/newer', '2026-09-01')];
 
-    expect(describeBuilderModel(entries, PIN)).toMatchObject({ level: 'ok' });
+    expect(describeBuilderModel(entries, PIN, PI_IDS)).toMatchObject({ level: 'ok' });
   });
 });
 
 const PIN = { id: '@cf/zai-org/glm-5.3-flash', minimumContextTokens: 32_768 };
+const PI_IDS = new Set([PIN.id, '@cf/example/newer']);
 
 function catalogEntry(name: string, createdAt: string | undefined, contextWindow = '1048576') {
   return {
