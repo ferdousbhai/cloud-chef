@@ -179,6 +179,39 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     }
   });
 
+  it('reports a landed write whose acknowledgement a stop interrupts, and settles its journal row', async () => {
+    const controller = new AbortController();
+    const reason = new DOMException('write stopped', 'AbortError');
+    const acknowledgement = deferred<unknown>();
+    const result = { path: '/project/a.ts' };
+    const { client, stub } = harness((operation) => {
+      if (operation === 'beginToolOperation') {
+        return { status: 'execute' };
+      }
+      if (operation === 'completeToolOperation') {
+        return acknowledgement.promise;
+      }
+      return { status: 'settled' };
+    });
+
+    const execution = client.executeToolOnce(
+      'call-landed-write',
+      'write',
+      { path: '/project/a.ts' },
+      async () => result,
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(stub.completeToolOperation).toHaveBeenCalledOnce());
+    controller.abort(reason);
+    acknowledgement.resolve({ status: 'completed' });
+
+    await expect(execution).resolves.toEqual(result);
+    expect(stub.cancelToolOperation).toHaveBeenCalledWith({
+      toolCallId: 'call-landed-write',
+      error: 'The workspace tool operation was cancelled after its execution settled.',
+    });
+  });
+
   it("reports a command's result when a stop lands after it but before its stream closes", async () => {
     const controller = new AbortController();
     const result = { exitCode: 0, stdout: 'done', stderr: '' };

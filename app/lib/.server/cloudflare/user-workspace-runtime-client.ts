@@ -768,32 +768,34 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
         await cancellation;
         return result;
       }
+      // From here the tool has landed, so its acknowledgement is not raced against a stop: a stop
+      // arriving now only settles the journal row behind the result.
       try {
-        abortSignal?.throwIfAborted();
-        const completed = await raceAgainstAbort(stub.completeToolOperation({ toolCallId, result }), abortSignal);
-        abortSignal?.throwIfAborted();
+        const completed = await stub.completeToolOperation({ toolCallId, result });
+        await cancellation;
         const committedFileMutation =
           (toolName === 'write' || toolName === 'edit') &&
           isComputerToolError(result) &&
           isCompletedMutationReceipt(completed);
         return journaledResult<T>(committedFileMutation ? completed : result);
       } catch (error) {
-        abortSignal?.throwIfAborted();
+        if (abortSignal?.aborted) {
+          cancel();
+          await cancellation;
+          return result;
+        }
         if (toolName !== 'write' && toolName !== 'edit') {
           throw error;
         }
         if (!isRetryableDurableObjectError(error)) {
           throw error;
         }
-        const replay = await raceAgainstAbort(
-          beginToolOperation(stub, { toolCallId, toolName, argsJson }),
-          abortSignal,
-        );
+        const replay = await beginToolOperation(stub, { toolCallId, toolName, argsJson });
         if (replay.status !== 'completed') {
           throw error;
         }
         const completed = isPendingMutationReceipt(replay.result)
-          ? await raceAgainstAbort(stub.completeToolOperation({ toolCallId, result }), abortSignal)
+          ? await stub.completeToolOperation({ toolCallId, result })
           : replay.result;
         return journaledResult<T>(
           isComputerToolError(result) && isCompletedMutationReceipt(completed) ? completed : result,
