@@ -65,11 +65,16 @@ const provisioningErrorSchema = z.object({
   upgradeUrl: z.string().nullable().optional(),
 });
 
+/** A failure after the Worker was redeployed, which left it serving without its container image or schedule. */
+const redeployedFailureSchema = z.object({ status: z.literal('error'), redeployed: z.literal(true) });
+
 /**
  * `deferred`: the live runtime never went quiet for long enough to upgrade it before the Workflow gave
- * up waiting. It keeps working, and the next session request starts the wait again.
+ * up waiting. It keeps working, and the next session request starts the wait again. `redeployed`: the
+ * failure came after the Worker was redeployed.
  */
-export type UserWorkspaceRuntimeProvisioningResult = { status: 'ready' } | { status: 'deferred' } | ProvisioningError;
+export type UserWorkspaceRuntimeProvisioningResult =
+  { status: 'ready' } | { status: 'deferred' } | (ProvisioningError & { redeployed?: true });
 export type UserWorkspaceRuntimeProvisioningLaunchResult = { status: 'preparing' } | ProvisioningError;
 
 const STEP_CONFIG = {
@@ -264,7 +269,7 @@ export type UserWorkspaceRuntimeUpgradeSweepOutcome = 'started' | 'restarted' | 
  * same gated Workflow a session request starts: it waits for the upgrade window and never interrupts
  * work. One that ended without upgrading is restarted: after giving up waiting for a quiet moment,
  * always; after failing, only when `restartFailed` allows it, so a lasting failure is retried at a
- * slower pace than every sweep.
+ * slower pace than every sweep, unless it failed after redeploying the Worker.
  */
 export async function sweepUserWorkspaceRuntimeUpgrade(args: {
   env: Pick<Env, 'USER_WORKSPACE_RUNTIME_PROVISIONING'>;
@@ -291,11 +296,16 @@ export async function sweepUserWorkspaceRuntimeUpgrade(args: {
   const instance = await args.env.USER_WORKSPACE_RUNTIME_PROVISIONING.get(id);
   const status = await instance.status();
   if (status.status === 'errored' || status.status === 'terminated' || provisioningErrorOutput(status)) {
-    if (!args.restartFailed) {
+    // One that failed after redeploying left the Worker half upgraded, so it is retried on every sweep.
+    const redeployed = redeployedFailureSchema.safeParse(status.output).success;
+    if (!args.restartFailed && !redeployed) {
       return 'left';
     }
     await instance.restart();
-    console.warn({ event: 'runtime_upgrade_restarted', reason: 'previous_upgrade_failed' });
+    console.warn({
+      event: 'runtime_upgrade_restarted',
+      reason: redeployed ? 'previous_upgrade_failed_after_redeploy' : 'previous_upgrade_failed',
+    });
     return 'restarted';
   }
   if (status.status !== 'complete') {
@@ -328,6 +338,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
   step: UserWorkspaceRuntimeProvisioningStep;
   dependencies?: UserWorkspaceRuntimeProvisioningDependencies;
 }): Promise<UserWorkspaceRuntimeProvisioningResult> {
+  let redeployed = false;
   try {
     const dependencies = args.dependencies ?? provisioningDependencies;
     const params = args.event.payload;
@@ -427,6 +438,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
       if (outcome.status === 'deployed') {
         namespaceId = outcome.namespaceId;
         windowed &&= outcome.windowed !== false;
+        redeployed = true;
         break;
       }
       if (upgradeStartedAt !== null && outcome.checkedAt - upgradeStartedAt >= UPGRADE_MAX_WAIT_MS) {
@@ -543,7 +555,9 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
     // Only the message is logged: the thrown messages on this path are fixed, while the error
     // object can carry a `cause` from parsing a decrypted credential, which must not reach a log.
     console.error('Workspace runtime provisioning failed', error instanceof Error ? error.message : 'Unknown error');
-    return { status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null };
+    return redeployed
+      ? { status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null, redeployed: true }
+      : { status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null };
   }
 }
 

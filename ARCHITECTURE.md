@@ -85,7 +85,8 @@ still serve their connection's generation and protocol, most recently used first
 sweep (so a page of upgrades all still waiting never keeps it from the rest), skips anyone who may no longer use
 the connection, and starts or restarts the same gated Workflow instance a session request would name, at most 10
 per sweep. An upgrade still waiting is left alone; one that gave up waiting is restarted; one that failed is
-restarted on one sweep in four, so at most hourly. First-time provisioning never goes through the sweep: it lists only
+restarted on one sweep in four, so at most hourly, unless it failed after redeploying the Worker (which then serves
+without its container image or schedule), which every sweep restarts. First-time provisioning never goes through the sweep: it lists only
 runtimes that are already ready. A busy row a Durable Object never cleared stops counting after the turn wall clock
 plus 30 minutes. A runtime from before the window existed cannot answer, so it is upgraded only once the control
 plane has issued no session for it for that long, since a turn needs a session to start.

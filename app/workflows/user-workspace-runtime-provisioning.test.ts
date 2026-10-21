@@ -242,6 +242,26 @@ describe('workspace runtime provisioning Workflow', () => {
       }
     });
 
+    it('restarts on every sweep an upgrade that failed after redeploying the Worker', async () => {
+      const instance = workflowInstance(
+        vi.fn<WorkflowInstance['status']>().mockResolvedValue({
+          status: 'complete',
+          output: { status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null, redeployed: true },
+        }),
+      );
+      const env = workflowEnv(
+        existing(),
+        vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>().mockResolvedValue(instance),
+      );
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      await expect(sweepUserWorkspaceRuntimeUpgrade(sweepArgs(env, { restartFailed: false }))).resolves.toBe(
+        'restarted',
+      );
+      expect(instance.restart).toHaveBeenCalledOnce();
+      warn.mockRestore();
+    });
+
     it('waits again after an upgrade gave up waiting, unless the runtime is current after all', async () => {
       const instance = workflowInstance(
         vi.fn<WorkflowInstance['status']>().mockResolvedValue({ status: 'complete', output: { status: 'deferred' } }),
@@ -525,6 +545,27 @@ describe('workspace runtime provisioning Workflow', () => {
       expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
       expect(mocks.accountApi.enableWorkerSubdomain).toHaveBeenCalledTimes(2);
       expect(mocks.accountApi.ensureWorkspaceRuntimeContainer).toHaveBeenCalledTimes(2);
+    });
+
+    it('says when it failed after redeploying the Worker, and not when it failed before', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      mocks.claimUpgradeWindow.mockRejectedValueOnce(new Error('HTTP 503'));
+
+      await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs())).resolves.toEqual({
+        status: 'error',
+        errorCode: 'workspace_preparation_failed',
+        upgradeUrl: null,
+      });
+
+      mocks.claimUpgradeWindow.mockResolvedValue({ status: 'granted' });
+      mocks.accountApi.ensureWorkspaceRuntimeContainer.mockRejectedValueOnce(new Error('Rollout unavailable'));
+      await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs())).resolves.toEqual({
+        status: 'error',
+        errorCode: 'workspace_preparation_failed',
+        upgradeUrl: null,
+        redeployed: true,
+      });
+      error.mockRestore();
     });
 
     it('is ready even when the window could not be released early, since it lapses on its own', async () => {
