@@ -95,6 +95,8 @@ function fakeRepository(options: {
   mergeStatus?: number;
   homepage?: string | null;
   checkRuns?: CheckRun[];
+  /** GitHub failing to read the default branch's head, or to serve its download. */
+  failing?: 'head' | 'tarball';
 }) {
   const refs = new Map<string, string>([['main', MAIN_HEAD]]);
   const writes: { method: string; path: string; body: string | null }[] = [];
@@ -110,6 +112,13 @@ function fakeRepository(options: {
     }
     if (method === 'GET' && path === '') {
       return Response.json({ full_name: 'ada/site', homepage: options.homepage ?? null });
+    }
+    if (
+      method === 'GET' &&
+      ((options.failing === 'head' && path.startsWith('/git/ref/heads/')) ||
+        (options.failing === 'tarball' && path.startsWith('/tarball/')))
+    ) {
+      return new Response('unavailable', { status: 503 });
     }
     if (method === 'GET' && path.startsWith('/git/ref/heads/')) {
       const sha = refs.get(decodeURIComponent(path.slice('/git/ref/heads/'.length)));
@@ -160,6 +169,7 @@ async function setup(
     grant?: boolean;
     homepage?: string | null;
     checkRuns?: CheckRun[];
+    failing?: 'head' | 'tarball';
   } = {},
 ) {
   const pair = await crypto.subtle.generateKey(
@@ -207,6 +217,7 @@ async function setup(
     mergeStatus: options.mergeStatus,
     homepage: options.homepage,
     checkRuns: options.checkRuns,
+    failing: options.failing,
   });
   const call = (path: string, body: Record<string, string | number | boolean | null | object[]>, bearer = secret) =>
     new Request(`${ORIGIN}${path}`, {
@@ -308,6 +319,23 @@ describe('a member working on a GitHub project', () => {
     ]);
     expect(JSON.parse(tokenRequested() ?? '{}')).toEqual({ permissions: { contents: 'read' }, repository_ids: [11] });
   });
+
+  it.each([
+    { failing: 'head', error: 'GitHub refused the request (503).' },
+    { failing: 'tarball', error: 'GitHub refused the download (503).' },
+  ] as const)(
+    'answers with what GitHub refused when it fails to serve the default branch ($failing)',
+    async ({ failing, error }) => {
+      const { env, app, call } = await setup({ failing });
+      const response = await runtimeGitHubSnapshotAction({
+        request: call('/api/cloudflare/runtime-github/snapshot', { orgProjectId: SITE }),
+        env,
+        app,
+      });
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({ error });
+    },
+  );
 
   it('refuses a project the member was not given, one of another organization, and a wrong runtime secret', async () => {
     const ungranted = await setup({ grant: false });

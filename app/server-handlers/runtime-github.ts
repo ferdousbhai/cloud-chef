@@ -85,11 +85,20 @@ export async function runtimeGitHubSnapshotAction(args: {
     return opened;
   }
   const { access } = opened;
-  const commit = await access.repository.branchHead(access.defaultBranch);
-  if (!commit) {
-    return json({ error: `The repository has no ${access.defaultBranch} branch.` }, 409);
+  let commit: string | null;
+  let tarball: ReadableStream<Uint8Array<ArrayBuffer>>;
+  try {
+    commit = await access.repository.branchHead(access.defaultBranch);
+    if (!commit) {
+      return json({ error: `The repository has no ${access.defaultBranch} branch.` }, 409);
+    }
+    tarball = await access.repository.tarball(commit);
+  } catch (error) {
+    if (error instanceof GitHubError) {
+      return gitHubFailure(error);
+    }
+    throw error;
   }
-  const tarball = await access.repository.tarball(commit);
   const encoder = new TextEncoder();
   const lines = snapshotLines(readRepositoryTarball(tarball), {
     commit,
