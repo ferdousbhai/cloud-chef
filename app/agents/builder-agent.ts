@@ -424,6 +424,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private startingTurns = 0;
   /** Publishes to GitHub under way: an archived conversation waits for them before its successor copies it. */
   private readonly runningLinkedPublishes = new Set<Promise<CloudChefToolResult>>();
+  /** The seed of a new workspace under way, which every caller needing the workspace seeded shares. */
+  private workspaceSeed: Promise<BuilderWorkspaceState> | null = null;
   /** Set once the GC outbox deletes this project: nothing may start publishing it again. */
   private destroying = false;
   /** Tells the control plane, through the runtime, when a redeploy would cut this agent's work off. */
@@ -734,6 +736,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       // turn and stopped it, or archived this one before this read.
       await this.refuseIfArchived();
       const { contentLogging } = await this.requireModelAccess();
+      // The browser prepares the workspace before it sends, but nothing else seeds a new one.
+      await this.initializeWorkspace(durableIdentity.transcript);
       const cloudflareApi = await this.createCloudflareApiToolContext(durableIdentity.transcript);
       const linkedProject = await this.createLinkedProjectToolContext();
       if (shouldGenerateTitle) {
@@ -1210,6 +1214,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Response('Agent authentication is required.', { status: 401 });
     }
     const state = await this.initializeWorkspace(this.transcriptBinding);
+    this.updatePreviewForWorkspace(state.revision);
     await this.publishLinkedProjectState();
     // Not awaited. The browser blocks its send gate on this call, and the point of warming is to
     // overlap the container's cold start with the user composing their first message — awaiting it
@@ -1365,9 +1370,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
       throw error;
     }
+    // Only the identity: `onStart` runs this inside the SDK's startup lock, which Cloudflare resets after 30
+    // seconds, and a seed can take minutes. `prepareWorkspace` and a turn seed the workspace outside it.
     this.applyIdentity(identity);
-    const workspace = await this.initializeWorkspace(transcriptBinding);
-    this.updatePreviewForWorkspace(workspace.revision);
   }
 
   private async hydrateDurableIdentity(args: {
@@ -1569,13 +1574,22 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
   }
 
+  /**
+   * The workspace, seeded first when it is new. One seed at a time: callers arriving while it runs wait for
+   * it, rather than finding it `seeding` and going on with a workspace that holds only part of the project.
+   */
   private async initializeWorkspace(binding: BuilderTranscriptBinding): Promise<BuilderWorkspaceState> {
     const current = await this.workspace.refresh();
     if (current.initialized) {
       return current;
     }
     // Seeding writes the whole project into the workspace: a redeploy partway would leave it half seeded.
-    return this.runtimeActivity.run(() => this.seedNewWorkspace(binding));
+    this.workspaceSeed ??= this.runtimeActivity
+      .run(() => this.seedNewWorkspace(binding))
+      .finally(() => {
+        this.workspaceSeed = null;
+      });
+    return this.workspaceSeed;
   }
 
   private async seedNewWorkspace(binding: BuilderTranscriptBinding): Promise<BuilderWorkspaceState> {
