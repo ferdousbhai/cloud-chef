@@ -165,9 +165,10 @@ release that fails validation deploys and migrates nothing. Its build command on
 and checks the release inputs. The deploy command (`scripts/deploy-production.mjs --workers-builds`), which runs only
 from the exact Workers Builds checkout, then runs `pnpm run validate` with the exact 40-character commit ID and OAuth
 client ID in the environment (which `cloudflare.config.ts` binds as plain-text vars). Validation's `build:check` is
-therefore the release build itself, so there is no separate build and the gate costs only the checks beside it. The
-account and config checks (`provision:production:check`, `verify:production-config`, `verify:workers-builds-config`)
-run at the same time. Only after validation passes does it record a D1 restore point and apply the control-plane D1
+therefore the release build itself, so there is no separate build and the gate costs only the checks beside it.
+Validation includes the committed-config checks (`verify:production-config`, `verify:workers-builds-config`), so the
+deploy step does not run them again; the account check (`provision:production:check`, which only reads the account
+with `cf d1 list`) runs at the same time. Only after validation passes does it record a D1 restore point and apply the control-plane D1
 migrations. It confirms the checkout is still clean, deploys that build with `cf deploy --prebuilt`, and then probes
 `https://cloudchef.build/api/version` every 5 seconds, from the moment the deploy returns, until five consecutive
 responses report that commit, a live Worker version ID, configured OAuth bindings, and `Cache-Control: no-store`.
@@ -185,16 +186,50 @@ redirect to the canonical `https://cloudchef.build` origin with the path and que
 these routes needs a Workers Builds token that may attach a custom domain in the `ghostbuild.dev` zone; attaching them
 once by hand is equivalent, and later deploys are no-ops for routes that already exist.
 
-For an emergency rollback from a clean checkout of current `main`, inspect and promote an immutable version with
-Wrangler, which addresses the Worker by name and needs no config file (cf has no rollback command yet):
+For an emergency rollback from a clean checkout of current `main`, inspect and promote an immutable version with `cf`,
+which addresses the Worker by name and needs no config file:
 
 ```bash
-pnpm exec wrangler versions view '<version-id>' --name cloudchef --json
-pnpm exec wrangler rollback '<version-id>' --name cloudchef --message '<reason>'
+pnpm exec cf workers versions list --worker-id cloudchef
+pnpm exec cf workers versions get '<version-id>' --worker-id cloudchef
+pnpm exec cf workers deployments create --worker cloudchef --body \
+  '{"strategy":"percentage","versions":[{"version_id":"<version-id>","percentage":100}],"annotations":{"workers/message":"<reason>"}}'
 ```
 
+Add `--dry-run` to the last command to see the request without sending it. Cloudflare refuses to roll back past a
+change to the Worker's secrets unless `--bypass-deployment-checks` is given; check that the older version works with
+the current secrets before passing it.
+
 Rollback changes the Worker version but not D1 data. If a release also changed control-plane data, use the recovery
-bookmark recorded by the release pipeline. Run `pnpm run provision:production` separately only when bootstrapping the
+bookmark recorded by the release pipeline (below).
+
+### Failed release after migrations
+
+The deploy step records a D1 Time Travel bookmark (`d1:bookmark:production`, which prints a `### Pre-migration D1
+restore point` summary and a `CLOUDCHEF_D1_RESTORE_RECEIPT` JSON line into the Workers Builds log) and then applies the
+control-plane migrations. A failure before the bookmark changes nothing. A failure from the migrations on leaves
+production in one of these states, and its error says which:
+
+- **The migrations failed** ("may be partially migrated"). D1 has the migrations before the failing one, and
+  possibly part of that one; `cf d1 migrations apply` records each migration only once it has succeeded. Nothing was
+  deployed, so the previous Worker is still serving.
+- **A later step failed** ("was already migrated through `<migration>`"): the built-output check or `cf deploy`
+  (nothing deployed; the previous Worker serves against the new schema), or the live probe (the new Worker is
+  deployed but did not report the release).
+
+To recover, first read the failure; `pnpm exec cf d1 migrations list <database-id>` lists the
+migrations not yet applied.
+Migrations are written to be additive, so the previous Worker usually runs correctly on the new schema, and the fix is
+to correct the cause and release again; the migrations step then applies only what is still pending. Restore the
+bookmark only when the schema change itself is the problem, since a restore also discards every write made since it
+was recorded:
+
+```bash
+pnpm exec cf d1 time-travel restore '<database-id>' --bookmark='<bookmark from the build log>'
+```
+
+The receipt's `databaseId` and the summary's restore command name the database. After a restore, roll the Worker back
+(above) to a version built for the restored schema. Run `pnpm run provision:production` separately only when bootstrapping the
 control-plane D1 or intentionally reconciling its checked-in identifier.
 
 Generated applications deploy independently inside the user workspace runtime. AppAgent projects provision `DB` for

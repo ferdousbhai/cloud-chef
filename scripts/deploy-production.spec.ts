@@ -5,6 +5,9 @@ import {
   deployFromWorkersBuilds,
   deployProduction,
   findUnexpectedDeployChanges,
+  latestControlPlaneMigration,
+  migratedD1Note,
+  PARTIALLY_MIGRATED_D1_NOTE,
   resolveCurrentCommitSha,
   resolveDeployableCommitSha,
   validateCommitSha,
@@ -17,6 +20,7 @@ import {
   WORKERS_BUILDS_AFTER_VALIDATION_STEPS,
   WORKERS_BUILDS_PRE_DEPLOY_STEPS,
 } from './deploy-production.mjs';
+import { VALIDATION_TASKS } from './validate.mjs';
 
 const commitSha = 'a'.repeat(40);
 const builtConfig = (vars: Record<string, string>) => () =>
@@ -105,11 +109,15 @@ describe('production deploy wrapper', () => {
     expect(packageJson.scripts['workers-builds:deploy']).toBe('node scripts/deploy-production.mjs --workers-builds');
     expectOrdered(WORKERS_BUILDS_PRE_DEPLOY_STEPS.join(' && '), [
       'provision:production:check',
-      'verify:production-config',
-      'verify:workers-builds-config',
       'd1:bookmark:production',
       'd1:migrations:apply:production',
     ]);
+    // The committed-config checks run once, inside the validation every migration and deploy waits for.
+    expect(WORKERS_BUILDS_PRE_DEPLOY_STEPS).not.toContain('verify:production-config');
+    expect(WORKERS_BUILDS_PRE_DEPLOY_STEPS).not.toContain('verify:workers-builds-config');
+    expect(VALIDATION_TASKS.map(({ name }) => name)).toEqual(
+      expect.arrayContaining(['verify:production-config', 'verify:workers-builds-config']),
+    );
     expect(existsSync(new URL('../.github/workflows/deploy.yml', import.meta.url))).toBe(false);
   });
 
@@ -416,8 +424,10 @@ describe('production deploy wrapper', () => {
       validation.finish();
 
       await expect(deploy).rejects.toThrow(
-        'd1:migrations:apply:production failed with exit status 1. Nothing was deployed.',
+        `d1:migrations:apply:production failed with exit status 1. Nothing was deployed.${PARTIALLY_MIGRATED_D1_NOTE}`,
       );
+      expect(PARTIALLY_MIGRATED_D1_NOTE).toContain('may be partially migrated');
+      expect(PARTIALLY_MIGRATED_D1_NOTE).toContain('Pre-migration D1 restore point');
       expect(events).not.toContain('cf deploy --prebuilt');
       expect(verifyLocal).not.toHaveBeenCalled();
 
@@ -439,7 +449,7 @@ describe('production deploy wrapper', () => {
       expect(failedCheckEvents).toEqual(['validation started', 'provision:production:check', 'validation finished']);
     });
 
-    it('deploys nothing when the validated build does not carry the release vars', async () => {
+    it('deploys nothing, and says D1 was migrated, when the validated build does not carry the release vars', async () => {
       const events: string[] = [];
       const { spawnValidation, validation } = deferredValidation(events);
       const deploy = deployFromWorkersBuilds({
@@ -450,12 +460,67 @@ describe('production deploy wrapper', () => {
         readBuiltConfig: builtConfig({ COMMIT_SHA: 'b'.repeat(40), CLOUDFLARE_OAUTH_CLIENT_ID: 'oauth-client-id' }),
         verifyLocal: vi.fn(async () => undefined),
         log: vi.fn(),
+        latestMigration: () => '0042_example.sql',
       });
       validation.finish();
 
       await expect(deploy).rejects.toThrow(`must bind COMMIT_SHA to ${commitSha}`);
+      await expect(deploy).rejects.toThrow(migratedD1Note('0042_example.sql'));
+      expect(events).toContain('d1:migrations:apply:production');
       expect(events).not.toContain('cf deploy --prebuilt');
     });
+
+    it('says D1 was already migrated, and through which migration, when cf deploy fails', async () => {
+      const events: string[] = [];
+      const { spawnValidation, validation } = deferredValidation(events);
+      const verifyLocal = vi.fn(async () => undefined);
+      const deploy = deployFromWorkersBuilds({
+        clientId: 'oauth-client-id',
+        env: workersBuildEnv,
+        spawn: workersBuildSpawn(events, { failStep: 'cf deploy --prebuilt' }),
+        spawnValidation,
+        readBuiltConfig,
+        verifyLocal,
+        log: vi.fn(),
+        latestMigration: () => '0042_example.sql',
+      });
+      validation.finish();
+
+      await expect(deploy).rejects.toThrow(
+        'cf deploy failed with exit status 1. Live verification was not run. Control-plane D1 was already migrated through 0042_example.sql;',
+      );
+      await expect(deploy).rejects.toThrow('Pre-migration D1 restore point');
+      expect(verifyLocal).not.toHaveBeenCalled();
+    });
+
+    it('says D1 was already migrated when the live probe fails after the deploy', async () => {
+      const events: string[] = [];
+      const { spawnValidation, validation } = deferredValidation(events);
+      const deploy = deployFromWorkersBuilds({
+        clientId: 'oauth-client-id',
+        env: workersBuildEnv,
+        spawn: workersBuildSpawn(events),
+        spawnValidation,
+        readBuiltConfig,
+        verifyLocal: vi.fn(async () => {
+          throw new Error('https://cloudchef.build/api/version never reported the release.');
+        }),
+        log: vi.fn(),
+        latestMigration: () => null,
+      });
+      validation.finish();
+
+      await expect(deploy).rejects.toThrow(
+        'https://cloudchef.build/api/version never reported the release. Control-plane D1 was already migrated;',
+      );
+      expect(events).toContain('cf deploy --prebuilt');
+    });
+  });
+
+  it('names the newest checked-in control-plane migration as the last one applied', () => {
+    expect(latestControlPlaneMigration(() => ['0002_b.sql', 'README', '0010_c.sql', '0001_a.sql'])).toBe('0010_c.sql');
+    expect(latestControlPlaneMigration(() => [])).toBeNull();
+    expect(latestControlPlaneMigration()).toMatch(/^\d{4}_.+\.sql$/);
   });
 
   it('propagates process failures', () => {

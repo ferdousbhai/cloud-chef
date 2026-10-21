@@ -10,6 +10,7 @@ import {
   workflowPathsFromDirectoryEntries,
 } from '../template/scripts/lib/project-policy.mjs';
 import { WORKERS_BUILDS_PRE_DEPLOY_STEPS } from './deploy-production.mjs';
+import { VALIDATION_TASKS } from './validate.mjs';
 import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
 import { findWorkerObservabilityErrors, findWorkerRuntimeSecretErrors } from './lib/worker-policy.mjs';
 import { runVerifierIfMain } from './run-verifier.mjs';
@@ -236,12 +237,13 @@ function verifyScripts(errors, pkg, label) {
     ...findMissingCommandSteps(
       WORKERS_BUILDS_PRE_DEPLOY_STEPS.join(' && '),
       `${label} Workers Builds pre-deploy steps`,
-      [
-        'provision:production:check',
-        'verify:production-config',
-        'verify:workers-builds-config',
-        'd1:bookmark:production && d1:migrations:apply:production',
-      ],
+      ['provision:production:check', 'd1:bookmark:production && d1:migrations:apply:production'],
+    ),
+    // The committed-config checks run inside the validation those migrations and `cf deploy` wait for.
+    ...findMissingCommandSteps(
+      VALIDATION_TASKS.map(({ args }) => args.join(' ')).join(' && '),
+      `${label} release validation tasks`,
+      ['run verify:production-config', 'run verify:workers-builds-config'],
     ),
   );
   errors.push(
