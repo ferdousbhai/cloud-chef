@@ -79,7 +79,16 @@ describe('CloudflareOAuthOrchestrator', () => {
       accessTokenExpiresAt: expect.any(Number),
       // Derived from the confirmed grant, not echoed from the request: the core scopes cover
       // every product capability.
-      grantedCapabilities: ['workers', 'containers', 'd1', 'r2', 'kv', 'durable_objects', 'workers_ai'],
+      grantedCapabilities: [
+        'workers',
+        'containers',
+        'd1',
+        'r2',
+        'kv',
+        'durable_objects',
+        'workers_ai',
+        'ai_gateway_keys',
+      ],
       requestedOAuthScopes: [...CORE_CLOUDFLARE_OAUTH_SCOPES],
       grantedOAuthScopes: [...CORE_CLOUDFLARE_OAUTH_SCOPES],
       oauthScopeProfileVersion: 'core-v1',

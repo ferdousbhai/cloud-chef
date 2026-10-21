@@ -20,7 +20,7 @@ export { findWorkerObservabilityErrors, findWorkerRuntimeSecretErrors, workflowP
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REQUIRED_COMPATIBILITY_DATE = '2026-07-21';
 const REQUIRED_OAUTH_SCOPES =
-  'account-settings.read user-details.read workers-scripts.write containers.write d1.write workers-r2.write workers-kv-storage.write ai.read';
+  'account-settings.read user-details.read workers-scripts.write containers.write d1.write workers-r2.write workers-kv-storage.write ai.read aig.write secrets-store.write';
 const REQUIRED_SECRET_NAMES = ['CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY', 'CLOUDFLARE_OAUTH_CLIENT_SECRET'];
 const PLACEHOLDER_D1_ID = '00000000-0000-0000-0000-000000000000';
 const workerTargets = [

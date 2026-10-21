@@ -8,7 +8,7 @@ export const noContentSchema = z.null();
 /** Posts to one of CloudChef's organization routes and parses its answer with `schema`. */
 export async function postJson<T>(
   path: string,
-  body: Record<string, string | number | boolean | string[]>,
+  body: Record<string, string | number | boolean | null | string[]>,
   schema: z.ZodType<T>,
 ): Promise<T> {
   const response = await fetch(path, {

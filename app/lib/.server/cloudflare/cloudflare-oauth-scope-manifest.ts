@@ -18,6 +18,10 @@ export const CORE_CLOUDFLARE_OAUTH_SCOPES = [
   'workers-r2.write',
   'workers-kv-storage.write',
   'ai.read',
+  // Linking an account's own Anthropic key to its AI Gateway (BYOK), from Settings: the gateway's
+  // provider keys, and the Secrets Store secrets they are kept in.
+  'aig.write',
+  'secrets-store.write',
 ] as const;
 
 /** Reviewed broad optional scope IDs. Populated only by the Phase 0 preflight, never by hand. */
@@ -25,7 +29,16 @@ export const BROAD_CLOUDFLARE_OAUTH_SCOPES = [] satisfies readonly string[];
 
 export type CloudflareOAuthScopeGrantStatus = 'unknown' | 'core' | 'partial' | 'full';
 
-const CLOUDCHEF_CAPABILITIES = ['workers', 'containers', 'd1', 'r2', 'kv', 'durable_objects', 'workers_ai'] as const;
+export const CLOUDCHEF_CAPABILITIES = [
+  'workers',
+  'containers',
+  'd1',
+  'r2',
+  'kv',
+  'durable_objects',
+  'workers_ai',
+  'ai_gateway_keys',
+] as const;
 
 export type CloudChefCapability = (typeof CLOUDCHEF_CAPABILITIES)[number];
 
@@ -38,6 +51,9 @@ const CAPABILITY_SCOPE_REQUIREMENTS = {
   kv: ['workers-kv-storage.write'],
   durable_objects: ['workers-scripts.write'],
   workers_ai: ['ai.read'],
+  // Not needed to build: a connection authorized before it existed works as before, and only linking
+  // an Anthropic key asks for a reauthorization.
+  ai_gateway_keys: ['aig.write', 'secrets-store.write'],
 } satisfies Record<CloudChefCapability, readonly string[]>;
 
 /** Stable, deduplicated scope request order: core first, then the broad optional profile. */
