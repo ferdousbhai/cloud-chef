@@ -4,6 +4,7 @@ import { callGitHub, fetchGitHub, GitHubError } from './github-api';
 const refSchema = z.looseObject({ object: z.looseObject({ sha: z.string() }) });
 const commitSchema = z.looseObject({ sha: z.string(), tree: z.looseObject({ sha: z.string() }) });
 const shaSchema = z.looseObject({ sha: z.string() });
+const treeSchema = z.looseObject({ tree: z.array(z.looseObject({ path: z.string() })) });
 const repositorySchema = z.looseObject({ homepage: z.string().nullable().optional() });
 const checkRunsSchema = z.looseObject({
   check_runs: z.array(
@@ -78,6 +79,11 @@ export class RepositoryClient {
   /** The tree a commit points at. */
   async commitTree(sha: string): Promise<string> {
     return (await this.call(`/git/commits/${sha}`, commitSchema)).tree.sha;
+  }
+
+  /** The paths at the top of a branch's tree. */
+  async topLevelPaths(branch: string): Promise<string[]> {
+    return (await this.call(`/git/trees/${encodeRef(branch)}`, treeSchema)).tree.map((entry) => entry.path);
   }
 
   /** The gzipped tarball of a commit's files, as a stream. */

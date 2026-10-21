@@ -112,6 +112,11 @@ export class GitHubApp {
     return gitHubRepositorySchema.parse(await response.json());
   }
 
+  /** A client for a repository acting as the GitHub user behind `userToken`, before the App may reach it. */
+  userRepository(userToken: string, fullName: string): RepositoryClient {
+    return new RepositoryClient(userToken, fullName, this.request);
+  }
+
   /**
    * Adds a repository to an installation limited to selected repositories. An installation covering all
    * of the account's repositories already includes it, and GitHub refuses the call then: not an error.

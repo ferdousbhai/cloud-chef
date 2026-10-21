@@ -42,8 +42,14 @@ const DRAFT_FILES = [
 /** What else happens while an approval runs: `commit` while CloudChef commits the draft. */
 type DuringApproval = { commit?: () => Promise<void> };
 
+/**
+ * How GitHub differs from the usual: the App can't reach the new repository, or `ada/new-app` exists
+ * already, with `commits` commits and `paths` at the top of its tree.
+ */
+type GitHubOptions = { appCannotReach?: boolean; nameTaken?: { commits: number; paths: string[] } };
+
 /** GitHub as the approval sees it: the admin `ada`, a new repository, and what CloudChef wrote to it. */
-async function fakeGitHub(options: { appCannotReach?: boolean } = {}) {
+async function fakeGitHub(options: GitHubOptions = {}) {
   const pair = await crypto.subtle.generateKey(
     { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
     true,
@@ -64,6 +70,18 @@ async function fakeGitHub(options: { appCannotReach?: boolean } = {}) {
     }
     if (url.pathname === '/user') {
       return Response.json({ login: 'ada' });
+    }
+    if (url.pathname === '/user/repos' && options.nameTaken) {
+      return Response.json({ message: 'name already exists on this account' }, { status: 422 });
+    }
+    if (url.pathname === '/repos/ada/new-app' && options.nameTaken) {
+      return Response.json({ id: 77, full_name: 'ada/new-app', default_branch: 'main', private: true });
+    }
+    if (url.pathname === '/repos/ada/new-app/commits' && options.nameTaken) {
+      return Response.json(Array.from({ length: options.nameTaken.commits }, (_, index) => ({ sha: `c${index}` })));
+    }
+    if (url.pathname === '/repos/ada/new-app/git/trees/main' && options.nameTaken) {
+      return Response.json({ tree: options.nameTaken.paths.map((path) => ({ path })) });
     }
     if (url.pathname === '/user/repos') {
       return Response.json(
@@ -112,7 +130,7 @@ async function fakeGitHub(options: { appCannotReach?: boolean } = {}) {
   return { app, calls, during };
 }
 
-async function setup(options: { appCannotReach?: boolean } = {}) {
+async function setup(options: GitHubOptions = {}) {
   const { database, db } = controlPlaneDatabase();
   const env = envWith({ DB: db });
   const signIn = async (email: string) => {
@@ -385,6 +403,69 @@ describe('production requests', () => {
     expect(returnedMessage(returned)).toContain("CloudChef's GitHub App can't reach it");
     expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'pending' });
     expect(database.prepare('SELECT COUNT(*) AS n FROM org_projects').get()).toEqual({ n: 0 });
+  });
+
+  it.each([
+    { existing: 'has history of its own', nameTaken: { commits: 2, paths: ['README.md'] } },
+    { existing: 'was first committed with more than a README', nameTaken: { commits: 1, paths: ['README.md', 'src'] } },
+  ])(
+    "refuses a repository name taken by one that $existing, without giving CloudChef's App access to it",
+    async ({ nameTaken }) => {
+      const { database, env, admin, app, calls } = await setup({ nameTaken });
+      const started = await approveProductionRequestAction({
+        request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+          orgId: ORG,
+          requestId: REQUEST,
+          repoName: 'new-app',
+          private: true,
+        }),
+        env,
+        app,
+      });
+      const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+      const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+      const returned = await completeGitHubInstallAction({
+        request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+          headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+        }),
+        env,
+        app,
+      });
+      expect(returnedMessage(returned)).toBe(
+        'A repository with that name already exists. Approve again with another name.',
+      );
+      expect(calls.filter((call) => call.path.startsWith('/user/installations/'))).toEqual([]);
+      expect(calls.filter((call) => call.method !== 'GET' && call.path.startsWith('/repos/'))).toEqual([]);
+      expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'pending' });
+    },
+  );
+
+  it('approves into a repository of the same name that an earlier try created and left as GitHub made it', async () => {
+    const { database, env, admin, app, calls } = await setup({ nameTaken: { commits: 1, paths: ['README.md'] } });
+    const started = await approveProductionRequestAction({
+      request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+        orgId: ORG,
+        requestId: REQUEST,
+        repoName: 'new-app',
+        private: true,
+      }),
+      env,
+      app,
+    });
+    const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+    const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+    const returned = await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+      }),
+      env,
+      app,
+    });
+    expect(returnedMessage(returned)).toBe(
+      'The app is now a GitHub repository, and a project its requester can work on.',
+    );
+    expect(calls.some((call) => call.path === '/user/installations/9/repositories/77')).toBe(true);
+    expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'approved' });
   });
 
   it('holds the draft the admin reviewed from the moment they click Approve', async () => {

@@ -5,6 +5,7 @@ import { getAuthSession } from '~/lib/.server/auth';
 import { GitHubError } from '~/lib/.server/github/github-api';
 import { PayloadTooLargeError } from '~/lib/bounded-body';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
+import type { RepositoryClient } from '~/lib/.server/github/repository-client';
 import { readCookie, readJsonRequest, safeReturnTo } from '~/lib/.server/request-guards';
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
 import { promotedDraftFiles, promotedWorkerName } from '~/lib/.server/github/promote-draft';
@@ -351,10 +352,14 @@ async function completeProductionApproval(args: {
         throw error;
       });
     // Taken already: an approval that created it and then couldn't reach it, retried after the admin gave
-    // the App access. Such a repository holds only GitHub's first commit; any other is refused below.
+    // the App access. Such a repository holds only GitHub's first commit, its README; any other is refused,
+    // read as the admin before the App is given it, so a refused repository never gains the App's access.
     const repository = created ?? (await app.findRepository(userToken, fullName));
     if (!repository) {
       return await fail('repository_name_refused');
+    }
+    if (!created && !(await isUntouchedNewRepository(app.userRepository(userToken, fullName), repository))) {
+      return await fail('repository_name_taken');
     }
     await app.addRepositoryToInstallation(userToken, installation.installationId, repository.id);
     const client = await app
@@ -377,9 +382,6 @@ async function completeProductionApproval(args: {
     }
     if (!head) {
       return await fail('repository_not_ready');
-    }
-    if (!created && (await client.commitCount(repository.default_branch)) > 1) {
-      return await fail('repository_name_taken');
     }
     await client.commit({
       branch: repository.default_branch,
@@ -545,6 +547,18 @@ export function listMyProjectsAction({ request, env }: { request: Request; env: 
 }
 
 /** Runs a GitHub call, turning its failure into the response an admin sees. */
+/** Whether a repository is still as GitHub created it for an approval: one commit, holding only a README. */
+async function isUntouchedNewRepository(
+  client: RepositoryClient,
+  repository: { default_branch: string },
+): Promise<boolean> {
+  if ((await client.commitCount(repository.default_branch)) !== 1) {
+    return false;
+  }
+  const paths = await client.topLevelPaths(repository.default_branch);
+  return paths.length === 1 && paths[0] === 'README.md';
+}
+
 async function withGitHub<T>(call: () => Promise<T>): Promise<T | Response> {
   try {
     return await call();
