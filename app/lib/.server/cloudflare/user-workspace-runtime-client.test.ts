@@ -74,6 +74,67 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     expect(attempts).toHaveLength(1);
   });
 
+  it("suggests retrying shortly, not when the holder's lease would lapse", async () => {
+    const { client } = harness((operation) => {
+      if (operation === 'getWorkspaceSnapshot') {
+        throw new Error('[workspace_operation_conflict] exec is running; retry after 900000ms.');
+      }
+      return undefined;
+    });
+
+    await expect(client.refresh()).rejects.toMatchObject({
+      retryAfterMs: 900_000,
+      message: 'The project workspace is busy with exec. Retry in 60 seconds.',
+    });
+  });
+
+  it("waits out a publication finishing its upload instead of failing the next turn's change", async () => {
+    // A new turn cancels the automatic publication; one already promoting production finishes its
+    // last API calls first, and holds the lane under a 45-minute lease while it does.
+    let remainingConflicts = 4;
+    const { client, calls } = harness((operation) => {
+      if (operation === 'getWorkspaceSnapshot') {
+        if (remainingConflicts > 0) {
+          remainingConflicts -= 1;
+          throw new Error('[workspace_operation_conflict] deployment is running; retry after 2700000ms.');
+        }
+        return {
+          state: { initialized: true, revision: 1, resetRevision: 0, fileCount: 0, totalBytes: 0, seeding: false },
+          files: [],
+        };
+      }
+      return undefined;
+    });
+
+    await expect(client.refresh()).resolves.toMatchObject({ initialized: true });
+    expect(calls.filter((request) => request.operation === 'getWorkspaceSnapshot')).toHaveLength(5);
+  });
+
+  it('gives up on a publication that holds the lane past its wait window', async () => {
+    vi.useFakeTimers();
+    try {
+      const attempts: string[] = [];
+      const { client } = harness((operation) => {
+        if (operation === 'getWorkspaceSnapshot') {
+          attempts.push(operation);
+          throw new Error('[workspace_operation_conflict] deployment is running; retry after 2700000ms.');
+        }
+        return undefined;
+      });
+
+      const refresh = expect(client.refresh()).rejects.toMatchObject({
+        activeKind: 'deployment',
+        message: 'The project workspace is busy with deployment. Retry in 60 seconds.',
+      });
+      await vi.advanceTimersByTimeAsync(89_000);
+      expect(attempts.length).toBeGreaterThan(40);
+      await vi.advanceTimersByTimeAsync(2_000);
+      await refresh;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('terminalizes a committed mutation whose display acknowledgement was interrupted', async () => {
     const pending = {
       kind: 'workspace-mutation-receipt',
@@ -798,6 +859,43 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
       toolCallId: 'call-install-timeout',
       error: 'The workspace tool operation was cancelled after its execution settled.',
     });
+  });
+
+  it('refreshes the revision before a cancelled installation that never returns settles', async () => {
+    const controller = new AbortController();
+    const reason = new DOMException('install timed out', 'TimeoutError');
+    let revision = 1;
+    const { client, stub } = harness((operation) => {
+      if (operation === 'installDependenciesTool') {
+        // The installation committed its lockfile, then its RPC hung.
+        revision = 2;
+        return new Promise(() => undefined);
+      }
+      if (operation === 'cancelToolOperation') {
+        return { status: 'settled' };
+      }
+      if (operation === 'getWorkspaceSnapshot') {
+        return {
+          state: { initialized: true, revision, resetRevision: 0, fileCount: 0, totalBytes: 0, seeding: false },
+          files: [],
+        };
+      }
+      return undefined;
+    });
+    await client.refresh();
+
+    const execution = client.installDependencies({
+      toolCallId: 'call-install-hung',
+      input: {},
+      mode: 'add',
+      packages: ['example'],
+      abortSignal: controller.signal,
+    });
+    await vi.waitFor(() => expect(stub.installDependenciesTool).toHaveBeenCalledOnce());
+    controller.abort(reason);
+
+    await expect(execution).rejects.toBe(reason);
+    expect(client.getState().revision).toBe(2);
   });
 
   it('cancels the exact active validation and forgets it after the RPC settles', async () => {

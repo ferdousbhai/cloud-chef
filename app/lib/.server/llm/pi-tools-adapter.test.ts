@@ -12,7 +12,12 @@ vi.mock('./workers-ai-tools', () => ({
   createWorkersAiTools: mocks.createWorkersAiTools,
 }));
 
-import { BUILDER_TOOL_DEADLINES_MS, BuilderToolDeadlineError } from './builder-turn-limits';
+import {
+  BUILDER_TOOL_DEADLINES_MS,
+  BUILDER_TOOL_STOP_GRACE_MS,
+  BuilderToolDeadlineError,
+  BuilderToolUnsettledError,
+} from './builder-turn-limits';
 import { createPiToolBundle } from './pi-tools-adapter';
 
 describe('Pi tool adapter', () => {
@@ -99,6 +104,49 @@ describe('Pi tool adapter', () => {
 
       await vi.advanceTimersByTimeAsync(BUILDER_TOOL_DEADLINES_MS.write);
       await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports a write that landed as its deadline passed as the write, not as stopped', async () => {
+    vi.useFakeTimers();
+    try {
+      const landed = { path: '/home/project/src/app.ts', bytesWritten: 7 };
+      mocks.execute.mockImplementationOnce(
+        async (_input, options) =>
+          new Promise((resolve) => {
+            options.abortSignal?.addEventListener('abort', () => resolve(landed), { once: true });
+          }),
+      );
+      // SAFETY: the canonical tools are mocked, so the workspace is never read.
+      const tools = createPiToolBundle({} as never, operationContext());
+      const execution = tools.write.execute('write-late', { path: '/home/project/src/app.ts', content: 'changed' });
+      const outcome = expect(execution).resolves.toMatchObject({ details: landed });
+
+      await vi.advanceTimersByTimeAsync(BUILDER_TOOL_DEADLINES_MS.write);
+      await outcome;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ends the call of a tool that ignores its deadline, saying its outcome is unknown', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.execute.mockImplementationOnce(async () => new Promise(() => undefined));
+      // SAFETY: the canonical tools are mocked, so the workspace is never read.
+      const tools = createPiToolBundle({} as never, operationContext());
+      let rejection: unknown;
+      const execution = tools.exec.execute('exec-hung', { command: 'pnpm test' }).catch((error) => {
+        rejection = error;
+      });
+
+      await vi.advanceTimersByTimeAsync(BUILDER_TOOL_DEADLINES_MS.exec + BUILDER_TOOL_STOP_GRACE_MS - 1);
+      expect(rejection).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      await execution;
+      expect(rejection).toBeInstanceOf(BuilderToolUnsettledError);
     } finally {
       vi.useRealTimers();
     }

@@ -498,7 +498,13 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       abortSignal?.removeEventListener('abort', cancel);
       if (abortSignal?.aborted) {
         cancel();
-        await cancellation;
+        try {
+          await cancellation;
+        } finally {
+          // The installation may have committed before it stopped. The abandoned call above would
+          // refresh only when its RPC returns; the revision this call leaves behind must show it now.
+          await this.refresh().catch(() => undefined);
+        }
       }
     }
   }
@@ -886,17 +892,18 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
           return value;
         }
         return async (...args: unknown[]) => {
-          const deadline = Date.now() + BUSY_RETRY_WINDOW_MS;
+          const startedAt = Date.now();
           let backoff = BUSY_RETRY_INITIAL_DELAY_MS;
           while (true) {
             try {
               return await invoke(value as StubMethod, target, args);
             } catch (error) {
-              if (!shouldRetryWhileWorkspaceIsBusy(error) || Date.now() + backoff >= deadline) {
+              const wait = busyRetryWait(error);
+              if (!wait || Date.now() + backoff >= startedAt + wait.windowMs) {
                 throw error;
               }
               await delay(backoff);
-              backoff = Math.min(backoff * 2, BUSY_RETRY_MAX_DELAY_MS);
+              backoff = Math.min(backoff * 2, wait.maxDelayMs);
             }
           }
         };
@@ -939,7 +946,7 @@ class WorkspaceBusyError extends Error {
     readonly retryAfterMs: number,
   ) {
     super(
-      `The project workspace is busy with ${activeKind}. Retry in ${Math.max(1, Math.ceil(retryAfterMs / 1_000))} seconds.`,
+      `The project workspace is busy with ${activeKind}. Retry in ${Math.max(1, Math.ceil(Math.min(retryAfterMs, BUSY_RETRY_HINT_MAX_MS) / 1_000))} seconds.`,
     );
     this.name = 'WorkspaceBusyError';
   }
@@ -987,20 +994,31 @@ function workspaceBusyError(error: unknown): WorkspaceBusyError | null {
  * right answer for "when may another owner reclaim this lane" and the wrong one for "when will
  * the sibling write in this batch be done".
  */
-const BUSY_RETRY_WINDOW_MS = 10_000;
 const BUSY_RETRY_INITIAL_DELAY_MS = 25;
-const BUSY_RETRY_MAX_DELAY_MS = 250;
 
 /**
- * Lane kinds worth waiting on. `write` covers the batched file mutations above and completes in
- * milliseconds. Every other kind — `exec`, `install`, `validate`, `preview`, `seed`, `delete` —
- * can legitimately hold the lane for minutes, so a caller that queued behind one would burn its
- * whole window and still fail. Those keep failing immediately, exactly as before.
+ * Lane kinds worth waiting on, and for how long. `write` covers the batched file mutations above
+ * and completes in milliseconds. `deployment` is a publication finishing up: a new turn cancels the
+ * automatic one it would wait for, which then stops at its next step or, past the point where
+ * stopping would leave production half changed, finishes its last API calls within a minute or so.
+ * Every other kind — `exec`, `install`, `validate`, `seed`, `delete` — can legitimately hold the
+ * lane for many minutes, so a caller that queued behind one would burn its whole window and still
+ * fail. Those keep failing immediately, exactly as before.
  */
-const BUSY_RETRY_ACTIVE_KINDS = new Set(['write']);
+const BUSY_RETRY_WAITS = new Map([
+  ['write', { windowMs: 10_000, maxDelayMs: 250 }],
+  ['deployment', { windowMs: 90_000, maxDelayMs: 2_000 }],
+]);
 
-function shouldRetryWhileWorkspaceIsBusy(error: unknown): boolean {
-  return error instanceof WorkspaceBusyError && BUSY_RETRY_ACTIVE_KINDS.has(error.activeKind);
+/**
+ * The longest retry a busy error suggests. `retryAfterMs` is when the holder's lease lapses — 45
+ * minutes for a deployment — which no holder that is still working takes; told that, the model
+ * would give up on the workspace instead of trying again shortly.
+ */
+const BUSY_RETRY_HINT_MAX_MS = 60_000;
+
+function busyRetryWait(error: unknown): { windowMs: number; maxDelayMs: number } | null {
+  return error instanceof WorkspaceBusyError ? (BUSY_RETRY_WAITS.get(error.activeKind) ?? null) : null;
 }
 
 class SettlementAttemptTimeoutError extends Error {

@@ -1,12 +1,19 @@
 /**
  * A BuilderAgent in Node: the real class, on an in-memory Durable Object state whose SQL storage is
  * SQLite, with the runtime's own D1 (`user-workspace-migrations/`) as `env.DB`. What lies outside the
- * agent is faked at its boundary: the ProjectWorkspace (`BuilderWorkspaceApi`) and Workers AI.
+ * agent is faked at its boundary: the ProjectWorkspace (`BuilderWorkspaceApi`), Workers AI, and the
+ * publication commands that reach the deployment executor and the user's account.
  */
 import { createRequire } from 'node:module';
 import type * as NodeSqlite from 'node:sqlite';
 import type { SQLInputValue } from 'node:sqlite';
+import type { ChatResponseResult } from '@cloudflare/ai-chat';
 import { BuilderAgent } from '~/agents/builder-agent';
+import type {
+  deployValidatedRevisionForBuilder,
+  previewValidatedRevisionForBuilder,
+  terminalizeInterruptedDeploymentForBuilder,
+} from '~/agents/builder-deployment-command';
 import type { BuilderWorkspaceApi, BuilderWorkspaceCheckpoint } from '~/agents/builder-workspace-api';
 import type { BuilderWorkspaceState } from '~/agents/builder-workspace-types';
 import {
@@ -17,6 +24,13 @@ import { envWith, userWorkspaceDatabase } from '~/test/control-plane-d1';
 
 const require = createRequire(import.meta.url);
 const sqlite: typeof NodeSqlite = require('node:sqlite');
+
+// Workers' `scheduler.wait`, which a running publication uses to pace its progress reads; Node has none.
+if (!('scheduler' in globalThis)) {
+  Object.assign(globalThis, {
+    scheduler: { wait: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)) },
+  });
+}
 
 const OWNER_ID = 'owner-1';
 export const AGENT_NAME = 'agent-chat-1';
@@ -162,6 +176,39 @@ function fakeWorkspace(overrides: Partial<BuilderWorkspaceApi> = {}): Partial<Bu
   };
 }
 
+/** The agent's publication commands (`builderPublisher`), which run the deployment executor in the user's account. */
+export type BuilderPublisher = {
+  preview: typeof previewValidatedRevisionForBuilder;
+  deploy: typeof deployValidatedRevisionForBuilder;
+  terminalize: typeof terminalizeInterruptedDeploymentForBuilder;
+};
+
+/** Publications that succeed at once; each test overrides what its path needs. */
+function fakePublisher(overrides: Partial<BuilderPublisher> = {}): BuilderPublisher {
+  return {
+    preview: async (request) => ({
+      id: `version-${request.previewId}`,
+      url: 'https://preview.example.workers.dev',
+      workspaceRevision: 3,
+      snapshotRevision: request.validatedRevision,
+      readyAt: '2026-10-21T00:00:00.000Z',
+    }),
+    deploy: async () => ({ status: 'succeeded', id: 'deployment-1', productionUrl: 'https://app.example.workers.dev' }),
+    terminalize: async () => ({ status: 'failed', error: 'Deployment was interrupted before execution started.' }),
+    ...overrides,
+  };
+}
+
+/**
+ * The real BuilderAgent, with its protected end-of-turn hook reachable the way the AI Chat base
+ * class reaches it once a turn's response settles.
+ */
+class HarnessBuilderAgent extends BuilderAgent {
+  respond(result: ChatResponseResult): Promise<void> {
+    return this.onChatResponse(result);
+  }
+}
+
 export type BuilderAgentHarness = Awaited<ReturnType<typeof builderAgentHarness>>;
 
 /**
@@ -169,7 +216,12 @@ export type BuilderAgentHarness = Awaited<ReturnType<typeof builderAgentHarness>
  * @param options.ai the Workers AI binding a turn would use (`env.AI`)
  */
 export async function builderAgentHarness(
-  options: { workspace?: Partial<BuilderWorkspaceApi>; ai?: Partial<Ai>; cloudflareIdentity?: boolean } = {},
+  options: {
+    workspace?: Partial<BuilderWorkspaceApi>;
+    ai?: Partial<Ai>;
+    cloudflareIdentity?: boolean;
+    publisher?: Partial<BuilderPublisher>;
+  } = {},
 ) {
   const { database, db } = userWorkspaceDatabase();
   database.exec(`
@@ -191,10 +243,12 @@ export async function builderAgentHarness(
     ...(runtimeBindings as Partial<Env>),
   });
   // SAFETY: the agent and the Agents SDK read only the members `durableObjectState` implements.
-  const agent = new BuilderAgent(ctx as never, env);
+  const agent = new HarnessBuilderAgent(ctx as never, env);
   // SAFETY: the ProjectWorkspace is the agent's one collaborator outside this process. It is replaced
   // before any call reaches it, with a fake of every member the exercised path calls.
   Reflect.set(agent, 'workspace', fakeWorkspace(options.workspace));
+  // SAFETY: as above, for the publication commands; the fake implements every one the agent calls.
+  Reflect.set(agent, 'publisher', fakePublisher(options.publisher));
   await agent.onStart({ ownerId: OWNER_ID, userId: OWNER_ID });
   // The agent's own table: a proposal filed here is the one the Cloudflare request tool files mid-turn.
   // SAFETY: the repository uses only `sql.exec` and `transactionSync`, which the fake storage implements.
@@ -243,6 +297,17 @@ export async function builderAgentHarness(
       });
     },
     cloudflareExecution: (executionId: string) => executions.get(executionId),
+    /** A turn is running, as `onChatMessage` records it before any model work. */
+    beginTurn: () =>
+      agent.setState({ ...agent.state, activeTurn: { id: 'turn-1', requestId: 'request-1', status: 'accepted' } }),
+    /** The running turn's response settled: the AI Chat base class calls the agent's end-of-turn hook. */
+    endTurn: (status: ChatResponseResult['status'] = 'completed') =>
+      agent.respond({
+        message: { id: 'assistant-1', role: 'assistant', parts: [] },
+        requestId: 'request-1',
+        continuation: false,
+        status,
+      }),
   };
 }
 

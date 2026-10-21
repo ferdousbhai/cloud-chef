@@ -196,6 +196,8 @@ export async function claimApprovedDeployment(args: {
     throw new DeploymentStateConflictError(expected.status);
   }
   const now = args.now ?? Date.now();
+  // One project deploys one revision at a time; a person's other projects deploy alongside it.
+  const project = deploymentProjectScope(expected.workspaceReference);
   let result: D1Result;
   try {
     result = await args.db
@@ -213,6 +215,7 @@ export async function claimApprovedDeployment(args: {
            AND NOT EXISTS (
              SELECT 1 FROM deployments AS active
              WHERE active.user_id = ? AND active.id <> ?
+               AND substr(active.workspace_reference, 1, ?) = ?
                AND active.status IN ('provisioning', 'deploying')
            )`,
       )
@@ -226,6 +229,8 @@ export async function claimApprovedDeployment(args: {
         expected.updatedAt,
         expected.userId,
         expected.id,
+        project.length,
+        project,
       )
       .run();
   } catch (error) {
@@ -239,9 +244,10 @@ export async function claimApprovedDeployment(args: {
     const active = await args.db
       .prepare(
         `SELECT id FROM deployments
-         WHERE user_id = ? AND id <> ? AND status IN ('provisioning', 'deploying') LIMIT 1`,
+         WHERE user_id = ? AND id <> ? AND substr(workspace_reference, 1, ?) = ?
+           AND status IN ('provisioning', 'deploying') LIMIT 1`,
       )
-      .bind(expected.userId, expected.id)
+      .bind(expected.userId, expected.id, project.length, project)
       .first<{ id: string }>();
     if (active) {
       throw new DeploymentConcurrencyLimitError();
@@ -253,6 +259,15 @@ export async function claimApprovedDeployment(args: {
     throw new DeploymentStateConflictError(committed.status);
   }
   return { ...expected, status: 'provisioning', updatedAt: now };
+}
+
+/**
+ * The part of a workspace reference (`workspace-runtime:<project>:<revision>:<sha>`) every revision of
+ * one project shares. A reference in another form names only itself.
+ */
+function deploymentProjectScope(workspaceReference: string): string {
+  const match = /^workspace-runtime:[^:]+:/.exec(workspaceReference);
+  return match ? match[0] : workspaceReference;
 }
 
 export async function prepareDeploymentRetry(args: {
