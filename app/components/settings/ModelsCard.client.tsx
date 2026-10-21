@@ -2,6 +2,7 @@ import { useStore } from '@nanostores/react';
 import { useCallback, useEffect, useState } from 'react';
 import { z } from 'zod';
 import { Button } from '~/components/ui/primitives/Button';
+import type { CloudflareAuthSession } from '~/lib/.server/auth';
 import { authClient, createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
 import {
   builderModelCatalogStatusStore,
@@ -37,7 +38,11 @@ const settingsSchema = z.object({
 });
 
 const keysResponseSchema = z.object({ keys: keysSchema });
-const linkResponseSchema = z.object({ keys: keysSchema, authenticationTurnedOn: z.boolean() });
+const linkResponseSchema = z.object({
+  keys: keysSchema,
+  authenticationTurnedOn: z.boolean(),
+  previousKeysRemain: z.boolean().catch(false),
+});
 const defaultResponseSchema = z.object({ defaultModelId: z.string().nullable() });
 
 type Settings = z.infer<typeof settingsSchema>;
@@ -46,6 +51,9 @@ type ProviderKey = z.infer<typeof providerKeySchema>;
 const PATH = '/api/settings/models';
 /** The select's value for "no choice": CloudChef's own default. */
 const CLOUDCHEF_DEFAULT = '';
+
+const PREVIOUS_KEYS_REMAIN_NOTE =
+  'The key it replaced could not be removed just now; remove it from the default AI Gateway in the Cloudflare dashboard, or save the key here again.';
 
 const AUTHENTICATION_TURNED_ON_NOTE =
   'Authentication is now on for this account’s default AI Gateway. CloudChef is unaffected; your own apps calling this gateway over HTTP now need a gateway token.';
@@ -62,6 +70,8 @@ export function ModelsCard() {
   const [busy, setBusy] = useState(false);
   const models = useStore(builderModelsStore);
   const catalogStatus = useStore(builderModelCatalogStatusStore);
+  const { data: session } = authClient.useSession();
+  const accountLabel = workspaceLabel(session?.context ?? null);
 
   const refresh = useCallback(async () => {
     setSettings(await getJson(PATH, settingsSchema));
@@ -74,38 +84,61 @@ export function ModelsCard() {
     void loadBuilderModelCatalog();
   }, [refresh]);
 
-  const act = async (operation: () => Promise<string>) => {
+  /** Runs one change and says how it went (a null note says nothing); true when it went through. */
+  const act = async (operation: () => Promise<string | null>, { refreshOnFailure = false } = {}): Promise<boolean> => {
     setBusy(true);
     setFeedback(null);
     try {
-      setFeedback(noteFeedback(await operation()));
+      const note = await operation();
+      setFeedback(note === null ? null : noteFeedback(note));
+      return true;
     } catch (failure) {
       setFeedback(errorFeedback(messageOf(failure instanceof Error ? failure : null, 'That did not work. Try again.')));
+      if (refreshOnFailure) {
+        // A failed change may have gone partway in Cloudflare: show the keys as they are now.
+        await refresh().catch(() => undefined);
+      }
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
-  const link = (provider: GatewayProviderSlug, apiKey: string) =>
+  const retry = () =>
     act(async () => {
-      const { keys, authenticationTurnedOn } = await postJson(
-        `${PATH}/keys/link`,
-        { provider, apiKey },
-        linkResponseSchema,
-      );
-      setSettings((current) => (current ? { ...current, keys } : current));
-      void loadBuilderModelCatalog();
-      const linked = `${GATEWAY_PROVIDERS[provider].label} is linked. Its models appear in the model picker within a minute.`;
-      return authenticationTurnedOn ? `${linked} ${AUTHENTICATION_TURNED_ON_NOTE}` : linked;
+      await refresh();
+      return null;
     });
 
+  const link = (provider: GatewayProviderSlug, apiKey: string) =>
+    act(
+      async () => {
+        const { keys, authenticationTurnedOn, previousKeysRemain } = await postJson(
+          `${PATH}/keys/link`,
+          { provider, apiKey },
+          linkResponseSchema,
+        );
+        setSettings((current) => (current ? { ...current, keys } : current));
+        void loadBuilderModelCatalog();
+        return [
+          `${GATEWAY_PROVIDERS[provider].label} is linked. Its models appear in the model picker within a minute.`,
+          ...(previousKeysRemain ? [PREVIOUS_KEYS_REMAIN_NOTE] : []),
+          ...(authenticationTurnedOn ? [AUTHENTICATION_TURNED_ON_NOTE] : []),
+        ].join(' ');
+      },
+      { refreshOnFailure: true },
+    );
+
   const unlink = (provider: GatewayProviderSlug) =>
-    act(async () => {
-      const { keys } = await postJson(`${PATH}/keys/unlink`, { provider }, keysResponseSchema);
-      setSettings((current) => (current ? { ...current, keys } : current));
-      void loadBuilderModelCatalog();
-      return `CloudChef’s ${GATEWAY_PROVIDERS[provider].label} key is removed, and deleted from your Secrets Store.`;
-    });
+    act(
+      async () => {
+        const { keys } = await postJson(`${PATH}/keys/unlink`, { provider }, keysResponseSchema);
+        setSettings((current) => (current ? { ...current, keys } : current));
+        void loadBuilderModelCatalog();
+        return `CloudChef’s ${GATEWAY_PROVIDERS[provider].label} key is removed, and deleted from your Secrets Store.`;
+      },
+      { refreshOnFailure: true },
+    );
 
   const chooseDefault = (value: string) =>
     act(async () => {
@@ -135,10 +168,19 @@ export function ModelsCard() {
       <h2 id="models-heading" className="app-card-title">
         Models
       </h2>
+      {accountLabel ? <p className="mt-1 text-sm text-content-secondary">For {accountLabel}.</p> : null}
       {settings === null ? (
-        <p className="mt-1 text-sm text-content-secondary" role="status">
-          {feedback ? null : 'Loading…'}
-        </p>
+        feedback ? (
+          <div className="mt-2">
+            <Button size="sm" variant="neutral" disabled={busy} onClick={() => void retry()}>
+              Retry
+            </Button>
+          </div>
+        ) : (
+          <p className="mt-1 text-sm text-content-secondary" role="status">
+            Loading…
+          </p>
+        )
       ) : (
         <>
           <label className="mt-3 block text-sm font-medium text-content-primary" htmlFor="default-model">
@@ -191,9 +233,14 @@ export function ModelsCard() {
               ))}
             </ul>
           ) : settings.keys.status === 'unknown' ? (
-            <p className="mt-2 text-sm text-content-primary">
-              Cloudflare couldn’t be asked just now which keys this account has.
-            </p>
+            <div className="mt-2 grid justify-items-start gap-2">
+              <p className="text-sm text-content-primary">
+                Cloudflare couldn’t be asked just now which keys this account has.
+              </p>
+              <Button size="sm" variant="neutral" disabled={busy} onClick={() => void retry()}>
+                Retry
+              </Button>
+            </div>
           ) : settings.canManage ? (
             <ReauthorizeForKeys />
           ) : (
@@ -224,8 +271,8 @@ function ProviderKeyRow({
   providerKey: ProviderKey;
   canManage: boolean;
   busy: boolean;
-  onLink: (apiKey: string) => Promise<void>;
-  onUnlink: () => Promise<void>;
+  onLink: (apiKey: string) => Promise<boolean>;
+  onUnlink: () => Promise<boolean>;
 }) {
   const [apiKey, setApiKey] = useState('');
   const { label } = GATEWAY_PROVIDERS[provider];
@@ -244,7 +291,12 @@ function ProviderKeyRow({
             className="mt-2 flex flex-wrap items-center gap-2"
             onSubmit={(event) => {
               event.preventDefault();
-              void onLink(apiKey).then(() => setApiKey(''));
+              void onLink(apiKey).then((linked) => {
+                // A refused key stays in the field, to correct or try again.
+                if (linked) {
+                  setApiKey('');
+                }
+              });
             }}
           >
             <input
@@ -277,6 +329,17 @@ function ProviderKeyRow({
       ) : null}
     </li>
   );
+}
+
+/** The account Settings is showing, as its switcher names it: a team, or the person's own account. */
+function workspaceLabel(context: CloudflareAuthSession['context']): string | null {
+  if (!context) {
+    return null;
+  }
+  if (context.kind === 'organization') {
+    return `the ${context.orgName} team${context.accountName ? ` (Cloudflare account ${context.accountName})` : ''}`;
+  }
+  return context.accountName ? `your Cloudflare account ${context.accountName}` : 'your own Cloudflare account';
 }
 
 /**

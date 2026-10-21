@@ -19,6 +19,8 @@ const ORIGIN = 'https://cloudchef.build';
 const ACCOUNT_ID = '0123456789abcdef0123456789abcdef';
 const API = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}`;
 const PASTED_KEY = 'sk-ant-api03-this-is-a-test-key-0123456789';
+/** A key the fake Cloudflare refuses to store. */
+const REFUSED_KEY = 'sk-ant-api03-a-key-cloudflare-refuses-000';
 const ENCRYPTION_KEY = btoa('a'.repeat(32));
 const ALL_CAPABILITIES = [
   'workers',
@@ -121,6 +123,7 @@ function fakeCloudflare({
   const secrets: Secret[] = [{ ...ADMIN_SECRET }];
   const requests: { method: string; path: string; body: string }[] = [];
   let nextId = 1;
+  let deletesRefused = false;
   const ok = (result: FakeResult) => Response.json({ success: true, result, result_info: { total_pages: 1 } });
   const refuse = (message: string, status = 400) =>
     Response.json({ success: false, errors: [{ code: 7001, message }] }, { status });
@@ -166,6 +169,9 @@ function fakeCloudflare({
       if (gateway?.authentication !== true) {
         return refuse(`Secret ${name} was not found`);
       }
+      if (created.secret === REFUSED_KEY) {
+        return refuse('The provider key is not valid');
+      }
       if (!storeId) {
         return refuse('Gateway default does not have a Secrets Store configured');
       }
@@ -183,8 +189,17 @@ function fakeCloudflare({
         secret_preview: `${created.secret.slice(0, 4)}...${created.secret.slice(-4)}`,
         gateway_id: 'default',
       };
+      // Like Cloudflare, a new default key is its provider's only default.
+      for (const other of providers) {
+        if (created.default_config && other.provider_slug === created.provider_slug) {
+          other.default_config = false;
+        }
+      }
       providers.push(config);
       return ok(config);
+    }
+    if (method === 'DELETE' && deletesRefused) {
+      return refuse('Cloudflare is unavailable', 503);
     }
     if (path.startsWith(`${PROVIDER_PATH}/`) && method === 'DELETE') {
       const index = providers.findIndex(({ id }) => id === path.slice(PROVIDER_PATH.length + 1));
@@ -213,7 +228,16 @@ function fakeCloudflare({
     return refuse('not found', 404);
   };
   const openAccountApi = async () => new UserCloudflareAccountApi(ACCOUNT_ID, 'oauth-token', request);
-  return { providers, secrets, requests, openAccountApi, gateway: () => gateway };
+  return {
+    providers,
+    secrets,
+    requests,
+    openAccountApi,
+    gateway: () => gateway,
+    refuseDeletes: () => {
+      deletesRefused = true;
+    },
+  };
 }
 
 async function setup({
@@ -306,6 +330,7 @@ describe('Settings: models', () => {
     expect(JSON.parse(linkedText)).toEqual({
       keys: keysWith('anthropic', { alias: 'cloudchef', secretPreview: 'sk-a...6789', addedByCloudChef: true }),
       authenticationTurnedOn: false,
+      previousKeysRemain: false,
     });
 
     const writes = writesOf(cloudflare);
@@ -358,6 +383,7 @@ describe('Settings: models', () => {
     expect(await linked.json()).toEqual({
       keys: keysWith('anthropic', { alias: 'cloudchef', secretPreview: 'sk-a...6789', addedByCloudChef: true }),
       authenticationTurnedOn: false,
+      previousKeysRemain: false,
     });
     expect(writesOf(cloudflare).map(({ method, path }) => `${method} ${path}`)).toEqual([`POST ${PROVIDER_PATH}`]);
     expect(cloudflare.gateway()).toEqual({ ...GATEWAY_WITHOUT_STORE, store_id: 'store-2' });
@@ -379,6 +405,7 @@ describe('Settings: models', () => {
     expect(await linked.json()).toEqual({
       keys: keysWith('anthropic', { alias: 'cloudchef', secretPreview: 'sk-a...6789', addedByCloudChef: true }),
       authenticationTurnedOn: true,
+      previousKeysRemain: false,
     });
     expect(cloudflare.gateway()).toMatchObject({ authentication: true, store_id: 'store-2', rate_limiting_limit: 50 });
     expect(cloudflare.secrets).toContainEqual(
@@ -399,6 +426,7 @@ describe('Settings: models', () => {
     expect(await linked.json()).toEqual({
       keys: keysWith('anthropic', { alias: 'cloudchef', secretPreview: 'sk-a...6789', addedByCloudChef: true }),
       authenticationTurnedOn: true,
+      previousKeysRemain: false,
     });
     const created = writesOf(cloudflare)[0];
     expect(created?.path).toBe('/ai-gateway/gateways');
@@ -430,7 +458,7 @@ describe('Settings: models', () => {
     expect(writesOf(cloudflare)).toEqual([]);
   });
 
-  it("relinks by deleting CloudChef's previous key and its secret, never the admin's own secret", async () => {
+  it("relinks by adding the new key before deleting CloudChef's previous key and its secret, never the admin's own secret", async () => {
     const { env, admin, cloudflare } = await setup();
     const openAccountApi = cloudflare.openAccountApi;
     const link = (apiKey: string) =>
@@ -445,18 +473,74 @@ describe('Settings: models', () => {
     const relinked = await link('sk-ant-api03-a-second-test-key-9876543210');
 
     expect(await relinked.json()).toMatchObject({
-      keys: keysWith('anthropic', { alias: 'cloudchef', secretPreview: 'sk-a...3210', addedByCloudChef: true }),
+      keys: keysWith('anthropic', { alias: 'cloudchef-2', secretPreview: 'sk-a...3210', addedByCloudChef: true }),
+      previousKeysRemain: false,
     });
-    expect(cloudflare.providers).toEqual([expect.objectContaining({ provider_slug: 'anthropic', alias: 'cloudchef' })]);
+    expect(cloudflare.providers).toEqual([
+      expect.objectContaining({ provider_slug: 'anthropic', alias: 'cloudchef-2' }),
+    ]);
     expect(
       writesOf(cloudflare)
-        .filter(({ method }) => method === 'DELETE')
-        .map(({ path }) => path),
-    ).toEqual([`${PROVIDER_PATH}/config-2`, `/secrets_store/stores/store-1/secrets/${firstSecret?.id}`]);
+        .slice(-3)
+        .map(({ method, path }) => `${method} ${path}`),
+    ).toEqual([
+      `POST ${PROVIDER_PATH}`,
+      `DELETE ${PROVIDER_PATH}/config-2`,
+      `DELETE /secrets_store/stores/store-1/secrets/${firstSecret?.id}`,
+    ]);
     expect(cloudflare.secrets).toEqual([
       ADMIN_SECRET,
-      expect.objectContaining({ name: 'default_anthropic_cloudchef', storeId: 'store-1' }),
+      expect.objectContaining({ name: 'default_anthropic_cloudchef-2', storeId: 'store-1' }),
     ]);
+
+    // The next replacement goes back under the first alias.
+    const third = await link('sk-ant-api03-a-third-test-key-1111111111');
+    expect(await third.json()).toMatchObject({
+      keys: keysWith('anthropic', { alias: 'cloudchef', secretPreview: 'sk-a...1111', addedByCloudChef: true }),
+    });
+    expect(cloudflare.secrets.map(({ name }) => name)).toEqual(['anthropic-startup', 'default_anthropic_cloudchef']);
+  });
+
+  it('keeps the linked key when Cloudflare refuses its replacement', async () => {
+    const { env, admin, cloudflare } = await setup();
+    const openAccountApi = cloudflare.openAccountApi;
+    const link = (apiKey: string) =>
+      linkGatewayKeyAction({
+        request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey }),
+        env,
+        openAccountApi,
+      });
+    await link(PASTED_KEY);
+    const before = cloudflare.providers.map((config) => ({ ...config }));
+
+    const refused = await link(REFUSED_KEY);
+
+    expect(refused.status).toBe(502);
+    expect(await refused.json()).toEqual({ error: 'The provider key is not valid' });
+    expect(cloudflare.providers).toEqual(before);
+    expect(cloudflare.secrets.map(({ name }) => name)).toEqual(['anthropic-startup', 'default_anthropic_cloudchef']);
+  });
+
+  it('reports the new key linked when the replaced one cannot be removed', async () => {
+    const { env, admin, cloudflare } = await setup();
+    const openAccountApi = cloudflare.openAccountApi;
+    const link = (apiKey: string) =>
+      linkGatewayKeyAction({
+        request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey }),
+        env,
+        openAccountApi,
+      });
+    await link(PASTED_KEY);
+    cloudflare.refuseDeletes();
+
+    const relinked = await link('sk-ant-api03-a-second-test-key-9876543210');
+
+    expect(relinked.status).toBe(200);
+    expect(await relinked.json()).toMatchObject({
+      keys: keysWith('anthropic', { alias: 'cloudchef-2', secretPreview: 'sk-a...3210', addedByCloudChef: true }),
+      previousKeysRemain: true,
+    });
+    expect(cloudflare.providers.map(({ alias }) => alias)).toEqual(['cloudchef', 'cloudchef-2']);
   });
 
   it("unlinks the key and deletes its secret, leaving the admin's own, after which the runtime has no Anthropic key", async () => {
