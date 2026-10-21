@@ -102,22 +102,38 @@ export async function readRuntimeUpgradeWindow(
   return row ? { targetVersion: row.target_version, expiresAt: row.expires_at } : null;
 }
 
+type RuntimeUpgradeWindowHold = { held: true } | { held: false; busy: number };
+
 /**
  * Keep the window an upgrade claimed open while it finishes: the container rollout and readiness check
- * that follow the redeploy. Unconditional, unlike the claim, because work that starts meanwhile records
- * itself busy and waits for exactly this window to close.
+ * that follow the redeploy. A window still open is renewed whatever is busy, since work that starts
+ * meanwhile records itself busy and waits for exactly this window to close. One that lapsed (a retry's
+ * backoff outlasted it) is opened again only while nothing is busy, in one statement like the claim:
+ * work that started while no window was open would be cut off by the rollout, so the upgrade waits.
  */
 export async function holdRuntimeUpgradeWindow(
   db: ActivityDatabase,
   args: { targetVersion: string; now: number },
-): Promise<void> {
-  await db
+): Promise<RuntimeUpgradeWindowHold> {
+  const busySince = args.now - RUNTIME_BUSY_LEASE_MS;
+  const hold = await db
     .prepare(
-      `INSERT INTO runtime_upgrade_window (id, target_version, expires_at) VALUES (1, ?, ?)
+      `INSERT INTO runtime_upgrade_window (id, target_version, expires_at)
+       SELECT 1, ?, ?
+       WHERE EXISTS (SELECT 1 FROM runtime_upgrade_window WHERE id = 1 AND expires_at > ?)
+          OR NOT EXISTS (SELECT 1 FROM runtime_activity WHERE busy = 1 AND updated_at > ?)
        ON CONFLICT(id) DO UPDATE SET target_version = excluded.target_version, expires_at = excluded.expires_at`,
     )
-    .bind(args.targetVersion, args.now + RUNTIME_UPGRADE_WINDOW_MS)
+    .bind(args.targetVersion, args.now + RUNTIME_UPGRADE_WINDOW_MS, args.now, busySince)
     .run();
+  if (hold.meta.changes > 0) {
+    return { held: true };
+  }
+  const active = await db
+    .prepare('SELECT COUNT(*) AS busy FROM runtime_activity WHERE busy = 1 AND updated_at > ?')
+    .bind(busySince)
+    .first<{ busy: number }>();
+  return { held: false, busy: active?.busy ?? 0 };
 }
 
 /** Close the window once the upgrade to `targetVersion` is serving, so waiting work starts at once. */

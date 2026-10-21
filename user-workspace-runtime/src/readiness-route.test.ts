@@ -3,6 +3,7 @@ import { waitForUserWorkspaceRuntimeReadiness } from '../../app/lib/.server/clou
 import {
   changeUserWorkspaceRuntimeUpgradeWindow,
   claimUserWorkspaceRuntimeUpgradeWindow,
+  RuntimeUpgradeWindowRefusedError,
 } from '../../app/lib/.server/cloudflare/user-workspace-runtime-upgrade-window';
 import {
   readRuntimeUpgradeWindow,
@@ -107,6 +108,21 @@ describe('user workspace runtime upgrade window route', () => {
     await expect(readRuntimeUpgradeWindow(db, now + 1)).resolves.toMatchObject({ targetVersion });
 
     await changeUserWorkspaceRuntimeUpgradeWindow({ ...args, change: 'release' });
+    await expect(readRuntimeUpgradeWindow(db, now)).resolves.toBeNull();
+  });
+
+  it('refuses to open a lapsed window again over work that started meanwhile, which the upgrade waits for', async () => {
+    const { db } = userWorkspaceDatabase();
+    let now = 1_000_000;
+    const request = routedFetch(upgradeWindowEnv(db), () => now);
+    const args = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, request };
+    await claimUserWorkspaceRuntimeUpgradeWindow(args);
+
+    now += RUNTIME_UPGRADE_WINDOW_MS + 1_000;
+    await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now });
+    const refused = changeUserWorkspaceRuntimeUpgradeWindow({ ...args, change: 'hold' });
+    await expect(refused).rejects.toBeInstanceOf(RuntimeUpgradeWindowRefusedError);
+    await expect(refused).rejects.toMatchObject({ busy: 1 });
     await expect(readRuntimeUpgradeWindow(db, now)).resolves.toBeNull();
   });
 
