@@ -149,6 +149,10 @@ export class FilesStore {
     this.files.setKey(filePath, { type: 'file', content, isBinary: false });
   }
 
+  discardUnsavedTextFile(filePath: AbsolutePath): void {
+    this.files.setKey(filePath, undefined);
+  }
+
   #removeTrackedPath(filePath: AbsolutePath): void {
     this.files.setKey(filePath, undefined);
     const childPrefix = `${filePath}/`;

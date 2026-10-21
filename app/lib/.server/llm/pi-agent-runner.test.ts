@@ -497,7 +497,15 @@ describe('piAgentRunner', () => {
     mocks.piMessages = [
       { role: 'user', content: 'Earlier request: add a login page', timestamp: 1 },
       assistantMessage([{ type: 'text', text: 'Login page added' }]),
-      { role: 'user', content: 'Build it', timestamp: 3 },
+      // The live prompt carries the injected turn context; its durable copy does not.
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Current file: src/app.tsx\nCloudChef publication status: draft' },
+          { type: 'text', text: 'Build it' },
+        ],
+        timestamp: 3,
+      },
     ];
     mocks.piRun.mockImplementation(async (context: AgentContext, config: AgentLoopConfig, emit: RunnerEventSink) => {
       await context.tools
@@ -530,6 +538,10 @@ describe('piAgentRunner', () => {
       expect(record).toContain('Steer: use dark mode');
       expect(record.split('Earlier request: add a login page')).toHaveLength(2);
       expect(record).toContain('earlier-1');
+      // The turn context survives the fresh window, once, beside the current prompt listed once under its id.
+      expect(record.split('CloudChef publication status: draft')).toHaveLength(2);
+      expect(record.split('Build it')).toHaveLength(2);
+      expect(record).toContain('user-1');
       await emit({ type: 'turn_end', message: assistantMessage([{ type: 'text', text: 'Done' }]), toolResults: [] });
     });
     const chunks = await collectChunks(
@@ -539,6 +551,7 @@ describe('piAgentRunner', () => {
           { id: 'reply-1', role: 'assistant', parts: [{ type: 'text', text: 'Login page added' }] },
           { id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Build it' }] },
         ],
+        turnContext: { version: 1, content: 'Current file: src/app.tsx\nCloudChef publication status: draft' },
       }),
     );
     expect(chunks.some((chunk) => chunk.type === 'error')).toBe(false);

@@ -103,6 +103,8 @@ export function compactPiContext(args: {
   messages: AgentMessage[];
   durableMessages?: CloudChefMessage[];
   previousInputs?: AgentMessage[];
+  /** This turn's workspace context, which only the live prompt carried: the durable copy lacks it. */
+  turnContext?: string;
   handoff?: string;
   signal?: AbortSignal;
 }): { messages: AgentMessage[]; tokensBefore: number; tokensAfter: number } | null {
@@ -138,7 +140,7 @@ export function compactPiContext(args: {
   }
   const checkpoint: Message = {
     role: 'user',
-    content: formatHandoff(recoveryRecord(users, args.handoff ?? previous, batch)),
+    content: formatHandoff(recoveryRecord(users, args.handoff ?? previous, batch, args.turnContext)),
     timestamp: Date.now(),
   };
   // The fresh window keeps the current prompt and tool declarations, folded into one system message.
@@ -155,6 +157,7 @@ function recoveryRecord(
   users: Array<{ id: string; text: string }>,
   checkpoint: string | undefined,
   batch: string[],
+  turnContext?: string,
 ): string {
   const selected = users.length > 1 ? [users[0], ...users.slice(-3).filter((user) => user !== users[0])] : users;
   const keptBatch = batch.slice(-16);
@@ -165,6 +168,7 @@ function recoveryRecord(
     inputs: selected.map(({ id, text }) => ({ id: id.slice(0, 120), text: boundedText(text, 1_500) })),
     omittedInputs: users.length - selected.length,
     handoff: carryHandoff(checkpoint),
+    untrustedTurnContext: turnContext ? boundedText(turnContext, 4_000) : undefined,
     toolActivity: keptBatch.map((item) => boundedText(item, perResult)),
     omittedToolRecords: batch.length - keptBatch.length,
   };
