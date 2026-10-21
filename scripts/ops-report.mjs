@@ -36,6 +36,7 @@ const BUILDER_CONTEXT_FLOOR_PATTERN = /MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS = ([
  * The Workers AI models Pi lists as chat models, from the same Pi catalog the runtime filters on
  * (`app/lib/.server/llm/pi-model-catalog.ts`): a model Pi does not list is never offered, since
  * CloudChef would have to guess its request shape, so it is never a candidate here either.
+ * @type {ReadonlySet<string>}
  */
 export const PI_WORKERS_AI_MODEL_IDS = new Set(
   Object.values(CLOUDFLARE_WORKERS_AI_MODELS).flatMap((model) =>
