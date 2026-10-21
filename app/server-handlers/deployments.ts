@@ -20,7 +20,10 @@ import {
   terminalizeInterruptedUserOwnedDeployment,
 } from '~/lib/.server/cloudflare/user-workspace-deployment-executor';
 
-type PublicDeployment = ReturnType<typeof publicDeployment>;
+export type PublicDeployment = ReturnType<typeof publicDeployment>;
+
+/** One execution of a deployment record: the record, and the execution generation it ran as. */
+export type DeploymentExecution = { deploymentId: string; executionGeneration: number };
 
 /**
  * Create the deployment plan of this id, or replay the one stored under it. A stored plan is replayed
@@ -85,11 +88,16 @@ export async function createOrReplayDeploymentPlanForUser(args: {
   );
 }
 
-/** Terminalize an execution whose durable fiber was interrupted so a retry cannot be blocked indefinitely. */
+/**
+ * Terminalize an execution whose durable fiber was interrupted so a retry cannot be blocked indefinitely.
+ * Given the `executionGeneration` seen holding the record, it settles only that execution: a record a
+ * later execution holds is answered as it is, and the settling write itself matches the generation.
+ */
 export async function terminalizeInterruptedDeploymentForUser(args: {
   env: Env;
   deploymentId: string;
   userId: string;
+  executionGeneration?: number;
 }): Promise<PublicDeployment | null> {
   const connection = runtimeCloudflareIdentity(args.env, args.userId);
   const deployment = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId).catch((error) => {
@@ -101,7 +109,11 @@ export async function terminalizeInterruptedDeploymentForUser(args: {
   if (!deployment) {
     return null;
   }
-  if (deployment.status !== 'provisioning' && deployment.status !== 'deploying') {
+  const executionGeneration = args.executionGeneration ?? deployment.executionGeneration;
+  if (
+    (deployment.status !== 'provisioning' && deployment.status !== 'deploying') ||
+    deployment.executionGeneration !== executionGeneration
+  ) {
     return publicDeployment(deployment);
   }
   return publicDeployment(
@@ -110,7 +122,7 @@ export async function terminalizeInterruptedDeploymentForUser(args: {
       deploymentId: deployment.id,
       userId: args.userId,
       connectionId: connection.id,
-      executionGeneration: deployment.executionGeneration,
+      executionGeneration,
     }),
   );
 }
@@ -121,6 +133,8 @@ export async function deployForUser(args: {
   deploymentId: string;
   userId: string;
   abortSignal?: AbortSignal;
+  /** Called with the execution about to run, before it claims the record. */
+  onExecution?: (execution: DeploymentExecution) => void;
 }): Promise<PublicDeployment> {
   const connection = runtimeCloudflareIdentity(args.env, args.userId);
   let deployment = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId);
@@ -147,6 +161,7 @@ export async function deployForUser(args: {
   if (deployment.status !== 'approved') {
     throw new DeploymentStateConflictError(deployment.status);
   }
+  args.onExecution?.({ deploymentId: deployment.id, executionGeneration: deployment.executionGeneration });
   return publicDeployment(
     await executeUserOwnedDeployment({
       env: args.env,

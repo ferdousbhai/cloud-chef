@@ -3,6 +3,8 @@ import {
   deployForUser,
   previewForUser,
   terminalizeInterruptedDeploymentForUser,
+  type DeploymentExecution,
+  type PublicDeployment,
 } from '~/server-handlers/deployments';
 import type { DeploymentStatus } from '~/lib/.server/cloudflare/deployment-repository';
 import type {
@@ -119,23 +121,24 @@ export async function terminalizeInterruptedDeploymentForBuilder(args: {
   return builderDeploymentState(deployment ?? previous);
 }
 
-/** Settle the one deployment record of this id, as an interrupted one is, when it is still active. */
-export async function settleDeploymentForBuilder(args: {
-  context: BuilderDeploymentContext;
-  deploymentId: string;
-}): Promise<BuilderDeploymentState> {
+/**
+ * Settle one execution of a deployment record, as an interrupted one is, while the record is still
+ * active under that execution generation; a later execution of the record is left to run.
+ */
+export async function settleDeploymentForBuilder(
+  args: { context: BuilderDeploymentContext } & DeploymentExecution,
+): Promise<BuilderDeploymentState> {
   return builderDeploymentState(
     await terminalizeInterruptedDeploymentForUser({
       env: args.context.env,
       userId: args.context.userId,
       deploymentId: args.deploymentId,
+      executionGeneration: args.executionGeneration,
     }),
   );
 }
 
-function builderDeploymentState(
-  deployment: Awaited<ReturnType<typeof terminalizeInterruptedDeploymentForUser>>,
-): BuilderDeploymentState {
+function builderDeploymentState(deployment: PublicDeployment | null): BuilderDeploymentState {
   return deployment
     ? {
         id: deployment.id,
@@ -168,6 +171,8 @@ export async function deployValidatedRevisionForBuilder(args: {
   validatedRevision: string;
   /** Called once the plan exists, so the caller can follow the stages it is about to record. */
   onPlanned?: (deploymentId: string) => void;
+  /** Called with the execution about to run, so the caller can settle exactly it should it throw. */
+  onExecution?: (execution: DeploymentExecution) => void;
   /** Honored until the deployment starts changing production; see `executeUserOwnedDeployment`. */
   abortSignal?: AbortSignal;
 }): Promise<BuilderDeploymentState> {
@@ -179,6 +184,7 @@ export async function deployValidatedRevisionForBuilder(args: {
     userId: args.context.userId,
     deploymentId,
     abortSignal: args.abortSignal,
+    onExecution: args.onExecution,
   });
   return {
     id: deployment.id,

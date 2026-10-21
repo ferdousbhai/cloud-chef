@@ -237,9 +237,13 @@ describe('builder deployment command', () => {
     expect(new Set(terminalized).size).toBe(3);
   });
 
-  it('settles one record by its id', async () => {
+  it('settles one execution of one record', async () => {
     await expect(
-      settleDeploymentForBuilder({ context: operationContext(), deploymentId: '33333333-3333-5333-8333-333333333333' }),
+      settleDeploymentForBuilder({
+        context: operationContext(),
+        deploymentId: '33333333-3333-5333-8333-333333333333',
+        executionGeneration: 4,
+      }),
     ).resolves.toEqual({
       id: '11111111-1111-5111-8111-111111111111',
       status: 'failed',
@@ -250,6 +254,7 @@ describe('builder deployment command', () => {
       env: expect.anything(),
       userId: 'user-1',
       deploymentId: '33333333-3333-5333-8333-333333333333',
+      executionGeneration: 4,
     });
   });
 
@@ -338,6 +343,22 @@ describe('builder deployment command', () => {
       stale,
       replanned,
     ]);
+  });
+
+  it('tells its caller the execution it runs, so the caller can settle exactly it should it throw', async () => {
+    const workspace = workspaceStub();
+    workspace.hasSuccessfulValidation.mockResolvedValue(true);
+    const onExecution = vi.fn();
+
+    await deployValidatedRevisionForBuilder({
+      context: operationContext(),
+      workspace,
+      toolCallId: 'deploy-command:7:revision',
+      validatedRevision: 'a'.repeat(64),
+      onExecution,
+    });
+
+    expect(mocks.deployForUser).toHaveBeenCalledWith(expect.objectContaining({ onExecution }));
   });
 
   it('gives up on a revision planned again and again', async () => {

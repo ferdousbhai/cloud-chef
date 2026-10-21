@@ -427,7 +427,9 @@ by then, unless a fiber of that revision runs again; and a deployment the slot r
 (another revision's, or its own revision's under the id it had before), then tries once more, when no other fiber of
 the agent deploys that record's revision and the record has shown no work (its update or a step its execution
 recorded) for 15 minutes, since one started through the runtime's deployment route runs outside the agent. Either settles it as an interrupted one is: succeeded when its receipt says production
-serves it, failed otherwise.
+serves it, failed otherwise. Either settles only the execution it saw (the one that threw, or the one holding the
+slot): the settling write matches its execution generation, so a later execution of the record runs on, and a settle
+that waited to be admitted looks again for a fiber of the revision before it writes.
 
 A CloudChef app's account resources (its Worker and so its `workers.dev` address, `DB`, `AGENT_SECURITY_DB`,
 `APP_STORAGE`, `APP_CACHE`, and the preview Worker and preview counterpart of each) belong to the project, the `ProjectWorkspace` a chat (or subchat)

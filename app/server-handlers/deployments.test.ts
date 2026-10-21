@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   requireDeployment: vi.fn(),
   executeUserOwnedDeployment: vi.fn(),
   executeUserOwnedPreview: vi.fn(),
+  terminalizeInterrupted: vi.fn(),
 }));
 
 vi.mock('~/lib/.server/cloudflare/deployment-repository', async (importOriginal) => ({
@@ -15,12 +16,18 @@ vi.mock('~/lib/.server/cloudflare/deployment-repository', async (importOriginal)
 vi.mock('~/lib/.server/cloudflare/user-workspace-deployment-executor', () => ({
   executeUserOwnedDeployment: mocks.executeUserOwnedDeployment,
   executeUserOwnedPreview: mocks.executeUserOwnedPreview,
+  terminalizeInterruptedUserOwnedDeployment: mocks.terminalizeInterrupted,
 }));
 
 import { appResourceIdentity, appResourceName } from '~/lib/cloudflare/app-resource-names';
 import { DeploymentNotFoundError } from '~/lib/.server/cloudflare/deployment-repository';
 import { buildDeploymentPlanFromSource } from '~/lib/.server/cloudflare/deployment-plan';
-import { createOrReplayDeploymentPlanForUser, deployForUser, previewForUser } from './deployments';
+import {
+  createOrReplayDeploymentPlanForUser,
+  deployForUser,
+  previewForUser,
+  terminalizeInterruptedDeploymentForUser,
+} from './deployments';
 
 const project = { type: 'worker' as const, bindings: { ai: false, d1: false, r2: false, kv: false, appAgent: false } };
 const revision = 'a'.repeat(64);
@@ -169,6 +176,48 @@ describe('deployment handlers', () => {
       connectionId: 'connection-1',
       executionGeneration: 1,
     });
+  });
+
+  it('reports the execution it is about to run before running it', async () => {
+    mocks.requireDeployment.mockResolvedValue(deployment());
+    const onExecution = vi.fn(() => {
+      expect(mocks.executeUserOwnedDeployment).not.toHaveBeenCalled();
+    });
+
+    await deployForUser({
+      env: runtimeEnv(activeChatDb()),
+      deploymentId: 'deployment-1',
+      userId: 'user-1',
+      onExecution,
+    });
+
+    expect(onExecution).toHaveBeenCalledExactlyOnceWith({ deploymentId: 'deployment-1', executionGeneration: 1 });
+    expect(mocks.executeUserOwnedDeployment).toHaveBeenCalledOnce();
+  });
+
+  it('settles an interrupted deployment only while it holds the execution generation seen holding it', async () => {
+    // Retried since generation 1 threw: generation 2 is deploying now.
+    const later = { ...deployment(), status: 'deploying', executionGeneration: 2 };
+    mocks.requireDeployment.mockResolvedValue(later);
+    mocks.terminalizeInterrupted.mockResolvedValue({ ...later, status: 'failed' });
+    const env = runtimeEnv(activeChatDb());
+    const settle = (executionGeneration?: number) =>
+      terminalizeInterruptedDeploymentForUser({
+        env,
+        deploymentId: 'deployment-1',
+        userId: 'user-1',
+        executionGeneration,
+      });
+
+    await expect(settle(1)).resolves.toMatchObject({ status: 'deploying' });
+    expect(mocks.terminalizeInterrupted).not.toHaveBeenCalled();
+
+    await expect(settle(2)).resolves.toMatchObject({ status: 'failed' });
+    await expect(settle()).resolves.toMatchObject({ status: 'failed' });
+    expect(mocks.terminalizeInterrupted.mock.calls).toEqual([
+      [expect.objectContaining({ deploymentId: 'deployment-1', executionGeneration: 2 })],
+      [expect.objectContaining({ deploymentId: 'deployment-1', executionGeneration: 2 })],
+    ]);
   });
 
   it('executes preview as a sibling of the authenticated deployment', async () => {

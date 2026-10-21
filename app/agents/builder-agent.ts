@@ -151,6 +151,7 @@ import { waitForCancellationBeforeDeadline } from './builder-cancellation';
 import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
+import type { DeploymentExecution } from '~/server-handlers/deployments';
 import { toolFailure, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import {
   BuilderCloudflareExecutionRepository,
@@ -273,6 +274,12 @@ const deploymentJobSchema = z.object({
   revision: z.string().regex(/^[a-f0-9]{64}$/),
 }) satisfies z.ZodType<BuilderWorkspaceCheckpoint>;
 type DeploymentJob = z.infer<typeof deploymentJobSchema>;
+/** A deployment job's execution that threw, kept for settling exactly its record a few seconds later. */
+const deploymentRecordSettleSchema = deploymentJobSchema.extend({
+  deploymentId: z.string().min(1),
+  executionGeneration: z.number().int().min(0),
+}) satisfies z.ZodType<DeploymentJob & DeploymentExecution>;
+type DeploymentRecordSettle = z.infer<typeof deploymentRecordSettleSchema>;
 /** Kept beside the job in a deployment fiber's metadata: whether a turn started it, and how many retries preceded it. */
 const deploymentRunSchema = z.object({
   automatic: z.boolean().default(false),
@@ -2533,13 +2540,23 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
             run.automatic,
             fiber.signal,
             async (signal) => {
+              // The execution it ran last, the one whose record a throw may leave holding the project.
+              let execution: DeploymentExecution | undefined;
               try {
                 // Counted busy while it runs, whatever later rewrites the deployment record. A stop while
                 // it still waits for an upgrade window calls it off before it starts.
                 // A deployment that fails throws: the executor never returns a failed one.
-                await this.runtimeActivity.run(() => this.runDeployment(job, signal), { signal });
+                await this.runtimeActivity.run(
+                  () =>
+                    this.runDeployment(job, signal, (running) => {
+                      execution = running;
+                    }),
+                  { signal },
+                );
               } catch (error) {
-                await this.scheduleDeploymentRecordSettle(job);
+                if (execution) {
+                  await this.scheduleDeploymentRecordSettle({ ...job, ...execution });
+                }
                 if (signal.aborted && error === signal.reason) {
                   // Stopped before it changed production: not a failure, and the latest revision
                   // publishes when the turn that stopped it ends. One stopped past that point fails
@@ -2619,34 +2636,43 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    * whose success write didn't land stays deploying, a claim whose acknowledgement was lost may have
    * committed, and a failure write may not have landed. Only a deployment of the same revision settles
    * it otherwise, so once this fiber has ended its record is settled whatever revision the project has
-   * moved on to.
+   * moved on to: the execution that threw, never a later one of the record.
    */
-  private async scheduleDeploymentRecordSettle(job: DeploymentJob): Promise<void> {
+  private async scheduleDeploymentRecordSettle(record: DeploymentRecordSettle): Promise<void> {
     if (this.destroying) {
       return;
     }
-    await this.schedule(DEPLOYMENT_RECORD_SETTLE_DELAY_SECONDS, 'settleDeploymentRecord', job, {
+    await this.schedule(DEPLOYMENT_RECORD_SETTLE_DELAY_SECONDS, 'settleDeploymentRecord', record, {
       idempotent: true,
     }).catch(() => logger.warn('Unable to schedule settling the deployment record'));
   }
 
-  /** Settles the record a deployment fiber that threw left, unless a deployment of its revision runs again. */
-  async settleDeploymentRecord(payload: DeploymentJob): Promise<void> {
-    const job = deploymentJobSchema.safeParse(payload).data;
-    if (!job) {
+  /**
+   * Settles the execution a deployment fiber that threw left holding its record, unless a deployment of
+   * its revision runs again.
+   */
+  async settleDeploymentRecord(payload: DeploymentRecordSettle): Promise<void> {
+    const record = deploymentRecordSettleSchema.safeParse(payload).data;
+    if (!record) {
       return;
     }
     await this.hydrateDurableIdentity({ required: false, reason: 'deployment_record_settle' });
-    if (
-      !this.userId ||
-      !this.transcriptBinding ||
-      this.destroying ||
-      (await this.deploymentFiberRunning(job.revision))
-    ) {
+    const userId = this.userId;
+    const transcriptBinding = this.transcriptBinding;
+    if (!userId || !transcriptBinding || this.destroying) {
       return;
     }
+    const { deploymentId, executionGeneration, ...job } = record;
+    const settle = () =>
+      this.publisher.settle({
+        context: { env: this.env, userId, chatInitialId: transcriptBinding.chatInitialId },
+        deploymentId,
+        executionGeneration,
+      });
+    // Admission can wait out an upgrade window, or D1 being unavailable: a deployment of the revision
+    // started meanwhile runs on.
     const settled = await this.runtimeActivity
-      .run(() => this.retry(() => this.terminalizeDeployment(job)))
+      .run(async () => ((await this.deploymentFiberRunning(job.revision)) ? null : this.retry(settle)))
       .catch(() => {
         logger.warn('Unable to settle the deployment record');
         return null;
@@ -2681,9 +2707,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return false;
     }
     const blockingJob: DeploymentJob = { workspaceRevision: blocking.workspaceRevision, revision: blocking.revision };
+    // Only the execution seen holding the slot: one started since is left to run.
     const settled = await this.publisher.settle({
       context: { env: this.env, userId, chatInitialId: transcriptBinding.chatInitialId },
       deploymentId: blocking.id,
+      executionGeneration: blocking.executionGeneration,
     });
     if (settled.status === 'succeeded') {
       await this.recordDeploymentSucceeded(blockingJob, settled);
@@ -2701,7 +2729,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return live.filter((fiber) => deploymentJobSchema.safeParse(fiber.metadata).data?.revision === revision).length;
   }
 
-  private async runDeployment(job: DeploymentJob, abortSignal: AbortSignal): Promise<BuilderDeploymentState> {
+  private async runDeployment(
+    job: DeploymentJob,
+    abortSignal: AbortSignal,
+    onExecution: (execution: DeploymentExecution) => void,
+  ): Promise<BuilderDeploymentState> {
     const userId = this.userId;
     const transcriptBinding = this.transcriptBinding;
     if (!userId || !transcriptBinding) {
@@ -2734,6 +2766,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
               planned = deploymentId;
               onPlanned(deploymentId);
             },
+            onExecution,
             abortSignal,
           }),
         ),
