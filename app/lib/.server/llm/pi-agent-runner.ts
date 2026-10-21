@@ -102,6 +102,8 @@ interface PiAgentOptions {
   sessionAffinity: string;
   /** Whether the turn's model requests are logged in the account's AI Gateway, and under what; unlogged when absent. */
   gatewayLogging?: WorkersAiGatewayLogging;
+  /** For a gateway provider's model: the alias of the account's key for that provider. */
+  gatewayKeyAlias?: string;
   workspace: BuilderWorkspaceApi;
   cloudflareApi?: CloudflareApiModelToolContext;
   /** Set when the workspace is one of an organization's GitHub projects. */
@@ -181,6 +183,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     accountCredentials,
     sessionAffinity,
     gatewayLogging,
+    gatewayKeyAlias,
     workspace,
     cloudflareApi,
     linkedProject,
@@ -193,7 +196,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   logger.debug('Starting Pi agent runner');
   const startedAt = Date.now();
   const modelId = model.id;
-  const handle = getPiModel(accountCredentials, modelId, { model, sessionAffinity, gatewayLogging });
+  const handle = getPiModel(accountCredentials, modelId, { model, sessionAffinity, gatewayLogging, gatewayKeyAlias });
   // Real signals, so an in-flight model stream is bounded too — not just the gaps between turns.
   const wallClockSignal = AbortSignal.timeout(BUILDER_TURN_WALL_CLOCK_MS);
   const inactivityController = new AbortController();

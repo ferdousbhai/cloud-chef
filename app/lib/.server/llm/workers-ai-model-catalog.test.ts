@@ -3,7 +3,11 @@ import {
   builderModelCatalogPayloadSchema,
   CLOUDFLARE_WORKERS_AI_MODEL,
   DEFAULT_WORKERS_AI_MODEL,
+  GATEWAY_PROVIDER_SLUGS,
+  gatewayModelProvider,
+  NO_ACCOUNT_MODEL_SETTINGS,
   validateBuilderModelCatalogPayload,
+  type GatewayKey,
 } from '~/lib/workers-ai-model';
 import {
   builderModelCatalogPayload,
@@ -180,17 +184,26 @@ describe('Workers AI live model catalog', () => {
 describe('the builder catalog an account is offered', () => {
   const pro = { ...DEFAULT_WORKERS_AI_MODEL, id: '@cf/deepseek-ai/deepseek-v4-pro-0813' as const, label: 'Pro' };
 
-  it("adds Pi's Claude models only while the account's gateway holds an Anthropic key", () => {
-    const without = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro], {
+  it("adds each gateway provider's Pi models exactly while the account's gateway holds a key for it", () => {
+    const without = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro], NO_ACCOUNT_MODEL_SETTINGS);
+    // The aliases are whatever the account stored its keys under; they never change what is offered.
+    const keys: GatewayKey[] = [
+      { provider: 'anthropic', alias: 'team-key' },
+      { provider: 'grok', alias: 'default' },
+    ];
+    const linked = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro], {
       defaultModelId: null,
-      claude: false,
+      gatewayKeys: keys,
     });
-    const linked = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro], { defaultModelId: null, claude: true });
 
     expect(without.models.map(({ id }) => id)).toEqual([CLOUDFLARE_WORKERS_AI_MODEL, pro.id]);
-    const claudeIds = linked.models.map(({ id }) => id).filter((id) => id.startsWith('claude-'));
-    expect(claudeIds).toEqual(expect.arrayContaining(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']));
-    expect(linked.models.find(({ id }) => id === 'claude-opus-5-5')).toMatchObject({
+    const ids = linked.models.map(({ id }) => id);
+    expect(ids).toEqual(
+      expect.arrayContaining(['anthropic/claude-opus-5-5', 'anthropic/claude-haiku-5-5', 'grok/grok-4.3']),
+    );
+    // Only the providers the account has a key for.
+    expect(new Set(ids.map((id) => gatewayModelProvider(id)))).toEqual(new Set([null, 'anthropic', 'grok']));
+    expect(linked.models.find(({ id }) => id === 'anthropic/claude-opus-5-5')).toMatchObject({
       label: 'Claude Opus 5.5',
       contextTokens: 1_000_000,
       reasoning: true,
@@ -202,44 +215,72 @@ describe('the builder catalog an account is offered', () => {
     expect(validateBuilderModelCatalogPayload(parsed)).toEqual(linked);
   });
 
+  it('offers every provider at once in a catalog the browser accepts', () => {
+    const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'default' }));
+    const all = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], { defaultModelId: null, gatewayKeys: everyKey });
+
+    expect(new Set(all.models.map(({ id }) => gatewayModelProvider(id)))).toEqual(
+      new Set([null, ...GATEWAY_PROVIDER_SLUGS]),
+    );
+    expect(all.models.map(({ id }) => id)).toEqual(
+      expect.arrayContaining(['openai/gpt-5', 'openrouter/openai/gpt-5', 'openrouter/anthropic/claude-fable-5']),
+    );
+    expect(validateBuilderModelCatalogPayload(builderModelCatalogPayloadSchema.parse(all))).toEqual(all);
+  });
+
   it("defaults to the model the account's admin chose while it is offered, and to the pin otherwise", () => {
     const chosen = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro], {
       defaultModelId: pro.id,
-      claude: false,
+      gatewayKeys: [],
     });
     expect(chosen.defaultModelId).toBe(pro.id);
     expect(chosen.models[0]?.id).toBe(pro.id);
 
-    const claudeChosen = { defaultModelId: 'claude-opus-5-5', claude: true };
-    expect(builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], claudeChosen).defaultModelId).toBe('claude-opus-5-5');
-    // The key was unlinked since: the chosen Claude model is no longer offered, so the pin is the default.
-    expect(builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], { ...claudeChosen, claude: false })).toMatchObject({
+    const claudeChosen = {
+      defaultModelId: 'anthropic/claude-opus-5-5',
+      gatewayKeys: [{ provider: 'anthropic' as const, alias: 'default' }],
+    };
+    expect(builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], claudeChosen).defaultModelId).toBe(
+      'anthropic/claude-opus-5-5',
+    );
+    // The key was removed since: the chosen model is no longer offered, so the pin is the default.
+    expect(builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], { ...claudeChosen, gatewayKeys: [] })).toMatchObject({
       defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
     });
     expect(
-      builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], { defaultModelId: '@cf/example/gone', claude: false })
+      builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], { defaultModelId: '@cf/example/gone', gatewayKeys: [] })
         .defaultModelId,
     ).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
   });
 
-  it('runs a Claude turn only on a Claude model Pi lists, and only while the key is linked', async () => {
+  it("runs a provider's turn only on a model Pi lists, only while its key is there, with that key's alias", async () => {
     const binding = { models: vi.fn(async () => [model(CLOUDFLARE_WORKERS_AI_MODEL)]) };
-    const linked = vi.fn(async () => true);
+    const linked = vi.fn(async (): Promise<GatewayKey[]> => [
+      { provider: 'openai', alias: 'default' },
+      { provider: 'anthropic', alias: 'sg' },
+    ]);
 
-    await expect(requireBuilderModel(binding, 'claude-opus-5-5', linked)).resolves.toMatchObject({
-      id: 'claude-opus-5-5',
+    await expect(requireBuilderModel(binding, 'anthropic/claude-opus-5-5', linked)).resolves.toEqual({
+      model: expect.objectContaining({ id: 'anthropic/claude-opus-5-5' }),
+      gatewayKeyAlias: 'sg',
     });
-    await expect(requireBuilderModel(binding, 'claude-opus-5-5', async () => false)).rejects.toMatchObject({
+    await expect(requireBuilderModel(binding, 'openai/gpt-5', linked)).resolves.toMatchObject({
+      gatewayKeyAlias: 'default',
+    });
+    // No key for OpenRouter on the gateway.
+    await expect(requireBuilderModel(binding, 'openrouter/openai/gpt-5', linked)).rejects.toMatchObject({
       status: 409,
     });
     await expect(
-      requireBuilderModel(binding, 'claude-opus-5-5', async () => Promise.reject(new Error('unreachable'))),
+      requireBuilderModel(binding, 'anthropic/claude-opus-5-5', async () => Promise.reject(new Error('unreachable'))),
     ).rejects.toMatchObject({ status: 409 });
-    await expect(requireBuilderModel(binding, 'claude-imaginary-9', linked)).rejects.toMatchObject({ status: 400 });
-    // A Workers AI turn never asks about the key.
+    await expect(requireBuilderModel(binding, 'anthropic/claude-imaginary-9', linked)).rejects.toMatchObject({
+      status: 400,
+    });
+    // A Workers AI turn never asks about the keys.
     linked.mockClear();
-    await expect(requireBuilderModel(binding, CLOUDFLARE_WORKERS_AI_MODEL, linked)).resolves.toMatchObject({
-      id: CLOUDFLARE_WORKERS_AI_MODEL,
+    await expect(requireBuilderModel(binding, CLOUDFLARE_WORKERS_AI_MODEL, linked)).resolves.toEqual({
+      model: expect.objectContaining({ id: CLOUDFLARE_WORKERS_AI_MODEL }),
     });
     expect(linked).not.toHaveBeenCalled();
   });

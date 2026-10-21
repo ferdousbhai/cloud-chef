@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { envWith } from '~/test/control-plane-d1';
+import { NO_ACCOUNT_MODEL_SETTINGS } from '~/lib/workers-ai-model';
 import {
   confirmUserWorkspaceAccess,
   modelRequestAccess,
@@ -66,29 +67,40 @@ describe('confirmUserWorkspaceAccess', () => {
 });
 
 describe('readAccountModelSettings', () => {
-  it("reads the account's chosen default and whether Claude has a key, and anything unlearnable as neither", async () => {
+  it("reads the account's chosen default and its gateway's provider keys, and anything unlearnable as neither", async () => {
     const respond = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>();
     vi.stubGlobal('fetch', respond);
 
-    respond.mockResolvedValueOnce(Response.json({ defaultModelId: 'claude-opus-5-5', claude: true }));
-    expect(await readAccountModelSettings(runtimeEnv())).toEqual({ defaultModelId: 'claude-opus-5-5', claude: true });
+    const gatewayKeys = [
+      { provider: 'anthropic', alias: 'sg' },
+      { provider: 'openrouter', alias: 'default' },
+    ];
+    respond.mockResolvedValueOnce(
+      Response.json({ defaultModelId: 'anthropic/claude-opus-5-5', gatewayKeys, claude: true }),
+    );
+    expect(await readAccountModelSettings(runtimeEnv())).toEqual({
+      defaultModelId: 'anthropic/claude-opus-5-5',
+      gatewayKeys,
+    });
     const [url, init] = respond.mock.calls[0] ?? [];
     expect(String(url)).toBe('https://cloudchef.build/api/cloudflare/runtime-models');
     expect(init?.headers).toMatchObject({ authorization: 'Bearer runtime-secret' });
     expect(JSON.parse(String(init?.body))).toEqual(identity);
 
-    respond.mockResolvedValueOnce(Response.json({ defaultModelId: 7, claude: 'yes' }));
-    expect(await readAccountModelSettings(runtimeEnv())).toEqual({ defaultModelId: null, claude: false });
+    // A provider CloudChef does not know, or an alias that cannot be one, is no key at all.
+    respond.mockResolvedValueOnce(
+      Response.json({ defaultModelId: 7, gatewayKeys: [{ provider: 'fireworks', alias: 'default' }] }),
+    );
+    expect(await readAccountModelSettings(runtimeEnv())).toEqual(NO_ACCOUNT_MODEL_SETTINGS);
+    respond.mockResolvedValueOnce(Response.json({ gatewayKeys: [{ provider: 'openai', alias: '' }] }));
+    expect(await readAccountModelSettings(runtimeEnv())).toEqual(NO_ACCOUNT_MODEL_SETTINGS);
     respond.mockResolvedValueOnce(new Response(null, { status: 404 }));
-    expect(await readAccountModelSettings(runtimeEnv())).toEqual({ defaultModelId: null, claude: false });
+    expect(await readAccountModelSettings(runtimeEnv())).toEqual(NO_ACCOUNT_MODEL_SETTINGS);
     respond.mockRejectedValueOnce(new Error('unreachable'));
-    expect(await readAccountModelSettings(runtimeEnv())).toEqual({ defaultModelId: null, claude: false });
+    expect(await readAccountModelSettings(runtimeEnv())).toEqual(NO_ACCOUNT_MODEL_SETTINGS);
     // No runtime identity: nothing to ask with.
     respond.mockClear();
-    expect(await readAccountModelSettings(runtimeEnv({ CLOUDCHEF_USER_ID: '' }))).toEqual({
-      defaultModelId: null,
-      claude: false,
-    });
+    expect(await readAccountModelSettings(runtimeEnv({ CLOUDCHEF_USER_ID: '' }))).toEqual(NO_ACCOUNT_MODEL_SETTINGS);
     expect(respond).not.toHaveBeenCalled();
   });
 });

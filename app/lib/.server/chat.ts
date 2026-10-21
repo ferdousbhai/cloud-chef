@@ -36,6 +36,7 @@ export async function createChatResponseFromBody({
   accountCredentials,
   sessionAffinity,
   gatewayLogging,
+  gatewayKeyAlias,
   workspace,
   cloudflareApi,
   linkedProject,
@@ -60,6 +61,8 @@ export async function createChatResponseFromBody({
   accountCredentials: WorkersAiAccountCredentials;
   sessionAffinity: string;
   gatewayLogging?: WorkersAiGatewayLogging;
+  /** For a gateway provider's model: the alias of the account's key for that provider. */
+  gatewayKeyAlias?: string;
   workspace: BuilderWorkspaceApi;
   cloudflareApi?: CloudflareApiModelToolContext;
   linkedProject?: LinkedProjectModelToolContext;
@@ -72,7 +75,7 @@ export async function createChatResponseFromBody({
   const { messages, modelId } = body;
   const transcriptMessages = messages ?? [];
   if (model.id !== modelId) {
-    throw new Response('The selected Workers AI model changed while the request was being prepared.', { status: 409 });
+    throw new Response('The selected model changed while the request was being prepared.', { status: 409 });
   }
 
   logger.info('Using Cloudflare AI');
@@ -88,6 +91,7 @@ export async function createChatResponseFromBody({
       accountCredentials,
       sessionAffinity,
       gatewayLogging,
+      gatewayKeyAlias,
       workspace,
       cloudflareApi,
       linkedProject,

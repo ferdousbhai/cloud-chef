@@ -156,23 +156,24 @@ function PrivacyPage() {
           The user-owned workspace runtime sends the prompt, conversation context, and project files needed for a
           request to the selected builder model through Cloudflare AI in the connected account. The in-chat model
           selector loads the current Cloudflare-hosted catalog from that account and offers models compatible with the
-          builder’s function-calling and context requirements. When an admin of the account (or, for your own account,
-          you) links the account’s own Anthropic API key in Settings, the selector also offers Anthropic’s Claude
-          models: those requests go from the same runtime through the account’s AI Gateway to Anthropic, which bills
-          that key and handles the content under the account’s agreement with Anthropic. The key is kept in the
+          builder’s function-calling and context requirements. When the account’s default AI Gateway holds the account’s
+          own key for an AI provider (Anthropic, OpenAI, xAI, or OpenRouter), whether an admin of the account (or, for
+          your own account, you) added it in Cloudflare or pasted it in Settings, the selector also offers that
+          provider’s models: those requests go from the same runtime through the account’s AI Gateway to that provider,
+          which bills that key and handles the content under the account’s agreement with it. The key is kept in the
           account’s Cloudflare Secrets Store and attached to its AI Gateway; CloudChef passes a pasted key to Cloudflare
-          once and never stores, logs, or reads it, and unlinking the key deletes it from the Secrets Store. A team’s
-          admins also choose the model new chats start on. Every request goes through the account’s default AI Gateway.
-          Unless you turn it off, the gateway logs each request in that account: what was sent (the prompt, conversation
-          context, and project files) and the model’s reply, labelled with the conversation and the person who sent it,
-          so the account can review what a conversation did. The logs follow AI Gateway’s retention settings in that
-          account, and anyone with access to the account can read them, which for a team includes its admins;
-          CloudChef’s operator receives no copy. You can turn this logging off under AI request logs in Settings. It is
-          your own choice, wherever you build, and it applies to your later requests: they still go through the gateway
-          but are not logged and carry no conversation or person label. Logs already recorded stay in the account until
-          its AI Gateway retention removes them or someone with access deletes them in the Cloudflare dashboard.
-          Accounts configured for Unified Billing use prepaid credits through the same gateway, and AI Gateway caching
-          is skipped. Cloudflare describes its handling of Workers AI content in its{' '}
+          once and never stores, logs, or reads it, and removing a key CloudChef added deletes it from the Secrets
+          Store. A team’s admins also choose the model new chats start on. Every request goes through the account’s
+          default AI Gateway. Unless you turn it off, the gateway logs each request in that account: what was sent (the
+          prompt, conversation context, and project files) and the model’s reply, labelled with the conversation and the
+          person who sent it, so the account can review what a conversation did. The logs follow AI Gateway’s retention
+          settings in that account, and anyone with access to the account can read them, which for a team includes its
+          admins; CloudChef’s operator receives no copy. You can turn this logging off under AI request logs in
+          Settings. It is your own choice, wherever you build, and it applies to your later requests: they still go
+          through the gateway but are not logged and carry no conversation or person label. Logs already recorded stay
+          in the account until its AI Gateway retention removes them or someone with access deletes them in the
+          Cloudflare dashboard. Accounts configured for Unified Billing use prepaid credits through the same gateway,
+          and AI Gateway caching is skipped. Cloudflare describes its handling of Workers AI content in its{' '}
           <a href="https://developers.cloudflare.com/workers-ai/platform/data-usage/">Workers AI data-usage notice</a>.
           CloudChef does not use AI to make decisions that produce legal or similarly significant effects about you.
         </p>
@@ -203,11 +204,12 @@ function PrivacyPage() {
         <p>
           Cloudflare provides authentication integration, Workers, D1, R2, Durable Objects, Containers, Computer,
           Workers AI, AI Gateway, Secrets Store, the Cloudflare AI model catalog, observability, and related
-          infrastructure. Anthropic processes Claude requests only for an account that linked its own Anthropic key, as
-          that account’s provider. GitHub processes information submitted through public support issues or private
-          security reports. Control-plane observability is held in the operator’s Cloudflare account; workspace,
-          Computer, and generated-application observability is held in your connected Cloudflare account. CloudChef does
-          not sell personal data, share it for cross-context behavioral advertising, or use it for targeted advertising.
+          infrastructure. An AI provider (Anthropic, OpenAI, xAI, or OpenRouter) processes requests to its models only
+          for an account whose AI Gateway holds that account’s own key for it, as that account’s provider. GitHub
+          processes information submitted through public support issues or private security reports. Control-plane
+          observability is held in the operator’s Cloudflare account; workspace, Computer, and generated-application
+          observability is held in your connected Cloudflare account. CloudChef does not sell personal data, share it
+          for cross-context behavioral advertising, or use it for targeted advertising.
         </p>
       </TrustSection>
 

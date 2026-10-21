@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { normalizeContext } from '@earendil-works/pi-ai';
 import { z } from 'zod';
-import { CLOUDFLARE_PROJECT_TITLE_MODEL } from '~/lib/workers-ai-model';
-import { CLAUDE_KEY_REJECTED_MESSAGE, getPiModel, type WorkersAiAccountCredentials } from './pi-ai-models';
+import { CLOUDFLARE_PROJECT_TITLE_MODEL, type BuilderModelId } from '~/lib/workers-ai-model';
+import { gatewayKeyRejectedMessage, getPiModel, type WorkersAiAccountCredentials } from './pi-ai-models';
 import { completeText } from './pi-ai-invoke';
 import {
   workersAiGatewayLogging,
@@ -137,22 +137,22 @@ describe('a DeepSeek model Pi characterises', () => {
   });
 });
 
-describe('a Claude model', () => {
-  const opus = 'claude-opus-5-5';
+describe("a gateway provider's model", () => {
+  const opus = 'anthropic/claude-opus-5-5';
 
-  /** The parts of the Anthropic Messages body these tests read. */
-  type CapturedMessagesBody = {
+  /** The parts of a provider request body these tests read. */
+  type CapturedBody = {
     model?: string;
     stream?: boolean;
     max_tokens?: number;
     thinking?: { type: string };
-    tool_choice?: { type: string };
+    tool_choice?: { type: string } | string;
   };
 
   /** One universal request the gateway binding received. */
   type GatewayCall = {
     gatewayId: string;
-    request: { provider: string; endpoint: string; headers: Record<string, string>; query: CapturedMessagesBody };
+    request: { provider: string; endpoint: string; headers: Record<string, string>; query: CapturedBody };
   };
 
   /** A gateway binding that records each request and answers it with `answer`. */
@@ -164,36 +164,112 @@ describe('a Claude model', () => {
         return answer();
       },
     });
-    // SAFETY: the Claude transport calls only `gateway(id).run(request, options)`, which this implements.
+    // SAFETY: the gateway transport calls only `gateway(id).run(request, options)`, which this implements.
     return { calls, credentials: { binding: Object.assign({} as Ai, { gateway }) } };
   }
 
-  function anthropicStream(text: string): Response {
-    const events = [
-      {
-        type: 'message_start',
-        message: {
-          id: 'msg_1',
-          type: 'message',
-          role: 'assistant',
-          model: opus,
-          content: [],
-          stop_reason: null,
-          usage: { input_tokens: 10, output_tokens: 1 },
-        },
-      },
-      { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
-      { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } },
-      { type: 'content_block_stop', index: 0 },
-      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } },
-      { type: 'message_stop' },
-    ];
-    const body = events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
-    return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+  function sse(events: readonly object[], { named = false, done = false } = {}): Response {
+    const lines = events.map(
+      (event) =>
+        `${named && 'type' in event ? `event: ${String(event.type)}\n` : ''}data: ${JSON.stringify(event)}\n\n`,
+    );
+    return new Response(lines.join('') + (done ? 'data: [DONE]\n\n' : ''), {
+      headers: { 'content-type': 'text/event-stream' },
+    });
   }
 
-  async function streamOnce(credentials: WorkersAiAccountCredentials, gatewayLogging?: WorkersAiGatewayLogging) {
-    const handle = getPiModel(credentials, opus, { gatewayLogging });
+  function anthropicStream(text: string, model = 'claude-opus-5-5'): Response {
+    return sse(
+      [
+        {
+          type: 'message_start',
+          message: {
+            id: 'msg_1',
+            type: 'message',
+            role: 'assistant',
+            model,
+            content: [],
+            stop_reason: null,
+            usage: { input_tokens: 10, output_tokens: 1 },
+          },
+        },
+        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } },
+        { type: 'message_stop' },
+      ],
+      { named: true },
+    );
+  }
+
+  function openaiResponsesStream(text: string, model: string): Response {
+    const message = {
+      type: 'message',
+      id: 'msg_1',
+      status: 'completed',
+      role: 'assistant',
+      content: [{ type: 'output_text', text, annotations: [] }],
+    };
+    const usage = {
+      input_tokens: 10,
+      output_tokens: 2,
+      total_tokens: 12,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens_details: { reasoning_tokens: 0 },
+    };
+    return sse(
+      [
+        { type: 'response.created', response: { id: 'resp_1', model, status: 'in_progress', output: [] } },
+        {
+          type: 'response.output_item.added',
+          output_index: 0,
+          item: { ...message, status: 'in_progress', content: [] },
+        },
+        {
+          type: 'response.content_part.added',
+          output_index: 0,
+          content_index: 0,
+          item_id: 'msg_1',
+          part: { type: 'output_text', text: '', annotations: [] },
+        },
+        { type: 'response.output_text.delta', output_index: 0, content_index: 0, item_id: 'msg_1', delta: text },
+        { type: 'response.output_text.done', output_index: 0, content_index: 0, item_id: 'msg_1', text },
+        {
+          type: 'response.content_part.done',
+          output_index: 0,
+          content_index: 0,
+          item_id: 'msg_1',
+          part: message.content[0],
+        },
+        { type: 'response.output_item.done', output_index: 0, item: message },
+        {
+          type: 'response.completed',
+          response: { id: 'resp_1', model, status: 'completed', output: [message], usage },
+        },
+      ],
+      { named: true },
+    );
+  }
+
+  function chatCompletionsStream(text: string, model: string): Response {
+    const chunk = (delta: { role?: 'assistant'; content?: string }, finish: 'stop' | null) => ({
+      id: 'chatcmpl-1',
+      object: 'chat.completion.chunk',
+      created: 1,
+      model,
+      choices: [{ index: 0, delta, finish_reason: finish }],
+    });
+    const last = { ...chunk({}, 'stop'), usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } };
+    return sse([chunk({ role: 'assistant', content: text }, null), last], { done: true });
+  }
+
+  async function streamOnce(
+    credentials: WorkersAiAccountCredentials,
+    modelId: BuilderModelId,
+    settings: { gatewayLogging?: WorkersAiGatewayLogging; gatewayKeyAlias?: string } = {},
+  ) {
+    const handle = getPiModel(credentials, modelId, settings);
     const context = normalizeContext({
       systemPrompt: 'You are a builder.',
       tools: [READ_FILE_TOOL],
@@ -202,67 +278,146 @@ describe('a Claude model', () => {
     return (await handle.stream(handle.model, context, { toolChoice: 'auto' })).result();
   }
 
-  it("is described by Pi's AI Gateway catalog and spoken to over Anthropic Messages", () => {
+  function headerNames(call: GatewayCall | undefined): string[] {
+    return Object.keys(call?.request.headers ?? {}).map((name) => name.toLowerCase());
+  }
+
+  it("is described by Pi's catalog for its provider and spoken to over that provider's API", () => {
     const { credentials } = gatewayBinding(() => anthropicStream(''));
     expect(getPiModel(credentials, opus).model).toMatchObject({
-      id: opus,
+      id: 'claude-opus-5-5',
       api: 'anthropic-messages',
       reasoning: true,
       contextWindow: 1_000_000,
       maxTokens: 128_000,
       compat: { forceAdaptiveThinking: true },
     });
+    expect(getPiModel(credentials, 'openai/gpt-5').model).toMatchObject({ id: 'gpt-5', api: 'openai-responses' });
+    expect(getPiModel(credentials, 'grok/grok-4.3').model).toMatchObject({ id: 'grok-4.3', api: 'openai-responses' });
+    expect(getPiModel(credentials, 'openrouter/openai/gpt-5').model).toMatchObject({
+      id: 'openai/gpt-5',
+      api: 'openai-completions',
+    });
+    expect(getPiModel(credentials, 'openrouter/anthropic/claude-fable-5').model).toMatchObject({
+      id: 'anthropic/claude-fable-5',
+      api: 'anthropic-messages',
+    });
   });
 
   it("goes to the account's default gateway as an Anthropic request, carrying no key of its own", async () => {
     const { calls, credentials } = gatewayBinding(() => anthropicStream('Hello'));
 
-    const message = await streamOnce(credentials, workersAiGatewayLogging(true, { chat: 'chat-1', user: 'ada' }));
+    const message = await streamOnce(credentials, opus, {
+      gatewayLogging: workersAiGatewayLogging(true, { chat: 'chat-1', user: 'ada' }),
+    });
 
     expect(message.stopReason).toBe('stop');
     expect(message.content).toEqual([expect.objectContaining({ type: 'text', text: 'Hello' })]);
     expect(calls).toHaveLength(1);
     const [call] = calls;
     expect(call).toMatchObject({ gatewayId: 'default', request: { provider: 'anthropic', endpoint: 'v1/messages' } });
-    const headerNames = Object.keys(call?.request.headers ?? {}).map((name) => name.toLowerCase());
     // The gateway adds the account's stored key only when the request carries none.
-    expect(headerNames).not.toContain('x-api-key');
-    expect(headerNames).not.toContain('authorization');
-    expect(headerNames).not.toContain('cf-aig-authorization');
+    expect(headerNames(call)).not.toContain('x-api-key');
+    expect(headerNames(call)).not.toContain('authorization');
+    expect(headerNames(call)).not.toContain('cf-aig-authorization');
+    // The provider's default key needs no alias.
+    expect(headerNames(call)).not.toContain('cf-aig-byok-alias');
     expect(call?.request.headers).toMatchObject({
       'anthropic-version': expect.any(String),
       'cf-aig-collect-log': 'true',
       'cf-aig-skip-cache': 'true',
       'cf-aig-metadata': JSON.stringify({ chat: 'chat-1', user: 'ada' }),
     });
-    expect(call?.request.query).toMatchObject({ model: opus, stream: true, thinking: { type: 'adaptive' } });
+    expect(call?.request.query).toMatchObject({
+      model: 'claude-opus-5-5',
+      stream: true,
+      thinking: { type: 'adaptive' },
+    });
     // A forced or even explicit tool choice is never sent alongside thinking.
     expect(call?.request.query).not.toHaveProperty('tool_choice');
     expect(Number(call?.request.query.max_tokens)).toBeLessThanOrEqual(128_000);
   });
 
+  it.each([
+    {
+      modelId: 'openai/gpt-5' as const,
+      provider: 'openai',
+      endpoint: 'responses',
+      model: 'gpt-5',
+      answer: () => openaiResponsesStream('Hello', 'gpt-5'),
+    },
+    {
+      modelId: 'grok/grok-4.3' as const,
+      provider: 'grok',
+      endpoint: 'v1/responses',
+      model: 'grok-4.3',
+      answer: () => openaiResponsesStream('Hello', 'grok-4.3'),
+    },
+    {
+      modelId: 'openrouter/openai/gpt-5' as const,
+      provider: 'openrouter',
+      endpoint: 'v1/chat/completions',
+      model: 'openai/gpt-5',
+      answer: () => chatCompletionsStream('Hello', 'openai/gpt-5'),
+    },
+    {
+      modelId: 'openrouter/anthropic/claude-fable-5' as const,
+      provider: 'openrouter',
+      endpoint: 'v1/messages',
+      model: 'anthropic/claude-fable-5',
+      answer: () => anthropicStream('Hello', 'anthropic/claude-fable-5'),
+    },
+  ])(
+    'sends $modelId to the gateway as a $provider request at $endpoint, under the account key alias it was given',
+    async ({ modelId, provider, endpoint, model, answer }) => {
+      const { calls, credentials } = gatewayBinding(answer);
+
+      const message = await streamOnce(credentials, modelId, {
+        gatewayLogging: workersAiGatewayLogging(false),
+        gatewayKeyAlias: 'team-key',
+      });
+
+      expect(message.stopReason).toBe('stop');
+      expect(message.content).toEqual([expect.objectContaining({ type: 'text', text: 'Hello' })]);
+      expect(calls).toHaveLength(1);
+      const [call] = calls;
+      expect(call).toMatchObject({ gatewayId: 'default', request: { provider, endpoint } });
+      expect(call?.request.query).toMatchObject({ model, stream: true });
+      expect(call?.request.headers).toMatchObject({ 'cf-aig-byok-alias': 'team-key', 'cf-aig-collect-log': 'false' });
+      for (const credential of ['authorization', 'x-api-key', 'cf-aig-authorization', 'api-key']) {
+        expect(headerNames(call)).not.toContain(credential);
+      }
+      expect(JSON.stringify(call?.request)).not.toContain('sk-ai-gateway-byok');
+    },
+  );
+
   it('is not logged when the person turned logging off, and says nothing of who sent it', async () => {
     const { calls, credentials } = gatewayBinding(() => anthropicStream('Hello'));
 
-    await streamOnce(credentials, workersAiGatewayLogging(false, { chat: 'chat-1', user: 'ada' }));
-    await streamOnce(credentials);
+    await streamOnce(credentials, opus, {
+      gatewayLogging: workersAiGatewayLogging(false, { chat: 'chat-1', user: 'ada' }),
+    });
+    await streamOnce(credentials, opus);
 
     expect(calls.map(({ request }) => request.headers['cf-aig-collect-log'])).toEqual(['false', 'false']);
     expect(calls.map(({ request }) => request.headers['cf-aig-metadata'])).toEqual([undefined, undefined]);
   });
 
-  it('reports a missing or rejected Anthropic key as one the account must fix in Settings', async () => {
-    const { credentials } = gatewayBinding(() =>
+  it('reports a missing or rejected key as one the account must fix in Settings, naming the provider', async () => {
+    const refused = () =>
       Response.json(
         { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } },
         { status: 401 },
-      ),
-    );
+      );
+    const { credentials } = gatewayBinding(refused);
 
-    const message = await streamOnce(credentials);
+    const claude = await streamOnce(credentials, opus);
+    const gpt = await streamOnce(credentials, 'openai/gpt-5');
 
-    expect(message.stopReason).toBe('error');
-    expect(message.errorMessage).toContain(CLAUDE_KEY_REJECTED_MESSAGE);
+    expect(claude.stopReason).toBe('error');
+    expect(claude.errorMessage).toContain(gatewayKeyRejectedMessage('anthropic'));
+    expect(gpt.stopReason).toBe('error');
+    expect(gpt.errorMessage).toContain(gatewayKeyRejectedMessage('openai'));
   });
 });
 

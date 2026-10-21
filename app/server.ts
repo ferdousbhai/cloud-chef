@@ -57,9 +57,9 @@ import {
   runtimeUsageAction,
 } from './server-handlers/runtime-credential';
 import {
-  linkClaudeKeyAction,
+  linkGatewayKeyAction,
   modelSettingsAction,
-  unlinkClaudeKeyAction,
+  unlinkGatewayKeyAction,
   updateDefaultModelAction,
 } from './server-handlers/model-settings';
 import { clientTelemetryAction } from './server-handlers/client-telemetry';
@@ -316,13 +316,13 @@ const exactRoutes = new Map<string, ServerRoute>(
       method: 'POST',
       handler: (request, env) => updateDefaultModelAction({ request, env }),
     },
-    '/api/settings/models/claude/link': {
+    '/api/settings/models/keys/link': {
       method: 'POST',
-      handler: (request, env) => linkClaudeKeyAction({ request, env }),
+      handler: (request, env) => linkGatewayKeyAction({ request, env }),
     },
-    '/api/settings/models/claude/unlink': {
+    '/api/settings/models/keys/unlink': {
       method: 'POST',
-      handler: (request, env) => unlinkClaudeKeyAction({ request, env }),
+      handler: (request, env) => unlinkGatewayKeyAction({ request, env }),
     },
     '/api/cloudflare/connection': {
       method: 'GET',

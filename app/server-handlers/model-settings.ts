@@ -3,36 +3,47 @@ import { getAuthSession, type CloudflareAuthSession } from '~/lib/.server/auth';
 import { hasSameOrigin, readJsonRequest } from '~/lib/.server/request-guards';
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import {
-  ANTHROPIC_PROVIDER_SLUG,
+  AI_GATEWAY_ID,
   canManageAiGatewayKeys,
-  CLAUDE_GATEWAY_ID,
-  CLAUDE_KEY_ALIAS,
-  CLAUDE_KEY_SECRET_NAME,
-  findClaudeKey,
-  openClaudeKeyAccountApi,
-  type ClaudeKeyAccountApi,
-  type OpenClaudeKeyAccountApi,
-} from '~/lib/.server/cloudflare/ai-gateway-claude';
+  CLOUDCHEF_KEY_ALIAS,
+  cloudchefKeySecretName,
+  findGatewayKeys,
+  openGatewayKeyAccountApi,
+  type GatewayKeyAccountApi,
+  type OpenGatewayKeyAccountApi,
+} from '~/lib/.server/cloudflare/ai-gateway-keys';
 import { CloudflareAccountApiError } from '~/lib/.server/cloudflare/user-account-api';
 import {
   canManageModels,
   readDefaultBuilderModel,
   setDefaultBuilderModel,
 } from '~/lib/cloudflare/data/builder-model-settings.server';
-import { builderModelIdSchema } from '~/lib/workers-ai-model';
+import { builderModelIdSchema, GATEWAY_PROVIDER_SLUGS, type GatewayProviderSlug } from '~/lib/workers-ai-model';
 import { sessionConnection } from './cloudflare-integration';
 
 /**
- * Settings, under Models: the model an account's builders start on, and the Anthropic key that lets
- * them use Claude, stored in the account's own Secrets Store and attached to its default AI Gateway.
- * A team's admins (or the person whose own account it is) choose both; everyone else sees them and
- * can still switch models in the picker. The key goes from the browser to Cloudflare once and is never
- * kept, logged, or returned by CloudChef.
+ * Settings, under Models: the model an account's builders start on, and the account's own keys for
+ * the AI Gateway providers whose models it offers (Anthropic, OpenAI, …), stored in the account's
+ * own Secrets Store and attached to its default AI Gateway. A team's admins (or the person whose own
+ * account it is) choose both; everyone else sees them and can still switch models in the picker.
+ * Which keys are there is read from the account each time, whoever added them; a pasted key goes
+ * from the browser to Cloudflare once and is never kept, logged, or returned by CloudChef.
  */
 
-type ClaudeStatus =
-  | { status: 'linked'; alias: string; secretPreview: string | null }
-  | { status: 'unlinked' }
+/** One provider's key on the account's default gateway, as Settings shows it: never the key itself. */
+type ProviderKeyStatus = {
+  provider: GatewayProviderSlug;
+  key: {
+    alias: string;
+    /** Cloudflare's masked preview of the key. */
+    secretPreview: string | null;
+    /** Linked from Settings under CloudChef's alias, rather than added in Cloudflare. */
+    addedByCloudChef: boolean;
+  } | null;
+};
+
+type GatewayKeysStatus =
+  | { status: 'ready'; providers: ProviderKeyStatus[] }
   /** The connection was authorized before CloudChef could manage AI Gateway keys. */
   | { status: 'reauthorization_required' }
   /** Cloudflare could not be asked just now. */
@@ -44,7 +55,7 @@ type Context = {
   canManage: boolean;
 };
 
-type Deps = { openAccountApi?: OpenClaudeKeyAccountApi };
+type Deps = { openAccountApi?: OpenGatewayKeyAccountApi };
 
 async function withContext(
   request: Request,
@@ -71,34 +82,42 @@ async function withContext(
 }
 
 /** The account's models as Settings shows them. */
-export function modelSettingsAction({ request, env, openAccountApi = openClaudeKeyAccountApi }: RequestArgs & Deps) {
+export function modelSettingsAction({ request, env, openAccountApi = openGatewayKeyAccountApi }: RequestArgs & Deps) {
   return withContext(request, env, async ({ connection, canManage }) => {
     const defaultModelId = await readDefaultBuilderModel(env.DB, connection.id);
     if (!canManageAiGatewayKeys(connection)) {
-      return settingsResponse({ canManage, defaultModelId, claude: { status: 'reauthorization_required' } });
+      return settingsResponse({ canManage, defaultModelId, keys: { status: 'reauthorization_required' } });
     }
-    let api: ClaudeKeyAccountApi;
+    let api: GatewayKeyAccountApi;
     try {
       api = await openAccountApi(env, connection);
     } catch {
-      return settingsResponse({ canManage, defaultModelId, claude: { status: 'unknown' } });
+      return settingsResponse({ canManage, defaultModelId, keys: { status: 'unknown' } });
     }
-    return settingsResponse({ canManage, defaultModelId, claude: await claudeStatus(api) });
+    return settingsResponse({ canManage, defaultModelId, keys: await gatewayKeysStatus(api) });
   });
 }
 
-// Anthropic keys are opaque tokens; this only refuses what cannot be one.
-const linkSchema = z.strictObject({ apiKey: z.string().trim().min(20).max(512).regex(/^\S+$/) });
+const providerSchema = z.enum(GATEWAY_PROVIDER_SLUGS);
+
+// Provider keys are opaque tokens; this only refuses what cannot be one.
+const linkSchema = z.strictObject({
+  provider: providerSchema,
+  apiKey: z.string().trim().min(20).max(512).regex(/^\S+$/),
+});
+
+const unlinkSchema = z.strictObject({ provider: providerSchema });
 
 /**
- * Links a pasted Anthropic key to the account's default gateway, which Cloudflare stores in the
- * account's Secrets Store (Cloudflare's own BYOK flow), replacing any key linked before. The gateway
- * is readied first: Cloudflare takes a key only on a gateway with authentication on and a Secrets
- * Store linked, so one without either gets them, with every other setting kept. Turning
- * authentication on is reported, since the account's own apps calling the gateway over HTTP then need
- * a gateway token; CloudChef's runtime reaches it through its Worker binding and needs none.
+ * Links a pasted key for one provider to the account's default gateway, which Cloudflare stores in
+ * the account's Secrets Store (Cloudflare's own BYOK flow), replacing every key the gateway held for
+ * that provider, including one added in Cloudflare: Settings says so before an admin links. The
+ * gateway is readied first: Cloudflare takes a key only on a gateway with authentication on and a
+ * Secrets Store linked, so one without either gets them, with every other setting kept. Turning
+ * authentication on is reported, since the account's own apps calling the gateway over HTTP then
+ * need a gateway token; CloudChef's runtime reaches it through its Worker binding and needs none.
  */
-export function linkClaudeKeyAction({ request, env, openAccountApi = openClaudeKeyAccountApi }: RequestArgs & Deps) {
+export function linkGatewayKeyAction({ request, env, openAccountApi = openGatewayKeyAccountApi }: RequestArgs & Deps) {
   return withContext(
     request,
     env,
@@ -106,10 +125,11 @@ export function linkClaudeKeyAction({ request, env, openAccountApi = openClaudeK
       if (!canManageAiGatewayKeys(connection)) {
         return reauthorizationRequired();
       }
-      const body = await readJsonRequest(request, linkSchema, 'Paste an Anthropic API key.');
+      const body = await readJsonRequest(request, linkSchema, 'Choose a provider and paste its API key.');
       if ('response' in body) {
         return body.response;
       }
+      const { provider, apiKey } = body.data;
       return withAccountApi(env, connection, openAccountApi, async (api) => {
         // The gateway keeps the store it has; only a gateway without one is linked to this.
         const [firstStore] = await api.listSecretsStores();
@@ -122,14 +142,14 @@ export function linkClaudeKeyAction({ request, env, openAccountApi = openClaudeK
             { status: 400 },
           );
         }
-        const { authenticationTurnedOn } = await api.prepareAiGatewayForKeys(CLAUDE_GATEWAY_ID, firstStore.id);
-        await removeClaudeKeys(api);
-        await api.addAiGatewayProviderKey(CLAUDE_GATEWAY_ID, {
-          providerSlug: ANTHROPIC_PROVIDER_SLUG,
-          alias: CLAUDE_KEY_ALIAS,
-          secret: body.data.apiKey,
+        const { authenticationTurnedOn } = await api.prepareAiGatewayForKeys(AI_GATEWAY_ID, firstStore.id);
+        await removeProviderKeys(api, provider, { onlyCloudChefs: false });
+        await api.addAiGatewayProviderKey(AI_GATEWAY_ID, {
+          providerSlug: provider,
+          alias: CLOUDCHEF_KEY_ALIAS,
+          secret: apiKey,
         });
-        return statusResponse(await claudeStatus(api), { authenticationTurnedOn });
+        return keysResponse(await gatewayKeysStatus(api), { authenticationTurnedOn });
       });
     },
     { manage: true },
@@ -137,10 +157,15 @@ export function linkClaudeKeyAction({ request, env, openAccountApi = openClaudeK
 }
 
 /**
- * Removes the account's Anthropic key from its default gateway, and the secret Cloudflare kept it in,
- * so Claude is no longer offered there. The gateway's settings stay as linking left them.
+ * Removes the key CloudChef linked for one provider from the account's default gateway, and the
+ * secret Cloudflare kept it in. A key added in Cloudflare is left as it is: an admin removes that one
+ * there. The gateway's settings stay as linking left them.
  */
-export function unlinkClaudeKeyAction({ request, env, openAccountApi = openClaudeKeyAccountApi }: RequestArgs & Deps) {
+export function unlinkGatewayKeyAction({
+  request,
+  env,
+  openAccountApi = openGatewayKeyAccountApi,
+}: RequestArgs & Deps) {
   return withContext(
     request,
     env,
@@ -148,9 +173,13 @@ export function unlinkClaudeKeyAction({ request, env, openAccountApi = openClaud
       if (!canManageAiGatewayKeys(connection)) {
         return reauthorizationRequired();
       }
+      const body = await readJsonRequest(request, unlinkSchema, 'Choose a provider.');
+      if ('response' in body) {
+        return body.response;
+      }
       return withAccountApi(env, connection, openAccountApi, async (api) => {
-        await removeClaudeKeys(api);
-        return statusResponse(await claudeStatus(api));
+        await removeProviderKeys(api, body.data.provider, { onlyCloudChefs: true });
+        return keysResponse(await gatewayKeysStatus(api));
       });
     },
     { manage: true },
@@ -187,8 +216,8 @@ type RequestArgs = { request: Request; env: Env };
 async function withAccountApi(
   env: Env,
   connection: CloudflareConnection,
-  open: OpenClaudeKeyAccountApi,
-  operation: (api: ClaudeKeyAccountApi) => Promise<Response>,
+  open: OpenGatewayKeyAccountApi,
+  operation: (api: GatewayKeyAccountApi) => Promise<Response>,
 ): Promise<Response> {
   try {
     return await operation(await open(env, connection));
@@ -197,44 +226,68 @@ async function withAccountApi(
     // carries the key, which goes only in the request body.
     const message =
       error instanceof CloudflareAccountApiError ? error.message : 'Cloudflare could not be reached. Try again.';
-    console.warn('Unable to change the account’s Anthropic key');
+    console.warn('Unable to change a provider key on the account’s AI Gateway');
     return Response.json({ error: message }, { status: 502 });
   }
 }
 
 /**
- * Removes the gateway's Anthropic keys, then the secret Cloudflare kept CloudChef's in: the name is
- * CloudChef's, and a new key under the same alias cannot be stored while it is there. Any other
- * secret, whoever made it, is left alone.
+ * Removes one provider's keys from the gateway (only CloudChef's own, or every one), then the secret
+ * Cloudflare kept CloudChef's in: the name is CloudChef's, and a new key under the same alias cannot
+ * be stored while it is there. No other secret is touched, whoever made it.
  */
-async function removeClaudeKeys(api: ClaudeKeyAccountApi): Promise<void> {
-  for (const key of await api.listAiGatewayProviderKeys(CLAUDE_GATEWAY_ID)) {
-    if (key.providerSlug === ANTHROPIC_PROVIDER_SLUG) {
-      await api.deleteAiGatewayProviderKey(CLAUDE_GATEWAY_ID, key.id);
+async function removeProviderKeys(
+  api: GatewayKeyAccountApi,
+  provider: GatewayProviderSlug,
+  { onlyCloudChefs }: { onlyCloudChefs: boolean },
+): Promise<void> {
+  for (const key of await api.listAiGatewayProviderKeys(AI_GATEWAY_ID)) {
+    if (key.providerSlug === provider && (!onlyCloudChefs || key.alias === CLOUDCHEF_KEY_ALIAS)) {
+      await api.deleteAiGatewayProviderKey(AI_GATEWAY_ID, key.id);
     }
   }
+  const secretName = cloudchefKeySecretName(provider);
   for (const secret of await api.listAiGatewaySecrets()) {
-    if (secret.name === CLAUDE_KEY_SECRET_NAME) {
+    if (secret.name === secretName) {
       await api.deleteSecret(secret.storeId, secret.id);
     }
   }
 }
 
-async function claudeStatus(api: ClaudeKeyAccountApi): Promise<ClaudeStatus> {
+async function gatewayKeysStatus(api: GatewayKeyAccountApi): Promise<GatewayKeysStatus> {
   try {
-    const key = await findClaudeKey(api);
-    return key ? { status: 'linked', alias: key.alias, secretPreview: key.secretPreview } : { status: 'unlinked' };
+    const keys = await findGatewayKeys(api);
+    return {
+      status: 'ready',
+      providers: GATEWAY_PROVIDER_SLUGS.map((provider) => {
+        const key = keys.get(provider);
+        return {
+          provider,
+          key: key
+            ? {
+                alias: key.alias || 'default',
+                secretPreview: key.secretPreview,
+                addedByCloudChef: key.alias === CLOUDCHEF_KEY_ALIAS,
+              }
+            : null,
+        };
+      }),
+    };
   } catch {
     return { status: 'unknown' };
   }
 }
 
-function settingsResponse(body: { canManage: boolean; defaultModelId: string | null; claude: ClaudeStatus }): Response {
+function settingsResponse(body: {
+  canManage: boolean;
+  defaultModelId: string | null;
+  keys: GatewayKeysStatus;
+}): Response {
   return Response.json(body, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
-function statusResponse(claude: ClaudeStatus, extra: { authenticationTurnedOn?: boolean } = {}): Response {
-  return Response.json({ claude, ...extra }, { headers: { 'Cache-Control': 'private, no-store' } });
+function keysResponse(keys: GatewayKeysStatus, extra: { authenticationTurnedOn?: boolean } = {}): Response {
+  return Response.json({ keys, ...extra }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 function reauthorizationRequired(): Response {

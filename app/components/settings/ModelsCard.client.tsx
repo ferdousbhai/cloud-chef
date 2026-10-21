@@ -7,13 +7,24 @@ import {
   builderModelsStore,
   loadBuilderModelCatalog,
 } from '~/lib/stores/builder-model.client';
-import { CLOUDFLARE_WORKERS_AI_MODEL, isBuilderModelId, isClaudeModelId } from '~/lib/workers-ai-model';
+import {
+  CLOUDFLARE_WORKERS_AI_MODEL,
+  GATEWAY_PROVIDERS,
+  GATEWAY_PROVIDER_SLUGS,
+  gatewayModelProvider,
+  isBuilderModelId,
+  type GatewayProviderSlug,
+} from '~/lib/workers-ai-model';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
 import { getJson, messageOf, postJson } from './organization-requests.client';
 
-const claudeSchema = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('linked'), alias: z.string(), secretPreview: z.string().nullable() }),
-  z.object({ status: z.literal('unlinked') }),
+const providerKeySchema = z.object({
+  provider: z.enum(GATEWAY_PROVIDER_SLUGS),
+  key: z.object({ alias: z.string(), secretPreview: z.string().nullable(), addedByCloudChef: z.boolean() }).nullable(),
+});
+
+const keysSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('ready'), providers: z.array(providerKeySchema) }),
   z.object({ status: z.literal('reauthorization_required') }),
   z.object({ status: z.literal('unknown') }),
 ]);
@@ -21,32 +32,33 @@ const claudeSchema = z.discriminatedUnion('status', [
 const settingsSchema = z.object({
   canManage: z.boolean(),
   defaultModelId: z.string().nullable(),
-  claude: claudeSchema,
+  keys: keysSchema,
 });
 
-const claudeResponseSchema = z.object({ claude: claudeSchema });
-const linkResponseSchema = z.object({ claude: claudeSchema, authenticationTurnedOn: z.boolean() });
-
-const AUTHENTICATION_TURNED_ON_NOTE =
-  'Authentication is now on for this account’s default AI Gateway. CloudChef is unaffected; your own apps calling this gateway over HTTP now need a gateway token.';
+const keysResponseSchema = z.object({ keys: keysSchema });
+const linkResponseSchema = z.object({ keys: keysSchema, authenticationTurnedOn: z.boolean() });
 const defaultResponseSchema = z.object({ defaultModelId: z.string().nullable() });
 
 type Settings = z.infer<typeof settingsSchema>;
+type ProviderKey = z.infer<typeof providerKeySchema>;
 
 const PATH = '/api/settings/models';
 /** The select's value for "no choice": CloudChef's own default. */
 const CLOUDCHEF_DEFAULT = '';
 
+const AUTHENTICATION_TURNED_ON_NOTE =
+  'Authentication is now on for this account’s default AI Gateway. CloudChef is unaffected; your own apps calling this gateway over HTTP now need a gateway token.';
+
 /**
- * The models of the Cloudflare account the person builds in: the one everyone starts on, and Claude,
- * which runs with the account's own Anthropic key. A team's admins (or the person whose own account
- * it is) change both; everyone can still pick another model in the builder.
+ * The models of the Cloudflare account the person builds in: the one everyone starts on, and each AI
+ * Gateway provider's, which run with the account's own key for that provider. A team's admins (or
+ * the person whose own account it is) change both; everyone can still pick another model in the
+ * builder.
  */
 export function ModelsCard() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [busy, setBusy] = useState(false);
-  const [apiKey, setApiKey] = useState('');
   const models = useStore(builderModelsStore);
   const catalogStatus = useStore(builderModelCatalogStatusStore);
 
@@ -73,21 +85,25 @@ export function ModelsCard() {
     }
   };
 
-  const link = () =>
+  const link = (provider: GatewayProviderSlug, apiKey: string) =>
     act(async () => {
-      const { claude, authenticationTurnedOn } = await postJson(`${PATH}/claude/link`, { apiKey }, linkResponseSchema);
-      setApiKey('');
-      setSettings((current) => (current ? { ...current, claude } : current));
+      const { keys, authenticationTurnedOn } = await postJson(
+        `${PATH}/keys/link`,
+        { provider, apiKey },
+        linkResponseSchema,
+      );
+      setSettings((current) => (current ? { ...current, keys } : current));
       void loadBuilderModelCatalog();
-      const linked = 'Claude is linked. It appears in the model picker within a minute.';
+      const linked = `${GATEWAY_PROVIDERS[provider].label} is linked. Its models appear in the model picker within a minute.`;
       return authenticationTurnedOn ? `${linked} ${AUTHENTICATION_TURNED_ON_NOTE}` : linked;
     });
 
-  const unlink = () =>
+  const unlink = (provider: GatewayProviderSlug) =>
     act(async () => {
-      const { claude } = await postJson(`${PATH}/claude/unlink`, {}, claudeResponseSchema);
-      setSettings((current) => (current ? { ...current, claude } : current));
-      return 'Claude is unlinked, and the key is deleted from your Secrets Store.';
+      const { keys } = await postJson(`${PATH}/keys/unlink`, { provider }, keysResponseSchema);
+      setSettings((current) => (current ? { ...current, keys } : current));
+      void loadBuilderModelCatalog();
+      return `CloudChef’s ${GATEWAY_PROVIDERS[provider].label} key is removed, and deleted from your Secrets Store.`;
     });
 
   const chooseDefault = (value: string) =>
@@ -101,7 +117,7 @@ export function ModelsCard() {
       return 'Saved. New chats start on this model; anyone can still switch.';
     });
 
-  // The chosen default may be a model the account no longer offers (Claude unlinked since): still shown.
+  // The chosen default may be a model the account no longer offers (its key removed since): still shown.
   const choices = models.some(({ id }) => id === settings?.defaultModelId)
     ? models
     : [
@@ -140,64 +156,54 @@ export function ModelsCard() {
             onChange={(event) => void chooseDefault(event.target.value)}
           >
             <option value={CLOUDCHEF_DEFAULT}>CloudChef’s default ({CLOUDFLARE_WORKERS_AI_MODEL})</option>
-            {choices.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.label}
-                {isBuilderModelId(model.id) && isClaudeModelId(model.id) ? ' (Claude)' : ''}
-              </option>
-            ))}
+            {choices.map((model) => {
+              const provider = isBuilderModelId(model.id) ? gatewayModelProvider(model.id) : null;
+              return (
+                <option key={model.id} value={model.id}>
+                  {model.label}
+                  {provider ? ` (${GATEWAY_PROVIDERS[provider].label})` : ''}
+                </option>
+              );
+            })}
           </select>
           {catalogStatus === 'error' ? (
             <p className="mt-1 text-xs text-content-tertiary">The account’s model list could not be loaded just now.</p>
           ) : null}
 
-          <h3 className="mt-5 text-sm font-medium text-content-primary">Claude</h3>
+          <h3 className="mt-5 text-sm font-medium text-content-primary">Provider keys</h3>
           <p className="mt-1 max-w-2xl text-sm text-content-secondary">
-            Claude runs through this account’s AI Gateway with the account’s own Anthropic key. Cloudflare stores the
-            key you paste in the account’s own Secrets Store; Anthropic bills it, and CloudChef never keeps it.
+            Each provider’s models run through this account’s AI Gateway with the account’s own key for that provider,
+            kept in its Cloudflare Secrets Store. A key added in the Cloudflare dashboard, under any alias, is used as
+            it is. The provider bills its key; CloudChef never keeps it.
           </p>
-          <ClaudeStatusLine claude={settings.claude} />
-          {settings.canManage && settings.claude.status !== 'reauthorization_required' ? (
-            <div className="mt-3 grid gap-3">
-              <form
-                className="flex flex-wrap items-center gap-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void link();
-                }}
-              >
-                <input
-                  type="password"
-                  autoComplete="off"
-                  aria-label="Anthropic API key"
-                  placeholder="Paste an Anthropic API key"
-                  className="min-w-0 grow rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-sm text-content-primary"
-                  value={apiKey}
-                  disabled={busy}
-                  onChange={(event) => setApiKey(event.target.value)}
+          {settings.keys.status === 'ready' ? (
+            <ul className="mt-3 grid gap-3">
+              {settings.keys.providers.map((providerKey) => (
+                <ProviderKeyRow
+                  key={providerKey.provider}
+                  providerKey={providerKey}
+                  canManage={settings.canManage}
+                  busy={busy}
+                  onLink={(apiKey) => link(providerKey.provider, apiKey)}
+                  onUnlink={() => unlink(providerKey.provider)}
                 />
-                <Button size="sm" variant="neutral" type="submit" disabled={busy || apiKey.trim().length === 0}>
-                  Save to Secrets Store
-                </Button>
-              </form>
-              <p className="text-xs text-content-tertiary">
-                Cloudflare keeps AI Gateway keys only on a gateway with authentication on and a Secrets Store linked, so
-                linking turns those on for the default gateway if they’re off and keeps its other settings.
-              </p>
-              {settings.claude.status === 'linked' ? (
-                <div>
-                  <Button size="sm" variant="danger" disabled={busy} onClick={() => void unlink()}>
-                    Unlink Claude
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {settings.claude.status === 'reauthorization_required' ? (
+              ))}
+            </ul>
+          ) : settings.keys.status === 'unknown' ? (
+            <p className="mt-2 text-sm text-content-primary">
+              Cloudflare couldn’t be asked just now which keys this account has.
+            </p>
+          ) : (
             <p className="mt-2 max-w-2xl text-sm text-content-secondary">
               {settings.canManage
                 ? 'This account was connected before CloudChef could link keys to its AI Gateway. Reauthorize Cloudflare (above, or under Teams for a team’s account), then come back here.'
-                : 'This account’s admins need to reauthorize Cloudflare before Claude can be linked.'}
+                : 'This account’s admins need to reauthorize Cloudflare before provider keys can be linked.'}
+            </p>
+          )}
+          {settings.canManage && settings.keys.status === 'ready' ? (
+            <p className="mt-3 max-w-2xl text-xs text-content-tertiary">
+              Cloudflare keeps AI Gateway keys only on a gateway with authentication on and a Secrets Store linked, so
+              linking turns those on for the default gateway if they’re off and keeps its other settings.
             </p>
           ) : null}
         </>
@@ -207,14 +213,67 @@ export function ModelsCard() {
   );
 }
 
-function ClaudeStatusLine({ claude }: { claude: Settings['claude'] }) {
-  const text =
-    claude.status === 'linked'
-      ? `Linked${claude.secretPreview ? ` (${claude.secretPreview})` : ''}: Claude models are in the picker.`
-      : claude.status === 'unlinked'
-        ? 'Not linked: Claude models aren’t offered in this account.'
-        : claude.status === 'unknown'
-          ? 'Cloudflare couldn’t be asked just now whether a key is linked.'
-          : null;
-  return text ? <p className="mt-2 text-sm text-content-primary">{text}</p> : null;
+function ProviderKeyRow({
+  providerKey: { provider, key },
+  canManage,
+  busy,
+  onLink,
+  onUnlink,
+}: {
+  providerKey: ProviderKey;
+  canManage: boolean;
+  busy: boolean;
+  onLink: (apiKey: string) => Promise<void>;
+  onUnlink: () => Promise<void>;
+}) {
+  const [apiKey, setApiKey] = useState('');
+  const { label } = GATEWAY_PROVIDERS[provider];
+  const status = key
+    ? `Linked${key.secretPreview ? ` (${key.secretPreview})` : ''}, alias ${key.alias}, ${
+        key.addedByCloudChef ? 'added in CloudChef' : 'added in Cloudflare'
+      }: ${label} models are in the picker.`
+    : `Not linked: ${label} models aren’t offered in this account.`;
+  return (
+    <li className="rounded border border-bolt-elements-borderColor p-3">
+      <p className="text-sm font-medium text-content-primary">{label}</p>
+      <p className="mt-1 text-sm text-content-secondary">{status}</p>
+      {canManage ? (
+        <>
+          <form
+            className="mt-2 flex flex-wrap items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void onLink(apiKey).then(() => setApiKey(''));
+            }}
+          >
+            <input
+              type="password"
+              autoComplete="off"
+              aria-label={`${label} API key`}
+              placeholder={`Paste a ${label} API key`}
+              className="min-w-0 grow rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-sm text-content-primary"
+              value={apiKey}
+              disabled={busy}
+              onChange={(event) => setApiKey(event.target.value)}
+            />
+            <Button size="sm" variant="neutral" type="submit" disabled={busy || apiKey.trim().length === 0}>
+              {key ? 'Replace' : 'Save to Secrets Store'}
+            </Button>
+          </form>
+          {key && !key.addedByCloudChef ? (
+            <p className="mt-1 text-xs text-content-tertiary">
+              Saving a key here replaces the one added in Cloudflare (alias {key.alias}) on the gateway.
+            </p>
+          ) : null}
+          {key?.addedByCloudChef ? (
+            <div className="mt-2">
+              <Button size="sm" variant="danger" disabled={busy} onClick={() => void onUnlink()}>
+                Remove {label} key
+              </Button>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </li>
+  );
 }

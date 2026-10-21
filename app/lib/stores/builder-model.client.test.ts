@@ -30,7 +30,7 @@ const alternativeModel: BuilderModel = {
 };
 const claudeModel: BuilderModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
-  id: 'claude-opus-5-5',
+  id: 'anthropic/claude-opus-5-5',
   label: 'Claude Opus 5.5',
   contextTokens: 1_000_000,
   requiresPaid: false,

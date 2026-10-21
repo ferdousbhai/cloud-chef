@@ -1,15 +1,43 @@
 import { z } from 'zod';
 
 const WORKERS_AI_MODEL_ID_PATTERN = /^@cf\/[a-z0-9][a-z0-9-]{0,63}\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
-const CLAUDE_MODEL_ID_PATTERN = /^claude-[a-z0-9][a-z0-9.-]{0,63}$/;
+
+/**
+ * The AI Gateway providers whose models CloudChef offers when the account has its own key for one on
+ * its default gateway (BYOK), by the provider's AI Gateway slug. Which models each offers, and how
+ * each is spoken to, is Pi's (`app/lib/.server/llm/pi-model-catalog.ts`); adding a provider is a row
+ * here and its catalog there.
+ */
+export const GATEWAY_PROVIDERS = {
+  anthropic: { label: 'Anthropic' },
+  openai: { label: 'OpenAI' },
+  grok: { label: 'xAI' },
+  openrouter: { label: 'OpenRouter' },
+} as const;
+
+export type GatewayProviderSlug = keyof typeof GATEWAY_PROVIDERS;
+
+export const GATEWAY_PROVIDER_SLUGS = [
+  'anthropic',
+  'openai',
+  'grok',
+  'openrouter',
+] as const satisfies readonly GatewayProviderSlug[];
+
+const GATEWAY_MODEL_ID_PATTERN = new RegExp(
+  `^(?:${GATEWAY_PROVIDER_SLUGS.join('|')})/[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$`,
+);
 
 export type WorkersAiModelId = `@cf/${string}/${string}`;
 
-/** A Claude model, served through the account's AI Gateway with the account's own Anthropic key. */
-export type ClaudeModelId = `claude-${string}`;
+/**
+ * A model served through the account's default AI Gateway with the account's own key for its
+ * provider: the provider's slug, then the provider's own model id (`anthropic/claude-opus-5-5`).
+ */
+export type GatewayModelId = `${GatewayProviderSlug}/${string}`;
 
-/** A model the builder can run on: a Workers AI model, or a Claude model when the account linked a key. */
-export type BuilderModelId = WorkersAiModelId | ClaudeModelId;
+/** A model the builder can run on: a Workers AI model, or a provider's model when the account has a key. */
+export type BuilderModelId = WorkersAiModelId | GatewayModelId;
 
 export type BuilderModel = {
   id: BuilderModelId;
@@ -68,14 +96,16 @@ const workersAiModelIdSchema: z.ZodType<WorkersAiModelId> = z
   .templateLiteral(['@cf/', z.string(), '/', z.string()])
   .refine((modelId) => WORKERS_AI_MODEL_ID_PATTERN.test(modelId));
 
-const claudeModelIdSchema: z.ZodType<ClaudeModelId> = z
-  .templateLiteral(['claude-', z.string()])
-  .refine((modelId) => CLAUDE_MODEL_ID_PATTERN.test(modelId));
+const gatewayProviderSlugSchema = z.enum(GATEWAY_PROVIDER_SLUGS);
 
-export const builderModelIdSchema: z.ZodType<BuilderModelId> = z.union([workersAiModelIdSchema, claudeModelIdSchema]);
+const gatewayModelIdSchema: z.ZodType<GatewayModelId> = z
+  .templateLiteral([gatewayProviderSlugSchema, '/', z.string()])
+  .refine((modelId) => GATEWAY_MODEL_ID_PATTERN.test(modelId));
 
-/** One more than Workers AI's 100-model catalog page plus every Claude model Pi lists, so a full catalog fits. */
-export const MAX_BUILDER_CATALOG_MODELS = 200;
+export const builderModelIdSchema: z.ZodType<BuilderModelId> = z.union([workersAiModelIdSchema, gatewayModelIdSchema]);
+
+/** Workers AI's 100-model catalog page plus every chat model Pi lists for every gateway provider, with room. */
+export const MAX_BUILDER_CATALOG_MODELS = 1_000;
 
 const builderModelSchema = z.object({
   id: builderModelIdSchema,
@@ -107,21 +137,31 @@ export function isBuilderModelId(value: string | null | undefined): value is Bui
   return value !== null && value !== undefined && builderModelIdSchema.safeParse(value).success;
 }
 
-/** Whether a builder model is a Claude model, which runs only with the account's own Anthropic key. */
-export function isClaudeModelId(modelId: BuilderModelId): modelId is ClaudeModelId {
-  return modelId.startsWith('claude-');
+/** The gateway provider a model is served by, or null for a Workers AI model. */
+export function gatewayModelProvider(modelId: BuilderModelId): GatewayProviderSlug | null {
+  return gatewayProviderSlugSchema.safeParse(modelId.slice(0, modelId.indexOf('/'))).data ?? null;
 }
+
+/**
+ * A provider key on the account's default gateway, as a runtime needs it: which provider, and the
+ * alias it is stored under, which a request names unless it is the provider's default.
+ */
+export type GatewayKey = { provider: GatewayProviderSlug; alias: string };
+
+export const gatewayKeysSchema = z.array(
+  z.object({ provider: gatewayProviderSlugSchema, alias: z.string().min(1).max(128) }),
+);
 
 /** What the control plane says about an account's models, asked by its runtimes. */
 export type AccountModelSettings = {
   /** The model the account's admin chose as everyone's default, if any. */
   defaultModelId: string | null;
-  /** Whether the account's default AI Gateway holds an Anthropic key, so Claude models can run. */
-  claude: boolean;
+  /** The provider keys on the account's default AI Gateway, one per provider: those providers' models can run. */
+  gatewayKeys: GatewayKey[];
 };
 
-/** Nothing learned: no chosen default, and no Claude, which runs only with a key confirmed linked. */
-export const NO_ACCOUNT_MODEL_SETTINGS: AccountModelSettings = { defaultModelId: null, claude: false };
+/** Nothing learned: no chosen default, and no provider keys, so only Workers AI models run. */
+export const NO_ACCOUNT_MODEL_SETTINGS: AccountModelSettings = { defaultModelId: null, gatewayKeys: [] };
 
 export function validateBuilderModelCatalogPayload(
   payload: BuilderModelCatalogPayload,

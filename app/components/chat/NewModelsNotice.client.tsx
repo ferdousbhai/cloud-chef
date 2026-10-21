@@ -6,7 +6,7 @@ import type { BuilderModel } from '~/lib/workers-ai-model';
 const MAX_NAMED_MODELS = 2;
 
 /**
- * Cloudflare adds models to Workers AI on its own schedule, an admin may link Claude, and the
+ * Cloudflare adds models to Workers AI on its own schedule, an admin may link a provider key, and the
  * picker refreshes every session — so the only thing missing was being told. This says it once, quietly, next to the
  * picker that acts on it, and disappears for good as soon as the list has been seen.
  */

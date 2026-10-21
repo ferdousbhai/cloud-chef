@@ -2,7 +2,8 @@ import { z } from 'zod';
 import {
   CLOUDFLARE_WORKERS_AI_MODEL,
   DEFAULT_WORKERS_AI_MODEL,
-  isClaudeModelId,
+  GATEWAY_PROVIDERS,
+  gatewayModelProvider,
   isWorkersAiModelId,
   MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS,
   NO_ACCOUNT_MODEL_SETTINGS,
@@ -10,9 +11,10 @@ import {
   type BuilderModel,
   type BuilderModelCatalogPayload,
   type BuilderModelId,
+  type GatewayKey,
   type WorkersAiModelId,
 } from '~/lib/workers-ai-model';
-import { claudeBuilderModels, piWorkersAiModel } from './pi-model-catalog';
+import { gatewayBuilderModels, piGatewayModel, piWorkersAiModel } from './pi-model-catalog';
 
 const MAX_CATALOG_MODELS = 100;
 
@@ -75,31 +77,35 @@ export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalog
   return [...models.values()];
 }
 
-const CLAUDE_NOT_LINKED_MESSAGE =
-  'Claude is not set up for this account. An admin can link an Anthropic key in Settings, under Models.';
-
 /**
  * The model a builder turn runs on, confirmed against what the account can serve now: a Workers AI
- * model against the account's live catalog; a Claude model against Pi's catalog and the account's
- * linked Anthropic key, which is asked about only for a Claude turn.
+ * model against the account's live catalog; a gateway provider's model against Pi's catalog and the
+ * account's keys on its default gateway, which are asked about only for such a turn. A gateway model
+ * comes with the alias of the account's key for its provider, which its requests name.
  */
 export async function requireBuilderModel(
   binding: WorkersAiCatalogBinding,
   modelId: BuilderModelId,
-  claudeLinked: () => Promise<boolean>,
-): Promise<BuilderModel> {
-  if (!isClaudeModelId(modelId)) {
-    return requireWorkersAiBuilderModel(binding, modelId);
+  gatewayKeys: () => Promise<GatewayKey[]>,
+): Promise<{ model: BuilderModel; gatewayKeyAlias?: string }> {
+  const provider = gatewayModelProvider(modelId);
+  if (provider === null) {
+    return { model: await requireWorkersAiBuilderModel(binding, modelId) };
   }
-  const model = claudeBuilderModels().find(({ id }) => id === modelId);
+  const model = piGatewayModel(modelId)?.builderModel;
   if (!model) {
-    throw new Response('The selected Claude model is not compatible with the CloudChef builder.', { status: 400 });
+    throw new Response('The selected model is not compatible with the CloudChef builder.', { status: 400 });
   }
-  // Fail closed: a Claude request is sent only while the account's gateway holds its own key.
-  if (!(await claudeLinked().catch(() => false))) {
-    throw new Response(CLAUDE_NOT_LINKED_MESSAGE, { status: 409 });
+  // Fail closed: a provider's model is sent only while the account's gateway holds its own key for it.
+  const key = (await gatewayKeys().catch(() => [])).find((candidate) => candidate.provider === provider);
+  if (!key) {
+    const { label } = GATEWAY_PROVIDERS[provider];
+    throw new Response(
+      `${label} is not set up for this account. An admin can link a ${label} key in Settings, under Models.`,
+      { status: 409 },
+    );
   }
-  return model;
+  return { model, gatewayKeyAlias: key.alias };
 }
 
 export async function requireWorkersAiBuilderModel(
@@ -154,15 +160,15 @@ export function resolveBuilderDefaultModel(models: readonly BuilderModel[]): Bui
 }
 
 /**
- * The picker's catalog: the account's Workers AI models, and Pi's Claude models while the account's
- * gateway holds an Anthropic key. The default is the one the account's admin chose while it is
- * still offered, and otherwise the pinned model.
+ * The picker's catalog: the account's Workers AI models, and Pi's models of each gateway provider
+ * the account's default gateway holds a key for. The default is the one the account's admin chose
+ * while it is still offered, and otherwise the pinned model.
  */
 export function builderModelCatalogPayload(
   workersAiModels: BuilderModel[],
   settings: AccountModelSettings = NO_ACCOUNT_MODEL_SETTINGS,
 ): BuilderModelCatalogPayload {
-  const offered = [...workersAiModels, ...(settings.claude ? claudeBuilderModels() : [])];
+  const offered = [...workersAiModels, ...gatewayBuilderModels(settings.gatewayKeys.map(({ provider }) => provider))];
   // The default's label, window, and capabilities are Cloudflare's current truth about it, not a
   // hand-written copy that drifts. It stays first so the picker's top row does not move whenever
   // Cloudflare publishes something newer.

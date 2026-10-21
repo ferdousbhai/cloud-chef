@@ -541,10 +541,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       durableIdentity.transcript,
     );
     const accountCredentials = await getUserWorkersAiCredentials(this.env, durableIdentity.userId);
-    const model = await requireBuilderModel(
+    const { model, gatewayKeyAlias } = await requireBuilderModel(
       accountCredentials.binding,
       modelId,
-      async () => (await readAccountModelSettings(this.env)).claude,
+      async () => (await readAccountModelSettings(this.env)).gatewayKeys,
     );
     if (!options?.continuation) {
       await this.cancelPreview();
@@ -612,6 +612,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           user: durableIdentity.userId,
           agent: transcript.agentName,
         }),
+        gatewayKeyAlias,
         workspace: this.workspace,
         cloudflareApi,
         linkedProject,

@@ -7,7 +7,7 @@ import {
   type CloudflareApiRuntimeIdentity,
 } from './cloudflare-api-runtime-controls';
 import type { ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
-import { NO_ACCOUNT_MODEL_SETTINGS, type AccountModelSettings } from '~/lib/workers-ai-model';
+import { gatewayKeysSchema, NO_ACCOUNT_MODEL_SETTINGS, type AccountModelSettings } from '~/lib/workers-ai-model';
 
 const RUNTIME_CREDENTIAL_TIMEOUT_MS = 30_000;
 const MAX_RUNTIME_CREDENTIAL_RESPONSE_BYTES = 8 * 1024;
@@ -171,14 +171,14 @@ export async function modelRequestAccess(
 
 const accountModelSettingsSchema = z.object({
   defaultModelId: z.string().min(1).max(256).nullable().catch(null),
-  claude: z.boolean().catch(false),
+  gatewayKeys: gatewayKeysSchema.catch([]),
 });
 
 /**
- * The account's model settings, asked by the runtime for the picker's catalog and before a Claude
- * turn: the default its admin chose, and whether its default AI Gateway holds an Anthropic key.
+ * The account's model settings, asked by the runtime for the picker's catalog and before a gateway
+ * provider's turn: the default its admin chose, and the provider keys its default AI Gateway holds.
  * Anything unlearnable (no runtime identity, an unreachable control plane, a refusal) reads as no
- * chosen default and no Claude: Claude runs only with a key the control plane confirmed linked.
+ * chosen default and no keys: a provider's model runs only with a key the control plane confirmed.
  */
 export async function readAccountModelSettings(
   env: RuntimeCredentialEnv & CloudflareApiRuntimeEnv,

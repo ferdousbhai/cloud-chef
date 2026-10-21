@@ -104,8 +104,8 @@ describe('BuilderModelSelector', () => {
     ]);
   });
 
-  it('lists Claude apart from Workers AI when the account offers it, and switches to it', async () => {
-    const claude: BuilderModel = { ...alternativeModel, id: 'claude-opus-5-5', label: 'Claude Opus 5.5' };
+  it("lists a gateway provider's models apart from Workers AI when the account offers them, and switches to one", async () => {
+    const claude: BuilderModel = { ...alternativeModel, id: 'anthropic/claude-opus-5-5', label: 'Claude Opus 5.5' };
     await renderSelector(() => installBuilderModelCatalog({ ...catalog, models: [...catalog.models, claude] }));
 
     const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
@@ -119,7 +119,7 @@ describe('BuilderModelSelector', () => {
     expect(groups).toHaveLength(2);
     expect(groups[0]).toContain('Cloudflare Workers AI');
     expect(groups[0]).not.toContain('Claude Opus 5.5');
-    expect(groups[1]).toContain('Anthropic Claude');
+    expect(groups[1]).toContain('Anthropic');
     expect(groups[1]).toContain('Claude Opus 5.5');
 
     const item = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((element) =>
@@ -127,8 +127,8 @@ describe('BuilderModelSelector', () => {
     );
     await act(async () => item?.click());
 
-    expect(builderModelStore.get()).toBe('claude-opus-5-5');
-    expect(localStorage.getItem('cloudchef_builder_model_v2')).toBe('claude-opus-5-5');
+    expect(builderModelStore.get()).toBe('anthropic/claude-opus-5-5');
+    expect(localStorage.getItem('cloudchef_builder_model_v2')).toBe('anthropic/claude-opus-5-5');
   });
 
   it('closes the menu and prevents changes when a turn becomes active', async () => {

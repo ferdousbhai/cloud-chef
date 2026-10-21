@@ -97,26 +97,41 @@ runtime reports each model turn's token counts to `/api/cloudflare/runtime-usage
 control plane keeps per-day counts for the organization's admins; no content reaches it.
 
 The models a workspace offers come from Pi's catalogs (`app/lib/.server/llm/pi-model-catalog.ts`): the
-account's live Workers AI catalog where Pi lists the model, and Pi's `cloudflare-ai-gateway` Claude models while
-the account's default AI Gateway holds an Anthropic key. A model Pi does not list is not offered. The key is the
-account's own (BYOK), kept in its Secrets Store and attached to the gateway as the `anthropic` provider key; an
-organization's admins, or the person whose own account it is, link or unlink it in Settings with the connection's
-Cloudflare authorization (`aig.write`, `secrets-store.write`), and a pasted key goes to Cloudflare once, never into
+account's live Workers AI catalog where Pi lists the model, and each AI Gateway provider's models while the
+account's default AI Gateway holds a key for that provider. The providers are a table (`GATEWAY_PROVIDERS` in
+`app/lib/workers-ai-model.ts`, and where Pi lists each one's models in `pi-model-catalog.ts`): Anthropic and OpenAI
+from Pi's `cloudflare-ai-gateway` catalog, xAI (gateway slug `grok`) and OpenRouter from Pi's own catalogs for them.
+A gateway model's id is the provider's slug and Pi's model id (`anthropic/claude-opus-5-5`,
+`openrouter/openai/gpt-5`). Only models on a Pi API with a transport in `pi-ai-models.ts` (Anthropic Messages,
+OpenAI Responses, OpenAI Completions) and a window of at least 32,768 tokens are offered, and a model Pi does not
+list is not offered. Two providers are not offered: Google AI Studio, because Pi's Google Generative AI client
+refuses a custom fetch and so cannot be carried by the binding, and Fireworks, which AI Gateway has no provider for.
+
+Every key is the account's own (BYOK), kept in its Secrets Store and attached to the default gateway as a provider
+key, and nothing about it is CloudChef's: the control plane reads the gateway's provider keys from the account each
+time, whoever added them, and uses each provider's default key, or its first, under whatever alias it has. An
+organization's admins, or the person whose own account it is, can also paste a key in Settings, with the
+connection's Cloudflare authorization (`aig.write`, `secrets-store.write`); it goes to Cloudflare once, never into
 CloudChef's storage. Cloudflare's BYOK flow is the only one: it takes a pasted key and stores it as the secret
-`default_anthropic_cloudchef` (alias `cloudchef`, CloudChef's name, so relinking and unlinking delete it), and only on a
-gateway with authentication on and a Secrets Store linked. Linking first readies the gateway: one with both is left
-alone, one missing either is written back whole (Cloudflare's update replaces the gateway) with every other setting
-kept, authentication on, and the account's first store linked if it had none, and a missing gateway is created that
-way. Turning authentication on is reported in Settings, since the account's own apps calling the gateway over HTTP
-then need a gateway token; the runtime's Worker binding needs none. Linking an existing Secrets Store secret is not
-offered: Cloudflare's provider keys do not find one, however it is named. A Claude request runs Pi's Anthropic Messages implementation in the runtime and is sent by the
-Workers AI binding as a universal request to `env.AI.gateway('default')`, which the gateway authenticates as the
-account itself: no gateway token exists and no provider credential leaves the Worker, so the gateway adds the stored
-key. The logging choice above rides as `cf-aig-*` headers. The runtime asks the control plane
-(`/api/cloudflare/runtime-models`) for its catalog and before each Claude turn whether the key is still on the
-gateway, which the control plane asks Cloudflare each time; no answer means no Claude. The same answer carries the
-account's default model (`cloudflare_connections.default_builder_model`), chosen by its admins; everyone can still
-switch, and a saved choice the account no longer offers falls back to it.
+`default_{provider}_cloudchef` (alias `cloudchef`, CloudChef's name, so relinking and unlinking delete it), and only
+on a gateway with authentication on and a Secrets Store linked. Linking replaces the provider's keys on the gateway,
+including one added in Cloudflare, which Settings says first; unlinking removes only CloudChef's. Linking first
+readies the gateway: one with both is left alone, one missing either is written back whole (Cloudflare's update
+replaces the gateway) with every other setting kept, authentication on, and the account's first store linked if it
+had none, and a missing gateway is created that way. Turning authentication on is reported in Settings, since the
+account's own apps calling the gateway over HTTP then need a gateway token; the runtime's Worker binding needs none.
+Linking an existing Secrets Store secret is not offered: Cloudflare's provider keys do not find one, however it is
+named.
+
+A gateway model's request runs Pi's implementation of the provider's API in the runtime and is sent by the Workers
+AI binding as a universal request to `env.AI.gateway('default')`, at the provider's slug and the endpoint the SDK
+asked for, which the gateway authenticates as the account itself: no gateway token exists and no provider credential
+leaves the Worker, so the gateway adds the stored key, the one `cf-aig-byok-alias` names when it is not the
+provider's default. The logging choice above rides as `cf-aig-*` headers. The runtime asks the control plane
+(`/api/cloudflare/runtime-models`) for its catalog and before each gateway model's turn which keys (provider and
+alias) are on the gateway, which the control plane asks Cloudflare each time; no answer means only Workers AI. The
+same answer carries the account's default model (`cloudflare_connections.default_builder_model`), chosen by its
+admins; everyone can still switch, and a saved choice the account no longer offers falls back to it.
 
 An organization's authorization reaches every workspace in its account, so in a shared account
 (`CLOUDCHEF_SHARED_ACCOUNT`) the agent's direct `cloudflare_request` tool is offered only to the

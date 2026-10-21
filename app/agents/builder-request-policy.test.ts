@@ -58,8 +58,8 @@ describe('BuilderAgent request policy', () => {
     });
   });
 
-  it.each(['@cf/deepseek-ai/deepseek-v4-flash-0731', 'claude-opus-5-5'])(
-    'accepts a well-formed Workers AI or Claude model id (%s), which the turn then confirms is offered',
+  it.each(['@cf/deepseek-ai/deepseek-v4-flash-0731', 'anthropic/claude-opus-5-5', 'openrouter/openai/gpt-5:free'])(
+    "accepts a well-formed Workers AI or gateway provider's model id (%s), which the turn then confirms is offered",
     (modelId) => {
       expect(
         requireBuilderRequestScope(
@@ -80,8 +80,9 @@ describe('BuilderAgent request policy', () => {
     [{ subchatIndex: 10_001 }, 400],
     [{ modelId: undefined }, 400],
     [{ modelId: 'deepseek/deepseek-v4-pro' }, 400],
-    [{ modelId: 'claude-' }, 400],
-    [{ modelId: 'claude-Opus 5' }, 400],
+    [{ modelId: 'anthropic/' }, 400],
+    [{ modelId: 'anthropic/claude Opus 5' }, 400],
+    [{ modelId: 'fireworks/kimi-k2' }, 400],
     [{ transcript: { agentName: binding.agentName, generation: 4, subchatIndex: 2 } }, 409],
     [{ transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 1 } }, 409],
   ])('rejects mismatched or malformed scope fields: %o', (override, status) => {

@@ -4,12 +4,13 @@ import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { createAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { createOrganization } from '~/lib/cloudflare/data/organizations.server';
 import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
-import { isClaudeLinked } from '~/lib/.server/cloudflare/ai-gateway-claude';
+import { linkedGatewayKeys } from '~/lib/.server/cloudflare/ai-gateway-keys';
+import { GATEWAY_PROVIDER_SLUGS, type GatewayKey, type GatewayProviderSlug } from '~/lib/workers-ai-model';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import {
-  linkClaudeKeyAction,
+  linkGatewayKeyAction,
   modelSettingsAction,
-  unlinkClaudeKeyAction,
+  unlinkGatewayKeyAction,
   updateDefaultModelAction,
 } from './model-settings';
 import { runtimeModelsAction } from './runtime-credential';
@@ -39,7 +40,7 @@ type Gateway = Record<string, GatewayValue>;
  * A real account's `default` gateway as Cloudflare answered for it: authentication on, but no Secrets
  * Store (`store_id` empty), unset rate limits and retries as null, and its own logging choices.
  */
-const GATEWAY_WITHOUT_STORE: Gateway = {
+const GATEWAY_WITHOUT_STORE = {
   id: 'default',
   created_at: '2026-01-01T00:00:00.000Z',
   modified_at: '2026-01-02T00:00:00.000Z',
@@ -65,7 +66,7 @@ const GATEWAY_WITHOUT_STORE: Gateway = {
   retry_max_attempts: null,
   retry_delay: null,
   retry_backoff: null,
-};
+} satisfies Gateway;
 
 /** A provider key on the fake account's gateway, in Cloudflare's own shape. */
 type ProviderConfig = {
@@ -77,6 +78,14 @@ type ProviderConfig = {
   secret_preview: string;
   gateway_id: string;
 };
+
+/** What the fake Cloudflare API answers with, inside its usual envelope. */
+type FakeResult =
+  | Gateway
+  | ProviderConfig
+  | readonly ProviderConfig[]
+  | readonly { id: string; name: string; scopes?: string[] }[]
+  | Record<string, never>;
 
 type Secret = { id: string; name: string; scopes: string[]; storeId: string };
 
@@ -112,7 +121,7 @@ function fakeCloudflare({
   const secrets: Secret[] = [{ ...ADMIN_SECRET }];
   const requests: { method: string; path: string; body: string }[] = [];
   let nextId = 1;
-  const ok = (result: object) => Response.json({ success: true, result, result_info: { total_pages: 1 } });
+  const ok = (result: FakeResult) => Response.json({ success: true, result, result_info: { total_pages: 1 } });
   const refuse = (message: string, status = 400) =>
     Response.json({ success: false, errors: [{ code: 7001, message }] }, { status });
   const request: typeof fetch = async (input, init) => {
@@ -252,6 +261,26 @@ function post(cookie: string, path: string, body: Record<string, string | null>,
   });
 }
 
+/** Settings' answer for an account whose gateway holds no key CloudChef offers a provider's models for. */
+const NO_KEYS = {
+  status: 'ready',
+  providers: GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, key: null })),
+};
+
+/** Settings' answer with one provider's key on the gateway. */
+function keysWith(
+  provider: GatewayProviderSlug,
+  key: { alias: string; secretPreview: string | null; addedByCloudChef: boolean },
+) {
+  return {
+    status: 'ready',
+    providers: GATEWAY_PROVIDER_SLUGS.map((candidate) => ({
+      provider: candidate,
+      key: candidate === provider ? key : null,
+    })),
+  };
+}
+
 function writesOf(cloudflare: ReturnType<typeof fakeCloudflare>) {
   return cloudflare.requests.filter(({ method }) => method !== 'GET');
 }
@@ -263,10 +292,10 @@ describe('Settings: models', () => {
 
     const before = await modelSettingsAction({ request: get(admin.cookie), env, openAccountApi });
     expect(before.headers.get('Cache-Control')).toBe('private, no-store');
-    expect(await before.json()).toEqual({ canManage: true, defaultModelId: null, claude: { status: 'unlinked' } });
+    expect(await before.json()).toEqual({ canManage: true, defaultModelId: null, keys: NO_KEYS });
 
-    const linked = await linkClaudeKeyAction({
-      request: post(admin.cookie, '/claude/link', { apiKey: PASTED_KEY }),
+    const linked = await linkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey: PASTED_KEY }),
       env,
       openAccountApi,
     });
@@ -275,7 +304,7 @@ describe('Settings: models', () => {
     expect(linkedText).not.toContain(PASTED_KEY);
     // Authentication was already on, so nothing else that calls the gateway changes.
     expect(JSON.parse(linkedText)).toEqual({
-      claude: { status: 'linked', alias: 'cloudchef', secretPreview: 'sk-a...6789' },
+      keys: keysWith('anthropic', { alias: 'cloudchef', secretPreview: 'sk-a...6789', addedByCloudChef: true }),
       authenticationTurnedOn: false,
     });
 
@@ -312,7 +341,7 @@ describe('Settings: models', () => {
     });
     expect(cloudflare.secrets.map(({ name }) => name)).toEqual(['anthropic-startup', 'default_anthropic_cloudchef']);
     expect(await (await modelSettingsAction({ request: get(admin.cookie), env, openAccountApi })).json()).toMatchObject(
-      { claude: { status: 'linked', alias: 'cloudchef' } },
+      { keys: keysWith('anthropic', { alias: 'cloudchef', secretPreview: 'sk-a...6789', addedByCloudChef: true }) },
     );
   });
 
@@ -320,13 +349,16 @@ describe('Settings: models', () => {
     const cloudflare = fakeCloudflare({ gateway: { ...GATEWAY_WITHOUT_STORE, store_id: 'store-2' } });
     const { env, admin } = await setup({ cloudflare });
 
-    const linked = await linkClaudeKeyAction({
-      request: post(admin.cookie, '/claude/link', { apiKey: PASTED_KEY }),
+    const linked = await linkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey: PASTED_KEY }),
       env,
       openAccountApi: cloudflare.openAccountApi,
     });
 
-    expect(await linked.json()).toMatchObject({ claude: { status: 'linked' }, authenticationTurnedOn: false });
+    expect(await linked.json()).toEqual({
+      keys: keysWith('anthropic', { alias: 'cloudchef', secretPreview: 'sk-a...6789', addedByCloudChef: true }),
+      authenticationTurnedOn: false,
+    });
     expect(writesOf(cloudflare).map(({ method, path }) => `${method} ${path}`)).toEqual([`POST ${PROVIDER_PATH}`]);
     expect(cloudflare.gateway()).toEqual({ ...GATEWAY_WITHOUT_STORE, store_id: 'store-2' });
   });
@@ -338,13 +370,16 @@ describe('Settings: models', () => {
     });
     const { env, admin } = await setup({ cloudflare });
 
-    const linked = await linkClaudeKeyAction({
-      request: post(admin.cookie, '/claude/link', { apiKey: PASTED_KEY }),
+    const linked = await linkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey: PASTED_KEY }),
       env,
       openAccountApi: cloudflare.openAccountApi,
     });
 
-    expect(await linked.json()).toMatchObject({ claude: { status: 'linked' }, authenticationTurnedOn: true });
+    expect(await linked.json()).toEqual({
+      keys: keysWith('anthropic', { alias: 'cloudchef', secretPreview: 'sk-a...6789', addedByCloudChef: true }),
+      authenticationTurnedOn: true,
+    });
     expect(cloudflare.gateway()).toMatchObject({ authentication: true, store_id: 'store-2', rate_limiting_limit: 50 });
     expect(cloudflare.secrets).toContainEqual(
       expect.objectContaining({ name: 'default_anthropic_cloudchef', storeId: 'store-2' }),
@@ -355,13 +390,16 @@ describe('Settings: models', () => {
     const cloudflare = fakeCloudflare({ gateway: null });
     const { env, admin } = await setup({ cloudflare });
 
-    const linked = await linkClaudeKeyAction({
-      request: post(admin.cookie, '/claude/link', { apiKey: PASTED_KEY }),
+    const linked = await linkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey: PASTED_KEY }),
       env,
       openAccountApi: cloudflare.openAccountApi,
     });
 
-    expect(await linked.json()).toMatchObject({ claude: { status: 'linked' }, authenticationTurnedOn: true });
+    expect(await linked.json()).toEqual({
+      keys: keysWith('anthropic', { alias: 'cloudchef', secretPreview: 'sk-a...6789', addedByCloudChef: true }),
+      authenticationTurnedOn: true,
+    });
     const created = writesOf(cloudflare)[0];
     expect(created?.path).toBe('/ai-gateway/gateways');
     expect(JSON.parse(created?.body ?? '{}')).toEqual({
@@ -381,8 +419,8 @@ describe('Settings: models', () => {
     const cloudflare = fakeCloudflare({ stores: [] });
     const { env, admin } = await setup({ cloudflare });
 
-    const linked = await linkClaudeKeyAction({
-      request: post(admin.cookie, '/claude/link', { apiKey: PASTED_KEY }),
+    const linked = await linkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey: PASTED_KEY }),
       env,
       openAccountApi: cloudflare.openAccountApi,
     });
@@ -396,13 +434,19 @@ describe('Settings: models', () => {
     const { env, admin, cloudflare } = await setup();
     const openAccountApi = cloudflare.openAccountApi;
     const link = (apiKey: string) =>
-      linkClaudeKeyAction({ request: post(admin.cookie, '/claude/link', { apiKey }), env, openAccountApi });
+      linkGatewayKeyAction({
+        request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey }),
+        env,
+        openAccountApi,
+      });
     await link(PASTED_KEY);
     const firstSecret = cloudflare.secrets.find(({ name }) => name === 'default_anthropic_cloudchef');
 
     const relinked = await link('sk-ant-api03-a-second-test-key-9876543210');
 
-    expect(await relinked.json()).toMatchObject({ claude: { status: 'linked', secretPreview: 'sk-a...3210' } });
+    expect(await relinked.json()).toMatchObject({
+      keys: keysWith('anthropic', { alias: 'cloudchef', secretPreview: 'sk-a...3210', addedByCloudChef: true }),
+    });
     expect(cloudflare.providers).toEqual([expect.objectContaining({ provider_slug: 'anthropic', alias: 'cloudchef' })]);
     expect(
       writesOf(cloudflare)
@@ -415,77 +459,176 @@ describe('Settings: models', () => {
     ]);
   });
 
-  it("unlinks the key and deletes its secret, leaving the admin's own, after which the runtime has no Claude", async () => {
+  it("unlinks the key and deletes its secret, leaving the admin's own, after which the runtime has no Anthropic key", async () => {
     const { env, admin, cloudflare, database } = await setup();
     const openAccountApi = cloudflare.openAccountApi;
-    await linkClaudeKeyAction({
-      request: post(admin.cookie, '/claude/link', { apiKey: PASTED_KEY }),
+    await linkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey: PASTED_KEY }),
       env,
       openAccountApi,
     });
     const connection = connectionOf(database);
-    expect(await isClaudeLinked(env, connection, openAccountApi)).toBe(true);
+    expect(await linkedGatewayKeys(env, connection, openAccountApi)).toEqual([
+      { provider: 'anthropic', alias: 'cloudchef' },
+    ]);
     const gatewayLinked = cloudflare.gateway();
 
-    const unlinked = await unlinkClaudeKeyAction({
-      request: post(admin.cookie, '/claude/unlink', {}),
+    const unlinked = await unlinkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/unlink', { provider: 'anthropic' }),
       env,
       openAccountApi,
     });
 
-    expect(await unlinked.json()).toEqual({ claude: { status: 'unlinked' } });
+    expect(await unlinked.json()).toEqual({ keys: NO_KEYS });
     expect(cloudflare.providers).toEqual([]);
     expect(cloudflare.secrets).toEqual([ADMIN_SECRET]);
     expect(cloudflare.gateway()).toEqual(gatewayLinked);
-    expect(await isClaudeLinked(env, connection, openAccountApi)).toBe(false);
+    expect(await linkedGatewayKeys(env, connection, openAccountApi)).toEqual([]);
   });
 
-  it("leaves the gateway's other providers' keys alone, and does not read them as Claude", async () => {
+  it("leaves keys for providers CloudChef doesn't offer alone, and never reads them as one it does", async () => {
     const { env, admin, cloudflare, database } = await setup();
     const openAccountApi = cloudflare.openAccountApi;
-    const openAiKey = {
-      id: 'config-openai',
-      provider_slug: 'openai',
+    const mistralKey = {
+      id: 'config-mistral',
+      provider_slug: 'mistral',
       alias: 'default',
       default_config: true,
-      secret_id: 'secret-openai',
-      secret_preview: 'sk-p...abcd',
+      secret_id: 'secret-mistral',
+      secret_preview: 'mi-p...abcd',
       gateway_id: 'default',
     };
-    cloudflare.providers.push(openAiKey);
+    cloudflare.providers.push(mistralKey);
 
     expect(await (await modelSettingsAction({ request: get(admin.cookie), env, openAccountApi })).json()).toMatchObject(
-      {
-        claude: { status: 'unlinked' },
-      },
+      { keys: NO_KEYS },
     );
-    expect(await isClaudeLinked(env, connectionOf(database), openAccountApi)).toBe(false);
-    await linkClaudeKeyAction({
-      request: post(admin.cookie, '/claude/link', { apiKey: PASTED_KEY }),
+    expect(await linkedGatewayKeys(env, connectionOf(database), openAccountApi)).toEqual([]);
+    await linkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey: PASTED_KEY }),
       env,
       openAccountApi,
     });
-    await unlinkClaudeKeyAction({ request: post(admin.cookie, '/claude/unlink', {}), env, openAccountApi });
+    await unlinkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/unlink', { provider: 'anthropic' }),
+      env,
+      openAccountApi,
+    });
 
-    expect(cloudflare.providers).toEqual([openAiKey]);
+    expect(cloudflare.providers).toEqual([mistralKey]);
   });
 
-  it('never reports Claude linked for a connection whose authorization cannot ask', async () => {
+  it("uses a key added in Cloudflare under any alias, preferring a provider's default one, and leaves it on unlink", async () => {
     const { env, admin, cloudflare, database } = await setup();
     const openAccountApi = cloudflare.openAccountApi;
-    await linkClaudeKeyAction({
-      request: post(admin.cookie, '/claude/link', { apiKey: PASTED_KEY }),
+    const dashboardKey = (id: string, provider: string, alias: string, isDefault: boolean) => ({
+      id,
+      provider_slug: provider,
+      alias,
+      default_config: isDefault,
+      secret_id: `secret-${id}`,
+      secret_preview: `${alias.slice(0, 2)}...wxyz`,
+      gateway_id: 'default',
+    });
+    cloudflare.providers.push(
+      dashboardKey('config-sg', 'anthropic', 'sg', false),
+      dashboardKey('config-old', 'openai', 'old', false),
+      dashboardKey('config-main', 'openai', 'main', true),
+    );
+
+    // Each provider's key is read from the account, alias and all; nothing about it is CloudChef's.
+    expect(await (await modelSettingsAction({ request: get(admin.cookie), env, openAccountApi })).json()).toMatchObject(
+      {
+        keys: {
+          status: 'ready',
+          providers: [
+            { provider: 'anthropic', key: { alias: 'sg', secretPreview: 'sg...wxyz', addedByCloudChef: false } },
+            { provider: 'openai', key: { alias: 'main', secretPreview: 'ma...wxyz', addedByCloudChef: false } },
+            { provider: 'grok', key: null },
+            { provider: 'openrouter', key: null },
+          ],
+        },
+      },
+    );
+    expect(await linkedGatewayKeys(env, connectionOf(database), openAccountApi)).toEqual([
+      { provider: 'anthropic', alias: 'sg' },
+      { provider: 'openai', alias: 'main' },
+    ]);
+
+    // Unlinking removes only what CloudChef added, which is nothing here.
+    const unlinked = await unlinkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/unlink', { provider: 'anthropic' }),
+      env,
+      openAccountApi,
+    });
+    expect(unlinked.status).toBe(200);
+    expect(cloudflare.providers.map(({ id }) => id)).toEqual(['config-sg', 'config-old', 'config-main']);
+
+    // Linking a key in CloudChef is the admin's choice to replace the provider's keys there.
+    await linkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey: PASTED_KEY }),
+      env,
+      openAccountApi,
+    });
+    expect(cloudflare.providers.map(({ provider_slug, alias }) => `${provider_slug}:${alias}`)).toEqual([
+      'openai:old',
+      'openai:main',
+      'anthropic:cloudchef',
+    ]);
+  });
+
+  it('links and unlinks each provider on its own', async () => {
+    const { env, admin, cloudflare, database } = await setup();
+    const openAccountApi = cloudflare.openAccountApi;
+    for (const provider of GATEWAY_PROVIDER_SLUGS) {
+      const linked = await linkGatewayKeyAction({
+        request: post(admin.cookie, '/keys/link', { provider, apiKey: PASTED_KEY }),
+        env,
+        openAccountApi,
+      });
+      expect(linked.status).toBe(200);
+    }
+    expect(cloudflare.secrets.map(({ name }) => name)).toEqual([
+      'anthropic-startup',
+      'default_anthropic_cloudchef',
+      'default_openai_cloudchef',
+      'default_grok_cloudchef',
+      'default_openrouter_cloudchef',
+    ]);
+    expect(await linkedGatewayKeys(env, connectionOf(database), openAccountApi)).toEqual(
+      GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'cloudchef' })),
+    );
+
+    await unlinkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/unlink', { provider: 'grok' }),
+      env,
+      openAccountApi,
+    });
+
+    expect(cloudflare.providers.map(({ provider_slug }) => provider_slug)).toEqual([
+      'anthropic',
+      'openai',
+      'openrouter',
+    ]);
+    expect(cloudflare.secrets.map(({ name }) => name)).not.toContain('default_grok_cloudchef');
+  });
+
+  it('never reports a key for a connection whose authorization cannot ask', async () => {
+    const { env, admin, cloudflare, database } = await setup();
+    const openAccountApi = cloudflare.openAccountApi;
+    await linkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey: PASTED_KEY }),
       env,
       openAccountApi,
     });
     const requestsBefore = cloudflare.requests.length;
 
     const withoutGrant = { ...connectionOf(database), grantedCapabilities: ALL_CAPABILITIES.slice(0, -1) };
-    expect(await isClaudeLinked(env, withoutGrant, openAccountApi)).toBe(false);
+    expect(await linkedGatewayKeys(env, withoutGrant, openAccountApi)).toEqual([]);
     expect(cloudflare.requests).toHaveLength(requestsBefore);
     // Cloudflare unreachable: also a no.
     const unreachable = async () => Promise.reject(new Error('unreachable'));
-    expect(await isClaudeLinked(env, connectionOf(database), unreachable)).toBe(false);
+    expect(await linkedGatewayKeys(env, connectionOf(database), unreachable)).toEqual([]);
   });
 
   it('shows a member the setting but lets only an admin change it', async () => {
@@ -495,16 +638,23 @@ describe('Settings: models', () => {
     expect(await (await modelSettingsAction({ request: get(member.cookie), env, openAccountApi })).json()).toEqual({
       canManage: false,
       defaultModelId: null,
-      claude: { status: 'unlinked' },
+      keys: NO_KEYS,
     });
     const attempts = [
-      linkClaudeKeyAction({
-        request: post(member.cookie, '/claude/link', { apiKey: PASTED_KEY }),
+      linkGatewayKeyAction({
+        request: post(member.cookie, '/keys/link', { provider: 'anthropic', apiKey: PASTED_KEY }),
         env,
         openAccountApi,
       }),
-      unlinkClaudeKeyAction({ request: post(member.cookie, '/claude/unlink', {}), env, openAccountApi }),
-      updateDefaultModelAction({ request: post(member.cookie, '/default', { modelId: 'claude-opus-5-5' }), env }),
+      unlinkGatewayKeyAction({
+        request: post(member.cookie, '/keys/unlink', { provider: 'anthropic' }),
+        env,
+        openAccountApi,
+      }),
+      updateDefaultModelAction({
+        request: post(member.cookie, '/default', { modelId: 'anthropic/claude-opus-5-5' }),
+        env,
+      }),
     ];
     for (const response of await Promise.all(attempts)) {
       expect(response.status).toBe(403);
@@ -517,10 +667,10 @@ describe('Settings: models', () => {
     const openAccountApi = cloudflare.openAccountApi;
 
     expect(await (await modelSettingsAction({ request: get(admin.cookie), env, openAccountApi })).json()).toMatchObject(
-      { claude: { status: 'reauthorization_required' } },
+      { keys: { status: 'reauthorization_required' } },
     );
-    const link = await linkClaudeKeyAction({
-      request: post(admin.cookie, '/claude/link', { apiKey: PASTED_KEY }),
+    const link = await linkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey: PASTED_KEY }),
       env,
       openAccountApi,
     });
@@ -534,18 +684,26 @@ describe('Settings: models', () => {
     const openAccountApi = cloudflare.openAccountApi;
 
     expect((await modelSettingsAction({ request: get(''), env, openAccountApi })).status).toBe(401);
-    const evil = post(admin.cookie, '/claude/link', { apiKey: PASTED_KEY }, 'https://evil.example');
-    expect((await linkClaudeKeyAction({ request: evil, env, openAccountApi })).status).toBe(403);
+    const evil = post(
+      admin.cookie,
+      '/keys/link',
+      { provider: 'anthropic', apiKey: PASTED_KEY },
+      'https://evil.example',
+    );
+    expect((await linkGatewayKeyAction({ request: evil, env, openAccountApi })).status).toBe(403);
     // An existing Secrets Store secret cannot be linked: Cloudflare's provider keys do not find one.
     const invalid: Record<string, string>[] = [
       {},
-      { apiKey: 'short' },
-      { secretId: 'secret-startup' },
-      { apiKey: PASTED_KEY, secretId: 'secret-startup' },
+      { provider: 'anthropic', apiKey: 'short' },
+      // A provider CloudChef offers no models for, or none named.
+      { provider: 'fireworks', apiKey: PASTED_KEY },
+      { apiKey: PASTED_KEY },
+      { provider: 'anthropic', secretId: 'secret-startup' },
+      { provider: 'anthropic', apiKey: PASTED_KEY, secretId: 'secret-startup' },
     ];
     for (const body of invalid) {
-      const response = await linkClaudeKeyAction({
-        request: post(admin.cookie, '/claude/link', body),
+      const response = await linkGatewayKeyAction({
+        request: post(admin.cookie, '/keys/link', body),
         env,
         openAccountApi,
       });
@@ -560,12 +718,12 @@ describe("the team's default model", () => {
     const { env, admin, database } = await setup();
 
     const chosen = await updateDefaultModelAction({
-      request: post(admin.cookie, '/default', { modelId: 'claude-opus-5-5' }),
+      request: post(admin.cookie, '/default', { modelId: 'anthropic/claude-opus-5-5' }),
       env,
     });
-    expect(await chosen.json()).toEqual({ defaultModelId: 'claude-opus-5-5' });
+    expect(await chosen.json()).toEqual({ defaultModelId: 'anthropic/claude-opus-5-5' });
     expect(database.prepare('SELECT default_builder_model AS model FROM cloudflare_connections').get()).toEqual({
-      model: 'claude-opus-5-5',
+      model: 'anthropic/claude-opus-5-5',
     });
 
     for (const modelId of ['gpt-4', '@cf/../x', '']) {
@@ -577,9 +735,12 @@ describe("the team's default model", () => {
     expect(await cleared.json()).toEqual({ defaultModelId: null });
   });
 
-  it("reaches the member's runtime with whether Claude is linked, for its catalog", async () => {
+  it("reaches the member's runtime with the account's provider keys and their aliases, for its catalog", async () => {
     const { env, admin, member, database } = await setup();
-    await updateDefaultModelAction({ request: post(admin.cookie, '/default', { modelId: 'claude-opus-5-5' }), env });
+    await updateDefaultModelAction({
+      request: post(admin.cookie, '/default', { modelId: 'anthropic/claude-opus-5-5' }),
+      env,
+    });
     const secret = await deriveUserWorkspaceRuntimeSecret({
       encryptionKeyBase64: ENCRYPTION_KEY,
       userId: member.userId,
@@ -587,7 +748,7 @@ describe("the team's default model", () => {
       connectionGeneration: 1,
       organizationConnectionId: 'acme-connection',
     });
-    const ask = (claude: boolean, bearer = secret) =>
+    const ask = (keys: GatewayKey[], bearer = secret) =>
       runtimeModelsAction({
         request: new Request(`${ORIGIN}/api/cloudflare/runtime-models`, {
           method: 'POST',
@@ -595,16 +756,22 @@ describe("the team's default model", () => {
           body: JSON.stringify({ userId: member.userId, connectionId: 'acme-connection', connectionGeneration: 1 }),
         }),
         env,
-        claudeLinked: async () => claude,
+        gatewayKeys: async () => keys,
       });
 
-    expect(await (await ask(true)).json()).toEqual({ defaultModelId: 'claude-opus-5-5', claude: true });
-    expect(await (await ask(false)).json()).toEqual({ defaultModelId: 'claude-opus-5-5', claude: false });
-    expect((await ask(true, 'b'.repeat(43))).status).toBe(401);
+    const keys: GatewayKey[] = [{ provider: 'anthropic', alias: 'sg' }];
+    expect(await (await ask(keys)).json()).toEqual({
+      defaultModelId: 'anthropic/claude-opus-5-5',
+      gatewayKeys: keys,
+      // What runtimes built before other providers read.
+      claude: true,
+    });
+    expect(await (await ask([{ provider: 'openai', alias: 'default' }])).json()).toMatchObject({ claude: false });
+    expect((await ask(keys, 'b'.repeat(43))).status).toBe(401);
 
     // A paused member's runtime learns nothing.
     database.prepare('UPDATE organization_members SET paused_at = 1 WHERE user_id = ?').run(member.userId);
-    expect((await ask(true)).status).toBe(401);
+    expect((await ask(keys)).status).toBe(401);
   });
 });
 

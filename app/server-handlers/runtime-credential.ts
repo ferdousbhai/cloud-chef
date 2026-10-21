@@ -8,7 +8,7 @@ import {
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
-import { isClaudeLinked } from '~/lib/.server/cloudflare/ai-gateway-claude';
+import { linkedGatewayKeys } from '~/lib/.server/cloudflare/ai-gateway-keys';
 import { readDefaultBuilderModel } from '~/lib/cloudflare/data/builder-model-settings.server';
 
 const MAX_RUNTIME_CREDENTIAL_REQUEST_BYTES = 4 * 1024;
@@ -161,14 +161,16 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
 }
 
 /**
- * A workspace runtime asking about its account's models, for the picker's catalog and before a Claude
- * turn: the default its admin chose, and whether its default AI Gateway holds an Anthropic key, asked
- * of Cloudflare each time so a key removed in the dashboard stops Claude at once.
+ * A workspace runtime asking about its account's models, for the picker's catalog and before a
+ * gateway provider's turn: the default its admin chose, and the provider keys its default AI Gateway
+ * holds (each provider's, with the alias its requests name), asked of Cloudflare each time so a key
+ * removed in the dashboard stops its provider's models at once. `claude` is what runtimes built
+ * before other providers read.
  */
 export async function runtimeModelsAction(args: {
   request: Request;
   env: Env;
-  claudeLinked?: typeof isClaudeLinked;
+  gatewayKeys?: typeof linkedGatewayKeys;
 }): Promise<Response> {
   let body: z.infer<typeof runtimeAccessRequestSchema>;
   try {
@@ -186,11 +188,12 @@ export async function runtimeModelsAction(args: {
     return authenticated;
   }
   const { connection } = authenticated;
-  const [defaultModelId, claude] = await Promise.all([
+  const [defaultModelId, gatewayKeys] = await Promise.all([
     readDefaultBuilderModel(args.env.DB, connection.id),
-    (args.claudeLinked ?? isClaudeLinked)(args.env, connection),
+    (args.gatewayKeys ?? linkedGatewayKeys)(args.env, connection),
   ]);
-  return Response.json({ defaultModelId, claude }, { headers: { 'Cache-Control': 'no-store' } });
+  const claude = gatewayKeys.some(({ provider }) => provider === 'anthropic');
+  return Response.json({ defaultModelId, gatewayKeys, claude }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 type RuntimeIdentity = { userId: string; connectionId: string; connectionGeneration: number };
