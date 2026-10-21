@@ -22,6 +22,81 @@ const checkRunsSchema = z.looseObject({
 /** One file in a commit: new or changed content, or `null` content to delete it. */
 type CommitChange = { path: string; contentBase64: string | null; executable: boolean };
 
+/** One entry of a tree request: a file's text inline, a blob already on GitHub, or `null` to delete it. */
+type TreeEntry = { path: string; mode: '100644' | '100755'; type: 'blob' } & (
+  { content: string } | { sha: string | null }
+);
+
+/**
+ * The most GitHub requests one commit makes: a blob for each file that isn't text, its tree requests, the
+ * commit, and its ref. A Worker has 1,000 subrequests, and the rest of an approval or publish needs some.
+ */
+const MAX_COMMIT_REQUESTS = 500;
+/** Text up to this size goes in a tree request inline; anything larger is its own blob. */
+const MAX_INLINE_FILE_BYTES = 1024 * 1024;
+/** The most inline text one tree request carries: a larger commit is built over several, each on the last. */
+const MAX_TREE_REQUEST_BYTES = 4 * 1024 * 1024;
+
+/**
+ * How a commit's changes reach GitHub: text inline in tree requests of at most `MAX_TREE_REQUEST_BYTES`,
+ * and each other file (binary, or too large to inline) as a blob of its own, entered in the last tree.
+ */
+function commitPlan(changes: CommitChange[]) {
+  const encoder = new TextEncoder();
+  let current: TreeEntry[] = [];
+  const trees = [current];
+  const blobs: CommitChange[] = [];
+  let size = 0;
+  for (const change of changes) {
+    const mode = change.executable ? '100755' : '100644';
+    const text = change.contentBase64 === null ? null : inlineText(change.contentBase64);
+    if (change.contentBase64 !== null && text === null) {
+      blobs.push(change);
+      continue;
+    }
+    const entry: TreeEntry =
+      text === null
+        ? { path: change.path, mode, type: 'blob', sha: null }
+        : { path: change.path, mode, type: 'blob', content: text };
+    const bytes = encoder.encode(JSON.stringify(entry)).length;
+    if (current.length > 0 && size + bytes > MAX_TREE_REQUEST_BYTES) {
+      current = [];
+      trees.push(current);
+      size = 0;
+    }
+    current.push(entry);
+    size += bytes;
+  }
+  return { trees, blobs };
+}
+
+/**
+ * Why committing `changes` would take more GitHub requests than `MAX_COMMIT_REQUESTS`, or null when it
+ * wouldn't. Checked when a commit is asked for, so it is refused before anything is written to GitHub.
+ */
+export function commitSizeRefusal(changes: CommitChange[]): string | null {
+  const { trees, blobs } = commitPlan(changes);
+  return blobs.length + trees.length + 2 > MAX_COMMIT_REQUESTS
+    ? `This holds ${blobs.length} files that aren't text (images, fonts, archives) or are over 1 MB, more than ` +
+        'CloudChef can commit to GitHub at once. Slim them down and try again.'
+    : null;
+}
+
+/** A file's content as text for a tree request, or null when it isn't UTF-8 text exactly (or is too large). */
+function inlineText(contentBase64: string): string | null {
+  try {
+    const bytes = Uint8Array.from(atob(contentBase64), (char) => char.charCodeAt(0));
+    if (bytes.length > MAX_INLINE_FILE_BYTES || bytes.includes(0)) {
+      return null;
+    }
+    // A byte-order mark is kept: the text must encode back to exactly these bytes.
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    // Not base64 (GitHub refuses its blob), or not UTF-8.
+    return null;
+  }
+}
+
 /** What a repository's pipeline reported for a commit, read from its check runs. */
 type BuildStatus = {
   state: 'pending' | 'success' | 'failure' | 'none';
@@ -97,7 +172,8 @@ export class RepositoryClient {
 
   /**
    * Commits `changes` on top of `baseTree` as a child of `parent`, and points `branch` at it (creating
-   * the branch when it doesn't exist). Returns the new commit.
+   * the branch when it doesn't exist). Returns the new commit. Text goes inline in the tree requests, so
+   * only other files take a request each (see `commitPlan`).
    */
   async commit(args: {
     branch: string;
@@ -107,26 +183,34 @@ export class RepositoryClient {
     changes: CommitChange[];
     branchExists: boolean;
   }): Promise<string> {
-    const tree = [];
-    for (const change of args.changes) {
-      const mode = change.executable ? '100755' : '100644';
-      if (change.contentBase64 === null) {
-        tree.push({ path: change.path, mode, type: 'blob', sha: null });
-        continue;
-      }
+    const { trees, blobs } = commitPlan(args.changes);
+    const blobEntries: TreeEntry[] = [];
+    for (const change of blobs) {
       const blob = await this.call('/git/blobs', shaSchema, {
         method: 'POST',
         body: JSON.stringify({ content: change.contentBase64, encoding: 'base64' }),
       });
-      tree.push({ path: change.path, mode, type: 'blob', sha: blob.sha });
+      blobEntries.push({
+        path: change.path,
+        mode: change.executable ? '100755' : '100644',
+        type: 'blob',
+        sha: blob.sha,
+      });
     }
-    const createdTree = await this.call('/git/trees', shaSchema, {
-      method: 'POST',
-      body: JSON.stringify({ base_tree: args.baseTree, tree }),
-    });
+    // Each tree is made on the one before, so the last holds every change.
+    let tree = args.baseTree;
+    for (const [index, inline] of trees.entries()) {
+      const entries = index === trees.length - 1 ? [...inline, ...blobEntries] : inline;
+      tree = (
+        await this.call('/git/trees', shaSchema, {
+          method: 'POST',
+          body: JSON.stringify({ base_tree: tree, tree: entries }),
+        })
+      ).sha;
+    }
     const commit = await this.call('/git/commits', shaSchema, {
       method: 'POST',
-      body: JSON.stringify({ message: args.message, tree: createdTree.sha, parents: [args.parent] }),
+      body: JSON.stringify({ message: args.message, tree, parents: [args.parent] }),
     });
     await (args.branchExists
       ? this.call(`/git/refs/heads/${encodeRef(args.branch)}`, shaSchema.or(refSchema), {

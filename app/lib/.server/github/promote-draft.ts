@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { PayloadTooLargeError, readBodyBytesWithLimit } from '~/lib/bounded-body';
 import { commitPathRefusal } from './commit-paths';
+import { commitSizeRefusal } from './repository-client';
 
 /**
  * The most a draft's files may decompress to. The request holds at most 1.5 MB of gzip, which could
@@ -47,7 +48,9 @@ export async function readDraftSnapshot(
     if (!parsed.success) {
       return null;
     }
-    const refused = commitPathRefusal(parsed.data.map((file) => file.path));
+    const refused =
+      commitPathRefusal(parsed.data.map((file) => file.path)) ??
+      commitSizeRefusal(parsed.data.map((file) => ({ ...file, executable: false })));
     return refused ? { refused } : { files: parsed.data };
   } catch (error) {
     if (error instanceof PayloadTooLargeError) {

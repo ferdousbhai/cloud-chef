@@ -138,7 +138,7 @@ function fakeRepository(options: {
       return Response.json({ sha: `blob-${writes.length}` }, { status: 201 });
     }
     if (path === '/git/trees') {
-      return Response.json({ sha: 'new-tree' }, { status: 201 });
+      return Response.json({ sha: `tree-${writes.length}` }, { status: 201 });
     }
     if (path === '/git/commits') {
       return Response.json({ sha: 'c'.repeat(40) }, { status: 201 });
@@ -373,7 +373,9 @@ describe('a member working on a GitHub project', () => {
         publish: false,
         changes: [
           { path: 'src/hero.tsx', contentBase64: btoa('new hero'), executable: false },
+          { path: 'public/logo.png', contentBase64: btoa('\x89PNG\r\n\x1a\n\0\0'), executable: false },
           { path: 'old.txt', contentBase64: null, executable: false },
+          { path: 'bin/run', contentBase64: bytesToBase64(new TextEncoder().encode('\uFEFFcafé')), executable: true },
         ],
       }),
       env,
@@ -384,12 +386,18 @@ describe('a member working on a GitHub project', () => {
       commit: 'c'.repeat(40),
       branch: expect.stringMatching(/^cloudchef\/sara-a-/),
     });
+    // Text goes in the tree as it is; only the image is a blob of its own.
+    expect(
+      writes.filter((write) => write.path === '/git/blobs').map((write) => JSON.parse(write.body ?? '{}')),
+    ).toEqual([{ content: btoa('\x89PNG\r\n\x1a\n\0\0'), encoding: 'base64' }]);
     const tree = JSON.parse(writes.find((write) => write.path === '/git/trees')?.body ?? '{}');
     expect(tree).toEqual({
       base_tree: `tree-of-${BASE.slice(0, 6)}`,
       tree: [
-        { path: 'src/hero.tsx', mode: '100644', type: 'blob', sha: 'blob-1' },
+        { path: 'src/hero.tsx', mode: '100644', type: 'blob', content: 'new hero' },
         { path: 'old.txt', mode: '100644', type: 'blob', sha: null },
+        { path: 'bin/run', mode: '100755', type: 'blob', content: '\uFEFFcafé' },
+        { path: 'public/logo.png', mode: '100644', type: 'blob', sha: 'blob-1' },
       ],
     });
     expect(JSON.parse(writes.find((write) => write.path === '/git/commits')?.body ?? '{}')).toMatchObject({
@@ -423,6 +431,69 @@ describe('a member working on a GitHub project', () => {
       expect(writes).toEqual([]);
     },
   );
+
+  it('builds a commit with more text than one tree request carries over several, each on the last', async () => {
+    const { env, app, callNamed, writes } = await setup();
+    const large = btoa('x'.repeat(900 * 1024));
+    const response = await runtimeGitHubCommitAction({
+      request: callNamed(
+        '/api/cloudflare/runtime-github/commit',
+        JSON.stringify({
+          orgProjectId: SITE,
+          baseCommit: BASE,
+          message: 'Add the archive',
+          publish: false,
+          changes: Array.from({ length: 6 }, (_, index) => ({
+            path: `archive/${index}.txt`,
+            contentBase64: large,
+            executable: false,
+          })),
+        }),
+      ),
+      env,
+      app,
+    });
+    expect(response.status).toBe(200);
+    const trees = writes.flatMap((write, index) =>
+      write.path === '/git/trees'
+        ? [
+            {
+              sha: `tree-${index + 1}`,
+              body: z
+                .object({ base_tree: z.string(), tree: z.array(z.object({ path: z.string() })) })
+                .parse(JSON.parse(write.body ?? '{}')),
+            },
+          ]
+        : [],
+    );
+    expect(trees.map((tree) => tree.body.tree.length)).toEqual([4, 2]);
+    expect(trees.map((tree) => tree.body.base_tree)).toEqual([`tree-of-${BASE.slice(0, 6)}`, trees[0]?.sha]);
+    expect(JSON.parse(writes.find((write) => write.path === '/git/commits')?.body ?? '{}')).toMatchObject({
+      tree: trees[1]?.sha,
+    });
+  });
+
+  it('refuses a commit with more files that are not text than it can send GitHub, before writing any', async () => {
+    const { env, app, call, writes } = await setup();
+    const response = await runtimeGitHubCommitAction({
+      request: call('/api/cloudflare/runtime-github/commit', {
+        orgProjectId: SITE,
+        baseCommit: BASE,
+        message: 'Add the photos',
+        publish: false,
+        changes: Array.from({ length: 600 }, (_, index) => ({
+          path: `photos/${index}.jpg`,
+          contentBase64: btoa(`\xff\xd8\xff\0${index}`),
+          executable: false,
+        })),
+      }),
+      env,
+      app,
+    });
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ error: expect.stringContaining("This holds 600 files that aren't text") });
+    expect(writes).toEqual([]);
+  });
 
   it('publishes by merging into the default branch, and reports overlapping changes', async () => {
     const published = await setup();

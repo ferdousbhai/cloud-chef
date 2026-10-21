@@ -555,8 +555,8 @@ describe('production requests', () => {
     expect(returnedMessage(returned)).toBe(
       'The app is now a GitHub repository, and a project its requester can work on.',
     );
-    const blobs = calls.filter((call) => call.path.endsWith('/git/blobs')).map((call) => call.body ?? '');
-    expect(blobs.some((body) => body.includes(btoa('export const app = 1;')))).toBe(true);
+    const trees = calls.filter((call) => call.path.endsWith('/git/trees')).map((call) => call.body ?? '');
+    expect(trees.some((body) => body.includes('"content":"export const app = 1;"'))).toBe(true);
   });
 
   it('refuses to finish an approval whose draft was replaced after its claim lapsed', async () => {
@@ -820,6 +820,16 @@ describe('promotedDraftFiles', () => {
       ).toEqual({ refused: expect.stringContaining(path) });
     },
   );
+
+  it('refuses a draft with more files that are not text than an approval can send GitHub', async () => {
+    const photos = Array.from({ length: 600 }, (_, index) => ({
+      path: `public/${index}.jpg`,
+      contentBase64: btoa(`\xff\xd8\xff\0${index}`),
+    }));
+    expect(await readDraftSnapshot(await gzipBase64(JSON.stringify([...DRAFT_FILES, ...photos])))).toEqual({
+      refused: expect.stringContaining("This holds 600 files that aren't text"),
+    });
+  });
 
   it('leaves a project file it cannot read as the draft had it', () => {
     const unreadable = btoa('{ not json');
