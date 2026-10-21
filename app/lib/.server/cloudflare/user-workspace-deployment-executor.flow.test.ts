@@ -52,6 +52,7 @@ vi.mock('./user-account-api', async (importOriginal) => ({
   UserCloudflareAccountApi: mocks.UserCloudflareAccountApi,
 }));
 
+import { isPassingDeploymentFailure } from '~/agents/builder-publication-retry';
 import { DeploymentConcurrencyLimitError, DeploymentStateConflictError } from './deployment-repository';
 import { D1MigrationChangedError } from './user-account-api';
 import {
@@ -128,6 +129,62 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
         expectedStatus: 'deploying',
         nextStatus: 'failed',
         errorCode: 'cloudflare_cleanup_required',
+      }),
+    );
+  });
+
+  it('recovers an interrupted deployment that promoted its version as succeeded, not failed', async () => {
+    const revision = 'a'.repeat(64);
+    const deployment = {
+      id: 'deployment-1',
+      chatId: 'chat-1',
+      userId: 'user-1',
+      connectionId: 'connection-1',
+      connectionGeneration: 3,
+      executionGeneration: 4,
+      workspaceReference: `workspace-runtime:project-1:7:${revision}`,
+      status: 'deploying',
+      plan: { sourceSha256: revision },
+      planDigest: 'digest-1',
+      productionUrl: null,
+      errorCode: null,
+      errorMessage: null,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const terminalizeInterruptedDeploymentSession = vi.fn().mockResolvedValue(undefined);
+    const projectNamespace = {
+      idFromName: vi.fn((name: string) => `id:${name}`),
+      get: vi.fn(() => ({ terminalizeInterruptedDeploymentSession })),
+    };
+    mocks.requireDeployment
+      .mockResolvedValueOnce(deployment)
+      .mockResolvedValueOnce({ ...deployment, status: 'succeeded' });
+    mocks.findDeploymentResource.mockImplementation(async (_db, _id, type: string, logicalName: string) =>
+      type === 'worker_version' && logicalName === 'production:4'
+        ? { providerResourceId: '11111111-1111-4111-8111-111111111111', createdAt: 1 }
+        : null,
+    );
+
+    await expect(
+      terminalizeInterruptedUserOwnedDeployment({
+        // SAFETY: recovery reads only these two bindings.
+        env: Object.assign({} as Env, { DB: {}, PROJECT_WORKSPACE: projectNamespace }),
+        deploymentId: deployment.id,
+        userId: deployment.userId,
+        connectionId: deployment.connectionId,
+        executionGeneration: deployment.executionGeneration,
+      }),
+    ).resolves.toMatchObject({ status: 'succeeded' });
+
+    expect(terminalizeInterruptedDeploymentSession).toHaveBeenCalledWith({ sessionId: 'deployment-1:4' });
+    expect(mocks.transitionDeployment).toHaveBeenCalledOnce();
+    expect(mocks.transitionDeployment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionGeneration: 4,
+        expectedStatus: 'deploying',
+        nextStatus: 'succeeded',
+        errorCode: 'deployment_follow_up_failed',
       }),
     );
   });
@@ -529,6 +586,70 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     expect(mocks.transitionDeployment).toHaveBeenCalledWith(
       expect.objectContaining({ nextStatus: 'failed', errorCode: 'cloudflare_cleanup_required' }),
     );
+  });
+
+  it('records the promoted version, and retries a success write D1 dropped instead of recording a failure', async () => {
+    const { execution } = await workerDeployment();
+    const successWrites: number[] = [];
+    mocks.transitionDeployment.mockImplementation(async (input: { nextStatus: string; now: number }) => {
+      if (input.nextStatus !== 'succeeded') {
+        return;
+      }
+      successWrites.push(input.now);
+      if (successWrites.length < 3) {
+        throw new Error('D1_ERROR: Network connection lost');
+      }
+    });
+
+    await expect(executeUserOwnedDeployment(execution)).resolves.toMatchObject({ status: 'succeeded' });
+
+    expect(mocks.recordDeploymentResource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resourceType: 'worker_version',
+        logicalName: 'production:4',
+        providerResourceId: '11111111-1111-4111-8111-111111111111',
+      }),
+    );
+    expect(successWrites).toHaveLength(3);
+    // One timestamp, so a write that landed without its acknowledgement is recognised by the next.
+    expect(new Set(successWrites).size).toBe(1);
+    expect(mocks.transitionDeployment).not.toHaveBeenCalledWith(expect.objectContaining({ nextStatus: 'failed' }));
+  });
+
+  it('never records a promoted deployment as failed when its success write cannot land, and asks for the retry that recovers it', async () => {
+    const { execution } = await workerDeployment();
+    mocks.transitionDeployment.mockImplementation(async (input: { nextStatus: string }) => {
+      if (input.nextStatus === 'succeeded') {
+        throw new Error('D1_ERROR: Network connection lost');
+      }
+    });
+
+    const failure = await executeUserOwnedDeployment(execution).then(
+      () => null,
+      (error: Error) => error,
+    );
+    expect(failure?.message).toMatch(
+      /^Production serves the new revision, but recording its deployment failed \(D1_ERROR: Network connection lost\)\. Deployment was interrupted\./,
+    );
+    // An automatic deployment retries it, and the retry's recovery records it as succeeded.
+    expect(isPassingDeploymentFailure({ message: failure?.message ?? '', retryable: false })).toBe(true);
+
+    expect(mocks.transitionDeployment).toHaveBeenCalledTimes(4);
+    expect(mocks.transitionDeployment).not.toHaveBeenCalledWith(expect.objectContaining({ nextStatus: 'failed' }));
+  });
+
+  it('takes a promoted deployment recovery already recorded as succeeded for its own success', async () => {
+    const { execution } = await workerDeployment();
+    mocks.transitionDeployment.mockImplementation(async (input: { nextStatus: string }) => {
+      if (input.nextStatus === 'succeeded') {
+        throw new DeploymentStateConflictError('succeeded');
+      }
+    });
+
+    await expect(executeUserOwnedDeployment(execution)).resolves.toMatchObject({ status: 'succeeded' });
+
+    expect(mocks.transitionDeployment).toHaveBeenCalledTimes(2);
+    expect(mocks.transitionDeployment).not.toHaveBeenCalledWith(expect.objectContaining({ nextStatus: 'failed' }));
   });
 
   it('refuses, before it changes anything, a deployment that drops the Agent from a Worker holding Agent data', async () => {

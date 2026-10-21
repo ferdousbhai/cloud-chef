@@ -47,6 +47,9 @@ type ProjectWorkspaceStub = ReturnType<Env['PROJECT_WORKSPACE']['get']>;
 const APP_AGENT_CLASS_NAME = 'AppAgent';
 /** How much of an applied migration's SQL a refusal quotes; the failure it records keeps its last 4,000 characters. */
 const MIGRATION_SQL_QUOTE_LIMIT = 2_000;
+/** How many times the success write is tried once production serves the version, which nothing may record as failed. */
+const SUCCESS_WRITE_ATTEMPTS = 3;
+const SUCCESS_WRITE_RETRY_DELAY_MS = 200;
 type WorkspaceReference = ReturnType<typeof parseWorkspaceReference>;
 type PublicationSession = { sessionId: string; finish(status: 'completed' | 'failed'): Promise<void> };
 
@@ -95,6 +98,26 @@ export async function terminalizeInterruptedUserOwnedDeployment(args: UserOwnedD
   await workspace.terminalizeInterruptedDeploymentSession({
     sessionId: `${deployment.id}:${args.executionGeneration}`,
   });
+  const promoted = await findDeploymentResource(
+    args.env.DB,
+    deployment.id,
+    'worker_version',
+    productionVersionReceipt(args.executionGeneration),
+  );
+  if (promoted) {
+    // Production serves the version this execution promoted before it could record that: it succeeded.
+    await transitionDeployment({
+      db: args.env.DB,
+      deploymentId: deployment.id,
+      executionGeneration: args.executionGeneration,
+      expectedStatus: deployment.status,
+      nextStatus: 'succeeded',
+      errorCode: 'deployment_follow_up_failed',
+      errorMessage:
+        'Production serves the new revision, but its deployment was interrupted before it was recorded. The next deployment repeats the steps after it.',
+    });
+    return requireDeployment(args.env.DB, deployment.id);
+  }
   await transitionDeployment({
     db: args.env.DB,
     deploymentId: deployment.id,
@@ -111,6 +134,7 @@ export async function terminalizeInterruptedUserOwnedDeployment(args: UserOwnedD
 export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs): Promise<Deployment> {
   let phase: DeploymentStatus = 'approved';
   let providerChangesPossible = false;
+  let promoted = false;
   let session: PublicationSession | null = null;
   const abortSignal = args.abortSignal;
   try {
@@ -184,11 +208,24 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     await applyProductionMigrations(publishApi, resources, artifact);
     providerChangesPossible = true;
     await activity(args, 50, 'Uploading assets and publishing Worker');
-    await publishApi.deployManagedWorker(
+    const published = await publishApi.deployManagedWorker(
       managedWorkerVersionArgs({ workerName, profile, reference, artifact, resources }),
     );
     // Production serves the new revision from here on, so the deployment succeeded whatever follows:
     // a step after it that fails is reported with the success, and the next deployment repeats it.
+    // Nothing records it as failed from here, and recovery reads this receipt as its success.
+    promoted = true;
+    const recordPromotion = () =>
+      recordResource(
+        args.env.DB,
+        deployment.id,
+        'worker_version',
+        productionVersionReceipt(args.executionGeneration),
+        published.workerVersionId,
+      );
+    await recordPromotion()
+      .catch(recordPromotion)
+      .catch(() => console.error('Unable to record the promoted production version'));
     const followUps = new PublicationFollowUps();
     await followUps.run('recording the route step', () => activity(args, 60, 'Configuring public Cloudflare route'));
     await followUps.run("setting the Worker's schedule", () =>
@@ -203,12 +240,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     );
     const productionUrl = workersSubdomain === null ? null : workersDevUrl(workerName, workersSubdomain);
     const warning = followUps.warning();
-    await transitionDeployment({
-      db: args.env.DB,
-      deploymentId: deployment.id,
-      executionGeneration: args.executionGeneration,
-      expectedStatus: 'deploying',
-      nextStatus: 'succeeded',
+    await recordSucceeded(args, deployment.id, {
       productionUrl,
       errorCode: warning ? 'deployment_follow_up_failed' : null,
       errorMessage: warning,
@@ -241,6 +273,14 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
       if (running && running.status !== 'approved' && running.status !== 'failed') {
         return running;
       }
+    }
+    if (promoted && phase !== 'succeeded') {
+      // Production serves the version, but its success could not be recorded: the record stays
+      // deploying, never failed, and the retry this asks for recovers it as succeeded.
+      console.error('Unable to record the promoted user-owned deployment');
+      throw new Error(
+        `Production serves the new revision, but recording its deployment failed (${safeError(error).slice(0, 300)}). Deployment was interrupted. Retry to record it.`,
+      );
     }
     if (phase === 'approved' && error instanceof DeploymentConcurrencyLimitError) {
       // Refused before it started: record it as failed, so it reads as what it is and retries
@@ -395,6 +435,49 @@ export async function executeUserOwnedPreview(
     };
   } finally {
     await session.finish('failed').catch(() => console.error('Unable to finalize ProjectWorkspace preview session'));
+  }
+}
+
+/** Which receipt says an execution promoted production's version, read by recovery as its success. */
+function productionVersionReceipt(executionGeneration: number): string {
+  return `production:${executionGeneration}`;
+}
+
+/**
+ * Record a promoted deployment as succeeded, trying again while D1 fails, under one timestamp so an attempt
+ * that landed without its acknowledgement is known by the next. Another write that settled it as succeeded
+ * (recovery, say) is the same answer; one that settled it otherwise stands.
+ */
+async function recordSucceeded(
+  args: UserOwnedDeploymentArgs,
+  deploymentId: string,
+  outcome: { productionUrl: string | null; errorCode: string | null; errorMessage: string | null },
+): Promise<void> {
+  const now = Date.now();
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await transitionDeployment({
+        db: args.env.DB,
+        deploymentId,
+        executionGeneration: args.executionGeneration,
+        expectedStatus: 'deploying',
+        nextStatus: 'succeeded',
+        ...outcome,
+        now,
+      });
+      return;
+    } catch (error) {
+      if (error instanceof DeploymentStateConflictError) {
+        if (error.status === 'succeeded') {
+          return;
+        }
+        throw error;
+      }
+      if (attempt >= SUCCESS_WRITE_ATTEMPTS) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, SUCCESS_WRITE_RETRY_DELAY_MS * attempt));
+    }
   }
 }
 
