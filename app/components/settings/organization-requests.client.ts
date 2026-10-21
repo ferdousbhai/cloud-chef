@@ -41,7 +41,7 @@ export class RequestError extends Error {
 }
 
 /** What a person sees when an answer is not the shape the page expects: never the parser's own report. */
-export const UNEXPECTED_ANSWER_MESSAGE = 'CloudChef answered unexpectedly. Reload the page and try again.';
+const UNEXPECTED_ANSWER_MESSAGE = 'CloudChef answered unexpectedly. Reload the page and try again.';
 
 async function parseResponse<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
   const payload: unknown = await response.json().catch(() => null);
