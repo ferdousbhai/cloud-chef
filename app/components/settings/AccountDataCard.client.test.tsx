@@ -129,7 +129,8 @@ describe('AccountDataCard', () => {
     await act(async () => button('Download account data').click());
 
     const alert = document.querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain('authSessions');
+    // Named as Settings names it, not by the export's key.
+    expect(alert?.textContent).toContain('could not read your sign-in sessions,');
     expect(alert?.textContent).toContain('not a complete copy');
     // The partial file is still saved, because it is still the user's data.
     expect(mocks.saveAs).toHaveBeenCalledOnce();
@@ -175,13 +176,19 @@ describe('AccountDataCard', () => {
 
   it('erases the control plane, clears local caches, and reports an unrevoked grant', async () => {
     fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ status: 'deleted', cloudflareAuthorizationRevoked: false }), { status: 200 }),
+      new Response(
+        JSON.stringify({ status: 'deleted', cloudflareAuthorizationRevoked: false, workspacesLeftIn: ['Acme'] }),
+        { status: 200 },
+      ),
     );
     await render();
     await openDeletionPanel();
     await fillConfirmation();
 
     await act(async () => button('Permanently delete').click());
+    expect(document.body.textContent).toContain(
+      "Your workspace couldn't be deleted from the Cloudflare account of Acme",
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/account/delete',
@@ -194,7 +201,7 @@ describe('AccountDataCard', () => {
     expect(mocks.disposeClientCollections).toHaveBeenCalledOnce();
     expect(mocks.resetUserRuntimeSession).toHaveBeenCalledOnce();
     expect(document.body.textContent).toContain('Cloudflare did not confirm the revocation');
-    expect(document.body.textContent).toContain('still in your Cloudflare account');
+    expect(document.body.textContent).toContain('still in the Cloudflare accounts they were deployed to');
   });
 
   it('offers a Cloudflare reconnect when the session is not freshly re-authenticated', async () => {

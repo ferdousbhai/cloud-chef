@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Button } from '@ui/Button';
 import { TextInput } from '@ui/TextInput';
-import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
+import { ACCOUNT_DELETION_CONFIRMATION, accountExportSectionLabel } from '~/lib/account-data';
 import { authClient } from '~/lib/auth-client';
 import { disposeClientCollections } from '~/lib/cloudflare/client-collections';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
@@ -15,6 +15,7 @@ const accountDeletionPayloadSchema = z.looseObject({
   code: z.string().optional().catch(undefined),
   error: z.string().optional().catch(undefined),
   cloudflareAuthorizationRevoked: z.boolean().optional().catch(undefined),
+  workspacesLeftIn: z.array(z.string()).optional().catch(undefined),
 });
 
 const CLOUDFLARE_OAUTH_AUTHORIZATIONS_URL = 'https://dash.cloudflare.com/?to=/profile/access-management/authorization';
@@ -26,10 +27,14 @@ type ExportPhase = 'idle' | 'downloading' | 'reauthenticate' | 'downloaded';
 const ACCOUNT_EXPORT_FILENAME = 'cloudchef-account-export.json';
 
 export function AccountDataCard() {
+  const { data: session } = authClient.useSession();
   const [phase, setPhase] = useState<DeletionPhase>('idle');
   const [confirmation, setConfirmation] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
   const [revoked, setRevoked] = useState(false);
+  // Known before erasure ends the session: whether there was a Cloudflare grant of their own to revoke.
+  const [hadOwnAccount, setHadOwnAccount] = useState(false);
+  const [workspacesLeftIn, setWorkspacesLeftIn] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [exportPhase, setExportPhase] = useState<ExportPhase>('idle');
   const [exportError, setExportError] = useState<string | null>(null);
@@ -84,7 +89,9 @@ export function AccountDataCard() {
       }
       await disposeClientCollections();
       resetUserRuntimeSession();
+      setHadOwnAccount(session?.contexts.some((option) => option.kind === 'personal') ?? false);
       setRevoked(payload?.cloudflareAuthorizationRevoked === true);
+      setWorkspacesLeftIn(payload?.workspacesLeftIn ?? []);
       setPhase('deleted');
     } catch {
       setPhase('confirming');
@@ -99,7 +106,6 @@ export function AccountDataCard() {
     setError(null);
   };
 
-  const { data: session } = authClient.useSession();
   const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
   // A fresh sign-in that landed in another account than the one that asked for it: export and
   // erasure would act on that other account, so they wait until the person signs back in.
@@ -125,8 +131,8 @@ export function AccountDataCard() {
         Your data
       </h2>
       <p className="mt-2 max-w-2xl text-sm text-content-secondary">
-        Projects and deployed resources live in your Cloudflare account. See the{' '}
-        <Link to="/privacy">Privacy notice</Link> for details.
+        Projects and deployed resources live in the Cloudflare account you build in: your own, or your team&apos;s. See
+        the <Link to="/privacy">Privacy notice</Link> for what CloudChef itself keeps.
       </p>
 
       <h3 className="mt-3 text-sm font-medium text-content-primary">Project source</h3>
@@ -148,13 +154,17 @@ export function AccountDataCard() {
       <details className="mt-2 text-sm text-content-secondary">
         <summary className="cursor-pointer py-1 text-content-primary">What’s included?</summary>
         <p className="mt-1 max-w-2xl">
-          Your identity and email, your AI request logs setting, connection metadata and granted scopes, credential
-          storage dates, workspace runtime address, and sign-in and authorization session records. Credentials,
-          credential handles, encryption vectors, and session tokens are excluded.
+          Your identity and email and your AI request logs setting; your own Cloudflare connection (its permissions and
+          default model) and when its authorization was stored; your workspaces; your teams, the invites sent to you,
+          your model use there, and the team projects you were given; your production requests, with a draft&apos;s
+          source until it is decided; GitHub connections and approvals you started; emailed sign-in links; and sign-in
+          and authorization session records. Credentials, credential handles, encryption vectors, session tokens, and
+          the hashes links and invites are checked against are excluded.
         </p>
         <p className="mt-2 max-w-2xl">
-          Chats, transcripts, project files, and deployment records are not included. They live in your Cloudflare
-          account. Use <strong>Download code</strong> for project source and Cloudflare’s tools for the rest.
+          Chats, transcripts, project files, and deployment records are not included. They live in the Cloudflare
+          account you build in. Use <strong>Download code</strong> for project source and Cloudflare’s tools for the
+          rest.
         </p>
       </details>
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -178,8 +188,9 @@ export function AccountDataCard() {
       ) : null}
       {unavailableSections.length > 0 ? (
         <p className="mt-2 max-w-2xl text-sm text-bolt-elements-icon-error" role="alert">
-          CloudChef could not read {unavailableSections.join(', ')}, so <code>{ACCOUNT_EXPORT_FILENAME}</code> is not a
-          complete copy and says so inside. Try again, and if it keeps failing use the request path below.
+          CloudChef could not read {unavailableSections.map(accountExportSectionLabel).join(', ')}, so{' '}
+          <code>{ACCOUNT_EXPORT_FILENAME}</code> is not a complete copy and says so inside. Try again, and if it keeps
+          failing use the request path below.
         </p>
       ) : exportPhase === 'downloaded' ? (
         <p className="mt-2 max-w-2xl text-sm text-content-secondary" role="status">
@@ -208,11 +219,17 @@ export function AccountDataCard() {
       {phase === 'deleted' ? (
         <div className="mt-2 max-w-2xl text-sm text-content-secondary" role="status">
           <p>
-            CloudChef erased your account identity, sessions, encrypted credentials, connection metadata, and runtime
-            address from its own database.
+            CloudChef erased your account identity, sessions, encrypted credentials, connection metadata, team
+            memberships, and workspace addresses from its own database.
           </p>
+          {workspacesLeftIn.length > 0 ? (
+            <p className="mt-2 text-bolt-elements-icon-error">
+              Your workspace couldn&apos;t be deleted from the Cloudflare account of {workspacesLeftIn.join(', ')}; ask
+              its admins to remove it there.
+            </p>
+          ) : null}
           <p className="mt-2">
-            {revoked ? (
+            {!hadOwnAccount ? null : revoked ? (
               'Cloudflare confirmed that CloudChef’s authorization was revoked.'
             ) : (
               <>
@@ -226,8 +243,8 @@ export function AccountDataCard() {
             )}
           </p>
           <p className="mt-2">
-            Resources CloudChef deployed are still in your Cloudflare account and still billed to it. Clear this
-            browser’s site data to remove its cookie, preferences, and tab-session state.
+            Resources CloudChef deployed are still in the Cloudflare accounts they were deployed to, and still billed to
+            them. Clear this browser’s site data to remove its cookie, preferences, and tab-session state.
           </p>
           <p className="mt-3">
             <a className="underline" href="/">
@@ -245,9 +262,14 @@ export function AccountDataCard() {
             <strong>Your Cloudflare resources remain live and billable.</strong> Browser data is not cleared.
           </p>
           <p className="mt-2 max-w-2xl text-sm text-content-secondary">
-            To remove deployed apps, delete their projects first and wait for cleanup (at least 30 minutes). This
-            removes each project’s resources, but not the shared workspace runtime or unrelated resources. After account
-            deletion, CloudChef can no longer clean up resources for you.
+            To remove apps you deployed to your own Cloudflare account, delete their projects first and wait for cleanup
+            (at least 30 minutes). This removes each project’s resources, but not your workspace runtime there or
+            unrelated resources. After account deletion, CloudChef can no longer clean up resources for you.
+          </p>
+          <p className="mt-2 max-w-2xl text-sm text-content-secondary">
+            In a team, you leave it, and your workspace in its Cloudflare account (your chats and project files there)
+            is deleted. Apps you deployed there stay, for its admins to keep or remove. If you&apos;re a team&apos;s
+            only admin, make someone else an admin first.
           </p>
           {phase === 'idle' ? (
             <Button className="mt-3" size="sm" variant="danger" onClick={() => setPhase('confirming')}>
@@ -263,8 +285,8 @@ export function AccountDataCard() {
                   onChange={(event) => setAcknowledged(event.target.checked)}
                 />
                 <span>
-                  I understand this is irreversible and that my deployed Cloudflare resources are retained and remain my
-                  responsibility.
+                  I understand this is irreversible, and that apps and resources deployed to Cloudflare are retained: in
+                  my own account they remain my responsibility, and in a team&apos;s account its admins&apos;.
                 </span>
               </label>
               <label className="grid gap-1 text-sm text-content-secondary">

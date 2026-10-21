@@ -13,6 +13,10 @@ const INITIALISATION_VECTOR = 'iv-must-never-be-exported';
 const SESSION_TOKEN_HASH = 'token-hash-must-never-be-exported';
 const PROVIDER_SESSION_ID = 'provider-session-must-never-be-exported';
 const CREDENTIAL_HANDLE = 'credential-handle-must-never-be-exported';
+const INVITE_TOKEN_HASH = 'invite-token-hash-must-never-be-exported';
+const GITHUB_STATE = 'github-state-must-never-be-exported';
+const APPROVAL_STATE = 'approval-state-must-never-be-exported';
+const EMAIL_TOKEN_HASH = 'email-token-hash-must-never-be-exported';
 
 describe('control-plane account export', () => {
   it('exports every operator-held section for the account', async () => {
@@ -48,8 +52,11 @@ describe('control-plane account export', () => {
         accountName: 'Account',
         status: 'active',
         grantedCapabilities: ['workers'],
+        requestedOAuthScopes: [],
         grantedOAuthScopes: [],
+        oauthScopeProfileVersion: null,
         oauthScopeGrantStatus: 'unknown',
+        defaultBuilderModel: null,
         aiBillingEnabled: true,
         connectedAt: '1970-01-01T00:00:00.001Z',
         updatedAt: '1970-01-01T00:00:00.001Z',
@@ -90,6 +97,19 @@ describe('control-plane account export', () => {
       truncated: false,
       requests: [],
     });
+    expect(exported.sections.githubConnections).toEqual({
+      status: 'exported',
+      total: 0,
+      truncated: false,
+      connections: [],
+    });
+    expect(exported.sections.githubApprovals).toEqual({
+      status: 'exported',
+      total: 0,
+      truncated: false,
+      approvals: [],
+    });
+    expect(exported.sections.emailSignInLinks).toEqual({ status: 'exported', total: 0, truncated: false, links: [] });
     expect(exported.sections.authSessions).toEqual({
       status: 'exported',
       total: 1,
@@ -216,10 +236,91 @@ describe('control-plane account export', () => {
       'organizationUsage',
       'organizationProjects',
       'productionRequests',
+      'githubConnections',
+      'githubApprovals',
+      'emailSignInLinks',
       'authSessions',
       'oauthStates',
     ]);
     warn.mockRestore();
+  });
+
+  it("exports a team member's records: membership, invite, draft and its source, and sign-ins in progress", async () => {
+    const { database, db } = controlPlaneDatabase();
+    seedAccount(database);
+    database.exec(`
+      UPDATE "user" SET email_proven_at = 5 WHERE id = 'user-1';
+      UPDATE cloudflare_connections SET default_builder_model = 'anthropic/claude-sonnet-4-5',
+        requested_oauth_scopes_json = '["workers-scripts.write"]', oauth_scope_profile_version = 'core-v1';
+      UPDATE user_computer_runtimes SET image_digest = 'sha256:abc', protocol_version = 7, last_session_at = 9;
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('acme', 'Acme', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed) VALUES ('acme', 'user-1', 'member', 2, 0);
+      INSERT INTO organization_invites
+        (id, org_id, email, role, token_hash, invited_by, expires_at, created_at, project_ids, drafts_allowed)
+        VALUES ('invite-1', 'acme', 'USER-1@example.test', 'member', '${INVITE_TOKEN_HASH}', 'user-1', 10, 1,
+                '["project-1"]', 0);
+      INSERT INTO production_requests (id, org_id, requested_by, title, note, preview_url, snapshot_gzip_base64,
+        snapshot_files, status, created_at, draft_id, draft_revision, updated_at)
+        VALUES ('request-1', 'acme', 'user-1', 'Site', 'Please', 'https://preview.example', 'H4sIdraft', 3,
+                'pending', 3, 'draft-1', 'rev-2', 4);
+      INSERT INTO production_requests (id, org_id, requested_by, title, snapshot_gzip_base64, snapshot_files,
+        status, decision_note, decided_at, created_at)
+        VALUES ('request-0', 'acme', 'user-1', 'Old', '', 2, 'declined', 'Not now', 3, 1);
+      INSERT INTO github_install_states (id, org_id, user_id, return_to, expires_at, created_at)
+        VALUES ('${GITHUB_STATE}', 'acme', 'user-1', '/settings', 20, 2);
+      INSERT INTO github_approval_states (id, request_id, user_id, repo_name, private, expires_at, created_at)
+        VALUES ('${APPROVAL_STATE}', 'request-1', 'user-1', 'site', 1, 21, 3);
+      INSERT INTO email_sign_in_tokens (token_hash, email, return_to, expires_at, created_at)
+        VALUES ('${EMAIL_TOKEN_HASH}', 'user-1@example.test', '/join', 30, 4);
+    `);
+
+    const exported = await exportControlPlaneAccount({ env: { DB: db } as Env, userId: 'user-1' });
+
+    expect(exported.sections.cloudflareConnection).toMatchObject({
+      connection: {
+        requestedOAuthScopes: ['workers-scripts.write'],
+        oauthScopeProfileVersion: 'core-v1',
+        defaultBuilderModel: 'anthropic/claude-sonnet-4-5',
+      },
+    });
+    expect(exported.sections.computerRuntimes).toMatchObject({
+      computerRuntimes: [{ imageDigest: 'sha256:abc', protocolVersion: 7, lastSessionAt: '1970-01-01T00:00:00.009Z' }],
+    });
+    expect(exported.sections.organizations).toMatchObject({
+      memberships: [{ organizationId: 'acme', role: 'member', draftsAllowed: false }],
+    });
+    expect(exported.sections.organizationInvites).toMatchObject({
+      invites: [{ organizationName: 'Acme', projectIds: ['project-1'], draftsAllowed: false }],
+    });
+    expect(exported.sections.productionRequests).toMatchObject({
+      total: 2,
+      requests: [
+        {
+          id: 'request-1',
+          previewUrl: 'https://preview.example',
+          draftId: 'draft-1',
+          draftRevision: 'rev-2',
+          updatedAt: '1970-01-01T00:00:00.004Z',
+          draftFiles: 3,
+          draftSourceGzipBase64: 'H4sIdraft',
+        },
+        { id: 'request-0', status: 'declined', decisionNote: 'Not now', draftSourceGzipBase64: null },
+      ],
+    });
+    expect(exported.sections.githubConnections).toMatchObject({
+      connections: [{ organizationId: 'acme', returnTo: '/settings', usedAt: null }],
+    });
+    expect(exported.sections.githubApprovals).toMatchObject({
+      approvals: [{ requestId: 'request-1', repositoryName: 'site', private: true }],
+    });
+    expect(exported.sections.emailSignInLinks).toMatchObject({
+      links: [{ email: 'user-1@example.test', returnTo: '/join' }],
+    });
+    // What these records are checked against stays in the control plane.
+    const serialized = JSON.stringify(exported);
+    for (const secret of [INVITE_TOKEN_HASH, GITHUB_STATE, APPROVAL_STATE, EMAIL_TOKEN_HASH]) {
+      expect({ secret, present: serialized.includes(secret) }).toEqual({ secret, present: false });
+    }
   });
 
   it('exports nothing belonging to another account', async () => {
