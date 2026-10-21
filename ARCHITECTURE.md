@@ -192,7 +192,8 @@ recording the commit and each file's hash. The runtime never holds a GitHub toke
 calls are authenticated like the credential broker and re-check the member's access to the project, and that the
 project belongs to the organization the runtime runs for (`app/server-handlers/runtime-github.ts`). Validation runs the
 repository's own `typecheck`, `lint`, `test`, and `build` scripts. The agent's `publish_preview` commits the workspace's
-changes, one commit on top of the commit it was opened from, to the conversation's own branch
+changes (as git would, leaving out new files the repository's `.gitignore` files ignore, and never sending a local
+`.env*` or `.dev.vars*`), one commit on top of the commit it was opened from, to the conversation's own branch
 (`cloudchef/<member>-<key>`, the key kept with the workspace's link), and `publish` also merges that branch into the
 default branch; the repository's own pipeline (Workers Builds) previews and deploys, and its check runs report the build
 and the preview link. A subchat gets its own key, since its parent can go on working; a new conversation keeps the

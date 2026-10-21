@@ -2,6 +2,7 @@ import { WORK_DIR } from 'cloudchef-agent/constants';
 import type { LinkedSnapshotLine } from '~/lib/.server/cloudflare/linked-project-client';
 import { bytesToBase64, sha256Hex } from '~/lib/hex-digest';
 import type { BuilderWorkspaceApi } from './builder-workspace-api';
+import { gitignoreMatcher, isNeverPublished } from './linked-project-ignore';
 import {
   BUILDER_WORKSPACE_SYNC_BATCH_BYTES,
   BUILDER_WORKSPACE_SYNC_BATCH_FILES,
@@ -112,6 +113,8 @@ export async function seedLinkedWorkspace(
 /**
  * The workspace's changes against its base commit: every file whose content or executable bit differs or
  * is new, and every file that's gone. This is exactly what GitHub needs to show the workspace as it is.
+ * As in git, a new file the project's `.gitignore` files ignore is left out (one GitHub already has is
+ * sent whether or not it is ignored), and local secrets (`isNeverPublished`) never go, either way.
  * Also returns the workspace's own manifest, which becomes the base once the changes are merged.
  */
 export async function linkedWorkspaceChanges(
@@ -123,13 +126,28 @@ export async function linkedWorkspaceChanges(
   const current = workspace
     .listFiles()
     .filter((file) => !EXCLUDED_ROOTS.has(projectPath(file.path).split('/')[0] ?? ''));
+  const gitignores = await Promise.all(
+    current
+      .filter((file) => isGitignore(projectPath(file.path)))
+      .map(async (file) => ({
+        path: projectPath(file.path),
+        content: new TextDecoder().decode((await workspace.readFile(file.path)).bytes),
+      })),
+  );
+  const ignored = gitignoreMatcher(gitignores);
   const changes: LinkedChange[] = [];
-  const manifest: BuilderWorkspaceLinkedProject['baseManifest'] = [];
+  // A secret GitHub has stays as GitHub has it: neither its edit nor its removal is sent.
+  const manifest: BuilderWorkspaceLinkedProject['baseManifest'] = linked.baseManifest.filter((file) =>
+    isNeverPublished(file.path),
+  );
   const present = new Set<string>();
   for (const file of current) {
     const path = projectPath(file.path);
-    present.add(path);
     const before = base.get(path);
+    if (isNeverPublished(path) || (!before && ignored(path))) {
+      continue;
+    }
+    present.add(path);
     // A workspace seeded before it kept GitHub's modes holds every file as non-executable, so there an
     // executable at the base stays one: only a workspace with GitHub's modes can tell a removed bit.
     const executable = (file.mode & 0o111) !== 0 || (!linked.workspaceModes && before?.executable === true);
@@ -141,11 +159,15 @@ export async function linkedWorkspaceChanges(
     changes.push({ path, contentBase64: bytesToBase64(read.bytes), executable });
   }
   for (const path of base.keys()) {
-    if (!present.has(path)) {
+    if (!present.has(path) && !isNeverPublished(path)) {
       changes.push({ path, contentBase64: null, executable: false });
     }
   }
   return { changes, manifest };
+}
+
+function isGitignore(path: string): boolean {
+  return path === '.gitignore' || path.endsWith('/.gitignore');
 }
 
 function projectPath(path: string): string {
@@ -154,24 +176,37 @@ function projectPath(path: string): string {
 
 /**
  * A draft's files at its current revision, as the gzipped JSON a production request carries
- * (`[{ path, contentBase64 }]`, base64): read page by page from the workspace's own sync feed.
+ * (`[{ path, contentBase64 }]`, base64): read page by page from the workspace's own sync feed. The draft
+ * becomes a new repository's first commit, so every file is new to git: what its `.gitignore` files
+ * ignore, and local secrets, are left out.
  */
 export async function packDraftSnapshot(
   workspace: Pick<BuilderWorkspaceApi, 'getSyncPage'>,
 ): Promise<{ snapshot: string; files: number }> {
   let files: { path: string; contentBase64: string }[] = [];
+  let gitignores: { path: string; content: string }[] = [];
   let cursor: string | undefined;
   for (;;) {
     const page = await workspace.getSyncPage(cursor ? { fromRevision: 0, cursor } : { fromRevision: 0 });
     if (page.restart) {
       files = [];
+      gitignores = [];
       cursor = undefined;
       continue;
     }
     for (const entry of page.entries) {
       const path = projectPath(entry.path);
-      if (entry.kind !== 'write' || EXCLUDED_ROOTS.has(path.split('/')[0] ?? '')) {
+      if (entry.kind !== 'write' || EXCLUDED_ROOTS.has(path.split('/')[0] ?? '') || isNeverPublished(path)) {
         continue;
+      }
+      if (isGitignore(path)) {
+        gitignores.push({
+          path,
+          content:
+            entry.encoding === 'base64'
+              ? new TextDecoder().decode(Uint8Array.from(atob(entry.content), (char) => char.charCodeAt(0)))
+              : entry.content,
+        });
       }
       files.push({
         path,
@@ -184,6 +219,8 @@ export async function packDraftSnapshot(
     }
     cursor = page.nextCursor;
   }
+  const ignored = gitignoreMatcher(gitignores);
+  files = files.filter((file) => !ignored(file.path));
   const compressed = new Blob([JSON.stringify(files)]).stream().pipeThrough(new CompressionStream('gzip'));
   return { snapshot: bytesToBase64(new Uint8Array(await new Response(compressed).arrayBuffer())), files: files.length };
 }
