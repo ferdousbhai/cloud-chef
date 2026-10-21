@@ -252,7 +252,7 @@ overrides:
   '@hono/node-server@<2.0.10': '2.0.10'
   'browserslist@<=4.28.6': '4.28.8'
   'fast-uri@>=3.0.0 <3.1.8': '3.1.8'
-  'hono@<4.13.8': '4.13.8'
+  'hono@<4.13.11': '4.13.11'
   'ip-address@<=10.7.0': '10.7.1'
   'js-yaml@>=4.0.0 <4.3.2': '4.3.2'
   'nanoid@<3.3.18': '3.3.18'
@@ -284,7 +284,7 @@ overrides:
         'pnpm-workspace.yaml overrides must pin @hono/node-server@<2.0.10 to 2.0.10.',
         'pnpm-workspace.yaml overrides must pin browserslist@<=4.28.6 to 4.28.8.',
         'pnpm-workspace.yaml overrides must pin fast-uri@>=3.0.0 <3.1.8 to 3.1.8.',
-        'pnpm-workspace.yaml overrides must pin hono@<4.13.8 to 4.13.8.',
+        'pnpm-workspace.yaml overrides must pin hono@<4.13.11 to 4.13.11.',
         'pnpm-workspace.yaml overrides must pin ip-address@<=10.7.0 to 10.7.1.',
         'pnpm-workspace.yaml overrides must pin js-yaml@>=4.0.0 <4.3.2 to 4.3.2.',
         'pnpm-workspace.yaml overrides must pin nanoid@<3.3.18 to 3.3.18.',
