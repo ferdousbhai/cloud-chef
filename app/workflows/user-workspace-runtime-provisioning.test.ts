@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { USER_WORKSPACE_DATA_MIGRATIONS } from '~/generated/user-workspace-runtime.generated';
 import { sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import type { UserWorkspaceRuntime } from '~/lib/.server/cloudflare/user-workspace-runtime-repository';
@@ -780,6 +781,50 @@ describe('workspace runtime provisioning Workflow', () => {
     expect(mocks.claimUpgradeWindow).not.toHaveBeenCalled();
     expect(mocks.changeUpgradeWindow).not.toHaveBeenCalled();
     expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
+  });
+
+  it("applies the running release's migrations before uploading its runtime onto a database an earlier release prepared", async () => {
+    // What an instance started by the earlier release recorded before a release deployed: its
+    // 'prepare workspace database' result is replayed and never applies this release's migrations.
+    const recorded = new Map<string, object | string | null>([
+      ['inspect account', { status: 'entitled', workersSubdomain: 'user' }],
+      ['prepare workspace database', 'database-1'],
+      ['inspect live workspace', null],
+    ]);
+    const order: string[] = [];
+    mocks.accountApi.applyD1Migrations.mockImplementation(async () => {
+      order.push('migrate');
+    });
+    mocks.accountApi.deployWorkspaceRuntimeWorker.mockImplementation(async () => {
+      order.push('upload');
+      return { namespaceId: 'namespace-1' };
+    });
+    const args = workflowArgs();
+    const step = {
+      async do<T>(
+        name: string,
+        config: Parameters<UserWorkspaceRuntimeProvisioningStep['do']>[1],
+        operation: () => Promise<T>,
+      ) {
+        if (recorded.has(name)) {
+          // SAFETY: each recorded result is the one this step returned when the instance recorded it.
+          return recorded.get(name) as T;
+        }
+        return args.step.do(name, config, operation);
+      },
+      sleep: args.step.sleep,
+    } satisfies UserWorkspaceRuntimeProvisioningStep;
+
+    await expect(runUserWorkspaceRuntimeProvisioningWorkflow({ ...args, step })).resolves.toEqual({
+      status: 'ready',
+    });
+
+    expect(mocks.accountApi.ensureD1Database).not.toHaveBeenCalled();
+    expect(mocks.accountApi.applyD1Migrations).toHaveBeenCalledExactlyOnceWith(
+      'database-1',
+      USER_WORKSPACE_DATA_MIGRATIONS,
+    );
+    expect(order).toEqual(['migrate', 'upload']);
   });
 
   it('fails closed when the connection cannot provision the runtime', async () => {

@@ -428,6 +428,10 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
               return { status: 'busy', checkedAt: dependencies.now(), waitMs };
             }
           }
+          // 'prepare workspace database' is recorded once, by the code that started the instance, but this
+          // uploads the runtime of the code running now: a release deployed while it waited may need
+          // migrations that step never knew. Applying is idempotent, so the runtime it uploads finds them.
+          await accountApi.applyD1Migrations(databaseId, USER_WORKSPACE_DATA_MIGRATIONS);
           const deployed = await accountApi.deployWorkspaceRuntimeWorker({
             workerName,
             source: USER_WORKSPACE_RUNTIME_SOURCE,
