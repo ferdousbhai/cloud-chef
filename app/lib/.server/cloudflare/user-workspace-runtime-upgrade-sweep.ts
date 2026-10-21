@@ -103,7 +103,8 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
           const runtime = await dependencies.findRuntime(args.env.DB, candidate.userId, candidate.connectionId);
           return (
             runtime?.runtimeVersion === USER_WORKSPACE_RUNTIME_SHA256 &&
-            runtime.imageDigest === USER_WORKSPACE_SANDBOX_BASE_IMAGE
+            runtime.imageDigest === USER_WORKSPACE_SANDBOX_BASE_IMAGE &&
+            runtime.protocolVersion === USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION
           );
         },
       });
