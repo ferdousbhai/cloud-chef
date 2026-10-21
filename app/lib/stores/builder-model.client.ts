@@ -232,8 +232,11 @@ export function syncBuilderModelPreference(event: Pick<StorageEvent, 'key' | 'ne
   }
   const models = builderModelsStore.get();
   const saved = readSavedModelId(event.newValue);
+  // The same trust as a saved preference on load: before the catalog arrives, any well-formed id.
   builderModelStore.set(
-    saved !== null && models.some(({ id }) => id === saved) ? saved : builderDefaultModelStore.get(),
+    saved !== null && (!catalogInstalled || models.some(({ id }) => id === saved))
+      ? saved
+      : builderDefaultModelStore.get(),
   );
 }
 
