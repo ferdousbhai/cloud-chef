@@ -252,7 +252,7 @@ function ensureD1Database(d1) {
  * Replace a binding's resource id in cloudflare.config.ts source: the first quoted `currentId` after the binding's
  * `NAME:` key, so comments and formatting survive. Placeholder or empty ids never overwrite anything.
  */
-export function setBindingId(raw, bindingName, currentId, nextId, placeholderId) {
+function setBindingId(raw, bindingName, currentId, nextId, placeholderId) {
   if (!nextId || nextId === placeholderId || nextId === currentId) {
     return raw;
   }
