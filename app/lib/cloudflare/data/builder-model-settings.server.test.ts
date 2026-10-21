@@ -5,7 +5,7 @@ import { readDefaultBuilderModel } from './builder-model-settings.server';
 function databaseWith(model: string | null): D1Database {
   const statement = { bind: () => statement, first: async () => ({ model }) };
   // SAFETY: `readDefaultBuilderModel` calls only `prepare(...).bind(...).first()`, which this implements.
-  return { prepare: () => statement } as unknown as D1Database;
+  return Object.assign({} as D1Database, { prepare: () => statement });
 }
 
 describe("an account's default builder model", () => {

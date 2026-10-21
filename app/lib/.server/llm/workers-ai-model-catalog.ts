@@ -70,9 +70,11 @@ export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalog
       requiresPaid: properties.get('require_workers_paid') === 'true',
       reasoning,
       vision: properties.get('vision') === 'true',
-      // The efforts Pi's catalog lists for the model, offered only while Cloudflare says it reasons.
-      ...(reasoning ? withReasoningLevels(piModel) : {}),
     };
+    // The efforts Pi's catalog lists for the model, offered only while Cloudflare says it reasons.
+    if (reasoning) {
+      Object.assign(model, withReasoningLevels(piModel));
+    }
     const createdAt = catalogEntryCreatedAt(entry);
     if (createdAt !== undefined) {
       model.createdAt = createdAt;

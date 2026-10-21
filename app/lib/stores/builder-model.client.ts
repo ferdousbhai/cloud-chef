@@ -49,11 +49,14 @@ export const builderDefaultModelStore = atom<BuilderModelId>(CLOUDFLARE_WORKERS_
 export const builderModelsStore = atom<readonly BuilderModel[]>([DEFAULT_WORKERS_AI_MODEL]);
 export const builderModelCatalogStatusStore = atom<'idle' | 'loading' | 'ready' | 'error'>('idle');
 
+/** The reasoning effort chosen per model id, as this browser keeps it. */
+type BuilderReasoningChoices = Readonly<Record<string, BuilderReasoningLevel>>;
+
 /**
  * The reasoning effort this browser chose per model id. A model with no entry runs at its provider's
  * default effort ("Provider default"), which is also what an entry the model no longer offers means.
  */
-export const builderReasoningChoicesStore = atom<Readonly<Record<string, BuilderReasoningLevel>>>({});
+export const builderReasoningChoicesStore = atom<BuilderReasoningChoices>({});
 
 /**
  * Models Cloudflare has added since this browser last looked. Empty on the first ever catalog
@@ -73,7 +76,7 @@ export function loadBuilderModelPreference(storage?: BuilderModelStorage): void 
  */
 export function builderReasoningLevelFor(
   model: Pick<BuilderModel, 'id' | 'reasoningLevels'>,
-  choices: Readonly<Record<string, BuilderReasoningLevel>> = builderReasoningChoicesStore.get(),
+  choices: BuilderReasoningChoices = builderReasoningChoicesStore.get(),
 ): BuilderReasoningLevel | undefined {
   const chosen = choices[model.id];
   return chosen !== undefined && model.reasoningLevels?.includes(chosen) ? chosen : undefined;
@@ -209,7 +212,7 @@ function readSavedModelId(value: string | null): BuilderModelId | null {
   return isBuilderModelId(upgraded) ? upgraded : null;
 }
 
-function readReasoningChoices(storage?: BuilderModelStorage): Record<string, BuilderReasoningLevel> {
+function readReasoningChoices(storage?: BuilderModelStorage): BuilderReasoningChoices {
   try {
     return parseReasoningChoices((storage ?? localStorage).getItem(BUILDER_REASONING_STORAGE_KEY));
   } catch {
@@ -217,7 +220,7 @@ function readReasoningChoices(storage?: BuilderModelStorage): Record<string, Bui
   }
 }
 
-function parseReasoningChoices(value: string | null): Record<string, BuilderReasoningLevel> {
+function parseReasoningChoices(value: string | null): BuilderReasoningChoices {
   if (value === null) {
     return {};
   }
@@ -231,14 +234,12 @@ function parseReasoningChoices(value: string | null): Record<string, BuilderReas
   if (!record.success) {
     return {};
   }
-  const choices: Record<string, BuilderReasoningLevel> = {};
-  for (const [modelId, level] of Object.entries(record.data)) {
-    const parsedLevel = builderReasoningLevelSchema.safeParse(level);
-    if (isBuilderModelId(modelId) && parsedLevel.success) {
-      choices[modelId] = parsedLevel.data;
-    }
-  }
-  return choices;
+  return Object.fromEntries(
+    Object.entries(record.data).flatMap(([modelId, level]) => {
+      const parsedLevel = builderReasoningLevelSchema.safeParse(level);
+      return isBuilderModelId(modelId) && parsedLevel.success ? [[modelId, parsedLevel.data] as const] : [];
+    }),
+  );
 }
 
 function applyUnseenModels(models: readonly BuilderModel[], storage?: BuilderModelStorage): void {

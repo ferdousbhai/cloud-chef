@@ -154,8 +154,11 @@ export type BuilderModelCatalogPayload = {
  * the same model under the old spelling, so it is read under the new one rather than dropped.
  */
 export function upgradeLegacyBuilderModelId<T extends string | null | undefined>(value: T): T | GatewayModelId {
-  return typeof value === 'string' && /^claude-[a-z0-9][a-z0-9._-]*$/.test(value) ? `anthropic/${value}` : value;
+  const legacy = legacyClaudeModelIdSchema.safeParse(value);
+  return legacy.success ? `anthropic/${legacy.data}` : value;
 }
+
+const legacyClaudeModelIdSchema = z.string().regex(/^claude-[a-z0-9][a-z0-9._-]*$/);
 
 export function isWorkersAiModelId(value: string | null | undefined): value is WorkersAiModelId {
   return value !== null && value !== undefined && workersAiModelIdSchema.safeParse(value).success;

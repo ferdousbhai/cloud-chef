@@ -243,6 +243,7 @@ describe('minimal Workers AI tool surface', () => {
     const original = 'one\ntwo\n';
     const workspace = workspaceStub({ files: { [path]: original } });
     const tools = createWorkersAiTools(workspace, operationContext());
+    // SAFETY: a successful read of an existing file returns its snapshot tag as `base`.
     const read = (await executeTool(tools.read, { path })) as { base: string };
 
     await expect(

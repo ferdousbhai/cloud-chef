@@ -74,7 +74,7 @@ function builderReasoningLevels(model: Model<Api>): BuilderReasoningLevel[] | un
   }
   const levels = getSupportedThinkingLevels(model).filter(
     (level): level is BuilderReasoningLevel =>
-      level !== 'off' && (level !== 'minimal' || typeof model.thinkingLevelMap?.minimal === 'string'),
+      level !== 'off' && (level !== 'minimal' || (model.thinkingLevelMap?.minimal ?? null) !== null),
   );
   return levels.length > 0 ? levels : undefined;
 }

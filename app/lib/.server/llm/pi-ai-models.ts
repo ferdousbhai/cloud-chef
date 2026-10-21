@@ -33,7 +33,11 @@ import {
 } from '~/lib/workers-ai-model';
 import { GATEWAY_BINDING_ORIGIN, piGatewayModel, type GatewayApi } from './pi-model-catalog';
 import { recordPiStage } from './pi-telemetry';
-import { withProviderDefaultReasoning } from './provider-default-reasoning';
+import {
+  providerRequestBodySchema,
+  withProviderDefaultReasoning,
+  type ProviderRequestBody,
+} from './provider-default-reasoning';
 import {
   WORKERS_AI_GATEWAY_UNLOGGED,
   workersAiGatewayHeaders,
@@ -502,18 +506,18 @@ function createGatewayFetch(
         headers[name] = value;
       }
     }
-    const response = await binding.gateway(GATEWAY_ID).run(
-      {
-        provider: route.provider,
-        endpoint,
-        headers,
-        query: withProviderDefaultReasoning(route.reasoning.model, await request.json<Record<string, unknown>>(), {
+    // A body whose reasoning fields are not shaped as Pi writes them goes exactly as written.
+    const body = await request.json();
+    const parsed = providerRequestBodySchema.safeParse(body);
+    const query = parsed.success
+      ? withProviderDefaultReasoning(route.reasoning.model, parsed.data, {
           requested: route.reasoning.requested,
           summaries: route.reasoning.summaries,
-        }),
-      },
-      { signal: request.signal },
-    );
+        })
+      : body;
+    const response = await binding
+      .gateway(GATEWAY_ID)
+      .run({ provider: route.provider, endpoint, headers, query }, { signal: request.signal });
     if (response.status === 401 || response.status === 403) {
       await response.body?.cancel().catch(() => undefined);
       // `error.message` is where both Anthropic's and OpenAI's SDKs read a refusal, so each reports
@@ -530,11 +534,7 @@ function createGatewayFetch(
 }
 
 /** The OpenAI-compatible body Pi serialises, forwarded to the binding verbatim apart from `model`. */
-type WorkersAiBindingInputs = Record<string, unknown> & {
-  model?: string;
-  max_completion_tokens?: number;
-  reasoning_effort?: string;
-};
+type WorkersAiBindingInputs = ProviderRequestBody;
 
 type WorkersAiRawRunOptions = {
   returnRawResponse: true;
@@ -557,7 +557,7 @@ function createWorkersAiBindingFetch(
     recordPiStage('binding_fetch_enter', modelId);
     const request = new Request(input, init);
     request.signal.throwIfAborted();
-    let payload = withProviderDefaultReasoning(model, await request.json<WorkersAiBindingInputs>(), {
+    let payload = withProviderDefaultReasoning(model, providerRequestBodySchema.parse(await request.json()), {
       requested: reasoningRequested,
     });
     // The model is the first binding argument; keeping it out of inputs matches env.AI.run().

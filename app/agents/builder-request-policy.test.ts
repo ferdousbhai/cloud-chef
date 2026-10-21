@@ -76,7 +76,7 @@ describe('BuilderAgent request policy', () => {
   );
 
   it('carries a chosen reasoning effort, and none for the provider default', () => {
-    const scope = (reasoningLevel: unknown) =>
+    const scope = (reasoningLevel: string | null | undefined) =>
       requireBuilderRequestScope(
         {
           chatInitialId: 'chat',

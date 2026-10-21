@@ -1,4 +1,5 @@
 import type { Api, Model } from '@earendil-works/pi-ai';
+import { z } from 'zod';
 
 /**
  * CloudChef never turns a reasoning model's reasoning off. When the person has chosen no level,
@@ -11,7 +12,7 @@ import type { Api, Model } from '@earendil-works/pi-ai';
  * Chat Completions dialects send `reasoning_effort: "none"`, `thinking: { type: "disabled" }`, or
  * `enable_thinking: false`. Each of those disables reasoning on the models that accept it, so this
  * removes exactly those values — and only when no level was requested, so a level a person chose
- * (their `Off` included, were it ever offered) reaches the provider unchanged.
+ * reaches the provider unchanged.
  *
  * OpenAI Responses requests are sent with `store: false`, so a reasoning item replayed on the next
  * request of a tool turn is valid only with its `encrypted_content`. Pi asks for that content only
@@ -22,53 +23,86 @@ import type { Api, Model } from '@earendil-works/pi-ai';
  * can see; the effort itself is left to the provider.
  */
 
-type RequestBody = Record<string, unknown>;
+/** A reasoning directive object as Pi's OpenAI-shaped adapters write it. */
+const reasoningDirectiveSchema = z.looseObject({
+  effort: z.string().optional(),
+  enabled: z.boolean().optional(),
+  summary: z.string().optional(),
+});
+
+const chatTemplateValuesSchema = z.looseObject({ enable_thinking: z.boolean().optional() });
+
+const thinkingObjectSchema = z.looseObject({ type: z.string() });
+
+/** One item of an OpenAI Responses `input`, read only for the fields this module acts on. */
+const responsesInputItemSchema = z.looseObject({
+  type: z.string().optional(),
+  role: z.string().optional(),
+  id: z.string().optional(),
+  encrypted_content: z.string().nullish(),
+});
+
+/**
+ * The fields of an OpenAI-shaped request body that carry reasoning, typed as Pi writes them; every
+ * other field passes through untouched. A body this cannot read is sent exactly as Pi wrote it.
+ */
+export const providerRequestBodySchema = z.looseObject({
+  model: z.string().optional(),
+  max_completion_tokens: z.number().optional(),
+  reasoning: reasoningDirectiveSchema.optional(),
+  reasoning_effort: z.string().optional(),
+  thinking: z.union([thinkingObjectSchema, z.string()]).optional(),
+  enable_thinking: z.boolean().optional(),
+  chat_template_kwargs: chatTemplateValuesSchema.optional(),
+  chat_template_args: chatTemplateValuesSchema.optional(),
+  include: z.array(z.string()).optional(),
+  input: z.array(responsesInputItemSchema).optional(),
+});
+
+export type ProviderRequestBody = z.infer<typeof providerRequestBodySchema>;
+
+type ResponsesInputItem = z.infer<typeof responsesInputItemSchema>;
 
 /** The values that mean "reasoning off" to a model: its own `off` mapping, and the generic `none`. */
 function offValues(model: Model<Api>): ReadonlySet<string> {
-  const off = model.thinkingLevelMap?.off;
-  return new Set(typeof off === 'string' ? [off, 'none'] : ['none']);
+  const off = z.string().safeParse(model.thinkingLevelMap?.off);
+  return new Set(off.success ? [off.data, 'none'] : ['none']);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** Removes `key` from `holder[field]`, and `holder[field]` itself once nothing is left in it. */
-function deleteNested(holder: RequestBody, field: string, key: string): void {
-  const nested = holder[field];
-  if (!isRecord(nested)) {
-    return;
-  }
-  delete nested[key];
-  if (Object.keys(nested).length === 0) {
-    delete holder[field];
-  }
-}
-
-function withoutCompletionsOff(body: RequestBody, off: ReadonlySet<string>): void {
-  const { reasoning, thinking } = body;
-  if (isRecord(reasoning)) {
-    if (typeof reasoning.effort === 'string' && off.has(reasoning.effort)) {
-      deleteNested(body, 'reasoning', 'effort');
+function withoutCompletionsOff(body: ProviderRequestBody, off: ReadonlySet<string>): void {
+  const { reasoning } = body;
+  if (reasoning !== undefined) {
+    if (reasoning.effort !== undefined && off.has(reasoning.effort)) {
+      delete reasoning.effort;
     }
     if (reasoning.enabled === false) {
-      deleteNested(body, 'reasoning', 'enabled');
+      delete reasoning.enabled;
+    }
+    if (Object.keys(reasoning).length === 0) {
+      delete body.reasoning;
     }
   }
-  if (typeof body.reasoning_effort === 'string' && off.has(body.reasoning_effort)) {
+  if (body.reasoning_effort !== undefined && off.has(body.reasoning_effort)) {
     delete body.reasoning_effort;
   }
-  if ((isRecord(thinking) && thinking.type === 'disabled') || (typeof thinking === 'string' && off.has(thinking))) {
+  const thinkingObject = thinkingObjectSchema.safeParse(body.thinking);
+  const thinkingString = z.string().safeParse(body.thinking);
+  if (
+    (thinkingObject.success && thinkingObject.data.type === 'disabled') ||
+    (thinkingString.success && off.has(thinkingString.data))
+  ) {
     delete body.thinking;
   }
   if (body.enable_thinking === false) {
     delete body.enable_thinking;
   }
-  for (const field of ['chat_template_kwargs', 'chat_template_args']) {
-    const kwargs = body[field];
-    if (isRecord(kwargs) && kwargs.enable_thinking === false) {
-      deleteNested(body, field, 'enable_thinking');
+  for (const field of ['chat_template_kwargs', 'chat_template_args'] as const) {
+    const values = body[field];
+    if (values?.enable_thinking === false) {
+      delete values.enable_thinking;
+      if (Object.keys(values).length === 0) {
+        delete body[field];
+      }
     }
   }
 }
@@ -76,7 +110,7 @@ function withoutCompletionsOff(body: RequestBody, off: ReadonlySet<string>): voi
 const ENCRYPTED_REASONING = 'reasoning.encrypted_content';
 
 /** Items that end an assistant's run of output items in a Responses `input`. */
-function endsAssistantOutput(item: Record<string, unknown>): boolean {
+function endsAssistantOutput(item: ResponsesInputItem): boolean {
   return (
     item.type === 'function_call_output' ||
     item.type === 'custom_tool_call_output' ||
@@ -89,19 +123,12 @@ function endsAssistantOutput(item: Record<string, unknown>): boolean {
  * has nothing to look their ids up in. The tool-call items they were paired with lose their ids too,
  * which is how Pi itself replays a call it has no reasoning for.
  */
-function withoutUnreplayableReasoning(input: unknown): unknown {
-  if (!Array.isArray(input)) {
-    return input;
-  }
+function withoutUnreplayableReasoning(input: ResponsesInputItem[]): ResponsesInputItem[] {
   let unpaired = false;
-  const kept: unknown[] = [];
+  const kept: ResponsesInputItem[] = [];
   for (const item of input) {
-    if (!isRecord(item)) {
-      kept.push(item);
-      continue;
-    }
     if (item.type === 'reasoning') {
-      if (typeof item.encrypted_content !== 'string' || item.encrypted_content.length === 0) {
+      if (!item.encrypted_content) {
         unpaired = true;
         continue;
       }
@@ -119,13 +146,12 @@ function withoutUnreplayableReasoning(input: unknown): unknown {
 }
 
 function withResponsesReasoning(
-  body: RequestBody,
+  body: ProviderRequestBody,
   off: ReadonlySet<string>,
-  requested: boolean,
-  summaries: boolean,
+  { requested, summaries }: Required<ProviderDefaultReasoningOptions>,
 ): void {
-  const reasoning = isRecord(body.reasoning) ? body.reasoning : {};
-  if (!requested && typeof reasoning.effort === 'string' && off.has(reasoning.effort)) {
+  const reasoning = body.reasoning ?? {};
+  if (!requested && reasoning.effort !== undefined && off.has(reasoning.effort)) {
     delete reasoning.effort;
   }
   if (summaries && reasoning.summary === undefined) {
@@ -136,9 +162,11 @@ function withResponsesReasoning(
   } else {
     delete body.reasoning;
   }
-  const include = Array.isArray(body.include) ? body.include : [];
+  const include = body.include ?? [];
   body.include = include.includes(ENCRYPTED_REASONING) ? include : [...include, ENCRYPTED_REASONING];
-  body.input = withoutUnreplayableReasoning(body.input);
+  if (body.input !== undefined) {
+    body.input = withoutUnreplayableReasoning(body.input);
+  }
 }
 
 type ProviderDefaultReasoningOptions = {
@@ -149,7 +177,7 @@ type ProviderDefaultReasoningOptions = {
 };
 
 /** The request body Pi wrote, corrected so no reasoning model is ever asked to stop reasoning. */
-export function withProviderDefaultReasoning<T extends RequestBody>(
+export function withProviderDefaultReasoning<T extends ProviderRequestBody>(
   model: Model<Api>,
   body: T,
   { requested, summaries = false }: ProviderDefaultReasoningOptions,
@@ -159,7 +187,7 @@ export function withProviderDefaultReasoning<T extends RequestBody>(
   }
   const off = offValues(model);
   if (model.api === 'openai-responses') {
-    withResponsesReasoning(body, off, requested, summaries);
+    withResponsesReasoning(body, off, { requested, summaries });
   } else if (model.api === 'openai-completions' && !requested) {
     withoutCompletionsOff(body, off);
   }

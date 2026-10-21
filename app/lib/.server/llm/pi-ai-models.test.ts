@@ -459,9 +459,9 @@ describe('the gateway options a model request is sent with', () => {
 });
 
 describe('the output budget a Workers AI request asks for', () => {
-  async function maxCompletionTokens(maxTokens?: number): Promise<unknown> {
-    const sent: Array<Record<string, unknown>> = [];
-    const run = async (_model: string, inputs: Record<string, unknown>) => {
+  async function maxCompletionTokens(maxTokens?: number): Promise<number | undefined> {
+    const sent: Array<{ max_completion_tokens?: number }> = [];
+    const run = async (_model: string, inputs: { max_completion_tokens?: number }) => {
       sent.push(inputs);
       return Response.json({ errors: [{ message: 'stop here' }] }, { status: 400 });
     };

@@ -5,7 +5,11 @@ import { z } from 'zod';
 import { GATEWAY_PROVIDER_SLUGS, isWorkersAiModelId, type BuilderModelId } from '~/lib/workers-ai-model';
 import { getPiModel, type ModelStreamOptions } from './pi-ai-models';
 import { gatewayBuilderModels, piGatewayModel } from './pi-model-catalog';
-import { withProviderDefaultReasoning } from './provider-default-reasoning';
+import {
+  providerRequestBodySchema,
+  withProviderDefaultReasoning,
+  type ProviderRequestBody,
+} from './provider-default-reasoning';
 
 const READ_FILE_TOOL = {
   name: 'read_file',
@@ -13,16 +17,22 @@ const READ_FILE_TOOL = {
   parameters: z.toJSONSchema(z.object({ path: z.string() })),
 };
 
-type Body = Record<string, unknown>;
-type GatewayRequest = { provider: string; endpoint: string; headers: Record<string, string>; query: Body };
+/** One universal request the gateway binding received, its body read as the transport reads it. */
+type GatewayRequest = {
+  provider: string;
+  endpoint: string;
+  headers: Record<string, string>;
+  query: ProviderRequestBody;
+};
 
 /** A binding whose gateway records each universal request and answers it with `answer`. */
 function gatewayBinding(answer: (request: GatewayRequest) => Response) {
   const requests: GatewayRequest[] = [];
   const gateway = () => ({
     run: async (request: GatewayRequest) => {
-      requests.push(structuredClone(request));
-      return answer(request);
+      const recorded = { ...structuredClone(request), query: providerRequestBodySchema.parse(request.query) };
+      requests.push(recorded);
+      return answer(recorded);
     },
   });
   // SAFETY: the gateway transport calls only `gateway(id).run(request, options)`, which this implements.
@@ -31,9 +41,9 @@ function gatewayBinding(answer: (request: GatewayRequest) => Response) {
 
 /** A binding whose Workers AI `run` records each request body, refusing it so the stream ends. */
 function workersAiBinding() {
-  const bodies: Body[] = [];
-  const run = async (_model: string, inputs: Body) => {
-    bodies.push(structuredClone(inputs));
+  const bodies: ProviderRequestBody[] = [];
+  const run = async (_model: string, inputs: ProviderRequestBody) => {
+    bodies.push(providerRequestBodySchema.parse(structuredClone(inputs)));
     return Response.json({ errors: [{ message: 'stop here' }] }, { status: 400 });
   };
   // SAFETY: the binding fetch calls only the raw-response `run`, which this implements.
@@ -43,10 +53,8 @@ function workersAiBinding() {
 const refused = () =>
   Response.json({ error: { type: 'invalid_request_error', message: 'stop here' } }, { status: 400 });
 
-function sse(events: readonly object[]): Response {
-  const lines = events.map(
-    (event) => `event: ${String((event as { type: string }).type)}\ndata: ${JSON.stringify(event)}\n\n`,
-  );
+function sse<Event extends { type: string }>(events: readonly Event[]): Response {
+  const lines = events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
   return new Response(lines.join(''), { headers: { 'content-type': 'text/event-stream' } });
 }
 
@@ -69,35 +77,36 @@ async function streamOnce(
   return handle.stream(handle.model, context, { toolChoice: 'auto', ...options }).result();
 }
 
-/** Every place a body could tell a model to stop reasoning, as `path=value` strings. */
-function reasoningOffDirectives(body: Body): string[] {
+const OFF = new Set(['none', 'off']);
+
+/** Every place a body could tell a model to stop reasoning, as `field=value` strings. */
+function reasoningOffDirectives(body: ProviderRequestBody): string[] {
   const found: string[] = [];
-  const visit = (value: unknown, path: string) => {
-    if (Array.isArray(value)) {
-      // Message history is the transcript, not a directive.
-      return;
+  if (body.reasoning?.effort !== undefined && OFF.has(body.reasoning.effort)) {
+    found.push(`reasoning.effort=${body.reasoning.effort}`);
+  }
+  if (body.reasoning?.enabled === false) {
+    found.push('reasoning.enabled=false');
+  }
+  if (body.reasoning_effort !== undefined && OFF.has(body.reasoning_effort)) {
+    found.push(`reasoning_effort=${body.reasoning_effort}`);
+  }
+  const thinkingObject = z.looseObject({ type: z.string() }).safeParse(body.thinking);
+  if (thinkingObject.success && thinkingObject.data.type === 'disabled') {
+    found.push('thinking.type=disabled');
+  }
+  const thinkingString = z.string().safeParse(body.thinking);
+  if (thinkingString.success && OFF.has(thinkingString.data)) {
+    found.push(`thinking=${thinkingString.data}`);
+  }
+  if (body.enable_thinking === false) {
+    found.push('enable_thinking=false');
+  }
+  for (const field of ['chat_template_kwargs', 'chat_template_args'] as const) {
+    if (body[field]?.enable_thinking === false) {
+      found.push(`${field}.enable_thinking=false`);
     }
-    if (typeof value !== 'object' || value === null) {
-      return;
-    }
-    for (const [key, child] of Object.entries(value)) {
-      const at = path ? `${path}.${key}` : key;
-      if (
-        (key === 'effort' || key === 'reasoning_effort' || key === 'thinking') &&
-        (child === 'none' || child === 'off')
-      ) {
-        found.push(`${at}=${String(child)}`);
-      }
-      if (key === 'type' && child === 'disabled') {
-        found.push(`${at}=disabled`);
-      }
-      if ((key === 'enable_thinking' || key === 'enabled') && child === false) {
-        found.push(`${at}=false`);
-      }
-      visit(child, at);
-    }
-  };
-  visit(body, '');
+  }
   return found;
 }
 
@@ -273,7 +282,7 @@ describe('a two-step tool turn on OpenAI Responses', () => {
         expect(request.query).toMatchObject({ store: false, include: ['reasoning.encrypted_content'] });
         expect(reasoningOffDirectives(request.query)).toEqual([]);
       }
-      const input = requests[1]!.query.input as Body[];
+      const input = requests[1]!.query.input ?? [];
       expect(input).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ type: 'reasoning', id: 'rs_1', encrypted_content: ENCRYPTED }),

@@ -691,7 +691,10 @@ function normalizeLineBreaks(text: string, carriageReturnBreaks: boolean): strin
   return text.replace(carriageReturnBreaks ? /\r\n|\r/g : /\r\n/g, '\n');
 }
 
-function splitLines(content: string, carriageReturnBreaks: boolean): { lines: string[]; endings: string[] } {
+/** A text's lines, and each one's own terminator ('' for an unterminated last line). */
+type SplitText = { lines: string[]; endings: string[] };
+
+function splitLines(content: string, carriageReturnBreaks: boolean): SplitText {
   const lines: string[] = [];
   const endings: string[] = [];
   const breaks = carriageReturnBreaks ? /\r\n|\r|\n/g : /\r\n|\n/g;

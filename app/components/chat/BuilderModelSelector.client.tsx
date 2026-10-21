@@ -35,14 +35,14 @@ import { classNames } from '~/utils/classNames';
 const COLLAPSED_GROUP_SIZE = 24;
 
 /** How each effort reads in the picker; "Provider default" is the absence of one. */
-const REASONING_LEVEL_LABELS: Record<BuilderReasoningLevel, string> = {
+const REASONING_LEVEL_LABELS = {
   minimal: 'Minimal',
   low: 'Low',
   medium: 'Medium',
   high: 'High',
   xhigh: 'Extra high',
   max: 'Max',
-};
+} as const satisfies Record<BuilderReasoningLevel, string>;
 const PROVIDER_DEFAULT_EFFORT = 'default';
 
 /** The catalog dates entries to the day, so the day is all the picker claims. */
