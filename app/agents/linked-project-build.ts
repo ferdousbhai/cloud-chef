@@ -116,6 +116,7 @@ export function linkedBuildUnfollowedResult(watch: LinkedBuildWatch): CloudChefT
 /**
  * Reads the pipeline's status until it reports a finished build, the deadline passes, or the watch is stopped.
  * Before `workersBuildsGraceUntil`, a finished status that isn't Workers Builds' own is not yet the build.
+ * Null when no read succeeded: CloudChef could not follow the pipeline, which is not the pipeline reporting none.
  */
 export async function watchLinkedBuild(args: {
   poll: () => Promise<LinkedBuildStatus>;
@@ -124,16 +125,16 @@ export async function watchLinkedBuild(args: {
   deadline: number;
   workersBuildsGraceUntil: number;
   signal?: AbortSignal;
-}): Promise<LinkedBuildStatus> {
-  let status: LinkedBuildStatus = { state: 'none', previewUrl: null, detailsUrl: null };
+}): Promise<LinkedBuildStatus | null> {
+  let status: LinkedBuildStatus | null = null;
   let polled = false;
   while (args.now() < args.deadline && !args.signal?.aborted) {
     await args.sleep(LINKED_BUILD_POLL_MS);
     // One unreadable status says nothing about the build: the last one known stands until the next read.
     status = await args.poll().catch(() => status);
     polled = true;
-    const finished = status.state === 'success' || status.state === 'failure';
-    if (finished && (status.workersBuilds !== false || args.now() >= args.workersBuildsGraceUntil)) {
+    const finished = status?.state === 'success' || status?.state === 'failure';
+    if (finished && (status?.workersBuilds !== false || args.now() >= args.workersBuildsGraceUntil)) {
       return status;
     }
   }
