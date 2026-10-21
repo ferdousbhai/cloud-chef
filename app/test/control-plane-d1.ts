@@ -94,11 +94,19 @@ class SqliteD1Database implements D1Database {
     return new SqliteD1Statement(this.database, query);
   }
 
+  /** As D1 runs a batch: in one transaction, so a statement that fails rolls back the ones before it. */
   async batch<T>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
     const results: D1Result<T>[] = [];
-    for (const statement of statements) {
-      results.push(await statement.run<T>());
+    this.database.exec('BEGIN');
+    try {
+      for (const statement of statements) {
+        results.push(await statement.run<T>());
+      }
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
     }
+    this.database.exec('COMMIT');
     return results;
   }
 

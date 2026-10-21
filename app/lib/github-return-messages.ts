@@ -30,6 +30,9 @@ const GITHUB_RETURN_MESSAGES = {
   repository_name_taken: 'A repository with that name already exists. Approve again with another name.',
   draft_too_large: 'This draft is larger than CloudChef can commit. Ask the member to slim it down and send it again.',
   approval_failed: 'GitHub refused part of the approval. Approve again.',
+  approval_withdrawn:
+    'The repository was created on GitHub, but its requester left the team while it was being made, so the ' +
+    'request was withdrawn and the repository is not a project. Delete it on GitHub, or link it as a project to keep it.',
   approved: 'The app is now a GitHub repository, and a project its requester can work on.',
 } as const;
 

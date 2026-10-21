@@ -6,7 +6,7 @@ import { findCloudflareConnectionForUser } from './cloudflare-connection-reposit
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
  * kept for years stays readable against the shape it was written in.
  */
-export const ACCOUNT_EXPORT_SCHEMA_VERSION = 4;
+export const ACCOUNT_EXPORT_SCHEMA_VERSION = 5;
 
 /**
  * Per-section ceiling on rows. A list section returns its most recent page and
@@ -21,6 +21,7 @@ const SECTION_NAMES = [
   'computerRuntimes',
   'organizations',
   'organizationInvites',
+  'organizationQuotaEvents',
   'organizationUsage',
   'organizationProjects',
   'productionRequests',
@@ -127,6 +128,13 @@ type ExportedInvite = {
   /** The team's projects it gives on joining. */
   projectIds: string[];
   draftsAllowed: boolean;
+};
+
+/** An invite this person sent, or a team they created, as counted toward the limits on both. */
+type ExportedQuotaEvent = {
+  kind: 'invite' | 'team';
+  organizationId: string;
+  createdAt: string;
 };
 
 /** One day's model use in an organization's account, as its admins see it. */
@@ -238,6 +246,7 @@ type ControlPlaneExport = {
     computerRuntimes: ExportedSection<BoundedList<{ computerRuntimes: ExportedComputerRuntime[] }>>;
     organizations: ExportedSection<BoundedList<{ memberships: ExportedMembership[] }>>;
     organizationInvites: ExportedSection<BoundedList<{ invites: ExportedInvite[] }>>;
+    organizationQuotaEvents: ExportedSection<BoundedList<{ events: ExportedQuotaEvent[] }>>;
     organizationUsage: ExportedSection<BoundedList<{ usage: ExportedUsageDay[] }>>;
     organizationProjects: ExportedSection<BoundedList<{ projects: ExportedProjectAccess[] }>>;
     productionRequests: ExportedSection<BoundedList<{ requests: ExportedProductionRequest[] }>>;
@@ -264,6 +273,7 @@ export async function exportControlPlaneAccount(args: { env: Env; userId: string
     computerRuntimes: await exportSection('computerRuntimes', () => readComputerRuntimes(db, args.userId)),
     organizations: await exportSection('organizations', () => readMemberships(db, args.userId)),
     organizationInvites: await exportSection('organizationInvites', () => readInvites(db, args.userId)),
+    organizationQuotaEvents: await exportSection('organizationQuotaEvents', () => readQuotaEvents(db, args.userId)),
     organizationUsage: await exportSection('organizationUsage', () => readUsage(db, args.userId)),
     organizationProjects: await exportSection('organizationProjects', () => readProjectAccess(db, args.userId)),
     productionRequests: await exportSection('productionRequests', () => readProductionRequests(db, args.userId)),
@@ -579,6 +589,25 @@ async function readInvites(db: D1Database, userId: string): Promise<BoundedList<
     draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
   }));
   return { invites, ...boundsOf(rows.results, invites.length) };
+}
+
+const quotaEventKindSchema = z.enum(['invite', 'team']);
+
+async function readQuotaEvents(db: D1Database, userId: string): Promise<BoundedList<{ events: ExportedQuotaEvent[] }>> {
+  const rows = await db
+    .prepare(
+      `SELECT kind, org_id, created_at, COUNT(*) OVER () AS total_rows
+       FROM organization_quota_events WHERE user_id = ?
+       ORDER BY created_at DESC LIMIT ?`,
+    )
+    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
+    .all<{ kind: string; org_id: string; created_at: number; total_rows: number }>();
+  const events = rows.results.map((row) => ({
+    kind: quotaEventKindSchema.parse(row.kind),
+    organizationId: row.org_id,
+    createdAt: isoTimestamp(row.created_at),
+  }));
+  return { events, ...boundsOf(rows.results, events.length) };
 }
 
 async function readUsage(db: D1Database, userId: string): Promise<BoundedList<{ usage: ExportedUsageDay[] }>> {

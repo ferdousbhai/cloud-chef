@@ -16,6 +16,7 @@ const controlPlaneTables = [
   'org_projects',
   'organization_invites',
   'organization_members',
+  'organization_quota_events',
   'organization_usage_daily',
   'organizations',
   'production_requests',
@@ -58,6 +59,49 @@ describe('CloudChef control-plane D1 schema', () => {
     const row = db.prepare('SELECT protocol_version, last_session_at FROM user_computer_runtimes').get();
     expect(row?.protocol_version).toBeNull();
     expect(Number(row?.last_session_at)).toBeGreaterThanOrEqual(before);
+  });
+
+  test('counts invites already sent and teams already made toward the limits, and empties decided requests', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    const migrations = readdirSync('migrations')
+      .filter((file) => file.endsWith('.sql'))
+      .sort();
+    const quotaEvents = migrations.indexOf('0030_organization_quota_events.sql');
+    for (const migration of migrations.slice(0, quotaEvents)) {
+      db.exec(readFileSync(`migrations/${migration}`, 'utf8'));
+    }
+    db.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt)
+        VALUES ('user-1', 'User', 'user@example.com', 1, 1, 1);
+      INSERT INTO organizations (id, name, created_by, created_at, updated_at) VALUES
+        ('org-1', 'Acme', 'user-1', 10, 10),
+        ('org-2', 'Orphan', NULL, 11, 11);
+      INSERT INTO organization_invites (id, org_id, email, role, token_hash, invited_by, expires_at, created_at)
+        VALUES ('invite-1', 'org-1', 'sam@example.com', 'member', 'hash', 'user-1', 99, 20);
+      INSERT INTO production_requests (id, org_id, requested_by, title, note, preview_url, snapshot_gzip_base64,
+        snapshot_files, status, created_at) VALUES
+        ('request-1', 'org-1', 'user-1', 'Site', 'Please', 'https://p.example', '', 3, 'declined', 1),
+        ('request-2', 'org-1', 'user-1', 'Shop', 'Soon', 'https://q.example', 'gz', 4, 'pending', 2);
+    `);
+
+    db.exec(readFileSync(`migrations/${migrations[quotaEvents]}`, 'utf8'));
+
+    expect(
+      db.prepare('SELECT kind, user_id, org_id, created_at FROM organization_quota_events ORDER BY created_at').all(),
+    ).toEqual([
+      { kind: 'team', user_id: 'user-1', org_id: 'org-1', created_at: 10 },
+      { kind: 'invite', user_id: 'user-1', org_id: 'org-1', created_at: 20 },
+    ]);
+    expect(db.prepare('SELECT id, title, note, preview_url FROM production_requests ORDER BY id').all()).toEqual([
+      { id: 'request-1', title: 'Site', note: null, preview_url: null },
+      { id: 'request-2', title: 'Shop', note: 'Soon', preview_url: 'https://q.example' },
+    ]);
+    // Deleting the team or revoking the invite leaves the log; erasing the person takes their entries.
+    db.exec(`DELETE FROM organizations WHERE id = 'org-1'`);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM organization_quota_events').get()?.count).toBe(2);
+    db.exec(`DELETE FROM "user" WHERE id = 'user-1'`);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM organization_quota_events').get()?.count).toBe(0);
   });
 
   test('ends with only the current control-plane and Computer locator schema', () => {

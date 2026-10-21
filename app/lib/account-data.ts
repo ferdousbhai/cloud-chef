@@ -16,6 +16,7 @@ export const ACCOUNT_EXPORT_SECTION_LABELS = {
   computerRuntimes: 'your workspaces',
   organizations: 'your team memberships',
   organizationInvites: 'invites sent to you',
+  organizationQuotaEvents: 'the invites you sent and teams you created, as counted toward their limits',
   organizationUsage: 'your model use in teams',
   organizationProjects: 'the team projects you were given',
   productionRequests: 'your production requests',

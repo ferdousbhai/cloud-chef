@@ -38,7 +38,11 @@ function PrivacyPage() {
           </li>
           <li>
             production requests: a draft&apos;s title, note, preview URL, and its source files, kept with the request
-            until an admin approves or declines it, then only the decision
+            until an admin approves or declines it, then only its title, how many files it had, and the decision
+          </li>
+          <li>
+            when you sent each team invite and created each team, kept for 30 days because they count toward the limits
+            on invites and teams, even after the invite is revoked or the team deleted
           </li>
           <li>
             each account&apos;s model settings (the model new chats start on) and your choice whether AI Gateway logs

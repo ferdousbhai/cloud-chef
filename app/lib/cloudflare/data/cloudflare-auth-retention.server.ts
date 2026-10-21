@@ -1,3 +1,5 @@
+import { ORGANIZATION_QUOTA_WINDOW_MS } from './organizations.server';
+
 const CLOUDFLARE_AUTH_RETENTION_SWEEP_LIMIT = 100;
 /**
  * How many batches one sweep may run: it goes on while any table still had a full batch to delete, so
@@ -85,6 +87,15 @@ function pruneBatch(db: D1Database, now: number, limit: number): Promise<D1Resul
          WHERE id IN (SELECT id FROM github_approval_states WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`,
       )
       .bind(now, limit),
+    db
+      .prepare(
+        // Kept as long as the longest limit they count toward.
+        `DELETE FROM organization_quota_events
+         WHERE rowid IN (
+           SELECT rowid FROM organization_quota_events WHERE created_at <= ? ORDER BY created_at LIMIT ?
+         )`,
+      )
+      .bind(now - ORGANIZATION_QUOTA_WINDOW_MS, limit),
     db
       .prepare(
         `DELETE FROM cloudflare_credentials

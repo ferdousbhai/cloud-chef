@@ -51,25 +51,47 @@ type OrganizationSummary = Membership & {
 
 /** Teams one person may have created: each can send invite emails, so their number is bounded. */
 const MAX_ORGANIZATIONS_PER_CREATOR = 10;
+/**
+ * And teams one person may create in this window: creations are counted from
+ * `organization_quota_events`, so deleting a team doesn't give its creation back. The log keeps each
+ * entry this long, the longest window any limit counts over.
+ */
+export const ORGANIZATION_QUOTA_WINDOW_MS = 30 * 24 * 60 * 60_000;
 
 /** A new organization with its creator as admin; its Cloudflare account is connected next. */
 export async function createOrganization(db: D1Database, userId: string, name: string, now = Date.now()) {
-  const created = await db
-    .prepare('SELECT COUNT(*) AS count FROM organizations WHERE created_by = ?')
-    .bind(userId)
-    .first<{ count: number }>();
-  if ((created?.count ?? 0) >= MAX_ORGANIZATIONS_PER_CREATOR) {
-    throw new OrganizationError(`You can create up to ${MAX_ORGANIZATIONS_PER_CREATOR} teams.`, 409);
-  }
   const orgId = crypto.randomUUID();
-  await db.batch([
+  // The limits are checked inside the write itself, so two requests at the same moment can't both pass
+  // them; the membership and the log entry are written only with the team.
+  const [created] = await db.batch([
     db
-      .prepare('INSERT INTO organizations (id, name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-      .bind(orgId, name, userId, now, now),
+      .prepare(
+        `INSERT INTO organizations (id, name, created_by, created_at, updated_at)
+         SELECT ?1, ?2, ?3, ?4, ?4
+         WHERE (SELECT COUNT(*) FROM organizations WHERE created_by = ?3) < ?5
+           AND (SELECT COUNT(*) FROM organization_quota_events
+                WHERE user_id = ?3 AND kind = 'team' AND created_at > ?6) < ?5`,
+      )
+      .bind(orgId, name, userId, now, MAX_ORGANIZATIONS_PER_CREATOR, now - ORGANIZATION_QUOTA_WINDOW_MS),
     db
-      .prepare(`INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES (?, ?, 'admin', ?)`)
+      .prepare(
+        `INSERT INTO organization_members (org_id, user_id, role, joined_at)
+         SELECT ?1, ?2, 'admin', ?3 WHERE EXISTS (SELECT 1 FROM organizations WHERE id = ?1)`,
+      )
+      .bind(orgId, userId, now),
+    db
+      .prepare(
+        `INSERT INTO organization_quota_events (kind, user_id, org_id, created_at)
+         SELECT 'team', ?2, ?1, ?3 WHERE EXISTS (SELECT 1 FROM organizations WHERE id = ?1)`,
+      )
       .bind(orgId, userId, now),
   ]);
+  if (created?.meta.changes !== 1) {
+    throw new OrganizationError(
+      `You can have up to ${MAX_ORGANIZATIONS_PER_CREATOR} teams, and create up to ${MAX_ORGANIZATIONS_PER_CREATOR} in 30 days.`,
+      409,
+    );
+  }
   return orgId;
 }
 
@@ -86,13 +108,13 @@ export async function renameOrganization(
 }
 
 /**
- * Who may delete a team, and whose workspaces in its Cloudflare account go with it: an active admin,
- * or its only member (leaving would leave nobody). Changes nothing.
+ * Who may delete a team: an active admin, or its only member (leaving would leave nobody). Changes
+ * nothing.
  */
 export async function prepareOrganizationDeletion(
   db: D1Database,
   args: { orgId: string; actorId: string },
-): Promise<{ orgName: string; memberIds: string[] }> {
+): Promise<void> {
   const membership = await findMembership(db, args.orgId, args.actorId);
   if (!membership) {
     throw new OrganizationError('That team no longer exists, or you are not in it.', 404);
@@ -106,7 +128,24 @@ export async function prepareOrganizationDeletion(
   if (!soleMember && (membership.role !== 'admin' || membership.pausedAt !== null)) {
     throw new OrganizationError("Only a team's admin can delete it.", 403);
   }
-  return { orgName: membership.orgName, memberIds };
+}
+
+/**
+ * Who has a workspace in the team's Cloudflare account that CloudChef can reach: the people with a
+ * workspace there, while the team's connection is active. Without it, there is none to delete.
+ */
+export async function organizationWorkspaceOwners(db: D1Database, orgId: string): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT DISTINCT runtimes.user_id
+       FROM cloudflare_connections AS connections
+       JOIN user_computer_runtimes AS runtimes ON runtimes.connection_id = connections.id
+       WHERE connections.org_id = ? AND connections.status = 'active'
+       ORDER BY runtimes.user_id`,
+    )
+    .bind(orgId)
+    .all<{ user_id: string }>();
+  return results.map((row) => row.user_id);
 }
 
 /**
@@ -157,7 +196,11 @@ export async function requireAdmin(db: D1Database, orgId: string, userId: string
   return membership;
 }
 
-/** Pending invites one organization may have at once, and invites it may send in a day. */
+/**
+ * Pending invites one organization may have at once, and invites it may send in a day. Invites sent
+ * are counted from `organization_quota_events`, so revoking one, or deleting the team, doesn't give it
+ * back.
+ */
 const MAX_PENDING_INVITES = 50;
 const MAX_INVITES_PER_DAY = 100;
 /** Invites one person may send in a day, across all their teams. */
@@ -188,10 +231,12 @@ export async function createInvite(
       `SELECT
          (SELECT COUNT(*) FROM cloudflare_connections WHERE org_id = ?1 AND status = 'active') AS connected,
          (SELECT COUNT(*) FROM organization_invites WHERE org_id = ?1 AND accepted_at IS NULL AND expires_at > ?2) AS pending,
-         (SELECT COUNT(*) FROM organization_invites WHERE org_id = ?1 AND created_at > ?3) AS today,
+         (SELECT COUNT(*) FROM organization_quota_events
+          WHERE org_id = ?1 AND kind = 'invite' AND created_at > ?3) AS today,
          (SELECT COUNT(*) FROM organization_members AS members JOIN "user" AS users ON users.id = members.user_id
           WHERE members.org_id = ?1 AND users.email = ?4 COLLATE NOCASE) AS already_member,
-         (SELECT COUNT(*) FROM organization_invites WHERE invited_by = ?5 AND created_at > ?3) AS by_inviter`,
+         (SELECT COUNT(*) FROM organization_quota_events
+          WHERE user_id = ?5 AND kind = 'invite' AND created_at > ?3) AS by_inviter`,
     )
     .bind(args.orgId, now, now - 24 * 60 * 60_000, args.email, args.invitedBy)
     .first<{ connected: number; pending: number; today: number; already_member: number; by_inviter: number }>();
@@ -223,25 +268,29 @@ export async function createInvite(
   const projectIds = await orgProjectIds(db, args.orgId, args.projectIds ?? []);
   const token = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
   const expiresAt = now + ORGANIZATION_INVITE_TTL_MS;
-  await db
-    .prepare(
-      `INSERT INTO organization_invites
-         (id, org_id, email, role, token_hash, invited_by, expires_at, created_at, project_ids, drafts_allowed)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      crypto.randomUUID(),
-      args.orgId,
-      args.email,
-      args.role,
-      await sha256Hex(token),
-      args.invitedBy,
-      expiresAt,
-      now,
-      projectIds.length > 0 ? JSON.stringify(projectIds) : null,
-      args.draftsAllowed === false ? 0 : 1,
-    )
-    .run();
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO organization_invites
+           (id, org_id, email, role, token_hash, invited_by, expires_at, created_at, project_ids, drafts_allowed)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        args.orgId,
+        args.email,
+        args.role,
+        await sha256Hex(token),
+        args.invitedBy,
+        expiresAt,
+        now,
+        projectIds.length > 0 ? JSON.stringify(projectIds) : null,
+        args.draftsAllowed === false ? 0 : 1,
+      ),
+    db
+      .prepare(`INSERT INTO organization_quota_events (kind, user_id, org_id, created_at) VALUES ('invite', ?, ?, ?)`)
+      .bind(args.invitedBy, args.orgId, now),
+  ]);
   return { token, expiresAt };
 }
 
@@ -613,7 +662,7 @@ export async function updateMember(
         .prepare(
           `UPDATE production_requests
            SET status = 'declined', decided_by = ?, decided_at = ?, decision_note = ?, snapshot_gzip_base64 = '',
-               claimed_at = NULL
+               note = NULL, preview_url = NULL, claimed_at = NULL
            WHERE org_id = ? AND requested_by = ? AND status IN ('pending', 'approving')`,
         )
         .bind(

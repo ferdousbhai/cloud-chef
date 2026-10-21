@@ -6,6 +6,7 @@ import {
   pruneCloudflareAuthDataBestEffort,
   UNREFERENCED_CREDENTIAL_RETENTION_MS,
 } from './cloudflare-auth-retention.server';
+import { ORGANIZATION_QUOTA_WINDOW_MS } from './organizations.server';
 
 describe('Cloudflare authorization retention', () => {
   it('prunes each class independently in bounded batches and preserves live credential references', async () => {
@@ -93,6 +94,24 @@ describe('Cloudflare authorization retention', () => {
     expect(values(database, 'cloudflare_oauth_states', 'id')).toHaveLength(5);
   });
 
+  it('keeps invite and team-creation entries for as long as the limits they count toward', async () => {
+    const { database, db } = retentionDatabase();
+    const now = 2 * ORGANIZATION_QUOTA_WINDOW_MS;
+    const insert = database.prepare(
+      `INSERT INTO organization_quota_events (kind, user_id, org_id, created_at) VALUES (?, 'user-1', 'org-1', ?)`,
+    );
+    insert.run('invite', now - ORGANIZATION_QUOTA_WINDOW_MS - 1);
+    insert.run('team', now - ORGANIZATION_QUOTA_WINDOW_MS + 1);
+    insert.run('invite', now - 60_000);
+
+    await pruneCloudflareAuthData({ db, now });
+
+    expect(values(database, 'organization_quota_events', 'kind')).toEqual(['invite', 'team']);
+    expect(database.prepare('SELECT MIN(created_at) AS oldest FROM organization_quota_events').get()?.oldest).toBe(
+      now - ORGANIZATION_QUOTA_WINDOW_MS + 1,
+    );
+  });
+
   it('contains scheduled pruning failures', async () => {
     const error = new Error('D1 unavailable');
     const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -149,6 +168,12 @@ function retentionDatabase(): { database: DatabaseSyncInstance; db: D1Database }
     CREATE TABLE github_approval_states (
       id TEXT PRIMARY KEY,
       expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE organization_quota_events (
+      kind TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL
     );
   `);
   const db = {
