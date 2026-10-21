@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { GitHubReturnMessage } from '~/lib/github-return-messages';
 import { publicOrigin } from '~/lib/.server/public-origin';
 import { getAuthSession } from '~/lib/.server/auth';
 import { GitHubError } from '~/lib/.server/github/github-api';
@@ -123,12 +124,12 @@ export async function completeGitHubInstallAction({
   }
   const state = readCookie(request, STATE_COOKIE);
   // This is a browser coming back from GitHub: every outcome returns to Settings, which says what happened.
-  const back = (message: string) => redirect(settingsWithMessage(url.origin, message), request);
+  const back = (message: GitHubReturnMessage) => redirect(settingsWithMessage(url.origin, message), request);
   // The state GitHub carries back must be the one this browser started with: a link carrying someone
   // else's installation and code can't finish an admin's half-finished connection.
   if (!state || url.searchParams.get('state') !== state) {
     // Changing the App's repositories on GitHub returns here too, with nothing to record.
-    return back('Back from GitHub. Repository access you changed there applies to your linked projects.');
+    return back('returned');
   }
   const now = Date.now();
   const pending = await env.DB.prepare(
@@ -141,15 +142,15 @@ export async function completeGitHubInstallAction({
   const installationId = Number(url.searchParams.get('installation_id'));
   const code = url.searchParams.get('code');
   if (!pending || !app) {
-    return back('That GitHub connection expired or was already finished. Connect GitHub again.');
+    return back('install_expired');
   }
   if (!code || !Number.isSafeInteger(installationId) || installationId <= 0) {
-    return back('GitHub was not connected: the installation was cancelled. Connect GitHub again.');
+    return back('install_cancelled');
   }
   const session = await getAuthSession(env, request);
   const membership = session ? await findMembership(env.DB, pending.org_id, session.user.id) : null;
   if (session?.user.id !== pending.user_id || membership?.role !== 'admin' || membership.pausedAt !== null) {
-    return back('Only the admin who started connecting GitHub can finish it.');
+    return back('install_other_admin');
   }
   try {
     const userToken = await app.userToken(code);
@@ -162,7 +163,7 @@ export async function completeGitHubInstallAction({
         ? installation.account.login === (await app.userLogin(userToken))
         : await app.isOrganizationOwner(userToken, installation.account.login));
     if (!installation || !controls) {
-      return back('Only the owner of that GitHub account or organization can connect it.');
+      return back('install_not_owner');
     }
     await saveGitHubInstallation(env.DB, {
       orgId: pending.org_id,
@@ -173,10 +174,11 @@ export async function completeGitHubInstallAction({
         accountType: installation.account.type,
       },
     });
-    return back(`Connected GitHub (${installation.account.login}).`);
+    return back('connected');
   } catch (error) {
     if (error instanceof GitHubError) {
-      return back(`GitHub was not connected: ${error.message}`);
+      console.error('GitHub refused a CloudChef installation', error.status);
+      return back('install_failed');
     }
     throw error;
   }
@@ -262,7 +264,7 @@ async function completeProductionApproval(args: {
   const { request, env, app } = args;
   const url = new URL(request.url);
   // This is a browser coming back from GitHub: every outcome returns to Settings, which says what happened.
-  const back = (message: string | null, promoted?: string) => {
+  const back = (message: GitHubReturnMessage | null, promoted?: string) => {
     const location = settingsWithMessage(url.origin, message);
     if (promoted) {
       location.searchParams.set('promoted', promoted);
@@ -282,7 +284,7 @@ async function completeProductionApproval(args: {
     if (pending) {
       await releaseApprovalClaim(env.DB, pending.request_id, pending.created_at);
     }
-    return back(pending && app ? 'GitHub authorization was cancelled.' : null);
+    return back(pending && app ? 'approval_cancelled' : null);
   }
   const owner = await env.DB.prepare('SELECT org_id FROM production_requests WHERE id = ?')
     .bind(pending.request_id)
@@ -291,12 +293,12 @@ async function completeProductionApproval(args: {
   const membership = session && owner ? await findMembership(env.DB, owner.org_id, session.user.id) : null;
   if (!owner || session?.user.id !== pending.user_id || membership?.role !== 'admin' || membership.pausedAt !== null) {
     await releaseApprovalClaim(env.DB, pending.request_id, pending.created_at);
-    return back('Only the admin who started the approval can finish it.');
+    return back('approval_other_admin');
   }
   const installation = await findGitHubInstallation(env.DB, owner.org_id);
   if (!installation) {
     await releaseApprovalClaim(env.DB, pending.request_id, pending.created_at);
-    return back('GitHub is no longer connected.');
+    return back('github_disconnected');
   }
   // The draft as it was when the admin clicked Approve: the claim made then must still hold, and it keeps
   // any other admin from creating a second repository while this one is created.
@@ -306,9 +308,9 @@ async function completeProductionApproval(args: {
     claimedAt: pending.created_at,
   });
   if (!productionRequest) {
-    return back('That request was decided, or changed, while you were on GitHub. Review it and approve again.');
+    return back('approval_changed');
   }
-  const fail = async (message: string) => {
+  const fail = async (message: GitHubReturnMessage) => {
     await releaseApprovalClaim(env.DB, productionRequest.id, productionRequest.claimedAt);
     return back(message);
   };
@@ -316,7 +318,7 @@ async function completeProductionApproval(args: {
     const userToken = await app.userToken(code);
     const login = await app.userLogin(userToken);
     if (installation.accountType === 'User' && login !== installation.accountLogin) {
-      return await fail(`Sign in to GitHub as ${installation.accountLogin} to create the repository there.`);
+      return await fail('approval_wrong_account');
     }
     const repoOwner = installation.accountType === 'Organization' ? installation.accountLogin : null;
     const fullName = `${installation.accountLogin}/${pending.repo_name}`;
@@ -337,7 +339,7 @@ async function completeProductionApproval(args: {
     // the App access. Such a repository holds only GitHub's first commit; any other is refused below.
     const repository = created ?? (await app.findRepository(userToken, fullName));
     if (!repository) {
-      return await fail(`GitHub refused the repository name ${pending.repo_name}. Approve again with another.`);
+      return await fail('repository_name_refused');
     }
     await app.addRepositoryToInstallation(userToken, installation.installationId, repository.id);
     const client = await app
@@ -348,10 +350,7 @@ async function completeProductionApproval(args: {
       )
       .catch(() => null);
     if (!client) {
-      return await fail(
-        `${repository.full_name} is on GitHub, but CloudChef's GitHub App can't reach it. On GitHub, add it to the ` +
-          "App's repository access (your settings, Applications, Configure), then approve again with the same name.",
-      );
+      return await fail('repository_unreachable');
     }
     // The README commit GitHub makes for a new repository can take a moment to appear.
     let head: string | null = null;
@@ -362,10 +361,10 @@ async function completeProductionApproval(args: {
       }
     }
     if (!head) {
-      return await fail('GitHub created the repository but not its first branch yet. Approve again in a minute.');
+      return await fail('repository_not_ready');
     }
     if (!created && (await client.commitCount(repository.default_branch)) > 1) {
-      return await fail(`A repository named ${pending.repo_name} already exists. Approve again with another name.`);
+      return await fail('repository_name_taken');
     }
     await client.commit({
       branch: repository.default_branch,
@@ -383,15 +382,14 @@ async function completeProductionApproval(args: {
       name: productionRequest.title,
       repository: { id: repository.id, fullName: repository.full_name, defaultBranch: repository.default_branch },
     });
-    return back(`${productionRequest.title} is now ${repository.full_name}.`, projectId);
+    return back('approved', projectId);
   } catch (error) {
     if (error instanceof GitHubError) {
-      return await fail(error.message);
+      console.error('GitHub refused part of a production approval', error.status);
+      return await fail('approval_failed');
     }
     if (error instanceof PayloadTooLargeError) {
-      return await fail(
-        'This draft is larger than CloudChef can commit. Ask the member to slim it down and send it again.',
-      );
+      return await fail('draft_too_large');
     }
     await releaseApprovalClaim(env.DB, productionRequest.id, productionRequest.claimedAt);
     throw error;
@@ -546,8 +544,8 @@ async function withGitHub<T>(call: () => Promise<T>): Promise<T | Response> {
   }
 }
 
-/** Settings' organizations, saying what a return from GitHub did. */
-function settingsWithMessage(origin: string, message: string | null): URL {
+/** Settings' organizations, saying what a return from GitHub did (as a code: Settings has the text). */
+function settingsWithMessage(origin: string, message: GitHubReturnMessage | null): URL {
   const location = new URL('/settings', origin);
   if (message) {
     location.searchParams.set('github_message', message);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { createAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
@@ -126,8 +127,10 @@ async function install(env: Env, app: GitHubApp, cookie: string, orgId: string, 
   });
 }
 
+/** What Settings shows for the code a return from GitHub carries. */
 function githubMessage(response: Response): string | null {
-  return new URL(response.headers.get('location') ?? '/', ORIGIN).searchParams.get('github_message');
+  const code = new URL(response.headers.get('location') ?? '/', ORIGIN).searchParams.get('github_message');
+  return code === null ? null : gitHubReturnMessageText(code);
 }
 
 const myProjectsSchema = z.object({ projects: z.array(z.object({ id: z.string(), repoFullName: z.string() })) });
@@ -176,7 +179,7 @@ describe('GitHub projects', () => {
 
     const installed = await install(env, app, admin.cookie, orgId);
     expect(installed.status).toBe(303);
-    expect(githubMessage(installed)).toBe('Connected GitHub (ada).');
+    expect(githubMessage(installed)).toBe('Connected GitHub.');
     expect(new URL(installed.headers.get('location') ?? '').hash).toBe('#organizations');
     expect(await env.DB.prepare('SELECT installation_id, account_login FROM github_installations').first()).toEqual({
       installation_id: INSTALLATION_ID,

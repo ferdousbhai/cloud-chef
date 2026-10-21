@@ -14,6 +14,7 @@ import {
   productionRequestSchema,
 } from './OrgProjectsSection.client';
 import { messageOf, noContentSchema, postJson, run } from './organization-requests.client';
+import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 
 const roleSchema = z.enum(['admin', 'member']);
 const organizationsSchema = z.object({
@@ -84,7 +85,7 @@ export function OrganizationsCard() {
     const url = new URL(window.location.href);
     const message = url.searchParams.get('github_message');
     if (message) {
-      setGitHubMessage(message);
+      setGitHubMessage(gitHubReturnMessageText(message));
       url.searchParams.delete('github_message');
       url.searchParams.delete('promoted');
       window.history.replaceState(null, '', url);

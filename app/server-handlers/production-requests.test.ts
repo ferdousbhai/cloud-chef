@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { createAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
@@ -141,6 +142,13 @@ function post(cookie: string, path: string, body: Record<string, string | boolea
   });
 }
 
+/** What Settings shows for the code a return from GitHub carries. */
+function returnedMessage(response: Response): string | null {
+  return gitHubReturnMessageText(
+    new URL(response.headers.get('Location') ?? '').searchParams.get('github_message') ?? '',
+  );
+}
+
 describe('production requests', () => {
   it("approves a member's draft into a new repository that becomes their project", async () => {
     const { database, env, admin, sara, app, calls } = await setup();
@@ -166,8 +174,8 @@ describe('production requests', () => {
       app,
     });
     expect(returned.status).toBe(303);
-    expect(new URL(returned.headers.get('Location') ?? '').searchParams.get('github_message')).toBe(
-      'Recipe box is now ada/new-app.',
+    expect(returnedMessage(returned)).toBe(
+      'The app is now a GitHub repository, and a project its requester can work on.',
     );
 
     // The repository was created in the admin's account, and the draft is its first commit.
@@ -222,9 +230,7 @@ describe('production requests', () => {
       env,
       app,
     });
-    expect(new URL(returned.headers.get('Location') ?? '').searchParams.get('github_message')).toContain(
-      "CloudChef's GitHub App can't reach it",
-    );
+    expect(returnedMessage(returned)).toContain("CloudChef's GitHub App can't reach it");
     expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'pending' });
     expect(database.prepare('SELECT COUNT(*) AS n FROM org_projects').get()).toEqual({ n: 0 });
   });
@@ -266,8 +272,8 @@ describe('production requests', () => {
       env,
       app,
     });
-    expect(new URL(returned.headers.get('Location') ?? '').searchParams.get('github_message')).toBe(
-      'Recipe box is now ada/new-app.',
+    expect(returnedMessage(returned)).toBe(
+      'The app is now a GitHub repository, and a project its requester can work on.',
     );
     const blobs = calls.filter((call) => call.path.endsWith('/git/blobs')).map((call) => call.body ?? '');
     expect(blobs.some((body) => body.includes(btoa('export const app = 1;')))).toBe(true);
@@ -301,7 +307,7 @@ describe('production requests', () => {
       env,
       app,
     });
-    expect(new URL(returned.headers.get('Location') ?? '').searchParams.get('github_message')).toBe(
+    expect(returnedMessage(returned)).toBe(
       'That request was decided, or changed, while you were on GitHub. Review it and approve again.',
     );
     expect(calls.some((call) => call.path === '/user/repos')).toBe(false);
