@@ -41,7 +41,7 @@ export async function loadCommittedWranglerConfig({ path = resolve(rootDir, 'clo
 
 /**
  * Write the committed config in Wrangler format for the tools that still read only Wrangler config files:
- * @cloudflare/vitest-pool-workers and `wrangler d1 migrations apply --local` (`cf d1 migrations apply --local`
+ * @cloudflare/vitest-plugin and `wrangler d1 migrations apply --local` (`cf d1 migrations apply --local`
  * applies the migrations but never exits). Paths are rebased onto the file's directory, the control-plane
  * migrations directory is restored because cf passes it on the command line instead, and Workflow `exports` are
  * dropped because the pool's Wrangler predates them (the `workflows` binding list still declares each one). A

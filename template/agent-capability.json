@@ -13,10 +13,7 @@
   ],
   "metadataOnlyPackageAllowlist": [
     "@ai-sdk/provider-utils",
-    "@cfworker/json-schema",
-    "@napi-rs/wasm-runtime",
-    "@rolldown/binding-wasm32-wasi",
-    "@tybys/wasm-util"
+    "@cfworker/json-schema"
   ],
   "cloudflare": {
     "entrypoint": "src/server.ts",

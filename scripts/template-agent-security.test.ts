@@ -63,7 +63,7 @@ describe('generated app agent security', () => {
       // Dependencies are installed separately at their latest release, never pinned by the manifest.
       expect(pkg.dependencies).not.toHaveProperty('agents');
       expect(licensePolicy.metadataOnlyPackageAllowlist).toEqual(
-        expect.arrayContaining(['@ai-sdk/provider-utils', '@cfworker/json-schema', '@rolldown/binding-wasm32-wasi']),
+        expect.arrayContaining(['@ai-sdk/provider-utils', '@cfworker/json-schema']),
       );
       expect(project).toMatchObject({
         entrypoint: 'src/server.ts',

@@ -107,7 +107,7 @@ client build emits no source maps, so none can become a public static asset. Wor
 checks both sides of that policy against the build output.
 
 `cf build` refuses to run at a pnpm workspace root, so the repository builds with `vite build` directly.
-`@cloudflare/vitest-pool-workers` and local D1 migrations still read Wrangler config, so they run against
+`@cloudflare/vitest-plugin` and local D1 migrations still read Wrangler config, so they run against
 `.cloudflare/wrangler.json`, a Wrangler-format copy of `cloudflare.config.ts` that `scripts/lib/cloudflare-config.mjs`
 writes on demand; never edit it.
 

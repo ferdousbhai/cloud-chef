@@ -338,6 +338,16 @@ preview dependency into a stable production contract. Computer 0.2.1's published
 write still relies on the workspace runtime's bounded operation. CloudChef's custom streamed `exec` adapter does forward
 cancellation to its Container process.
 
+Computer 0.6 and Sandbox 1.0 are one migration, not two version bumps, so both stay pinned until it is done. Computer
+0.3 removed the durable post-command sync retry contract the workspace's correctness rests on (`SyncRetryScheduler`,
+`retryPendingSync`, and its `lost` and `exhausted` outcomes): a pending pull is now only reported, and retrying it, and
+refusing to pull from a container that did not run the command, become CloudChef's code. Computer 0.4 also deprecated the
+platform-scheduled container backend CloudChef uses for `ContainerBackend`, which starts the container from the
+Durable Object through `ctx.container.images`. Sandbox 1.0 removes the `Sandbox` class and its process API for the same
+Durable Object scheduling policy, and moving a container application to it cannot be rolled back. Both patch hunks are
+still needed in Computer 0.6.0: it still probes 100 blob hashes per statement and still issues raw `SAVEPOINT` for a
+nested transaction.
+
 ## Model Context and Prefix Caching
 
 The browser sends open, recently used, and locally modified file context as a bounded turn attachment. The server adds
