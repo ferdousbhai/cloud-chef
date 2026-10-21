@@ -82,9 +82,39 @@ export function builderReasoningLevelFor(
   return chosen !== undefined && model.reasoningLevels?.includes(chosen) ? chosen : undefined;
 }
 
+/**
+ * The model a turn on `modelId` runs on, as this browser knows it. Before the live catalog arrives a
+ * saved model is trusted by its id alone (see `catalogInstalled`), so it stands in as that id at its
+ * saved effort rather than as the default model; the server checks both against the account's catalog.
+ */
+export function builderModelFor(
+  modelId: BuilderModelId,
+  models: readonly BuilderModel[] = builderModelsStore.get(),
+  choices: BuilderReasoningChoices = builderReasoningChoicesStore.get(),
+): BuilderModel {
+  const listed = models.find(({ id }) => id === modelId);
+  if (listed !== undefined || catalogInstalled) {
+    return listed ?? getBuilderModel(modelId, models);
+  }
+  const saved = choices[modelId];
+  const standIn: BuilderModel = {
+    id: modelId,
+    label: modelId,
+    description: 'Loading the model catalog.',
+    contextTokens: 0,
+    requiresPaid: false,
+    reasoning: saved !== undefined,
+    vision: false,
+  };
+  if (saved !== undefined) {
+    standIn.reasoningLevels = [saved];
+  }
+  return standIn;
+}
+
 /** The effort the current turn's model asks for, as the request body carries it. */
 function currentBuilderReasoningLevel(modelId: BuilderModelId): BuilderReasoningLevel | undefined {
-  return builderReasoningLevelFor(getBuilderModel(modelId, builderModelsStore.get()));
+  return builderReasoningLevelFor(builderModelFor(modelId));
 }
 
 /**

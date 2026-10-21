@@ -6,7 +6,6 @@ import {
   GATEWAY_PROVIDERS,
   GATEWAY_PROVIDER_SLUGS,
   gatewayModelProvider,
-  getBuilderModel,
   isBuilderModelId,
   builderModelPublishedTime,
   builderReasoningLevelSchema,
@@ -15,6 +14,7 @@ import {
 } from '~/lib/workers-ai-model';
 import {
   builderDefaultModelStore,
+  builderModelFor,
   builderModelCatalogStatusStore,
   builderModelsStore,
   builderModelStore,
@@ -69,7 +69,7 @@ export function BuilderModelSelector({
   const newModels = useStore(builderNewModelsStore);
   const catalogStatus = useStore(builderModelCatalogStatusStore);
   const reasoningChoices = useStore(builderReasoningChoicesStore);
-  const model = getBuilderModel(modelId, models);
+  const model = builderModelFor(modelId, models, reasoningChoices);
   const reasoningLevels = model.reasoningLevels ?? [];
   const reasoningLevel = builderReasoningLevelFor(model, reasoningChoices);
   // Shown only for a model with efforts to choose from; "Default" is no level chosen.

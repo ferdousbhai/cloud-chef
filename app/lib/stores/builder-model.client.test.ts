@@ -179,6 +179,29 @@ describe('a Claude preference saved under its old bare id', () => {
   });
 });
 
+describe('a saved model before the live catalog arrives', () => {
+  it('runs at its saved effort, and stands in as itself rather than the default model', async () => {
+    // A fresh module, so no catalog has been installed yet.
+    vi.resetModules();
+    const fresh = await import('./builder-model.client');
+    const storage = memoryStorage({
+      cloudchef_builder_model_v2: claudeModel.id,
+      cloudchef_builder_reasoning_v1: JSON.stringify({ [claudeModel.id]: 'max' }),
+    });
+    fresh.loadBuilderModelPreference(storage);
+
+    expect(fresh.builderModelStore.get()).toBe(claudeModel.id);
+    expect(fresh.builderModelRequestFields()).toEqual({ modelId: claudeModel.id, reasoningLevel: 'max' });
+    expect(fresh.builderModelFor(claudeModel.id)).toMatchObject({ id: claudeModel.id, label: claudeModel.id });
+
+    // Once the catalog describes the model, it decides which efforts still apply.
+    const opus = { ...claudeModel, reasoningLevels: ['low', 'high'] } satisfies BuilderModel;
+    fresh.installBuilderModelCatalog({ ...catalog, models: [...catalog.models, opus] }, storage);
+    expect(fresh.builderModelFor(claudeModel.id)).toEqual(opus);
+    expect(fresh.builderModelRequestFields()).toEqual({ modelId: claudeModel.id });
+  });
+});
+
 describe('the reasoning effort chosen per model', () => {
   const REASONING_KEY = 'cloudchef_builder_reasoning_v1';
   const opus: BuilderModel = { ...claudeModel, reasoningLevels: ['low', 'medium', 'high', 'xhigh', 'max'] };
