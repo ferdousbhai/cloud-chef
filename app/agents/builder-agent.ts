@@ -2677,9 +2677,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         logger.warn('Unable to settle the deployment record');
         return null;
       });
-    if (settled?.status === 'succeeded') {
-      // Production serves it: it was promoted before its success could be recorded.
-      await this.recordDeploymentSucceeded(job, settled);
+    if (settled?.settled && settled.deployment.status === 'succeeded') {
+      // Production serves it: it was promoted before its success could be recorded. A record found
+      // succeeded was settled by a later execution, which a later deployment may have replaced since.
+      await this.recordDeploymentSucceeded(job, settled.deployment);
     }
   }
 
@@ -2713,10 +2714,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       deploymentId: blocking.id,
       executionGeneration: blocking.executionGeneration,
     });
-    if (settled.status === 'succeeded') {
-      await this.recordDeploymentSucceeded(blockingJob, settled);
+    if (settled.settled && settled.deployment.status === 'succeeded') {
+      await this.recordDeploymentSucceeded(blockingJob, settled.deployment);
     }
-    return settled.status === 'succeeded' || settled.status === 'failed';
+    return settled.deployment.status === 'succeeded' || settled.deployment.status === 'failed';
   }
 
   /** Interrupted fibers count: their recovery hook, not the readiness check, settles them. */

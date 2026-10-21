@@ -35,10 +35,13 @@ describe('builder deployment command', () => {
       error: null,
     });
     mocks.terminalizeInterrupted.mockResolvedValue({
-      id: '11111111-1111-5111-8111-111111111111',
-      status: 'failed',
-      productionUrl: null,
-      error: { message: 'Deployment was interrupted.' },
+      deployment: {
+        id: '11111111-1111-5111-8111-111111111111',
+        status: 'failed',
+        productionUrl: null,
+        error: { message: 'Deployment was interrupted.' },
+      },
+      settled: true,
     });
     mocks.previewForUser.mockResolvedValue({
       id: '22222222-2222-4222-8222-222222222222',
@@ -178,10 +181,13 @@ describe('builder deployment command', () => {
 
   it('settles an interrupted deployment recorded under the identity it had before resources were the project’s', async () => {
     mocks.terminalizeInterrupted.mockResolvedValueOnce(null).mockResolvedValueOnce({
-      id: '33333333-3333-5333-8333-333333333333',
-      status: 'succeeded',
-      productionUrl: 'https://cloudchef-earlier.account.workers.dev',
-      error: null,
+      deployment: {
+        id: '33333333-3333-5333-8333-333333333333',
+        status: 'succeeded',
+        productionUrl: 'https://cloudchef-earlier.account.workers.dev',
+        error: null,
+      },
+      settled: true,
     });
     const workspace = workspaceStub();
     workspace.hasSuccessfulValidation.mockResolvedValue(true);
@@ -218,7 +224,7 @@ describe('builder deployment command', () => {
     // A preview planned the revision under its current identity; the record from before still holds the project.
     mocks.terminalizeInterrupted
       .mockReset()
-      .mockResolvedValueOnce({ ...settled('11111111-1111-5111-8111-111111111111'), status: 'approved' })
+      .mockResolvedValueOnce(settled('11111111-1111-5111-8111-111111111111', 'approved', false))
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(settled('33333333-3333-5333-8333-333333333333'));
 
@@ -245,10 +251,13 @@ describe('builder deployment command', () => {
         executionGeneration: 4,
       }),
     ).resolves.toEqual({
-      id: '11111111-1111-5111-8111-111111111111',
-      status: 'failed',
-      productionUrl: null,
-      error: 'Deployment was interrupted.',
+      settled: true,
+      deployment: {
+        id: '11111111-1111-5111-8111-111111111111',
+        status: 'failed',
+        productionUrl: null,
+        error: 'Deployment was interrupted.',
+      },
     });
     expect(mocks.terminalizeInterrupted).toHaveBeenCalledExactlyOnceWith({
       env: expect.anything(),
@@ -256,6 +265,21 @@ describe('builder deployment command', () => {
       deploymentId: '33333333-3333-5333-8333-333333333333',
       executionGeneration: 4,
     });
+  });
+
+  it('answers a record it found succeeded, or found gone, as not settled by it', async () => {
+    const settleIt = () =>
+      settleDeploymentForBuilder({
+        context: operationContext(),
+        deploymentId: '33333333-3333-5333-8333-333333333333',
+        executionGeneration: 4,
+      });
+    mocks.terminalizeInterrupted.mockResolvedValueOnce(
+      settled('33333333-3333-5333-8333-333333333333', 'succeeded', false),
+    );
+    await expect(settleIt()).resolves.toMatchObject({ settled: false, deployment: { status: 'succeeded' } });
+    mocks.terminalizeInterrupted.mockResolvedValueOnce(null);
+    await expect(settleIt()).resolves.toMatchObject({ settled: false, deployment: { status: 'failed' } });
   });
 
   it.each([
@@ -267,7 +291,7 @@ describe('builder deployment command', () => {
   ])('reports a %s deployment as %s, so only a claimed one is waited for', async (status, reported) => {
     mocks.terminalizeInterrupted
       .mockReset()
-      .mockResolvedValueOnce({ ...settled('11111111-1111-5111-8111-111111111111'), status })
+      .mockResolvedValueOnce(settled('11111111-1111-5111-8111-111111111111', status))
       .mockResolvedValue(null);
     const revision = 'a'.repeat(64);
 
@@ -455,8 +479,12 @@ function workspaceStub() {
   };
 }
 
-function settled(id: string) {
-  return { id, status: 'failed', productionUrl: null, error: { message: 'Deployment was interrupted.' } };
+/** A record as recovery left it: settled by that call unless `settledHere` says otherwise. */
+function settled(id: string, status = 'failed', settledHere = true) {
+  return {
+    deployment: { id, status, productionUrl: null, error: { message: 'Deployment was interrupted.' } },
+    settled: settledHere,
+  };
 }
 
 function operationContext() {

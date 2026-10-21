@@ -25,6 +25,9 @@ export type PublicDeployment = ReturnType<typeof publicDeployment>;
 /** One execution of a deployment record: the record, and the execution generation it ran as. */
 export type DeploymentExecution = { deploymentId: string; executionGeneration: number };
 
+/** A deployment record as a settle left it, and whether that settle is what settled it. */
+type DeploymentSettle = { deployment: PublicDeployment; settled: boolean };
+
 /**
  * Create the deployment plan of this id, or replay the one stored under it. A stored plan is replayed
  * only while it is the plan this revision would get now, under the current connection: one made before
@@ -92,13 +95,15 @@ export async function createOrReplayDeploymentPlanForUser(args: {
  * Terminalize an execution whose durable fiber was interrupted so a retry cannot be blocked indefinitely.
  * Given the `executionGeneration` seen holding the record, it settles only that execution: a record a
  * later execution holds is answered as it is, and the settling write itself matches the generation.
+ * Only a record this call settled is answered `settled`: one found settled, or held by a later
+ * execution, says nothing of what production serves now.
  */
 export async function terminalizeInterruptedDeploymentForUser(args: {
   env: Env;
   deploymentId: string;
   userId: string;
   executionGeneration?: number;
-}): Promise<PublicDeployment | null> {
+}): Promise<DeploymentSettle | null> {
   const connection = runtimeCloudflareIdentity(args.env, args.userId);
   const deployment = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId).catch((error) => {
     if (error instanceof DeploymentNotFoundError) {
@@ -114,17 +119,16 @@ export async function terminalizeInterruptedDeploymentForUser(args: {
     (deployment.status !== 'provisioning' && deployment.status !== 'deploying') ||
     deployment.executionGeneration !== executionGeneration
   ) {
-    return publicDeployment(deployment);
+    return { deployment: publicDeployment(deployment), settled: false };
   }
-  return publicDeployment(
-    await terminalizeInterruptedUserOwnedDeployment({
-      env: args.env,
-      deploymentId: deployment.id,
-      userId: args.userId,
-      connectionId: connection.id,
-      executionGeneration,
-    }),
-  );
+  const settled = await terminalizeInterruptedUserOwnedDeployment({
+    env: args.env,
+    deploymentId: deployment.id,
+    userId: args.userId,
+    connectionId: connection.id,
+    executionGeneration,
+  });
+  return { deployment: publicDeployment(settled), settled: true };
 }
 
 /** Start or resume one exact-revision deployment without a client-side approval protocol. */

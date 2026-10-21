@@ -41,6 +41,9 @@ export type BuilderDeploymentState = {
   error?: string | null;
 };
 
+/** A deployment record as a settle left it, and whether that settle is what settled it. */
+type BuilderDeploymentSettle = { settled: boolean; deployment: BuilderDeploymentState };
+
 async function validatedDeploymentCheckpoint(
   workspace: Pick<BuilderWorkspaceApi, 'checkpoint' | 'hasSuccessfulValidation'>,
 ): Promise<BuilderWorkspaceCheckpoint | null> {
@@ -109,33 +112,34 @@ export async function terminalizeInterruptedDeploymentForBuilder(args: {
   // project's deployments forever; the latest is the one that ran. A deployment the runtime was
   // upgraded under keeps its earlier identity, and is settled too even once the revision has a plan
   // under the current one: a preview plans the revision without settling it.
-  let deployment: Awaited<ReturnType<typeof terminalize>> = null;
+  let deployment: PublicDeployment | null = null;
   for (let generation = 0; generation < MAX_PUBLICATION_PLANS; generation += 1) {
     const planned = await terminalize(await publicationDeploymentId(...identity, generation));
     if (!planned) {
       break;
     }
-    deployment = planned;
+    deployment = planned.deployment;
   }
   const previous = await terminalize(await previousPublicationDeploymentId(...identity));
-  return builderDeploymentState(deployment ?? previous);
+  return builderDeploymentState(deployment ?? previous?.deployment ?? null);
 }
 
 /**
  * Settle one execution of a deployment record, as an interrupted one is, while the record is still
- * active under that execution generation; a later execution of the record is left to run.
+ * active under that execution generation; a later execution of the record is left to run. Only a
+ * record this settle moved is `settled`: a succeeded one found as it was may since have been replaced
+ * in production.
  */
 export async function settleDeploymentForBuilder(
   args: { context: BuilderDeploymentContext } & DeploymentExecution,
-): Promise<BuilderDeploymentState> {
-  return builderDeploymentState(
-    await terminalizeInterruptedDeploymentForUser({
-      env: args.context.env,
-      userId: args.context.userId,
-      deploymentId: args.deploymentId,
-      executionGeneration: args.executionGeneration,
-    }),
-  );
+): Promise<BuilderDeploymentSettle> {
+  const settle = await terminalizeInterruptedDeploymentForUser({
+    env: args.context.env,
+    userId: args.context.userId,
+    deploymentId: args.deploymentId,
+    executionGeneration: args.executionGeneration,
+  });
+  return { settled: settle?.settled ?? false, deployment: builderDeploymentState(settle?.deployment ?? null) };
 }
 
 function builderDeploymentState(deployment: PublicDeployment | null): BuilderDeploymentState {

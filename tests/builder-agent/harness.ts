@@ -201,7 +201,10 @@ function fakePublisher(overrides: Partial<BuilderPublisher> = {}): BuilderPublis
     }),
     deploy: async () => ({ status: 'succeeded', id: 'deployment-1', productionUrl: 'https://app.example.workers.dev' }),
     terminalize: async () => ({ status: 'failed', error: 'Deployment was interrupted before execution started.' }),
-    settle: async () => ({ status: 'failed', error: 'Deployment was interrupted before execution started.' }),
+    settle: async () => ({
+      settled: false,
+      deployment: { status: 'failed', error: 'Deployment was interrupted before execution started.' },
+    }),
     ...overrides,
   };
 }

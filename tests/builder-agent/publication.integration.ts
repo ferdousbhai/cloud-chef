@@ -1091,7 +1091,7 @@ describe('another deployment record left holding the project', () => {
   /** The record a deployment of `CHECKPOINT` left in the runtime's D1, last touched `age` ago. */
   function leftRecord(
     harness: BuilderAgentHarness,
-    status: 'provisioning' | 'deploying',
+    status: 'provisioning' | 'deploying' | 'succeeded',
     age = STALE,
     id = 'deployment-left',
     executionGeneration = 0,
@@ -1137,7 +1137,16 @@ describe('another deployment record left holding the project', () => {
            WHERE id = ? AND execution_generation = ? AND status IN ('provisioning', 'deploying')`,
         )
         .run(status, request.deploymentId, request.executionGeneration);
-      return { status: changes ? status : 'deploying', id: request.deploymentId, error: 'Deployment was interrupted.' };
+      // A record it found settled, or a later execution holds, is answered as it is.
+      const found = recordStatus(harness(), request.deploymentId) === 'succeeded' ? 'succeeded' : 'deploying';
+      return {
+        settled: changes > 0,
+        deployment: {
+          status: changes ? status : found,
+          id: request.deploymentId,
+          error: 'Deployment was interrupted.',
+        },
+      };
     });
     return { deploy, settle };
   }
@@ -1192,6 +1201,29 @@ describe('another deployment record left holding the project', () => {
     await eventually(() => harness.agent.state.deployment?.status === 'failed');
     expect(recordStatus(harness, PLANNED)).toBe('provisioning');
     expect(publisher.settle).not.toHaveBeenCalled();
+  });
+
+  it('a record a later execution took over and succeeded is not recorded as production by the settle', async () => {
+    let harness!: BuilderAgentHarness;
+    const publisher = holdingPublisher(() => harness);
+    const settleHeld = publisher.settle.getMockImplementation();
+    publisher.settle.mockImplementationOnce(async (request) => {
+      // Retried through the runtime's deployment route as the slot was read, and succeeded.
+      harness.database
+        .prepare(`UPDATE deployments SET status = 'succeeded', execution_generation = ? WHERE id = ?`)
+        .run(request.executionGeneration + 1, request.deploymentId);
+      return settleHeld!(request);
+    });
+    const deployHeld = publisher.deploy.getMockImplementation();
+    publisher.deploy.mockImplementationOnce(deployHeld!).mockRejectedValueOnce(new Error('The account refused it.'));
+    harness = await publicationHarness({ publisher, checkpoint: () => NEXT_CHECKPOINT });
+    leftRecord(harness, 'deploying');
+
+    await harness.agent.deployValidatedRevision();
+
+    await eventually(() => harness.agent.state.deployment?.status === 'failed');
+    expect(publisher.deploy).toHaveBeenCalledTimes(2);
+    expect(harness.agent.state.productionRevision).not.toBe(CHECKPOINT.revision);
   });
 
   it('a record a deployment fiber of its revision still runs is left alone', async () => {
@@ -1325,6 +1357,21 @@ describe('another deployment record left holding the project', () => {
 
     expect(publisher.settle).toHaveBeenCalledExactlyOnceWith(expect.objectContaining(LEFT_EXECUTION));
     expect(recordStatus(harness)).toBe('deploying');
+  });
+
+  it('a scheduled settle that finds a later execution succeeded leaves production as it is', async () => {
+    let harness!: BuilderAgentHarness;
+    const publisher = holdingPublisher(() => harness);
+    harness = await publicationHarness({ publisher, checkpoint: () => NEXT_CHECKPOINT });
+    // Retried since it threw, the record succeeded; then the project's next revision was deployed over it.
+    leftRecord(harness, 'succeeded', 0, LEFT_EXECUTION.deploymentId, LEFT_EXECUTION.executionGeneration + 1);
+    await harness.agent.deployValidatedRevision();
+    await eventually(() => harness.agent.state.productionRevision === NEXT_CHECKPOINT.revision);
+
+    await harness.agent.settleDeploymentRecord(LEFT);
+
+    expect(publisher.settle).toHaveBeenCalledExactlyOnceWith(expect.objectContaining(LEFT_EXECUTION));
+    expect(harness.agent.state.productionRevision).toBe(NEXT_CHECKPOINT.revision);
   });
 });
 

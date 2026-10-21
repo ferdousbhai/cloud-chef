@@ -429,7 +429,9 @@ the agent deploys that record's revision and the record has shown no work (its u
 recorded) for 15 minutes, since one started through the runtime's deployment route runs outside the agent. Either settles it as an interrupted one is: succeeded when its receipt says production
 serves it, failed otherwise. Either settles only the execution it saw (the one that threw, or the one holding the
 slot): the settling write matches its execution generation, so a later execution of the record runs on, and a settle
-that waited to be admitted looks again for a fiber of the revision before it writes.
+that waited to be admitted looks again for a fiber of the revision before it writes. Only a settle that itself
+settled the record as succeeded records production as serving its revision: one it finds succeeded was settled by a
+later execution, which a later deployment may have replaced since.
 
 A CloudChef app's account resources (its Worker and so its `workers.dev` address, `DB`, `AGENT_SECURITY_DB`,
 `APP_STORAGE`, `APP_CACHE`, and the preview Worker and preview counterpart of each) belong to the project, the `ProjectWorkspace` a chat (or subchat)

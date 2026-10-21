@@ -209,11 +209,12 @@ describe('deployment handlers', () => {
         executionGeneration,
       });
 
-    await expect(settle(1)).resolves.toMatchObject({ status: 'deploying' });
+    // Answered as the later execution holds it, which this settle did not settle.
+    await expect(settle(1)).resolves.toMatchObject({ deployment: { status: 'deploying' }, settled: false });
     expect(mocks.terminalizeInterrupted).not.toHaveBeenCalled();
 
-    await expect(settle(2)).resolves.toMatchObject({ status: 'failed' });
-    await expect(settle()).resolves.toMatchObject({ status: 'failed' });
+    await expect(settle(2)).resolves.toMatchObject({ deployment: { status: 'failed' }, settled: true });
+    await expect(settle()).resolves.toMatchObject({ deployment: { status: 'failed' }, settled: true });
     expect(mocks.terminalizeInterrupted.mock.calls).toEqual([
       [expect.objectContaining({ deploymentId: 'deployment-1', executionGeneration: 2 })],
       [expect.objectContaining({ deploymentId: 'deployment-1', executionGeneration: 2 })],
