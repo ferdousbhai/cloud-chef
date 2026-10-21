@@ -423,14 +423,26 @@ async function runtimeRateLimited(request: Request, env: Env): Promise<boolean> 
 async function routeApplicationRequest(request: Request, env: Env, nonce: string, pathname: string): Promise<Response> {
   const route = exactRoutes.get(pathname);
   if (route) {
-    return requireMethod(request, route.method, async () =>
-      isRuntimeRoute(pathname) && (await runtimeRateLimited(request, env))
-        ? Response.json(
-            { error: 'Too many requests from this workspace. Try again shortly.' },
-            { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': '60' } },
-          )
-        : route.handler(request, env),
-    );
+    return requireMethod(request, route.method, async () => {
+      try {
+        return isRuntimeRoute(pathname) && (await runtimeRateLimited(request, env))
+          ? Response.json(
+              { error: 'Too many requests from this workspace. Try again shortly.' },
+              { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': '60' } },
+            )
+          : await route.handler(request, env);
+      } catch (error) {
+        // A route that threw, such as on a passing D1 or GitHub failure, is answered here so the
+        // error still gets the security headers rather than Cloudflare's own error page. No route
+        // throws a Response on purpose. Only the route and the error are logged, never the request.
+        console.error(
+          'A route failed',
+          pathname,
+          error instanceof Error ? `${error.name}: ${error.message}` : 'not an Error',
+        );
+        return Response.json({ error: 'Something went wrong. Try again.' }, { status: 500 });
+      }
+    });
   }
 
   const headers = new Headers(request.headers);

@@ -179,6 +179,21 @@ describe('server Agent routing boundary', () => {
     expect(healthAction).not.toHaveBeenCalled();
   });
 
+  it('answers a route that throws with a JSON error that keeps the security policy, logging only the route and error', async () => {
+    healthAction.mockRejectedValue(new Error('D1_ERROR: Network connection lost.'));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const response = await server.fetch(new Request('https://cloudchef.build/api/health'), testEnv());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'Something went wrong. Try again.' });
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(response.headers.get('X-Frame-Options')).toBe('DENY');
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(logged).toHaveBeenCalledWith('A route failed', '/api/health', 'Error: D1_ERROR: Network connection lost.');
+    logged.mockRestore();
+  });
+
   it('marks OAuth callback redirects no-store without losing either cookie', async () => {
     const response = await server.fetch(
       new Request('https://cloudchef.build/connect/return?state=00000000-0000-4000-8000-000000000001&code=code'),
