@@ -6,7 +6,7 @@
   "buildCommand": "pnpm run workers-builds:build",
   "deployCommand": "pnpm run workers-builds:deploy",
   "nonProductionBuilds": true,
-  "nonProductionDeployCommand": "pnpm run workers-builds:preview",
+  "nonProductionDeployCommand": "pnpm run workers-builds:branch",
   "pathIncludes": ["*"],
   "pathExcludes": [],
   "buildCaching": true,

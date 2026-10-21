@@ -16,7 +16,7 @@
   "scripts": {
     "workers-builds:build": "pnpm install --frozen-lockfile && node scripts/check-workers-builds-environment.mjs && node scripts/workers-builds-checks.mjs && node scripts/deploy-production.mjs --check-workers-builds",
     "workers-builds:deploy": "node scripts/deploy-production.mjs --workers-builds",
-    "workers-builds:preview": "node scripts/upload-workers-builds-preview.mjs",
+    "workers-builds:branch": "node scripts/workers-builds-branch.mjs",
     "build": "pnpm run generate && pnpm run build:check",
     "build:check": "vite build",
     "build:analyze": "pnpm run build && pnpm run bundle:report",

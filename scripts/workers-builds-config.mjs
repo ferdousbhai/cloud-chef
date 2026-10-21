@@ -3,7 +3,8 @@ const EXPECTED_REPOSITORY = 'ferdousbhai/cloud-chef';
 const EXPECTED_BRANCH = 'main';
 const EXPECTED_BUILD_COMMAND = 'pnpm run workers-builds:build';
 const EXPECTED_DEPLOY_COMMAND = 'pnpm run workers-builds:deploy';
-const EXPECTED_PREVIEW_COMMAND = 'pnpm run workers-builds:preview';
+// A branch build validates and stops: it never uploads a version of the production Worker.
+const EXPECTED_BRANCH_COMMAND = 'pnpm run workers-builds:branch';
 const EXPECTED_TOKEN_NAME = 'account-workers-builds-production';
 const EXPECTED_BUILD_VARIABLES = {
   NODE_VERSION: '26.3.0',
@@ -42,7 +43,7 @@ export function findWorkersBuildsConfigErrors({
     errors,
     'workers-builds.production.json nonProductionDeployCommand',
     config?.nonProductionDeployCommand,
-    EXPECTED_PREVIEW_COMMAND,
+    EXPECTED_BRANCH_COMMAND,
   );
   requireEqual(errors, 'workers-builds.production.json buildCaching', config?.buildCaching, true);
   requireEqual(errors, 'workers-builds.production.json buildTokenName', config?.buildTokenName, EXPECTED_TOKEN_NAME);
@@ -57,6 +58,8 @@ export function findWorkersBuildsConfigErrors({
   if (config?.containerImage !== undefined) {
     errors.push('workers-builds.production.json must not build a CloudChef-owned Sandbox image.');
   }
+  // Every version of the production Worker binds production's D1 and secrets: none may answer at a preview URL.
+  requireEqual(errors, 'cloudflare.config.ts previewUrls', workerConfig?.preview_urls, false);
   if (Array.isArray(workerConfig?.containers) && workerConfig.containers.length > 0) {
     errors.push('cloudflare.config.ts must not bind CloudChef-owned Containers.');
   }
@@ -105,10 +108,13 @@ export function findWorkersBuildsConfigErrors({
   requireEqual(errors, 'package.json scripts.validate', scripts?.validate, 'node scripts/validate.mjs');
   requireEqual(
     errors,
-    'package.json scripts.workers-builds:preview',
-    scripts?.['workers-builds:preview'],
-    'node scripts/upload-workers-builds-preview.mjs',
+    'package.json scripts.workers-builds:branch',
+    scripts?.['workers-builds:branch'],
+    'node scripts/workers-builds-branch.mjs',
   );
+  if (scripts?.['workers-builds:preview'] !== undefined) {
+    errors.push('package.json must not define workers-builds:preview; branch builds upload no Worker version.');
+  }
   requireEqual(errors, 'package.json packageManager', packageJson?.packageManager, 'pnpm@11.14.0');
   requireEqual(errors, '.nvmrc', nvmrc?.trim(), '26.3.0');
 

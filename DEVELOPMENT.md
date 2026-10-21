@@ -81,7 +81,9 @@ read it automatically. Mirror it in the `cloudchef` Worker's Builds settings:
 
 - connect `ferdousbhai/cloud-chef`, production branch `main`, with non-production builds enabled
 - set the build command to `pnpm run workers-builds:build` and deploy command to `pnpm run workers-builds:deploy`
-- set non-production deploys to `pnpm run workers-builds:preview`
+- set non-production deploys to `pnpm run workers-builds:branch`, which uploads nothing: a branch build only validates,
+  since every version of the `cloudchef` Worker carries production's D1 and secrets (preview URLs are off for the same
+  reason)
 - use `/` as the root, include all paths, and enable build caching
 - select `account-workers-builds-production`
 - configure the pinned `NODE_VERSION`, `PNPM_VERSION`, `SKIP_DEPENDENCY_INSTALL=1`, and

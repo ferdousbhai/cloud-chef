@@ -9,7 +9,7 @@ const validConfig = {
   buildCommand: 'pnpm run workers-builds:build',
   deployCommand: 'pnpm run workers-builds:deploy',
   nonProductionBuilds: true,
-  nonProductionDeployCommand: 'pnpm run workers-builds:preview',
+  nonProductionDeployCommand: 'pnpm run workers-builds:branch',
   pathIncludes: ['*'],
   pathExcludes: [],
   buildCaching: true,
@@ -28,7 +28,7 @@ const packageJson = {
     'workers-builds:build':
       'pnpm install --frozen-lockfile && node scripts/check-workers-builds-environment.mjs && node scripts/workers-builds-checks.mjs && node scripts/deploy-production.mjs --check-workers-builds',
     'workers-builds:deploy': 'node scripts/deploy-production.mjs --workers-builds',
-    'workers-builds:preview': 'node scripts/upload-workers-builds-preview.mjs',
+    'workers-builds:branch': 'node scripts/workers-builds-branch.mjs',
     'build:check': 'vite build',
     validate: 'node scripts/validate.mjs',
   },
@@ -44,12 +44,12 @@ describe('Workers Builds production configuration', () => {
         githubWorkflowPaths: ['.github/workflows/browser-gate.yml', '.github/workflows/runtime-artifacts.yml'],
         browserGateWorkflow: '      - run: pnpm run verify:built-browser\n',
         githubCompositeActionExists: false,
-        workerConfig: {},
+        workerConfig: { preview_urls: false },
       }),
     ).toEqual([]);
   });
 
-  it('rejects disabled previews, mutable toolchains, unreviewed variables, and GitHub deployment workflows', () => {
+  it('rejects disabled branch builds, preview URLs, mutable toolchains, unreviewed variables, and GitHub deployment workflows', () => {
     expect(
       findWorkersBuildsConfigErrors({
         config: {
@@ -62,7 +62,12 @@ describe('Workers Builds production configuration', () => {
         },
         packageJson: {
           packageManager: 'pnpm@latest',
-          scripts: { ...packageJson.scripts, 'build:check': 'vite build --mode development', validate: undefined },
+          scripts: {
+            ...packageJson.scripts,
+            'build:check': 'vite build --mode development',
+            validate: undefined,
+            'workers-builds:preview': 'node scripts/upload-workers-builds-preview.mjs',
+          },
         },
         nvmrc: 'node\n',
         githubWorkflowPaths: [
@@ -72,13 +77,18 @@ describe('Workers Builds production configuration', () => {
         ],
         browserGateWorkflow: undefined,
         githubCompositeActionExists: true,
-        workerConfig: { containers: [{ class_name: 'DeploymentSandbox', image: './Dockerfile.sandbox' }] },
+        workerConfig: {
+          preview_urls: true,
+          containers: [{ class_name: 'DeploymentSandbox', image: './Dockerfile.sandbox' }],
+        },
       }),
     ).toEqual(
       expect.arrayContaining([
         '.github/workflows/browser-gate.yml must run pnpm run verify:built-browser; the Workers Builds image cannot host the browser gate.',
         'workers-builds.production.json nonProductionBuilds must be true; found false.',
-        'workers-builds.production.json nonProductionDeployCommand must be "pnpm run workers-builds:preview"; found "wrangler deploy".',
+        'workers-builds.production.json nonProductionDeployCommand must be "pnpm run workers-builds:branch"; found "wrangler deploy".',
+        'cloudflare.config.ts previewUrls must be false; found true.',
+        'package.json must not define workers-builds:preview; branch builds upload no Worker version.',
         'workers-builds.production.json buildTokenName must be "account-workers-builds-production"; found "per-project-token".',
         'workers-builds.production.json buildVariables must not contain unreviewed variables: UNREVIEWED_SECRET.',
         'workers-builds.production.json must not build a CloudChef-owned Sandbox image.',

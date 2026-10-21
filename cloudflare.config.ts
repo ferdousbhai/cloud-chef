@@ -1,8 +1,8 @@
 import { bindings, defineConfig, exports, triggers } from 'cf/config';
 
 // Deploy tooling injects the environment-specific OAuth client id and commit SHA: scripts/deploy-production.mjs
-// and scripts/upload-workers-builds-preview.mjs set both in the environment of the build they then ship, so the
-// values reach the Worker as plain-text vars without ever being committed. Absent values are left unbound.
+// sets both in the environment of the build it then ships, so the values reach the Worker as plain-text vars
+// without ever being committed. Absent values are left unbound.
 const deployVar = (name: 'COMMIT_SHA' | 'CLOUDFLARE_OAUTH_CLIENT_ID') => {
   const value = process.env[name];
   return value ? { [name]: bindings.text(value) } : {};
@@ -15,7 +15,8 @@ export default defineConfig({
     compatibilityFlags: ['nodejs_compat'],
     entrypoint: 'app/server.ts',
     workersDev: false,
-    previewUrls: true,
+    // No preview URLs: every version of this Worker carries production's D1 and secrets.
+    previewUrls: false,
     domains: [
       'cloudchef.build',
       'www.cloudchef.build',

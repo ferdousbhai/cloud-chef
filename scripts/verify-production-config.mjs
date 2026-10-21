@@ -199,7 +199,7 @@ function verifyScripts(errors, pkg, label) {
     'd1:bookmark:production',
     'workers-builds:build',
     'workers-builds:deploy',
-    'workers-builds:preview',
+    'workers-builds:branch',
     'provision:production',
     'provision:production:check',
     'typecheck',

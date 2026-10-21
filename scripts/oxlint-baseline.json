@@ -554,12 +554,6 @@
       "anti-slop/no-unknown-returns": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 6
     },
-    "scripts/upload-workers-builds-preview.mjs": {
-      "anti-slop/no-runtime-typeof": 1
-    },
-    "scripts/upload-workers-builds-preview.spec.ts": {
-      "anti-slop/require-safety-comment-for-type-assertion": 1
-    },
     "scripts/verify-built-ssr.mjs": {
       "anti-slop/no-runtime-typeof": 1
     },
