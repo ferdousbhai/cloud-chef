@@ -1,4 +1,3 @@
-import { getToolInvocation, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import {
   COMPUTER_AI_TOOL_OPTIONS,
   COMPUTER_DEFAULT_SHELL_BACKEND,
@@ -21,7 +20,7 @@ import {
 } from 'cloudchef-agent/model-tool-inputs';
 import { parseNpmInstallCommand } from 'cloudchef-agent/tools/npmInstall';
 import { rejectedWorkspaceCommand, rejectedWorkspaceFileMutation } from 'cloudchef-agent/workspace-boundary';
-import { isCloudChefToolResult, toolFailure } from 'cloudchef-agent/tool-result';
+import { toolFailure } from 'cloudchef-agent/tool-result';
 import { isWorkspaceToolOperationIndeterminateError, type BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import type { Tool } from 'cloudchef-agent/tool';
@@ -36,17 +35,7 @@ type BuilderOperationContext = {
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
 };
 
-type ToolResultEvent = {
-  toolName: string;
-  result: unknown;
-};
-
 type TurnStatefulToolCoordinator = <T>(toolName: string, operation: () => Promise<T>) => Promise<T>;
-
-type AutoValidatedResult = Record<string, unknown> & {
-  validation?: unknown;
-  dependencyMutation?: boolean;
-};
 
 const CLOUDFLARE_REQUEST_TOOL_DESCRIPTION =
   'Send one Cloudflare API request for the connected account; the account is fixed by the server, so never choose another. ' +
@@ -422,7 +411,6 @@ function computerWorkspaceTool(
             }
             result = await workspace.installDependencies(installRequest);
             options.abortSignal?.throwIfAborted();
-            result = markDependencyMutation(result);
           } else {
             // A VFS read has nothing to journal: it commits no revision, so there is no
             // at-most-once outcome for a retry to adopt and no lane for it to wait behind.
@@ -504,10 +492,6 @@ async function derivedValidationToolCallId(toolCallId: string): Promise<string> 
   return `validation:${await sha256Hex(toolCallId)}`;
 }
 
-function markDependencyMutation(result: unknown): AutoValidatedResult {
-  return isRecord(result) ? { ...result, dependencyMutation: true } : { result, dependencyMutation: true };
-}
-
 function isExecInput(input: unknown): input is { command: string } {
   return isRecord(input) && typeof input.command === 'string';
 }
@@ -547,80 +531,4 @@ export function createTurnStatefulToolCoordinator(
     );
     return scheduled;
   };
-}
-
-export function getValidatedBuildCompletion(
-  messages: CloudChefMessage[],
-  currentStepResults: ReadonlyArray<ToolResultEvent> = [],
-): string | undefined {
-  const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
-  if (lastUserIndex === -1) {
-    return undefined;
-  }
-
-  const results = [
-    ...collectToolResults(messages).filter(({ messageIndex }) => messageIndex > lastUserIndex),
-    ...currentStepResults,
-  ];
-  const validation = latestSuccessfulValidation(results);
-  if (!validation) {
-    return undefined;
-  }
-
-  return 'Done. I built and validated the app. The hosted preview is publishing now, and deployment follows automatically.';
-}
-
-/** Tools whose result proves the workspace changed after whatever validated it last. */
-const VALIDATION_INVALIDATING_TOOL_NAMES: ReadonlySet<string> = new Set(['write', 'edit', 'exec']);
-
-function latestSuccessfulValidation(results: ReadonlyArray<ToolResultEvent>): unknown | undefined {
-  for (let index = results.length - 1; index >= 0; index -= 1) {
-    const event = results[index];
-    const result = event?.result;
-    if (isRecord(result) && 'validation' in result) {
-      return isSuccessfulValidationResult(result.validation) ? result.validation : undefined;
-    }
-    // A mutation reached after the receipt means the receipt describes older content. Walking past
-    // it let a pre-steering validation vouch for a post-steering write, and the turn then claimed
-    // it had "built and validated the app" while deployment — which matches the validation record
-    // against the current revision — shipped nothing.
-    if (event && isWorkspaceMutationResult(event)) {
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
-function isWorkspaceMutationResult(event: ToolResultEvent): boolean {
-  return (
-    VALIDATION_INVALIDATING_TOOL_NAMES.has(event.toolName) ||
-    (isRecord(event.result) && event.result.dependencyMutation === true)
-  );
-}
-
-function collectToolResults(messages: CloudChefMessage[]): Array<{
-  messageIndex: number;
-  toolName: string;
-  result: unknown;
-}> {
-  return messages.flatMap((message, messageIndex) =>
-    message.parts.flatMap((part) => {
-      const invocation = getToolInvocation(part);
-      if (invocation?.state !== 'output-available') {
-        return [];
-      }
-      return [{ messageIndex, toolName: invocation.toolName, result: invocation.output }];
-    }),
-  );
-}
-
-function isSuccessfulValidationResult(result: unknown): boolean {
-  return (
-    isCloudChefToolResult(result) &&
-    result.ok &&
-    isRecord(result.data) &&
-    result.data.level === 'full' &&
-    typeof result.data.revision === 'string' &&
-    result.data.nextAction === 'prepare-deployment'
-  );
 }

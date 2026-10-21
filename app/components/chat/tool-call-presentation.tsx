@@ -10,7 +10,6 @@ import { formatStreamedSize, streamedToolInput } from './streaming-tool-input';
 import type { ZodType } from 'zod';
 import { cloudflareApiRequestDisplaySchema, cloudflareApiRequestIsRead } from 'cloudchef-agent/cloudflare-api';
 import { toolFailure, toolResultSucceeded } from 'cloudchef-agent/tool-result';
-import { AUTO_VALIDATION_TOOL_CALL_ID_PREFIX } from '~/lib/common/builder-validation-progress';
 
 const MAX_TOOL_TITLE_VALUE_CHARACTERS = 160;
 /** Keyed by the model-facing tool name, which arrives as an unconstrained string on the invocation. */
@@ -94,21 +93,11 @@ export function toolTitle(invocation: CloudChefToolInvocation, status: ToolActiv
         <FileIcon />,
       );
     }
-    case 'validate': {
-      // The builder runs the canonical validation itself when a turn ends unvalidated. Saying so
-      // keeps the model's own validate calls distinguishable from the ones the server owes the user.
-      const automatic = invocation.toolCallId.startsWith(AUTO_VALIDATION_TOOL_CALL_ID_PREFIX);
+    case 'validate':
       return titleRow(
-        status === 'running'
-          ? automatic
-            ? 'Validating the project (automatic)…'
-            : 'Validating the project'
-          : automatic
-            ? 'Validated the project (automatic)'
-            : 'Validated the project',
+        status === 'running' ? 'Validating the project' : 'Validated the project',
         <CheckIcon className="text-content-secondary" />,
       );
-    }
     case 'search_cloudflare_docs':
       return titleRow(
         status === 'running' ? 'Searching Cloudflare docs' : 'Searched Cloudflare docs',

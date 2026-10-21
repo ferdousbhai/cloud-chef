@@ -4,7 +4,6 @@ import {
   type AgentEvent,
   type AgentLoopConfig,
   type AgentMessage,
-  type AgentToolResult,
 } from '@earendil-works/pi-agent-core';
 import {
   createInitialSystemMessage,
@@ -27,20 +26,16 @@ import {
   WorkspaceToolOperationIndeterminateError,
   type BuilderWorkspaceApi,
 } from '~/agents/builder-workspace-api';
+import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import {
-  AUTO_VALIDATION_TOOL_CALL_ID_PREFIX,
-  type BuilderValidationStage,
-} from '~/lib/common/builder-validation-progress';
-import {
-  BUILDER_TURN_BUDGET_ERROR_CODE,
   BUILDER_TURN_FIRST_PROGRESS_MS,
   BUILDER_TURN_INACTIVITY_MS,
   BUILDER_TURN_WALL_CLOCK_MS,
-  BuilderTurnBudgetExceededError,
-  type BuilderTurnBudgetReason,
-  type BuilderTurnBudgetReport,
+  BuilderTurnLimitError,
+  type BuilderTurnLimitReason,
+  type BuilderTurnReport,
   type BuilderTurnTerminalReason,
-} from './builder-turn-budget';
+} from './builder-turn-limits';
 import {
   compactPiContext,
   estimatePiContextTokens,
@@ -52,11 +47,11 @@ import {
 import { createContextWindowTools } from './context-window-tools';
 import { ModelInputBudgetExceededError, modelCompactionPolicy, prepareModelInput } from './model-input';
 import { modelMessagesToPi } from './pi-message-conversion';
-import { recordPiStage, recordPiTurnBudget } from './pi-telemetry';
+import { recordPiStage, recordPiTurnReport } from './pi-telemetry';
 import { createToolTimeAccounting } from './tool-time-accounting';
 import { getPiModel, type WorkersAiAccountCredentials } from './pi-ai-models';
 import type { WorkersAiGatewayLogging } from './workers-ai-gateway';
-import { appendDeterministicCompletion, normalizeTextPartBoundaries } from './workers-ai-stream';
+import { normalizeTextPartBoundaries } from './workers-ai-stream';
 import {
   recordFirstBuilderMutation,
   recordFirstMeaningfulWorkersAiProgress,
@@ -65,7 +60,6 @@ import {
   turnUsage,
   type ModelTurnUsage,
 } from './workers-ai-telemetry';
-import { getValidatedBuildCompletion } from './workers-ai-tools';
 import { createPiToolBundle } from './pi-tools-adapter';
 import { createBuilderSkillContext } from './builder-skills';
 import {
@@ -83,14 +77,8 @@ import type { LinkedProjectModelToolContext } from './linked-project-model-tools
 type Messages = CloudChefMessage[];
 type UIMessageChunk = PiStreamChunk;
 
-/** Tools whose execution durably changes the project, for telemetry and the end-of-turn validation guarantee. */
+/** Tools whose execution can durably change the project. */
 const DURABLE_MUTATION_TOOL_NAMES: ReadonlySet<string> = new Set(['write', 'edit', 'exec']);
-
-/**
- * How many times one turn may run the canonical validation on the model's behalf. The first run
- * covers a model that finished without validating; the rest cover its repairs of those failures.
- */
-const MAX_AUTO_VALIDATION_ATTEMPTS = 3;
 
 interface PiAgentOptions {
   abortSignal?: AbortSignal;
@@ -116,7 +104,7 @@ interface PiAgentOptions {
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
   steering: PiSteeringQueue;
-  onSettled: (budget: BuilderTurnBudgetReport) => void;
+  onSettled: (report: BuilderTurnReport) => void;
   /** A finished turn's token counts, for an organization's per-member usage. */
   onModelUsage?: (usage: ModelTurnUsage) => void;
 }
@@ -205,10 +193,10 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   const wallClockSignal = AbortSignal.timeout(BUILDER_TURN_WALL_CLOCK_MS);
   const inactivityController = new AbortController();
   const firstProgressController = new AbortController();
-  const budgetSignals = [wallClockSignal, inactivityController.signal, firstProgressController.signal];
-  const loopSignal = AbortSignal.any(abortSignal ? [abortSignal, ...budgetSignals] : budgetSignals);
-  /** Budget exhaustion stays distinct from an owner cancellation or a durable teardown. */
-  const exhaustedBudgetReason = (): BuilderTurnBudgetReason | undefined => {
+  const limitSignals = [wallClockSignal, inactivityController.signal, firstProgressController.signal];
+  const loopSignal = AbortSignal.any(abortSignal ? [abortSignal, ...limitSignals] : limitSignals);
+  /** A hung turn stays distinct from an owner cancellation or a durable teardown. */
+  const reachedLimitReason = (): BuilderTurnLimitReason | undefined => {
     if (abortSignal?.aborted) {
       return undefined;
     }
@@ -217,9 +205,9 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     }
     return inactivityController.signal.aborted ? 'inactivity' : wallClockSignal.aborted ? 'wall_clock' : undefined;
   };
-  const budgetErrorForFailure = (error: unknown): unknown => {
-    const reason = error instanceof BuilderTurnBudgetExceededError ? undefined : exhaustedBudgetReason();
-    return reason ? new BuilderTurnBudgetExceededError(reason) : error;
+  const limitErrorForFailure = (error: unknown): unknown => {
+    const reason = error instanceof BuilderTurnLimitError ? undefined : reachedLimitReason();
+    return reason ? new BuilderTurnLimitError(reason) : error;
   };
   const { skillContext, piTools } = await withPreparationStage('tool_setup', async () => {
     const skillContext = createBuilderSkillContext();
@@ -262,24 +250,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     }),
   );
 
-  // A CloudChef app previews and deploys itself once validated, so validation ends the turn; a GitHub
-  // project goes on to publish_preview, which the model calls after validating.
-  const validatedBuildCompletion = linkedProject ? undefined : getValidatedBuildCompletion(messages);
-  if (validatedBuildCompletion && !steering.hasPending()) {
-    logger.info('Returning validated build completion without another model turn (pi)');
-    steering.close();
-    onSettled({
-      terminalReason: 'completed',
-      stepCount: 0,
-      toolCallCount: 0,
-      elapsedMs: Date.now() - startedAt,
-      toolWallClockMs: 0,
-      toolMsByName: {},
-      lastValidationState: 'validated',
-    });
-    return createValidatedBuildCompletionStream(validatedBuildCompletion);
-  }
-
   const instructions = systemPrompt(skillContext.prompt, linkedProject);
   const modelInput = await withPreparationStage('model_input', () =>
     prepareModelInput({
@@ -305,8 +275,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   const piMessages = withPreparationStage('message_conversion', () => modelMessagesToPi(modelInput.messages));
   recordPiStage('prepared', modelId);
 
-  let currentValidatedBuildCompletion: string | undefined;
-  const currentRunToolResults: Array<{ toolName: string; result: unknown }> = [];
   const streamedToolCalls = new Map<number, { toolCallId: string; toolName: string }>();
   const completedToolInputs = new Set<string>();
   let recordedFirstResponse = false;
@@ -314,7 +282,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   let totalUsage = emptyUsage();
   let currentTurnStreamedContent = false;
   let runtimeContextCompacted = false;
-  let toolBudgetError: BuilderTurnBudgetExceededError | undefined;
   let toolIndeterminateError: WorkspaceToolOperationIndeterminateError | undefined;
   let cloudflareApprovalPending = false;
   let terminalReason: BuilderTurnTerminalReason = 'failed';
@@ -326,11 +293,8 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   let firstProgressTimer: ReturnType<typeof setTimeout> | undefined;
   const toolAccounting = createToolTimeAccounting();
 
-  /**
-   * Stop for spent tool budgets, indeterminate workspace operations, or pending user approval.
-   */
-  const turnInterrupted = () =>
-    toolBudgetError !== undefined || toolIndeterminateError !== undefined || cloudflareApprovalPending;
+  /** Stop for an indeterminate workspace operation or a pending user approval. */
+  const turnInterrupted = () => toolIndeterminateError !== undefined || cloudflareApprovalPending;
 
   const clearInactivityWatchdog = () => {
     clearTimeout(inactivityTimer);
@@ -480,9 +444,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
 
     if (event.type === 'tool_execution_end') {
       const result = piToolResultDetails(event.result);
-      toolBudgetError ??= event.isError ? toolBudgetErrorFromResult(event.result) : undefined;
       toolIndeterminateError ??= event.isError ? toolIndeterminateErrorFromResult(event.result) : undefined;
-      currentRunToolResults.push({ toolName: event.toolName, result });
       // A proposal is a completed tool result, but it deliberately ends this Pi run before another model step.
       cloudflareApprovalPending ||=
         event.toolName === 'cloudflare_request' && isRecord(result) && result.kind === 'cloudflare_request_proposal';
@@ -501,7 +463,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
           dynamic: true,
         });
       }
-      currentValidatedBuildCompletion = getValidatedBuildCompletion(messages, currentRunToolResults);
       return;
     }
 
@@ -559,13 +520,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
         // SAFETY: every message in this loop's context originates from `modelMessagesToPi`, the Pi
         // tool adapter, or the Pi stream itself, so the context never holds a custom agent message.
         convertToLlm: (agentMessages) => agentMessages as Message[],
-        getSteeringMessages: async () => {
-          const messages = await steering.drain();
-          if (messages.length > 0) {
-            currentValidatedBuildCompletion = undefined;
-          }
-          return messages;
-        },
+        getSteeringMessages: () => steering.drain(),
         prepareNextTurn: async ({ message, context: turnContext }) => {
           archive(turnContext.messages);
           const wouldContinue = message.content.some((part) => part.type === 'toolCall');
@@ -600,10 +555,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
           if (turn.message.stopReason === 'error' || turn.message.stopReason === 'aborted') {
             return undefined;
           }
-          return turnInterrupted() ||
-            (currentValidatedBuildCompletion !== undefined && !linkedProject && !steering.hasPending())
-            ? { action: 'end' }
-            : undefined;
+          return turnInterrupted() ? { action: 'end' } : undefined;
         },
         afterToolCall: async ({ result, isError }) =>
           !isError && !toolResultSucceeded(result.details) ? { isError: true } : undefined,
@@ -612,77 +564,10 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
         toolChoice: 'auto',
       };
 
-      /**
-       * Deployment and preview recognize only the canonical validation, so a mutated turn the
-       * model ends without validating is incomplete: run the validation for it, and give the
-       * model the failure to repair inside this same turn while budgets allow.
-       */
-      const turnNeedsAutoValidation = () =>
-        durableMutationStarted &&
-        currentValidatedBuildCompletion === undefined &&
-        !loopSignal.aborted &&
-        !turnInterrupted() &&
-        !steering.hasPending() &&
-        assistantMessageValue(terminalAssistant)?.stopReason === 'stop';
-
-      /**
-       * A durably validated revision needs no transcript receipt: deployment readiness reads the
-       * validation record directly, so re-running validation for it would only add minutes.
-       */
-      const revisionAlreadyValidated = async (): Promise<boolean> => {
-        try {
-          const checkpoint = await workspace.checkpoint();
-          return await workspace.hasSuccessfulValidation(checkpoint.revision);
-        } catch {
-          return false;
-        }
-      };
-
-      const runAutoValidation = async (): Promise<void> => {
-        const validateTool = piTools.validate;
-        if (!validateTool) {
-          return;
-        }
-        const toolCallId = `${AUTO_VALIDATION_TOOL_CALL_ID_PREFIX}${crypto.randomUUID()}`;
-        await emit({ type: 'tool_execution_start', toolCallId, toolName: 'validate', args: {} });
-        let result: AgentToolResult<unknown>;
-        try {
-          result = await validateTool.execute(toolCallId, {}, loopSignal, undefined);
-        } catch (caught) {
-          const text = caught instanceof Error ? caught.message : 'The canonical validation could not be run.';
-          result = { content: [{ type: 'text', text }], details: { error: text } };
-        }
-        const details = piToolResultDetails(result);
-        const validation = isRecord(details) ? details.validation : undefined;
-        const isError = !toolResultSucceeded(validation ?? details);
-        await emit({ type: 'tool_execution_end', toolCallId, toolName: 'validate', result, isError });
-        context.messages.push(
-          {
-            role: 'assistant',
-            content: [{ type: 'toolCall', id: toolCallId, name: 'validate', arguments: {} }],
-            timestamp: Date.now(),
-            api: 'openai-completions',
-            provider: 'cloudflare-workers-ai',
-            model: modelId,
-            usage: emptyUsage(),
-            stopReason: 'stop',
-          },
-          {
-            role: 'toolResult',
-            toolCallId,
-            toolName: 'validate',
-            content: result.content,
-            isError,
-            timestamp: Date.now(),
-          },
-        );
-      };
-
       armInactivityWatchdog();
       // Armed once, when the model request starts: the first meaningful event disarms it for good.
       firstProgressTimer = setTimeout(() => firstProgressController.abort(), BUILDER_TURN_FIRST_PROGRESS_MS);
       let overflowRecoveryAttempted = false;
-      let autoValidationAttempts = 0;
       while (true) {
         terminalAssistant = undefined;
         await runAgentLoopContinue(context, loopConfig, emit, loopSignal, handle.stream);
@@ -704,17 +589,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
           context = compacted;
           continue;
         }
-
-        if (!turnNeedsAutoValidation() || (await revisionAlreadyValidated())) {
-          break;
-        }
-        autoValidationAttempts += 1;
-        await runAutoValidation();
-        if (autoValidationAttempts >= MAX_AUTO_VALIDATION_ATTEMPTS || !turnNeedsAutoValidation()) {
-          break;
-        }
-        // Validation failed and a repair round is still allowed: continue the same turn so the
-        // model can fix it against the result now in its context.
+        break;
       }
 
       recordPiStage('loop_complete', modelId);
@@ -722,12 +597,9 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       if (toolIndeterminateError) {
         throw toolIndeterminateError;
       }
-      if (toolBudgetError) {
-        throw toolBudgetError;
-      }
-      const signalBudgetReason = exhaustedBudgetReason();
-      if (signalBudgetReason) {
-        throw new BuilderTurnBudgetExceededError(signalBudgetReason);
+      const limitReason = reachedLimitReason();
+      if (limitReason) {
+        throw new BuilderTurnLimitError(limitReason);
       }
       if (finalAssistant?.stopReason === 'error') {
         const stopText = finalAssistant.errorMessage || 'The model request failed.';
@@ -764,13 +636,13 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       if (failedUsage.inputTokens + failedUsage.outputTokens > 0) {
         options.onModelUsage?.(failedUsage);
       }
-      const error = budgetErrorForFailure(cause);
+      const error = limitErrorForFailure(cause);
       terminalReason =
-        error instanceof BuilderTurnBudgetExceededError ? error.reason : abortSignal?.aborted ? 'cancelled' : 'failed';
+        error instanceof BuilderTurnLimitError ? error.reason : abortSignal?.aborted ? 'cancelled' : 'failed';
       recordPiStage('loop_error', modelId);
       logProviderFailure(logger, 'Pi agent runner failed.', error);
       if (
-        (error instanceof BuilderTurnBudgetExceededError ||
+        (error instanceof BuilderTurnLimitError ||
           error instanceof WorkspaceToolOperationIndeterminateError ||
           error instanceof HiddenReasoningExhaustionError) &&
         !abortSignal?.aborted
@@ -791,26 +663,17 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       clearTimeout(firstProgressTimer);
       steering.close();
       toolAccounting.settle();
-      // A GitHub project's validation hands off to publish_preview rather than deployment, so it never
-      // sets the deployment completion; whether its current revision is validated is read from the record.
-      const validated =
-        currentValidatedBuildCompletion !== undefined ||
-        (linkedProject !== undefined &&
-          (await workspace
-            .checkpoint()
-            .then((checkpoint) => workspace.hasSuccessfulValidation(checkpoint.revision))
-            .catch(() => false)));
-      const budget: BuilderTurnBudgetReport = {
+      const report: BuilderTurnReport = {
         terminalReason,
         stepCount,
         toolCallCount,
         elapsedMs: Date.now() - startedAt,
         toolWallClockMs: toolAccounting.wallClockMs(),
         toolMsByName: toolAccounting.byName(),
-        lastValidationState: validated ? 'validated' : 'unvalidated',
+        changedProject: durableMutationStarted,
       };
-      recordPiTurnBudget(modelId, budget);
-      onSettled(budget);
+      recordPiTurnReport(modelId, report);
+      onSettled(report);
       await writer.close().catch(() => undefined);
     }
   })();
@@ -840,9 +703,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     },
   });
 
-  return normalizeTextPartBoundaries(
-    appendDeterministicCompletion(framedStream, () => currentValidatedBuildCompletion),
-  );
+  return normalizeTextPartBoundaries(framedStream);
 }
 
 /** A provider rejection body is unbounded; the chat line only needs the head of it. */
@@ -863,20 +724,6 @@ function providerFailureText(reason: string): string {
     return `The model request failed: ${trimmed.slice(0, MAX_PROVIDER_REASON_CHARACTERS)}… Retry, or pick a different model.`;
   }
   return `The model request failed: ${trimmed}. Retry, or pick a different model.`;
-}
-
-function createValidatedBuildCompletionStream(text: string): ReadableStream<UIMessageChunk> {
-  return new ReadableStream({
-    start(controller) {
-      const id = 'validated-build-completion';
-      controller.enqueue({ type: 'start' });
-      controller.enqueue({ type: 'text-start', id });
-      controller.enqueue({ type: 'text-delta', id, delta: text });
-      controller.enqueue({ type: 'text-end', id });
-      controller.enqueue({ type: 'finish', finishReason: 'stop' });
-      controller.close();
-    },
-  });
 }
 
 function piToolResultDetails(result: unknown): unknown {
@@ -906,13 +753,6 @@ function piToolResultError(result: unknown): string {
   return isRecord(details) && typeof details.summary === 'string' ? details.summary : 'Tool execution failed.';
 }
 
-function toolBudgetErrorFromResult(result: unknown): BuilderTurnBudgetExceededError | undefined {
-  const payload = toolErrorPayload(result);
-  return payload?.code === BUILDER_TURN_BUDGET_ERROR_CODE && payload.reason === 'tool_timeout'
-    ? new BuilderTurnBudgetExceededError('tool_timeout')
-    : undefined;
-}
-
 function toolIndeterminateErrorFromResult(result: unknown): WorkspaceToolOperationIndeterminateError | undefined {
   const payload = toolErrorPayload(result);
   return payload?.code === WORKSPACE_TOOL_OPERATION_INDETERMINATE_CODE && typeof payload.error === 'string'
@@ -920,7 +760,7 @@ function toolIndeterminateErrorFromResult(result: unknown): WorkspaceToolOperati
     : undefined;
 }
 
-function toolErrorPayload(result: unknown): { code?: unknown; error?: unknown; reason?: unknown } | undefined {
+function toolErrorPayload(result: unknown): { code?: unknown; error?: unknown } | undefined {
   if (!isRecord(result) || !Array.isArray(result.content)) {
     return undefined;
   }

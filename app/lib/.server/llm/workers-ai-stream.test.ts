@@ -1,33 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { PiStreamChunk } from './pi-stream';
-import { appendDeterministicCompletion, normalizeTextPartBoundaries } from './workers-ai-stream';
+import { normalizeTextPartBoundaries } from './workers-ai-stream';
 
 type UIMessageChunk = PiStreamChunk;
-
-describe('appendDeterministicCompletion', () => {
-  it('places server-owned completion copy before a terminal stop chunk', async () => {
-    const source = chunks([
-      { type: 'start' },
-      { type: 'tool-output-available', toolCallId: 'deploy-1', output: { state: 'awaiting-approval' } },
-      { type: 'finish', finishReason: 'tool-calls' },
-    ] as UIMessageChunk[]);
-
-    const result = await readChunks(
-      appendDeterministicCompletion(source, () => 'The production deployment plan is ready for your approval.'),
-    );
-
-    expect(result.slice(-4)).toEqual([
-      { type: 'text-start', id: 'validated-build-completion' },
-      {
-        type: 'text-delta',
-        id: 'validated-build-completion',
-        delta: 'The production deployment plan is ready for your approval.',
-      },
-      { type: 'text-end', id: 'validated-build-completion' },
-      { type: 'finish', finishReason: 'stop' },
-    ]);
-  });
-});
 
 describe('normalizeTextPartBoundaries', () => {
   it('closes a synthesized text part before the terminal chunk', async () => {

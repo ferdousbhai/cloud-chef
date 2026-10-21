@@ -1,36 +1,5 @@
 import type { PiStreamChunk } from './pi-stream';
 
-export function appendDeterministicCompletion(
-  stream: ReadableStream<PiStreamChunk>,
-  completion: () => string | undefined,
-): ReadableStream<PiStreamChunk> {
-  let finishChunk: Extract<PiStreamChunk, { type: 'finish' }> | undefined;
-  return stream.pipeThrough(
-    new TransformStream<PiStreamChunk, PiStreamChunk>({
-      transform(chunk, controller) {
-        if (chunk.type === 'finish') {
-          finishChunk = chunk;
-          return;
-        }
-        controller.enqueue(chunk);
-      },
-      flush(controller) {
-        const text = completion();
-        if (text) {
-          const id = 'validated-build-completion';
-          controller.enqueue({ type: 'text-start', id });
-          controller.enqueue({ type: 'text-delta', id, delta: text });
-          controller.enqueue({ type: 'text-end', id });
-        }
-        if (finishChunk) {
-          const terminalFinish: PiStreamChunk = { ...finishChunk, finishReason: 'stop' };
-          controller.enqueue(text ? terminalFinish : finishChunk);
-        }
-      },
-    }),
-  );
-}
-
 /**
  * Text and reasoning both arrive as provider-framed parts, and a provider that ends a turn mid-part
  * would otherwise leave the client rendering an assistant bubble that never closes. Every open part

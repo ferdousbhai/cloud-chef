@@ -16,6 +16,3 @@ export const BUILDER_VALIDATION_STAGES = [
 ] as const;
 
 export type BuilderValidationStage = (typeof BUILDER_VALIDATION_STAGES)[number];
-
-/** Tool call ids the builder mints when it runs the canonical validation on the model's behalf. */
-export const AUTO_VALIDATION_TOOL_CALL_ID_PREFIX = 'auto-validate:';

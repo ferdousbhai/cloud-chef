@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentContext, AgentMessage, AgentLoopConfig } from '@earendil-works/pi-agent-core';
 import type { AssistantMessage, ToolResultMessage } from '@earendil-works/pi-ai';
-import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { PiStreamChunk } from './pi-stream';
-import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type WorkersAiModelId } from '~/lib/workers-ai-model';
 
 type UIMessageChunk = PiStreamChunk;
@@ -60,11 +58,8 @@ async function endsTurn(config: StopAwareLoopConfig): Promise<boolean> {
 }
 
 const mocks = vi.hoisted(() => ({
-  completion: undefined as string | undefined,
-  validateExecute: vi.fn(),
   piMessages: [] as unknown[],
   piRun: vi.fn(),
-  getValidatedBuildCompletion: vi.fn(),
   prepareModelInput: vi.fn(async (options: { messages: unknown[] }) => ({
     messages: [],
     promptMessages: options.messages,
@@ -102,18 +97,8 @@ vi.mock('./builder-skills', () => ({
 vi.mock('./pi-tools-adapter', () => ({
   createPiToolBundle: vi.fn(() => ({
     write: { name: 'write', description: 'write', parameters: 'canonical-schema' },
-    validate: {
-      name: 'validate',
-      label: 'Validate project',
-      description: 'validate',
-      parameters: 'canonical-schema',
-      execute: mocks.validateExecute,
-    },
+    validate: { name: 'validate', description: 'validate', parameters: 'canonical-schema' },
   })),
-}));
-vi.mock('./workers-ai-tools', () => ({
-  createWorkersAiTools: vi.fn(() => ({})),
-  getValidatedBuildCompletion: mocks.getValidatedBuildCompletion,
 }));
 vi.mock('./workers-ai-telemetry', () => ({
   recordFirstWorkersAiResponse: vi.fn(),
@@ -124,16 +109,12 @@ vi.mock('./workers-ai-telemetry', () => ({
 }));
 import { piAgentRunner } from './pi-agent-runner';
 import { PiSteeringQueue } from './pi-steering';
-import { BUILDER_TURN_FIRST_PROGRESS_MS, BUILDER_TURN_INACTIVITY_MS } from './builder-turn-budget';
+import { BUILDER_TURN_FIRST_PROGRESS_MS, BUILDER_TURN_INACTIVITY_MS, BuilderTurnLimitError } from './builder-turn-limits';
 
 describe('piAgentRunner', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.completion = undefined;
     mocks.piMessages = [];
-    mocks.getValidatedBuildCompletion.mockImplementation((_messages: unknown, currentStepResults: unknown[] = []) =>
-      currentStepResults.length > 0 ? mocks.completion : undefined,
-    );
     mocks.piRun.mockResolvedValue(undefined);
   });
 
@@ -212,10 +193,6 @@ describe('piAgentRunner', () => {
         }),
         expect.objectContaining({ type: 'tool-output-available', toolCallId: 'read-1', output: result }),
       ]),
-    );
-    expect(mocks.getValidatedBuildCompletion).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.arrayContaining([{ toolName: 'read', result }]),
     );
   });
 
@@ -345,34 +322,46 @@ describe('piAgentRunner', () => {
     );
   });
 
-  it('stops before another model turn after a typed tool timeout', async () => {
-    const timeoutPayload = JSON.stringify({
-      code: 'builder_turn_budget_exhausted',
-      error: 'This build reached its safe execution limit before it finished. Send a follow-up to continue.',
-      reason: 'tool_timeout',
-      retryable: true,
-    });
+  it('lets the model carry on after a tool deadline, as with any failed tool', async () => {
     mocks.piRun.mockImplementation(
       async (_context: unknown, config: StopAwareLoopConfig, emit: (event: unknown) => Promise<void>) => {
         await emit({
           type: 'tool_execution_end',
-          toolCallId: 'write-timeout',
-          toolName: 'write',
-          result: { content: [{ type: 'text', text: timeoutPayload }], details: {} },
+          toolCallId: 'exec-timeout',
+          toolName: 'exec',
+          result: {
+            content: [{ type: 'text', text: 'exec did not finish within 35 minutes and was stopped.' }],
+            details: {},
+          },
           isError: true,
         });
-        expect(await endsTurn(config)).toBe(true);
-        await emit({
-          type: 'turn_end',
-          message: assistantMessage([{ type: 'toolCall', id: 'write-timeout', name: 'write', arguments: {} }]),
-          toolResults: [],
-        });
+        expect(await endsTurn(config)).toBe(false);
+        await emit({ type: 'turn_end', message: assistantMessage([{ type: 'text', text: 'Done' }]), toolResults: [] });
       },
     );
 
     const chunks = await collectChunks(await createAgentStream());
 
-    expect(chunks).toContainEqual({ type: 'error', errorText: timeoutPayload });
+    expect(chunks).toContainEqual({
+      type: 'tool-output-error',
+      toolCallId: 'exec-timeout',
+      errorText: 'exec did not finish within 35 minutes and was stopped.',
+      dynamic: true,
+    });
+    expect(chunks.some((chunk) => chunk.type === 'error')).toBe(false);
+  });
+
+  it('never writes a completion message of its own after the model has finished', async () => {
+    mocks.piRun.mockImplementation(async (_ctx: AgentContext, _cfg: StopAwareLoopConfig, emit: RunnerEventSink) => {
+      await emitToolRound(1, emit, { isError: false, details: { validation: { version: 1, ok: true } } });
+      await emit({ type: 'turn_end', message: assistantMessage([{ type: 'text', text: 'Done' }]), toolResults: [] });
+    });
+
+    const chunks = await collectChunks(await createAgentStream());
+
+    expect(mocks.piRun).toHaveBeenCalledOnce();
+    expect(chunks.filter((chunk) => chunk.type === 'text-delta')).toEqual([]);
+    expect(chunks.at(-1)).toEqual({ type: 'finish', finishReason: 'stop' });
   });
 
   it('ends the current run after cloudflare_request stores an approval proposal', async () => {
@@ -445,54 +434,6 @@ describe('piAgentRunner', () => {
     const chunks = await collectChunks(await createAgentStream());
 
     expect(chunks).toContainEqual({ type: 'error', errorText: payload });
-  });
-
-  it.each([
-    ['budget result first', ['budget', 'indeterminate']],
-    ['indeterminate result first', ['indeterminate', 'budget']],
-  ] as const)('prioritizes an indeterminate error in a combined parallel batch with the %s', async (_label, order) => {
-    const budgetPayload = JSON.stringify({
-      code: 'builder_turn_budget_exhausted',
-      error: 'This build reached its safe execution limit before it finished. Send a follow-up to continue.',
-      reason: 'tool_timeout',
-      retryable: true,
-    });
-    const indeterminatePayload = JSON.stringify({
-      code: 'workspace_tool_operation_indeterminate',
-      error: 'Unable to confirm workspace tool settlement; the workspace operation outcome is indeterminate.',
-      retryable: false,
-    });
-    const results = {
-      budget: { toolCallId: 'write-timeout', payload: budgetPayload },
-      indeterminate: { toolCallId: 'edit-indeterminate', payload: indeterminatePayload },
-    } as const;
-    mocks.piRun.mockImplementation(
-      async (_context: unknown, config: StopAwareLoopConfig, emit: (event: unknown) => Promise<void>) => {
-        for (const result of order) {
-          await emit({
-            type: 'tool_execution_end',
-            toolCallId: results[result].toolCallId,
-            toolName: result === 'budget' ? 'write' : 'edit',
-            result: { content: [{ type: 'text', text: results[result].payload }], details: {} },
-            isError: true,
-          });
-        }
-        expect(await endsTurn(config)).toBe(true);
-        await emit({
-          type: 'turn_end',
-          message: assistantMessage([
-            { type: 'toolCall', id: 'write-timeout', name: 'write', arguments: {} },
-            { type: 'toolCall', id: 'edit-indeterminate', name: 'edit', arguments: {} },
-          ]),
-          toolResults: [],
-        });
-      },
-    );
-
-    const chunks = await collectChunks(await createAgentStream());
-
-    expect(chunks).toContainEqual({ type: 'error', errorText: indeterminatePayload });
-    expect(chunks).not.toContainEqual({ type: 'error', errorText: budgetPayload });
   });
 
   it('switches context only after the requested handoff tool batch and retains searchable results', async () => {
@@ -665,159 +606,28 @@ describe('piAgentRunner', () => {
     });
   });
 
-  it('stops the loop once a validated completion is reached', async () => {
+  it.each([
+    ['write', true],
+    ['read', false],
+  ] as const)('reports whether a turn ran %s, a tool that can change the project', async (toolName, changed) => {
     const onSettled = vi.fn();
-    mocks.getValidatedBuildCompletion.mockImplementation((_messages: unknown, results: unknown[] = []) =>
-      results.length >= 3 ? 'Project validation passed.' : undefined,
-    );
-    mocks.piRun.mockImplementation(
-      fakeModelLoop((step, emit) => emitToolRound(step, emit, { isError: false, details: { summary: 'wrote' } })),
-    );
-
-    const chunks = await collectChunks(
-      await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, {}, undefined, { onSettled }),
-    );
-
-    expect(onSettled).toHaveBeenCalledWith(
-      expect.objectContaining({
-        terminalReason: 'completed',
-        stepCount: 3,
-        lastValidationState: 'validated',
-      }),
-    );
-    expect(chunks.some((chunk) => chunk.type === 'error')).toBe(false);
-    expect(mocks.recordFinish).toHaveBeenCalled();
-    expect(chunks).toContainEqual({
-      type: 'text-delta',
-      id: 'validated-build-completion',
-      delta: 'Project validation passed.',
-    });
-  });
-
-  it('runs the canonical validation when a mutated turn finishes without one', async () => {
-    const onSettled = vi.fn();
-    mocks.getValidatedBuildCompletion.mockImplementation(
-      (_messages: CloudChefMessage[], results: Array<{ toolName: string }> = []) =>
-        results.some((entry) => entry.toolName === 'validate') ? 'Validated automatically.' : undefined,
-    );
-    mocks.validateExecute.mockResolvedValue({
-      content: [{ type: 'text', text: 'validation passed' }],
-      details: { validation: { version: 1, ok: true, summary: 'ok' } },
-    });
     mocks.piRun.mockImplementation(async (_ctx: AgentContext, _cfg: StopAwareLoopConfig, emit: RunnerEventSink) => {
-      await emitToolRound(1, emit, { isError: false, details: { ok: true } });
-      await emit({ type: 'turn_end', message: assistantMessage([{ type: 'text', text: 'Done' }]), toolResults: [] });
-    });
-
-    const chunks = await collectChunks(
-      await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, {}, undefined, { onSettled }),
-    );
-
-    expect(mocks.piRun).toHaveBeenCalledTimes(1);
-    expect(mocks.validateExecute).toHaveBeenCalledTimes(1);
-    expect(mocks.validateExecute).toHaveBeenCalledWith(
-      expect.stringMatching(/^auto-validate:/),
-      {},
-      expect.anything(),
-      undefined,
-    );
-    expect(chunks).toContainEqual(expect.objectContaining({ type: 'tool-input-start', toolName: 'validate' }));
-    expect(chunks).toContainEqual({
-      type: 'text-delta',
-      id: 'validated-build-completion',
-      delta: 'Validated automatically.',
-    });
-    expect(onSettled).toHaveBeenCalledWith(
-      expect.objectContaining({ terminalReason: 'completed', lastValidationState: 'validated' }),
-    );
-  });
-
-  it("reports a GitHub project's turn as validated when its current revision is", async () => {
-    const onSettled = vi.fn();
-    mocks.getValidatedBuildCompletion.mockReturnValue(undefined);
-    mocks.piRun.mockImplementation(async (_ctx: AgentContext, _cfg: StopAwareLoopConfig, emit: RunnerEventSink) => {
-      await emit({
-        type: 'turn_end',
-        message: assistantMessage([{ type: 'text', text: 'Published' }]),
-        toolResults: [],
-      });
-    });
-    const workspace: Pick<BuilderWorkspaceApi, 'checkpoint' | 'hasSuccessfulValidation'> = {
-      checkpoint: async () => ({ workspaceRevision: 3, revision: 'rev-3' }),
-      hasSuccessfulValidation: async (revision: string) => revision === 'rev-3',
-    };
-
-    await collectChunks(
-      await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, {}, undefined, {
-        onSettled,
-        // SAFETY: the runner reads only checkpoint and hasSuccessfulValidation from this workspace here.
-        workspace: workspace as BuilderWorkspaceApi,
-        linkedProject: { repository: 'ada/site', defaultBranch: 'main', publish: vi.fn() },
-      }),
-    );
-
-    expect(onSettled).toHaveBeenCalledWith(expect.objectContaining({ lastValidationState: 'validated' }));
-  });
-
-  it('feeds an automatic validation failure back into the same turn for repair', async () => {
-    mocks.getValidatedBuildCompletion.mockImplementation(
-      (
-        _messages: CloudChefMessage[],
-        results: Array<{ toolName: string; result: { validation?: { ok?: boolean } } }> = [],
-      ) => {
-        const latestValidation = results.findLast((entry) => entry.toolName === 'validate');
-        return latestValidation?.result.validation?.ok ? 'Validated after repair.' : undefined;
-      },
-    );
-    mocks.validateExecute
-      .mockResolvedValueOnce({
-        content: [{ type: 'text', text: 'lint failed' }],
-        details: { validation: { version: 1, ok: false, summary: 'lint failed' } },
-      })
-      .mockResolvedValueOnce({
-        content: [{ type: 'text', text: 'validation passed' }],
-        details: { validation: { version: 1, ok: true, summary: 'ok' } },
-      });
-    const repairContexts: AgentMessage[][] = [];
-    mocks.piRun.mockImplementation(async (ctx: AgentContext, _cfg: StopAwareLoopConfig, emit: RunnerEventSink) => {
-      repairContexts.push([...ctx.messages]);
-      if (repairContexts.length === 1) {
-        await emitToolRound(1, emit, { isError: false, details: { ok: true } });
-      }
-      await emit({ type: 'turn_end', message: assistantMessage([{ type: 'text', text: 'Done' }]), toolResults: [] });
-    });
-
-    const chunks = await collectChunks(await createAgentStream());
-
-    expect(mocks.piRun).toHaveBeenCalledTimes(2);
-    expect(mocks.validateExecute).toHaveBeenCalledTimes(2);
-    // The repair round sees the failed validation as a normal tool call and result in context.
-    const repairMessages = repairContexts.at(1) ?? [];
-    expect(repairMessages.at(-1)).toMatchObject({ role: 'toolResult', toolName: 'validate', isError: true });
-    expect(repairMessages.at(-2)).toMatchObject({ role: 'assistant' });
-    expect(chunks).toContainEqual({
-      type: 'text-delta',
-      id: 'validated-build-completion',
-      delta: 'Validated after repair.',
-    });
-  });
-
-  it('does not auto-validate a turn without durable mutations', async () => {
-    mocks.piRun.mockImplementation(async (_ctx: AgentContext, _cfg: StopAwareLoopConfig, emit: RunnerEventSink) => {
-      await emit({ type: 'tool_execution_start', toolCallId: 'read-1', toolName: 'read', args: {} });
+      await emit({ type: 'tool_execution_start', toolCallId: 'tool-1', toolName, args: {} });
       await emit({
         type: 'tool_execution_end',
-        toolCallId: 'read-1',
-        toolName: 'read',
+        toolCallId: 'tool-1',
+        toolName,
         result: { details: { ok: true } },
         isError: false,
       });
       await emit({ type: 'turn_end', message: assistantMessage([{ type: 'text', text: 'Done' }]), toolResults: [] });
     });
 
-    await collectChunks(await createAgentStream());
+    await collectChunks(await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, {}, undefined, { onSettled }));
 
-    expect(mocks.validateExecute).not.toHaveBeenCalled();
+    expect(onSettled).toHaveBeenCalledWith(
+      expect.objectContaining({ terminalReason: 'completed', changedProject: changed }),
+    );
   });
 
   it('surfaces a turn that exhausted its output budget on hidden reasoning', async () => {
@@ -839,7 +649,7 @@ describe('piAgentRunner', () => {
     expect(onSettled).toHaveBeenCalledWith(expect.objectContaining({ terminalReason: 'failed' }));
   });
 
-  it('ends a stalled turn on the inactivity budget once meaningful progress was seen', async () => {
+  it('ends a stalled turn on the inactivity watchdog once meaningful progress was seen', async () => {
     vi.useFakeTimers();
     const onSettled = vi.fn();
     mocks.piRun.mockImplementation(stallAfterAssistantEvent('text_start'));
@@ -851,7 +661,7 @@ describe('piAgentRunner', () => {
       await vi.advanceTimersByTimeAsync(BUILDER_TURN_INACTIVITY_MS);
       const chunks = await collected;
 
-      expect(chunks).toContainEqual({ type: 'error', errorText: budgetErrorText('inactivity') });
+      expect(chunks).toContainEqual({ type: 'error', errorText: limitErrorText('inactivity') });
       expect(onSettled).toHaveBeenCalledWith(expect.objectContaining({ terminalReason: 'inactivity', stepCount: 0 }));
     } finally {
       vi.useRealTimers();
@@ -871,7 +681,7 @@ describe('piAgentRunner', () => {
       await vi.advanceTimersByTimeAsync(BUILDER_TURN_FIRST_PROGRESS_MS);
       const chunks = await collected;
 
-      expect(chunks).toContainEqual({ type: 'error', errorText: budgetErrorText('no_first_progress') });
+      expect(chunks).toContainEqual({ type: 'error', errorText: limitErrorText('no_first_progress') });
       expect(onSettled).toHaveBeenCalledWith(
         expect.objectContaining({ terminalReason: 'no_first_progress', stepCount: 0 }),
       );
@@ -896,8 +706,8 @@ describe('piAgentRunner', () => {
       await vi.advanceTimersByTimeAsync(BUILDER_TURN_INACTIVITY_MS);
       const chunks = await collected;
 
-      expect(chunks).not.toContainEqual({ type: 'error', errorText: budgetErrorText('no_first_progress') });
-      expect(chunks).toContainEqual({ type: 'error', errorText: budgetErrorText('inactivity') });
+      expect(chunks).not.toContainEqual({ type: 'error', errorText: limitErrorText('no_first_progress') });
+      expect(chunks).toContainEqual({ type: 'error', errorText: limitErrorText('inactivity') });
       expect(onSettled).toHaveBeenCalledWith(expect.objectContaining({ terminalReason: 'inactivity' }));
     } finally {
       vi.useRealTimers();
@@ -934,7 +744,7 @@ describe('piAgentRunner', () => {
     }
   });
 
-  it('reports an owner cancellation as cancellation rather than budget exhaustion', async () => {
+  it('reports an owner cancellation as cancellation rather than a hung turn', async () => {
     const onSettled = vi.fn();
     const abortSignal = AbortSignal.abort();
     mocks.piRun.mockImplementation(async (_ctx: unknown, _cfg: unknown, emit: (event: unknown) => Promise<void>) => {
@@ -1011,39 +821,8 @@ function createAgentStream(
   });
 }
 
-function budgetErrorText(reason: string) {
-  return JSON.stringify({
-    code: 'builder_turn_budget_exhausted',
-    error:
-      reason === 'no_first_progress'
-        ? 'The model did not start responding within a minute. Retry, or pick a different model.'
-        : 'This build reached its safe execution limit before it finished. Send a follow-up to continue.',
-    reason,
-    retryable: true,
-  });
-}
-
-/** Drive the runner's loop config the way pi-agent-core does: the finishTurn decision, then turn_end. */
-function fakeModelLoop(turn: (step: number, emit: (event: unknown) => Promise<void>) => Promise<void>) {
-  return async (_context: unknown, config: StopAwareLoopConfig, emit: (event: unknown) => Promise<void>) => {
-    // Fixed safety bound: the production loop has no step ceiling, so a test
-    // whose stop condition never fires must fail instead of spinning forever.
-    for (let step = 1; step <= 200; step += 1) {
-      await turn(step, emit);
-      const message = assistantMessage([{ type: 'toolCall', id: `call-${step}`, name: 'write', arguments: {} }]);
-      const decision = await config.finishTurn?.({
-        message,
-        toolResults: [],
-        context: { messages: [] },
-        newMessages: [],
-      });
-      await emit({ type: 'turn_end', message, toolResults: [] });
-      if (decision?.action === 'end') {
-        return;
-      }
-    }
-    throw new Error('The runner never stopped the fake model loop.');
-  };
+function limitErrorText(reason: 'inactivity' | 'no_first_progress') {
+  return new BuilderTurnLimitError(reason).message;
 }
 
 /** A model that streams one assistant event of this type and then never says anything again. */

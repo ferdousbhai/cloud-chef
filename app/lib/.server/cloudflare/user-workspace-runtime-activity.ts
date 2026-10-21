@@ -1,4 +1,4 @@
-import { BUILDER_TURN_WALL_CLOCK_MS } from '~/lib/.server/llm/builder-turn-budget';
+import { BUILDER_TURN_WALL_CLOCK_MS } from '~/lib/.server/llm/builder-turn-limits';
 
 /**
  * Whether a workspace runtime is doing work a redeploy would cut off, and the window an upgrade claims

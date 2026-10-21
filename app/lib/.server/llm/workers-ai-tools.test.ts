@@ -1,14 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { toolFailure, toolSuccess } from 'cloudchef-agent/tool-result';
 import { lineEditBaseTag } from 'cloudchef-agent/line-edit';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
-import {
-  createTurnStatefulToolCoordinator,
-  createWorkersAiTools,
-  getValidatedBuildCompletion,
-} from './workers-ai-tools';
+import { createTurnStatefulToolCoordinator, createWorkersAiTools } from './workers-ai-tools';
 
 type Tool = {
   description?: string;
@@ -370,7 +365,6 @@ describe('minimal Workers AI tool surface', () => {
       mode: 'add',
       packages: ['date-fns'],
     });
-    expect(result).toMatchObject({ dependencyMutation: true });
     expect(result).not.toHaveProperty('validation');
     expect(workspace.validate).not.toHaveBeenCalled();
     expect(workspace.computer.runtime!.exec).not.toHaveBeenCalled();
@@ -424,9 +418,6 @@ describe('minimal Workers AI tool surface', () => {
       ['tool-call', null],
     ]);
     expect(workspace.computer.runtime!.exec).not.toHaveBeenCalled();
-    expect(
-      getValidatedBuildCompletion([user('Build it')], [{ toolName: 'exec', result: { validation } }]),
-    ).toBeUndefined();
   });
 
   it('rejects long-running server commands before they reach the workspace', async () => {
@@ -502,47 +493,6 @@ describe('minimal Workers AI tool surface', () => {
       expect.objectContaining({ toolCallId: 'tool-call:validation', input: {} }),
     );
     expect(stages).toEqual(['computer validation', null]);
-    expect(getValidatedBuildCompletion([user('Build it')], [{ toolName: 'validate', result }])).toContain(
-      'validated the app',
-    );
-  });
-
-  it('derives completion from the latest explicit validation receipt', () => {
-    expect(
-      getValidatedBuildCompletion(
-        [user('Build it')],
-        [{ toolName: 'exec', result: { validation: validationResult() } }],
-      ),
-    ).toBe(
-      'Done. I built and validated the app. The hosted preview is publishing now, and deployment follows automatically.',
-    );
-
-    expect(
-      getValidatedBuildCompletion(
-        [user('Build it')],
-        [
-          { toolName: 'exec', result: { validation: validationResult() } },
-          { toolName: 'exec', result: { validation: toolFailure('Build failed') } },
-        ],
-      ),
-    ).toBeUndefined();
-  });
-
-  it('discards a validation receipt that a later mutation outlived', () => {
-    // The receipt describes the revision it validated, not the one the turn ends on.
-    for (const mutation of [
-      { toolName: 'write', result: { path: '/home/project/src/index.ts' } },
-      { toolName: 'edit', result: { path: '/home/project/src/index.ts' } },
-      { toolName: 'exec', result: { exitCode: 0 } },
-      { toolName: 'exec', result: { dependencyMutation: true } },
-    ]) {
-      expect(
-        getValidatedBuildCompletion(
-          [user('Build it')],
-          [{ toolName: 'validate', result: { validation: validationResult() } }, mutation],
-        ),
-      ).toBeUndefined();
-    }
   });
 
   it('serializes stateful work and keeps read-only work outside the queue', async () => {
@@ -724,10 +674,6 @@ function workspaceStub(
     }),
   };
   return workspace as unknown as BuilderWorkspaceApi;
-}
-
-function user(text: string): CloudChefMessage {
-  return { id: crypto.randomUUID(), role: 'user', parts: [{ type: 'text', text }] };
 }
 
 async function executeTool(definition: Tool, input: unknown, abortSignal?: AbortSignal) {

@@ -1,5 +1,5 @@
 import type { ModelToolName } from 'cloudchef-agent/model-tool-inputs';
-import { BUILDER_TURN_TIMEOUTS } from '../../app/lib/.server/llm/builder-turn-budget';
+import { BUILDER_TOOL_DEADLINES_MS } from '../../app/lib/.server/llm/builder-turn-limits';
 
 /**
  * How long a lane stays held with no further proof that its owner is alive.
@@ -36,7 +36,7 @@ type ToolGovernedOperationKind = keyof typeof OPERATION_LANE_TOOLS;
 
 /**
  * The longest a model tool may keep each lane occupied. Derived from the tool
- * budgets rather than restated, so the lane below a tool and the tool above it
+ * deadlines rather than restated, so the lane below a tool and the tool above it
  * cannot declare different ceilings for the same piece of work.
  */
 export const OPERATION_TOOL_BUDGET_MS = {
@@ -47,7 +47,7 @@ export const OPERATION_TOOL_BUDGET_MS = {
 } satisfies Record<ToolGovernedOperationKind, number>;
 
 function longestToolBudget(tools: readonly ModelToolName[]): number {
-  return Math.max(...tools.map((tool) => BUILDER_TURN_TIMEOUTS.tools[tool]));
+  return Math.max(...tools.map((tool) => BUILDER_TOOL_DEADLINES_MS[tool]));
 }
 
 /**

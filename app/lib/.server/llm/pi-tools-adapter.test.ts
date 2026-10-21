@@ -12,7 +12,7 @@ vi.mock('./workers-ai-tools', () => ({
   createWorkersAiTools: mocks.createWorkersAiTools,
 }));
 
-import { BUILDER_TURN_TIMEOUTS, BuilderTurnBudgetExceededError } from './builder-turn-budget';
+import { BUILDER_TOOL_DEADLINES_MS, BuilderToolDeadlineError } from './builder-turn-limits';
 import { createPiToolBundle } from './pi-tools-adapter';
 
 describe('Pi tool adapter', () => {
@@ -63,7 +63,7 @@ describe('Pi tool adapter', () => {
       const execution = tools[name].execute(`${name}-timeout`, input).catch((error) => {
         rejection = error;
       });
-      const timeoutMs = BUILDER_TURN_TIMEOUTS.tools[name];
+      const timeoutMs = BUILDER_TOOL_DEADLINES_MS[name];
 
       await vi.advanceTimersByTimeAsync(timeoutMs - 1);
       expect(rejection).toBeUndefined();
@@ -71,8 +71,7 @@ describe('Pi tool adapter', () => {
 
       await vi.advanceTimersByTimeAsync(1);
       await execution;
-      expect(rejection).toBeInstanceOf(BuilderTurnBudgetExceededError);
-      expect(rejection).toMatchObject({ reason: 'tool_timeout' });
+      expect(rejection).toBeInstanceOf(BuilderToolDeadlineError);
       expect(executionSignal?.reason).toBe(rejection);
     } finally {
       vi.useRealTimers();
@@ -98,7 +97,7 @@ describe('Pi tool adapter', () => {
       });
       const rejection = expect(execution).rejects.toBe(indeterminate);
 
-      await vi.advanceTimersByTimeAsync(BUILDER_TURN_TIMEOUTS.tools.write);
+      await vi.advanceTimersByTimeAsync(BUILDER_TOOL_DEADLINES_MS.write);
       await rejection;
     } finally {
       vi.useRealTimers();

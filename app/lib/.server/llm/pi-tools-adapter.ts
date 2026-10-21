@@ -5,7 +5,7 @@ import type { Tool } from 'cloudchef-agent/tool';
 import { isWorkspaceToolOperationIndeterminateError, type BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import type { BuilderSkillReader } from './builder-skills';
-import { BUILDER_TURN_TIMEOUTS, BuilderTurnBudgetExceededError } from './builder-turn-budget';
+import { BUILDER_TOOL_DEADLINES_MS, BuilderToolDeadlineError } from './builder-turn-limits';
 import { createWorkersAiTools } from './workers-ai-tools';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 import type { LinkedProjectModelToolContext } from './linked-project-model-tools';
@@ -74,8 +74,8 @@ function adaptTool(name: ModelToolName, definition: Tool, label: string): AgentT
 
       const timeoutController = new AbortController();
       const timeout = setTimeout(
-        () => timeoutController.abort(new BuilderTurnBudgetExceededError('tool_timeout')),
-        BUILDER_TURN_TIMEOUTS.tools[name],
+        () => timeoutController.abort(new BuilderToolDeadlineError(name)),
+        BUILDER_TOOL_DEADLINES_MS[name],
       );
       const executionSignal = signal ? AbortSignal.any([signal, timeoutController.signal]) : timeoutController.signal;
       let updatesOpen = true;

@@ -1,5 +1,5 @@
 {
-  "total": 1174,
+  "total": 1154,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -228,13 +228,13 @@
     },
     "app/lib/.server/llm/pi-agent-runner.test.ts": {
       "anti-slop/no-conditional-empty-object-spread": 1,
-      "anti-slop/no-module-mocking": 8,
-      "anti-slop/no-unknown-parameters": 37,
-      "anti-slop/require-safety-comment-for-type-assertion": 4
+      "anti-slop/no-module-mocking": 7,
+      "anti-slop/no-unknown-parameters": 31,
+      "anti-slop/require-safety-comment-for-type-assertion": 3
     },
     "app/lib/.server/llm/pi-agent-runner.ts": {
       "anti-slop/no-runtime-typeof": 4,
-      "anti-slop/no-unknown-parameters": 10,
+      "anti-slop/no-unknown-parameters": 9,
       "anti-slop/no-unknown-returns": 2,
       "anti-slop/no-unsafe-dictionary-type": 1
     },
@@ -265,9 +265,6 @@
       "anti-slop/no-runtime-typeof": 2,
       "anti-slop/no-unknown-parameters": 2
     },
-    "app/lib/.server/llm/workers-ai-stream.test.ts": {
-      "anti-slop/require-safety-comment-for-type-assertion": 1
-    },
     "app/lib/.server/llm/workers-ai-tools.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/no-unknown-parameters": 2,
@@ -275,10 +272,9 @@
       "anti-slop/require-safety-comment-for-type-assertion": 4
     },
     "app/lib/.server/llm/workers-ai-tools.ts": {
-      "anti-slop/no-runtime-typeof": 4,
-      "anti-slop/no-unknown-parameters": 5,
-      "anti-slop/no-unknown-returns": 1,
-      "anti-slop/no-unsafe-dictionary-type": 2
+      "anti-slop/no-runtime-typeof": 3,
+      "anti-slop/no-unknown-parameters": 3,
+      "anti-slop/no-unsafe-dictionary-type": 1
     },
     "app/lib/bounded-body.test.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 2
@@ -535,7 +531,7 @@
       "anti-slop/no-shape-in-symbol-names": 2
     },
     "scripts/ops-report.mjs": {
-      "anti-slop/no-runtime-typeof": 14
+      "anti-slop/no-runtime-typeof": 9
     },
     "scripts/provision-cloudflare-production.mjs": {
       "anti-slop/no-runtime-typeof": 2

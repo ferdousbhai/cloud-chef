@@ -12,7 +12,7 @@ import type { BuilderValidationStage } from '~/lib/common/builder-validation-pro
 import { logProviderFailure } from './llm/provider-error-logging';
 import type { WorkersAiModel, WorkersAiModelId } from '~/lib/workers-ai-model';
 import type { PiSteeringQueue } from './llm/pi-steering';
-import type { BuilderTurnBudgetReport } from './llm/builder-turn-budget';
+import type { BuilderTurnReport } from './llm/builder-turn-limits';
 import type { CloudflareApiModelToolContext } from './llm/cloudflare-api-model-tools';
 import type { LinkedProjectModelToolContext } from './llm/linked-project-model-tools';
 import type { ModelTurnUsage } from './llm/workers-ai-telemetry';
@@ -66,7 +66,7 @@ export async function createChatResponseFromBody({
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
   steering: PiSteeringQueue;
-  onSettled: (budget: BuilderTurnBudgetReport) => void;
+  onSettled: (report: BuilderTurnReport) => void;
   onModelUsage?: (usage: ModelTurnUsage) => void;
 }) {
   const { messages, modelId } = body;

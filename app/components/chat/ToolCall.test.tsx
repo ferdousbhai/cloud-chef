@@ -162,20 +162,6 @@ describe('ToolCall', () => {
     expect(container.textContent).toContain('Writing src/routes/index.tsx… 3.2 KB');
   });
 
-  it("marks the validation the builder runs on the model's behalf as automatic", async () => {
-    const invocation: CloudChefToolInvocation = {
-      type: 'dynamic-tool',
-      state: 'input-available',
-      toolCallId: 'auto-validate:0f8f0f0f',
-      toolName: 'validate',
-      input: {},
-    };
-
-    await act(async () => root.render(<ToolCall partId={makePartId('message-5', 0)} invocation={invocation} />));
-
-    expect(container.textContent).toContain('Validating the project (automatic)…');
-  });
-
   it('reports a finished validation as a verdict and its stages, not raw JSON', async () => {
     const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',

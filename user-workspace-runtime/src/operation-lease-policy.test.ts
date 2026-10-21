@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { WORKSPACE_READ_ONLY_TOOL_NAMES } from '../../cloudchef-agent/model-tool-inputs';
-import { BUILDER_TURN_TIMEOUTS } from '../../app/lib/.server/llm/builder-turn-budget';
+import { BUILDER_TOOL_DEADLINES_MS } from '../../app/lib/.server/llm/builder-turn-limits';
 import {
   CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS,
   OPERATION_LANE_TOOLS,
@@ -15,7 +15,7 @@ const kinds = Object.keys(OPERATION_LEASE_MS) as StatefulOperationKind[];
 describe('operation lease policy', () => {
   it('never lets a lane lease and the tool budget above it declare different ceilings', () => {
     for (const [kind, tools] of Object.entries(OPERATION_LANE_TOOLS)) {
-      const budget = Math.max(...tools.map((tool) => BUILDER_TURN_TIMEOUTS.tools[tool]));
+      const budget = Math.max(...tools.map((tool) => BUILDER_TOOL_DEADLINES_MS[tool]));
       const plan = operationLeasePlan(kind as StatefulOperationKind);
 
       // The defect this guard exists for: a lease shorter than the budget above
@@ -32,7 +32,7 @@ describe('operation lease policy', () => {
     // The VFS-only workspace tools and the remote docs search never take a lane; everything else
     // must. A discovery tool that slipped into a lane would wait on the container it exists to
     // avoid.
-    expect(Object.keys(BUILDER_TURN_TIMEOUTS.tools).filter((tool) => !governed.has(tool as never))).toEqual([
+    expect(Object.keys(BUILDER_TOOL_DEADLINES_MS).filter((tool) => !governed.has(tool as never))).toEqual([
       ...WORKSPACE_READ_ONLY_TOOL_NAMES,
       'search_cloudflare_docs',
       // cloudflare_request is sent by the runtime Worker directly and must never take a
