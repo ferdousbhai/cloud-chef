@@ -7,13 +7,13 @@ A package whose package-level evidence is <not published> remains exact-version 
 This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
-Production packages: 677
-Inventory SHA-256: 54b0a7315ce31bdeaba5cf82ce178cec90820a1e86961b1f481288e28d124e19
+Production packages: 676
+Inventory SHA-256: 15812256c1f6d168fac0da5b8acf8bb481d726980d2272f76f6ae22b30365c8e
 
 PACKAGE INVENTORY
 =================
 
-@ai-sdk/gateway@4.0.37
+@ai-sdk/gateway@4.0.121
 Declared license: Apache-2.0
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/vercel/ai","directory":"packages/gateway"}
@@ -22,7 +22,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 b4f9adb7c568904834d0dd6cc98d16c390d21ca32fc17ae7a267715269bd5529)
 
-@ai-sdk/mcp@2.0.22
+@ai-sdk/mcp@2.0.81
 Declared license: Apache-2.0
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/vercel/ai","directory":"packages/mcp"}
@@ -31,7 +31,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 b4f9adb7c568904834d0dd6cc98d16c390d21ca32fc17ae7a267715269bd5529)
 
-@ai-sdk/provider@4.0.4
+@ai-sdk/provider@4.0.31
 Declared license: Apache-2.0
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/vercel/ai","directory":"packages/provider"}
@@ -40,7 +40,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 b4f9adb7c568904834d0dd6cc98d16c390d21ca32fc17ae7a267715269bd5529)
 
-@ai-sdk/provider-utils@5.0.18
+@ai-sdk/provider-utils@5.0.65
 Declared license: Apache-2.0
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/vercel/ai","directory":"packages/provider-utils"}
@@ -50,7 +50,7 @@ Published license/notice files:
 - src/to-json-schema/zod3-to-json-schema/LICENSE (SHA-256 6dd0d97acd4d13f4608a0f530f0487e0ff20812888bd1803aecfaaa17ff0f849)
 - src/to-json-schema/zod3-to-json-schema/README.md (SHA-256 5f123b645cb66faeec8c0ab6a252722372e58832d41449cd5ce50709203bdf89)
 
-@ai-sdk/react@4.0.51
+@ai-sdk/react@4.0.152
 Declared license: Apache-2.0
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/vercel/ai","directory":"packages/react"}
@@ -640,7 +640,7 @@ Homepage: https://github.com/cfworker/cfworker/tree/master/packages/json-schema/
 Package-level license evidence: <not published>
 Published license/notice files: <not published>
 
-@cloudflare/ai-chat@0.12.1
+@cloudflare/ai-chat@0.12.2
 Declared license: MIT
 Author: Cloudflare Inc.
 Repository: {"directory":"packages/ai-chat","type":"git","url":"git+https://github.com/cloudflare/agents.git"}
@@ -1166,8 +1166,8 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 9672b5ea831c360425e95b806b302e502582dd9718b056f29c40cf241daecb68)
 
-@modelcontextprotocol/client@2.2.0
-Declared license: MIT
+@modelcontextprotocol/client@2.3.1
+Declared license: Apache-2.0
 Author: Anthropic, PBC (https://anthropic.com)
 Repository: {"type":"git","url":"git+https://github.com/modelcontextprotocol/typescript-sdk.git"}
 Homepage: https://modelcontextprotocol.io
@@ -1175,17 +1175,8 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a)
 
-@modelcontextprotocol/core@2.0.0
-Declared license: MIT
-Author: Anthropic, PBC (https://anthropic.com)
-Repository: {"type":"git","url":"git+https://github.com/modelcontextprotocol/typescript-sdk.git"}
-Homepage: https://modelcontextprotocol.io
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a)
-
-@modelcontextprotocol/core@2.2.0
-Declared license: MIT
+@modelcontextprotocol/core@2.3.1
+Declared license: Apache-2.0
 Author: Anthropic, PBC (https://anthropic.com)
 Repository: {"type":"git","url":"git+https://github.com/modelcontextprotocol/typescript-sdk.git"}
 Homepage: https://modelcontextprotocol.io
@@ -1202,8 +1193,8 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 5e13dbbc1d120fc2a03cecde7c91424ae2d7de11b63d58ded2f4431e261ee50d)
 
-@modelcontextprotocol/server@2.0.0
-Declared license: MIT
+@modelcontextprotocol/server@2.3.1
+Declared license: Apache-2.0
 Author: Anthropic, PBC (https://anthropic.com)
 Repository: {"type":"git","url":"git+https://github.com/modelcontextprotocol/typescript-sdk.git"}
 Homepage: https://modelcontextprotocol.io
@@ -2303,7 +2294,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 8d8c55319c7729d57be811c747452636688d54f19701ee0752b6b15ad3771d9a)
 
-agents@0.26.0
+agents@0.29.0
 Declared license: MIT
 Author: Cloudflare Inc.
 Repository: {"directory":"packages/agents","type":"git","url":"git+https://github.com/cloudflare/agents.git"}
@@ -2312,7 +2303,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 b33ae783f02478cd31787cd07cbf61cd3a6fbee1a50b2baf832b8f0fb7c600f7)
 
-ai@7.0.48
+ai@7.0.148
 Declared license: Apache-2.0
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/vercel/ai","directory":"packages/ai"}
@@ -6368,10 +6359,9 @@ Felix Geisendörfer (felix@debuggable.com)
 
 SHA-256 0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a
 Used by:
-- @modelcontextprotocol/client@2.2.0:LICENSE
-- @modelcontextprotocol/core@2.0.0:LICENSE
-- @modelcontextprotocol/core@2.2.0:LICENSE
-- @modelcontextprotocol/server@2.0.0:LICENSE
+- @modelcontextprotocol/client@2.3.1:LICENSE
+- @modelcontextprotocol/core@2.3.1:LICENSE
+- @modelcontextprotocol/server@2.3.1:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 The MCP project is undergoing a licensing transition from the MIT License to the Apache License, Version 2.0 ("Apache-2.0"). All new code and specification contributions to the project are licensed under Apache-2.0. Documentation contributions (excluding specifications) are licensed under CC-BY-4.0.
 
@@ -14344,7 +14334,7 @@ defined by the Mozilla Public License, v. 2.0.
 
 SHA-256 5f123b645cb66faeec8c0ab6a252722372e58832d41449cd5ce50709203bdf89
 Used by:
-- @ai-sdk/provider-utils@5.0.18:src/to-json-schema/zod3-to-json-schema/README.md
+- @ai-sdk/provider-utils@5.0.65:src/to-json-schema/zod3-to-json-schema/README.md
 ----- BEGIN VERBATIM CONTENT -----
 # `zod-to-json-schema`
 
@@ -15253,7 +15243,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 SHA-256 6dd0d97acd4d13f4608a0f530f0487e0ff20812888bd1803aecfaaa17ff0f849
 Used by:
-- @ai-sdk/provider-utils@5.0.18:src/to-json-schema/zod3-to-json-schema/LICENSE
+- @ai-sdk/provider-utils@5.0.65:src/to-json-schema/zod3-to-json-schema/LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 ISC License
 
@@ -18738,9 +18728,9 @@ THE SOFTWARE.
 
 SHA-256 b33ae783f02478cd31787cd07cbf61cd3a6fbee1a50b2baf832b8f0fb7c600f7
 Used by:
-- @cloudflare/ai-chat@0.12.1:LICENSE
+- @cloudflare/ai-chat@0.12.2:LICENSE
 - @cloudflare/codemode@0.5.1:LICENSE
-- agents@0.26.0:LICENSE
+- agents@0.29.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License Copyright (c) 2025 Cloudflare, Inc.
 
@@ -19004,11 +18994,11 @@ SOFTWARE.
 
 SHA-256 b4f9adb7c568904834d0dd6cc98d16c390d21ca32fc17ae7a267715269bd5529
 Used by:
-- @ai-sdk/gateway@4.0.37:LICENSE
-- @ai-sdk/mcp@2.0.22:LICENSE
-- @ai-sdk/provider@4.0.4:LICENSE
-- @ai-sdk/react@4.0.51:LICENSE
-- ai@7.0.48:LICENSE
+- @ai-sdk/gateway@4.0.121:LICENSE
+- @ai-sdk/mcp@2.0.81:LICENSE
+- @ai-sdk/provider@4.0.31:LICENSE
+- @ai-sdk/react@4.0.152:LICENSE
+- ai@7.0.148:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright 2023 Vercel, Inc.
 
