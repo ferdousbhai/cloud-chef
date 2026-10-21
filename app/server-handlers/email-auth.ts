@@ -48,21 +48,16 @@ export async function startEmailSignInAction({ request, env }: { request: Reques
   }
   const email = normalizeEmail(payload.email);
   const now = Date.now();
-  const recent = await env.DB.prepare(
-    'SELECT COUNT(*) AS sent FROM email_sign_in_tokens WHERE email = ? AND created_at > ?',
-  )
-    .bind(email, now - 60 * 60_000)
-    .first<{ sent: number }>();
   // The same answer either way: whether a link went out says nothing about the address.
   const accepted = Response.json({ sent: true }, { status: 202 });
-  if ((recent?.sent ?? 0) >= EMAIL_SIGN_IN_LINKS_PER_HOUR) {
-    return accepted;
-  }
   const token = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
   const origin = publicOrigin(request);
-  await env.DB.prepare(
+  // Counted and recorded in one statement, so requests racing for the same address can't each see room
+  // for one more link: only a request whose token was recorded sends an email.
+  const recorded = await env.DB.prepare(
     `INSERT INTO email_sign_in_tokens (token_hash, email, return_to, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
+     SELECT ?, ?, ?, ?, ?
+     WHERE (SELECT COUNT(*) FROM email_sign_in_tokens WHERE email = ? AND created_at > ?) < ?`,
   )
     .bind(
       await sha256Hex(token),
@@ -70,8 +65,14 @@ export async function startEmailSignInAction({ request, env }: { request: Reques
       safeReturnTo(payload.callbackURL, origin),
       now + EMAIL_SIGN_IN_LINK_TTL_MS,
       now,
+      email,
+      now - 60 * 60_000,
+      EMAIL_SIGN_IN_LINKS_PER_HOUR,
     )
     .run();
+  if (recorded.meta.changes !== 1) {
+    return accepted;
+  }
   const link = new URL(EMAIL_SIGN_IN_PATH, origin);
   link.searchParams.set('token', token);
   try {

@@ -152,6 +152,20 @@ describe('email sign-in', () => {
     expect(sent).toHaveLength(EMAIL_SIGN_IN_LINKS_PER_HOUR);
   });
 
+  it('holds the hourly limit for requests that arrive at once', async () => {
+    const { database, env, sent } = setup();
+    const responses = await Promise.all(
+      Array.from({ length: EMAIL_SIGN_IN_LINKS_PER_HOUR * 3 }, () =>
+        startEmailSignInAction({ request: post('/api/auth/email/start', { email: 'sam@example.com' }), env }),
+      ),
+    );
+    expect(responses.every((response) => response.status === 202)).toBe(true);
+    expect(sent).toHaveLength(EMAIL_SIGN_IN_LINKS_PER_HOUR);
+    expect(database.prepare('SELECT COUNT(*) AS links FROM email_sign_in_tokens').get()).toEqual({
+      links: EMAIL_SIGN_IN_LINKS_PER_HOUR,
+    });
+  });
+
   it('rejects other origins and bad addresses', async () => {
     const { env, sent } = setup();
     const foreign = await startEmailSignInAction({
