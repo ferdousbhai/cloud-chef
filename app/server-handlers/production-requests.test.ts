@@ -14,6 +14,7 @@ import {
 } from './github-projects';
 import { listOrganizationsAction } from './organizations';
 import { updateMember } from '~/lib/cloudflare/data/organizations.server';
+import { claimProductionRequestForApproval } from '~/lib/cloudflare/data/org-projects.server';
 
 const ORIGIN = 'https://cloudchef.build';
 const ORG = '33333333-3333-4333-8333-333333333333';
@@ -264,6 +265,73 @@ describe('production requests', () => {
       project_id: null,
       note: null,
     });
+  });
+
+  it('approves into the project its new repository was already linked as, when an approval is retried', async () => {
+    const { database, env, admin, sara, app } = await setup();
+    // The first try made the repository; an admin linked it, empty, before the approval was retried.
+    database
+      .prepare(
+        `INSERT INTO org_projects (id, org_id, name, repo_id, repo_full_name, default_branch, origin, created_by, created_at)
+         VALUES ('linked-project', ?, 'new-app', 77, 'ada/new-app', 'main', 'linked', ?, 1)`,
+      )
+      .run(ORG, admin.userId);
+    const started = await approveProductionRequestAction({
+      request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+        orgId: ORG,
+        requestId: REQUEST,
+        repoName: 'new-app',
+        private: true,
+      }),
+      env,
+      app,
+    });
+    const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+    const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+
+    const returned = await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+      }),
+      env,
+      app,
+    });
+
+    expect(returned.status).toBe(303);
+    expect(returnedMessage(returned)).toBe(
+      'The app is now a GitHub repository, and a project its requester can work on.',
+    );
+    expect(database.prepare('SELECT id FROM org_projects').all()).toEqual([{ id: 'linked-project' }]);
+    expect(database.prepare('SELECT project_id, user_id FROM org_project_access').all()).toEqual([
+      { project_id: 'linked-project', user_id: sara.userId },
+    ]);
+    expect(database.prepare('SELECT status, project_id FROM production_requests').get()).toEqual({
+      status: 'approved',
+      project_id: 'linked-project',
+    });
+  });
+
+  it('gives an admin who claimed in the same millisecond as another no hold on the request', async () => {
+    const { database, env, admin } = await setup();
+    const bo = await upsertVerifiedEmailUser(env.DB, { email: 'bo@example.com' });
+    database
+      .prepare(`INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES (?, ?, 'admin', 1)`)
+      .run(ORG, bo.id);
+    const claim = (adminId: string, state: string, now: number) =>
+      claimProductionRequestForApproval(env.DB, {
+        orgId: ORG,
+        requestId: REQUEST,
+        adminId,
+        approval: { state, repoName: 'new-app', private: true, ttlMs: 600_000 },
+        now,
+      });
+    const now = Date.now();
+
+    expect(await claim(admin.userId, 'state-ada', now)).toBe(now);
+    expect(await claim(bo.id, 'state-bo', now)).toBeNull();
+    // Nor later: the claim is still Ada's.
+    expect(await claim(bo.id, 'state-bo-again', now + 1)).toBeNull();
+    expect(database.prepare('SELECT user_id FROM github_approval_states').all()).toEqual([{ user_id: admin.userId }]);
   });
 
   it('claims a request only together with the approval that finishes it', async () => {
