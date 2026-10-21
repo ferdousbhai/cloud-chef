@@ -304,7 +304,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
       },
       resources: [
         { type: 'worker', logicalName: 'app', proposedName: 'cloudchef-deployment-1' },
-        { type: 'worker', logicalName: 'app_preview', proposedName: 'cloudchef-deployment-1-preview' },
+        { type: 'worker', logicalName: 'app_preview', proposedName: 'deployme-cloudchef-deployment-1-preview' },
         { type: 'd1', logicalName: 'DB', proposedName: 'cloudchef-deployment-1' },
         { type: 'd1', logicalName: 'DB_PREVIEW', proposedName: 'cloudchef-deployment-1-preview' },
         {
@@ -405,7 +405,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     ).resolves.toMatchObject({
       id: '11111111-1111-4111-8111-111111111111',
       // The preview Worker's own address, serving the revision as its active version.
-      url: 'https://cloudchef-deployment-1-preview.user-subdomain.workers.dev',
+      url: 'https://deployme-cloudchef-deployment-1-preview.user-subdomain.workers.dev',
       workspaceRevision: 7,
       snapshotRevision: revision,
     });
@@ -417,7 +417,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     expect(prepareDeploymentArtifact).toHaveBeenCalledWith(
       expect.objectContaining({
         operationId: 'preview:deployment-1:4:preview-1',
-        workerName: 'cloudchef-deployment-1-preview',
+        workerName: 'deployme-cloudchef-deployment-1-preview',
         d1DatabaseId: 'preview-database-id',
         d1DatabaseName: 'cloudchef-deployment-1-preview',
         agentSecurityD1DatabaseId: 'preview-agent-database-id',
@@ -433,7 +433,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledOnce();
     expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledWith(
       expect.objectContaining({
-        workerName: 'cloudchef-deployment-1-preview',
+        workerName: 'deployme-cloudchef-deployment-1-preview',
         d1DatabaseId: 'preview-database-id',
         agentSecurityD1DatabaseId: 'preview-agent-database-id',
         appAgent: true,
@@ -441,16 +441,16 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
       }),
     );
     expect(mocks.accountApi.configureManagedWorkerSchedule).toHaveBeenCalledWith(
-      'cloudchef-deployment-1-preview',
+      'deployme-cloudchef-deployment-1-preview',
       true,
     );
-    expect(mocks.accountApi.enableWorkerSubdomain).toHaveBeenCalledWith('cloudchef-deployment-1-preview');
+    expect(mocks.accountApi.enableWorkerSubdomain).toHaveBeenCalledWith('deployme-cloudchef-deployment-1-preview');
     expect(mocks.accountApi.enableWorkerSubdomain).not.toHaveBeenCalledWith('cloudchef-deployment-1');
     expect(mocks.recordDeploymentResource).toHaveBeenCalledWith(
       expect.objectContaining({
         resourceType: 'worker',
         logicalName: 'app_preview',
-        providerResourceId: 'cloudchef-deployment-1-preview',
+        providerResourceId: 'deployme-cloudchef-deployment-1-preview',
       }),
     );
     expect(mocks.recordDeploymentResource).not.toHaveBeenCalledWith(
@@ -577,11 +577,13 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     mocks.accountApi.managedWorkerDurableObjectClasses.mockResolvedValue(['AppAgent']);
 
     await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).resolves.toMatchObject({
-      url: 'https://cloudchef-deployment-1-preview.user-subdomain.workers.dev',
+      url: 'https://deployme-cloudchef-deployment-1-preview.user-subdomain.workers.dev',
     });
 
-    expect(mocks.accountApi.managedWorkerDurableObjectClasses).toHaveBeenCalledWith('cloudchef-deployment-1-preview');
-    expect(mocks.accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-deployment-1-preview');
+    expect(mocks.accountApi.managedWorkerDurableObjectClasses).toHaveBeenCalledWith(
+      'deployme-cloudchef-deployment-1-preview',
+    );
+    expect(mocks.accountApi.deleteManagedWorker).toHaveBeenCalledWith('deployme-cloudchef-deployment-1-preview');
     expect(mocks.accountApi.deleteManagedWorker.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.accountApi.deployManagedWorker.mock.invocationCallOrder[0]!,
     );
@@ -801,7 +803,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     });
 
     await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).resolves.toMatchObject({
-      url: 'https://cloudchef-deployment-1-preview.user-subdomain.workers.dev',
+      url: 'https://deployme-cloudchef-deployment-1-preview.user-subdomain.workers.dev',
     });
 
     expect(mocks.accountApi.deleteD1DatabaseById).toHaveBeenCalledWith('DB_PREVIEW-database-id');
@@ -822,7 +824,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     );
     expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledWith(
       expect.objectContaining({
-        workerName: 'cloudchef-deployment-1-preview',
+        workerName: 'deployme-cloudchef-deployment-1-preview',
         d1DatabaseId: 'fresh-preview-database-id',
       }),
     );
@@ -870,21 +872,21 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
 
     await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).resolves.toMatchObject({
-      url: 'https://cloudchef-deployment-1-preview.user-subdomain.workers.dev',
+      url: 'https://deployme-cloudchef-deployment-1-preview.user-subdomain.workers.dev',
     });
 
     expect(mocks.accountApi.ensureR2ForPlan.mock.calls).toEqual([[deployment.plan, 'APP_STORAGE_PREVIEW']]);
     expect(mocks.accountApi.ensureKvForPlan.mock.calls).toEqual([[deployment.plan, 'APP_CACHE_PREVIEW']]);
     expect(workspace.prepareDeploymentArtifact).toHaveBeenCalledWith(
       expect.objectContaining({
-        workerName: 'cloudchef-deployment-1-preview',
+        workerName: 'deployme-cloudchef-deployment-1-preview',
         r2BucketName: 'cloudchef-deployment-1-preview-storage',
         kvNamespaceId: 'b'.repeat(32),
       }),
     );
     expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledWith(
       expect.objectContaining({
-        workerName: 'cloudchef-deployment-1-preview',
+        workerName: 'deployme-cloudchef-deployment-1-preview',
         r2BucketName: 'cloudchef-deployment-1-preview-storage',
         kvNamespaceId: 'b'.repeat(32),
       }),
@@ -923,7 +925,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
 
     await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).resolves.toMatchObject({
       id: '33333333-3333-4333-8333-333333333333',
-      url: 'https://cloudchef-deployment-1-preview.user-subdomain.workers.dev',
+      url: 'https://deployme-cloudchef-deployment-1-preview.user-subdomain.workers.dev',
     });
     expect(workspace.beginDeploymentSession).not.toHaveBeenCalled();
     expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
@@ -951,7 +953,7 @@ async function workerDeployment(options: { d1?: boolean; storage?: boolean } = {
       project: { type: 'worker', bindings: { ai: false, d1, r2: storage, kv: storage, appAgent: false } },
       resources: [
         { type: 'worker', logicalName: 'app', proposedName: 'cloudchef-deployment-1' },
-        { type: 'worker', logicalName: 'app_preview', proposedName: 'cloudchef-deployment-1-preview' },
+        { type: 'worker', logicalName: 'app_preview', proposedName: 'deployme-cloudchef-deployment-1-preview' },
         ...(storage
           ? [
               { type: 'r2', logicalName: 'APP_STORAGE', proposedName: 'cloudchef-deployment-1-storage' },

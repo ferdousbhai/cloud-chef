@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDeploymentPlanFromSource, type DeploymentResourceNaming } from '~/lib/.server/cloudflare/deployment-plan';
+import { appResourceName } from '~/lib/cloudflare/app-resource-names';
 import { userWorkspaceDatabase } from '~/test/control-plane-d1';
 import { AGENT_GC_RETRY_BASE_MS } from './agent-gc.server';
 import { sweepAppResourceGcCandidates } from './app-resource-gc.server';
@@ -16,7 +17,7 @@ describe('app resource garbage collection', () => {
     // Production's Worker, bucket and namespace, and the preview's own.
     expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
       ['cloudchef-deployment-1'],
-      ['cloudchef-deployment-1-preview'],
+      [appResourceName('deployment-1', 'app_preview')],
     ]);
     expect(accountApi.deleteD1Database).toHaveBeenCalledTimes(4);
     expect(accountApi.deleteKvNamespace.mock.calls).toEqual([
@@ -119,7 +120,7 @@ describe('app resource garbage collection', () => {
     // The last deployment deletes them, once.
     expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
       ['cloudchef-deployment-1'],
-      ['cloudchef-deployment-1-preview'],
+      [appResourceName('deployment-1', 'app_preview')],
     ]);
     expect(accountApi.deleteD1Database).toHaveBeenCalledTimes(4);
     expect(accountApi.deleteR2Bucket).toHaveBeenCalledTimes(2);
@@ -160,10 +161,12 @@ describe('app resource garbage collection', () => {
 
     await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi });
 
-    // The first deployment's own resources went; the second's are the third's too, so they wait for it.
+    // The first deployment's own resources went; the second's are the third's too, so they wait for it,
+    // all but its preview Worker, which the third names after the project instead.
     expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
       ['cloudchef-first'],
-      ['cloudchef-first-preview'],
+      [appResourceName('first', 'app_preview')],
+      [appResourceName('second', 'app_preview')],
       ['cloudchef-second'],
     ]);
     expect(accountApi.deleteD1DatabaseById.mock.calls).toEqual([['db-first']]);
@@ -187,7 +190,10 @@ describe('app resource garbage collection', () => {
     await sweepAppResourceGcCandidates(workspace.env, { now: 1_000 + AGENT_GC_RETRY_BASE_MS * 2, accountApi });
 
     // The last deployment deletes them, by its record where it has one and by name where it has not.
-    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([['cloudchef-second'], ['cloudchef-second-preview']]);
+    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
+      ['cloudchef-second'],
+      [appResourceName('project', 'app_preview')],
+    ]);
     expect(accountApi.deleteKvNamespaceById.mock.calls).toEqual([['kv-second']]);
     expect(accountApi.deleteKvNamespace.mock.calls.slice(2)).toEqual([['cloudchef-second-preview-cache']]);
     expect(
@@ -223,7 +229,7 @@ describe('app resource garbage collection', () => {
     // Released by the second deployment only, by the name its plan gives it.
     expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
       ['cloudchef-deployment-1'],
-      ['cloudchef-deployment-1-preview'],
+      [appResourceName('deployment-1', 'app_preview')],
     ]);
     expect(workspace.deploymentIds()).toEqual(['deployment-1']);
   });

@@ -17,7 +17,7 @@ vi.mock('~/lib/.server/cloudflare/user-workspace-deployment-executor', () => ({
   executeUserOwnedPreview: mocks.executeUserOwnedPreview,
 }));
 
-import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
+import { appResourceIdentity, appResourceName } from '~/lib/cloudflare/app-resource-names';
 import { DeploymentNotFoundError } from '~/lib/.server/cloudflare/deployment-repository';
 import { buildDeploymentPlanFromSource } from '~/lib/.server/cloudflare/deployment-plan';
 import { createOrReplayDeploymentPlanForUser, deployForUser, previewForUser } from './deployments';
@@ -89,7 +89,11 @@ describe('deployment handlers', () => {
     const identity = await appResourceIdentity('agent-1');
     expect(mocks.createDeployment.mock.calls[0]?.[0].plan.resources).toEqual([
       { type: 'worker', logicalName: 'app', proposedName: `cloudchef-${identity}` },
-      { type: 'worker', logicalName: 'app_preview', proposedName: `cloudchef-${identity}-preview` },
+      {
+        type: 'worker',
+        logicalName: 'app_preview',
+        proposedName: `${identity.slice(0, 8)}-cloudchef-${identity}-preview`,
+      },
     ]);
   });
 
@@ -113,7 +117,7 @@ describe('deployment handlers', () => {
       {
         type: 'worker',
         logicalName: 'app_preview',
-        proposedName: `cloudchef-${await appResourceIdentity('agent-1')}-preview`,
+        proposedName: appResourceName(await appResourceIdentity('agent-1'), 'app_preview'),
       },
     ]);
   });

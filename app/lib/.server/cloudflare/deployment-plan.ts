@@ -67,6 +67,11 @@ export type DeploymentResourceNaming = {
 };
 
 function projectResourceName(naming: DeploymentResourceNaming, [type, logicalName]: AppAccountResource): string {
+  // No deployment named a preview Worker before projects did, so it is always the project's: a plan's
+  // earlier name for it (one cloudchef.build may not frame) is never adopted.
+  if (logicalName === 'app_preview') {
+    return appResourceName(naming.identity, logicalName);
+  }
   return (
     naming.adopted.find((resource) => resource.type === type && resource.logicalName === logicalName)?.name ??
     appResourceName(naming.identity, logicalName)

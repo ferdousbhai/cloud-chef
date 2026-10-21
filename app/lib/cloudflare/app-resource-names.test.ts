@@ -6,7 +6,7 @@ const IDENTITY = 'd6738251-57e1-4d83-9589-1b6c6d982417';
 describe('app resource naming', () => {
   it('composes every logical binding onto the app identity', () => {
     expect(appResourceName(IDENTITY, 'app')).toBe(`cloudchef-${IDENTITY}`);
-    expect(appResourceName(IDENTITY, 'app_preview')).toBe(`cloudchef-${IDENTITY}-preview`);
+    expect(appResourceName(IDENTITY, 'app_preview')).toBe(`d6738251-cloudchef-${IDENTITY}-preview`);
     expect(appResourceName(IDENTITY, 'DB')).toBe(`cloudchef-${IDENTITY}`);
     expect(appResourceName(IDENTITY, 'DB_PREVIEW')).toBe(`cloudchef-${IDENTITY}-preview`);
     expect(appResourceName(IDENTITY, 'AGENT_SECURITY_DB')).toBe(`cloudchef-${IDENTITY}-agent-security`);
@@ -27,5 +27,17 @@ describe('app resource naming', () => {
     // Its longest resource name still fits Cloudflare's 63 characters for a Worker and an R2 bucket.
     expect(appResourceName(identity, 'AGENT_SECURITY_DB').length).toBeLessThanOrEqual(63);
     expect(appResourceName(identity, 'APP_STORAGE_PREVIEW').length).toBeLessThanOrEqual(63);
+    expect(appResourceName(identity, 'app_preview').length).toBeLessThanOrEqual(63);
+  });
+
+  it('starts only the preview Worker with the eight hex digits a project lets cloudchef.build frame', async () => {
+    const identity = await appResourceIdentity('a'.repeat(64));
+    const leadsWithHex = (name: string) => /^[0-9a-f]{8}-/.test(name);
+
+    expect(leadsWithHex(appResourceName(identity, 'app_preview'))).toBe(true);
+    // Production's name starts `cloudchef-`, whose "l" is not hex, whatever the identity.
+    expect(appResourceName(identity, 'app')).toMatch(/^cloudchef-/);
+    expect(leadsWithHex(appResourceName(identity, 'app'))).toBe(false);
+    expect(leadsWithHex(appResourceName('ffffffff', 'app'))).toBe(false);
   });
 });

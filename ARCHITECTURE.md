@@ -394,7 +394,9 @@ deployment publishes production's. A preview database that refuses a changed mig
 the model edited it, which production may never have run) is started over instead: deleted, created again under its
 name, and migrated from the first migration, since it holds only what previews wrote. Production's databases are never
 started over. The browser receives the preview Worker's `workers.dev` address, which serves that
-revision until the next preview replaces it. Neither Worker serves versioned preview URLs (`previews_enabled` is off),
+revision until the next preview replaces it. The preview Worker is named `<first 8 of identity>-cloudchef-<identity>-preview`,
+so its host has the shape every project's `application-response.ts` lets cloudchef.build frame (once a versioned
+preview URL's); production's `cloudchef-<identity>` never has it, so production is never framed. Neither Worker serves versioned preview URLs (`previews_enabled` is off),
 so no earlier version stays reachable against the data it was published with. There is no dev/HMR mode, local preview
 database, Vite preview process, quick tunnel, preview expiry alarm, or preview-specific container keep-alive.
 

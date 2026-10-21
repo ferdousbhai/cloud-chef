@@ -6,7 +6,7 @@ import { PREVIEW_SANDBOX } from './Preview';
 
 const success: BuilderPreviewSuccess = {
   id: '12345678-1234-1234-1234-123456789abc',
-  url: 'https://cloudchef-app-preview.account.workers.dev',
+  url: 'https://d6738251-cloudchef-d6738251-57e1-4d83-9589-1b6c6d982417-preview.account.workers.dev',
   workspaceRevision: 1,
   snapshotRevision: 'snapshot-1',
   readyAt: '2026-08-06T19:00:00.000Z',
@@ -28,12 +28,15 @@ describe('previewFrameUrl', () => {
     'https://workers.dev',
     'https://workers.dev.example.com',
     'https://cloudchef.build',
-    'http://cloudchef-app-preview.account.workers.dev',
-    'https://user:password@cloudchef-app-preview.account.workers.dev',
+    'http://d6738251-cloudchef-d6738251-57e1-4d83-9589-1b6c6d982417-preview.account.workers.dev',
+    'https://user:password@d6738251-cloudchef-d6738251-57e1-4d83-9589-1b6c6d982417-preview.account.workers.dev',
+    'https://d6738251-cloudchef-d6738251-57e1-4d83-9589-1b6c6d982417-preview.account.workers.dev:8443',
     // Production's address, and a version preview URL that would serve an earlier version on its data.
-    'https://cloudchef-app.account.workers.dev',
-    'https://12345678-cloudchef-app.account.workers.dev',
-    'https://cloudchef-app-preview.account.workers.dev:8443',
+    'https://cloudchef-d6738251-57e1-4d83-9589-1b6c6d982417.account.workers.dev',
+    'https://d6738251-cloudchef-d6738251-57e1-4d83-9589-1b6c6d982417.account.workers.dev',
+    // A preview Worker name whose leading digits are not its identity's, and the earlier unframeable name.
+    'https://12345678-cloudchef-d6738251-57e1-4d83-9589-1b6c6d982417-preview.account.workers.dev',
+    'https://cloudchef-d6738251-57e1-4d83-9589-1b6c6d982417-preview.account.workers.dev',
     '/relative-preview',
     'not a url',
   ])('rejects an untrusted preview URL: %s', (url) => {

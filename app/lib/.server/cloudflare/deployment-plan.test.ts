@@ -82,7 +82,7 @@ describe('buildDeploymentPlanFromSource', () => {
       project: { type: 'web_app', bindings: { ai: true, d1: true, r2: true, kv: true, appAgent: true } },
     });
     expect(deploymentPlanResourceName(plan, 'worker', 'app')).toBe('cloudchef-app-1');
-    expect(deploymentPlanResourceName(plan, 'worker', 'app_preview')).toBe('cloudchef-app-1-preview');
+    expect(deploymentPlanResourceName(plan, 'worker', 'app_preview')).toBe('app-1-cloudchef-app-1-preview');
     expect(deploymentPlanResourceName(plan, 'd1', 'DB_PREVIEW')).toBe('cloudchef-app-1-preview');
     expect(deploymentPlanResourceName(plan, 'r2', 'APP_STORAGE_PREVIEW')).toBe('cloudchef-app-1-preview-storage');
     expect(deploymentPlanResourceName(plan, 'kv', 'APP_CACHE_PREVIEW')).toBe('cloudchef-app-1-preview-cache');
@@ -178,7 +178,7 @@ describe('buildDeploymentPlanFromSource', () => {
     expect(second.plan.resources).toEqual(first.plan.resources);
     expect(first.plan.resources.map(({ proposedName }) => proposedName)).toEqual([
       'cloudchef-app-1',
-      'cloudchef-app-1-preview',
+      'app-1-cloudchef-app-1-preview',
       'cloudchef-app-1',
       'cloudchef-app-1-preview',
       'cloudchef-app-1-agent-security',
@@ -204,6 +204,8 @@ describe('buildDeploymentPlanFromSource', () => {
           { type: 'r2', logicalName: 'APP_STORAGE', name: 'cloudchef-deployment-2-storage' },
           // Named by the same logical name of another type: not the database's.
           { type: 'kv', logicalName: 'DB_PREVIEW', name: 'cloudchef-other' },
+          // A preview Worker under a name cloudchef.build may not frame.
+          { type: 'worker', logicalName: 'app_preview', name: 'cloudchef-app-1-preview' },
         ],
       },
       project: EVERY_BINDING,
@@ -214,6 +216,7 @@ describe('buildDeploymentPlanFromSource', () => {
     expect(deploymentPlanResourceName(plan, 'r2', 'APP_STORAGE')).toBe('cloudchef-deployment-2-storage');
     expect(deploymentPlanResourceName(plan, 'd1', 'DB_PREVIEW')).toBe('cloudchef-app-1-preview');
     expect(deploymentPlanResourceName(plan, 'kv', 'APP_CACHE')).toBe('cloudchef-app-1-cache');
+    expect(deploymentPlanResourceName(plan, 'worker', 'app_preview')).toBe('app-1-cloudchef-app-1-preview');
     expect(isCurrentDeploymentPlan(plan)).toBe(true);
   });
 

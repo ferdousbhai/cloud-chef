@@ -13,7 +13,7 @@ import {
   requireDeploymentForUser,
   transitionDeployment,
 } from './deployment-repository';
-import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
+import { appResourceIdentity, appResourceName } from '~/lib/cloudflare/app-resource-names';
 import { buildDeploymentPlanFromSource, planNamesProjectResources, type DeploymentPlan } from './deployment-plan';
 
 const sourceSha256 = 'a'.repeat(64);
@@ -391,7 +391,13 @@ describe('project resource naming', () => {
       id: 'earlier',
       status: 'succeeded',
       updatedAt: 10,
-      names: { app: 'cloudchef-earlier', DB: 'cloudchef-earlier', DB_PREVIEW: 'cloudchef-earlier-preview' },
+      names: {
+        app: 'cloudchef-earlier',
+        // A preview Worker named before its host had the shape cloudchef.build may frame.
+        app_preview: 'cloudchef-earlier-preview',
+        DB: 'cloudchef-earlier',
+        DB_PREVIEW: 'cloudchef-earlier-preview',
+      },
     });
     // Planned when each deployment named its own resources, and never deployed.
     stored({
@@ -414,8 +420,8 @@ describe('project resource naming', () => {
 
     expect(next.resources.map(({ proposedName }) => proposedName)).toEqual([
       'cloudchef-earlier',
-      // A preview Worker of its own, which no deployment before had.
-      `cloudchef-${await appResourceIdentity('project')}-preview`,
+      // A preview Worker of its own, named after the project whatever an earlier deployment named it.
+      appResourceName(await appResourceIdentity('project'), 'app_preview'),
       'cloudchef-earlier',
       'cloudchef-earlier-preview',
     ]);
@@ -432,6 +438,7 @@ describe('project resource naming', () => {
 
 const RESOURCE_TYPES = {
   app: 'worker',
+  app_preview: 'worker',
   DB: 'd1',
   DB_PREVIEW: 'd1',
   APP_STORAGE: 'r2',

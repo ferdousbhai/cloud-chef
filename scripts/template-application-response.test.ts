@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
+import { appResourceIdentity, appResourceName } from '../app/lib/cloudflare/app-resource-names';
 import { finalizeApplicationResponse, withApplicationSecurityHeaders } from '../template/src/application-response';
 
 describe('generated application response boundary', () => {
@@ -102,6 +103,23 @@ describe('generated application response boundary', () => {
       null,
       () => new Response('production'),
     );
+
+    expect(preview.headers.get('Content-Security-Policy')).toContain('frame-ancestors https://cloudchef.build');
+    expect(preview.headers.get('X-Frame-Options')).toBeNull();
+    expect(production.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
+    expect(production.headers.get('X-Frame-Options')).toBe('DENY');
+  });
+
+  test('lets CloudChef frame a project’s preview Worker and never its production Worker', async () => {
+    const identity = await appResourceIdentity('project-1');
+    const served = (worker: string) =>
+      finalizeApplicationResponse(
+        new Request(`https://${worker}.account-subdomain.workers.dev/`),
+        null,
+        () => new Response('app'),
+      );
+    const preview = await served(appResourceName(identity, 'app_preview'));
+    const production = await served(appResourceName(identity, 'app'));
 
     expect(preview.headers.get('Content-Security-Policy')).toContain('frame-ancestors https://cloudchef.build');
     expect(preview.headers.get('X-Frame-Options')).toBeNull();
