@@ -42,6 +42,8 @@ type UserOwnedRuntimeContext = {
 };
 
 type ProjectWorkspaceStub = ReturnType<Env['PROJECT_WORKSPACE']['get']>;
+/** How much of an applied migration's SQL a refusal quotes; the failure it records keeps its last 4,000 characters. */
+const MIGRATION_SQL_QUOTE_LIMIT = 2_000;
 type WorkspaceReference = ReturnType<typeof parseWorkspaceReference>;
 type PublicationSession = { sessionId: string; finish(status: 'completed' | 'failed'): Promise<void> };
 
@@ -475,12 +477,30 @@ async function applyArtifactMigrations(
     }
   } catch (error) {
     if (error instanceof D1MigrationChangedError) {
-      throw new Error(
-        `The migration ${error.migrationName} was already applied to the ${database} database with different contents, and an applied migration never runs again. Restore it as it was, and make the change in a new migration.`,
-      );
+      throw new Error(migrationChangedMessage(error, database));
     }
     throw error;
   }
+}
+
+/**
+ * The way out of a changed migration: put the change in a new one, and give the applied one back its
+ * applied contents, quoted when the database recorded them. Deleting the file is the other way back,
+ * fit only for one that holds nothing a new database needs, like the starter's placeholder.
+ */
+function migrationChangedMessage(error: D1MigrationChangedError, database: 'production' | 'preview'): string {
+  const name = error.migrationName;
+  const applied =
+    error.appliedSql === null
+      ? ''
+      : ` It was applied as:\n${error.appliedSql.slice(0, MIGRATION_SQL_QUOTE_LIMIT)}${
+          error.appliedSql.length > MIGRATION_SQL_QUOTE_LIMIT ? '\n[truncated]' : ''
+        }`;
+  return (
+    `The migration ${name} was already applied to the ${database} database with different contents, and an applied migration never runs again. ` +
+    `Put the change in a new migration numbered after the last one, and restore ${name} exactly as it was applied, ` +
+    `or delete ${name} if it holds no schema a new database needs (as the starter's 0001_app_data.sql placeholder does).${applied}`
+  );
 }
 
 function managedWorkerVersionArgs(args: {

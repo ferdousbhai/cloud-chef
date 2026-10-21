@@ -624,9 +624,36 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     expect(mocks.transitionDeployment).toHaveBeenCalledWith(
       expect.objectContaining({
         nextStatus: 'failed',
-        errorMessage: expect.stringContaining('make the change in a new migration'),
+        errorMessage: expect.stringContaining(
+          'Put the change in a new migration numbered after the last one, and restore 0001_app_data.sql exactly as it was applied, or delete 0001_app_data.sql if it holds no schema a new database needs',
+        ),
       }),
     );
+    // A database that did not record what it applied has nothing to quote.
+    expect(mocks.transitionDeployment).not.toHaveBeenCalledWith(
+      expect.objectContaining({ errorMessage: expect.stringContaining('It was applied as') }),
+    );
+  });
+
+  it('quotes what the database applied under the changed migration, within the failure it records', async () => {
+    const { execution } = await workerDeployment({ d1: true });
+    const applied = '-- Add application D1 schema changes here.\nSELECT 1;';
+    mocks.accountApi.applyD1Migrations.mockRejectedValueOnce(new D1MigrationChangedError('0001_app_data.sql', applied));
+
+    await expect(executeUserOwnedDeployment(execution)).rejects.toThrow(`It was applied as:\n${applied}`);
+
+    const long = `CREATE TABLE notes (body TEXT);\n${'-- padding\n'.repeat(1_000)}`;
+    const second = await workerDeployment({ d1: true });
+    mocks.accountApi.applyD1Migrations.mockRejectedValueOnce(new D1MigrationChangedError('0002_notes.sql', long));
+    await expect(executeUserOwnedDeployment(second.execution)).rejects.toThrow(
+      `restore 0002_notes.sql exactly as it was applied`,
+    );
+
+    const recorded = mocks.transitionDeployment.mock.calls
+      .map(([transition]) => transition.errorMessage)
+      .find((message) => message?.includes('0002_notes.sql'));
+    expect(recorded).toContain(`It was applied as:\n${long.slice(0, 2_000)}\n[truncated]`);
+    expect(recorded?.length).toBeLessThanOrEqual(4_000);
   });
 
   it('names the preview database when a preview finds an applied migration changed', async () => {

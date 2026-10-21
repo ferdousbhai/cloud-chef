@@ -170,6 +170,9 @@ const secretsStoreSecretSchema = z.looseObject({
   scopes: z.array(z.string()).catch([]),
 });
 
+/** A migration receipt's applied SQL; a receipt written before receipts kept it has none. */
+const appliedMigrationSqlSchema = z.looseObject({ sql: z.string() });
+
 /** An AI Gateway's settings as Cloudflare returns them, each kept so an update can write it back. */
 const aiGatewaySettingsSchema = z.record(z.string(), z.json());
 
@@ -298,10 +301,11 @@ export class UserCloudflareAccountApi {
       `CREATE TABLE IF NOT EXISTS cloudchef_runtime_migrations (
          name TEXT PRIMARY KEY NOT NULL,
          applied_at INTEGER NOT NULL,
-         digest TEXT
+         digest TEXT,
+         sql TEXT
        )`,
     );
-    await this.ensureD1MigrationDigestColumn(databaseId);
+    await this.ensureD1MigrationReceiptColumns(databaseId);
     // One receipt read for the whole set rather than one per migration. Applying migration N
     // cannot change migration N+1's receipt, so the extra round trips bought nothing — and this
     // path runs on every runtime upgrade for every existing account, where the answer is always
@@ -320,7 +324,7 @@ export class UserCloudflareAccountApi {
         continue;
       }
       if (receipt?.digest) {
-        throw new D1MigrationChangedError(migration.name);
+        throw new D1MigrationChangedError(migration.name, await this.appliedD1MigrationSql(databaseId, migration.name));
       }
       if (receipt) {
         throw new CloudflareAccountApiError(`User-runtime D1 migration receipt lacks a digest: ${migration.name}`);
@@ -332,8 +336,8 @@ export class UserCloudflareAccountApi {
         await this.executeD1Batch(databaseId, [
           { sql: migration.sql },
           {
-            sql: 'INSERT INTO cloudchef_runtime_migrations (name, applied_at, digest) VALUES (?, ?, ?)',
-            params: [migration.name, Date.now(), digest],
+            sql: 'INSERT INTO cloudchef_runtime_migrations (name, applied_at, digest, sql) VALUES (?, ?, ?, ?)',
+            params: [migration.name, Date.now(), digest, migration.sql],
           },
         ]);
       } catch (error) {
@@ -353,19 +357,46 @@ export class UserCloudflareAccountApi {
           continue;
         }
         if (committedReceipt?.digest) {
-          throw new D1MigrationChangedError(migration.name);
+          throw new D1MigrationChangedError(
+            migration.name,
+            await this.appliedD1MigrationSql(databaseId, migration.name),
+          );
         }
         throw error;
       }
     }
   }
 
-  private async ensureD1MigrationDigestColumn(databaseId: string): Promise<void> {
+  /**
+   * Adds the receipt columns a table created before them lacks. Receipts written before each keep it
+   * empty: a digest is required to apply anything, while a migration's applied SQL is only reported.
+   */
+  private async ensureD1MigrationReceiptColumns(databaseId: string): Promise<void> {
     const columns = await this.executeD1(databaseId, 'PRAGMA table_info(cloudchef_runtime_migrations)');
-    if (d1ResultsContain(columns, (row) => row.name === 'digest')) {
-      return;
+    for (const column of ['digest', 'sql']) {
+      if (!d1ResultsContain(columns, (row) => row.name === column)) {
+        await this.executeD1(databaseId, `ALTER TABLE cloudchef_runtime_migrations ADD COLUMN ${column} TEXT`);
+      }
     }
-    await this.executeD1(databaseId, 'ALTER TABLE cloudchef_runtime_migrations ADD COLUMN digest TEXT');
+  }
+
+  /**
+   * The SQL a database recorded applying under a migration's name, read only to tell the model what to
+   * restore. A receipt from before the database recorded it, or a failed read, answers null.
+   */
+  private async appliedD1MigrationSql(databaseId: string, name: string): Promise<string | null> {
+    const results = await this.executeD1(databaseId, 'SELECT sql FROM cloudchef_runtime_migrations WHERE name = ?', [
+      name,
+    ]).catch(() => []);
+    for (const result of results) {
+      for (const row of result.results ?? []) {
+        const receipt = appliedMigrationSqlSchema.safeParse(row);
+        if (receipt.success) {
+          return receipt.data.sql;
+        }
+      }
+    }
+    return null;
   }
 
   async ensureD1ForPlan(
@@ -1574,7 +1605,11 @@ export class CloudflareAccountApiError extends Error {
 
 /** A migration the database already applied, under the same name, has different contents now. */
 export class D1MigrationChangedError extends CloudflareAccountApiError {
-  constructor(readonly migrationName: string) {
+  /** `appliedSql` is what the database applied under that name, when it recorded it. */
+  constructor(
+    readonly migrationName: string,
+    readonly appliedSql: string | null = null,
+  ) {
     super(`User-runtime D1 migration digest mismatch: ${migrationName}`);
     this.name = 'D1MigrationChangedError';
   }

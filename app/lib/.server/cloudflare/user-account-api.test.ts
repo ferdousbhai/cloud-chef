@@ -44,6 +44,9 @@ function currentAssetUploadJwt(): string {
   return `e30.${claims}.signature`;
 }
 
+/** The receipt table's columns, as PRAGMA table_info reports them once it has all of them. */
+const RECEIPT_COLUMNS = [{ name: 'name' }, { name: 'applied_at' }, { name: 'digest' }, { name: 'sql' }];
+
 async function textDigest(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -578,9 +581,7 @@ describe('UserCloudflareAccountApi', () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: [] }] }))
-      .mockResolvedValueOnce(
-        Response.json({ success: true, result: [{ success: true, results: [{ name: 'digest' }] }] }),
-      )
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: RECEIPT_COLUMNS }] }))
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: [] }] }))
       .mockResolvedValueOnce(
         Response.json({
@@ -603,6 +604,10 @@ describe('UserCloudflareAccountApi', () => {
     expect(batch.batch[1]?.sql).toContain('cloudchef_runtime_migrations');
     expect(batch.batch[1]?.sql).toContain('digest');
     expect(batch.batch[1]?.sql).not.toContain('OR IGNORE');
+    // The receipt keeps what was applied, so a refusal can quote it.
+    expect(JSON.parse(String(request.mock.calls[3]?.[1]?.body)).batch[1].params).toContain(
+      'CREATE TABLE users (id TEXT PRIMARY KEY)',
+    );
   });
 
   test('reads every migration receipt in one request', async () => {
@@ -618,9 +623,7 @@ describe('UserCloudflareAccountApi', () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: [] }] }))
-      .mockResolvedValueOnce(
-        Response.json({ success: true, result: [{ success: true, results: [{ name: 'digest' }] }] }),
-      )
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: RECEIPT_COLUMNS }] }))
       .mockResolvedValueOnce(
         Response.json({
           success: true,
@@ -649,9 +652,7 @@ describe('UserCloudflareAccountApi', () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: [] }] }))
-      .mockResolvedValueOnce(
-        Response.json({ success: true, result: [{ success: true, results: [{ name: 'digest' }] }] }),
-      )
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: RECEIPT_COLUMNS }] }))
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: [] }] }))
       .mockRejectedValueOnce(new Error('network acknowledgement lost'))
       .mockResolvedValueOnce(
@@ -672,9 +673,7 @@ describe('UserCloudflareAccountApi', () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: [] }] }))
-      .mockResolvedValueOnce(
-        Response.json({ success: true, result: [{ success: true, results: [{ name: 'digest' }] }] }),
-      )
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: RECEIPT_COLUMNS }] }))
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: [] }] }))
       .mockRejectedValueOnce(new Error('UNIQUE constraint failed: cloudchef_runtime_migrations.name'))
       .mockResolvedValueOnce(
@@ -696,9 +695,7 @@ describe('UserCloudflareAccountApi', () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: [] }] }))
-      .mockResolvedValueOnce(
-        Response.json({ success: true, result: [{ success: true, results: [{ name: 'digest' }] }] }),
-      )
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: RECEIPT_COLUMNS }] }))
       .mockResolvedValueOnce(
         Response.json({
           success: true,
@@ -711,17 +708,17 @@ describe('UserCloudflareAccountApi', () => {
         '0123456789abcdef0123456789abcdef',
         [{ name: '0001_users.sql', sql: 'CREATE TABLE users (id TEXT PRIMARY KEY)' }],
       ),
-    ).rejects.toThrow('migration digest mismatch');
-    expect(request).toHaveBeenCalledTimes(3);
+    ).rejects.toMatchObject({ message: expect.stringContaining('migration digest mismatch'), appliedSql: null });
+    // Create table, column pragma, receipts, and the applied SQL it failed to read: nothing is applied.
+    expect(request).toHaveBeenCalledTimes(4);
+    expect(String(request.mock.calls[3]?.[1]?.body)).toContain('SELECT sql FROM cloudchef_runtime_migrations');
   });
 
   test('rejects a pre-digest migration receipt without modifying it', async () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: [] }] }))
-      .mockResolvedValueOnce(
-        Response.json({ success: true, result: [{ success: true, results: [{ name: 'digest' }] }] }),
-      )
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: RECEIPT_COLUMNS }] }))
       .mockResolvedValueOnce(
         Response.json({
           success: true,
@@ -1559,7 +1556,7 @@ describe('D1 migrations onto a database every revision deploys onto', () => {
     const refusal = api.applyD1Migrations(DATABASE_ID, [notes, titles, changed]);
 
     await expect(refusal).rejects.toBeInstanceOf(D1MigrationChangedError);
-    await expect(refusal).rejects.toMatchObject({ migrationName: '0003_tags.sql' });
+    await expect(refusal).rejects.toMatchObject({ migrationName: '0003_tags.sql', appliedSql: tags.sql });
     // The migration ahead of the changed one did not run either.
     expect(
       database
@@ -1567,6 +1564,42 @@ describe('D1 migrations onto a database every revision deploys onto', () => {
         .all()
         .map((column) => column.name),
     ).toEqual(['id', 'body']);
+  });
+});
+
+describe('D1 migration receipts recorded before they kept the applied SQL', () => {
+  const DATABASE_ID = '0123456789abcdef0123456789abcdef';
+
+  test('gain the column, keep refusing an applied migration that changed, and quote what they can', async () => {
+    const { database, request } = sqliteD1(DATABASE_ID);
+    const placeholder = { name: '0001_app_data.sql', sql: '-- Add application D1 schema changes here.\nSELECT 1;' };
+    database.exec(
+      'CREATE TABLE cloudchef_runtime_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL, digest TEXT)',
+    );
+    database
+      .prepare('INSERT INTO cloudchef_runtime_migrations (name, applied_at, digest) VALUES (?, ?, ?)')
+      .run(placeholder.name, 1, await textDigest(placeholder.sql));
+    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+    const notes = { name: '0002_notes.sql', sql: 'CREATE TABLE notes (id INTEGER PRIMARY KEY)' };
+
+    await api.applyD1Migrations(DATABASE_ID, [placeholder, notes]);
+
+    expect(
+      database
+        .prepare('SELECT name, sql FROM cloudchef_runtime_migrations ORDER BY name')
+        .all()
+        .map((row) => ({ ...row })),
+    ).toEqual([
+      { name: '0001_app_data.sql', sql: null },
+      { name: '0002_notes.sql', sql: notes.sql },
+    ]);
+    // The old receipt has no SQL to quote; the new one does.
+    await expect(
+      api.applyD1Migrations(DATABASE_ID, [{ ...placeholder, sql: 'CREATE TABLE app_data (id TEXT);' }, notes]),
+    ).rejects.toMatchObject({ migrationName: '0001_app_data.sql', appliedSql: null });
+    await expect(
+      api.applyD1Migrations(DATABASE_ID, [placeholder, { ...notes, sql: 'CREATE TABLE notes (id TEXT)' }]),
+    ).rejects.toMatchObject({ migrationName: '0002_notes.sql', appliedSql: notes.sql });
   });
 });
 
