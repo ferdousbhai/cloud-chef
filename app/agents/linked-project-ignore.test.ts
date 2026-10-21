@@ -129,4 +129,32 @@ describe('gitignoreMatcher', () => {
   it('ignores nothing without a .gitignore', () => {
     expect(gitignoreMatcher([])('coverage/index.html')).toBe(false);
   });
+
+  it('decides ten thousand paths against a five-hundred-line .gitignore in bounded time and memory', () => {
+    // Patterns of every shape, none matching the paths below, so every rule tests every path.
+    const lines = Array.from(
+      { length: 500 },
+      (_, index) =>
+        [`cache-${index}/`, `*.tmp${index}`, `/root-${index}.txt`, `**/gen-${index}/**`, `!keep-${index}.ts`][
+          index % 5
+        ],
+    );
+    const paths = Array.from(
+      { length: 10_000 },
+      (_, index) => `packages/p${index % 50}/src/module-${index % 200}/deep/file-${index}.ts`,
+    );
+    const before = process.memoryUsage().heapUsed;
+    const started = performance.now();
+
+    const ignored = gitignoreMatcher([{ path: '.gitignore', content: `${lines.join('\n')}\n` }]);
+    const decisions = paths.map((path) => ignored(path));
+
+    const elapsed = performance.now() - started;
+    const grown = process.memoryUsage().heapUsed - before;
+    expect(decisions.some(Boolean)).toBe(false);
+    expect(ignored('cache-0/x.ts')).toBe(true);
+    // One `ignore` instance per line, each remembering every path it tested, took 6 s and 900 MB here.
+    expect(elapsed).toBeLessThan(4_000);
+    expect(grown).toBeLessThan(64 * 1024 * 1024);
+  });
 });
