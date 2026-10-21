@@ -1,5 +1,5 @@
 /** CloudChef's own address: where every emailed link and every OAuth return points. */
-export const CANONICAL_ORIGIN = 'https://cloudchef.build';
+const CANONICAL_ORIGIN = 'https://cloudchef.build';
 
 /**
  * The origin an emailed link or an OAuth redirect names: CloudChef's own, whichever hostname the
