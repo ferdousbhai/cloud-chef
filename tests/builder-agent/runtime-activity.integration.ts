@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BuilderWorkspaceDeploymentPlan } from '~/agents/builder-workspace-api';
 import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import {
   AGENT_NAME,
@@ -10,6 +9,7 @@ import {
   settle,
   VALIDATED_CHECKPOINT,
   type BuilderAgentHarness,
+  type BuilderPublisher,
 } from './harness';
 
 /**
@@ -57,12 +57,12 @@ describe('BuilderAgent runtime activity', () => {
   });
 
   it('a production deployment stays busy while it runs, though an editor save clears its record', async () => {
-    const plan = deferred<BuilderWorkspaceDeploymentPlan>();
+    const plan = deferred<Awaited<ReturnType<BuilderPublisher['deploy']>>>();
     const harness = await builderAgentHarness({
       workspace: {
-        prepareDeployment: () => plan.promise,
         applyClientChanges: async () => ({ ok: true, state: READY_STATE, changedPaths: ['src/app.tsx'] }),
       },
+      publisher: { deploy: () => plan.promise },
     });
 
     await harness.agent.deployValidatedRevision();
@@ -77,8 +77,9 @@ describe('BuilderAgent runtime activity', () => {
   });
 
   it('a cancelled preview stays busy until the build it aborted stops', async () => {
-    const plan = deferred<BuilderWorkspaceDeploymentPlan>();
-    const harness = await builderAgentHarness({ workspace: { prepareDeployment: () => plan.promise } });
+    const plan = deferred<Awaited<ReturnType<BuilderPublisher['preview']>>>();
+    // A build that ignores the cancel and keeps running until it ends on its own.
+    const harness = await builderAgentHarness({ publisher: { preview: () => plan.promise } });
 
     await harness.agent.requestPreview();
     await eventually(() => harness.activity()[0]?.busy === 1);
