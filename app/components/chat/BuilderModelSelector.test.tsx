@@ -11,9 +11,11 @@ import {
 } from '~/lib/workers-ai-model';
 
 import {
+  builderModelCatalogStatusStore,
   builderModelStore,
   builderNewModelsStore,
   installBuilderModelCatalog,
+  loadBuilderModelCatalog,
   loadBuilderModelPreference,
 } from '~/lib/stores/builder-model.client';
 import { BuilderModelSelector } from './BuilderModelSelector.client';
@@ -45,6 +47,7 @@ beforeEach(() => {
     { getItem: () => null },
   );
   loadBuilderModelPreference({ getItem: () => null });
+  builderModelCatalogStatusStore.set('ready');
 });
 
 afterEach(async () => {
@@ -195,6 +198,23 @@ describe('BuilderModelSelector', () => {
     expect(trigger?.getAttribute('aria-label')).toContain('before switching models');
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+  });
+
+  it('keeps listing the installed catalog, and says it is not current, when a refresh fails', async () => {
+    await renderSelector(() => {
+      installTestCatalog();
+      void loadBuilderModelCatalog(async () => new Response(null, { status: 503 }));
+    });
+
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
+    await act(async () => {
+      trigger?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    });
+
+    expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(2);
+    const status = document.querySelector('[role="status"]')?.textContent;
+    expect(status).toContain('could not be refreshed just now, so these are the models it last listed');
+    expect(status).not.toContain('Only the default model is available');
   });
 });
 
