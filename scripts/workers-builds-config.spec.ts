@@ -29,6 +29,8 @@ const packageJson = {
       'pnpm install --frozen-lockfile && node scripts/check-workers-builds-environment.mjs && node scripts/workers-builds-checks.mjs && node scripts/deploy-production.mjs --check-workers-builds',
     'workers-builds:deploy': 'node scripts/deploy-production.mjs --workers-builds',
     'workers-builds:preview': 'node scripts/upload-workers-builds-preview.mjs',
+    'build:check': 'vite build',
+    validate: 'node scripts/validate.mjs',
   },
 };
 
@@ -58,7 +60,10 @@ describe('Workers Builds production configuration', () => {
           containerImage: { reference: 'forbidden' },
           buildVariables: { ...validConfig.buildVariables, UNREVIEWED_SECRET: 'value' },
         },
-        packageJson: { ...packageJson, packageManager: 'pnpm@latest' },
+        packageJson: {
+          packageManager: 'pnpm@latest',
+          scripts: { ...packageJson.scripts, 'build:check': 'vite build --mode development', validate: undefined },
+        },
         nvmrc: 'node\n',
         githubWorkflowPaths: [
           '.github/workflows/runtime-artifacts.yml',
@@ -79,6 +84,9 @@ describe('Workers Builds production configuration', () => {
         'workers-builds.production.json must not build a CloudChef-owned Sandbox image.',
         'cloudflare.config.ts must not bind CloudChef-owned Containers.',
         'package.json packageManager must be "pnpm@11.14.0"; found "pnpm@latest".',
+        // The deploy step ships the Worker validation builds, so validation must build exactly the release.
+        'package.json scripts.build:check must be "vite build"; found "vite build --mode development".',
+        'package.json scripts.validate must be "node scripts/validate.mjs"; found undefined.',
         '.nvmrc must be "26.3.0"; found "node".',
         'GitHub deployment workflows must not exist; Cloudflare Workers Builds is the only CI/CD provider. Found: .github/workflows/ci.yml, .github/workflows/deploy.yml.',
         '.github/actions/setup-and-build/action.yaml must not exist; the Cloudflare build command owns toolchain setup.',

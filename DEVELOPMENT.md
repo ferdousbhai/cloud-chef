@@ -136,12 +136,19 @@ specified in `workers-builds.production.json`: keep the dashboard commands, bran
 and token selection aligned with that file. Runtime secrets remain on the Worker and are not build variables.
 
 Cloudflare Workers Builds runs the full `pnpm run validate` on every non-production branch, which uploads an undeployed
-Worker version (`scripts/workers-builds-checks.mjs`). A push to `main` skips that validation, so prove a change on its
-branch or locally first: it regenerates the checked-in outputs, runs the production deploy command only from the exact
-Workers Builds checkout, applies control-plane D1 migrations while it rebuilds with the exact 40-character commit ID and OAuth client ID in the environment (which
-`cloudflare.config.ts` binds as plain-text vars), deploys that build with `cf deploy --prebuilt` once both have succeeded, and then probes `https://cloudchef.build/api/version`
-every 5 seconds, from the moment the deploy returns, until five consecutive responses report that commit, a live Worker version ID, configured OAuth bindings, and
-`Cache-Control: no-store`.
+Worker version (`scripts/workers-builds-checks.mjs`). A push to `main` validates too, inside the deploy step, so a
+release that fails validation deploys and migrates nothing. Its build command only regenerates the checked-in outputs
+and checks the release inputs. The deploy command (`scripts/deploy-production.mjs --workers-builds`), which runs only
+from the exact Workers Builds checkout, then runs `pnpm run validate` with the exact 40-character commit ID and OAuth
+client ID in the environment (which `cloudflare.config.ts` binds as plain-text vars). Validation's `build:check` is
+therefore the release build itself, so there is no separate build and the gate costs only the checks beside it. The
+account and config checks (`provision:production:check`, `verify:production-config`, `verify:workers-builds-config`)
+run at the same time. Only after validation passes does it record a D1 restore point and apply the control-plane D1
+migrations. It confirms the checkout is still clean, deploys that build with `cf deploy --prebuilt`, and then probes
+`https://cloudchef.build/api/version` every 5 seconds, from the moment the deploy returns, until five consecutive
+responses report that commit, a live Worker version ID, configured OAuth bindings, and `Cache-Control: no-store`.
+Validation needs no browser (`verify:built-browser` is the GitHub Actions browser gate), so it runs in the Workers
+Builds image exactly as it does on a branch build.
 
 Cloudflare Workers Builds is the normal production release path. The deploy wrapper also supports
 `node scripts/deploy-production.mjs --local` for operator-driven bootstrap deployments from a clean `main` checkout

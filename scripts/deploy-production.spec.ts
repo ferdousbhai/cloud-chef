@@ -14,6 +14,7 @@ import {
   validateWorkersBuildMetadata,
   verifyBuiltDeployVars,
   BUILT_WORKER_CONFIG_PATH,
+  WORKERS_BUILDS_AFTER_VALIDATION_STEPS,
   WORKERS_BUILDS_PRE_DEPLOY_STEPS,
 } from './deploy-production.mjs';
 
@@ -295,30 +296,34 @@ describe('production deploy wrapper', () => {
       });
     }
 
-    function deferredBuild(events: string[], status = 0) {
-      const build = { finish: (): void => undefined };
-      const spawnBuild = vi.fn(
+    function deferredValidation(events: string[], status = 0) {
+      const validation = { finish: (): void => undefined };
+      const spawnValidation = vi.fn(
         () =>
           new Promise<{ status: number; output: string }>((resolve) => {
-            events.push('build started');
-            build.finish = () => {
-              events.push('build finished');
-              resolve({ status, output: 'vite output\n' });
+            events.push('validation started');
+            validation.finish = () => {
+              events.push('validation finished');
+              resolve({ status, output: 'validate output\n' });
             };
           }),
       );
-      return { spawnBuild, build };
+      return { spawnValidation, validation };
     }
 
-    it('builds while the checks and migrations run, and deploys only after both', async () => {
+    const accountChecks = WORKERS_BUILDS_PRE_DEPLOY_STEPS.filter(
+      (step) => !WORKERS_BUILDS_AFTER_VALIDATION_STEPS.includes(step),
+    );
+
+    it('validates while the account checks run, migrates only after validation, and deploys its build', async () => {
       const events: string[] = [];
-      const { spawnBuild, build } = deferredBuild(events);
+      const { spawnValidation, validation } = deferredValidation(events);
       const verifyLocal = vi.fn(async () => undefined);
       const log = vi.fn();
       const spawn = workersBuildSpawn(events, {
         onStep: (step) => {
-          if (step === 'd1:migrations:apply:production') {
-            build.finish();
+          if (step === accountChecks.at(-1)) {
+            queueMicrotask(() => validation.finish());
           }
         },
       });
@@ -328,7 +333,7 @@ describe('production deploy wrapper', () => {
           clientId: 'oauth-client-id',
           env: workersBuildEnv,
           spawn,
-          spawnBuild,
+          spawnValidation,
           readBuiltConfig,
           verifyLocal,
           log,
@@ -336,56 +341,119 @@ describe('production deploy wrapper', () => {
       ).resolves.toBe(commitSha);
 
       expect(events).toEqual([
-        'build started',
-        ...WORKERS_BUILDS_PRE_DEPLOY_STEPS,
-        'build finished',
+        'validation started',
+        ...accountChecks,
+        'validation finished',
+        ...WORKERS_BUILDS_AFTER_VALIDATION_STEPS,
         'cf deploy --prebuilt',
       ]);
-      expect(spawnBuild).toHaveBeenCalledWith('pnpm', ['exec', 'vite', 'build'], {
+      expect(WORKERS_BUILDS_AFTER_VALIDATION_STEPS).toEqual([
+        'd1:bookmark:production',
+        'd1:migrations:apply:production',
+      ]);
+      // Validation's `build:check` is the release build, so it runs with the release's deploy vars.
+      expect(spawnValidation).toHaveBeenCalledWith('pnpm', ['run', 'validate'], {
         env: { ...workersBuildEnv, COMMIT_SHA: commitSha, CLOUDFLARE_OAUTH_CLIENT_ID: 'oauth-client-id' },
       });
-      expect(log).toHaveBeenCalledWith('vite output\n');
+      expect(log).toHaveBeenCalledWith('validate output\n');
       expect(verifyLocal).toHaveBeenCalledWith({ expectedSha: commitSha });
     });
 
-    it('deploys nothing when a check or migration fails, and waits for the build first', async () => {
+    it('migrates and deploys nothing when validation fails', async () => {
       const events: string[] = [];
-      const { spawnBuild, build } = deferredBuild(events);
+      const { spawnValidation, validation } = deferredValidation(events, 1);
+      const log = vi.fn();
+      const deploy = deployFromWorkersBuilds({
+        clientId: 'oauth-client-id',
+        env: workersBuildEnv,
+        spawn: workersBuildSpawn(events),
+        spawnValidation,
+        readBuiltConfig,
+        verifyLocal: vi.fn(async () => undefined),
+        log,
+      });
+      validation.finish();
+
+      await expect(deploy).rejects.toThrow(
+        'Validation failed with exit status 1. Nothing was deployed. Nothing was migrated.',
+      );
+      expect(events).toEqual(['validation started', ...accountChecks, 'validation finished']);
+      expect(log).toHaveBeenCalledWith('validate output\n');
+    });
+
+    it('migrates and deploys nothing when validation cannot start', async () => {
+      const events: string[] = [];
+      const deploy = deployFromWorkersBuilds({
+        clientId: 'oauth-client-id',
+        env: workersBuildEnv,
+        spawn: workersBuildSpawn(events),
+        spawnValidation: vi.fn(async () => {
+          throw new Error('spawn pnpm ENOENT');
+        }),
+        readBuiltConfig,
+        verifyLocal: vi.fn(async () => undefined),
+        log: vi.fn(),
+      });
+
+      await expect(deploy).rejects.toThrow('spawn pnpm ENOENT');
+      expect(events).toEqual(accountChecks);
+    });
+
+    it('deploys nothing when a check or migration fails, and waits for validation first', async () => {
+      const events: string[] = [];
+      const { spawnValidation, validation } = deferredValidation(events);
       const verifyLocal = vi.fn(async () => undefined);
+      const log = vi.fn();
       const deploy = deployFromWorkersBuilds({
         clientId: 'oauth-client-id',
         env: workersBuildEnv,
         spawn: workersBuildSpawn(events, { failStep: 'd1:migrations:apply:production' }),
-        spawnBuild,
+        spawnValidation,
         readBuiltConfig,
         verifyLocal,
-        log: vi.fn(),
+        log,
       });
-      build.finish();
+      validation.finish();
 
       await expect(deploy).rejects.toThrow(
         'd1:migrations:apply:production failed with exit status 1. Nothing was deployed.',
       );
       expect(events).not.toContain('cf deploy --prebuilt');
-      expect(events.at(-1)).toBe('build finished');
       expect(verifyLocal).not.toHaveBeenCalled();
+
+      const failedCheckEvents: string[] = [];
+      const failedCheck = deferredValidation(failedCheckEvents);
+      const checkFails = deployFromWorkersBuilds({
+        clientId: 'oauth-client-id',
+        env: workersBuildEnv,
+        spawn: workersBuildSpawn(failedCheckEvents, { failStep: 'provision:production:check' }),
+        spawnValidation: failedCheck.spawnValidation,
+        readBuiltConfig,
+        verifyLocal,
+        log,
+      });
+      setTimeout(() => failedCheck.validation.finish(), 0);
+
+      await expect(checkFails).rejects.toThrow('provision:production:check failed with exit status 1.');
+      // It waited for validation, so the build log holds its output, and migrated nothing.
+      expect(failedCheckEvents).toEqual(['validation started', 'provision:production:check', 'validation finished']);
     });
 
-    it('deploys nothing when the build fails, even after every check passed', async () => {
+    it('deploys nothing when the validated build does not carry the release vars', async () => {
       const events: string[] = [];
-      const { spawnBuild, build } = deferredBuild(events, 1);
+      const { spawnValidation, validation } = deferredValidation(events);
       const deploy = deployFromWorkersBuilds({
         clientId: 'oauth-client-id',
         env: workersBuildEnv,
         spawn: workersBuildSpawn(events),
-        spawnBuild,
-        readBuiltConfig,
+        spawnValidation,
+        readBuiltConfig: builtConfig({ COMMIT_SHA: 'b'.repeat(40), CLOUDFLARE_OAUTH_CLIENT_ID: 'oauth-client-id' }),
         verifyLocal: vi.fn(async () => undefined),
         log: vi.fn(),
       });
-      build.finish();
+      validation.finish();
 
-      await expect(deploy).rejects.toThrow('Vite build failed with exit status 1.');
+      await expect(deploy).rejects.toThrow(`must bind COMMIT_SHA to ${commitSha}`);
       expect(events).not.toContain('cf deploy --prebuilt');
     });
   });

@@ -87,7 +87,7 @@ export function findWorkersBuildsConfigErrors({
     [
       'pnpm install --frozen-lockfile',
       'node scripts/check-workers-builds-environment.mjs',
-      // Full validation on branch builds; the production branch regenerates outputs only.
+      // Full validation on branch builds; on the production branch the deploy step validates.
       'node scripts/workers-builds-checks.mjs',
       'node scripts/deploy-production.mjs --check-workers-builds',
     ].join(' && '),
@@ -96,10 +96,13 @@ export function findWorkersBuildsConfigErrors({
     errors,
     'package.json scripts.workers-builds:deploy',
     scripts?.['workers-builds:deploy'],
-    // Validates the release inputs, runs WORKERS_BUILDS_PRE_DEPLOY_STEPS beside the Worker build,
-    // then deploys the build and verifies it live.
+    // Validates the release inputs, runs `pnpm run validate` (which builds the Worker) beside the
+    // account checks, migrates only once it passes, then deploys that build and verifies it live.
     'node scripts/deploy-production.mjs --workers-builds',
   );
+  // The deploy step ships what validation's `build:check` built, so that check must be the release build.
+  requireEqual(errors, 'package.json scripts.build:check', scripts?.['build:check'], 'vite build');
+  requireEqual(errors, 'package.json scripts.validate', scripts?.validate, 'node scripts/validate.mjs');
   requireEqual(
     errors,
     'package.json scripts.workers-builds:preview',
