@@ -23,6 +23,8 @@ import {
   inviteToOrganizationAction,
   listOrganizationsAction,
   revokeInviteAction,
+  renameOrganizationAction,
+  deleteOrganizationAction,
   switchContextAction,
   updateMemberAction,
 } from './server-handlers/organizations';
@@ -283,6 +285,14 @@ const exactRoutes = new Map<string, ServerRoute>(
     '/api/organizations/invite/revoke': {
       method: 'POST',
       handler: (request, env) => revokeInviteAction({ request, env }),
+    },
+    '/api/organizations/rename': {
+      method: 'POST',
+      handler: (request, env) => renameOrganizationAction({ request, env }),
+    },
+    '/api/organizations/delete': {
+      method: 'POST',
+      handler: (request, env) => deleteOrganizationAction({ request, env }),
     },
     '/api/context': {
       method: 'POST',
