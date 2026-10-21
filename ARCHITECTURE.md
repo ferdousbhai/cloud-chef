@@ -60,7 +60,9 @@ it (`DELETE`) once the runtime serves; the rollout replaces running containers a
 it completes. Each of these is its own Workflow step, so a retry never claims the window again or redeploys. Each
 call names the Workflow instance holding the window (a `cloudchef-upgrade-holder` header, which a runtime from
 before holders ignores): another upgrade's claim or renewal is refused while it is open, as for a busy workspace,
-and only its holder releases it; a window claimed without a holder may be renewed or released by any. Work
+and only its holder releases it; a window claimed without a holder may be renewed or released by any. The holder's
+own claim of its window still open is granted whatever is busy, so a retried deploy step (which may find the Worker
+it already redeployed) keeps the window rather than letting it lapse under work waiting for it. Work
 that starts records itself first and then waits while any window is open, on the old Worker or the new one; a
 window lapses five minutes after its last renewal, which bounds the wait when an upgrade stops partway. A turn
 waits at most three minutes, then asks to be sent again; a Stop calls its wait off. A step's retries can outlast
