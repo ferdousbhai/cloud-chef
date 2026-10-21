@@ -137,22 +137,33 @@ export class WorkbenchStore {
 
   applyWorkspaceSyncEntries(entries: BuilderWorkspaceSyncEntry[]): void {
     this.flushPendingEditorChange();
+    const unsavedDocuments = this.#unsavedTextDocuments();
     this.#filesStore.applyWorkspaceSyncEntries(entries);
+
+    const durableFiles = this.#filesStore.files.get();
+    const nextUnsavedFiles = new Set<AbsolutePath>();
+    for (const filePath of this.unsavedFiles.get()) {
+      if (durableFiles[filePath]?.type === 'file') {
+        nextUnsavedFiles.add(filePath);
+        continue;
+      }
+      // A delta can delete a file the user is still editing. Keep the local text as an unsaved
+      // recreation, as a full snapshot does, rather than leaving a marker with nothing to save.
+      const document = unsavedDocuments.get(filePath);
+      if (document) {
+        this.#filesStore.stageUnsavedTextFile(filePath, document.value);
+        nextUnsavedFiles.add(filePath);
+      }
+    }
+
+    this.unsavedFiles.set(nextUnsavedFiles);
     this.setDocuments(this.#filesStore.files.get());
   }
 
   replaceWorkspaceSnapshot(entries: BuilderWorkspaceSyncEntry[], preservedPaths?: ReadonlySet<string>): void {
     this.flushPendingEditorChange();
 
-    const unsavedFiles = this.unsavedFiles.get();
-    const unsavedDocuments = new Map(
-      [...unsavedFiles]
-        .map((filePath) => [filePath, this.#editorStore.documents.get()[filePath]] as const)
-        .filter(
-          (entry): entry is readonly [AbsolutePath, EditorDocument] => entry[1] !== undefined && !entry[1].isBinary,
-        ),
-    );
-
+    const unsavedDocuments = this.#unsavedTextDocuments();
     this.#filesStore.replaceWorkspaceSnapshot(entries, preservedPaths);
 
     const durableFiles = this.#filesStore.files.get();
@@ -326,6 +337,16 @@ export class WorkbenchStore {
   async downloadZip(): Promise<void> {
     this.flushPendingEditorChange();
     await downloadProject({ ...this.files.get(), ...this.#visibleUnsavedTextFiles() }, description.value ?? 'project');
+  }
+
+  #unsavedTextDocuments(): Map<AbsolutePath, EditorDocument> {
+    return new Map(
+      [...this.unsavedFiles.get()]
+        .map((filePath) => [filePath, this.#editorStore.documents.get()[filePath]] as const)
+        .filter(
+          (entry): entry is readonly [AbsolutePath, EditorDocument] => entry[1] !== undefined && !entry[1].isBinary,
+        ),
+    );
   }
 
   #visibleUnsavedTextFiles() {
