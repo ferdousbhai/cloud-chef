@@ -203,7 +203,9 @@ export async function requireAdmin(db: D1Database, orgId: string, userId: string
 /**
  * Pending invites one organization may have at once, and invites it may send in a day. Invites sent
  * are counted from `organization_quota_events`, so revoking one, or deleting the team, doesn't give it
- * back.
+ * back. Erasing the inviter's account does: those records are theirs, and go with them (by the
+ * table's cascade), so a team's daily count drops by what they sent. Erasure is rare and needs a
+ * fresh sign-in, so that is the trade made for erasing everything about them.
  */
 const MAX_PENDING_INVITES = 50;
 const MAX_INVITES_PER_DAY = 100;
