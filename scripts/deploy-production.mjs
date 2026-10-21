@@ -410,7 +410,7 @@ export const WORKERS_BUILDS_AFTER_VALIDATION_STEPS = Object.freeze([
  * The release's validation gate. Its `build:check` is the same `vite build` the release ships, so running
  * it with the deploy vars builds the Worker and proves it (tests, types, lint, built-output checks) in one pass.
  */
-export const WORKERS_BUILDS_VALIDATE_ARGS = Object.freeze(['run', 'validate']);
+const WORKERS_BUILDS_VALIDATE_ARGS = Object.freeze(['run', 'validate']);
 
 /**
  * @typedef {(command: string, args: readonly string[], options: Record<string, unknown>) => Promise<{

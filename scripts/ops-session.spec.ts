@@ -23,8 +23,10 @@ const WORKER = 'cloudchef-workspace-c2dec2a4e30e0871';
 const AT = Date.parse('2026-10-20T13:00:00Z');
 
 type CfCall = { args: readonly string[]; accountId?: string };
+/** A JSON value, as cf and D1 return them. */
+type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 
-function d1Rows(rows: Record<string, unknown>[]) {
+function d1Rows(rows: Record<string, Json>[]) {
   return [{ results: rows, success: true }];
 }
 
@@ -32,7 +34,7 @@ function sqlOf(args: readonly string[]): { sql: string; params: string[] } {
   return args[1] === 'query' ? JSON.parse(args[args.indexOf('--body') + 1] ?? '{}') : { sql: '', params: [] };
 }
 
-function event(id: string, timestamp: number, source: Record<string, unknown>, workers: Record<string, unknown> = {}) {
+function event(id: string, timestamp: number, source: Record<string, Json>, workers: Record<string, Json> = {}) {
   return {
     timestamp,
     source,

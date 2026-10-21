@@ -23,6 +23,7 @@ import { execFile } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+import { z } from 'zod';
 import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -78,7 +79,11 @@ export function assertReadOnlyCf(args) {
   }
 }
 
-/** Accept only identifier-shaped input: it reaches SQL only as a bound parameter, but is echoed too. */
+/**
+ * Accept only identifier-shaped input: it reaches SQL only as a bound parameter, but is echoed too.
+ * @param {string | undefined} value
+ * @returns {{ value: string; kind: 'email' | 'id' }}
+ */
 export function parseTarget(value) {
   const target = String(value ?? '').trim();
   if (!/^[A-Za-z0-9._%+@-]{3,254}$/.test(target)) {
@@ -148,6 +153,8 @@ function workspaceEventsQuery({ workerName, from, to }) {
 /**
  * Every event of the workspace Worker in the window, newest first. Each page ends the window at the
  * oldest event it returned, and `$metadata.id` drops the events that boundary repeats.
+ * @param {CfReader} cf
+ * @param {{ workerName: string; from: number; to: number; accountId?: string }} window
  */
 export async function readWorkspaceEvents(cf, { workerName, from, to, accountId }) {
   const seen = new Set();
@@ -285,18 +292,23 @@ function gatewayLogSummary(log) {
   };
 }
 
+/** A chat message's content: a string, or parts of which the text parts count. Anything else is empty. */
+const messageContentSchema = z
+  .union([
+    z.string(),
+    z.array(
+      z.union([z.string(), z.object({ text: z.string() }).transform((part) => part.text), z.any().transform(() => '')]),
+    ),
+  ])
+  .catch('');
+
 function messageText(content) {
-  if (typeof content === 'string') {
-    return content;
-  }
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => (typeof part === 'string' ? part : (part?.text ?? '')))
-      .filter(Boolean)
-      .join('\n');
-  }
-  return '';
+  const parsed = messageContentSchema.parse(content);
+  return Array.isArray(parsed) ? parsed.filter(Boolean).join('\n') : parsed;
 }
+
+/** A string, or the empty string for anything else. */
+const textOrEmpty = z.string().catch('');
 
 /** A tool result the model saw as a failure: an `error`, or a report that is not `ok`. */
 export function toolFailure(content) {
@@ -325,7 +337,7 @@ function joinStreamedResponse(response) {
   let finishReason = null;
   for (const choice of choices) {
     const delta = choice?.delta ?? choice?.message ?? {};
-    text += typeof delta.content === 'string' ? delta.content : '';
+    text += textOrEmpty.parse(delta.content);
     for (const call of Array.isArray(delta.tool_calls) ? delta.tool_calls : []) {
       const key = call.index ?? call.id ?? calls.size;
       const current = calls.get(key) ?? { name: '', arguments: '' };
@@ -784,7 +796,7 @@ export function renderSession(session) {
 }
 
 function describeFailure(error) {
-  const stderr = typeof error?.stderr === 'string' ? error.stderr : '';
+  const stderr = textOrEmpty.parse(error?.stderr);
   const boxed = stderr
     .split('\n')
     .filter((line) => line.startsWith('│'))
@@ -793,8 +805,9 @@ function describeFailure(error) {
   return bounded(boxed.length ? boxed.join(' ') : stderr || error?.message || 'no output', 400);
 }
 
-function parseJson(text) {
-  const start = typeof text === 'string' ? text.search(/[[{]/) : -1;
+function parseJson(output) {
+  const text = textOrEmpty.parse(output);
+  const start = text.search(/[[{]/);
   if (start < 0) {
     return null;
   }
@@ -813,12 +826,17 @@ function parseJson(text) {
 export function cfReader({ run = execFileAsync, env = process.env } = {}) {
   return async (args, { accountId } = {}) => {
     assertReadOnlyCf(args);
+    // cf reports usage unless told not to; a read-only report must not phone home.
+    const commandEnv = { ...env, CF_SEND_TELEMETRY: 'false' };
+    if (accountId) {
+      commandEnv.CLOUDFLARE_ACCOUNT_ID = accountId;
+    }
     let stdout;
     try {
       ({ stdout } = await run('pnpm', ['exec', 'cf', ...args], {
         cwd: ROOT,
         encoding: 'utf8',
-        env: { ...env, CF_SEND_TELEMETRY: 'false', ...(accountId ? { CLOUDFLARE_ACCOUNT_ID: accountId } : {}) },
+        env: commandEnv,
         maxBuffer: 256 * 1024 * 1024,
         timeout: 120_000,
       }));

@@ -38,7 +38,7 @@ const sweepDependencies: UserWorkspaceRuntimeUpgradeSweepDependencies = {
   sweepOne: sweepUserWorkspaceRuntimeUpgrade,
 };
 
-export type UserWorkspaceRuntimeUpgradeSweepSummary = Record<UserWorkspaceRuntimeUpgradeSweepOutcome, number> & {
+type UserWorkspaceRuntimeUpgradeSweepSummary = Record<UserWorkspaceRuntimeUpgradeSweepOutcome, number> & {
   /** Not eligible to provision (a paused member, a connection missing a capability), or failed to inspect. */
   skipped: number;
 };
