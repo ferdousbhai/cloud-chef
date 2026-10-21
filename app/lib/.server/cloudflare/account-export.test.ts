@@ -17,6 +17,7 @@ const CREDENTIAL_HANDLE = 'credential-handle-must-never-be-exported';
 const INVITE_TOKEN_HASH = 'invite-token-hash-must-never-be-exported';
 const GITHUB_STATE = 'github-state-must-never-be-exported';
 const APPROVAL_STATE = 'approval-state-must-never-be-exported';
+const OAUTH_STATE = 'oauth-state-must-never-be-exported';
 const EMAIL_TOKEN_HASH = 'email-token-hash-must-never-be-exported';
 
 describe('control-plane account export', () => {
@@ -134,7 +135,7 @@ describe('control-plane account export', () => {
       status: 'exported',
       total: 1,
       truncated: false,
-      states: [{ id: 'state-user-1', status: 'completed', returnTo: '/' }],
+      states: [{ status: 'completed', returnTo: '/' }],
     });
     expect(exported.omits.join('\n')).toContain('unpromoted preview versions');
     expect(exported.omits.join('\n')).toContain('production and preview D1 databases');
@@ -338,7 +339,7 @@ describe('control-plane account export', () => {
     });
     // What these records are checked against stays in the control plane.
     const serialized = JSON.stringify(exported);
-    for (const secret of [INVITE_TOKEN_HASH, GITHUB_STATE, APPROVAL_STATE, EMAIL_TOKEN_HASH]) {
+    for (const secret of [INVITE_TOKEN_HASH, GITHUB_STATE, APPROVAL_STATE, OAUTH_STATE, EMAIL_TOKEN_HASH]) {
       expect({ secret, present: serialized.includes(secret) }).toEqual({ secret, present: false });
     }
   });
@@ -401,7 +402,7 @@ function seedAccount(database: DatabaseSyncInstance, userId = 'user-1'): void {
         (id, provider_session_id, return_to, status, expires_at, authenticated_user_id, created_at, updated_at)
        VALUES (?, ?, '/', 'completed', 9999999999999, ?, 1, 1)`,
     )
-    .run(`state-${userId}`, `${PROVIDER_SESSION_ID}-${userId}`, userId);
+    .run(`${OAUTH_STATE}-${userId}`, `${PROVIDER_SESSION_ID}-${userId}`, userId);
   database
     .prepare(
       `INSERT INTO user_computer_runtimes

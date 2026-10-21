@@ -6,7 +6,7 @@ import { findCloudflareConnectionForUser } from './cloudflare-connection-reposit
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
  * kept for years stays readable against the shape it was written in.
  */
-export const ACCOUNT_EXPORT_SCHEMA_VERSION = 5;
+export const ACCOUNT_EXPORT_SCHEMA_VERSION = 6;
 
 /**
  * Per-section ceiling on rows. A list section returns its most recent page and
@@ -213,7 +213,6 @@ type ExportedAuthSession = {
 };
 
 type ExportedOAuthState = {
-  id: string;
   status: string;
   returnTo: string;
   expiresAt: string;
@@ -524,7 +523,6 @@ async function readAuthSessions(
 }
 
 type OAuthStateRow = {
-  id: string;
   status: string;
   return_to: string;
   expires_at: number;
@@ -536,16 +534,15 @@ type OAuthStateRow = {
 async function readOAuthStates(db: D1Database, userId: string): Promise<BoundedList<{ states: ExportedOAuthState[] }>> {
   const rows = await db
     .prepare(
-      `SELECT id, status, return_to, expires_at, created_at, updated_at, COUNT(*) OVER () AS total_rows
+      `SELECT status, return_to, expires_at, created_at, updated_at, COUNT(*) OVER () AS total_rows
        FROM cloudflare_oauth_states WHERE authenticated_user_id = ?1 OR linking_user_id = ?1
        ORDER BY created_at DESC LIMIT ?2`,
     )
     .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
     .all<OAuthStateRow>();
-  // The provider session identifier is the handle Cloudflare's authorization flow
-  // is resumed with, so only the local record of the attempt is exported.
+  // The state id is what Cloudflare's return is checked against, and the provider session identifier
+  // the handle its authorization flow is resumed with, so only the local record of the attempt is exported.
   const states = rows.results.map((row) => ({
-    id: row.id,
     status: row.status,
     returnTo: row.return_to,
     expiresAt: isoTimestamp(row.expires_at),
