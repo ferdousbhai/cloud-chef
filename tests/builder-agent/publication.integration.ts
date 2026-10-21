@@ -950,6 +950,20 @@ describe('redoing a failed deployment', () => {
     expect(deploy).not.toHaveBeenCalled();
   });
 
+  it('runs the deployment when its record was planned (by a preview, say) and never claimed', async () => {
+    const deploy = vi.fn<BuilderPublisher['deploy']>(async () => ({ status: 'succeeded', id: 'deployment-1' }));
+    const harness = await publicationHarness({
+      publisher: { deploy, terminalize: async () => ({ id: 'deployment-1', status: 'ready' }) },
+    });
+    failedDeployment(harness);
+
+    await harness.agent.retryAutomaticDeployment({ ...CHECKPOINT, attempt: 1 });
+
+    await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
+    expect(deploy).toHaveBeenCalledOnce();
+    expect(scheduledRetries(harness)).toEqual([]);
+  });
+
   it('does not start a second deployment when another started while the record was settled', async () => {
     const deploy = vi.fn<BuilderPublisher['deploy']>();
     const terminalized = deferred<void>();

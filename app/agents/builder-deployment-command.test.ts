@@ -230,6 +230,29 @@ describe('builder deployment command', () => {
     expect(mocks.terminalizeInterrupted).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    ['approved', 'ready'],
+    ['provisioning', 'deploying'],
+    ['deploying', 'deploying'],
+    ['succeeded', 'succeeded'],
+    ['failed', 'failed'],
+  ])('reports a %s deployment as %s, so only a claimed one is waited for', async (status, reported) => {
+    mocks.terminalizeInterrupted
+      .mockReset()
+      .mockResolvedValueOnce({ ...settled('11111111-1111-5111-8111-111111111111'), status })
+      .mockResolvedValue(null);
+    const revision = 'a'.repeat(64);
+
+    await expect(
+      terminalizeInterruptedDeploymentForBuilder({
+        context: operationContext(),
+        workspace: workspaceStub(),
+        toolCallId: `deploy-command:7:${revision}`,
+        validatedRevision: revision,
+      }),
+    ).resolves.toMatchObject({ status: reported });
+  });
+
   it('terminalizes every plan of the revision, and reports the latest, the one that ran', async () => {
     mocks.terminalizeInterrupted
       .mockReset()

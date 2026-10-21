@@ -4,6 +4,7 @@ import {
   previewForUser,
   terminalizeInterruptedDeploymentForUser,
 } from '~/server-handlers/deployments';
+import type { DeploymentStatus } from '~/lib/.server/cloudflare/deployment-repository';
 import type {
   BuilderWorkspaceApi,
   BuilderWorkspaceCheckpoint,
@@ -117,8 +118,7 @@ export async function terminalizeInterruptedDeploymentForBuilder(args: {
   return deployment
     ? {
         id: deployment.id,
-        status:
-          deployment.status === 'succeeded' ? 'succeeded' : deployment.status === 'failed' ? 'failed' : 'deploying',
+        status: builderDeploymentStatus(deployment.status),
         productionUrl: deployment.productionUrl,
         error: deployment.error?.message ?? null,
       }
@@ -126,6 +126,17 @@ export async function terminalizeInterruptedDeploymentForBuilder(args: {
         status: 'failed',
         error: 'Deployment was interrupted before execution started.',
       };
+}
+
+/**
+ * Only a deployment that was claimed is still running. One a preview planned and nothing claimed
+ * (`approved`) is ready to run, so whoever asked runs it rather than waiting for it to settle.
+ */
+function builderDeploymentStatus(status: DeploymentStatus): BuilderDeploymentState['status'] {
+  if (status === 'approved') {
+    return 'ready';
+  }
+  return status === 'provisioning' ? 'deploying' : status;
 }
 
 /** Deploy the exact durably validated revision as one idempotent server operation. */
