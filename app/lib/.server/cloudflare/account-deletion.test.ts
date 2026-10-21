@@ -1,6 +1,11 @@
 import type { DatabaseSync as DatabaseSyncInstance } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
-import { eraseControlPlaneAccount, leaveOrganizations, OrganizationAdminRequiredError } from './account-deletion';
+import {
+  eraseControlPlaneAccount,
+  leaveOrganizations,
+  OrganizationAdminRequiredError,
+  organizationsNeedingAnotherAdmin,
+} from './account-deletion';
 import { D1CloudflareCredentialVault } from './cloudflare-credential-vault';
 import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
 
@@ -149,6 +154,27 @@ describe('control-plane account erasure', () => {
       { org_id: 'alpha' },
       { org_id: 'beta' },
     ]);
+  });
+
+  it('asks for another admin only where the person is the sole active one, as leaving decides it', async () => {
+    const { database, db } = controlPlaneDatabase();
+    for (const userId of ['admin', 'member']) {
+      seedAccount(database, null, userId);
+    }
+    database.exec(`
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('alpha', 'Alpha', 1, 1), ('beta', 'Beta', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at, paused_at) VALUES
+        ('alpha', 'admin', 'admin', 1, NULL), ('alpha', 'member', 'member', 1, NULL),
+        ('beta', 'admin', 'admin', 1, 5), ('beta', 'member', 'member', 1, NULL);
+    `);
+
+    expect(await organizationsNeedingAnotherAdmin(db, 'admin')).toEqual(['Alpha']);
+
+    // A paused admin is no team's active admin: once Alpha has another, nothing holds them back.
+    database.exec(`UPDATE organization_members SET role = 'admin' WHERE org_id = 'alpha' AND user_id = 'member'`);
+    expect(await organizationsNeedingAnotherAdmin(db, 'admin')).toEqual([]);
+    await leaveOrganizations(db, 'admin');
+    expect(database.prepare("SELECT org_id FROM organization_members WHERE user_id = 'admin'").all()).toEqual([]);
   });
 
   it("deletes the person's workspace in each team's account before they leave, and names the teams where it couldn't be", async () => {

@@ -169,7 +169,7 @@ export async function organizationsNeedingAnotherAdmin(db: D1Database, userId: s
       `SELECT organizations.name
        FROM organization_members AS mine
        JOIN organizations ON organizations.id = mine.org_id
-       WHERE mine.user_id = ?1 AND mine.role = 'admin'
+       WHERE mine.user_id = ?1 AND mine.role = 'admin' AND mine.paused_at IS NULL
          AND EXISTS (SELECT 1 FROM organization_members AS other WHERE other.org_id = mine.org_id AND other.user_id <> ?1)
          AND NOT EXISTS (
            SELECT 1 FROM organization_members AS other

@@ -13,7 +13,12 @@ type GitHubTokenPermissions = {
 };
 
 const accountSchema = z.looseObject({ login: z.string(), type: z.enum(['User', 'Organization']) });
-const installationSchema = z.looseObject({ id: z.number().int(), account: accountSchema });
+const installationSchema = z.looseObject({
+  id: z.number().int(),
+  account: accountSchema,
+  /** `all` when it reaches every repository of its account, `selected` when only those chosen. */
+  repository_selection: z.string().optional(),
+});
 const tokenSchema = z.looseObject({ token: z.string().min(1), expires_at: z.string() });
 const userTokenSchema = z.looseObject({ access_token: z.string().min(1).optional(), error: z.string().optional() });
 const gitHubRepositorySchema = z.looseObject({
@@ -23,6 +28,8 @@ const gitHubRepositorySchema = z.looseObject({
   private: z.boolean(),
   /** When GitHub created it (ISO 8601); every repository response names it. */
   created_at: z.string().optional(),
+  /** What the user may do with it, in a response to a user's token: an App's token has none. */
+  permissions: z.looseObject({ admin: z.boolean() }).optional(),
 });
 const repositoriesPageSchema = z.looseObject({
   total_count: z.number().int(),
@@ -121,12 +128,20 @@ export class GitHubApp {
   /**
    * Adds a repository to an installation limited to selected repositories. An installation covering all
    * of the account's repositories already includes it, and GitHub refuses the call then: not an error.
+   * Any other refusal throws, so a repository the admin couldn't give the App is never written to.
    */
   async addRepositoryToInstallation(userToken: string, installationId: number, repositoryId: number): Promise<void> {
-    const request = this.request;
-    await fetchGitHub(request, `/user/installations/${installationId}/repositories/${repositoryId}`, userToken, {
-      method: 'PUT',
-    }).then((response) => response.body?.cancel());
+    const response = await fetchGitHub(
+      this.request,
+      `/user/installations/${installationId}/repositories/${repositoryId}`,
+      userToken,
+      { method: 'PUT' },
+    );
+    await response.body?.cancel();
+    if (response.ok || (await this.installation(installationId))?.repository_selection === 'all') {
+      return;
+    }
+    throw new GitHubError(`GitHub refused the request (${response.status}).`, response.status);
   }
 
   /** Exchanges the code GitHub returns after installing (user authorization during installation). */

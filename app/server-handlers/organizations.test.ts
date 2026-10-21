@@ -16,6 +16,7 @@ import {
 } from './organizations';
 import { findPendingProductionRequest, listPendingProductionRequests } from '~/lib/cloudflare/data/org-projects.server';
 import { updateMember } from '~/lib/cloudflare/data/organizations.server';
+import { sha256Hex } from '~/lib/hex-digest';
 
 const ORIGIN = 'https://cloudchef.build';
 
@@ -791,6 +792,88 @@ describe('organizations', () => {
       access: [],
       runtimes: [{ user_id: admin.userId }],
     });
+  });
+
+  it('replaces an invite still waiting for the same email, so only the one sent last works', async () => {
+    const { database, env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const first = await invite(env, admin.cookie, orgId, 'sam@acme.com');
+    // Fifty invites wait, Sam's among them: sending Sam's again takes no new place.
+    database.exec(`
+      WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 49)
+      INSERT INTO organization_invites (id, org_id, email, role, token_hash, invited_by, expires_at, created_at)
+      SELECT 'other-' || i, '${orgId}', 'person' || i || '@acme.com', 'member', 'hash-' || i, '${admin.userId}',
+             ${Date.now() + 60 * 60_000}, 1
+      FROM n;
+    `);
+    const second = await invite(env, admin.cookie, orgId, 'Sam@acme.com');
+    expect(second.status).toBe(201);
+    expect((await invite(env, admin.cookie, orgId, 'kim@acme.com')).status).toBe(409);
+    expect(
+      database.prepare(`SELECT COUNT(*) AS count FROM organization_invites WHERE email LIKE 'sam@acme.com'`).get(),
+    ).toEqual({ count: 1 });
+
+    // A resend that another invite beats to the day's last place leaves the earlier invite as it was.
+    const insert = database.prepare(
+      `INSERT INTO organization_quota_events (kind, user_id, org_id, created_at) VALUES ('invite', ?, ?, ?)`,
+    );
+    for (let index = 0; index < 97; index += 1) {
+      insert.run(admin.userId, orgId, Date.now());
+    }
+    const racing = withStatementHook(env.DB, (query) => {
+      if (query.includes('INSERT INTO organization_invites')) {
+        insert.run(admin.userId, orgId, Date.now());
+      }
+    });
+    expect((await invite({ ...env, DB: racing }, admin.cookie, orgId, 'sam@acme.com')).status).toBe(409);
+
+    const sam = await signIn('sam@acme.com');
+    const accept = (inviteUrl: string | undefined) =>
+      acceptInviteAction({
+        request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(inviteUrl ?? '') }),
+        env,
+      });
+    expect((await accept(first.body?.inviteUrl)).status).toBe(410);
+    expect((await accept(second.body?.inviteUrl)).status).toBe(200);
+  });
+
+  it('leaves no invite to a member waiting once they join, nor once they are removed, to bring them back', async () => {
+    const { database, env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
+    // An admin invite for Sam left over from before an invite replaced the last, and one for Ada herself.
+    const leftover = async (id: string, email: string) => {
+      const token = `${id}-token-as-long-as-a-real-one-is`;
+      database
+        .prepare(
+          `INSERT INTO organization_invites (id, org_id, email, role, token_hash, invited_by, expires_at, created_at)
+           VALUES (?, ?, ?, 'admin', ?, ?, ?, 1)`,
+        )
+        .run(id, orgId, email, await sha256Hex(token), admin.userId, Date.now() + 60 * 60_000);
+      return token;
+    };
+    const asAdmin = await leftover('as-admin', 'SAM@acme.com');
+    await leftover('for-ada', 'ada@acme.com');
+    const pending = () =>
+      database.prepare('SELECT id FROM organization_invites WHERE accepted_at IS NULL ORDER BY id').all();
+    const sam = await signIn('sam@acme.com');
+    const accept = (token: string) =>
+      acceptInviteAction({ request: post(sam.cookie, '/api/organizations/accept', { token }), env });
+
+    expect((await accept(tokenOf(invited.body?.inviteUrl ?? ''))).status).toBe(200);
+    expect(pending()).toEqual([{ id: 'for-ada' }]);
+
+    // One that slipped in while Sam was a member goes when Sam does; a refused removal keeps Ada's.
+    const slippedIn = await leftover('slipped-in', 'sam@acme.com');
+    const remove = (userId: string) => updateMember(env.DB, { orgId, actorId: admin.userId, userId, action: 'remove' });
+    await expect(remove(admin.userId)).rejects.toThrow('a team always needs one');
+    expect(pending()).toEqual([{ id: 'for-ada' }, { id: 'slipped-in' }]);
+    await remove(sam.userId);
+    expect(pending()).toEqual([{ id: 'for-ada' }]);
+    expect((await accept(slippedIn)).status).toBe(410);
+    expect((await accept(asAdmin)).status).toBe(410);
   });
 });
 

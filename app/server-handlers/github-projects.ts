@@ -417,9 +417,13 @@ async function finishProductionApproval(args: {
     // Taken already: an approval that created it and then couldn't reach it, retried after the admin gave
     // the App access. Such a repository holds only GitHub's first commit, its README; any other is refused,
     // read as the admin before the App is given it, so a refused repository never gains the App's access.
+    // So is one the admin doesn't administer: seeing a coworker's new repository doesn't make it theirs.
     const repository = created ?? (await app.findRepository(userToken, fullName));
     if (!repository) {
       return await fail('repository_name_refused');
+    }
+    if (!created && repository.permissions?.admin !== true) {
+      return await fail('repository_name_taken');
     }
     const untouched = created
       ? true
