@@ -5,7 +5,12 @@ import type { Tool } from 'cloudchef-agent/tool';
 import { isWorkspaceToolOperationIndeterminateError, type BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import type { BuilderSkillReader } from './builder-skills';
-import { BUILDER_TOOL_DEADLINES_MS, BuilderToolDeadlineError } from './builder-turn-limits';
+import {
+  BUILDER_TOOL_DEADLINES_MS,
+  BUILDER_TOOL_STOP_GRACE_MS,
+  BuilderToolDeadlineError,
+  BuilderToolUnsettledError,
+} from './builder-turn-limits';
 import { createWorkersAiTools } from './workers-ai-tools';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 import type { LinkedProjectModelToolContext } from './linked-project-model-tools';
@@ -80,8 +85,22 @@ function adaptTool(name: ModelToolName, definition: Tool, label: string): AgentT
       );
       const executionSignal = signal ? AbortSignal.any([signal, timeoutController.signal]) : timeoutController.signal;
       let updatesOpen = true;
+      // Once stopped, the tool gets a bounded moment to settle; one that ignores its signal ends
+      // the call without it instead of holding the turn.
+      let giveUp: ReturnType<typeof setTimeout> | undefined;
+      const unsettled = new Promise<never>((_resolve, reject) => {
+        executionSignal.addEventListener(
+          'abort',
+          () => {
+            if (updatesOpen) {
+              giveUp = setTimeout(() => reject(new BuilderToolUnsettledError(name)), BUILDER_TOOL_STOP_GRACE_MS);
+            }
+          },
+          { once: true },
+        );
+      });
       try {
-        const result = await definition.execute(parsed.data, {
+        const execution = definition.execute(parsed.data, {
           toolCallId,
           abortSignal: executionSignal,
           onUpdate: onUpdate
@@ -93,16 +112,22 @@ function adaptTool(name: ModelToolName, definition: Tool, label: string): AgentT
               }
             : undefined,
         });
-        executionSignal.throwIfAborted();
-        return toPiToolResult(result);
+        // A result that completed is the tool's outcome, even when its deadline passed while it
+        // returned: a write that landed must not be reported as stopped.
+        return toPiToolResult(await Promise.race([execution, unsettled]));
       } catch (error) {
-        if (executionSignal.aborted && !isWorkspaceToolOperationIndeterminateError(error)) {
+        if (
+          executionSignal.aborted &&
+          !(error instanceof BuilderToolUnsettledError) &&
+          !isWorkspaceToolOperationIndeterminateError(error)
+        ) {
           executionSignal.throwIfAborted();
         }
         throw error;
       } finally {
         updatesOpen = false;
         clearTimeout(timeout);
+        clearTimeout(giveUp);
       }
     },
   };

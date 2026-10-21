@@ -60,6 +60,23 @@ export class BuilderToolDeadlineError extends Error {
   }
 }
 
+/**
+ * How long a stopped tool has to settle before its call ends without it. Cancelling a container
+ * command confirms within about half a minute; a tool that ignores its signal would otherwise hold
+ * the turn, whose inactivity watchdog is paused while a tool runs.
+ */
+export const BUILDER_TOOL_STOP_GRACE_MS = 60_000;
+
+/** A tool that was stopped and did not settle in time: what it did is unknown, not undone. */
+export class BuilderToolUnsettledError extends Error {
+  constructor(toolName: ModelToolName) {
+    super(
+      `${toolName} was stopped but did not finish stopping within ${BUILDER_TOOL_STOP_GRACE_MS / 1_000} seconds, so whether it changed the project is unknown. Check the workspace before repeating it.`,
+    );
+    this.name = 'BuilderToolUnsettledError';
+  }
+}
+
 /** The turn-level guards against a hung provider stream or workspace. None of them limits the model's work. */
 export type BuilderTurnLimitReason = 'wall_clock' | 'inactivity' | 'no_first_progress';
 
