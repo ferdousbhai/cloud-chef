@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { CLOUDFLARE_PROJECT_TITLE_MODEL, type BuilderModelId } from '~/lib/workers-ai-model';
 import { gatewayKeyRejectedMessage, getPiModel, type WorkersAiAccountCredentials } from './pi-ai-models';
 import { completeText } from './pi-ai-invoke';
+import type { ProviderRequestBody } from './provider-default-reasoning';
 import {
   workersAiGatewayLogging,
   type WorkersAiGatewayLogging,
@@ -570,8 +571,8 @@ describe('the output budget a Workers AI request asks for', () => {
 
 describe('a Workers AI request body CloudChef cannot read', () => {
   it('goes to the binding as written, without its model, as a gateway request would', async () => {
-    const sent: Array<{ model: string; inputs: Record<string, string | number | boolean | object> }> = [];
-    const run = async (model: string, inputs: Record<string, string | number | boolean | object>) => {
+    const sent: Array<{ model: string; inputs: ProviderRequestBody }> = [];
+    const run = async (model: string, inputs: ProviderRequestBody) => {
       sent.push({ model, inputs });
       return Response.json({ errors: [{ message: 'stop here' }] }, { status: 400 });
     };

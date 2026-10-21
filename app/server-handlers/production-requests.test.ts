@@ -38,6 +38,9 @@ const DRAFT_FILES = [
   },
 ];
 
+/** What else happens while an approval runs: `commit` while CloudChef commits the draft. */
+type DuringApproval = { commit?: () => Promise<void> };
+
 /** GitHub as the approval sees it: the admin `ada`, a new repository, and what CloudChef wrote to it. */
 async function fakeGitHub(options: { appCannotReach?: boolean } = {}) {
   const pair = await crypto.subtle.generateKey(
@@ -47,8 +50,7 @@ async function fakeGitHub(options: { appCannotReach?: boolean } = {}) {
   );
   const der = new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey));
   const calls: { method: string; path: string; body: string | null }[] = [];
-  /** Runs while CloudChef commits the draft, as something else happening during the approval. */
-  const during: { commit?: () => Promise<void> } = {};
+  const during: DuringApproval = {};
   const request: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
     const method = init?.method ?? 'GET';

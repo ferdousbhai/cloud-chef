@@ -510,7 +510,7 @@ function createGatewayFetch(
         forwarded[name] = value;
       }
     }
-    const send = (alias: string, query: unknown) => {
+    const send = (alias: string, query: ProviderRequestBody | WrittenBody) => {
       const headers: GatewayRequestHeaders = {
         'content-type': 'application/json',
         ...workersAiGatewayHeaders(route.gatewayLogging),
@@ -533,7 +533,7 @@ function createGatewayFetch(
           requested: route.reasoning.requested,
           summaries: route.reasoning.summaries && !summariesRefused.has(`${route.provider}:${alias}`),
         })
-      : body;
+      : writtenBodySchema.parse(body);
     let response = await send(alias, query);
     let triedOtherAlias = false;
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -609,8 +609,9 @@ async function readText(response: Response): Promise<string> {
 /** The OpenAI-compatible body Pi serialises, forwarded to the binding verbatim apart from `model`. */
 type WorkersAiBindingInputs = ProviderRequestBody;
 
-/** Any JSON object body, read only to take `model` out of it. */
+/** Any JSON object body, sent as written: it is read for nothing. */
 const writtenBodySchema = z.looseObject({});
+type WrittenBody = z.infer<typeof writtenBodySchema>;
 
 type WorkersAiRawRunOptions = {
   returnRawResponse: true;
@@ -620,11 +621,7 @@ type WorkersAiRawRunOptions = {
 };
 
 type WorkersAiRawBinding = {
-  run(
-    model: string,
-    inputs: WorkersAiBindingInputs | z.infer<typeof writtenBodySchema>,
-    options: WorkersAiRawRunOptions,
-  ): Promise<Response>;
+  run(model: string, inputs: WorkersAiBindingInputs | WrittenBody, options: WorkersAiRawRunOptions): Promise<Response>;
 };
 
 function createWorkersAiBindingFetch(
