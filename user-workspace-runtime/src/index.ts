@@ -53,9 +53,10 @@ import { verifyRuntimeCapability } from '../../app/lib/cloudflare/runtime-capabi
 import { userRuntimeDeploymentAction } from '../../app/server-handlers/deployments';
 import { userRuntimeEnhancePromptAction } from '../../app/server-handlers/enhance-prompt';
 import {
+  builderModelCatalogPayload,
   readWorkersAiBuilderModelCatalog,
-  workersAiModelCatalogPayload,
 } from '../../app/lib/.server/llm/workers-ai-model-catalog';
+import { readAccountModelSettings } from '../../app/lib/.server/cloudflare/user-workspace-cloudflare-credential';
 import {
   isCloudChefToolResult,
   toolFailure,
@@ -2954,9 +2955,15 @@ async function handleUserRequest(
     response = agentResponse;
   } else if (request.method === 'GET' && url.pathname === '/v1/models') {
     try {
-      const models = await readWorkersAiBuilderModelCatalog(env.AI);
-      response = Response.json(workersAiModelCatalogPayload(models), {
-        headers: { 'Cache-Control': 'private, max-age=300' },
+      // The account's own settings (its chosen default, and whether Claude has a key) never fail the
+      // catalog: unlearnable, they read as no chosen default and no Claude.
+      const [models, settings] = await Promise.all([
+        readWorkersAiBuilderModelCatalog(env.AI),
+        readAccountModelSettings(sharedEnv),
+      ]);
+      response = Response.json(builderModelCatalogPayload(models, settings), {
+        // Short, so a newly linked key or chosen default reaches open tabs soon.
+        headers: { 'Cache-Control': 'private, max-age=60' },
       });
     } catch (error) {
       console.warn('Workers AI model catalog could not be loaded', error);

@@ -44,3 +44,26 @@ export function workersAiGatewayOptions(logging: WorkersAiGatewayLogging): Worke
   }
   return options;
 }
+
+/**
+ * The same choice, as the `cf-aig-*` headers of a request sent to the gateway by provider (a Claude
+ * request) rather than through `env.AI.run`: logged only when the person allows it, filed under
+ * `metadata` then, and never cached.
+ */
+export function workersAiGatewayHeaders(logging: WorkersAiGatewayLogging): WorkersAiGatewayHeaders {
+  if (!logging.collectLog) {
+    return { 'cf-aig-collect-log': 'false', 'cf-aig-skip-cache': 'true' };
+  }
+  const headers: WorkersAiGatewayHeaders = { 'cf-aig-collect-log': 'true', 'cf-aig-skip-cache': 'true' };
+  if (logging.metadata) {
+    headers['cf-aig-metadata'] = JSON.stringify(logging.metadata);
+  }
+  return headers;
+}
+
+export type WorkersAiGatewayHeaders = {
+  'cf-aig-collect-log': 'true' | 'false';
+  'cf-aig-skip-cache': 'true';
+  /** The `WorkersAiGatewayMetadata` a logged request is filed under, as JSON. */
+  'cf-aig-metadata'?: string;
+};

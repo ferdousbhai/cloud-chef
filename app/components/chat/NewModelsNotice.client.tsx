@@ -1,13 +1,13 @@
 import { useStore } from '@nanostores/react';
 import { builderNewModelsStore, markBuilderModelsSeen } from '~/lib/stores/builder-model.client';
-import type { WorkersAiModel } from '~/lib/workers-ai-model';
+import type { BuilderModel } from '~/lib/workers-ai-model';
 
 /** Beyond this the line stops being a line, so the rest is counted instead of named. */
 const MAX_NAMED_MODELS = 2;
 
 /**
- * Cloudflare adds models to Workers AI on its own schedule, and the picker already refreshes every
- * session — so the only thing missing was being told. This says it once, quietly, next to the
+ * Cloudflare adds models to Workers AI on its own schedule, an admin may link Claude, and the
+ * picker refreshes every session — so the only thing missing was being told. This says it once, quietly, next to the
  * picker that acts on it, and disappears for good as soon as the list has been seen.
  */
 export function NewModelsNotice() {
@@ -24,7 +24,7 @@ export function NewModelsNotice() {
         {'//'}
       </span>
       <p className="min-w-0 grow">
-        <span className="font-semibold text-content-accent">New on Workers AI:</span> {describeNewModels(newModels)} —
+        <span className="font-semibold text-content-accent">New models:</span> {describeNewModels(newModels)} —
         available in the model picker.
       </p>
       <button
@@ -38,7 +38,7 @@ export function NewModelsNotice() {
   );
 }
 
-function describeNewModels(models: readonly WorkersAiModel[]): string {
+function describeNewModels(models: readonly BuilderModel[]): string {
   const named = models.slice(0, MAX_NAMED_MODELS).map(({ label }) => label);
   const remaining = models.length - named.length;
   return remaining > 0 ? `${named.join(', ')} and ${remaining} more` : named.join(' and ');

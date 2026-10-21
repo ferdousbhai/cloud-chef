@@ -4,7 +4,7 @@ import type { AssistantMessage, ToolResultMessage } from '@earendil-works/pi-ai'
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { PiStreamChunk } from './pi-stream';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
-import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type WorkersAiModelId } from '~/lib/workers-ai-model';
+import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type BuilderModelId } from '~/lib/workers-ai-model';
 
 type UIMessageChunk = PiStreamChunk;
 type RunnerEvent =
@@ -982,7 +982,7 @@ describe('piAgentRunner', () => {
 });
 
 function createAgentStream(
-  modelId: WorkersAiModelId = CLOUDFLARE_WORKERS_AI_MODEL,
+  modelId: BuilderModelId = CLOUDFLARE_WORKERS_AI_MODEL,
   compactionOverrides: Partial<Parameters<typeof piAgentRunner>[0]['compaction']> = {},
   steering = new PiSteeringQueue(),
   overrides: Partial<Parameters<typeof piAgentRunner>[0]> = {},

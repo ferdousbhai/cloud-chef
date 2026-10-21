@@ -1,15 +1,18 @@
 import { z } from 'zod';
 import {
   CLOUDFLARE_WORKERS_AI_MODEL,
-  CLOUDFLARE_ALTERNATIVE_BUILDER_MODEL,
   DEFAULT_WORKERS_AI_MODEL,
+  isClaudeModelId,
   isWorkersAiModelId,
   MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS,
-  isSupportedBuilderModel,
-  type WorkersAiModel,
-  type WorkersAiModelCatalogPayload,
+  NO_ACCOUNT_MODEL_SETTINGS,
+  type AccountModelSettings,
+  type BuilderModel,
+  type BuilderModelCatalogPayload,
+  type BuilderModelId,
   type WorkersAiModelId,
 } from '~/lib/workers-ai-model';
+import { claudeBuilderModels, piWorkersAiModel } from './pi-model-catalog';
 
 const MAX_CATALOG_MODELS = 100;
 
@@ -22,8 +25,12 @@ export class WorkersAiModelCatalogUnavailableError extends Error {
   }
 }
 
-/** Read the current account-visible catalog through its AI binding, never control-plane credentials. */
-export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalogBinding): Promise<WorkersAiModel[]> {
+/**
+ * Read the current account-visible catalog through its AI binding, never control-plane credentials,
+ * keeping the models that can drive the builder: native, function calling, a large enough window,
+ * and listed by Pi, since a model Pi does not list would be spoken to with a guessed request shape.
+ */
+export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalogBinding): Promise<BuilderModel[]> {
   let catalog: AiModelsSearchObject[];
   try {
     catalog = await binding.models({
@@ -36,7 +43,7 @@ export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalog
     throw new WorkersAiModelCatalogUnavailableError(error);
   }
 
-  const models = new Map<WorkersAiModelId, WorkersAiModel>();
+  const models = new Map<WorkersAiModelId, BuilderModel>();
   for (const entry of catalog) {
     const properties = new Map(entry.properties.map(({ property_id, value }) => [property_id, value]));
     const contextTokens = numericProperty(properties.get('context_window'));
@@ -44,13 +51,13 @@ export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalog
       entry.source !== 1 ||
       entry.task.name !== 'Text Generation' ||
       !isWorkersAiModelId(entry.name) ||
-      !isSupportedBuilderModel(entry.name) ||
+      piWorkersAiModel(entry.name) === undefined ||
       properties.get('function_calling') !== 'true' ||
       contextTokens < MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS
     ) {
       continue;
     }
-    const model: WorkersAiModel = {
+    const model: BuilderModel = {
       id: entry.name,
       label: workersAiModelLabel(entry.name),
       description: boundedDescription(entry.description),
@@ -68,11 +75,38 @@ export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalog
   return [...models.values()];
 }
 
+const CLAUDE_NOT_LINKED_MESSAGE =
+  'Claude is not set up for this account. An admin can link an Anthropic key in Settings, under Models.';
+
+/**
+ * The model a builder turn runs on, confirmed against what the account can serve now: a Workers AI
+ * model against the account's live catalog; a Claude model against Pi's catalog and the account's
+ * linked Anthropic key, which is asked about only for a Claude turn.
+ */
+export async function requireBuilderModel(
+  binding: WorkersAiCatalogBinding,
+  modelId: BuilderModelId,
+  claudeLinked: () => Promise<boolean>,
+): Promise<BuilderModel> {
+  if (!isClaudeModelId(modelId)) {
+    return requireWorkersAiBuilderModel(binding, modelId);
+  }
+  const model = claudeBuilderModels().find(({ id }) => id === modelId);
+  if (!model) {
+    throw new Response('The selected Claude model is not compatible with the CloudChef builder.', { status: 400 });
+  }
+  // Fail closed: a Claude request is sent only while the account's gateway holds its own key.
+  if (!(await claudeLinked().catch(() => false))) {
+    throw new Response(CLAUDE_NOT_LINKED_MESSAGE, { status: 409 });
+  }
+  return model;
+}
+
 export async function requireWorkersAiBuilderModel(
   binding: WorkersAiCatalogBinding,
-  modelId: WorkersAiModelId,
-): Promise<WorkersAiModel> {
-  let models: WorkersAiModel[];
+  modelId: BuilderModelId,
+): Promise<BuilderModel> {
+  let models: BuilderModel[];
   try {
     models = await readWorkersAiBuilderModelCatalog(binding);
   } catch (error) {
@@ -99,31 +133,44 @@ export async function requireWorkersAiBuilderModel(
   });
 }
 
-/** Never promote an unrelated model when the preferred default disappears. */
-export function resolveBuilderDefaultModel(models: readonly WorkersAiModel[]): WorkersAiModel {
+/**
+ * The pinned model while the account serves it. Once it is retired, the first model the account
+ * offers takes its place; only an account offering none keeps the reviewed literal.
+ */
+export function resolveBuilderDefaultModel(models: readonly BuilderModel[]): BuilderModel {
   const pinned = models.find(({ id }) => id === CLOUDFLARE_WORKERS_AI_MODEL);
   if (pinned) {
     return pinned;
   }
-  const alternative = models.find(({ id }) => id === CLOUDFLARE_ALTERNATIVE_BUILDER_MODEL);
-  const chosen = alternative ?? DEFAULT_WORKERS_AI_MODEL;
+  const offered = models.at(0);
+  const chosen = offered ?? DEFAULT_WORKERS_AI_MODEL;
   console.warn({
     event: 'workers_ai_default_model_retired',
     pinned: CLOUDFLARE_WORKERS_AI_MODEL,
     replacement: chosen.id,
-    rule: alternative ? 'selected_alternative' : 'reviewed_literal',
+    rule: offered ? 'first_offered' : 'reviewed_literal',
   });
   return chosen;
 }
 
-export function workersAiModelCatalogPayload(models: WorkersAiModel[]): WorkersAiModelCatalogPayload {
+/**
+ * The picker's catalog: the account's Workers AI models, and Pi's Claude models while the account's
+ * gateway holds an Anthropic key. The default is the one the account's admin chose while it is
+ * still offered, and otherwise the pinned model.
+ */
+export function builderModelCatalogPayload(
+  workersAiModels: BuilderModel[],
+  settings: AccountModelSettings = NO_ACCOUNT_MODEL_SETTINGS,
+): BuilderModelCatalogPayload {
+  const offered = [...workersAiModels, ...(settings.claude ? claudeBuilderModels() : [])];
   // The default's label, window, and capabilities are Cloudflare's current truth about it, not a
   // hand-written copy that drifts. It stays first so the picker's top row does not move whenever
   // Cloudflare publishes something newer.
-  const defaultModel = resolveBuilderDefaultModel(models);
+  const defaultModel =
+    offered.find(({ id }) => id === settings.defaultModelId) ?? resolveBuilderDefaultModel(workersAiModels);
   return {
     defaultModelId: defaultModel.id,
-    models: [defaultModel, ...models.filter(({ id }) => isSupportedBuilderModel(id) && id !== defaultModel.id)],
+    models: [defaultModel, ...offered.filter(({ id }) => id !== defaultModel.id)],
   };
 }
 

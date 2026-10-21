@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CLOUDFLARE_WORKERS_AI_MODEL,
   DEFAULT_WORKERS_AI_MODEL,
-  type WorkersAiModel,
-  type WorkersAiModelCatalogPayload,
+  type BuilderModel,
+  type BuilderModelCatalogPayload,
 } from '~/lib/workers-ai-model';
 
 import {
@@ -18,14 +18,14 @@ import {
 } from '~/lib/stores/builder-model.client';
 import { BuilderModelSelector } from './BuilderModelSelector.client';
 
-const alternativeModel: WorkersAiModel = {
+const alternativeModel: BuilderModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
   id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
   label: 'DeepSeek V4.1 Flash 1017',
   description: 'Cloudflare-hosted open-weight reasoning model.',
   vision: false,
 };
-const catalog: WorkersAiModelCatalogPayload = {
+const catalog: BuilderModelCatalogPayload = {
   defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
   models: [DEFAULT_WORKERS_AI_MODEL, alternativeModel],
 };
@@ -102,6 +102,33 @@ describe('BuilderModelSelector', () => {
       CLOUDFLARE_WORKERS_AI_MODEL,
       alternativeModel.id,
     ]);
+  });
+
+  it('lists Claude apart from Workers AI when the account offers it, and switches to it', async () => {
+    const claude: BuilderModel = { ...alternativeModel, id: 'claude-opus-5-5', label: 'Claude Opus 5.5' };
+    await renderSelector(() => installBuilderModelCatalog({ ...catalog, models: [...catalog.models, claude] }));
+
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
+    await act(async () => {
+      trigger?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    });
+    // The innermost groups: the radio group holding them is a group too.
+    const groups = [...document.querySelectorAll('[role="group"]')]
+      .filter((group) => group.querySelector('[role="group"]') === null)
+      .map((group) => group.textContent ?? '');
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toContain('Cloudflare Workers AI');
+    expect(groups[0]).not.toContain('Claude Opus 5.5');
+    expect(groups[1]).toContain('Anthropic Claude');
+    expect(groups[1]).toContain('Claude Opus 5.5');
+
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((element) =>
+      element.textContent?.includes('Claude Opus 5.5'),
+    );
+    await act(async () => item?.click());
+
+    expect(builderModelStore.get()).toBe('claude-opus-5-5');
+    expect(localStorage.getItem('cloudchef_builder_model_v2')).toBe('claude-opus-5-5');
   });
 
   it('closes the menu and prevents changes when a turn becomes active', async () => {

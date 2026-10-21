@@ -1,5 +1,5 @@
 {
-  "total": 1174,
+  "total": 1169,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -535,7 +535,7 @@
       "anti-slop/no-shape-in-symbol-names": 2
     },
     "scripts/ops-report.mjs": {
-      "anti-slop/no-runtime-typeof": 14
+      "anti-slop/no-runtime-typeof": 9
     },
     "scripts/provision-cloudflare-production.mjs": {
       "anti-slop/no-runtime-typeof": 2

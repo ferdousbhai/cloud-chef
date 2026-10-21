@@ -3,12 +3,12 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type WorkersAiModel } from '~/lib/workers-ai-model';
+import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type BuilderModel } from '~/lib/workers-ai-model';
 import { builderNewModelsStore, installBuilderModelCatalog } from '~/lib/stores/builder-model.client';
 import { NewModelsNotice } from './NewModelsNotice.client';
 
 const SEEN_KEY = 'cloudchef_seen_builder_models_v1';
-const deepseek: WorkersAiModel = {
+const deepseek: BuilderModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
   id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
   label: 'DeepSeek V4.1 Flash 1017',
@@ -48,7 +48,7 @@ describe('NewModelsNotice', () => {
     await render();
 
     const notice = document.querySelector('[role="status"]');
-    expect(notice?.textContent).toContain('New on Workers AI');
+    expect(notice?.textContent).toContain('New models');
     expect(notice?.textContent).toContain('DeepSeek V4.1 Flash 1017');
     expect(notice?.textContent).toContain('available in the model picker');
 
