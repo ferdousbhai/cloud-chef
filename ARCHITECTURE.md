@@ -346,7 +346,12 @@ implementation.
 
 Tool-call arguments stream to the browser as the model produces them. `exec` additionally streams bounded transient
 stdout/stderr updates while retaining only a bounded final tail for the model; completion still waits for the Container's
-filesystem pull to become durable. The Pi loop enforces a total turn limit, a model-stream inactivity limit, and a first-progress
+filesystem pull to become durable. The workspace's limits (files, total bytes, bytes per file) bound what reads the
+project whole (state, sync, checkpoints, validation, saves), but a command writes straight to the container, so one can
+leave the project over them: its result then tells the model what is over and how to get back within them, and the
+workspace's state, deletions, and the container check before the cleanup command read metadata or stream instead, so
+such a workspace can always be recovered (`user-workspace-runtime/src/workspace-inventory.ts`). Installed and built
+output (`node_modules`, `.venv`, build directories) is left out of the project's record and does not count. The Pi loop enforces a total turn limit, a model-stream inactivity limit, and a first-progress
 deadline against a hung provider stream; there is no model-step ceiling. Each tool has a deadline against a hung
 operation, and a tool stopped by it is an ordinary failed result the model acts on, not the end of the turn. A tool that
 completes as its deadline passes reports what it did; one that has not settled a minute after being stopped ends its

@@ -32,7 +32,11 @@ import type {
   BuilderWorkspaceSyncPage,
 } from '~/agents/builder-workspace-types';
 import { isRetryableDurableObjectError } from '~/lib/cloudflare/durable-object-rpc.server';
+import { z } from 'zod';
 type ProjectWorkspaceStub = DurableObjectStub<ProjectWorkspaceRpc>;
+
+/** Sent after a command's result when it left the project over its limits. */
+const workspaceLimitsEventSchema = z.object({ type: z.literal('workspace-limits'), message: z.string() });
 
 /** Carries the POSIX `ENOENT` code the Computer filesystem contract expects for a missing path. */
 class WorkspaceFileNotFoundError extends Error {
@@ -303,7 +307,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       onUpdate?: (partialResult: WorkspaceCommandProgress) => void;
       abortSignal?: AbortSignal;
     },
-  ): Promise<WorkspaceCommandResult & { streamTruncated?: boolean }> {
+  ): Promise<WorkspaceCommandResult & { streamTruncated?: boolean; workspaceLimits?: string }> {
     args.abortSignal?.throwIfAborted();
     const operationKey = this.#activeTool ? `tool:${this.#activeTool.toolCallId}` : undefined;
     let cancellation: Promise<void> | undefined;
@@ -341,7 +345,9 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     let buffer = '';
     let stdout = '';
     let stderr = '';
-    let finalResult: { exitCode: number; stdout: string; stderr: string; streamTruncated?: boolean } | undefined;
+    let finalResult:
+      | { exitCode: number; stdout: string; stderr: string; streamTruncated?: boolean; workspaceLimits?: string }
+      | undefined;
     let updateTimer: ReturnType<typeof setTimeout> | undefined;
     let lastUpdateAt = 0;
     const emitUpdate = () => {
@@ -403,6 +409,11 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
               };
               if (event.streamTruncated) {
                 finalResult.streamTruncated = true;
+              }
+            } else if (finalResult) {
+              const limits = workspaceLimitsEventSchema.safeParse(event);
+              if (limits.success) {
+                finalResult.workspaceLimits = limits.data.message;
               }
             }
           }

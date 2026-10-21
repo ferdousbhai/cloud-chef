@@ -351,6 +351,29 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     await expect(execution).resolves.toEqual(result);
   });
 
+  it("carries the workspace's report that a command left the project over its limits into its result", async () => {
+    const result = { exitCode: 0, stdout: 'installed', stderr: '' };
+    const message = 'After this command the project workspace is over its limits: 12,000 files (the limit is 10,000).';
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(streamController) {
+        streamController.enqueue(
+          encoder.encode(
+            `${JSON.stringify({ type: 'result', streamTruncated: false, result })}\n` +
+              `${JSON.stringify({ type: 'workspace-limits', message })}\n`,
+          ),
+        );
+        streamController.close();
+      },
+    });
+    const { client } = harness((operation) => (operation === 'executeStream' ? stream : undefined));
+
+    await expect(client.executeCommand({ command: 'pip install -r requirements.txt' })).resolves.toEqual({
+      ...result,
+      workspaceLimits: message,
+    });
+  });
+
   it('terminalizes a committed mutation whose display acknowledgement was interrupted', async () => {
     const pending = {
       kind: 'workspace-mutation-receipt',

@@ -334,7 +334,7 @@ export interface BuilderWorkspaceApi {
       onUpdate?: (partialResult: WorkspaceCommandProgress) => void;
       abortSignal?: AbortSignal;
     },
-  ): Promise<WorkspaceCommandResult & { streamTruncated?: boolean }>;
+  ): Promise<WorkspaceCommandResult & { streamTruncated?: boolean; workspaceLimits?: string }>;
   executeToolOnce<T>(
     toolCallId: string,
     toolName: string,

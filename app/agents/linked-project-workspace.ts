@@ -12,7 +12,7 @@ import {
 } from './builder-workspace-types';
 
 /** What the workspace keeps out of its own record (user-workspace-runtime/src/index.ts), skipped here too. */
-const EXCLUDED_ROOTS = new Set(['node_modules', 'dist', '.output', '.tanstack', '.wrangler', '.cloudflare']);
+const EXCLUDED_ROOTS = new Set(['node_modules', 'dist', '.output', '.tanstack', '.wrangler', '.cloudflare', '.venv']);
 
 /** One file change for GitHub: new or changed content, or `null` to delete it. */
 type LinkedChange = { path: string; contentBase64: string | null; executable: boolean };
