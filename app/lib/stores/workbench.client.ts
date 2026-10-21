@@ -34,6 +34,7 @@ export class WorkbenchStore {
   #workspaceGeneration = 0;
   #editVersions = new Map<AbsolutePath, number>();
   #pendingSaveCounts = new Map<AbsolutePath, number>();
+  #savesInFlight = atom(false);
   showWorkbench: WritableAtom<boolean> = import.meta.hot?.data.showWorkbench ?? atom(false);
   currentView = workbenchCurrentView;
   unsavedFiles: WritableAtom<Set<AbsolutePath>> = import.meta.hot?.data.unsavedFiles ?? atom(new Set<AbsolutePath>());
@@ -115,6 +116,7 @@ export class WorkbenchStore {
     // Its own unregister closure tears it down when the editor unmounts.
     this.#editVersions.clear();
     this.#pendingSaveCounts.clear();
+    this.#savesInFlight.set(false);
     this.#filesStore.setWorkspaceChangeListener(null);
     this.unsavedFiles.set(new Set());
     this.#filesStore.replaceWorkspaceSnapshot([]);
@@ -196,6 +198,11 @@ export class WorkbenchStore {
     return this.#editorStore.selectedFile;
   }
 
+  /** Whether a save is being written to the workspace now, as opposed to edits merely waiting for one. */
+  get savesInFlight(): ReadableAtom<boolean> {
+    return this.#savesInFlight;
+  }
+
   setDocuments(files: FileMap): void {
     this.flushPendingEditorChange();
     this.#editorStore.setDocuments(files, this.unsavedFiles.get());
@@ -265,6 +272,7 @@ export class WorkbenchStore {
         this.#editorStore.documents.get()[absolutePath]?.value === content;
       const workspaceGeneration = this.#workspaceGeneration;
       this.#pendingSaveCounts.set(absolutePath, (this.#pendingSaveCounts.get(absolutePath) ?? 0) + 1);
+      this.#savesInFlight.set(true);
       let savedCurrentEdit: boolean;
       try {
         savedCurrentEdit = await this.#filesStore.saveFile(absolutePath, content, () => {
@@ -279,6 +287,7 @@ export class WorkbenchStore {
           } else {
             this.#pendingSaveCounts.set(absolutePath, remainingSaves);
           }
+          this.#savesInFlight.set(this.#pendingSaveCounts.size > 0);
         }
       }
       this.flushPendingEditorChange();

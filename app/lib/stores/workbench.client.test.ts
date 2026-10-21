@@ -155,6 +155,32 @@ describe('WorkbenchStore editor flush boundaries', () => {
     expect(store.unsavedFiles.get()).not.toContain(fileA);
   });
 
+  it('reports a save in flight only while one is being written', async () => {
+    const store = createStore();
+    let finishSave!: (result: BuilderWorkspaceApplyResult) => void;
+    store.setWorkspaceChangeListener(
+      () =>
+        new Promise<BuilderWorkspaceApplyResult>((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    store.setDocumentContent(fileA, 'local edit');
+
+    expect(store.unsavedFiles.get()).toContain(fileA);
+    expect(store.savesInFlight.get()).toBe(false);
+    const save = store.saveCurrentDocument();
+    expect(store.savesInFlight.get()).toBe(true);
+    finishSave({
+      ok: true,
+      changedPaths: [fileA],
+      state: { initialized: true, revision: 2, resetRevision: 0, fileCount: 2, totalBytes: 4, seeding: false },
+    });
+    await save;
+
+    expect(store.unsavedFiles.get()).not.toContain(fileA);
+    expect(store.savesInFlight.get()).toBe(false);
+  });
+
   it('does not apply a save completion to a newly activated workspace', async () => {
     const store = createStore();
     let finishSave!: (result: {

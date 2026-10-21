@@ -12,7 +12,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useEffect, useState } from 'react';
 import { subchatIndexStore } from '~/lib/stores/subchats';
 import { Spinner } from '@ui/Spinner';
-import { useAreFilesSaving } from '~/lib/stores/fileUpdateCounter';
+import { useFileSaveStatus } from '~/lib/stores/fileUpdateCounter';
 import { SubchatDialogs } from './SubchatDialogs';
 import { createSubchatOptions, getSubchatLabel, getSubchatNavigation, type SubchatSummary } from './subchat-model';
 
@@ -50,7 +50,7 @@ export function SubchatBar({
   const [pendingRenames, setPendingRenames] = useState<ReadonlyMap<string, symbol>>(() => new Map());
   const activeRenameToken = pendingRenames.get(interactionContext);
   const isRenaming = activeRenameToken !== undefined;
-  const areFilesSaving = useAreFilesSaving();
+  const fileSaveStatus = useFileSaveStatus();
 
   useEffect(() => {
     setCreateDialog(null);
@@ -70,9 +70,11 @@ export function SubchatBar({
       ? 'Wait for the current response to finish'
       : !isSubchatLoaded
         ? 'Loading...'
-        : areFilesSaving
+        : fileSaveStatus === 'saving'
           ? 'Saving...'
-          : undefined;
+          : fileSaveStatus === 'unsaved'
+            ? 'Save your changes first'
+            : undefined;
   const interactionsDisabled = busyTip !== undefined;
 
   const handleNavigateToSubchat = (index: number) => {
