@@ -49,6 +49,13 @@ describe('Cloudflare authorization retention', () => {
     const insertGitHubState = database.prepare('INSERT INTO github_install_states (id, expires_at) VALUES (?, ?)');
     insertGitHubState.run('github-expired', now - 1);
     insertGitHubState.run('github-live', now + 1);
+    const insertInvite = database.prepare(
+      'INSERT INTO organization_invites (id, expires_at, accepted_at) VALUES (?, ?, ?)',
+    );
+    insertInvite.run('invite-expired', now - 1, null);
+    insertInvite.run('invite-accepted-expired', now - 1, now - 2);
+    insertInvite.run('invite-accepted-live', now + 1, now - 2);
+    insertInvite.run('invite-live', now + 1, null);
 
     await expect(pruneCloudflareAuthData({ db, now, limit: 2, rounds: 1 })).resolves.toBeUndefined();
     expect(values(database, 'cloudflare_oauth_states', 'id')).toEqual(['state-3', 'state-live']);
@@ -56,6 +63,7 @@ describe('Cloudflare authorization retention', () => {
     expect(values(database, 'email_sign_in_tokens', 'token_hash')).toEqual(['link-3', 'link-live']);
     expect(values(database, 'google_sign_in_states', 'id')).toEqual(['google-live']);
     expect(values(database, 'github_install_states', 'id')).toEqual(['github-live']);
+    expect(values(database, 'organization_invites', 'id')).toEqual(['invite-accepted-live', 'invite-live']);
     expect(values(database, 'cloudflare_credentials', 'handle')).toEqual([
       'credential-3',
       'credential-fresh',
@@ -168,6 +176,11 @@ function retentionDatabase(): { database: DatabaseSyncInstance; db: D1Database }
     CREATE TABLE github_approval_states (
       id TEXT PRIMARY KEY,
       expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE organization_invites (
+      id TEXT PRIMARY KEY,
+      expires_at INTEGER NOT NULL,
+      accepted_at INTEGER
     );
     CREATE TABLE organization_quota_events (
       kind TEXT NOT NULL,

@@ -89,6 +89,13 @@ function pruneBatch(db: D1Database, now: number, limit: number): Promise<D1Resul
       .bind(now, limit),
     db
       .prepare(
+        // Accepted or not, an invite is read only until it expires; the limits count organization_quota_events.
+        `DELETE FROM organization_invites
+         WHERE id IN (SELECT id FROM organization_invites WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`,
+      )
+      .bind(now, limit),
+    db
+      .prepare(
         // Kept as long as the longest limit they count toward.
         `DELETE FROM organization_quota_events
          WHERE rowid IN (
