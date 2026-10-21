@@ -21,6 +21,8 @@ const gitHubRepositorySchema = z.looseObject({
   full_name: z.string(),
   default_branch: z.string(),
   private: z.boolean(),
+  /** When GitHub created it (ISO 8601); every repository response names it. */
+  created_at: z.string().optional(),
 });
 const repositoriesPageSchema = z.looseObject({
   total_count: z.number().int(),

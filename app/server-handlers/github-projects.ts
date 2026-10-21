@@ -561,14 +561,17 @@ export function listMyProjectsAction({ request, env }: { request: Request; env: 
   });
 }
 
+/** How recently an empty repository was created for it to be one whose first commit hasn't appeared yet. */
+const NEW_REPOSITORY_MS = 10 * 60_000;
+
 /**
  * Whether a repository is still as GitHub created it for an approval: one commit, holding only a README.
- * Null while it is still empty (GitHub answers 409 for an empty repository's commits): its first commit
- * hasn't appeared yet.
+ * Null while it is still empty (GitHub answers 409 for an empty repository's commits) and was created
+ * in the last few minutes: its first commit hasn't appeared yet. An older empty one was made otherwise.
  */
 async function isUntouchedNewRepository(
   client: RepositoryClient,
-  repository: { default_branch: string },
+  repository: { default_branch: string; created_at?: string },
 ): Promise<boolean | null> {
   try {
     if ((await client.commitCount(repository.default_branch)) !== 1) {
@@ -578,7 +581,8 @@ async function isUntouchedNewRepository(
     return paths.length === 1 && paths[0] === 'README.md';
   } catch (error) {
     if (error instanceof GitHubError && error.status === 409) {
-      return null;
+      const createdAt = Date.parse(repository.created_at ?? '');
+      return Date.now() - createdAt < NEW_REPOSITORY_MS ? null : false;
     }
     throw error;
   }

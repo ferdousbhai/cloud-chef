@@ -45,9 +45,12 @@ type DuringApproval = { commit?: () => Promise<void> };
 /**
  * How GitHub differs from the usual: the App can't reach the new repository, or `ada/new-app` exists
  * already, with `commits` commits (none: still empty, which GitHub answers with a 409) and `paths` at the
- * top of its tree.
+ * top of its tree, created `createdAt` (just now unless named).
  */
-type GitHubOptions = { appCannotReach?: boolean; nameTaken?: { commits: number; paths: string[] } };
+type GitHubOptions = {
+  appCannotReach?: boolean;
+  nameTaken?: { commits: number; paths: string[]; createdAt?: string };
+};
 
 /** GitHub as the approval sees it: the admin `ada`, a new repository, and what CloudChef wrote to it. */
 async function fakeGitHub(options: GitHubOptions = {}) {
@@ -81,7 +84,13 @@ async function fakeGitHub(options: GitHubOptions = {}) {
       return Response.json({ message: 'name already exists on this account' }, { status: 422 });
     }
     if (url.pathname === '/repos/ada/new-app' && options.nameTaken) {
-      return Response.json({ id: 77, full_name: 'ada/new-app', default_branch: 'main', private: true });
+      return Response.json({
+        id: 77,
+        full_name: 'ada/new-app',
+        default_branch: 'main',
+        private: true,
+        created_at: options.nameTaken.createdAt ?? new Date().toISOString(),
+      });
     }
     if (url.pathname === '/repos/ada/new-app/commits' && options.nameTaken?.commits === 0) {
       return Response.json({ message: 'Git Repository is empty.' }, { status: 409 });
@@ -459,8 +468,20 @@ describe('production requests', () => {
     },
   );
 
-  it('says to approve again in a minute when the repository of that name is still empty', async () => {
-    const { database, env, admin, app, calls } = await setup({ nameTaken: { commits: 0, paths: [] } });
+  it.each([
+    {
+      made: 'moments ago, by an approval, says to approve again in a minute',
+      createdAt: undefined,
+      message: 'GitHub created the repository but not its first branch yet. Approve again in a minute.',
+    },
+    // Made empty by hand, not by an approval moments ago: it will never gain GitHub's first commit.
+    {
+      made: 'an hour ago says the name is taken',
+      createdAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+      message: 'A repository with that name already exists. Approve again with another name.',
+    },
+  ])('an empty repository of that name made $made', async ({ createdAt, message }) => {
+    const { database, env, admin, app, calls } = await setup({ nameTaken: { commits: 0, paths: [], createdAt } });
     const started = await approveProductionRequestAction({
       request: post(admin.cookie, '/api/organizations/production-requests/approve', {
         orgId: ORG,
@@ -480,9 +501,7 @@ describe('production requests', () => {
       env,
       app,
     });
-    expect(returnedMessage(returned)).toBe(
-      'GitHub created the repository but not its first branch yet. Approve again in a minute.',
-    );
+    expect(returnedMessage(returned)).toBe(message);
     expect(calls.filter((call) => call.path.startsWith('/user/installations/'))).toEqual([]);
     expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'pending' });
   });
