@@ -54,7 +54,11 @@ const VERSIONED_WORKERS_PREVIEW_HOSTNAME = new RegExp(
   `^[0-9a-f]{8}-${WORKER_LABEL}\\.${ACCOUNT_LABEL}\\.workers\\.dev$`,
 );
 
-function isVersionedWorkersPreviewRequest(request: Request): boolean {
+/**
+ * Whether the request reached the app at a host cloudchef.build frames: its preview Worker's (whose
+ * name starts with eight hex digits) or a Workers version preview URL. Production's never does.
+ */
+export function isVersionedWorkersPreviewRequest(request: Request): boolean {
   return VERSIONED_WORKERS_PREVIEW_HOSTNAME.test(new URL(request.url).hostname);
 }
 
