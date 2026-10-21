@@ -453,6 +453,35 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     },
   );
 
+  it.each(['write', 'edit', 'exec'] as const)(
+    'reports a %s call that finished as its stop arrived as finished, settling its journal row',
+    async (toolName) => {
+      const controller = new AbortController();
+      const landed = { path: '/project/a.ts', bytesWritten: 5 };
+      const { client, stub } = harness((operation) =>
+        operation === 'beginToolOperation' ? { status: 'execute' } : { status: 'settled' },
+      );
+
+      await expect(
+        client.executeToolOnce(
+          `call-${toolName}-landed`,
+          toolName,
+          { path: '/project/a.ts' },
+          async () => {
+            controller.abort(new DOMException(`${toolName} timed out`, 'TimeoutError'));
+            return landed;
+          },
+          controller.signal,
+        ),
+      ).resolves.toBe(landed);
+      expect(stub.cancelToolOperation).toHaveBeenCalledWith({
+        toolCallId: `call-${toolName}-landed`,
+        error: 'The workspace tool operation was cancelled after its execution settled.',
+      });
+      expect(stub.completeToolOperation).not.toHaveBeenCalled();
+    },
+  );
+
   it('does not treat an actively executing journal row as safely indeterminate', async () => {
     vi.useFakeTimers();
     try {

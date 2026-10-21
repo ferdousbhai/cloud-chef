@@ -751,10 +751,16 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     try {
       abortSignal?.throwIfAborted();
       const result = await execute();
-      abortSignal?.throwIfAborted();
       const syncError = computerSyncUnconfirmedError(result);
       if (syncError) {
         throw syncError;
+      }
+      if (abortSignal?.aborted) {
+        // The tool finished before it saw its stop (a write's receipt is already committed, a command
+        // has exited), so its result is the outcome; the stop only settles the journal row behind it.
+        cancel();
+        await cancellation;
+        return result;
       }
       try {
         abortSignal?.throwIfAborted();

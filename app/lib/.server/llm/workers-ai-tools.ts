@@ -205,8 +205,9 @@ function abortAwareWriteTool(workspace: BuilderWorkspaceApi): Tool {
         }
       }
       options.abortSignal?.throwIfAborted();
+      // Once the write lands it is the outcome, even if a stop arrived while it did: reporting it as
+      // stopped would tell the model a change on disk was never made.
       await workspace.computer.fs.writeFile(parsed.path, bytes, mode === undefined ? undefined : { mode });
-      options.abortSignal?.throwIfAborted();
       return { path: parsed.path, bytesWritten: bytes.byteLength };
     },
   };
@@ -273,7 +274,7 @@ function streamingExecTool(workspace: BuilderWorkspaceApi): Tool {
         onUpdate: options.onUpdate,
         abortSignal: options.abortSignal,
       });
-      options.abortSignal?.throwIfAborted();
+      // A stop mid-run rejects the command above; a result here is a command that ran to completion.
       const report: ExecToolReport = {
         command: parsed.command,
         cwd: parsed.cwd ?? null,
@@ -325,9 +326,7 @@ function lineAnchoredEditTool(workspace: BuilderWorkspaceApi): Tool {
       }
       options.abortSignal?.throwIfAborted();
       await workspace.computer.fs.writeFile(parsed.path, bytes);
-      options.abortSignal?.throwIfAborted();
-      const after = await workspace.readText(parsed.path, options.abortSignal);
-      options.abortSignal?.throwIfAborted();
+      const after = await editedFile(workspace, parsed.path, applied.content, options.abortSignal);
       const result: LineEditToolResult = {
         path: after.path,
         base: lineEditBaseTag(after.sha256),
@@ -343,6 +342,29 @@ function lineAnchoredEditTool(workspace: BuilderWorkspaceApi): Tool {
       return result;
     },
   };
+}
+
+/**
+ * The file an edit left, read back so the next base tag is the workspace's own. Once the write has
+ * landed a stop must not turn the edit into a failure, so a stopped edit is described from the
+ * content it wrote instead of the read.
+ */
+async function editedFile(
+  workspace: BuilderWorkspaceApi,
+  path: string,
+  content: string,
+  abortSignal: AbortSignal | undefined,
+): Promise<{ path: string; content: string; sha256: string }> {
+  if (!abortSignal?.aborted) {
+    try {
+      return await workspace.readText(path, abortSignal);
+    } catch (error) {
+      if (!abortSignal?.aborted) {
+        throw error;
+      }
+    }
+  }
+  return { path, content, sha256: await sha256Hex(content) };
 }
 
 type LineEditToolResult = {
@@ -410,7 +432,6 @@ function computerWorkspaceTool(
               installRequest.abortSignal = options.abortSignal;
             }
             result = await workspace.installDependencies(installRequest);
-            options.abortSignal?.throwIfAborted();
           } else {
             // A VFS read has nothing to journal: it commits no revision, so there is no
             // at-most-once outcome for a retry to adopt and no lane for it to wait behind.
@@ -422,14 +443,12 @@ function computerWorkspaceTool(
                   input,
                   async () => {
                     options.abortSignal?.throwIfAborted();
-                    const executionResult = await definition.execute!(input, options);
-                    options.abortSignal?.throwIfAborted();
-                    return executionResult;
+                    return definition.execute!(input, options);
                   },
                   options.abortSignal,
                 );
           }
-          options.abortSignal?.throwIfAborted();
+          // A tool that returned finished its work: a stop that arrived meanwhile does not undo it.
         } catch (error) {
           if (isWorkspaceToolOperationIndeterminateError(error)) {
             throw error;
