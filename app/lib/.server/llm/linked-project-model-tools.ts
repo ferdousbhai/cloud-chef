@@ -11,7 +11,7 @@ export type LinkedProjectModelToolContext = {
   repository: string;
   defaultBranch: string;
   /**
-   * Commits the workspace to the member's branch; `live` also merges it into the default branch.
+   * Commits the workspace to the conversation's own branch; `live` also merges it into the default branch.
    * It returns once the commit is on GitHub; the pipeline's result replaces the output when it reports.
    */
   publish(

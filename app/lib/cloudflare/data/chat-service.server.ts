@@ -246,6 +246,30 @@ export async function removeChat(db: D1Database, args: { sessionId: string; id: 
          WHERE initial_id = ? AND creator_id = ? AND is_deleted = 0`,
       )
       .bind(args.id, args.sessionId),
+    // Removing a GitHub project's current conversation hands the project back to the one it continued,
+    // the latest earlier one, rather than leaving that one read-only with nothing current to work in.
+    // After the removal above, in the same transaction, so the project never has two current ones.
+    db
+      .prepare(
+        `UPDATE chats
+         SET archived_at = NULL
+         WHERE id = (
+           SELECT previous.id FROM chats AS previous
+           WHERE previous.creator_id = ?1 AND previous.is_deleted = 0 AND previous.archived_at IS NOT NULL
+             AND previous.org_project_id = (
+               SELECT removed.org_project_id FROM chats AS removed
+               WHERE removed.creator_id = ?1 AND removed.initial_id = ?2 AND removed.is_deleted = 1
+               ORDER BY removed.timestamp DESC LIMIT 1
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM chats AS current
+               WHERE current.creator_id = ?1 AND current.org_project_id = previous.org_project_id
+                 AND current.is_deleted = 0 AND current.archived_at IS NULL
+             )
+           ORDER BY previous.archived_at DESC LIMIT 1
+         )`,
+      )
+      .bind(args.sessionId, args.id),
   ]);
   return { kind: 'success' } as const;
 }

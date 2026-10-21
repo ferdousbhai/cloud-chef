@@ -420,6 +420,19 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
          updated_at INTEGER NOT NULL
        )`,
     );
+    const linkedProjectColumns = new Set(
+      [...this.ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(cloudchef_linked_project)')].map(
+        (column) => column.name,
+      ),
+    );
+    if (!linkedProjectColumns.has('branch_key')) {
+      this.ctx.storage.sql.exec('ALTER TABLE cloudchef_linked_project ADD COLUMN branch_key TEXT');
+    }
+    if (!linkedProjectColumns.has('workspace_modes')) {
+      this.ctx.storage.sql.exec(
+        'ALTER TABLE cloudchef_linked_project ADD COLUMN workspace_modes INTEGER NOT NULL DEFAULT 0',
+      );
+    }
     // Its files at the base commit, a row each: a repository's whole list is too large for one value.
     this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS cloudchef_linked_manifest (
@@ -759,6 +772,9 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       await this.withComputer(async (workspace) => {
         for (const entry of entries) {
           await writeWorkspaceFile(workspace, entry.path, decodeFileContent(entry.content, entry.encoding));
+          if (entry.mode !== undefined) {
+            await workspace.fs.chmod(entry.path, entry.mode);
+          }
         }
       });
       return this.getWorkspaceState();
@@ -2098,21 +2114,29 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   setLinkedProject(value: BuilderWorkspaceLinkedProject): void {
-    if (!/^[0-9a-f]{40}$/.test(value.baseCommit) || value.baseManifest.length > BUILDER_WORKSPACE_MAX_FILES) {
+    if (
+      !/^[0-9a-f]{40}$/.test(value.baseCommit) ||
+      value.baseManifest.length > BUILDER_WORKSPACE_MAX_FILES ||
+      (value.branchKey !== undefined && !/^[a-z0-9]{8,32}$/.test(value.branchKey))
+    ) {
       throw new Error('Linked project state is invalid.');
     }
     this.ctx.storage.transactionSync(() => {
       this.ctx.storage.sql.exec(
         `INSERT INTO cloudchef_linked_project
-           (singleton, org_project_id, repository, default_branch, base_commit, updated_at)
-         VALUES (1, ?, ?, ?, ?, ?)
+           (singleton, org_project_id, repository, default_branch, base_commit, branch_key, workspace_modes,
+            updated_at)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(singleton) DO UPDATE SET org_project_id = excluded.org_project_id,
            repository = excluded.repository, default_branch = excluded.default_branch,
-           base_commit = excluded.base_commit, updated_at = excluded.updated_at`,
+           base_commit = excluded.base_commit, branch_key = excluded.branch_key,
+           workspace_modes = excluded.workspace_modes, updated_at = excluded.updated_at`,
         value.orgProjectId,
         value.repository,
         value.defaultBranch,
         value.baseCommit,
+        value.branchKey ?? null,
+        value.workspaceModes ? 1 : 0,
         Date.now(),
       );
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_linked_manifest');
@@ -2134,8 +2158,10 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         repository: string;
         default_branch: string;
         base_commit: string;
+        branch_key: string | null;
+        workspace_modes: number;
       }>(
-        `SELECT org_project_id, repository, default_branch, base_commit
+        `SELECT org_project_id, repository, default_branch, base_commit, branch_key, workspace_modes
          FROM cloudchef_linked_project WHERE singleton = 1`,
       ),
     );
@@ -2147,13 +2173,20 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         'SELECT path, sha256, executable FROM cloudchef_linked_manifest ORDER BY path',
       ),
     ];
-    return {
+    const linked: BuilderWorkspaceLinkedProject = {
       orgProjectId: row.org_project_id,
       repository: row.repository,
       defaultBranch: row.default_branch,
       baseCommit: row.base_commit,
       baseManifest: files.map((file) => ({ path: file.path, sha256: file.sha256, executable: file.executable === 1 })),
     };
+    if (row.branch_key !== null) {
+      linked.branchKey = row.branch_key;
+    }
+    if (row.workspace_modes === 1) {
+      linked.workspaceModes = true;
+    }
+    return linked;
   }
 
   private async readCloudflareProjectFile(): Promise<{ content: string }> {
@@ -3470,6 +3503,7 @@ function fileSyncEntry(file: WorkspaceFile, revision: number) {
     size: file.size,
     sha256: file.sha256,
     revision,
+    mode: file.mode,
   };
 }
 
@@ -3509,18 +3543,24 @@ function validationDeploymentConfig(project: DeploymentProjectProfile): Deployme
   return config;
 }
 
-function requireFileInputs(value: unknown): Array<{ path: string; content: string; encoding: 'utf8' | 'base64' }> {
+function requireFileInputs(
+  value: unknown,
+): Array<{ path: string; content: string; encoding: 'utf8' | 'base64'; mode?: number }> {
   if (!Array.isArray(value) || value.length > SYNC_BATCH_FILES) {
     throw new SyntaxError('Invalid workspace seed entries.');
   }
   return value.map((entryValue) => {
     const entry = record(entryValue);
-    return {
+    const input: { path: string; content: string; encoding: 'utf8' | 'base64'; mode?: number } = {
       path: requireProjectPath(entry.path),
       content:
         typeof entry.content === 'string' ? entry.content : requireString(entry.content, 'content', MAX_FILE_BYTES),
       encoding: requireWorkspaceFileEncoding(entry.encoding),
     };
+    if (entry.mode !== undefined) {
+      input.mode = requireInteger(entry.mode, 'mode', 0o7777);
+    }
+    return input;
   });
 }
 

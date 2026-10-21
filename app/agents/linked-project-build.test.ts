@@ -6,6 +6,7 @@ import {
   LINKED_BUILD_POLL_MS,
   linkedBuildSettledResult,
   linkedBuildStartedResult,
+  linkedBuildUnfollowedResult,
   linkedBuildWatchSchema,
   watchLinkedBuild,
   withLinkedBuildResult,
@@ -112,6 +113,7 @@ describe("a GitHub project's publish", () => {
       sleep: time.sleep,
       now: time.now,
       deadline: 60 * 60_000,
+      workersBuildsGraceUntil: 0,
     });
     expect(status).toEqual(built);
     expect(polls).toBe(4);
@@ -135,6 +137,7 @@ describe("a GitHub project's publish", () => {
       sleep: time.sleep,
       now: time.now,
       deadline: 60 * 60_000,
+      workersBuildsGraceUntil: 0,
     });
     expect(status).toEqual(failure);
     expect(polls).toBe(1);
@@ -151,6 +154,7 @@ describe("a GitHub project's publish", () => {
       sleep: time.sleep,
       now: time.now,
       deadline: 3 * LINKED_BUILD_POLL_MS,
+      workersBuildsGraceUntil: 0,
     });
     expect(late).toEqual(pending);
     expect(polls).toBe(3);
@@ -166,6 +170,7 @@ describe("a GitHub project's publish", () => {
       sleep: recovered.sleep,
       now: () => 10 * 60 * 60_000,
       deadline: 60_000,
+      workersBuildsGraceUntil: 0,
     });
     expect(afterRestart).toEqual(built);
     expect(recoveredPolls).toBe(1);
@@ -182,6 +187,7 @@ describe("a GitHub project's publish", () => {
       sleep: time.sleep,
       now: time.now,
       deadline: Number.MAX_SAFE_INTEGER,
+      workersBuildsGraceUntil: 0,
       signal: stopped.signal,
     });
     expect(result.state).toBe('none');
@@ -212,6 +218,72 @@ describe("a GitHub project's publish", () => {
         parts: [{ type: 'dynamic-tool', toolName: 'publish_preview', toolCallId: 'call-1', state: 'output-error' }],
       },
     ];
-    expect(withLinkedBuildResult(errored, 'call-1', settled)).toBeNull();
+    // A call stopped after its commit shows as failed; the real result replaces its error.
+    const landed = withLinkedBuildResult(errored, 'call-1', settled);
+    expect(landed?.[0]?.parts[0]).toEqual({
+      type: 'dynamic-tool',
+      toolName: 'publish_preview',
+      toolCallId: 'call-1',
+      state: 'output-available',
+      output: settled,
+    });
+    // `onlyFailed` lands the started result on a stopped call only, never over a waiting or settled output.
+    expect(withLinkedBuildResult(errored, 'call-1', started, { onlyFailed: true })).not.toBeNull();
+    expect(withLinkedBuildResult(before, 'call-1', started, { onlyFailed: true })).toBeNull();
+  });
+
+  it('says what landed, for the chat to show: when, the default branch, and why a build failed', () => {
+    const live = { ...watch, live: true, where: 'merged into main', defaultBranch: 'main' };
+    expect(linkedBuildStartedResult(live).data).toEqual({
+      branch: watch.branch,
+      commit: watch.sha,
+      live: true,
+      build: 'pending',
+      previewUrl: null,
+      detailsUrl: null,
+      startedAt: watch.startedAt,
+      defaultBranch: 'main',
+    });
+    const cancelled = linkedBuildSettledResult(live, {
+      state: 'failure',
+      previewUrl: null,
+      detailsUrl: 'https://d/2',
+      conclusion: 'cancelled',
+    });
+    expect(cancelled).toMatchObject({ ok: false, data: { build: 'failure', conclusion: 'cancelled' } });
+    expect(cancelled.summary).toContain('did not succeed (cancelled), so the change is not live');
+    expect(linkedBuildUnfollowedResult(watch)).toMatchObject({ ok: true, data: { build: 'unfollowed' } });
+  });
+
+  it("waits for Workers Builds' own check before taking other checks finishing as the build", async () => {
+    const time = clock();
+    const ciPassed: LinkedBuildStatus = { ...built, previewUrl: null, workersBuilds: false };
+    const answers: LinkedBuildStatus[] = [ciPassed, ciPassed, { ...built, workersBuilds: true }];
+    let polls = 0;
+    const status = await watchLinkedBuild({
+      poll: async () => answers[polls++] ?? pending,
+      sleep: time.sleep,
+      now: time.now,
+      deadline: 60 * 60_000,
+      workersBuildsGraceUntil: 5 * LINKED_BUILD_POLL_MS,
+    });
+    expect(status).toEqual({ ...built, workersBuilds: true });
+    expect(polls).toBe(3);
+
+    // A repository without Workers Builds is judged by its own checks once the grace has passed.
+    const other = clock();
+    let otherPolls = 0;
+    const settled = await watchLinkedBuild({
+      poll: async () => {
+        otherPolls += 1;
+        return ciPassed;
+      },
+      sleep: other.sleep,
+      now: other.now,
+      deadline: 60 * 60_000,
+      workersBuildsGraceUntil: 2 * LINKED_BUILD_POLL_MS,
+    });
+    expect(settled).toEqual(ciPassed);
+    expect(otherPolls).toBe(2);
   });
 });

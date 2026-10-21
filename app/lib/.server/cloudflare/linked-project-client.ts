@@ -36,6 +36,9 @@ const buildStatusSchema = z.object({
   state: z.enum(['pending', 'success', 'failure', 'none']),
   previewUrl: z.string().nullable(),
   detailsUrl: z.string().nullable(),
+  conclusion: z.string().nullable().optional(),
+  /** Absent from a control plane deployed before it: that one judged by every check, as if it were Workers Builds'. */
+  workersBuilds: z.boolean().optional(),
 });
 export type LinkedBuildStatus = z.infer<typeof buildStatusSchema>;
 
@@ -75,19 +78,27 @@ export async function* streamLinkedProjectSnapshot(
   }
 }
 
-/** Commits changes to the member's branch, and with `publish` merges it into the default branch. */
+/** Commits changes to the workspace's branch, and with `publish` merges it into the default branch. */
 export async function commitLinkedProject(
   env: RuntimeEnv,
   identity: Identity,
   body: {
     orgProjectId: string;
+    /** The workspace's own branch; without it, the member's one branch. */
+    branchKey?: string;
     baseCommit: string;
     message: string;
     publish: boolean;
     changes: { path: string; contentBase64: string | null; executable: boolean }[];
   },
 ): Promise<LinkedCommitResult> {
-  const response = await post(env, 'runtime-github/commit', { ...pick(identity), ...body }, COMMIT_TIMEOUT_MS);
+  const { branchKey, ...rest } = body;
+  const response = await post(
+    env,
+    'runtime-github/commit',
+    { ...pick(identity), ...rest, ...(branchKey ? { branchKey } : {}) },
+    COMMIT_TIMEOUT_MS,
+  );
   const payload = await readJsonBodyWithLimit(
     response,
     MAX_JSON_RESPONSE_BYTES,
@@ -127,8 +138,18 @@ export async function linkedBuildStatus(
  * The project's live site, as the https origins the control plane reports for it: the repository's
  * homepage on GitHub and the preview links its pipeline posted for the default branch and this member's.
  */
-export async function linkedSiteOrigins(env: RuntimeEnv, identity: Identity, orgProjectId: string): Promise<string[]> {
-  const response = await post(env, 'runtime-github/site', { ...pick(identity), orgProjectId }, STATUS_TIMEOUT_MS);
+export async function linkedSiteOrigins(
+  env: RuntimeEnv,
+  identity: Identity,
+  orgProjectId: string,
+  branchKey: string | undefined,
+): Promise<string[]> {
+  const response = await post(
+    env,
+    'runtime-github/site',
+    { ...pick(identity), orgProjectId, ...(branchKey ? { branchKey } : {}) },
+    STATUS_TIMEOUT_MS,
+  );
   if (!response.ok) {
     throw new Error(await failureMessage(response, "CloudChef could not look up the project's site."));
   }

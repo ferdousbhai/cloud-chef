@@ -136,13 +136,15 @@ describe('chat deletion', () => {
 
     await removeChat(db, { sessionId: 'owner', id: 'chat' });
 
-    expect(statements).toHaveLength(3);
+    expect(statements).toHaveLength(4);
     expect(statements[0].query).toContain('INSERT INTO agent_gc_candidates');
     expect(statements[0].query).toContain('JOIN chat_transcripts');
     expect(Number(statements[0].values[0]) - Number(statements[0].values[1])).toBe(AGENT_GC_GRACE_PERIOD_MS);
     expect(statements[1].query).toContain('INSERT INTO app_resource_gc_candidates');
     expect(statements[2].query).toContain('SET is_deleted = 1');
     expect(statements[2].query).not.toContain('snapshot_key');
+    // After the removal: a GitHub project's latest earlier conversation becomes current again.
+    expect(statements[3].query).toContain('SET archived_at = NULL');
   });
 });
 

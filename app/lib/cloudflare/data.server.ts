@@ -12,6 +12,7 @@ import { dataOperationArgSchemas } from './data-operation-schemas';
 import { getSessionId, UnauthorizedError } from './data/auth.server';
 import {
   findChat,
+  isChatArchived,
   listLinkedChatHistory,
   openLinkedChat,
   requireChat,
@@ -61,7 +62,7 @@ export async function userRuntimeDataAction(args: {
     if (getSessionId(body.args) !== args.userId) {
       throw new UnauthorizedError();
     }
-    const result = runKnownDataOperation(args.env, body.path, body.args);
+    const result = runKnownDataOperation(args.env, body.path, body.args, args.executionCtx);
     args.executionCtx?.waitUntil(sweepAgentGcCandidatesBestEffort(args.env));
     args.executionCtx?.waitUntil(sweepAppResourceGcCandidatesBestEffort(args.env));
     return Response.json({ result: await result });
@@ -136,6 +137,7 @@ function runKnownDataOperation(
   env: Env,
   path: DataOperationPath,
   rawArgs: unknown,
+  executionCtx: Pick<ExecutionContext, 'waitUntil'> | undefined,
 ): Promise<DataOperationResult<DataOperationPath>> {
   switch (path) {
     case 'messages.initializeChat':
@@ -143,7 +145,7 @@ function runKnownDataOperation(
     case 'messages.openLinkedChat':
       return openLinkedChat(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
     case 'messages.startLinkedChat':
-      return startLinkedChat(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
+      return startLinkedChatAndStopArchived(env, dataOperationArgSchemas[path].parse(rawArgs), executionCtx);
     case 'messages.linkedChatHistory':
       return listLinkedChatHistory(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
     case 'messages.discardEmptyChat':
@@ -168,8 +170,34 @@ function runKnownDataOperation(
   }
 }
 
+/**
+ * Starts a new conversation on a GitHub project and tells the one it archived to stop now, rather than at
+ * whatever it does next. The new conversation's agent also waits for that before it copies the workspace,
+ * so this is only the early start: the answer doesn't wait for it.
+ */
+async function startLinkedChatAndStopArchived(
+  env: Env,
+  args: { sessionId: string; id: string; orgProjectId: string },
+  executionCtx: Pick<ExecutionContext, 'waitUntil'> | undefined,
+): Promise<{ initialId: string }> {
+  const { initialId, archivedAgentNames } = await startLinkedChat(env.DB, args);
+  const stopping = Promise.all(
+    archivedAgentNames.map((agentName) =>
+      env.BuilderAgent.getByName(agentName)
+        .settleForSuccessor(args.sessionId)
+        .catch(() => console.warn('An archived conversation could not be stopped yet; it stops before it is copied')),
+    ),
+  );
+  executionCtx?.waitUntil(stopping);
+  return { initialId };
+}
+
 async function createSubchatFromAgent(env: Env, args: { sessionId: string; chatId: string }): Promise<number> {
   const chat = await requireChat(env.DB, { id: args.chatId, sessionId: args.sessionId });
+  // An earlier conversation on a GitHub project is kept to read: a subchat would work on its old copy.
+  if (await isChatArchived(env.DB, { id: args.chatId, sessionId: args.sessionId })) {
+    throw new Error('This conversation continues in a newer one. Open the project to keep working.');
+  }
   const parent = await requireChatTranscript(env.DB, {
     chatId: chat.id,
     subchatIndex: chat.last_subchat_index,

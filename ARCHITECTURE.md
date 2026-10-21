@@ -160,15 +160,27 @@ recording the commit and each file's hash. The runtime never holds a GitHub toke
 calls are authenticated like the credential broker and re-check the member's access to the project, and that the
 project belongs to the organization the runtime runs for (`app/server-handlers/runtime-github.ts`). Validation runs the
 repository's own `typecheck`, `lint`, `test`, and `build` scripts. The agent's `publish_preview` commits the workspace's
-changes, one commit on top of the commit it was opened from, to the member's own branch, and `publish` also merges
-that branch into the default branch; the repository's own pipeline (Workers Builds) previews and deploys, and its check
-runs report the build and the preview link. The template's automatic hosted preview and deployment don't run for these
-workspaces.
+changes, one commit on top of the commit it was opened from, to the conversation's own branch
+(`cloudchef/<member>-<key>`, the key kept with the workspace's link), and `publish` also merges that branch into the
+default branch; the repository's own pipeline (Workers Builds) previews and deploys, and its check runs report the build
+and the preview link. A subchat gets its own key, since its parent can go on working; a new conversation keeps the
+one it continues, which no longer writes. A workspace keeps GitHub's file modes, so an executable bit changed alone is
+committed. Once the commit is on GitHub there's no taking it back: a Stop or the tool's deadline calls a publish off
+only before it, and after it the real result lands in place of the stopped call's error. The template's automatic
+hosted preview and deployment don't run for these workspaces.
+
+A project has one current conversation per member. Starting a new one archives the current one (kept to read): its
+agent refuses new turns, steering, saves, approvals and publishing, its running turn is stopped, and the new
+conversation copies its workspace and link only once it has settled. Removing the current conversation makes the
+latest archived one current again.
 
 A publish returns as soon as its commit is on GitHub. The pipeline takes minutes, so a durable fiber watches its check
 runs (`app/agents/linked-project-build.ts`) and, once the turn that published has ended, puts the result and preview
-link in place of that publish's output, as an approved Cloudflare request's result lands: the person sees the card
-update, and the next turn reads it. CloudChef does not serve its own instant preview of these workspaces: their builds,
+link in place of that publish's output, as an approved Cloudflare request's result lands: the person sees the card and
+the status above the composer update (`app/lib/common/linked-publish.ts` reads them from the output's data, never from
+the summary written for the model), and the next turn reads it. Workers Builds' own check runs decide once it has
+posted one; until then, for a few minutes, other checks finishing don't count as the build. Any finished run that did
+not pass (cancelled, timed out, waiting for an action) fails it. CloudChef does not serve its own instant preview of these workspaces: their builds,
 Worker names, and bindings (D1, R2, and more, under any names) are the repository's own, and CloudChef's hosted preview
 deploys only its starter apps' configuration, rebuilt from trusted inputs; a member limited to GitHub projects has no
 Cloudflare token for it anyway.
@@ -176,7 +188,7 @@ Cloudflare token for it anyway.
 The agent's `fetch_site` reads the project's live site, its pages and the JSON they load, which is where a site's copy
 from its database or CMS shows. It reaches only the https origins the control plane reports for the repository
 (`/api/cloudflare/runtime-github/site`): the website set on GitHub and the links its pipeline posted for the default
-branch and the member's branch, never an address the workspace names. It sends only GETs, follows redirects only
+branch and the conversation's branch, never an address the workspace names. It sends only GETs, follows redirects only
 within those origins, and reads at most 2 MB of a text response. There is no database tool: a database's identity
 would come from the workspace's own configuration, D1 has no read-only query mode, and a member limited to GitHub
 projects holds no Cloudflare token.

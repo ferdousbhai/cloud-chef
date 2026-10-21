@@ -90,11 +90,18 @@ import type {
 } from './builder-workspace-types';
 import { builderTemplateSeedId, loadBuilderTemplate } from './builder-template';
 import { parentBuilderWorkspaceSeedId, seedBuilderWorkspace } from './builder-workspace-seed';
-import { linkedWorkspaceChanges, packDraftSnapshot, seedLinkedWorkspace } from './linked-project-workspace';
+import {
+  linkedWorkspaceChanges,
+  newLinkedBranchKey,
+  packDraftSnapshot,
+  seedLinkedWorkspace,
+} from './linked-project-workspace';
 import {
   LINKED_BUILD_WATCH_MS,
+  WORKERS_BUILDS_APPEAR_MS,
   linkedBuildSettledResult,
   linkedBuildStartedResult,
+  linkedBuildUnfollowedResult,
   linkedBuildWatchSchema,
   watchLinkedBuild,
   withLinkedBuildResult,
@@ -124,7 +131,7 @@ import { waitForCancellationBeforeDeadline } from './builder-cancellation';
 import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
-import { toolFailure, toolSuccess, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
+import { toolFailure, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import {
   BuilderCloudflareExecutionRepository,
   CLOUDFLARE_EXECUTION_RISK_NOTE,
@@ -199,6 +206,9 @@ const TITLE_GENERATION_JOB_MAX_PROMPT_CHARACTERS = 4_000;
  */
 const PUBLICATION_ACTIVITY_INTERVAL_MS = 2_000;
 const CHAT_CANCELLATION_SETTLE_TIMEOUT_MS = 4.5 * 60 * 1000;
+/** A copy of another workspace starts over when that one changes meanwhile; it changing this often is a fault. */
+const MAX_WORKSPACE_COPY_RESTARTS = 5;
+const ARCHIVED_CONVERSATION_MESSAGE = 'This conversation continues in a newer one. Open the project to keep working.';
 
 /** Fiber metadata survives a Durable Object restart, so every job is re-parsed before it is resumed. */
 const previewPublicationJobSchema = z.object({
@@ -532,9 +542,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     // A conversation a newer one took over is kept to read: working here would edit an old copy of the
     // project and publish it over the newer one's work.
     if ((await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId: durableIdentity.ownerId })).archived) {
-      throw new Response('This conversation continues in a newer one. Open the project to keep working.', {
-        status: 409,
-      });
+      throw new Response(ARCHIVED_CONVERSATION_MESSAGE, { status: 409 });
     }
     const { chatInitialId, subchatIndex, transcript, modelId } = requireBuilderRequestScope(
       body,
@@ -582,6 +590,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     };
 
     try {
+      // Again now that the turn is visible: a newer conversation that took over meanwhile either saw this
+      // turn and stopped it, or archived this one before this read.
+      await this.refuseIfArchived();
       const { contentLogging } = await this.requireModelAccess();
       const cloudflareApi = await this.createCloudflareApiToolContext(durableIdentity.transcript);
       const linkedProject = await this.createLinkedProjectToolContext();
@@ -776,6 +787,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!active || this.state.activeTurn?.id !== active.turnId) {
       throw new Response('The builder is not currently running.', { status: 409 });
     }
+    await this.refuseIfArchived();
 
     const message: UIMessage = {
       id: `steering-${crypto.randomUUID()}`,
@@ -807,6 +819,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     await this.waitForCloudflareDecisionBoundary();
     const binding = await this.requireCurrentCloudflareExecutionBinding('approve_cloudflare_execution');
+    await this.refuseIfArchived();
     const proposal = await this.cloudflareExecutions.verify(parsed.data.executionId, binding);
     if (
       proposal.status === 'rejected' ||
@@ -885,6 +898,57 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       checkpoint,
       messages: this.messages,
     };
+  }
+
+  /**
+   * A newer conversation on this GitHub project has taken over (this chat is archived): stop the turn
+   * running here and return once nothing more can change this workspace, so the copy the newer one takes
+   * next is final. Saves, steering, approvals and publishing are already refused here. Its build watch
+   * keeps running: it only reads GitHub and fills in this transcript's publish result.
+   *
+   * An internal Durable Object RPC, not `@callable`: the data API calls it when the new conversation
+   * starts, and the new conversation's agent before it copies this workspace.
+   */
+  async settleForSuccessor(ownerId: string): Promise<void> {
+    if (!transcriptOwnerIdSchema.safeParse(ownerId).success) {
+      throw new Response('Invalid transcript owner', { status: 400 });
+    }
+    const identity = await this.hydrateDurableIdentity({ required: false, reason: 'settle_for_successor' });
+    if (!identity) {
+      // Never started, so nothing runs here.
+      return;
+    }
+    if (identity.ownerId !== ownerId) {
+      throw new Response('Agent not found.', { status: 404 });
+    }
+    if (!(await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId })).archived) {
+      throw new Response('This conversation is still the current one.', { status: 409 });
+    }
+    this.showLinkedProject(this.state.linkedProject ? { ...this.state.linkedProject, archived: true } : null);
+    if (this.state.activeTurn) {
+      await this.cancelActiveTurn();
+      return;
+    }
+    const settled = await this.waitUntilStable({
+      timeout: CHAT_CANCELLATION_SETTLE_TIMEOUT_MS,
+      pendingInteraction: () => false,
+    });
+    if (!settled) {
+      throw new Error('The earlier conversation did not settle in time.');
+    }
+  }
+
+  /** A conversation a newer one took over is kept to read: nothing may change its project or publish it. */
+  private async refuseIfArchived(): Promise<void> {
+    if (await this.isArchivedConversation()) {
+      throw new Response(ARCHIVED_CONVERSATION_MESSAGE, { status: 409 });
+    }
+  }
+
+  private async isArchivedConversation(): Promise<boolean> {
+    const ownerId =
+      this.ownerId ?? (await this.hydrateDurableIdentity({ required: true, reason: 'archive_check' }))?.ownerId;
+    return ownerId ? (await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId })).archived : false;
   }
 
   /**
@@ -987,6 +1051,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   @callable()
   async applyWorkspaceClientChanges(request: WorkspaceApplyChangesRequest): Promise<BuilderWorkspaceApplyResult> {
+    await this.refuseIfArchived();
     const result = await this.workspace.applyClientChanges(request);
     if (result.ok && result.changedPaths.length > 0) {
       this.setState({
@@ -1330,20 +1395,17 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return current;
     }
     if (binding.parentAgentName) {
-      const parent = await this.loadParentWorkspace(binding.parentAgentName);
       // A subchat of a GitHub project keeps working on it, relative to the same commit: linked before its
-      // seed commits, so it never exists as an ordinary draft holding the repository's code.
-      const parentAgent: Pick<BuilderAgent, 'getLinkedProject'> = this.env.BuilderAgent.getByName(
-        binding.parentAgentName,
-      );
-      const linked = await parentAgent.getLinkedProject();
+      // seed commits, so it never exists as an ordinary draft holding the repository's code. The parent can
+      // go on working too, so the subchat gets its own branch.
+      const parent = await this.loadLinkedWorkspaceCopy(binding.parentAgentName);
       return seedBuilderWorkspace(
         this.workspace,
         parentBuilderWorkspaceSeedId(parent.targetRevision),
         parent.entries,
         async () => {
-          if (linked) {
-            await this.workspace.setLinkedProject(linked);
+          if (parent.linked) {
+            await this.workspace.setLinkedProject({ ...parent.linked, branchKey: newLinkedBranchKey() });
           }
         },
       );
@@ -1354,18 +1416,22 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (orgProjectId && continuesAgentName) {
       // A new conversation on the project starts from the last one's workspace, relative to the same
       // commit, so what it hadn't published yet carries over. One that never opened the project has none.
-      const previousAgent: Pick<BuilderAgent, 'getLinkedProject' | 'getWorkspaceState'> =
+      // The last one stops first, so the copy is final; it is archived, so this one takes over its branch.
+      const previousAgent: Pick<BuilderAgent, 'getLinkedProject' | 'getWorkspaceState' | 'settleForSuccessor'> =
         this.env.BuilderAgent.getByName(continuesAgentName);
+      await previousAgent.settleForSuccessor(this.userId ?? '');
       const linked = (await previousAgent.getWorkspaceState()).initialized
         ? await previousAgent.getLinkedProject()
         : null;
       if (linked?.orgProjectId === orgProjectId) {
-        const previous = await this.loadParentWorkspace(continuesAgentName);
+        const previous = await this.loadLinkedWorkspaceCopy(continuesAgentName);
+        const continued = previous.linked?.orgProjectId === orgProjectId ? previous.linked : linked;
         return seedBuilderWorkspace(
           this.workspace,
           parentBuilderWorkspaceSeedId(previous.targetRevision),
           previous.entries,
-          () => this.workspace.setLinkedProject(linked),
+          () =>
+            this.workspace.setLinkedProject({ ...continued, branchKey: continued.branchKey ?? newLinkedBranchKey() }),
         );
       }
     }
@@ -1412,12 +1478,20 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!linked || !identity) {
       return toolFailure("This workspace is not one of the team's GitHub projects.");
     }
+    if (await this.isArchivedConversation()) {
+      return toolFailure(`${ARCHIVED_CONVERSATION_MESSAGE} Nothing was sent to GitHub.`);
+    }
     const { changes, manifest } = await linkedWorkspaceChanges(this.workspace, linked);
     if (changes.length === 0) {
       return toolFailure(`Nothing has changed since this workspace was opened from ${linked.repository}.`);
     }
+    // The last moment a Stop or the tool's deadline can call it off. Once GitHub has the commit (and the
+    // merge), there's no taking it back: everything below runs to the end, and its result is the real one
+    // even if the turn ended meanwhile; the build watch then puts it in place of the stopped call's error.
+    options.abortSignal?.throwIfAborted();
     const result = await commitLinkedProject(this.env, identity, {
       orgProjectId: linked.orgProjectId,
+      branchKey: linked.branchKey,
       baseCommit: linked.baseCommit,
       message: input.message,
       publish: input.live,
@@ -1427,7 +1501,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return toolFailure(
         `${result.error ?? 'The changes overlap with newer work.'} Nothing went live. The work is saved on the ` +
           `branch ${result.branch} of ${linked.repository}; an admin can merge it there.`,
-        { branch: result.branch, commit: result.commit },
+        { branch: result.branch, commit: result.commit, conflict: true, defaultBranch: linked.defaultBranch },
       );
     }
     if (input.live && result.published) {
@@ -1443,6 +1517,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       where: input.live ? `merged into ${linked.defaultBranch}` : `on the branch ${result.branch}`,
       live: input.live,
       startedAt: Date.now(),
+      defaultBranch: linked.defaultBranch,
     };
     try {
       await this.startFiber(
@@ -1455,11 +1530,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       );
     } catch {
       logger.warn('Unable to start watching the linked project build');
-      return toolSuccess(
-        `Committed ${watch.where}. CloudChef could not follow the repository's pipeline for it; its build ` +
-          'result is on GitHub.',
-        { branch: watch.branch, commit: watch.sha, live: watch.live },
-      );
+      return linkedBuildUnfollowedResult(watch);
     }
     return linkedBuildStartedResult(watch);
   }
@@ -1470,18 +1541,27 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    */
   private async runLinkedBuildWatch(watch: LinkedBuildWatch, signal?: AbortSignal): Promise<void> {
     const identity = runtimeIdentity(this.env);
-    if (!identity) {
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const build = identity
+      ? await watchLinkedBuild({
+          poll: async () => {
+            // A call stopped after its commit shows as failed until its result lands: while the pipeline
+            // builds, it at least says what is on GitHub.
+            await this.landLinkedBuildOutput(watch, linkedBuildStartedResult(watch), { onlyFailed: true });
+            return linkedBuildStatus(this.env, identity, watch.orgProjectId, watch.sha);
+          },
+          sleep,
+          now: Date.now,
+          deadline: watch.startedAt + LINKED_BUILD_WATCH_MS,
+          workersBuildsGraceUntil: watch.startedAt + WORKERS_BUILDS_APPEAR_MS,
+          signal,
+        })
+      : null;
+    if (signal?.aborted) {
+      // Stopped with the agent: recovery runs the watch again.
       return;
     }
-    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-    const build = await watchLinkedBuild({
-      poll: () => linkedBuildStatus(this.env, identity, watch.orgProjectId, watch.sha),
-      sleep,
-      now: Date.now,
-      deadline: watch.startedAt + LINKED_BUILD_WATCH_MS,
-      signal,
-    });
-    const output = linkedBuildSettledResult(watch, build);
+    const output = build ? linkedBuildSettledResult(watch, build) : linkedBuildUnfollowedResult(watch);
     console.info({
       event: 'linked_build_settled',
       build: output.data?.build ?? 'none',
@@ -1491,14 +1571,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     let missingSince: number | null = null;
     while (!signal?.aborted && Date.now() < landingDeadline) {
       if (!this.state.activeTurn) {
-        const messages = withLinkedBuildResult(this.messages, watch.toolCallId, output);
-        if (messages) {
-          // SAFETY: these are the agent's existing AI SDK messages with only one already-terminal tool
-          // output replaced by another JSON-serializable output; no part discriminant or state changes.
-          await this.persistMessages(messages as UIMessage[]);
-          if (this.state.transcript) {
-            await this.advanceTranscriptCheckpoint(this.state.transcript);
-          }
+        if (await this.landLinkedBuildOutput(watch, output)) {
           return;
         }
         missingSince ??= Date.now();
@@ -1512,6 +1585,28 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
   }
 
+  /** Puts `output` in place of a watched publish's output once no turn is running; whether it landed. */
+  private async landLinkedBuildOutput(
+    watch: LinkedBuildWatch,
+    output: CloudChefToolResult,
+    options: { onlyFailed?: boolean } = {},
+  ): Promise<boolean> {
+    if (this.state.activeTurn) {
+      return false;
+    }
+    const messages = withLinkedBuildResult(this.messages, watch.toolCallId, output, options);
+    if (!messages) {
+      return false;
+    }
+    // SAFETY: these are the agent's existing AI SDK messages with only one terminal tool part of a publish
+    // changed: its JSON-serializable output replaced, or a stopped call's error replaced by its real output.
+    await this.persistMessages(messages as UIMessage[]);
+    if (this.state.transcript) {
+      await this.advanceTranscriptCheckpoint(this.state.transcript);
+    }
+    return true;
+  }
+
   /** Reads a page of the project's own live site: only addresses GitHub reports for this repository. */
   private async fetchLinkedSite(
     input: LinkedSiteFetchInput,
@@ -1523,7 +1618,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return toolFailure("This workspace is not one of the team's GitHub projects.");
     }
     return fetchLinkedSitePage(input, {
-      origins: () => linkedSiteOrigins(this.env, identity, linked.orgProjectId),
+      origins: () => linkedSiteOrigins(this.env, identity, linked.orgProjectId, linked.branchKey),
       fetch: (request, init) => fetch(request, init),
       signal: options.abortSignal,
     });
@@ -1790,6 +1885,27 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     this.setState({ ...this.state, cloudflareExecutions });
   }
 
+  /**
+   * Another workspace's files with the GitHub project it is linked to, read so they belong together: the
+   * link (and its base commit) is the same before and after the files are copied, or the copy starts over.
+   */
+  private async loadLinkedWorkspaceCopy(agentName: string): Promise<{
+    entries: BuilderWorkspaceFileInput[];
+    targetRevision: number;
+    linked: BuilderWorkspaceLinkedProject | null;
+  }> {
+    const agent: Pick<BuilderAgent, 'getLinkedProject'> = this.env.BuilderAgent.getByName(agentName);
+    for (let attempt = 0; attempt <= MAX_WORKSPACE_COPY_RESTARTS; attempt += 1) {
+      const before = await agent.getLinkedProject();
+      const copy = await this.loadParentWorkspace(agentName);
+      const after = await agent.getLinkedProject();
+      if (before?.orgProjectId === after?.orgProjectId && before?.baseCommit === after?.baseCommit) {
+        return { ...copy, linked: after };
+      }
+    }
+    throw new Error('The workspace kept changing while it was being copied. Open the conversation again.');
+  }
+
   private async loadParentWorkspace(
     parentAgentName: string,
   ): Promise<{ entries: BuilderWorkspaceFileInput[]; targetRevision: number }> {
@@ -1801,6 +1917,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const entries: BuilderWorkspaceFileInput[] = [];
     let cursor: string | undefined;
+    let restarts = 0;
     while (true) {
       const request: WorkspaceSyncPageRequest = { fromRevision: 0 };
       if (cursor) {
@@ -1808,13 +1925,25 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
       const page = await parent.getWorkspaceSyncPage(request);
       if (page.restart) {
+        restarts += 1;
+        if (restarts > MAX_WORKSPACE_COPY_RESTARTS) {
+          throw new Error('The workspace kept changing while it was being copied. Open the conversation again.');
+        }
         entries.length = 0;
         cursor = undefined;
         continue;
       }
       for (const entry of page.entries) {
         if (entry.kind === 'write') {
-          entries.push({ path: entry.path, content: entry.content, encoding: entry.encoding });
+          const input: BuilderWorkspaceFileInput = {
+            path: entry.path,
+            content: entry.content,
+            encoding: entry.encoding,
+          };
+          if (entry.mode !== undefined) {
+            input.mode = entry.mode;
+          }
+          entries.push(input);
         }
       }
       if (!page.nextCursor) {

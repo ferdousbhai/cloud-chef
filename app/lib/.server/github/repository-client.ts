@@ -24,10 +24,25 @@ type CommitChange = { path: string; contentBase64: string | null; executable: bo
 /** What a repository's pipeline reported for a commit, read from its check runs. */
 type BuildStatus = {
   state: 'pending' | 'success' | 'failure' | 'none';
-  /** The first workers.dev or https link a check run reported: Workers Builds' preview, typically. */
+  /** The first workers.dev link a check run reported: Workers Builds' preview, typically. */
   previewUrl: string | null;
   detailsUrl: string | null;
+  /** A failed run's conclusion (`failure`, `cancelled`, `timed_out`, `action_required`, …). */
+  conclusion: string | null;
+  /**
+   * Whether the status is Workers Builds' own check runs. Until its check exists, other checks (a CI
+   * workflow, a linter app) are all there is, and their finishing says nothing about the deployment.
+   */
+  workersBuilds: boolean;
 };
+
+/** Check run conclusions that let a build stand; any other finished run (cancelled, stale, …) failed it. */
+const PASSING_CONCLUSIONS = new Set(['success', 'neutral', 'skipped']);
+
+/** Workers Builds reports as the Cloudflare Workers and Pages GitHub App, naming its runs "Workers Builds: …". */
+function isWorkersBuildsRun(run: { name: string; app?: { slug?: string } | null }): boolean {
+  return run.app?.slug === 'cloudflare-workers-and-pages' || run.name.startsWith('Workers Builds');
+}
 
 /** The outcome of merging a branch into another. */
 type MergeOutcome = { status: 'merged'; sha: string } | { status: 'up_to_date' } | { status: 'conflict' };
@@ -148,17 +163,24 @@ export class RepositoryClient {
 
   /** What the repository's pipeline (Workers Builds, typically) has reported for a commit so far. */
   async buildStatus(sha: string): Promise<BuildStatus> {
-    const { check_runs: runs } = await this.call(`/commits/${sha}/check-runs?per_page=50`, checkRunsSchema);
+    const { check_runs: all } = await this.call(`/commits/${sha}/check-runs?per_page=50`, checkRunsSchema);
+    // Workers Builds' runs decide when it has them; a repository without it is judged by all its checks.
+    const pipeline = all.filter(isWorkersBuildsRun);
+    const runs = pipeline.length > 0 ? pipeline : all;
     if (runs.length === 0) {
-      return { state: 'none', previewUrl: null, detailsUrl: null };
+      return { state: 'none', previewUrl: null, detailsUrl: null, conclusion: null, workersBuilds: false };
     }
     const pending = runs.some((run) => run.status !== 'completed');
-    const failed = runs.some((run) => run.conclusion === 'failure' || run.conclusion === 'timed_out');
+    const failed = runs.find(
+      (run) => run.status === 'completed' && !PASSING_CONCLUSIONS.has(run.conclusion ?? 'unknown'),
+    );
     const text = runs.map((run) => `${run.output.title ?? ''}\n${run.output.summary ?? ''}`).join('\n');
     return {
       state: failed ? 'failure' : pending ? 'pending' : 'success',
       previewUrl: /https:\/\/[^\s)"'<>\]]+\.workers\.dev[^\s)"'<>\]]*/.exec(text)?.[0] ?? null,
-      detailsUrl: runs.find((run) => run.details_url)?.details_url ?? null,
+      detailsUrl: (failed?.details_url ? failed : runs.find((run) => run.details_url))?.details_url ?? null,
+      conclusion: failed ? (failed.conclusion ?? 'unknown') : null,
+      workersBuilds: pipeline.length > 0,
     };
   }
 
