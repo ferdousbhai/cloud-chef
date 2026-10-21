@@ -176,9 +176,10 @@ describe('workspace runtime provisioning Workflow', () => {
 
   describe('scheduled upgrade sweep', () => {
     const existing = () =>
-      vi
-        .fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch']>()
-        .mockRejectedValue(new Error('instance with id workspace-... already exists'));
+      vi.fn<CreateBatch>().mockResolvedValue({
+        created: [],
+        errors: [{ index: 0, id: 'workspace-...', code: 409, message: 'instance already exists' }],
+      });
     const sweepArgs = (env: Pick<Env, 'USER_WORKSPACE_RUNTIME_PROVISIONING'>, overrides = {}) => ({
       ...launchArgs(env),
       restartFailed: true,
@@ -188,15 +189,13 @@ describe('workspace runtime provisioning Workflow', () => {
 
     it('starts the same Workflow instance a session request would', async () => {
       const instance = workflowInstance(vi.fn<WorkflowInstance['status']>().mockResolvedValue({ status: 'running' }));
-      const createBatch = vi
-        .fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch']>()
-        .mockResolvedValue([instance]);
+      const createBatch = vi.fn<CreateBatch>().mockResolvedValue({ created: [instance], errors: [] });
       const env = workflowEnv(createBatch, vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>());
 
       await expect(sweepUserWorkspaceRuntimeUpgrade(sweepArgs(env))).resolves.toBe('started');
       await startUserWorkspaceRuntimeProvisioning(launchArgs(env));
 
-      const [swept, requested] = createBatch.mock.calls.map((call) => call[0][0]);
+      const [swept, requested] = createBatch.mock.calls.map((call) => call[0].instances![0]!);
       expect(swept.id).toBe(requested.id);
       expect(swept.params).toEqual(requested.params);
     });

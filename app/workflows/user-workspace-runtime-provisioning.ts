@@ -250,12 +250,15 @@ export async function sweepUserWorkspaceRuntimeUpgrade(args: {
   const params = provisioningParams(args);
   const id = await provisioningInstanceId(params);
   try {
-    await args.env.USER_WORKSPACE_RUNTIME_PROVISIONING.createBatch([
-      { id, params, retention: { successRetention: '1 day', errorRetention: '1 day' } },
-    ]);
-    return 'started';
+    const { created } = await args.env.USER_WORKSPACE_RUNTIME_PROVISIONING.createBatch({
+      instances: [{ id, params, retention: { successRetention: '1 day', errorRetention: '1 day' } }],
+    });
+    if (created.length > 0) {
+      return 'started';
+    }
   } catch {
-    // The binding throws when the id already exists: that instance is the answer.
+    // As when a session request starts it: an existing id comes back as a per-instance error or a
+    // throw, and either way that instance is the answer.
   }
   const instance = await args.env.USER_WORKSPACE_RUNTIME_PROVISIONING.get(id);
   const status = await instance.status();
