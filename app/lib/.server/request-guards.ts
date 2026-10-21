@@ -15,7 +15,13 @@ export function safeReturnTo(callbackURL: string | undefined, origin: string): s
   if (!callbackURL) {
     return '/';
   }
-  const callback = new URL(callbackURL, origin);
+  let callback: URL;
+  try {
+    callback = new URL(callbackURL, origin);
+  } catch {
+    // Not a URL at all (`http://[`): there is nowhere safe to return to but the builder.
+    return '/';
+  }
   if (callback.origin !== origin || callback.pathname.startsWith('//')) {
     return '/';
   }

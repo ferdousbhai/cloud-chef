@@ -85,6 +85,20 @@ describe('email sign-in', () => {
     expect(sent[0]).not.toContain('workers.dev');
   });
 
+  it('returns to the builder after a link asked to return somewhere that is not a URL', async () => {
+    const { env, sent } = setup();
+    const start = await startEmailSignInAction({
+      request: post('/api/auth/email/start', { email: 'sam@example.com', callbackURL: 'http://[' }),
+      env,
+    });
+    expect(start.status).toBe(202);
+    const complete = await completeEmailSignInAction({
+      request: post('/api/auth/email/complete', { token: tokenFrom(sent[0]) }),
+      env,
+    });
+    await expect(complete.json()).resolves.toEqual({ returnTo: '/' });
+  });
+
   it('says which address a link is for without using it up', async () => {
     const { env, sent } = setup();
     await startEmailSignInAction({ request: post('/api/auth/email/start', { email: 'sam@example.com' }), env });
