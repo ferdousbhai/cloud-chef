@@ -162,7 +162,8 @@ specified in `workers-builds.production.json`: keep the dashboard commands, bran
 and token selection aligned with that file. Runtime secrets remain on the Worker and are not build variables.
 
 Cloudflare Workers Builds runs the full `pnpm run validate` on every non-production branch
-(`scripts/workers-builds-checks.mjs`) and uploads nothing (`pnpm run workers-builds:branch`). A push to `main` validates too, inside the deploy step, so a
+(`scripts/workers-builds-checks.mjs`), checks its build identity and clean checkout but not the production branch
+(`deploy-production.mjs --check-workers-builds`), and uploads nothing (`pnpm run workers-builds:branch`). A push to `main` validates too, inside the deploy step, so a
 release that fails validation deploys and migrates nothing. Its build command only regenerates the checked-in outputs
 and checks the release inputs. The deploy command (`scripts/deploy-production.mjs --workers-builds`), which runs only
 from the exact Workers Builds checkout, then runs `pnpm run validate` with the exact 40-character commit ID and OAuth

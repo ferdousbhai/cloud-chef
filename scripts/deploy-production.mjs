@@ -181,6 +181,35 @@ export function resolveDeployableCommitSha({ spawn = spawnSync, env = process.en
   } else {
     validateWorkersBuildContext({ env, spawn, currentCommitSha: commitSha });
   }
+  requireDeployableWorktree({ spawn, env });
+  return commitSha;
+}
+
+/**
+ * The last command of every Workers Builds build step. On main it proves the inputs the deploy step will release.
+ * Any other branch deploys nothing (scripts/workers-builds-branch.mjs), so it proves the same build identity and
+ * clean checkout without the production-branch requirement, which every deploy path still enforces itself.
+ * @param {{clientId?: string, env?: Record<string, string | undefined>, spawn?: typeof spawnSync}} [options]
+ * @returns {string} the commit the build checked
+ */
+export function checkWorkersBuildInputs({
+  clientId = process.env[CLIENT_ID_ENV],
+  env = process.env,
+  spawn = spawnSync,
+} = {}) {
+  validateOAuthClientId(clientId);
+  if (env.WORKERS_CI_BRANCH === 'main') {
+    return resolveDeployableCommitSha({ spawn, env });
+  }
+  const { commitSha } = validateWorkersBuildMetadata({ env, spawn });
+  requireDeployableWorktree({ spawn, env });
+  return commitSha;
+}
+
+/**
+ * @param {{spawn: typeof spawnSync, env: Record<string, string | undefined>}} options
+ */
+function requireDeployableWorktree({ spawn, env }) {
   const result = spawn('git', ['status', '--porcelain=v1', '--untracked-files=normal'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -230,7 +259,6 @@ export function resolveDeployableCommitSha({ spawn = spawnSync, env = process.en
       'Production deploy refuses ignored root .env*, .dev.vars*, and *.vars files because Vite or cf could make the build differ from COMMIT_SHA.',
     );
   }
-  return commitSha;
 }
 
 /**
@@ -580,13 +608,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       await deployFromWorkersBuilds();
       return;
     }
+    if (command === '--check-workers-builds') {
+      const commitSha = checkWorkersBuildInputs();
+      console.log(
+        process.env.WORKERS_CI_BRANCH === 'main'
+          ? `Production deploy inputs are valid for commit ${commitSha}.`
+          : `Branch build inputs are valid for commit ${commitSha}; a branch build deploys nothing.`,
+      );
+      return;
+    }
     const local = command === '--local';
     const clientId = validateOAuthClientId(process.env[CLIENT_ID_ENV]);
     const commitSha = resolveDeployableCommitSha({ local });
-    if (command === '--check-workers-builds') {
-      console.log(`Production deploy inputs are valid for commit ${commitSha}.`);
-      return;
-    }
     await deployAndVerifyProduction({ clientId, commitSha, local });
   };
 

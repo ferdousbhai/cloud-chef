@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import {
+  checkWorkersBuildInputs,
   deployAndVerifyProduction,
   deployFromWorkersBuilds,
   deployProduction,
@@ -227,6 +228,94 @@ describe('production deploy wrapper', () => {
         currentCommitSha: commitSha,
       }),
     ).toThrow('must be a lowercase UUID');
+  });
+
+  describe('Workers Builds build step check', () => {
+    const branchEnv = { ...workersBuildEnv, WORKERS_CI_BRANCH: 'next' };
+    const head = { status: 0, stdout: `${commitSha}\n`, stderr: '' };
+    const empty = { status: 0, stdout: '', stderr: '' };
+    const spawns: ReturnType<typeof vi.fn>[] = [];
+    function checkout(...results: (typeof head)[]) {
+      const spawn = vi.fn();
+      for (const result of results) {
+        spawn.mockReturnValueOnce(result);
+      }
+      spawns.push(spawn);
+      // SAFETY: these checks only call `git` synchronously and read `error`, `status`, `stdout` and `stderr`.
+      return spawn as never;
+    }
+    const lastSpawn = () => spawns[spawns.length - 1];
+
+    it('passes a branch build, which deploys nothing, without requiring main', () => {
+      expect(
+        checkWorkersBuildInputs({ clientId: 'oauth-client-id', env: branchEnv, spawn: checkout(head, empty, empty) }),
+      ).toBe(commitSha);
+      expect(lastSpawn()).toHaveBeenCalledTimes(3);
+    });
+
+    it('still checks a branch build for its identity, a clean checkout, and the OAuth client id', () => {
+      expect(() =>
+        checkWorkersBuildInputs({
+          clientId: 'oauth-client-id',
+          env: { ...branchEnv, WORKERS_CI_COMMIT_SHA: 'b'.repeat(40) },
+          spawn: checkout(head, empty, empty),
+        }),
+      ).toThrow('does not match the checked-out commit');
+      expect(() =>
+        checkWorkersBuildInputs({
+          clientId: 'oauth-client-id',
+          env: branchEnv,
+          spawn: checkout(head, { status: 0, stdout: ' M app/server.ts\n', stderr: '' }),
+        }),
+      ).toThrow('requires a clean Git worktree');
+      expect(() =>
+        checkWorkersBuildInputs({ clientId: '', env: branchEnv, spawn: checkout(head, empty, empty) }),
+      ).toThrow('CLOUDFLARE_OAUTH_CLIENT_ID must be configured');
+    });
+
+    it('checks a main build exactly as the production deploy resolves its commit', () => {
+      expect(
+        checkWorkersBuildInputs({
+          clientId: 'oauth-client-id',
+          env: workersBuildEnv,
+          spawn: checkout(head, empty, empty),
+        }),
+      ).toBe(commitSha);
+      expect(lastSpawn()).toHaveBeenCalledTimes(3);
+      expect(() =>
+        checkWorkersBuildInputs({
+          clientId: 'oauth-client-id',
+          env: { ...workersBuildEnv, WORKERS_CI_BUILD_UUID: 'not-a-uuid' },
+          spawn: checkout(head, empty, empty),
+        }),
+      ).toThrow('must be a lowercase UUID');
+    });
+
+    it('leaves every production deploy path refusing a branch build', async () => {
+      expect(() => resolveDeployableCommitSha({ spawn: checkout(head, empty, empty), env: branchEnv })).toThrow(
+        'Cloudflare production deploy requires the main branch; found next.',
+      );
+      expect(() =>
+        deployProduction({
+          clientId: 'oauth-client-id',
+          env: branchEnv,
+          spawn: checkout(head, empty, empty),
+          readBuiltConfig,
+        }),
+      ).toThrow('requires the main branch');
+      const deploySpawn = checkout(head, empty, empty);
+      const spawnValidation = vi.fn();
+      await expect(
+        deployFromWorkersBuilds({
+          clientId: 'oauth-client-id',
+          env: branchEnv,
+          spawn: deploySpawn,
+          spawnValidation,
+        }),
+      ).rejects.toThrow('requires the main branch');
+      expect(spawnValidation).not.toHaveBeenCalled();
+      expect(deploySpawn).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('builds with the OAuth ID and exact commit, then ships that build with cf without a shell', () => {
