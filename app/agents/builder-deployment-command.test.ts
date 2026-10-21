@@ -243,6 +243,63 @@ describe('builder deployment command', () => {
     expect(new Set(terminalized).size).toBe(3);
   });
 
+  it('reports the record it settled as succeeded, even under the identity from before, over a later plan', async () => {
+    // A preview planned the revision under its current identity; the record from before was promoted.
+    mocks.terminalizeInterrupted
+      .mockReset()
+      .mockResolvedValueOnce(settled('11111111-1111-5111-8111-111111111111', 'approved', false))
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(settled('33333333-3333-5333-8333-333333333333', 'succeeded'));
+    const recover = () =>
+      terminalizeInterruptedDeploymentForBuilder({
+        context: operationContext(),
+        workspace: workspaceStub(),
+        toolCallId: 'deploy-command:7:revision',
+        validatedRevision: 'a'.repeat(64),
+      });
+
+    await expect(recover()).resolves.toMatchObject({ id: '33333333-3333-5333-8333-333333333333', status: 'succeeded' });
+
+    // One found succeeded, which a later deployment may have replaced, is not reported over the latest plan.
+    mocks.terminalizeInterrupted
+      .mockReset()
+      .mockResolvedValueOnce(settled('11111111-1111-5111-8111-111111111111', 'approved', false))
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(settled('33333333-3333-5333-8333-333333333333', 'succeeded', false));
+    await expect(recover()).resolves.toMatchObject({ id: '11111111-1111-5111-8111-111111111111', status: 'ready' });
+  });
+
+  it('reports an earlier plan it settled as succeeded over the latest plan', async () => {
+    mocks.terminalizeInterrupted
+      .mockReset()
+      .mockResolvedValueOnce(settled('11111111-1111-5111-8111-111111111111', 'succeeded'))
+      .mockResolvedValueOnce(settled('22222222-2222-5222-8222-222222222222', 'failed'))
+      .mockResolvedValue(null);
+
+    await expect(
+      terminalizeInterruptedDeploymentForBuilder({
+        context: operationContext(),
+        workspace: workspaceStub(),
+        toolCallId: 'deploy-command:7:revision',
+        validatedRevision: 'a'.repeat(64),
+      }),
+    ).resolves.toMatchObject({ id: '11111111-1111-5111-8111-111111111111', status: 'succeeded' });
+
+    mocks.terminalizeInterrupted
+      .mockReset()
+      .mockResolvedValueOnce(settled('11111111-1111-5111-8111-111111111111', 'succeeded', false))
+      .mockResolvedValueOnce(settled('22222222-2222-5222-8222-222222222222', 'failed'))
+      .mockResolvedValue(null);
+    await expect(
+      terminalizeInterruptedDeploymentForBuilder({
+        context: operationContext(),
+        workspace: workspaceStub(),
+        toolCallId: 'deploy-command:7:revision',
+        validatedRevision: 'a'.repeat(64),
+      }),
+    ).resolves.toMatchObject({ id: '22222222-2222-5222-8222-222222222222', status: 'failed' });
+  });
+
   it('settles one execution of one record', async () => {
     await expect(
       settleDeploymentForBuilder({

@@ -111,17 +111,25 @@ export async function terminalizeInterruptedDeploymentForBuilder(args: {
   // Each plan of the revision is terminalized, since any one of them left active would hold the
   // project's deployments forever; the latest is the one that ran. A deployment the runtime was
   // upgraded under keeps its earlier identity, and is settled too even once the revision has a plan
-  // under the current one: a preview plans the revision without settling it.
+  // under the current one: a preview plans the revision without settling it. One this recovery settles
+  // as succeeded is the one that ran, whichever it is, since production serves it.
   let deployment: PublicDeployment | null = null;
+  let succeeded: PublicDeployment | null = null;
   for (let generation = 0; generation < MAX_PUBLICATION_PLANS; generation += 1) {
     const planned = await terminalize(await publicationDeploymentId(...identity, generation));
     if (!planned) {
       break;
     }
     deployment = planned.deployment;
+    if (planned.settled && planned.deployment.status === 'succeeded') {
+      succeeded = planned.deployment;
+    }
   }
   const previous = await terminalize(await previousPublicationDeploymentId(...identity));
-  return builderDeploymentState(deployment ?? previous?.deployment ?? null);
+  if (previous?.settled && previous.deployment.status === 'succeeded') {
+    succeeded ??= previous.deployment;
+  }
+  return builderDeploymentState(succeeded ?? deployment ?? previous?.deployment ?? null);
 }
 
 /**
