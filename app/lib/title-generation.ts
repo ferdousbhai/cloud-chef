@@ -3,12 +3,10 @@ const CONVERSATION_TITLE_REGENERATION_PROMPT_CHARACTERS = 64;
 
 const MAX_TITLE_PROMPT_CHARACTERS = 4_000;
 /**
- * A ceiling, not a leash. CloudChef's per-request output budget is floored at 4,096 tokens
- * (`requestOutputTokens` in `app/lib/.server/llm/pi-ai-models.ts` lifts anything smaller), so the
- * old 24-token request was silently granted 4,096 anyway and could never keep a title short.
- * Asking for the floor is the honest version of the same request; brevity is enforced instead by
- * the prompt's single-line/word-count requirements and by `normalizeGeneratedTitle`, which keeps
- * only the first line and clamps it to `MAX_GENERATED_TITLE_CHARACTERS`.
+ * A ceiling, not a leash: `requestOutputTokens` in `app/lib/.server/llm/pi-ai-models.ts` grants
+ * what a caller asks for, so this only stops a runaway reply. Brevity is enforced instead by the
+ * prompt's single-line/word-count requirements and by `normalizeGeneratedTitle`, which keeps only
+ * the first line and clamps it to `MAX_GENERATED_TITLE_CHARACTERS`.
  */
 const TITLE_GENERATION_MAX_OUTPUT_TOKENS = 4_096;
 const TITLE_GENERATION_TEMPERATURE = 0;

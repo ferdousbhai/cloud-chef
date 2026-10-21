@@ -11,10 +11,11 @@ import {
   type BuilderModel,
   type BuilderModelCatalogPayload,
   type BuilderModelId,
+  type BuilderReasoningLevel,
   type GatewayKey,
   type WorkersAiModelId,
 } from '~/lib/workers-ai-model';
-import { gatewayBuilderModels, piGatewayModel, piWorkersAiModel } from './pi-model-catalog';
+import { gatewayBuilderModels, piGatewayModel, piWorkersAiModel, withReasoningLevels } from './pi-model-catalog';
 
 const MAX_CATALOG_MODELS = 100;
 
@@ -49,25 +50,31 @@ export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalog
   for (const entry of catalog) {
     const properties = new Map(entry.properties.map(({ property_id, value }) => [property_id, value]));
     const contextTokens = numericProperty(properties.get('context_window'));
+    const piModel = isWorkersAiModelId(entry.name) ? piWorkersAiModel(entry.name) : undefined;
     if (
       entry.source !== 1 ||
       entry.task.name !== 'Text Generation' ||
       !isWorkersAiModelId(entry.name) ||
-      piWorkersAiModel(entry.name) === undefined ||
+      piModel === undefined ||
       properties.get('function_calling') !== 'true' ||
       contextTokens < MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS
     ) {
       continue;
     }
+    const reasoning = properties.get('reasoning') === 'true';
     const model: BuilderModel = {
       id: entry.name,
       label: workersAiModelLabel(entry.name),
       description: boundedDescription(entry.description),
       contextTokens,
       requiresPaid: properties.get('require_workers_paid') === 'true',
-      reasoning: properties.get('reasoning') === 'true',
+      reasoning,
       vision: properties.get('vision') === 'true',
     };
+    // The efforts Pi's catalog lists for the model, offered only while Cloudflare says it reasons.
+    if (reasoning) {
+      Object.assign(model, withReasoningLevels(piModel));
+    }
     const createdAt = catalogEntryCreatedAt(entry);
     if (createdAt !== undefined) {
       model.createdAt = createdAt;
@@ -97,15 +104,50 @@ export async function requireBuilderModel(
     throw new Response('The selected model is not compatible with the CloudChef builder.', { status: 400 });
   }
   // Fail closed: a provider's model is sent only while the account's gateway holds its own key for it.
-  const key = (await gatewayKeys().catch(() => [])).find((candidate) => candidate.provider === provider);
+  // A lookup that failed says nothing about whether the key is there, so it is reported as a check
+  // that could not be made — retryable — rather than as a key an admin has to go and link.
+  const { label } = GATEWAY_PROVIDERS[provider];
+  let keys: GatewayKey[];
+  try {
+    keys = await gatewayKeys();
+  } catch (error) {
+    console.warn({ event: 'gateway_key_lookup_failed', provider, error: String(error) });
+    throw new Response(`CloudChef could not check this account's ${label} key just now. Try again in a moment.`, {
+      status: 503,
+      headers: { 'retry-after': '5' },
+    });
+  }
+  const key = keys.find((candidate) => candidate.provider === provider);
   if (!key) {
-    const { label } = GATEWAY_PROVIDERS[provider];
     throw new Response(
       `${label} is not set up for this account. An admin can link a ${label} key in Settings, under Models.`,
       { status: 409 },
     );
   }
   return { model, gatewayKeyAlias: key.alias };
+}
+
+/**
+ * The reasoning effort a turn runs at: none chosen means the provider's default, and a chosen one
+ * must be an effort the model offers. A level the picker could not have offered for this model is
+ * refused rather than mapped to something else, so a turn never runs at an effort nobody chose.
+ */
+export function requireBuilderReasoningLevel(
+  model: BuilderModel,
+  level: BuilderReasoningLevel | undefined,
+): BuilderReasoningLevel | undefined {
+  if (level === undefined) {
+    return undefined;
+  }
+  if (!model.reasoningLevels?.includes(level)) {
+    throw new Response(
+      `${model.label} does not offer the "${level}" reasoning effort. Choose another in the model picker.`,
+      {
+        status: 400,
+      },
+    );
+  }
+  return level;
 }
 
 export async function requireWorkersAiBuilderModel(

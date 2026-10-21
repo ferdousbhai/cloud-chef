@@ -117,7 +117,8 @@ export function lineEditBaseTag(sha256: string): string {
  * edit by one line against the line the model actually saw.
  */
 export function logicalLines(content: string): string[] {
-  return splitLogicalText(content.startsWith('\uFEFF') ? content.slice(1) : content).lines;
+  const body = content.startsWith('\uFEFF') ? content.slice(1) : content;
+  return splitLines(body, usesCarriageReturnLineEndings(body)).lines;
 }
 
 /** Format a stable file snapshot as numbered lines suitable for line-anchored edits. */
@@ -193,31 +194,86 @@ export function applyLineEdits(original: string, operations: readonly LineEditOp
 
   const parsed = parseText(original);
   const located = locateText(parsed);
-  const planned = operations.map((operation, operationIndex) =>
-    'oldText' in operation
-      ? planTextReplacement(operation, operationIndex, parsed, located)
-      : planOperation(operation, operationIndex, parsed.lines.length),
-  );
+  const textOperations: { operation: { oldText: string; newText: string }; operationIndex: number }[] = [];
+  const planned: PlannedOperation[] = [];
+  operations.forEach((operation, operationIndex) => {
+    if ('oldText' in operation) {
+      textOperations.push({ operation, operationIndex });
+    } else {
+      planned.push(planOperation(operation, operationIndex, parsed));
+    }
+  });
+  planned.push(...planTextReplacements(textOperations, parsed, located));
   assertOperationsDoNotOverlap(planned);
 
-  const nextLines = [...parsed.lines];
-  for (const operation of [...planned].sort(compareForApplication)) {
-    nextLines.splice(operation.index, operation.deleteCount, ...operation.contentLines);
-  }
-
-  const nextBody =
-    nextLines.join(parsed.lineEnding) + (parsed.hasFinalNewline && nextLines.length > 0 ? parsed.lineEnding : '');
-  const content = parsed.bom + nextBody;
+  const nextLines = applyPlannedOperations(parsed, planned);
+  const content = parsed.bom + nextLines.map(({ text, ending }) => text + ending).join('');
   if (content === original) {
     throw new Error('The line edit produced no changes.');
   }
   return {
     content,
-    editsApplied: planned.length,
+    editsApplied: operations.length,
     firstChangedLine: Math.min(...planned.map((operation) => operation.index + 1)),
-    diff: renderDiff(parsed.lines, nextLines, planned),
+    diff: renderDiff(
+      parsed.lines,
+      nextLines.map(({ text }) => text),
+      planned,
+    ),
     bracketImbalance: bracketImbalance(parsed.lines, planned),
   };
+}
+
+/** A line of the edited file, with the ending it is written with ('' for an unterminated last line). */
+type EditedLine = { text: string; ending: string; insertedWithFinalNewline?: boolean };
+
+/**
+ * Splice every operation into the original lines, keeping each untouched line's own ending, so an
+ * edit rewrites only the lines it changes — a file that mixes CRLF and LF keeps both.
+ *
+ * A replaced region's new lines take the endings of the lines they replace, position by position,
+ * and its last line takes the replaced region's last ending; inserted lines take the file's first
+ * ending. Afterwards every line but the last is terminated, and the last is terminated exactly when
+ * the file was — or, for content inserted at the very end, when that content was.
+ */
+function applyPlannedOperations(parsed: ParsedText, planned: readonly PlannedOperation[]): EditedLine[] {
+  const next: EditedLine[] = parsed.lines.map((text, index) => ({ text, ending: parsed.endings[index]! }));
+  for (const operation of [...planned].sort(compareForApplication)) {
+    const replaced = next.slice(operation.index, operation.index + operation.deleteCount);
+    const count = operation.contentLines.length;
+    const added = operation.contentLines.map((text, position): EditedLine => {
+      const last = position === count - 1;
+      if (operation.kind === 'insert') {
+        return last
+          ? {
+              text,
+              ending: operation.contentHasFinalNewline ? parsed.defaultEnding : '',
+              insertedWithFinalNewline: operation.contentHasFinalNewline,
+            }
+          : { text, ending: parsed.defaultEnding };
+      }
+      const source = last ? replaced.at(-1) : replaced[Math.min(position, replaced.length - 1)];
+      return { text, ending: source?.ending ?? parsed.defaultEnding };
+    });
+    next.splice(operation.index, operation.deleteCount, ...added);
+  }
+
+  const originalLastEnding = parsed.endings.at(-1) ?? '';
+  const fileHadFinalNewline = originalLastEnding !== '';
+  for (const [index, line] of next.entries()) {
+    if (index < next.length - 1) {
+      if (line.ending === '') {
+        line.ending = parsed.defaultEnding;
+      }
+      continue;
+    }
+    if (!fileHadFinalNewline && line.insertedWithFinalNewline !== true) {
+      line.ending = '';
+    } else if (line.ending === '') {
+      line.ending = fileHadFinalNewline ? originalLastEnding : parsed.defaultEnding;
+    }
+  }
+  return next;
 }
 
 type LocatedText = {
@@ -228,7 +284,8 @@ type LocatedText = {
 };
 
 function locateText(parsed: ParsedText): LocatedText {
-  const text = parsed.lines.join('\n') + (parsed.hasFinalNewline && parsed.lines.length > 0 ? '\n' : '');
+  const hasFinalNewline = (parsed.endings.at(-1) ?? '') !== '';
+  const text = parsed.lines.join('\n') + (hasFinalNewline ? '\n' : '');
   const lineStarts = [0];
   for (let index = text.indexOf('\n'); index !== -1; index = text.indexOf('\n', index + 1)) {
     lineStarts.push(index + 1);
@@ -250,24 +307,92 @@ function lineIndexAt(located: LocatedText, offset: number): number {
   return low;
 }
 
+/** One exact-text replacement, located in the file. */
+type TextMatch = {
+  operationIndex: number;
+  matchStart: number;
+  matchEnd: number;
+  newText: string;
+  startIndex: number;
+  /** The line holding the position just after the match. */
+  endPositionIndex: number;
+  endIndex: number;
+};
+
 /**
- * Resolve an exact-text replacement to the whole original lines it touches, so it plans, overlaps,
- * and applies exactly like a line-range replacement.
+ * Resolve exact-text replacements to the whole original lines they touch, so they plan, overlap,
+ * and apply exactly like line-range replacements.
  *
- * The match must be unique: a replacement that could land in two places is exactly the silent
- * damage this form exists to prevent.
+ * Each match must be unique: a replacement that could land in two places is exactly the silent
+ * damage this form exists to prevent. Replacements whose lines meet but whose text does not — two
+ * names on one line — become one replacement of those lines; replacements whose text overlaps are
+ * refused.
  */
-function planTextReplacement(
+function planTextReplacements(
+  operations: readonly { operation: { oldText: string; newText: string }; operationIndex: number }[],
+  parsed: ParsedText,
+  located: LocatedText,
+): PlannedReplacement[] {
+  const matches = operations
+    .map(({ operation, operationIndex }) => locateTextReplacement(operation, operationIndex, parsed, located))
+    .sort((left, right) => left.matchStart - right.matchStart);
+  const clusters: TextMatch[][] = [];
+  for (const match of matches) {
+    const cluster = clusters.at(-1);
+    const previous = cluster?.at(-1);
+    if (cluster && previous && match.startIndex <= Math.max(...cluster.map(({ endIndex }) => endIndex))) {
+      if (match.matchStart < previous.matchEnd) {
+        throw new Error(`edits[${previous.operationIndex}] and edits[${match.operationIndex}] overlap.`);
+      }
+      cluster.push(match);
+    } else {
+      clusters.push([match]);
+    }
+  }
+  return clusters.map((cluster) => planTextCluster(cluster, parsed, located));
+}
+
+function planTextCluster(cluster: readonly TextMatch[], parsed: ParsedText, located: LocatedText): PlannedReplacement {
+  const first = cluster[0]!;
+  const startIndex = first.startIndex;
+  const endIndex = Math.max(...cluster.map((match) => match.endIndex));
+  const regionStart = located.lineStarts[startIndex]!;
+  const regionEnd = regionStart + parsed.lines.slice(startIndex, endIndex + 1).join('\n').length;
+  let replacement = '';
+  let cursor = regionStart;
+  for (const match of cluster) {
+    replacement += located.text.slice(cursor, match.matchStart) + match.newText;
+    cursor = match.matchEnd;
+  }
+  replacement += located.text.slice(Math.min(cursor, regionEnd), regionEnd);
+  const consumedFinalNewline = cluster.some((match) => match.endPositionIndex > match.endIndex);
+  if (consumedFinalNewline && replacement.endsWith('\n')) {
+    // The match consumed the file's final newline, which the rejoin restores on its own.
+    replacement = replacement.slice(0, -1);
+  }
+  return {
+    kind: 'replace',
+    operationIndex: first.operationIndex,
+    index: startIndex,
+    deleteCount: endIndex - startIndex + 1,
+    startLine: startIndex + 1,
+    endLine: endIndex + 1,
+    // Deleting through the end of the file leaves no line behind, rather than an empty one.
+    contentLines: consumedFinalNewline && replacement === '' ? [] : replacement.split('\n'),
+  };
+}
+
+function locateTextReplacement(
   operation: { oldText: string; newText: string },
   operationIndex: number,
   parsed: ParsedText,
   located: LocatedText,
-): PlannedReplacement {
+): TextMatch {
   if (operation.oldText.length === 0) {
     throw new Error(`edits[${operationIndex}].oldText must not be empty.`);
   }
-  const oldText = operation.oldText.replace(/\r\n|\r/g, '\n');
-  const newText = operation.newText.replace(/\r\n|\r/g, '\n');
+  const oldText = normalizeLineBreaks(operation.oldText, parsed.carriageReturnBreaks);
+  const newText = normalizeLineBreaks(operation.newText, parsed.carriageReturnBreaks);
   const occurrences = countOccurrences(located.text, oldText);
   if (occurrences === 0) {
     throw new Error(
@@ -281,29 +406,17 @@ function planTextReplacement(
   }
   const matchStart = located.text.indexOf(oldText);
   const matchEnd = matchStart + oldText.length;
-  const startIndex = lineIndexAt(located, matchStart);
   // The line holding the position just after the match: a match that ends with a newline takes
   // the next line too, whole, as its suffix, so deleting "line\n" removes the line.
   const endPositionIndex = lineIndexAt(located, matchEnd);
-  const endIndex = Math.min(endPositionIndex, parsed.lines.length - 1);
-  const regionStart = located.lineStarts[startIndex]!;
-  const regionEnd = regionStart + parsed.lines.slice(startIndex, endIndex + 1).join('\n').length;
-  let replacement =
-    located.text.slice(regionStart, matchStart) +
-    newText +
-    located.text.slice(Math.min(matchEnd, regionEnd), regionEnd);
-  if (endPositionIndex > endIndex && replacement.endsWith('\n')) {
-    // The match consumed the file's final newline, which the rejoin restores on its own.
-    replacement = replacement.slice(0, -1);
-  }
   return {
-    kind: 'replace',
     operationIndex,
-    index: startIndex,
-    deleteCount: endIndex - startIndex + 1,
-    startLine: startIndex + 1,
-    endLine: endIndex + 1,
-    contentLines: replacement.split('\n'),
+    matchStart,
+    matchEnd,
+    newText,
+    startIndex: lineIndexAt(located, matchStart),
+    endPositionIndex,
+    endIndex: Math.min(endPositionIndex, parsed.lines.length - 1),
   };
 }
 
@@ -430,6 +543,8 @@ type PlannedInsertion = {
   deleteCount: 0;
   afterLine: number;
   contentLines: string[];
+  /** Whether the inserted content ended with a line break, which decides a new last line's ending. */
+  contentHasFinalNewline: boolean;
 };
 
 type PlannedReplacement = {
@@ -446,7 +561,8 @@ type PlannedOperation = PlannedInsertion | PlannedReplacement;
 
 type LineAnchoredOperation = Exclude<LineEditOperation, { oldText: string }>;
 
-function planOperation(operation: LineAnchoredOperation, operationIndex: number, totalLines: number): PlannedOperation {
+function planOperation(operation: LineAnchoredOperation, operationIndex: number, parsed: ParsedText): PlannedOperation {
+  const totalLines = parsed.lines.length;
   if ('afterLine' in operation) {
     if (!Number.isSafeInteger(operation.afterLine) || operation.afterLine < 0) {
       throw new Error(`edits[${operationIndex}].afterLine must be a non-negative integer.`);
@@ -462,13 +578,15 @@ function planOperation(operation: LineAnchoredOperation, operationIndex: number,
         `edits[${operationIndex}].afterLine ${operation.afterLine} is beyond insertion line ${totalLines + 1}.`,
       );
     }
+    const content = splitLines(operation.content, parsed.carriageReturnBreaks);
     return {
       kind: 'insert',
       operationIndex,
       index: operation.afterLine,
       deleteCount: 0,
       afterLine: operation.afterLine,
-      contentLines: splitLogicalText(operation.content).lines,
+      contentLines: content.lines,
+      contentHasFinalNewline: content.endings.at(-1) !== '',
     };
   }
   assertPositiveInteger(operation.startLine, `edits[${operationIndex}].startLine`);
@@ -491,7 +609,7 @@ function planOperation(operation: LineAnchoredOperation, operationIndex: number,
     deleteCount: operation.endLine - operation.startLine + 1,
     startLine: operation.startLine,
     endLine: operation.endLine,
-    contentLines: splitLogicalText(operation.content).lines,
+    contentLines: splitLines(operation.content, parsed.carriageReturnBreaks).lines,
   };
 }
 
@@ -536,47 +654,61 @@ type LineEnding = '\n' | '\r\n' | '\r';
 type ParsedText = {
   bom: string;
   lines: string[];
-  lineEnding: LineEnding;
-  hasFinalNewline: boolean;
+  /** Each line's own terminator; '' for a last line the file leaves unterminated. */
+  endings: string[];
+  /** The ending new lines are written with: the file's first, or LF for a file that has none. */
+  defaultEnding: LineEnding;
+  /** Whether a lone CR ends a line in this file (`usesCarriageReturnLineEndings`). */
+  carriageReturnBreaks: boolean;
 };
-
-type LogicalText = { lines: string[]; hasFinalNewline: boolean };
 
 function parseText(content: string): ParsedText {
   const bom = content.startsWith('\uFEFF') ? '\uFEFF' : '';
   const body = bom ? content.slice(1) : content;
-  const parsed = splitLogicalText(body);
+  const carriageReturnBreaks = usesCarriageReturnLineEndings(body);
+  const { lines, endings } = splitLines(body, carriageReturnBreaks);
+  const first = endings.find((ending) => ending !== '');
   return {
     bom,
-    lines: parsed.lines,
-    lineEnding: firstLineEnding(body),
-    hasFinalNewline: parsed.hasFinalNewline,
+    lines,
+    endings,
+    defaultEnding: first === '\r\n' || first === '\r' ? first : '\n',
+    carriageReturnBreaks,
   };
 }
 
-/** The first line ending in the file decides how edited lines are rejoined; empty files use LF. */
-function firstLineEnding(body: string): LineEnding {
-  switch (/\r\n|\n|\r/.exec(body)?.[0]) {
-    case '\r\n':
-      return '\r\n';
-    case '\r':
-      return '\r';
-    default:
-      return '\n';
-  }
+/**
+ * A lone CR ends a line only in a file that uses CR line endings throughout \u2014 one with no LF at
+ * all. Anywhere else it is content: a `"\r"` inside a string literal of an LF file is part of its
+ * line, and an edit elsewhere in that file must not turn it into a line break.
+ */
+function usesCarriageReturnLineEndings(body: string): boolean {
+  return body.includes('\r') && !body.includes('\n');
 }
 
-function splitLogicalText(content: string): LogicalText {
-  const normalized = content.replace(/\r\n|\r/g, '\n');
-  if (normalized.length === 0) {
-    return { lines: [], hasFinalNewline: false };
+/** Text with each of the file's own line breaks read as LF. */
+function normalizeLineBreaks(text: string, carriageReturnBreaks: boolean): string {
+  return text.replace(carriageReturnBreaks ? /\r\n|\r/g : /\r\n/g, '\n');
+}
+
+/** A text's lines, and each one's own terminator ('' for an unterminated last line). */
+type SplitText = { lines: string[]; endings: string[] };
+
+function splitLines(content: string, carriageReturnBreaks: boolean): SplitText {
+  const lines: string[] = [];
+  const endings: string[] = [];
+  const breaks = carriageReturnBreaks ? /\r\n|\r|\n/g : /\r\n|\n/g;
+  let start = 0;
+  for (let match = breaks.exec(content); match !== null; match = breaks.exec(content)) {
+    lines.push(content.slice(start, match.index));
+    endings.push(match[0]);
+    start = match.index + match[0].length;
   }
-  const hasFinalNewline = normalized.endsWith('\n');
-  const withoutFinalNewline = hasFinalNewline ? normalized.slice(0, -1) : normalized;
-  return {
-    lines: withoutFinalNewline.length > 0 ? withoutFinalNewline.split('\n') : [''],
-    hasFinalNewline,
-  };
+  if (start < content.length) {
+    lines.push(content.slice(start));
+    endings.push('');
+  }
+  return { lines, endings };
 }
 
 function assertPositiveInteger(value: number, label: string): void {

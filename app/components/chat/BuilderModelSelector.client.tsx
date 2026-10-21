@@ -9,7 +9,9 @@ import {
   getBuilderModel,
   isBuilderModelId,
   builderModelPublishedTime,
+  builderReasoningLevelSchema,
   type BuilderModel,
+  type BuilderReasoningLevel,
 } from '~/lib/workers-ai-model';
 import {
   builderDefaultModelStore,
@@ -17,17 +19,31 @@ import {
   builderModelsStore,
   builderModelStore,
   builderNewModelsStore,
+  builderReasoningChoicesStore,
+  builderReasoningLevelFor,
   loadBuilderModelCatalog,
   loadBuilderModelPreference,
   markBuilderModelsSeen,
   orderBuilderModelsForDisplay,
   setBuilderModel,
+  setBuilderReasoningLevel,
   syncBuilderModelPreference,
 } from '~/lib/stores/builder-model.client';
 import { classNames } from '~/utils/classNames';
 
 /** A provider offering more models than this is shown as its own submenu, so the list stays usable. */
 const COLLAPSED_GROUP_SIZE = 24;
+
+/** How each effort reads in the picker; "Provider default" is the absence of one. */
+const REASONING_LEVEL_LABELS = {
+  minimal: 'Minimal',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+} as const satisfies Record<BuilderReasoningLevel, string>;
+const PROVIDER_DEFAULT_EFFORT = 'default';
 
 /** The catalog dates entries to the day, so the day is all the picker claims. */
 function formatModelAddedDate(model: BuilderModel): string | null {
@@ -50,7 +66,17 @@ export function BuilderModelSelector({
   const models = useStore(builderModelsStore);
   const newModels = useStore(builderNewModelsStore);
   const catalogStatus = useStore(builderModelCatalogStatusStore);
+  const reasoningChoices = useStore(builderReasoningChoicesStore);
   const model = getBuilderModel(modelId, models);
+  const reasoningLevels = model.reasoningLevels ?? [];
+  const reasoningLevel = builderReasoningLevelFor(model, reasoningChoices);
+  // Shown only for a model with efforts to choose from; "Default" is the provider's own.
+  const effortLabel =
+    reasoningLevels.length === 0
+      ? null
+      : reasoningLevel === undefined
+        ? 'Default'
+        : REASONING_LEVEL_LABELS[reasoningLevel];
   const [openRequested, setOpenRequested] = useState(false);
   const open = !disabled && openRequested;
   const orderedModels = useMemo(() => orderBuilderModelsForDisplay(models, defaultModelId), [defaultModelId, models]);
@@ -90,13 +116,13 @@ export function BuilderModelSelector({
       <DropdownMenu.Trigger asChild disabled={disabled}>
         <button
           type="button"
-          aria-label={`Builder model. Current: ${model.label}${disabled ? '. Stop or wait for the current response to finish before switching models.' : ''}`}
+          aria-label={`Builder model. Current: ${model.label}${effortLabel === null ? '' : `, reasoning effort ${reasoningLevel === undefined ? 'provider default' : effortLabel}`}${disabled ? '. Stop or wait for the current response to finish before switching models.' : ''}`}
           className={classNames(
             // A quiet label in the composer toolbar: the prompt is the focus, the model a setting.
             'group inline-flex min-h-7 min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-content-tertiary outline-none transition-colors hover:bg-bolt-elements-background-depth-3 hover:text-content-primary focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50',
             // Sized to its label. A fixed width here truncated the one value this control
             // exists to display.
-            'max-w-[13rem]',
+            'max-w-[16rem]',
           )}
           title={
             disabled
@@ -105,6 +131,11 @@ export function BuilderModelSelector({
           }
         >
           <span className="truncate">{model.label}</span>
+          {effortLabel !== null && (
+            <span className="shrink-0 text-content-tertiary" aria-hidden="true">
+              · {effortLabel}
+            </span>
+          )}
           <ChevronDownIcon
             className="ml-auto size-3.5 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180"
             aria-hidden="true"
@@ -120,6 +151,34 @@ export function BuilderModelSelector({
           aria-label="Builder model"
           className="z-50 max-h-[min(32rem,var(--radix-dropdown-menu-content-available-height))] w-[min(20rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-none"
         >
+          {reasoningLevels.length > 0 && (
+            <>
+              <DropdownMenu.Label
+                id="builder-reasoning-effort-label"
+                className="px-3 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-content-tertiary"
+              >
+                Reasoning effort · {model.label}
+              </DropdownMenu.Label>
+              <DropdownMenu.RadioGroup
+                aria-labelledby="builder-reasoning-effort-label"
+                value={reasoningLevel ?? PROVIDER_DEFAULT_EFFORT}
+                onValueChange={(value) => {
+                  if (disabled) {
+                    return;
+                  }
+                  const level = builderReasoningLevelSchema.safeParse(value);
+                  setBuilderReasoningLevel(model.id, level.success ? level.data : undefined);
+                }}
+                className="flex flex-wrap gap-1 px-2 pb-2"
+              >
+                <EffortItem value={PROVIDER_DEFAULT_EFFORT} label="Provider default" disabled={disabled} />
+                {reasoningLevels.map((level) => (
+                  <EffortItem key={level} value={level} label={REASONING_LEVEL_LABELS[level]} disabled={disabled} />
+                ))}
+              </DropdownMenu.RadioGroup>
+              <DropdownMenu.Separator className="mx-2 my-1 h-px bg-bolt-elements-borderColor" />
+            </>
+          )}
           <DropdownMenu.RadioGroup
             value={modelId}
             onValueChange={(value) => {
@@ -158,6 +217,22 @@ export function BuilderModelSelector({
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
+  );
+}
+
+/** One effort choice: a compact chip, at least 36px tall so it is an easy target on a phone. */
+function EffortItem({ value, label, disabled }: { value: string; label: string; disabled: boolean }) {
+  return (
+    <DropdownMenu.RadioItem
+      value={value}
+      textValue={label}
+      disabled={disabled}
+      // Choosing an effort keeps the menu open, so the model list below stays in reach.
+      onSelect={(event) => event.preventDefault()}
+      className="inline-flex min-h-9 cursor-pointer select-none items-center rounded-full border border-bolt-elements-borderColor px-3 text-xs font-medium text-content-secondary outline-none transition-colors data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 data-[highlighted]:bg-bolt-elements-background-depth-2 data-[state=checked]:border-accent-500 data-[state=checked]:bg-accent-500/10 data-[state=checked]:text-content-accent"
+    >
+      {label}
+    </DropdownMenu.RadioItem>
   );
 }
 

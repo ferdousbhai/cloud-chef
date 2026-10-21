@@ -33,7 +33,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { subchatQueryKey } from '~/lib/cloudflare/data-hooks';
 import { settleBuilderStop } from './builder-stop';
 import { refreshUserRuntimeSession, requireUserRuntimeEndpoint } from '~/lib/cloudflare/runtime-session';
-import { builderModelStore } from '~/lib/stores/builder-model.client';
+import { builderModelRequestFields, builderModelStore } from '~/lib/stores/builder-model.client';
 import { builderModelIdSchema } from '~/lib/workers-ai-model';
 import { loadAuthoritativeTranscriptSnapshot, reconcileMessagesForSend } from './chat-send-reconciliation';
 import { BUILDER_AGENT_QUERY_CACHE_TTL_MS, loadBuilderAgentCapability } from './builder-agent-auth';
@@ -194,7 +194,8 @@ export function useBuilderAgentChat(args: {
       return {
         body: {
           ...body,
-          modelId: builderModelIdSchema.safeParse(body?.modelId).data ?? builderModelStore.get(),
+          // The model, and the effort the person chose for it; none at all means the provider's default.
+          ...builderModelRequestFields(builderModelIdSchema.safeParse(body?.modelId).data ?? builderModelStore.get()),
           chatInitialId: args.chatInitialId,
           subchatIndex: subchatIndexStore.get() ?? 0,
           transcript,
