@@ -48,6 +48,19 @@ const productionRequestSentSchema = z.object({ outcome: z.enum(['requested', 'up
 
 const errorSchema = z.object({ error: z.string() });
 
+/** What the control plane's commit route reads; `branchKey` only when the workspace has its own branch. */
+type CommitRequest = ReturnType<typeof pick> & {
+  orgProjectId: string;
+  branchKey?: string;
+  baseCommit: string;
+  message: string;
+  publish: boolean;
+  changes: { path: string; contentBase64: string | null; executable: boolean }[];
+};
+
+/** What the control plane's site route reads; `branchKey` only when the workspace has its own branch. */
+type SiteRequest = ReturnType<typeof pick> & { orgProjectId: string; branchKey?: string };
+
 /** A project's default branch, file by file, as the control plane streams it. */
 export async function* streamLinkedProjectSnapshot(
   env: RuntimeEnv,
@@ -93,12 +106,11 @@ export async function commitLinkedProject(
   },
 ): Promise<LinkedCommitResult> {
   const { branchKey, ...rest } = body;
-  const response = await post(
-    env,
-    'runtime-github/commit',
-    { ...pick(identity), ...rest, ...(branchKey ? { branchKey } : {}) },
-    COMMIT_TIMEOUT_MS,
-  );
+  const request: CommitRequest = { ...pick(identity), ...rest };
+  if (branchKey) {
+    request.branchKey = branchKey;
+  }
+  const response = await post(env, 'runtime-github/commit', request, COMMIT_TIMEOUT_MS);
   const payload = await readJsonBodyWithLimit(
     response,
     MAX_JSON_RESPONSE_BYTES,
@@ -144,12 +156,11 @@ export async function linkedSiteOrigins(
   orgProjectId: string,
   branchKey: string | undefined,
 ): Promise<string[]> {
-  const response = await post(
-    env,
-    'runtime-github/site',
-    { ...pick(identity), orgProjectId, ...(branchKey ? { branchKey } : {}) },
-    STATUS_TIMEOUT_MS,
-  );
+  const request: SiteRequest = { ...pick(identity), orgProjectId };
+  if (branchKey) {
+    request.branchKey = branchKey;
+  }
+  const response = await post(env, 'runtime-github/site', request, STATUS_TIMEOUT_MS);
   if (!response.ok) {
     throw new Error(await failureMessage(response, "CloudChef could not look up the project's site."));
   }

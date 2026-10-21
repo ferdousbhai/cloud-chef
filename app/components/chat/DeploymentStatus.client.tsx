@@ -20,11 +20,11 @@ const SENT_MESSAGES = {
  * An admin approves requests themselves, so theirs isn't "sent to your admins": it waits in Settings, under the
  * team's GitHub projects, where approving it creates the repository.
  */
-const ADMIN_SENT_MESSAGES: Record<ProductionRequestOutcome, string> = {
+const ADMIN_SENT_MESSAGES = {
   requested: "Added to your team's production requests. Approve it in Settings to create its repository.",
   updated: 'Updated your request: Settings now shows this version to approve.',
   unchanged: 'Settings already shows this version to approve.',
-};
+} as const satisfies Record<ProductionRequestOutcome, string>;
 
 export function DeploymentStatus({
   deployment,

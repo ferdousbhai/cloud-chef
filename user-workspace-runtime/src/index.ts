@@ -3543,15 +3543,16 @@ function validationDeploymentConfig(project: DeploymentProjectProfile): Deployme
   return config;
 }
 
-function requireFileInputs(
-  value: unknown,
-): Array<{ path: string; content: string; encoding: 'utf8' | 'base64'; mode?: number }> {
+/** One file a seed writes, parsed: its mode only when the seed carries one. */
+type SeedFileInput = { path: string; content: string; encoding: 'utf8' | 'base64'; mode?: number };
+
+function requireFileInputs(value: unknown): SeedFileInput[] {
   if (!Array.isArray(value) || value.length > SYNC_BATCH_FILES) {
     throw new SyntaxError('Invalid workspace seed entries.');
   }
   return value.map((entryValue) => {
     const entry = record(entryValue);
-    const input: { path: string; content: string; encoding: 'utf8' | 'base64'; mode?: number } = {
+    const input: SeedFileInput = {
       path: requireProjectPath(entry.path),
       content:
         typeof entry.content === 'string' ? entry.content : requireString(entry.content, 'content', MAX_FILE_BYTES),

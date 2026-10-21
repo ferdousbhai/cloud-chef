@@ -40,7 +40,7 @@ describe('LinkedPublishStatus', () => {
   let root: Root;
 
   beforeEach(() => {
-    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, value: true });
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);

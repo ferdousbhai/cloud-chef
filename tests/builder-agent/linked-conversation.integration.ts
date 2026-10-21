@@ -66,8 +66,10 @@ type Publish = (
 
 /** The publish tool's implementation, which the model's `publish` and `publish_preview` call. */
 function publishTool(harness: BuilderAgentHarness): Publish {
-  const publish: Publish = Reflect.get(harness.agent, 'publishLinkedProject');
-  return (input, options) => publish.call(harness.agent, input, options);
+  // Element access reaches the private method TypeScript-checked, as the model tools' context calls it;
+  // dot access would not compile, and a public method would be Durable Object RPC.
+  // eslint-disable-next-line dot-notation
+  return (input, options) => harness.agent['publishLinkedProject'](input, options);
 }
 
 /** The control plane's commit endpoint: records each request, and answers like GitHub merged it. */
