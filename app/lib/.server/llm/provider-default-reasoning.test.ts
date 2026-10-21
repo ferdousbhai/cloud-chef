@@ -354,16 +354,49 @@ describe('withProviderDefaultReasoning', () => {
       },
       { requested: false },
     );
-    const { id: _lost, ...unpaired } = message('msg_lost');
+    // An output message's id is required, so it gets a made-up one, the same every time it's replayed.
+    const unpaired = body.input?.[1]?.id;
+    expect(unpaired).toMatch(/^msg_cc_[0-9a-f]{8}$/);
+    expect(
+      withProviderDefaultReasoning(
+        responsesModel,
+        { input: [{ type: 'reasoning', id: 'rs_lost', summary: [] }, message('msg_lost')] },
+        { requested: false },
+      ).input?.[0]?.id,
+    ).toBe(unpaired);
     expect(body.input).toEqual([
       { role: 'user', content: 'go' },
-      unpaired,
+      message(unpaired ?? ''),
       { role: 'user', content: 'again' },
       { type: 'reasoning', id: 'rs_kept', summary: [], encrypted_content: 'x' },
       message('msg_kept'),
       { role: 'user', content: 'and again' },
       message('msg_alone'),
     ]);
+  });
+
+  it('asks for no reasoning summary, even one Pi wrote beside a chosen effort, once the key refused them', () => {
+    expect(
+      withProviderDefaultReasoning(
+        responsesModel,
+        { reasoning: { effort: 'high', summary: 'auto' } },
+        { requested: true, summaries: 'refused' },
+      ).reasoning,
+    ).toEqual({ effort: 'high' });
+    expect(
+      withProviderDefaultReasoning(
+        responsesModel,
+        { reasoning: { summary: 'auto' } },
+        { requested: true, summaries: 'refused' },
+      ),
+    ).not.toHaveProperty('reasoning');
+    expect(
+      withProviderDefaultReasoning(
+        responsesModel,
+        { reasoning: { effort: 'high', summary: 'auto' } },
+        { requested: true, summaries: false },
+      ).reasoning,
+    ).toEqual({ effort: 'high', summary: 'auto' });
   });
 
   it('never strips a level the caller asked for', () => {
