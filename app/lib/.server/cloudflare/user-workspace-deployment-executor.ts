@@ -173,7 +173,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     // The last point at which stopping leaves production as it was.
     abortSignal?.throwIfAborted();
     await activity(args, 40, 'Applying database migrations');
-    await applyArtifactMigrations(publishApi, resources, artifact, 'production');
+    await applyProductionMigrations(publishApi, resources, artifact);
     providerChangesPossible = true;
     await activity(args, 50, 'Uploading assets and publishing Worker');
     await publishApi.deployManagedWorker(
@@ -292,11 +292,12 @@ export async function executeUserOwnedPreview(
     abortSignal?.throwIfAborted();
     await activity(args, 1, 'Preparing Cloudflare preview resources');
     const provisionApi = await createUserAccountApi(runtimeEnv, request);
-    const resources = await ensurePublicationResources({
+    const resourcePlan = publicationResourcePlan(deployment.plan, PREVIEW_BINDINGS);
+    const provisioned = await ensurePublicationResources({
       db: args.env.DB,
       deployment,
       accountApi: provisionApi,
-      resourcePlan: publicationResourcePlan(deployment.plan, PREVIEW_BINDINGS),
+      resourcePlan,
     });
     abortSignal?.throwIfAborted();
     await activity(args, 2, 'Cloudflare preview resources ready');
@@ -311,14 +312,22 @@ export async function executeUserOwnedPreview(
       reference,
       workerName,
       profile,
-      resources,
+      resources: provisioned,
     });
     await workspace.assertDeploymentSession({ sessionId: session.sessionId });
     abortSignal?.throwIfAborted();
 
     const publishApi = await createUserAccountApi(runtimeEnv, request);
     await activity(args, 3, 'Applying preview database migrations');
-    await applyArtifactMigrations(publishApi, resources, artifact, 'preview');
+    // The artifact's bytes do not depend on which database it binds, so one started over binds as well.
+    const resources = await applyPreviewMigrations({
+      db: args.env.DB,
+      deploymentId: deployment.id,
+      accountApi: publishApi,
+      resources: provisioned,
+      resourcePlan,
+      artifact,
+    });
     abortSignal?.throwIfAborted();
     await activity(args, 4, 'Uploading assets and publishing the preview Worker');
     const published = await publishApi.deployManagedWorker(
@@ -459,14 +468,14 @@ async function prepareValidatedArtifact(args: {
 }
 
 /**
- * Applies the migrations each database has not applied yet. The databases outlive every revision, so
- * one that applied a migration never runs it again, and refuses it once its contents have changed.
+ * Applies the migrations each production database has not applied yet. The databases outlive every
+ * revision, so one that applied a migration never runs it again, and refuses it once its contents have
+ * changed: production's data is never given up to apply one.
  */
-async function applyArtifactMigrations(
+async function applyProductionMigrations(
   accountApi: UserCloudflareAccountApi,
   resources: PublicationResources,
   artifact: PreparedDeploymentArtifact,
-  database: 'production' | 'preview',
 ): Promise<void> {
   try {
     if (resources.d1) {
@@ -477,10 +486,59 @@ async function applyArtifactMigrations(
     }
   } catch (error) {
     if (error instanceof D1MigrationChangedError) {
-      throw new Error(migrationChangedMessage(error, database));
+      throw new Error(migrationChangedMessage(error));
     }
     throw error;
   }
+}
+
+/**
+ * Applies the migrations each preview database has not applied yet, and starts over one that refuses a
+ * changed migration: a preview can apply a migration production never ran, and edited before it
+ * deployed, every later preview would be refused with nothing to reset the database but this. Its data
+ * is only what previews wrote. Returns the resources with each database started over in its place.
+ */
+async function applyPreviewMigrations(args: {
+  db: D1Database;
+  deploymentId: string;
+  accountApi: UserCloudflareAccountApi;
+  resources: PublicationResources;
+  resourcePlan: PublicationResourcePlan;
+  artifact: PreparedDeploymentArtifact;
+}): Promise<PublicationResources> {
+  const { resources, resourcePlan, artifact } = args;
+  const apply = async (
+    database: { id: string; name: string },
+    logicalName: PublicationBindings['app'] | PublicationBindings['agentSecurity'],
+    migrations: PreparedDeploymentArtifact['migrations']['DB'],
+  ): Promise<{ id: string; name: string }> => {
+    try {
+      await args.accountApi.applyD1Migrations(database.id, migrations);
+      return database;
+    } catch (error) {
+      if (!(error instanceof D1MigrationChangedError)) {
+        throw error;
+      }
+    }
+    await args.accountApi.deleteD1DatabaseById(database.id);
+    const fresh = await args.accountApi.ensureD1Database(database.name);
+    if (fresh.id === database.id) {
+      throw new Error(
+        `The preview database ${database.name} is still being replaced after a migration it applied changed. Publish the preview again.`,
+      );
+    }
+    await recordResource(args.db, args.deploymentId, 'd1', logicalName, fresh.id);
+    await args.accountApi.applyD1Migrations(fresh.id, migrations);
+    return fresh;
+  };
+  return {
+    ...resources,
+    d1: resources.d1 && resourcePlan.d1 ? await apply(resources.d1, resourcePlan.d1, artifact.migrations.DB) : null,
+    agentD1:
+      resources.agentD1 && resourcePlan.agentD1
+        ? await apply(resources.agentD1, resourcePlan.agentD1, artifact.migrations.AGENT_SECURITY_DB)
+        : null,
+  };
 }
 
 /**
@@ -488,7 +546,7 @@ async function applyArtifactMigrations(
  * applied contents, quoted when the database recorded them. Deleting the file is the other way back,
  * fit only for one that holds nothing a new database needs, like the starter's placeholder.
  */
-function migrationChangedMessage(error: D1MigrationChangedError, database: 'production' | 'preview'): string {
+function migrationChangedMessage(error: D1MigrationChangedError): string {
   const name = error.migrationName;
   const applied =
     error.appliedSql === null
@@ -497,7 +555,7 @@ function migrationChangedMessage(error: D1MigrationChangedError, database: 'prod
           error.appliedSql.length > MIGRATION_SQL_QUOTE_LIMIT ? '\n[truncated]' : ''
         }`;
   return (
-    `The migration ${name} was already applied to the ${database} database with different contents, and an applied migration never runs again. ` +
+    `The migration ${name} was already applied to the production database with different contents, and an applied migration never runs again. ` +
     `Put the change in a new migration numbered after the last one, and restore ${name} exactly as it was applied, ` +
     `or delete ${name} if it holds no schema a new database needs (as the starter's 0001_app_data.sql placeholder does).${applied}`
   );

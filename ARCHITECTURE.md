@@ -390,7 +390,10 @@ Preview publication performs no container work. Through the same generation-chec
 production deployment, it provisions the project's preview resources (created on a project's first preview, and like
 production's kept from one revision to the next), applies the artifact's migrations the preview databases have not
 applied, uploads static assets, and publishes the revision as the preview Worker's active version, exactly as a
-deployment publishes production's. The browser receives the preview Worker's `workers.dev` address, which serves that
+deployment publishes production's. A preview database that refuses a changed migration (one a preview applied before
+the model edited it, which production may never have run) is started over instead: deleted, created again under its
+name, and migrated from the first migration, since it holds only what previews wrote. Production's databases are never
+started over. The browser receives the preview Worker's `workers.dev` address, which serves that
 revision until the next preview replaces it. Neither Worker serves versioned preview URLs (`previews_enabled` is off),
 so no earlier version stays reachable against the data it was published with. There is no dev/HMR mode, local preview
 database, Vite preview process, quick tunnel, preview expiry alarm, or preview-specific container keep-alive.

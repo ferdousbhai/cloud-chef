@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   transitionDeployment: vi.fn(),
   accountApi: {
     ensureD1ForPlan: vi.fn(),
+    ensureD1Database: vi.fn(),
+    deleteD1DatabaseById: vi.fn(),
     ensureR2ForPlan: vi.fn(),
     ensureKvForPlan: vi.fn(),
     applyD1Migrations: vi.fn(),
@@ -656,14 +658,79 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     expect(recorded?.length).toBeLessThanOrEqual(4_000);
   });
 
-  it('names the preview database when a preview finds an applied migration changed', async () => {
+  it('starts the preview database over when it refuses a changed migration, and previews on the new one', async () => {
+    const { execution, deployment, workspace } = await workerDeployment({ d1: true });
+    workspace.artifact.migrations.DB = [{ name: '0002_notes.sql', sql: 'CREATE TABLE notes (id TEXT, body TEXT);' }];
+    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
+    // The preview applied 0002 before it was edited; production never ran it.
+    mocks.accountApi.applyD1Migrations.mockRejectedValueOnce(new D1MigrationChangedError('0002_notes.sql'));
+    mocks.accountApi.ensureD1Database.mockResolvedValueOnce({
+      id: 'fresh-preview-database-id',
+      name: 'cloudchef-deployment-1-preview',
+    });
+
+    await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).resolves.toMatchObject({
+      url: 'https://cloudchef-deployment-1-preview.user-subdomain.workers.dev',
+    });
+
+    expect(mocks.accountApi.deleteD1DatabaseById).toHaveBeenCalledWith('DB_PREVIEW-database-id');
+    expect(mocks.accountApi.ensureD1Database).toHaveBeenCalledWith('cloudchef-deployment-1-preview');
+    expect(mocks.accountApi.deleteD1DatabaseById.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.accountApi.ensureD1Database.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.accountApi.applyD1Migrations.mock.calls).toEqual([
+      ['DB_PREVIEW-database-id', workspace.artifact.migrations.DB],
+      ['fresh-preview-database-id', workspace.artifact.migrations.DB],
+    ]);
+    expect(mocks.recordDeploymentResource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resourceType: 'd1',
+        logicalName: 'DB_PREVIEW',
+        providerResourceId: 'fresh-preview-database-id',
+      }),
+    );
+    expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workerName: 'cloudchef-deployment-1-preview',
+        d1DatabaseId: 'fresh-preview-database-id',
+      }),
+    );
+  });
+
+  it('never starts production’s database over for a changed migration', async () => {
+    const { execution } = await workerDeployment({ d1: true });
+    mocks.accountApi.applyD1Migrations.mockRejectedValueOnce(new D1MigrationChangedError('0002_notes.sql'));
+
+    await expect(executeUserOwnedDeployment(execution)).rejects.toThrow('already applied to the production database');
+
+    expect(mocks.accountApi.deleteD1DatabaseById).not.toHaveBeenCalled();
+    expect(mocks.accountApi.ensureD1Database).not.toHaveBeenCalled();
+  });
+
+  it('keeps a preview database whose migrations fail for any other reason', async () => {
+    const { execution, deployment } = await workerDeployment({ d1: true });
+    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
+    mocks.accountApi.applyD1Migrations.mockRejectedValueOnce(new Error('near "CREAT": syntax error'));
+
+    await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).rejects.toThrow('syntax error');
+
+    expect(mocks.accountApi.deleteD1DatabaseById).not.toHaveBeenCalled();
+    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
+  });
+
+  it('stops a preview whose started-over database Cloudflare still answers with the deleted one', async () => {
     const { execution, deployment } = await workerDeployment({ d1: true });
     mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
     mocks.accountApi.applyD1Migrations.mockRejectedValueOnce(new D1MigrationChangedError('0002_notes.sql'));
+    mocks.accountApi.ensureD1Database.mockResolvedValueOnce({
+      id: 'DB_PREVIEW-database-id',
+      name: 'cloudchef-deployment-1-preview',
+    });
 
     await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).rejects.toThrow(
-      'The migration 0002_notes.sql was already applied to the preview database',
+      'is still being replaced',
     );
+    expect(mocks.accountApi.applyD1Migrations).toHaveBeenCalledOnce();
     expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
   });
 
@@ -812,7 +879,7 @@ async function workerDeployment(options: { d1?: boolean; storage?: boolean } = {
       },
     ],
     assets: [],
-    migrations: { DB: [], AGENT_SECURITY_DB: [] },
+    migrations: { DB: noMigrations(), AGENT_SECURITY_DB: noMigrations() },
   };
   const workspace = {
     artifact,
@@ -851,4 +918,8 @@ async function workerDeployment(options: { d1?: boolean; storage?: boolean } = {
     request,
   };
   return { execution, deployment, workspace };
+}
+
+function noMigrations(): { name: string; sql: string }[] {
+  return [];
 }
