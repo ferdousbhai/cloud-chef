@@ -1080,37 +1080,55 @@ describe('redoing a failed deployment', () => {
   });
 });
 
-describe("another revision's deployment record left holding the project", () => {
+describe('another deployment record left holding the project', () => {
   const STALE = 20 * 60_000;
+  /** The record every deployment here plans, and claims once no other record holds the project. */
+  const PLANNED = 'deployment-planned';
 
   /** The record a deployment of `CHECKPOINT` left in the runtime's D1, last touched `age` ago. */
-  function leftRecord(harness: BuilderAgentHarness, status: 'provisioning' | 'deploying', age = STALE) {
+  function leftRecord(
+    harness: BuilderAgentHarness,
+    status: 'provisioning' | 'deploying',
+    age = STALE,
+    id = 'deployment-left',
+  ) {
     harness.database
       .prepare(
         `INSERT INTO deployments (
            id, chat_id, user_id, connection_id, connection_generation, workspace_reference,
            status, plan_json, plan_digest, created_at, updated_at
-         ) VALUES ('deployment-left', 'chat-1', 'owner-1', 'connection-1', 1, ?, ?, '{}', 'digest', 1, ?)`,
+         ) VALUES (?, 'chat-1', 'owner-1', 'connection-1', 1, ?, ?, '{}', 'digest', 1, ?)`,
       )
       .run(
+        id,
         `workspace-runtime:${PROJECT_ID}:${CHECKPOINT.workspaceRevision}:${CHECKPOINT.revision}`,
         status,
         Date.now() - age,
       );
   }
 
-  function recordStatus(harness: BuilderAgentHarness) {
-    return harness.database.prepare(`SELECT status FROM deployments WHERE id = 'deployment-left'`).get()?.status;
+  function recordStatus(harness: BuilderAgentHarness, id = 'deployment-left') {
+    return harness.database.prepare(`SELECT status FROM deployments WHERE id = ?`).get(id)?.status;
   }
 
-  /** Publication commands that refuse `NEXT_CHECKPOINT` while the left record holds the project, as the claim does. */
+  /** Publication commands that refuse a deployment while another record holds the project, as the claim does. */
   function holdingPublisher(harness: () => BuilderAgentHarness, options: { settlesAs?: 'failed' | 'succeeded' } = {}) {
-    const deploy = vi.fn<BuilderPublisher['deploy']>(async () => {
-      const status = recordStatus(harness());
-      if (status === 'provisioning' || status === 'deploying') {
+    const deploy = vi.fn<BuilderPublisher['deploy']>(async (request) => {
+      request.onPlanned?.(PLANNED);
+      const holding = harness()
+        .database.prepare(`SELECT id FROM deployments WHERE id <> ? AND status IN ('provisioning', 'deploying')`)
+        .get(PLANNED);
+      if (holding) {
         throw new DeploymentConcurrencyLimitError();
       }
-      return { status: 'succeeded', id: 'deployment-next' };
+      return { status: 'succeeded', id: PLANNED };
+    });
+    const settle = vi.fn<BuilderPublisher['settle']>(async (request) => {
+      const status = options.settlesAs ?? 'failed';
+      harness()
+        .database.prepare(`UPDATE deployments SET status = ? WHERE id = ? AND status IN ('provisioning', 'deploying')`)
+        .run(status, request.deploymentId);
+      return { status, id: request.deploymentId, error: 'Deployment was interrupted.' };
     });
     const terminalize = vi.fn<BuilderPublisher['terminalize']>(async (request) => {
       if (request.validatedRevision !== CHECKPOINT.revision) {
@@ -1120,7 +1138,7 @@ describe("another revision's deployment record left holding the project", () => 
       harness().database.prepare(`UPDATE deployments SET status = ? WHERE id = 'deployment-left'`).run(status);
       return { status, id: 'deployment-left', error: 'Deployment was interrupted.' };
     });
-    return { deploy, terminalize };
+    return { deploy, terminalize, settle };
   }
 
   it.each(['deploying', 'provisioning'] as const)(
@@ -1135,12 +1153,45 @@ describe("another revision's deployment record left holding the project", () => 
 
       await eventually(() => harness.agent.state.productionRevision === NEXT_CHECKPOINT.revision);
       expect(recordStatus(harness)).toBe('failed');
-      expect(publisher.terminalize).toHaveBeenCalledWith(
-        expect.objectContaining({ validatedRevision: CHECKPOINT.revision }),
-      );
+      expect(publisher.settle).toHaveBeenCalledWith(expect.objectContaining({ deploymentId: 'deployment-left' }));
       expect(publisher.deploy).toHaveBeenCalledTimes(2);
     },
   );
+
+  it("a record of the deployment's own revision, left under the id it had before, is settled by it", async () => {
+    let harness!: BuilderAgentHarness;
+    const publisher = holdingPublisher(() => harness);
+    harness = await publicationHarness({ publisher });
+    // Left provisioning before the release that derived ids apart; a preview has since planned the
+    // revision under its current id, which the deployment claims.
+    leftRecord(harness, 'provisioning', STALE, 'deployment-before');
+
+    await harness.agent.deployValidatedRevision();
+
+    await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
+    expect(recordStatus(harness, 'deployment-before')).toBe('failed');
+    expect(publisher.settle).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ deploymentId: 'deployment-before' }),
+    );
+    expect(publisher.deploy).toHaveBeenCalledTimes(2);
+  });
+
+  it('the record the deployment itself planned is never settled as the one holding the project', async () => {
+    let harness!: BuilderAgentHarness;
+    const publisher = holdingPublisher(() => harness);
+    publisher.deploy.mockImplementation(async (request) => {
+      request.onPlanned?.(PLANNED);
+      throw new DeploymentConcurrencyLimitError();
+    });
+    harness = await publicationHarness({ publisher });
+    leftRecord(harness, 'provisioning', STALE, PLANNED);
+
+    await harness.agent.deployValidatedRevision();
+
+    await eventually(() => harness.agent.state.deployment?.status === 'failed');
+    expect(recordStatus(harness, PLANNED)).toBe('provisioning');
+    expect(publisher.settle).not.toHaveBeenCalled();
+  });
 
   it('a record a deployment fiber of its revision still runs is left alone', async () => {
     let current = CHECKPOINT;
@@ -1166,9 +1217,7 @@ describe("another revision's deployment record left holding the project", () => 
     await eventually(() => harness.agent.state.deployment?.status === 'failed');
     expect(harness.agent.state.deployment).toMatchObject({ revision: NEXT_CHECKPOINT.revision });
     expect(recordStatus(harness)).toBe('deploying');
-    expect(publisher.terminalize).not.toHaveBeenCalledWith(
-      expect.objectContaining({ validatedRevision: CHECKPOINT.revision }),
-    );
+    expect(publisher.settle).not.toHaveBeenCalled();
     running.resolve();
     await settle();
   });
@@ -1183,9 +1232,7 @@ describe("another revision's deployment record left holding the project", () => 
 
     await eventually(() => harness.agent.state.deployment?.status === 'failed');
     expect(recordStatus(harness)).toBe('deploying');
-    expect(publisher.terminalize).not.toHaveBeenCalledWith(
-      expect.objectContaining({ validatedRevision: CHECKPOINT.revision }),
-    );
+    expect(publisher.settle).not.toHaveBeenCalled();
   });
 
   it('a promoted deployment whose success write failed is settled as production after the project moved on', async () => {

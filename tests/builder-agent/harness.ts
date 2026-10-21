@@ -12,6 +12,7 @@ import { BuilderAgent } from '~/agents/builder-agent';
 import type {
   deployValidatedRevisionForBuilder,
   previewValidatedRevisionForBuilder,
+  settleDeploymentForBuilder,
   terminalizeInterruptedDeploymentForBuilder,
 } from '~/agents/builder-deployment-command';
 import type { BuilderWorkspaceApi, BuilderWorkspaceCheckpoint } from '~/agents/builder-workspace-api';
@@ -185,6 +186,7 @@ export type BuilderPublisher = {
   preview: typeof previewValidatedRevisionForBuilder;
   deploy: typeof deployValidatedRevisionForBuilder;
   terminalize: typeof terminalizeInterruptedDeploymentForBuilder;
+  settle: typeof settleDeploymentForBuilder;
 };
 
 /** Publications that succeed at once; each test overrides what its path needs. */
@@ -199,6 +201,7 @@ function fakePublisher(overrides: Partial<BuilderPublisher> = {}): BuilderPublis
     }),
     deploy: async () => ({ status: 'succeeded', id: 'deployment-1', productionUrl: 'https://app.example.workers.dev' }),
     terminalize: async () => ({ status: 'failed', error: 'Deployment was interrupted before execution started.' }),
+    settle: async () => ({ status: 'failed', error: 'Deployment was interrupted before execution started.' }),
     ...overrides,
   };
 }

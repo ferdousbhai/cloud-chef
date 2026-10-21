@@ -20,6 +20,7 @@ import {
   buildCheckpointForBuilder,
   deployValidatedRevisionForBuilder,
   previewValidatedRevisionForBuilder,
+  settleDeploymentForBuilder,
   terminalizeInterruptedDeploymentForBuilder,
 } from './builder-deployment-command';
 
@@ -213,9 +214,13 @@ describe('builder deployment command', () => {
     expect(mocks.createDeployment).toHaveBeenCalledWith(expect.objectContaining({ deploymentId: current }));
   });
 
-  it('looks no further than the current identity’s plans once it has a record', async () => {
-    mocks.terminalizeInterrupted.mockReset().mockResolvedValueOnce(settled('11111111-1111-5111-8111-111111111111'));
-    mocks.terminalizeInterrupted.mockResolvedValue(null);
+  it('settles the record under the identity from before even once the revision has a plan under the current one', async () => {
+    // A preview planned the revision under its current identity; the record from before still holds the project.
+    mocks.terminalizeInterrupted
+      .mockReset()
+      .mockResolvedValueOnce({ ...settled('11111111-1111-5111-8111-111111111111'), status: 'approved' })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(settled('33333333-3333-5333-8333-333333333333'));
 
     await expect(
       terminalizeInterruptedDeploymentForBuilder({
@@ -224,10 +229,28 @@ describe('builder deployment command', () => {
         toolCallId: 'deploy-command:7:revision',
         validatedRevision: 'a'.repeat(64),
       }),
-    ).resolves.toMatchObject({ id: '11111111-1111-5111-8111-111111111111' });
+    ).resolves.toMatchObject({ id: '11111111-1111-5111-8111-111111111111', status: 'ready' });
 
-    // Its first plan, then the next one it never made; never the identity from before.
-    expect(mocks.terminalizeInterrupted).toHaveBeenCalledTimes(2);
+    // Its first plan, the next one it never made, then the identity from before.
+    const terminalized = mocks.terminalizeInterrupted.mock.calls.map(([input]) => input.deploymentId);
+    expect(terminalized).toHaveLength(3);
+    expect(new Set(terminalized).size).toBe(3);
+  });
+
+  it('settles one record by its id', async () => {
+    await expect(
+      settleDeploymentForBuilder({ context: operationContext(), deploymentId: '33333333-3333-5333-8333-333333333333' }),
+    ).resolves.toEqual({
+      id: '11111111-1111-5111-8111-111111111111',
+      status: 'failed',
+      productionUrl: null,
+      error: 'Deployment was interrupted.',
+    });
+    expect(mocks.terminalizeInterrupted).toHaveBeenCalledExactlyOnceWith({
+      env: expect.anything(),
+      userId: 'user-1',
+      deploymentId: '33333333-3333-5333-8333-333333333333',
+    });
   });
 
   it.each([
@@ -270,9 +293,10 @@ describe('builder deployment command', () => {
       }),
     ).resolves.toMatchObject({ id: '22222222-2222-5222-8222-222222222222' });
 
+    // Both plans, the next one it never made, and the identity from before.
     const terminalized = mocks.terminalizeInterrupted.mock.calls.map(([input]) => input.deploymentId);
-    expect(terminalized).toHaveLength(3);
-    expect(new Set(terminalized).size).toBe(3);
+    expect(terminalized).toHaveLength(4);
+    expect(new Set(terminalized).size).toBe(4);
   });
 
   it('plans a revision again under its next id when the plan stored under one would no longer be its plan', async () => {

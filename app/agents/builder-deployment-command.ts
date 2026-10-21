@@ -105,7 +105,8 @@ export async function terminalizeInterruptedDeploymentForBuilder(args: {
     terminalizeInterruptedDeploymentForUser({ env: args.context.env, userId: args.context.userId, deploymentId });
   // Each plan of the revision is terminalized, since any one of them left active would hold the
   // project's deployments forever; the latest is the one that ran. A deployment the runtime was
-  // upgraded under keeps its earlier identity.
+  // upgraded under keeps its earlier identity, and is settled too even once the revision has a plan
+  // under the current one: a preview plans the revision without settling it.
   let deployment: Awaited<ReturnType<typeof terminalize>> = null;
   for (let generation = 0; generation < MAX_PUBLICATION_PLANS; generation += 1) {
     const planned = await terminalize(await publicationDeploymentId(...identity, generation));
@@ -114,7 +115,27 @@ export async function terminalizeInterruptedDeploymentForBuilder(args: {
     }
     deployment = planned;
   }
-  deployment ??= await terminalize(await previousPublicationDeploymentId(...identity));
+  const previous = await terminalize(await previousPublicationDeploymentId(...identity));
+  return builderDeploymentState(deployment ?? previous);
+}
+
+/** Settle the one deployment record of this id, as an interrupted one is, when it is still active. */
+export async function settleDeploymentForBuilder(args: {
+  context: BuilderDeploymentContext;
+  deploymentId: string;
+}): Promise<BuilderDeploymentState> {
+  return builderDeploymentState(
+    await terminalizeInterruptedDeploymentForUser({
+      env: args.context.env,
+      userId: args.context.userId,
+      deploymentId: args.deploymentId,
+    }),
+  );
+}
+
+function builderDeploymentState(
+  deployment: Awaited<ReturnType<typeof terminalizeInterruptedDeploymentForUser>>,
+): BuilderDeploymentState {
   return deployment
     ? {
         id: deployment.id,

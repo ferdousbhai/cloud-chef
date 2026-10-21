@@ -325,6 +325,8 @@ export async function projectResourceNaming(
 
 /** A deployment holding its project's one deployment slot, and the revision it publishes. */
 type ActiveProjectDeployment = {
+  id: string;
+  executionGeneration: number;
   workspaceRevision: number;
   revision: string;
   /** When its execution last showed it was working: the later of the record's update and its latest activity. */
@@ -342,7 +344,7 @@ export async function findActiveProjectDeployment(
   const project = `workspace-runtime:${encodeURIComponent(args.projectId)}:`;
   const row = await db
     .prepare(
-      `SELECT workspace_reference,
+      `SELECT id, execution_generation, workspace_reference,
               MAX(updated_at, COALESCE((
                 SELECT MAX(activity.created_at) FROM deployment_activity AS activity
                 WHERE activity.deployment_id = deployments.id
@@ -355,12 +357,14 @@ export async function findActiveProjectDeployment(
        LIMIT 1`,
     )
     .bind(args.userId, project.length, project)
-    .first<{ workspace_reference: string; last_active_at: number }>();
+    .first<{ id: string; execution_generation: number; workspace_reference: string; last_active_at: number }>();
   const reference = row && /^workspace-runtime:[^:]+:(\d+):([a-f0-9]{64})$/.exec(row.workspace_reference);
   if (!row || !reference) {
     return null;
   }
   return {
+    id: row.id,
+    executionGeneration: row.execution_generation,
     workspaceRevision: Number(reference[1]),
     revision: reference[2]!,
     lastActiveAt: row.last_active_at,

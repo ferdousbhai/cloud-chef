@@ -321,7 +321,14 @@ describe('deployment repository', () => {
     );
     await claim(await approvedDeployment(2, 'other-project'), 90);
 
-    await expect(find()).resolves.toEqual({ workspaceRevision: 1, revision: sourceSha256, lastActiveAt: 30 });
+    await expect(find()).resolves.toEqual({
+      id: holding.id,
+      executionGeneration: holding.executionGeneration,
+      workspaceRevision: 1,
+      revision: sourceSha256,
+      lastActiveAt: 30,
+    });
+    expect(holding.executionGeneration).toBe(earlier.executionGeneration + 1);
     await expect(find('user-2')).resolves.toBeNull();
     // A step the earlier execution recorded late says nothing about this one.
     await recordDeploymentActivity({
