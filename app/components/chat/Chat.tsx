@@ -242,11 +242,14 @@ const ARCHIVED_LINKED_CHAT_REASON =
  */
 function chatDisabledReason(
   archivedLinkedChat: boolean,
+  hasUnsavedFiles: boolean,
   state: WorkspacePresentationState,
   onRetry: () => void,
 ): ReactNode | null {
   if (archivedLinkedChat) {
-    return ARCHIVED_LINKED_CHAT_REASON;
+    return hasUnsavedFiles
+      ? `${ARCHIVED_LINKED_CHAT_REASON} Editor changes you had not saved can't be saved here.`
+      : ARCHIVED_LINKED_CHAT_REASON;
   }
   if (state === 'unavailable') {
     return (
@@ -303,6 +306,7 @@ const AuthenticatedChat = memo(
     // A newer conversation on this GitHub project took over: this one stays to read, not to work in.
     const linkedProject = useStore(workbenchStore.linkedProject);
     const archivedLinkedChat = linkedProject?.archived === true;
+    const hasUnsavedFiles = useStore(workbenchStore.unsavedFiles).size > 0;
     // A GitHub project already exists: its first turn changes it rather than creating a project.
     const isProjectUpdate = currentSubchatIndex > 0 || linkedProject !== null;
 
@@ -408,7 +412,12 @@ const AuthenticatedChat = memo(
         currentError={error}
         buildProgress={buildProgress}
         messages={visibleMessages}
-        disabledReason={chatDisabledReason(archivedLinkedChat, workspacePresentationState, retryWorkspacePresentation)}
+        disabledReason={chatDisabledReason(
+          archivedLinkedChat,
+          hasUnsavedFiles,
+          workspacePresentationState,
+          retryWorkspacePresentation,
+        )}
         deployment={deployment}
         publication={publication}
         onDeploy={deployValidatedRevision}
