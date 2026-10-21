@@ -15,6 +15,7 @@ import { validatePreparedDeploymentArtifact, type PreparedDeploymentArtifact } f
 import type { DeploymentProjectProfile } from './deployment-project-profile';
 import { UserCloudflareAccountApi, type ManagedWorkerVersionArgs } from './user-account-api';
 import { CLOUDCHEF_CONTROL_PLANE_ENDPOINT } from './user-workspace-runtime-policy';
+import { runtimeRequestHeaders } from './user-workspace-cloudflare-credential';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 
 type UserOwnedDeploymentArgs = {
@@ -494,10 +495,11 @@ export async function resolveFreshCloudflareAccessToken(
   }
   const response = await request(`${CLOUDCHEF_CONTROL_PLANE_ENDPOINT}/api/cloudflare/runtime-credential`, {
     method: 'POST',
-    headers: {
-      authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`,
-      'content-type': 'application/json',
-    },
+    // Who it is rides in headers too, so the control plane checks the secret before reading the body.
+    headers: runtimeRequestHeaders(
+      { CLOUDCHEF_CONTROL_PLANE_ENDPOINT, CONTROL_PLANE_SECRET: env.CONTROL_PLANE_SECRET },
+      { userId: env.CLOUDCHEF_USER_ID, connectionId: env.CLOUDCHEF_CONNECTION_ID, connectionGeneration },
+    ),
     body: JSON.stringify({
       userId: env.CLOUDCHEF_USER_ID,
       connectionId: env.CLOUDCHEF_CONNECTION_ID,
