@@ -19,7 +19,7 @@ async function main() {
   // Before the file listing, so the snapshot embeds the pin this run just emitted rather than
   // whatever the previous one left behind.
   await writeTemplateModelModule();
-  console.log('Listing tracked and untracked unignored template files...');
+  console.log('Listing committed template files...');
   const files = listTemplateSourceFiles(process.cwd());
   console.log('Verifying the standalone pnpm lockfile...');
   await execFile('pnpm', ['install', '--lockfile-only', '--frozen-lockfile'], { cwd: absoluteInputDir });
