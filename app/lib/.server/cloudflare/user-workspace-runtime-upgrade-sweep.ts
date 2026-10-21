@@ -15,7 +15,11 @@ import { findUserWorkspaceRuntime, listOutdatedUserWorkspaceRuntimes } from './u
  * once; this spreads their upgrades over the sweeps that follow instead of starting them all together.
  */
 export const UPGRADE_SWEEP_MAX_LAUNCHES = 10;
-/** How many outdated runtimes one sweep looks at, including those whose upgrade is already waiting. */
+/**
+ * How many outdated runtimes one sweep looks at, including those whose upgrade is already waiting. When
+ * there are more, each sweep looks at the next page of them, so a page of upgrades all still waiting never
+ * keeps the sweep from the rest.
+ */
 export const UPGRADE_SWEEP_MAX_CANDIDATES = 50;
 /** The control plane's cron interval (`cloudflare.config.ts`), which the sweep runs on. */
 export const UPGRADE_SWEEP_INTERVAL_MS = 15 * 60_000;
@@ -69,6 +73,7 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
     imageDigest: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
     protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
     limit: UPGRADE_SWEEP_MAX_CANDIDATES,
+    rotation: sweep,
   });
   for (const candidate of candidates) {
     if (summary.started + summary.restarted >= UPGRADE_SWEEP_MAX_LAUNCHES) {

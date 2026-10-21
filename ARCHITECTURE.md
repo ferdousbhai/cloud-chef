@@ -67,7 +67,8 @@ next session request, or the next sweep, starts another.
 A runtime whose owner does not come back would otherwise stay on an old release, and a failed upgrade would stay
 failed until the browser's explicit retry. The control plane's 15-minute cron therefore also sweeps
 (`app/lib/.server/cloudflare/user-workspace-runtime-upgrade-sweep.ts`): it lists ready runtimes that are outdated but
-still serve their connection's generation and protocol, most recently used first, skips anyone who may no longer use
+still serve their connection's generation and protocol, most recently used first and a further page of them on each
+sweep (so a page of upgrades all still waiting never keeps it from the rest), skips anyone who may no longer use
 the connection, and starts or restarts the same gated Workflow instance a session request would name, at most 10
 per sweep. An upgrade still waiting is left alone; one that gave up waiting is restarted; one that failed is
 restarted on one sweep in four, so at most hourly. First-time provisioning never goes through the sweep: it lists only
