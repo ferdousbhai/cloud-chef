@@ -1,44 +1,50 @@
+import type { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDeploymentPlanFromSource } from '~/lib/.server/cloudflare/deployment-plan';
+import { userWorkspaceDatabase } from '~/test/control-plane-d1';
 import { AGENT_GC_RETRY_BASE_MS } from './agent-gc.server';
 import { sweepAppResourceGcCandidates } from './app-resource-gc.server';
 
 describe('app resource garbage collection', () => {
   it('removes every resource derived from every deployment before completing the receipt', async () => {
-    const plan = await deploymentPlan();
-    const database = new AppResourceGcDatabase([JSON.stringify(plan)]);
+    const workspace = new AppResourceGcWorkspace();
+    workspace.deployment('deployment-1', JSON.stringify(await deploymentPlan()));
     const accountApi = cleanupApi(true);
 
-    await expect(sweepAppResourceGcCandidates(database.env, { now: 100, accountApi })).resolves.toBeUndefined();
+    await expect(sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi })).resolves.toBeUndefined();
 
     expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-deployment-1');
     expect(accountApi.deleteD1Database).toHaveBeenCalledTimes(4);
     expect(accountApi.deleteKvNamespace).toHaveBeenCalledWith('cloudchef-deployment-1-cache');
     expect(accountApi.deleteR2Bucket).toHaveBeenCalledWith('cloudchef-deployment-1-storage');
-    expect(database.candidates).toEqual([]);
+    expect(workspace.candidates()).toEqual([]);
+    expect(workspace.deploymentIds()).toEqual([]);
   });
 
   it('retains the receipt without increasing failures while R2 cleanup makes bounded progress', async () => {
-    const database = new AppResourceGcDatabase([JSON.stringify(await deploymentPlan())]);
+    const workspace = new AppResourceGcWorkspace();
+    workspace.deployment('deployment-1', JSON.stringify(await deploymentPlan()));
     const accountApi = cleanupApi(false);
 
-    await expect(sweepAppResourceGcCandidates(database.env, { now: 1_000, accountApi })).resolves.toBeUndefined();
+    await expect(sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi })).resolves.toBeUndefined();
 
-    expect(database.candidates).toEqual([
+    expect(workspace.candidates()).toEqual([
       { chat_id: 'chat-row', not_before: 1_000 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
     ]);
+    expect(workspace.deploymentIds()).toEqual(['deployment-1']);
   });
 
-  it('deletes what provisioning recorded, by provider id, without reading the plan', async () => {
-    const database = new AppResourceGcDatabase([JSON.stringify({ version: 999 })], 0, [
-      { deployment_id: 'deployment-1', resource_type: 'worker', provider_resource_id: 'cloudchef-app-1' },
-      { deployment_id: 'deployment-1', resource_type: 'd1', provider_resource_id: 'db-id-1' },
-      { deployment_id: 'deployment-1', resource_type: 'kv', provider_resource_id: 'kv-id-1' },
-      { deployment_id: 'deployment-1', resource_type: 'r2', provider_resource_id: 'cloudchef-app-1-storage' },
+  it('deletes what provisioning recorded, by provider id, even when this build cannot read the plan', async () => {
+    const workspace = new AppResourceGcWorkspace();
+    workspace.deployment('deployment-1', JSON.stringify({ version: 999 }), [
+      ['worker', 'app', 'cloudchef-app-1'],
+      ['d1', 'DB', 'db-id-1'],
+      ['kv', 'APP_CACHE', 'kv-id-1'],
+      ['r2', 'APP_STORAGE', 'cloudchef-app-1-storage'],
     ]);
     const accountApi = cleanupApi(true);
 
-    await expect(sweepAppResourceGcCandidates(database.env, { now: 100, accountApi })).resolves.toBeUndefined();
+    await expect(sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi })).resolves.toBeUndefined();
 
     expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-app-1');
     expect(accountApi.deleteD1DatabaseById).toHaveBeenCalledWith('db-id-1');
@@ -47,61 +53,103 @@ describe('app resource garbage collection', () => {
     expect(accountApi.deleteManagedWorker.mock.invocationCallOrder[0]).toBeLessThan(
       accountApi.deleteD1DatabaseById.mock.invocationCallOrder[0]!,
     );
-    expect(database.candidates).toEqual([]);
+    // What it recorded is gone, so a retry does not delete it again; the deployment itself waits for a
+    // build that can read what its plan names.
+    expect(workspace.resourceCount()).toBe(0);
+    expect(workspace.deploymentIds()).toEqual(['deployment-1']);
+    expect(workspace.candidates()).toEqual([
+      { chat_id: 'chat-row', not_before: 100 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
+    ]);
   });
 
   it('deletes the Worker the plan names when an upload landed but was never recorded', async () => {
-    const database = new AppResourceGcDatabase([JSON.stringify(await deploymentPlan())], 0, [
-      { deployment_id: 'deployment-1', resource_type: 'd1', provider_resource_id: 'db-id-1' },
-    ]);
+    const workspace = new AppResourceGcWorkspace();
+    workspace.deployment('deployment-1', JSON.stringify(await deploymentPlan()), [['d1', 'DB', 'db-id-1']]);
     const accountApi = cleanupApi(true);
 
-    await expect(sweepAppResourceGcCandidates(database.env, { now: 100, accountApi })).resolves.toBeUndefined();
+    await expect(sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi })).resolves.toBeUndefined();
 
     expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-deployment-1');
     expect(accountApi.deleteManagedWorker.mock.invocationCallOrder[0]).toBeLessThan(
       accountApi.deleteD1DatabaseById.mock.invocationCallOrder[0]!,
     );
     expect(accountApi.deleteD1Database).not.toHaveBeenCalled();
-    expect(database.candidates).toEqual([]);
+    expect(workspace.candidates()).toEqual([]);
   });
 
-  it('retries the receipt while a recorded R2 bucket is still draining', async () => {
-    const database = new AppResourceGcDatabase([JSON.stringify({ version: 999 })], 0, [
-      { deployment_id: 'deployment-1', resource_type: 'r2', provider_resource_id: 'cloudchef-app-1-storage' },
-    ]);
-    const accountApi = cleanupApi(false);
-
-    await expect(sweepAppResourceGcCandidates(database.env, { now: 1_000, accountApi })).resolves.toBeUndefined();
-
-    expect(database.candidates).toEqual([
-      { chat_id: 'chat-row', not_before: 1_000 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
-    ]);
-  });
-
-  it('preserves the receipt when a stored plan uses a newer schema', async () => {
-    const plan = await deploymentPlan();
-    const database = new AppResourceGcDatabase([JSON.stringify({ ...plan, version: 999 }), JSON.stringify(plan)]);
+  it('releases a bounded number of deployments per sweep and resumes after them', async () => {
+    const workspace = new AppResourceGcWorkspace();
+    const plan = JSON.stringify(await deploymentPlan());
+    for (let index = 1; index <= 8; index += 1) {
+      workspace.deployment(`deployment-${index}`, plan);
+    }
     const accountApi = cleanupApi(true);
 
-    await expect(sweepAppResourceGcCandidates(database.env, { now: 100, accountApi })).resolves.toBeUndefined();
+    await sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi });
 
-    expect(accountApi.deleteManagedWorker).not.toHaveBeenCalled();
-    expect(database.candidates).toEqual([
+    // The resources every deployment names alike are deleted once a sweep, not once a deployment.
+    expect(accountApi.deleteManagedWorker).toHaveBeenCalledTimes(1);
+    expect(accountApi.deleteR2Bucket).toHaveBeenCalledTimes(1);
+    expect(workspace.deploymentIds()).toEqual(['deployment-7', 'deployment-8']);
+    expect(workspace.candidates()).toEqual([
+      { chat_id: 'chat-row', not_before: 100 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
+    ]);
+
+    await sweepAppResourceGcCandidates(workspace.env, { now: 100 + AGENT_GC_RETRY_BASE_MS, accountApi });
+
+    expect(accountApi.deleteManagedWorker).toHaveBeenCalledTimes(2);
+    expect(workspace.deploymentIds()).toEqual([]);
+    expect(workspace.candidates()).toEqual([]);
+  });
+
+  it('keeps a failed sweep’s released deployments released', async () => {
+    const workspace = new AppResourceGcWorkspace();
+    const plan = JSON.stringify(await deploymentPlan());
+    workspace.deployment('deployment-1', plan, [['worker', 'app', 'cloudchef-app-1']]);
+    workspace.deployment('deployment-2', plan, [['worker', 'app', 'cloudchef-app-2']]);
+    const accountApi = cleanupApi(true);
+    accountApi.deleteManagedWorker.mockImplementation(async (name: string) => {
+      if (name === 'cloudchef-app-2') {
+        throw new Error('temporary provider failure');
+      }
+    });
+
+    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi });
+
+    expect(workspace.deploymentIds()).toEqual(['deployment-2']);
+    expect(workspace.candidates()).toEqual([
+      { chat_id: 'chat-row', not_before: 1_000 + AGENT_GC_RETRY_BASE_MS, attempts: 1 },
+    ]);
+  });
+
+  it('preserves the receipt when a stored plan uses a newer schema, and cleans up the others', async () => {
+    const plan = await deploymentPlan();
+    const workspace = new AppResourceGcWorkspace();
+    workspace.deployment('deployment-1', JSON.stringify({ ...plan, version: 999 }));
+    workspace.deployment('deployment-2', JSON.stringify(plan));
+    const accountApi = cleanupApi(true);
+
+    await expect(sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi })).resolves.toBeUndefined();
+
+    expect(accountApi.deleteManagedWorker).toHaveBeenCalledTimes(1);
+    expect(workspace.deploymentIds()).toEqual(['deployment-1']);
+    expect(workspace.candidates()).toEqual([
       { chat_id: 'chat-row', not_before: 100 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
     ]);
   });
 
   it('backs off and preserves the receipt when Cloudflare cleanup fails', async () => {
-    const database = new AppResourceGcDatabase([JSON.stringify(await deploymentPlan())], 2);
+    const workspace = new AppResourceGcWorkspace(2);
+    workspace.deployment('deployment-1', JSON.stringify(await deploymentPlan()));
     const accountApi = cleanupApi(true);
     accountApi.deleteManagedWorker.mockRejectedValueOnce(new Error('temporary provider failure'));
 
-    await expect(sweepAppResourceGcCandidates(database.env, { now: 1_000, accountApi })).resolves.toBeUndefined();
+    await expect(sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi })).resolves.toBeUndefined();
 
-    expect(database.candidates).toEqual([
+    expect(workspace.candidates()).toEqual([
       { chat_id: 'chat-row', not_before: 1_000 + AGENT_GC_RETRY_BASE_MS * 4, attempts: 3 },
     ]);
+    expect(workspace.deploymentIds()).toEqual(['deployment-1']);
   });
 });
 
@@ -129,71 +177,67 @@ function cleanupApi(r2Complete: boolean) {
   };
 }
 
-type Candidate = { chat_id: string; not_before: number; attempts: number };
+/** A workspace D1 holding one removed chat, its cleanup receipt, and the deployments a test adds. */
+class AppResourceGcWorkspace {
+  readonly #database: DatabaseSync;
+  readonly env: Parameters<typeof sweepAppResourceGcCandidates>[0];
+  #created = 0;
 
-class AppResourceGcDatabase {
-  readonly candidates: Candidate[];
-
-  constructor(
-    private readonly plans: string[],
-    attempts = 0,
-    private readonly resources: { deployment_id: string; resource_type: string; provider_resource_id: string }[] = [],
-  ) {
-    this.candidates = [{ chat_id: 'chat-row', not_before: 50, attempts }];
+  constructor(attempts = 0) {
+    const { database, db } = userWorkspaceDatabase();
+    this.#database = database;
+    // SAFETY: the sweep reads only `DB` once it is handed an account API.
+    this.env = { DB: db } as Parameters<typeof sweepAppResourceGcCandidates>[0];
+    database
+      .prepare(
+        `INSERT INTO chats (id, creator_id, initial_id, timestamp, is_deleted)
+         VALUES ('chat-row', 'user-1', 'initial-1', '2026-10-01T00:00:00.000Z', 1)`,
+      )
+      .run();
+    database
+      .prepare(
+        `INSERT INTO app_resource_gc_candidates (chat_id, not_before, created_at, attempts)
+         VALUES ('chat-row', 50, 0, ?)`,
+      )
+      .run(attempts);
   }
 
-  readonly env = {
-    DB: {
-      prepare: (query: string) => ({
-        bind: (...values: unknown[]) => ({
-          all: async () => this.all(query, values),
-          run: async () => this.run(query, values),
-        }),
-      }),
-    },
-  } as unknown as Parameters<typeof sweepAppResourceGcCandidates>[0];
-
-  private all(query: string, values: unknown[]) {
-    if (query.includes('FROM app_resource_gc_candidates AS candidates')) {
-      const [now, limit] = values as [number, number];
-      return {
-        results: this.candidates.filter((candidate) => candidate.not_before <= now).slice(0, limit),
-      };
+  deployment(id: string, planJson: string, resources: [type: string, logicalName: string, providerId: string][] = []) {
+    this.#created += 1;
+    this.#database
+      .prepare(
+        `INSERT INTO deployments (
+           id, chat_id, user_id, connection_id, connection_generation, workspace_reference,
+           status, plan_json, plan_digest, created_at, updated_at
+         ) VALUES (?, 'chat-row', 'user-1', 'connection-1', 1, 'workspace-runtime:project:1:hash',
+           'succeeded', ?, 'digest', ?, ?)`,
+      )
+      .run(id, planJson, this.#created, this.#created);
+    for (const [type, logicalName, providerId] of resources) {
+      this.#database
+        .prepare(
+          `INSERT INTO deployment_resources (id, deployment_id, resource_type, logical_name, provider_resource_id, created_at)
+           VALUES (?, ?, ?, ?, ?, 0)`,
+        )
+        .run(`${id}:${type}:${logicalName}`, id, type, logicalName, providerId);
     }
-    if (query.includes('FROM deployment_resources')) {
-      return { results: this.resources };
-    }
-    if (query.includes('FROM deployments')) {
-      return { results: this.plans.map((plan_json, index) => ({ id: `deployment-${index + 1}`, plan_json })) };
-    }
-    return { results: [] };
   }
 
-  private run(query: string, values: unknown[]): D1Result {
-    if (query.includes('DELETE FROM app_resource_gc_candidates')) {
-      const [chatId, notBefore] = values as [string, number];
-      const index = this.candidates.findIndex(
-        (candidate) => candidate.chat_id === chatId && candidate.not_before === notBefore,
-      );
-      if (index < 0) {
-        return changed(0);
-      }
-      this.candidates.splice(index, 1);
-      return changed(1);
-    }
-    if (query.includes('UPDATE app_resource_gc_candidates')) {
-      const [attempts, retryAt, chatId, notBefore] = values as [number, number, string, number];
-      const candidate = this.candidates.find((item) => item.chat_id === chatId && item.not_before === notBefore);
-      if (!candidate) {
-        return changed(0);
-      }
-      Object.assign(candidate, { attempts, not_before: retryAt });
-      return changed(1);
-    }
-    return changed(0);
+  candidates() {
+    return this.#database
+      .prepare('SELECT chat_id, not_before, attempts FROM app_resource_gc_candidates ORDER BY chat_id')
+      .all()
+      .map((row) => ({ ...row }));
   }
-}
 
-function changed(changes: number): D1Result {
-  return { success: true, meta: { changes } } as D1Result;
+  deploymentIds() {
+    return this.#database
+      .prepare('SELECT id FROM deployments ORDER BY created_at')
+      .all()
+      .map((row) => row.id);
+  }
+
+  resourceCount() {
+    return this.#database.prepare('SELECT COUNT(*) AS count FROM deployment_resources').get()?.count;
+  }
 }
