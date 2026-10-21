@@ -58,19 +58,37 @@ license diligence but do not replace legal review.
 ## Configuration
 
 `cloudflare.config.ts` is the source of truth for the control-plane Worker, built by `vite build` with the Cloudflare
-Vite plugin and deployed with the `cf` CLI. It contains one D1 binding for identity,
-authentication, encrypted Cloudflare credentials, connection metadata, and user-runtime discovery. Configure the two
-declared secret values in Cloudflare; never store them in source or local environment files.
+Vite plugin and deployed with the `cf` CLI. It contains one D1 binding (`DB`, schema in `migrations/`) holding:
+
+- people, sign-in sessions, and sign-in state (Cloudflare OAuth, Google, and emailed-link tokens);
+- Cloudflare connections with their encrypted credentials and OAuth grants, and each connection's default builder
+  model (`default_builder_model`);
+- teams (organizations), their members and invites, and daily per-member model usage (`organization_usage_daily`);
+- GitHub projects: App installations, linked repositories, member access, and production requests;
+- per-person settings such as AI Gateway content logging;
+- user workspace runtime discovery, provisioning leases, and upgrade state, plus daily maintenance receipts.
+
+It declares these secrets, which are configured in Cloudflare and never stored in source or local environment files:
+
+- `CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY` — encrypts stored Cloudflare credentials; required.
+- `CLOUDFLARE_OAUTH_CLIENT_SECRET` — the Cloudflare OAuth client's secret; required. Its client ID,
+  `CLOUDFLARE_OAUTH_CLIENT_ID`, is a deploy-time variable, as is `COMMIT_SHA`.
+- `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — Sign in with Google; unset, that option reports itself
+  unavailable.
+- `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY` (PKCS#8), `GITHUB_APP_SLUG` — CloudChef's
+  GitHub App for team projects kept in GitHub; unset, those projects report themselves unavailable.
 
 The checked-in D1 ID belongs to CloudChef production. Before provisioning a fork in another account, replace it with
 `00000000-0000-0000-0000-000000000000`. The provisioner refuses to replace an unknown non-placeholder ID.
 
-Builder references are not mirrored. Cloudflare's documentation is retrieved live by the `search_cloudflare_docs`
-tool, and a framework's packaged skills are read from the project's own `node_modules`, so neither needs syncing or
-pinning. The
-single exception is `app/lib/.server/llm/skills/frontend-design/`, which is vendored into this repository, bundled
-into the Worker, and maintained by hand — edit it like any other source file. Its frontmatter `name` and `description`
-are what the system prompt catalogs, so keep them accurate.
+The builder's skills (`app/lib/.server/llm/builder-skills.ts`) are bundled into the Worker and served read-only
+under `/__skills__/`: CloudChef's own `project-stack` (`app/lib/guidance/project-stack/SKILL.md`, edited by hand like
+any other source file), and Cloudflare's official skills from github.com/cloudflare/skills, vendored at a pinned
+commit into `app/lib/.server/llm/skills/cloudflare-skills.vendored.ts`. Do not edit that file; update it with
+`pnpm run skills:sync` (optionally `-- <commit>`), which also names the skills it takes. Each skill's frontmatter
+`name` and `description` are what the system prompt catalogs. The rest of Cloudflare's documentation is retrieved live
+by the `search_cloudflare_docs` tool, and a framework's packaged skills are read from the project's own
+`node_modules`, so neither needs syncing or pinning.
 
 The OAuth callback is `https://<deployment-origin>/connect/return`. Keep its permissions aligned with
 `CLOUDFLARE_OAUTH_SCOPES` in `cloudflare.config.ts`. Those permissions let CloudChef create a workspace runtime in the

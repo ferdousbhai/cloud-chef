@@ -259,11 +259,14 @@ stall or inject into the container. Both tools are bounded in the spirit of Comp
 `truncated` so the model narrows the path or the pattern instead of paging blindly. A recursive walk shows
 `node_modules` and build output but does not descend into them, unless one of them is the requested path; that is how
 the model still reads the framework version the project installed.
-Reference guidance is retrieved rather than mirrored. Cloudflare's own documentation is searched live through the
+Reference guidance is mostly retrieved rather than mirrored. Cloudflare's documentation is searched live through the
 `search_cloudflare_docs` tool, one stateless request to the public `docs.mcp.cloudflare.com` endpoint that returns
 ranked excerpts with their source URLs; a full page is read by appending `/index.md` to any documentation URL.
 Framework references are read from the packages the project itself installed, so they always match the version it
-builds against. The one skill CloudChef maintains ships in this repository and is bundled into the Worker, exposed
+builds against. The builder's skills (`app/lib/.server/llm/builder-skills.ts`) are bundled into the Worker: CloudChef's
+own `project-stack`, which covers only what is specific to its starter app, and Cloudflare's official skills, vendored
+from github.com/cloudflare/skills at a pinned commit into `app/lib/.server/llm/skills/cloudflare-skills.vendored.ts`
+by `pnpm run skills:sync`, so they stay Cloudflare's current guidance rather than a hand-written copy. They are exposed
 through the existing `read` tool under `/__skills__/<skill>/`; no activation or separate resource-reader tool is
 added. That namespace is a read-only control-plane overlay: it never enters the project VFS, revision, or deployment
 artifact, project files cannot shadow it, and it never appears in `ls` or `grep`, which are asked only about the

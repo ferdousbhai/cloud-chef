@@ -283,7 +283,7 @@ Expected files include:
 - `cloudchef-agent/types.ts` and `cloudchef-agent/tool.ts`: represent MCP metadata, approval state, and safe results without weakening workspace-tool types.
 - `app/lib/.server/llm/workers-ai-tools.ts`: compose the official MCP tools beside workspace tools; MCP calls must not take the workspace operation lane.
 - `app/lib/.server/llm/pi-tools-adapter.ts`: adapt the new tools, labels, schemas, timeouts, and approval pause result.
-- `app/lib/.server/llm/builder-turn-budget.ts`: add separate discovery/read/execute budgets and caps.
+- `app/lib/.server/llm/builder-turn-limits.ts`: add separate discovery/read/execute budgets and caps.
 - `app/lib/.server/llm/pi-agent-runner.ts` and message conversion: stop a turn cleanly at approval, persist the exact proposal, and resume from an approved/rejected result without duplicating prior work.
 - `app/agents/builder-agent.ts` and `app/agents/builder-agent-schema.ts`: durable pending approval methods/state and generation-bound replay protection.
 - builder system prompts/skills: search before execute, use the fixed account context, explain missing scopes honestly, and prefer the specialized deployment tool.
