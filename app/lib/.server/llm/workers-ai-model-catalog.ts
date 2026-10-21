@@ -94,7 +94,7 @@ export async function requireBuilderModel(
   binding: WorkersAiCatalogBinding,
   modelId: BuilderModelId,
   gatewayKeys: () => Promise<GatewayKey[]>,
-): Promise<{ model: BuilderModel; gatewayKeyAlias?: string }> {
+): Promise<{ model: BuilderModel; gatewayKeyAlias?: string; gatewayKeyRevision?: string }> {
   const provider = gatewayModelProvider(modelId);
   if (provider === null) {
     return { model: await requireWorkersAiBuilderModel(binding, modelId) };
@@ -124,7 +124,7 @@ export async function requireBuilderModel(
       { status: 409 },
     );
   }
-  return { model, gatewayKeyAlias: key.alias };
+  return { model, gatewayKeyAlias: key.alias, gatewayKeyRevision: key.revision };
 }
 
 /**

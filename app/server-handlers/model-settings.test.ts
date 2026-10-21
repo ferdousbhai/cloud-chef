@@ -553,7 +553,7 @@ describe('Settings: models', () => {
     });
     const connection = connectionOf(database);
     expect(await linkedGatewayKeys(env, connection, openAccountApi)).toEqual([
-      { provider: 'anthropic', alias: 'cloudchef' },
+      { provider: 'anthropic', alias: 'cloudchef', revision: expect.stringMatching(/^config-/) },
     ]);
     const gatewayLinked = cloudflare.gateway();
 
@@ -635,8 +635,8 @@ describe('Settings: models', () => {
       },
     );
     expect(await linkedGatewayKeys(env, connectionOf(database), openAccountApi)).toEqual([
-      { provider: 'anthropic', alias: 'sg' },
-      { provider: 'openai', alias: 'main' },
+      { provider: 'anthropic', alias: 'sg', revision: 'config-sg@' },
+      { provider: 'openai', alias: 'main', revision: 'config-main@' },
     ]);
 
     // Unlinking removes only what CloudChef added, which is nothing here.
@@ -682,9 +682,71 @@ describe('Settings: models', () => {
     ]) {
       cloudflare.providers.splice(0, cloudflare.providers.length, ...order);
       expect(await linkedGatewayKeys(env, connectionOf(database), cloudflare.openAccountApi)).toEqual([
-        { provider: 'anthropic', alias: 'cloudchef' },
+        { provider: 'anthropic', alias: 'cloudchef', revision: 'config-cloudchef@2026-02-01T00:00:00.000Z' },
       ]);
     }
+  });
+
+  it('uses the newest key of a provider with no default one, whatever their order', async () => {
+    const { env, cloudflare, database } = await setup();
+    const key = (alias: string, modifiedAt: string) => ({
+      id: `config-${alias}`,
+      provider_slug: 'openai',
+      alias,
+      default_config: false,
+      secret_id: `secret-${alias}`,
+      secret_preview: 'sk...wxyz',
+      gateway_id: 'default',
+      modified_at: modifiedAt,
+    });
+    const older = key('first', '2026-01-01T00:00:00.000Z');
+    const newer = key('second', '2026-02-01T00:00:00.000Z');
+
+    for (const order of [
+      [older, newer],
+      [newer, older],
+    ]) {
+      cloudflare.providers.splice(0, cloudflare.providers.length, ...order);
+      expect(await linkedGatewayKeys(env, connectionOf(database), cloudflare.openAccountApi)).toEqual([
+        { provider: 'openai', alias: 'second', revision: 'config-second@2026-02-01T00:00:00.000Z' },
+      ]);
+    }
+  });
+
+  it('replaces the key the runtimes use last, when two defaults are left from an interrupted replacement', async () => {
+    const { env, admin, cloudflare } = await setup();
+    const key = (alias: string, modifiedAt: string) => ({
+      id: `config-${alias}`,
+      provider_slug: 'anthropic',
+      alias,
+      default_config: true,
+      secret_id: `secret-${alias}`,
+      secret_preview: 'sk...wxyz',
+      gateway_id: 'default',
+      modified_at: modifiedAt,
+    });
+    // Listed first, but older: the runtimes use the newer one, so that one goes last.
+    cloudflare.providers.push(
+      key('cloudchef-2', '2026-01-01T00:00:00.000Z'),
+      key('cloudchef', '2026-02-01T00:00:00.000Z'),
+    );
+
+    const linked = await linkGatewayKeyAction({
+      request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey: PASTED_KEY }),
+      env,
+      openAccountApi: cloudflare.openAccountApi,
+    });
+
+    expect(linked.status).toBe(200);
+    expect(
+      writesOf(cloudflare)
+        .filter(({ path }) => path.startsWith(PROVIDER_PATH))
+        .map(({ method, path }) => `${method} ${path}`),
+    ).toEqual([
+      `DELETE ${PROVIDER_PATH}/config-cloudchef-2`,
+      `POST ${PROVIDER_PATH}`,
+      `DELETE ${PROVIDER_PATH}/config-cloudchef`,
+    ]);
   });
 
   it('links and unlinks each provider on its own', async () => {
@@ -706,7 +768,7 @@ describe('Settings: models', () => {
       'default_openrouter_cloudchef',
     ]);
     expect(await linkedGatewayKeys(env, connectionOf(database), openAccountApi)).toEqual(
-      GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'cloudchef' })),
+      GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'cloudchef', revision: expect.any(String) })),
     );
 
     await unlinkGatewayKeyAction({

@@ -249,12 +249,15 @@ export function getPiModel(
     gatewayLogging?: WorkersAiGatewayLogging;
     /** For a gateway provider's model: the alias of the account's key for that provider. */
     gatewayKeyAlias?: string;
+    /** Which key that alias names, as Cloudflare last changed it. */
+    gatewayKeyRevision?: string;
   },
 ): ModelHandle {
   if (gatewayModelProvider(modelId) !== null) {
     return getGatewayPiModel(accountCredentials, modelId, {
       gatewayLogging: settings?.gatewayLogging ?? WORKERS_AI_GATEWAY_UNLOGGED,
       keyAlias: settings?.gatewayKeyAlias ?? DEFAULT_GATEWAY_KEY_ALIAS,
+      keyRevision: settings?.gatewayKeyRevision,
       sessionAffinity: settings?.sessionAffinity,
     });
   }
@@ -415,8 +418,9 @@ function getGatewayPiModel(
   {
     gatewayLogging,
     keyAlias,
+    keyRevision,
     sessionAffinity,
-  }: { gatewayLogging: WorkersAiGatewayLogging; keyAlias: string; sessionAffinity?: string },
+  }: { gatewayLogging: WorkersAiGatewayLogging; keyAlias: string; keyRevision?: string; sessionAffinity?: string },
 ): ModelHandle {
   const entry = piGatewayModel(modelId);
   if (!entry) {
@@ -429,7 +433,7 @@ function getGatewayPiModel(
     forwardedHeaders: transport.forwardedHeaders,
     gatewayLogging,
     // Shared by every request of this turn: a replacement key found by one is used by the rest.
-    key: { alias: keyAlias },
+    key: { alias: keyAlias, revision: keyRevision },
   };
   const handle: ModelHandle = {
     model: entry.model,
@@ -490,7 +494,8 @@ function createGatewayFetch(
     endpoint: string;
     forwardedHeaders: readonly string[];
     gatewayLogging: WorkersAiGatewayLogging;
-    key: { alias: string };
+    /** The key's alias, and which key it named when the turn looked it up (unknown once replaced). */
+    key: { alias: string; revision?: string };
     /** The model this request is for, and whether it asked for a reasoning level. */
     reasoning: { model: Model<Api>; requested: boolean; summaries: boolean };
   },
@@ -523,7 +528,10 @@ function createGatewayFetch(
         .gateway(GATEWAY_ID)
         .run({ provider: route.provider, endpoint, headers, query }, { signal: request.signal });
     };
-    let alias = route.key.alias;
+    let { alias, revision } = route.key;
+    // Which key a refusal of reasoning summaries is remembered against: the alias, and which key it
+    // named, so a key put under the same alias since starts afresh.
+    const refusalKey = () => `${route.provider}:${alias}:${revision ?? ''}`;
     const summariesRefused = refusedSummaryKeys(binding);
     // A body whose reasoning fields are not shaped as Pi writes them goes exactly as written.
     const body = await request.json();
@@ -531,11 +539,13 @@ function createGatewayFetch(
     const query = parsed.success
       ? withProviderDefaultReasoning(route.reasoning.model, parsed.data, {
           requested: route.reasoning.requested,
-          summaries: route.reasoning.summaries && !summariesRefused.has(`${route.provider}:${alias}`),
+          summaries: summariesRefused.has(refusalKey()) ? 'refused' : route.reasoning.summaries,
         })
       : writtenBodySchema.parse(body);
     let response = await send(alias, query);
-    let triedOtherAlias = false;
+    let keyRefusal: number | null = null;
+    // Whether `response` answers the request sent again under the other alias.
+    let answersOtherAlias = false;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const otherAlias = otherCloudChefKeyAlias(alias);
       if (
@@ -544,14 +554,17 @@ function createGatewayFetch(
         parsed.data.reasoning?.summary !== undefined &&
         refusesReasoningSummaries(await readText(response.clone()))
       ) {
-        summariesRefused.add(`${route.provider}:${alias}`);
+        summariesRefused.add(refusalKey());
         delete parsed.data.reasoning.summary;
         if (Object.keys(parsed.data.reasoning).length === 0) {
           delete parsed.data.reasoning;
         }
-      } else if ((response.status === 401 || response.status === 403) && otherAlias && !triedOtherAlias) {
-        triedOtherAlias = true;
+        answersOtherAlias = false;
+      } else if ((response.status === 401 || response.status === 403) && otherAlias && keyRefusal === null) {
+        keyRefusal = response.status;
         alias = otherAlias;
+        revision = undefined;
+        answersOtherAlias = true;
       } else {
         break;
       }
@@ -560,10 +573,15 @@ function createGatewayFetch(
       recordPiStage('gateway_corrected_retry', route.reasoning.model.id);
       response = await send(alias, query);
     }
-    if (triedOtherAlias && response.status !== 401 && response.status !== 403) {
+    // A gateway may answer an alias it holds no key under with a 400 or 404 rather than a refusal:
+    // then there was no replacement, and the first key's refusal is what the person needs to see.
+    const otherAliasMissing = answersOtherAlias && (response.status === 400 || response.status === 404);
+    const refused = response.status === 401 || response.status === 403 || otherAliasMissing;
+    if (keyRefusal !== null && !refused) {
       route.key.alias = alias;
+      route.key.revision = undefined;
     }
-    if (response.status === 401 || response.status === 403) {
+    if (refused) {
       await response.body?.cancel().catch(() => undefined);
       // `error.message` is where both Anthropic's and OpenAI's SDKs read a refusal, so each reports
       // this message rather than a bare status.
@@ -571,7 +589,10 @@ function createGatewayFetch(
       const error = { type: 'authentication_error', message };
       return Response.json(
         { type: 'error', message, error },
-        { status: response.status, headers: { 'content-type': 'application/json' } },
+        {
+          status: otherAliasMissing ? (keyRefusal ?? 401) : response.status,
+          headers: { 'content-type': 'application/json' },
+        },
       );
     }
     return response;
@@ -678,6 +699,8 @@ function createWorkersAiBindingFetch(
       if (!corrected) {
         break;
       }
+      // The refusal was read from its clone; its own body is never read, so it is let go.
+      await response.body?.cancel().catch(() => undefined);
       request.signal.throwIfAborted();
       payload = corrected;
       response = await rawBinding.run(modelId, payload, options);
