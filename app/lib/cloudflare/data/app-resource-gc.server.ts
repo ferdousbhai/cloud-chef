@@ -135,7 +135,15 @@ async function cleanupCandidate(
     for (const row of plans.results) {
       const owned = recorded.get(row.id);
       if (owned && owned.length > 0) {
-        if (!(await cleanupRecordedResources(accountApi, owned))) {
+        // The Worker is recorded only once it serves, so an upload that failed after it landed left
+        // a Worker of the plan's name and no record of it.
+        const worker = owned.some((resource) => resource.resource_type === 'worker') ? null : planWorkerResource(row);
+        if (worker === false) {
+          logger.warn('Preserving a deployment whose stored plan this build cannot parse');
+          await rescheduleCandidate(db, candidate, now, false);
+          return;
+        }
+        if (!(await cleanupRecordedResources(accountApi, worker ? [worker, ...owned] : owned))) {
           await rescheduleCandidate(db, candidate, now, false);
           return;
         }
@@ -195,6 +203,13 @@ async function cleanupRecordedResources(
     }
   }
   return drained;
+}
+
+/** The Worker a deployment's plan names, or false when this build cannot read the plan. */
+function planWorkerResource(row: DeploymentPlanRow): DeploymentResourceRow | false {
+  const plan = parsePlanForCleanup(row.plan_json);
+  const workerName = plan ? deploymentPlanResourceName(plan, 'worker', 'app') : null;
+  return workerName ? { deployment_id: row.id, resource_type: 'worker', provider_resource_id: workerName } : false;
 }
 
 function parsePlanForCleanup(planJson: string): ReturnType<typeof parseDeploymentPlanJson> | null {
