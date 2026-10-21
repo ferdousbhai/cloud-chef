@@ -446,6 +446,14 @@ describe('a member working on a GitHub project', () => {
         { ...WORKERS_BUILDS_SUCCESS, status: 'in_progress', conclusion: null },
       ]),
     ).toMatchObject({ state: 'pending', workersBuilds: true });
+    // Another app's run named like Workers Builds' is not its check; a run GitHub reports no app for is
+    // known by its name.
+    expect(
+      await status([{ ...ci, name: 'Workers Builds: fake', conclusion: 'failure' }, WORKERS_BUILDS_SUCCESS]),
+    ).toMatchObject({ state: 'success', workersBuilds: true });
+    expect(await status([{ ...ci, name: 'Workers Builds: impostor' }])).toMatchObject({ workersBuilds: false });
+    const { app: _app, ...appless } = WORKERS_BUILDS_SUCCESS;
+    expect(await status([appless])).toMatchObject({ state: 'success', workersBuilds: true });
   });
 
   it("commits to the conversation's own branch when the workspace names one, and refuses a malformed name", async () => {

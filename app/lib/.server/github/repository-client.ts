@@ -39,9 +39,14 @@ type BuildStatus = {
 /** Check run conclusions that let a build stand; any other finished run (cancelled, stale, …) failed it. */
 const PASSING_CONCLUSIONS = new Set(['success', 'neutral', 'skipped']);
 
-/** Workers Builds reports as the Cloudflare Workers and Pages GitHub App, naming its runs "Workers Builds: …". */
+/**
+ * Workers Builds reports as the Cloudflare Workers and Pages GitHub App, naming its runs "Workers
+ * Builds: …". The app is what says a run is its: any app can name a run that way. GitHub names the app
+ * of every check run, so the name is read only for a run it reports none for.
+ */
 function isWorkersBuildsRun(run: { name: string; app?: { slug?: string } | null }): boolean {
-  return run.app?.slug === 'cloudflare-workers-and-pages' || run.name.startsWith('Workers Builds');
+  const slug = run.app?.slug;
+  return slug ? slug === 'cloudflare-workers-and-pages' : run.name.startsWith('Workers Builds');
 }
 
 /** The outcome of merging a branch into another. */
