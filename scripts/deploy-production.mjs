@@ -398,6 +398,21 @@ export const WORKERS_BUILDS_PRE_DEPLOY_STEPS = Object.freeze([
 ]);
 
 /**
+ * The pre-deploy steps that change production data. They wait for the validation gate, so a release that
+ * fails validation migrates nothing, and the restore point is recorded as late as possible before them.
+ */
+export const WORKERS_BUILDS_AFTER_VALIDATION_STEPS = Object.freeze([
+  'd1:bookmark:production',
+  'd1:migrations:apply:production',
+]);
+
+/**
+ * The release's validation gate. Its `build:check` is the same `vite build` the release ships, so running
+ * it with the deploy vars builds the Worker and proves it (tests, types, lint, built-output checks) in one pass.
+ */
+const WORKERS_BUILDS_VALIDATE_ARGS = Object.freeze(['run', 'validate']);
+
+/**
  * @typedef {(command: string, args: readonly string[], options: Record<string, unknown>) => Promise<{
  *   status: number | null;
  *   output: string;
@@ -432,16 +447,19 @@ function spawnBuffered(command, args, options) {
 }
 
 /**
- * The Workers Builds deploy step. The Worker build reads nothing the checks write, so it runs while
- * they do instead of after them; `cf deploy` still waits for both, so a failed check or migration
- * deploys nothing, exactly as when they ran one after another. The build's output is printed in one
- * piece when it finishes, so it never interleaves with the checks' output.
+ * The Workers Builds deploy step. The release's validation gate, `pnpm run validate`, runs with the
+ * release's deploy vars, so the Worker its `build:check` builds and its built-output checks prove is the
+ * one `cf deploy` ships. The checks that read only the account and the committed config run meanwhile;
+ * the D1 restore point and migrations wait for validation to pass, and `cf deploy` waits for everything.
+ * A failed check, validation, or migration therefore deploys nothing, and failed validation migrates
+ * nothing. Validation's output is printed in one piece when it finishes, so it never interleaves with
+ * the checks' output.
  *
  * @param {{
  *   clientId?: string;
  *   env?: Record<string, string | undefined>;
  *   spawn?: DeploySpawn;
- *   spawnBuild?: BufferedSpawn;
+ *   spawnValidation?: BufferedSpawn;
  *   readBuiltConfig?: (path: string) => string;
  *   verifyLocal?: typeof verifyLocalDeployment;
  *   log?: (text: string) => void;
@@ -451,39 +469,47 @@ export async function deployFromWorkersBuilds({
   clientId = process.env[CLIENT_ID_ENV],
   env = process.env,
   spawn = spawnSync,
-  spawnBuild = spawnBuffered,
+  spawnValidation = spawnBuffered,
   readBuiltConfig,
   verifyLocal = verifyLocalDeployment,
   log = (text) => process.stdout.write(text),
 } = {}) {
   validateOAuthClientId(clientId);
   const commitSha = resolveDeployableCommitSha({ spawn, env });
-  const notVerified = ' Live verification was not run.';
-  // Settled either way, so a failed check never leaves the build's rejection unobserved.
-  const build = spawnBuild('pnpm', VITE_BUILD_ARGS, { env: deployVarsEnv(clientId, commitSha, env) }).then(
+  const nothingDeployed = ' Nothing was deployed.';
+  const settled = spawnValidation('pnpm', WORKERS_BUILDS_VALIDATE_ARGS, {
+    env: deployVarsEnv(clientId, commitSha, env),
+  }).then(
     (result) => ({ result, error: undefined }),
     (error) => ({ result: undefined, error }),
   );
-  let checkError;
+  const validated = settled.then(({ result, error }) => {
+    if (result) {
+      log(result.output);
+    }
+    if (error) {
+      throw error;
+    }
+    if (result?.status !== 0) {
+      throw new Error(`Validation failed with exit status ${result?.status}.${nothingDeployed} Nothing was migrated.`);
+    }
+    // Validation regenerates the checked-in outputs, so prove the build is still exactly this commit.
+    resolveDeployableCommitSha({ spawn, env });
+  });
+  // Observed here so a check that fails first never leaves validation's rejection unhandled.
+  validated.catch(() => undefined);
   try {
     for (const step of WORKERS_BUILDS_PRE_DEPLOY_STEPS) {
-      runPnpmStep(spawn, ['run', step], { stdio: 'inherit', env }, step, ' Nothing was deployed.');
+      if (WORKERS_BUILDS_AFTER_VALIDATION_STEPS.includes(step)) {
+        await validated;
+      }
+      runPnpmStep(spawn, ['run', step], { stdio: 'inherit', env }, step, nothingDeployed);
     }
+    await validated;
   } catch (error) {
-    checkError = error;
-  }
-  const { result, error: buildError } = await build;
-  if (result) {
-    log(result.output);
-  }
-  if (checkError) {
-    throw checkError;
-  }
-  if (buildError) {
-    throw buildError;
-  }
-  if (result?.status !== 0) {
-    throw new Error(`Vite build failed with exit status ${result?.status}.${notVerified}`);
+    // Validation's output belongs to this build's log even when a check failed first.
+    await settled;
+    throw error;
   }
   verifyBuiltDeployVars(clientId, commitSha, readBuiltConfig);
   runPnpmStep(
@@ -491,7 +517,7 @@ export async function deployFromWorkersBuilds({
     CF_DEPLOY_ARGS,
     { stdio: 'inherit', env: deployVarsEnv(clientId, commitSha, env) },
     'cf deploy',
-    notVerified,
+    ' Live verification was not run.',
   );
   await verifyLocal({ expectedSha: commitSha });
   return commitSha;

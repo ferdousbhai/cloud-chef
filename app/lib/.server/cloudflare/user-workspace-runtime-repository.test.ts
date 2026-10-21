@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { controlPlaneDatabase } from '~/test/control-plane-d1';
 import {
   findUserWorkspaceRuntime,
+  listOutdatedUserWorkspaceRuntimes,
   recordUserWorkspaceRuntimeSession,
   upsertUserWorkspaceRuntime,
 } from './user-workspace-runtime-repository';
@@ -59,6 +60,39 @@ describe('workspace runtime locator', () => {
     await expect(findUserWorkspaceRuntime(db, 'user-1', 'connection-1')).resolves.toMatchObject({
       lastSessionAt: 61_001,
     });
+  });
+
+  it('lists the outdated runtimes a session could still be issued for, most recently used first', async () => {
+    const db = runtimeDatabase();
+    const current = { runtimeVersion: 'c'.repeat(64), imageDigest: 'image@sha256:current', protocolVersion: 2 };
+    const ready = (overrides: Partial<Parameters<typeof upsertUserWorkspaceRuntime>[0]>) =>
+      upsertUserWorkspaceRuntime({
+        ...runtimeArgs(db, { runtimeVersion: 'a'.repeat(64), now: 1 }),
+        imageDigest: current.imageDigest,
+        protocolVersion: current.protocolVersion,
+        ...overrides,
+      });
+    await ready({ connectionId: 'connection-1', now: 1_000 });
+    await ready({ connectionId: 'org-connection', endpoint: 'https://org.example', now: 2_000 });
+    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10 })).resolves.toEqual([
+      { userId: 'user-1', connectionId: 'org-connection', connectionGeneration: 1 },
+      { userId: 'user-1', connectionId: 'connection-1', connectionGeneration: 1 },
+    ]);
+    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 1 })).resolves.toHaveLength(1);
+
+    // Current; on another image; speaking another protocol; for a connection generation since replaced.
+    await ready({ connectionId: 'connection-1', runtimeVersion: current.runtimeVersion });
+    await ready({ connectionId: 'org-connection', runtimeVersion: current.runtimeVersion, imageDigest: 'old-image' });
+    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10 })).resolves.toEqual([
+      { userId: 'user-1', connectionId: 'org-connection', connectionGeneration: 1 },
+    ]);
+    await ready({ connectionId: 'org-connection', protocolVersion: 1 });
+    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10 })).resolves.toEqual([]);
+    await ready({ connectionId: 'org-connection' });
+    await db.prepare(`UPDATE cloudflare_connections SET connection_generation = 2 WHERE id = 'org-connection'`).run();
+    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10 })).resolves.toEqual([]);
+    await db.prepare(`UPDATE cloudflare_connections SET connection_generation = 1, status = 'revoked'`).run();
+    await expect(listOutdatedUserWorkspaceRuntimes(db, { ...current, limit: 10 })).resolves.toEqual([]);
   });
 
   it('does not return an unfinished legacy row', async () => {

@@ -64,6 +64,7 @@ import {
 } from './server-handlers/model-settings';
 import { clientTelemetryAction } from './server-handlers/client-telemetry';
 import { pruneCloudflareAuthDataBestEffort } from './lib/cloudflare/data/cloudflare-auth-retention.server';
+import { sweepUserWorkspaceRuntimeUpgradesBestEffort } from './lib/.server/cloudflare/user-workspace-runtime-upgrade-sweep';
 import { CSP_NONCE_REQUEST_HEADER } from './lib/csp-nonce';
 
 const APPLICATION_CSP_BASELINE = "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'";
@@ -382,8 +383,13 @@ export default {
       nonce,
     );
   },
-  scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(pruneCloudflareAuthDataBestEffort(env.DB));
+  scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(
+      Promise.all([
+        pruneCloudflareAuthDataBestEffort(env.DB),
+        sweepUserWorkspaceRuntimeUpgradesBestEffort(env, controller.scheduledTime),
+      ]),
+    );
   },
 } satisfies ExportedHandler<Env>;
 

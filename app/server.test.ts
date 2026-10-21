@@ -26,6 +26,7 @@ vi.mock('./server-handlers/client-telemetry', () => ({ clientTelemetryAction }))
 vi.mock('./lib/cloudflare/data/cloudflare-auth-retention.server', () => ({ pruneCloudflareAuthDataBestEffort }));
 
 import server from './server';
+import { controlPlaneDatabase } from './test/control-plane-d1';
 
 function testEnv(overrides: Partial<Env> = {}): Env {
   // SAFETY: every route exercised in this file hands `env` straight to a mocked handler and reads
@@ -287,9 +288,11 @@ describe('server Agent routing boundary', () => {
     expect(response.headers.get('Strict-Transport-Security')).toBe('max-age=31536000; includeSubDomains');
   });
 
-  it('runs authentication-metadata retention on schedule', async () => {
+  it('runs authentication-metadata retention and the runtime upgrade sweep on schedule', async () => {
     const waitUntil = vi.fn();
-    const env = testEnv();
+    // No outdated runtime in a fresh database, so the sweep reads it and starts no Workflow.
+    const env = testEnv({ DB: controlPlaneDatabase().db });
+    const error = vi.spyOn(console, 'error');
 
     const controller: ScheduledController = {
       cron: '*/15 * * * *',
@@ -302,6 +305,8 @@ describe('server Agent routing boundary', () => {
     expect(waitUntil).toHaveBeenCalledOnce();
     await waitUntil.mock.calls[0][0];
     expect(pruneCloudflareAuthDataBestEffort).toHaveBeenCalledWith(env.DB);
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
   });
 
   it('exposes no HTTP route for private operations', async () => {

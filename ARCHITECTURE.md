@@ -54,7 +54,16 @@ Workflow asks the runtime, with its secret, for the upgrade window (`POST /v1/up
 it only when no row is active. Work that starts records itself first and then waits out a window claimed for another
 version, so it starts on the new Worker rather than being cut off on the old one. A busy workspace is asked again
 with backoff (30 seconds doubling to 5 minutes); after 12 hours the Workflow ends without upgrading, and the next
-session request starts another. A busy row a Durable Object never cleared stops counting after the turn wall clock
+session request, or the next sweep, starts another.
+
+A runtime whose owner does not come back would otherwise stay on an old release, and a failed upgrade would stay
+failed until the browser's explicit retry. The control plane's 15-minute cron therefore also sweeps
+(`app/lib/.server/cloudflare/user-workspace-runtime-upgrade-sweep.ts`): it lists ready runtimes that are outdated but
+still serve their connection's generation and protocol, most recently used first, skips anyone who may no longer use
+the connection, and starts or restarts the same gated Workflow instance a session request would name, at most 10
+per sweep. An upgrade still waiting is left alone; one that gave up waiting is restarted; one that failed is
+restarted on one sweep in four, so at most hourly. First-time provisioning never goes through the sweep: it lists only
+runtimes that are already ready. A busy row a Durable Object never cleared stops counting after the turn wall clock
 plus 30 minutes. A runtime from before the window existed cannot answer, so it is upgraded only once the control
 plane has issued no session for it for that long, since a turn needs a session to start.
 

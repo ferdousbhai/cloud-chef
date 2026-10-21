@@ -14,6 +14,7 @@
         "**/*.test.{ts,tsx}",
         "**/*.spec.{ts,tsx}",
         "tests/workerd/**/*.integration.ts",
+        "tests/builder-agent/**/*.integration.ts",
         "tests/workerd/server-dependencies.stub.ts",
         // Child processes invoked by the canonical generated-artifact command.
         "make-bootstrap-snapshot.js",
@@ -23,6 +24,8 @@
       "ignore": [
         "template/**",
         "app/test/cloudflare-workers-shim.ts",
+        // Reached only through vitest.builder-agent.config.ts's `cloudflare:email` alias.
+        "tests/builder-agent/cloudflare-email-shim.ts",
         // Vendored verbatim from the install-anti-slop skill and loaded by Oxlint through
         // `jsPlugins`, which knip does not read. Analysing it would report unused exports
         // against source this repository does not own and must not prune.

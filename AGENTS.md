@@ -25,6 +25,7 @@ Cloudflare control plane, builder agent, user-owned workspace runtime, and gener
 - `template/` — generated application source and security migrations
 - `make-bootstrap-snapshot.js` and `scripts/verify-template.mjs` — template artifact generation and verification
 - `scripts/ops-report.mjs` — read-only production status report
+- `scripts/ops-session.mjs` — read-only reconstruction of one member's recent session (`ops:session`)
 - `migrations/` and `cloudflare.config.ts` — control-plane schema and bindings (deployed with the cf CLI)
 
 ## Invariants
@@ -39,10 +40,16 @@ Cloudflare control plane, builder agent, user-owned workspace runtime, and gener
 pnpm run validate
 pnpm run ops
 pnpm run ops:json
+pnpm run ops:session -- <chat id | user email | user id> [--json] [--full]
 ```
 
 The ops commands read production state through the operator's `cf` CLI login (`cf auth login`, or
-`CLOUDFLARE_API_TOKEN`) and must remain read-only.
+`CLOUDFLARE_API_TOKEN`) and must remain read-only. `ops:session` reconstructs a member's most recent chat (or the
+named one) when they report a problem: the person, runtime, and usage from control-plane D1; the chat, transcripts,
+and deployments from the workspace's own `cloudchef-data-<suffix>` D1; the workspace Worker's Workers Logs over the
+conversation (turns, budgets, model finishes, warnings, errors); every model request filed under the chat in AI
+Gateway, with the conversation (user messages, assistant text, tool calls and errors) from the latest one; and, for
+a GitHub project, the member branch's commits and their Workers Builds check runs through the operator's `gh` login.
 
 ## Cloudflare CLI
 

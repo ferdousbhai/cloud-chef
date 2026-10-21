@@ -39,7 +39,13 @@ pnpm run validate
 `scripts/validate.mjs` runs the steps of `validate:root`, `validate:agent`, and `validate:template` side by side, one per
 core (`VALIDATE_CONCURRENCY` overrides that), and stops at the first failure with that check's full output. Useful
 narrower checks, run serially, are `validate:root`, `validate:agent`, `validate:template`, `test`, `test:workerd`,
-`typecheck`, and `lint`. Generated files produced by verification must leave the worktree clean.
+`test:builder-agent`, `typecheck`, and `lint`. Generated files produced by verification must leave the worktree clean.
+
+`test:builder-agent` (`vitest.builder-agent.config.ts`) runs the real `BuilderAgent` class in Node on an in-memory
+Durable Object state, with the runtime's own D1 schema as `env.DB` and the ProjectWorkspace and Workers AI faked at
+their boundary (`tests/builder-agent/harness.ts`). It is the place for tests of the agent's own call sites, such as
+the runtime-activity gate every kind of work passes before it starts. The config adds the Agents SDK's decorator
+transform, which the unit configuration leaves out.
 
 `pnpm run verify:licenses` checks installed production dependencies against the reviewed license-expression allowlist
 and verifies `public/THIRD_PARTY_LICENSES.txt`. Run `pnpm run licenses:generate` after a root production dependency
@@ -136,12 +142,19 @@ specified in `workers-builds.production.json`: keep the dashboard commands, bran
 and token selection aligned with that file. Runtime secrets remain on the Worker and are not build variables.
 
 Cloudflare Workers Builds runs the full `pnpm run validate` on every non-production branch, which uploads an undeployed
-Worker version (`scripts/workers-builds-checks.mjs`). A push to `main` skips that validation, so prove a change on its
-branch or locally first: it regenerates the checked-in outputs, runs the production deploy command only from the exact
-Workers Builds checkout, applies control-plane D1 migrations while it rebuilds with the exact 40-character commit ID and OAuth client ID in the environment (which
-`cloudflare.config.ts` binds as plain-text vars), deploys that build with `cf deploy --prebuilt` once both have succeeded, and then probes `https://cloudchef.build/api/version`
-every 5 seconds, from the moment the deploy returns, until five consecutive responses report that commit, a live Worker version ID, configured OAuth bindings, and
-`Cache-Control: no-store`.
+Worker version (`scripts/workers-builds-checks.mjs`). A push to `main` validates too, inside the deploy step, so a
+release that fails validation deploys and migrates nothing. Its build command only regenerates the checked-in outputs
+and checks the release inputs. The deploy command (`scripts/deploy-production.mjs --workers-builds`), which runs only
+from the exact Workers Builds checkout, then runs `pnpm run validate` with the exact 40-character commit ID and OAuth
+client ID in the environment (which `cloudflare.config.ts` binds as plain-text vars). Validation's `build:check` is
+therefore the release build itself, so there is no separate build and the gate costs only the checks beside it. The
+account and config checks (`provision:production:check`, `verify:production-config`, `verify:workers-builds-config`)
+run at the same time. Only after validation passes does it record a D1 restore point and apply the control-plane D1
+migrations. It confirms the checkout is still clean, deploys that build with `cf deploy --prebuilt`, and then probes
+`https://cloudchef.build/api/version` every 5 seconds, from the moment the deploy returns, until five consecutive
+responses report that commit, a live Worker version ID, configured OAuth bindings, and `Cache-Control: no-store`.
+Validation needs no browser (`verify:built-browser` is the GitHub Actions browser gate), so it runs in the Workers
+Builds image exactly as it does on a branch build.
 
 Cloudflare Workers Builds is the normal production release path. The deploy wrapper also supports
 `node scripts/deploy-production.mjs --local` for operator-driven bootstrap deployments from a clean `main` checkout
@@ -177,7 +190,14 @@ There is no deployed admin dashboard. The operational state of production is rep
 ```bash
 pnpm run ops        # Worker health, users, sessions, connected accounts, and runtime staleness
 pnpm run ops:json   # the same report, structured for a coding agent
+pnpm run ops:session -- <chat id | user email | user id>   # one member's recent session, reconstructed
 ```
+
+`scripts/ops-session.mjs` reads, with `cf` and `gh` only, what an operator otherwise gathers by hand when someone
+reports a problem: control-plane D1, the workspace's own D1 (found with `cf d1 list` in the runtime's account), dry-run
+Workers Logs queries for the workspace Worker, AI Gateway logs filed under the chat, and the member branch's commits
+and check runs for a GitHub project. It refuses any `cf` command outside a read-only allowlist, and a source it cannot
+read is reported as unknown with the reason. Conversation content exists only for people who kept AI Gateway logging on.
 
 `scripts/ops-report.mjs` reads production control-plane D1 with `cf d1 query`, the control-plane Worker's invocation
 outcomes from Workers Logs with a dry-run `cf observability telemetry query`, and the Workers AI catalog with
