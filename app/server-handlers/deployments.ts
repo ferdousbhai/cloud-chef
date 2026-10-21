@@ -102,6 +102,7 @@ export async function deployForUser(args: {
   env: Env;
   deploymentId: string;
   userId: string;
+  abortSignal?: AbortSignal;
 }): Promise<PublicDeployment> {
   const connection = runtimeCloudflareIdentity(args.env, args.userId);
   let deployment = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId);
@@ -135,12 +136,19 @@ export async function deployForUser(args: {
       userId: args.userId,
       connectionId: connection.id,
       executionGeneration: deployment.executionGeneration,
+      abortSignal: args.abortSignal,
     }),
   );
 }
 
 /** Create an unpromoted preview version under the same plan and credential boundary as deployment. */
-export async function previewForUser(args: { env: Env; deploymentId: string; previewId: string; userId: string }) {
+export async function previewForUser(args: {
+  env: Env;
+  deploymentId: string;
+  previewId: string;
+  userId: string;
+  abortSignal?: AbortSignal;
+}) {
   const connection = runtimeCloudflareIdentity(args.env, args.userId);
   const deployment = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId);
   await requireActiveDeploymentChat(args.env.DB, deployment);
@@ -160,6 +168,7 @@ export async function previewForUser(args: { env: Env; deploymentId: string; pre
     userId: args.userId,
     connectionId: connection.id,
     executionGeneration: deployment.executionGeneration,
+    abortSignal: args.abortSignal,
   });
 }
 

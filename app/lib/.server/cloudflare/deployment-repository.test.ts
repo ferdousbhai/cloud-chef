@@ -165,7 +165,7 @@ describe('deployment repository', () => {
     });
   });
 
-  it('allows only one active deployment per user', async () => {
+  it("deploys one revision of a project at a time, and a person's other projects alongside it", async () => {
     const first = await approvedDeployment(1);
     const second = await approvedDeployment(2);
     await claimApprovedDeployment({
@@ -187,6 +187,18 @@ describe('deployment repository', () => {
         executionGeneration: second.executionGeneration,
       }),
     ).rejects.toBeInstanceOf(DeploymentConcurrencyLimitError);
+
+    const otherProject = await approvedDeployment(3, 'other-project');
+    await expect(
+      claimApprovedDeployment({
+        db,
+        deploymentId: otherProject.id,
+        userId: otherProject.userId,
+        connectionId: otherProject.connectionId,
+        connectionGeneration: otherProject.connectionGeneration,
+        executionGeneration: otherProject.executionGeneration,
+      }),
+    ).resolves.toMatchObject({ status: 'provisioning' });
   });
 
   it('recovers exact deployment writes when D1 commits before losing the acknowledgement', async () => {
@@ -288,7 +300,7 @@ describe('deployment repository', () => {
   });
 });
 
-async function create(index: number) {
+async function create(index: number, project = 'project') {
   return createDeployment({
     db,
     id: `deployment-${index}`,
@@ -296,15 +308,15 @@ async function create(index: number) {
     userId: 'user-1',
     connectionId: 'connection-1',
     connectionGeneration: 1,
-    workspaceReference: `workspace-runtime:project:${index}:${sourceSha256}`,
+    workspaceReference: `workspace-runtime:${project}:${index}:${sourceSha256}`,
     plan: { ...plan, deploymentId: `deployment-${index}` },
     planDigest,
     now: index,
   });
 }
 
-async function approvedDeployment(index: number) {
-  return create(index);
+async function approvedDeployment(index: number, project?: string) {
+  return create(index, project);
 }
 
 function d1(database: DatabaseSync, throwAfterNextRun = false): D1Database {

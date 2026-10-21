@@ -29,6 +29,7 @@ vi.mock('./deployment-plan', () => ({
   isCurrentDeploymentPlan: () => true,
 }));
 vi.mock('./deployment-repository', () => ({
+  DeploymentConcurrencyLimitError: class DeploymentConcurrencyLimitError extends Error {},
   claimApprovedDeployment: mocks.claimApprovedDeployment,
   findDeploymentResource: mocks.findDeploymentResource,
   recordDeploymentActivity: mocks.recordDeploymentActivity,
@@ -40,6 +41,7 @@ vi.mock('./user-account-api', () => ({
   UserCloudflareAccountApi: mocks.UserCloudflareAccountApi,
 }));
 
+import { DeploymentConcurrencyLimitError } from './deployment-repository';
 import {
   executeUserOwnedDeployment,
   executeUserOwnedPreview,
@@ -431,4 +433,170 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
       status: 'completed',
     });
   });
+
+  it('reports a promoted deployment as succeeded when its closing bookkeeping fails', async () => {
+    const { execution, workspace } = await workerDeployment();
+    mocks.recordDeploymentActivity.mockImplementation(async (input: { sequence: number }) => {
+      if (input.sequence === 80) {
+        throw new Error('D1 unavailable');
+      }
+    });
+    workspace.finishDeploymentSession.mockRejectedValueOnce(new Error('workspace reset'));
+
+    await expect(executeUserOwnedDeployment(execution)).resolves.toMatchObject({ status: 'succeeded' });
+
+    expect(mocks.transitionDeployment).not.toHaveBeenCalledWith(expect.objectContaining({ nextStatus: 'failed' }));
+  });
+
+  it('stops a cancelled deployment before it changes production, releasing the workspace', async () => {
+    const { execution, workspace } = await workerDeployment();
+    const controller = new AbortController();
+    workspace.prepareDeploymentArtifact.mockImplementationOnce(async () => {
+      controller.abort(new Error('A newer turn superseded this publication.'));
+      return workspace.artifact;
+    });
+
+    await expect(executeUserOwnedDeployment({ ...execution, abortSignal: controller.signal })).rejects.toThrow(
+      'A newer turn superseded this publication.',
+    );
+
+    expect(mocks.accountApi.applyD1Migrations).not.toHaveBeenCalled();
+    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
+    expect(workspace.finishDeploymentSession).toHaveBeenCalledWith({ sessionId: 'deployment-1:4', status: 'failed' });
+    expect(mocks.transitionDeployment).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedStatus: 'deploying', nextStatus: 'failed' }),
+    );
+  });
+
+  it('finishes a deployment cancelled after it started changing production', async () => {
+    const { execution } = await workerDeployment();
+    const controller = new AbortController();
+    mocks.accountApi.deployManagedWorker.mockImplementationOnce(async () => {
+      controller.abort(new Error('A newer turn superseded this publication.'));
+      return { workerVersionId: '11111111-1111-4111-8111-111111111111' };
+    });
+
+    await expect(executeUserOwnedDeployment({ ...execution, abortSignal: controller.signal })).resolves.toMatchObject({
+      status: 'succeeded',
+    });
+  });
+
+  it('records a deployment refused for another one of the same project as failed, not left approved', async () => {
+    const { execution, deployment, workspace } = await workerDeployment();
+    mocks.claimApprovedDeployment.mockRejectedValueOnce(new DeploymentConcurrencyLimitError());
+
+    await expect(executeUserOwnedDeployment(execution)).rejects.toBeInstanceOf(DeploymentConcurrencyLimitError);
+
+    expect(mocks.transitionDeployment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deploymentId: deployment.id,
+        executionGeneration: 4,
+        expectedStatus: 'approved',
+        nextStatus: 'failed',
+        errorCode: 'deployment_concurrency_limited',
+      }),
+    );
+    expect(workspace.beginDeploymentSession).not.toHaveBeenCalled();
+  });
+
+  it('stops a cancelled preview at its next step and releases the workspace', async () => {
+    const { execution, deployment, workspace } = await workerDeployment();
+    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
+    const controller = new AbortController();
+    workspace.prepareDeploymentArtifact.mockImplementationOnce(async () => {
+      controller.abort(new Error('A newer turn superseded this publication.'));
+      return workspace.artifact;
+    });
+
+    await expect(
+      executeUserOwnedPreview({ ...execution, previewId: 'preview-1', abortSignal: controller.signal }),
+    ).rejects.toThrow('A newer turn superseded this publication.');
+
+    expect(mocks.accountApi.previewManagedWorker).not.toHaveBeenCalled();
+    expect(workspace.finishDeploymentSession).toHaveBeenCalledWith({
+      sessionId: 'preview:deployment-1:4:preview-1',
+      status: 'failed',
+    });
+  });
 });
+
+/** An approved deployment of a plain Worker, with the runtime bindings and ProjectWorkspace it publishes through. */
+async function workerDeployment() {
+  const revision = 'a'.repeat(64);
+  const deployment = {
+    id: 'deployment-1',
+    chatId: 'chat-1',
+    userId: 'user-1',
+    connectionId: 'connection-1',
+    connectionGeneration: 3,
+    executionGeneration: 4,
+    workspaceReference: `workspace-runtime:project-1:7:${revision}`,
+    status: 'approved',
+    plan: {
+      version: 5,
+      deploymentId: 'deployment-1',
+      sourceSha256: revision,
+      project: { type: 'worker', bindings: { ai: false, d1: false, r2: false, kv: false, appAgent: false } },
+      resources: [{ type: 'worker', logicalName: 'app', proposedName: 'cloudchef-deployment-1' }],
+    },
+    planDigest: 'digest-1',
+    productionUrl: null,
+    errorCode: null,
+    errorMessage: null,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const moduleBytes = new TextEncoder().encode('export default {}');
+  const moduleDigest = await crypto.subtle.digest('SHA-256', moduleBytes);
+  const artifact = {
+    revision,
+    mainModule: 'index.js',
+    modules: [
+      {
+        path: 'index.js',
+        bytes: moduleBytes,
+        size: moduleBytes.byteLength,
+        sha256: [...new Uint8Array(moduleDigest)].map((byte) => byte.toString(16).padStart(2, '0')).join(''),
+      },
+    ],
+    assets: [],
+    migrations: { DB: [], AGENT_SECURITY_DB: [] },
+  };
+  const workspace = {
+    artifact,
+    beginDeploymentSession: vi.fn().mockResolvedValue(undefined),
+    assertDeploymentSession: vi.fn().mockResolvedValue({ workspaceRevision: 7, revision }),
+    prepareDeploymentArtifact: vi.fn(async () => artifact),
+    finishDeploymentSession: vi.fn().mockResolvedValue(undefined),
+  };
+  mocks.requireDeployment
+    .mockReset()
+    .mockResolvedValueOnce(deployment)
+    .mockResolvedValueOnce({ ...deployment, status: 'deploying' })
+    .mockResolvedValueOnce({ ...deployment, status: 'succeeded' });
+  mocks.claimApprovedDeployment.mockResolvedValue({ ...deployment, status: 'provisioning' });
+  // SAFETY: this test double supplies every user-runtime binding read by the executor.
+  const env = Object.assign({} as Env, {
+    DB: {},
+    CLOUDCHEF_USER_RUNTIME: '1',
+    CLOUDCHEF_CONTROL_PLANE_ENDPOINT: 'https://cloudchef.build',
+    CONTROL_PLANE_SECRET: 'runtime-secret-that-is-long-enough',
+    CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
+    CLOUDCHEF_USER_ID: 'user-1',
+    CLOUDCHEF_CONNECTION_ID: 'connection-1',
+    CLOUDCHEF_CONNECTION_GENERATION: '3',
+    PROJECT_WORKSPACE: { idFromName: (name: string) => `id:${name}`, get: () => workspace },
+  });
+  const request = vi.fn<typeof fetch>(async () =>
+    Response.json({ accessToken: 'user-oauth-token' }, { headers: { 'Cache-Control': 'no-store' } }),
+  );
+  const execution = {
+    env,
+    deploymentId: deployment.id,
+    userId: 'user-1',
+    connectionId: 'connection-1',
+    executionGeneration: 4,
+    request,
+  };
+  return { execution, deployment, workspace };
+}
