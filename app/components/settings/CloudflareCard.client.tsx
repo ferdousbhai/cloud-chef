@@ -123,7 +123,7 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
         {organization ? (
           <>
             <p className="text-sm text-content-secondary">
-              This is {organization.orgName}&apos;s Cloudflare account; its admins manage the connection
+              This Cloudflare account belongs to the team {organization.orgName}; its admins manage the connection
               {admin ? ' (as one, you reconnect it under Teams).' : '.'}
             </p>
             {offersOwnAccount ? (

@@ -2,6 +2,7 @@ import { useStore } from '@nanostores/react';
 import { useCallback, useEffect, useState } from 'react';
 import { z } from 'zod';
 import { Button } from '~/components/ui/primitives/Button';
+import { authClient, createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
 import {
   builderModelCatalogStatusStore,
   builderModelsStore,
@@ -193,11 +194,11 @@ export function ModelsCard() {
             <p className="mt-2 text-sm text-content-primary">
               Cloudflare couldn’t be asked just now which keys this account has.
             </p>
+          ) : settings.canManage ? (
+            <ReauthorizeForKeys />
           ) : (
             <p className="mt-2 max-w-2xl text-sm text-content-secondary">
-              {settings.canManage
-                ? 'This account was connected before CloudChef could link keys to its AI Gateway. Reauthorize Cloudflare (above, or under Teams for a team’s account), then come back here.'
-                : 'This account’s admins need to reauthorize Cloudflare before provider keys can be linked.'}
+              This account’s admins need to reauthorize Cloudflare before provider keys can be linked.
             </p>
           )}
           {settings.canManage && settings.keys.status === 'ready' ? (
@@ -275,5 +276,46 @@ function ProviderKeyRow({
         </>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * Reauthorizes the connection this page is showing: a team's (its admins grant it) or the person's own.
+ * Connections made before CloudChef could manage AI Gateway keys lack those permissions until then.
+ */
+function ReauthorizeForKeys() {
+  const { data: session } = authClient.useSession();
+  const team = session?.context?.kind === 'organization' ? session.context : null;
+  const [reauthorizing, setReauthorizing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const reauthorize = async () => {
+    setReauthorizing(true);
+    setError(null);
+    try {
+      await signInWithCloudflare(
+        createCloudflareReturnURL(window.location.href),
+        team ? { organizationId: team.orgId } : {},
+      );
+    } catch {
+      setError('Cloudflare couldn’t be reached. Try again.');
+      setReauthorizing(false);
+    }
+  };
+  return (
+    <div className="mt-2 grid max-w-2xl justify-items-start gap-2 text-sm text-content-secondary">
+      <p>
+        {team
+          ? `${team.orgName} connected its Cloudflare account before CloudChef could manage AI Gateway keys. Reauthorize it once to give CloudChef that permission.`
+          : 'This Cloudflare account was connected before CloudChef could manage AI Gateway keys. Reauthorize it once to give CloudChef that permission.'}
+      </p>
+      <Button size="sm" variant="primary" loading={reauthorizing} onClick={() => void reauthorize()}>
+        Reauthorize Cloudflare
+      </Button>
+      {error ? (
+        <p className="text-bolt-elements-icon-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
