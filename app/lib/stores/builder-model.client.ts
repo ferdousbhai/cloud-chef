@@ -47,7 +47,8 @@ const reasoningChoicesSchema = z.record(z.string(), z.unknown());
 export const builderModelStore = atom<BuilderModelId>(CLOUDFLARE_WORKERS_AI_MODEL);
 export const builderDefaultModelStore = atom<BuilderModelId>(CLOUDFLARE_WORKERS_AI_MODEL);
 export const builderModelsStore = atom<readonly BuilderModel[]>([DEFAULT_WORKERS_AI_MODEL]);
-export const builderModelCatalogStatusStore = atom<'idle' | 'loading' | 'ready' | 'error'>('idle');
+type BuilderModelCatalogStatus = 'idle' | 'loading' | 'ready' | 'error';
+export const builderModelCatalogStatusStore = atom<BuilderModelCatalogStatus>('idle');
 
 /** The reasoning effort chosen per model id, as this browser keeps it. */
 type BuilderReasoningChoices = Readonly<Record<string, BuilderReasoningLevel>>;
@@ -86,11 +87,13 @@ export function builderReasoningLevelFor(
  * The model a turn on `modelId` runs on, as this browser knows it. Before the live catalog arrives a
  * saved model is trusted by its id alone (see `catalogInstalled`), so it stands in as that id at its
  * saved effort rather than as the default model; the server checks both against the account's catalog.
+ * A catalog that failed to load leaves it standing in, and its description says so.
  */
 export function builderModelFor(
   modelId: BuilderModelId,
   models: readonly BuilderModel[] = builderModelsStore.get(),
   choices: BuilderReasoningChoices = builderReasoningChoicesStore.get(),
+  catalogStatus: BuilderModelCatalogStatus = builderModelCatalogStatusStore.get(),
 ): BuilderModel {
   const listed = models.find(({ id }) => id === modelId);
   if (listed !== undefined || catalogInstalled) {
@@ -100,7 +103,10 @@ export function builderModelFor(
   const standIn: BuilderModel = {
     id: modelId,
     label: modelId,
-    description: 'Loading the model catalog.',
+    description:
+      catalogStatus === 'error'
+        ? 'Your saved model. The catalog could not be loaded, so it is checked when a turn starts.'
+        : 'Loading the model catalog.',
     contextTokens: 0,
     requiresPaid: false,
     reasoning: saved !== undefined,
