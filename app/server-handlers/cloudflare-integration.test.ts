@@ -53,6 +53,18 @@ import {
   startCloudflareConnectionAction,
 } from './cloudflare-integration';
 
+/**
+ * Where a return from Cloudflare that could not finish sends the browser: Settings, saying why. The
+ * answer is the message Settings shows.
+ */
+function returnFailure(response: Response): string | null {
+  expect(response.status).toBe(303);
+  const location = new URL(response.headers.get('location') ?? '');
+  expect(location.pathname).toBe('/settings');
+  expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
+  return location.searchParams.get('cloudflare_message');
+}
+
 describe('Cloudflare-only authentication', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -572,7 +584,9 @@ describe('Cloudflare-only authentication', () => {
       env: database.env,
       orchestrator: fakeOrchestrator(),
     });
-    expect(replay.status).toBe(404);
+    expect(returnFailure(replay)).toBe(
+      'That Cloudflare authorization was already finished, or is no longer known. Connect Cloudflare again if you need to.',
+    );
   });
 
   it('turns a provider rejection into a safe, retryable settings redirect', async () => {
@@ -630,10 +644,9 @@ describe('Cloudflare-only authentication', () => {
       orchestrator,
     });
 
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({
-      error: 'Cloudflare authorization browser state did not match.',
-    });
+    expect(returnFailure(response)).toBe(
+      'That Cloudflare authorization was started in another browser or tab. Connect Cloudflare again from here.',
+    );
     expect(database.state?.status).toBe('pending');
     expect(orchestrator.completeConnection).not.toHaveBeenCalled();
   });
@@ -688,7 +701,7 @@ describe('Cloudflare-only authentication', () => {
       orchestrator,
     });
 
-    expect(response.status).toBe(400);
+    expect(returnFailure(response)).toBe('That Cloudflare authorization couldn’t be read. Connect Cloudflare again.');
     expect(database.state?.status).toBe('pending');
     expect(orchestrator.completeConnection).not.toHaveBeenCalled();
     expect(mocks.createAuthSession).not.toHaveBeenCalled();
@@ -780,7 +793,7 @@ describe('Cloudflare-only authentication', () => {
       orchestrator,
     });
 
-    expect(response.status).toBe(500);
+    expect(returnFailure(response)).toBe('Cloudflare couldn’t be connected just now. Try again.');
     expect(database.state?.status).toBe('pending');
     expect(database.exactCompletionRead).toHaveBeenCalledTimes(1);
     expect(mocks.createAuthSession).not.toHaveBeenCalled();
@@ -811,7 +824,7 @@ describe('Cloudflare-only authentication', () => {
       orchestrator,
     });
 
-    expect(response.status).toBe(500);
+    expect(returnFailure(response)).toBe('Cloudflare couldn’t be connected just now. Try again.');
     expect(database.state?.status).toBe('completed');
     expect(database.exactCompletionRead).toHaveBeenCalledTimes(1);
     expect(orchestrator.completeConnection).toHaveBeenCalledTimes(1);
@@ -857,7 +870,7 @@ describe('Cloudflare-only authentication', () => {
       orchestrator,
     });
 
-    expect(response.status).toBe(500);
+    expect(returnFailure(response)).toBe('Cloudflare couldn’t be connected just now. Try again.');
     expect(database.state?.status).toBe('pending');
     expect(database.state?.authenticatedUserId).toBe('user-1');
     expect(database.completeStateWrite).not.toHaveBeenCalled();
@@ -896,8 +909,7 @@ describe('Cloudflare-only authentication', () => {
       orchestrator: fakeOrchestrator(),
     });
 
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining('browser state') });
+    expect(returnFailure(response)).toContain('another browser or tab');
     expect(mocks.createAuthSession).not.toHaveBeenCalled();
   });
 
@@ -943,7 +955,7 @@ describe('Cloudflare-only authentication', () => {
       orchestrator: fakeOrchestrator(),
     });
 
-    expect(response.status).toBe(500);
+    expect(returnFailure(response)).toBe('Cloudflare couldn’t be connected just now. Try again.');
     expect(mocks.activateConnection).toHaveBeenCalledWith(expect.objectContaining({ expectedGeneration: 4 }));
     expect(mocks.vault.deleteIfUnreferenced).toHaveBeenCalledWith('credential-1');
     expect(mocks.vault.deleteIfUnreferenced).not.toHaveBeenCalledWith('credential-old');

@@ -96,6 +96,43 @@ describe('connecting Cloudflare while signed in', () => {
     expect(await getAuthSession(env, new Request(ORIGIN, { headers: { cookie } }))).toBeNull();
   });
 
+  it('says the account is connected when the session ended before the return, and sends the browser to Settings', async () => {
+    const { database, env, user, cookie } = await setup();
+    database.prepare('UPDATE "user" SET cloudflare_subject = ? WHERE id = ?').run('cf-sam', user.id);
+    const orchestrator = cloudflareAs('cf-sam');
+    const started = await startCloudflareConnectionAction({
+      request: new Request(`${ORIGIN}/api/cloudflare/connection/start`, {
+        method: 'POST',
+        headers: { Origin: ORIGIN, 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ callbackURL: `${ORIGIN}/chat/project-1` }),
+      }),
+      env,
+      orchestrator,
+    });
+    const state = /cloudchef_oauth_state=([^;]+)/.exec(started.headers.get('set-cookie') ?? '')?.[1] ?? '';
+
+    // Back from Cloudflare with only the authorization's browser state: the session cookie is gone.
+    const response = await completeCloudflareConnectionAction({
+      request: new Request(`${ORIGIN}/connect/return?state=${state}&code=code`, {
+        headers: { cookie: `cloudchef_oauth_state=${state}` },
+      }),
+      env,
+      orchestrator,
+    });
+
+    expect(response.status).toBe(303);
+    const location = new URL(response.headers.get('location') ?? '');
+    expect(location.pathname).toBe('/settings');
+    expect(location.searchParams.get('continue')).toBe('/chat/project-1');
+    expect(location.searchParams.get('cloudflare_message')).toBe(
+      'Cloudflare is connected, but your CloudChef session ended before it finished. Sign in again to build in it.',
+    );
+    expect(response.headers.get('set-cookie')).not.toContain('cloudchef_session=');
+    expect(database.prepare('SELECT status FROM cloudflare_connections WHERE user_id = ?').get(user.id)).toEqual({
+      status: 'active',
+    });
+  });
+
   it('asks for a recent sign-in before attaching a new Cloudflare login, and never issues a session for one', async () => {
     const { env, cookie } = await setup();
     const refused = await connect(env, cookie, cloudflareAs('cf-new'));

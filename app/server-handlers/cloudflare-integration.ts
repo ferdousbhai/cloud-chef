@@ -46,6 +46,7 @@ import { mintRuntimeCapability } from '~/lib/cloudflare/runtime-capability';
 import {
   CLOUDFLARE_AUTHORIZATION_ERROR_PARAM,
   CLOUDFLARE_AUTHORIZATION_ERROR_VALUE,
+  CLOUDFLARE_CONNECT_MESSAGE_PARAM,
 } from '~/lib/cloudflare/authorization-recovery';
 import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { CLOUDCHEF_CAPABILITIES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
@@ -489,15 +490,22 @@ export async function startCloudflareConnectionAction(args: {
   }
 }
 
+/**
+ * Cloudflare's return after authorizing, a top-level browser navigation: every outcome goes back to
+ * CloudChef, a failure to Settings saying what happened (`connectReturnFailure`).
+ */
 export async function completeCloudflareConnectionAction(args: {
   request: Request;
   env: Env;
   orchestrator?: CloudflareOrchestrator;
 }): Promise<Response> {
+  let returnTo: string | null = null;
   try {
     const { state, callbackUrl, providerRejectedAuthorization } = await readCloudflareCallback(args.request);
     if (readCookie(args.request, OAUTH_STATE_COOKIE) !== state) {
-      return Response.json({ error: 'Cloudflare authorization browser state did not match.' }, { status: 400 });
+      throw new ConnectReturnError(
+        'That Cloudflare authorization was started in another browser or tab. Connect Cloudflare again from here.',
+      );
     }
     const oauthState = await args.env.DB.prepare(
       `SELECT provider_session_id, return_to, expires_at, authenticated_user_id, linking_user_id, connecting_org_id
@@ -507,8 +515,11 @@ export async function completeCloudflareConnectionAction(args: {
       .bind(state)
       .first<PendingOAuthState>();
     if (!oauthState) {
-      return Response.json({ error: 'Cloudflare authorization session not found.' }, { status: 404 });
+      throw new ConnectReturnError(
+        'That Cloudflare authorization was already finished, or is no longer known. Connect Cloudflare again if you need to.',
+      );
     }
+    returnTo = oauthState.return_to;
     if (oauthState.expires_at <= Date.now()) {
       await args.env.DB.prepare(
         `UPDATE cloudflare_oauth_states SET status = 'expired', updated_at = ?
@@ -516,7 +527,7 @@ export async function completeCloudflareConnectionAction(args: {
       )
         .bind(Date.now(), state)
         .run();
-      return Response.json({ error: 'Cloudflare authorization session expired.' }, { status: 410 });
+      throw new ConnectReturnError('That Cloudflare authorization expired. Connect Cloudflare again.');
     }
     if (providerRejectedAuthorization) {
       await failOAuthState({ db: args.env.DB, stateId: state, expected: oauthState });
@@ -637,8 +648,9 @@ export async function completeCloudflareConnectionAction(args: {
     if (oauthState.linking_user_id) {
       const current = await getAuthSession(args.env, args.request);
       if (current?.user.id !== oauthState.linking_user_id) {
-        throw new IdentityConflictError(
-          'Your CloudChef session ended while connecting Cloudflare. Sign in and try again.',
+        // The connection is already active by now: only this browser's session is gone.
+        throw new ConnectReturnError(
+          'Cloudflare is connected, but your CloudChef session ended before it finished. Sign in again to build in it.',
         );
       }
       sessionId = current.session.id;
@@ -676,8 +688,59 @@ export async function completeCloudflareConnectionAction(args: {
       headers,
     });
   } catch (error) {
-    return cloudflareIntegrationErrorResponse(error);
+    if (
+      error instanceof ConnectReturnError ||
+      error instanceof CloudflareOAuthError ||
+      error instanceof IdentityConflictError
+    ) {
+      return connectReturnFailure(args.request, returnTo, error.message);
+    }
+    // Anything else is classified (and an unexpected one logged) as the JSON routes do.
+    const unexpected = cloudflareIntegrationErrorResponse(error).status >= 500;
+    return connectReturnFailure(
+      args.request,
+      returnTo,
+      unexpected
+        ? 'Cloudflare couldn’t be connected just now. Try again.'
+        : 'That Cloudflare authorization couldn’t be read. Connect Cloudflare again.',
+    );
   }
+}
+
+/** A return from Cloudflare that cannot finish, with what to tell the person. */
+class ConnectReturnError extends Error {}
+
+/**
+ * Back to Settings (keeping where the person was headed) with why the return from Cloudflare did not
+ * finish, and this browser's authorization state cleared. The message is CloudChef's own text.
+ */
+function connectReturnFailure(request: Request, returnTo: string | null, message: string): Response {
+  return settingsAfterConnectReturn(request, returnTo, [CLOUDFLARE_CONNECT_MESSAGE_PARAM, message]);
+}
+
+/** Settings' Cloudflare card, carrying where the person was headed (`continue`) and why they are there. */
+function settingsAfterConnectReturn(
+  request: Request,
+  returnTo: string | null,
+  [param, value]: [string, string],
+): Response {
+  const requestUrl = new URL(request.url);
+  const continuation = returnTo === null ? '/settings' : safeReturnTo(returnTo, requestUrl.origin);
+  const originalTarget = new URL(continuation, requestUrl.origin);
+  const target = originalTarget.pathname === '/settings' ? originalTarget : new URL('/settings', requestUrl.origin);
+  if (originalTarget.pathname !== '/settings') {
+    target.searchParams.set('continue', continuation);
+  }
+  target.searchParams.set(param, value);
+  target.hash = 'cloudflare';
+  return new Response(null, {
+    status: 303,
+    headers: {
+      Location: target.toString(),
+      'Cache-Control': 'no-store',
+      'Set-Cookie': oauthStateCookie('', 0, request),
+    },
+  });
 }
 
 async function hasCloudflareLogin(db: D1Database, userId: string): Promise<boolean> {
@@ -911,23 +974,10 @@ async function readCloudflareCallback(
 }
 
 function cloudflareAuthorizationRecoveryResponse(request: Request, returnTo: string): Response {
-  const requestUrl = new URL(request.url);
-  const continuation = safeReturnTo(returnTo, requestUrl.origin);
-  const originalTarget = new URL(continuation, requestUrl.origin);
-  const recoveryTarget =
-    originalTarget.pathname === '/settings' ? originalTarget : new URL('/settings', requestUrl.origin);
-  if (originalTarget.pathname !== '/settings') {
-    recoveryTarget.searchParams.set('continue', continuation);
-  }
-  recoveryTarget.searchParams.set(CLOUDFLARE_AUTHORIZATION_ERROR_PARAM, CLOUDFLARE_AUTHORIZATION_ERROR_VALUE);
-  recoveryTarget.hash = 'cloudflare';
-  return new Response(null, {
-    status: 303,
-    headers: {
-      Location: recoveryTarget.toString(),
-      'Set-Cookie': oauthStateCookie('', 0, request),
-    },
-  });
+  return settingsAfterConnectReturn(request, returnTo, [
+    CLOUDFLARE_AUTHORIZATION_ERROR_PARAM,
+    CLOUDFLARE_AUTHORIZATION_ERROR_VALUE,
+  ]);
 }
 
 function parseIntegrationRequest<T>(schema: z.ZodType<T>, value: unknown): T {

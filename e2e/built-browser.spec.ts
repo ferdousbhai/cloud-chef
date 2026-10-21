@@ -33,7 +33,7 @@ test('renders signed-out private routes after browser hydration', async ({ page 
   const assertClean = collectBrowserDiagnostics(page, testInfo);
 
   await page.goto('/settings');
-  await expect(page.getByRole('heading', { name: /Connect Cloudflare to open settings/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Sign in to open settings/i })).toBeVisible();
   // Never a bounce into Cloudflare's consent screen: the route that asks for eight permissions
   // states the plan requirement here first, exactly as the composer does.
   await expect(page).toHaveURL(/\/settings$/);
