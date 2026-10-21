@@ -8,9 +8,9 @@ import { promotedDraftFiles, promotedWorkerName } from '~/lib/.server/github/pro
 import {
   declineProductionRequest,
   findGitHubInstallation,
-  findPendingProductionRequest,
-  claimProductionRequest,
-  releaseProductionRequest,
+  claimProductionRequestForApproval,
+  holdApprovalClaim,
+  releaseApprovalClaim,
   linkProject,
   listAccessibleProjects,
   recordApprovedRequest,
@@ -203,11 +203,16 @@ export function approveProductionRequestAction({
     if (!app || !installation) {
       return Response.json({ error: app ? 'Connect GitHub first.' : UNAVAILABLE }, { status: 409 });
     }
-    if (!(await findPendingProductionRequest(env.DB, body.data.orgId, body.data.requestId))) {
-      throw new OrganizationError('That request was already decided.', 409);
+    // Claimed now, not on the way back: the member can't swap the draft while the admin is on GitHub.
+    const now = await claimProductionRequestForApproval(env.DB, {
+      orgId: body.data.orgId,
+      requestId: body.data.requestId,
+      adminId: session.user.id,
+    });
+    if (now === null) {
+      throw new OrganizationError('That request was already decided, or another admin is approving it.', 409);
     }
     const state = crypto.randomUUID();
-    const now = Date.now();
     await env.DB.prepare(
       `INSERT INTO github_approval_states (id, request_id, user_id, repo_name, private, expires_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -266,12 +271,15 @@ async function completeProductionApproval(args: {
   const pending = await env.DB.prepare(
     `UPDATE github_approval_states SET used_at = ?
      WHERE id = ? AND used_at IS NULL AND expires_at > ?
-     RETURNING request_id, user_id, repo_name, private`,
+     RETURNING request_id, user_id, repo_name, private, created_at`,
   )
     .bind(now, args.state, now)
-    .first<{ request_id: string; user_id: string; repo_name: string; private: number }>();
+    .first<{ request_id: string; user_id: string; repo_name: string; private: number; created_at: number }>();
   const code = url.searchParams.get('code');
   if (!pending || !app || !code) {
+    if (pending) {
+      await releaseApprovalClaim(env.DB, pending.request_id, pending.created_at);
+    }
     return back(pending && app ? 'GitHub authorization was cancelled.' : null);
   }
   const owner = await env.DB.prepare('SELECT org_id FROM production_requests WHERE id = ?')
@@ -280,19 +288,26 @@ async function completeProductionApproval(args: {
   const session = await getAuthSession(env, request);
   const membership = session && owner ? await findMembership(env.DB, owner.org_id, session.user.id) : null;
   if (!owner || session?.user.id !== pending.user_id || membership?.role !== 'admin' || membership.pausedAt !== null) {
+    await releaseApprovalClaim(env.DB, pending.request_id, pending.created_at);
     return back('Only the admin who started the approval can finish it.');
   }
-  const productionRequest = await findPendingProductionRequest(env.DB, owner.org_id, pending.request_id);
   const installation = await findGitHubInstallation(env.DB, owner.org_id);
-  if (!productionRequest || !installation) {
-    return back('That request was already decided, or GitHub is no longer connected.');
+  if (!installation) {
+    await releaseApprovalClaim(env.DB, pending.request_id, pending.created_at);
+    return back('GitHub is no longer connected.');
   }
-  // One approval at a time: two admins approving together must not create two repositories.
-  if (!(await claimProductionRequest(env.DB, productionRequest.id))) {
-    return back('Another admin is already approving that request.');
+  // The draft as it was when the admin clicked Approve: the claim made then must still hold, and it keeps
+  // any other admin from creating a second repository while this one is created.
+  const productionRequest = await holdApprovalClaim(env.DB, {
+    orgId: owner.org_id,
+    requestId: pending.request_id,
+    claimedAt: pending.created_at,
+  });
+  if (!productionRequest) {
+    return back('That request was decided, or changed, while you were on GitHub. Review it and approve again.');
   }
   const fail = async (message: string) => {
-    await releaseProductionRequest(env.DB, productionRequest.id);
+    await releaseApprovalClaim(env.DB, productionRequest.id, productionRequest.claimedAt);
     return back(message);
   };
   try {
@@ -371,7 +386,7 @@ async function completeProductionApproval(args: {
     if (error instanceof GitHubError) {
       return await fail(error.message);
     }
-    await releaseProductionRequest(env.DB, productionRequest.id);
+    await releaseApprovalClaim(env.DB, productionRequest.id, productionRequest.claimedAt);
     throw error;
   }
 }

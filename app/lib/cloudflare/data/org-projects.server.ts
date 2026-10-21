@@ -308,20 +308,6 @@ export async function listOwnProductionRequests(
   return results.map((row) => ({ id: row.id, title: row.title, status: row.status, decisionNote: row.decision_note }));
 }
 
-/** A request still waiting for a decision, with the draft's files, or null. */
-export async function findPendingProductionRequest(db: D1Database, orgId: string, requestId: string) {
-  const row = await db
-    .prepare(
-      `SELECT id, requested_by, title, snapshot_gzip_base64 FROM production_requests
-       WHERE id = ? AND org_id = ? AND ${OPEN_REQUEST}`,
-    )
-    .bind(requestId, orgId, Date.now() - APPROVAL_CLAIM_MS)
-    .first<{ id: string; requested_by: string; title: string; snapshot_gzip_base64: string }>();
-  return row
-    ? { id: row.id, requestedBy: row.requested_by, title: row.title, snapshot: row.snapshot_gzip_base64 }
-    : null;
-}
-
 export async function declineProductionRequest(
   db: D1Database,
   args: { orgId: string; actorId: string; requestId: string; note: string; now?: number },
@@ -347,22 +333,75 @@ export async function declineProductionRequest(
   }
 }
 
-/** Marks a pending request as being approved; false when someone else already is (or it was decided). */
-export async function claimProductionRequest(db: D1Database, requestId: string): Promise<boolean> {
-  const claimed = await db
-    .prepare(`UPDATE production_requests SET status = 'approving', claimed_at = ? WHERE id = ? AND ${OPEN_REQUEST}`)
-    .bind(Date.now(), requestId, Date.now() - APPROVAL_CLAIM_MS)
-    .run();
-  return claimed.meta.changes === 1;
+/** Before this time, an approval's claim on a request has lapsed: the request is open again. */
+export function lapsedApprovalClaimBefore(now: number): number {
+  return now - APPROVAL_CLAIM_MS;
 }
 
-/** Hands a request back to pending after an approval that didn't finish. */
-export async function releaseProductionRequest(db: D1Database, requestId: string): Promise<void> {
+/**
+ * Claims a request for an admin who is about to authorize CloudChef on GitHub, so that what they
+ * reviewed is what becomes the repository: while claimed, the member can't replace the draft, and no
+ * other admin can approve or decline it. The same admin approving again (a tab closed on GitHub) takes
+ * over their own claim. Returns the claim's time, which the approval's state records, or null when
+ * the request is decided or another admin holds it.
+ */
+export async function claimProductionRequestForApproval(
+  db: D1Database,
+  args: { orgId: string; requestId: string; adminId: string; now?: number },
+): Promise<number | null> {
+  const now = args.now ?? Date.now();
+  const claimed = await db
+    .prepare(
+      `UPDATE production_requests SET status = 'approving', claimed_at = ?
+       WHERE id = ? AND org_id = ? AND (
+         ${OPEN_REQUEST}
+         OR (status = 'approving' AND EXISTS (
+           SELECT 1 FROM github_approval_states AS states
+           WHERE states.request_id = production_requests.id AND states.user_id = ? AND states.used_at IS NULL
+             AND states.created_at = production_requests.claimed_at)))`,
+    )
+    .bind(now, args.requestId, args.orgId, lapsedApprovalClaimBefore(now), args.adminId)
+    .run();
+  return claimed.meta.changes === 1 ? now : null;
+}
+
+/**
+ * Back from GitHub: the request, with the draft's files, if the claim made when the admin clicked
+ * Approve (`claimedAt`) still holds, renewed for the time creating the repository takes. Null when it
+ * was decided, or lapsed and was taken over or replaced by the member since.
+ */
+export async function holdApprovalClaim(
+  db: D1Database,
+  args: { orgId: string; requestId: string; claimedAt: number; now?: number },
+) {
+  const now = args.now ?? Date.now();
+  const row = await db
+    .prepare(
+      `UPDATE production_requests SET claimed_at = ?
+       WHERE id = ? AND org_id = ? AND status = 'approving' AND claimed_at = ?
+       RETURNING id, requested_by, title, snapshot_gzip_base64`,
+    )
+    .bind(now, args.requestId, args.orgId, args.claimedAt)
+    .first<{ id: string; requested_by: string; title: string; snapshot_gzip_base64: string }>();
+  return row
+    ? {
+        id: row.id,
+        requestedBy: row.requested_by,
+        title: row.title,
+        snapshot: row.snapshot_gzip_base64,
+        claimedAt: now,
+      }
+    : null;
+}
+
+/** Hands a request back to pending after an approval that didn't finish, if its claim is still this one. */
+export async function releaseApprovalClaim(db: D1Database, requestId: string, claimedAt: number): Promise<void> {
   await db
     .prepare(
-      `UPDATE production_requests SET status = 'pending', claimed_at = NULL WHERE id = ? AND status = 'approving'`,
+      `UPDATE production_requests SET status = 'pending', claimed_at = NULL
+       WHERE id = ? AND status = 'approving' AND claimed_at = ?`,
     )
-    .bind(requestId)
+    .bind(requestId, claimedAt)
     .run();
 }
 

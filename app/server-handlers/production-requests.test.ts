@@ -228,6 +228,112 @@ describe('production requests', () => {
     expect(database.prepare('SELECT COUNT(*) AS n FROM org_projects').get()).toEqual({ n: 0 });
   });
 
+  it('holds the draft the admin reviewed from the moment they click Approve', async () => {
+    const { database, env, admin, app, calls } = await setup();
+    const approve = (cookie: string) =>
+      approveProductionRequestAction({
+        request: post(cookie, '/api/organizations/production-requests/approve', {
+          orgId: ORG,
+          requestId: REQUEST,
+          repoName: 'new-app',
+          private: true,
+        }),
+        env,
+        app,
+      });
+    const started = await approve(admin.cookie);
+    expect(started.status).toBe(201);
+    // The member's runtime finds it being approved and is told to wait (runtime-github.test.ts).
+    expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'approving' });
+
+    // Another admin can't start a second approval; the same admin, in a new tab, can.
+    const other = await upsertVerifiedEmailUser(env.DB, { email: 'bo@example.com' });
+    database
+      .prepare(`INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES (?, ?, 'admin', 1)`)
+      .run(ORG, other.id);
+    const otherCookie = (await createAuthSession(env, await prepareAuthSession(other.id))).split(';')[0];
+    expect((await approve(otherCookie)).status).toBe(409);
+    const again = await approve(admin.cookie);
+    expect(again.status).toBe(201);
+    const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await again.json());
+    const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+
+    const returned = await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+      }),
+      env,
+      app,
+    });
+    expect(new URL(returned.headers.get('Location') ?? '').searchParams.get('github_message')).toBe(
+      'Recipe box is now ada/new-app.',
+    );
+    const blobs = calls.filter((call) => call.path.endsWith('/git/blobs')).map((call) => call.body ?? '');
+    expect(blobs.some((body) => body.includes(btoa('export const app = 1;')))).toBe(true);
+  });
+
+  it('refuses to finish an approval whose draft was replaced after its claim lapsed', async () => {
+    const { database, env, admin, app, calls } = await setup();
+    const started = await approveProductionRequestAction({
+      request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+        orgId: ORG,
+        requestId: REQUEST,
+        repoName: 'new-app',
+        private: true,
+      }),
+      env,
+      app,
+    });
+    const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+    const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+    // Long after, the member sends another version, as the runtime replaces a request whose claim lapsed.
+    database
+      .prepare(
+        `UPDATE production_requests SET status = 'pending', claimed_at = NULL, snapshot_gzip_base64 = ?, updated_at = 2`,
+      )
+      .run(await gzipBase64(JSON.stringify([{ path: 'src/app.tsx', contentBase64: btoa('swapped') }])));
+
+    const returned = await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+      }),
+      env,
+      app,
+    });
+    expect(new URL(returned.headers.get('Location') ?? '').searchParams.get('github_message')).toBe(
+      'That request was decided, or changed, while you were on GitHub. Review it and approve again.',
+    );
+    expect(calls.some((call) => call.path === '/user/repos')).toBe(false);
+    expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'pending' });
+  });
+
+  it('hands the request back when the admin cancels on GitHub', async () => {
+    const { database, env, admin, app } = await setup();
+    const started = await approveProductionRequestAction({
+      request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+        orgId: ORG,
+        requestId: REQUEST,
+        repoName: 'new-app',
+        private: true,
+      }),
+      env,
+      app,
+    });
+    const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+    const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+    await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?error=access_denied&state=${state}`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+      }),
+      env,
+      app,
+    });
+    expect(database.prepare('SELECT status, claimed_at FROM production_requests').get()).toEqual({
+      status: 'pending',
+      claimed_at: null,
+    });
+  });
+
   it('lets an approval that never finished lapse, so the request can still be decided', async () => {
     const { database, env, admin } = await setup();
     database

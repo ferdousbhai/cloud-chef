@@ -648,6 +648,21 @@ describe('a member working on a GitHub project', () => {
       ]);
     });
 
+    it('replaces a request whose approval never finished, ending that approval', async () => {
+      const { database, env, call } = await setup();
+      await send(call, env, {});
+      database
+        .prepare("UPDATE production_requests SET status = 'approving', claimed_at = ?")
+        .run(Date.now() - 11 * 60_000);
+      const replaced = await send(call, env, { draftRevision: 'rev-2' });
+      expect(replaced.status).toBe(200);
+      expect(database.prepare('SELECT status, claimed_at, draft_revision FROM production_requests').get()).toEqual({
+        status: 'pending',
+        claimed_at: null,
+        draft_revision: 'rev-2',
+      });
+    });
+
     it('lets a draft take over a request sent under its name before drafts were tracked', async () => {
       const { database, env, call } = await setup();
       const sent = await send(call, env, {});

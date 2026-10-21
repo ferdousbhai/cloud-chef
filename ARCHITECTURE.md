@@ -187,7 +187,9 @@ projects holds no Cloudflare token.
 A member's new app (a draft) can be sent for review: the request carries the draft's files. Approving it, an admin
 authorizes CloudChef once on GitHub to create a repository as them, the draft becomes its first commit with its
 Cloudflare resources named after it, and it becomes a project its requester may work on; the admin connects the
-repository to Workers Builds. An admin can also limit a member to GitHub projects: that member's runtime is refused the
+repository to Workers Builds. Clicking Approve claims the request for that admin, so the draft they reviewed is
+the one committed: until they return from GitHub, or the claim lapses after 10 minutes, the member can't replace it
+and no other admin can decide it, and a replacement after the claim lapsed makes the return refuse. An admin can also limit a member to GitHub projects: that member's runtime is refused the
 organization's Cloudflare token by the credential broker, so their work reaches production only through GitHub.
 
 ## State Ownership

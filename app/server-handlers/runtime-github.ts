@@ -4,7 +4,11 @@ import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-ap
 import type { RepositoryClient } from '~/lib/.server/github/repository-client';
 import { readRepositoryTarball } from '~/lib/.server/github/tarball';
 import { bytesToBase64, bytesToHex } from '~/lib/hex-digest';
-import { findAccessibleProject, findGitHubInstallation } from '~/lib/cloudflare/data/org-projects.server';
+import {
+  findAccessibleProject,
+  findGitHubInstallation,
+  lapsedApprovalClaimBefore,
+} from '~/lib/cloudflare/data/org-projects.server';
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
 import { bodyIdentityFields, readAuthenticatedRuntimeRequest } from './runtime-authentication';
 
@@ -326,7 +330,7 @@ async function sendProductionRequest(
 ): Promise<Response> {
   const open = await db
     .prepare(
-      `SELECT id, status, title, note, draft_revision FROM production_requests
+      `SELECT id, status, claimed_at, title, note, draft_revision FROM production_requests
        WHERE org_id = ? AND requested_by = ? AND status IN ('pending', 'approving')
          AND (draft_id = ? OR (draft_id IS NULL AND title = ? COLLATE NOCASE))
        ORDER BY draft_id IS NULL LIMIT 1`,
@@ -335,6 +339,7 @@ async function sendProductionRequest(
     .first<{
       id: string;
       status: 'pending' | 'approving';
+      claimed_at: number | null;
       title: string;
       note: string | null;
       draft_revision: string | null;
@@ -344,7 +349,9 @@ async function sendProductionRequest(
       { error: `An admin is approving “${title}” right now. Wait for their decision before sending it again.` },
       409,
     );
-  if (open?.status === 'approving') {
+  // An approval that never finished (its claim lapsed) no longer holds the draft back.
+  const lapsedBefore = lapsedApprovalClaimBefore(Date.now());
+  if (open?.status === 'approving' && (open.claimed_at ?? 0) >= lapsedBefore) {
     return beingApproved(open.title);
   }
   if (open) {
@@ -352,12 +359,13 @@ async function sendProductionRequest(
       return json({ requestId: open.id, outcome: 'unchanged' }, 200);
     }
     // Only a request still waiting is replaced: one an admin has started approving keeps what they saw.
+    // Replacing one whose approval lapsed ends that approval: back from GitHub, it finds its claim gone.
     const updated = await db
       .prepare(
         `UPDATE production_requests
          SET draft_id = ?, draft_revision = ?, title = ?, note = ?, preview_url = ?, snapshot_gzip_base64 = ?,
-             snapshot_files = ?, updated_at = ?
-         WHERE id = ? AND status = 'pending'`,
+             snapshot_files = ?, updated_at = ?, status = 'pending', claimed_at = NULL
+         WHERE id = ? AND (status = 'pending' OR (status = 'approving' AND claimed_at < ?))`,
       )
       .bind(
         body.draftId,
@@ -369,6 +377,7 @@ async function sendProductionRequest(
         body.files,
         Date.now(),
         open.id,
+        lapsedBefore,
       )
       .run();
     return updated.meta.changes === 1
