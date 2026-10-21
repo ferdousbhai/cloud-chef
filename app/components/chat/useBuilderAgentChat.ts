@@ -135,6 +135,8 @@ export function useBuilderAgentChat(args: {
   const generatedSubchatTitleUpdatedAtRef = useRef<string | null>(null);
   const runtimeEndpoint = new URL(requireUserRuntimeEndpoint());
   const runtimeOrigin = runtimeEndpoint.origin;
+  // Set while the workspace is being upgraded and the person's message waits to start.
+  const [upgradeWaiting, setUpgradeWaiting] = useState(false);
   const builderAgent = useAgent<BuilderAgent, BuilderAgentState>({
     agent: 'BuilderAgent',
     name: transcript.agentName,
@@ -153,6 +155,7 @@ export function useBuilderAgentChat(args: {
         workbenchStore.updatePreview(state.preview);
       }
       workbenchStore.updatePublication(state.publication ?? null);
+      setUpgradeWaiting(state.upgradeWaiting === true);
       const linked = state.linkedProject ?? null;
       const shownLinked = workbenchStore.linkedProject.get();
       if (
@@ -593,6 +596,7 @@ export function useBuilderAgentChat(args: {
 
   return {
     ...chat,
+    upgradeWaiting,
     stop,
     sendMessage,
     steerMessage,

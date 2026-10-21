@@ -323,6 +323,7 @@ const AuthenticatedChat = memo(
       decideCloudflareExecution,
       workspacePresentationState,
       retryWorkspacePresentation,
+      upgradeWaiting,
     } = useBuilderAgentChat({
       accountId,
       chatInitialId,
@@ -414,7 +415,11 @@ const AuthenticatedChat = memo(
         onRequestProduction={requestProduction}
         cloudflareExecutions={cloudflareExecutions}
         onCloudflareExecutionDecision={decideCloudflareExecution}
-        runtimeNotice={workspaceSyncNotice(workspacePresentationState, workspacePreparing)}
+        runtimeNotice={
+          upgradeWaiting
+            ? 'Your workspace is being upgraded. Your message starts as soon as it finishes.'
+            : workspaceSyncNotice(workspacePresentationState, workspacePreparing)
+        }
         sendMessageInProgress={sendMessageInProgress}
         subchats={visibleSubchats}
         onSubchatTitleChange={handleSubchatTitleChange}
