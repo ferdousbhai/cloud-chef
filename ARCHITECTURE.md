@@ -119,6 +119,22 @@ that branch into the default branch; the repository's own pipeline (Workers Buil
 runs report the build and the preview link. The template's automatic hosted preview and deployment don't run for these
 workspaces.
 
+A publish returns as soon as its commit is on GitHub. The pipeline takes minutes, so a durable fiber watches its check
+runs (`app/agents/linked-project-build.ts`) and, once the turn that published has ended, puts the result and preview
+link in place of that publish's output, as an approved Cloudflare request's result lands: the person sees the card
+update, and the next turn reads it. CloudChef does not serve its own instant preview of these workspaces: their builds,
+Worker names, and bindings (D1, R2, and more, under any names) are the repository's own, and CloudChef's hosted preview
+deploys only its starter apps' configuration, rebuilt from trusted inputs; a member limited to GitHub projects has no
+Cloudflare token for it anyway.
+
+The agent's `fetch_site` reads the project's live site, its pages and the JSON they load, which is where a site's copy
+from its database or CMS shows. It reaches only the https origins the control plane reports for the repository
+(`/api/cloudflare/runtime-github/site`): the website set on GitHub and the links its pipeline posted for the default
+branch and the member's branch, never an address the workspace names. It sends only GETs, follows redirects only
+within those origins, and reads at most 2 MB of a text response. There is no database tool: a database's identity
+would come from the workspace's own configuration, D1 has no read-only query mode, and a member limited to GitHub
+projects holds no Cloudflare token.
+
 A member's new app (a draft) can be sent for review: the request carries the draft's files. Approving it, an admin
 authorizes CloudChef once on GitHub to create a repository as them, the draft becomes its first commit with its
 Cloudflare resources named after it, and it becomes a project its requester may work on; the admin connects the

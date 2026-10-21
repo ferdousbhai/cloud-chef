@@ -202,6 +202,83 @@ export async function runtimeGitHubStatusAction(args: {
 }
 
 /**
+ * The project's live site, for the model to read its content: the https origins GitHub knows for the
+ * repository. Its homepage (the website its admins set on GitHub), and the links its pipeline posted for
+ * the default branch's head and the member's own branch. Nothing the workspace says is trusted here: a
+ * workspace's own config could name any address.
+ */
+export async function runtimeGitHubSiteAction(args: {
+  request: Request;
+  env: Env;
+  app?: GitHubApp | null;
+}): Promise<Response> {
+  const body = await readBody(args.request, snapshotSchema, MAX_SNAPSHOT_REQUEST_BYTES);
+  if (body instanceof Response) {
+    return body;
+  }
+  const access = await openProject(args, body, { contents: 'read', checks: 'read' });
+  if (access instanceof Response) {
+    return access;
+  }
+  try {
+    const branch = await memberBranch(args.env.DB, access.userId);
+    const [homepage, heads] = await Promise.all([
+      access.repository.homepage(),
+      Promise.all([access.repository.branchHead(access.defaultBranch), access.repository.branchHead(branch)]),
+    ]);
+    const previews = await Promise.all(
+      heads.flatMap((sha) =>
+        sha
+          ? [
+              access.repository
+                .buildStatus(sha)
+                .then((status) => status.previewUrl)
+                .catch(() => null),
+            ]
+          : [],
+      ),
+    );
+    const origins = [...new Set([homepage, ...previews].flatMap((value) => siteOrigin(value) ?? []))];
+    return json({ origins }, 200);
+  } catch (error) {
+    if (error instanceof GitHubError) {
+      return gitHubFailure(error);
+    }
+    throw error;
+  }
+}
+
+/** A public https origin, or null: a bare host on GitHub gets https, and local or IP addresses are never a site. */
+function siteOrigin(value: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  let url: URL;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+  } catch {
+    return null;
+  }
+  const host = url.hostname;
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    !host.includes('.') ||
+    host.startsWith('[') ||
+    /^[\d.]+$/.test(host) ||
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal')
+  ) {
+    return null;
+  }
+  return url.origin;
+}
+
+/**
  * A member asking for a draft built in the organization's account to become a real project: an admin
  * reviews it and, approving, creates its GitHub repository. The draft's source comes with the request.
  */
@@ -413,8 +490,8 @@ function gitHubFailure(error: GitHubError): Response {
   return json({ error: error.message }, error.status === 404 ? 404 : 502);
 }
 
-/** A JSON answer to the runtime: flat records only. */
-type JsonBody = Record<string, string | number | boolean | null>;
+/** A JSON answer to the runtime: flat records, and lists of strings. */
+type JsonBody = Record<string, string | number | boolean | null | string[]>;
 
 function json(body: JsonBody, status: number): Response {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });

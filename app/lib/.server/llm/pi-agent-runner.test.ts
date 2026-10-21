@@ -752,7 +752,7 @@ describe('piAgentRunner', () => {
         onSettled,
         // SAFETY: the runner reads only checkpoint and hasSuccessfulValidation from this workspace here.
         workspace: workspace as BuilderWorkspaceApi,
-        linkedProject: { repository: 'ada/site', defaultBranch: 'main', publish: vi.fn() },
+        linkedProject: { repository: 'ada/site', defaultBranch: 'main', publish: vi.fn(), fetchSite: vi.fn() },
       }),
     );
 

@@ -29,6 +29,7 @@ import {
 import { completeGoogleSignInAction, GOOGLE_RETURN_PATH, startGoogleSignInAction } from './server-handlers/google-auth';
 import {
   runtimeGitHubCommitAction,
+  runtimeGitHubSiteAction,
   runtimeGitHubSnapshotAction,
   runtimeGitHubStatusAction,
   runtimeRequestProductionAction,
@@ -230,6 +231,10 @@ const exactRoutes = new Map<string, ServerRoute>(
     '/api/cloudflare/runtime-github/status': {
       method: 'POST',
       handler: (request, env) => runtimeGitHubStatusAction({ request, env }),
+    },
+    '/api/cloudflare/runtime-github/site': {
+      method: 'POST',
+      handler: (request, env) => runtimeGitHubSiteAction({ request, env }),
     },
     '/api/org-projects': {
       method: 'GET',

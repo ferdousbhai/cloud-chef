@@ -39,6 +39,8 @@ const buildStatusSchema = z.object({
 });
 export type LinkedBuildStatus = z.infer<typeof buildStatusSchema>;
 
+const siteOriginsSchema = z.object({ origins: z.array(z.string()).max(16) });
+
 const productionRequestSentSchema = z.object({ outcome: z.enum(['requested', 'updated', 'unchanged']) });
 
 const errorSchema = z.object({ error: z.string() });
@@ -121,6 +123,20 @@ export async function linkedBuildStatus(
   );
 }
 
+/**
+ * The project's live site, as the https origins the control plane reports for it: the repository's
+ * homepage on GitHub and the preview links its pipeline posted for the default branch and this member's.
+ */
+export async function linkedSiteOrigins(env: RuntimeEnv, identity: Identity, orgProjectId: string): Promise<string[]> {
+  const response = await post(env, 'runtime-github/site', { ...pick(identity), orgProjectId }, STATUS_TIMEOUT_MS);
+  if (!response.ok) {
+    throw new Error(await failureMessage(response, "CloudChef could not look up the project's site."));
+  }
+  return siteOriginsSchema.parse(
+    await readJsonBodyWithLimit(response, MAX_JSON_RESPONSE_BYTES, 'Linked project site response'),
+  ).origins;
+}
+
 /** Whether the admins now see a new request, this draft's request updated to the revision sent, or no change. */
 export type ProductionRequestOutcome = z.infer<typeof productionRequestSentSchema>['outcome'];
 
@@ -163,7 +179,11 @@ function pick(identity: Identity) {
 function post(
   env: RuntimeEnv,
   route:
-    'runtime-github/snapshot' | 'runtime-github/commit' | 'runtime-github/status' | 'runtime-github/request-production',
+    | 'runtime-github/snapshot'
+    | 'runtime-github/commit'
+    | 'runtime-github/status'
+    | 'runtime-github/site'
+    | 'runtime-github/request-production',
   body: Record<
     string,
     string | number | boolean | null | { path: string; contentBase64: string | null; executable: boolean }[]

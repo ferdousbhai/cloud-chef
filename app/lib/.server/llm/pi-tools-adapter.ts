@@ -26,6 +26,7 @@ const toolLabels = {
   search_cloudflare_docs: 'Search Cloudflare docs',
   cloudflare_request: 'Cloudflare API request',
   publish_preview: 'Preview on GitHub',
+  fetch_site: 'Read the live site',
   publish: 'Publish',
 } satisfies Record<ModelToolName, string>;
 

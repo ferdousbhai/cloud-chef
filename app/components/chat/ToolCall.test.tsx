@@ -271,4 +271,42 @@ describe('ToolCall', () => {
     expect(links).toEqual([['Open the preview', 'https://cloudchef-ada-site.ada.workers.dev']]);
     expect(container.textContent).not.toContain('"commit"');
   });
+
+  it('shows a GitHub preview as building until its pipeline result lands, and names the site page it read', async () => {
+    const building: CloudChefToolInvocation = {
+      type: 'dynamic-tool',
+      state: 'output-available',
+      toolCallId: 'publish-preview-2',
+      toolName: 'publish_preview',
+      input: { message: 'Update the hero' },
+      output: {
+        version: 1,
+        ok: true,
+        summary: "Committed on the branch cloudchef/sara. The repository's pipeline is building it now.",
+        data: { commit: 'c'.repeat(40), build: 'pending', previewUrl: null, detailsUrl: null },
+      },
+    };
+    await act(async () => root.render(<ToolCall partId={makePartId('message-10', 0)} invocation={building} />));
+    expect(container.textContent).toContain('Preview building on GitHub');
+    expect(container.textContent).not.toContain('Sent a preview to GitHub');
+
+    const live: CloudChefToolInvocation = {
+      ...building,
+      toolName: 'publish',
+      toolCallId: 'publish-2',
+    };
+    await act(async () => root.render(<ToolCall partId={makePartId('message-11', 0)} invocation={live} />));
+    expect(container.textContent).toContain('Published to GitHub, deploying');
+
+    const read: CloudChefToolInvocation = {
+      type: 'dynamic-tool',
+      state: 'output-available',
+      toolCallId: 'fetch-site-1',
+      toolName: 'fetch_site',
+      input: { url: 'https://example.com/about?lang=en' },
+      output: { version: 1, ok: true, summary: 'GET https://example.com/about: 200, text/html.' },
+    };
+    await act(async () => root.render(<ToolCall partId={makePartId('message-12', 0)} invocation={read} />));
+    expect(container.textContent).toContain('Read example.com/about');
+  });
 });

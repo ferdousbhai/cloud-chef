@@ -176,6 +176,7 @@ type RuntimeRoute =
   | 'runtime-github/snapshot'
   | 'runtime-github/commit'
   | 'runtime-github/status'
+  | 'runtime-github/site'
   | 'runtime-github/request-production';
 
 export function runtimeCredentialEndpoint(value: string, route: RuntimeRoute = 'runtime-credential'): URL {

@@ -4,6 +4,7 @@ import { callGitHub, fetchGitHub, GitHubError } from './github-api';
 const refSchema = z.looseObject({ object: z.looseObject({ sha: z.string() }) });
 const commitSchema = z.looseObject({ sha: z.string(), tree: z.looseObject({ sha: z.string() }) });
 const shaSchema = z.looseObject({ sha: z.string() });
+const repositorySchema = z.looseObject({ homepage: z.string().nullable().optional() });
 const checkRunsSchema = z.looseObject({
   check_runs: z.array(
     z.looseObject({
@@ -138,6 +139,11 @@ export class RepositoryClient {
       throw new GitHubError(`GitHub refused the merge (${response.status}).`, response.status);
     }
     return { status: 'merged', sha: shaSchema.parse(await response.json()).sha };
+  }
+
+  /** The website its admins set in the repository's About settings, or null. */
+  async homepage(): Promise<string | null> {
+    return (await this.call('', repositorySchema)).homepage ?? null;
   }
 
   /** What the repository's pipeline (Workers Builds, typically) has reported for a commit so far. */

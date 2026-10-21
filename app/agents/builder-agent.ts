@@ -93,15 +93,26 @@ import { builderTemplateSeedId, loadBuilderTemplate } from './builder-template';
 import { parentBuilderWorkspaceSeedId, seedBuilderWorkspace } from './builder-workspace-seed';
 import { linkedWorkspaceChanges, packDraftSnapshot, seedLinkedWorkspace } from './linked-project-workspace';
 import {
+  LINKED_BUILD_WATCH_MS,
+  linkedBuildSettledResult,
+  linkedBuildStartedResult,
+  linkedBuildWatchSchema,
+  watchLinkedBuild,
+  withLinkedBuildResult,
+  type LinkedBuildWatch,
+} from './linked-project-build';
+import {
   commitLinkedProject,
   linkedBuildStatus,
+  linkedSiteOrigins,
   requestProductionReview,
   type ProductionRequestOutcome,
   streamLinkedProjectSnapshot,
   type LinkedSnapshotLine,
-  type LinkedBuildStatus,
 } from '~/lib/.server/cloudflare/linked-project-client';
 import type { LinkedProjectModelToolContext } from '~/lib/.server/llm/linked-project-model-tools';
+import { fetchLinkedSitePage, type LinkedSiteFetchInput } from '~/lib/.server/llm/linked-site-fetch';
+import { BUILDER_TURN_WALL_CLOCK_MS } from '~/lib/.server/llm/builder-turn-budget';
 import { deriveProvisionalTitle, shouldGenerateConversationTitle } from '~/lib/title-generation';
 import {
   failedBuilderPreviewState,
@@ -177,6 +188,10 @@ const DEPLOYMENT_FIBER = 'background:builder_deployment';
 const DEPLOYMENT_INTERRUPTED_MESSAGE = 'Deployment was interrupted. Retry to reconcile the exact revision.';
 const TITLE_GENERATION_FIBER = 'background:title_generation';
 const CLOUDFLARE_EXECUTION_FIBER = 'background:cloudflare_execution';
+const LINKED_BUILD_FIBER = 'background:linked_build';
+/** A cancelled turn settles its transcript a moment after it stops: a watched publish missing that long is gone. */
+const LINKED_BUILD_MISSING_GRACE_MS = 30_000;
+const LINKED_BUILD_LANDING_POLL_MS = 2_000;
 const TITLE_GENERATION_JOB_MAX_PROMPT_CHARACTERS = 4_000;
 /**
  * How often a running publication re-reads the step it last recorded. Publication steps take tens
@@ -469,6 +484,14 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
       this.failDeployment(job, error);
       return { status: 'error', error: error.message };
+    }
+    if (ctx.name === LINKED_BUILD_FIBER) {
+      const watch = linkedBuildWatchSchema.safeParse(ctx.metadata).data;
+      if (!watch) {
+        return { status: 'error', error: 'missing linked build recovery data' };
+      }
+      await this.keepAliveWhile(() => this.runLinkedBuildWatch(watch));
+      return { status: 'completed', snapshot: ctx.snapshot };
     }
     if (ctx.name === CLOUDFLARE_EXECUTION_FIBER) {
       const job = cloudflareExecutionFiberSchema.safeParse(ctx.metadata).data;
@@ -1359,17 +1382,18 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       repository: linked.repository,
       defaultBranch: linked.defaultBranch,
       publish: (input, options) => this.keepAliveWhile(() => this.publishLinkedProject(input, options)),
+      fetchSite: (input, options) => this.fetchLinkedSite(input, options),
     };
   }
 
   /**
    * Sends the validated workspace to GitHub: a commit on the member's branch, merged into the default
-   * branch when it should go live. Then waits for the repository's pipeline to report the build, so the
-   * agent can give the user the preview link or say it is live.
+   * branch when it should go live. It returns once the commit is there; the repository's pipeline is
+   * watched in the background, and its result and preview link replace this output when it reports.
    */
   private async publishLinkedProject(
     input: { message: string; live: boolean },
-    options: { abortSignal?: AbortSignal },
+    options: { toolCallId: string; abortSignal?: AbortSignal },
   ): Promise<CloudChefToolResult> {
     const linked = await this.workspace.linkedProject();
     const identity = runtimeIdentity(this.env);
@@ -1398,49 +1422,103 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         { branch: result.branch, commit: result.commit },
       );
     }
-    const sha = input.live ? (result.published ?? result.commit) : result.commit;
     if (input.live && result.published) {
       // The commit that went live becomes the base: its tree is exactly this workspace, so later changes
       // are measured from it, and merging them keeps whatever else the default branch gained meanwhile.
       await this.workspace.setLinkedProject({ ...linked, baseCommit: result.commit, baseManifest: manifest });
     }
-    const build = await this.waitForLinkedBuild(identity, linked.orgProjectId, sha, options.abortSignal);
-    const where = input.live ? `merged into ${linked.defaultBranch}` : `on the branch ${result.branch}`;
-    const summary =
-      build.state === 'success'
-        ? `Committed ${where}; the pipeline built it.${build.previewUrl ? ` Preview: ${build.previewUrl}` : ''}`
-        : build.state === 'failure'
-          ? `Committed ${where}, but the pipeline's build failed. Details: ${build.detailsUrl ?? 'see the repository on GitHub'}.`
-          : build.state === 'pending'
-            ? `Committed ${where}; the pipeline is still building. It will be ${input.live ? 'live' : 'previewable'} once it finishes.`
-            : `Committed ${where}. The repository reported no pipeline for it yet.`;
-    return (build.state === 'failure' ? toolFailure : toolSuccess)(summary, {
+    const watch: LinkedBuildWatch = {
+      toolCallId: options.toolCallId,
+      orgProjectId: linked.orgProjectId,
+      sha: input.live ? (result.published ?? result.commit) : result.commit,
       branch: result.branch,
-      commit: sha,
+      where: input.live ? `merged into ${linked.defaultBranch}` : `on the branch ${result.branch}`,
       live: input.live,
-      build: build.state,
-      previewUrl: build.previewUrl,
-      detailsUrl: build.detailsUrl,
-    });
+      startedAt: Date.now(),
+    };
+    try {
+      await this.startFiber(
+        LINKED_BUILD_FIBER,
+        async (fiber) => {
+          fiber.stash(watch);
+          await this.keepAliveWhile(() => this.runLinkedBuildWatch(watch, fiber.signal));
+        },
+        { idempotencyKey: `${LINKED_BUILD_FIBER}:${this.name}:${watch.toolCallId}`, metadata: watch },
+      );
+    } catch {
+      logger.warn('Unable to start watching the linked project build');
+      return toolSuccess(
+        `Committed ${watch.where}. CloudChef could not follow the repository's pipeline for it; its build ` +
+          'result is on GitHub.',
+        { branch: watch.branch, commit: watch.sha, live: watch.live },
+      );
+    }
+    return linkedBuildStartedResult(watch);
   }
 
-  /** Polls the repository's pipeline for a commit until it finishes, for up to six minutes. */
-  private async waitForLinkedBuild(
-    identity: NonNullable<ReturnType<typeof runtimeIdentity>>,
-    orgProjectId: string,
-    sha: string,
-    abortSignal?: AbortSignal,
-  ): Promise<LinkedBuildStatus> {
-    const deadline = Date.now() + 6 * 60_000;
-    let status: LinkedBuildStatus = { state: 'none', previewUrl: null, detailsUrl: null };
-    while (Date.now() < deadline && !abortSignal?.aborted) {
-      await new Promise((resolve) => setTimeout(resolve, 15_000));
-      status = await linkedBuildStatus(this.env, identity, orgProjectId, sha).catch(() => status);
-      if (status.state === 'success' || status.state === 'failure') {
-        return status;
-      }
+  /**
+   * Follows the pipeline's build of a publish's commit, then puts its result in place of that publish's
+   * output. The output is saved with its turn's message when the turn ends, so the result waits for that.
+   */
+  private async runLinkedBuildWatch(watch: LinkedBuildWatch, signal?: AbortSignal): Promise<void> {
+    const identity = runtimeIdentity(this.env);
+    if (!identity) {
+      return;
     }
-    return status;
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const build = await watchLinkedBuild({
+      poll: () => linkedBuildStatus(this.env, identity, watch.orgProjectId, watch.sha),
+      sleep,
+      now: Date.now,
+      deadline: watch.startedAt + LINKED_BUILD_WATCH_MS,
+      signal,
+    });
+    const output = linkedBuildSettledResult(watch, build);
+    console.info({
+      event: 'linked_build_settled',
+      build: output.data?.build ?? 'none',
+      buildMs: Date.now() - watch.startedAt,
+    });
+    const landingDeadline = watch.startedAt + LINKED_BUILD_WATCH_MS + BUILDER_TURN_WALL_CLOCK_MS;
+    let missingSince: number | null = null;
+    while (!signal?.aborted && Date.now() < landingDeadline) {
+      if (!this.state.activeTurn) {
+        const messages = withLinkedBuildResult(this.messages, watch.toolCallId, output);
+        if (messages) {
+          // SAFETY: these are the agent's existing AI SDK messages with only one already-terminal tool
+          // output replaced by another JSON-serializable output; no part discriminant or state changes.
+          await this.persistMessages(messages as UIMessage[]);
+          if (this.state.transcript) {
+            await this.advanceTranscriptCheckpoint(this.state.transcript);
+          }
+          return;
+        }
+        missingSince ??= Date.now();
+        if (Date.now() - missingSince > LINKED_BUILD_MISSING_GRACE_MS) {
+          return;
+        }
+      } else {
+        missingSince = null;
+      }
+      await sleep(LINKED_BUILD_LANDING_POLL_MS);
+    }
+  }
+
+  /** Reads a page of the project's own live site: only addresses GitHub reports for this repository. */
+  private async fetchLinkedSite(
+    input: LinkedSiteFetchInput,
+    options: { abortSignal?: AbortSignal },
+  ): Promise<CloudChefToolResult> {
+    const linked = await this.workspace.linkedProject();
+    const identity = runtimeIdentity(this.env);
+    if (!linked || !identity) {
+      return toolFailure("This workspace is not one of the team's GitHub projects.");
+    }
+    return fetchLinkedSitePage(input, {
+      origins: () => linkedSiteOrigins(this.env, identity, linked.orgProjectId),
+      fetch: (request, init) => fetch(request, init),
+      signal: options.abortSignal,
+    });
   }
 
   /** Whether this person is now an active admin of the organization whose account this runtime uses. */

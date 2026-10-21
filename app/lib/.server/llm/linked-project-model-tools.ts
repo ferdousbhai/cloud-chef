@@ -1,6 +1,7 @@
 import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import { MODEL_TOOL_INPUT_SCHEMAS, type LinkedProjectModelToolName } from 'cloudchef-agent/model-tool-inputs';
 import type { Tool } from 'cloudchef-agent/tool';
+import type { LinkedSiteFetchInput } from './linked-site-fetch';
 
 /**
  * A turn working on an organization's GitHub project. Its changes go back to GitHub, and the
@@ -9,11 +10,16 @@ import type { Tool } from 'cloudchef-agent/tool';
 export type LinkedProjectModelToolContext = {
   repository: string;
   defaultBranch: string;
-  /** Commits the validated workspace to the member's branch; `live` also merges it into the default branch. */
+  /**
+   * Commits the validated workspace to the member's branch; `live` also merges it into the default branch.
+   * It returns once the commit is on GitHub; the pipeline's result replaces the output when it reports.
+   */
   publish(
     input: { message: string; live: boolean },
-    options: { abortSignal?: AbortSignal },
+    options: { toolCallId: string; abortSignal?: AbortSignal },
   ): Promise<CloudChefToolResult>;
+  /** Reads a page of the project's own live site or one of its preview links. */
+  fetchSite(input: LinkedSiteFetchInput, options: { abortSignal?: AbortSignal }): Promise<CloudChefToolResult>;
 };
 
 /** The tools a GitHub project's turn adds. */
@@ -21,9 +27,11 @@ export function linkedProjectModelTools(context: LinkedProjectModelToolContext) 
   return {
     publish_preview: {
       description:
-        `Commit the validated workspace to your own branch of ${context.repository} on GitHub. Its pipeline builds ` +
-        'the branch and posts a preview link, which this tool waits for and returns. Run validate first; call this ' +
-        'when the user should see the change before it goes live.',
+        `Commit the validated workspace to your own branch of ${context.repository} on GitHub. It returns as soon ` +
+        "as the commit is there; the repository's pipeline then builds the branch (about two minutes), and its " +
+        "result and preview link appear on this tool's card in the chat by themselves, and in this tool's output " +
+        'next turn. Do not wait or poll for it. Run validate first; call this when the user should see the change ' +
+        'before it goes live.',
       inputSchema: MODEL_TOOL_INPUT_SCHEMAS.publish_preview,
       execute: (input, options) =>
         context.publish(
@@ -34,11 +42,20 @@ export function linkedProjectModelTools(context: LinkedProjectModelToolContext) 
     publish: {
       description:
         `Put the validated workspace live: commit it and merge it into ${context.defaultBranch} of ` +
-        `${context.repository}, which the repository's pipeline deploys to production. Run validate first, and ` +
-        'publish only when the user asks for the change to go live.',
+        `${context.repository}, which the repository's pipeline deploys to production; the build's result appears ` +
+        'on the card when it reports. Run validate first, and publish only when the user asks for the change to go live.',
       inputSchema: MODEL_TOOL_INPUT_SCHEMAS.publish,
       execute: (input, options) =>
         context.publish({ message: MODEL_TOOL_INPUT_SCHEMAS.publish.parse(input).message, live: true }, options),
+    },
+    fetch_site: {
+      description:
+        `Read a page or API response from ${context.repository}'s own live site: its production address (the ` +
+        "repository's homepage on GitHub) or a preview link its pipeline reported. Use it to see the site's " +
+        'current content, including copy kept in its database or CMS and served by its pages or JSON endpoints, ' +
+        'instead of fetching it with exec. Read-only GET; text formats only; long responses come in pages.',
+      inputSchema: MODEL_TOOL_INPUT_SCHEMAS.fetch_site,
+      execute: (input, options) => context.fetchSite(MODEL_TOOL_INPUT_SCHEMAS.fetch_site.parse(input), options),
     },
   } satisfies Record<LinkedProjectModelToolName, Tool>;
 }
