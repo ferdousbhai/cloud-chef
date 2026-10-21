@@ -25,11 +25,26 @@ function isPartMaybeEqual(a: Part, b: Part): boolean {
       aInvocation.errorText === bInvocation.errorText &&
       // A settled output can still be replaced in place (a publish's pending build becomes its result), and
       // each broadcast carries freshly parsed objects, so equal outputs are recognized by their JSON.
-      (aInvocation.output === bInvocation.output ||
-        JSON.stringify(aInvocation.output) === JSON.stringify(bInvocation.output))
+      (aInvocation.output === bInvocation.output || outputJson(a) === outputJson(b))
     );
   }
   return false;
+}
+
+/**
+ * A part's output serialized once, so the cached part's large settled output is not re-serialized on every
+ * update. Kept with the output it was made from, so an output replaced on the same part is serialized again.
+ */
+const outputJsonCache = new WeakMap<Part, { output: Part['output']; json: string | undefined }>();
+
+function outputJson(part: Part): string | undefined {
+  const cached = outputJsonCache.get(part);
+  if (cached && cached.output === part.output) {
+    return cached.json;
+  }
+  const json = JSON.stringify(part.output);
+  outputJsonCache.set(part, { output: part.output, json });
+  return json;
 }
 
 function recordToolPart(partId: PartId, part: Part): void {

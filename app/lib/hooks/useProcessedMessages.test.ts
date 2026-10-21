@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { CloudChefMessage, CloudChefPart } from 'cloudchef-agent/ai-compat';
 import { makePartId } from 'cloudchef-agent/partId';
 import { processMessage, type PartCache } from './useProcessedMessages';
@@ -38,5 +38,29 @@ describe('processMessage', () => {
     expect(reparsed.parts[0]).toBe(pending);
     const landed = processMessage({ id: 'assistant-1', role: 'assistant', parts: [built] }, cache);
     expect(landed.parts[0]).toBe(built);
+  });
+
+  it("serializes the cached part's settled output once across updates", () => {
+    const settled: CloudChefPart = {
+      type: 'tool-exec',
+      toolCallId: 'exec-1',
+      state: 'output-available',
+      input: {},
+      output: { ok: true, stdout: 'x'.repeat(10_000) },
+    };
+    const cache: PartCache = new Map();
+    processMessage({ id: 'assistant-1', role: 'assistant', parts: [settled] }, cache);
+    const stringify = vi.spyOn(JSON, 'stringify');
+
+    for (let update = 0; update < 3; update++) {
+      const reparsed = processMessage(
+        { id: 'assistant-1', role: 'assistant', parts: [structuredClone(settled)] },
+        cache,
+      );
+      expect(reparsed.parts[0]).toBe(settled);
+    }
+
+    expect(stringify.mock.calls.filter(([value]) => value === settled.output)).toHaveLength(1);
+    stringify.mockRestore();
   });
 });
