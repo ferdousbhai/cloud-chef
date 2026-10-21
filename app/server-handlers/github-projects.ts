@@ -106,7 +106,8 @@ export function startGitHubInstallAction({ request, env }: { request: Request; e
 /**
  * GitHub's return after installing, with the installation and an authorization code for the GitHub user
  * who installed it. The installation id in the URL proves nothing on its own: it is recorded only if
- * that user can reach it, for the organization and admin that started here in this browser.
+ * that user owns the account it is installed on (their own, or an organization they own), for the
+ * organization and admin that started here in this browser.
  */
 export async function completeGitHubInstallAction({
   request,
@@ -366,7 +367,13 @@ async function completeProductionApproval(args: {
     if (!repository) {
       return await fail('repository_name_refused');
     }
-    if (!created && !(await isUntouchedNewRepository(app.userRepository(userToken, fullName), repository))) {
+    const untouched = created
+      ? true
+      : await isUntouchedNewRepository(app.userRepository(userToken, fullName), repository);
+    if (untouched === null) {
+      return await fail('repository_not_ready');
+    }
+    if (!untouched) {
       return await fail('repository_name_taken');
     }
     await app.addRepositoryToInstallation(userToken, installation.installationId, repository.id);
@@ -554,19 +561,30 @@ export function listMyProjectsAction({ request, env }: { request: Request; env: 
   });
 }
 
-/** Runs a GitHub call, turning its failure into the response an admin sees. */
-/** Whether a repository is still as GitHub created it for an approval: one commit, holding only a README. */
+/**
+ * Whether a repository is still as GitHub created it for an approval: one commit, holding only a README.
+ * Null while it is still empty (GitHub answers 409 for an empty repository's commits): its first commit
+ * hasn't appeared yet.
+ */
 async function isUntouchedNewRepository(
   client: RepositoryClient,
   repository: { default_branch: string },
-): Promise<boolean> {
-  if ((await client.commitCount(repository.default_branch)) !== 1) {
-    return false;
+): Promise<boolean | null> {
+  try {
+    if ((await client.commitCount(repository.default_branch)) !== 1) {
+      return false;
+    }
+    const paths = await client.topLevelPaths(repository.default_branch);
+    return paths.length === 1 && paths[0] === 'README.md';
+  } catch (error) {
+    if (error instanceof GitHubError && error.status === 409) {
+      return null;
+    }
+    throw error;
   }
-  const paths = await client.topLevelPaths(repository.default_branch);
-  return paths.length === 1 && paths[0] === 'README.md';
 }
 
+/** Runs a GitHub call, turning its failure into the response an admin sees. */
 async function withGitHub<T>(call: () => Promise<T>): Promise<T | Response> {
   try {
     return await call();

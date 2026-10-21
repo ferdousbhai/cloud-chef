@@ -44,7 +44,8 @@ type DuringApproval = { commit?: () => Promise<void> };
 
 /**
  * How GitHub differs from the usual: the App can't reach the new repository, or `ada/new-app` exists
- * already, with `commits` commits and `paths` at the top of its tree.
+ * already, with `commits` commits (none: still empty, which GitHub answers with a 409) and `paths` at the
+ * top of its tree.
  */
 type GitHubOptions = { appCannotReach?: boolean; nameTaken?: { commits: number; paths: string[] } };
 
@@ -56,12 +57,17 @@ async function fakeGitHub(options: GitHubOptions = {}) {
     ['sign', 'verify'],
   );
   const der = new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey));
-  const calls: { method: string; path: string; body: string | null }[] = [];
+  const calls: { method: string; path: string; body: string | null; authorization: string | null }[] = [];
   const during: DuringApproval = {};
   const request: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
     const method = init?.method ?? 'GET';
-    calls.push({ method, path: url.pathname, body: init?.body ? String(init.body) : null });
+    calls.push({
+      method,
+      path: url.pathname,
+      body: init?.body ? String(init.body) : null,
+      authorization: new Headers(init?.headers).get('Authorization'),
+    });
     if (url.pathname.endsWith('/git/commits') && method === 'POST') {
       await during.commit?.();
     }
@@ -76,6 +82,9 @@ async function fakeGitHub(options: GitHubOptions = {}) {
     }
     if (url.pathname === '/repos/ada/new-app' && options.nameTaken) {
       return Response.json({ id: 77, full_name: 'ada/new-app', default_branch: 'main', private: true });
+    }
+    if (url.pathname === '/repos/ada/new-app/commits' && options.nameTaken?.commits === 0) {
+      return Response.json({ message: 'Git Repository is empty.' }, { status: 409 });
     }
     if (url.pathname === '/repos/ada/new-app/commits' && options.nameTaken) {
       return Response.json(Array.from({ length: options.nameTaken.commits }, (_, index) => ({ sha: `c${index}` })));
@@ -436,9 +445,47 @@ describe('production requests', () => {
       );
       expect(calls.filter((call) => call.path.startsWith('/user/installations/'))).toEqual([]);
       expect(calls.filter((call) => call.method !== 'GET' && call.path.startsWith('/repos/'))).toEqual([]);
+      // Read as the admin: the App has no access to it, and is never given any.
+      const reads = calls.filter(
+        (call) => call.path === '/repos/ada/new-app/commits' || call.path === '/repos/ada/new-app/git/trees/main',
+      );
+      expect(reads.map((call) => call.path)).toEqual(
+        nameTaken.commits === 1
+          ? ['/repos/ada/new-app/commits', '/repos/ada/new-app/git/trees/main']
+          : ['/repos/ada/new-app/commits'],
+      );
+      expect(reads.every((call) => call.authorization === 'Bearer user-token')).toBe(true);
       expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'pending' });
     },
   );
+
+  it('says to approve again in a minute when the repository of that name is still empty', async () => {
+    const { database, env, admin, app, calls } = await setup({ nameTaken: { commits: 0, paths: [] } });
+    const started = await approveProductionRequestAction({
+      request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+        orgId: ORG,
+        requestId: REQUEST,
+        repoName: 'new-app',
+        private: true,
+      }),
+      env,
+      app,
+    });
+    const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+    const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+    const returned = await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+      }),
+      env,
+      app,
+    });
+    expect(returnedMessage(returned)).toBe(
+      'GitHub created the repository but not its first branch yet. Approve again in a minute.',
+    );
+    expect(calls.filter((call) => call.path.startsWith('/user/installations/'))).toEqual([]);
+    expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'pending' });
+  });
 
   it('approves into a repository of the same name that an earlier try created and left as GitHub made it', async () => {
     const { database, env, admin, app, calls } = await setup({ nameTaken: { commits: 1, paths: ['README.md'] } });
