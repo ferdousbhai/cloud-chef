@@ -1,7 +1,7 @@
 import { chatStore } from './chatId';
 import { workbenchStore } from './workbench.client';
 
-export const workspaceSurfaces = ['chat', 'code', 'preview'] as const;
+const workspaceSurfaces = ['chat', 'code', 'preview'] as const;
 export type WorkspaceSurface = (typeof workspaceSurfaces)[number];
 
 export function currentWorkspaceSurface(): WorkspaceSurface {
