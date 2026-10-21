@@ -25,13 +25,34 @@ export async function getJson<T>(path: string, schema: z.ZodType<T>): Promise<T>
   return parseResponse(await fetch(path, { credentials: 'same-origin' }), schema);
 }
 
+/** A refusal from one of CloudChef's routes, with its HTTP status. */
+export class RequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+/** What a person sees when an answer is not the shape the page expects: never the parser's own report. */
+export const UNEXPECTED_ANSWER_MESSAGE = 'CloudChef answered unexpectedly. Reload the page and try again.';
+
 async function parseResponse<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const parsed = errorSchema.safeParse(payload);
-    throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Something went wrong. Try again.');
+    throw new RequestError(
+      (parsed.success ? parsed.data.error : undefined) ?? 'Something went wrong. Try again.',
+      response.status,
+    );
   }
-  return schema.parse(payload);
+  const parsed = schema.safeParse(payload);
+  if (!parsed.success) {
+    console.warn(`Unexpected answer from ${response.url || 'CloudChef'}`);
+    throw new RequestError(UNEXPECTED_ANSWER_MESSAGE, response.status);
+  }
+  return parsed.data;
 }
 
 export function messageOf(error: Error | null | undefined, fallback: string): string {
