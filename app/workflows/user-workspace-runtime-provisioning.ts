@@ -102,6 +102,14 @@ export const UPGRADE_MAX_WAIT_MS = 12 * 60 * 60_000;
  */
 export const LEGACY_RUNTIME_QUIET_MS = RUNTIME_BUSY_LEASE_MS;
 const LEGACY_RUNTIME_LONGEST_WAIT_MS = 30 * 60_000;
+/**
+ * How long an upgrade waits for a runtime of an earlier connection generation (a reconnect) to go quiet,
+ * from when it found it live, before redeploying it as a first workspace is. Its member gets no session
+ * for it meanwhile, since its secret no longer authenticates, so they cannot Stop the turn holding the
+ * upgrade back, and a busy row a reset left behind would hold it for the whole lease: waiting longer
+ * would lock them out of their workspace for hours.
+ */
+export const EARLIER_GENERATION_MAX_WAIT_MS = 15 * 60_000;
 /** How often an upgrade renews its window while a step that needs it runs: well inside its length. */
 export const UPGRADE_WINDOW_RENEWAL_MS = RUNTIME_UPGRADE_WINDOW_MS / 5;
 
@@ -112,8 +120,9 @@ export type UserWorkspaceRuntimeProvisioningStep = {
 
 /**
  * What a deploy attempt found: deployed, or a live workspace still busy, to try again after `waitMs`.
- * `windowed: false` is a live runtime of an earlier connection generation that refused both secrets,
- * redeployed as a first workspace is; absent, as in a result recorded before, it is as inspected.
+ * `windowed: false` is a live runtime of an earlier connection generation that refused both secrets or
+ * stayed busy past `EARLIER_GENERATION_MAX_WAIT_MS`, redeployed as a first workspace is; absent, as in
+ * a result recorded before, it is as inspected.
  */
 type DeployAttempt =
   { status: 'deployed'; namespaceId: string; windowed?: false } | { status: 'busy'; checkedAt: number; waitMs: number };
@@ -376,7 +385,8 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
     });
     // A runtime already serving at this endpoint is an upgrade: redeploying it resets its Durable
     // Objects, so it waits for a moment when none of them is working. One of an earlier connection
-    // generation (a reconnect, which this redeploy gives a new secret) is asked with the secret it has.
+    // generation (a reconnect, which this redeploy gives a new secret) is asked with the secret it has,
+    // and waited for only so long, measured from this recorded time so a replay or retry keeps it.
     const upgradeStartedAt = await args.step.do('inspect live workspace', STEP_CONFIG, async () => {
       const live = await dependencies.findRuntime(args.env.DB, params.userId, connection.id);
       return live && live.endpoint === endpoint ? dependencies.now() : null;
@@ -410,8 +420,9 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
               secretForGeneration,
               holder: args.event.instanceId,
               attempt,
+              upgradeStartedAt,
             });
-            if (waitMs === 'unreachable') {
+            if (waitMs === 'unwindowed') {
               windowedAttempt = false;
             } else if (waitMs !== null) {
               return { status: 'busy', checkedAt: dependencies.now(), waitMs };
@@ -566,8 +577,9 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
  * runtime that reports its activity is asked for the upgrade window, granted only while nothing in it
  * runs; one too old to report it is upgraded once no session was issued for it for longer than any
  * turn runs. One of an earlier connection generation is asked with that generation's secret, then
- * with this one's (a retry may find the Worker this upgrade already redeployed); `unreachable` is one
- * that refused both, which can only be redeployed as a first workspace is.
+ * with this one's (a retry may find the Worker this upgrade already redeployed); `unwindowed` is one
+ * that refused both, which can only be redeployed as a first workspace is, or one still busy
+ * `EARLIER_GENERATION_MAX_WAIT_MS` after the upgrade started, whose member it would otherwise lock out.
  */
 async function waitBeforeUpgrade(args: {
   dependencies: UserWorkspaceRuntimeProvisioningDependencies;
@@ -578,7 +590,8 @@ async function waitBeforeUpgrade(args: {
   secretForGeneration: (connectionGeneration: number) => Promise<string>;
   holder: string | undefined;
   attempt: number;
-}): Promise<number | null | 'unreachable'> {
+  upgradeStartedAt: number;
+}): Promise<number | null | 'unwindowed'> {
   const live = await args.dependencies.findRuntime(args.db, args.params.userId, args.params.connectionId);
   const claim = (controlPlaneSecret: string) =>
     args.dependencies.claimUpgradeWindow({
@@ -599,27 +612,41 @@ async function waitBeforeUpgrade(args: {
     }
     return null;
   };
-  const window =
-    live && live.connectionGeneration !== args.params.connectionGeneration
-      ? await claimWithEitherSecret(await args.secretForGeneration(live.connectionGeneration))
-      : await claim(args.controlPlaneSecret);
+  const earlierGeneration = live !== null && live.connectionGeneration !== args.params.connectionGeneration;
+  const window = earlierGeneration
+    ? await claimWithEitherSecret(await args.secretForGeneration(live.connectionGeneration))
+    : await claim(args.controlPlaneSecret);
   if (!window) {
     console.warn({ event: 'runtime_upgrade_unwindowed', reason: 'earlier_generation_refused_secret' });
-    return 'unreachable';
+    return 'unwindowed';
   }
   if (window.status === 'granted') {
     return null;
   }
+  let waitMs: number;
   if (window.status === 'busy') {
-    console.info({ event: 'runtime_upgrade_waiting', reason: 'workspace_busy', busy: window.busy });
-    return upgradeWaitMs(args.attempt);
+    waitMs = upgradeWaitMs(args.attempt);
+  } else {
+    const quietFor = args.dependencies.now() - (live?.lastSessionAt ?? 0);
+    if (quietFor >= LEGACY_RUNTIME_QUIET_MS) {
+      return null;
+    }
+    waitMs = Math.min(LEGACY_RUNTIME_QUIET_MS - quietFor, LEGACY_RUNTIME_LONGEST_WAIT_MS);
   }
-  const quietFor = args.dependencies.now() - (live?.lastSessionAt ?? 0);
-  if (quietFor >= LEGACY_RUNTIME_QUIET_MS) {
-    return null;
+  const reason = window.status === 'busy' ? 'workspace_busy' : 'legacy_runtime_recently_used';
+  const busy = window.status === 'busy' ? window.busy : undefined;
+  if (earlierGeneration) {
+    // Its member has no session meanwhile, so nothing they can do ends the wait: past the cap the
+    // reconnect's redeploy goes ahead, ending whatever still runs, rather than lock them out for hours.
+    const waitedMs = args.dependencies.now() - args.upgradeStartedAt;
+    if (waitedMs >= EARLIER_GENERATION_MAX_WAIT_MS) {
+      console.warn({ event: 'runtime_upgrade_unwindowed', reason: 'earlier_generation_wait_capped', waitedMs, busy });
+      return 'unwindowed';
+    }
+    waitMs = Math.min(waitMs, EARLIER_GENERATION_MAX_WAIT_MS - waitedMs);
   }
-  console.info({ event: 'runtime_upgrade_waiting', reason: 'legacy_runtime_recently_used' });
-  return Math.min(LEGACY_RUNTIME_QUIET_MS - quietFor, LEGACY_RUNTIME_LONGEST_WAIT_MS);
+  console.info({ event: 'runtime_upgrade_waiting', reason, busy });
+  return waitMs;
 }
 
 /** How long to wait before asking a busy workspace again: doubling from the first wait, up to the longest. */

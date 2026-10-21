@@ -31,6 +31,7 @@ const mocks = {
 };
 
 import {
+  EARLIER_GENERATION_MAX_WAIT_MS,
   LEGACY_RUNTIME_QUIET_MS,
   runUserWorkspaceRuntimeProvisioningWorkflow,
   startUserWorkspaceRuntimeProvisioning,
@@ -640,6 +641,132 @@ describe('workspace runtime provisioning Workflow', () => {
         });
 
         expect(mocks.claimUpgradeWindow).toHaveBeenCalledTimes(2);
+        expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
+        expect(mocks.changeUpgradeWindow).not.toHaveBeenCalled();
+        warn.mockRestore();
+      });
+
+      it('redeploys it as a first workspace once it has stayed busy for the cap, since its member has no session', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        mocks.claimUpgradeWindow.mockResolvedValue({ status: 'busy', busy: 1 });
+        let now = NOW;
+        mocks.now.mockImplementation(() => now);
+        const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async (_name, duration) => {
+          expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
+          now += duration;
+        });
+
+        await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
+          status: 'ready',
+        });
+
+        // The backoff is cut short so the redeploy comes at the cap, not after the next full wait.
+        expect(sleep.mock.calls.map(([, duration]) => duration)).toEqual([
+          30_000, 60_000, 120_000, 240_000, 300_000, 150_000,
+        ]);
+        expect(now - NOW).toBe(EARLIER_GENERATION_MAX_WAIT_MS);
+        expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
+        expect(mocks.changeUpgradeWindow).not.toHaveBeenCalled();
+        expect(warn).toHaveBeenCalledWith(
+          expect.objectContaining({ event: 'runtime_upgrade_unwindowed', reason: 'earlier_generation_wait_capped' }),
+        );
+        warn.mockRestore();
+      });
+
+      it('caps the wait for one too old to report activity too, whatever its last session', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        mocks.claimUpgradeWindow.mockResolvedValue({ status: 'unsupported' });
+        let now = NOW;
+        mocks.now.mockImplementation(() => now);
+        mocks.findRuntime.mockResolvedValue({
+          ...liveRuntime(endpoint),
+          connectionGeneration: 0,
+          lastSessionAt: NOW - 60_000,
+        });
+        const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async (_name, duration) => {
+          now += duration;
+        });
+
+        await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
+          status: 'ready',
+        });
+
+        expect(now - NOW).toBe(EARLIER_GENERATION_MAX_WAIT_MS);
+        expect(mocks.changeUpgradeWindow).not.toHaveBeenCalled();
+        warn.mockRestore();
+      });
+
+      it('upgrades it inside the window when it goes quiet before the cap', async () => {
+        mocks.claimUpgradeWindow
+          .mockResolvedValueOnce({ status: 'busy', busy: 1 })
+          .mockResolvedValueOnce({ status: 'busy', busy: 1 })
+          .mockResolvedValueOnce({ status: 'busy', busy: 1 })
+          .mockResolvedValue({ status: 'granted' });
+        let now = NOW;
+        mocks.now.mockImplementation(() => now);
+        const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async (_name, duration) => {
+          expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
+          now += duration;
+        });
+
+        await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
+          status: 'ready',
+        });
+
+        expect(sleep.mock.calls.map(([, duration]) => duration)).toEqual([30_000, 60_000, 120_000]);
+        expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
+        expect(mocks.changeUpgradeWindow).toHaveBeenCalledWith(expect.objectContaining({ change: 'release' }));
+      });
+
+      it('replays the waits an instance recorded before the cap, then redeploys at its next attempt', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        mocks.claimUpgradeWindow.mockResolvedValue({ status: 'busy', busy: 1 });
+        // What a Workflow started before the cap recorded: it found the runtime live at NOW and has
+        // waited past the cap with the old backoff, its next attempt after the last of these waits.
+        const waits = [30_000, 60_000, 120_000, 240_000, 300_000, 300_000, 300_000, 300_000];
+        const recorded = new Map<string, object | number | string>([
+          ['inspect account', { status: 'entitled', workersSubdomain: 'user' }],
+          ['prepare workspace database', 'database-1'],
+          ['inspect live workspace', NOW],
+        ]);
+        const recordedSleeps = new Set<string>();
+        let now = NOW;
+        waits.forEach((waitMs, index) => {
+          recorded.set(`deploy workspace Worker (attempt ${index + 1})`, { status: 'busy', checkedAt: now, waitMs });
+          recordedSleeps.add(`wait for an idle workspace (attempt ${index + 1})`);
+          now += waitMs;
+        });
+        mocks.now.mockImplementation(() => now);
+        const asked: string[] = [];
+        const args = workflowArgs();
+        const step = {
+          async do<T>(
+            name: string,
+            config: Parameters<UserWorkspaceRuntimeProvisioningStep['do']>[1],
+            operation: () => Promise<T>,
+          ) {
+            asked.push(name);
+            if (recorded.has(name)) {
+              // SAFETY: each recorded result is the one this step returned when the instance recorded it.
+              return recorded.get(name) as T;
+            }
+            return args.step.do(name, config, operation);
+          },
+          // A recorded sleep has already elapsed; a new one passes on the clock.
+          async sleep(name: string, duration: number) {
+            if (!recordedSleeps.has(name)) {
+              now += duration;
+            }
+          },
+        } satisfies UserWorkspaceRuntimeProvisioningStep;
+
+        await expect(runUserWorkspaceRuntimeProvisioningWorkflow({ ...args, step })).resolves.toEqual({
+          status: 'ready',
+        });
+
+        expect(asked.slice(0, recorded.size)).toEqual([...recorded.keys()]);
+        expect(asked[recorded.size]).toBe(`deploy workspace Worker (attempt ${waits.length + 1})`);
+        expect(mocks.claimUpgradeWindow).toHaveBeenCalledOnce();
         expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
         expect(mocks.changeUpgradeWindow).not.toHaveBeenCalled();
         warn.mockRestore();

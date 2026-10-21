@@ -47,8 +47,13 @@ release but serves the same connection generation and speaks the same `USER_WORK
 provisioning Workflow in the background; the browser shows no preparation. A missing runtime, one for an earlier
 connection generation, or one speaking another protocol is prepared before a session is issued, as before. A
 runtime of an earlier generation (a reconnect, whose redeploy rotates its secret) still waits for the upgrade window,
-asked with the secret derived for the generation it was deployed with; only one that refuses that secret and the
-new one is redeployed at once, as a first workspace is.
+asked with the secret derived for the generation it was deployed with; one that refuses that secret and the new
+one is redeployed at once, as a first workspace is. That wait is capped at 15 minutes from when the Workflow found
+the runtime live (`EARLIER_GENERATION_MAX_WAIT_MS`, measured from that recorded step result, so a replay or retry
+keeps it), after which the runtime is redeployed as a first workspace is, ending whatever still runs: its member
+gets no session for a runtime of an earlier generation, so cannot Stop the turn holding it back (a turn may run four
+hours), and a busy row left by a reset would hold it for the whole lease with nothing to clear it. A wait for a
+runtime of the same generation is not capped, since its member keeps a session meanwhile.
 
 The runtime is the source of truth for whether it is busy, since a turn keeps running with no tab open. Every
 `BuilderAgent` records in the runtime's D1 (`runtime_activity`) whether it is working, and for two minutes after it
