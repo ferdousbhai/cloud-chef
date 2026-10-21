@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
-const errorSchema = z.looseObject({ error: z.string().optional().catch(undefined) });
+const errorSchema = z.looseObject({
+  error: z.string().optional().catch(undefined),
+  code: z.string().optional().catch(undefined),
+});
 
 /** A 204: no body, which `postJson` reads as null. */
 export const noContentSchema = z.null();
@@ -30,6 +33,8 @@ export class RequestError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** What the route said the client can do something about, such as `sole_member`. */
+    readonly code: string | null = null,
   ) {
     super(message);
   }
@@ -45,6 +50,7 @@ async function parseResponse<T>(response: Response, schema: z.ZodType<T>): Promi
     throw new RequestError(
       (parsed.success ? parsed.data.error : undefined) ?? 'Something went wrong. Try again.',
       response.status,
+      (parsed.success ? parsed.data.code : undefined) ?? null,
     );
   }
   const parsed = schema.safeParse(payload);

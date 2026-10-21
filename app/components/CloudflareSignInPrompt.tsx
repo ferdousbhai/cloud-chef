@@ -120,7 +120,7 @@ export function CloudflareSignInPrompt({
         {session ? (
           <>
             <LinkButton to="/settings" variant="neutral">
-              Create a team
+              Teams
             </LinkButton>
             <Button
               variant="neutral"
