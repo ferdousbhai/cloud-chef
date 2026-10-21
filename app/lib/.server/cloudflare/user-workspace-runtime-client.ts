@@ -59,7 +59,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
   #commandGeneration = 0;
   #refreshedGeneration = 0;
   #stubPromise: Promise<ProjectWorkspaceStub> | null = null;
-  #activeTool: { toolCallId: string; toolName: string } | null = null;
+  #activeTool: { toolCallId: string; toolName: string; abortSignal?: AbortSignal } | null = null;
   #activeValidationToolCallId: string | null = null;
 
   readonly computer: BuilderWorkspaceApi['computer'] = {
@@ -734,7 +734,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       await stub.failToolOperation({ toolCallId, error: serializationError }).catch(() => undefined);
       throw new Error(serializationError);
     }
-    this.#activeTool = { toolCallId, toolName };
+    this.#activeTool = { toolCallId, toolName, abortSignal };
     let cancellation: Promise<void> | undefined;
     const cancel = () => {
       cancellation ??= this.#cancelStartedToolOperation(
@@ -898,6 +898,10 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
           return value;
         }
         return async (...args: unknown[]) => {
+          // A file change made for a tool is that tool's to stop: once it is stopped no new attempt
+          // starts, so a write queued behind a busy lane cannot land after its turn was reported
+          // stopped. An attempt already in flight is left to finish.
+          const abortSignal = property === 'applyChanges' ? this.#activeTool?.abortSignal : undefined;
           const startedAt = Date.now();
           let backoff = BUSY_RETRY_INITIAL_DELAY_MS;
           while (true) {
@@ -908,7 +912,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
               if (!wait || Date.now() + backoff >= startedAt + wait.windowMs) {
                 throw error;
               }
-              await delay(backoff);
+              await raceAgainstAbort(delay(backoff), abortSignal);
               backoff = Math.min(backoff * 2, wait.maxDelayMs);
             }
           }
