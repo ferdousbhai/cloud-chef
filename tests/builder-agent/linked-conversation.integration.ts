@@ -109,6 +109,22 @@ describe('an earlier conversation on a GitHub project', () => {
     expect(commits).toEqual([]);
   });
 
+  it('refuses saves and publishing once the member deleted it, though its agent and turn live on', async () => {
+    const harness = await builderAgentHarness({ workspace: await linkedWorkspace(), cloudflareIdentity: true });
+    const commits = controlPlane();
+    // Deleting a continued conversation hands the project back to the one before it, so this one's
+    // branch is no longer its own: a publish from its running turn would replace that one's work.
+    harness.database.prepare(`UPDATE chats SET org_project_id = ?, is_deleted = 1`).run(PROJECT_ID);
+
+    await expect(harness.agent.applyWorkspaceClientChanges({ baseRevision: 3, changes: [] })).rejects.toMatchObject({
+      status: 409,
+    });
+    const published = await publishTool(harness)({ message: 'Ship it', live: true }, { toolCallId: 'call-1' });
+    expect(published).toMatchObject({ ok: false });
+    expect(published.summary).toContain('was deleted');
+    expect(commits).toEqual([]);
+  });
+
   it('stops its running turn when the newer conversation asks, and says it is archived', async () => {
     // Workers' scheduler, which a cancellation waits on, is not Node's.
     vi.stubGlobal('scheduler', { wait: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)) });

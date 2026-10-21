@@ -238,6 +238,7 @@ const LINKED_PUBLISH_SETTLE_MS = 2.5 * 60_000;
 /** A copy of another workspace starts over when that one changes meanwhile; it changing this often is a fault. */
 const MAX_WORKSPACE_COPY_RESTARTS = 5;
 const ARCHIVED_CONVERSATION_MESSAGE = 'This conversation continues in a newer one. Open the project to keep working.';
+const DELETED_CONVERSATION_MESSAGE = 'This conversation was deleted.';
 
 /** Fiber metadata survives a Durable Object restart, so every job is re-parsed before it is resumed. */
 const previewPublicationJobSchema = z.object({
@@ -734,7 +735,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         });
       // Again now that the turn is visible: a newer conversation that took over meanwhile either saw this
       // turn and stopped it, or archived this one before this read.
-      await this.refuseIfArchived();
+      await this.refuseIfClosed();
       const { contentLogging } = await this.requireModelAccess();
       // The browser prepares the workspace before it sends, but nothing else seeds a new one.
       await this.initializeWorkspace(durableIdentity.transcript);
@@ -941,7 +942,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!active || this.state.activeTurn?.id !== active.turnId) {
       throw new Response('The builder is not currently running.', { status: 409 });
     }
-    await this.refuseIfArchived();
+    await this.refuseIfClosed();
 
     const message: UIMessage = {
       id: `steering-${crypto.randomUUID()}`,
@@ -973,7 +974,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     await this.waitForCloudflareDecisionBoundary();
     const binding = await this.requireCurrentCloudflareExecutionBinding('approve_cloudflare_execution');
-    await this.refuseIfArchived();
+    await this.refuseIfClosed();
     const proposal = await this.cloudflareExecutions.verify(parsed.data.executionId, binding);
     if (
       proposal.status === 'rejected' ||
@@ -1117,17 +1118,29 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return settled;
   }
 
-  /** A conversation a newer one took over is kept to read: nothing may change its project or publish it. */
-  private async refuseIfArchived(): Promise<void> {
-    if (await this.isArchivedConversation()) {
-      throw new Response(ARCHIVED_CONVERSATION_MESSAGE, { status: 409 });
+  /**
+   * A conversation a newer one took over is kept to read, and a deleted one's agent lives on for a while,
+   * its turn too: nothing may change the project of either or publish it.
+   */
+  private async refuseIfClosed(): Promise<void> {
+    const closed = await this.closedConversationMessage();
+    if (closed) {
+      throw new Response(closed, { status: 409 });
     }
   }
 
-  private async isArchivedConversation(): Promise<boolean> {
+  /** Why this conversation may no longer change its project, or null while it may. */
+  private async closedConversationMessage(): Promise<string | null> {
     const ownerId =
       this.ownerId ?? (await this.hydrateDurableIdentity({ required: true, reason: 'archive_check' }))?.ownerId;
-    return ownerId ? (await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId })).archived : false;
+    if (!ownerId) {
+      return null;
+    }
+    const { archived, deleted } = await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId });
+    if (deleted) {
+      return DELETED_CONVERSATION_MESSAGE;
+    }
+    return archived ? ARCHIVED_CONVERSATION_MESSAGE : null;
   }
 
   /**
@@ -1231,7 +1244,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   @callable()
   async applyWorkspaceClientChanges(request: WorkspaceApplyChangesRequest): Promise<BuilderWorkspaceApplyResult> {
-    await this.refuseIfArchived();
+    await this.refuseIfClosed();
     const result = await this.workspace.applyClientChanges(request);
     if (result.ok && result.changedPaths.length > 0) {
       this.setState({
@@ -1687,8 +1700,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!linked || !identity) {
       return toolFailure("This workspace is not one of the team's GitHub projects.");
     }
-    if (await this.isArchivedConversation()) {
-      return toolFailure(`${ARCHIVED_CONVERSATION_MESSAGE} Nothing was sent to GitHub.`);
+    const closed = await this.closedConversationMessage();
+    if (closed) {
+      return toolFailure(`${closed} Nothing was sent to GitHub.`);
     }
     const { changes, manifest } = await linkedWorkspaceChanges(this.workspace, linked);
     if (changes.length === 0) {
