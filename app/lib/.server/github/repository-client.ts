@@ -82,11 +82,14 @@ export function commitSizeRefusal(changes: CommitChange[]): string | null {
     : null;
 }
 
-/** A file's content as text for a tree request, or null when it isn't UTF-8 text exactly (or is too large). */
+/**
+ * A file's content as text for a tree request, or null when it isn't UTF-8 text exactly, is too large,
+ * or is empty: GitHub may read blank inline content as missing, so an empty file is a blob of its own.
+ */
 function inlineText(contentBase64: string): string | null {
   try {
     const bytes = Uint8Array.from(atob(contentBase64), (char) => char.charCodeAt(0));
-    if (bytes.length > MAX_INLINE_FILE_BYTES || bytes.includes(0)) {
+    if (bytes.length === 0 || bytes.length > MAX_INLINE_FILE_BYTES || bytes.includes(0)) {
       return null;
     }
     // A byte-order mark is kept: the text must encode back to exactly these bytes.

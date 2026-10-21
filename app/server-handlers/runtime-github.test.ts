@@ -376,6 +376,7 @@ describe('a member working on a GitHub project', () => {
           { path: 'public/logo.png', contentBase64: btoa('\x89PNG\r\n\x1a\n\0\0'), executable: false },
           { path: 'old.txt', contentBase64: null, executable: false },
           { path: 'bin/run', contentBase64: bytesToBase64(new TextEncoder().encode('\uFEFFcafé')), executable: true },
+          { path: 'public/empty.txt', contentBase64: '', executable: false },
         ],
       }),
       env,
@@ -386,10 +387,13 @@ describe('a member working on a GitHub project', () => {
       commit: 'c'.repeat(40),
       branch: expect.stringMatching(/^cloudchef\/sara-a-/),
     });
-    // Text goes in the tree as it is; only the image is a blob of its own.
+    // Text goes in the tree as it is; only the image and the empty file are blobs of their own.
     expect(
       writes.filter((write) => write.path === '/git/blobs').map((write) => JSON.parse(write.body ?? '{}')),
-    ).toEqual([{ content: btoa('\x89PNG\r\n\x1a\n\0\0'), encoding: 'base64' }]);
+    ).toEqual([
+      { content: btoa('\x89PNG\r\n\x1a\n\0\0'), encoding: 'base64' },
+      { content: '', encoding: 'base64' },
+    ]);
     const tree = JSON.parse(writes.find((write) => write.path === '/git/trees')?.body ?? '{}');
     expect(tree).toEqual({
       base_tree: `tree-of-${BASE.slice(0, 6)}`,
@@ -398,6 +402,7 @@ describe('a member working on a GitHub project', () => {
         { path: 'old.txt', mode: '100644', type: 'blob', sha: null },
         { path: 'bin/run', mode: '100755', type: 'blob', content: '\uFEFFcafé' },
         { path: 'public/logo.png', mode: '100644', type: 'blob', sha: 'blob-1' },
+        { path: 'public/empty.txt', mode: '100644', type: 'blob', sha: 'blob-2' },
       ],
     });
     expect(JSON.parse(writes.find((write) => write.path === '/git/commits')?.body ?? '{}')).toMatchObject({
