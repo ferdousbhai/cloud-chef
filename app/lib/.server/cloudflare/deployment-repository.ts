@@ -203,6 +203,8 @@ export async function claimApprovedDeployment(args: {
     throw new DeploymentStateConflictError(expected.status);
   }
   const now = args.now ?? Date.now();
+  // Which claim this is: another one landing in the same millisecond would match a timestamp too.
+  const claim = crypto.randomUUID();
   // One project deploys one revision at a time; a person's other projects deploy alongside it.
   const project = deploymentProjectScope(expected.workspaceReference);
   let result: D1Result;
@@ -210,7 +212,7 @@ export async function claimApprovedDeployment(args: {
     result = await args.db
       .prepare(
         `UPDATE deployments
-         SET status = 'provisioning', updated_at = ?
+         SET status = 'provisioning', updated_at = ?, claim_id = ?
          WHERE id = ? AND user_id = ? AND connection_id = ? AND connection_generation = ?
            AND execution_generation = ? AND status = 'approved' AND updated_at = ?
            AND EXISTS (
@@ -228,6 +230,7 @@ export async function claimApprovedDeployment(args: {
       )
       .bind(
         now,
+        claim,
         expected.id,
         expected.userId,
         expected.connectionId,
@@ -242,7 +245,7 @@ export async function claimApprovedDeployment(args: {
       .run();
   } catch (error) {
     const committed = await requireDeploymentForUser(args.db, expected.id, expected.userId).catch(() => null);
-    if (committed && isExactDeploymentClaim(committed, expected, now)) {
+    if (committed && (await isExactDeploymentClaim(args.db, committed, expected, claim).catch(() => false))) {
       return committed;
     }
     throw error;
@@ -260,7 +263,7 @@ export async function claimApprovedDeployment(args: {
       throw new DeploymentConcurrencyLimitError();
     }
     const committed = await requireDeploymentForUser(args.db, expected.id, expected.userId);
-    if (isExactDeploymentClaim(committed, expected, now)) {
+    if (await isExactDeploymentClaim(args.db, committed, expected, claim)) {
       return committed;
     }
     throw new DeploymentStateConflictError(committed.status);
@@ -504,13 +507,25 @@ function isExactDeploymentTransition(
   );
 }
 
-function isExactDeploymentClaim(deployment: Deployment, expected: Deployment, now: number): boolean {
-  return (
-    deployment.status === 'provisioning' &&
-    deployment.updatedAt === now &&
-    deployment.executionGeneration === expected.executionGeneration &&
-    sameDeploymentIdentity(deployment, expected)
-  );
+/** Whether the committed record is this claim's, by the claim id it wrote, which no other claim shares. */
+async function isExactDeploymentClaim(
+  db: D1Database,
+  deployment: Deployment,
+  expected: Deployment,
+  claim: string,
+): Promise<boolean> {
+  if (
+    deployment.status !== 'provisioning' ||
+    deployment.executionGeneration !== expected.executionGeneration ||
+    !sameDeploymentIdentity(deployment, expected)
+  ) {
+    return false;
+  }
+  const row = await db
+    .prepare(`SELECT claim_id FROM deployments WHERE id = ?`)
+    .bind(deployment.id)
+    .first<{ claim_id: string | null }>();
+  return row?.claim_id === claim;
 }
 
 function isExactDeploymentRetry(deployment: Deployment, expected: Deployment, now: number): boolean {

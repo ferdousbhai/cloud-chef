@@ -34,6 +34,11 @@ vi.mock('./deployment-plan', async (importOriginal) => ({
 }));
 vi.mock('./deployment-repository', () => ({
   DeploymentConcurrencyLimitError: class DeploymentConcurrencyLimitError extends Error {},
+  DeploymentStateConflictError: class DeploymentStateConflictError extends Error {
+    constructor(readonly status: string) {
+      super(`Deployment cannot continue from status ${status}.`);
+    }
+  },
   claimApprovedDeployment: mocks.claimApprovedDeployment,
   findDeploymentResource: mocks.findDeploymentResource,
   projectResourceNaming: mocks.projectResourceNaming,
@@ -47,7 +52,7 @@ vi.mock('./user-account-api', async (importOriginal) => ({
   UserCloudflareAccountApi: mocks.UserCloudflareAccountApi,
 }));
 
-import { DeploymentConcurrencyLimitError } from './deployment-repository';
+import { DeploymentConcurrencyLimitError, DeploymentStateConflictError } from './deployment-repository';
 import { D1MigrationChangedError } from './user-account-api';
 import {
   executeUserOwnedDeployment,
@@ -662,6 +667,40 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
       }),
     );
     expect(workspace.beginDeploymentSession).not.toHaveBeenCalled();
+  });
+
+  it('reports a deployment another execution claimed first as in progress, not failed', async () => {
+    const { execution, workspace } = await workerDeployment();
+    mocks.claimApprovedDeployment.mockRejectedValueOnce(new DeploymentStateConflictError('provisioning'));
+
+    await expect(executeUserOwnedDeployment(execution)).resolves.toMatchObject({ status: 'deploying' });
+
+    expect(mocks.transitionDeployment).not.toHaveBeenCalled();
+    expect(workspace.beginDeploymentSession).not.toHaveBeenCalled();
+    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
+  });
+
+  it('still refuses a deployment whose claim conflicts with a settled record', async () => {
+    const { execution } = await workerDeployment();
+    mocks.claimApprovedDeployment.mockRejectedValueOnce(new DeploymentStateConflictError('failed'));
+
+    await expect(executeUserOwnedDeployment(execution)).rejects.toBeInstanceOf(DeploymentStateConflictError);
+    expect(mocks.transitionDeployment).not.toHaveBeenCalled();
+  });
+
+  it('refuses a deployment claimed first by an execution that has already failed', async () => {
+    const { execution, deployment } = await workerDeployment();
+    mocks.claimApprovedDeployment.mockRejectedValueOnce(new DeploymentStateConflictError('provisioning'));
+    mocks.requireDeployment
+      .mockReset()
+      .mockResolvedValueOnce(deployment)
+      .mockResolvedValue({
+        ...deployment,
+        status: 'failed',
+      });
+
+    await expect(executeUserOwnedDeployment(execution)).rejects.toBeInstanceOf(DeploymentStateConflictError);
+    expect(mocks.transitionDeployment).not.toHaveBeenCalled();
   });
 
   it('stops a cancelled preview at its next step and releases the workspace', async () => {

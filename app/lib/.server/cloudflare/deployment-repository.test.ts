@@ -5,6 +5,7 @@ import {
   claimApprovedDeployment,
   createDeployment,
   DeploymentConcurrencyLimitError,
+  DeploymentStateConflictError,
   latestDeploymentActivity,
   listDeploymentActivity,
   prepareDeploymentRetry,
@@ -34,6 +35,7 @@ beforeEach(() => {
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(readFileSync('user-workspace-migrations/0001_user_workspace.sql', 'utf8'));
   sqlite.exec(readFileSync('user-workspace-migrations/0005_deployment_activity.sql', 'utf8'));
+  sqlite.exec(readFileSync('user-workspace-migrations/0014_deployment_claim_id.sql', 'utf8'));
   sqlite
     .prepare(
       `INSERT INTO chats (id, creator_id, initial_id, timestamp) VALUES ('chat-1', 'user-1', 'initial-1', 'now')`,
@@ -258,6 +260,32 @@ describe('deployment repository', () => {
       errorCode: null,
       errorMessage: null,
       updatedAt: 60,
+    });
+  });
+
+  it('lets only one of two claims made in the same millisecond have the deployment', async () => {
+    const approved = await create(1);
+    const claim = (database: D1Database) =>
+      claimApprovedDeployment({
+        db: database,
+        deploymentId: approved.id,
+        userId: approved.userId,
+        connectionId: approved.connectionId,
+        connectionGeneration: approved.connectionGeneration,
+        executionGeneration: approved.executionGeneration,
+        now: 30,
+      });
+
+    // The other claim lands after this one read the approved record, and before its own write.
+    const otherClaim = async () => {
+      await claim(db);
+    };
+    await expect(claim(d1(sqlite, false, otherClaim))).rejects.toEqual(
+      new DeploymentStateConflictError('provisioning'),
+    );
+    await expect(requireDeploymentForUser(db, approved.id, approved.userId)).resolves.toMatchObject({
+      status: 'provisioning',
+      updatedAt: 30,
     });
   });
 
@@ -507,21 +535,31 @@ async function approvedDeployment(index: number, project?: string) {
   return create(index, project);
 }
 
-function d1(database: DatabaseSync, throwAfterNextRun = false): D1Database {
+/** `beforeNextRun` runs once, just before the next write, as another request landing then would. */
+function d1(database: DatabaseSync, throwAfterNextRun = false, beforeNextRun?: () => Promise<void>): D1Database {
   return {
     prepare(query: string) {
-      return prepared(database.prepare(query), () => {
-        if (!throwAfterNextRun) {
-          return;
-        }
-        throwAfterNextRun = false;
-        throw new Error('D1 acknowledgement lost');
-      });
+      const beforeRun = beforeNextRun;
+      return prepared(
+        database.prepare(query),
+        () => {
+          if (!throwAfterNextRun) {
+            return;
+          }
+          throwAfterNextRun = false;
+          throw new Error('D1 acknowledgement lost');
+        },
+        beforeRun &&
+          (() => {
+            beforeNextRun = undefined;
+            return beforeRun();
+          }),
+      );
     },
   } as unknown as D1Database;
 }
 
-function prepared(statement: StatementSync, afterRun?: () => void) {
+function prepared(statement: StatementSync, afterRun?: () => void, beforeRun?: () => Promise<void>) {
   let values: SQLInputValue[] = [];
   return {
     bind(...next: SQLInputValue[]) {
@@ -529,6 +567,7 @@ function prepared(statement: StatementSync, afterRun?: () => void) {
       return this;
     },
     async run() {
+      await beforeRun?.();
       const result = statement.run(...values);
       afterRun?.();
       return { meta: { changes: Number(result.changes) } };

@@ -3,6 +3,7 @@ import { deploymentPlanResourceName, isCurrentDeploymentPlan, planNamesProjectRe
 import {
   claimApprovedDeployment,
   DeploymentConcurrencyLimitError,
+  DeploymentStateConflictError,
   findDeploymentResource,
   projectResourceNaming,
   recordDeploymentActivity,
@@ -229,6 +230,18 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
       errorMessage: warning,
     }));
   } catch (error) {
+    if (
+      phase === 'approved' &&
+      error instanceof DeploymentStateConflictError &&
+      (error.status === 'provisioning' || error.status === 'deploying')
+    ) {
+      // Another execution claimed it first and is running it: it is in progress, not failed, and the
+      // caller follows that one.
+      const running = await requireDeployment(args.env.DB, args.deploymentId).catch(() => null);
+      if (running && running.status !== 'approved' && running.status !== 'failed') {
+        return running;
+      }
+    }
     if (phase === 'approved' && error instanceof DeploymentConcurrencyLimitError) {
       // Refused before it started: record it as failed, so it reads as what it is and retries
       // through the same path as any other failed deployment.

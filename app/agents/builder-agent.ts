@@ -2481,9 +2481,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     options: { retry?: boolean; run: DeploymentRun; epoch?: number },
   ): Promise<void> {
     const { run, epoch } = options;
+    // A retry redoes a deployment that failed, so only another one deploying it now stops it.
     const inFlight = () => {
       const current = this.state.deployment;
-      return !options.retry && current?.revision === job.revision && current.status !== 'ready';
+      return (
+        current?.revision === job.revision &&
+        (options.retry ? current.status === 'deploying' : current.status !== 'ready')
+      );
     };
     const refused = () => {
       if (this.destroying) {
@@ -2495,8 +2499,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return;
     }
     await this.runtimeActivity.admit();
-    // Admission can wait out an upgrade: whatever changed meanwhile decides again.
-    if (refused()) {
+    // Admission can wait out an upgrade: whatever changed meanwhile decides again. A retry also stops
+    // for a fiber still deploying the revision, which a failure recorded meanwhile may hide; one started
+    // while that is read shows as deploying by the time it answers.
+    if (refused() || (options.retry && (await this.deploymentFiberRunning(job.revision))) || refused()) {
       return;
     }
     this.setState({

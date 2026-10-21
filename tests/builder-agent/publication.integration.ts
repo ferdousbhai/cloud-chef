@@ -989,6 +989,76 @@ describe('redoing a failed deployment', () => {
     expect(live.filter((fiber) => fiber.name === 'background:builder_deployment')).toEqual([]);
   });
 
+  it('starts one deployment when a Deploy click and a scheduled retry both settled the failed record', async () => {
+    const running = deferred<void>();
+    const deploy = vi.fn<BuilderPublisher['deploy']>(async () => {
+      await running.promise;
+      return { status: 'succeeded', id: 'deployment-1' };
+    });
+    // Each settles the record before either starts the deployment.
+    const bothSettling = deferred<void>();
+    let settling = 0;
+    const harness = await publicationHarness({
+      publisher: {
+        deploy,
+        terminalize: async () => {
+          settling += 1;
+          if (settling === 2) {
+            bothSettling.resolve();
+          }
+          await bothSettling.promise;
+          return { status: 'failed', error: 'Deployment was interrupted.' };
+        },
+      },
+    });
+    failedDeployment(harness);
+    // Neither sees the other's fiber: each reads the fibers before the other starts one.
+    const listFibers = harness.agent.listFibers.bind(harness.agent);
+    vi.spyOn(harness.agent, 'listFibers').mockImplementation(async (options) => {
+      const live = await listFibers(options);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return live;
+    });
+
+    await Promise.all([
+      harness.agent.deployValidatedRevision(),
+      harness.agent.retryAutomaticDeployment({ ...CHECKPOINT, attempt: 1 }),
+    ]);
+
+    await eventually(() => deploy.mock.calls.length > 0);
+    await settle();
+    const live = await harness.agent.listFibers({ status: ['pending', 'running', 'interrupted'] });
+    expect(live.filter((fiber) => fiber.name === 'background:builder_deployment')).toHaveLength(1);
+    running.resolve();
+    await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
+    expect(deploy).toHaveBeenCalledOnce();
+  });
+
+  it('does not start a second deployment for a retry while a failure recorded meanwhile hides the running one', async () => {
+    const running = deferred<void>();
+    const deploy = vi.fn<BuilderPublisher['deploy']>(async () => {
+      await running.promise;
+      return { status: 'succeeded', id: 'deployment-1' };
+    });
+    const harness = await publicationHarness({
+      publisher: { deploy, terminalize: async () => ({ status: 'failed', error: 'Deployment was interrupted.' }) },
+    });
+    previewServing(harness);
+    await harness.agent.deployValidatedRevision();
+    await eventually(() => deploy.mock.calls.length > 0);
+    harness.agent.setState({
+      ...harness.agent.state,
+      deployment: { status: 'failed', ...CHECKPOINT, error: 'Deployment cannot continue from status provisioning.' },
+    });
+
+    await harness.agent.deployValidatedRevision();
+
+    await settle();
+    expect(deploy).toHaveBeenCalledOnce();
+    running.resolve();
+    await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
+  });
+
   it("a manual redeploy records a deployment that finished in the user's account instead of redeploying", async () => {
     const deploy = vi.fn<BuilderPublisher['deploy']>();
     const harness = await publicationHarness({
