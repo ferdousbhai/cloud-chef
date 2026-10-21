@@ -681,44 +681,49 @@ export async function updateMember(
                 'UPDATE organization_members SET role = ? WHERE org_id = ? AND user_id = ?',
                 [args.action === 'make_admin' ? 'admin' : 'member', args.orgId, args.userId],
               ];
-  const result = await db
-    .prepare(write + keepsAnAdmin)
-    .bind(...values)
-    .run();
-  if (losesAdmin && result.meta.changes === 0) {
+  const membershipWrite = db.prepare(write + keepsAnAdmin).bind(...values);
+  // Their workspace locator in the organization's account and their access to its projects go with
+  // them, and their open production requests are declined: nobody may approve work for someone gone.
+  // All in the one write that removes them, and only once they're gone, so a refused removal keeps
+  // everything and an interrupted one leaves no grant behind to come back if they're invited again.
+  const gone = 'AND NOT EXISTS (SELECT 1 FROM organization_members WHERE org_id = ? AND user_id = ?)';
+  const [result] = await db.batch(
+    args.action === 'remove'
+      ? [
+          membershipWrite,
+          db
+            .prepare(
+              `UPDATE production_requests
+               SET status = 'declined', decided_by = ?, decided_at = ?, decision_note = ?, snapshot_gzip_base64 = '',
+                   note = NULL, preview_url = NULL, claimed_at = NULL
+               WHERE org_id = ? AND requested_by = ? AND status IN ('pending', 'approving') ${gone}`,
+            )
+            .bind(
+              args.actorId,
+              now,
+              leaving ? 'They left the team.' : 'They were removed from the team.',
+              args.orgId,
+              args.userId,
+              args.orgId,
+              args.userId,
+            ),
+          db
+            .prepare(
+              `DELETE FROM user_computer_runtimes
+               WHERE user_id = ? AND connection_id IN (SELECT id FROM cloudflare_connections WHERE org_id = ?) ${gone}`,
+            )
+            .bind(args.userId, args.orgId, args.orgId, args.userId),
+          db
+            .prepare(
+              `DELETE FROM org_project_access
+               WHERE user_id = ? AND project_id IN (SELECT id FROM org_projects WHERE org_id = ?) ${gone}`,
+            )
+            .bind(args.userId, args.orgId, args.orgId, args.userId),
+        ]
+      : [membershipWrite],
+  );
+  if (losesAdmin && (result?.meta.changes ?? 0) === 0) {
     throw new OrganizationError('Make someone else an admin first: a team always needs one.', 409);
-  }
-  if (args.action === 'remove') {
-    // Their workspace locator in the organization's account and their access to its projects go with
-    // them, and their open production requests are declined: nobody may approve work for someone gone.
-    await db.batch([
-      db
-        .prepare(
-          `UPDATE production_requests
-           SET status = 'declined', decided_by = ?, decided_at = ?, decision_note = ?, snapshot_gzip_base64 = '',
-               note = NULL, preview_url = NULL, claimed_at = NULL
-           WHERE org_id = ? AND requested_by = ? AND status IN ('pending', 'approving')`,
-        )
-        .bind(
-          args.actorId,
-          now,
-          leaving ? 'They left the team.' : 'They were removed from the team.',
-          args.orgId,
-          args.userId,
-        ),
-      db
-        .prepare(
-          `DELETE FROM user_computer_runtimes
-           WHERE user_id = ? AND connection_id IN (SELECT id FROM cloudflare_connections WHERE org_id = ?)`,
-        )
-        .bind(args.userId, args.orgId),
-      db
-        .prepare(
-          `DELETE FROM org_project_access
-           WHERE user_id = ? AND project_id IN (SELECT id FROM org_projects WHERE org_id = ?)`,
-        )
-        .bind(args.userId, args.orgId),
-    ]);
   }
 }
 

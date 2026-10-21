@@ -15,6 +15,7 @@ import {
   updateMemberAction,
 } from './organizations';
 import { findPendingProductionRequest, listPendingProductionRequests } from '~/lib/cloudflare/data/org-projects.server';
+import { updateMember } from '~/lib/cloudflare/data/organizations.server';
 
 const ORIGIN = 'https://cloudchef.build';
 
@@ -678,6 +679,56 @@ describe('organizations', () => {
     request('33333333-3333-4333-8333-333333333333', 'pending');
     expect(await listPendingProductionRequests(env.DB, orgId)).toEqual([]);
     expect(await findPendingProductionRequest(env.DB, orgId, '33333333-3333-4333-8333-333333333333')).toBeNull();
+  });
+
+  it("removes a member together with their grants or not at all, so none come back if they're invited again", async () => {
+    const { database, env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
+    const sam = await signIn('sam@acme.com');
+    await acceptInviteAction({
+      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
+      env,
+    });
+    database.exec(`
+      INSERT INTO org_projects (id, org_id, name, repo_id, repo_full_name, default_branch, origin, created_at)
+        VALUES ('site', '${orgId}', 'Site', 1, 'acme/site', 'main', 'linked', 1);
+      INSERT INTO org_project_access (project_id, user_id, granted_at) VALUES ('site', '${sam.userId}', 1);
+      INSERT INTO user_computer_runtimes
+        (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
+         last_error, created_at, updated_at)
+        VALUES ('${sam.userId}', 'acme-connection', 1, 'worker', 'https://runtime.example', 'sha', 'ready', NULL, 1, 1),
+          ('${admin.userId}', 'acme-connection', 1, 'worker', 'https://runtime.example', 'sha', 'ready', NULL, 1, 1);
+    `);
+    const grants = () => ({
+      members: database.prepare('SELECT user_id FROM organization_members ORDER BY role').all(),
+      access: database.prepare('SELECT user_id FROM org_project_access').all(),
+      runtimes: database.prepare('SELECT user_id FROM user_computer_runtimes ORDER BY user_id').all(),
+    });
+    const before = grants();
+    const remove = (db: D1Database, actorId: string, userId: string) =>
+      updateMember(db, { orgId, actorId, userId, action: 'remove' });
+
+    // The Worker stops while the removal is written: Sam is still in the team, with everything they had.
+    const stopping = withStatementHook(env.DB, (query) => {
+      if (query.includes('DELETE FROM org_project_access')) {
+        throw new Error('Worker stopped');
+      }
+    });
+    await expect(remove(stopping, admin.userId, sam.userId)).rejects.toThrow('Worker stopped');
+    expect(grants()).toEqual(before);
+
+    // The only admin leaving is refused, and keeps their workspace.
+    await expect(remove(env.DB, admin.userId, admin.userId)).rejects.toThrow('a team always needs one');
+    expect(grants()).toEqual(before);
+
+    await remove(env.DB, admin.userId, sam.userId);
+    expect(grants()).toEqual({
+      members: [{ user_id: admin.userId }],
+      access: [],
+      runtimes: [{ user_id: admin.userId }],
+    });
   });
 });
 
