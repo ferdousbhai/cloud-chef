@@ -195,7 +195,7 @@ function historyTitle(invocation: CloudChefToolInvocation, status: ToolActivityS
 const validationAttachmentSchema = z.looseObject({ validation: z.unknown().optional() });
 
 /** A validation's verdict rides in `validation`; the tool call itself succeeds either way. */
-export function validationFailed(invocation: CloudChefToolInvocation): boolean {
+function validationFailed(invocation: CloudChefToolInvocation): boolean {
   if (invocation.state === 'output-error' || invocation.state === 'output-denied') {
     return true;
   }

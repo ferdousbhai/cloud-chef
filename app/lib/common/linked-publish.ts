@@ -15,7 +15,7 @@ export const LINKED_BUILD_WATCH_MS = 15 * 60_000;
  */
 export const LINKED_BUILD_FOLLOW_MS = LINKED_BUILD_WATCH_MS + 4 * 60 * 60_000 + 60_000;
 
-export const linkedBuildStateSchema = z.enum([
+const linkedBuildStateSchema = z.enum([
   'pending',
   'success',
   'failure',
@@ -24,7 +24,6 @@ export const linkedBuildStateSchema = z.enum([
   /** CloudChef could not follow the pipeline (its watch could not start or read GitHub). */
   'unfollowed',
 ]);
-export type LinkedBuildState = z.infer<typeof linkedBuildStateSchema>;
 
 /** A publish whose commit is on GitHub. Fields after `detailsUrl` are absent from outputs saved before them. */
 export const linkedPublishDataSchema = z.looseObject({
@@ -43,7 +42,7 @@ export const linkedPublishDataSchema = z.looseObject({
 export type LinkedPublishData = z.infer<typeof linkedPublishDataSchema>;
 
 /** A live publish whose merge overlapped newer work: the commit is on the member's branch, nothing went live. */
-export const linkedPublishConflictDataSchema = z.looseObject({
+const linkedPublishConflictDataSchema = z.looseObject({
   branch: z.string(),
   commit: z.string(),
   conflict: z.literal(true),
