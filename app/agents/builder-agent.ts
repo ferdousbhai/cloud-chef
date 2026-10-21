@@ -2685,7 +2685,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     this.setState({ ...this.state, deployment });
   }
 
-  /** The last automatic preview or deployment failure of a CloudChef app, for the model to act on. */
+  /**
+   * The last automatic preview or deployment failure of a CloudChef app, or the warning a succeeded
+   * deployment carries for a step after it went live, for the model to act on.
+   */
   private publicationFailure(): string | null {
     const preview = this.state.preview;
     if (preview?.status === 'failed' && preview.error) {
@@ -2694,6 +2697,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const deployment = this.state.deployment;
     if (deployment?.status === 'failed' && deployment.error) {
       return `the production deployment of the latest changes failed. ${deployment.error}`;
+    }
+    if (deployment?.status === 'succeeded' && deployment.error) {
+      return `the production deployment of the latest changes went live. ${deployment.error}`;
     }
     return null;
   }

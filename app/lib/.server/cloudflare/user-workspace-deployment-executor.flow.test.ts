@@ -466,6 +466,63 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     });
   });
 
+  it('records a promoted deployment as succeeded, with a warning, when a step after it keeps failing', async () => {
+    const { execution } = await workerDeployment();
+    mocks.accountApi.configureManagedWorkerSchedule.mockRejectedValue(new Error('schedules unavailable'));
+    mocks.accountApi.getWorkersSubdomain.mockRejectedValue(new Error('subdomain unavailable'));
+
+    await expect(executeUserOwnedDeployment(execution)).resolves.toMatchObject({ status: 'succeeded' });
+
+    // Each idempotent step is tried twice, and the ones after it still run.
+    expect(mocks.accountApi.configureManagedWorkerSchedule).toHaveBeenCalledTimes(2);
+    expect(mocks.accountApi.getWorkersSubdomain).toHaveBeenCalledTimes(2);
+    expect(mocks.accountApi.enableWorkerSubdomain).toHaveBeenCalledOnce();
+    expect(mocks.recordDeploymentResource).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceType: 'worker', logicalName: 'app' }),
+    );
+    expect(mocks.transitionDeployment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedStatus: 'deploying',
+        nextStatus: 'succeeded',
+        productionUrl: null,
+        errorCode: 'deployment_follow_up_failed',
+        errorMessage: expect.stringMatching(
+          /^Production serves the new revision, but setting the Worker's schedule failed \(schedules unavailable\); reading the account's workers\.dev subdomain failed \(subdomain unavailable\)\. The next deployment repeats these steps\.$/,
+        ),
+      }),
+    );
+    expect(mocks.transitionDeployment).not.toHaveBeenCalledWith(expect.objectContaining({ nextStatus: 'failed' }));
+  });
+
+  it('retries a step after promotion that fails once, and reports nothing', async () => {
+    const { execution } = await workerDeployment();
+    mocks.accountApi.enableWorkerSubdomain.mockRejectedValueOnce(new Error('temporarily unavailable'));
+
+    await expect(executeUserOwnedDeployment(execution)).resolves.toMatchObject({ status: 'succeeded' });
+
+    expect(mocks.accountApi.enableWorkerSubdomain).toHaveBeenCalledTimes(2);
+    expect(mocks.transitionDeployment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nextStatus: 'succeeded',
+        productionUrl: 'https://cloudchef-deployment-1.user-subdomain.workers.dev',
+        errorCode: null,
+        errorMessage: null,
+      }),
+    );
+  });
+
+  it('still records a deployment as failed when promoting its version fails', async () => {
+    const { execution } = await workerDeployment();
+    mocks.accountApi.deployManagedWorker.mockRejectedValueOnce(new Error('upload refused'));
+
+    await expect(executeUserOwnedDeployment(execution)).rejects.toThrow('upload refused');
+
+    expect(mocks.accountApi.configureManagedWorkerSchedule).not.toHaveBeenCalled();
+    expect(mocks.transitionDeployment).toHaveBeenCalledWith(
+      expect.objectContaining({ nextStatus: 'failed', errorCode: 'cloudflare_cleanup_required' }),
+    );
+  });
+
   it('reports a promoted deployment as succeeded when its closing bookkeeping fails', async () => {
     const { execution, workspace } = await workerDeployment();
     mocks.recordDeploymentActivity.mockImplementation(async (input: { sequence: number }) => {

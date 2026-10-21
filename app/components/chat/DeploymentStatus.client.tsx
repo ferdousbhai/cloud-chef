@@ -65,6 +65,10 @@ export function DeploymentStatus({
           ) : null}
         </p>
       ) : null}
+      {deployment.status === 'succeeded' && deployment.error ? (
+        // A step after production went live failed; the next deployment repeats it.
+        <p className="text-content-secondary">{deployment.error}</p>
+      ) : null}
       {deployment.status === 'succeeded' && organization && onRequestProduction ? (
         <RequestProduction admin={admin} onRequest={onRequestProduction} />
       ) : null}

@@ -412,7 +412,10 @@ recoverable artifact cache.
 
 The deployment executor derives resource names and security-sensitive configuration on the server. It records managed
 Worker intent before publishing, then reads back the deployed version, script etag, bindings, variables, and schedules.
-Ambiguous publish outcomes remain visible for owner review rather than being silently discarded.
+Ambiguous publish outcomes remain visible for owner review rather than being silently discarded. Once the version is
+promoted, production serves it, so the deployment is recorded as succeeded whatever follows: a step after promotion
+(the schedule, the `workers.dev` address, its records) that fails twice is reported with the success as a warning the
+model and the person see, and the next deployment repeats it.
 
 A CloudChef app's account resources (its Worker and so its `workers.dev` address, `DB`, `AGENT_SECURITY_DB`,
 `APP_STORAGE`, `APP_CACHE`, and the preview Worker and preview counterpart of each) belong to the project, the `ProjectWorkspace` a chat (or subchat)

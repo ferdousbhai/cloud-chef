@@ -179,11 +179,22 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     await publishApi.deployManagedWorker(
       managedWorkerVersionArgs({ workerName, profile, reference, artifact, resources }),
     );
-    await activity(args, 60, 'Configuring public Cloudflare route');
-    await publishApi.configureManagedWorkerSchedule(workerName, profile.bindings.appAgent);
-    await publishApi.enableWorkerSubdomain(workerName);
-    await recordResource(args.env.DB, deployment.id, 'worker', PRODUCTION_BINDINGS.worker, workerName);
-    const productionUrl = workersDevUrl(workerName, await publishApi.getWorkersSubdomain());
+    // Production serves the new revision from here on, so the deployment succeeded whatever follows:
+    // a step after it that fails is reported with the success, and the next deployment repeats it.
+    const followUps = new PublicationFollowUps();
+    await followUps.run('recording the route step', () => activity(args, 60, 'Configuring public Cloudflare route'));
+    await followUps.run("setting the Worker's schedule", () =>
+      publishApi.configureManagedWorkerSchedule(workerName, profile.bindings.appAgent),
+    );
+    await followUps.run('turning on its workers.dev address', () => publishApi.enableWorkerSubdomain(workerName));
+    await followUps.run("recording the app's Worker", () =>
+      recordResource(args.env.DB, deployment.id, 'worker', PRODUCTION_BINDINGS.worker, workerName),
+    );
+    const workersSubdomain = await followUps.run("reading the account's workers.dev subdomain", () =>
+      publishApi.getWorkersSubdomain(),
+    );
+    const productionUrl = workersSubdomain === null ? null : workersDevUrl(workerName, workersSubdomain);
+    const warning = followUps.warning();
     await transitionDeployment({
       db: args.env.DB,
       deploymentId: deployment.id,
@@ -191,6 +202,8 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
       expectedStatus: 'deploying',
       nextStatus: 'succeeded',
       productionUrl,
+      errorCode: warning ? 'deployment_follow_up_failed' : null,
+      errorMessage: warning,
     });
     phase = 'succeeded';
     // Production is promoted and recorded: what follows is bookkeeping, and its failure must not
@@ -205,8 +218,8 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
       ...deployment,
       status: 'succeeded' as const,
       productionUrl,
-      errorCode: null,
-      errorMessage: null,
+      errorCode: warning ? 'deployment_follow_up_failed' : null,
+      errorMessage: warning,
     }));
   } catch (error) {
     if (phase === 'approved' && error instanceof DeploymentConcurrencyLimitError) {
@@ -357,6 +370,33 @@ export async function executeUserOwnedPreview(
     };
   } finally {
     await session.finish('failed').catch(() => console.error('Unable to finalize ProjectWorkspace preview session'));
+  }
+}
+
+/**
+ * The steps after a deployment promoted its version: each is idempotent, so a failed one is tried once
+ * more, and one that fails again is kept for the warning the succeeded deployment carries.
+ */
+class PublicationFollowUps {
+  readonly #failures: string[] = [];
+
+  async run<T>(step: string, operation: () => Promise<T>): Promise<T | null> {
+    try {
+      return await operation();
+    } catch {
+      try {
+        return await operation();
+      } catch (error) {
+        this.#failures.push(`${step} failed (${safeError(error).slice(0, 300)})`);
+        return null;
+      }
+    }
+  }
+
+  warning(): string | null {
+    return this.#failures.length === 0
+      ? null
+      : `Production serves the new revision, but ${this.#failures.join('; ')}. The next deployment repeats these steps.`;
   }
 }
 

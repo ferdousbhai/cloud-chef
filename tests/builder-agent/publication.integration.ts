@@ -116,6 +116,26 @@ describe('BuilderAgent automatic publication', () => {
     expect(harness.agent.state.publicationPending).toBe(false);
   });
 
+  it('records a deployment that went live as production, and tells the model about a step after it that failed', async () => {
+    const warning = "Production serves the new revision, but setting the Worker's schedule failed (unavailable).";
+    const deploy = vi.fn<BuilderPublisher['deploy']>(async () => ({
+      status: 'succeeded',
+      id: 'deployment-1',
+      productionUrl: null,
+      error: warning,
+    }));
+    const harness = await publicationHarness({ publisher: { deploy } });
+
+    await finishChangingTurn(harness);
+
+    await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
+    expect(harness.agent.state.deployment).toMatchObject({ status: 'succeeded', error: warning });
+    expect(harness.agent.state.publicationPending).toBe(false);
+    expect(harness.agent['publicationFailure']()).toBe(
+      `the production deployment of the latest changes went live. ${warning}`,
+    );
+  });
+
   it('publishes the changes of a turn that was stopped or failed', async () => {
     const deploy = vi.fn<BuilderPublisher['deploy']>(async () => ({ status: 'succeeded', id: 'deployment-1' }));
     const harness = await publicationHarness({ publisher: { deploy } });
