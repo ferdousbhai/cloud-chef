@@ -346,7 +346,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     this.runtimeActivity = new BuilderRuntimeActivity({
       db: env.DB,
       agentName: () => this.name,
-      runtimeVersion: env.CLOUDCHEF_RUNTIME_VERSION,
     });
   }
 
@@ -468,7 +467,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (!job) {
         return { status: 'error', error: 'missing preview publication recovery data' };
       }
-      await this.runPreviewPublication(job);
+      await this.runtimeActivity.run(() => this.runPreviewPublication(job));
       return { status: 'completed', snapshot: ctx.snapshot };
     }
     if (ctx.name === DEPLOYMENT_FIBER) {
@@ -478,7 +477,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
       const error = new Error(DEPLOYMENT_INTERRUPTED_MESSAGE);
       try {
-        await this.retry(() => this.terminalizeDeployment(job));
+        await this.runtimeActivity.run(() => this.retry(() => this.terminalizeDeployment(job)));
       } catch {
         logger.error('Unable to terminalize the interrupted deployment');
         this.failDeployment(job, new Error('Interrupted deployment recovery is pending. Retry to continue.'));
@@ -492,7 +491,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (!watch) {
         return { status: 'error', error: 'missing linked build recovery data' };
       }
-      await this.keepAliveWhile(() => this.runLinkedBuildWatch(watch));
+      await this.runtimeActivity.run(() => this.keepAliveWhile(() => this.runLinkedBuildWatch(watch)));
       return { status: 'completed', snapshot: ctx.snapshot };
     }
     if (ctx.name === CLOUDFLARE_EXECUTION_FIBER) {
@@ -825,7 +824,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       CLOUDFLARE_EXECUTION_FIBER,
       async (context) => {
         context.stash(job);
-        await this.runApprovedCloudflareExecution(job, binding);
+        await this.runtimeActivity.run(() => this.runApprovedCloudflareExecution(job, binding));
       },
       {
         idempotencyKey: `cloudflare-execution:${proposal.executionId}`,
@@ -1329,6 +1328,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (current.initialized) {
       return current;
     }
+    // Seeding writes the whole project into the workspace: a redeploy partway would leave it half seeded.
+    return this.runtimeActivity.run(() => this.seedNewWorkspace(binding));
+  }
+
+  private async seedNewWorkspace(binding: BuilderTranscriptBinding): Promise<BuilderWorkspaceState> {
     if (binding.parentAgentName) {
       const parent = await this.loadParentWorkspace(binding.parentAgentName);
       // A subchat of a GitHub project keeps working on it, relative to the same commit: linked before its
@@ -1449,7 +1453,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         LINKED_BUILD_FIBER,
         async (fiber) => {
           fiber.stash(watch);
-          await this.keepAliveWhile(() => this.runLinkedBuildWatch(watch, fiber.signal));
+          await this.runtimeActivity.run(() =>
+            this.keepAliveWhile(() => this.runLinkedBuildWatch(watch, fiber.signal)),
+          );
         },
         { idempotencyKey: `${LINKED_BUILD_FIBER}:${this.name}:${watch.toolCallId}`, metadata: watch },
       );
@@ -1895,7 +1901,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         async (fiber) => {
           fiber.stash(job);
           try {
-            await this.runDeployment(job);
+            // Counted busy while it runs, whatever later rewrites the deployment record.
+            await this.runtimeActivity.run(() => this.runDeployment(job));
           } catch (error) {
             this.failDeployment(job, error);
             throw error;
@@ -2054,7 +2061,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         PREVIEW_PUBLICATION_FIBER,
         async (fiber) => {
           fiber.stash(job);
-          await this.runPreviewPublication(job, fiber.signal);
+          // Counted busy while it runs: cancelling marks the preview cancelled at once, while the build
+          // it aborts can still be finishing.
+          await this.runtimeActivity.run(() => this.runPreviewPublication(job, fiber.signal));
         },
         {
           idempotencyKey: this.previewFiberKey(previewId),

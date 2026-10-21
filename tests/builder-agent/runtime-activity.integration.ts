@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { idleBuilderPreviewState } from '~/agents/builder-preview-types';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BuilderWorkspaceDeploymentPlan } from '~/agents/builder-workspace-api';
 import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import {
   AGENT_NAME,
@@ -13,20 +13,26 @@ import {
 } from './harness';
 
 /**
- * Every kind of work a redeploy would cut off records the agent busy first, then waits out an upgrade
- * window claimed for another Worker version before it starts: that upgrade found the runtime idle and is
- * about to redeploy it, so the work starts on the new version instead of being cut off on the old one.
+ * Every kind of work a redeploy would cut off records the agent busy first, then waits out an open upgrade
+ * window before it starts: that upgrade found the runtime idle and is redeploying its Worker and rolling
+ * out its container, so the work starts once the new runtime serves instead of being cut off.
  */
 function expectHeldByUpgradeWindow(harness: BuilderAgentHarness) {
   expect(harness.activity()).toEqual([{ agent_name: AGENT_NAME, busy: 1 }]);
 }
 
+beforeEach(() => {
+  // The Workers global a publication's progress follower waits on between reads.
+  vi.stubGlobal('scheduler', { wait: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)) });
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('BuilderAgent runtime activity', () => {
-  it('records the agent busy while its state shows work, and idle once it ends', async () => {
+  it('records the agent busy while its turn runs, and idle once it ends', async () => {
     const harness = await builderAgentHarness();
     const { agent } = harness;
 
@@ -35,16 +41,80 @@ describe('BuilderAgent runtime activity', () => {
 
     agent.setState({ ...agent.state, activeTurn: null });
     await eventually(() => harness.activity()[0]?.busy === 0);
-
-    agent.setState({ ...agent.state, preview: { ...idleBuilderPreviewState(), status: 'building' } });
-    await eventually(() => harness.activity()[0]?.busy === 1);
   });
 
-  it('a window claimed for this same version holds nothing back', async () => {
+  it('a window for the version already running holds work back too, until the upgrade releases it', async () => {
+    // Deployed, with its container image still rolling out: work started now would lose its container.
     const harness = await builderAgentHarness();
     harness.openUpgradeWindow(RUNTIME_VERSION);
 
-    await expect(harness.agent.deployValidatedRevision()).resolves.toMatchObject({ status: 'deploying' });
+    const deployment = harness.agent.deployValidatedRevision();
+    await settle();
+    expect(harness.agent.state.deployment).toBeNull();
+
+    harness.closeUpgradeWindow();
+    await expect(deployment).resolves.toMatchObject({ status: 'deploying' });
+  });
+
+  it('a production deployment stays busy while it runs, though an editor save clears its record', async () => {
+    const plan = deferred<BuilderWorkspaceDeploymentPlan>();
+    const harness = await builderAgentHarness({
+      workspace: {
+        prepareDeployment: () => plan.promise,
+        applyClientChanges: async () => ({ ok: true, state: READY_STATE, changedPaths: ['src/app.tsx'] }),
+      },
+    });
+
+    await harness.agent.deployValidatedRevision();
+    await eventually(() => harness.activity()[0]?.busy === 1);
+    await harness.agent.applyWorkspaceClientChanges({ baseRevision: 3, changes: [] });
+    expect(harness.agent.state.deployment).toBeNull();
+    await settle();
+    expect(harness.activity()).toEqual([{ agent_name: AGENT_NAME, busy: 1 }]);
+
+    plan.reject(new Error('The deployment could not be planned.'));
+    await eventually(() => harness.activity()[0]?.busy === 0);
+  });
+
+  it('a cancelled preview stays busy until the build it aborted stops', async () => {
+    const plan = deferred<BuilderWorkspaceDeploymentPlan>();
+    const harness = await builderAgentHarness({ workspace: { prepareDeployment: () => plan.promise } });
+
+    await harness.agent.requestPreview();
+    await eventually(() => harness.activity()[0]?.busy === 1);
+    await expect(harness.agent.cancelPreview()).resolves.toMatchObject({ status: 'cancelled' });
+    await settle();
+    expect(harness.activity()).toEqual([{ agent_name: AGENT_NAME, busy: 1 }]);
+
+    plan.reject(new Error('aborted'));
+    await eventually(() => harness.activity()[0]?.busy === 0);
+  });
+
+  it('seeding a new workspace is busy, and waits out an upgrade window before it starts', async () => {
+    const seed = deferred<{ status: 'initialized'; state: typeof READY_STATE }>();
+    const beginSeed = vi.fn(() => seed.promise);
+    let seeded = true;
+    const harness = await builderAgentHarness({
+      workspace: { refresh: async () => (seeded ? READY_STATE : { ...READY_STATE, initialized: false }), beginSeed },
+    });
+    // The project was reset since the agent started: the next preparation seeds it again.
+    seeded = false;
+    harness.openUpgradeWindow();
+
+    const prepared = harness.agent.prepareWorkspace();
+    await settle();
+    expectHeldByUpgradeWindow(harness);
+    expect(beginSeed).not.toHaveBeenCalled();
+
+    harness.closeUpgradeWindow();
+    await eventually(() => beginSeed.mock.calls.length > 0);
+    await settle();
+    expect(harness.activity()).toEqual([{ agent_name: AGENT_NAME, busy: 1 }]);
+
+    seeded = true;
+    seed.resolve({ status: 'initialized', state: READY_STATE });
+    await prepared;
+    await eventually(() => harness.activity()[0]?.busy === 0);
   });
 
   it('a production deployment waits out an upgrade window before it starts', async () => {
@@ -121,3 +191,22 @@ describe('BuilderAgent runtime activity', () => {
     await Promise.resolve(turn).catch(() => undefined);
   });
 });
+
+const READY_STATE = {
+  initialized: true,
+  revision: 3,
+  resetRevision: 0,
+  fileCount: 1,
+  totalBytes: 10,
+  seeding: false,
+};
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  let reject: (error: Error) => void = () => undefined;
+  const promise = new Promise<T>((settleResolve, settleReject) => {
+    resolve = settleResolve;
+    reject = settleReject;
+  });
+  return { promise, resolve, reject };
+}

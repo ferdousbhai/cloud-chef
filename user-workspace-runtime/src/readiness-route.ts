@@ -1,11 +1,16 @@
 import { z } from 'zod';
 import { readJsonBodyWithLimit } from '../../app/lib/bounded-body';
-import { claimRuntimeUpgradeWindow } from '../../app/lib/.server/cloudflare/user-workspace-runtime-activity';
+import {
+  claimRuntimeUpgradeWindow,
+  holdRuntimeUpgradeWindow,
+  releaseRuntimeUpgradeWindow,
+} from '../../app/lib/.server/cloudflare/user-workspace-runtime-activity';
 import { readUserWorkspaceRuntimeHealth } from '../../app/lib/.server/cloudflare/user-workspace-runtime-health';
 
 const READINESS_WORKSPACE_NAME = 'cloudchef-runtime-readiness';
 const UPGRADE_WINDOW_PATH = '/v1/upgrade-window';
 const MAX_UPGRADE_WINDOW_REQUEST_BYTES = 1_024;
+const UPGRADE_WINDOW_METHODS = new Set(['POST', 'PUT', 'DELETE']);
 const upgradeWindowRequestSchema = z.object({ targetVersion: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 
 type RuntimeReadinessEnv = {
@@ -20,7 +25,8 @@ type RuntimeReadinessEnv = {
 
 /**
  * The routes only the control plane calls, authenticated with the runtime's secret: readiness, and
- * the window an upgrade claims before it redeploys this Worker.
+ * the window an upgrade claims (`POST`) before it redeploys this Worker, holds (`PUT`) while the
+ * container image rolls out and the new runtime readies, and releases (`DELETE`) once it serves.
  */
 export async function routeUserWorkspaceRuntimeControlPlaneRequest(
   request: Request,
@@ -28,8 +34,8 @@ export async function routeUserWorkspaceRuntimeControlPlaneRequest(
   now: () => number = Date.now,
 ): Promise<Response | null> {
   const pathname = new URL(request.url).pathname;
-  if (request.method === 'POST' && pathname === UPGRADE_WINDOW_PATH) {
-    return claimUpgradeWindow(request, env, now());
+  if (pathname === UPGRADE_WINDOW_PATH && UPGRADE_WINDOW_METHODS.has(request.method)) {
+    return upgradeWindow(request, env, now());
   }
   if (request.method !== 'GET' || pathname !== '/v1/readiness') {
     return null;
@@ -52,9 +58,10 @@ export async function routeUserWorkspaceRuntimeControlPlaneRequest(
 
 /**
  * Grant the window only while no agent is doing work a redeploy would cut off. Work that starts inside
- * it waits on this version until the new one arrives, so the control plane can redeploy at once.
+ * it waits until the upgrade releases it, so the control plane can redeploy the Worker and roll out its
+ * container without cutting anything off.
  */
-async function claimUpgradeWindow(request: Request, env: RuntimeReadinessEnv, now: number): Promise<Response> {
+async function upgradeWindow(request: Request, env: RuntimeReadinessEnv, now: number): Promise<Response> {
   if (!authorized(request, env.CONTROL_PLANE_SECRET)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders() });
   }
@@ -63,6 +70,14 @@ async function claimUpgradeWindow(request: Request, env: RuntimeReadinessEnv, no
     return Response.json({ error: 'Invalid upgrade window request.' }, { status: 400, headers: noStoreHeaders() });
   }
   try {
+    if (request.method === 'PUT') {
+      await holdRuntimeUpgradeWindow(env.DB, { targetVersion, now });
+      return Response.json({ held: true }, { headers: noStoreHeaders() });
+    }
+    if (request.method === 'DELETE') {
+      await releaseRuntimeUpgradeWindow(env.DB, { targetVersion });
+      return Response.json({ released: true }, { headers: noStoreHeaders() });
+    }
     return Response.json(await claimRuntimeUpgradeWindow(env.DB, { targetVersion, now }), {
       headers: noStoreHeaders(),
     });
