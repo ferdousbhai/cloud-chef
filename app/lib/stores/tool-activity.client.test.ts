@@ -263,4 +263,24 @@ describe('ToolActivityStore', () => {
 
     expect(store.activities.get()[partId]?.status).toBe('aborted');
   });
+
+  it('takes a settled result replaced after its turn ended', () => {
+    const store = new ToolActivityStore();
+    const partId = makePartId('message', 0);
+    const publish = (build: string): CloudChefToolInvocation => ({
+      type: 'dynamic-tool',
+      state: 'output-available',
+      toolCallId: 'publish-1',
+      toolName: 'publish',
+      input: {},
+      output: { ok: true, data: { build } },
+    });
+    store.startTurn();
+    store.record(partId, publish('pending'));
+    store.abortActive();
+    const built = publish('success');
+    store.record(partId, built);
+
+    expect(store.activities.get()[partId]).toEqual({ invocation: built, status: 'complete' });
+  });
 });

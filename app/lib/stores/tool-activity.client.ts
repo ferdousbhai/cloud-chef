@@ -50,6 +50,10 @@ export class ToolActivityStore {
       if (isToolActivityStatusActive(status)) {
         this.activities.setKey(partId, { invocation, status: 'aborted' });
         this.#bumpRevision();
+      } else if (current?.status === 'complete' && current.invocation !== invocation) {
+        // A settled result replaced after its turn (a publish's build result) supersedes the one recorded.
+        this.activities.setKey(partId, { invocation, status });
+        this.#bumpRevision();
       }
       return;
     }

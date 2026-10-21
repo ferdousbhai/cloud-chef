@@ -21,4 +21,22 @@ describe('processMessage', () => {
 
     expect(processMessage(message, cache)).toEqual(message);
   });
+
+  it("shows a settled call's output replaced in place after its turn, and keeps an equal one", () => {
+    const pending: CloudChefPart = {
+      type: 'tool-publish_preview',
+      toolCallId: 'publish-1',
+      state: 'output-available',
+      input: {},
+      output: { ok: true, summary: 'Building', data: { build: 'pending' } },
+    };
+    const built: CloudChefPart = { ...pending, output: { ok: true, summary: 'Built', data: { build: 'success' } } };
+    const cache: PartCache = new Map();
+    processMessage({ id: 'assistant-1', role: 'assistant', parts: [pending] }, cache);
+
+    const reparsed = processMessage({ id: 'assistant-1', role: 'assistant', parts: [structuredClone(pending)] }, cache);
+    expect(reparsed.parts[0]).toBe(pending);
+    const landed = processMessage({ id: 'assistant-1', role: 'assistant', parts: [built] }, cache);
+    expect(landed.parts[0]).toBe(built);
+  });
 });

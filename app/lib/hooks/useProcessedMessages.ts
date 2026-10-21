@@ -19,7 +19,15 @@ function isPartMaybeEqual(a: Part, b: Part): boolean {
     aInvocation.state.startsWith('output-') &&
     bInvocation.state.startsWith('output-')
   ) {
-    return aInvocation.toolCallId === bInvocation.toolCallId && aInvocation.state === bInvocation.state;
+    return (
+      aInvocation.toolCallId === bInvocation.toolCallId &&
+      aInvocation.state === bInvocation.state &&
+      aInvocation.errorText === bInvocation.errorText &&
+      // A settled output can still be replaced in place (a publish's pending build becomes its result), and
+      // each broadcast carries freshly parsed objects, so equal outputs are recognized by their JSON.
+      (aInvocation.output === bInvocation.output ||
+        JSON.stringify(aInvocation.output) === JSON.stringify(bInvocation.output))
+    );
   }
   return false;
 }
