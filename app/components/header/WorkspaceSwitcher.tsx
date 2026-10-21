@@ -65,7 +65,8 @@ export function WorkspaceMenuItems() {
       ))}
       <MenuItem action={organizations}>
         <PlusIcon aria-hidden />
-        {session.contexts.some((option) => option.kind === 'organization') ? 'Manage teams' : 'Create a team'}
+        {/* The session lists only teams with a connected account, so a member of one still unconnected sees Teams too. */}
+        {session.contexts.some((option) => option.kind === 'organization') ? 'Manage teams' : 'Teams'}
       </MenuItem>
     </>
   );

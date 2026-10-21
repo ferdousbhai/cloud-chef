@@ -1,6 +1,6 @@
 import type { DatabaseSync as DatabaseSyncInstance } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
-import { eraseControlPlaneAccount, OrganizationAdminRequiredError } from './account-deletion';
+import { eraseControlPlaneAccount, leaveOrganizations, OrganizationAdminRequiredError } from './account-deletion';
 import { D1CloudflareCredentialVault } from './cloudflare-credential-vault';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 
@@ -24,6 +24,7 @@ describe('control-plane account erasure', () => {
 
     await expect(eraseControlPlaneAccount({ env: { DB: db } as Env, userId: 'user-1', vault })).resolves.toEqual({
       cloudflareAuthorizationRevoked: true,
+      workspacesLeftIn: [],
     });
     expect(revoke).toHaveBeenCalledOnce();
     expect(rowCount(database, 'user')).toBe(0);
@@ -108,6 +109,84 @@ describe('control-plane account erasure', () => {
     expect(database.prepare("SELECT status FROM cloudflare_connections WHERE user_id = 'admin-b'").get()).toEqual({
       status: 'active',
     });
+  });
+
+  it('leaves no team at all when one of them would be left without an active admin', async () => {
+    const { database, db } = controlPlaneDatabase();
+    for (const userId of ['admin', 'member']) {
+      seedAccount(database, null, userId);
+    }
+    database.exec(`
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('alpha', 'Alpha', 1, 1), ('beta', 'Beta', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+        ('alpha', 'admin', 'member', 1), ('beta', 'admin', 'admin', 1), ('beta', 'member', 'member', 1);
+    `);
+
+    await expect(leaveOrganizations(db, 'admin')).rejects.toBeInstanceOf(OrganizationAdminRequiredError);
+
+    expect(database.prepare("SELECT org_id FROM organization_members WHERE user_id = 'admin'").all()).toEqual([
+      { org_id: 'alpha' },
+      { org_id: 'beta' },
+    ]);
+  });
+
+  it("deletes the person's workspace in each team's account first, and names the teams where it couldn't be", async () => {
+    const { database, db } = controlPlaneDatabase();
+    for (const userId of ['user-1', 'admin']) {
+      seedAccount(database, null, userId);
+    }
+    database.exec(`
+      INSERT INTO organizations (id, name, created_at, updated_at)
+        VALUES ('acme', 'Acme', 1, 1), ('side', 'Side', 1, 1), ('idle', 'Idle', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+        ('acme', 'user-1', 'member', 1), ('acme', 'admin', 'admin', 1),
+        ('side', 'user-1', 'member', 1), ('side', 'admin', 'admin', 1),
+        ('idle', 'user-1', 'member', 1), ('idle', 'admin', 'admin', 1);
+      INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at) VALUES
+        ('acme-connection', 'acme', 'acme-account', 'active', 1, 1),
+        ('side-connection', 'side', 'side-account', 'active', 1, 1),
+        ('idle-connection', 'idle', 'idle-account', 'active', 1, 1);
+    `);
+    for (const connectionId of ['acme-connection', 'side-connection']) {
+      database
+        .prepare(
+          `INSERT INTO user_computer_runtimes
+             (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
+              last_error, created_at, updated_at)
+           VALUES ('user-1', ?, 1, 'worker', 'https://runtime.example', 'sha', 'ready', NULL, 1, 1)`,
+        )
+        .run(connectionId);
+    }
+    const deleted: string[] = [];
+
+    const erasure = await eraseControlPlaneAccount({
+      env: envWith({ DB: db }),
+      userId: 'user-1',
+      deleteWorkspace: async (_env, orgId, userId) => {
+        // Still a member, with the team's connection in place, when it's asked.
+        expect(
+          database
+            .prepare('SELECT 1 AS member FROM organization_members WHERE org_id = ? AND user_id = ?')
+            .get(orgId, userId),
+        ).toEqual({ member: 1 });
+        if (orgId === 'side') {
+          throw new Error('Cloudflare is unavailable');
+        }
+        deleted.push(`${orgId}:${userId}`);
+      },
+    });
+
+    // Idle has no workspace of theirs to delete.
+    expect(deleted).toEqual(['acme:user-1']);
+    expect(erasure.workspacesLeftIn).toEqual(['Side']);
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM user_computer_runtimes WHERE user_id = 'user-1'").get(),
+    ).toEqual({
+      count: 0,
+    });
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM organization_members WHERE user_id = 'user-1'").get(),
+    ).toEqual({ count: 0 });
   });
 });
 

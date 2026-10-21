@@ -232,6 +232,15 @@ const APPROVAL_CLAIM_MS = 10 * 60_000;
 /** A request still open for a decision: waiting, or claimed by an approval that never finished. */
 const OPEN_REQUEST = `(status = 'pending' OR (status = 'approving' AND claimed_at < ?))`;
 
+/**
+ * A request whose requester is still in its organization: one from someone who left or was removed
+ * is never offered for approval (leaving declines it; this also covers one left over from before).
+ */
+const REQUESTER_IS_MEMBER = `EXISTS (
+  SELECT 1 FROM organization_members AS requester
+  WHERE requester.org_id = production_requests.org_id AND requester.user_id = production_requests.requested_by
+)`;
+
 /** A draft a member asked to make a real project, as an admin reviews it. */
 type ProductionRequest = {
   id: string;
@@ -262,6 +271,8 @@ export async function listPendingProductionRequests(db: D1Database, orgId: strin
               requests.created_at, requests.updated_at, users.name, users.email
        FROM production_requests AS requests
        JOIN "user" AS users ON users.id = requests.requested_by
+       JOIN organization_members AS requester
+         ON requester.org_id = requests.org_id AND requester.user_id = requests.requested_by
        WHERE requests.org_id = ?
          AND (requests.status = 'pending' OR (requests.status = 'approving' AND requests.claimed_at < ?))
        ORDER BY requests.created_at`,
@@ -313,7 +324,7 @@ export async function findPendingProductionRequest(db: D1Database, orgId: string
   const row = await db
     .prepare(
       `SELECT id, requested_by, title, snapshot_gzip_base64 FROM production_requests
-       WHERE id = ? AND org_id = ? AND ${OPEN_REQUEST}`,
+       WHERE id = ? AND org_id = ? AND ${OPEN_REQUEST} AND ${REQUESTER_IS_MEMBER}`,
     )
     .bind(requestId, orgId, Date.now() - APPROVAL_CLAIM_MS)
     .first<{ id: string; requested_by: string; title: string; snapshot_gzip_base64: string }>();
@@ -347,10 +358,16 @@ export async function declineProductionRequest(
   }
 }
 
-/** Marks a pending request as being approved; false when someone else already is (or it was decided). */
+/**
+ * Marks a pending request as being approved; false when someone else already is, it was decided, or
+ * its requester is no longer in the team.
+ */
 export async function claimProductionRequest(db: D1Database, requestId: string): Promise<boolean> {
   const claimed = await db
-    .prepare(`UPDATE production_requests SET status = 'approving', claimed_at = ? WHERE id = ? AND ${OPEN_REQUEST}`)
+    .prepare(
+      `UPDATE production_requests SET status = 'approving', claimed_at = ?
+       WHERE id = ? AND ${OPEN_REQUEST} AND ${REQUESTER_IS_MEMBER}`,
+    )
     .bind(Date.now(), requestId, Date.now() - APPROVAL_CLAIM_MS)
     .run();
   return claimed.meta.changes === 1;
@@ -400,12 +417,17 @@ export async function recordApprovedRequest(
         args.actorId,
         now,
       ),
+    // Access only for a requester still in the team: one removed while the repository was being made
+    // gets nothing.
     db
       .prepare(
-        `INSERT INTO org_project_access (project_id, user_id, granted_by, granted_at) VALUES (?, ?, ?, ?)
+        `INSERT INTO org_project_access (project_id, user_id, granted_by, granted_at)
+         SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (
+           SELECT 1 FROM organization_members WHERE org_id = ?5 AND user_id = ?2
+         )
          ON CONFLICT(project_id, user_id) DO NOTHING`,
       )
-      .bind(projectId, args.requestedBy, args.actorId, now),
+      .bind(projectId, args.requestedBy, args.actorId, now, args.orgId),
     db
       .prepare(
         `UPDATE production_requests SET status = 'approved', project_id = ?, decided_by = ?, decided_at = ?,

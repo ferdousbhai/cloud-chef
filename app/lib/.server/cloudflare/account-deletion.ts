@@ -1,15 +1,19 @@
 import { D1CloudflareCredentialVault } from './cloudflare-credential-vault';
+import { deleteTeamWorkspace, type DeleteTeamWorkspace } from './team-workspace';
 
 /**
  * Erase operator-held account data and revoke the OAuth grant. Resources deployed into the user's
- * Cloudflare account remain theirs. Revoking the connection first also makes any in-flight
+ * Cloudflare account remain theirs. Their workspace in each team's account (chats and project files
+ * there) is deleted first, best-effort, as removing them from the team would; the names of teams
+ * where it couldn't be are returned. Revoking the connection first also makes any in-flight
  * provisioning Workflow fail its connection check before its next provider operation.
  */
 export async function eraseControlPlaneAccount(args: {
   env: Env;
   userId: string;
   vault?: D1CloudflareCredentialVault;
-}): Promise<{ cloudflareAuthorizationRevoked: boolean }> {
+  deleteWorkspace?: DeleteTeamWorkspace;
+}): Promise<{ cloudflareAuthorizationRevoked: boolean; workspacesLeftIn: string[] }> {
   const db = args.env.DB;
   // Project resource cleanup runs in the user workspace and needs the Cloudflare authorization
   // revoked here, so it cannot be drained from the control plane: the project GC receipts live in
@@ -21,6 +25,12 @@ export async function eraseControlPlaneAccount(args: {
   if ((await organizationsNeedingAnotherAdmin(db, args.userId)).length > 0) {
     throw new OrganizationAdminRequiredError('Make someone else an admin of your team first.');
   }
+  // While each team's authorization still works: nothing reaches those workspaces once they're gone.
+  const workspacesLeftIn = await deleteTeamWorkspaces(
+    args.env,
+    args.userId,
+    args.deleteWorkspace ?? deleteTeamWorkspace,
+  );
   const soleOrgIds = await soleMemberOrganizations(db, args.userId);
   await leaveOrganizations(db, args.userId);
   const soleOrganizations = await revokeSoleMemberOrganizations(db, args.userId, soleOrgIds);
@@ -76,7 +86,36 @@ export async function eraseControlPlaneAccount(args: {
     db.prepare('DELETE FROM "user" WHERE id = ?').bind(args.userId),
   ]);
 
-  return { cloudflareAuthorizationRevoked };
+  return { cloudflareAuthorizationRevoked, workspacesLeftIn };
+}
+
+/**
+ * Deletes this person's workspace in every team account they build in, one at a time; the names of
+ * the teams where it couldn't be. A team without an active connection has no workspace CloudChef can
+ * reach, so it isn't tried.
+ */
+async function deleteTeamWorkspaces(env: Env, userId: string, deleteWorkspace: DeleteTeamWorkspace): Promise<string[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT DISTINCT organizations.id, organizations.name
+     FROM organization_members AS mine
+     JOIN organizations ON organizations.id = mine.org_id
+     JOIN cloudflare_connections AS connections ON connections.org_id = mine.org_id AND connections.status = 'active'
+     JOIN user_computer_runtimes AS runtimes ON runtimes.connection_id = connections.id AND runtimes.user_id = mine.user_id
+     WHERE mine.user_id = ?
+     ORDER BY organizations.name`,
+  )
+    .bind(userId)
+    .all<{ id: string; name: string }>();
+  const left: string[] = [];
+  for (const team of results) {
+    try {
+      await deleteWorkspace(env, team.id, userId);
+    } catch {
+      console.warn('Unable to delete a team workspace during account erasure');
+      left.push(team.name);
+    }
+  }
+  return left;
 }
 
 /**
@@ -107,34 +146,37 @@ export async function organizationsNeedingAnotherAdmin(db: D1Database, userId: s
 export class OrganizationAdminRequiredError extends Error {}
 
 /**
- * Leaves every organization, in one write that keeps each one's last active admin: an admin's
- * membership goes only while another active admin remains or nobody else belongs. Two sole admins
- * erasing their accounts at once can't both leave; the one left over stops before anything else.
+ * Leaves every organization, all or none, in one write that keeps each one's last active admin: it
+ * deletes nothing while any of them would be left with others in it and no active admin. Two sole
+ * admins erasing their accounts at once can't both leave; the one left over stops with every
+ * membership still in place.
  */
-async function leaveOrganizations(db: D1Database, userId: string): Promise<void> {
+export async function leaveOrganizations(db: D1Database, userId: string): Promise<void> {
+  // The condition doesn't depend on the row being deleted, so SQLite settles it once, before deleting.
   await db
     .prepare(
       `DELETE FROM organization_members
-       WHERE user_id = ?1 AND (
-         role <> 'admin' OR paused_at IS NOT NULL
-         OR NOT EXISTS (
-           SELECT 1 FROM organization_members AS other
-           WHERE other.org_id = organization_members.org_id AND other.user_id <> ?1
-         )
-         OR EXISTS (
-           SELECT 1 FROM organization_members AS other
-           WHERE other.org_id = organization_members.org_id AND other.user_id <> ?1
-             AND other.role = 'admin' AND other.paused_at IS NULL
-         )
+       WHERE user_id = ?1 AND NOT EXISTS (
+         SELECT 1 FROM organization_members AS mine
+         WHERE mine.user_id = ?1 AND mine.role = 'admin' AND mine.paused_at IS NULL
+           AND EXISTS (
+             SELECT 1 FROM organization_members AS other WHERE other.org_id = mine.org_id AND other.user_id <> ?1
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM organization_members AS other
+             WHERE other.org_id = mine.org_id AND other.user_id <> ?1
+               AND other.role = 'admin' AND other.paused_at IS NULL
+           )
        )`,
     )
     .bind(userId)
     .run();
-  const left = await db
+  const remaining = await db
     .prepare('SELECT COUNT(*) AS remaining FROM organization_members WHERE user_id = ?')
     .bind(userId)
     .first<{ remaining: number }>();
-  if ((left?.remaining ?? 0) > 0) {
+  if ((remaining?.remaining ?? 0) > 0) {
+    // The write above deleted all of them or none: here, none.
     throw new OrganizationAdminRequiredError('Make someone else an admin of your team first.');
   }
 }

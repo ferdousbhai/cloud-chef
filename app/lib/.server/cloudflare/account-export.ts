@@ -1,16 +1,16 @@
+import { z } from 'zod';
+import type { AccountExportSectionName } from '~/lib/account-data';
 import { findCloudflareConnectionForUser } from './cloudflare-connection-repository';
 
 /**
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
  * kept for years stays readable against the shape it was written in.
  */
-export const ACCOUNT_EXPORT_SCHEMA_VERSION = 3;
+export const ACCOUNT_EXPORT_SCHEMA_VERSION = 4;
 
 /**
- * Per-section ceiling on rows. Sign-in sessions and OAuth state are the only
- * records an account accumulates without a natural limit, so each returns its most
- * recent page and reports the untruncated count beside it. Every other section
- * holds at most one row, so a whole export is bounded at 404 records.
+ * Per-section ceiling on rows. A list section returns its most recent page and
+ * reports the untruncated count beside it, so a whole export stays bounded.
  */
 export const ACCOUNT_EXPORT_ROW_LIMIT = 200;
 
@@ -24,9 +24,12 @@ const SECTION_NAMES = [
   'organizationUsage',
   'organizationProjects',
   'productionRequests',
+  'githubConnections',
+  'githubApprovals',
+  'emailSignInLinks',
   'authSessions',
   'oauthStates',
-] as const;
+] as const satisfies readonly AccountExportSectionName[];
 
 type SectionName = (typeof SECTION_NAMES)[number];
 
@@ -45,7 +48,7 @@ const EXPORT_OMITS = [
   'Chats, transcripts, project files, and deployment records. These live in the connected Cloudflare account, not in the control plane. Download individual project source with Download code in the project header.',
   'Workers and their unpromoted preview versions, production and preview D1 databases, R2 buckets, KV namespaces, Containers, Durable Objects, and Agents that CloudChef deployed, and the logs and traces they produce. These live in the connected Cloudflare account and are readable with that account’s own tools.',
   'Copies held by the browser. No server request can reach them; clear CloudChef site data in every browser and profile you have used.',
-  'Encrypted credential material, initialisation vectors, credential handles, and session tokens. These are never exported.',
+  'Encrypted credential material, initialisation vectors, credential handles, session tokens, and the hashes and state values that sign-in links, invites, and authorizations in progress are checked against. These are never exported.',
 ];
 
 type ExportedAccount = {
@@ -70,8 +73,12 @@ type ExportedCloudflareConnection = {
   accountName: string | null;
   status: string;
   grantedCapabilities: string[];
+  requestedOAuthScopes: string[];
   grantedOAuthScopes: string[];
+  oauthScopeProfileVersion: string | null;
   oauthScopeGrantStatus: string;
+  /** The model builders in this account start on, as its owner chose; null for CloudChef's default. */
+  defaultBuilderModel: string | null;
   aiBillingEnabled: boolean;
   connectedAt: string | null;
   updatedAt: string;
@@ -90,8 +97,11 @@ type ExportedComputerRuntime = {
   workerName: string;
   endpoint: string;
   runtimeVersion: string;
+  imageDigest: string | null;
+  protocolVersion: number | null;
   status: string;
   lastError: string | null;
+  lastSessionAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -103,6 +113,8 @@ type ExportedMembership = {
   role: string;
   joinedAt: string;
   pausedAt: string | null;
+  /** Whether they may build new apps of their own there, or only the GitHub projects they're given. */
+  draftsAllowed: boolean;
 };
 
 /** An invite addressed to this person's email, accepted or not. */
@@ -112,6 +124,9 @@ type ExportedInvite = {
   createdAt: string;
   expiresAt: string;
   acceptedAt: string | null;
+  /** The team's projects it gives on joining. */
+  projectIds: string[];
+  draftsAllowed: boolean;
 };
 
 /** One day's model use in an organization's account, as its admins see it. */
@@ -132,14 +147,54 @@ type ExportedProjectAccess = {
   grantedAt: string;
 };
 
-/** A draft this person asked to make a real project. Its files went to the admins with the request. */
+/**
+ * A draft this person asked to make a real project. Its files travel with the request until it is
+ * decided, and are exported as the gzipped JSON CloudChef holds; after a decision only the record is kept.
+ */
 type ExportedProductionRequest = {
+  id: string;
   organizationId: string;
   title: string;
   note: string | null;
+  previewUrl: string | null;
+  draftId: string | null;
+  draftRevision: string | null;
   status: string;
+  decisionNote: string | null;
+  projectId: string | null;
   createdAt: string;
+  updatedAt: string | null;
   decidedAt: string | null;
+  draftFiles: number;
+  draftSourceGzipBase64: string | null;
+};
+
+/** A GitHub connection this person started for a team: who for, and where it returned. */
+type ExportedGitHubConnection = {
+  organizationId: string;
+  returnTo: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+};
+
+/** An approval of a production request this person started, while GitHub authorized it. */
+type ExportedGitHubApproval = {
+  requestId: string;
+  repositoryName: string;
+  private: boolean;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+};
+
+/** A sign-in link CloudChef emailed to this person's address. */
+type ExportedEmailSignInLink = {
+  email: string;
+  returnTo: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
 };
 
 type ExportedAuthSession = {
@@ -186,6 +241,9 @@ type ControlPlaneExport = {
     organizationUsage: ExportedSection<BoundedList<{ usage: ExportedUsageDay[] }>>;
     organizationProjects: ExportedSection<BoundedList<{ projects: ExportedProjectAccess[] }>>;
     productionRequests: ExportedSection<BoundedList<{ requests: ExportedProductionRequest[] }>>;
+    githubConnections: ExportedSection<BoundedList<{ connections: ExportedGitHubConnection[] }>>;
+    githubApprovals: ExportedSection<BoundedList<{ approvals: ExportedGitHubApproval[] }>>;
+    emailSignInLinks: ExportedSection<BoundedList<{ links: ExportedEmailSignInLink[] }>>;
     authSessions: ExportedSection<BoundedList<{ sessions: ExportedAuthSession[] }>>;
     oauthStates: ExportedSection<BoundedList<{ states: ExportedOAuthState[] }>>;
   };
@@ -209,6 +267,9 @@ export async function exportControlPlaneAccount(args: { env: Env; userId: string
     organizationUsage: await exportSection('organizationUsage', () => readUsage(db, args.userId)),
     organizationProjects: await exportSection('organizationProjects', () => readProjectAccess(db, args.userId)),
     productionRequests: await exportSection('productionRequests', () => readProductionRequests(db, args.userId)),
+    githubConnections: await exportSection('githubConnections', () => readGitHubConnections(db, args.userId)),
+    githubApprovals: await exportSection('githubApprovals', () => readGitHubApprovals(db, args.userId)),
+    emailSignInLinks: await exportSection('emailSignInLinks', () => readEmailSignInLinks(db, args.userId)),
     authSessions: await exportSection('authSessions', () => readAuthSessions(db, args.userId)),
     oauthStates: await exportSection('oauthStates', () => readOAuthStates(db, args.userId)),
   };
@@ -286,6 +347,12 @@ async function readCloudflareConnection(
   userId: string,
 ): Promise<{ connection: ExportedCloudflareConnection | null }> {
   const connection = await findCloudflareConnectionForUser(db, userId);
+  const model = connection
+    ? await db
+        .prepare('SELECT default_builder_model FROM cloudflare_connections WHERE id = ?')
+        .bind(connection.id)
+        .first<{ default_builder_model: string | null }>()
+    : null;
   return {
     // The credential handle resolves the stored ciphertext, so it is dropped here
     // rather than carried into a file the user keeps and forwards.
@@ -295,8 +362,11 @@ async function readCloudflareConnection(
       accountName: connection.accountName,
       status: connection.status,
       grantedCapabilities: connection.grantedCapabilities,
+      requestedOAuthScopes: connection.requestedOAuthScopes,
       grantedOAuthScopes: connection.grantedOAuthScopes,
+      oauthScopeProfileVersion: connection.oauthScopeProfileVersion,
       oauthScopeGrantStatus: connection.oauthScopeGrantStatus,
+      defaultBuilderModel: model?.default_builder_model ?? null,
       aiBillingEnabled: connection.aiBillingEnabled,
       connectedAt: optionalIsoTimestamp(connection.connectedAt),
       updatedAt: isoTimestamp(connection.updatedAt),
@@ -337,8 +407,11 @@ type ComputerRuntimeRow = {
   worker_name: string;
   endpoint: string;
   runtime_version: string;
+  image_digest: string | null;
+  protocol_version: number | null;
   status: string;
   last_error: string | null;
+  last_session_at: number | null;
   created_at: number;
   updated_at: number;
 };
@@ -350,8 +423,9 @@ async function readComputerRuntimes(
 ): Promise<BoundedList<{ computerRuntimes: ExportedComputerRuntime[] }>> {
   const rows = await db
     .prepare(
-      `SELECT connection_id, connection_generation, worker_name, endpoint, runtime_version,
-              status, last_error, created_at, updated_at, COUNT(*) OVER () AS total_rows
+      `SELECT connection_id, connection_generation, worker_name, endpoint, runtime_version, image_digest,
+              protocol_version, status, last_error, last_session_at, created_at, updated_at,
+              COUNT(*) OVER () AS total_rows
        FROM user_computer_runtimes WHERE user_id = ?
        ORDER BY created_at DESC LIMIT ?`,
     )
@@ -363,8 +437,11 @@ async function readComputerRuntimes(
     workerName: row.worker_name,
     endpoint: row.endpoint,
     runtimeVersion: row.runtime_version,
+    imageDigest: row.image_digest,
+    protocolVersion: row.protocol_version,
     status: row.status,
     lastError: row.last_error,
+    lastSessionAt: optionalIsoTimestamp(row.last_session_at),
     createdAt: isoTimestamp(row.created_at),
     updatedAt: isoTimestamp(row.updated_at),
   }));
@@ -378,7 +455,7 @@ async function readMemberships(
   const rows = await db
     .prepare(
       `SELECT members.org_id, organizations.name, members.role, members.joined_at, members.paused_at,
-              COUNT(*) OVER () AS total_rows
+              members.drafts_allowed, COUNT(*) OVER () AS total_rows
        FROM organization_members AS members
        JOIN organizations ON organizations.id = members.org_id
        WHERE members.user_id = ?
@@ -391,6 +468,7 @@ async function readMemberships(
       role: string;
       joined_at: number;
       paused_at: number | null;
+      drafts_allowed: number;
       total_rows: number;
     }>();
   const memberships = rows.results.map((row) => ({
@@ -399,6 +477,7 @@ async function readMemberships(
     role: row.role,
     joinedAt: isoTimestamp(row.joined_at),
     pausedAt: optionalIsoTimestamp(row.paused_at),
+    draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
   }));
   return { memberships, ...boundsOf(rows.results, memberships.length) };
 }
@@ -470,7 +549,7 @@ async function readInvites(db: D1Database, userId: string): Promise<BoundedList<
   const rows = await db
     .prepare(
       `SELECT organizations.name, invites.role, invites.created_at, invites.expires_at, invites.accepted_at,
-              COUNT(*) OVER () AS total_rows
+              invites.project_ids, invites.drafts_allowed, COUNT(*) OVER () AS total_rows
        FROM organization_invites AS invites
        JOIN organizations ON organizations.id = invites.org_id
        -- Only to an email CloudChef proved: one a Cloudflare login merely reports says nothing about
@@ -485,6 +564,8 @@ async function readInvites(db: D1Database, userId: string): Promise<BoundedList<
       created_at: number;
       expires_at: number;
       accepted_at: number | null;
+      project_ids: string | null;
+      drafts_allowed: number;
       total_rows: number;
     }>();
   // The invite token's hash authenticates acceptance, so only the record of the invite is exported.
@@ -494,6 +575,8 @@ async function readInvites(db: D1Database, userId: string): Promise<BoundedList<
     createdAt: isoTimestamp(row.created_at),
     expiresAt: isoTimestamp(row.expires_at),
     acceptedAt: optionalIsoTimestamp(row.accepted_at),
+    projectIds: storedProjectIds(row.project_ids),
+    draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
   }));
   return { invites, ...boundsOf(rows.results, invites.length) };
 }
@@ -525,6 +608,20 @@ async function readUsage(db: D1Database, userId: string): Promise<BoundedList<{ 
   }));
   return { usage, ...boundsOf(rows.results, usage.length) };
 }
+
+/** An invite's stored project ids, exactly as kept; anything unreadable is none. */
+function storedProjectIds(stored: string | null): string[] {
+  if (stored === null) {
+    return [];
+  }
+  try {
+    return storedProjectIdsSchema.catch([]).parse(JSON.parse(stored));
+  } catch {
+    return [];
+  }
+}
+
+const storedProjectIdsSchema = z.array(z.string());
 
 type ExportSectionBounds = { total: number; truncated: boolean };
 
@@ -575,27 +672,138 @@ async function readProductionRequests(
 ): Promise<BoundedList<{ requests: ExportedProductionRequest[] }>> {
   const rows = await db
     .prepare(
-      `SELECT org_id, title, note, status, created_at, decided_at, COUNT(*) OVER () AS total_rows
+      `SELECT id, org_id, title, note, preview_url, draft_id, draft_revision, status, decision_note, project_id,
+              created_at, updated_at, decided_at, snapshot_files, snapshot_gzip_base64, COUNT(*) OVER () AS total_rows
        FROM production_requests WHERE requested_by = ?
        ORDER BY created_at DESC LIMIT ?`,
     )
     .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
     .all<{
+      id: string;
       org_id: string;
       title: string;
       note: string | null;
+      preview_url: string | null;
+      draft_id: string | null;
+      draft_revision: string | null;
       status: string;
+      decision_note: string | null;
+      project_id: string | null;
       created_at: number;
+      updated_at: number | null;
       decided_at: number | null;
+      snapshot_files: number;
+      snapshot_gzip_base64: string;
       total_rows: number;
     }>();
   const requests = rows.results.map((row) => ({
+    id: row.id,
     organizationId: row.org_id,
     title: row.title,
     note: row.note,
+    previewUrl: row.preview_url,
+    draftId: row.draft_id,
+    draftRevision: row.draft_revision,
     status: row.status,
-    createdAt: new Date(row.created_at).toISOString(),
-    decidedAt: row.decided_at === null ? null : new Date(row.decided_at).toISOString(),
+    decisionNote: row.decision_note,
+    projectId: row.project_id,
+    createdAt: isoTimestamp(row.created_at),
+    updatedAt: optionalIsoTimestamp(row.updated_at),
+    decidedAt: optionalIsoTimestamp(row.decided_at),
+    draftFiles: row.snapshot_files,
+    // The member's own source; a decided request keeps none (an empty string).
+    draftSourceGzipBase64: row.snapshot_gzip_base64 || null,
   }));
   return { requests, ...boundsOf(rows.results, requests.length) };
+}
+
+async function readGitHubConnections(
+  db: D1Database,
+  userId: string,
+): Promise<BoundedList<{ connections: ExportedGitHubConnection[] }>> {
+  const rows = await db
+    .prepare(
+      `SELECT org_id, return_to, created_at, expires_at, used_at, COUNT(*) OVER () AS total_rows
+       FROM github_install_states WHERE user_id = ?
+       ORDER BY created_at DESC LIMIT ?`,
+    )
+    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
+    .all<{
+      org_id: string;
+      return_to: string;
+      created_at: number;
+      expires_at: number;
+      used_at: number | null;
+      total_rows: number;
+    }>();
+  // The state id is what GitHub's return is checked against, so only the record is exported.
+  const connections = rows.results.map((row) => ({
+    organizationId: row.org_id,
+    returnTo: row.return_to,
+    createdAt: isoTimestamp(row.created_at),
+    expiresAt: isoTimestamp(row.expires_at),
+    usedAt: optionalIsoTimestamp(row.used_at),
+  }));
+  return { connections, ...boundsOf(rows.results, connections.length) };
+}
+
+async function readGitHubApprovals(
+  db: D1Database,
+  userId: string,
+): Promise<BoundedList<{ approvals: ExportedGitHubApproval[] }>> {
+  const rows = await db
+    .prepare(
+      `SELECT request_id, repo_name, private, created_at, expires_at, used_at, COUNT(*) OVER () AS total_rows
+       FROM github_approval_states WHERE user_id = ?
+       ORDER BY created_at DESC LIMIT ?`,
+    )
+    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
+    .all<{
+      request_id: string;
+      repo_name: string;
+      private: number;
+      created_at: number;
+      expires_at: number;
+      used_at: number | null;
+      total_rows: number;
+    }>();
+  const approvals = rows.results.map((row) => ({
+    requestId: row.request_id,
+    repositoryName: row.repo_name,
+    private: row.private === 1,
+    createdAt: isoTimestamp(row.created_at),
+    expiresAt: isoTimestamp(row.expires_at),
+    usedAt: optionalIsoTimestamp(row.used_at),
+  }));
+  return { approvals, ...boundsOf(rows.results, approvals.length) };
+}
+
+async function readEmailSignInLinks(
+  db: D1Database,
+  userId: string,
+): Promise<BoundedList<{ links: ExportedEmailSignInLink[] }>> {
+  const rows = await db
+    .prepare(
+      `SELECT email, return_to, created_at, expires_at, used_at, COUNT(*) OVER () AS total_rows
+       FROM email_sign_in_tokens WHERE email = (SELECT lower(email) FROM "user" WHERE id = ?)
+       ORDER BY created_at DESC LIMIT ?`,
+    )
+    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
+    .all<{
+      email: string;
+      return_to: string;
+      created_at: number;
+      expires_at: number;
+      used_at: number | null;
+      total_rows: number;
+    }>();
+  // The token's hash signs the person in, so only the record of the link is exported.
+  const links = rows.results.map((row) => ({
+    email: row.email,
+    returnTo: row.return_to,
+    createdAt: isoTimestamp(row.created_at),
+    expiresAt: isoTimestamp(row.expires_at),
+    usedAt: optionalIsoTimestamp(row.used_at),
+  }));
+  return { links, ...boundsOf(rows.results, links.length) };
 }

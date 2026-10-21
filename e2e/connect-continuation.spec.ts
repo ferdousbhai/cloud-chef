@@ -54,7 +54,7 @@ test('never starts a build for someone who connected from settings', async ({ pa
   await stubCloudflareAuthorization(page);
 
   await page.goto('/settings');
-  await expect(page.getByRole('heading', { name: /Connect Cloudflare to open settings/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Sign in to open settings/i })).toBeVisible();
   // A submit from an earlier visit is still waiting in this tab; connecting from settings is
   // not that submit, so returning here must not spend it.
   await page.evaluate(

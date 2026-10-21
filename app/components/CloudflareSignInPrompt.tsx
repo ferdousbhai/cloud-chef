@@ -7,6 +7,7 @@ import { LinkButton } from '~/components/ui/LinkButton';
 import {
   authClient,
   createCloudflareReturnURL,
+  ReauthenticationRequiredError,
   requestEmailSignInLink,
   retrySession,
   signInWithCloudflare,
@@ -14,6 +15,7 @@ import {
   signOutOfCloudChef,
 } from '~/lib/auth-client';
 import { CloudflareConnectLegalNotice } from '~/components/CloudflareConnectLegalNotice';
+import { ReauthenticateButtons } from '~/components/settings/ReauthenticateButtons';
 import { classNames } from '~/utils/classNames';
 
 /**
@@ -40,6 +42,9 @@ export function CloudflareSignInPrompt({
   const [error, setError] = useState<string | null>(initialError);
   const [email, setEmail] = useState('');
   const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
+  // Connecting Cloudflare to a Google or emailed-link account asks for a recent sign-in first.
+  const [reauthenticateReason, setReauthenticateReason] = useState<string | null>(null);
+  const [reauthenticationLinkSentTo, setReauthenticationLinkSentTo] = useState<string | null>(null);
 
   const run = async (kind: 'cloudflare' | 'google' | 'email' | 'sign-out', action: () => Promise<void>) => {
     setBusy(kind);
@@ -47,6 +52,10 @@ export function CloudflareSignInPrompt({
     try {
       await action();
     } catch (failure) {
+      if (failure instanceof ReauthenticationRequiredError) {
+        setReauthenticateReason(failure.message);
+        return;
+      }
       const fallback = kind === 'sign-out' ? 'Unable to sign out. Please try again.' : 'Unable to sign in.';
       setError(failure instanceof Error ? failure.message : fallback);
     } finally {
@@ -84,6 +93,18 @@ export function CloudflareSignInPrompt({
           to build in it, or ask your team&apos;s admin to invite this address.
         </p>
       ) : null}
+      {session && reauthenticateReason ? (
+        <div role="status" className="mt-4 text-sm text-content-secondary">
+          <p>
+            {reauthenticationLinkSentTo
+              ? `Open the link sent to ${reauthenticationLinkSentTo}, then come back here and connect Cloudflare again.`
+              : reauthenticateReason}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <ReauthenticateButtons onError={setError} onLinkSent={setReauthenticationLinkSentTo} />
+          </div>
+        </div>
+      ) : null}
       {error && (
         <p className="mt-4 text-sm text-content-error" role="alert">
           {error}
@@ -99,7 +120,7 @@ export function CloudflareSignInPrompt({
         {session ? (
           <>
             <LinkButton to="/settings" variant="neutral">
-              Create a team
+              Teams
             </LinkButton>
             <Button
               variant="neutral"

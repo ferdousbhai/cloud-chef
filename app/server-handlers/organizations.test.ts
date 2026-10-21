@@ -5,13 +5,16 @@ import { createAuthSession, getAuthSession, prepareAuthSession, upsertVerifiedEm
 import {
   acceptInviteAction,
   createOrganizationAction,
+  deleteOrganizationAction,
   describeInviteAction,
   inviteToOrganizationAction,
   listOrganizationsAction,
+  renameOrganizationAction,
   revokeInviteAction,
   switchContextAction,
   updateMemberAction,
 } from './organizations';
+import { findPendingProductionRequest, listPendingProductionRequests } from '~/lib/cloudflare/data/org-projects.server';
 
 const ORIGIN = 'https://cloudchef.build';
 
@@ -426,5 +429,263 @@ describe('organizations', () => {
       .bind(sam.userId)
       .all();
     expect(results).toEqual([{ project_id: site, granted_by: admin.userId }]);
+  });
+
+  it('refuses to invite someone already in the team, since accepting would change nothing', async () => {
+    const { env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
+    const sam = await signIn('sam@acme.com');
+    await acceptInviteAction({
+      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
+      env,
+    });
+
+    const again = await inviteToOrganizationAction({
+      request: post(admin.cookie, '/api/organizations/invite', { orgId, email: 'SAM@acme.com', role: 'admin' }),
+      env,
+    });
+
+    expect(again.status).toBe(409);
+    expect(await again.json()).toEqual({
+      error:
+        'sam@acme.com is already in the team. To change what they can do, use Make admin or the other buttons by their name.',
+    });
+    expect((await invite(env, admin.cookie, orgId, 'kim@acme.com')).status).toBe(201);
+  });
+
+  it('says an invite lapsed because its sender is no longer an admin, not that it was used', async () => {
+    const { database, env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
+    const token = tokenOf(invited.body?.inviteUrl ?? '');
+    database.prepare('UPDATE organization_members SET role = ? WHERE user_id = ?').run('member', admin.userId);
+    const lapsed = {
+      error:
+        'Whoever sent this invite is no longer an admin of Acme, so it no longer works. Ask one of its admins for a new one.',
+      code: 'inviter_not_admin',
+    };
+
+    const described = await describeInviteAction({
+      request: post('', '/api/organizations/invite/describe', { token }),
+      env,
+    });
+    expect(described.status).toBe(410);
+    expect(await described.json()).toEqual(lapsed);
+    const sam = await signIn('sam@acme.com');
+    const accepted = await acceptInviteAction({
+      request: post(sam.cookie, '/api/organizations/accept', { token }),
+      env,
+    });
+    expect(accepted.status).toBe(410);
+    expect(await accepted.json()).toEqual(lapsed);
+  });
+
+  it("declines a removed member's open production requests, and never offers one for approval", async () => {
+    const { database, env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
+    const sam = await signIn('sam@acme.com');
+    await acceptInviteAction({
+      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
+      env,
+    });
+    const request = (id: string, status: string) =>
+      database
+        .prepare(
+          `INSERT INTO production_requests (id, org_id, requested_by, title, snapshot_gzip_base64, snapshot_files,
+             status, created_at)
+           VALUES (?, ?, ?, 'Site', 'H4sI', 1, ?, 1)`,
+        )
+        .run(id, orgId, sam.userId, status);
+    request('11111111-1111-4111-8111-111111111111', 'pending');
+    request('22222222-2222-4222-8222-222222222222', 'approved');
+    expect(await listPendingProductionRequests(env.DB, orgId)).toHaveLength(1);
+
+    const removed = await updateMemberAction({
+      request: post(admin.cookie, '/api/organizations/member', { orgId, userId: sam.userId, action: 'remove' }),
+      env,
+      deleteWorkspace: async () => undefined,
+    });
+    expect(removed.status).toBe(200);
+
+    expect(
+      database
+        .prepare('SELECT id, status, decided_by, decision_note, snapshot_gzip_base64 FROM production_requests')
+        .all(),
+    ).toEqual([
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        status: 'declined',
+        decided_by: admin.userId,
+        decision_note: 'They were removed from the team.',
+        snapshot_gzip_base64: '',
+      },
+      {
+        id: '22222222-2222-4222-8222-222222222222',
+        status: 'approved',
+        decided_by: null,
+        decision_note: null,
+        snapshot_gzip_base64: 'H4sI',
+      },
+    ]);
+    // A request left open from someone no longer in the team (from before removal declined them) is
+    // neither listed nor approvable.
+    request('33333333-3333-4333-8333-333333333333', 'pending');
+    expect(await listPendingProductionRequests(env.DB, orgId)).toEqual([]);
+    expect(await findPendingProductionRequest(env.DB, orgId, '33333333-3333-4333-8333-333333333333')).toBeNull();
+  });
+});
+
+describe('a team’s name and deletion', () => {
+  /** Acme with Ada as admin and Sam as member, its connection holding a stored authorization. */
+  async function team() {
+    const context = await setup();
+    const { database, env, signIn } = context;
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
+    const sam = await signIn('sam@acme.com');
+    await acceptInviteAction({
+      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
+      env,
+    });
+    database.exec(
+      `INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, key_version, created_at)
+       VALUES ('acme-credential', 'x', 'y', 1, 1);
+       UPDATE cloudflare_connections SET credential_handle = 'acme-credential' WHERE id = 'acme-connection';`,
+    );
+    return { ...context, admin, sam, orgId };
+  }
+
+  function remove(env: Env, cookie: string, orgId: string, outcomes: { failFor?: string } = {}) {
+    const deleted: string[] = [];
+    const revoked: string[] = [];
+    const response = deleteOrganizationAction({
+      request: post(cookie, '/api/organizations/delete', { orgId }),
+      env,
+      deleteWorkspace: async (_env, _orgId, userId) => {
+        if (userId === outcomes.failFor) {
+          throw new Error('Cloudflare is unavailable');
+        }
+        deleted.push(userId);
+      },
+      revokeGrant: async (_env, handle) => {
+        revoked.push(handle);
+        return true;
+      },
+    });
+    return { response, deleted, revoked };
+  }
+
+  it('is renamed by an admin, and by nobody else', async () => {
+    const { database, env, admin, sam, orgId } = await team();
+    const rename = (cookie: string, name: string) =>
+      renameOrganizationAction({ request: post(cookie, '/api/organizations/rename', { orgId, name }), env });
+
+    expect((await rename(sam.cookie, 'Sam’s')).status).toBe(403);
+    expect((await rename(admin.cookie, '   ')).status).toBe(400);
+    expect((await rename(admin.cookie, '  Acme Labs ')).status).toBe(204);
+    expect(database.prepare('SELECT name FROM organizations').all()).toEqual([{ name: 'Acme Labs' }]);
+  });
+
+  it("is deleted by an admin with every member's workspace and every record of it, its grant revoked", async () => {
+    const { database, env, admin, sam, orgId } = await team();
+    database
+      .prepare(
+        `INSERT INTO github_installations (org_id, installation_id, account_login, account_type, created_at, updated_at)
+         VALUES (?, 7, 'acme', 'Organization', 1, 1)`,
+      )
+      .run(orgId);
+    database
+      .prepare(
+        `INSERT INTO org_projects (id, org_id, name, repo_id, repo_full_name, default_branch, origin, created_at)
+         VALUES ('44444444-4444-4444-8444-444444444444', ?, 'Site', 1, 'acme/site', 'main', 'linked', 1)`,
+      )
+      .run(orgId);
+    database
+      .prepare(
+        `INSERT INTO org_project_access (project_id, user_id, granted_at)
+         VALUES ('44444444-4444-4444-8444-444444444444', ?, 1)`,
+      )
+      .run(sam.userId);
+    database
+      .prepare(
+        `INSERT INTO production_requests (id, org_id, requested_by, title, snapshot_gzip_base64, snapshot_files,
+           status, created_at)
+         VALUES ('55555555-5555-4555-8555-555555555555', ?, ?, 'Draft', 'H4sI', 1, 'pending', 1)`,
+      )
+      .run(orgId, sam.userId);
+    database
+      .prepare(
+        `INSERT INTO user_computer_runtimes
+           (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
+            last_error, created_at, updated_at)
+         VALUES (?, 'acme-connection', 1, 'worker', 'https://runtime.example', 'sha', 'ready', NULL, 1, 1)`,
+      )
+      .run(sam.userId);
+    await invite(env, admin.cookie, orgId, 'kim@acme.com');
+
+    // A member can't delete it.
+    expect((await remove(env, sam.cookie, orgId).response).status).toBe(403);
+
+    const { response, deleted, revoked } = remove(env, admin.cookie, orgId, { failFor: sam.userId });
+    expect(await (await response).json()).toEqual({
+      deleted: true,
+      workspacesLeft: 1,
+      cloudflareAuthorizationRevoked: true,
+    });
+    expect(deleted).toEqual([admin.userId]);
+    expect(revoked).toEqual(['acme-credential']);
+    for (const table of [
+      'organizations',
+      'organization_members',
+      'organization_invites',
+      'github_installations',
+      'org_projects',
+      'org_project_access',
+      'production_requests',
+      'cloudflare_connections',
+      'cloudflare_credentials',
+      'user_computer_runtimes',
+    ]) {
+      expect(database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get(), table).toEqual({ count: 0 });
+    }
+    // Both people keep their CloudChef accounts, now with no account to build in.
+    expect(database.prepare('SELECT COUNT(*) AS count FROM "user"').get()).toEqual({ count: 2 });
+    const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
+    expect(session?.context).toBeNull();
+  });
+
+  it('is deleted, not left, when its only member leaves', async () => {
+    const { database, env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+
+    const left = await updateMemberAction({
+      request: post(admin.cookie, '/api/organizations/member', { orgId, userId: admin.userId, action: 'remove' }),
+      env,
+      deleteWorkspace: async () => undefined,
+    });
+    expect(left.status).toBe(409);
+    expect(await left.json()).toEqual({
+      error: "You're the only one in Acme, so leaving deletes the team.",
+      code: 'sole_member',
+    });
+    expect(database.prepare('SELECT COUNT(*) AS count FROM organizations').get()).toEqual({ count: 1 });
+
+    // Even paused, the only member may delete it, since nobody else could.
+    database.prepare('UPDATE organization_members SET paused_at = 1').run();
+    const { response, deleted } = remove(env, admin.cookie, orgId);
+    expect(await (await response).json()).toEqual({
+      deleted: true,
+      workspacesLeft: 0,
+      cloudflareAuthorizationRevoked: true,
+    });
+    expect(deleted).toEqual([admin.userId]);
+    expect(database.prepare('SELECT COUNT(*) AS count FROM organizations').get()).toEqual({ count: 0 });
   });
 });

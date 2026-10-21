@@ -5,7 +5,10 @@ import type { CloudflareAuthSession } from '~/lib/.server/auth';
 import { disposeClientCollections } from '~/lib/cloudflare/client-collections';
 import { rememberTabWorkspace, resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { captureProductEvent } from '~/lib/telemetry.client';
-import { CLOUDFLARE_AUTHORIZATION_ERROR_PARAM } from '~/lib/cloudflare/authorization-recovery';
+import {
+  CLOUDFLARE_AUTHORIZATION_ERROR_PARAM,
+  CLOUDFLARE_CONNECT_MESSAGE_PARAM,
+} from '~/lib/cloudflare/authorization-recovery';
 import { clearPendingSubmit, recordPendingSubmit } from '~/lib/stores/pending-submit';
 
 const captureCloudflareConnectStarted = createClientOnlyFn(() => {
@@ -250,6 +253,7 @@ export function createCloudflareReturnURL(returnURL = window.location.href, orig
     const requested = new URL(returnURL, expectedOrigin);
     if (requested.origin === expectedOrigin && !requested.pathname.startsWith('//')) {
       requested.searchParams.delete(CLOUDFLARE_AUTHORIZATION_ERROR_PARAM);
+      requested.searchParams.delete(CLOUDFLARE_CONNECT_MESSAGE_PARAM);
       if (requested.pathname === '/settings') {
         const continuation = requested.searchParams.get('continue');
         if (continuation && continuation.startsWith('/') && !continuation.startsWith('//')) {
