@@ -5,10 +5,8 @@ import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-c
 import {
   AI_GATEWAY_ID,
   canManageAiGatewayKeys,
-  CLOUDCHEF_KEY_ALIASES,
   cloudchefKeySecretName,
   findGatewayKeys,
-  isCloudChefKeyAlias,
   openGatewayKeyAccountApi,
   type GatewayKeyAccountApi,
   type OpenGatewayKeyAccountApi,
@@ -19,7 +17,13 @@ import {
   readDefaultBuilderModel,
   setDefaultBuilderModel,
 } from '~/lib/cloudflare/data/builder-model-settings.server';
-import { builderModelIdSchema, GATEWAY_PROVIDER_SLUGS, type GatewayProviderSlug } from '~/lib/workers-ai-model';
+import {
+  builderModelIdSchema,
+  CLOUDCHEF_KEY_ALIASES,
+  GATEWAY_PROVIDER_SLUGS,
+  isCloudChefKeyAlias,
+  type GatewayProviderSlug,
+} from '~/lib/workers-ai-model';
 import { sessionConnection } from './cloudflare-integration';
 
 /**
