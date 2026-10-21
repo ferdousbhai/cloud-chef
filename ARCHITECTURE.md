@@ -308,7 +308,16 @@ Production deployment is not a model capability: when a turn that changed a Clou
 publishes the hosted preview and then admits a durable deployment fiber that runs one authenticated, idempotent server
 operation. Each builds the exact revision it was asked for (reusing a validation of that revision when the model
 already ran one), prepares the exact-revision plan, and executes it in the user's account. A failed build or
-deployment is shown to the user and told to the model at the start of its next turn. The browser can request a retry but is not responsible for starting deployment. Preview and deployment use
+deployment is shown to the user and told to the model at the start of its next turn. The browser can request a retry but is not responsible for starting deployment.
+A turn that changes the app, however it ends, durably records that production must catch up (`publicationPending`),
+and only production serving the current revision (`productionRevision`) clears it, so a publication cut short is
+redone: at the next turn's end, even one that changed nothing, and when a restarted agent starts. No automatic
+publication starts while a turn runs, since it holds the workspace's operation lane. The person's next message stops
+the one in flight: a preview at its next step, a deployment until just before its migrations and upload (past that it
+finishes, since stopping would leave production half changed), and a stopped preview never deploys. A deployment that
+failed for a reason that passes (a busy workspace, another deployment of the project, an interruption, an unreachable
+credential broker) is retried after 30 seconds, 2 minutes, and 8 minutes; a failed build waits for the next turn. A
+project deploys one revision at a time; a person's projects deploy independently. Preview and deployment use
 checkpoints from the same VFS, so a publication never ships a revision other than the one it was asked for.
 
 ## Preview Boundary

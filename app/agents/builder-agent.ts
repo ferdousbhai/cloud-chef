@@ -36,6 +36,14 @@ import {
   type BuilderPublicationState,
 } from './builder-publication-progress';
 import { latestDeploymentActivity } from '~/lib/.server/cloudflare/deployment-repository';
+import {
+  automaticDeploymentRetrySchema,
+  nextAutomaticDeploymentRetry,
+  PublicationSupersededError,
+  type AutomaticDeploymentRetry,
+  type DeploymentFailure,
+} from './builder-publication-retry';
+import { isRetryableDurableObjectError } from '~/lib/cloudflare/durable-object-rpc.server';
 import { generateConversationTitle, generateProjectTitle } from '~/lib/.server/llm/workers-ai-title';
 import { markChatStarted } from '~/lib/cloudflare/data/chat-repository.server';
 import {
@@ -186,6 +194,12 @@ const CONTEXT_COMPACTION_FIBER = 'background:context_compaction';
 const PREVIEW_PUBLICATION_FIBER = 'background:builder_preview';
 const DEPLOYMENT_FIBER = 'background:builder_deployment';
 const DEPLOYMENT_INTERRUPTED_MESSAGE = 'Deployment was interrupted. Retry to reconcile the exact revision.';
+/**
+ * How long a new turn waits for the automatic publication it stopped to let go of the workspace. A
+ * publication stops at its next step, or finishes its last API calls once it has started changing
+ * production; a turn change that still meets it waits a while longer in the runtime client.
+ */
+const PUBLICATION_STOP_WAIT_MS = 30_000;
 const TITLE_GENERATION_FIBER = 'background:title_generation';
 const CLOUDFLARE_EXECUTION_FIBER = 'background:cloudflare_execution';
 const LINKED_BUILD_FIBER = 'background:linked_build';
@@ -217,6 +231,25 @@ const deploymentJobSchema = z.object({
   revision: z.string().regex(/^[a-f0-9]{64}$/),
 }) satisfies z.ZodType<BuilderWorkspaceCheckpoint>;
 type DeploymentJob = z.infer<typeof deploymentJobSchema>;
+/** Kept beside the job in a deployment fiber's metadata: whether a turn started it, and how many retries preceded it. */
+const deploymentRunSchema = z.object({
+  automatic: z.boolean().default(false),
+  attempt: z.number().int().min(0).default(0),
+});
+type DeploymentRun = z.infer<typeof deploymentRunSchema>;
+
+/**
+ * The publication commands, the agent's boundary with the deployment executor and the user's
+ * account. The BuilderAgent harness replaces them, as it replaces the ProjectWorkspace.
+ */
+const builderPublisher = {
+  preview: previewValidatedRevisionForBuilder,
+  deploy: deployValidatedRevisionForBuilder,
+  terminalize: terminalizeInterruptedDeploymentForBuilder,
+};
+
+/** A publication this agent instance is running: a new turn stops the automatic ones and waits for them. */
+type RunningPublication = { automatic: boolean; controller: AbortController; settled: Promise<void> };
 
 /** Owner identifiers reach this Durable Object over RPC, so they are re-checked at every entry point. */
 const transcriptOwnerIdSchema = z.string().min(1).max(512);
@@ -262,6 +295,14 @@ export type BuilderAgentState = {
     stage: BuilderValidationStage;
   } | null;
   deployment?: BuilderDeploymentState | null;
+  /** The revision production last promoted, kept so a publication that never finished is redone. */
+  productionRevision?: string | null;
+  /**
+   * A turn changed this CloudChef app and production has not caught up yet. Set as the turn settles
+   * and cleared only once production serves the current revision, so a cancelled, failed, or
+   * restart-interrupted publication is redone at the next turn's end or the agent's next start.
+   */
+  publicationPending?: boolean;
   /** The step the running preview or deployment publication last recorded, while it is running. */
   publication?: BuilderPublicationState | null;
   contextCompactionRequestedTurnId?: string | null;
@@ -304,6 +345,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     preview: idleBuilderPreviewState(),
     validationProgress: null,
     deployment: null,
+    productionRevision: null,
+    publicationPending: false,
     publication: null,
     contextCompactionRequestedTurnId: null,
     cloudflareExecutions: [],
@@ -332,8 +375,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private userId: string | null = null;
   private transcriptBinding: BuilderTranscriptBinding | null = null;
   private activeSteering: { turnId: string; queue: PiSteeringQueue } | null = null;
-  /** The turn whose model ran a tool that can change the project, so its end publishes the app. */
-  private projectChangedTurnId: string | null = null;
+  private readonly publisher = builderPublisher;
+  private readonly runningPublications = new Set<RunningPublication>();
+  /** Set once the GC outbox deletes this project: nothing may start publishing it again. */
+  private destroying = false;
   /** Tells the control plane, through the runtime, when a redeploy would cut this agent's work off. */
   private readonly runtimeActivity: BuilderRuntimeActivity;
 
@@ -361,6 +406,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.hydrateDurableIdentity({ required: false, reason: 'agent_start' });
     }
     this.refreshCloudflareExecutionState();
+    // A publication a turn asked for may not have reached production before this instance stopped.
+    if (this.state.publicationPending && this.userId) {
+      this.ctx.waitUntil(
+        this.resumeUnfinishedPublication().catch(() => logger.warn('Unable to resume the unfinished publication')),
+      );
+    }
   }
 
   override onError(...args: [connection: Connection, cause: unknown] | [cause: unknown]): void {
@@ -380,9 +431,20 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    */
   async scheduleDestroyForGc(ownerId: string): Promise<void> {
     await this.initializeGcIdentity(ownerId);
-    const pendingPreviewId = this.state.preview?.pendingId;
-    if (pendingPreviewId) {
-      await this.cancelFiberByKey(this.previewFiberKey(pendingPreviewId), 'Project deletion').catch(() => undefined);
+    this.destroying = true;
+    for (const publication of this.runningPublications) {
+      publication.controller.abort(new Error('Project deletion'));
+    }
+    // Every background job that would publish or watch this project stops with it.
+    const live = await this.listFibers({ status: ['pending', 'running', 'interrupted'] }).catch(() => []);
+    for (const fiber of live) {
+      if (
+        fiber.name === PREVIEW_PUBLICATION_FIBER ||
+        fiber.name === DEPLOYMENT_FIBER ||
+        fiber.name === LINKED_BUILD_FIBER
+      ) {
+        await this.cancelFiber(fiber.fiberId, 'Project deletion').catch(() => undefined);
+      }
     }
     await this.workspace.deleteProject();
     await this._cf_scheduleDestroy();
@@ -476,15 +538,19 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (!job || !this.userId || !this.transcriptBinding) {
         return { status: 'error', error: 'missing deployment recovery data' };
       }
+      const run = deploymentRunSchema.safeParse(ctx.metadata ?? {}).data ?? { automatic: false, attempt: 0 };
       const error = new Error(DEPLOYMENT_INTERRUPTED_MESSAGE);
       try {
         await this.retry(() => this.terminalizeDeployment(job));
       } catch {
         logger.error('Unable to terminalize the interrupted deployment');
-        this.failDeployment(job, new Error('Interrupted deployment recovery is pending. Retry to continue.'));
+        const pending = new Error('Interrupted deployment recovery is pending. Retry to continue.');
+        this.failDeployment(job, pending);
+        await this.scheduleAutomaticDeploymentRetry(job, run, { message: pending.message, retryable: false });
         return { status: 'error', error: 'Interrupted deployment recovery did not settle safely.' };
       }
       this.failDeployment(job, error);
+      await this.scheduleAutomaticDeploymentRetry(job, run, { message: error.message, retryable: false });
       return { status: 'error', error: error.message };
     }
     if (ctx.name === LINKED_BUILD_FIBER) {
@@ -547,7 +613,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       async () => (await readAccountModelSettings(this.env)).gatewayKeys,
     );
     if (!options?.continuation) {
-      await this.cancelPreview();
+      // The person is talking to the builder again: the publication of the last turn must not hold the
+      // workspace this turn edits. It publishes again, with this turn's changes, when this turn ends.
+      await this.stopAutomaticPublications();
       await markChatStarted(this.env.DB, {
         sessionId: durableIdentity.ownerId,
         chatId: chatInitialId,
@@ -621,8 +689,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         steering,
         onSettled: (report) => {
           settleSteering();
-          if (report.changedProject) {
-            this.projectChangedTurnId = turn.id;
+          if (report.changedProject && !this.state.publicationPending) {
+            this.setState({ ...this.state, publicationPending: true });
           }
         },
         onModelUsage: (usage) => this.reportModelUsage(usage),
@@ -748,16 +816,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
     }
     const validatedSnapshot = await this.refreshDeploymentReadiness();
-    const changedProject = this.projectChangedTurnId === currentTurn.id;
-    this.projectChangedTurnId = null;
-    // A finished turn that changed a CloudChef app publishes it: the preview builds the exact revision
-    // (unless the model already validated it) and production follows. A GitHub project previews and
-    // deploys through its own pipeline, when the agent publishes to it.
-    if (status === 'completed' && (changedProject || validatedSnapshot) && !(await this.workspace.linkedProject())) {
-      const snapshot = validatedSnapshot ?? (await this.workspace.checkpoint().catch(() => null));
-      if (snapshot) {
-        await this.publishRevision(snapshot);
-      }
+    // A turn that changed a CloudChef app, or one before it whose publication never reached production,
+    // publishes it however the turn ended: the preview builds the exact revision (unless the model
+    // already validated it) and production follows. A GitHub project previews and deploys through its
+    // own pipeline, when the agent publishes to it.
+    if (this.state.publicationPending || (status === 'completed' && validatedSnapshot)) {
+      await this.publishLatestRevision(validatedSnapshot);
     }
   }
 
@@ -1016,7 +1080,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (retry) {
       await this.terminalizeDeployment(snapshot);
     }
-    await this.scheduleDeployment(snapshot, { retry });
+    await this.scheduleDeployment(snapshot, { retry, run: { automatic: false, attempt: 0 } });
     return this.state.deployment ?? { status: 'deploying', ...snapshot };
   }
 
@@ -1834,7 +1898,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!userId || !transcriptBinding) {
       throw new Response('Agent authentication is required.', { status: 401 });
     }
-    return terminalizeInterruptedDeploymentForBuilder({
+    return this.publisher.terminalize({
       context: {
         env: this.env,
         userId,
@@ -1844,6 +1908,98 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       toolCallId: deploymentToolCallId(job.workspaceRevision, job.revision),
       validatedRevision: job.revision,
     });
+  }
+
+  /**
+   * Publish the current revision of a CloudChef app unless production already serves it. Never while
+   * a turn runs: its end publishes, and a publication would hold the workspace the turn edits.
+   */
+  private async publishLatestRevision(validated: BuilderWorkspaceCheckpoint | null): Promise<void> {
+    if (this.destroying || this.state.activeTurn || (await this.workspace.linkedProject().catch(() => null))) {
+      return;
+    }
+    const snapshot = validated ?? (await this.workspace.checkpoint().catch(() => null));
+    if (!snapshot) {
+      return;
+    }
+    if (snapshot.revision === this.state.productionRevision) {
+      if (this.state.publicationPending) {
+        this.setState({ ...this.state, publicationPending: false });
+      }
+      return;
+    }
+    if (!this.state.publicationPending) {
+      this.setState({ ...this.state, publicationPending: true });
+    }
+    await this.publishRevision(snapshot);
+  }
+
+  /**
+   * A restarted agent finishes what a turn asked for: a publication interrupted before it reached
+   * production, or one whose fiber never started, runs again. One still running or awaiting its
+   * recovery hook finishes on its own.
+   */
+  private async resumeUnfinishedPublication(): Promise<void> {
+    if (!this.state.publicationPending || this.state.activeTurn || this.destroying) {
+      return;
+    }
+    const live = await this.listFibers({
+      status: ['pending', 'running', 'interrupted'],
+    });
+    if (live.some((fiber) => fiber.name === PREVIEW_PUBLICATION_FIBER || fiber.name === DEPLOYMENT_FIBER)) {
+      return;
+    }
+    const preview = this.currentPreviewState();
+    if (preview.pendingId && (preview.status === 'queued' || preview.status === 'building')) {
+      // Its fiber is gone: nothing will ever settle it, and it would hold back its replacement.
+      this.setPreviewState({ ...preview, status: 'cancelled', pendingId: null, error: null });
+    }
+    await this.refreshDeploymentReadiness();
+    await this.publishLatestRevision(null);
+  }
+
+  /** Stop the automatic publications this instance is running, and give them a moment to let go of the workspace. */
+  private async stopAutomaticPublications(): Promise<void> {
+    await this.cancelPreview();
+    const stopping = [...this.runningPublications].filter((publication) => publication.automatic);
+    if (stopping.length === 0) {
+      return;
+    }
+    for (const publication of stopping) {
+      publication.controller.abort(new PublicationSupersededError());
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.all(stopping.map((publication) => publication.settled)),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, PUBLICATION_STOP_WAIT_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+  }
+
+  /** Run one publication where a new turn can stop it: its signal also aborts when the turn's stop does. */
+  private async trackPublication(
+    automatic: boolean,
+    signal: AbortSignal | undefined,
+    run: (signal: AbortSignal) => Promise<void>,
+  ): Promise<void> {
+    const controller = new AbortController();
+    const execution = run(signal ? AbortSignal.any([signal, controller.signal]) : controller.signal);
+    const publication: RunningPublication = {
+      automatic,
+      controller,
+      settled: execution.then(
+        () => undefined,
+        () => undefined,
+      ),
+    };
+    this.runningPublications.add(publication);
+    try {
+      await execution;
+    } finally {
+      this.runningPublications.delete(publication);
+    }
   }
 
   /**
@@ -1858,7 +2014,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return null;
     });
     if (!preview?.pendingId) {
-      await this.scheduleDeployment(snapshot).catch(() => logger.warn('Unable to queue the automatic deployment'));
+      await this.scheduleAutomaticDeployment(snapshot);
     }
   }
 
@@ -1875,10 +2031,23 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!validated) {
       return;
     }
-    await this.scheduleDeployment(checkpoint).catch(() => logger.warn('Unable to queue the automatic deployment'));
+    await this.scheduleAutomaticDeployment(checkpoint);
   }
 
-  private async scheduleDeployment(job: DeploymentJob, options: { retry?: boolean } = {}): Promise<void> {
+  /** Production follows the turn that asked for it, unless a newer turn is running or production already serves it. */
+  private async scheduleAutomaticDeployment(job: DeploymentJob, attempt = 0): Promise<void> {
+    if (this.destroying || this.state.activeTurn || job.revision === this.state.productionRevision) {
+      return;
+    }
+    await this.scheduleDeployment(job, { retry: attempt > 0, run: { automatic: true, attempt } }).catch(() =>
+      logger.warn('Unable to queue the automatic deployment'),
+    );
+  }
+
+  private async scheduleDeployment(
+    job: DeploymentJob,
+    options: { retry?: boolean; run: DeploymentRun },
+  ): Promise<void> {
     const current = this.state.deployment;
     if (!options.retry && current?.revision === job.revision && current.status !== 'ready') {
       return;
@@ -1888,25 +2057,86 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       ...this.state,
       deployment: { status: 'deploying', ...job },
     });
+    const { run } = options;
     try {
       // No per-revision fiber key: it would hand back a settled fiber without running it.
       await this.startFiber(
         DEPLOYMENT_FIBER,
         async (fiber) => {
           fiber.stash(job);
-          try {
-            await this.runDeployment(job);
-          } catch (error) {
-            this.failDeployment(job, error);
-            throw error;
-          }
+          await this.trackPublication(run.automatic, fiber.signal, async (signal) => {
+            try {
+              await this.runDeployment(job, signal);
+            } catch (error) {
+              if (signal.aborted) {
+                // Stopped before it changed production: not a failure, and the latest revision
+                // publishes when the turn that stopped it ends.
+                this.setDeploymentResult(job, null);
+                return;
+              }
+              this.failDeployment(job, error);
+              await this.scheduleAutomaticDeploymentRetry(job, run, {
+                message: deploymentErrorMessage(error),
+                retryable: isRetryableDurableObjectError(error),
+              });
+              throw error;
+            }
+          });
         },
-        { metadata: job },
+        { metadata: { ...job, ...run } },
       );
     } catch (error) {
       this.failDeployment(job, error);
       throw error;
     }
+  }
+
+  /** Retry an automatic deployment that failed for a reason that may pass, with backoff. */
+  private async scheduleAutomaticDeploymentRetry(
+    job: DeploymentJob,
+    run: DeploymentRun,
+    failure: DeploymentFailure,
+  ): Promise<void> {
+    const next =
+      run.automatic && !this.destroying
+        ? nextAutomaticDeploymentRetry({ ...job, attempt: run.attempt }, failure)
+        : null;
+    if (!next) {
+      return;
+    }
+    await this.schedule(next.delaySeconds, 'retryAutomaticDeployment', next.retry, { idempotent: true }).catch(() =>
+      logger.warn('Unable to schedule the automatic deployment retry'),
+    );
+  }
+
+  /**
+   * A scheduled retry of an automatic deployment. It runs only while the failed revision is still the
+   * one to publish and nothing else is publishing it; a turn running now publishes when it ends.
+   */
+  async retryAutomaticDeployment(payload: AutomaticDeploymentRetry): Promise<void> {
+    const retry = automaticDeploymentRetrySchema.safeParse(payload).data;
+    if (!retry) {
+      return;
+    }
+    await this.hydrateDurableIdentity({ required: false, reason: 'automatic_deployment_retry' });
+    if (!this.userId || !this.transcriptBinding || !this.state.publicationPending) {
+      return;
+    }
+    const job: DeploymentJob = { workspaceRevision: retry.workspaceRevision, revision: retry.revision };
+    const snapshot = await this.workspace.checkpoint().catch(() => null);
+    const current = this.state.deployment;
+    if (
+      snapshot?.revision !== job.revision ||
+      snapshot.workspaceRevision !== job.workspaceRevision ||
+      (current?.revision === job.revision && current.status === 'deploying') ||
+      (await this.workspace.linkedProject().catch(() => null))
+    ) {
+      return;
+    }
+    if (current?.revision === job.revision && current.status === 'failed') {
+      await this.terminalizeDeployment(job).catch(() => logger.warn('Unable to terminalize the failed deployment'));
+    }
+    await this.scheduleAutomaticDeployment(job, retry.attempt);
   }
 
   /** Interrupted fibers count: their recovery hook, not the readiness check, settles them. */
@@ -1915,7 +2145,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return live.some((fiber) => deploymentJobSchema.safeParse(fiber.metadata).data?.revision === revision);
   }
 
-  private async runDeployment(job: DeploymentJob): Promise<BuilderDeploymentState> {
+  private async runDeployment(job: DeploymentJob, abortSignal: AbortSignal): Promise<BuilderDeploymentState> {
     const userId = this.userId;
     const transcriptBinding = this.transcriptBinding;
     if (!userId || !transcriptBinding) {
@@ -1926,10 +2156,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       job,
       'deployment',
       `${deploymentToolCallId(job.workspaceRevision, job.revision)}:validation`,
+      abortSignal,
     );
     const deployment = await this.withPublicationActivity('deployment', (onPlanned) =>
       this.keepAliveWhile(() =>
-        deployValidatedRevisionForBuilder({
+        this.publisher.deploy({
           context: {
             env: this.env,
             userId,
@@ -1939,11 +2170,15 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           toolCallId: deploymentToolCallId(job.workspaceRevision, job.revision),
           validatedRevision: job.revision,
           onPlanned,
+          abortSignal,
         }),
       ),
     );
     const revisionBoundDeployment = { ...deployment, ...job };
     this.setDeploymentResult(job, revisionBoundDeployment);
+    if (deployment.status === 'succeeded') {
+      await this.recordProductionRevision(job.revision);
+    }
     console.info({
       event: 'builder_deployment_settled',
       status: revisionBoundDeployment.status,
@@ -1952,13 +2187,23 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return revisionBoundDeployment;
   }
 
+  /** Production serves this revision now; the publication a turn asked for is done once it is the current one. */
+  private async recordProductionRevision(revision: string): Promise<void> {
+    const current = await this.workspace.checkpoint().catch(() => null);
+    this.setState({
+      ...this.state,
+      productionRevision: revision,
+      publicationPending: current?.revision === revision ? false : this.state.publicationPending,
+    });
+  }
+
   private failDeployment(job: DeploymentJob, error: unknown): BuilderDeploymentState {
     const deployment = { status: 'failed' as const, ...job, error: deploymentErrorMessage(error) };
     this.setDeploymentResult(job, deployment);
     return deployment;
   }
 
-  private setDeploymentResult(job: DeploymentJob, deployment: BuilderDeploymentState): void {
+  private setDeploymentResult(job: DeploymentJob, deployment: BuilderDeploymentState | null): void {
     if (this.state.deployment?.revision !== job.revision) {
       return;
     }
@@ -2071,8 +2316,22 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return this.currentPreviewState();
   }
 
-  private async runPreviewPublication(job: PreviewPublicationJob, abortSignal?: AbortSignal): Promise<void> {
+  private runPreviewPublication(job: PreviewPublicationJob, fiberSignal?: AbortSignal): Promise<void> {
+    // A new turn stops every preview, a manual one included, as it always has.
+    return this.trackPublication(true, fiberSignal, (abortSignal) => this.publishPreview(job, abortSignal));
+  }
+
+  private async publishPreview(job: PreviewPublicationJob, abortSignal: AbortSignal): Promise<void> {
     if (!this.isCurrentPreviewJob(job.previewId)) {
+      // Recovered after it published but before production was scheduled behind it.
+      const preview = this.currentPreviewState();
+      if (
+        !abortSignal.aborted &&
+        preview.status === 'ready' &&
+        preview.published?.snapshotRevision === job.snapshotRevision
+      ) {
+        await this.schedulePipelineDeploymentAfterPreview(job);
+      }
       return;
     }
     try {
@@ -2091,13 +2350,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         `preview:${job.previewId}:validation`,
         abortSignal,
       );
-      abortSignal?.throwIfAborted();
+      abortSignal.throwIfAborted();
       if (!this.isCurrentPreviewJob(job.previewId)) {
         return;
       }
       const success = await this.withPublicationActivity('preview', (onPlanned) =>
         this.keepAliveWhile(() =>
-          previewValidatedRevisionForBuilder({
+          this.publisher.preview({
             context: {
               env: this.env,
               userId,
@@ -2108,10 +2367,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
             previewId: job.previewId,
             validatedRevision: validatedSnapshot.revision,
             onPlanned,
+            abortSignal,
           }),
         ),
       );
-      if (!this.isCurrentPreviewJob(job.previewId)) {
+      if (abortSignal.aborted || !this.isCurrentPreviewJob(job.previewId)) {
         return;
       }
       const currentSnapshot = await this.workspace.checkpoint();
@@ -2129,6 +2389,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       });
       await this.schedulePipelineDeploymentAfterPreview(job);
     } catch (error) {
+      // A cancelled or superseded preview is not a failure, and never deploys production.
+      if (abortSignal.aborted || !this.isCurrentPreviewJob(job.previewId)) {
+        return;
+      }
       await this.failPreviewPublication(
         job,
         (error instanceof Error ? error.message : 'The Workers preview publication failed.').slice(-4_000),
@@ -2138,12 +2402,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /**
-   * Deployment follows a settled pipeline preview — never a manual "Build preview", which must not
-   * promote to the public production URL. A failed preview still deploys behind the pipeline so one
-   * broken preview never costs the user the production deployment.
+   * Deployment follows a settled pipeline preview, or any preview of a revision a turn asked to publish
+   * — never a manual "Build preview" alone, which must not promote to the public production URL. A
+   * failed preview still deploys behind the pipeline so one broken preview never costs the user the
+   * production deployment.
    */
   private async schedulePipelineDeploymentAfterPreview(job: PreviewPublicationJob): Promise<void> {
-    if (job.autoDeploy) {
+    if (job.autoDeploy || this.state.publicationPending) {
       await this.scheduleDeploymentAfterPreview(job);
     }
   }
