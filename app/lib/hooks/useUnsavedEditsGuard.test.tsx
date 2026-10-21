@@ -26,6 +26,7 @@ afterEach(async () => {
     await act(async () => root?.unmount());
     root = undefined;
   }
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
@@ -103,6 +104,44 @@ describe('useUnsavedEditsGuard', () => {
     ).resolves.toBe(true);
 
     expect(unloadHeldDuringLeave).toBe(false);
+  });
+
+  it('asks again before a later unload when the unload a confirmed page leave started was stopped', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await renderGuardedChat(true);
+    let unloadHeldDuringLeave: boolean | undefined;
+
+    await leavePage(async () => {
+      unloadHeldDuringLeave = pageUnloadIsHeld();
+    });
+
+    // The person pressed Esc while the next page loaded, so this one stays and is reloaded later.
+    expect(unloadHeldDuringLeave).toBe(false);
+    expect(pageUnloadIsHeld()).toBe(true);
+  });
+
+  it('guards the page again a few seconds after a confirmed page leave whose unload never came', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await renderGuardedChat(true);
+    vi.useFakeTimers();
+
+    await expect(leavePage(async () => undefined)).resolves.toBe(true);
+    vi.advanceTimersByTime(5_000);
+
+    expect(pageUnloadIsHeld()).toBe(true);
+  });
+
+  it('keeps a newer page leave agreed after an earlier one lapses', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await renderGuardedChat(true);
+    vi.useFakeTimers();
+
+    await leavePage(async () => undefined);
+    vi.advanceTimersByTime(4_000);
+    await leavePage(async () => undefined);
+    vi.advanceTimersByTime(2_000);
+
+    expect(pageUnloadIsHeld()).toBe(false);
   });
 
   it('guards the page again when a confirmed page leave fails', async () => {
