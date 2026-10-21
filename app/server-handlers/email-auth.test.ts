@@ -69,6 +69,22 @@ describe('email sign-in', () => {
     expect(again.status).toBe(410);
   });
 
+  it("emails a link to CloudChef's own address, whichever hostname the request reached", async () => {
+    const { env, sent } = setup();
+    const preview = 'https://0123abcd-cloudchef.example.workers.dev';
+    const start = await startEmailSignInAction({
+      request: new Request(`${preview}/api/auth/email/start`, {
+        method: 'POST',
+        headers: { Origin: preview, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'sam@example.com' }),
+      }),
+      env,
+    });
+    expect(start.status).toBe(202);
+    expect(sent[0]).toContain(`${ORIGIN}/sign-in/email?token=`);
+    expect(sent[0]).not.toContain('workers.dev');
+  });
+
   it('says which address a link is for without using it up', async () => {
     const { env, sent } = setup();
     await startEmailSignInAction({ request: post('/api/auth/email/start', { email: 'sam@example.com' }), env });

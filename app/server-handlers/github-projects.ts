@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { publicOrigin } from '~/lib/.server/public-origin';
 import { getAuthSession } from '~/lib/.server/auth';
 import { GitHubError } from '~/lib/.server/github/github-api';
 import { PayloadTooLargeError } from '~/lib/bounded-body';
@@ -228,7 +229,7 @@ export function approveProductionRequestAction({
         now,
       )
       .run();
-    const redirectUri = new URL(GITHUB_RETURN_PATH, new URL(request.url).origin).toString();
+    const redirectUri = new URL(GITHUB_RETURN_PATH, publicOrigin(request)).toString();
     return Response.json(
       { authorizeUrl: app.authorizeUrl(state, redirectUri) },
       { status: 201, headers: { 'Set-Cookie': approvalCookie(state, STATE_TTL_MS / 1_000, request) } },

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { publicOrigin } from '~/lib/.server/public-origin';
 import {
   attachCloudflareIdentity,
   type CloudflareAuthSession,
@@ -448,7 +449,7 @@ export async function startCloudflareConnectionAction(args: {
     }
     const state = crypto.randomUUID();
     const requestUrl = new URL(args.request.url);
-    const returnUrl = new URL('/connect/return', requestUrl.origin);
+    const returnUrl = new URL('/connect/return', publicOrigin(args.request));
     returnUrl.searchParams.set('state', state);
     const orchestrator = args.orchestrator ?? (await createCloudflareOrchestrator(args.env));
     const challenge = challengeSchema.parse(
@@ -896,7 +897,7 @@ async function readCloudflareCallback(
 ): Promise<{ state: string; callbackUrl: string; providerRejectedAuthorization: boolean }> {
   const requestUrl = new URL(request.url);
   const payload = parseIntegrationRequest(callbackPayloadSchema, Object.fromEntries(requestUrl.searchParams));
-  const callbackUrl = new URL(requestUrl.pathname, requestUrl.origin);
+  const callbackUrl = new URL(requestUrl.pathname, publicOrigin(request));
   for (const key of ['state', 'code', 'error', 'error_description', 'scope'] as const) {
     const value = payload[key];
     if (value) {

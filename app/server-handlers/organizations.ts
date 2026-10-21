@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { publicOrigin } from '~/lib/.server/public-origin';
 import { getAuthSession, normalizeEmail, setSessionContext, type CloudflareAuthSession } from '~/lib/.server/auth';
 import { hasSameOrigin, readJsonRequest } from '~/lib/.server/request-guards';
 import { findCloudflareConnectionForOrganization } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
@@ -149,7 +150,7 @@ export function inviteToOrganizationAction({ request, env }: { request: Request;
       projectIds,
       draftsAllowed,
     });
-    const link = new URL(ORGANIZATION_INVITE_PATH, new URL(request.url).origin);
+    const link = new URL(ORGANIZATION_INVITE_PATH, publicOrigin(request));
     link.searchParams.set('token', token);
     const emailed = await sendInvite(env, { to: email, orgName: admin.orgName, inviter: session.user.name, link });
     return Response.json({ inviteUrl: link.toString(), expiresAt, emailed }, { status: 201 });

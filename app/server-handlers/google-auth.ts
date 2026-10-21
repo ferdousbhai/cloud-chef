@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { publicOrigin } from '~/lib/.server/public-origin';
 import { createAuthSession, getAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
 import { hasSameOrigin, readCookie, readJsonRequest, safeReturnTo } from '~/lib/.server/request-guards';
@@ -48,7 +49,7 @@ export async function startGoogleSignInAction({ request, env }: { request: Reque
     return body.response;
   }
   const { callbackURL } = body.data;
-  const origin = new URL(request.url).origin;
+  const origin = publicOrigin(request);
   const state = crypto.randomUUID();
   const verifier = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(48)));
   const challenge = bytesToBase64Url(
@@ -116,7 +117,7 @@ export async function completeGoogleSignInAction({
         code,
         client_id: env.GOOGLE_OAUTH_CLIENT_ID,
         client_secret: env.GOOGLE_OAUTH_CLIENT_SECRET,
-        redirect_uri: new URL(GOOGLE_RETURN_PATH, url.origin).toString(),
+        redirect_uri: new URL(GOOGLE_RETURN_PATH, publicOrigin(request)).toString(),
         code_verifier: pending.code_verifier,
       }),
     });

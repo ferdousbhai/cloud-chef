@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { publicOrigin } from '~/lib/.server/public-origin';
 import {
   createAuthSession,
   getAuthSession,
@@ -58,7 +59,7 @@ export async function startEmailSignInAction({ request, env }: { request: Reques
     return accepted;
   }
   const token = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
-  const origin = new URL(request.url).origin;
+  const origin = publicOrigin(request);
   await env.DB.prepare(
     `INSERT INTO email_sign_in_tokens (token_hash, email, return_to, expires_at, created_at)
      VALUES (?, ?, ?, ?, ?)`,

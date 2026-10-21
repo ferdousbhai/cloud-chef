@@ -139,6 +139,21 @@ describe('Google sign-in', () => {
     expect(taken.status).toBe(409);
   });
 
+  it("has Google return to CloudChef's own address, whichever hostname the request reached", async () => {
+    const { env } = setup();
+    const preview = 'https://0123abcd-cloudchef.example.workers.dev';
+    const response = await startGoogleSignInAction({
+      request: new Request(`${preview}/api/auth/google/start`, {
+        method: 'POST',
+        headers: { Origin: preview, 'Content-Type': 'application/json' },
+        body: '{}',
+      }),
+      env,
+    });
+    const { authorizationUrl } = z.object({ authorizationUrl: z.string() }).parse(await response.json());
+    expect(new URL(authorizationUrl).searchParams.get('redirect_uri')).toBe(`${ORIGIN}${GOOGLE_RETURN_PATH}`);
+  });
+
   it('reports itself unavailable without a Google client', async () => {
     const { env } = setup();
     const response = await startGoogleSignInAction({
