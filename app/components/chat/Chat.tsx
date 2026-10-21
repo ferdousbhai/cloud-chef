@@ -1,6 +1,8 @@
 import { useStore } from '@nanostores/react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSnapScroll } from '~/lib/hooks/useSnapScroll';
+import { useUnsavedEditsGuard } from '~/lib/hooks/useUnsavedEditsGuard';
+import { useFileSaveStatus } from '~/lib/stores/fileUpdateCounter';
 import { chatStore } from '~/lib/stores/chatId';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
@@ -307,6 +309,8 @@ const AuthenticatedChat = memo(
     const linkedProject = useStore(workbenchStore.linkedProject);
     const archivedLinkedChat = linkedProject?.archived === true;
     const hasUnsavedFiles = useStore(workbenchStore.unsavedFiles).size > 0;
+    // Switching project resets the workbench and drops its buffers, so leaving asks first.
+    useUnsavedEditsGuard(useFileSaveStatus() !== null);
     // A GitHub project already exists: its first turn changes it rather than creating a project.
     const isProjectUpdate = currentSubchatIndex > 0 || linkedProject !== null;
 
