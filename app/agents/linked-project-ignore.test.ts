@@ -2,11 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { gitignoreMatcher, isNeverPublished } from './linked-project-ignore';
 
 describe('isNeverPublished', () => {
-  it('names local secret files at any depth, but not the example a repository documents them with', () => {
+  it('names local secret files at any depth, but not the examples a repository documents them with', () => {
     for (const path of ['.env', '.env.local', 'apps/web/.env.production', '.dev.vars', 'worker/.dev.vars.staging']) {
       expect(isNeverPublished(path)).toBe(true);
     }
-    for (const path of ['.env.example', 'apps/web/.env.example', 'src/env.ts', 'README.md', '.gitignore']) {
+    for (const path of [
+      '.env.example',
+      'apps/web/.env.example',
+      '.env.sample',
+      'apps/web/.env.template',
+      'src/env.ts',
+      'README.md',
+      '.gitignore',
+    ]) {
+      expect(isNeverPublished(path)).toBe(false);
+    }
+  });
+
+  it('leaves files that only begin like a secret alone', () => {
+    for (const path of ['.envrc', 'src/.environment.ts', '.env-cmdrc', '.dev.varsity', '.envoy/config.yaml']) {
       expect(isNeverPublished(path)).toBe(false);
     }
   });

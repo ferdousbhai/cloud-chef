@@ -1,12 +1,18 @@
 import ignore from 'ignore';
 
+const PUBLISHED_ENV_EXAMPLES = new Set(['.env.example', '.env.sample', '.env.template']);
+
 /**
  * Local secrets a publish never sends, whatever the repository's `.gitignore` says and even when GitHub
- * already has the file: `.env*` (all but `.env.example`) and `.dev.vars*`, at any depth.
+ * already has the file: `.env`, `.env.*` (all but the documented examples) and `.dev.vars`, `.dev.vars.*`,
+ * at any depth. `.envrc` or `.environment.ts` is an ordinary file.
  */
 export function isNeverPublished(path: string): boolean {
   const name = path.slice(path.lastIndexOf('/') + 1);
-  return (name.startsWith('.env') && name !== '.env.example') || name.startsWith('.dev.vars');
+  if (PUBLISHED_ENV_EXAMPLES.has(name)) {
+    return false;
+  }
+  return ['.env', '.dev.vars'].some((secret) => name === secret || name.startsWith(`${secret}.`));
 }
 
 /**

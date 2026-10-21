@@ -270,6 +270,48 @@ describe("a GitHub project's publish", () => {
     // The commit made from this workspace is the new base: its tree is exactly the workspace.
     expect(bases).toEqual([COMMIT]);
   });
+
+  it('tells the model which local secrets it left out, with a commit and without one', async () => {
+    const base = await linkedWorkspace();
+    const linked = await base.linkedProject?.();
+    if (!linked) {
+      throw new Error('The linked workspace names its project.');
+    }
+    const secret: BuilderWorkspaceFileMetadata = {
+      path: '/home/project/.env.production',
+      encoding: 'utf8',
+      size: 5,
+      mode: 0o644,
+      sha256: await sha256Hex('KEY=2'),
+      revision: 4,
+    };
+    const readme = base.listFiles?.()[0];
+    const withSecretEdited = async (readmeChanged: boolean): Promise<Partial<BuilderWorkspaceApi>> => ({
+      ...base,
+      linkedProject: async () => ({
+        ...linked,
+        baseManifest: [
+          ...linked.baseManifest.map((file) => (readmeChanged ? file : { ...file, sha256: readme?.sha256 ?? '' })),
+          { path: '.env.production', sha256: await sha256Hex('KEY=1'), executable: false },
+        ],
+      }),
+      listFiles: () => (readme ? [readme, secret] : [secret]),
+    });
+
+    const unchanged = await builderAgentHarness({ workspace: await withSecretEdited(false), cloudflareIdentity: true });
+    const commits = controlPlane();
+    const nothing = await publishTool(unchanged)({ message: 'Ship it', live: false }, { toolCallId: 'call-1' });
+    expect(nothing).toMatchObject({ ok: false });
+    expect(nothing.summary).toContain('Nothing has changed');
+    expect(nothing.summary).toContain('never publishes: .env.production.');
+    expect(commits).toEqual([]);
+
+    const changed = await builderAgentHarness({ workspace: await withSecretEdited(true), cloudflareIdentity: true });
+    const result = await publishTool(changed)({ message: 'Ship it', live: false }, { toolCallId: 'call-2' });
+    expect(result).toMatchObject({ ok: true, data: { build: 'pending' } });
+    expect(result.summary).toContain('never publishes: .env.production.');
+    expect(commits[0]).not.toContain('.env.production');
+  });
 });
 
 const READY_STATE = {
