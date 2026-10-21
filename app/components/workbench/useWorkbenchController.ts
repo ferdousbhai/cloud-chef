@@ -100,6 +100,10 @@ export function useWorkbenchController(isStreaming?: boolean) {
     workbenchStore.setSelectedFile(filePath ? getAbsolutePath(filePath) : undefined);
   }, []);
   const onFileSave = useCallback(() => {
+    // A conversation a newer one took over is kept to read: its copy of the project is no longer saved to.
+    if (workbenchStore.linkedProject.get()?.archived) {
+      return;
+    }
     workbenchStore.flushPendingEditorChange();
     const { isCurrentRequest } = beginPreviewRequest();
     void (async () => {

@@ -27,6 +27,8 @@ interface EditorPanelProps {
   editorDocument?: EditorDocument;
   selectedFile?: string;
   isStreaming?: boolean;
+  /** Shown to read only: an archived GitHub project conversation's files. */
+  readOnly?: boolean;
   scrollToDocAppend?: boolean;
   onEditorChange?: OnEditorChange;
   onEditorScroll?: OnEditorScroll;
@@ -43,6 +45,7 @@ export const EditorPanel = memo(function EditorPanel({
   editorDocument,
   selectedFile,
   isStreaming,
+  readOnly,
   scrollToDocAppend,
   onFileSelect,
   onEditorChange,
@@ -90,7 +93,7 @@ export const EditorPanel = memo(function EditorPanel({
                   onFileSelect?.(filePath);
                 }}
               />
-              {activeFileUnsaved && (
+              {activeFileUnsaved && !readOnly && (
                 <div className="-mr-1.5 ml-auto flex gap-1">
                   <PanelHeaderButton
                     onClick={() => {
@@ -111,7 +114,7 @@ export const EditorPanel = memo(function EditorPanel({
             ref={editorRef}
             id={projectId}
             theme={theme}
-            editable={!isStreaming && editorDocument !== undefined}
+            editable={!isStreaming && !readOnly && editorDocument !== undefined}
             doc={editorDocument}
             autoFocusOnDocumentChange={!isMobile()}
             scrollToDocAppend={Boolean(scrollToDocAppend)}
