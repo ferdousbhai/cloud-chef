@@ -130,7 +130,7 @@ describe('control-plane account erasure', () => {
     ]);
   });
 
-  it("deletes the person's workspace in each team's account first, and names the teams where it couldn't be", async () => {
+  it("deletes the person's workspace in each team's account once they've left, and names the teams where it couldn't be", async () => {
     const { database, db } = controlPlaneDatabase();
     for (const userId of ['user-1', 'admin']) {
       seedAccount(database, null, userId);
@@ -163,12 +163,13 @@ describe('control-plane account erasure', () => {
       env: envWith({ DB: db }),
       userId: 'user-1',
       deleteWorkspace: async (_env, orgId, userId) => {
-        // Still a member, with the team's connection in place, when it's asked.
+        // Out of the team by now, with the team's connection still in place, when it's asked.
         expect(
-          database
-            .prepare('SELECT 1 AS member FROM organization_members WHERE org_id = ? AND user_id = ?')
-            .get(orgId, userId),
-        ).toEqual({ member: 1 });
+          database.prepare('SELECT COUNT(*) AS count FROM organization_members WHERE user_id = ?').get(userId),
+        ).toEqual({ count: 0 });
+        expect(database.prepare('SELECT status FROM cloudflare_connections WHERE org_id = ?').get(orgId)).toEqual({
+          status: 'active',
+        });
         if (orgId === 'side') {
           throw new Error('Cloudflare is unavailable');
         }
@@ -187,6 +188,39 @@ describe('control-plane account erasure', () => {
     expect(
       database.prepare("SELECT COUNT(*) AS count FROM organization_members WHERE user_id = 'user-1'").get(),
     ).toEqual({ count: 0 });
+  });
+
+  it('deletes no workspace when leaving their teams is refused', async () => {
+    const { database, db } = controlPlaneDatabase();
+    for (const userId of ['user-1', 'admin']) {
+      seedAccount(database, null, userId);
+    }
+    database.exec(`
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('acme', 'Acme', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+        ('acme', 'user-1', 'member', 1), ('acme', 'admin', 'admin', 1);
+      INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at)
+        VALUES ('acme-connection', 'acme', 'acme-account', 'active', 1, 1);
+      INSERT INTO user_computer_runtimes
+        (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
+         last_error, created_at, updated_at)
+        VALUES ('user-1', 'acme-connection', 1, 'worker', 'https://runtime.example', 'sha', 'ready', NULL, 1, 1);
+      CREATE TRIGGER refuse_leaving BEFORE DELETE ON organization_members
+      BEGIN SELECT RAISE(ABORT, 'refused'); END;
+    `);
+    const deleted: string[] = [];
+
+    await expect(
+      eraseControlPlaneAccount({
+        env: envWith({ DB: db }),
+        userId: 'user-1',
+        deleteWorkspace: async (_env, orgId) => {
+          deleted.push(orgId);
+        },
+      }),
+    ).rejects.toThrow('refused');
+
+    expect(deleted).toEqual([]);
   });
 });
 
