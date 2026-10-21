@@ -1186,6 +1186,21 @@ describe('another deployment record left holding the project', () => {
     expect(publisher.deploy).toHaveBeenCalledTimes(2);
   });
 
+  it("a promoted record of the deployment's own revision, left under the id it had before, is production", async () => {
+    let harness!: BuilderAgentHarness;
+    const publisher = holdingPublisher(() => harness, { settlesAs: 'succeeded' });
+    harness = await publicationHarness({ publisher });
+    leftRecord(harness, 'deploying', STALE, 'deployment-before');
+
+    await harness.agent.deployValidatedRevision();
+
+    await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
+    expect(recordStatus(harness, 'deployment-before')).toBe('succeeded');
+    expect(harness.agent.state.deployment).toMatchObject({ status: 'succeeded', id: 'deployment-before' });
+    // Production serves it already, so it is not deployed again.
+    expect(publisher.deploy).toHaveBeenCalledOnce();
+  });
+
   it('the record the deployment itself planned is never settled as the one holding the project', async () => {
     let harness!: BuilderAgentHarness;
     const publisher = holdingPublisher(() => harness);

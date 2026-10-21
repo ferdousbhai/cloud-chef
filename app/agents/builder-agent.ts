@@ -2689,13 +2689,18 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    * `deploymentId` of `job`, when nothing is running it: no other fiber here deploys its revision, and
    * it has shown no sign of work for a while. It may be of `job`'s own revision, planned under the id it
    * had before. It settles as an interrupted one does, as succeeded when production serves it.
-   * Answers whether it settled, so the refused deployment is worth trying again.
+   * Answers null when the slot is still held; otherwise `serves`, the record it settled as succeeded
+   * when that is `job`'s own revision, which production then already serves, or null when the refused
+   * deployment is worth trying again.
    */
-  private async settleBlockingDeployment(job: DeploymentJob, deploymentId: string | null): Promise<boolean> {
+  private async settleBlockingDeployment(
+    job: DeploymentJob,
+    deploymentId: string | null,
+  ): Promise<{ serves: BuilderDeploymentState | null } | null> {
     const userId = this.userId;
     const transcriptBinding = this.transcriptBinding;
     if (!userId || !transcriptBinding) {
-      return false;
+      return null;
     }
     const blocking = await findActiveProjectDeployment(this.env.DB, { userId, projectId: this.workspace.projectId });
     if (
@@ -2705,7 +2710,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       // This deployment's own fiber deploys `job`'s revision, under another record.
       (await this.deploymentFibersRunning(blocking.revision)) > (blocking.revision === job.revision ? 1 : 0)
     ) {
-      return false;
+      return null;
     }
     const blockingJob: DeploymentJob = { workspaceRevision: blocking.workspaceRevision, revision: blocking.revision };
     // Only the execution seen holding the slot: one started since is left to run.
@@ -2715,9 +2720,14 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       executionGeneration: blocking.executionGeneration,
     });
     if (settled.settled && settled.deployment.status === 'succeeded') {
+      if (blocking.revision === job.revision) {
+        return { serves: settled.deployment };
+      }
       await this.recordDeploymentSucceeded(blockingJob, settled.deployment);
     }
-    return settled.deployment.status === 'succeeded' || settled.deployment.status === 'failed';
+    return settled.deployment.status === 'succeeded' || settled.deployment.status === 'failed'
+      ? { serves: null }
+      : null;
   }
 
   /** Interrupted fibers count: their recovery hook, not the readiness check, settles them. */
@@ -2776,13 +2786,15 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       // Another record holds the project: another revision's, or this one's under the id it had before.
       // One nothing runs any more would refuse every deployment for good, since only a deployment of
       // its own revision and id settles it otherwise.
-      if (
-        !(error instanceof DeploymentConcurrencyLimitError) ||
-        !(await this.settleBlockingDeployment(job, planned).catch(() => false))
-      ) {
+      const settled =
+        error instanceof DeploymentConcurrencyLimitError
+          ? await this.settleBlockingDeployment(job, planned).catch(() => null)
+          : null;
+      if (!settled) {
         throw error;
       }
-      return deploy();
+      // This revision's own record from before was promoted: production already serves it.
+      return settled.serves ?? deploy();
     });
     const revisionBoundDeployment = { ...deployment, ...job };
     if (deployment.status === 'succeeded') {

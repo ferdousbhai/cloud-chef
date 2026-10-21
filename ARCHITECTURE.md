@@ -424,7 +424,8 @@ A record left provisioning or deploying holds the project's one deployment slot,
 is otherwise the only one that settles it, so a project that moved on would never deploy again. The BuilderAgent
 therefore settles a deployment's record a few seconds after its fiber throws, whatever revision the project is at
 by then, unless a fiber of that revision runs again; and a deployment the slot refuses settles the record holding it
-(another revision's, or its own revision's under the id it had before), then tries once more, when no other fiber of
+(another revision's, or its own revision's under the id it had before), then tries once more (unless it settled its
+own revision's record as succeeded, which production then serves), when no other fiber of
 the agent deploys that record's revision and the record has shown no work (its update or a step its execution
 recorded) for 15 minutes, since one started through the runtime's deployment route runs outside the agent. Either settles it as an interrupted one is: succeeded when its receipt says production
 serves it, failed otherwise. Either settles only the execution it saw (the one that threw, or the one holding the
