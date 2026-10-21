@@ -28,7 +28,8 @@ type UserOwnedDeploymentArgs = {
   /**
    * Stops the publication at its next step while stopping is still clean: before migrations run and
    * the version is uploaded. Past that point it finishes, since stopping would leave production half
-   * changed.
+   * changed. A stop rejects with the signal's reason, and only a stop does: a failure past that point
+   * rejects with its own error, aborted signal or not.
    */
   abortSignal?: AbortSignal;
 };

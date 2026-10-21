@@ -2196,8 +2196,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return;
     }
     if (this.productionServes(snapshot.revision)) {
-      if (this.state.publicationPending) {
-        this.setState({ ...this.state, publicationPending: false });
+      // Recorded as a deployment records it: the next change clears a legacy deployment record that
+      // may be the only evidence, and a return to this revision would then redeploy it.
+      if (this.state.publicationPending || this.state.productionRevision !== snapshot.revision) {
+        this.setState({ ...this.state, productionRevision: snapshot.revision, publicationPending: false });
       }
       return;
     }
@@ -2467,9 +2469,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
                 // A deployment that fails throws: the executor never returns a failed one.
                 await this.runtimeActivity.run(() => this.runDeployment(job, signal), { signal });
               } catch (error) {
-                if (signal.aborted) {
+                if (signal.aborted && error === signal.reason) {
                   // Stopped before it changed production: not a failure, and the latest revision
-                  // publishes when the turn that stopped it ends.
+                  // publishes when the turn that stopped it ends. One stopped past that point fails
+                  // with its own error, and is a failure like any other.
                   this.setDeploymentResult(job, null);
                   return;
                 }
@@ -2553,12 +2556,15 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Response('Agent authentication is required.', { status: 401 });
     }
     const startedAt = Date.now();
+    // Validation changes nothing in production: however a stop cuts it short, it is a stop.
     await this.buildCheckpoint(
       job,
       'deployment',
       `${deploymentToolCallId(job.workspaceRevision, job.revision)}:validation`,
       abortSignal,
-    );
+    ).catch((error) => {
+      throw abortSignal.aborted ? abortSignal.reason : error;
+    });
     const deployment = await this.withPublicationActivity('deployment', (onPlanned) =>
       this.keepAliveWhile(() =>
         this.publisher.deploy({
