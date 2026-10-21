@@ -172,6 +172,7 @@ function fakeWorkspace(overrides: Partial<BuilderWorkspaceApi> = {}): Partial<Bu
     linkedProject: async () => null,
     checkpoint: async () => VALIDATED_CHECKPOINT,
     hasSuccessfulValidation: async () => true,
+    cancelActiveValidation: async () => undefined,
     ...overrides,
   };
 }
