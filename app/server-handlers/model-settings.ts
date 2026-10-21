@@ -7,6 +7,7 @@ import {
   canManageAiGatewayKeys,
   cloudchefKeySecretName,
   findGatewayKeys,
+  gatewayKeyInUse,
   openGatewayKeyAccountApi,
   type GatewayKeyAccountApi,
   type OpenGatewayKeyAccountApi,
@@ -252,10 +253,10 @@ async function withAccountApi(
  * free alias without its key is deleted too, since Cloudflare refuses a key whose secret name is taken.
  */
 async function freeCloudChefAlias(api: GatewayKeyAccountApi, provider: GatewayProviderSlug): Promise<string> {
-  const keys = (await api.listAiGatewayProviderKeys(AI_GATEWAY_ID)).filter(
-    ({ providerSlug }) => providerSlug === provider,
-  );
-  const inUse = keys.find(({ isDefault }) => isDefault) ?? keys.at(0);
+  const listed = await api.listAiGatewayProviderKeys(AI_GATEWAY_ID);
+  const keys = listed.filter(({ providerSlug }) => providerSlug === provider);
+  // The key the runtimes send, picked exactly as they pick it.
+  const inUse = gatewayKeyInUse(listed, provider);
   const alias =
     CLOUDCHEF_KEY_ALIASES.find((candidate) => !keys.some((key) => key.alias === candidate)) ??
     CLOUDCHEF_KEY_ALIASES.find((candidate) => candidate !== inUse?.alias) ??

@@ -261,6 +261,7 @@ function PrivacyPage() {
           </li>
           <li>emailed sign-in links after 15 minutes, and team invites after 7 days</li>
           <li>authentication sessions after 30 days</li>
+          <li>the records of when you sent each team invite and created each team after 30 days</li>
           <li>unreferenced encrypted credential records become eligible for removal after 24 hours</li>
         </ul>
         <p>
@@ -291,6 +292,10 @@ function PrivacyPage() {
           <li>connection metadata, granted scopes, and model settings</li>
           <li>your runtime locators and team memberships</li>
           <li>your production requests, and GitHub connections and approvals you started</li>
+          <li>
+            the records of when you sent team invites and created teams, so a team&apos;s daily invite limit stops
+            counting the invites you sent
+          </li>
         </ul>
         <p>
           It also deletes your workspace in each team&apos;s Cloudflare account, as leaving the team would, and says
@@ -313,6 +318,7 @@ function PrivacyPage() {
           <li>the existence, storage time, and key version of your encrypted credential record</li>
           <li>your runtime locators</li>
           <li>your team memberships, invites addressed to you, and your daily usage counts</li>
+          <li>when you sent each team invite and created each team, while those records are kept</li>
           <li>
             the GitHub projects you were given, and the production requests you sent, with a draft&apos;s source while
             CloudChef still holds it

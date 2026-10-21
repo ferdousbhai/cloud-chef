@@ -271,7 +271,8 @@ describe("a gateway provider's model", () => {
   async function streamOnce(
     credentials: WorkersAiAccountCredentials,
     modelId: BuilderModelId,
-    settings: { gatewayLogging?: WorkersAiGatewayLogging; gatewayKeyAlias?: string } = {},
+    settings: { gatewayLogging?: WorkersAiGatewayLogging; gatewayKeyAlias?: string; gatewayKeyRevision?: string } = {},
+    { reasoning }: { reasoning?: 'high' } = {},
   ) {
     const handle = getPiModel(credentials, modelId, settings);
     const context = normalizeContext({
@@ -279,7 +280,7 @@ describe("a gateway provider's model", () => {
       tools: [READ_FILE_TOOL],
       messages: [{ role: 'user', content: 'Build a todo app.', timestamp: 1 }],
     });
-    return (await handle.stream(handle.model, context, { toolChoice: 'auto' })).result();
+    return (await handle.stream(handle.model, context, { toolChoice: 'auto', reasoning })).result();
   }
 
   function headerNames(call: GatewayCall | undefined): string[] {
@@ -442,6 +443,65 @@ describe("a gateway provider's model", () => {
     expect(calls.slice(3).map(({ request }) => request.query.reasoning?.summary)).toEqual(['auto', undefined]);
   });
 
+  it('asks a key that refused reasoning summaries for none even when the person chose an effort', async () => {
+    const { calls, credentials } = gatewayBinding((request) =>
+      request.query.reasoning?.summary === undefined ? openaiResponsesStream('Hello', 'gpt-5') : unverified(),
+    );
+    await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyAlias: 'cloudchef' });
+    expect(calls).toHaveLength(2);
+
+    const chosen = await streamOnce(
+      credentials,
+      'openai/gpt-5',
+      { gatewayKeyAlias: 'cloudchef' },
+      { reasoning: 'high' },
+    );
+
+    expect(chosen.stopReason).toBe('stop');
+    // Pi writes a summary itself beside a chosen effort; it never goes out, and only one request does.
+    expect(calls).toHaveLength(3);
+    expect(calls[2]?.request.query.reasoning).toEqual({ effort: 'high' });
+  });
+
+  it('asks a different key put under the same alias for reasoning summaries afresh', async () => {
+    const { calls, credentials } = gatewayBinding((request) =>
+      request.query.reasoning?.summary === undefined ? openaiResponsesStream('Hello', 'gpt-5') : unverified(),
+    );
+    const key = (gatewayKeyRevision: string) => ({ gatewayKeyAlias: 'cloudchef', gatewayKeyRevision });
+
+    await streamOnce(credentials, 'openai/gpt-5', key('key-1@2026-10-01'));
+    await streamOnce(credentials, 'openai/gpt-5', key('key-1@2026-10-01'));
+    await streamOnce(credentials, 'openai/gpt-5', key('key-2@2026-10-21'));
+
+    expect(calls.map(({ request }) => request.query.reasoning?.summary)).toEqual([
+      'auto',
+      undefined,
+      undefined,
+      'auto',
+      undefined,
+    ]);
+  });
+
+  it.each([400, 404])(
+    "reports the first key's refusal when the gateway answers CloudChef's other alias with %i",
+    async (status) => {
+      const { calls, credentials } = gatewayBinding((request) =>
+        request.headers['cf-aig-byok-alias'] === 'cloudchef-2'
+          ? Response.json({ error: { message: 'Provider key not found' } }, { status })
+          : Response.json(
+              { type: 'error', error: { type: 'authentication_error', message: 'no key' } },
+              { status: 401 },
+            ),
+      );
+
+      const message = await streamOnce(credentials, opus, { gatewayKeyAlias: 'cloudchef' });
+
+      expect(calls).toHaveLength(2);
+      expect(message.stopReason).toBe('error');
+      expect(message.errorMessage).toContain(gatewayKeyRejectedMessage('anthropic'));
+    },
+  );
+
   it('keeps reasoning summaries for a verified organization, and retries no other refusal', async () => {
     const verified = gatewayBinding(() => openaiResponsesStream('Hello', 'gpt-5'));
     await streamOnce(verified.credentials, 'openai/gpt-5');
@@ -566,6 +626,42 @@ describe('the output budget a Workers AI request asks for', () => {
   it('keeps a small budget the caller chose, and lifts only an unstated one to the floor', async () => {
     expect(await maxCompletionTokens(64)).toBe(64);
     expect(await maxCompletionTokens()).toBeGreaterThanOrEqual(4_096);
+  });
+
+  it('lets go of a refused response it corrects and sends again', async () => {
+    let cancelled = 0;
+    /** A refusal whose clone is read and whose own body is only ever cancelled. */
+    class Refusal extends Response {
+      constructor(private readonly message: string) {
+        super(
+          new ReadableStream({
+            cancel: () => {
+              cancelled += 1;
+            },
+          }),
+          { status: 400 },
+        );
+      }
+
+      override clone(): Response {
+        return new Response(this.message, { status: 400 });
+      }
+    }
+    const sent: Array<{ max_completion_tokens?: number }> = [];
+    const run = async (_model: string, inputs: { max_completion_tokens?: number }) => {
+      sent.push(inputs);
+      return sent.length === 1
+        ? new Refusal('This model supports at most 64 completion tokens.')
+        : Response.json({ errors: [{ message: 'stop here' }] }, { status: 400 });
+    };
+    // SAFETY: the binding fetch calls only the raw-response `run`, which this implements.
+    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL);
+    const context = normalizeContext({ messages: [{ role: 'user', content: 'Name this', timestamp: 1 }] });
+
+    await handle.stream(handle.model, context, {}).result();
+
+    expect(sent.map((inputs) => inputs.max_completion_tokens).at(-1)).toBe(64);
+    expect(cancelled).toBe(1);
   });
 });
 

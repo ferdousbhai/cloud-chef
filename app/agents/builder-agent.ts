@@ -661,7 +661,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       durableIdentity.transcript,
     );
     const accountCredentials = await getUserWorkersAiCredentials(this.env, durableIdentity.userId);
-    const { model, gatewayKeyAlias } = await requireBuilderModel(
+    const { model, gatewayKeyAlias, gatewayKeyRevision } = await requireBuilderModel(
       accountCredentials.binding,
       modelId,
       async () => (await readAccountModelSettings(this.env)).gatewayKeys,
@@ -764,6 +764,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           agent: transcript.agentName,
         }),
         gatewayKeyAlias,
+        gatewayKeyRevision,
         workspace: this.workspace,
         cloudflareApi,
         linkedProject,

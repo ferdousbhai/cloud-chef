@@ -67,9 +67,10 @@ function newestFirst(a: AiGatewayProviderKey, b: AiGatewayProviderKey): number {
 
 /**
  * The key each gateway provider's requests use on the account's default gateway: the provider's
- * default key when it has one, and otherwise its first. Providers CloudChef does not offer are left out.
- * Two defaults happen when a replaced key's removal failed after its replacement went on as the
- * default; the newer is the replacement, so it is the one used.
+ * default key when it has one, and otherwise its newest. Providers CloudChef does not offer are left
+ * out. Two defaults happen when a replaced key's removal failed after its replacement went on as the
+ * default; the newer is the replacement, so it is the one used. Either way the same key is picked
+ * whatever order Cloudflare lists them in.
  */
 export async function findGatewayKeys(
   api: Pick<GatewayKeyAccountApi, 'listAiGatewayProviderKeys'>,
@@ -77,17 +78,21 @@ export async function findGatewayKeys(
   const keys = await api.listAiGatewayProviderKeys(AI_GATEWAY_ID);
   const found = new Map<GatewayProviderSlug, AiGatewayProviderKey>();
   for (const provider of GATEWAY_PROVIDER_SLUGS) {
-    const own = keys.filter(({ providerSlug }) => providerSlug === provider);
-    const key =
-      own
-        .filter(({ isDefault }) => isDefault)
-        .toSorted(newestFirst)
-        .at(0) ?? own.at(0);
+    const key = gatewayKeyInUse(keys, provider);
     if (key) {
       found.set(provider, key);
     }
   }
   return found;
+}
+
+/** Of the gateway's listed keys, the one `provider`'s requests use, as `findGatewayKeys` picks it. */
+export function gatewayKeyInUse(
+  keys: readonly AiGatewayProviderKey[],
+  provider: GatewayProviderSlug,
+): AiGatewayProviderKey | undefined {
+  const own = keys.filter(({ providerSlug }) => providerSlug === provider).toSorted(newestFirst);
+  return own.find(({ isDefault }) => isDefault) ?? own.at(0);
 }
 
 /**
@@ -106,7 +111,11 @@ export async function linkedGatewayKeys(
   try {
     const keys = await findGatewayKeys(await open(env, connection));
     // A key Cloudflare lists without an alias is the provider's default one.
-    return [...keys].map(([provider, { alias }]) => ({ provider, alias: alias || 'default' }));
+    return [...keys].map(([provider, { alias, id, modifiedAt }]) => ({
+      provider,
+      alias: alias || 'default',
+      revision: `${id}@${modifiedAt ?? ''}`.slice(0, 256),
+    }));
   } catch {
     console.warn('Unable to confirm which provider keys the account has on its AI Gateway.');
     return [];

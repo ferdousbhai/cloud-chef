@@ -914,24 +914,47 @@ Reads through the operator's own cf and gh logins.
   --full   print message text untruncated (default: 600 characters each)
   --help   show this message`;
 
-async function main(argv) {
+const FLAGS = new Set(['--json', '--full', '--help', '-h']);
+
+/**
+ * The command line, read strictly: one target and the flags above. A flag it doesn't know is refused
+ * by name rather than ignored, so a mistyped `--ful` doesn't quietly print a truncated session.
+ * @param {readonly string[]} argv
+ * @returns {{ help: true } | { error: string } | { target: string; json: boolean; full: boolean }}
+ */
+export function parseArguments(argv) {
+  const unknown = argv.filter((arg) => arg.startsWith('-') && !FLAGS.has(arg));
+  if (unknown.length > 0) {
+    return { error: `Unknown option${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}` };
+  }
   if (argv.includes('--help') || argv.includes('-h')) {
+    return { help: true };
+  }
+  const positional = argv.filter((arg) => !arg.startsWith('-'));
+  if (positional.length !== 1) {
+    return { error: positional.length === 0 ? 'Name a chat id, user email, or user id.' : 'Name only one target.' };
+  }
+  return { target: positional[0], json: argv.includes('--json'), full: argv.includes('--full') };
+}
+
+async function main(argv) {
+  const parsed = parseArguments(argv);
+  if ('help' in parsed) {
     console.log(USAGE);
     return 0;
   }
-  const positional = argv.filter((arg) => !arg.startsWith('--'));
-  if (positional.length !== 1) {
-    console.error(USAGE);
+  if ('error' in parsed) {
+    console.error(`${parsed.error}\n\n${USAGE}`);
     return 1;
   }
   // One cf process at a time: concurrent ones share one OAuth login, whose refresh can race.
-  const session = await collectSession(parseTarget(positional[0]), {
+  const session = await collectSession(parseTarget(parsed.target), {
     cf: cfReader(),
     gh: ghReader(),
     controlPlaneDatabaseId: await resolveControlPlaneDatabaseId(),
-    textLimit: argv.includes('--full') ? Number.MAX_SAFE_INTEGER : 600,
+    textLimit: parsed.full ? Number.MAX_SAFE_INTEGER : 600,
   });
-  console.log(argv.includes('--json') ? JSON.stringify(session, null, 2) : renderSession(session));
+  console.log(parsed.json ? JSON.stringify(session, null, 2) : renderSession(session));
   return session.found ? 0 : 1;
 }
 

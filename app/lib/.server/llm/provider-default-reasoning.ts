@@ -128,10 +128,27 @@ function pairedWithReasoning(item: ResponsesInputItem): boolean {
 }
 
 /**
+ * A stand-in for the id of an assistant message whose reasoning can't be replayed: OpenAI refuses the
+ * original id without that reasoning, and an output message's `id` is required. Pi itself replays a
+ * message it has no id for under a made-up `msg_pi_<n>` id, which OpenAI accepts, so this one is made
+ * up the same way: a hash of the original, so the same history always replays as the same bytes and
+ * keeps hitting the prompt cache.
+ */
+function unpairedMessageId(id: string | undefined, position: number): string {
+  // FNV-1a over the original id (or the item's position when it had none).
+  let hash = 0x811c9dc5;
+  for (const char of id ?? `position:${position}`) {
+    hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0;
+  }
+  return `msg_cc_${hash.toString(16).padStart(8, '0')}`;
+}
+
+/**
  * Drops replayed reasoning items that carry no `encrypted_content`: with `store: false` the provider
- * has nothing to look their ids up in. The output items they were paired with (tool calls, and the
- * assistant message) lose their ids too, which is how Pi itself replays an item it has no reasoning
- * for: OpenAI refuses an item id whose reasoning is missing as much as the reasoning itself.
+ * has nothing to look their ids up in. The output items they were paired with are unpaired too, as Pi
+ * itself replays an item it has no reasoning for: OpenAI refuses an item id whose reasoning is missing
+ * as much as the reasoning itself. A tool call loses its id (Pi sends a tool call from another model
+ * with none, which OpenAI accepts), and the assistant's message gets a made-up one in its place.
  */
 function withoutUnreplayableReasoning(input: ResponsesInputItem[]): ResponsesInputItem[] {
   let unpaired = false;
@@ -146,8 +163,8 @@ function withoutUnreplayableReasoning(input: ResponsesInputItem[]): ResponsesInp
     } else if (endsAssistantOutput(item)) {
       unpaired = false;
     } else if (unpaired && pairedWithReasoning(item)) {
-      const { id: _id, ...rest } = item;
-      kept.push(rest);
+      const { id, ...rest } = item;
+      kept.push(item.type === 'message' ? { ...rest, id: unpairedMessageId(id, kept.length) } : rest);
       continue;
     }
     kept.push(item);
@@ -164,7 +181,10 @@ function withResponsesReasoning(
   if (!requested && reasoning.effort !== undefined && off.has(reasoning.effort)) {
     delete reasoning.effort;
   }
-  if (summaries && reasoning.summary === undefined) {
+  if (summaries === 'refused') {
+    // Pi writes `summary: 'auto'` itself alongside a chosen effort; a key that refused them gets none.
+    delete reasoning.summary;
+  } else if (summaries && reasoning.summary === undefined) {
     reasoning.summary = 'auto';
   }
   if (Object.keys(reasoning).length > 0) {
@@ -182,8 +202,11 @@ function withResponsesReasoning(
 type ProviderDefaultReasoningOptions = {
   /** Whether the caller asked for a reasoning level; when it did, the level stands as Pi wrote it. */
   requested: boolean;
-  /** Whether the provider streams reasoning summaries on request (OpenAI's own Responses API). */
-  summaries?: boolean;
+  /**
+   * Whether the provider streams reasoning summaries on request (OpenAI's own Responses API), or
+   * `'refused'` when the key in use was refused them, so none is asked for, even one Pi wrote.
+   */
+  summaries?: boolean | 'refused';
 };
 
 /** The request body Pi wrote, corrected so no reasoning model is ever asked to stop reasoning. */

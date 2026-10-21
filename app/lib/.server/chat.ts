@@ -38,6 +38,7 @@ export async function createChatResponseFromBody({
   sessionAffinity,
   gatewayLogging,
   gatewayKeyAlias,
+  gatewayKeyRevision,
   workspace,
   cloudflareApi,
   linkedProject,
@@ -66,6 +67,8 @@ export async function createChatResponseFromBody({
   gatewayLogging?: WorkersAiGatewayLogging;
   /** For a gateway provider's model: the alias of the account's key for that provider. */
   gatewayKeyAlias?: string;
+  /** Which key that alias names, as Cloudflare last changed it: a different key forgets what the old one was refused. */
+  gatewayKeyRevision?: string;
   workspace: BuilderWorkspaceApi;
   cloudflareApi?: CloudflareApiModelToolContext;
   linkedProject?: LinkedProjectModelToolContext;
@@ -96,6 +99,7 @@ export async function createChatResponseFromBody({
       sessionAffinity,
       gatewayLogging,
       gatewayKeyAlias,
+      gatewayKeyRevision,
       workspace,
       cloudflareApi,
       linkedProject,

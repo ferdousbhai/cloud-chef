@@ -397,12 +397,16 @@ export async function claimProductionRequestForApproval(
                AND states.created_at = production_requests.claimed_at)))`,
       )
       .bind(now, args.requestId, args.orgId, lapsedApprovalClaimBefore(now), args.adminId),
-    // Only with the claim just made: the request is now this admin's, claimed at this moment.
+    // Only with the claim just made: the request is now this admin's, claimed at this moment. A claim's
+    // holder is the admin whose state carries its time, so another admin's claim made in the same
+    // millisecond (which the update above refused) writes no state that would let them take it over.
     db
       .prepare(
         `INSERT INTO github_approval_states (id, request_id, user_id, repo_name, private, expires_at, created_at)
          SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (
            SELECT 1 FROM production_requests WHERE id = ?2 AND status = 'approving' AND claimed_at = ?7
+         ) AND NOT EXISTS (
+           SELECT 1 FROM github_approval_states WHERE request_id = ?2 AND created_at = ?7 AND user_id <> ?3
          )`,
       )
       .bind(
@@ -479,13 +483,16 @@ export async function recordApprovedRequest(
   },
 ): Promise<string | null> {
   const now = args.now ?? Date.now();
-  const projectId = crypto.randomUUID();
+  const newProjectId = crypto.randomUUID();
   // The decision is written first, and the project and its access only behind it, all in one batch: the
   // request approved by this claim, with no project yet, is what the later statements look for.
   const approvedByThisClaim = `EXISTS (
     SELECT 1 FROM production_requests
     WHERE id = ?1 AND status = 'approved' AND claimed_at = ?2 AND project_id IS NULL
   )`;
+  // A retried approval's repository (made by the first try, which couldn't reach it) may have been
+  // linked as a project meanwhile: then that project is the one the request approves into.
+  const repositoryProject = `(SELECT id FROM org_projects WHERE org_id = ?3 AND repo_id = ?4)`;
   const [approved] = await db.batch([
     db
       .prepare(
@@ -497,15 +504,16 @@ export async function recordApprovedRequest(
     db
       .prepare(
         `INSERT INTO org_projects (id, org_id, name, repo_id, repo_full_name, default_branch, origin, created_by, created_at)
-         SELECT ?3, ?4, ?5, ?6, ?7, ?8, 'promoted', ?9, ?10 WHERE ${approvedByThisClaim}`,
+         SELECT ?5, ?3, ?6, ?4, ?7, ?8, 'promoted', ?9, ?10 WHERE ${approvedByThisClaim}
+         ON CONFLICT(org_id, repo_id) DO NOTHING`,
       )
       .bind(
         args.requestId,
         args.claimedAt,
-        projectId,
         args.orgId,
-        args.name,
         args.repository.id,
+        newProjectId,
+        args.name,
         args.repository.fullName,
         args.repository.defaultBranch,
         args.actorId,
@@ -514,18 +522,24 @@ export async function recordApprovedRequest(
     db
       .prepare(
         `INSERT INTO org_project_access (project_id, user_id, granted_by, granted_at)
-         SELECT ?3, ?4, ?5, ?6 WHERE ${approvedByThisClaim}
-           AND EXISTS (SELECT 1 FROM org_projects WHERE id = ?3)
+         SELECT ${repositoryProject}, ?5, ?6, ?7 WHERE ${approvedByThisClaim} AND ${repositoryProject} IS NOT NULL
          ON CONFLICT(project_id, user_id) DO NOTHING`,
       )
-      .bind(args.requestId, args.claimedAt, projectId, args.requestedBy, args.actorId, now),
+      .bind(args.requestId, args.claimedAt, args.orgId, args.repository.id, args.requestedBy, args.actorId, now),
     db
       .prepare(
-        `UPDATE production_requests SET project_id = ?3
+        `UPDATE production_requests SET project_id = ${repositoryProject}
          WHERE id = ?1 AND status = 'approved' AND claimed_at = ?2 AND project_id IS NULL
-           AND EXISTS (SELECT 1 FROM org_projects WHERE id = ?3)`,
+           AND ${repositoryProject} IS NOT NULL`,
       )
-      .bind(args.requestId, args.claimedAt, projectId),
+      .bind(args.requestId, args.claimedAt, args.orgId, args.repository.id),
   ]);
-  return approved?.meta.changes === 1 ? projectId : null;
+  if (approved?.meta.changes !== 1) {
+    return null;
+  }
+  const project = await db
+    .prepare('SELECT project_id FROM production_requests WHERE id = ?')
+    .bind(args.requestId)
+    .first<{ project_id: string | null }>();
+  return project?.project_id ?? newProjectId;
 }

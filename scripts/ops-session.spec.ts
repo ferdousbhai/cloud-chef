@@ -5,6 +5,7 @@ import {
   collectSession,
   conversationFromGateway,
   memberBranch,
+  parseArguments,
   parseTarget,
   readWorkspaceEvents,
   renderSession,
@@ -229,6 +230,16 @@ describe('ops:session reads production without changing it', () => {
     expect(parseTarget(' sara@example.com ')).toEqual({ value: 'sara@example.com', kind: 'email' });
     expect(parseTarget(CHAT)).toEqual({ value: CHAT, kind: 'id' });
     expect(() => parseTarget("x' OR 1=1 --")).toThrow();
+  });
+
+  it('refuses an option it does not know, by name, rather than ignoring it', () => {
+    expect(parseArguments([CHAT, '--json', '--full'])).toEqual({ target: CHAT, json: true, full: true });
+    expect(parseArguments([CHAT, '--ful'])).toEqual({ error: 'Unknown option: --ful' });
+    expect(parseArguments(['-j', CHAT, '--jsn'])).toEqual({ error: 'Unknown options: -j, --jsn' });
+    expect(parseArguments(['--help', '--nope'])).toMatchObject({ error: expect.stringContaining('--nope') });
+    expect(parseArguments(['-h'])).toEqual({ help: true });
+    expect(parseArguments([])).toMatchObject({ error: expect.any(String) });
+    expect(parseArguments([CHAT, USER])).toEqual({ error: 'Name only one target.' });
   });
 });
 

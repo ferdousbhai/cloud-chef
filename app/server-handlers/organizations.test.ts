@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
+import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
 import { createAuthSession, getAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import {
   acceptInviteAction,
@@ -372,6 +372,32 @@ describe('organizations', () => {
       .bind(otherOrgId)
       .run();
     expect((await invite(env, admin.cookie, otherOrgId, 'kim@acme.com')).status).toBe(409);
+  });
+
+  it('lets only one of two invites sent at once take the last place of the day, and counts only it', async () => {
+    const { database, env, signIn } = await setup();
+    const admin = await signIn('ada@acme.com');
+    const orgId = await createOrg(env, admin.cookie);
+    const insert = database.prepare(
+      `INSERT INTO organization_quota_events (kind, user_id, org_id, created_at) VALUES ('invite', ?, ?, ?)`,
+    );
+    for (let index = 0; index < 99; index += 1) {
+      insert.run(admin.userId, orgId, Date.now());
+    }
+    // The other invite is counted after this one checked the limits, and before it is written.
+    const racing = withStatementHook(env.DB, (query) => {
+      if (query.includes('INSERT INTO organization_invites')) {
+        insert.run(admin.userId, orgId, Date.now());
+      }
+    });
+
+    const refused = await invite({ ...env, DB: racing }, admin.cookie, orgId, 'sam@acme.com');
+
+    expect(refused.status).toBe(409);
+    expect(database.prepare('SELECT COUNT(*) AS count FROM organization_invites').get()).toEqual({ count: 0 });
+    expect(database.prepare('SELECT COUNT(*) AS count FROM organization_quota_events').get()).toEqual({
+      count: 101,
+    });
   });
 
   it('lets only admins invite, and only to accounts a person may use', async () => {
@@ -816,7 +842,7 @@ describe('a team’s name and deletion', () => {
     expect(database.prepare('SELECT COUNT(*) AS count FROM organizations').get()).toEqual({ count: 0 });
   });
 
-  it('reports no workspace left behind for a team whose connection lapsed, and tries none', async () => {
+  it('reports the workspaces of a team whose connection lapsed as left behind, trying none', async () => {
     const { database, env, admin, sam, orgId } = await team();
     database
       .prepare(
@@ -830,7 +856,7 @@ describe('a team’s name and deletion', () => {
 
     const { response, deleted } = remove(env, admin.cookie, orgId, { failFor: sam.userId });
 
-    expect(await (await response).json()).toMatchObject({ deleted: true, workspacesLeft: 0 });
+    expect(await (await response).json()).toMatchObject({ deleted: true, workspacesLeft: 1 });
     expect(deleted).toEqual([]);
   });
 

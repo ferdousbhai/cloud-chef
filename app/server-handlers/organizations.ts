@@ -313,14 +313,15 @@ export function deleteOrganizationAction({
     }
     const { orgId } = body.data;
     await prepareOrganizationDeletion(env.DB, { orgId, actorId: session.user.id });
-    // Only the workspaces there are, in an account CloudChef can still reach: a team never connected,
-    // or whose connection lapsed, has none to delete and none to report left behind.
+    // Only the workspaces there are: a team never connected has none. One in an account CloudChef can
+    // no longer reach (the connection lapsed or was revoked) can't be deleted, so it is reported left.
     const owners = await organizationWorkspaceOwners(env.DB, orgId);
-    let workspacesLeft = 0;
+    const reachable = owners.filter((owner) => owner.reachable).map((owner) => owner.userId);
+    let workspacesLeft = owners.length - reachable.length;
     // A few at a time, so a large team is neither one long sequence nor a burst at Cloudflare's API.
-    for (let start = 0; start < owners.length; start += WORKSPACE_DELETION_CONCURRENCY) {
+    for (let start = 0; start < reachable.length; start += WORKSPACE_DELETION_CONCURRENCY) {
       const outcomes = await Promise.all(
-        owners.slice(start, start + WORKSPACE_DELETION_CONCURRENCY).map((userId) =>
+        reachable.slice(start, start + WORKSPACE_DELETION_CONCURRENCY).map((userId) =>
           // A workspace that can't be deleted (no authorization, Cloudflare unreachable) is reported.
           deleteWorkspace(env, orgId, userId).then(
             () => true,

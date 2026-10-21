@@ -326,12 +326,13 @@ describe('the builder catalog an account is offered', () => {
     const binding = { models: vi.fn(async () => [model(CLOUDFLARE_WORKERS_AI_MODEL)]) };
     const linked = vi.fn(async (): Promise<GatewayKey[]> => [
       { provider: 'openai', alias: 'default' },
-      { provider: 'anthropic', alias: 'sg' },
+      { provider: 'anthropic', alias: 'sg', revision: 'config-sg@2026-10-01' },
     ]);
 
     await expect(requireBuilderModel(binding, 'anthropic/claude-opus-5-5', linked)).resolves.toEqual({
       model: expect.objectContaining({ id: 'anthropic/claude-opus-5-5' }),
       gatewayKeyAlias: 'sg',
+      gatewayKeyRevision: 'config-sg@2026-10-01',
     });
     await expect(requireBuilderModel(binding, 'openai/gpt-5', linked)).resolves.toMatchObject({
       gatewayKeyAlias: 'default',
