@@ -102,7 +102,14 @@ the account's default AI Gateway holds an Anthropic key. A model Pi does not lis
 account's own (BYOK), kept in its Secrets Store and attached to the gateway as the `anthropic` provider key; an
 organization's admins, or the person whose own account it is, link or unlink it in Settings with the connection's
 Cloudflare authorization (`aig.write`, `secrets-store.write`), and a pasted key goes to Cloudflare once, never into
-CloudChef's storage. A Claude request runs Pi's Anthropic Messages implementation in the runtime and is sent by the
+CloudChef's storage. Cloudflare's BYOK flow is the only one: it takes a pasted key and stores it as the secret
+`default_anthropic_cloudchef` (alias `cloudchef`, CloudChef's name, so relinking and unlinking delete it), and only on a
+gateway with authentication on and a Secrets Store linked. Linking first readies the gateway: one with both is left
+alone, one missing either is written back whole (Cloudflare's update replaces the gateway) with every other setting
+kept, authentication on, and the account's first store linked if it had none, and a missing gateway is created that
+way. Turning authentication on is reported in Settings, since the account's own apps calling the gateway over HTTP
+then need a gateway token; the runtime's Worker binding needs none. Linking an existing Secrets Store secret is not
+offered: Cloudflare's provider keys do not find one, however it is named. A Claude request runs Pi's Anthropic Messages implementation in the runtime and is sent by the
 Workers AI binding as a universal request to `env.AI.gateway('default')`, which the gateway authenticates as the
 account itself: no gateway token exists and no provider credential leaves the Worker, so the gateway adds the stored
 key. The logging choice above rides as `cf-aig-*` headers. The runtime asks the control plane

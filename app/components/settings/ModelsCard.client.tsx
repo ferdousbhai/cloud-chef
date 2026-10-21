@@ -22,10 +22,13 @@ const settingsSchema = z.object({
   canManage: z.boolean(),
   defaultModelId: z.string().nullable(),
   claude: claudeSchema,
-  secrets: z.array(z.object({ id: z.string(), name: z.string(), alias: z.string().nullable() })),
 });
 
 const claudeResponseSchema = z.object({ claude: claudeSchema });
+const linkResponseSchema = z.object({ claude: claudeSchema, authenticationTurnedOn: z.boolean() });
+
+const AUTHENTICATION_TURNED_ON_NOTE =
+  'Authentication is now on for this account’s default AI Gateway. CloudChef is unaffected; your own apps calling this gateway over HTTP now need a gateway token.';
 const defaultResponseSchema = z.object({ defaultModelId: z.string().nullable() });
 
 type Settings = z.infer<typeof settingsSchema>;
@@ -44,14 +47,11 @@ export function ModelsCard() {
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [busy, setBusy] = useState(false);
   const [apiKey, setApiKey] = useState('');
-  const [secretId, setSecretId] = useState('');
   const models = useStore(builderModelsStore);
   const catalogStatus = useStore(builderModelCatalogStatusStore);
 
   const refresh = useCallback(async () => {
-    const loaded = await getJson(PATH, settingsSchema);
-    setSettings(loaded);
-    setSecretId((current) => current || (loaded.secrets.find(({ alias }) => alias !== null)?.id ?? ''));
+    setSettings(await getJson(PATH, settingsSchema));
   }, []);
 
   useEffect(() => {
@@ -73,20 +73,21 @@ export function ModelsCard() {
     }
   };
 
-  const link = (body: { apiKey: string } | { secretId: string }) =>
+  const link = () =>
     act(async () => {
-      const { claude } = await postJson(`${PATH}/claude/link`, body, claudeResponseSchema);
+      const { claude, authenticationTurnedOn } = await postJson(`${PATH}/claude/link`, { apiKey }, linkResponseSchema);
       setApiKey('');
       setSettings((current) => (current ? { ...current, claude } : current));
       void loadBuilderModelCatalog();
-      return 'Claude is linked. It appears in the model picker within a minute.';
+      const linked = 'Claude is linked. It appears in the model picker within a minute.';
+      return authenticationTurnedOn ? `${linked} ${AUTHENTICATION_TURNED_ON_NOTE}` : linked;
     });
 
   const unlink = () =>
     act(async () => {
       const { claude } = await postJson(`${PATH}/claude/unlink`, {}, claudeResponseSchema);
       setSettings((current) => (current ? { ...current, claude } : current));
-      return 'Claude is unlinked. The key stays in your Secrets Store until you delete it there.';
+      return 'Claude is unlinked, and the key is deleted from your Secrets Store.';
     });
 
   const chooseDefault = (value: string) =>
@@ -100,8 +101,6 @@ export function ModelsCard() {
       return 'Saved. New chats start on this model; anyone can still switch.';
     });
 
-  const linkableSecrets = settings?.secrets.filter(({ alias }) => alias !== null) ?? [];
-  const otherSecrets = settings?.secrets.filter(({ alias }) => alias === null) ?? [];
   // The chosen default may be a model the account no longer offers (Claude unlinked since): still shown.
   const choices = models.some(({ id }) => id === settings?.defaultModelId)
     ? models
@@ -154,48 +153,17 @@ export function ModelsCard() {
 
           <h3 className="mt-5 text-sm font-medium text-content-primary">Claude</h3>
           <p className="mt-1 max-w-2xl text-sm text-content-secondary">
-            Claude runs through this account’s AI Gateway with the account’s own Anthropic key, kept in its Cloudflare
-            Secrets Store. Anthropic bills that key; CloudChef never sees or stores it.
+            Claude runs through this account’s AI Gateway with the account’s own Anthropic key. Cloudflare stores the
+            key you paste in the account’s own Secrets Store; Anthropic bills it, and CloudChef never keeps it.
           </p>
           <ClaudeStatusLine claude={settings.claude} />
           {settings.canManage && settings.claude.status !== 'reauthorization_required' ? (
             <div className="mt-3 grid gap-3">
-              {linkableSecrets.length > 0 ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    aria-label="Secrets Store secret"
-                    className="min-w-0 max-w-full rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-sm text-content-primary"
-                    value={secretId}
-                    disabled={busy}
-                    onChange={(event) => setSecretId(event.target.value)}
-                  >
-                    {linkableSecrets.map((secret) => (
-                      <option key={secret.id} value={secret.id}>
-                        {secret.name}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    size="sm"
-                    variant="neutral"
-                    disabled={busy || !secretId}
-                    onClick={() => void link({ secretId })}
-                  >
-                    Link
-                  </Button>
-                </div>
-              ) : null}
-              {otherSecrets.length > 0 ? (
-                <p className="text-xs text-content-tertiary">
-                  AI Gateway finds a key by its secret’s name, so only secrets named default_anthropic_… can be linked (
-                  {otherSecrets.map(({ name }) => name).join(', ')} can’t).
-                </p>
-              ) : null}
               <form
                 className="flex flex-wrap items-center gap-2"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void link({ apiKey });
+                  void link();
                 }}
               >
                 <input
@@ -212,6 +180,10 @@ export function ModelsCard() {
                   Save to Secrets Store
                 </Button>
               </form>
+              <p className="text-xs text-content-tertiary">
+                Cloudflare keeps AI Gateway keys only on a gateway with authentication on and a Secrets Store linked, so
+                linking turns those on for the default gateway if they’re off and keeps its other settings.
+              </p>
               {settings.claude.status === 'linked' ? (
                 <div>
                   <Button size="sm" variant="danger" disabled={busy} onClick={() => void unlink()}>

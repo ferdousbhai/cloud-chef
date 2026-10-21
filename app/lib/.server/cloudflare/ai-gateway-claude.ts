@@ -11,21 +11,25 @@ import { UserCloudflareAccountApi, type AiGatewayProviderKey } from './user-acco
 export const CLAUDE_GATEWAY_ID = 'default';
 export const ANTHROPIC_PROVIDER_SLUG = 'anthropic';
 
-/**
- * AI Gateway finds a provider key's secret by its name, `{gateway}_{provider}_{alias}`, not by the id
- * a provider key records, so only a secret named that way can be linked.
- */
-const LINKABLE_SECRET_NAME = new RegExp(`^${CLAUDE_GATEWAY_ID}_${ANTHROPIC_PROVIDER_SLUG}_([A-Za-z0-9_-]{1,64})$`);
+/** The alias CloudChef links the account's Anthropic key under. */
+export const CLAUDE_KEY_ALIAS = 'cloudchef';
 
-/** The alias a Secrets Store secret is linked under, or null when its name does not follow the convention. */
-export function linkableSecretAlias(secretName: string): string | null {
-  return LINKABLE_SECRET_NAME.exec(secretName)?.[1] ?? null;
-}
+/**
+ * The Secrets Store secret Cloudflare keeps that key in: AI Gateway names a provider key's secret
+ * `{gateway}_{provider}_{alias}`. The name is CloudChef's, so relinking and unlinking delete it.
+ */
+export const CLAUDE_KEY_SECRET_NAME = `${CLAUDE_GATEWAY_ID}_${ANTHROPIC_PROVIDER_SLUG}_${CLAUDE_KEY_ALIAS}`;
 
 /** What Settings and the runtimes need of the connected account's Cloudflare API. */
 export type ClaudeKeyAccountApi = Pick<
   UserCloudflareAccountApi,
-  'listAiGatewayProviderKeys' | 'addAiGatewayProviderKey' | 'deleteAiGatewayProviderKey' | 'listAiGatewaySecrets'
+  | 'listAiGatewayProviderKeys'
+  | 'addAiGatewayProviderKey'
+  | 'deleteAiGatewayProviderKey'
+  | 'prepareAiGatewayForKeys'
+  | 'listSecretsStores'
+  | 'listAiGatewaySecrets'
+  | 'deleteSecret'
 >;
 
 export type OpenClaudeKeyAccountApi = (env: Env, connection: CloudflareConnection) => Promise<ClaudeKeyAccountApi>;

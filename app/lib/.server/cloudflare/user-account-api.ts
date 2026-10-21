@@ -175,6 +175,40 @@ const secretsStoreSecretSchema = z.looseObject({
   scopes: z.array(z.string()).catch([]),
 });
 
+/** An AI Gateway's settings as Cloudflare returns them, each kept so an update can write it back. */
+const aiGatewaySettingsSchema = z.record(z.string(), z.json());
+
+/** What Cloudflare sets on a gateway itself, which an update must not send. */
+const READ_ONLY_AI_GATEWAY_FIELDS: ReadonlySet<string> = new Set([
+  'id',
+  'created_at',
+  'modified_at',
+  'is_default',
+  'internal',
+  'wholesale',
+]);
+
+/**
+ * The settings a gateway update must carry, as Cloudflare's own defaults. It reports "no rate limit"
+ * as null but accepts only a number, which is 0 for the same thing.
+ */
+const REQUIRED_AI_GATEWAY_SETTINGS = {
+  cache_invalidate_on_update: false,
+  cache_ttl: 0,
+  collect_logs: true,
+  rate_limiting_interval: 0,
+  rate_limiting_limit: 0,
+  rate_limiting_technique: 'fixed',
+} as const;
+
+/** Every setting of a gateway an update may write, as it is now; unset (null) ones are left to the defaults. */
+function writableGatewaySettings(gateway: z.infer<typeof aiGatewaySettingsSchema>) {
+  const kept = Object.fromEntries(
+    Object.entries(gateway).filter(([field, value]) => value !== null && !READ_ONLY_AI_GATEWAY_FIELDS.has(field)),
+  );
+  return { ...REQUIRED_AI_GATEWAY_SETTINGS, ...kept };
+}
+
 function aiGatewayProviderKey(value: z.infer<typeof aiGatewayProviderKeySchema>): AiGatewayProviderKey {
   return {
     id: value.id,
@@ -1007,20 +1041,15 @@ export class UserCloudflareAccountApi {
   }
 
   /**
-   * Stores a provider key on one of the account's AI Gateways, as its provider's default: either a
-   * new key, which Cloudflare keeps in the gateway's Secrets Store and CloudChef never keeps, or an
-   * existing Secrets Store secret, by id.
+   * Stores a new provider key on one of the account's AI Gateways, as its provider's default.
+   * Cloudflare keeps it in the gateway's Secrets Store as `{gateway}_{provider}_{alias}`; CloudChef
+   * never keeps it.
    */
   async addAiGatewayProviderKey(
     gatewayId: string,
-    key: { providerSlug: string; alias: string } & ({ secret: string } | { secretId: string }),
+    key: { providerSlug: string; alias: string; secret: string },
   ): Promise<AiGatewayProviderKey> {
-    const body = {
-      provider_slug: key.providerSlug,
-      alias: key.alias,
-      default_config: true,
-      ...('secret' in key ? { secret: key.secret } : { secret_id: key.secretId }),
-    };
+    const body = { provider_slug: key.providerSlug, alias: key.alias, default_config: true, secret: key.secret };
     const result = await this.call<unknown>(`/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/provider_configs`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -1039,16 +1068,76 @@ export class UserCloudflareAccountApi {
     );
   }
 
-  /** Every Secrets Store secret the account lets AI Gateway use: names and ids, never values. */
-  async listAiGatewaySecrets(): Promise<SecretsStoreSecret[]> {
+  /**
+   * Readies one of the account's AI Gateways to hold provider keys, which Cloudflare accepts only on a
+   * gateway with authentication on and a Secrets Store linked. A gateway that has both is left as it
+   * is. One missing either is written back whole, since an update replaces the gateway: every setting
+   * its admins chose is kept, authentication is turned on, and `storeId` is linked if it has no store
+   * yet. A gateway that does not exist yet is created ready. The answer is the store the gateway keeps
+   * its keys in, and whether authentication was off before (or the gateway new).
+   */
+  async prepareAiGatewayForKeys(
+    gatewayId: string,
+    storeId: string,
+  ): Promise<{ storeId: string; authenticationTurnedOn: boolean }> {
+    const path = `/ai-gateway/gateways/${encodeURIComponent(gatewayId)}`;
+    const found = await this.callOptional<unknown>(path, { method: 'GET' });
+    if (found === null) {
+      await this.call<unknown>('/ai-gateway/gateways', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: gatewayId,
+          ...REQUIRED_AI_GATEWAY_SETTINGS,
+          authentication: true,
+          store_id: storeId,
+        }),
+      });
+      return { storeId, authenticationTurnedOn: true };
+    }
+    const gateway = aiGatewaySettingsSchema.safeParse(found);
+    if (!gateway.success) {
+      throw new CloudflareAccountApiError('Cloudflare returned an invalid AI Gateway.');
+    }
+    const authentication = gateway.data.authentication === true;
+    // Cloudflare reports "no store" as an empty string.
+    const currentStoreId = z.string().min(1).safeParse(gateway.data.store_id).data ?? null;
+    if (currentStoreId !== null && authentication) {
+      return { storeId: currentStoreId, authenticationTurnedOn: false };
+    }
+    const linkedStoreId = currentStoreId ?? storeId;
+    await this.call<unknown>(path, {
+      method: 'PUT',
+      body: JSON.stringify({
+        ...writableGatewaySettings(gateway.data),
+        authentication: true,
+        store_id: linkedStoreId,
+      }),
+    });
+    return { storeId: linkedStoreId, authenticationTurnedOn: !authentication };
+  }
+
+  /** The account's Secrets Stores, by id. */
+  async listSecretsStores(): Promise<{ id: string }[]> {
     const stores = z
       .array(z.looseObject({ id: z.string().min(1).max(128) }))
       .safeParse(await this.listAllPages('/secrets_store/stores', 'Cloudflare returned invalid Secrets Stores.', 100));
     if (!stores.success) {
       throw new CloudflareAccountApiError('Cloudflare returned invalid Secrets Stores.');
     }
+    return stores.data.map(({ id }) => ({ id }));
+  }
+
+  /** Deletes a Secrets Store secret; one already gone is not an error. */
+  async deleteSecret(storeId: string, secretId: string): Promise<void> {
+    await this.deleteOptional(
+      `/secrets_store/stores/${encodeURIComponent(storeId)}/secrets/${encodeURIComponent(secretId)}`,
+    );
+  }
+
+  /** Every Secrets Store secret the account lets AI Gateway use: names and ids, never values. */
+  async listAiGatewaySecrets(): Promise<SecretsStoreSecret[]> {
     const secrets: SecretsStoreSecret[] = [];
-    for (const store of stores.data) {
+    for (const store of await this.listSecretsStores()) {
       const listed = z
         .array(secretsStoreSecretSchema)
         .safeParse(
