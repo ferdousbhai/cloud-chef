@@ -20,6 +20,7 @@ import {
   loadBuilderModelPreference,
   markBuilderModelsSeen,
   orderBuilderModelsForDisplay,
+  reloadBuilderModelCatalog,
   setBuilderModel,
   setBuilderReasoningLevel,
   syncBuilderModelPreference,
@@ -103,10 +104,69 @@ describe('builder model preference', () => {
   });
 
   it('keeps the safe fallback when discovery fails', async () => {
+    // Fresh modules, so no catalog has been installed yet.
+    vi.resetModules();
+    const fresh = await import('./builder-model.client');
+
+    await fresh.loadBuilderModelCatalog(async () => new Response(null, { status: 503 }));
+
+    expect(fresh.builderModelCatalogStatusStore.get()).toBe('error');
+    expect(fresh.builderModelsStore.get()).toEqual([DEFAULT_WORKERS_AI_MODEL]);
+  });
+
+  it('keeps the installed catalog, and says it is stale, when a refresh fails', async () => {
+    await loadBuilderModelCatalog(async () => Response.json(catalog), memoryStorage());
+
     await loadBuilderModelCatalog(async () => new Response(null, { status: 503 }));
 
-    expect(builderModelCatalogStatusStore.get()).toBe('error');
+    expect(builderModelCatalogStatusStore.get()).toBe('stale');
+    expect(builderModelsStore.get()).toEqual(catalog.models);
+  });
+
+  it('joins a request in flight, and a reload supersedes it with one of its own', async () => {
+    const responses: ((response: Response) => void)[] = [];
+    const request = vi.fn(() => new Promise<Response>((resolve) => responses.push(resolve)));
+    const storage = memoryStorage();
+
+    const beforeChange = loadBuilderModelCatalog(request, storage);
+    expect(loadBuilderModelCatalog(request, storage)).toBe(beforeChange);
+    const afterChange = reloadBuilderModelCatalog(request, storage);
+    expect(request).toHaveBeenCalledTimes(2);
+    let beforeChangeSettled = false;
+    void beforeChange.then(() => {
+      beforeChangeSettled = true;
+    });
+
+    // The request sent before the change answers last, with the catalog as it was.
+    responses[1]?.(Response.json({ defaultModelId: claudeModel.id, models: [claudeModel, DEFAULT_WORKERS_AI_MODEL] }));
+    await afterChange;
+    responses[0]?.(Response.json(catalog));
+    await beforeChange;
+
+    expect(beforeChangeSettled).toBe(true);
+    expect(builderModelsStore.get()).toEqual([claudeModel, DEFAULT_WORKERS_AI_MODEL]);
+    expect(builderModelCatalogStatusStore.get()).toBe('ready');
+  });
+
+  it('settles a superseded request only once the reload that superseded it has', async () => {
+    const responses: ((response: Response) => void)[] = [];
+    const request = vi.fn(() => new Promise<Response>((resolve) => responses.push(resolve)));
+
+    const beforeChange = loadBuilderModelCatalog(request, memoryStorage());
+    const afterChange = reloadBuilderModelCatalog(request, memoryStorage());
+    let beforeChangeSettled = false;
+    void beforeChange.then(() => {
+      beforeChangeSettled = true;
+    });
+    responses[0]?.(Response.json(catalog));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(beforeChangeSettled).toBe(false);
     expect(builderModelsStore.get()).toEqual([DEFAULT_WORKERS_AI_MODEL]);
+
+    responses[1]?.(Response.json(catalog));
+    await afterChange;
+    await beforeChange;
+    expect(builderModelsStore.get()).toEqual(catalog.models);
   });
 });
 

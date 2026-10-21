@@ -193,6 +193,23 @@ describe('a reasoning model asked for no level', () => {
     expect(requests[1]?.query.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
   });
 
+  it('speaks Anthropic Messages to a Claude on OpenRouter, so it thinks as it does on Anthropic', async () => {
+    const { requests, credentials } = gatewayBinding(refused);
+    await streamOnce(credentials, 'openrouter/anthropic/claude-sonnet-4.5');
+    await streamOnce(credentials, 'openrouter/anthropic/claude-opus-4.6');
+    expect(requests.map(({ provider, endpoint }) => `${provider} ${endpoint}`)).toEqual([
+      'openrouter v1/messages',
+      'openrouter v1/messages',
+    ]);
+    // No reasoning directive in OpenRouter's Chat Completions shape: thinking is Anthropic's own.
+    expect(requests[0]?.query).toMatchObject({ thinking: { type: 'enabled', budget_tokens: 16_384 } });
+    expect(requests[1]?.query.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
+    for (const { query } of requests) {
+      expect(query).not.toHaveProperty('reasoning');
+      expect(query).not.toHaveProperty('reasoning_effort');
+    }
+  });
+
   it('sends grok-4.3 and an OpenRouter reasoning model no effort at all', async () => {
     const { requests, credentials } = gatewayBinding(refused);
     await streamOnce(credentials, 'grok/grok-4.3');

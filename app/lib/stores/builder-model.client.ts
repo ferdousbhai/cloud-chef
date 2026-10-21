@@ -25,6 +25,9 @@ const BUILDER_REASONING_STORAGE_KEY = 'cloudchef_builder_reasoning_v1';
 /** One more than the catalog payload's ceiling, so a full catalog always fits. */
 const MAX_SEEN_MODEL_IDS = MAX_BUILDER_CATALOG_MODELS + 1;
 let pendingCatalog: Promise<void> | null = null;
+/** The most recent catalog request, which alone may install what it fetched. */
+let latestCatalog: Promise<void> = Promise.resolve();
+let catalogRequests = 0;
 /**
  * Until the live catalog arrives, `builderModelsStore` holds only the pinned default, so a
  * membership test would discard every other saved preference — including on the opening turn of a
@@ -47,7 +50,11 @@ const reasoningChoicesSchema = z.record(z.string(), z.unknown());
 export const builderModelStore = atom<BuilderModelId>(CLOUDFLARE_WORKERS_AI_MODEL);
 export const builderDefaultModelStore = atom<BuilderModelId>(CLOUDFLARE_WORKERS_AI_MODEL);
 export const builderModelsStore = atom<readonly BuilderModel[]>([DEFAULT_WORKERS_AI_MODEL]);
-type BuilderModelCatalogStatus = 'idle' | 'loading' | 'ready' | 'error';
+/**
+ * `error` is a catalog that never loaded, so only the default model is known; `stale` is a refresh
+ * that failed while an earlier catalog is installed, which still stands.
+ */
+type BuilderModelCatalogStatus = 'idle' | 'loading' | 'ready' | 'stale' | 'error';
 export const builderModelCatalogStatusStore = atom<BuilderModelCatalogStatus>('idle');
 
 /** The reasoning effort chosen per model id, as this browser keeps it. */
@@ -151,18 +158,40 @@ export function setBuilderReasoningLevel(
   }
 }
 
+/**
+ * Loads the account's catalog, joining a request already in flight. After a change to what the
+ * account offers (a key linked or unlinked) call `reloadBuilderModelCatalog`, whose request starts
+ * after that change rather than being one sent before it.
+ */
 export function loadBuilderModelCatalog(
   request: typeof fetchUserRuntime = fetchUserRuntime,
   storage?: BuilderModelStorage,
 ): Promise<void> {
-  if (pendingCatalog) {
-    return pendingCatalog;
-  }
+  return pendingCatalog ?? requestBuilderModelCatalog(request, storage);
+}
+
+/**
+ * Loads the account's catalog with a request of its own. A request still in flight is superseded:
+ * whatever it fetches is discarded, and it settles when this one does.
+ */
+export function reloadBuilderModelCatalog(
+  request: typeof fetchUserRuntime = fetchUserRuntime,
+  storage?: BuilderModelStorage,
+): Promise<void> {
+  return requestBuilderModelCatalog(request, storage);
+}
+
+function requestBuilderModelCatalog(request: typeof fetchUserRuntime, storage?: BuilderModelStorage): Promise<void> {
+  const requestNumber = ++catalogRequests;
+  const superseded = () => requestNumber !== catalogRequests;
   builderModelCatalogStatusStore.set('loading');
-  const operation = request('/v1/models', { headers: { Accept: 'application/json' } })
+  const operation: Promise<void> = request('/v1/models', { headers: { Accept: 'application/json' } })
     .then(async (response) => {
       const parsed = builderModelCatalogPayloadSchema.safeParse(await response.json().catch(() => null));
       const payload = parsed.success ? validateBuilderModelCatalogPayload(parsed.data) : null;
+      if (superseded()) {
+        return;
+      }
       if (!response.ok || payload === null) {
         throw new Error('The Workers AI model catalog response is invalid.');
       }
@@ -170,14 +199,18 @@ export function loadBuilderModelCatalog(
       builderModelCatalogStatusStore.set('ready');
     })
     .catch(() => {
-      builderModelCatalogStatusStore.set('error');
+      if (!superseded()) {
+        builderModelCatalogStatusStore.set(catalogInstalled ? 'stale' : 'error');
+      }
     })
     .finally(() => {
       if (pendingCatalog === operation) {
         pendingCatalog = null;
       }
-    });
+    })
+    .then(() => (superseded() ? latestCatalog : undefined));
   pendingCatalog = operation;
+  latestCatalog = operation;
   return operation;
 }
 

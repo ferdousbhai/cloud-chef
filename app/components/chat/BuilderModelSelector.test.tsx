@@ -11,9 +11,11 @@ import {
 } from '~/lib/workers-ai-model';
 
 import {
+  builderModelCatalogStatusStore,
   builderModelStore,
   builderNewModelsStore,
   installBuilderModelCatalog,
+  loadBuilderModelCatalog,
   loadBuilderModelPreference,
 } from '~/lib/stores/builder-model.client';
 import { BuilderModelSelector } from './BuilderModelSelector.client';
@@ -38,12 +40,14 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
   });
   installBuilderModelCatalog(
     { defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] },
     { getItem: () => null },
   );
   loadBuilderModelPreference({ getItem: () => null });
+  builderModelCatalogStatusStore.set('ready');
 });
 
 afterEach(async () => {
@@ -195,6 +199,23 @@ describe('BuilderModelSelector', () => {
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
   });
+
+  it('keeps listing the installed catalog, and says it is not current, when a refresh fails', async () => {
+    await renderSelector(() => {
+      installTestCatalog();
+      void loadBuilderModelCatalog(async () => new Response(null, { status: 503 }));
+    });
+
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
+    await act(async () => {
+      trigger?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    });
+
+    expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(2);
+    const status = document.querySelector('[role="status"]')?.textContent;
+    expect(status).toContain('could not be refreshed just now, so these are the models it last listed');
+    expect(status).not.toContain('Only the default model is available');
+  });
 });
 
 describe('BuilderModelSelector without a catalog', () => {
@@ -241,6 +262,8 @@ describe('BuilderModelSelector without a catalog', () => {
       expect(fresh.builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
     } finally {
       await freshAct(async () => freshRoot.unmount());
+      container.remove();
+      localStorage.removeItem('cloudchef_builder_model_v2');
     }
   });
 });

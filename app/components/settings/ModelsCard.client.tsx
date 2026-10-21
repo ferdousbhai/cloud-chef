@@ -8,6 +8,7 @@ import {
   builderModelCatalogStatusStore,
   builderModelsStore,
   loadBuilderModelCatalog,
+  reloadBuilderModelCatalog,
 } from '~/lib/stores/builder-model.client';
 import {
   CLOUDFLARE_WORKERS_AI_MODEL,
@@ -119,7 +120,7 @@ export function ModelsCard() {
           linkResponseSchema,
         );
         setSettings((current) => (current ? { ...current, keys } : current));
-        void loadBuilderModelCatalog();
+        void reloadBuilderModelCatalog();
         return [
           `${GATEWAY_PROVIDERS[provider].label} is linked. Its models appear in the model picker within a minute.`,
           ...(previousKeysRemain ? [PREVIOUS_KEYS_REMAIN_NOTE] : []),
@@ -134,7 +135,7 @@ export function ModelsCard() {
       async () => {
         const { keys } = await postJson(`${PATH}/keys/unlink`, { provider }, keysResponseSchema);
         setSettings((current) => (current ? { ...current, keys } : current));
-        void loadBuilderModelCatalog();
+        void reloadBuilderModelCatalog();
         return `CloudChef’s ${GATEWAY_PROVIDERS[provider].label} key is removed, and deleted from your Secrets Store.`;
       },
       { refreshOnFailure: true },
@@ -211,6 +212,10 @@ export function ModelsCard() {
           </select>
           {catalogStatus === 'error' ? (
             <p className="mt-1 text-xs text-content-tertiary">The account’s model list could not be loaded just now.</p>
+          ) : catalogStatus === 'stale' ? (
+            <p className="mt-1 text-xs text-content-tertiary">
+              The account’s model list could not be refreshed just now, so these are the models it last listed.
+            </p>
           ) : null}
 
           <h3 className="mt-5 text-sm font-medium text-content-primary">Provider keys</h3>
