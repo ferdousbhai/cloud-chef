@@ -118,10 +118,20 @@ function endsAssistantOutput(item: ResponsesInputItem): boolean {
   );
 }
 
+/** The output items a reasoning item is paired with by id: its tool calls and the assistant's message. */
+function pairedWithReasoning(item: ResponsesInputItem): boolean {
+  return (
+    item.type === 'function_call' ||
+    item.type === 'custom_tool_call' ||
+    (item.type === 'message' && item.role === 'assistant')
+  );
+}
+
 /**
  * Drops replayed reasoning items that carry no `encrypted_content`: with `store: false` the provider
- * has nothing to look their ids up in. The tool-call items they were paired with lose their ids too,
- * which is how Pi itself replays a call it has no reasoning for.
+ * has nothing to look their ids up in. The output items they were paired with (tool calls, and the
+ * assistant message) lose their ids too, which is how Pi itself replays an item it has no reasoning
+ * for: OpenAI refuses an item id whose reasoning is missing as much as the reasoning itself.
  */
 function withoutUnreplayableReasoning(input: ResponsesInputItem[]): ResponsesInputItem[] {
   let unpaired = false;
@@ -135,7 +145,7 @@ function withoutUnreplayableReasoning(input: ResponsesInputItem[]): ResponsesInp
       unpaired = false;
     } else if (endsAssistantOutput(item)) {
       unpaired = false;
-    } else if (unpaired && (item.type === 'function_call' || item.type === 'custom_tool_call')) {
+    } else if (unpaired && pairedWithReasoning(item)) {
       const { id: _id, ...rest } = item;
       kept.push(rest);
       continue;

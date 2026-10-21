@@ -330,6 +330,42 @@ describe('withProviderDefaultReasoning', () => {
     ]);
   });
 
+  it("unpairs the assistant's message from reasoning it cannot replay, and only that", () => {
+    const message = (id: string) => ({
+      type: 'message',
+      role: 'assistant',
+      id,
+      status: 'completed',
+      content: [{ type: 'output_text', text: 'Done.', annotations: [] }],
+    });
+    const body = withProviderDefaultReasoning(
+      responsesModel,
+      {
+        input: [
+          { role: 'user', content: 'go' },
+          { type: 'reasoning', id: 'rs_lost', summary: [] },
+          message('msg_lost'),
+          { role: 'user', content: 'again' },
+          { type: 'reasoning', id: 'rs_kept', summary: [], encrypted_content: 'x' },
+          message('msg_kept'),
+          { role: 'user', content: 'and again' },
+          message('msg_alone'),
+        ],
+      },
+      { requested: false },
+    );
+    const { id: _lost, ...unpaired } = message('msg_lost');
+    expect(body.input).toEqual([
+      { role: 'user', content: 'go' },
+      unpaired,
+      { role: 'user', content: 'again' },
+      { type: 'reasoning', id: 'rs_kept', summary: [], encrypted_content: 'x' },
+      message('msg_kept'),
+      { role: 'user', content: 'and again' },
+      message('msg_alone'),
+    ]);
+  });
+
   it('never strips a level the caller asked for', () => {
     expect(
       withProviderDefaultReasoning(responsesModel, { reasoning: { effort: 'none' } }, { requested: true }).reasoning,
