@@ -34,7 +34,7 @@ means no invocation ended in `exception`, `exceededCpu`, or any other non-benign
 nothing about handled errors, logged warnings, or anything a request logged on its way to a 200, so do not report this
 check as "no errors in the logs". The counts come from Workers Logs, which are head-sampled, so they are logged
 invocations rather than every one; the fault share is what the status is judged on. When it names faults, the exception
-text is one `cf observability telemetry query` away (view `events`, filtered on `$workers.outcome`). A window with no
+text is one `cf o11y telemetry query` away (view `events`, filtered on `$workers.outcome`). A window with no
 invocations at all is reported as needing attention, because this Worker serves cloudchef.build and fires a cron every
 15 minutes.
 
@@ -49,7 +49,7 @@ code.
 
 `scripts/ops-report.mjs`, a plain ESM Node script. It reads production control-plane D1 with `cf d1 query` (the
 database id comes from `cloudflare.config.ts`), the control-plane Worker's invocation outcomes from Workers Logs with
-`cf observability telemetry query` run as a dry run, which saves no query or result, and the Workers AI catalog with
+`cf o11y telemetry query` run as a dry run, which saves no query or result, and the Workers AI catalog with
 `cf ai models list`, all under the operator's existing `cf` login. Every statement is a `SELECT` and every command is a
 read; the tool never writes, deletes, or upgrades anything, and holds no credential of its own. If the login can see more
 than one account, set `CLOUDFLARE_ACCOUNT_ID` so `cf` knows which one to ask about.

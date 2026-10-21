@@ -50,7 +50,7 @@ const COMMITS = 5;
 const READ_ONLY_CF_COMMANDS = Object.freeze([
   'd1 query',
   'd1 list',
-  'observability telemetry query',
+  'o11y telemetry query',
   'ai-gateway logs list',
   'ai-gateway logs get-request',
   'ai-gateway logs get-response',
@@ -74,7 +74,7 @@ export function assertReadOnlyCf(args) {
       throw new Error('ops:session issues only single SELECT statements.');
     }
   }
-  if (command === 'observability telemetry query' && JSON.parse(args[args.indexOf('--body') + 1]).dry !== true) {
+  if (command === 'o11y telemetry query' && JSON.parse(args[args.indexOf('--body') + 1]).dry !== true) {
     throw new Error('ops:session issues only dry-run Workers Logs queries, which save nothing.');
   }
 }
@@ -162,13 +162,7 @@ export async function readWorkspaceEvents(cf, { workerName, from, to, accountId 
   let end = to;
   for (let page = 0; page < EVENTS_MAX_PAGES; page += 1) {
     const answer = await cf(
-      [
-        'observability',
-        'telemetry',
-        'query',
-        '--body',
-        JSON.stringify(workspaceEventsQuery({ workerName, from, to: end })),
-      ],
+      ['o11y', 'telemetry', 'query', '--body', JSON.stringify(workspaceEventsQuery({ workerName, from, to: end }))],
       { accountId },
     );
     const status = answer?.run?.status;

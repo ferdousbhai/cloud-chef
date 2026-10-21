@@ -200,7 +200,7 @@ and check runs for a GitHub project. It refuses any `cf` command outside a read-
 read is reported as unknown with the reason. Conversation content exists only for people who kept AI Gateway logging on.
 
 `scripts/ops-report.mjs` reads production control-plane D1 with `cf d1 query`, the control-plane Worker's invocation
-outcomes from Workers Logs with a dry-run `cf observability telemetry query`, and the Workers AI catalog with
+outcomes from Workers Logs with a dry-run `cf o11y telemetry query`, and the Workers AI catalog with
 `cf ai models list`, all under your existing `cf` login. It issues only `SELECT` statements and holds no secret of its own. Problems
 are printed first; a check the tool could not answer is reported as unknown together with the reason, rather than as a
 zero that reads as healthy. Runtime staleness is measured against `app/generated/user-workspace-runtime.generated.ts`,

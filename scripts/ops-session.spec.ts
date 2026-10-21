@@ -139,7 +139,7 @@ function fakeProduction() {
         ],
       };
     }
-    if (command === 'observability telemetry query') {
+    if (command === 'o11y telemetry query') {
       return {
         run: { status: 'COMPLETED' },
         events: {
@@ -190,7 +190,7 @@ describe('ops:session reads production without changing it', () => {
       ['d1', 'query', 'db', '--body', JSON.stringify({ sql: 'SELECT 1; DROP TABLE chats' })],
       ['d1', 'query', 'db', '--sql', 'SELECT 1'],
       ['ai-gateway', 'logs', 'delete', '--gateway-id', 'default'],
-      ['observability', 'telemetry', 'query', '--body', JSON.stringify({ dry: false })],
+      ['o11y', 'telemetry', 'query', '--body', JSON.stringify({ dry: false })],
       ['deploy'],
     ]) {
       expect(() => assertReadOnlyCf(args), args.join(' ')).toThrow();
@@ -253,7 +253,7 @@ describe('ops:session reconstruction', () => {
     const gatewayList = production.calls.find((call) => call.args.slice(0, 3).join(' ') === 'ai-gateway logs list');
     expect(gatewayList?.args).toContain(JSON.stringify([{ key: 'metadata.value', operator: 'eq', value: [INITIAL] }]));
     // The log window is anchored on the conversation's requests and activity.
-    const telemetry = production.calls.find((call) => call.args[0] === 'observability');
+    const telemetry = production.calls.find((call) => call.args[0] === 'o11y');
     const body = JSON.parse(telemetry?.args[4] ?? '{}');
     expect(body).toMatchObject({ dry: true, view: 'events' });
     expect(body.timeframe.from).toBeLessThan(Date.parse('2026-10-20T12:59:00.000Z'));
@@ -282,7 +282,7 @@ describe('ops:session reconstruction', () => {
       if (sql.startsWith('SELECT id, email') && sql.includes('lower(email)')) {
         return d1Rows([]);
       }
-      if (args[0] === 'observability') {
+      if (args[0] === 'o11y') {
         throw new Error('Authentication error [code: 10000]');
       }
       return production.cf(args, options);

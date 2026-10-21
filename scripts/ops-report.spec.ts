@@ -64,7 +64,7 @@ describe('read-only production access', () => {
     );
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.slice(0, 6)).toEqual(['exec', 'cf', 'observability', 'telemetry', 'query', '--body']);
+    expect(calls[0]?.slice(0, 6)).toEqual(['exec', 'cf', 'o11y', 'telemetry', 'query', '--body']);
     const body = JSON.parse(calls[0]?.[6] ?? 'null');
     expect(body).toEqual(workerInvocationsQuery(NOW));
     expect(body).toMatchObject({
@@ -214,7 +214,7 @@ describe('control-plane Worker check', () => {
       detail: { invocations: 655, faulted: 12, byStatus: { ok: 640, canceled: 3, exception: 12 }, logsAvailable: true },
     });
     expect(worker?.sentence).toContain('(exception 12)');
-    expect(worker?.sentence).toContain('cf observability telemetry query');
+    expect(worker?.sentence).toContain('cf o11y telemetry query');
   });
 
   it('reports a Workers Logs shape it cannot read as drift, not as zero invocations', async () => {

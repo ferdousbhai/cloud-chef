@@ -301,7 +301,7 @@ function describeWorkerInvocations(rows, { windowMs = WORKER_INVOCATION_WINDOW_M
     .join(', ');
   return {
     level: faulted >= total * INVOCATION_FAULT_ERROR_RATE ? 'error' : 'attention',
-    sentence: `${WORKER_SCRIPT_NAME} failed inside the Worker on ${faulted} of ${total} ${plural(total, 'invocation')} in the last ${window} (${named}).${note} Read the exception text with \`cf observability telemetry query\` (view \`events\`, filtered on \`${OUTCOME_FIELD}\`).`,
+    sentence: `${WORKER_SCRIPT_NAME} failed inside the Worker on ${faulted} of ${total} ${plural(total, 'invocation')} in the last ${window} (${named}).${note} Read the exception text with \`cf o11y telemetry query\` (view \`events\`, filtered on \`${OUTCOME_FIELD}\`).`,
     detail,
   };
 }
@@ -424,10 +424,10 @@ export function workerInvocationsQuery(now) {
  * @returns {Promise<Array<Record<string, unknown>>>} one aggregate per invocation outcome
  */
 export async function readWorkerInvocations({ now = Date.now(), run = execFileAsync, env = process.env } = {}) {
-  const payload = await runCf(
-    ['observability', 'telemetry', 'query', '--body', JSON.stringify(workerInvocationsQuery(now))],
-    { run, env },
-  );
+  const payload = await runCf(['o11y', 'telemetry', 'query', '--body', JSON.stringify(workerInvocationsQuery(now))], {
+    run,
+    env,
+  });
   return readInvocationGroups(payload);
 }
 
@@ -737,7 +737,7 @@ function check(id, title, status, sentence, { at = null, now = null, detail = {}
 }
 
 /** The hint every unreadable Worker check carries, since the read is not a D1 one. */
-const WORKER_CHECK_HINT = `Read from Workers Logs for the "${WORKER_SCRIPT_NAME}" script with \`cf observability telemetry query\` through the operator's own cf login.`;
+const WORKER_CHECK_HINT = `Read from Workers Logs for the "${WORKER_SCRIPT_NAME}" script with \`cf o11y telemetry query\` through the operator's own cf login.`;
 
 function buildWorkerCheck(invocationsAttempt, now) {
   if (!invocationsAttempt.ok) {
