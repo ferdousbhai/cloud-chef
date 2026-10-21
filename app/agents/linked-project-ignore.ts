@@ -60,7 +60,8 @@ export function gitignoreMatcher(gitignores: readonly { path: string; content: s
 /**
  * A `.gitignore`'s rules in order, each held as a negation: `ignore` tests a path's directories before
  * the path itself and stops at one a rule ignores, but a negation never ignores, so its `unignored` says
- * whether the pattern matches that exact path.
+ * whether the pattern matches that exact path. A line `ignore` can't compile (one ending in an odd run of
+ * three or more backslashes) is dropped, as git leaves out a pattern it can't use.
  */
 function parseRules(content: string): { ignores: boolean; matches: ignore.Ignore }[] {
   const rules: { ignores: boolean; matches: ignore.Ignore }[] = [];
@@ -69,7 +70,14 @@ function parseRules(content: string): { ignores: boolean; matches: ignore.Ignore
       continue;
     }
     const ignores = !line.startsWith('!');
-    rules.push({ ignores, matches: ignore({ ignorecase: false }).add(ignores ? `!${line}` : line) });
+    const matches = ignore({ ignorecase: false }).add(ignores ? `!${line}` : line);
+    try {
+      // `ignore` compiles a rule the first time it tests a path, any path.
+      matches.test('a');
+    } catch {
+      continue;
+    }
+    rules.push({ ignores, matches });
   }
   return rules;
 }

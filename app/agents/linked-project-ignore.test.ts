@@ -101,6 +101,17 @@ describe('gitignoreMatcher', () => {
     expect(patterns('trail.txt')).toBe(true);
   });
 
+  it('passes over a line ending in an odd run of backslashes, as git does, and keeps the rest of the file', () => {
+    const ignored = gitignoreMatcher([
+      { path: '.gitignore', content: 'a\\\\\\\n*.log\n' },
+      { path: 'sub/.gitignore', content: 'x\\\\\\\\\\\n' },
+    ]);
+    expect(ignored('a')).toBe(false);
+    expect(ignored('a\\')).toBe(false);
+    expect(ignored('x.log')).toBe(true);
+    expect(ignored('sub/x')).toBe(false);
+  });
+
   it('ignores nothing without a .gitignore', () => {
     expect(gitignoreMatcher([])('coverage/index.html')).toBe(false);
   });
