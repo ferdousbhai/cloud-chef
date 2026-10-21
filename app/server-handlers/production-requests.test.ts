@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 import { z } from 'zod';
-import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
+import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
 import { createAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { GitHubApp } from '~/lib/.server/github/github-app';
 import { promotedDraftFiles, readDraftSnapshot } from '~/lib/.server/github/promote-draft';
@@ -710,6 +710,63 @@ describe('production requests', () => {
       status: 'pending',
       claimed_at: null,
     });
+  });
+
+  it('hands the request back and returns to Settings when D1 or the network fails during an approval', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const approveWith = async (fails: (query: string) => boolean, during?: DuringApproval['commit']) => {
+      const { database, env, admin, app, during: duringApproval } = await setup();
+      const started = await approveProductionRequestAction({
+        request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+          orgId: ORG,
+          requestId: REQUEST,
+          repoName: 'new-app',
+          private: true,
+        }),
+        env,
+        app,
+      });
+      const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+      const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+      duringApproval.commit = during;
+      const failing = withStatementHook(env.DB, (query) => {
+        if (fails(query)) {
+          throw new Error('D1_ERROR: storage operation exceeded timeout');
+        }
+      });
+      const returned = await completeGitHubInstallAction({
+        request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+          headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+        }),
+        env: envWith({ ...env, DB: failing }),
+        app,
+      });
+      expect(returned.status).toBe(303);
+      expect(returnedMessage(returned)).toBe('GitHub refused part of the approval. Approve again.');
+      expect(returned.headers.get('Set-Cookie')).toContain('cloudchef_github_approval=;');
+      return database.prepare('SELECT status, claimed_at, project_id FROM production_requests').get();
+    };
+    const released = { status: 'pending', claimed_at: null, project_id: null };
+
+    // D1 fails recording the approved request: the claim is released.
+    expect(await approveWith((query) => query.includes("SET status = 'approved'"))).toEqual(released);
+    // The network fails while the draft is committed.
+    expect(
+      await approveWith(
+        () => false,
+        async () => {
+          throw new TypeError('Network connection lost.');
+        },
+      ),
+    ).toEqual(released);
+    expect(logged).toHaveBeenCalledWith('A production approval failed', 'TypeError: Network connection lost.');
+    // D1 can't release the claim either: the browser still returns to Settings, and the claim lapses later.
+    expect(
+      await approveWith(
+        (query) => query.includes("SET status = 'approved'") || query.includes("SET status = 'pending'"),
+      ),
+    ).toMatchObject({ status: 'approving' });
+    logged.mockRestore();
   });
 
   it('lets an approval that never finished lapse, so the request can still be decided', async () => {

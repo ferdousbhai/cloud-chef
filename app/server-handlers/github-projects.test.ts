@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
@@ -296,6 +296,35 @@ describe('GitHub projects', () => {
     expect(refused.status).toBe(303);
     expect(githubMessage(refused)).toBe('Only the owner of that GitHub account or organization can connect it.');
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM github_installations').first()).toEqual({ n: 0 });
+  });
+
+  it('sends a browser back to Settings when D1 or the network fails while recording an installation', async () => {
+    const { env, orgId, admin, app } = await setup();
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const failingD1 = envWith({
+      ...env,
+      DB: withStatementHook(env.DB, (query) => {
+        if (query.includes('INSERT INTO github_installations')) {
+          throw new Error('D1_ERROR: storage operation exceeded timeout');
+        }
+      }),
+    });
+    const unsaved = await install(failingD1, app, admin.cookie, orgId);
+    expect(unsaved.status).toBe(303);
+    expect(githubMessage(unsaved)).toBe('GitHub refused the connection. Connect GitHub again.');
+
+    const offline = new GitHubApp(
+      { clientId: 'Iv1.test', clientSecret: 'secret', privateKey: 'unused', slug: 'cloudchef' },
+      async () => {
+        throw new TypeError('Network connection lost.');
+      },
+    );
+    const unreached = await install(env, offline, admin.cookie, orgId);
+    expect(unreached.status).toBe(303);
+    expect(githubMessage(unreached)).toBe('GitHub refused the connection. Connect GitHub again.');
+    expect(logged).toHaveBeenCalledWith('A CloudChef installation failed', 'TypeError: Network connection lost.');
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM github_installations').first()).toEqual({ n: 0 });
+    logged.mockRestore();
   });
 
   it("doesn't let a member connect GitHub", async () => {

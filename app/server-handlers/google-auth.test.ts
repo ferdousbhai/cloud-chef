@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
+import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
 import { getAuthSession } from '~/lib/.server/auth';
 import { z } from 'zod';
 import {
@@ -137,6 +137,28 @@ describe('Google sign-in', () => {
       fetchGoogle: google({ sub: 'g-2', email: 'sam@acme.com', email_verified: true }),
     });
     expect(taken.status).toBe(409);
+  });
+
+  it('answers a sign-in whose state D1 fails to claim as a failed sign-in, not a route error', async () => {
+    const { env } = setup();
+    const { state } = await start(env);
+    const failing = withStatementHook(env.DB, (query) => {
+      if (query.includes('UPDATE google_sign_in_states')) {
+        throw new Error('D1_ERROR: storage operation exceeded timeout');
+      }
+    });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const fetchGoogle = google({});
+    const failed = await completeGoogleSignInAction({
+      request: callback(state),
+      env: { ...env, DB: failing },
+      fetchGoogle,
+    });
+    expect(failed.status).toBe(500);
+    expect(await failed.json()).toEqual({ error: 'Google sign-in failed.' });
+    expect(logged).toHaveBeenCalledWith('Google sign-in failed');
+    expect(fetchGoogle).not.toHaveBeenCalled();
+    logged.mockRestore();
   });
 
   it("has Google return to CloudChef's own address, whichever hostname the request reached", async () => {

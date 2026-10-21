@@ -92,13 +92,19 @@ export async function completeGoogleSignInAction({
     return Response.json({ error: 'Google sign-in browser state did not match.' }, { status: 400 });
   }
   const now = Date.now();
-  const pending = await env.DB.prepare(
-    `UPDATE google_sign_in_states SET used_at = ?
-     WHERE id = ? AND used_at IS NULL AND expires_at > ?
-     RETURNING code_verifier, return_to`,
-  )
-    .bind(now, state, now)
-    .first<{ code_verifier: string; return_to: string }>();
+  // A failure to claim the state, such as D1's, is this sign-in failing like any other below.
+  let pending: { code_verifier: string; return_to: string } | null;
+  try {
+    pending = await env.DB.prepare(
+      `UPDATE google_sign_in_states SET used_at = ?
+       WHERE id = ? AND used_at IS NULL AND expires_at > ?
+       RETURNING code_verifier, return_to`,
+    )
+      .bind(now, state, now)
+      .first<{ code_verifier: string; return_to: string }>();
+  } catch {
+    return signInFailed();
+  }
   if (!pending) {
     return Response.json({ error: 'This Google sign-in has expired. Start again.' }, { status: 410 });
   }
@@ -152,9 +158,14 @@ export async function completeGoogleSignInAction({
     if (error instanceof z.ZodError) {
       return Response.json({ error: 'Google returned an unexpected response.' }, { status: 502 });
     }
-    console.error('Google sign-in failed');
-    return Response.json({ error: 'Google sign-in failed.' }, { status: 500 });
+    return signInFailed();
   }
+}
+
+/** Nothing about the request or what Google returned is logged. */
+function signInFailed(): Response {
+  console.error('Google sign-in failed');
+  return Response.json({ error: 'Google sign-in failed.' }, { status: 500 });
 }
 
 function redirect(location: URL, cookie: string): Response {

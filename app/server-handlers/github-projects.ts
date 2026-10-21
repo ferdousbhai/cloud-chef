@@ -190,7 +190,12 @@ export async function completeGitHubInstallAction({
       console.error('GitHub refused a CloudChef installation', error.status);
       return back('install_failed');
     }
-    throw error;
+    // Any other failure, such as D1's or the network's, still returns this browser to Settings.
+    console.error(
+      'A CloudChef installation failed',
+      error instanceof Error ? `${error.name}: ${error.message}` : 'not an Error',
+    );
+    return back('install_failed');
   }
 }
 
@@ -425,8 +430,13 @@ async function completeProductionApproval(args: {
     if (error instanceof PayloadTooLargeError) {
       return await fail('draft_too_large');
     }
-    await releaseApprovalClaim(env.DB, productionRequest.id, productionRequest.claimedAt);
-    throw error;
+    // Any other failure, such as D1's or the network's, hands the request back if D1 can, and returns this
+    // browser to Settings either way.
+    console.error(
+      'A production approval failed',
+      error instanceof Error ? `${error.name}: ${error.message}` : 'not an Error',
+    );
+    return await fail('approval_failed').catch(() => back('approval_failed'));
   }
 }
 
