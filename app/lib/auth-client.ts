@@ -108,6 +108,13 @@ export function retrySession() {
   void loadSession();
 }
 
+/** Loads the session again after a change it reflects, such as a team's new name in `contexts`. */
+export async function refreshSession() {
+  // A check already under way may have started before the change, so this one follows it.
+  await loading;
+  await loadSession();
+}
+
 export const authClient = {
   useSession() {
     const snapshot = useSyncExternalStore(

@@ -3,7 +3,13 @@ import { toast } from 'sonner';
 import { z } from 'zod';
 import { Button } from '@ui/Button';
 import { TextInput } from '@ui/TextInput';
-import { authClient, createCloudflareReturnURL, signInWithCloudflare, switchWorkspace } from '~/lib/auth-client';
+import {
+  authClient,
+  createCloudflareReturnURL,
+  refreshSession,
+  signInWithCloudflare,
+  switchWorkspace,
+} from '~/lib/auth-client';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
 import {
   MyOrgProjects,
@@ -370,7 +376,8 @@ function OrganizationRow({
           onDone={async (renamed) => {
             setRenaming(false);
             if (renamed) {
-              await onChanged();
+              // The workspace switcher reads team names from the session.
+              await Promise.all([onChanged(), refreshSession()]);
             }
           }}
         />
@@ -574,7 +581,7 @@ function LeaveOrganization({
     setFeedback(null);
     try {
       await updateMember(orgId, myUserId, 'remove');
-      window.location.assign('/settings');
+      reloadAt('/settings');
     } catch (leaveError) {
       setLeaving(false);
       if (leaveError instanceof RequestError && leaveError.code === 'sole_member') {
@@ -721,7 +728,7 @@ function DeleteTeam({
       } catch {
         // Settings still reloads without the team; it just doesn't say how the deletion went.
       }
-      window.location.assign('/settings#organizations');
+      reloadAt('/settings#organizations');
     } catch (deleteError) {
       setFeedback(
         errorFeedback(messageOf(deleteError instanceof Error ? deleteError : null, 'Unable to delete the team.')),
@@ -932,4 +939,18 @@ function MemberRow({
 
 function updateMember(orgId: string, userId: string, action: MemberAction) {
   return postJson('/api/organizations/member', { orgId, userId, action }, memberUpdatedSchema);
+}
+
+/**
+ * Loads `href` afresh. Assigning the current page with only a fragment added or changed is a fragment
+ * navigation that reloads nothing, so the same page is reloaded instead.
+ */
+function reloadAt(href: string) {
+  const target = new URL(href, window.location.href);
+  if (target.pathname !== window.location.pathname || target.search !== window.location.search) {
+    window.location.assign(target);
+    return;
+  }
+  window.history.replaceState(null, '', target);
+  window.location.reload();
 }
