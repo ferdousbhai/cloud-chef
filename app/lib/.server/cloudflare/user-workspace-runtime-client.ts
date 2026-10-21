@@ -908,8 +908,18 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
         return async (...args: unknown[]) => {
           // A file change made for a tool is that tool's to stop: once it is stopped no new attempt
           // starts, so a write queued behind a busy lane cannot land after its turn was reported
-          // stopped. An attempt already in flight is left to finish.
-          const abortSignal = property === 'applyChanges' ? this.#activeTool?.abortSignal : undefined;
+          // stopped. An attempt already in flight is left to finish. Only a change attributed to the
+          // tool is its to stop; the person's own editor save made meanwhile is not.
+          const activeTool = this.#activeTool;
+          const request = args[0];
+          const abortSignal =
+            property === 'applyChanges' &&
+            activeTool &&
+            isObject(request) &&
+            'operationKey' in request &&
+            request.operationKey === `tool:${activeTool.toolCallId}`
+              ? activeTool.abortSignal
+              : undefined;
           const startedAt = Date.now();
           let backoff = BUSY_RETRY_INITIAL_DELAY_MS;
           while (true) {

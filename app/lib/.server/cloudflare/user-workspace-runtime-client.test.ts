@@ -179,6 +179,65 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
     }
   });
 
+  it("keeps waiting out a publication for the person's editor save when the running tool is stopped", async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const reason = new DOMException('write stopped', 'AbortError');
+      let laneBusy = true;
+      const attempts = { tool: 0, editor: 0 };
+      const state = { initialized: true, revision: 1, resetRevision: 0, fileCount: 0, totalBytes: 0, seeding: false };
+      const { client } = harness((operation, value) => {
+        if (operation === 'beginToolOperation') {
+          return { status: 'execute' };
+        }
+        if (operation === 'getWorkspaceSnapshot') {
+          return { state, files: [] };
+        }
+        if (operation === 'applyChanges') {
+          attempts[record(value).operationKey === 'tool:call-stopped-write' ? 'tool' : 'editor'] += 1;
+          if (laneBusy) {
+            throw new Error('[workspace_operation_conflict] deployment is running; retry after 2700000ms.');
+          }
+          return { ok: true, state, changedPaths: [] };
+        }
+        return { status: 'settled' };
+      });
+
+      let editorSave: Promise<unknown> | undefined;
+      const execution = client.executeToolOnce(
+        'call-stopped-write',
+        'write',
+        { path: '/home/project/a.ts' },
+        () => {
+          editorSave = client.applyClientChanges({
+            baseRevision: 1,
+            changes: [{ kind: 'write', path: '/home/project/b.ts', content: 'saved' }],
+          });
+          return client.computer.fs.writeFile('/home/project/a.ts', new TextEncoder().encode('new'));
+        },
+        controller.signal,
+      );
+      const outcome = expect(execution).rejects.toBe(reason);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(attempts.tool).toBeGreaterThan(1);
+      expect(attempts.editor).toBeGreaterThan(1);
+      controller.abort(reason);
+      await outcome;
+      const toolAttemptsAtStop = attempts.tool;
+      const editorAttemptsAtStop = attempts.editor;
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      laneBusy = false;
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(editorSave).resolves.toMatchObject({ ok: true });
+      expect(attempts.editor).toBeGreaterThan(editorAttemptsAtStop);
+      expect(attempts.tool).toBe(toolAttemptsAtStop);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('reports a landed write whose acknowledgement a stop interrupts, and settles its journal row', async () => {
     const controller = new AbortController();
     const reason = new DOMException('write stopped', 'AbortError');
