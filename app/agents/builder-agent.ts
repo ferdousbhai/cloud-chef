@@ -35,7 +35,11 @@ import {
   type BuilderPublicationLane,
   type BuilderPublicationState,
 } from './builder-publication-progress';
-import { latestDeploymentActivity } from '~/lib/.server/cloudflare/deployment-repository';
+import {
+  DeploymentConcurrencyLimitError,
+  findActiveProjectDeployment,
+  latestDeploymentActivity,
+} from '~/lib/.server/cloudflare/deployment-repository';
 import {
   automaticDeploymentRetrySchema,
   nextAutomaticDeploymentRetry,
@@ -208,6 +212,14 @@ const CONTEXT_COMPACTION_FIBER = 'background:context_compaction';
 const PREVIEW_PUBLICATION_FIBER = 'background:builder_preview';
 const DEPLOYMENT_FIBER = 'background:builder_deployment';
 const DEPLOYMENT_INTERRUPTED_MESSAGE = 'Deployment was interrupted. Retry to reconcile the exact revision.';
+/**
+ * How long a deployment of another revision holding the project's deployment slot must have shown no
+ * sign of work before a deployment it refuses settles it. No fiber here runs it, but one started
+ * through the runtime's deployment route runs outside this agent, and records each step it enters.
+ */
+const BLOCKING_DEPLOYMENT_STALE_MS = 15 * 60_000;
+/** How long after a deployment fiber threw its record is settled, once that fiber has ended. */
+const DEPLOYMENT_RECORD_SETTLE_DELAY_SECONDS = 5;
 /**
  * How long a new turn waits for the automatic publication it stopped to let go of the workspace. A
  * publication stops at its next step, or finishes its last API calls once it has started changing
@@ -2525,6 +2537,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
                 // A deployment that fails throws: the executor never returns a failed one.
                 await this.runtimeActivity.run(() => this.runDeployment(job, signal), { signal });
               } catch (error) {
+                await this.scheduleDeploymentRecordSettle(job);
                 if (signal.aborted && error === signal.reason) {
                   // Stopped before it changed production: not a failure, and the latest revision
                   // publishes when the turn that stopped it ends. One stopped past that point fails
@@ -2599,6 +2612,77 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     await this.scheduleAutomaticDeployment(job, retry.attempt);
   }
 
+  /**
+   * A deployment that threw may leave its record holding the project's deployment slot: one promoted
+   * whose success write didn't land stays deploying, a claim whose acknowledgement was lost may have
+   * committed, and a failure write may not have landed. Only a deployment of the same revision settles
+   * it otherwise, so once this fiber has ended its record is settled whatever revision the project has
+   * moved on to.
+   */
+  private async scheduleDeploymentRecordSettle(job: DeploymentJob): Promise<void> {
+    if (this.destroying) {
+      return;
+    }
+    await this.schedule(DEPLOYMENT_RECORD_SETTLE_DELAY_SECONDS, 'settleDeploymentRecord', job, {
+      idempotent: true,
+    }).catch(() => logger.warn('Unable to schedule settling the deployment record'));
+  }
+
+  /** Settles the record a deployment fiber that threw left, unless a deployment of its revision runs again. */
+  async settleDeploymentRecord(payload: DeploymentJob): Promise<void> {
+    const job = deploymentJobSchema.safeParse(payload).data;
+    if (!job) {
+      return;
+    }
+    await this.hydrateDurableIdentity({ required: false, reason: 'deployment_record_settle' });
+    if (
+      !this.userId ||
+      !this.transcriptBinding ||
+      this.destroying ||
+      (await this.deploymentFiberRunning(job.revision))
+    ) {
+      return;
+    }
+    const settled = await this.runtimeActivity
+      .run(() => this.retry(() => this.terminalizeDeployment(job)))
+      .catch(() => {
+        logger.warn('Unable to settle the deployment record');
+        return null;
+      });
+    if (settled?.status === 'succeeded') {
+      // Production serves it: it was promoted before its success could be recorded.
+      await this.recordDeploymentSucceeded(job, settled);
+    }
+  }
+
+  /**
+   * Settle the deployment of another revision holding the project's deployment slot, which refused
+   * `job`, when nothing is running it: no fiber here deploys its revision, and it has shown no sign of
+   * work for a while. It settles as an interrupted one does, as succeeded when production serves it.
+   * Answers whether it settled, so the refused deployment is worth trying again.
+   */
+  private async settleBlockingDeployment(job: DeploymentJob): Promise<boolean> {
+    const userId = this.userId;
+    if (!userId) {
+      return false;
+    }
+    const blocking = await findActiveProjectDeployment(this.env.DB, { userId, projectId: this.workspace.projectId });
+    if (
+      !blocking ||
+      blocking.revision === job.revision ||
+      Date.now() - blocking.lastActiveAt < BLOCKING_DEPLOYMENT_STALE_MS ||
+      (await this.deploymentFiberRunning(blocking.revision))
+    ) {
+      return false;
+    }
+    const blockingJob: DeploymentJob = { workspaceRevision: blocking.workspaceRevision, revision: blocking.revision };
+    const settled = await this.terminalizeDeployment(blockingJob);
+    if (settled.status === 'succeeded') {
+      await this.recordDeploymentSucceeded(blockingJob, settled);
+    }
+    return settled.status === 'succeeded' || settled.status === 'failed';
+  }
+
   /** Interrupted fibers count: their recovery hook, not the readiness check, settles them. */
   private async deploymentFiberRunning(revision: string): Promise<boolean> {
     const live = await this.listFibers({ name: DEPLOYMENT_FIBER, status: ['pending', 'running', 'interrupted'] });
@@ -2621,22 +2705,34 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     ).catch((error) => {
       throw abortSignal.aborted ? abortSignal.reason : error;
     });
-    const deployment = await this.withPublicationActivity('deployment', (onPlanned) =>
-      this.keepAliveWhile(() =>
-        this.publisher.deploy({
-          context: {
-            env: this.env,
-            userId,
-            chatInitialId: transcriptBinding.chatInitialId,
-          },
-          workspace: this.workspace,
-          toolCallId: deploymentToolCallId(job.workspaceRevision, job.revision),
-          validatedRevision: job.revision,
-          onPlanned,
-          abortSignal,
-        }),
-      ),
-    );
+    const deploy = () =>
+      this.withPublicationActivity('deployment', (onPlanned) =>
+        this.keepAliveWhile(() =>
+          this.publisher.deploy({
+            context: {
+              env: this.env,
+              userId,
+              chatInitialId: transcriptBinding.chatInitialId,
+            },
+            workspace: this.workspace,
+            toolCallId: deploymentToolCallId(job.workspaceRevision, job.revision),
+            validatedRevision: job.revision,
+            onPlanned,
+            abortSignal,
+          }),
+        ),
+      );
+    const deployment = await deploy().catch(async (error) => {
+      // Another revision's deployment holds the project. One nothing runs any more would refuse every
+      // deployment for good, since only a deployment of its own revision settles it otherwise.
+      if (
+        !(error instanceof DeploymentConcurrencyLimitError) ||
+        !(await this.settleBlockingDeployment(job).catch(() => false))
+      ) {
+        throw error;
+      }
+      return deploy();
+    });
     const revisionBoundDeployment = { ...deployment, ...job };
     if (deployment.status === 'succeeded') {
       await this.recordDeploymentSucceeded(job, deployment);

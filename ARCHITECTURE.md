@@ -420,6 +420,14 @@ promoted, production serves it, so the deployment is recorded as succeeded whate
 model and the person see, and the next deployment repeats it. The execution records a receipt of the version it
 promoted, and tries the success write a few times; one that still can't land leaves the record deploying, never
 failed, and asks for a retry, whose recovery of the interrupted record reads the receipt as its success.
+A record left provisioning or deploying holds the project's one deployment slot, and a deployment of its own revision
+is otherwise the only one that settles it, so a project that moved on would never deploy again. The BuilderAgent
+therefore settles a deployment's record a few seconds after its fiber throws, whatever revision the project is at
+by then, unless a fiber of that revision runs again; and a deployment the slot refuses settles the other revision's
+record, then tries once more, when no fiber of the agent deploys that revision and the record has shown no work (its
+update or a step its execution recorded) for 15 minutes, since one started through the runtime's deployment route
+runs outside the agent. Either settles it as an interrupted one is: succeeded when its receipt says production
+serves it, failed otherwise.
 
 A CloudChef app's account resources (its Worker and so its `workers.dev` address, `DB`, `AGENT_SECURITY_DB`,
 `APP_STORAGE`, `APP_CACHE`, and the preview Worker and preview counterpart of each) belong to the project, the `ProjectWorkspace` a chat (or subchat)

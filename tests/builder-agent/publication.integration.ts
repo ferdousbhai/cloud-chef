@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AutomaticDeploymentRetry } from '~/agents/builder-publication-retry';
 import type { BuilderWorkspaceApi, BuilderWorkspaceCheckpoint } from '~/agents/builder-workspace-api';
+import { DeploymentConcurrencyLimitError } from '~/lib/.server/cloudflare/deployment-repository';
 import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import {
   AGENT_NAME,
@@ -21,6 +22,7 @@ import {
  */
 const CHECKPOINT: BuilderWorkspaceCheckpoint = { workspaceRevision: 3, revision: 'a'.repeat(64) };
 const NEXT_CHECKPOINT: BuilderWorkspaceCheckpoint = { workspaceRevision: 4, revision: 'b'.repeat(64) };
+const PROJECT_ID = 'project-1';
 
 type DeployRequest = Parameters<BuilderPublisher['deploy']>[0];
 type PreviewRequest = Parameters<BuilderPublisher['preview']>[0];
@@ -51,6 +53,7 @@ async function publicationHarness(
   const checkpoint = options.checkpoint ?? (() => CHECKPOINT);
   const deleteProject = vi.fn(async () => undefined);
   const workspace: Partial<BuilderWorkspaceApi> = {
+    projectId: PROJECT_ID,
     checkpoint: async () => checkpoint(),
     deleteProject,
     ...options.build,
@@ -1074,6 +1077,165 @@ describe('redoing a failed deployment', () => {
     expect(harness.agent.state.productionRevision).toBe(CHECKPOINT.revision);
     await settle();
     expect(deploy).not.toHaveBeenCalled();
+  });
+});
+
+describe("another revision's deployment record left holding the project", () => {
+  const STALE = 20 * 60_000;
+
+  /** The record a deployment of `CHECKPOINT` left in the runtime's D1, last touched `age` ago. */
+  function leftRecord(harness: BuilderAgentHarness, status: 'provisioning' | 'deploying', age = STALE) {
+    harness.database
+      .prepare(
+        `INSERT INTO deployments (
+           id, chat_id, user_id, connection_id, connection_generation, workspace_reference,
+           status, plan_json, plan_digest, created_at, updated_at
+         ) VALUES ('deployment-left', 'chat-1', 'owner-1', 'connection-1', 1, ?, ?, '{}', 'digest', 1, ?)`,
+      )
+      .run(
+        `workspace-runtime:${PROJECT_ID}:${CHECKPOINT.workspaceRevision}:${CHECKPOINT.revision}`,
+        status,
+        Date.now() - age,
+      );
+  }
+
+  function recordStatus(harness: BuilderAgentHarness) {
+    return harness.database.prepare(`SELECT status FROM deployments WHERE id = 'deployment-left'`).get()?.status;
+  }
+
+  /** Publication commands that refuse `NEXT_CHECKPOINT` while the left record holds the project, as the claim does. */
+  function holdingPublisher(harness: () => BuilderAgentHarness, options: { settlesAs?: 'failed' | 'succeeded' } = {}) {
+    const deploy = vi.fn<BuilderPublisher['deploy']>(async () => {
+      const status = recordStatus(harness());
+      if (status === 'provisioning' || status === 'deploying') {
+        throw new DeploymentConcurrencyLimitError();
+      }
+      return { status: 'succeeded', id: 'deployment-next' };
+    });
+    const terminalize = vi.fn<BuilderPublisher['terminalize']>(async (request) => {
+      if (request.validatedRevision !== CHECKPOINT.revision) {
+        return { status: 'failed', error: 'Deployment was interrupted before execution started.' };
+      }
+      const status = options.settlesAs ?? 'failed';
+      harness().database.prepare(`UPDATE deployments SET status = ? WHERE id = 'deployment-left'`).run(status);
+      return { status, id: 'deployment-left', error: 'Deployment was interrupted.' };
+    });
+    return { deploy, terminalize };
+  }
+
+  it.each(['deploying', 'provisioning'] as const)(
+    'a %s record nothing runs is settled by the next deployment, which then proceeds',
+    async (status) => {
+      let harness!: BuilderAgentHarness;
+      const publisher = holdingPublisher(() => harness);
+      harness = await publicationHarness({ publisher, checkpoint: () => NEXT_CHECKPOINT });
+      leftRecord(harness, status);
+
+      await harness.agent.deployValidatedRevision();
+
+      await eventually(() => harness.agent.state.productionRevision === NEXT_CHECKPOINT.revision);
+      expect(recordStatus(harness)).toBe('failed');
+      expect(publisher.terminalize).toHaveBeenCalledWith(
+        expect.objectContaining({ validatedRevision: CHECKPOINT.revision }),
+      );
+      expect(publisher.deploy).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('a record a deployment fiber of its revision still runs is left alone', async () => {
+    let current = CHECKPOINT;
+    let harness!: BuilderAgentHarness;
+    const running = deferred<void>();
+    const publisher = holdingPublisher(() => harness);
+    const deployNext = publisher.deploy.getMockImplementation();
+    publisher.deploy.mockImplementation(async (request) => {
+      if (request.validatedRevision !== CHECKPOINT.revision) {
+        return deployNext!(request);
+      }
+      leftRecord(harness, 'deploying');
+      await running.promise;
+      return { status: 'succeeded', id: 'deployment-left' };
+    });
+    harness = await publicationHarness({ publisher, checkpoint: () => current });
+    await harness.agent.deployValidatedRevision();
+    await eventually(() => recordStatus(harness) === 'deploying');
+    current = NEXT_CHECKPOINT;
+
+    await harness.agent.deployValidatedRevision();
+
+    await eventually(() => harness.agent.state.deployment?.status === 'failed');
+    expect(harness.agent.state.deployment).toMatchObject({ revision: NEXT_CHECKPOINT.revision });
+    expect(recordStatus(harness)).toBe('deploying');
+    expect(publisher.terminalize).not.toHaveBeenCalledWith(
+      expect.objectContaining({ validatedRevision: CHECKPOINT.revision }),
+    );
+    running.resolve();
+    await settle();
+  });
+
+  it('a record that showed work recently is left alone, as one the deployment route may be running', async () => {
+    let harness!: BuilderAgentHarness;
+    const publisher = holdingPublisher(() => harness);
+    harness = await publicationHarness({ publisher, checkpoint: () => NEXT_CHECKPOINT });
+    leftRecord(harness, 'deploying', 60_000);
+
+    await harness.agent.deployValidatedRevision();
+
+    await eventually(() => harness.agent.state.deployment?.status === 'failed');
+    expect(recordStatus(harness)).toBe('deploying');
+    expect(publisher.terminalize).not.toHaveBeenCalledWith(
+      expect.objectContaining({ validatedRevision: CHECKPOINT.revision }),
+    );
+  });
+
+  it('a promoted deployment whose success write failed is settled as production after the project moved on', async () => {
+    let current = CHECKPOINT;
+    let harness!: BuilderAgentHarness;
+    const publisher = holdingPublisher(() => harness, { settlesAs: 'succeeded' });
+    publisher.deploy.mockImplementationOnce(async () => {
+      leftRecord(harness, 'deploying', 0);
+      throw new Error(
+        'Production serves the new revision, but recording its deployment failed (D1 unavailable). Deployment was interrupted. Retry to record it.',
+      );
+    });
+    harness = await publicationHarness({ publisher, checkpoint: () => current });
+    await harness.agent.deployValidatedRevision();
+    await eventually(() => harness.agent.state.deployment?.status === 'failed');
+    const settles = harness.agent
+      .getSchedules<BuilderWorkspaceCheckpoint>()
+      .filter((schedule) => schedule.callback === 'settleDeploymentRecord');
+    expect(settles.map((schedule) => schedule.payload)).toEqual([CHECKPOINT]);
+    current = NEXT_CHECKPOINT;
+    await settle();
+
+    await harness.agent.settleDeploymentRecord(CHECKPOINT);
+
+    expect(recordStatus(harness)).toBe('succeeded');
+    expect(harness.agent.state.productionRevision).toBe(CHECKPOINT.revision);
+    // The project's next deployment is no longer refused.
+    await harness.agent.deployValidatedRevision();
+    await eventually(() => harness.agent.state.productionRevision === NEXT_CHECKPOINT.revision);
+  });
+
+  it('a scheduled settle leaves the record of a revision a deployment fiber runs again', async () => {
+    let harness!: BuilderAgentHarness;
+    const running = deferred<void>();
+    const publisher = holdingPublisher(() => harness);
+    publisher.deploy.mockImplementation(async () => {
+      leftRecord(harness, 'deploying');
+      await running.promise;
+      return { status: 'succeeded', id: 'deployment-left' };
+    });
+    harness = await publicationHarness({ publisher });
+    await harness.agent.deployValidatedRevision();
+    await eventually(() => recordStatus(harness) === 'deploying');
+
+    await harness.agent.settleDeploymentRecord(CHECKPOINT);
+
+    expect(recordStatus(harness)).toBe('deploying');
+    expect(publisher.terminalize).not.toHaveBeenCalled();
+    running.resolve();
+    await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
   });
 });
 

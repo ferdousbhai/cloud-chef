@@ -6,6 +6,7 @@ import {
   createDeployment,
   DeploymentConcurrencyLimitError,
   DeploymentStateConflictError,
+  findActiveProjectDeployment,
   latestDeploymentActivity,
   listDeploymentActivity,
   prepareDeploymentRetry,
@@ -13,6 +14,7 @@ import {
   recordDeploymentActivity,
   requireDeploymentForUser,
   transitionDeployment,
+  type Deployment,
 } from './deployment-repository';
 import { appResourceIdentity, appResourceName } from '~/lib/cloudflare/app-resource-names';
 import { buildDeploymentPlanFromSource, planNamesProjectResources, type DeploymentPlan } from './deployment-plan';
@@ -261,6 +263,95 @@ describe('deployment repository', () => {
       errorMessage: null,
       updatedAt: 60,
     });
+  });
+
+  it.each([1, 2])(
+    'recognises its committed claim when read %i after the lost acknowledgement fails',
+    async (failing) => {
+      const approved = await create(1);
+
+      await expect(
+        claimApprovedDeployment({
+          db: d1(sqlite, true, undefined, failing),
+          deploymentId: approved.id,
+          userId: approved.userId,
+          connectionId: approved.connectionId,
+          connectionGeneration: approved.connectionGeneration,
+          executionGeneration: approved.executionGeneration,
+          now: 30,
+        }),
+      ).resolves.toMatchObject({ status: 'provisioning', updatedAt: 30 });
+    },
+  );
+
+  it("finds the project's deployment holding its slot, and when its execution last showed work", async () => {
+    const approved = await approvedDeployment(1);
+    const claim = (deployment: Deployment, now: number) =>
+      claimApprovedDeployment({
+        db,
+        deploymentId: deployment.id,
+        userId: deployment.userId,
+        connectionId: deployment.connectionId,
+        connectionGeneration: deployment.connectionGeneration,
+        executionGeneration: deployment.executionGeneration,
+        now,
+      });
+    const find = (userId = 'user-1') => findActiveProjectDeployment(db, { userId, projectId: 'project' });
+    await expect(find()).resolves.toBeNull();
+    const earlier = await claim(approved, 10);
+    await transitionDeployment({
+      db,
+      deploymentId: earlier.id,
+      executionGeneration: earlier.executionGeneration,
+      expectedStatus: 'provisioning',
+      nextStatus: 'failed',
+      now: 20,
+    });
+    const holding = await claim(
+      await prepareDeploymentRetry({
+        db,
+        deploymentId: earlier.id,
+        userId: earlier.userId,
+        connectionId: earlier.connectionId,
+        connectionGeneration: earlier.connectionGeneration,
+        executionGeneration: earlier.executionGeneration,
+        now: 25,
+      }),
+      30,
+    );
+    await claim(await approvedDeployment(2, 'other-project'), 90);
+
+    await expect(find()).resolves.toEqual({ workspaceRevision: 1, revision: sourceSha256, lastActiveAt: 30 });
+    await expect(find('user-2')).resolves.toBeNull();
+    // A step the earlier execution recorded late says nothing about this one.
+    await recordDeploymentActivity({
+      db,
+      deploymentId: earlier.id,
+      executionGeneration: earlier.executionGeneration,
+      sequence: 50,
+      message: 'Uploading assets and publishing Worker',
+      now: 80,
+    });
+    await expect(find()).resolves.toMatchObject({ lastActiveAt: 30 });
+    await recordDeploymentActivity({
+      db,
+      deploymentId: holding.id,
+      executionGeneration: holding.executionGeneration,
+      sequence: 40,
+      message: 'Applying database migrations',
+      now: 45,
+    });
+    await expect(find()).resolves.toMatchObject({ lastActiveAt: 45 });
+
+    await transitionDeployment({
+      db,
+      deploymentId: holding.id,
+      executionGeneration: holding.executionGeneration,
+      expectedStatus: 'provisioning',
+      nextStatus: 'failed',
+      now: 50,
+    });
+    await expect(find()).resolves.toBeNull();
   });
 
   it('lets only one of two claims made in the same millisecond have the deployment', async () => {
@@ -535,8 +626,18 @@ async function approvedDeployment(index: number, project?: string) {
   return create(index, project);
 }
 
-/** `beforeNextRun` runs once, just before the next write, as another request landing then would. */
-function d1(database: DatabaseSync, throwAfterNextRun = false, beforeNextRun?: () => Promise<void>): D1Database {
+/**
+ * `beforeNextRun` runs once, just before the next write, as another request landing then would. With
+ * `throwAfterNextRun`, the `failingRead`th read after the lost acknowledgement fails too.
+ */
+function d1(
+  database: DatabaseSync,
+  throwAfterNextRun = false,
+  beforeNextRun?: () => Promise<void>,
+  failingRead?: number,
+): D1Database {
+  let acknowledgementLost = false;
+  let readsSinceLost = 0;
   return {
     prepare(query: string) {
       const beforeRun = beforeNextRun;
@@ -547,6 +648,7 @@ function d1(database: DatabaseSync, throwAfterNextRun = false, beforeNextRun?: (
             return;
           }
           throwAfterNextRun = false;
+          acknowledgementLost = true;
           throw new Error('D1 acknowledgement lost');
         },
         beforeRun &&
@@ -554,12 +656,22 @@ function d1(database: DatabaseSync, throwAfterNextRun = false, beforeNextRun?: (
             beforeNextRun = undefined;
             return beforeRun();
           }),
+        () => {
+          if (acknowledgementLost && (readsSinceLost += 1) === failingRead) {
+            throw new Error('D1 read failed');
+          }
+        },
       );
     },
   } as unknown as D1Database;
 }
 
-function prepared(statement: StatementSync, afterRun?: () => void, beforeRun?: () => Promise<void>) {
+function prepared(
+  statement: StatementSync,
+  afterRun?: () => void,
+  beforeRun?: () => Promise<void>,
+  beforeRead?: () => void,
+) {
   let values: SQLInputValue[] = [];
   return {
     bind(...next: SQLInputValue[]) {
@@ -573,6 +685,7 @@ function prepared(statement: StatementSync, afterRun?: () => void, beforeRun?: (
       return { meta: { changes: Number(result.changes) } };
     },
     async first<T>() {
+      beforeRead?.();
       return (statement.get(...values) as T | undefined) ?? null;
     },
     async all<T>() {

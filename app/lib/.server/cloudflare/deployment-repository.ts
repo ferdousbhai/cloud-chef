@@ -244,9 +244,14 @@ export async function claimApprovedDeployment(args: {
       )
       .run();
   } catch (error) {
-    const committed = await requireDeploymentForUser(args.db, expected.id, expected.userId).catch(() => null);
-    if (committed && (await isExactDeploymentClaim(args.db, committed, expected, claim).catch(() => false))) {
-      return committed;
+    // The write may have landed with its acknowledgement lost: the record and the claim id on it are
+    // read in one statement, so a committed claim is never reported lost by a second read failing.
+    const read = () => readClaimedDeployment(args.db, expected.id, expected.userId);
+    const committed = await read()
+      .catch(read)
+      .catch(() => null);
+    if (committed && isExactDeploymentClaim(committed, expected, claim)) {
+      return committed.deployment;
     }
     throw error;
   }
@@ -262,11 +267,11 @@ export async function claimApprovedDeployment(args: {
     if (active) {
       throw new DeploymentConcurrencyLimitError();
     }
-    const committed = await requireDeploymentForUser(args.db, expected.id, expected.userId);
-    if (await isExactDeploymentClaim(args.db, committed, expected, claim)) {
-      return committed;
+    const committed = await readClaimedDeployment(args.db, expected.id, expected.userId);
+    if (isExactDeploymentClaim(committed, expected, claim)) {
+      return committed.deployment;
     }
-    throw new DeploymentStateConflictError(committed.status);
+    throw new DeploymentStateConflictError(committed.deployment.status);
   }
   return { ...expected, status: 'provisioning', updatedAt: now };
 }
@@ -316,6 +321,50 @@ export async function projectResourceNaming(
     }
   }
   return { identity: await appResourceIdentity(decodeURIComponent(match[1]!)), adopted };
+}
+
+/** A deployment holding its project's one deployment slot, and the revision it publishes. */
+type ActiveProjectDeployment = {
+  workspaceRevision: number;
+  revision: string;
+  /** When its execution last showed it was working: the later of the record's update and its latest activity. */
+  lastActiveAt: number;
+};
+
+/**
+ * The project's deployment that is provisioning or deploying, which refuses every other deployment of
+ * the project until it settles.
+ */
+export async function findActiveProjectDeployment(
+  db: D1Database,
+  args: { userId: string; projectId: string },
+): Promise<ActiveProjectDeployment | null> {
+  const project = `workspace-runtime:${encodeURIComponent(args.projectId)}:`;
+  const row = await db
+    .prepare(
+      `SELECT workspace_reference,
+              MAX(updated_at, COALESCE((
+                SELECT MAX(activity.created_at) FROM deployment_activity AS activity
+                WHERE activity.deployment_id = deployments.id
+                  AND activity.execution_generation = deployments.execution_generation
+              ), 0)) AS last_active_at
+       FROM deployments
+       WHERE user_id = ? AND substr(workspace_reference, 1, ?) = ?
+         AND status IN ('provisioning', 'deploying')
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+    )
+    .bind(args.userId, project.length, project)
+    .first<{ workspace_reference: string; last_active_at: number }>();
+  const reference = row && /^workspace-runtime:[^:]+:(\d+):([a-f0-9]{64})$/.exec(row.workspace_reference);
+  if (!row || !reference) {
+    return null;
+  }
+  return {
+    workspaceRevision: Number(reference[1]),
+    revision: reference[2]!,
+    lastActiveAt: row.last_active_at,
+  };
 }
 
 /**
@@ -507,25 +556,28 @@ function isExactDeploymentTransition(
   );
 }
 
-/** Whether the committed record is this claim's, by the claim id it wrote, which no other claim shares. */
-async function isExactDeploymentClaim(
-  db: D1Database,
-  deployment: Deployment,
-  expected: Deployment,
-  claim: string,
-): Promise<boolean> {
-  if (
-    deployment.status !== 'provisioning' ||
-    deployment.executionGeneration !== expected.executionGeneration ||
-    !sameDeploymentIdentity(deployment, expected)
-  ) {
-    return false;
-  }
+type ClaimedDeployment = { deployment: Deployment; claimId: string | null };
+
+async function readClaimedDeployment(db: D1Database, deploymentId: string, userId: string): Promise<ClaimedDeployment> {
   const row = await db
-    .prepare(`SELECT claim_id FROM deployments WHERE id = ?`)
-    .bind(deployment.id)
-    .first<{ claim_id: string | null }>();
-  return row?.claim_id === claim;
+    .prepare(`SELECT ${DEPLOYMENT_COLUMNS}, claim_id FROM deployments WHERE id = ? AND user_id = ?`)
+    .bind(deploymentId, userId)
+    .first<DeploymentRow & { claim_id: string | null }>();
+  if (!row) {
+    throw new DeploymentNotFoundError();
+  }
+  return { deployment: deploymentFromRow(row), claimId: row.claim_id };
+}
+
+/** Whether the committed record is this claim's, by the claim id it wrote, which no other claim shares. */
+function isExactDeploymentClaim(committed: ClaimedDeployment, expected: Deployment, claim: string): boolean {
+  const { deployment } = committed;
+  return (
+    deployment.status === 'provisioning' &&
+    deployment.executionGeneration === expected.executionGeneration &&
+    sameDeploymentIdentity(deployment, expected) &&
+    committed.claimId === claim
+  );
 }
 
 function isExactDeploymentRetry(deployment: Deployment, expected: Deployment, now: number): boolean {
