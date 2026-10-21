@@ -39,7 +39,13 @@ pnpm run validate
 `scripts/validate.mjs` runs the steps of `validate:root`, `validate:agent`, and `validate:template` side by side, one per
 core (`VALIDATE_CONCURRENCY` overrides that), and stops at the first failure with that check's full output. Useful
 narrower checks, run serially, are `validate:root`, `validate:agent`, `validate:template`, `test`, `test:workerd`,
-`typecheck`, and `lint`. Generated files produced by verification must leave the worktree clean.
+`test:builder-agent`, `typecheck`, and `lint`. Generated files produced by verification must leave the worktree clean.
+
+`test:builder-agent` (`vitest.builder-agent.config.ts`) runs the real `BuilderAgent` class in Node on an in-memory
+Durable Object state, with the runtime's own D1 schema as `env.DB` and the ProjectWorkspace and Workers AI faked at
+their boundary (`tests/builder-agent/harness.ts`). It is the place for tests of the agent's own call sites, such as
+the runtime-activity gate every kind of work passes before it starts. The config adds the Agents SDK's decorator
+transform, which the unit configuration leaves out.
 
 `pnpm run verify:licenses` checks installed production dependencies against the reviewed license-expression allowlist
 and verifies `public/THIRD_PARTY_LICENSES.txt`. Run `pnpm run licenses:generate` after a root production dependency
