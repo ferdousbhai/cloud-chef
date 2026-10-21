@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkbenchStore } from './workbench.client';
-import type { AbsolutePath } from 'cloudchef-agent/utils/workDir';
+import { getAbsolutePath, type AbsolutePath } from 'cloudchef-agent/utils/workDir';
 import type {
   BuilderWorkspaceApplyResult,
   BuilderWorkspaceClientChange,
@@ -155,6 +155,32 @@ describe('WorkbenchStore editor flush boundaries', () => {
     expect(store.unsavedFiles.get()).not.toContain(fileA);
   });
 
+  it('reports a save in flight only while one is being written', async () => {
+    const store = createStore();
+    let finishSave!: (result: BuilderWorkspaceApplyResult) => void;
+    store.setWorkspaceChangeListener(
+      () =>
+        new Promise<BuilderWorkspaceApplyResult>((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    store.setDocumentContent(fileA, 'local edit');
+
+    expect(store.unsavedFiles.get()).toContain(fileA);
+    expect(store.savesInFlight.get()).toBe(false);
+    const save = store.saveCurrentDocument();
+    expect(store.savesInFlight.get()).toBe(true);
+    finishSave({
+      ok: true,
+      changedPaths: [fileA],
+      state: { initialized: true, revision: 2, resetRevision: 0, fileCount: 2, totalBytes: 4, seeding: false },
+    });
+    await save;
+
+    expect(store.unsavedFiles.get()).not.toContain(fileA);
+    expect(store.savesInFlight.get()).toBe(false);
+  });
+
   it('does not apply a save completion to a newly activated workspace', async () => {
     const store = createStore();
     let finishSave!: (result: {
@@ -194,10 +220,44 @@ describe('WorkbenchStore editor flush boundaries', () => {
 
   it('fails instead of retrying forever when an unsaved document becomes unavailable', async () => {
     const store = createStore();
-    store.setDocumentContent(fileA, 'local edit');
-    store.applyWorkspaceSyncEntries([{ kind: 'delete', path: fileA, revision: 2 }]);
+    store.unsavedFiles.set(new Set([getAbsolutePath('/home/project/missing.ts')]));
 
     await expect(store.saveUnsavedFiles()).rejects.toThrow('the editor document is unavailable');
+  });
+
+  it('keeps an unsaved file as a local recreation when a delta deletes it', async () => {
+    const store = createStore();
+    const apply = vi.fn(async () => ({
+      ok: true as const,
+      changedPaths: [fileA],
+      state: { initialized: true, revision: 3, resetRevision: 0, fileCount: 2, totalBytes: 4, seeding: false },
+    }));
+    store.setWorkspaceChangeListener(apply);
+    store.setDocumentContent(fileA, 'local edit');
+
+    store.applyWorkspaceSyncEntries([{ kind: 'delete', path: fileA, revision: 2 }]);
+
+    expect(store.currentDocument.get()).toMatchObject({ filePath: fileA, value: 'local edit' });
+    expect(store.files.get()[fileA]).toMatchObject({ content: 'local edit' });
+    expect(store.unsavedFiles.get()).toContain(fileA);
+    await store.saveUnsavedFiles();
+    expect(apply).toHaveBeenCalledWith(
+      [{ kind: 'write', path: fileA, content: 'local edit', encoding: 'utf8' }],
+      expect.any(Function),
+    );
+  });
+
+  it('drops an unsaved marker with no text document when a delta deletes its file', () => {
+    const store = createStore();
+    const binaryFile = getAbsolutePath('/home/project/logo.png');
+    store.files.setKey(binaryFile, { type: 'file', content: '', isBinary: true });
+    store.setDocuments(store.files.get());
+    store.unsavedFiles.set(new Set([binaryFile]));
+
+    store.applyWorkspaceSyncEntries([{ kind: 'delete', path: binaryFile, revision: 2 }]);
+
+    expect(store.files.get()[binaryFile]).toBeUndefined();
+    expect(store.unsavedFiles.get()).toEqual(new Set());
   });
 
   it('tracks visible unsaved content until it is durably saved', () => {

@@ -4,13 +4,18 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FileSaveStatus } from '~/lib/stores/fileUpdateCounter';
 import { SubchatBar } from './SubchatBar';
 
-const fileSavingState = vi.hoisted(() => ({ value: false }));
+interface FileSaveState {
+  value: FileSaveStatus;
+}
+
+const fileSaveState = vi.hoisted((): FileSaveState => ({ value: null }));
 let root: Root | undefined;
 
 vi.mock('~/lib/stores/fileUpdateCounter', () => ({
-  useAreFilesSaving: () => fileSavingState.value,
+  useFileSaveStatus: () => fileSaveState.value,
 }));
 
 beforeEach(() => {
@@ -22,20 +27,25 @@ afterEach(async () => {
     await act(async () => root?.unmount());
     root = undefined;
   }
-  fileSavingState.value = false;
+  fileSaveState.value = null;
   document.body.replaceChildren();
 });
 
 describe('SubchatBar', () => {
-  it('blocks history and project-changing actions while files are saving', () => {
-    fileSavingState.value = true;
+  it.each<{ status: FileSaveStatus; tip: string }>([
+    { status: 'saving', tip: 'Saving...' },
+    { status: 'unsaved', tip: 'Save your changes first' },
+  ])('blocks history and project-changing actions while files are $status, saying why', ({ status, tip }) => {
+    fileSaveState.value = status;
     document.body.innerHTML = renderSubchatBar({
       subchats: [subchat(0, 'Initial build'), subchat(1, 'Add live voting')],
       currentSubchatIndex: 0,
     });
 
     expect(document.querySelector<HTMLButtonElement>('button[aria-label^="Switch chat."]')?.disabled).toBe(true);
-    expect(document.querySelector<HTMLButtonElement>('button[aria-label="Next chat"]')?.disabled).toBe(true);
+    const nextChat = document.querySelector<HTMLButtonElement>('button[aria-label="Next chat"]');
+    expect(nextChat?.disabled).toBe(true);
+    expect(nextChat?.title).toBe(tip);
   });
 
   it('keeps the confirmation open and prevents repeat submission when creation fails', async () => {
