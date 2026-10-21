@@ -2195,7 +2195,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!snapshot || this.automaticPublicationStopped(epoch)) {
       return;
     }
-    if (snapshot.revision === this.state.productionRevision) {
+    if (this.productionServes(snapshot.revision)) {
       if (this.state.publicationPending) {
         this.setState({ ...this.state, publicationPending: false });
       }
@@ -2372,7 +2372,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     attempt = 0,
     epoch = this.publicationEpoch,
   ): Promise<void> {
-    if (this.automaticPublicationStopped(epoch) || job.revision === this.state.productionRevision) {
+    if (this.automaticPublicationStopped(epoch)) {
+      return;
+    }
+    if (this.productionServes(job.revision)) {
+      // Nothing will deploy it again, so nothing else would record the publication done.
+      await this.recordProductionRevision(job.revision);
       return;
     }
     let retry = attempt > 0;
@@ -2588,6 +2593,18 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private async recordDeploymentSucceeded(job: DeploymentJob, deployment: BuilderDeploymentState): Promise<void> {
     this.setDeploymentResult(job, { ...deployment, ...job });
     await this.recordProductionRevision(job.revision);
+  }
+
+  /**
+   * Whether production serves `revision`. An agent last deployed before production's revision was
+   * recorded knows it only from its succeeded deployment record.
+   */
+  private productionServes(revision: string): boolean {
+    const deployment = this.state.deployment;
+    return (
+      revision === this.state.productionRevision ||
+      (deployment?.status === 'succeeded' && deployment.revision === revision)
+    );
   }
 
   /** Production serves this revision now; the publication a turn asked for is done once it is the current one. */
