@@ -38,6 +38,7 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
   });
   installBuilderModelCatalog(
     { defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] },
@@ -241,6 +242,8 @@ describe('BuilderModelSelector without a catalog', () => {
       expect(fresh.builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
     } finally {
       await freshAct(async () => freshRoot.unmount());
+      container.remove();
+      localStorage.removeItem('cloudchef_builder_model_v2');
     }
   });
 });
