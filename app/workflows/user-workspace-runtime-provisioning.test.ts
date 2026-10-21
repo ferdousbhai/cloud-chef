@@ -466,27 +466,47 @@ describe('workspace runtime provisioning Workflow', () => {
       expect(mocks.accountApi.ensureWorkspaceRuntimeContainer).toHaveBeenCalledOnce();
     });
 
-    it('gives up, without rolling out, on a redeployed workspace that never goes quiet again', async () => {
+    it('never gives up on a redeployed workspace, however long work on it keeps the window from it', async () => {
       mocks.claimUpgradeWindow.mockResolvedValue({ status: 'granted' });
+      let now = NOW;
+      mocks.now.mockImplementation(() => now);
+      // Work keeps starting on the new Worker for longer than the wait before a redeploy may last.
       mocks.changeUpgradeWindow.mockImplementation(async ({ change }: { change: string }) => {
-        if (change === 'hold') {
+        if (change === 'hold' && now - NOW < UPGRADE_MAX_WAIT_MS + 60 * 60_000) {
           throw new RuntimeUpgradeWindowRefusedError(1);
         }
       });
-      let now = NOW;
-      mocks.now.mockImplementation(() => now);
       const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async (_name, duration) => {
+        expect(duration).toBeLessThanOrEqual(5 * 60_000);
         now += duration;
       });
 
       await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
-        status: 'deferred',
+        status: 'ready',
       });
 
-      expect(now - NOW).toBeGreaterThanOrEqual(UPGRADE_MAX_WAIT_MS);
-      expect(mocks.accountApi.configureWorkspaceRuntimeGcSchedule).not.toHaveBeenCalled();
-      expect(mocks.accountApi.ensureWorkspaceRuntimeContainer).not.toHaveBeenCalled();
-      expect(mocks.upsertRuntime).not.toHaveBeenCalled();
+      expect(now - NOW).toBeGreaterThan(UPGRADE_MAX_WAIT_MS);
+      expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
+      expect(mocks.accountApi.configureWorkspaceRuntimeGcSchedule).toHaveBeenCalledOnce();
+      expect(mocks.accountApi.ensureWorkspaceRuntimeContainer).toHaveBeenCalledOnce();
+      expect(mocks.waitForReadiness).toHaveBeenCalledOnce();
+      expect(mocks.upsertRuntime).toHaveBeenCalledOnce();
+    });
+
+    it('names itself to the runtime as the holder of the window it claims, renews and releases', async () => {
+      mocks.claimUpgradeWindow.mockResolvedValue({ status: 'granted' });
+
+      await runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs());
+
+      expect(mocks.claimUpgradeWindow).toHaveBeenCalledWith(
+        expect.objectContaining({ holder: 'workspace-instance-1' }),
+      );
+      expect(mocks.changeUpgradeWindow.mock.calls.map(([args]) => [args.change, args.holder])).toEqual([
+        ['hold', 'workspace-instance-1'],
+        ['hold', 'workspace-instance-1'],
+        ['hold', 'workspace-instance-1'],
+        ['release', 'workspace-instance-1'],
+      ]);
     });
 
     it('retries what follows a redeploy without claiming the window again or redeploying', async () => {
@@ -572,7 +592,10 @@ function workflowArgs(sleep: UserWorkspaceRuntimeProvisioningStep['sleep'] = asy
       DB: {},
       CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: 'k'.repeat(44),
     } as Env,
-    event: { payload: { userId: 'user-1', connectionId: 'connection-1', connectionGeneration: 1 } },
+    event: {
+      payload: { userId: 'user-1', connectionId: 'connection-1', connectionGeneration: 1 },
+      instanceId: 'workspace-instance-1',
+    },
     step: {
       async do<T>(
         _name: string,

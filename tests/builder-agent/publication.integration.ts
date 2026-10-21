@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AutomaticDeploymentRetry } from '~/agents/builder-publication-retry';
-import type { BuilderWorkspaceCheckpoint } from '~/agents/builder-workspace-api';
+import type { BuilderWorkspaceApi, BuilderWorkspaceCheckpoint } from '~/agents/builder-workspace-api';
 import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import {
   AGENT_NAME,
@@ -43,10 +43,15 @@ async function publicationHarness(
   options: {
     publisher?: Partial<BuilderPublisher>;
     checkpoint?: () => BuilderWorkspaceCheckpoint | Promise<BuilderWorkspaceCheckpoint>;
+    refresh?: BuilderWorkspaceApi['refresh'];
   } = {},
 ) {
   const checkpoint = options.checkpoint ?? (() => CHECKPOINT);
   const deleteProject = vi.fn(async () => undefined);
+  const workspace: Partial<BuilderWorkspaceApi> = { checkpoint: async () => checkpoint(), deleteProject };
+  if (options.refresh) {
+    workspace.refresh = options.refresh;
+  }
   const harness = await builderAgentHarness({
     cloudflareIdentity: true,
     ai: {
@@ -54,7 +59,7 @@ async function publicationHarness(
         throw new Error('catalog unavailable');
       }),
     },
-    workspace: { checkpoint: async () => checkpoint(), deleteProject },
+    workspace,
     publisher: options.publisher,
   });
   return { ...harness, deleteProject };
@@ -67,17 +72,22 @@ async function finishChangingTurn(harness: BuilderAgentHarness, status: 'complet
   await harness.endTurn(status);
 }
 
-/** The person sends their next message. The turn stops at its first model-access check, after it took the workspace. */
-async function sendNextMessage(harness: BuilderAgentHarness) {
+/** The person sends their next message: its turn takes the workspace and stays running. */
+async function sendNextMessage(
+  harness: BuilderAgentHarness,
+  options: { abortSignal?: AbortSignal; turnContext?: object } = {},
+) {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('unavailable', { status: 503 }));
   await Promise.resolve(
     harness.agent.onChatMessage(undefined, {
       requestId: 'request-2',
+      abortSignal: options.abortSignal,
       body: {
         chatInitialId: CHAT_INITIAL_ID,
         subchatIndex: 0,
         transcript: { agentName: AGENT_NAME, generation: 0, subchatIndex: 0 },
         modelId: CLOUDFLARE_WORKERS_AI_MODEL,
+        turnContext: options.turnContext,
       },
     }),
   ).catch(() => undefined);
@@ -631,3 +641,210 @@ describe('a publication that failed', () => {
     expect(harness.agent.state.publicationPending).toBe(false);
   });
 });
+
+describe('a turn that ends without its end-of-turn hook', () => {
+  /** The last turn's deployment runs until a new turn stops it; every later one succeeds. */
+  function stoppableDeployments() {
+    const deployments: DeployRequest[] = [];
+    const deploy = async (request: DeployRequest) => {
+      deployments.push(request);
+      if (deployments.length === 1) {
+        return untilStopped(request.abortSignal);
+      }
+      return { status: 'succeeded' as const, id: 'deployment-2' };
+    };
+    return { deployments, deploy };
+  }
+
+  it('a message refused for its turn context stops nothing and leaves no turn behind', async () => {
+    const { deployments, deploy } = stoppableDeployments();
+    const harness = await publicationHarness({ publisher: { deploy } });
+    await finishChangingTurn(harness);
+    await eventually(() => deployments.length === 1);
+
+    await sendNextMessage(harness, { turnContext: { version: 99 } });
+
+    expect(harness.agent.state.activeTurn).toBeNull();
+    expect(deployments[0]?.abortSignal?.aborted).toBe(false);
+    expect(harness.agent.state.deployment).toMatchObject({ status: 'deploying', revision: CHECKPOINT.revision });
+  });
+
+  it("a Stop redoes the publication the stopped turn's start called off", async () => {
+    const { deployments, deploy } = stoppableDeployments();
+    const harness = await publicationHarness({ publisher: { deploy } });
+    await finishChangingTurn(harness);
+    await eventually(() => deployments.length === 1);
+    await sendNextMessage(harness);
+    expect(deployments[0]?.abortSignal?.aborted).toBe(true);
+    expect(harness.agent.state.activeTurn).not.toBeNull();
+
+    await harness.agent.cancelActiveTurn();
+
+    await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
+    expect(deployments).toHaveLength(2);
+    expect(harness.agent.state.publicationPending).toBe(false);
+  });
+
+  it('a turn that failed before it streamed redoes the publication it called off', async () => {
+    const { deployments, deploy } = stoppableDeployments();
+    const harness = await publicationHarness({ publisher: { deploy } });
+    await finishChangingTurn(harness);
+    await eventually(() => deployments.length === 1);
+    // The new turn waits out an upgrade, and the person stops it there.
+    harness.openUpgradeWindow();
+    const stop = new AbortController();
+    const turn = sendNextMessage(harness, { abortSignal: stop.signal });
+    await eventually(() => harness.agent.state.upgradeWaiting === true);
+    expect(deployments[0]?.abortSignal?.aborted).toBe(true);
+
+    stop.abort(new DOMException('Cancelled by the project owner', 'AbortError'));
+    await turn;
+    expect(harness.agent.state.activeTurn).toBeNull();
+    harness.closeUpgradeWindow();
+
+    await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
+    expect(deployments).toHaveLength(2);
+  });
+});
+
+describe('redoing a failed deployment', () => {
+  /** The automatic deployment of `CHECKPOINT` failed for a reason that passes, and its retry is due. */
+  function failedDeployment(harness: BuilderAgentHarness) {
+    previewServing(harness);
+    harness.agent.setState({
+      ...harness.agent.state,
+      publicationPending: true,
+      deployment: { status: 'failed', ...CHECKPOINT, error: 'Deployment was interrupted.' },
+    });
+  }
+
+  function scheduledRetries(harness: BuilderAgentHarness) {
+    return harness.agent
+      .getSchedules<AutomaticDeploymentRetry>()
+      .filter((schedule) => schedule.callback === 'retryAutomaticDeployment')
+      .map((schedule) => schedule.payload);
+  }
+
+  it("keeps retrying when the failed deployment's record cannot be settled yet", async () => {
+    const deploy = vi.fn<BuilderPublisher['deploy']>();
+    const terminalize = vi.fn<BuilderPublisher['terminalize']>(async () => {
+      throw new Error('Network connection lost');
+    });
+    const harness = await publicationHarness({ publisher: { deploy, terminalize } });
+    failedDeployment(harness);
+
+    await harness.agent.retryAutomaticDeployment({ ...CHECKPOINT, attempt: 1 });
+
+    expect(scheduledRetries(harness)).toEqual([{ ...CHECKPOINT, attempt: 2 }]);
+    expect(harness.agent.state.failedPublicationRevision).toBe(CHECKPOINT.revision);
+    expect(deploy).not.toHaveBeenCalled();
+  }, 15_000);
+
+  it('keeps retrying while the record says the deployment is still running', async () => {
+    const deploy = vi.fn<BuilderPublisher['deploy']>();
+    const harness = await publicationHarness({
+      publisher: { deploy, terminalize: async () => ({ status: 'deploying' }) },
+    });
+    failedDeployment(harness);
+
+    await harness.agent.retryAutomaticDeployment({ ...CHECKPOINT, attempt: 1 });
+
+    expect(scheduledRetries(harness)).toEqual([{ ...CHECKPOINT, attempt: 2 }]);
+    await settle();
+    expect(deploy).not.toHaveBeenCalled();
+  });
+
+  it('does not start a second deployment when another started while the record was settled', async () => {
+    const deploy = vi.fn<BuilderPublisher['deploy']>();
+    const terminalized = deferred<void>();
+    const harness = await publicationHarness({
+      publisher: {
+        deploy,
+        terminalize: async () => {
+          terminalized.resolve();
+          return { status: 'failed', error: 'Deployment was interrupted.' };
+        },
+      },
+    });
+    failedDeployment(harness);
+    void terminalized.promise.then(() =>
+      harness.agent.setState({ ...harness.agent.state, deployment: { status: 'deploying', ...CHECKPOINT } }),
+    );
+
+    await harness.agent.retryAutomaticDeployment({ ...CHECKPOINT, attempt: 1 });
+
+    await settle();
+    expect(deploy).not.toHaveBeenCalled();
+    const live = await harness.agent.listFibers({ status: ['pending', 'running', 'interrupted'] });
+    expect(live.filter((fiber) => fiber.name === 'background:builder_deployment')).toEqual([]);
+  });
+
+  it("a manual redeploy records a deployment that finished in the user's account instead of redeploying", async () => {
+    const deploy = vi.fn<BuilderPublisher['deploy']>();
+    const harness = await publicationHarness({
+      publisher: {
+        deploy,
+        terminalize: async () => ({ status: 'succeeded', id: 'deployment-1', productionUrl: 'https://app.example' }),
+      },
+    });
+    failedDeployment(harness);
+
+    await expect(harness.agent.deployValidatedRevision()).resolves.toMatchObject({ status: 'succeeded' });
+
+    expect(harness.agent.state.productionRevision).toBe(CHECKPOINT.revision);
+    await settle();
+    expect(deploy).not.toHaveBeenCalled();
+  });
+});
+
+describe('a stale automatic preview', () => {
+  it('never cancels the manual preview that replaced it', async () => {
+    const previews: PreviewRequest[] = [];
+    let refreshes: number | null = null;
+    const staleHeld = deferred<void>();
+    const harness = await publicationHarness({
+      publisher: {
+        preview: async (request) => {
+          previews.push(request);
+          return untilStopped(request.abortSignal);
+        },
+      },
+      refresh: async () => {
+        if (refreshes === null) {
+          return READY_WORKSPACE;
+        }
+        refreshes += 1;
+        // The automatic preview's read of the workspace, held until the manual one runs; by then the
+        // workspace has moved on.
+        if (refreshes === 1) {
+          await staleHeld.promise;
+          return { ...READY_WORKSPACE, revision: 4 };
+        }
+        return READY_WORKSPACE;
+      },
+    });
+    refreshes = 0;
+    const ended = finishChangingTurn(harness);
+    await eventually(() => refreshes === 1);
+    // The person writes again, then builds a preview by hand while that turn runs.
+    await sendNextMessage(harness);
+    await harness.agent.requestPreview();
+    await eventually(() => previews.length === 1);
+
+    staleHeld.resolve();
+    await ended;
+
+    await settle();
+    expect(previews[0]?.abortSignal?.aborted).toBe(false);
+    expect(harness.agent.state.preview).toMatchObject({ status: 'building' });
+  });
+});
+
+const READY_WORKSPACE = {
+  initialized: true,
+  revision: 3,
+  resetRevision: 0,
+  fileCount: 1,
+  totalBytes: 10,
+  seeding: false,
+};

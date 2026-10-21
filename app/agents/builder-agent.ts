@@ -667,10 +667,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       async () => (await readAccountModelSettings(this.env)).gatewayKeys,
     );
     const chosenReasoningLevel = requireBuilderReasoningLevel(model, reasoningLevel);
+    // Refused before anything is stopped or recorded: a turn that never starts must not hold anything.
+    const requestedTurnContext = parseTurnContext(body.turnContext);
     // From the stop until the turn is recorded active, no automatic publication may start: this turn's
     // end publishes.
     this.startingTurns += 1;
     let turn: BuilderTurnState;
+    let started = false;
     try {
       if (!options?.continuation) {
         // The person is talking to the builder again: the publication of the last turn must not hold the
@@ -688,10 +691,15 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         ...this.state,
         activeTurn: turn,
       });
+      started = true;
     } finally {
       this.startingTurns -= 1;
+      if (!started) {
+        // It stopped the automatic publications and failed before it began: nothing ends to publish them.
+        this.publishAfterInterruptedTurn();
+      }
     }
-    const turnContext = withPublicationFailure(parseTurnContext(body.turnContext), this.publicationFailure());
+    const turnContext = withPublicationFailure(requestedTurnContext, this.publicationFailure());
     const userMessages = messages.filter((message: { role?: string }) => message.role === 'user');
     const firstUserMessage = !options?.continuation && userMessages.length === 1;
     const latestPrompt = !options?.continuation ? userMessages.at(-1) : undefined;
@@ -796,11 +804,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     } catch (error) {
       steering.close();
       settleSteering();
-      // A Stop has already finished it as cancelled, which its recovery must still see.
+      // A Stop has already finished it as cancelled, which its recovery must still see, and publishes
+      // what this turn stopped.
       if (this.state.activeTurn?.id === turn.id) {
         this.finishTurn(turn, {
           status: 'error',
         });
+        this.publishAfterInterruptedTurn();
       }
       throw error;
     }
@@ -1032,6 +1042,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!settled) {
       throw new Error('The cancelled builder turn did not settle before the cancellation timeout.');
     }
+    if (activeTurn) {
+      // Its end found no turn to finish, so nothing redid the publication it stopped.
+      this.publishAfterInterruptedTurn();
+    }
     const checkpoint = this.state.transcript ? await this.advanceTranscriptCheckpoint(this.state.transcript) : null;
     return {
       checkpoint,
@@ -1239,7 +1253,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const current = this.state.deployment;
     const retry = current?.revision === snapshot.revision && current.status === 'failed';
     if (retry) {
-      await this.terminalizeDeployment(snapshot);
+      const settled = await this.terminalizeDeployment(snapshot);
+      if (settled.status === 'succeeded') {
+        // It finished in the user's account after all: production already serves it.
+        await this.recordDeploymentSucceeded(snapshot, settled);
+        return this.state.deployment ?? { ...settled, ...snapshot };
+      }
     }
     await this.scheduleDeployment(snapshot, { retry, run: { automatic: false, attempt: 0 } });
     return this.state.deployment ?? { status: 'deploying', ...snapshot };
@@ -2238,6 +2257,23 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     await this.publishLatestRevision(null, { resume: true, epoch });
   }
 
+  /**
+   * A turn ended without its end-of-turn hook publishing (a Stop, or a failure before it streamed): the
+   * publication it stopped when it began, or one still waiting for production, runs again now.
+   */
+  private publishAfterInterruptedTurn(): void {
+    const epoch = this.publicationEpoch;
+    if (!this.state.publicationPending || !this.userId || this.automaticPublicationStopped(epoch)) {
+      return;
+    }
+    this.ctx.waitUntil(
+      (async () => {
+        await this.refreshDeploymentReadiness();
+        await this.publishLatestRevision(null, { epoch });
+      })().catch(() => logger.warn('Unable to publish after the interrupted turn')),
+    );
+  }
+
   /** Stop the automatic publications this instance is running, and give them a moment to let go of the workspace. */
   private async stopAutomaticPublications(): Promise<void> {
     this.publicationEpoch += 1;
@@ -2339,22 +2375,41 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return;
     }
     let retry = attempt > 0;
+    const run: DeploymentRun = { automatic: true, attempt };
     const current = this.state.deployment;
     if (current?.revision === job.revision && current.status === 'failed') {
-      const settled = await this.terminalizeDeployment(job).catch(() => {
-        logger.warn('Unable to terminalize the failed deployment');
-        return null;
-      });
-      if (!settled || this.automaticPublicationStopped(epoch)) {
+      // Counted busy, and retried, as an interrupted deployment's recovery settles its record.
+      const settled = await this.runtimeActivity
+        .run(() => this.retry(() => this.terminalizeDeployment(job)))
+        .catch(() => {
+          logger.warn('Unable to terminalize the failed deployment');
+          return null;
+        });
+      if (this.automaticPublicationStopped(epoch)) {
+        return;
+      }
+      if (!settled || settled.status === 'deploying') {
+        // Its record is not settled yet (or could not be read): it is asked again later, as a deployment
+        // that failed for a reason that passes, and a wake leaves it for that retry or the next turn.
+        this.recordFailedPublication(job.revision);
+        await this.scheduleAutomaticDeploymentRetry(job, run, {
+          message: 'Interrupted deployment recovery is pending.',
+          retryable: true,
+        });
         return;
       }
       if (settled.status === 'succeeded') {
         await this.recordDeploymentSucceeded(job, settled);
         return;
       }
+      // Something else started deploying this revision, or settled it, while the record was read.
+      const now = this.state.deployment;
+      if (now?.revision === job.revision && now.status !== 'failed') {
+        return;
+      }
       retry = true;
     }
-    await this.scheduleDeployment(job, { retry, run: { automatic: true, attempt }, epoch }).catch(() =>
+    await this.scheduleDeployment(job, { retry, run, epoch }).catch(() =>
       logger.warn('Unable to queue the automatic deployment'),
     );
   }
@@ -2403,10 +2458,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
               try {
                 // Counted busy while it runs, whatever later rewrites the deployment record. A stop while
                 // it still waits for an upgrade window calls it off before it starts.
-                const deployment = await this.runtimeActivity.run(() => this.runDeployment(job, signal), { signal });
-                if (deployment.status === 'failed' && run.automatic) {
-                  this.recordFailedPublication(job.revision);
-                }
+                // A deployment that fails throws: the executor never returns a failed one.
+                await this.runtimeActivity.run(() => this.runDeployment(job, signal), { signal });
               } catch (error) {
                 if (signal.aborted) {
                   // Stopped before it changed production: not a failure, and the latest revision
@@ -2627,15 +2680,21 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (current.status === 'ready' && current.published?.snapshotRevision === snapshot.revision) {
       return current;
     }
-    if (publishing && current.pendingId) {
-      await this.cancelPreview();
+    const stopped = () => options.epoch !== undefined && this.automaticPublicationStopped(options.epoch);
+    if (stopped()) {
+      // A stale automatic publication never cancels the preview that replaced it.
+      return current;
     }
 
     await this.runtimeActivity.admit();
     // Admission can wait out an upgrade: whatever changed meanwhile decides again.
     this.refuseIfDestroying();
-    if (options.epoch !== undefined && this.automaticPublicationStopped(options.epoch)) {
+    if (stopped()) {
       return this.currentPreviewState();
+    }
+    const replaced = this.currentPreviewState();
+    if (replaced.pendingId && (replaced.status === 'queued' || replaced.status === 'building')) {
+      await this.cancelPreview();
     }
     const previewId = crypto.randomUUID();
     const job: PreviewPublicationJob = {
@@ -2652,7 +2711,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       stale: snapshot.workspaceRevision !== workspace.revision,
       error: null,
       // The version already serving stays visible until its replacement publishes.
-      published: current.published,
+      published: this.currentPreviewState().published,
     });
     try {
       await this.startFiber(

@@ -155,10 +155,14 @@ describe('builder agent runtime activity', () => {
     const admitted = activity.run(work, { signal: stop.signal, onWaiting: (value) => waiting.push(value) });
     await vi.waitFor(() => expect(waiting).toEqual([true]));
     const stoppedAt = Date.now();
+    const cleared = vi.spyOn(globalThis, 'clearTimeout');
     stop.abort(new Error('Stopped by the person'));
 
     await expect(admitted).rejects.toThrow('Stopped by the person');
     expect(Date.now() - stoppedAt).toBeLessThan(500);
+    // The poll's timer ends with the wait instead of running out its second.
+    expect(cleared).toHaveBeenCalled();
+    cleared.mockRestore();
     expect(work).not.toHaveBeenCalled();
     expect(waiting).toEqual([true, false]);
   });

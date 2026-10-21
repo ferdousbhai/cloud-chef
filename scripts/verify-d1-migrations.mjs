@@ -89,6 +89,7 @@ const migrationPolicies = [
       '0010_linked_projects.sql': '3207539eadd37e6dd7eae1e241b2924ce13400f70af79ecca57ca6840444e371',
       '0011_linked_chat_history.sql': '48e8758a86aa97c46923d1b4170766c03d30d43f0111da9a9d057df06b4bc37e',
       '0012_runtime_activity.sql': 'e8d8983002c40833631722252c30dab9eca7688264efbb9afa16400ae19c8339',
+      '0013_runtime_upgrade_window_holder.sql': '09abd121f50b951d6b8ab162d12f7eeb61471ef5cf72a24188d6a3dee24eeb58',
     },
     contractAllowlist: {
       // Chat identity has one immutable key; remove the unused alternate URL column and index.

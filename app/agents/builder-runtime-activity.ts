@@ -49,7 +49,8 @@ type BuilderRuntimeActivityDependencies = {
   db: Pick<D1Database, 'prepare'>;
   agentName: () => string;
   now?: () => number;
-  sleep?: (ms: number) => Promise<void>;
+  /** Resolves after `ms`, or as soon as `signal` aborts. */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 };
 
 /**
@@ -64,11 +65,11 @@ export class BuilderRuntimeActivity {
   private turnBusy = false;
   private running = 0;
   private readonly now: () => number;
-  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
 
   constructor(private readonly dependencies: BuilderRuntimeActivityDependencies) {
     this.now = dependencies.now ?? Date.now;
-    this.sleep = dependencies.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.sleep = dependencies.sleep ?? abortableSleep;
   }
 
   /** Whether the agent's turn is running. A failed write is logged; it never fails the agent's work. */
@@ -183,7 +184,8 @@ export class BuilderRuntimeActivity {
       signal.addEventListener('abort', onAbort, { once: true });
     });
     try {
-      await Promise.race([this.sleep(ms), aborted]);
+      // The sleep hears the signal too, so its timer does not outlive a Stop.
+      await Promise.race([this.sleep(ms, signal), aborted]);
     } finally {
       signal.removeEventListener('abort', onAbort);
     }
@@ -211,4 +213,21 @@ export class BuilderRuntimeActivity {
     await recordRuntimeActivity(this.dependencies.db, { agentName: this.dependencies.agentName(), busy, now });
     this.recorded = { busy, at: now };
   }
+}
+
+/** A timer that is cleared, not left running, when `signal` aborts first. */
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    signal?.addEventListener('abort', finish, { once: true });
+  });
 }

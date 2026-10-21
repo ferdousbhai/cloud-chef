@@ -57,7 +57,10 @@ the Workflow asks the runtime, with its secret, for the upgrade window (`POST /v
 grants it only when no row is active. It then redeploys the Worker, configures it, rolls out the container image,
 and waits for the new runtime to be ready, renewing the window on the new runtime (`PUT`) throughout, and releases
 it (`DELETE`) once the runtime serves; the rollout replaces running containers at once, so nothing may start before
-it completes. Each of these is its own Workflow step, so a retry never claims the window again or redeploys. Work
+it completes. Each of these is its own Workflow step, so a retry never claims the window again or redeploys. Each
+call names the Workflow instance holding the window (a `cloudchef-upgrade-holder` header, which a runtime from
+before holders ignores): another upgrade's claim or renewal is refused while it is open, as for a busy workspace,
+and only its holder releases it; a window claimed without a holder may be renewed or released by any. Work
 that starts records itself first and then waits while any window is open, on the old Worker or the new one; a
 window lapses five minutes after its last renewal, which bounds the wait when an upgrade stops partway. A turn
 waits at most three minutes, then asks to be sent again; a Stop calls its wait off. A step's retries can outlast
@@ -65,7 +68,10 @@ the window, so the runtime renews a lapsed window only while nothing is busy (`4
 meanwhile would be cut off by the rollout, and the Workflow waits for it as for a busy workspace, without
 redeploying again. Work that cannot record itself or read the window retries for a minute before it starts anyway.
 A busy workspace is asked again with backoff (30 seconds doubling to 5 minutes); after 12 hours the Workflow ends without upgrading, and the
-next session request, or the next sweep, starts another.
+next session request, or the next sweep, starts another. That limit applies only before the redeploy: once the new
+Worker serves, the steps after it wait, with the same backoff, for as long as work keeps them from the window, since
+that Worker still needs its container image, its schedule and its readiness check. A Workflow restarted partway
+claims the window again and redeploys only once the workspace is idle, so it never cuts work off.
 
 A runtime whose owner does not come back would otherwise stay on an old release, and a failed upgrade would stay
 failed until the browser's explicit retry. The control plane's 15-minute cron therefore also sweeps
@@ -343,12 +349,14 @@ already ran one), prepares the exact-revision plan, and executes it in the user'
 deployment is shown to the user and told to the model at the start of its next turn. The browser can request a retry but is not responsible for starting deployment.
 A turn that changes the app, however it ends, durably records that production must catch up (`publicationPending`),
 and only production serving the current revision (`productionRevision`) clears it, so a publication cut short is
-redone: at the next turn's end, even one that changed nothing, and when a restarted agent starts. No automatic
+redone: at the next turn's end, even one that changed nothing, when that turn is stopped or fails before it
+streams, and when a restarted agent starts. A message refused before its turn begins stops nothing. No automatic
 publication starts while a turn runs, since it holds the workspace's operation lane. The person's next message stops
 the one in flight: a preview at its next step, a deployment until just before its migrations and upload (past that it
 finishes, since stopping would leave production half changed), and a stopped preview never deploys. A deployment that
 failed for a reason that passes (a busy workspace, another deployment of the project, an interruption, an unreachable
-credential broker) is retried after 30 seconds, 2 minutes, and 8 minutes; a failed build waits for the next turn. A
+credential broker) is retried after 30 seconds, 2 minutes, and 8 minutes, and so is one whose failed record in the
+user's account cannot be settled yet before it is redone; a failed build waits for the next turn. A
 project deploys one revision at a time; a person's projects deploy independently. Preview and deployment use
 checkpoints from the same VFS, so a publication never ships a revision other than the one it was asked for.
 

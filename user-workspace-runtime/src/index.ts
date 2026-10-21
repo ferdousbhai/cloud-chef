@@ -119,7 +119,12 @@ import {
   scanProjectFiles,
   type DiscoveryScope,
 } from './workspace-discovery';
-import { requireDeploymentMigrationName, requireWorkspaceFileEncoding } from './workspace-input';
+import {
+  canonicalAbsolutePath,
+  projectPath,
+  requireDeploymentMigrationName,
+  requireWorkspaceFileEncoding,
+} from './workspace-input';
 import { withCors } from './http-cors';
 import {
   runTrackedSandboxCommand,
@@ -3601,28 +3606,11 @@ function requireChanges(value: unknown): WorkspaceChange[] {
 }
 
 function requireProjectPath(value: unknown, allowRoot = false): string {
-  const path = requireAbsolutePath(value);
-  if ((allowRoot && path === PROJECT_ROOT) || path.startsWith(`${PROJECT_ROOT}/`)) {
-    return path;
-  }
-  // The root stays rejected where a single file is named — reads want a file, and a change set
-  // naming the root would delete or overwrite the whole project — but say so, rather than
-  // claiming the project root is not under the project root.
-  throw new SyntaxError(
-    path === PROJECT_ROOT
-      ? `${PROJECT_ROOT} is the project directory; name a path inside it.`
-      : `Path must be under ${PROJECT_ROOT}.`,
-  );
+  return projectPath(requireAbsolutePath(value), PROJECT_ROOT, allowRoot);
 }
 
 function requireAbsolutePath(value: unknown): string {
-  const path = requireString(value, 'path', 1_024)
-    .replaceAll('\\', '/')
-    .replace(/\/{2,}/g, '/');
-  if (!path.startsWith('/') || path.split('/').includes('..') || path.includes('\0')) {
-    throw new SyntaxError('Invalid absolute workspace path.');
-  }
-  return path.length > 1 ? path.replace(/\/$/, '') : path;
+  return canonicalAbsolutePath(requireString(value, 'path', 1_024));
 }
 
 function requireBackend(value: unknown): 'container-shell' {

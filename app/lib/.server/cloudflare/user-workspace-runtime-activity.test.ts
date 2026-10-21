@@ -126,4 +126,52 @@ describe('workspace runtime activity', () => {
     await releaseRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION });
     await expect(readRuntimeUpgradeWindow(db, NOW)).resolves.toBeNull();
   });
+
+  describe('two upgrades', () => {
+    const first = { targetVersion: NEW_VERSION, holder: 'workspace-first' };
+    const second = { targetVersion: NEW_VERSION, holder: 'workspace-second' };
+
+    it('never share a window: the second is refused while the first holds it open', async () => {
+      const { db } = userWorkspaceDatabase();
+      await expect(claimRuntimeUpgradeWindow(db, { ...first, now: NOW })).resolves.toEqual({ granted: true });
+
+      await expect(claimRuntimeUpgradeWindow(db, { ...second, now: NOW + 1_000 })).resolves.toEqual({
+        granted: false,
+        busy: 0,
+      });
+      await expect(holdRuntimeUpgradeWindow(db, { ...second, now: NOW + 2_000 })).resolves.toEqual({
+        held: false,
+        busy: 0,
+      });
+      // The first claims again (a retried step) and renews its own window.
+      await expect(claimRuntimeUpgradeWindow(db, { ...first, now: NOW + 3_000 })).resolves.toEqual({ granted: true });
+      await expect(holdRuntimeUpgradeWindow(db, { ...first, now: NOW + 4_000 })).resolves.toEqual({ held: true });
+    });
+
+    it('only the holder releases the window, and the other may claim it once it has, or once it lapsed', async () => {
+      const { db } = userWorkspaceDatabase();
+      await claimRuntimeUpgradeWindow(db, { ...first, now: NOW });
+
+      await releaseRuntimeUpgradeWindow(db, second);
+      await expect(readRuntimeUpgradeWindow(db, NOW)).resolves.not.toBeNull();
+      await releaseRuntimeUpgradeWindow(db, first);
+      await expect(readRuntimeUpgradeWindow(db, NOW)).resolves.toBeNull();
+      await expect(claimRuntimeUpgradeWindow(db, { ...second, now: NOW + 1_000 })).resolves.toEqual({ granted: true });
+
+      const lapsed = NOW + 1_000 + RUNTIME_UPGRADE_WINDOW_MS;
+      await expect(claimRuntimeUpgradeWindow(db, { ...first, now: lapsed })).resolves.toEqual({ granted: true });
+    });
+
+    it('a window claimed without a holder, as a control plane from before holders does, is renewed and released by any', async () => {
+      const { db } = userWorkspaceDatabase();
+      await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW });
+
+      await expect(holdRuntimeUpgradeWindow(db, { ...first, now: NOW + 1_000 })).resolves.toEqual({ held: true });
+      // Holding it made it the first's.
+      await releaseRuntimeUpgradeWindow(db, second);
+      await expect(readRuntimeUpgradeWindow(db, NOW + 1_000)).resolves.not.toBeNull();
+      await releaseRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION });
+      await expect(readRuntimeUpgradeWindow(db, NOW + 1_000)).resolves.toBeNull();
+    });
+  });
 });
