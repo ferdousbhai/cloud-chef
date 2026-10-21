@@ -317,6 +317,50 @@ describe('ops:session reconstruction', () => {
     expect(session.github).toMatchObject({ commits: null, branch: 'cloudchef/sara-b86c65' });
   });
 
+  it("reads the latest of only this member's branches, all of them by last commit, and lists the rest", async () => {
+    const production = fakeProduction();
+    const member = 'cloudchef/sara-b86c65';
+    // Alphabetical, as GitHub lists them: 25 older branches before the newest, and branches of others
+    // whose names merely start with this member's.
+    const refs = [
+      ...Array.from({ length: 25 }, (_, index) => ({
+        ref: `refs/heads/${member}-a${String(index).padStart(7, '0')}`,
+        object: { sha: `old${index}` },
+      })),
+      { ref: `refs/heads/${member}-zz0newest`, object: { sha: 'newest' } },
+      { ref: `refs/heads/${member}x-k3y4chat0001`, object: { sha: 'impostor' } },
+      { ref: `refs/heads/${member}-k3y4chat0001-extra`, object: { sha: 'impostor' } },
+    ];
+    const gh = async (path: string) => {
+      if (path.includes('/git/matching-refs/')) {
+        return refs;
+      }
+      const sha = /\/commits\/([a-z0-9]+)$/.exec(path)?.[1];
+      if (sha !== undefined) {
+        const day = sha === 'newest' || sha === 'impostor' ? 30 : (Number(sha.slice(3)) % 28) + 1;
+        return { commit: { committer: { date: `2026-10-${String(day).padStart(2, '0')}T00:00:00Z` } } };
+      }
+      return production.gh(path);
+    };
+
+    const session = await collectSession(parseTarget('sara@example.com'), {
+      cf: production.cf,
+      gh,
+      controlPlaneDatabaseId: CONTROL_PLANE,
+      now: AT + 86_400_000,
+    });
+
+    expect(session.github?.branch).toBe(`${member}-zz0newest`);
+    expect(session.github?.branches?.total).toBe(26);
+    expect(session.github?.branches?.latest).toHaveLength(20);
+    const dates = session.github?.branches?.latest.map(({ lastCommitAt }) => lastCommitAt) ?? [];
+    expect(dates).toEqual(dates.toSorted().reverse());
+    const text = renderSession(session);
+    expect(text).toContain(`branch ${member}-zz0newest (latest of 26 by last commit; the chat's own isn't recorded)`);
+    expect(text).toContain('  and 6 older');
+    expect(text).not.toContain(`${member}x-`);
+  });
+
   it('reports a person it cannot find', async () => {
     const cf = async () => d1Rows([]);
     const session = await collectSession(parseTarget('nobody@example.com'), {
