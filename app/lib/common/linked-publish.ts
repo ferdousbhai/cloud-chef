@@ -41,7 +41,7 @@ export const linkedPublishDataSchema = z.looseObject({
 });
 export type LinkedPublishData = z.infer<typeof linkedPublishDataSchema>;
 
-/** A live publish whose merge overlapped newer work: the commit is on the member's branch, nothing went live. */
+/** A live publish whose merge overlapped newer work: the commit is on the conversation's branch, nothing went live. */
 const linkedPublishConflictDataSchema = z.looseObject({
   branch: z.string(),
   commit: z.string(),
