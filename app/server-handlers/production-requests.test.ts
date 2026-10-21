@@ -46,11 +46,15 @@ type DuringApproval = { commit?: () => Promise<void> };
 /**
  * How GitHub differs from the usual: the App can't reach the new repository, or `ada/new-app` exists
  * already, with `commits` commits (none: still empty, which GitHub answers with a 409) and `paths` at the
- * top of its tree, created `createdAt` (just now unless named).
+ * top of its tree, created `createdAt` (just now unless named), administered by the admin unless
+ * `readOnly`; or adding a repository to the installation is refused with `addRefused`, the installation
+ * reaching `selection` of its account's repositories.
  */
 type GitHubOptions = {
   appCannotReach?: boolean;
-  nameTaken?: { commits: number; paths: string[]; createdAt?: string };
+  nameTaken?: { commits: number; paths: string[]; createdAt?: string; readOnly?: boolean };
+  addRefused?: number;
+  selection?: 'all' | 'selected';
 };
 
 /** GitHub as the approval sees it: the admin `ada`, a new repository, and what CloudChef wrote to it. */
@@ -91,6 +95,7 @@ async function fakeGitHub(options: GitHubOptions = {}) {
         default_branch: 'main',
         private: true,
         created_at: options.nameTaken.createdAt ?? new Date().toISOString(),
+        permissions: { admin: !options.nameTaken.readOnly, push: true, pull: true },
       });
     }
     if (url.pathname === '/repos/ada/new-app/commits' && options.nameTaken?.commits === 0) {
@@ -109,7 +114,14 @@ async function fakeGitHub(options: GitHubOptions = {}) {
       );
     }
     if (url.pathname === '/user/installations/9/repositories/77') {
-      return new Response(null, { status: 204 });
+      return new Response(null, { status: options.addRefused ?? 204 });
+    }
+    if (url.pathname === '/app/installations/9') {
+      return Response.json({
+        id: 9,
+        account: { login: 'ada', type: 'User' },
+        repository_selection: options.selection ?? 'selected',
+      });
     }
     if (url.pathname === '/app/installations/9/access_tokens' && options.appCannotReach) {
       return new Response('repository not in installation', { status: 422 });
@@ -534,6 +546,80 @@ describe('production requests', () => {
     expect(calls.some((call) => call.path === '/user/installations/9/repositories/77')).toBe(true);
     expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'approved' });
   });
+
+  it("refuses a repository of the same name, left as GitHub made it, that the admin can see but doesn't administer", async () => {
+    const { database, env, admin, app, calls } = await setup({
+      nameTaken: { commits: 1, paths: ['README.md'], readOnly: true },
+    });
+    const started = await approveProductionRequestAction({
+      request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+        orgId: ORG,
+        requestId: REQUEST,
+        repoName: 'new-app',
+        private: true,
+      }),
+      env,
+      app,
+    });
+    const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+    const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+    const returned = await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+      }),
+      env,
+      app,
+    });
+    expect(returnedMessage(returned)).toBe(
+      'A repository with that name already exists. Approve again with another name.',
+    );
+    expect(calls.filter((call) => call.path.startsWith('/user/installations/'))).toEqual([]);
+    expect(calls.filter((call) => call.method !== 'GET' && call.path.startsWith('/repos/'))).toEqual([]);
+    expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status: 'pending' });
+  });
+
+  it.each([
+    {
+      selection: 'selected' as const,
+      message: 'GitHub refused part of the approval. Approve again.',
+      status: 'pending',
+    },
+    // An installation on all of the account's repositories reaches the new one already.
+    {
+      selection: 'all' as const,
+      message: 'The app is now a GitHub repository, and a project its requester can work on.',
+      status: 'approved',
+    },
+  ])(
+    'commits nothing when GitHub refuses to add the repository to an installation on $selection repositories, unless it reaches them all',
+    async ({ selection, message, status }) => {
+      const { database, env, admin, app, calls } = await setup({ addRefused: 403, selection });
+      const started = await approveProductionRequestAction({
+        request: post(admin.cookie, '/api/organizations/production-requests/approve', {
+          orgId: ORG,
+          requestId: REQUEST,
+          repoName: 'new-app',
+          private: true,
+        }),
+        env,
+        app,
+      });
+      const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+      const state = new URL(authorizeUrl).searchParams.get('state') ?? '';
+      const returned = await completeGitHubInstallAction({
+        request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+          headers: { cookie: `${admin.cookie}; cloudchef_github_approval=${state}` },
+        }),
+        env,
+        app,
+      });
+      expect(returnedMessage(returned)).toBe(message);
+      expect(calls.some((call) => call.path.endsWith('/git/commits') && call.method === 'POST')).toBe(
+        selection === 'all',
+      );
+      expect(database.prepare('SELECT status FROM production_requests').get()).toEqual({ status });
+    },
+  );
 
   it('holds the draft the admin reviewed from the moment they click Approve', async () => {
     const { database, env, admin, app, calls } = await setup();
