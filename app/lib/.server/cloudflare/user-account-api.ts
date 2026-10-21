@@ -170,6 +170,9 @@ const secretsStoreSecretSchema = z.looseObject({
   scopes: z.array(z.string()).catch([]),
 });
 
+/** A Durable Object namespace as the account listing names it: the Worker and the class it belongs to. */
+const durableObjectNamespaceSchema = z.looseObject({ script: z.string(), class: z.string() });
+
 /** A migration receipt's applied SQL; a receipt written before receipts kept it has none. */
 const appliedMigrationSqlSchema = z.looseObject({ sql: z.string() });
 
@@ -504,6 +507,22 @@ export class UserCloudflareAccountApi {
       throw new CloudflareAccountApiError('Cloudflare returned an invalid KV namespace.');
     }
     return { id: match.id, name: resourceName };
+  }
+
+  /**
+   * The Durable Object classes Cloudflare holds a namespace for under the Worker: classes that came into
+   * being through one of its deployments and were never deleted, whatever its active version exports.
+   */
+  async managedWorkerDurableObjectClasses(workerName: string): Promise<string[]> {
+    requireWorkerName(workerName);
+    const namespaces = await this.listAllPages(
+      '/workers/durable_objects/namespaces',
+      'Cloudflare returned invalid Durable Object namespaces.',
+    );
+    return namespaces.flatMap((value) => {
+      const namespace = durableObjectNamespaceSchema.safeParse(value);
+      return namespace.success && namespace.data.script === workerName ? [namespace.data.class] : [];
+    });
   }
 
   /** Remove a CloudChef-managed Worker and its script-owned Durable Objects. */

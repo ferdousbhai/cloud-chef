@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
     ensureD1ForPlan: vi.fn(),
     ensureD1Database: vi.fn(),
     deleteD1DatabaseById: vi.fn(),
+    deleteManagedWorker: vi.fn(),
+    managedWorkerDurableObjectClasses: vi.fn(),
     ensureR2ForPlan: vi.fn(),
     ensureKvForPlan: vi.fn(),
     applyD1Migrations: vi.fn(),
@@ -66,6 +68,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
       workerVersionId: '11111111-1111-4111-8111-111111111111',
     });
     mocks.findDeploymentResource.mockResolvedValue(null);
+    mocks.accountApi.managedWorkerDurableObjectClasses.mockResolvedValue([]);
     // The project's resources are named as these plans name them.
     mocks.projectResourceNaming.mockResolvedValue({ identity: 'deployment-1', adopted: [] });
     mocks.accountApi.configureManagedWorkerSchedule.mockResolvedValue(undefined);
@@ -521,6 +524,77 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     expect(mocks.transitionDeployment).toHaveBeenCalledWith(
       expect.objectContaining({ nextStatus: 'failed', errorCode: 'cloudflare_cleanup_required' }),
     );
+  });
+
+  it('refuses, before it changes anything, a deployment that drops the Agent from a Worker holding Agent data', async () => {
+    const { execution, workspace } = await workerDeployment({ d1: true });
+    mocks.accountApi.managedWorkerDurableObjectClasses.mockResolvedValue(['AppAgent']);
+
+    await expect(executeUserOwnedDeployment(execution)).rejects.toThrow(
+      "The Agent capability can't be removed from this published app",
+    );
+
+    expect(mocks.accountApi.managedWorkerDurableObjectClasses).toHaveBeenCalledWith('cloudchef-deployment-1');
+    expect(workspace.beginDeploymentSession).not.toHaveBeenCalled();
+    expect(mocks.accountApi.ensureD1ForPlan).not.toHaveBeenCalled();
+    expect(mocks.accountApi.applyD1Migrations).not.toHaveBeenCalled();
+    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
+    expect(mocks.accountApi.deleteManagedWorker).not.toHaveBeenCalled();
+    expect(mocks.transitionDeployment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nextStatus: 'failed',
+        errorCode: 'deployment_provisioning_failed',
+        errorMessage: expect.stringContaining('Restore the Agent capability (pnpm run agent:enable)'),
+      }),
+    );
+  });
+
+  it('deploys a Worker without the Agent while no Agent data was ever published to it', async () => {
+    const { execution } = await workerDeployment();
+    // The account API answers only this Worker's classes; another Worker's AppAgent is not among them.
+    mocks.accountApi.managedWorkerDurableObjectClasses.mockResolvedValue([]);
+
+    await expect(executeUserOwnedDeployment(execution)).resolves.toMatchObject({ status: 'succeeded' });
+    expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledOnce();
+  });
+
+  it('deploys and previews an app that keeps its Agent onto the Workers holding its Agent data', async () => {
+    const { execution, deployment } = await workerDeployment();
+    deployment.plan.project.bindings.appAgent = true;
+    mocks.accountApi.managedWorkerDurableObjectClasses.mockResolvedValue(['AppAgent']);
+
+    await expect(executeUserOwnedDeployment(execution)).resolves.toMatchObject({ status: 'succeeded' });
+    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
+    await executeUserOwnedPreview({ ...execution, previewId: 'preview-1' });
+
+    expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledTimes(2);
+    expect(mocks.accountApi.deleteManagedWorker).not.toHaveBeenCalled();
+  });
+
+  it('starts the preview Worker over when a preview drops the Agent it had', async () => {
+    const { execution, deployment } = await workerDeployment();
+    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
+    mocks.accountApi.managedWorkerDurableObjectClasses.mockResolvedValue(['AppAgent']);
+
+    await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).resolves.toMatchObject({
+      url: 'https://cloudchef-deployment-1-preview.user-subdomain.workers.dev',
+    });
+
+    expect(mocks.accountApi.managedWorkerDurableObjectClasses).toHaveBeenCalledWith('cloudchef-deployment-1-preview');
+    expect(mocks.accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-deployment-1-preview');
+    expect(mocks.accountApi.deleteManagedWorker.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.accountApi.deployManagedWorker.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.accountApi.deleteManagedWorker).not.toHaveBeenCalledWith('cloudchef-deployment-1');
+  });
+
+  it('keeps the preview Worker of a preview that keeps the Agent, or never had it', async () => {
+    const { execution, deployment } = await workerDeployment();
+    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
+
+    await executeUserOwnedPreview({ ...execution, previewId: 'preview-1' });
+
+    expect(mocks.accountApi.deleteManagedWorker).not.toHaveBeenCalled();
   });
 
   it('reports a promoted deployment as succeeded when its closing bookkeeping fails', async () => {

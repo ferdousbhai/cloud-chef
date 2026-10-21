@@ -42,6 +42,8 @@ type UserOwnedRuntimeContext = {
 };
 
 type ProjectWorkspaceStub = ReturnType<Env['PROJECT_WORKSPACE']['get']>;
+/** The Durable Object class the Agent capability exports, and the only one a CloudChef app has. */
+const APP_AGENT_CLASS_NAME = 'AppAgent';
 /** How much of an applied migration's SQL a refusal quotes; the failure it records keeps its last 4,000 characters. */
 const MIGRATION_SQL_QUOTE_LIMIT = 2_000;
 type WorkspaceReference = ReturnType<typeof parseWorkspaceReference>;
@@ -131,6 +133,11 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     const reference = requireApprovedWorkspaceReference(deployment, 'deployment');
     const workspace = runtimeEnv.PROJECT_WORKSPACE.get(runtimeEnv.PROJECT_WORKSPACE.idFromName(reference.projectId));
     const operationId = `${deployment.id}:${args.executionGeneration}`;
+    await requireAgentCapabilityKept(
+      accountApi,
+      requireResourceName(deployment, PRODUCTION_BINDINGS.worker),
+      deployment,
+    );
     abortSignal?.throwIfAborted();
     session = await beginPublicationSession(workspace, operationId, reference);
     abortSignal?.throwIfAborted();
@@ -343,6 +350,11 @@ export async function executeUserOwnedPreview(
     });
     abortSignal?.throwIfAborted();
     await activity(args, 4, 'Uploading assets and publishing the preview Worker');
+    if (!profile.bindings.appAgent && (await hasAppAgentObjects(publishApi, workerName))) {
+      // Unlike production's, the preview's Agent data is only what previews wrote, and deleting the
+      // Worker deletes its Durable Objects with it, so the preview Worker starts over without them.
+      await publishApi.deleteManagedWorker(workerName);
+    }
     const published = await publishApi.deployManagedWorker(
       managedWorkerVersionArgs({ workerName, profile, reference, artifact, resources }),
     );
@@ -422,6 +434,32 @@ async function beginPublicationSession(
       finished = true;
     },
   };
+}
+
+/**
+ * Refuses, before anything changes, a deployment that would drop the Agent capability from a Worker
+ * that has AppAgent Durable Objects. Cloudflare removes a Durable Object class only by deleting it,
+ * every object and its data with it (a `deleted` export, or a `deleted_classes` migration), and
+ * CloudChef never deletes an app's data to deploy it.
+ */
+async function requireAgentCapabilityKept(
+  accountApi: UserCloudflareAccountApi,
+  workerName: string,
+  deployment: Deployment,
+): Promise<void> {
+  if (!deployment.plan.project.bindings.appAgent && (await hasAppAgentObjects(accountApi, workerName))) {
+    throw new Error(
+      "The Agent capability can't be removed from this published app: its Worker holds the app's Agent data " +
+        "(AppAgent Durable Objects), and Cloudflare removes them only by deleting that data, which CloudChef won't do. " +
+        'Restore the Agent capability (pnpm run agent:enable) and publish again.',
+    );
+  }
+}
+
+function hasAppAgentObjects(accountApi: UserCloudflareAccountApi, workerName: string): Promise<boolean> {
+  return accountApi
+    .managedWorkerDurableObjectClasses(workerName)
+    .then((classes) => classes.includes(APP_AGENT_CLASS_NAME));
 }
 
 /**

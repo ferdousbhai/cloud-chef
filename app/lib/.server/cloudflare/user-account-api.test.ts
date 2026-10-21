@@ -1103,6 +1103,39 @@ describe('UserCloudflareAccountApi', () => {
     expect(JSON.parse(String(request.mock.calls[2]?.[1]?.body))).toEqual({ enabled: true, previews_enabled: false });
   });
 
+  test('reads the Durable Object classes Cloudflare holds for one Worker, across every page', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          success: true,
+          result: [
+            { id: 'a'.repeat(32), class: 'AppAgent', script: 'cloudchef-app' },
+            { id: 'b'.repeat(32), class: 'AppAgent', script: 'cloudchef-app-preview' },
+          ],
+          result_info: { total_pages: 2 },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          success: true,
+          result: [
+            { id: 'c'.repeat(32), class: 'ProjectWorkspace', script: 'cloudchef-workspace' },
+            { id: 'd'.repeat(32), class: 'Other', script: 'cloudchef-app' },
+          ],
+          result_info: { total_pages: 2 },
+        }),
+      );
+
+    await expect(
+      new UserCloudflareAccountApi('account-1', 'token', request).managedWorkerDurableObjectClasses('cloudchef-app'),
+    ).resolves.toEqual(['AppAgent', 'Other']);
+    expect(request.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/durable_objects/namespaces?page=1&per_page=1000',
+      'https://api.cloudflare.com/client/v4/accounts/account-1/workers/durable_objects/namespaces?page=2&per_page=1000',
+    ]);
+  });
+
   test('refuses a Worker that still serves its versions at preview URLs', async () => {
     const request = vi
       .fn<typeof fetch>()

@@ -459,7 +459,13 @@ their latest release, and adds the protected `src/server.ts` entrypoint, Agent s
 Partial Agent configuration fails validation. When enabled, application data stays in `DB`, while Agent sessions,
 retention state, and inference accounting stay in separately provisioned `AGENT_SECURITY_DB`. Only the AppAgent
 runtime may import that binding; the protected build policy checks the resolved module graph so aliases and
-dependencies cannot widen the capability boundary. The policy is structural rather than pinned to package versions:
+dependencies cannot widen the capability boundary. Once published, the capability stays: Cloudflare removes a
+Durable Object class only by deleting it with every object and its data (an export in the `deleted` state, or a
+`deleted_classes` migration, as wrangler's own export schema and migrations model it), and CloudChef never sends
+either. A deployment without the capability to a Worker for which Cloudflare holds an `AppAgent` namespace is
+therefore refused before it changes anything, telling the model to restore it; a preview instead deletes and recreates
+the preview Worker, whose Agent data only previews wrote. What Cloudflare does with a version that merely omits a
+class it holds was not confirmed (no local documentation says), so CloudChef does not rely on it either way. The policy is structural rather than pinned to package versions:
 only the Agent packages (and capnweb, their RPC layer) may import `cloudflare:workers`, only the protected
 entrypoints and those packages may import the Agent runtime, and project code may reach `globalThis`, `self`, or
 `window` only through property access, because capnweb keeps the Workers module on the global object under an
