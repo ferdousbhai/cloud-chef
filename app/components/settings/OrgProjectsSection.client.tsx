@@ -345,7 +345,7 @@ function ProjectRow({
             <Button
               size="xs"
               variant="danger"
-              aria-label={`Unlink ${project.name} (the repository stays on GitHub)`}
+              aria-label={`Unlink (the repository stays on GitHub): ${project.name}`}
               onClick={unlink}
             >
               Unlink (the repository stays on GitHub)
@@ -495,7 +495,7 @@ function ProductionRequestRow({
             onChange={(event) => setDecisionNote(event.target.value)}
             className="min-w-0 flex-1"
           />
-          <Button size="xs" variant="danger" aria-label={`Decline ${pending.title}`} onClick={decline}>
+          <Button size="xs" variant="danger" aria-label={`Decline request: ${pending.title}`} onClick={decline}>
             Decline request
           </Button>
           <Button size="xs" variant="subtle" onClick={() => setDeclining(false)}>
@@ -533,7 +533,7 @@ function ProductionRequestRow({
                   variant="primary"
                   disabled={!validName}
                   loading={approving}
-                  aria-label={`Approve ${pending.title} and create its repository`}
+                  aria-label={`Approve and create repository: ${pending.title}`}
                   onClick={approve}
                 >
                   Approve and create repository
