@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
@@ -17,6 +17,8 @@ import {
 import { listTemplateSourceFiles } from './template-source.mjs';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+/** Each check's copy of the template, removed on an interrupt too: validate stops a failing run with SIGTERM. */
+const temporaryDirectories = new Set();
 const sourceDir = resolve(rootDir, 'template');
 
 // The cf CLI reports usage unless told not to; template verification must not phone home.
@@ -73,7 +75,7 @@ export function verifyCommittedCloudflareConfig(templateDir) {
 }
 
 export async function verifyTemplate() {
-  const tempDir = await mkdtemp(join(tmpdir(), 'cloudchef-template-'));
+  const tempDir = await temporaryDirectory('cloudchef-template-');
   try {
     await copyCanonicalTemplateSource(tempDir);
     verifyCommittedCloudflareConfig(tempDir);
@@ -131,7 +133,7 @@ async function verifyResolvedProductionModulePolicy(tempDir) {
 }
 
 export async function verifyWorkerTemplateProfile() {
-  const tempDir = await mkdtemp(join(tmpdir(), 'cloudchef-worker-template-'));
+  const tempDir = await temporaryDirectory('cloudchef-worker-template-');
   try {
     await copyCanonicalTemplateSource(tempDir);
     const stalePackagePath = join(tempDir, 'package.json');
@@ -168,7 +170,7 @@ export async function verifyWorkerTemplateProfile() {
 }
 
 export async function verifyAgentCapabilityTemplate() {
-  const tempDir = await mkdtemp(join(tmpdir(), 'cloudchef-agent-template-'));
+  const tempDir = await temporaryDirectory('cloudchef-agent-template-');
   try {
     await copyCanonicalTemplateSource(tempDir);
     run(tempDir, ['install', '--frozen-lockfile']);
@@ -271,6 +273,13 @@ async function convertToWorkerProfile(tempDir) {
   ]);
 }
 
+/** @param {string} prefix */
+async function temporaryDirectory(prefix) {
+  const directory = await mkdtemp(join(tmpdir(), prefix));
+  temporaryDirectories.add(directory);
+  return directory;
+}
+
 function isMainModule() {
   return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
 }
@@ -286,6 +295,14 @@ export const TEMPLATE_PROFILES = Object.freeze({
 });
 
 if (isMainModule()) {
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.once(signal, () => {
+      for (const directory of temporaryDirectories) {
+        rmSync(directory, { recursive: true, force: true });
+      }
+      process.exit(130);
+    });
+  }
   const selected = Object.entries(TEMPLATE_PROFILES).filter(([flag]) => process.argv.includes(flag));
   for (const [, verify] of selected.length > 0 ? selected : Object.entries(TEMPLATE_PROFILES)) {
     await verify();
