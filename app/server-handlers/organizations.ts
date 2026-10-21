@@ -227,7 +227,8 @@ export function acceptInviteAction({ request, env }: { request: Request; env: En
 /**
  * An admin pausing, resuming, removing, promoting or demoting a member, or a member leaving. Pausing
  * or removing takes effect at the person's next request: the credential broker and the workspace
- * session both ask about membership every time.
+ * session both ask about membership every time. Removing someone else together with their workspace
+ * deletes their chats and files for good, so it is done only from a fresh sign-in, as deleting a team is.
  */
 export function updateMemberAction({
   request,
@@ -244,6 +245,9 @@ export function updateMemberAction({
       return body.response;
     }
     const { orgId, userId, action } = body.data;
+    if (action === 'remove' && body.data.deleteWorkspace && userId !== session.user.id && !isRecentSignIn(session)) {
+      return reauthenticationRequired('Sign in again to confirm it is you, then remove them.');
+    }
     await updateMember(env.DB, { orgId, actorId: session.user.id, userId, action });
     if (action !== 'remove' || !body.data.deleteWorkspace) {
       return Response.json({ ok: true });

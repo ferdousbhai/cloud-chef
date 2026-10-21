@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 import { z } from 'zod';
-import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
+import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
 import { createAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { createGitHubAppJwt } from '~/lib/.server/github/app-jwt';
 import { GitHubApp } from '~/lib/.server/github/github-app';
@@ -402,5 +402,60 @@ describe('GitHub projects', () => {
     });
     expect(removed.status).toBe(200);
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM org_project_access').first()).toEqual({ n: 0 });
+  });
+
+  it('grants no project to a member removed while the grant was being made', async () => {
+    const { database, env, orgId, admin, member, app } = await setup();
+    await install(env, app, admin.cookie, orgId);
+    const linked = await linkGitHubProjectAction({
+      request: post(admin.cookie, '/api/organizations/projects/link', { orgId, repoId: 11, name: 'Site' }),
+      env,
+      app,
+    });
+    const { projectId } = z.object({ projectId: z.string() }).parse(await linked.json());
+    // Another admin's removal lands just before the grant is written.
+    const racing = withStatementHook(env.DB, (query) => {
+      if (query.includes('INSERT INTO org_project_access')) {
+        database.prepare('DELETE FROM organization_members WHERE user_id = ?').run(member.userId);
+      }
+    });
+    const grant = await setProjectAccessAction({
+      request: post(admin.cookie, '/api/organizations/projects/access', {
+        orgId,
+        projectId,
+        userId: member.userId,
+        allowed: true,
+      }),
+      env: envWith({ ...env, DB: racing }),
+    });
+    expect(grant.status).toBe(404);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM org_project_access').first()).toEqual({ n: 0 });
+  });
+
+  it('keeps an existing grant as it was when it is given again', async () => {
+    const { database, env, orgId, admin, member, app } = await setup();
+    await install(env, app, admin.cookie, orgId);
+    const linked = await linkGitHubProjectAction({
+      request: post(admin.cookie, '/api/organizations/projects/link', { orgId, repoId: 11, name: 'Site' }),
+      env,
+      app,
+    });
+    const { projectId } = z.object({ projectId: z.string() }).parse(await linked.json());
+    const grant = () =>
+      setProjectAccessAction({
+        request: post(admin.cookie, '/api/organizations/projects/access', {
+          orgId,
+          projectId,
+          userId: member.userId,
+          allowed: true,
+        }),
+        env,
+      });
+    expect((await grant()).status).toBe(204);
+    database.prepare('UPDATE org_project_access SET granted_at = 1').run();
+    expect((await grant()).status).toBe(204);
+    expect(database.prepare('SELECT user_id, granted_at FROM org_project_access').all()).toEqual([
+      { user_id: member.userId, granted_at: 1 },
+    ]);
   });
 });

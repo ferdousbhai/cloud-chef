@@ -32,6 +32,10 @@ const GITHUB_RETURN_MESSAGES = {
   draft_unreadable:
     "CloudChef can't read this draft's files, so nothing was created on GitHub. Decline the request, and ask the " +
     'member to send it again.',
+  draft_refused:
+    "This draft holds files CloudChef can't commit to GitHub (GitHub Actions workflows, paths GitHub doesn't " +
+    'accept, or too many files that are not text), so nothing was created on GitHub. Decline the request, and ' +
+    'ask the member to remove them and send it again.',
   approval_failed: 'GitHub refused part of the approval. Approve again.',
   approval_withdrawn:
     'The repository was created on GitHub, but its requester left the team while it was being made, so the ' +

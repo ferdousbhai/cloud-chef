@@ -815,10 +815,19 @@ function MemberRow({
   const [confirming, setConfirming] = useState<'remove' | 'make_member' | null>(null);
   // One change at a time: a second click while one is in flight would repeat it.
   const [busy, setBusy] = useState(false);
+  // Removing someone deletes their workspace, so it asks for a sign-in within the last few minutes, as
+  // deleting the team does.
+  const [reauthenticate, setReauthenticate] = useState(false);
+  const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
   const who = member.name || member.email;
+  const cancel = () => {
+    setConfirming(null);
+    setReauthenticate(false);
+  };
   const act = async (action: MemberAction) => {
     setBusy(true);
     onFeedback(null);
+    setReauthenticate(false);
     try {
       const result = await updateMember(orgId, member.userId, action);
       if (result.workspaceDeleted === false) {
@@ -829,6 +838,11 @@ function MemberRow({
         );
       }
     } catch (actionError) {
+      if (actionError instanceof RequestError && actionError.code === 'reauthentication_required') {
+        setReauthenticate(true);
+        setBusy(false);
+        return;
+      }
       // Already gone (removed from another tab, or by another admin): the list catches up below.
       if (!(action === 'remove' && actionError instanceof RequestError && actionError.status === 404)) {
         onFeedback(
@@ -890,18 +904,35 @@ function MemberRow({
           onCancel={() => setConfirming(null)}
         />
       ) : confirming ? (
-        <div className="flex flex-wrap items-center gap-1">
-          <span className="mr-auto min-w-0 text-xs text-content-secondary">
-            {confirming === 'remove'
-              ? `Remove ${member.name || member.email}? Their workspace in the team's account is deleted.`
-              : 'Make yourself a member? You lose admin access to this team until another admin gives it back.'}
-          </span>
-          <Button size="xs" variant="danger" loading={busy} onClick={() => void act(confirming)}>
-            {confirming === 'remove' ? 'Remove and delete their workspace' : 'Make me a member'}
-          </Button>
-          <Button size="xs" variant="subtle" disabled={busy} onClick={() => setConfirming(null)}>
-            Cancel
-          </Button>
+        <div className="grid min-w-0 gap-1">
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="mr-auto min-w-0 text-xs text-content-secondary">
+              {confirming === 'remove'
+                ? `Remove ${member.name || member.email}? Their workspace in the team's account is deleted.`
+                : 'Make yourself a member? You lose admin access to this team until another admin gives it back.'}
+            </span>
+            <Button size="xs" variant="danger" loading={busy} onClick={() => void act(confirming)}>
+              {confirming === 'remove' ? 'Remove and delete their workspace' : 'Make me a member'}
+            </Button>
+            <Button size="xs" variant="subtle" disabled={busy} onClick={cancel}>
+              Cancel
+            </Button>
+          </div>
+          {reauthenticate ? (
+            <div role="status" className="grid gap-2 text-xs text-content-secondary">
+              <p>
+                {linkSentTo
+                  ? `Open the link sent to ${linkSentTo}, then return here and remove ${who} again.`
+                  : `Sign in again to confirm it is you, then return here and remove ${who} again.`}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <ReauthenticateButtons
+                  onError={(message) => onFeedback(errorFeedback(message))}
+                  onLinkSent={setLinkSentTo}
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-1">
