@@ -132,6 +132,59 @@ describe('an earlier conversation on a GitHub project', () => {
 });
 
 describe("a GitHub project's publish", () => {
+  it('holds back the newer conversation until a publish already on its way to GitHub lands', async () => {
+    vi.stubGlobal('scheduler', { wait: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)) });
+    const bases: string[] = [];
+    const harness = await builderAgentHarness({
+      workspace: await linkedWorkspace((value) => bases.push(value.baseCommit)),
+      cloudflareIdentity: true,
+    });
+    let committing = false;
+    let answer: () => void = () => undefined;
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.includes('runtime-github/commit')) {
+        committing = true;
+        await answered;
+        return Response.json({ commit: COMMIT, branch: 'cloudchef/sara-abc123-k3y4chat0001', published: MERGED });
+      }
+      return new Response('unavailable', { status: 503 });
+    });
+    // The publish tool as the model's turn holds it.
+    // eslint-disable-next-line dot-notation
+    const tools = await harness.agent['createLinkedProjectToolContext']();
+    const publishing = tools?.publish({ message: 'Ship it', live: true }, { toolCallId: 'call-1' });
+    await vi.waitFor(() => expect(committing).toBe(true));
+
+    archive(harness);
+    let settled = false;
+    const settling = harness.agent.settleForSuccessor('owner-1').then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(settled).toBe(false);
+
+    answer();
+    await settling;
+    await publishing;
+    // The base the newer conversation copies is the commit that went live.
+    expect(bases).toEqual([COMMIT]);
+  });
+
+  it('leaves nothing waiting for a CloudChef deployment, which a GitHub project never has', async () => {
+    const harness = await builderAgentHarness({ workspace: await linkedWorkspace(), cloudflareIdentity: true });
+    // Recorded by a turn before GitHub projects stopped asking for CloudChef's publication.
+    harness.agent.setState({ ...harness.agent.state, publicationPending: true });
+
+    harness.beginTurn();
+    await harness.endTurn();
+
+    expect(harness.agent.state.publicationPending).toBe(false);
+  });
+
   it("commits to the conversation's own branch, and is called off only before anything reaches GitHub", async () => {
     const harness = await builderAgentHarness({ workspace: await linkedWorkspace(), cloudflareIdentity: true });
     const commits = controlPlane();

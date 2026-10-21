@@ -184,12 +184,49 @@ describe('BuilderAgent runtime activity', () => {
     await settle();
     expectHeldByUpgradeWindow(harness);
     expect(harness.agent.state.activeTurn).toMatchObject({ status: 'accepted' });
+    // The browser shows that the workspace is upgrading.
+    expect(harness.agent.state.upgradeWaiting).toBe(true);
     expect(asked).toEqual([]);
 
     harness.closeUpgradeWindow();
     await eventually(() => asked.length > 0);
     expect(asked[0]).toContain('/api/cloudflare/runtime-access');
+    expect(harness.agent.state.upgradeWaiting).toBe(false);
     await Promise.resolve(turn).catch(() => undefined);
+  });
+
+  it('a Stop calls off a chat turn still waiting out an upgrade window', async () => {
+    const asked: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      asked.push(String(input instanceof Request ? input.url : input));
+      return new Response('unavailable', { status: 503 });
+    });
+    const models = vi.fn(async () => {
+      throw new Error('catalog unavailable');
+    });
+    const harness = await builderAgentHarness({ cloudflareIdentity: true, ai: { models } });
+    harness.openUpgradeWindow();
+    const stop = new AbortController();
+
+    const turn = Promise.resolve(
+      harness.agent.onChatMessage(undefined, {
+        requestId: 'request-1',
+        abortSignal: stop.signal,
+        body: {
+          chatInitialId: CHAT_INITIAL_ID,
+          subchatIndex: 0,
+          transcript: { agentName: AGENT_NAME, generation: 0, subchatIndex: 0 },
+          modelId: CLOUDFLARE_WORKERS_AI_MODEL,
+        },
+      }),
+    );
+    await eventually(() => harness.agent.state.upgradeWaiting === true);
+    stop.abort(new DOMException('Cancelled by the project owner', 'AbortError'));
+
+    await expect(turn).rejects.toThrow('Cancelled by the project owner');
+    expect(harness.agent.state.activeTurn).toBeNull();
+    expect(harness.agent.state.upgradeWaiting).toBe(false);
+    expect(asked).toEqual([]);
   });
 });
 

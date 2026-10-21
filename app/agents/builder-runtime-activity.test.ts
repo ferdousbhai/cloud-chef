@@ -9,7 +9,12 @@ import {
   RUNTIME_UPGRADE_WINDOW_MS,
 } from '~/lib/.server/cloudflare/user-workspace-runtime-activity';
 import { idleBuilderPreviewState } from './builder-preview-types';
-import { BuilderRuntimeActivity, isBuilderAgentBusy, UNRECORDED_ADMISSION_WAIT_MS } from './builder-runtime-activity';
+import {
+  BuilderRuntimeActivity,
+  isBuilderAgentBusy,
+  RuntimeUpgradeWaitExceededError,
+  UNRECORDED_ADMISSION_WAIT_MS,
+} from './builder-runtime-activity';
 import { createBuilderTurn } from './builder-turn-state';
 
 const NEW_VERSION = 'b'.repeat(64);
@@ -112,6 +117,50 @@ describe('builder agent runtime activity', () => {
 
     // Past the claimed window (renewed) and not a moment past the release.
     expect(now).toBe(START + RUNTIME_UPGRADE_WINDOW_MS + 10_000);
+  });
+
+  it('gives up waiting on an upgrade that keeps renewing its window past the limit of the work, and says so', async () => {
+    const { db, database } = userWorkspaceDatabase();
+    let now = START;
+    const sleep = vi.fn(async (ms: number) => {
+      now += ms;
+      // The upgrade renews its window every minute, and never finishes.
+      if ((now - START) % 60_000 === 0) {
+        await holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now });
+      }
+    });
+    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now });
+    const activity = new BuilderRuntimeActivity({ db, agentName: () => 'chat-a', now: () => now, sleep });
+    const waiting: boolean[] = [];
+
+    await expect(
+      activity.admit({ maxWaitMs: 3 * 60_000, onWaiting: (value) => waiting.push(value) }),
+    ).rejects.toBeInstanceOf(RuntimeUpgradeWaitExceededError);
+
+    expect(now).toBe(START + 3 * 60_000);
+    expect(waiting).toEqual([true, false]);
+    // It never started, so it no longer counts.
+    await vi.waitFor(() => expect(database.prepare('SELECT busy FROM runtime_activity').get()?.busy).toBe(0));
+  });
+
+  it('a stop calls the wait off at once', async () => {
+    const { db } = userWorkspaceDatabase();
+    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: Date.now() });
+    // Real time: the poll would otherwise sleep its full second.
+    const activity = new BuilderRuntimeActivity({ db, agentName: () => 'chat-a' });
+    const stop = new AbortController();
+    const waiting: boolean[] = [];
+    const work = vi.fn(async () => undefined);
+
+    const admitted = activity.run(work, { signal: stop.signal, onWaiting: (value) => waiting.push(value) });
+    await vi.waitFor(() => expect(waiting).toEqual([true]));
+    const stoppedAt = Date.now();
+    stop.abort(new Error('Stopped by the person'));
+
+    await expect(admitted).rejects.toThrow('Stopped by the person');
+    expect(Date.now() - stoppedAt).toBeLessThan(500);
+    expect(work).not.toHaveBeenCalled();
+    expect(waiting).toEqual([true, false]);
   });
 
   it('records work before it starts, so an upgrade claimed after that is refused', async () => {

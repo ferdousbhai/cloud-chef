@@ -40,7 +40,10 @@ function deferred<T>() {
 }
 
 async function publicationHarness(
-  options: { publisher?: Partial<BuilderPublisher>; checkpoint?: () => BuilderWorkspaceCheckpoint } = {},
+  options: {
+    publisher?: Partial<BuilderPublisher>;
+    checkpoint?: () => BuilderWorkspaceCheckpoint | Promise<BuilderWorkspaceCheckpoint>;
+  } = {},
 ) {
   const checkpoint = options.checkpoint ?? (() => CHECKPOINT);
   const deleteProject = vi.fn(async () => undefined);
@@ -383,5 +386,248 @@ describe('BuilderAgent automatic publication', () => {
     expect(harness.deleteProject).toHaveBeenCalledOnce();
     const live = await harness.agent.listFibers({ status: ['pending', 'running', 'interrupted'] });
     expect(live.filter((fiber) => fiber.name === 'background:builder_deployment')).toEqual([]);
+  });
+
+  it('a project being deleted refuses a preview', async () => {
+    const preview = vi.fn<BuilderPublisher['preview']>();
+    const harness = await publicationHarness({ publisher: { preview } });
+    await harness.agent.scheduleDestroyForGc('owner-1').catch(() => undefined);
+
+    await expect(harness.agent.requestPreview()).rejects.toMatchObject({ status: 409 });
+    await settle();
+    expect(preview).not.toHaveBeenCalled();
+  });
+});
+
+/** The preview of `CHECKPOINT` already serves, so a publication of it goes straight to production. */
+function previewServing(harness: BuilderAgentHarness) {
+  harness.agent.setState({
+    ...harness.agent.state,
+    preview: {
+      status: 'ready',
+      pendingId: null,
+      workspaceRevision: 3,
+      stale: false,
+      error: null,
+      published: {
+        id: 'version-1',
+        url: 'https://preview.example.workers.dev',
+        workspaceRevision: 3,
+        snapshotRevision: CHECKPOINT.revision,
+        readyAt: '2026-10-21T00:00:00.000Z',
+      },
+    },
+  });
+}
+
+describe("a new turn's stop reaches every automatic publication", () => {
+  it('a preview still waiting out an upgrade window when the person writes again never starts', async () => {
+    const preview = vi.fn<BuilderPublisher['preview']>();
+    const deploy = vi.fn<BuilderPublisher['deploy']>();
+    const harness = await publicationHarness({ publisher: { preview, deploy } });
+    harness.openUpgradeWindow();
+
+    harness.beginTurn();
+    harness.agent.setState({ ...harness.agent.state, publicationPending: true });
+    const ended = harness.endTurn();
+    await settle();
+    const next = sendNextMessage(harness);
+    await settle();
+    harness.closeUpgradeWindow();
+    await Promise.all([ended, next]);
+
+    await settle();
+    expect(preview).not.toHaveBeenCalled();
+    expect(deploy).not.toHaveBeenCalled();
+    // Never even queued: the browser never shows a preview starting.
+    expect(harness.agent.state.preview).toMatchObject({ status: 'idle', pendingId: null });
+    expect(harness.agent.state.publicationPending).toBe(true);
+  });
+
+  it('a deployment still waiting out an upgrade window when the person writes again never starts', async () => {
+    const deploy = vi.fn<BuilderPublisher['deploy']>();
+    const harness = await publicationHarness({ publisher: { deploy } });
+    previewServing(harness);
+    harness.openUpgradeWindow();
+
+    harness.beginTurn();
+    harness.agent.setState({ ...harness.agent.state, publicationPending: true });
+    const ended = harness.endTurn();
+    await settle();
+    const next = sendNextMessage(harness);
+    await settle();
+    harness.closeUpgradeWindow();
+    await Promise.all([ended, next]);
+
+    await settle();
+    expect(deploy).not.toHaveBeenCalled();
+    // Never even recorded as deploying: the browser never shows a deployment starting.
+    expect(harness.agent.state.deployment).toMatchObject({ status: 'ready', revision: CHECKPOINT.revision });
+  });
+
+  it("a deployment fiber held by an upgrade window is stopped by the person's next message", async () => {
+    const deploy = vi.fn<BuilderPublisher['deploy']>();
+    const harness = await publicationHarness({ publisher: { deploy } });
+    previewServing(harness);
+    harness.agent.setState({ ...harness.agent.state, publicationPending: true });
+    // An upgrade claims its window the moment the agent's admission check has gone idle again, so the
+    // deployment fiber that check let through waits for it.
+    harness.database.exec(`
+      CREATE TRIGGER claim_window AFTER UPDATE OF busy ON runtime_activity WHEN OLD.busy = 1 AND NEW.busy = 0
+      BEGIN
+        INSERT OR REPLACE INTO runtime_upgrade_window (id, target_version, expires_at)
+          VALUES (1, 'runtime-next', ${Date.now() + 60_000});
+      END;
+    `);
+
+    await harness.agent.retryAutomaticDeployment({ ...CHECKPOINT, attempt: 1 });
+    await eventually(() => harness.agent.state.deployment?.status === 'deploying');
+    harness.database.exec('DROP TRIGGER claim_window');
+    await settle();
+    expect(deploy).not.toHaveBeenCalled();
+
+    const next = sendNextMessage(harness);
+    await settle();
+    harness.closeUpgradeWindow();
+    await next;
+
+    await eventually(() => harness.agent.state.deployment === null);
+    expect(deploy).not.toHaveBeenCalled();
+  });
+
+  it('a restarted agent does not resume a publication while the chat request that woke it starts a turn', async () => {
+    const preview = vi.fn<BuilderPublisher['preview']>();
+    const deploy = vi.fn<BuilderPublisher['deploy']>();
+    let reads = 0;
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const harness = await publicationHarness({
+      publisher: { preview, deploy },
+      checkpoint: async () => {
+        reads += 1;
+        // The resumed publication's own read of the revision to publish, after it found no turn running.
+        if (reads === 2) {
+          await held;
+        }
+        return CHECKPOINT;
+      },
+    });
+    harness.agent.setState({ ...harness.agent.state, publicationPending: true });
+    reads = 0;
+
+    // The request wakes the agent: its start resumes the publication while the request is handled.
+    await harness.agent.onStart();
+    await eventually(() => reads === 2);
+    await sendNextMessage(harness);
+    expect(harness.agent.state.activeTurn).not.toBeNull();
+    release();
+
+    await settle();
+    expect(preview).not.toHaveBeenCalled();
+    expect(deploy).not.toHaveBeenCalled();
+    expect(harness.agent.state.preview?.pendingId).toBeNull();
+  });
+});
+
+describe('a publication that failed', () => {
+  it("is redone at the next turn's end, after its record in the user's account is settled", async () => {
+    let attempts = 0;
+    const terminalize = vi.fn<BuilderPublisher['terminalize']>(async () => ({ status: 'failed', error: 'failed' }));
+    const harness = await publicationHarness({
+      publisher: {
+        terminalize,
+        deploy: async () => {
+          attempts += 1;
+          if (attempts === 1) {
+            throw new Error('The build failed: typecheck reported 2 errors.');
+          }
+          return { status: 'succeeded', id: 'deployment-2' };
+        },
+      },
+    });
+    await finishChangingTurn(harness);
+    await eventually(() => harness.agent.state.deployment?.status === 'failed');
+
+    // The next turn changed nothing (say it fixed an outside setting): the same revision publishes again.
+    harness.beginTurn();
+    await harness.endTurn();
+
+    await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
+    expect(attempts).toBe(2);
+    expect(terminalize).toHaveBeenCalledOnce();
+    expect(harness.agent.state.publicationPending).toBe(false);
+  });
+
+  it('is not built again each time the agent wakes, only at the next turn end', async () => {
+    const preview = vi.fn<BuilderPublisher['preview']>(async () => {
+      throw new Error('The preview build failed: typecheck reported 2 errors.');
+    });
+    const deploy = vi.fn<BuilderPublisher['deploy']>(async () => {
+      throw new Error('The build failed: typecheck reported 2 errors.');
+    });
+    const harness = await publicationHarness({ publisher: { preview, deploy } });
+    await finishChangingTurn(harness);
+    await eventually(() => harness.agent.state.deployment?.status === 'failed');
+    expect(harness.agent.state.failedPublicationRevision).toBe(CHECKPOINT.revision);
+
+    // A transcript reload, a successor's settle, any RPC: each wakes the agent.
+    await harness.agent.onStart();
+    await harness.agent.onStart();
+    await settle();
+    expect(preview).toHaveBeenCalledOnce();
+    expect(deploy).toHaveBeenCalledOnce();
+    expect(harness.agent.state.publicationPending).toBe(true);
+
+    harness.beginTurn();
+    await harness.endTurn();
+    await eventually(() => deploy.mock.calls.length === 2);
+    expect(preview).toHaveBeenCalledTimes(2);
+  });
+
+  it('a wake still publishes a revision that changed since the one that failed', async () => {
+    let current = CHECKPOINT;
+    const deploy = vi.fn<BuilderPublisher['deploy']>(async () => ({ status: 'succeeded', id: 'deployment-1' }));
+    const harness = await publicationHarness({ publisher: { deploy }, checkpoint: () => current });
+    harness.agent.setState({
+      ...harness.agent.state,
+      publicationPending: true,
+      failedPublicationRevision: CHECKPOINT.revision,
+    });
+    current = NEXT_CHECKPOINT;
+
+    await harness.agent.onStart();
+
+    await eventually(() => harness.agent.state.productionRevision === NEXT_CHECKPOINT.revision);
+    expect(deploy).toHaveBeenCalledOnce();
+  });
+
+  it("an interrupted deployment that finished in the user's account is recorded as production", async () => {
+    const harness = await publicationHarness({
+      publisher: {
+        terminalize: async () => ({ status: 'succeeded', id: 'deployment-1', productionUrl: 'https://app.example' }),
+      },
+    });
+    harness.agent.setState({
+      ...harness.agent.state,
+      publicationPending: true,
+      deployment: { status: 'deploying', ...CHECKPOINT },
+    });
+
+    await expect(
+      harness.agent.onFiberRecovered({
+        id: 'fiber-1',
+        name: 'background:builder_deployment',
+        metadata: { ...CHECKPOINT, automatic: true, attempt: 0 },
+        snapshot: null,
+        createdAt: 1,
+        recoveryReason: 'interrupted',
+      }),
+    ).resolves.toMatchObject({ status: 'completed' });
+
+    expect(harness.agent.state.deployment).toMatchObject({ status: 'succeeded', revision: CHECKPOINT.revision });
+    expect(harness.agent.state.productionRevision).toBe(CHECKPOINT.revision);
+    expect(harness.agent.state.publicationPending).toBe(false);
   });
 });
