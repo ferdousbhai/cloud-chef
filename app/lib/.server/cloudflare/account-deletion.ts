@@ -60,6 +60,14 @@ export async function eraseControlPlaneAccount(args: {
     db
       .prepare('DELETE FROM email_sign_in_tokens WHERE email = (SELECT lower(email) FROM "user" WHERE id = ?)')
       .bind(args.userId),
+    // The invites addressed to them, as the export lists them: only to an email CloudChef proved, so
+    // erasing an account whose Cloudflare login merely reports an address can't withdraw invites to it.
+    db
+      .prepare(
+        `DELETE FROM organization_invites
+         WHERE email = (SELECT email FROM "user" WHERE id = ? AND email_proven_at IS NOT NULL) COLLATE NOCASE`,
+      )
+      .bind(args.userId),
     db.prepare('DELETE FROM user_computer_runtimes WHERE user_id = ?').bind(args.userId),
     db.prepare('DELETE FROM cloudflare_auth_sessions WHERE user_id = ?').bind(args.userId),
     db.prepare('DELETE FROM cloudflare_connections WHERE user_id = ?').bind(args.userId),

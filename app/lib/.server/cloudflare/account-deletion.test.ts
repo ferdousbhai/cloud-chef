@@ -41,6 +41,27 @@ describe('control-plane account erasure', () => {
     expect(rowCount(database, 'cloudflare_connections')).toBe(1);
   });
 
+  it('deletes the invites to their proven email, in any case, but not to an email they never proved', async () => {
+    const { database, db } = controlPlaneDatabase();
+    for (const userId of ['user-1', 'user-2', 'admin']) {
+      seedAccount(database, null, userId);
+    }
+    database.exec(`
+      UPDATE "user" SET email_proven_at = 5 WHERE id = 'user-1';
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('acme', 'Acme', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('acme', 'admin', 'admin', 1);
+      INSERT INTO organization_invites (id, org_id, email, role, token_hash, invited_by, expires_at, created_at)
+        VALUES ('accepted', 'acme', 'user-1@example.test', 'member', 'hash-a', 'admin', 10, 1),
+               ('pending', 'acme', 'USER-1@Example.test', 'member', 'hash-b', 'admin', 10, 1),
+               ('unproven', 'acme', 'user-2@example.test', 'member', 'hash-c', 'admin', 10, 1);
+    `);
+
+    await eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'user-1' });
+    await eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'user-2' });
+
+    expect(database.prepare('SELECT id FROM organization_invites').all()).toEqual([{ id: 'unproven' }]);
+  });
+
   it("never revokes an organization's grant while others still build in it, but takes a sole member's organization along", async () => {
     const { database, db } = controlPlaneDatabase();
     const revoke = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
