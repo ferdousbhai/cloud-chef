@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import { InvalidJsonBodyError, PayloadTooLargeError, readJsonBodyWithLimit } from '~/lib/bounded-body';
 import { GitHubError } from '~/lib/.server/github/github-api';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
 import type { RepositoryClient } from '~/lib/.server/github/repository-client';
 import { readRepositoryTarball } from '~/lib/.server/github/tarball';
 import { bytesToBase64, bytesToHex } from '~/lib/hex-digest';
 import { findAccessibleProject, findGitHubInstallation } from '~/lib/cloudflare/data/org-projects.server';
-import { authenticateRuntime } from './runtime-credential';
+import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
+import { bodyIdentityFields, readAuthenticatedRuntimeRequest } from './runtime-authentication';
 
 /**
  * A member's workspace runtime working on an organization's GitHub project. The runtime never holds a
@@ -20,15 +20,10 @@ const MAX_FILES = 10_000;
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 
-const identityFields = {
-  userId: z.string().min(1).max(512),
-  connectionId: z.string().min(1).max(512),
-  connectionGeneration: z.number().int().positive(),
-  orgProjectId: z.string().uuid(),
-};
-const snapshotSchema = z.strictObject(identityFields);
+const projectFields = { ...bodyIdentityFields, orgProjectId: z.string().uuid() };
+const snapshotSchema = z.strictObject(projectFields);
 const commitSchema = z.strictObject({
-  ...identityFields,
+  ...projectFields,
   baseCommit: z.string().regex(/^[0-9a-f]{40}$/),
   message: z.string().trim().min(1).max(2_000),
   changes: z
@@ -44,19 +39,18 @@ const commitSchema = z.strictObject({
   /** Also merge into the default branch, which the repository's pipeline deploys. */
   publish: z.boolean(),
 });
-const statusSchema = z.strictObject({ ...identityFields, sha: z.string().regex(/^[0-9a-f]{40}$/) });
+const statusSchema = z.strictObject({ ...projectFields, sha: z.string().regex(/^[0-9a-f]{40}$/) });
 const MAX_SNAPSHOT_BASE64 = 1_500_000;
 const MAX_PENDING_REQUESTS_PER_MEMBER = 5;
 const productionRequestSchema = z.strictObject({
-  userId: identityFields.userId,
-  connectionId: identityFields.connectionId,
-  connectionGeneration: identityFields.connectionGeneration,
+  ...bodyIdentityFields,
   /** The builder holding the draft, and the validated revision sent: the same draft sent again replaces its request. */
   draftId: z.string().min(1).max(256),
   draftRevision: z.string().min(1).max(256),
   title: z.string().trim().min(1).max(80),
   note: z.string().trim().max(1_000),
-  previewUrl: z.url().max(2_048).nullable(),
+  /** The draft's hosted preview or deployment, which admins open: only a workers.dev address over https. */
+  previewUrl: z.url().max(2_048).refine(isWorkersDevUrl).nullable(),
   /** The draft's files as gzipped JSON `[{ path, contentBase64, executable }]`, base64. */
   snapshot: z.string().min(1).max(MAX_SNAPSHOT_BASE64),
   files: z.number().int().min(1).max(MAX_FILES),
@@ -73,14 +67,11 @@ export async function runtimeGitHubSnapshotAction(args: {
   env: Env;
   app?: GitHubApp | null;
 }): Promise<Response> {
-  const body = await readBody(args.request, snapshotSchema, MAX_SNAPSHOT_REQUEST_BYTES);
-  if (body instanceof Response) {
-    return body;
+  const opened = await openProject(args, snapshotSchema, MAX_SNAPSHOT_REQUEST_BYTES, { contents: 'read' });
+  if (opened instanceof Response) {
+    return opened;
   }
-  const access = await openProject(args, body, { contents: 'read' });
-  if (access instanceof Response) {
-    return access;
-  }
+  const { access } = opened;
   const commit = await access.repository.branchHead(access.defaultBranch);
   if (!commit) {
     return json({ error: `The repository has no ${access.defaultBranch} branch.` }, 409);
@@ -130,14 +121,11 @@ export async function runtimeGitHubCommitAction(args: {
   env: Env;
   app?: GitHubApp | null;
 }): Promise<Response> {
-  const body = await readBody(args.request, commitSchema, MAX_COMMIT_REQUEST_BYTES);
-  if (body instanceof Response) {
-    return body;
+  const opened = await openProject(args, commitSchema, MAX_COMMIT_REQUEST_BYTES, { contents: 'write' });
+  if (opened instanceof Response) {
+    return opened;
   }
-  const access = await openProject(args, body, { contents: 'write' });
-  if (access instanceof Response) {
-    return access;
-  }
+  const { access, body } = opened;
   try {
     const branch = await memberBranch(args.env.DB, access.userId);
     const branchHead = await access.repository.branchHead(branch);
@@ -183,14 +171,11 @@ export async function runtimeGitHubStatusAction(args: {
   env: Env;
   app?: GitHubApp | null;
 }): Promise<Response> {
-  const body = await readBody(args.request, statusSchema, MAX_SNAPSHOT_REQUEST_BYTES);
-  if (body instanceof Response) {
-    return body;
+  const opened = await openProject(args, statusSchema, MAX_SNAPSHOT_REQUEST_BYTES, { checks: 'read' });
+  if (opened instanceof Response) {
+    return opened;
   }
-  const access = await openProject(args, body, { checks: 'read' });
-  if (access instanceof Response) {
-    return access;
-  }
+  const { access, body } = opened;
   try {
     return json(await access.repository.buildStatus(body.sha), 200);
   } catch (error) {
@@ -212,14 +197,14 @@ export async function runtimeGitHubSiteAction(args: {
   env: Env;
   app?: GitHubApp | null;
 }): Promise<Response> {
-  const body = await readBody(args.request, snapshotSchema, MAX_SNAPSHOT_REQUEST_BYTES);
-  if (body instanceof Response) {
-    return body;
+  const opened = await openProject(args, snapshotSchema, MAX_SNAPSHOT_REQUEST_BYTES, {
+    contents: 'read',
+    checks: 'read',
+  });
+  if (opened instanceof Response) {
+    return opened;
   }
-  const access = await openProject(args, body, { contents: 'read', checks: 'read' });
-  if (access instanceof Response) {
-    return access;
-  }
+  const { access } = opened;
   try {
     const branch = await memberBranch(args.env.DB, access.userId);
     const [homepage, heads] = await Promise.all([
@@ -283,11 +268,11 @@ function siteOrigin(value: string | null): string | null {
  * reviews it and, approving, creates its GitHub repository. The draft's source comes with the request.
  */
 export async function runtimeRequestProductionAction(args: { request: Request; env: Env }): Promise<Response> {
-  const body = await readBody(args.request, productionRequestSchema, MAX_SNAPSHOT_BASE64 + 8 * 1024);
-  if (body instanceof Response) {
-    return body;
-  }
-  const authenticated = await authenticateRuntime(args.env, args.request, body);
+  const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, productionRequestSchema, {
+    maxBytes: MAX_SNAPSHOT_BASE64 + 8 * 1024,
+    label: 'Workspace runtime GitHub request',
+    invalid: INVALID_REQUEST,
+  });
   if (authenticated instanceof Response) {
     return authenticated;
   }
@@ -295,10 +280,38 @@ export async function runtimeRequestProductionAction(args: { request: Request; e
   if (!orgId) {
     return json({ error: "Production requests are for a team's drafts." }, 409);
   }
-  return sendProductionRequest(args.env.DB, orgId, body, true);
+  // A member limited to the team's GitHub projects has no drafts of their own to send.
+  const membership = await findMembership(args.env.DB, orgId, authenticated.identity.userId);
+  if (!membership?.draftsAllowed) {
+    return json({ code: 'drafts_not_allowed', error: 'Your team lets you work on its GitHub projects only.' }, 403);
+  }
+  return sendProductionRequest(
+    args.env.DB,
+    orgId,
+    { ...authenticated.body, userId: authenticated.identity.userId },
+    true,
+  );
 }
 
-type ProductionRequestBody = z.infer<typeof productionRequestSchema>;
+/** A hosted preview or deployment of a draft: https on workers.dev, with no credentials or port. */
+function isWorkersDevUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return (
+    url.protocol === 'https:' &&
+    !url.username &&
+    !url.password &&
+    !url.port &&
+    url.hostname.endsWith('.workers.dev') &&
+    url.hostname.length > '.workers.dev'.length
+  );
+}
+
+type ProductionRequestBody = z.infer<typeof productionRequestSchema> & { userId: string };
 
 /**
  * A draft has at most one open request: sent again (an improved revision, a reload, a second tab), it
@@ -411,19 +424,26 @@ async function sendProductionRequest(
 }
 
 /**
- * The project, if this runtime may work on it: the runtime proves who it is, the member may still work
- * on the project, and the project belongs to the organization whose account the runtime runs in.
+ * The project, if this runtime may work on it: the runtime proves who it is (before a large body is
+ * read), the member may still work on the project, and the project belongs to the organization whose
+ * account the runtime runs in.
  */
-async function openProject(
+async function openProject<T extends z.infer<typeof snapshotSchema>>(
   args: { request: Request; env: Env; app?: GitHubApp | null },
-  identity: z.infer<typeof snapshotSchema>,
+  schema: z.ZodType<T>,
+  maxBytes: number,
   permissions: { contents?: 'read' | 'write'; checks?: 'read' },
-): Promise<ProjectAccess | Response> {
-  const authenticated = await authenticateRuntime(args.env, args.request, identity);
+): Promise<{ access: ProjectAccess; body: T } | Response> {
+  const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, schema, {
+    maxBytes,
+    label: 'Workspace runtime GitHub request',
+    invalid: INVALID_REQUEST,
+  });
   if (authenticated instanceof Response) {
     return authenticated;
   }
-  const project = await findAccessibleProject(args.env.DB, identity.orgProjectId, identity.userId);
+  const { body, identity } = authenticated;
+  const project = await findAccessibleProject(args.env.DB, body.orgProjectId, identity.userId);
   if (!project || project.orgId !== authenticated.connection.orgId) {
     return json({ error: 'This project is not available to you.' }, 403);
   }
@@ -434,13 +454,16 @@ async function openProject(
   }
   try {
     return {
-      repository: await app.repository(
-        installation.installationId,
-        { id: project.repoId, fullName: project.repoFullName },
-        permissions,
-      ),
-      defaultBranch: project.defaultBranch,
-      userId: identity.userId,
+      access: {
+        repository: await app.repository(
+          installation.installationId,
+          { id: project.repoId, fullName: project.repoFullName },
+          permissions,
+        ),
+        defaultBranch: project.defaultBranch,
+        userId: identity.userId,
+      },
+      body,
     };
   } catch (error) {
     if (error instanceof GitHubError) {
@@ -472,19 +495,7 @@ async function gitBlobSha(bytes: Uint8Array): Promise<string> {
   return bytesToHex(await crypto.subtle.digest('SHA-1', object));
 }
 
-async function readBody<T>(request: Request, schema: z.ZodType<T>, limit: number): Promise<T | Response> {
-  try {
-    return schema.parse(await readJsonBodyWithLimit(request, limit, 'Workspace runtime GitHub request'));
-  } catch (error) {
-    if (error instanceof PayloadTooLargeError) {
-      return json({ error: error.message }, 413);
-    }
-    if (error instanceof InvalidJsonBodyError || error instanceof z.ZodError) {
-      return json({ error: 'Invalid workspace runtime GitHub request.' }, 400);
-    }
-    throw error;
-  }
-}
+const INVALID_REQUEST = 'Invalid workspace runtime GitHub request.';
 
 function gitHubFailure(error: GitHubError): Response {
   return json({ error: error.message }, error.status === 404 ? 404 : 502);

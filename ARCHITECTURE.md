@@ -86,7 +86,10 @@ organization have separate Workers, D1 databases, Durable Objects, and container
 one question, `canUseConnection` (`app/lib/cloudflare/data/organization-access.server.ts`): the connection's owner, or
 an active, unpaused member of the organization that owns it. The credential broker asks it after the runtime proves
 its secret, so pausing or removing a member stops their runtime at its next call, without a
-redeploy. In an organization's account the runtime also asks (`/api/cloudflare/runtime-access`) before
+redeploy. Every runtime route (`/api/cloudflare/runtime-*`, `app/server-handlers/runtime-authentication.ts`) takes
+the runtime's identity in headers beside its secret and checks both before reading a body, which for a commit can be
+48 MB; a runtime from before those headers names itself in the body, which is then read only up to 64 KB first. Each
+secret may make 600 calls a minute (`RUNTIME_RATE_LIMITER`). In an organization's account the runtime also asks (`/api/cloudflare/runtime-access`) before
 each model turn, since the model runs on the organization's Workers AI without a token from the broker.
 The same answer carries the person's own AI Gateway content-logging choice (`user.ai_gateway_content_logging`,
 set in Settings), which the runtime asks for before every builder turn, title, and prompt enhancement in any

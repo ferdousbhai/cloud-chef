@@ -66,6 +66,7 @@ import { clientTelemetryAction } from './server-handlers/client-telemetry';
 import { pruneCloudflareAuthDataBestEffort } from './lib/cloudflare/data/cloudflare-auth-retention.server';
 import { sweepUserWorkspaceRuntimeUpgradesBestEffort } from './lib/.server/cloudflare/user-workspace-runtime-upgrade-sweep';
 import { CSP_NONCE_REQUEST_HEADER } from './lib/csp-nonce';
+import { sha256Hex } from './lib/hex-digest';
 
 const APPLICATION_CSP_BASELINE = "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'";
 const HSTS_MIN_AGE_SECONDS = '31536000';
@@ -393,10 +394,33 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+/** The routes workspace runtimes call with their secret; runtime-session is the browser's. */
+function isRuntimeRoute(pathname: string): boolean {
+  return pathname.startsWith('/api/cloudflare/runtime-') && pathname !== '/api/cloudflare/runtime-session';
+}
+
+/**
+ * Whether this caller has made too many runtime calls this minute. The key is a digest of its bearer
+ * secret, not its address: every runtime's Worker reaches CloudChef from the same Cloudflare egress, and
+ * a caller without a valid secret can't spend a real runtime's allowance.
+ */
+async function runtimeRateLimited(request: Request, env: Env): Promise<boolean> {
+  const digest = await sha256Hex(request.headers.get('Authorization') ?? '');
+  const { success } = await env.RUNTIME_RATE_LIMITER.limit({ key: `runtime:${digest.slice(0, 32)}` });
+  return !success;
+}
+
 async function routeApplicationRequest(request: Request, env: Env, nonce: string, pathname: string): Promise<Response> {
   const route = exactRoutes.get(pathname);
   if (route) {
-    return requireMethod(request, route.method, () => route.handler(request, env));
+    return requireMethod(request, route.method, async () =>
+      isRuntimeRoute(pathname) && (await runtimeRateLimited(request, env))
+        ? Response.json(
+            { error: 'Too many requests from this workspace. Try again shortly.' },
+            { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': '60' } },
+          )
+        : route.handler(request, env),
+    );
   }
 
   const headers = new Headers(request.headers);

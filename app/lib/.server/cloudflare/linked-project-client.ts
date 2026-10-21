@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import type { CloudflareApiRuntimeIdentity } from './cloudflare-api-runtime-controls';
-import { runtimeCredentialEndpoint } from './user-workspace-cloudflare-credential';
+import { runtimeCredentialEndpoint, runtimeRequestHeaders } from './user-workspace-cloudflare-credential';
 
 /**
  * A workspace runtime's side of working on an organization's GitHub project: it never holds a GitHub
@@ -51,7 +51,13 @@ export async function* streamLinkedProjectSnapshot(
   identity: Identity,
   orgProjectId: string,
 ): AsyncGenerator<LinkedSnapshotLine> {
-  const response = await post(env, 'runtime-github/snapshot', { ...pick(identity), orgProjectId }, SNAPSHOT_TIMEOUT_MS);
+  const response = await post(
+    env,
+    identity,
+    'runtime-github/snapshot',
+    { ...pick(identity), orgProjectId },
+    SNAPSHOT_TIMEOUT_MS,
+  );
   if (!response.ok || !response.body) {
     throw new Error(await failureMessage(response, 'CloudChef could not read the project from GitHub.'));
   }
@@ -87,7 +93,13 @@ export async function commitLinkedProject(
     changes: { path: string; contentBase64: string | null; executable: boolean }[];
   },
 ): Promise<LinkedCommitResult> {
-  const response = await post(env, 'runtime-github/commit', { ...pick(identity), ...body }, COMMIT_TIMEOUT_MS);
+  const response = await post(
+    env,
+    identity,
+    'runtime-github/commit',
+    { ...pick(identity), ...body },
+    COMMIT_TIMEOUT_MS,
+  );
   const payload = await readJsonBodyWithLimit(
     response,
     MAX_JSON_RESPONSE_BYTES,
@@ -111,6 +123,7 @@ export async function linkedBuildStatus(
 ): Promise<LinkedBuildStatus> {
   const response = await post(
     env,
+    identity,
     'runtime-github/status',
     { ...pick(identity), orgProjectId, sha },
     STATUS_TIMEOUT_MS,
@@ -128,7 +141,13 @@ export async function linkedBuildStatus(
  * homepage on GitHub and the preview links its pipeline posted for the default branch and this member's.
  */
 export async function linkedSiteOrigins(env: RuntimeEnv, identity: Identity, orgProjectId: string): Promise<string[]> {
-  const response = await post(env, 'runtime-github/site', { ...pick(identity), orgProjectId }, STATUS_TIMEOUT_MS);
+  const response = await post(
+    env,
+    identity,
+    'runtime-github/site',
+    { ...pick(identity), orgProjectId },
+    STATUS_TIMEOUT_MS,
+  );
   if (!response.ok) {
     throw new Error(await failureMessage(response, "CloudChef could not look up the project's site."));
   }
@@ -156,6 +175,7 @@ export async function requestProductionReview(
 ): Promise<{ outcome: ProductionRequestOutcome }> {
   const response = await post(
     env,
+    identity,
     'runtime-github/request-production',
     { ...pick(identity), ...body },
     COMMIT_TIMEOUT_MS,
@@ -178,6 +198,7 @@ function pick(identity: Identity) {
 
 function post(
   env: RuntimeEnv,
+  identity: Identity,
   route:
     | 'runtime-github/snapshot'
     | 'runtime-github/commit'
@@ -192,7 +213,7 @@ function post(
 ): Promise<Response> {
   return fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, route), {
     method: 'POST',
-    headers: { authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`, 'content-type': 'application/json' },
+    headers: runtimeRequestHeaders(env, identity),
     body: JSON.stringify(body),
     redirect: 'manual',
     signal: AbortSignal.timeout(timeoutMs),

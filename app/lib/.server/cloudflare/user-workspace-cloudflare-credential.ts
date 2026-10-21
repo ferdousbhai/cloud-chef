@@ -8,6 +8,7 @@ import {
 } from './cloudflare-api-runtime-controls';
 import type { ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import { gatewayKeysSchema, NO_ACCOUNT_MODEL_SETTINGS, type AccountModelSettings } from '~/lib/workers-ai-model';
+import { runtimeIdentityHeaders } from './runtime-identity-headers';
 
 const RUNTIME_CREDENTIAL_TIMEOUT_MS = 30_000;
 const MAX_RUNTIME_CREDENTIAL_RESPONSE_BYTES = 8 * 1024;
@@ -29,10 +30,7 @@ export async function resolveUserWorkspaceCloudflareAccessToken(
   const endpoint = runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT);
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`,
-      'content-type': 'application/json',
-    },
+    headers: runtimeRequestHeaders(env, identity),
     body: JSON.stringify({
       userId: identity.userId,
       connectionId: identity.connectionId,
@@ -66,7 +64,7 @@ export async function reportUserWorkspaceModelUsage(
 ): Promise<void> {
   const response = await fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, 'runtime-usage'), {
     method: 'POST',
-    headers: { authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`, 'content-type': 'application/json' },
+    headers: runtimeRequestHeaders(env, identity),
     body: JSON.stringify({
       userId: identity.userId,
       connectionId: identity.connectionId,
@@ -100,7 +98,7 @@ export type ConfirmUserWorkspaceAccess = (
 export const confirmUserWorkspaceAccess: ConfirmUserWorkspaceAccess = async (env, identity) => {
   const response = await fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, 'runtime-access'), {
     method: 'POST',
-    headers: { authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`, 'content-type': 'application/json' },
+    headers: runtimeRequestHeaders(env, identity),
     body: JSON.stringify({
       userId: identity.userId,
       connectionId: identity.connectionId,
@@ -190,7 +188,7 @@ export async function readAccountModelSettings(
   try {
     const response = await fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, 'runtime-models'), {
       method: 'POST',
-      headers: { authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`, 'content-type': 'application/json' },
+      headers: runtimeRequestHeaders(env, identity),
       body: JSON.stringify({
         userId: identity.userId,
         connectionId: identity.connectionId,
@@ -210,6 +208,22 @@ export async function readAccountModelSettings(
   } catch {
     return NO_ACCOUNT_MODEL_SETTINGS;
   }
+}
+
+/**
+ * What every call to the control plane's runtime routes carries: the runtime's secret, and who it says
+ * it is, in headers, so the control plane checks them before reading the body. The body still names
+ * the same identity, as control planes from before the headers read it.
+ */
+export function runtimeRequestHeaders(
+  env: RuntimeCredentialEnv,
+  identity: CloudflareConnectionIdentity,
+): Record<string, string> {
+  return {
+    authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`,
+    'content-type': 'application/json',
+    ...runtimeIdentityHeaders(identity),
+  };
 }
 
 /** The control plane's runtime-facing routes, authenticated with the runtime's own secret. */

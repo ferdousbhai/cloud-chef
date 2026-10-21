@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { upsertVerifiedEmailUser } from '~/lib/.server/auth';
@@ -13,6 +13,12 @@ import {
   runtimeRequestProductionAction,
 } from './runtime-github';
 import { runtimeCredentialAction } from './runtime-credential';
+import {
+  RUNTIME_GENERATION_HEADER,
+  RUNTIME_USER_HEADER,
+  runtimeIdentityHeaders,
+} from '~/lib/.server/cloudflare/runtime-identity-headers';
+import { linkedBuildStatus } from '~/lib/.server/cloudflare/linked-project-client';
 
 const ORIGIN = 'https://cloudchef.build';
 const ENCRYPTION_KEY = btoa('k'.repeat(32));
@@ -179,7 +185,27 @@ async function setup(
       headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: sara.id, connectionId: 'conn-1', connectionGeneration: 2, ...body }),
     });
-  return { database, env, sara, call, ...github };
+  /** A call as a current runtime makes it: who it is in headers, the body carrying only the request. */
+  const callNamed = (
+    path: string,
+    body: string,
+    options: { bearer?: string; userId?: string; generation?: string } = {},
+  ) =>
+    new Request(`${ORIGIN}${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${options.bearer ?? secret}`,
+        'Content-Type': 'application/json',
+        ...runtimeIdentityHeaders({
+          userId: options.userId ?? sara.id,
+          connectionId: 'conn-1',
+          connectionGeneration: 2,
+        }),
+        ...(options.generation === undefined ? {} : { [RUNTIME_GENERATION_HEADER]: options.generation }),
+      },
+      body,
+    });
+  return { database, env, sara, secret, call, callNamed, ...github };
 }
 
 /**
@@ -418,11 +444,103 @@ describe('a member working on a GitHub project', () => {
     const allowed = await runtimeCredentialAction({ request: call('/api/cloudflare/runtime-credential', {}), env });
     expect(allowed.status).toBe(503);
   });
+  describe("the runtime's identity", () => {
+    it('is checked before a large commit is read, when the runtime names itself in headers', async () => {
+      const { env, app, callNamed } = await setup();
+      const request = callNamed('/api/cloudflare/runtime-github/commit', ' '.repeat(1024 * 1024), {
+        bearer: 'f'.repeat(43),
+      });
+      const forged = await runtimeGitHubCommitAction({ request, env, app });
+      expect(forged.status).toBe(401);
+      expect(request.bodyUsed).toBe(false);
+
+      const malformed = await runtimeGitHubCommitAction({
+        request: callNamed('/api/cloudflare/runtime-github/commit', '{}', { generation: 'two' }),
+        env,
+        app,
+      });
+      expect(malformed.status).toBe(400);
+    });
+
+    it('commits a change over 64 KB from a runtime that names itself in headers', async () => {
+      const { env, app, callNamed, writes } = await setup();
+      const response = await runtimeGitHubCommitAction({
+        request: callNamed(
+          '/api/cloudflare/runtime-github/commit',
+          JSON.stringify({
+            orgProjectId: SITE,
+            baseCommit: BASE,
+            message: 'A large change',
+            publish: false,
+            changes: [{ path: 'big.txt', contentBase64: btoa('x'.repeat(96 * 1024)), executable: false }],
+          }),
+        ),
+        env,
+        app,
+      });
+      expect(response.status).toBe(200);
+      expect(writes.some((write) => write.path === '/git/commits')).toBe(true);
+    });
+
+    it('reads at most 64 KB before authenticating a runtime that names itself only in its body', async () => {
+      const { env, app, call, writes } = await setup();
+      const response = await runtimeGitHubCommitAction({
+        request: call('/api/cloudflare/runtime-github/commit', {
+          orgProjectId: SITE,
+          baseCommit: BASE,
+          message: 'A large change',
+          publish: false,
+          changes: [{ path: 'big.txt', contentBase64: btoa('x'.repeat(96 * 1024)), executable: false }],
+        }),
+        env,
+        app,
+      });
+      expect(response.status).toBe(413);
+      expect(writes).toEqual([]);
+    });
+
+    it('refuses a body naming someone other than the headers', async () => {
+      const { env, app, callNamed } = await setup();
+      const response = await runtimeGitHubStatusAction({
+        request: callNamed(
+          '/api/cloudflare/runtime-github/status',
+          JSON.stringify({ userId: 'someone-else', orgProjectId: SITE, sha: 'c'.repeat(40) }),
+        ),
+        env,
+        app,
+      });
+      expect(response.status).toBe(400);
+    });
+
+    it('reaches the control plane in headers from the runtime client', async () => {
+      const { env, app, sara, secret } = await setup();
+      const seen: Headers[] = [];
+      vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+        const request = new Request(input, init);
+        seen.push(request.headers);
+        return runtimeGitHubStatusAction({ request, env, app });
+      });
+      try {
+        const status = await linkedBuildStatus(
+          { CLOUDCHEF_CONTROL_PLANE_ENDPOINT: ORIGIN, CONTROL_PLANE_SECRET: secret },
+          { userId: sara.id, connectionId: 'conn-1', connectionGeneration: 2 },
+          SITE,
+          'c'.repeat(40),
+        );
+        expect(status.state).toBe('success');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+      expect(seen[0]?.get(RUNTIME_USER_HEADER)).toBe(sara.id);
+      expect(seen[0]?.get(RUNTIME_GENERATION_HEADER)).toBe('2');
+    });
+  });
+
   describe('production requests', () => {
     const send = (
       call: Awaited<ReturnType<typeof setup>>['call'],
       env: Awaited<ReturnType<typeof setup>>['env'],
-      draft: { draftId?: string; draftRevision?: string; title?: string; note?: string },
+      draft: { draftId?: string; draftRevision?: string; title?: string; note?: string; previewUrl?: string },
     ) =>
       runtimeRequestProductionAction({
         request: call('/api/cloudflare/runtime-github/request-production', {
@@ -430,7 +548,7 @@ describe('a member working on a GitHub project', () => {
           draftRevision: draft.draftRevision ?? 'rev-1',
           title: draft.title ?? 'Bookings',
           note: draft.note ?? '',
-          previewUrl: null,
+          previewUrl: draft.previewUrl ?? null,
           snapshot: 'H4sI',
           files: 1,
         }),
@@ -440,6 +558,32 @@ describe('a member working on a GitHub project', () => {
       database
         .prepare('SELECT id, draft_id, draft_revision, title, note, status, updated_at FROM production_requests')
         .all();
+
+    it('is refused to a member limited to GitHub projects', async () => {
+      const { database, env, sara, call } = await setup();
+      database.prepare('UPDATE organization_members SET drafts_allowed = 0 WHERE user_id = ?').run(sara.id);
+      const refused = await send(call, env, {});
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toMatchObject({ code: 'drafts_not_allowed' });
+      expect(requests(database)).toEqual([]);
+    });
+
+    it("carries only a draft's workers.dev preview over https for admins to open", async () => {
+      const { database, env, call } = await setup();
+      for (const previewUrl of [
+        'http://bookings.sara.workers.dev',
+        'javascript:alert(1)',
+        'https://phish.example.com/login',
+        'https://workers.dev',
+        'https://user:pass@bookings.sara.workers.dev',
+        'https://bookings.sara.workers.dev:8443',
+      ]) {
+        expect((await send(call, env, { previewUrl })).status).toBe(400);
+      }
+      expect(requests(database)).toEqual([]);
+      const sent = await send(call, env, { previewUrl: 'https://bookings.sara.workers.dev/' });
+      expect(sent.status).toBe(201);
+    });
 
     it('replaces the waiting request when the same draft is sent again with a newer version', async () => {
       const { database, env, call } = await setup();

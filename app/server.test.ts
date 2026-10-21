@@ -204,8 +204,41 @@ describe('server Agent routing boundary', () => {
     expect(response.headers.get('Cache-Control')).toBe('no-store');
   });
 
+  it('turns away a runtime that calls too often, counting each secret on its own', async () => {
+    const allowance = new Map<string, number>();
+    const env = testEnv({
+      RUNTIME_RATE_LIMITER: {
+        limit: async ({ key }) => {
+          const left = allowance.get(key) ?? 2;
+          allowance.set(key, left - 1);
+          return { success: left > 0 };
+        },
+      },
+    });
+    const ask = (secret: string) =>
+      server.fetch(
+        new Request('https://cloudchef.build/api/cloudflare/runtime-credential', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${secret}` },
+        }),
+        env,
+      );
+
+    expect((await ask('a'.repeat(43))).status).toBe(200);
+    expect((await ask('a'.repeat(43))).status).toBe(200);
+    const limited = await ask('a'.repeat(43));
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('Retry-After')).toBe('60');
+    // Another runtime's secret has its own allowance.
+    expect((await ask('b'.repeat(43))).status).toBe(200);
+    expect(runtimeCredentialAction).toHaveBeenCalledTimes(3);
+    // The browser's runtime-session route is not a runtime's call.
+    expect([...allowance.keys()].every((key) => key.startsWith('runtime:'))).toBe(true);
+    expect(allowance.size).toBe(2);
+  });
+
   it('routes only POST requests to the private runtime credential broker', async () => {
-    const env = testEnv();
+    const env = testEnv({ RUNTIME_RATE_LIMITER: { limit: async () => ({ success: true }) } });
     const request = new Request('https://cloudchef.build/api/cloudflare/runtime-credential', { method: 'POST' });
 
     const response = await server.fetch(request, env);

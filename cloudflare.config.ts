@@ -62,6 +62,10 @@ export default defineConfig({
       CLOUDFLARE_OAUTH_START_RATE_LIMITER: bindings.rateLimit({ namespace: '1002', simple: { limit: 10, period: 60 } }),
       CLIENT_TELEMETRY_RATE_LIMITER: bindings.rateLimit({ namespace: '1003', simple: { limit: 120, period: 60 } }),
       SIGN_IN_RATE_LIMITER: bindings.rateLimit({ namespace: '1004', simple: { limit: 10, period: 60 } }),
+      // Calls to the runtime routes (/api/cloudflare/runtime-*), keyed by the caller's bearer secret: every
+      // runtime's Worker reaches CloudChef from the same Cloudflare egress address, so an IP key would be one
+      // shared bucket. app/server.ts.
+      RUNTIME_RATE_LIMITER: bindings.rateLimit({ namespace: '1005', simple: { limit: 600, period: 60 } }),
       // Emailed sign-in links (app/server-handlers/email-auth.ts), sent through Cloudflare Email Service.
       SIGN_IN_EMAIL: bindings.sendEmail({ allowedSenderAddresses: ['noreply@cloudchef.build'] }),
     },
