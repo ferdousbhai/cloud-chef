@@ -28,6 +28,7 @@ import {
   LEGACY_RUNTIME_QUIET_MS,
   runUserWorkspaceRuntimeProvisioningWorkflow,
   startUserWorkspaceRuntimeProvisioning,
+  sweepUserWorkspaceRuntimeUpgrade,
   UPGRADE_MAX_WAIT_MS,
   workspaceRuntimeNames,
   type UserWorkspaceRuntimeProvisioningDependencies,
@@ -167,6 +168,83 @@ describe('workspace runtime provisioning Workflow', () => {
       status: 'preparing',
     });
     expect(instance.restart).toHaveBeenCalledOnce();
+  });
+
+  describe('scheduled upgrade sweep', () => {
+    const existing = () =>
+      vi
+        .fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch']>()
+        .mockRejectedValue(new Error('instance with id workspace-... already exists'));
+    const sweepArgs = (env: Pick<Env, 'USER_WORKSPACE_RUNTIME_PROVISIONING'>, overrides = {}) => ({
+      ...launchArgs(env),
+      restartFailed: true,
+      isCurrent: async () => false,
+      ...overrides,
+    });
+
+    it('starts the same Workflow instance a session request would', async () => {
+      const instance = workflowInstance(vi.fn<WorkflowInstance['status']>().mockResolvedValue({ status: 'running' }));
+      const createBatch = vi
+        .fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['createBatch']>()
+        .mockResolvedValue([instance]);
+      const env = workflowEnv(createBatch, vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>());
+
+      await expect(sweepUserWorkspaceRuntimeUpgrade(sweepArgs(env))).resolves.toBe('started');
+      await startUserWorkspaceRuntimeProvisioning(launchArgs(env));
+
+      const [swept, requested] = createBatch.mock.calls.map((call) => call[0][0]);
+      expect(swept.id).toBe(requested.id);
+      expect(swept.params).toEqual(requested.params);
+    });
+
+    it('leaves an upgrade that is still waiting for a quiet moment alone', async () => {
+      const instance = workflowInstance(vi.fn<WorkflowInstance['status']>().mockResolvedValue({ status: 'waiting' }));
+      const env = workflowEnv(
+        existing(),
+        vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>().mockResolvedValue(instance),
+      );
+
+      await expect(sweepUserWorkspaceRuntimeUpgrade(sweepArgs(env))).resolves.toBe('running');
+      expect(instance.restart).not.toHaveBeenCalled();
+    });
+
+    it('restarts a failed upgrade without a browser retry, but only when its slot allows', async () => {
+      for (const status of [
+        { status: 'errored' as const },
+        { status: 'terminated' as const },
+        { status: 'complete' as const, output: { status: 'error', errorCode: 'workspace_preparation_failed' } },
+      ]) {
+        const instance = workflowInstance(vi.fn<WorkflowInstance['status']>().mockResolvedValue(status));
+        const env = workflowEnv(
+          existing(),
+          vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>().mockResolvedValue(instance),
+        );
+
+        await expect(sweepUserWorkspaceRuntimeUpgrade(sweepArgs(env, { restartFailed: false }))).resolves.toBe('left');
+        expect(instance.restart).not.toHaveBeenCalled();
+        await expect(sweepUserWorkspaceRuntimeUpgrade(sweepArgs(env))).resolves.toBe('restarted');
+        expect(instance.restart).toHaveBeenCalledOnce();
+      }
+    });
+
+    it('waits again after an upgrade gave up waiting, unless the runtime is current after all', async () => {
+      const instance = workflowInstance(
+        vi.fn<WorkflowInstance['status']>().mockResolvedValue({ status: 'complete', output: { status: 'deferred' } }),
+      );
+      const env = workflowEnv(
+        existing(),
+        vi.fn<Env['USER_WORKSPACE_RUNTIME_PROVISIONING']['get']>().mockResolvedValue(instance),
+      );
+
+      await expect(
+        sweepUserWorkspaceRuntimeUpgrade(sweepArgs(env, { restartFailed: false, isCurrent: async () => true })),
+      ).resolves.toBe('left');
+      expect(instance.restart).not.toHaveBeenCalled();
+      await expect(sweepUserWorkspaceRuntimeUpgrade(sweepArgs(env, { restartFailed: false }))).resolves.toBe(
+        'restarted',
+      );
+      expect(instance.restart).toHaveBeenCalledOnce();
+    });
   });
 
   it('returns the two actionable eligibility outcomes without creating resources', async () => {

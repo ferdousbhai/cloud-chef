@@ -161,16 +161,8 @@ export async function startUserWorkspaceRuntimeProvisioning(args: {
   /** Whether the ready workspace is there after all; read again before rebuilding a finished one. */
   isReady?: () => Promise<boolean>;
 }): Promise<UserWorkspaceRuntimeProvisioningLaunchResult> {
-  const params: ProvisioningParams = {
-    userId: args.userId,
-    connectionId: args.connectionId,
-    connectionGeneration: args.connectionGeneration,
-  };
-  // One Workflow per person per connection: members of an organization share its connection, and each
-  // gets their own workspace in its account.
-  const id = `workspace-${await sha256Hex(
-    `${params.userId}\0${params.connectionId}\0${params.connectionGeneration}\0${USER_WORKSPACE_RUNTIME_SHA256}\0${USER_WORKSPACE_SANDBOX_BASE_IMAGE}`,
-  )}`;
+  const params = provisioningParams(args);
+  const id = await provisioningInstanceId(params);
   try {
     await args.env.USER_WORKSPACE_RUNTIME_PROVISIONING.createBatch([
       { id, params, retention: { successRetention: '1 day', errorRetention: '1 day' } },
@@ -184,10 +176,7 @@ export async function startUserWorkspaceRuntimeProvisioning(args: {
 
   const instance = await args.env.USER_WORKSPACE_RUNTIME_PROVISIONING.get(id);
   const status = await instance.status();
-  const parsedError = provisioningErrorSchema.safeParse(status.output);
-  const error: ProvisioningError | null = parsedError.success
-    ? { ...parsedError.data, upgradeUrl: parsedError.data.upgradeUrl ?? null }
-    : null;
+  const error = provisioningErrorOutput(status);
   if (args.retry && (status.status === 'errored' || status.status === 'terminated' || error)) {
     await instance.restart();
     return { status: 'preparing' };
@@ -207,6 +196,85 @@ export async function startUserWorkspaceRuntimeProvisioning(args: {
   return status.status === 'errored' || status.status === 'terminated'
     ? { status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null }
     : { status: 'preparing' };
+}
+
+function provisioningParams(args: {
+  userId: string;
+  connectionId: string;
+  connectionGeneration: number;
+}): ProvisioningParams {
+  return { userId: args.userId, connectionId: args.connectionId, connectionGeneration: args.connectionGeneration };
+}
+
+/**
+ * One Workflow per person per connection and runtime build: members of an organization share its
+ * connection, and each gets their own workspace in its account. A session request and the scheduled
+ * upgrade sweep name the same instance, so they never start two upgrades of one workspace.
+ */
+async function provisioningInstanceId(params: ProvisioningParams): Promise<string> {
+  return `workspace-${await sha256Hex(
+    `${params.userId}\0${params.connectionId}\0${params.connectionGeneration}\0${USER_WORKSPACE_RUNTIME_SHA256}\0${USER_WORKSPACE_SANDBOX_BASE_IMAGE}`,
+  )}`;
+}
+
+function provisioningErrorOutput(status: InstanceStatus): ProvisioningError | null {
+  const parsed = provisioningErrorSchema.safeParse(status.output);
+  return parsed.success ? { ...parsed.data, upgradeUrl: parsed.data.upgradeUrl ?? null } : null;
+}
+
+/**
+ * What the scheduled sweep did for one outdated runtime: started its upgrade Workflow, restarted one
+ * that ended without upgrading it, found one still waiting for a quiet moment, or left it alone.
+ */
+export type UserWorkspaceRuntimeUpgradeSweepOutcome = 'started' | 'restarted' | 'running' | 'left';
+
+/**
+ * Start the upgrade of a runtime whose owner has not asked for a session since the release, with the
+ * same gated Workflow a session request starts: it waits for the upgrade window and never interrupts
+ * work. One that ended without upgrading is restarted: after giving up waiting for a quiet moment,
+ * always; after failing, only when `restartFailed` allows it, so a lasting failure is retried at a
+ * slower pace than every sweep.
+ */
+export async function sweepUserWorkspaceRuntimeUpgrade(args: {
+  env: Pick<Env, 'USER_WORKSPACE_RUNTIME_PROVISIONING'>;
+  userId: string;
+  connectionId: string;
+  connectionGeneration: number;
+  restartFailed: boolean;
+  /** Whether the runtime is current after all; read again before restarting a finished Workflow. */
+  isCurrent: () => Promise<boolean>;
+}): Promise<UserWorkspaceRuntimeUpgradeSweepOutcome> {
+  const params = provisioningParams(args);
+  const id = await provisioningInstanceId(params);
+  try {
+    await args.env.USER_WORKSPACE_RUNTIME_PROVISIONING.createBatch([
+      { id, params, retention: { successRetention: '1 day', errorRetention: '1 day' } },
+    ]);
+    return 'started';
+  } catch {
+    // The binding throws when the id already exists: that instance is the answer.
+  }
+  const instance = await args.env.USER_WORKSPACE_RUNTIME_PROVISIONING.get(id);
+  const status = await instance.status();
+  if (status.status === 'errored' || status.status === 'terminated' || provisioningErrorOutput(status)) {
+    if (!args.restartFailed) {
+      return 'left';
+    }
+    await instance.restart();
+    console.warn({ event: 'runtime_upgrade_restarted', reason: 'previous_upgrade_failed' });
+    return 'restarted';
+  }
+  if (status.status !== 'complete') {
+    return 'running';
+  }
+  // Finished, yet the runtime was still outdated when listed: it gave up waiting for a quiet moment,
+  // or it finished just since.
+  if (await args.isCurrent()) {
+    return 'left';
+  }
+  await instance.restart();
+  console.info({ event: 'runtime_upgrade_restarted', reason: 'previous_upgrade_ended' });
+  return 'restarted';
 }
 
 export class UserWorkspaceRuntimeProvisioningWorkflow extends WorkflowEntrypoint<Env, ProvisioningParams> {
