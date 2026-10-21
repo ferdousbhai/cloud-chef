@@ -61,6 +61,7 @@ export const CodeMirrorEditor = memo(
     const docRef = useRef<EditorDocument | undefined>(undefined);
     const projectIdRef = useRef(id);
     const editorStatesRef = useRef<EditorStates>(new Map());
+    const shownDocumentRef = useRef<{ projectId: string; filePath: string } | null>(null);
     const onScrollRef = useRef(onScroll);
     const onWheelRef = useRef(onWheel);
     const onChangeRef = useRef(onChange);
@@ -149,6 +150,12 @@ export const CodeMirrorEditor = memo(
         return;
       }
       const callbacks = { onScroll: onScrollRef, onWheel: onWheelRef, onSave: onSaveWithFlushRef };
+      const shownDocument = shownDocumentRef.current;
+      const isSameFile =
+        shownDocument?.projectId === projectIdRef.current && shownDocument.filePath === currentDocument?.filePath;
+      shownDocumentRef.current = currentDocument
+        ? { projectId: projectIdRef.current, filePath: currentDocument.filePath }
+        : null;
       if (!currentDocument) {
         view.setState(createEditorState('', currentTheme, callbacks, [languageCompartment.of([])]));
         view.scrollDOM.scrollTo(0, 0);
@@ -167,7 +174,10 @@ export const CodeMirrorEditor = memo(
         state = createEditorState(currentDocument.value, currentTheme, callbacks, [languageCompartment.of([])]);
         editorStates.set(currentDocument.filePath, state);
       }
-      const simpleAppend = currentDocument.value.startsWith(view.state.doc.toString());
+      // Only text growing in the file already shown is a streamed append. Any other file, including
+      // the first one into the empty view, installs its own state, or it would inherit the bare
+      // placeholder's configuration and arrive as an undoable edit.
+      const simpleAppend = isSameFile && currentDocument.value.startsWith(view.state.doc.toString());
       const isFileChange = currentDocument.value.length < 50 || !simpleAppend;
       if (isFileChange) {
         view.setState(state);
@@ -185,6 +195,7 @@ export const CodeMirrorEditor = memo(
         scrollToBottom: scrollToDocAppend && simpleAppend,
       });
     }, [
+      id,
       doc?.isBinary,
       doc?.value,
       doc?.filePath,
