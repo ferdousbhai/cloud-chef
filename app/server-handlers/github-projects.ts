@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { getAuthSession } from '~/lib/.server/auth';
 import { GitHubError } from '~/lib/.server/github/github-api';
+import { PayloadTooLargeError } from '~/lib/bounded-body';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
 import { readCookie, readJsonRequest, safeReturnTo } from '~/lib/.server/request-guards';
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
@@ -385,6 +386,11 @@ async function completeProductionApproval(args: {
   } catch (error) {
     if (error instanceof GitHubError) {
       return await fail(error.message);
+    }
+    if (error instanceof PayloadTooLargeError) {
+      return await fail(
+        'This draft is larger than CloudChef can commit. Ask the member to slim it down and send it again.',
+      );
     }
     await releaseApprovalClaim(env.DB, productionRequest.id, productionRequest.claimedAt);
     throw error;

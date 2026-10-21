@@ -1,4 +1,11 @@
 import { z } from 'zod';
+import { readBodyBytesWithLimit } from '~/lib/bounded-body';
+
+/**
+ * The most a draft's files may decompress to. The request holds at most 1.5 MB of gzip, which could
+ * otherwise inflate to gigabytes; this is checked while decompressing, before anything is buffered past it.
+ */
+const MAX_DRAFT_SNAPSHOT_JSON_BYTES = 24 * 1024 * 1024;
 
 const snapshotSchema = z.array(z.object({ path: z.string().min(1), contentBase64: z.string() }));
 const projectFileSchema = z.looseObject({
@@ -27,7 +34,12 @@ export async function promotedDraftFiles(
   workerName: string,
 ): Promise<{ path: string; contentBase64: string | null; executable: boolean }[]> {
   const gzipped = Uint8Array.from(atob(snapshotGzipBase64), (char) => char.charCodeAt(0));
-  const json = await new Response(new Blob([gzipped]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  const bytes = await readBodyBytesWithLimit(
+    new Response(new Blob([gzipped]).stream().pipeThrough(new DecompressionStream('gzip'))),
+    MAX_DRAFT_SNAPSHOT_JSON_BYTES,
+    "The draft's files",
+  );
+  const json = new TextDecoder().decode(bytes);
   return snapshotSchema.parse(JSON.parse(json)).map((file) => ({
     path: file.path,
     contentBase64:

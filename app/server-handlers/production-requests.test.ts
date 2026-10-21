@@ -5,6 +5,7 @@ import { createAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '
 import { GitHubApp } from '~/lib/.server/github/github-app';
 import { promotedDraftFiles } from '~/lib/.server/github/promote-draft';
 import { bytesToBase64 } from '~/lib/hex-digest';
+import { PayloadTooLargeError } from '~/lib/bounded-body';
 import {
   approveProductionRequestAction,
   completeGitHubInstallAction,
@@ -394,5 +395,12 @@ describe('promotedDraftFiles', () => {
       r2: { name: 'new-app-storage' },
     });
     expect(files.find((file) => file.path === 'src/app.tsx')?.contentBase64).toBe(btoa('export const app = 1;'));
+  });
+
+  it('stops decompressing a draft that inflates past 24 MB', async () => {
+    // About 25 KB of gzip that would inflate to 25 MB.
+    const bomb = await gzipBase64(' '.repeat(25 * 1024 * 1024));
+    expect(atob(bomb).length).toBeLessThan(64 * 1024);
+    await expect(promotedDraftFiles(bomb, 'new-app')).rejects.toThrow(PayloadTooLargeError);
   });
 });
