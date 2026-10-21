@@ -2,7 +2,7 @@ import type { DatabaseSync as DatabaseSyncInstance } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
 import { eraseControlPlaneAccount, leaveOrganizations, OrganizationAdminRequiredError } from './account-deletion';
 import { D1CloudflareCredentialVault } from './cloudflare-credential-vault';
-import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
+import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
 
 const ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
 
@@ -350,18 +350,10 @@ describe('control-plane account erasure', () => {
 
 /** The database as an erasure sees it when the Worker stops just as it is about to run `statement`. */
 function interruptedAt(db: D1Database, statement: RegExp): D1Database {
-  return new Proxy(db, {
-    get(target, property) {
-      if (property === 'prepare') {
-        return (query: string) => {
-          if (statement.test(query)) {
-            throw new Error('interrupted');
-          }
-          return target.prepare(query);
-        };
-      }
-      return Reflect.get(target, property);
-    },
+  return withStatementHook(db, (query) => {
+    if (statement.test(query)) {
+      throw new Error('interrupted');
+    }
   });
 }
 

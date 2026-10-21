@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
+import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
 import { createAuthSession, getAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import {
   acceptInviteAction,
@@ -385,18 +385,10 @@ describe('organizations', () => {
       insert.run(admin.userId, orgId, Date.now());
     }
     // The other invite is counted after this one checked the limits, and before it is written.
-    const racing = new Proxy(env.DB, {
-      get(target, property) {
-        if (property === 'prepare') {
-          return (query: string) => {
-            if (query.includes('INSERT INTO organization_invites')) {
-              insert.run(admin.userId, orgId, Date.now());
-            }
-            return target.prepare(query);
-          };
-        }
-        return Reflect.get(target, property);
-      },
+    const racing = withStatementHook(env.DB, (query) => {
+      if (query.includes('INSERT INTO organization_invites')) {
+        insert.run(admin.userId, orgId, Date.now());
+      }
     });
 
     const refused = await invite({ ...env, DB: racing }, admin.cookie, orgId, 'sam@acme.com');

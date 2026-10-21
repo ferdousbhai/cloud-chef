@@ -28,6 +28,24 @@ function migratedDatabase(directory: string): ControlPlaneTestDatabase {
   return { database, db: new SqliteD1Database(database) };
 }
 
+/**
+ * `db`, running `beforePrepare` with each statement's SQL before preparing it: for a test that makes
+ * something happen just before a given statement (another request's write, or the Worker stopping by
+ * throwing).
+ */
+export function withStatementHook(db: D1Database, beforePrepare: (query: string) => void): D1Database {
+  return {
+    prepare: (query) => {
+      beforePrepare(query);
+      return db.prepare(query);
+    },
+    batch: (statements) => db.batch(statements),
+    exec: (query) => db.exec(query),
+    withSession: (constraintOrBookmark) => db.withSession(constraintOrBookmark),
+    dump: () => db.dump(),
+  };
+}
+
 /** An Env with only the bindings a handler under test reads. */
 export function envWith(bindings: Partial<Env>): Env {
   // SAFETY: each test passes every binding the code under test reads; the rest are never touched.
