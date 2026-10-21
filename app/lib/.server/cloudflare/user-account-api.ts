@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { deploymentPlanResourceName, type DeploymentPlan, type DeploymentResourceType } from './deployment-plan';
 import {
   deploymentAssetExtension,
@@ -141,6 +142,49 @@ export type ManagedWorkerVersionArgs = {
   r2BucketName?: string;
   kvNamespaceId?: string;
 };
+
+/** A provider key stored on an AI Gateway (BYOK), as Cloudflare describes it: never the key itself. */
+export type AiGatewayProviderKey = {
+  id: string;
+  providerSlug: string;
+  alias: string;
+  isDefault: boolean;
+  /** Cloudflare's masked preview of the key, such as `sk-a...wxyz`. */
+  secretPreview: string | null;
+  modifiedAt: string | null;
+};
+
+/** A Secrets Store secret AI Gateway may use: its name and where it is, never its value. */
+type SecretsStoreSecret = { id: string; name: string; storeId: string };
+
+/** The Secrets Store scope that lets AI Gateway read a secret as a provider key. */
+const AI_GATEWAY_SECRET_SCOPE = 'ai_gateway';
+
+const aiGatewayProviderKeySchema = z.looseObject({
+  id: z.string().min(1).max(128),
+  provider_slug: z.string().min(1).max(128),
+  alias: z.string().max(128).catch(''),
+  default_config: z.boolean().catch(false),
+  secret_preview: z.string().max(128).nullable().optional().catch(null),
+  modified_at: z.string().max(64).nullable().optional().catch(null),
+});
+
+const secretsStoreSecretSchema = z.looseObject({
+  id: z.string().min(1).max(128),
+  name: z.string().min(1).max(255),
+  scopes: z.array(z.string()).catch([]),
+});
+
+function aiGatewayProviderKey(value: z.infer<typeof aiGatewayProviderKeySchema>): AiGatewayProviderKey {
+  return {
+    id: value.id,
+    providerSlug: value.provider_slug,
+    alias: value.alias,
+    isDefault: value.default_config,
+    secretPreview: value.secret_preview ?? null,
+    modifiedAt: value.modified_at ?? null,
+  };
+}
 
 type D1QueryResult = {
   success?: boolean;
@@ -518,12 +562,14 @@ export class UserCloudflareAccountApi {
    * `total_pages`, others report both - so whichever total it offers decides, and a full page is
    * the fallback signal when it offers neither.
    */
-  private async listAllPages(path: string, invalidMessage: string): Promise<unknown[]> {
+  private async listAllPages(
+    path: string,
+    invalidMessage: string,
+    pageSize: number = ACCOUNT_LIST_PAGE_SIZE,
+  ): Promise<unknown[]> {
     const listed: unknown[] = [];
     for (let page = 1; page <= MAX_ACCOUNT_LIST_PAGES; page += 1) {
-      const { result, resultInfo } = await this.callPage<unknown>(
-        `${path}?page=${page}&per_page=${ACCOUNT_LIST_PAGE_SIZE}`,
-      );
+      const { result, resultInfo } = await this.callPage<unknown>(`${path}?page=${page}&per_page=${pageSize}`);
       if (!Array.isArray(result)) {
         throw new CloudflareAccountApiError(invalidMessage);
       }
@@ -533,7 +579,7 @@ export class UserCloudflareAccountApi {
           ? page < resultInfo.total_pages
           : typeof resultInfo?.total_count === 'number'
             ? listed.length < resultInfo.total_count
-            : result.length >= ACCOUNT_LIST_PAGE_SIZE;
+            : result.length >= pageSize;
       // An empty page cannot be followed by anything this walk could use.
       if (!more || result.length === 0) {
         return listed;
@@ -939,6 +985,89 @@ export class UserCloudflareAccountApi {
       throw new CloudflareAccountApiError('Cloudflare returned an invalid AI Gateway credit balance.');
     }
     return result.balance;
+  }
+
+  /**
+   * The provider keys (BYOK) stored on one of the account's AI Gateways: names and masked previews
+   * only, since Cloudflare never returns a key. A gateway that does not exist yet has none.
+   */
+  async listAiGatewayProviderKeys(gatewayId: string, signal?: AbortSignal): Promise<AiGatewayProviderKey[]> {
+    const result = await this.callOptional<unknown>(
+      `/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/provider_configs?per_page=100`,
+      { method: 'GET', signal },
+    );
+    if (result === null) {
+      return [];
+    }
+    const parsed = z.array(aiGatewayProviderKeySchema).safeParse(result);
+    if (!parsed.success) {
+      throw new CloudflareAccountApiError('Cloudflare returned invalid AI Gateway provider keys.');
+    }
+    return parsed.data.map(aiGatewayProviderKey);
+  }
+
+  /**
+   * Stores a provider key on one of the account's AI Gateways, as its provider's default: either a
+   * new key, which Cloudflare keeps in the gateway's Secrets Store and CloudChef never keeps, or an
+   * existing Secrets Store secret, by id.
+   */
+  async addAiGatewayProviderKey(
+    gatewayId: string,
+    key: { providerSlug: string; alias: string } & ({ secret: string } | { secretId: string }),
+  ): Promise<AiGatewayProviderKey> {
+    const body = {
+      provider_slug: key.providerSlug,
+      alias: key.alias,
+      default_config: true,
+      ...('secret' in key ? { secret: key.secret } : { secret_id: key.secretId }),
+    };
+    const result = await this.call<unknown>(`/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/provider_configs`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    const parsed = aiGatewayProviderKeySchema.safeParse(result);
+    if (!parsed.success) {
+      throw new CloudflareAccountApiError('Cloudflare returned an invalid AI Gateway provider key.');
+    }
+    return aiGatewayProviderKey(parsed.data);
+  }
+
+  /** Removes a provider key from one of the account's AI Gateways; one already gone is not an error. */
+  async deleteAiGatewayProviderKey(gatewayId: string, keyId: string): Promise<void> {
+    await this.deleteOptional(
+      `/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/provider_configs/${encodeURIComponent(keyId)}`,
+    );
+  }
+
+  /** Every Secrets Store secret the account lets AI Gateway use: names and ids, never values. */
+  async listAiGatewaySecrets(): Promise<SecretsStoreSecret[]> {
+    const stores = z
+      .array(z.looseObject({ id: z.string().min(1).max(128) }))
+      .safeParse(await this.listAllPages('/secrets_store/stores', 'Cloudflare returned invalid Secrets Stores.', 100));
+    if (!stores.success) {
+      throw new CloudflareAccountApiError('Cloudflare returned invalid Secrets Stores.');
+    }
+    const secrets: SecretsStoreSecret[] = [];
+    for (const store of stores.data) {
+      const listed = z
+        .array(secretsStoreSecretSchema)
+        .safeParse(
+          await this.listAllPages(
+            `/secrets_store/stores/${encodeURIComponent(store.id)}/secrets`,
+            'Cloudflare returned invalid Secrets Store secrets.',
+            100,
+          ),
+        );
+      if (!listed.success) {
+        throw new CloudflareAccountApiError('Cloudflare returned invalid Secrets Store secrets.');
+      }
+      for (const secret of listed.data) {
+        if (secret.scopes.includes(AI_GATEWAY_SECRET_SCOPE)) {
+          secrets.push({ id: secret.id, name: secret.name, storeId: store.id });
+        }
+      }
+    }
+    return secrets;
   }
 
   async getWorkersSubdomain(): Promise<string> {

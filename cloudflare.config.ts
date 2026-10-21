@@ -34,7 +34,7 @@ export default defineConfig({
     // `cf deploy` uploads the ones listed in the build output.
     env: {
       CLOUDFLARE_OAUTH_SCOPES: bindings.text(
-        'account-settings.read user-details.read workers-scripts.write containers.write d1.write workers-r2.write workers-kv-storage.write ai.read',
+        'account-settings.read user-details.read workers-scripts.write containers.write d1.write workers-r2.write workers-kv-storage.write ai.read aig.write secrets-store.write',
       ),
       // Configure production secrets in Cloudflare, not local env files.
       // Deployment credentials are supplied by the CI environment, not as Worker runtime secrets.

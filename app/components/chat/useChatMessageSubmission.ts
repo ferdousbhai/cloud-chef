@@ -14,7 +14,7 @@ import { clearPromptIfUnchanged } from './useMessageInputController';
 import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { builderModelStore } from '~/lib/stores/builder-model.client';
-import type { WorkersAiModelId } from '~/lib/workers-ai-model';
+import type { BuilderModelId } from '~/lib/workers-ai-model';
 
 /**
  * Sends one builder turn. The resolved value is the AI SDK's internal send result, which no caller
@@ -22,7 +22,7 @@ import type { WorkersAiModelId } from '~/lib/workers-ai-model';
  */
 type SendChatMessage = (
   message: { text: string },
-  options?: { body?: { turnContext?: ChatTurnContext; modelId?: WorkersAiModelId } },
+  options?: { body?: { turnContext?: ChatTurnContext; modelId?: BuilderModelId } },
   onRequestStart?: () => void,
 ) => Promise<unknown>;
 
@@ -241,7 +241,7 @@ export async function runChatSubmissionLifecycle(args: {
 async function submitMessage(
   messageInput: string,
   chatStarted: boolean,
-  modelId: WorkersAiModelId,
+  modelId: BuilderModelId,
   sendChatMessage: SendChatMessage,
   onRequestStart: () => void,
 ): Promise<void> {

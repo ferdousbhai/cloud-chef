@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   CLOUDFLARE_WORKERS_AI_MODEL,
   DEFAULT_WORKERS_AI_MODEL,
-  getWorkersAiModel,
+  getBuilderModel,
   isWorkersAiModelId,
-  validateWorkersAiModelCatalogPayload,
-  workersAiModelCatalogPayloadSchema,
-  type WorkersAiModel,
+  validateBuilderModelCatalogPayload,
+  builderModelCatalogPayloadSchema,
+  type BuilderModel,
 } from './workers-ai-model';
 
-const alternativeModel: WorkersAiModel = {
+const alternativeModel: BuilderModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
   id: '@cf/openai/gpt-oss-120b',
   label: 'GPT OSS 120B',
@@ -33,18 +33,18 @@ describe('Workers AI model catalog', () => {
       models: [DEFAULT_WORKERS_AI_MODEL, alternativeModel],
     };
 
-    const parsed = workersAiModelCatalogPayloadSchema.safeParse(payload);
-    expect(parsed.success && validateWorkersAiModelCatalogPayload(parsed.data)).toEqual(payload);
-    expect(getWorkersAiModel(alternativeModel.id, payload.models)).toEqual(alternativeModel);
-    const missingDefault = workersAiModelCatalogPayloadSchema.parse({
+    const parsed = builderModelCatalogPayloadSchema.safeParse(payload);
+    expect(parsed.success && validateBuilderModelCatalogPayload(parsed.data)).toEqual(payload);
+    expect(getBuilderModel(alternativeModel.id, payload.models)).toEqual(alternativeModel);
+    const missingDefault = builderModelCatalogPayloadSchema.parse({
       ...payload,
       defaultModelId: '@cf/example/missing',
     });
-    expect(validateWorkersAiModelCatalogPayload(missingDefault)).toBeNull();
-    const duplicate = workersAiModelCatalogPayloadSchema.parse({
+    expect(validateBuilderModelCatalogPayload(missingDefault)).toBeNull();
+    const duplicate = builderModelCatalogPayloadSchema.parse({
       ...payload,
       models: [alternativeModel, alternativeModel],
     });
-    expect(validateWorkersAiModelCatalogPayload(duplicate)).toBeNull();
+    expect(validateBuilderModelCatalogPayload(duplicate)).toBeNull();
   });
 });

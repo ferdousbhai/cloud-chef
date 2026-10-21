@@ -3,6 +3,7 @@ import { envWith } from '~/test/control-plane-d1';
 import {
   confirmUserWorkspaceAccess,
   modelRequestAccess,
+  readAccountModelSettings,
   type ConfirmUserWorkspaceAccess,
   type UserWorkspaceAccess,
 } from './user-workspace-cloudflare-credential';
@@ -61,6 +62,34 @@ describe('confirmUserWorkspaceAccess', () => {
     expect(await confirmUserWorkspaceAccess(runtimeEnv(), identity)).toBeNull();
 
     expect(String(respond.mock.calls[0]?.[0])).toBe('https://cloudchef.build/api/cloudflare/runtime-access');
+  });
+});
+
+describe('readAccountModelSettings', () => {
+  it("reads the account's chosen default and whether Claude has a key, and anything unlearnable as neither", async () => {
+    const respond = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>();
+    vi.stubGlobal('fetch', respond);
+
+    respond.mockResolvedValueOnce(Response.json({ defaultModelId: 'claude-opus-5-5', claude: true }));
+    expect(await readAccountModelSettings(runtimeEnv())).toEqual({ defaultModelId: 'claude-opus-5-5', claude: true });
+    const [url, init] = respond.mock.calls[0] ?? [];
+    expect(String(url)).toBe('https://cloudchef.build/api/cloudflare/runtime-models');
+    expect(init?.headers).toMatchObject({ authorization: 'Bearer runtime-secret' });
+    expect(JSON.parse(String(init?.body))).toEqual(identity);
+
+    respond.mockResolvedValueOnce(Response.json({ defaultModelId: 7, claude: 'yes' }));
+    expect(await readAccountModelSettings(runtimeEnv())).toEqual({ defaultModelId: null, claude: false });
+    respond.mockResolvedValueOnce(new Response(null, { status: 404 }));
+    expect(await readAccountModelSettings(runtimeEnv())).toEqual({ defaultModelId: null, claude: false });
+    respond.mockRejectedValueOnce(new Error('unreachable'));
+    expect(await readAccountModelSettings(runtimeEnv())).toEqual({ defaultModelId: null, claude: false });
+    // No runtime identity: nothing to ask with.
+    respond.mockClear();
+    expect(await readAccountModelSettings(runtimeEnv({ CLOUDCHEF_USER_ID: '' }))).toEqual({
+      defaultModelId: null,
+      claude: false,
+    });
+    expect(respond).not.toHaveBeenCalled();
   });
 });
 

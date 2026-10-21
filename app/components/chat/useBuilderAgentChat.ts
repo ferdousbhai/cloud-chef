@@ -34,7 +34,7 @@ import { subchatQueryKey } from '~/lib/cloudflare/data-hooks';
 import { settleBuilderStop } from './builder-stop';
 import { refreshUserRuntimeSession, requireUserRuntimeEndpoint } from '~/lib/cloudflare/runtime-session';
 import { builderModelStore } from '~/lib/stores/builder-model.client';
-import { workersAiModelIdSchema } from '~/lib/workers-ai-model';
+import { builderModelIdSchema } from '~/lib/workers-ai-model';
 import { loadAuthoritativeTranscriptSnapshot, reconcileMessagesForSend } from './chat-send-reconciliation';
 import { BUILDER_AGENT_QUERY_CACHE_TTL_MS, loadBuilderAgentCapability } from './builder-agent-auth';
 import type { CloudflareExecutionDecisionHandler } from 'cloudchef-agent/cloudflare-api';
@@ -194,7 +194,7 @@ export function useBuilderAgentChat(args: {
       return {
         body: {
           ...body,
-          modelId: workersAiModelIdSchema.safeParse(body?.modelId).data ?? builderModelStore.get(),
+          modelId: builderModelIdSchema.safeParse(body?.modelId).data ?? builderModelStore.get(),
           chatInitialId: args.chatInitialId,
           subchatIndex: subchatIndexStore.get() ?? 0,
           transcript,

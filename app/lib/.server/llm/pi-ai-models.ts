@@ -14,19 +14,24 @@ import {
   stream as openaiCompletionsStream,
   type OpenAICompletionsOptions,
 } from '@earendil-works/pi-ai/api/openai-completions';
+import { stream as anthropicMessagesStream, type AnthropicOptions } from '@earendil-works/pi-ai/api/anthropic-messages';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { modelTokenEstimateSafetyTokens } from 'cloudchef-agent/context-limits';
-import type { WorkersAiModel, WorkersAiRuntimeModelId } from '~/lib/workers-ai-model';
+import { isClaudeModelId, type BuilderModel, type BuilderModelId, type ClaudeModelId } from '~/lib/workers-ai-model';
+import { piClaudeModel } from './pi-model-catalog';
 import { recordPiStage } from './pi-telemetry';
 import {
   WORKERS_AI_GATEWAY_UNLOGGED,
+  workersAiGatewayHeaders,
   workersAiGatewayOptions,
+  type WorkersAiGatewayHeaders,
   type WorkersAiGatewayLogging,
   type WorkersAiGatewayOptions,
 } from './workers-ai-gateway';
 
-// Keep the runtime on the Workers-AI-only catalog; importing unrelated provider SDKs would
-// add Node-only code to every user-owned runtime.
+// Keep the runtime to the two API implementations it uses (OpenAI Completions for Workers AI,
+// Anthropic Messages for Claude), imported directly; Pi's provider index would pull in unrelated
+// provider SDKs with Node-only code.
 
 export type WorkersAiAccountCredentials = { binding: Ai };
 
@@ -52,52 +57,21 @@ const ZERO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 
 
 type WorkersAiCatalogModel = (typeof CLOUDFLARE_WORKERS_AI_MODELS)[keyof typeof CLOUDFLARE_WORKERS_AI_MODELS];
 
-const WORKERS_AI_CATALOG = new Map<string, WorkersAiCatalogModel>(Object.entries(CLOUDFLARE_WORKERS_AI_MODELS));
-
-/**
- * Builder models Pi's static catalog does not list yet, each with the Pi-characterised sibling whose
- * entry it is served with until Pi lists it, and the model's own published rates. Without an entry a
- * model gets no `compat` at all, and a DeepSeek model then loses the `thinkingFormat: 'deepseek'`
- * request shape (`thinking: { type: 'disabled' }`, and an empty `reasoning_content` replayed on every
- * assistant turn, which DeepSeek requires once a transcript holds a tool call).
- *
- * Kept to a reviewed, same-family sibling: a reference conversation (user, assistant tool call, tool
- * result, assistant) in exactly this shape was answered by the model on Workers AI before it was
- * offered. Pi's own entry wins as soon as Pi lists the model, so an entry here is temporary by design.
- */
-const PI_CATALOG_SIBLINGS: ReadonlyMap<string, { sibling: string; cost: ModelCost }> = new Map([
-  [
-    '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
-    {
-      sibling: '@cf/deepseek-ai/deepseek-v4-flash-0731',
-      // USD per million tokens, as Cloudflare published them on 2026-10-17.
-      cost: { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0 },
-    },
-  ],
-]);
-
-/** What `getPiModel` reads from a catalog entry, so an entry can be served under another model's id. */
+/** What `getPiModel` reads from a Workers AI catalog entry. */
 type PiCatalogEntry = Pick<Model<Api>, 'name' | 'reasoning' | 'input' | 'cost' | 'contextWindow'> & {
   compat?: OpenAICompletionsCompat;
 };
 
+const WORKERS_AI_CATALOG = new Map<string, WorkersAiCatalogModel>(Object.entries(CLOUDFLARE_WORKERS_AI_MODELS));
+
+/** Pi's entry for a model; a model Pi does not list is never offered (`readWorkersAiBuilderModelCatalog`). */
 function catalogModel(modelId: string): PiCatalogEntry | undefined {
-  const listed = WORKERS_AI_CATALOG.get(modelId);
-  if (listed) {
-    return listed;
-  }
-  const mapping = PI_CATALOG_SIBLINGS.get(modelId);
-  const sibling = mapping ? WORKERS_AI_CATALOG.get(mapping.sibling) : undefined;
-  if (!mapping || !sibling) {
-    return undefined;
-  }
-  return { ...sibling, name: modelId, cost: mapping.cost };
+  return WORKERS_AI_CATALOG.get(modelId);
 }
 
 /**
  * CloudChef states only what the binding path requires, and Pi's own catalog entry supplies the
- * rest — `compat.thinkingFormat` included, which Pi sets only for the DeepSeek v4 entries (and
- * `PI_CATALOG_SIBLINGS` lends to a DeepSeek model Pi does not list yet).
+ * rest — `compat.thinkingFormat` included, which Pi sets only for the DeepSeek v4 entries.
  *
  * CloudChef used to name a thinking dialect itself, by model-id prefix, for the families Pi does
  * not characterise. That is gone because it was measured to do nothing: Cloudflare ignores every
@@ -245,9 +219,12 @@ function makeHandle(args: HandleArgs): ModelHandle {
 
 export function getPiModel(
   accountCredentials: WorkersAiAccountCredentials,
-  modelId: WorkersAiRuntimeModelId,
-  settings?: { model?: WorkersAiModel; sessionAffinity?: string; gatewayLogging?: WorkersAiGatewayLogging },
+  modelId: BuilderModelId,
+  settings?: { model?: BuilderModel; sessionAffinity?: string; gatewayLogging?: WorkersAiGatewayLogging },
 ): ModelHandle {
+  if (isClaudeModelId(modelId)) {
+    return getClaudePiModel(accountCredentials, modelId, settings?.gatewayLogging ?? WORKERS_AI_GATEWAY_UNLOGGED);
+  }
   const catalog = catalogModel(modelId);
   const model: Model<Api> = {
     id: modelId,
@@ -278,6 +255,119 @@ export function getPiModel(
     ),
     sessionAffinity: settings?.sessionAffinity,
   });
+}
+
+/**
+ * Claude runs through Pi's own Anthropic Messages implementation (the official `@anthropic-ai/sdk`),
+ * with Pi's catalog entry for the model — its window, output ceiling, and adaptive-thinking
+ * compatibility — exactly as Pi's `cloudflare-ai-gateway` provider describes it. Only the transport
+ * is CloudChef's: the SDK's request is handed to the account's own `default` AI Gateway through the
+ * Workers AI binding, which the gateway accepts as the account itself, so no gateway token exists.
+ * The gateway adds the account's stored Anthropic key (BYOK) because the request carries none: the
+ * SDK's `x-api-key` never leaves this Worker.
+ */
+function getClaudePiModel(
+  accountCredentials: WorkersAiAccountCredentials,
+  modelId: ClaudeModelId,
+  gatewayLogging: WorkersAiGatewayLogging,
+): ModelHandle {
+  const catalog = piClaudeModel(modelId);
+  if (!catalog) {
+    throw new Error(`Pi does not list the Claude model "${modelId}".`);
+  }
+  const model: Model<Api> = { ...catalog, baseUrl: CLAUDE_GATEWAY_BASE_URL };
+  const fetch = createClaudeGatewayFetch(accountCredentials.binding, gatewayLogging);
+  const handle: ModelHandle = {
+    model,
+    stream: (streamModel, context, options = {}) => {
+      recordPiStage('stream_created', streamModel.id);
+      handle.lastResponse = undefined;
+      // A forced tool choice is not offered to Claude: with thinking on, Anthropic accepts only `auto`,
+      // which is also its default, so the field is never sent.
+      const { toolChoice: _toolChoice, reasoning, ...rest } = options;
+      const merged: AnthropicOptions = {
+        ...rest,
+        // Pi's Anthropic client requires a credential before it sends; this placeholder satisfies it,
+        // and `createClaudeGatewayFetch` forwards no credential header at all.
+        apiKey: CLAUDE_GATEWAY_PLACEHOLDER_KEY,
+        fetch,
+        maxTokens: Math.min(streamModel.maxTokens, requestOutputTokens(streamModel, context, rest.maxTokens)),
+        // Pi turns this into adaptive thinking for the models Anthropic manages it on, and a thinking
+        // budget for older ones; an effort is sent only when the caller asked for one.
+        thinkingEnabled: streamModel.reasoning,
+        onResponse: async (response, responseModel) => {
+          handle.lastResponse = { status: response.status };
+          await rest.onResponse?.(response, responseModel);
+        },
+      };
+      if (reasoning !== undefined) {
+        merged.effort = reasoning === 'minimal' ? 'low' : reasoning;
+      }
+      return CLAUDE_STREAM(streamModel, context, merged);
+    },
+  };
+  return handle;
+}
+
+// SAFETY: `getClaudePiModel` builds its model from Pi's `anthropic-messages` catalog entry only, so
+// every model this stream receives speaks the protocol the Anthropic Messages adapter declares.
+const CLAUDE_STREAM = anthropicMessagesStream as StreamFunction<Api, AnthropicOptions>;
+
+/** The account's own gateway, the one every CloudChef model request goes through. */
+const CLAUDE_GATEWAY_ID = 'default';
+/** Never fetched: the SDK builds its URL from this, and `createClaudeGatewayFetch` reads only the path. */
+const CLAUDE_GATEWAY_BASE_URL = 'https://ai-gateway-binding.invalid/anthropic';
+const CLAUDE_GATEWAY_PLACEHOLDER_KEY = 'ai-gateway-byok';
+/** The only Anthropic endpoint the builder calls. */
+const CLAUDE_MESSAGES_ENDPOINT = 'v1/messages';
+/** Request headers the Anthropic API reads; everything else the SDK sets, its credential included, stays here. */
+const CLAUDE_FORWARDED_HEADERS = ['anthropic-version', 'anthropic-beta'] as const;
+
+/** Everything a Claude request carries to the gateway: no provider credential of any kind. */
+type ClaudeGatewayHeaders = WorkersAiGatewayHeaders &
+  Partial<Record<(typeof CLAUDE_FORWARDED_HEADERS)[number], string>> & { 'content-type': 'application/json' };
+
+export const CLAUDE_KEY_REJECTED_MESSAGE =
+  "Claude refused this account's Anthropic key, or the account's AI Gateway has none. An admin can link a working key in Settings, under Models.";
+
+/**
+ * Sends the SDK's request through `env.AI.gateway('default')` as a universal request to the
+ * `anthropic` provider. The body goes as the SDK wrote it; the headers are the Anthropic API version
+ * and betas, plus the gateway's own: whether to log the request, filed under the chat and person when
+ * logged, as the person chose in Settings, and never cached.
+ */
+function createClaudeGatewayFetch(binding: Ai, gatewayLogging: WorkersAiGatewayLogging): FetchFunction {
+  return async (input, init) => {
+    const request = new Request(input, init);
+    request.signal.throwIfAborted();
+    const endpoint = new URL(request.url).pathname.replace(/^\/anthropic\//, '');
+    if (endpoint !== CLAUDE_MESSAGES_ENDPOINT) {
+      throw new Error('CloudChef sends Claude only Messages requests.');
+    }
+    const headers: ClaudeGatewayHeaders = {
+      'content-type': 'application/json',
+      ...workersAiGatewayHeaders(gatewayLogging),
+    };
+    for (const name of CLAUDE_FORWARDED_HEADERS) {
+      const value = request.headers.get(name);
+      if (value) {
+        headers[name] = value;
+      }
+    }
+    const response = await binding
+      .gateway(CLAUDE_GATEWAY_ID)
+      .run({ provider: 'anthropic', endpoint, headers, query: await request.json() }, { signal: request.signal });
+    if (response.status === 401 || response.status === 403) {
+      await response.body?.cancel().catch(() => undefined);
+      // In Anthropic's own error shape, so the SDK reports this message rather than a bare status.
+      const error = { type: 'authentication_error', message: CLAUDE_KEY_REJECTED_MESSAGE };
+      return Response.json(
+        { type: 'error', message: CLAUDE_KEY_REJECTED_MESSAGE, error },
+        { status: response.status, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return response;
+  };
 }
 
 /** The OpenAI-compatible body Pi serialises, forwarded to the binding verbatim apart from `model`. */

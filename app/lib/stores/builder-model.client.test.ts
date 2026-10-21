@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CLOUDFLARE_WORKERS_AI_MODEL,
   DEFAULT_WORKERS_AI_MODEL,
-  type WorkersAiModel,
-  type WorkersAiModelCatalogPayload,
+  type BuilderModel,
+  type BuilderModelCatalogPayload,
 } from '~/lib/workers-ai-model';
 import {
   builderModelCatalogStatusStore,
@@ -20,15 +20,22 @@ import {
   syncBuilderModelPreference,
 } from './builder-model.client';
 
-const alternativeModel: WorkersAiModel = {
+const alternativeModel: BuilderModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
-  id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
-  label: 'DeepSeek V4.1 Flash 1017',
+  id: '@cf/deepseek-ai/deepseek-v4-flash-0731',
+  label: 'DeepSeek V4 Flash 0731',
   contextTokens: 128_000,
   requiresPaid: false,
   vision: false,
 };
-const catalog: WorkersAiModelCatalogPayload = {
+const claudeModel: BuilderModel = {
+  ...DEFAULT_WORKERS_AI_MODEL,
+  id: 'claude-opus-5-5',
+  label: 'Claude Opus 5.5',
+  contextTokens: 1_000_000,
+  requiresPaid: false,
+};
+const catalog: BuilderModelCatalogPayload = {
   defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
   models: [DEFAULT_WORKERS_AI_MODEL, alternativeModel],
 };
@@ -62,23 +69,20 @@ describe('builder model preference', () => {
     expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
   });
 
-  it('moves a saved preference for the retired DeepSeek V4 Flash to the V4.1 Flash that replaced it', () => {
-    const retired = '@cf/deepseek-ai/deepseek-v4-flash-0731';
+  it("starts on the default the account's catalog names, and a saved model no longer offered falls back to it", () => {
+    const teamCatalog = { defaultModelId: claudeModel.id, models: [claudeModel, DEFAULT_WORKERS_AI_MODEL] };
 
-    installBuilderModelCatalog(catalog, { getItem: () => retired });
-    expect(builderModelStore.get()).toBe(alternativeModel.id);
+    installBuilderModelCatalog(teamCatalog, { getItem: () => null });
+    expect(builderModelStore.get()).toBe(claudeModel.id);
 
-    // Another tab still writing the old id lands on the replacement too.
-    syncBuilderModelPreference({ key: 'cloudchef_builder_model_v2', newValue: retired });
-    expect(builderModelStore.get()).toBe(alternativeModel.id);
-  });
+    // Anyone can switch away from the team's default.
+    installBuilderModelCatalog(teamCatalog, { getItem: () => CLOUDFLARE_WORKERS_AI_MODEL });
+    expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
 
-  it('falls back to the default when the replacement is not in this account catalog', () => {
-    installBuilderModelCatalog(
-      { defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] },
-      { getItem: () => '@cf/deepseek-ai/deepseek-v4-flash-0731' },
-    );
-
+    // Claude was unlinked since: the saved Claude choice is not offered, so the catalog's default applies.
+    installBuilderModelCatalog(catalog, { getItem: () => claudeModel.id });
+    expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+    syncBuilderModelPreference({ key: 'cloudchef_builder_model_v2', newValue: claudeModel.id });
     expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
   });
 
@@ -145,15 +149,16 @@ describe('new Workers AI models', () => {
     expect(JSON.parse(storage.read(SEEN_KEY) ?? 'null')).toEqual([DEFAULT_WORKERS_AI_MODEL.id, alternativeModel.id]);
   });
 
-  it('keeps only GLM and DeepSeek Flash even with an older broad catalog and saved Pro preference', () => {
-    const pro: WorkersAiModel = { ...alternativeModel, id: '@cf/deepseek-ai/deepseek-v4-pro-0813' };
-    const oldCatalog = { defaultModelId: pro.id, models: [pro, alternativeModel, DEFAULT_WORKERS_AI_MODEL] };
-    installBuilderModelCatalog(oldCatalog, { getItem: () => pro.id });
-    expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
-    expect(builderModelsStore.get().map(({ id }) => id)).toEqual([alternativeModel.id, CLOUDFLARE_WORKERS_AI_MODEL]);
-    expect(orderBuilderModelsForDisplay(oldCatalog.models, CLOUDFLARE_WORKERS_AI_MODEL).map(({ id }) => id)).toEqual([
-      CLOUDFLARE_WORKERS_AI_MODEL,
+  it('offers every model the catalog lists, with the default first', () => {
+    const pro: BuilderModel = { ...alternativeModel, id: '@cf/deepseek-ai/deepseek-v4-pro-0813' };
+    const broadCatalog = { defaultModelId: pro.id, models: [alternativeModel, claudeModel, pro] };
+    installBuilderModelCatalog(broadCatalog, { getItem: () => null });
+    expect(builderModelStore.get()).toBe(pro.id);
+    expect(builderModelsStore.get().map(({ id }) => id)).toEqual([alternativeModel.id, claudeModel.id, pro.id]);
+    expect(orderBuilderModelsForDisplay(broadCatalog.models, pro.id).map(({ id }) => id)).toEqual([
+      pro.id,
       alternativeModel.id,
+      claudeModel.id,
     ]);
   });
 });

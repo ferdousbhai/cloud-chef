@@ -7,6 +7,7 @@ import { BrandLink } from '~/components/BrandLink';
 import { CloudflareCard } from '~/components/settings/CloudflareCard.client';
 import { AccountDataCard } from '~/components/settings/AccountDataCard.client';
 import { AiRequestLogsCard } from '~/components/settings/AiRequestLogsCard.client';
+import { ModelsCard } from '~/components/settings/ModelsCard.client';
 import { OrganizationsCard } from '~/components/settings/OrganizationsCard.client';
 import { TrustFooter } from '~/components/trust/TrustLinks';
 
@@ -30,6 +31,7 @@ export function SettingsContent({ authorizationError }: { authorizationError?: s
             <div className="grid min-w-0 content-start gap-3">
               <ProfileCard />
               <CloudflareCard initialError={authorizationError} />
+              <ModelsCard />
               <AiRequestLogsCard />
             </div>
             {/* Organizations hold the most controls (projects, people, requests): they get the wide column. */}

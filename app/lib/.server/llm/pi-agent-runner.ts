@@ -20,7 +20,7 @@ import { systemPrompt } from 'cloudchef-agent/prompts/system';
 import { toolResultSucceeded } from 'cloudchef-agent/tool-result';
 import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { logger } from 'cloudchef-agent/utils/logger';
-import type { WorkersAiModel } from '~/lib/workers-ai-model';
+import type { BuilderModel } from '~/lib/workers-ai-model';
 import {
   WORKSPACE_TOOL_OPERATION_INDETERMINATE_CODE,
   WorkspaceToolOperationIndeterminateError,
@@ -89,7 +89,7 @@ interface PiAgentOptions {
   abortSignal?: AbortSignal;
   firstUserMessage: boolean;
   messages: Messages;
-  model: WorkersAiModel;
+  model: BuilderModel;
   turnContext?: ChatTurnContext;
   compaction: {
     current: ContextCompaction | null;

@@ -11,7 +11,8 @@ Cloudflare control plane, builder agent, user-owned workspace runtime, and gener
 - `app/agents/linked-project-workspace.ts`, `app/agents/linked-project-build.ts`, `app/lib/.server/cloudflare/linked-project-client.ts`, `app/lib/.server/llm/linked-project-model-tools.ts`, `app/lib/.server/llm/linked-site-fetch.ts` — a workspace opened from a GitHub project: seeding, its changes, the publish tools and their background build watch, and reading its live site
 - `app/workflows/user-workspace-runtime-provisioning.ts` — durable background provisioning of user workspace runtimes
 - `app/agents/builder-agent.ts` — builder lifecycle and recovery
-- `app/lib/.server/chat.ts` and `app/lib/.server/llm/` — model and tool orchestration
+- `app/lib/.server/chat.ts` and `app/lib/.server/llm/` — model and tool orchestration; `pi-model-catalog.ts` is which models are offered (Pi's catalogs), `pi-ai-models.ts` how each is spoken to (Workers AI binding, or Claude through the account's AI Gateway)
+- `app/server-handlers/model-settings.ts`, `app/lib/.server/cloudflare/ai-gateway-claude.ts` — Settings, Models: the account's default model and its Anthropic key (BYOK) on its AI Gateway
 - `app/lib/.server/llm/builder-skills.ts` — the agent's skills: CloudChef's `project-stack` plus Cloudflare's official skills, vendored from github.com/cloudflare/skills into `app/lib/.server/llm/skills/cloudflare-skills.vendored.ts` (update with `pnpm run skills:sync`)
 - `app/components/chat/Chat.tsx` — chat surface
 - `app/lib/stores/workbench.client.ts` and `app/lib/stores/startup/` — workspace presentation and restoration

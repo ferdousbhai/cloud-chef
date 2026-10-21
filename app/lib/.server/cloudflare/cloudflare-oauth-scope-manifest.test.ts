@@ -35,7 +35,12 @@ describe('cloudflare-oauth-scope-manifest', () => {
       'kv',
       'durable_objects',
       'workers_ai',
+      'ai_gateway_keys',
     ]);
+    // A grant from before Anthropic keys could be linked still builds; it only cannot link one.
+    expect(
+      capabilitiesFromOAuthScopes(CORE_CLOUDFLARE_OAUTH_SCOPES.filter((scope) => scope !== 'secrets-store.write')),
+    ).not.toContain('ai_gateway_keys');
     expect(capabilitiesFromOAuthScopes(['workers-scripts.write', 'ai.read'])).toEqual([
       'workers',
       'durable_objects',

@@ -10,7 +10,7 @@ import type { ContextCompaction } from './llm/context-compaction';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import { logProviderFailure } from './llm/provider-error-logging';
-import type { WorkersAiModel, WorkersAiModelId } from '~/lib/workers-ai-model';
+import type { BuilderModel, BuilderModelId } from '~/lib/workers-ai-model';
 import type { PiSteeringQueue } from './llm/pi-steering';
 import type { BuilderTurnReport } from './llm/builder-turn-limits';
 import type { CloudflareApiModelToolContext } from './llm/cloudflare-api-model-tools';
@@ -23,7 +23,7 @@ const logger = createScopedLogger('api.chat');
 
 export type ChatRequestBody = {
   messages?: Messages;
-  modelId: WorkersAiModelId;
+  modelId: BuilderModelId;
 };
 
 export async function createChatResponseFromBody({
@@ -47,7 +47,7 @@ export async function createChatResponseFromBody({
 }: {
   abortSignal?: AbortSignal;
   body: ChatRequestBody;
-  model: WorkersAiModel;
+  model: BuilderModel;
   compaction: {
     current: ContextCompaction | null;
     pending: boolean;

@@ -7,6 +7,7 @@ import {
   type CloudflareApiRuntimeIdentity,
 } from './cloudflare-api-runtime-controls';
 import type { ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
+import { NO_ACCOUNT_MODEL_SETTINGS, type AccountModelSettings } from '~/lib/workers-ai-model';
 
 const RUNTIME_CREDENTIAL_TIMEOUT_MS = 30_000;
 const MAX_RUNTIME_CREDENTIAL_RESPONSE_BYTES = 8 * 1024;
@@ -168,11 +169,55 @@ export async function modelRequestAccess(
   };
 }
 
+const accountModelSettingsSchema = z.object({
+  defaultModelId: z.string().min(1).max(256).nullable().catch(null),
+  claude: z.boolean().catch(false),
+});
+
+/**
+ * The account's model settings, asked by the runtime for the picker's catalog and before a Claude
+ * turn: the default its admin chose, and whether its default AI Gateway holds an Anthropic key.
+ * Anything unlearnable (no runtime identity, an unreachable control plane, a refusal) reads as no
+ * chosen default and no Claude: Claude runs only with a key the control plane confirmed linked.
+ */
+export async function readAccountModelSettings(
+  env: RuntimeCredentialEnv & CloudflareApiRuntimeEnv,
+): Promise<AccountModelSettings> {
+  const identity = runtimeIdentity(env);
+  if (!identity) {
+    return NO_ACCOUNT_MODEL_SETTINGS;
+  }
+  try {
+    const response = await fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, 'runtime-models'), {
+      method: 'POST',
+      headers: { authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        userId: identity.userId,
+        connectionId: identity.connectionId,
+        connectionGeneration: identity.connectionGeneration,
+      }),
+      redirect: 'manual',
+      signal: AbortSignal.timeout(RUNTIME_CREDENTIAL_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      return NO_ACCOUNT_MODEL_SETTINGS;
+    }
+    const parsed = accountModelSettingsSchema.safeParse(
+      await readJsonBodyWithLimit(response, MAX_RUNTIME_CREDENTIAL_RESPONSE_BYTES, 'Account model settings'),
+    );
+    return parsed.success ? parsed.data : NO_ACCOUNT_MODEL_SETTINGS;
+  } catch {
+    return NO_ACCOUNT_MODEL_SETTINGS;
+  }
+}
+
 /** The control plane's runtime-facing routes, authenticated with the runtime's own secret. */
 type RuntimeRoute =
   | 'runtime-credential'
   | 'runtime-usage'
   | 'runtime-access'
+  | 'runtime-models'
   | 'runtime-github/snapshot'
   | 'runtime-github/commit'
   | 'runtime-github/status'

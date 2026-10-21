@@ -1,7 +1,7 @@
 import { transcriptIdentitySchema, type TranscriptIdentity } from 'cloudchef-agent/transcript';
 import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import type { UIMessage } from 'ai';
-import { currentBuilderModelId, workersAiModelIdSchema, type WorkersAiModelId } from '~/lib/workers-ai-model';
+import { builderModelIdSchema, type BuilderModelId } from '~/lib/workers-ai-model';
 import { z } from 'zod';
 
 const MAX_BUILDER_AGENT_NAME_LENGTH = 512;
@@ -110,7 +110,7 @@ type BuilderRequestScope = {
   chatInitialId: string;
   subchatIndex: number;
   transcript: TranscriptIdentity;
-  modelId: WorkersAiModelId;
+  modelId: BuilderModelId;
 };
 
 const chatInitialIdSchema = z.string().min(1).max(MAX_BUILDER_AGENT_NAME_LENGTH);
@@ -129,7 +129,7 @@ export function requireBuilderRequestScope(
     throw new Response('Invalid subchat index', { status: 400 });
   }
   const transcript = requireBuilderTranscriptIdentity(body.transcript, binding, subchatIndex.data);
-  const modelId = workersAiModelIdSchema.safeParse(body.modelId);
+  const modelId = builderModelIdSchema.safeParse(body.modelId);
   if (!modelId.success) {
     throw new Response('Invalid builder model', { status: 400 });
   }
@@ -140,8 +140,7 @@ export function requireBuilderRequestScope(
     chatInitialId: chatInitialId.data,
     subchatIndex: subchatIndex.data,
     transcript,
-    // A request recorded before a builder model was retired is replayed on its replacement.
-    modelId: currentBuilderModelId(modelId.data),
+    modelId: modelId.data,
   };
 }
 

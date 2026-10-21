@@ -3,10 +3,11 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { CheckIcon, ChevronDownIcon } from '@radix-ui/react-icons';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  getWorkersAiModel,
-  isWorkersAiModelId,
-  workersAiModelPublishedTime,
-  type WorkersAiModel,
+  getBuilderModel,
+  isBuilderModelId,
+  isClaudeModelId,
+  builderModelPublishedTime,
+  type BuilderModel,
 } from '~/lib/workers-ai-model';
 import {
   builderDefaultModelStore,
@@ -24,8 +25,8 @@ import {
 import { classNames } from '~/utils/classNames';
 
 /** The catalog dates entries to the day, so the day is all the picker claims. */
-function formatModelAddedDate(model: WorkersAiModel): string | null {
-  const published = workersAiModelPublishedTime(model);
+function formatModelAddedDate(model: BuilderModel): string | null {
+  const published = builderModelPublishedTime(model);
   if (published === Number.NEGATIVE_INFINITY) {
     return null;
   }
@@ -44,13 +45,13 @@ export function BuilderModelSelector({
   const models = useStore(builderModelsStore);
   const newModels = useStore(builderNewModelsStore);
   const catalogStatus = useStore(builderModelCatalogStatusStore);
-  const model = getWorkersAiModel(modelId, models);
+  const model = getBuilderModel(modelId, models);
   const [openRequested, setOpenRequested] = useState(false);
   const open = !disabled && openRequested;
   const orderedModels = useMemo(() => orderBuilderModelsForDisplay(models, defaultModelId), [defaultModelId, models]);
   // What was new when this picker last opened. Opening records the sighting, but the badge is the
   // reason the user opened the picker, so it stays legible for the rest of this session.
-  const [openedWithNewIds, setOpenedWithNewIds] = useState<readonly WorkersAiModel['id'][]>([]);
+  const [openedWithNewIds, setOpenedWithNewIds] = useState<readonly BuilderModel['id'][]>([]);
   const newModelIds = useMemo(
     () => new Set([...openedWithNewIds, ...newModels.map(({ id }) => id)]),
     [newModels, openedWithNewIds],
@@ -117,13 +118,21 @@ export function BuilderModelSelector({
           <DropdownMenu.RadioGroup
             value={modelId}
             onValueChange={(value) => {
-              if (!disabled && isWorkersAiModelId(value)) {
+              if (!disabled && isBuilderModelId(value)) {
                 setBuilderModel(value);
               }
             }}
           >
             <ModelGroup
-              models={orderedModels}
+              label="Cloudflare Workers AI"
+              models={orderedModels.filter(({ id }) => !isClaudeModelId(id))}
+              disabled={disabled}
+              defaultModelId={defaultModelId}
+              newModelIds={newModelIds}
+            />
+            <ModelGroup
+              label="Anthropic Claude"
+              models={orderedModels.filter(({ id }) => isClaudeModelId(id))}
               disabled={disabled}
               defaultModelId={defaultModelId}
               newModelIds={newModelIds}
@@ -141,20 +150,25 @@ export function BuilderModelSelector({
 }
 
 function ModelGroup({
+  label,
   models,
   disabled,
   defaultModelId,
   newModelIds,
 }: {
-  models: readonly WorkersAiModel[];
+  label: string;
+  models: readonly BuilderModel[];
   disabled: boolean;
-  defaultModelId: WorkersAiModel['id'];
-  newModelIds: ReadonlySet<WorkersAiModel['id']>;
+  defaultModelId: BuilderModel['id'];
+  newModelIds: ReadonlySet<BuilderModel['id']>;
 }) {
+  if (models.length === 0) {
+    return null;
+  }
   return (
     <DropdownMenu.Group>
       <DropdownMenu.Label className="px-3 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-content-tertiary">
-        Cloudflare Workers AI
+        {label}
       </DropdownMenu.Label>
       {models.map((model) => {
         const addedOn = formatModelAddedDate(model);

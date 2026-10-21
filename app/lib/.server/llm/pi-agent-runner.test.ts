@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentContext, AgentMessage, AgentLoopConfig } from '@earendil-works/pi-agent-core';
 import type { AssistantMessage, ToolResultMessage } from '@earendil-works/pi-ai';
 import type { PiStreamChunk } from './pi-stream';
-import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type WorkersAiModelId } from '~/lib/workers-ai-model';
+import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type BuilderModelId } from '~/lib/workers-ai-model';
 
 type UIMessageChunk = PiStreamChunk;
 type RunnerEvent =
@@ -836,7 +836,7 @@ describe('piAgentRunner', () => {
 });
 
 function createAgentStream(
-  modelId: WorkersAiModelId = CLOUDFLARE_WORKERS_AI_MODEL,
+  modelId: BuilderModelId = CLOUDFLARE_WORKERS_AI_MODEL,
   compactionOverrides: Partial<Parameters<typeof piAgentRunner>[0]['compaction']> = {},
   steering = new PiSteeringQueue(),
   overrides: Partial<Parameters<typeof piAgentRunner>[0]> = {},

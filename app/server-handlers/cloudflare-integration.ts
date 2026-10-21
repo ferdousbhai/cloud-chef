@@ -32,7 +32,6 @@ import {
   missingUserWorkspaceRuntimeCapabilities,
   startUserWorkspaceRuntimeProvisioning,
   type UserWorkspaceRuntimeProvisioningErrorCode,
-  USER_WORKSPACE_REQUIRED_CAPABILITIES,
   USER_WORKSPACE_SANDBOX_BASE_IMAGE,
 } from '~/workflows/user-workspace-runtime-provisioning';
 import {
@@ -49,6 +48,7 @@ import {
   CLOUDFLARE_AUTHORIZATION_ERROR_VALUE,
 } from '~/lib/cloudflare/authorization-recovery';
 import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
+import { CLOUDCHEF_CAPABILITIES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 import type { AiGatewayCreditStatus } from '~/lib/cloudflare/ai-gateway-credit';
 
 type WorkspacePreparationFailure = {
@@ -108,7 +108,7 @@ const connectionResultSchema = z.object({
   accessToken: z.string().min(1),
   refreshToken: z.string().min(1).optional(),
   accessTokenExpiresAt: z.number().int().positive().optional(),
-  grantedCapabilities: z.array(z.enum(USER_WORKSPACE_REQUIRED_CAPABILITIES)),
+  grantedCapabilities: z.array(z.enum(CLOUDCHEF_CAPABILITIES)),
   requestedOAuthScopes: z.array(z.string().min(1)),
   grantedOAuthScopes: z.array(z.string().min(1)),
   oauthScopeProfileVersion: z.string().min(1),
@@ -157,7 +157,10 @@ export async function cloudflareConnectionStatusAction({
  * The Cloudflare account the session builds in, while the person may still use it: their own active
  * connection, or an active one of an organization they are an unpaused member of.
  */
-async function sessionConnection(db: D1Database, session: CloudflareAuthSession): Promise<CloudflareConnection | null> {
+export async function sessionConnection(
+  db: D1Database,
+  session: CloudflareAuthSession,
+): Promise<CloudflareConnection | null> {
   if (!session.context) {
     return null;
   }

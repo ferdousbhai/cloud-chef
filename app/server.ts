@@ -50,7 +50,18 @@ import {
 import { deleteAccountAction } from './server-handlers/account-deletion';
 import { exportAccountAction } from './server-handlers/account-export';
 import { aiGatewayLoggingAction, updateAiGatewayLoggingAction } from './server-handlers/ai-gateway-logging';
-import { runtimeAccessAction, runtimeCredentialAction, runtimeUsageAction } from './server-handlers/runtime-credential';
+import {
+  runtimeAccessAction,
+  runtimeCredentialAction,
+  runtimeModelsAction,
+  runtimeUsageAction,
+} from './server-handlers/runtime-credential';
+import {
+  linkClaudeKeyAction,
+  modelSettingsAction,
+  unlinkClaudeKeyAction,
+  updateDefaultModelAction,
+} from './server-handlers/model-settings';
 import { clientTelemetryAction } from './server-handlers/client-telemetry';
 import { pruneCloudflareAuthDataBestEffort } from './lib/cloudflare/data/cloudflare-auth-retention.server';
 import { CSP_NONCE_REQUEST_HEADER } from './lib/csp-nonce';
@@ -296,6 +307,22 @@ const exactRoutes = new Map<string, ServerRoute>(
       method: 'POST',
       handler: (request, env) => updateAiGatewayLoggingAction({ request, env }),
     },
+    '/api/settings/models': {
+      method: 'GET',
+      handler: (request, env) => modelSettingsAction({ request, env }),
+    },
+    '/api/settings/models/default': {
+      method: 'POST',
+      handler: (request, env) => updateDefaultModelAction({ request, env }),
+    },
+    '/api/settings/models/claude/link': {
+      method: 'POST',
+      handler: (request, env) => linkClaudeKeyAction({ request, env }),
+    },
+    '/api/settings/models/claude/unlink': {
+      method: 'POST',
+      handler: (request, env) => unlinkClaudeKeyAction({ request, env }),
+    },
     '/api/cloudflare/connection': {
       method: 'GET',
       handler: (request, env) => cloudflareConnectionStatusAction({ request, env }),
@@ -315,6 +342,10 @@ const exactRoutes = new Map<string, ServerRoute>(
     '/api/cloudflare/runtime-access': {
       method: 'POST',
       handler: (request, env) => runtimeAccessAction({ request, env }),
+    },
+    '/api/cloudflare/runtime-models': {
+      method: 'POST',
+      handler: (request, env) => runtimeModelsAction({ request, env }),
     },
     '/api/cloudflare/runtime-usage': {
       method: 'POST',

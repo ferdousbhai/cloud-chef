@@ -1,11 +1,18 @@
 import { z } from 'zod';
 
 const WORKERS_AI_MODEL_ID_PATTERN = /^@cf\/[a-z0-9][a-z0-9-]{0,63}\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
+const CLAUDE_MODEL_ID_PATTERN = /^claude-[a-z0-9][a-z0-9.-]{0,63}$/;
 
 export type WorkersAiModelId = `@cf/${string}/${string}`;
 
-export type WorkersAiModel = {
-  id: WorkersAiModelId;
+/** A Claude model, served through the account's AI Gateway with the account's own Anthropic key. */
+export type ClaudeModelId = `claude-${string}`;
+
+/** A model the builder can run on: a Workers AI model, or a Claude model when the account linked a key. */
+export type BuilderModelId = WorkersAiModelId | ClaudeModelId;
+
+export type BuilderModel = {
+  id: BuilderModelId;
   label: string;
   description: string;
   contextTokens: number;
@@ -20,7 +27,7 @@ export type WorkersAiModel = {
   createdAt?: string;
 };
 
-/** GLM is the default; only the explicitly selected Flash alternative is offered. */
+/** GLM is the default when a team has not chosen another. */
 export const CLOUDFLARE_WORKERS_AI_MODEL = '@cf/zai-org/glm-5.3-flash' satisfies WorkersAiModelId;
 
 /**
@@ -32,8 +39,6 @@ export const CLOUDFLARE_WORKERS_AI_MODEL = '@cf/zai-org/glm-5.3-flash' satisfies
  * this to a native-shape model. Llama 4 Scout answers in the OpenAI shape, in about half a second.
  */
 export const CLOUDFLARE_PROJECT_TITLE_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct' satisfies WorkersAiModelId;
-
-export type WorkersAiRuntimeModelId = WorkersAiModelId;
 
 /**
  * The smallest context window CloudChef will drive a builder model with. An explicit floor, not a
@@ -49,7 +54,7 @@ export const MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS = 32_768;
  * is a last resort rather than a second copy of the truth: a hand-maintained window or `vision` flag
  * that drifts from Cloudflare's would size request budgets against a model that no longer exists.
  */
-export const DEFAULT_WORKERS_AI_MODEL: WorkersAiModel = {
+export const DEFAULT_WORKERS_AI_MODEL: BuilderModel = {
   id: CLOUDFLARE_WORKERS_AI_MODEL,
   label: 'GLM 5.3 Flash',
   description: 'Latest fast GLM model for coding, reasoning, and tool-driven builds.',
@@ -59,12 +64,21 @@ export const DEFAULT_WORKERS_AI_MODEL: WorkersAiModel = {
   vision: true,
 };
 
-export const workersAiModelIdSchema: z.ZodType<WorkersAiModelId> = z
+const workersAiModelIdSchema: z.ZodType<WorkersAiModelId> = z
   .templateLiteral(['@cf/', z.string(), '/', z.string()])
   .refine((modelId) => WORKERS_AI_MODEL_ID_PATTERN.test(modelId));
 
-const workersAiModelSchema = z.object({
-  id: workersAiModelIdSchema,
+const claudeModelIdSchema: z.ZodType<ClaudeModelId> = z
+  .templateLiteral(['claude-', z.string()])
+  .refine((modelId) => CLAUDE_MODEL_ID_PATTERN.test(modelId));
+
+export const builderModelIdSchema: z.ZodType<BuilderModelId> = z.union([workersAiModelIdSchema, claudeModelIdSchema]);
+
+/** One more than Workers AI's 100-model catalog page plus every Claude model Pi lists, so a full catalog fits. */
+export const MAX_BUILDER_CATALOG_MODELS = 200;
+
+const builderModelSchema = z.object({
+  id: builderModelIdSchema,
   label: z.string().min(1).max(128),
   description: z.string().min(1).max(1_000),
   contextTokens: z.number().int().min(MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS),
@@ -75,23 +89,43 @@ const workersAiModelSchema = z.object({
   createdAt: z.string().min(1).max(64).optional(),
 });
 
-export const workersAiModelCatalogPayloadSchema = z.object({
-  defaultModelId: workersAiModelIdSchema,
-  models: z.array(workersAiModelSchema).min(1).max(101),
+export const builderModelCatalogPayloadSchema = z.object({
+  defaultModelId: builderModelIdSchema,
+  models: z.array(builderModelSchema).min(1).max(MAX_BUILDER_CATALOG_MODELS),
 });
 
-export type WorkersAiModelCatalogPayload = {
-  defaultModelId: WorkersAiModelId;
-  models: WorkersAiModel[];
+export type BuilderModelCatalogPayload = {
+  defaultModelId: BuilderModelId;
+  models: BuilderModel[];
 };
 
 export function isWorkersAiModelId(value: string | null | undefined): value is WorkersAiModelId {
   return value !== null && value !== undefined && workersAiModelIdSchema.safeParse(value).success;
 }
 
-export function validateWorkersAiModelCatalogPayload(
-  payload: WorkersAiModelCatalogPayload,
-): WorkersAiModelCatalogPayload | null {
+export function isBuilderModelId(value: string | null | undefined): value is BuilderModelId {
+  return value !== null && value !== undefined && builderModelIdSchema.safeParse(value).success;
+}
+
+/** Whether a builder model is a Claude model, which runs only with the account's own Anthropic key. */
+export function isClaudeModelId(modelId: BuilderModelId): modelId is ClaudeModelId {
+  return modelId.startsWith('claude-');
+}
+
+/** What the control plane says about an account's models, asked by its runtimes. */
+export type AccountModelSettings = {
+  /** The model the account's admin chose as everyone's default, if any. */
+  defaultModelId: string | null;
+  /** Whether the account's default AI Gateway holds an Anthropic key, so Claude models can run. */
+  claude: boolean;
+};
+
+/** Nothing learned: no chosen default, and no Claude, which runs only with a key confirmed linked. */
+export const NO_ACCOUNT_MODEL_SETTINGS: AccountModelSettings = { defaultModelId: null, claude: false };
+
+export function validateBuilderModelCatalogPayload(
+  payload: BuilderModelCatalogPayload,
+): BuilderModelCatalogPayload | null {
   const { defaultModelId, models } = payload;
   if (!models.some(({ id }) => id === defaultModelId) || new Set(models.map(({ id }) => id)).size !== models.length) {
     return null;
@@ -100,41 +134,15 @@ export function validateWorkersAiModelCatalogPayload(
 }
 
 /**
- * DeepSeek V4.1 Flash (2026-10-17): 1M context, function calling, and reasoning, cheaper than the
- * V4 Flash it replaced on every rate. Pi's static catalog does not list it yet, so its request
- * shape comes from its V4 Flash sibling (`PI_CATALOG_SIBLINGS` in `pi-ai-models.ts`).
- */
-export const CLOUDFLARE_ALTERNATIVE_BUILDER_MODEL =
-  '@cf/deepseek-ai/deepseek-v4.1-flash-1017' satisfies WorkersAiModelId;
-
-/**
- * Builder models CloudChef once offered, each with the model that replaced it. A browser that saved
- * one as its preference, or a request recorded with one before the swap, keeps working on the
- * replacement instead of falling back to the default or being refused.
- */
-const RETIRED_BUILDER_MODELS: ReadonlyMap<string, WorkersAiModelId> = new Map([
-  ['@cf/deepseek-ai/deepseek-v4-flash-0731', CLOUDFLARE_ALTERNATIVE_BUILDER_MODEL],
-]);
-
-/** The model a builder request or saved preference names, with a retired model read as its replacement. */
-export function currentBuilderModelId(modelId: WorkersAiModelId): WorkersAiModelId {
-  return RETIRED_BUILDER_MODELS.get(modelId) ?? modelId;
-}
-
-export function isSupportedBuilderModel(modelId: string): modelId is WorkersAiModelId {
-  return modelId === CLOUDFLARE_WORKERS_AI_MODEL || modelId === CLOUDFLARE_ALTERNATIVE_BUILDER_MODEL;
-}
-
-/**
  * Publication time as a sortable number, with "undated" meaning unknown rather than old: an entry
  * Cloudflare did not date must never outrank a dated one, so it sorts to the bottom and keeps its
  * catalog position there.
  */
-export function workersAiModelPublishedTime(model: WorkersAiModel): number {
+export function builderModelPublishedTime(model: BuilderModel): number {
   const parsed = model.createdAt === undefined ? Number.NaN : Date.parse(model.createdAt);
   return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
 }
 
-export function getWorkersAiModel(modelId: WorkersAiModelId, models: readonly WorkersAiModel[]): WorkersAiModel {
+export function getBuilderModel(modelId: BuilderModelId, models: readonly BuilderModel[]): BuilderModel {
   return models.find(({ id }) => id === modelId) ?? DEFAULT_WORKERS_AI_MODEL;
 }

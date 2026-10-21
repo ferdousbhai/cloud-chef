@@ -58,25 +58,30 @@ describe('BuilderAgent request policy', () => {
     });
   });
 
-  it('runs a request recorded with a retired builder model on the model that replaced it', () => {
-    expect(
-      requireBuilderRequestScope(
-        {
-          chatInitialId: 'chat',
-          subchatIndex: 2,
-          modelId: '@cf/deepseek-ai/deepseek-v4-flash-0731',
-          transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
-        },
-        binding,
-      ).modelId,
-    ).toBe('@cf/deepseek-ai/deepseek-v4.1-flash-1017');
-  });
+  it.each(['@cf/deepseek-ai/deepseek-v4-flash-0731', 'claude-opus-5-5'])(
+    'accepts a well-formed Workers AI or Claude model id (%s), which the turn then confirms is offered',
+    (modelId) => {
+      expect(
+        requireBuilderRequestScope(
+          {
+            chatInitialId: 'chat',
+            subchatIndex: 2,
+            modelId,
+            transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
+          },
+          binding,
+        ).modelId,
+      ).toBe(modelId);
+    },
+  );
 
   it.each([
     [{ chatInitialId: 'other-chat' }, 409],
     [{ subchatIndex: 10_001 }, 400],
     [{ modelId: undefined }, 400],
     [{ modelId: 'deepseek/deepseek-v4-pro' }, 400],
+    [{ modelId: 'claude-' }, 400],
+    [{ modelId: 'claude-Opus 5' }, 400],
     [{ transcript: { agentName: binding.agentName, generation: 4, subchatIndex: 2 } }, 409],
     [{ transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 1 } }, 409],
   ])('rejects mismatched or malformed scope fields: %o', (override, status) => {

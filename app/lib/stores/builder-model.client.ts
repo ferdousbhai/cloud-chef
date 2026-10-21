@@ -2,29 +2,29 @@ import { atom } from 'nanostores';
 import { z } from 'zod';
 import {
   CLOUDFLARE_WORKERS_AI_MODEL,
-  currentBuilderModelId,
   DEFAULT_WORKERS_AI_MODEL,
-  isWorkersAiModelId,
-  isSupportedBuilderModel,
-  validateWorkersAiModelCatalogPayload,
-  workersAiModelCatalogPayloadSchema,
-  type WorkersAiModel,
-  type WorkersAiModelCatalogPayload,
-  type WorkersAiModelId,
+  isBuilderModelId,
+  MAX_BUILDER_CATALOG_MODELS,
+  validateBuilderModelCatalogPayload,
+  builderModelCatalogPayloadSchema,
+  type BuilderModel,
+  type BuilderModelCatalogPayload,
+  type BuilderModelId,
 } from '~/lib/workers-ai-model';
 import { fetchUserRuntime } from '~/lib/cloudflare/runtime-session';
 
 const BUILDER_MODEL_STORAGE_KEY = 'cloudchef_builder_model_v2';
 /** Namespaced beside the model preference: same owner, same lifetime, same browser-only scope. */
 const BUILDER_SEEN_MODELS_STORAGE_KEY = 'cloudchef_seen_builder_models_v1';
-/** One more than the catalog payload's 100-model ceiling, so a full catalog always fits. */
-const MAX_SEEN_MODEL_IDS = 101;
+/** One more than the catalog payload's ceiling, so a full catalog always fits. */
+const MAX_SEEN_MODEL_IDS = MAX_BUILDER_CATALOG_MODELS + 1;
 let pendingCatalog: Promise<void> | null = null;
 /**
  * Until the live catalog arrives, `builderModelsStore` holds only the pinned default, so a
  * membership test would discard every other saved preference — including on the opening turn of a
- * homepage-started build. Before that point only one of the two supported saved ids is trusted; the server
- * still validates availability against the user account catalog.
+ * homepage-started build. Before that point any well-formed saved id is trusted; the server still
+ * validates availability against the account's catalog, and once the catalog arrives a saved model
+ * it no longer offers falls back to the catalog's default (the team's, where its admin chose one).
  */
 let catalogInstalled = false;
 
@@ -36,9 +36,9 @@ type BuilderModelStorage = Pick<Storage, 'getItem'> & Partial<Pick<Storage, 'set
 
 const seenModelIdsSchema = z.array(z.string()).max(MAX_SEEN_MODEL_IDS);
 
-export const builderModelStore = atom<WorkersAiModelId>(CLOUDFLARE_WORKERS_AI_MODEL);
-export const builderDefaultModelStore = atom<WorkersAiModelId>(CLOUDFLARE_WORKERS_AI_MODEL);
-export const builderModelsStore = atom<readonly WorkersAiModel[]>([DEFAULT_WORKERS_AI_MODEL]);
+export const builderModelStore = atom<BuilderModelId>(CLOUDFLARE_WORKERS_AI_MODEL);
+export const builderDefaultModelStore = atom<BuilderModelId>(CLOUDFLARE_WORKERS_AI_MODEL);
+export const builderModelsStore = atom<readonly BuilderModel[]>([DEFAULT_WORKERS_AI_MODEL]);
 export const builderModelCatalogStatusStore = atom<'idle' | 'loading' | 'ready' | 'error'>('idle');
 
 /**
@@ -46,7 +46,7 @@ export const builderModelCatalogStatusStore = atom<'idle' | 'loading' | 'ready' 
  * load: with nothing recorded there is no "since", so the whole catalog is seeded silently rather
  * than announced as new.
  */
-export const builderNewModelsStore = atom<readonly WorkersAiModel[]>([]);
+export const builderNewModelsStore = atom<readonly BuilderModel[]>([]);
 
 export function loadBuilderModelPreference(storage?: BuilderModelStorage): void {
   applyStoredModelPreference(storage);
@@ -62,8 +62,8 @@ export function loadBuilderModelCatalog(
   builderModelCatalogStatusStore.set('loading');
   const operation = request('/v1/models', { headers: { Accept: 'application/json' } })
     .then(async (response) => {
-      const parsed = workersAiModelCatalogPayloadSchema.safeParse(await response.json().catch(() => null));
-      const payload = parsed.success ? validateWorkersAiModelCatalogPayload(parsed.data) : null;
+      const parsed = builderModelCatalogPayloadSchema.safeParse(await response.json().catch(() => null));
+      const payload = parsed.success ? validateBuilderModelCatalogPayload(parsed.data) : null;
       if (!response.ok || payload === null) {
         throw new Error('The Workers AI model catalog response is invalid.');
       }
@@ -82,17 +82,16 @@ export function loadBuilderModelCatalog(
   return operation;
 }
 
-export function installBuilderModelCatalog(payload: WorkersAiModelCatalogPayload, storage?: BuilderModelStorage): void {
-  // Older user runtimes can still return the former broad catalog during an upgrade.
-  const models = payload.models.filter(({ id }) => isSupportedBuilderModel(id));
-  const defaultModel =
-    models.find(({ id }) => id === CLOUDFLARE_WORKERS_AI_MODEL) ?? models[0] ?? DEFAULT_WORKERS_AI_MODEL;
-  const supportedModels = models.length > 0 ? models : [defaultModel];
-  builderModelsStore.set(supportedModels);
+export function installBuilderModelCatalog(payload: BuilderModelCatalogPayload, storage?: BuilderModelStorage): void {
+  // The runtime names the default: the one the account's admin chose, while it is still offered.
+  const models = payload.models;
+  const defaultModel = models.find(({ id }) => id === payload.defaultModelId) ?? models[0] ?? DEFAULT_WORKERS_AI_MODEL;
+  const offeredModels = models.length > 0 ? models : [defaultModel];
+  builderModelsStore.set(offeredModels);
   builderDefaultModelStore.set(defaultModel.id);
   catalogInstalled = true;
   applyStoredModelPreference(storage);
-  applyUnseenModels(supportedModels, storage);
+  applyUnseenModels(offeredModels, storage);
 }
 
 /**
@@ -110,17 +109,15 @@ export function markBuilderModelsSeen(storage?: BuilderModelStorage): void {
   );
 }
 
-/** Keep the default first and exclude models returned by older runtime catalogs. */
+/** Keep the default first. */
 export function orderBuilderModelsForDisplay(
-  models: readonly WorkersAiModel[],
-  defaultModelId: WorkersAiModelId,
-): readonly WorkersAiModel[] {
-  return models
-    .filter(({ id }) => isSupportedBuilderModel(id))
-    .sort((left, right) => Number(right.id === defaultModelId) - Number(left.id === defaultModelId));
+  models: readonly BuilderModel[],
+  defaultModelId: BuilderModelId,
+): readonly BuilderModel[] {
+  return [...models].sort((left, right) => Number(right.id === defaultModelId) - Number(left.id === defaultModelId));
 }
 
-export function setBuilderModel(modelId: WorkersAiModelId, storage?: Pick<Storage, 'setItem'>): void {
+export function setBuilderModel(modelId: BuilderModelId, storage?: Pick<Storage, 'setItem'>): void {
   if (!builderModelsStore.get().some(({ id }) => id === modelId)) {
     return;
   }
@@ -143,12 +140,11 @@ export function syncBuilderModelPreference(event: Pick<StorageEvent, 'key' | 'ne
   );
 }
 
-/** A saved preference for a retired model reads as the model that replaced it. */
-function readSavedModelId(value: string | null): WorkersAiModelId | null {
-  return isWorkersAiModelId(value) ? currentBuilderModelId(value) : null;
+function readSavedModelId(value: string | null): BuilderModelId | null {
+  return isBuilderModelId(value) ? value : null;
 }
 
-function applyUnseenModels(models: readonly WorkersAiModel[], storage?: BuilderModelStorage): void {
+function applyUnseenModels(models: readonly BuilderModel[], storage?: BuilderModelStorage): void {
   const seen = readSeenModelIds(storage);
   if (seen === null) {
     // Nothing recorded yet: this browser has no "before", so today's catalog is the baseline.
@@ -192,11 +188,7 @@ function applyStoredModelPreference(storage?: BuilderModelStorage): void {
   try {
     const persisted = readSavedModelId((storage ?? localStorage).getItem(BUILDER_MODEL_STORAGE_KEY));
     builderModelStore.set(
-      persisted !== null &&
-        isSupportedBuilderModel(persisted) &&
-        (!catalogInstalled || models.some(({ id }) => id === persisted))
-        ? persisted
-        : defaultModel,
+      persisted !== null && (!catalogInstalled || models.some(({ id }) => id === persisted)) ? persisted : defaultModel,
     );
   } catch {
     builderModelStore.set(defaultModel);

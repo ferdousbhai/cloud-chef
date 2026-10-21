@@ -8,6 +8,8 @@ import {
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
+import { isClaudeLinked } from '~/lib/.server/cloudflare/ai-gateway-claude';
+import { readDefaultBuilderModel } from '~/lib/cloudflare/data/builder-model-settings.server';
 
 const MAX_RUNTIME_CREDENTIAL_REQUEST_BYTES = 4 * 1024;
 const runtimeCredentialRequestSchema = z
@@ -156,6 +158,39 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
     },
     { headers: { 'Cache-Control': 'no-store' } },
   );
+}
+
+/**
+ * A workspace runtime asking about its account's models, for the picker's catalog and before a Claude
+ * turn: the default its admin chose, and whether its default AI Gateway holds an Anthropic key, asked
+ * of Cloudflare each time so a key removed in the dashboard stops Claude at once.
+ */
+export async function runtimeModelsAction(args: {
+  request: Request;
+  env: Env;
+  claudeLinked?: typeof isClaudeLinked;
+}): Promise<Response> {
+  let body: z.infer<typeof runtimeAccessRequestSchema>;
+  try {
+    body = runtimeAccessRequestSchema.parse(
+      await readJsonBodyWithLimit(args.request, MAX_RUNTIME_CREDENTIAL_REQUEST_BYTES, 'Workspace runtime model check'),
+    );
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError || error instanceof InvalidJsonBodyError || error instanceof z.ZodError) {
+      return credentialResponse({ error: 'Invalid workspace runtime model check.' }, 400);
+    }
+    throw error;
+  }
+  const authenticated = await authenticateRuntime(args.env, args.request, body);
+  if (authenticated instanceof Response) {
+    return authenticated;
+  }
+  const { connection } = authenticated;
+  const [defaultModelId, claude] = await Promise.all([
+    readDefaultBuilderModel(args.env.DB, connection.id),
+    (args.claudeLinked ?? isClaudeLinked)(args.env, connection),
+  ]);
+  return Response.json({ defaultModelId, claude }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 type RuntimeIdentity = { userId: string; connectionId: string; connectionGeneration: number };

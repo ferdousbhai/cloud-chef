@@ -158,13 +158,14 @@ import { CloudflareApiClient, type CloudflareApiOutcome } from '~/lib/.server/cl
 import {
   confirmUserWorkspaceAccess,
   modelRequestAccess,
+  readAccountModelSettings,
   reportUserWorkspaceModelUsage,
   resolveUserWorkspaceCloudflareAccessToken,
 } from '~/lib/.server/cloudflare/user-workspace-cloudflare-credential';
 import { workersAiGatewayLogging, type WorkersAiGatewayLogging } from '~/lib/.server/llm/workers-ai-gateway';
 import { turnUsage, type ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import type { Usage } from '@earendil-works/pi-ai';
-import { requireWorkersAiBuilderModel } from '~/lib/.server/llm/workers-ai-model-catalog';
+import { requireBuilderModel } from '~/lib/.server/llm/workers-ai-model-catalog';
 import type {
   CloudflareApiModelToolContext,
   ModelToolExecutionOptions,
@@ -540,7 +541,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       durableIdentity.transcript,
     );
     const accountCredentials = await getUserWorkersAiCredentials(this.env, durableIdentity.userId);
-    const model = await requireWorkersAiBuilderModel(accountCredentials.binding, modelId);
+    const model = await requireBuilderModel(
+      accountCredentials.binding,
+      modelId,
+      async () => (await readAccountModelSettings(this.env)).claude,
+    );
     if (!options?.continuation) {
       await this.cancelPreview();
       await markChatStarted(this.env.DB, {
