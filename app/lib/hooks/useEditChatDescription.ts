@@ -10,7 +10,10 @@ import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 const logger = createScopedLogger('useEditChatDescription');
 const inFlightDescriptionSubmissions = new Map<string, symbol>();
 
-type DescriptionValidationResult = 'valid' | 'unchanged' | 'invalidLength' | 'invalidCharacters';
+/** The data API's own limit; any characters are allowed, as in a generated title. */
+const MAX_DESCRIPTION_LENGTH = 200;
+
+type DescriptionValidationResult = 'valid' | 'unchanged' | 'invalidLength';
 
 interface EditChatDescriptionOptions {
   initialDescription?: string;
@@ -141,11 +144,7 @@ export function useEditChatDescription({
         return;
       }
       if (validationResult === 'invalidLength') {
-        toast.error('Description must be between 1 and 100 characters.');
-        return;
-      }
-      if (validationResult === 'invalidCharacters') {
-        toast.error('Description can only contain letters, numbers, spaces, basic punctuation, and inline Markdown.');
+        toast.error(`Description must be between 1 and ${MAX_DESCRIPTION_LENGTH} characters.`);
         return;
       }
 
@@ -222,11 +221,9 @@ function validateDescription(description: string, initialDescription: string): D
     return 'unchanged';
   }
 
-  if (trimmedDescription.length === 0 || trimmedDescription.length > 100) {
-    return 'invalidLength';
-  }
-
-  return /^[a-zA-Z0-9\s\-_.,!?()[\]{}'"*~`]+$/.test(trimmedDescription) ? 'valid' : 'invalidCharacters';
+  return trimmedDescription.length === 0 || trimmedDescription.length > MAX_DESCRIPTION_LENGTH
+    ? 'invalidLength'
+    : 'valid';
 }
 
 function errorMessage(error: unknown) {

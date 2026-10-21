@@ -75,6 +75,30 @@ function deferred<T>() {
 }
 
 describe('useEditChatDescription', () => {
+  it('saves a title with accents, colons, and ampersands, and refuses only one over 200 characters', async () => {
+    mocks.executeDataOperation.mockResolvedValue(undefined);
+    await act(async () => root?.render(<Harness />));
+    // SAFETY: the hook reads only `target.value` from a change event and calls only `preventDefault` on a submit.
+    const change = (value: string) => ({ target: { value } }) as React.ChangeEvent<HTMLInputElement>;
+    // SAFETY: as above.
+    const submitEvent = { preventDefault: () => undefined } as React.FormEvent;
+
+    act(() => latest.toggleEditMode());
+    act(() => latest.handleChange(change('x'.repeat(201))));
+    await act(async () => latest.handleSubmit(submitEvent));
+    expect(mocks.toastError).toHaveBeenCalledWith('Description must be between 1 and 200 characters.');
+    expect(mocks.executeDataOperation).not.toHaveBeenCalled();
+
+    act(() => latest.handleChange(change('  Café menu: v2 & more 🍰  ')));
+    await act(async () => latest.handleSubmit(submitEvent));
+    expect(mocks.executeDataOperation).toHaveBeenCalledWith(mocks.setDescription, {
+      id: 'chat-1',
+      sessionId: 'user-1',
+      description: 'Café menu: v2 & more 🍰',
+    });
+    expect(mocks.toastError).toHaveBeenCalledTimes(1);
+  });
+
   it('does not let an earlier blur response overwrite or reopen a submitted edit', async () => {
     const blurRequest = deferred<{ description: string }>();
     const saveRequest = deferred<void>();
