@@ -37,13 +37,24 @@ function run(cwd, args) {
   }
 }
 
-function requireFailure(cwd, args) {
+/**
+ * A negative check passes only when the command fails for the reason it probes: any other failure
+ * (a missing tool, a syntax error, an unrelated policy) would otherwise pass it without the policy
+ * ever running.
+ */
+export function requireFailure(cwd, args, expectedOutput) {
   const result = spawnSync('pnpm', args, { cwd, encoding: 'utf8', env, stdio: 'pipe' });
   if (result.error) {
     throw result.error;
   }
   if (result.status === 0) {
     throw new Error(`pnpm ${args.join(' ')} unexpectedly succeeded.`);
+  }
+  const output = `${result.stdout}\n${result.stderr}`;
+  if (!output.includes(expectedOutput)) {
+    throw new Error(
+      `pnpm ${args.join(' ')} failed without reporting "${expectedOutput}":\n${output.trim().slice(-4000)}`,
+    );
   }
 }
 
@@ -107,12 +118,12 @@ async function verifyResolvedProductionModulePolicy(tempDir) {
       join(dependencyDir, 'index.js'),
       String.raw`export { env as leakedBinding } from "cloudflare:\x77orkers";` + '\n',
     );
-    requireFailure(tempDir, ['run', 'build']);
+    requireFailure(tempDir, ['run', 'build'], 'uses forbidden ambient-workers-module capability');
     await writeFile(
       join(dependencyDir, 'index.js'),
       `export const leakedBinding = import("cloudflare:" + "workers");\n`,
     );
-    requireFailure(tempDir, ['run', 'build']);
+    requireFailure(tempDir, ['run', 'build'], 'uses forbidden dynamic-import capability');
   } finally {
     await writeFile(routePath, originalRoute);
     await rm(dependencyDir, { recursive: true, force: true });
@@ -131,7 +142,13 @@ export async function verifyWorkerTemplateProfile() {
     // the real binding declarations before stack verification.
     await mkdir(dirname(join(tempDir, CF_GENERATED_BINDING_TYPES)), { recursive: true });
     await writeFile(join(tempDir, CF_GENERATED_BINDING_TYPES), 'interface Env {}\n');
-    requireFailure(tempDir, ['run', 'verify:stack']);
+    // Stack verification imports the template's own packages; without them it fails before its policy runs.
+    run(tempDir, ['install', '--frozen-lockfile']);
+    requireFailure(
+      tempDir,
+      ['run', 'verify:stack'],
+      'Worker package.json scripts.deploy must not contain web-app provisioning or migration steps.',
+    );
     await rm(join(tempDir, CF_OUTPUT_DIR), { recursive: true, force: true });
     await convertToWorkerProfile(tempDir);
     run(tempDir, ['install', '--lockfile-only']);

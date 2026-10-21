@@ -3,13 +3,29 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
+function gitListTemplateFiles(rootDir, selection) {
+  return execFileSync('git', ['ls-files', ...selection, '--', 'template'], { cwd: rootDir, encoding: 'utf8' })
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+}
+
+/**
+ * The template is seeded into every workspace, so only its committed source is: a file left
+ * untracked under `template/` (a scratch note, a local key) stops generation instead of being
+ * embedded silently. A clean checkout, as CI and Workers Builds have, has none.
+ */
 export function listTemplateSourceFiles(rootDir) {
-  let output;
+  let tracked;
   try {
-    output = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '--', 'template'], {
-      cwd: rootDir,
-      encoding: 'utf8',
-    });
+    const untracked = gitListTemplateFiles(rootDir, ['--others', '--exclude-standard']);
+    if (untracked.length > 0) {
+      throw new Error(
+        `Untracked files under template/ would be seeded into every workspace: ${untracked.join(', ')}. ` +
+          'Add them to Git or remove them.',
+      );
+    }
+    tracked = gitListTemplateFiles(rootDir, ['--cached']);
   } catch (error) {
     // Managed build sandboxes can allow the parent generator while denying its nested Git
     // subprocess. The template ignore surface is deliberately small, so walk the canonical source
@@ -20,10 +36,7 @@ export function listTemplateSourceFiles(rootDir) {
     return listTemplateSourceFilesWithoutGit(rootDir);
   }
 
-  return output
-    .trim()
-    .split('\n')
-    .filter(Boolean)
+  return tracked
     .map((path) => resolve(rootDir, path))
     .filter(existsSync)
     .sort((left, right) => left.localeCompare(right));

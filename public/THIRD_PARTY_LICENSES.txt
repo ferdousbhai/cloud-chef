@@ -7,8 +7,8 @@ A package whose package-level evidence is <not published> remains exact-version 
 This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
-Production packages: 670
-Inventory SHA-256: 84e3997038b6ba7618e274de868b407c50af1b6e78f6d2709cb888a32acba5d2
+Production packages: 671
+Inventory SHA-256: 367973ddde06a8b5717d4c4106e75b6907e200218bae31e05d202412b87faaeb
 
 PACKAGE INVENTORY
 =================
@@ -3502,6 +3502,15 @@ Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 18d45466ba3253deae04667e267a91ea8de8548f18c1125264d1c9db28194cc1)
+
+ignore@7.0.6
+Declared license: MIT
+Author: kael
+Repository: {"type":"git","url":"git@github.com:kaelzhang/node-ignore.git"}
+Homepage: <not published>
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE-MIT (SHA-256 9c94db23dc4b1e9aaee5d195668b916afc71efed54af226b66cf0ccc4389c1c0)
 
 immediate@3.0.6
 Declared license: MIT
@@ -14759,6 +14768,33 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+----- END VERBATIM CONTENT -----
+
+SHA-256 9c94db23dc4b1e9aaee5d195668b916afc71efed54af226b66cf0ccc4389c1c0
+Used by:
+- ignore@7.0.6:LICENSE-MIT
+----- BEGIN VERBATIM CONTENT -----
+Copyright (c) 2013 Kael Zhang <i@kael.me>, contributors
+http://kael.me/
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ----- END VERBATIM CONTENT -----
 
 SHA-256 9df3bb69929a3b650ed73b3bfa1756725aaff0ac296461605753547004eafeaf

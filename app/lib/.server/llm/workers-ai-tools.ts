@@ -221,6 +221,8 @@ type ExecToolReport = {
   stdout: string;
   stderr: string;
   streamTruncated?: boolean;
+  /** The command left the project over its limits: what is over, and how to get back within them. */
+  workspaceLimits?: string;
   error?: string;
 };
 
