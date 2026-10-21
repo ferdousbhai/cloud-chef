@@ -172,20 +172,25 @@ export function loadBuilderModelCatalog(
 
 /**
  * Loads the account's catalog with a request of its own. A request still in flight is superseded:
- * whatever it fetches is discarded, and it settles when this one does.
+ * whatever it fetches is discarded, and it settles when this one does. The runtime lets the browser
+ * keep its catalog for a minute, so this request bypasses that cache to see the change.
  */
 export function reloadBuilderModelCatalog(
   request: typeof fetchUserRuntime = fetchUserRuntime,
   storage?: BuilderModelStorage,
 ): Promise<void> {
-  return requestBuilderModelCatalog(request, storage);
+  return requestBuilderModelCatalog(request, storage, { cache: 'no-store' });
 }
 
-function requestBuilderModelCatalog(request: typeof fetchUserRuntime, storage?: BuilderModelStorage): Promise<void> {
+function requestBuilderModelCatalog(
+  request: typeof fetchUserRuntime,
+  storage?: BuilderModelStorage,
+  init: RequestInit = {},
+): Promise<void> {
   const requestNumber = ++catalogRequests;
   const superseded = () => requestNumber !== catalogRequests;
   builderModelCatalogStatusStore.set('loading');
-  const operation: Promise<void> = request('/v1/models', { headers: { Accept: 'application/json' } })
+  const operation: Promise<void> = request('/v1/models', { ...init, headers: { Accept: 'application/json' } })
     .then(async (response) => {
       const parsed = builderModelCatalogPayloadSchema.safeParse(await response.json().catch(() => null));
       const payload = parsed.success ? validateBuilderModelCatalogPayload(parsed.data) : null;
