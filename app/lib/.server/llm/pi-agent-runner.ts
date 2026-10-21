@@ -49,6 +49,11 @@ import { ModelInputBudgetExceededError, modelCompactionPolicy, prepareModelInput
 import { modelMessagesToPi } from './pi-message-conversion';
 import { recordPiStage, recordPiTurnReport } from './pi-telemetry';
 import { createToolTimeAccounting } from './tool-time-accounting';
+import {
+  clearOldToolResults,
+  MIN_TOOL_RESULT_CLEARING_SAVINGS_TOKENS,
+  toolResultClearingTriggerTokens,
+} from './tool-result-clearing';
 import { getPiModel, type WorkersAiAccountCredentials } from './pi-ai-models';
 import type { WorkersAiGatewayLogging } from './workers-ai-gateway';
 import { normalizeTextPartBoundaries } from './workers-ai-stream';
@@ -225,11 +230,13 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
 
   const archivedHistory: HistoryEntry[] = [];
   const archivedMessages = new Set<AgentMessage>();
+  /** Copies whose output was cleared from the model's view; history keeps the originals instead. */
+  const clearedCopies = new WeakSet<AgentMessage>();
   const checkpointReminders = new Set<AgentMessage>();
   const archive = (entries: AgentMessage[]) => {
     for (const entry of entries) {
       // The system prompt and tool declarations are configuration, not conversation history.
-      if (entry.role !== 'system' && !archivedMessages.has(entry)) {
+      if (entry.role !== 'system' && !archivedMessages.has(entry) && !clearedCopies.has(entry)) {
         archivedMessages.add(entry);
         archivedHistory.push(liveHistoryEntry(entry, `live-${archivedHistory.length}`));
       }
@@ -272,7 +279,30 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
   const promptCharacterCounts = withPreparationStage('prompt_metrics', () =>
     calculatePromptCharacterCounts(modelInput.promptMessages, instructions),
   );
-  const piMessages = withPreparationStage('message_conversion', () => modelMessagesToPi(modelInput.messages));
+  const compactionPolicy = modelCompactionPolicy(handle.model.contextWindow);
+  const clearingTriggerTokens = toolResultClearingTriggerTokens(compactionPolicy.hardLimitTokens);
+  /** Clears old tool output once the context is large, when doing so frees enough to be worth a cache miss. */
+  const withOldToolResultsCleared = (source: AgentMessage[], tokens: number) => {
+    if (tokens < clearingTriggerTokens) {
+      return { messages: source, tokens };
+    }
+    const cleared = clearOldToolResults(source);
+    if (cleared.savedTokens < MIN_TOOL_RESULT_CLEARING_SAVINGS_TOKENS) {
+      return { messages: source, tokens };
+    }
+    for (const copy of cleared.cleared) {
+      clearedCopies.add(copy);
+    }
+    logger.info('Cleared old tool output from the model context', {
+      tokensBefore: tokens,
+      tokensAfter: tokens - cleared.savedTokens,
+    });
+    return { messages: cleared.messages, tokens: tokens - cleared.savedTokens };
+  };
+  const piMessages = withPreparationStage(
+    'message_conversion',
+    () => withOldToolResultsCleared(modelMessagesToPi(modelInput.messages), modelInput.estimatedTokens).messages,
+  );
   recordPiStage('prepared', modelId);
 
   const streamedToolCalls = new Map<number, { toolCallId: string; toolName: string }>();
@@ -527,8 +557,12 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
           if (!wouldContinue) {
             return undefined;
           }
-          const policy = modelCompactionPolicy(handle.model.contextWindow);
-          const tokens = estimatePiContextTokens(turnContext.messages);
+          const policy = compactionPolicy;
+          const visible = withOldToolResultsCleared(
+            turnContext.messages,
+            estimatePiContextTokens(turnContext.messages),
+          );
+          const tokens = visible.tokens;
           if (!rolloverRequested && tokens < policy.hardLimitTokens) {
             if (!checkpointReminderSent && tokens >= policy.proactiveTokens) {
               checkpointReminderSent = true;
@@ -539,7 +573,11 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
                 timestamp: Date.now(),
               };
               checkpointReminders.add(reminder);
-              context = { ...turnContext, messages: [...turnContext.messages, reminder] };
+              context = { ...turnContext, messages: [...visible.messages, reminder] };
+              return { context };
+            }
+            if (visible.messages !== turnContext.messages) {
+              context = { ...turnContext, messages: visible.messages };
               return { context };
             }
             return undefined;
@@ -615,7 +653,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
         throw new HiddenReasoningExhaustionError();
       }
       const finalContextTokens = estimatePiContextTokens(context.messages);
-      if (finalContextTokens >= modelCompactionPolicy(handle.model.contextWindow).proactiveTokens) {
+      if (finalContextTokens >= compactionPolicy.proactiveTokens) {
         compaction.requestDurableCompaction?.();
       }
       const turnUsage = recordWorkersAiFinish({

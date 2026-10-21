@@ -109,7 +109,11 @@ vi.mock('./workers-ai-telemetry', () => ({
 }));
 import { piAgentRunner } from './pi-agent-runner';
 import { PiSteeringQueue } from './pi-steering';
-import { BUILDER_TURN_FIRST_PROGRESS_MS, BUILDER_TURN_INACTIVITY_MS, BuilderTurnLimitError } from './builder-turn-limits';
+import {
+  BUILDER_TURN_FIRST_PROGRESS_MS,
+  BUILDER_TURN_INACTIVITY_MS,
+  BuilderTurnLimitError,
+} from './builder-turn-limits';
 
 describe('piAgentRunner', () => {
   beforeEach(() => {
@@ -518,6 +522,46 @@ describe('piAgentRunner', () => {
 
     expect(chunks.some((chunk) => chunk.type === 'error')).toBe(false);
     expect(requestDurableCompaction).toHaveBeenCalled();
+  });
+
+  it('clears old tool output before another model step once the context is large', async () => {
+    const results = Array.from({ length: 24 }, (_, index) => ({
+      role: 'toolResult',
+      toolCallId: `read-${index}`,
+      toolName: 'read',
+      content: [{ type: 'text', text: `${index}:${'x'.repeat(12_000)}` }],
+      isError: false,
+      timestamp: index,
+    }));
+    mocks.piMessages = [{ role: 'user', content: 'Build it', timestamp: 0 }];
+    let stepContext: AgentMessage[] = [];
+    mocks.piRun.mockImplementation(
+      async (
+        context: AgentContext,
+        config: Pick<AgentLoopConfig, 'prepareNextTurn'>,
+        emit: (event: unknown) => Promise<void>,
+      ) => {
+        const toolMessage = assistantMessage([{ type: 'toolCall', id: 'read-24', name: 'read', arguments: {} }]);
+        // SAFETY: the fixtures are complete Pi tool-result and assistant messages.
+        const live = [...context.messages, ...(results as AgentMessage[])];
+        const next = await config.prepareNextTurn?.({
+          // SAFETY: assistantMessage builds a complete Pi assistant message.
+          message: toolMessage as AssistantMessage,
+          context: { ...context, messages: live },
+          newMessages: [],
+          toolResults: [],
+        });
+        stepContext = next?.context?.messages ?? live;
+        await emit({ type: 'turn_end', message: assistantMessage([{ type: 'text', text: 'Done' }]), toolResults: [] });
+      },
+    );
+
+    await collectChunks(await createAgentStream());
+
+    const toolResults = stepContext.filter((message) => message.role === 'toolResult');
+    expect(toolResults).toHaveLength(24);
+    expect(JSON.stringify(toolResults.at(0))).toContain('output cleared to save context');
+    expect(JSON.stringify(toolResults.at(-1))).toContain('x'.repeat(12_000));
   });
 
   it('compacts and retries one invisible context-overflow response', async () => {

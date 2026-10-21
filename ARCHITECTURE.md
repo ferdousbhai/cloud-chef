@@ -337,6 +337,12 @@ restart the builder searches again for durable message ids. Existing summary che
 validation prevents applying a checkpoint after a rewind removed its source. Thresholds follow the selected model's
 window, including a smaller limit learned from the provider, with output and estimation headroom reserved.
 
+Long before that threshold, old tool output is cleared from the model's view (`tool-result-clearing.ts`): once the
+context passes 64k tokens (or half the input budget of a smaller model), every large tool result except the six most
+recent is replaced by a fixed note, keeping each message and tool call in place, and only when that frees at least 12k
+tokens. Clearing is rare and step-wise, and the note is byte-identical each time, so the cached prefix holds up to the
+first newly cleared result. The transcript and `history` keep the original output.
+
 The installed AI SDK `ToolLoopAgent` remains useful for generated applications, but it does not expose an equivalent to
 Pi's one-at-a-time, persistence-before-delivery steering queue or a continuation after a nominally final model response
 when steering is pending. Replacing Pi would therefore remove a tested runtime behavior or require another custom loop,
