@@ -45,7 +45,10 @@ runtime bundle itself, so a control-plane-only release leaves every runtime alon
 release but serves the same connection generation and speaks the same `USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION`
 (`user-workspace-runtime/src/protocol.ts`), the runtime-session request keeps issuing sessions for it and starts the
 provisioning Workflow in the background; the browser shows no preparation. A missing runtime, one for an earlier
-connection generation, or one speaking another protocol is prepared before a session is issued, as before.
+connection generation, or one speaking another protocol is prepared before a session is issued, as before. A
+runtime of an earlier generation (a reconnect, whose redeploy rotates its secret) still waits for the upgrade window,
+asked with the secret derived for the generation it was deployed with; only one that refuses that secret and the
+new one is redeployed at once, as a first workspace is.
 
 The runtime is the source of truth for whether it is busy, since a turn keeps running with no tab open. Every
 `BuilderAgent` records in the runtime's D1 (`runtime_activity`) whether it is working, and for two minutes after it

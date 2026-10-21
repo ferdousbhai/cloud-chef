@@ -50,7 +50,7 @@ export async function claimUserWorkspaceRuntimeUpgradeWindow(args: {
   // secret is a failure to retry, never a reason to redeploy without asking.
   if (response.status === 401 && response.headers.get('cache-control') === 'no-store') {
     await response.body?.cancel().catch(() => undefined);
-    throw new Error('The workspace runtime refused the control plane secret for its upgrade window.');
+    throw new RuntimeSecretRefusedError();
   }
   if (response.status === 401 || response.status === 404) {
     await response.body?.cancel().catch(() => undefined);
@@ -67,6 +67,14 @@ export async function claimUserWorkspaceRuntimeUpgradeWindow(args: {
     throw new Error('The workspace runtime returned an invalid upgrade window response.');
   }
   return claim.data.granted ? { status: 'granted' } : { status: 'busy', busy: claim.data.busy };
+}
+
+/** A runtime with the upgrade window route refused the secret it was asked with. */
+export class RuntimeSecretRefusedError extends Error {
+  constructor() {
+    super('The workspace runtime refused the control plane secret for its upgrade window.');
+    this.name = 'RuntimeSecretRefusedError';
+  }
 }
 
 /**

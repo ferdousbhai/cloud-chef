@@ -19,6 +19,7 @@ import {
 import {
   changeUserWorkspaceRuntimeUpgradeWindow,
   claimUserWorkspaceRuntimeUpgradeWindow,
+  RuntimeSecretRefusedError,
   RuntimeUpgradeWindowRefusedError,
 } from '~/lib/.server/cloudflare/user-workspace-runtime-upgrade-window';
 import {
@@ -104,9 +105,13 @@ export type UserWorkspaceRuntimeProvisioningStep = {
   sleep(name: string, duration: number): Promise<void>;
 };
 
-/** What a deploy attempt found: deployed, or a live workspace still busy, to try again after `waitMs`. */
+/**
+ * What a deploy attempt found: deployed, or a live workspace still busy, to try again after `waitMs`.
+ * `windowed: false` is a live runtime of an earlier connection generation that refused both secrets,
+ * redeployed as a first workspace is; absent, as in a result recorded before, it is as inspected.
+ */
 type DeployAttempt =
-  { status: 'deployed'; namespaceId: string } | { status: 'busy'; checkedAt: number; waitMs: number };
+  { status: 'deployed'; namespaceId: string; windowed?: false } | { status: 'busy'; checkedAt: number; waitMs: number };
 
 /**
  * What a step that needs the upgrade window found: done, or work started while the window had lapsed
@@ -358,15 +363,23 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
       await accountApi.applyD1Migrations(database.id, USER_WORKSPACE_DATA_MIGRATIONS);
       return database.id;
     });
-    // A runtime already serving this connection generation is an upgrade: redeploying it resets its
-    // Durable Objects, so it waits for a moment when none of them is working.
+    // A runtime already serving at this endpoint is an upgrade: redeploying it resets its Durable
+    // Objects, so it waits for a moment when none of them is working. One of an earlier connection
+    // generation (a reconnect, which this redeploy gives a new secret) is asked with the secret it has.
     const upgradeStartedAt = await args.step.do('inspect live workspace', STEP_CONFIG, async () => {
       const live = await dependencies.findRuntime(args.env.DB, params.userId, connection.id);
-      return live && live.connectionGeneration === params.connectionGeneration && live.endpoint === endpoint
-        ? dependencies.now()
-        : null;
+      return live && live.endpoint === endpoint ? dependencies.now() : null;
     });
+    const secretForGeneration = (connectionGeneration: number) =>
+      dependencies.deriveSecret({
+        encryptionKeyBase64: args.env.CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY,
+        userId: params.userId,
+        accountId: connection.accountId,
+        connectionGeneration,
+        organizationConnectionId: connection.orgId ? connection.id : null,
+      });
     let namespaceId: string;
+    let windowed = upgradeStartedAt !== null;
     for (let attempt = 0; ; attempt += 1) {
       const outcome: DeployAttempt = await args.step.do(
         `deploy workspace Worker (attempt ${attempt + 1})`,
@@ -375,6 +388,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
           // Asked again here and before the locator is written: a member removed from their organization
           // while this ran must not get their workspace back.
           await expectedConnection(args.env, params, dependencies.requireConnection);
+          let windowedAttempt = upgradeStartedAt !== null;
           if (upgradeStartedAt !== null) {
             const waitMs = await waitBeforeUpgrade({
               dependencies,
@@ -382,10 +396,13 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
               params,
               endpoint,
               controlPlaneSecret,
+              secretForGeneration,
               holder: args.event.instanceId,
               attempt,
             });
-            if (waitMs !== null) {
+            if (waitMs === 'unreachable') {
+              windowedAttempt = false;
+            } else if (waitMs !== null) {
               return { status: 'busy', checkedAt: dependencies.now(), waitMs };
             }
           }
@@ -402,11 +419,14 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
             endpoint,
             sharedAccount: connection.orgId !== null,
           });
-          return { status: 'deployed', namespaceId: deployed.namespaceId };
+          return windowedAttempt
+            ? { status: 'deployed', namespaceId: deployed.namespaceId }
+            : { status: 'deployed', namespaceId: deployed.namespaceId, windowed: false };
         },
       );
       if (outcome.status === 'deployed') {
         namespaceId = outcome.namespaceId;
+        windowed &&= outcome.windowed !== false;
         break;
       }
       if (upgradeStartedAt !== null && outcome.checkedAt - upgradeStartedAt >= UPGRADE_MAX_WAIT_MS) {
@@ -437,7 +457,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
       operation: () => Promise<void>,
       prepare: () => Promise<void> = async () => undefined,
     ): Promise<void> => {
-      if (upgradeStartedAt === null) {
+      if (!windowed) {
         await args.step.do(name, config, async () => {
           await prepare();
           await operation();
@@ -496,7 +516,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         request: fetch,
       });
     });
-    if (upgradeStartedAt !== null) {
+    if (windowed) {
       await args.step.do('release upgrade window', STEP_CONFIG, async () => {
         // The window lapses on its own shortly; failing to close it early only delays waiting work.
         await dependencies.changeUpgradeWindow({ ...window, change: 'release' }).catch(() => {
@@ -531,7 +551,9 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
  * How long to wait before trying to upgrade a live workspace again, or null to upgrade it now. A
  * runtime that reports its activity is asked for the upgrade window, granted only while nothing in it
  * runs; one too old to report it is upgraded once no session was issued for it for longer than any
- * turn runs.
+ * turn runs. One of an earlier connection generation is asked with that generation's secret, then
+ * with this one's (a retry may find the Worker this upgrade already redeployed); `unreachable` is one
+ * that refused both, which can only be redeployed as a first workspace is.
  */
 async function waitBeforeUpgrade(args: {
   dependencies: UserWorkspaceRuntimeProvisioningDependencies;
@@ -539,15 +561,38 @@ async function waitBeforeUpgrade(args: {
   params: ProvisioningParams;
   endpoint: string;
   controlPlaneSecret: string;
+  secretForGeneration: (connectionGeneration: number) => Promise<string>;
   holder: string | undefined;
   attempt: number;
-}): Promise<number | null> {
-  const window = await args.dependencies.claimUpgradeWindow({
-    endpoint: args.endpoint,
-    controlPlaneSecret: args.controlPlaneSecret,
-    targetVersion: USER_WORKSPACE_RUNTIME_SHA256,
-    holder: args.holder,
-  });
+}): Promise<number | null | 'unreachable'> {
+  const live = await args.dependencies.findRuntime(args.db, args.params.userId, args.params.connectionId);
+  const claim = (controlPlaneSecret: string) =>
+    args.dependencies.claimUpgradeWindow({
+      endpoint: args.endpoint,
+      controlPlaneSecret,
+      targetVersion: USER_WORKSPACE_RUNTIME_SHA256,
+      holder: args.holder,
+    });
+  const claimWithEitherSecret = async (earlierSecret: string) => {
+    for (const secret of [earlierSecret, args.controlPlaneSecret]) {
+      try {
+        return await claim(secret);
+      } catch (error) {
+        if (!(error instanceof RuntimeSecretRefusedError)) {
+          throw error;
+        }
+      }
+    }
+    return null;
+  };
+  const window =
+    live && live.connectionGeneration !== args.params.connectionGeneration
+      ? await claimWithEitherSecret(await args.secretForGeneration(live.connectionGeneration))
+      : await claim(args.controlPlaneSecret);
+  if (!window) {
+    console.warn({ event: 'runtime_upgrade_unwindowed', reason: 'earlier_generation_refused_secret' });
+    return 'unreachable';
+  }
   if (window.status === 'granted') {
     return null;
   }
@@ -555,7 +600,6 @@ async function waitBeforeUpgrade(args: {
     console.info({ event: 'runtime_upgrade_waiting', reason: 'workspace_busy', busy: window.busy });
     return upgradeWaitMs(args.attempt);
   }
-  const live = await args.dependencies.findRuntime(args.db, args.params.userId, args.params.connectionId);
   const quietFor = args.dependencies.now() - (live?.lastSessionAt ?? 0);
   if (quietFor >= LEGACY_RUNTIME_QUIET_MS) {
     return null;
