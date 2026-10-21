@@ -80,26 +80,36 @@ export async function loadBuilderTranscriptBinding(
 
 /**
  * The organization GitHub project a transcript's chat works on (null for a CloudChef app), the agent whose
- * workspace it continues when it's a new conversation on the project, and whether a newer one archived it.
+ * workspace it continues when it's a new conversation on the project, whether a newer one archived it, and
+ * whether the member deleted it (its agent lives on for a while, and nothing of it may reach GitHub).
  */
 export async function loadChatOrgProject(
   db: D1Database,
   args: { agentName: string; ownerId: string },
-): Promise<{ orgProjectId: string | null; continuesAgentName: string | null; archived: boolean }> {
+): Promise<{ orgProjectId: string | null; continuesAgentName: string | null; archived: boolean; deleted: boolean }> {
   const row = await db
     .prepare(
-      `SELECT chats.org_project_id, chats.continues_agent_name, chats.archived_at
+      `SELECT chats.org_project_id, chats.continues_agent_name, chats.archived_at, chats.is_deleted
        FROM chat_transcripts AS transcripts
        INNER JOIN chats ON chats.id = transcripts.chat_id
-       WHERE transcripts.agent_name = ? AND chats.creator_id = ? AND chats.is_deleted = 0
+       WHERE transcripts.agent_name = ? AND chats.creator_id = ?
        LIMIT 1`,
     )
     .bind(args.agentName, args.ownerId)
-    .first<{ org_project_id: string | null; continues_agent_name: string | null; archived_at: number | null }>();
+    .first<{
+      org_project_id: string | null;
+      continues_agent_name: string | null;
+      archived_at: number | null;
+      is_deleted: number;
+    }>();
+  if (!row || row.is_deleted !== 0) {
+    return { orgProjectId: null, continuesAgentName: null, archived: false, deleted: row !== null };
+  }
   return {
-    orgProjectId: row?.org_project_id ?? null,
-    continuesAgentName: row?.continues_agent_name ?? null,
-    archived: row?.archived_at !== null && row?.archived_at !== undefined,
+    orgProjectId: row.org_project_id,
+    continuesAgentName: row.continues_agent_name,
+    archived: row.archived_at !== null,
+    deleted: false,
   };
 }
 

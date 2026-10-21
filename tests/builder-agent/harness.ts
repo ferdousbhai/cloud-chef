@@ -265,6 +265,8 @@ export async function builderAgentHarness(
         agent_name: string;
         busy: number;
       }>,
+    /** The member deleted the chat: its agent lives on until the GC sweep reaches it. */
+    deleteChat: () => database.prepare('UPDATE chats SET is_deleted = 1').run(),
     /** An upgrade to another Worker version found the runtime idle and is about to redeploy it. */
     openUpgradeWindow: (targetVersion = 'runtime-next', expiresAt = Date.now() + 60_000) =>
       database

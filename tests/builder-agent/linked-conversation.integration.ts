@@ -109,6 +109,56 @@ describe('an earlier conversation on a GitHub project', () => {
     expect(commits).toEqual([]);
   });
 
+  it('refuses saves and publishing once the member deleted it, though its agent and turn live on', async () => {
+    const harness = await builderAgentHarness({ workspace: await linkedWorkspace(), cloudflareIdentity: true });
+    const commits = controlPlane();
+    // Deleting a continued conversation hands the project back to the one before it, so this one's
+    // branch is no longer its own: a publish from its running turn would replace that one's work.
+    harness.database.prepare(`UPDATE chats SET org_project_id = ?, is_deleted = 1`).run(PROJECT_ID);
+
+    await expect(harness.agent.applyWorkspaceClientChanges({ baseRevision: 3, changes: [] })).rejects.toMatchObject({
+      status: 409,
+    });
+    const published = await publishTool(harness)({ message: 'Ship it', live: true }, { toolCallId: 'call-1' });
+    expect(published).toMatchObject({ ok: false });
+    expect(published.summary).toContain('was deleted');
+    expect(commits).toEqual([]);
+  });
+
+  it('holds back the newer conversation until an editor save that found it current lands', async () => {
+    vi.stubGlobal('scheduler', { wait: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)) });
+    let saving = false;
+    let finishSave: () => void = () => undefined;
+    const saved = new Promise<void>((resolve) => {
+      finishSave = resolve;
+    });
+    const harness = await builderAgentHarness({
+      workspace: {
+        ...(await linkedWorkspace()),
+        applyClientChanges: async () => {
+          saving = true;
+          await saved;
+          return { ok: true, state: READY_STATE, changedPaths: ['README.md'] };
+        },
+      },
+      cloudflareIdentity: true,
+    });
+    const save = harness.agent.applyWorkspaceClientChanges({ baseRevision: 3, changes: [] });
+    await vi.waitFor(() => expect(saving).toBe(true));
+
+    archive(harness);
+    let settled = false;
+    const settling = harness.agent.settleForSuccessor('owner-1').then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(settled).toBe(false);
+
+    finishSave();
+    await expect(save).resolves.toMatchObject({ ok: true });
+    await settling;
+  });
+
   it('stops its running turn when the newer conversation asks, and says it is archived', async () => {
     // Workers' scheduler, which a cancellation waits on, is not Node's.
     vi.stubGlobal('scheduler', { wait: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)) });
@@ -221,3 +271,12 @@ describe("a GitHub project's publish", () => {
     expect(bases).toEqual([COMMIT]);
   });
 });
+
+const READY_STATE = {
+  initialized: true,
+  revision: 4,
+  resetRevision: 0,
+  fileCount: 1,
+  totalBytes: 7,
+  seeding: false,
+};

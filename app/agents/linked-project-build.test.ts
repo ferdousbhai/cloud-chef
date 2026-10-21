@@ -190,8 +190,22 @@ describe("a GitHub project's publish", () => {
       workersBuildsGraceUntil: 0,
       signal: stopped.signal,
     });
-    expect(result.state).toBe('none');
+    expect(result).toBeNull();
     expect(stoppedPolls).toBe(0);
+  });
+
+  it('has no status when not one read succeeded, rather than a pipeline that reported none', async () => {
+    const time = clock();
+    const status = await watchLinkedBuild({
+      poll: async () => {
+        throw new Error('GitHub is down');
+      },
+      sleep: time.sleep,
+      now: time.now,
+      deadline: 3 * LINKED_BUILD_POLL_MS,
+      workersBuildsGraceUntil: 0,
+    });
+    expect(status).toBeNull();
   });
 
   it("puts the result in place of that one call's waiting output, once", () => {

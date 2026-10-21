@@ -238,6 +238,7 @@ const LINKED_PUBLISH_SETTLE_MS = 2.5 * 60_000;
 /** A copy of another workspace starts over when that one changes meanwhile; it changing this often is a fault. */
 const MAX_WORKSPACE_COPY_RESTARTS = 5;
 const ARCHIVED_CONVERSATION_MESSAGE = 'This conversation continues in a newer one. Open the project to keep working.';
+const DELETED_CONVERSATION_MESSAGE = 'This conversation was deleted.';
 
 /** Fiber metadata survives a Durable Object restart, so every job is re-parsed before it is resumed. */
 const previewPublicationJobSchema = z.object({
@@ -424,6 +425,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private startingTurns = 0;
   /** Publishes to GitHub under way: an archived conversation waits for them before its successor copies it. */
   private readonly runningLinkedPublishes = new Set<Promise<CloudChefToolResult>>();
+  /** Editor saves under way, from before their archive check: an archived conversation waits for them too. */
+  private readonly runningSaves = new Set<Promise<BuilderWorkspaceApplyResult>>();
+  /** The seed of a new workspace under way, which every caller needing the workspace seeded shares. */
+  private workspaceSeed: Promise<BuilderWorkspaceState> | null = null;
   /** Set once the GC outbox deletes this project: nothing may start publishing it again. */
   private destroying = false;
   /** Tells the control plane, through the runtime, when a redeploy would cut this agent's work off. */
@@ -511,11 +516,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       `SELECT 1 AS found
        FROM chat_transcripts AS transcripts
        INNER JOIN chats ON chats.id = transcripts.chat_id
-       WHERE transcripts.agent_name = ? AND chats.creator_id = ?
+       WHERE transcripts.agent_name = ? AND chats.creator_id = ? AND chats.is_deleted = 1
        LIMIT 1`,
     )
       .bind(this.name, ownerId)
       .first<{ found: number }>();
+    // Only a deleted chat's agent: one revived since its sweep read the outbox keeps its project.
     if (!owned) {
       throw new Response('Agent not found.', { status: 404 });
     }
@@ -732,8 +738,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         });
       // Again now that the turn is visible: a newer conversation that took over meanwhile either saw this
       // turn and stopped it, or archived this one before this read.
-      await this.refuseIfArchived();
+      await this.refuseIfClosed();
       const { contentLogging } = await this.requireModelAccess();
+      // The browser prepares the workspace before it sends, but nothing else seeds a new one.
+      await this.initializeWorkspace(durableIdentity.transcript);
       const cloudflareApi = await this.createCloudflareApiToolContext(durableIdentity.transcript);
       const linkedProject = await this.createLinkedProjectToolContext();
       if (shouldGenerateTitle) {
@@ -937,7 +945,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!active || this.state.activeTurn?.id !== active.turnId) {
       throw new Response('The builder is not currently running.', { status: 409 });
     }
-    await this.refuseIfArchived();
+    await this.refuseIfClosed();
 
     const message: UIMessage = {
       id: `steering-${crypto.randomUUID()}`,
@@ -969,7 +977,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     await this.waitForCloudflareDecisionBoundary();
     const binding = await this.requireCurrentCloudflareExecutionBinding('approve_cloudflare_execution');
-    await this.refuseIfArchived();
+    await this.refuseIfClosed();
     const proposal = await this.cloudflareExecutions.verify(parsed.data.executionId, binding);
     if (
       proposal.status === 'rejected' ||
@@ -1091,20 +1099,21 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
     }
     // A publish whose commit was already on its way runs to the end whatever the Stop: its commit moves
-    // this workspace's base, which the successor copies.
-    if (!(await this.waitForLinkedPublishes(LINKED_PUBLISH_SETTLE_MS))) {
+    // this workspace's base, which the successor copies. So does a save that found this conversation
+    // current: reported saved, it must be in the copy, not only here.
+    if (!(await this.waitForWorkspaceWrites(LINKED_PUBLISH_SETTLE_MS))) {
       throw new Error('The earlier conversation did not settle in time.');
     }
   }
 
-  /** Whether every publish to GitHub under way settled within `timeoutMs`. */
-  private async waitForLinkedPublishes(timeoutMs: number): Promise<boolean> {
-    if (this.runningLinkedPublishes.size === 0) {
+  /** Whether every publish to GitHub and editor save under way settled within `timeoutMs`. */
+  private async waitForWorkspaceWrites(timeoutMs: number): Promise<boolean> {
+    if (this.runningLinkedPublishes.size === 0 && this.runningSaves.size === 0) {
       return true;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const settled = await Promise.race([
-      Promise.allSettled(this.runningLinkedPublishes).then(() => true),
+      Promise.allSettled([...this.runningLinkedPublishes, ...this.runningSaves]).then(() => true),
       new Promise<boolean>((resolve) => {
         timer = setTimeout(() => resolve(false), timeoutMs);
       }),
@@ -1113,17 +1122,29 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return settled;
   }
 
-  /** A conversation a newer one took over is kept to read: nothing may change its project or publish it. */
-  private async refuseIfArchived(): Promise<void> {
-    if (await this.isArchivedConversation()) {
-      throw new Response(ARCHIVED_CONVERSATION_MESSAGE, { status: 409 });
+  /**
+   * A conversation a newer one took over is kept to read, and a deleted one's agent lives on for a while,
+   * its turn too: nothing may change the project of either or publish it.
+   */
+  private async refuseIfClosed(): Promise<void> {
+    const closed = await this.closedConversationMessage();
+    if (closed) {
+      throw new Response(closed, { status: 409 });
     }
   }
 
-  private async isArchivedConversation(): Promise<boolean> {
+  /** Why this conversation may no longer change its project, or null while it may. */
+  private async closedConversationMessage(): Promise<string | null> {
     const ownerId =
       this.ownerId ?? (await this.hydrateDurableIdentity({ required: true, reason: 'archive_check' }))?.ownerId;
-    return ownerId ? (await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId })).archived : false;
+    if (!ownerId) {
+      return null;
+    }
+    const { archived, deleted } = await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId });
+    if (deleted) {
+      return DELETED_CONVERSATION_MESSAGE;
+    }
+    return archived ? ARCHIVED_CONVERSATION_MESSAGE : null;
   }
 
   /**
@@ -1210,6 +1231,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Response('Agent authentication is required.', { status: 401 });
     }
     const state = await this.initializeWorkspace(this.transcriptBinding);
+    this.updatePreviewForWorkspace(state.revision);
     await this.publishLinkedProjectState();
     // Not awaited. The browser blocks its send gate on this call, and the point of warming is to
     // overlap the container's cold start with the user composing their first message — awaiting it
@@ -1226,7 +1248,17 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   @callable()
   async applyWorkspaceClientChanges(request: WorkspaceApplyChangesRequest): Promise<BuilderWorkspaceApplyResult> {
-    await this.refuseIfArchived();
+    const save = this.applyClientChanges(request);
+    this.runningSaves.add(save);
+    try {
+      return await save;
+    } finally {
+      this.runningSaves.delete(save);
+    }
+  }
+
+  private async applyClientChanges(request: WorkspaceApplyChangesRequest): Promise<BuilderWorkspaceApplyResult> {
+    await this.refuseIfClosed();
     const result = await this.workspace.applyClientChanges(request);
     if (result.ok && result.changedPaths.length > 0) {
       this.setState({
@@ -1365,9 +1397,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
       throw error;
     }
+    // Only the identity: `onStart` runs this inside the SDK's startup lock, which Cloudflare resets after 30
+    // seconds, and a seed can take minutes. `prepareWorkspace` and a turn seed the workspace outside it.
     this.applyIdentity(identity);
-    const workspace = await this.initializeWorkspace(transcriptBinding);
-    this.updatePreviewForWorkspace(workspace.revision);
   }
 
   private async hydrateDurableIdentity(args: {
@@ -1569,13 +1601,22 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
   }
 
+  /**
+   * The workspace, seeded first when it is new. One seed at a time: callers arriving while it runs wait for
+   * it, rather than finding it `seeding` and going on with a workspace that holds only part of the project.
+   */
   private async initializeWorkspace(binding: BuilderTranscriptBinding): Promise<BuilderWorkspaceState> {
     const current = await this.workspace.refresh();
     if (current.initialized) {
       return current;
     }
     // Seeding writes the whole project into the workspace: a redeploy partway would leave it half seeded.
-    return this.runtimeActivity.run(() => this.seedNewWorkspace(binding));
+    this.workspaceSeed ??= this.runtimeActivity
+      .run(() => this.seedNewWorkspace(binding))
+      .finally(() => {
+        this.workspaceSeed = null;
+      });
+    return this.workspaceSeed;
   }
 
   private async seedNewWorkspace(binding: BuilderTranscriptBinding): Promise<BuilderWorkspaceState> {
@@ -1673,8 +1714,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!linked || !identity) {
       return toolFailure("This workspace is not one of the team's GitHub projects.");
     }
-    if (await this.isArchivedConversation()) {
-      return toolFailure(`${ARCHIVED_CONVERSATION_MESSAGE} Nothing was sent to GitHub.`);
+    const closed = await this.closedConversationMessage();
+    if (closed) {
+      return toolFailure(`${closed} Nothing was sent to GitHub.`);
     }
     const { changes, manifest } = await linkedWorkspaceChanges(this.workspace, linked);
     if (changes.length === 0) {
