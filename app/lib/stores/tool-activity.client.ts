@@ -34,12 +34,13 @@ export class ToolActivityStore {
     const activities = this.activities.get();
     const current = activities[partId];
     const status = invocationStatus(invocation);
+    const settled = !isToolActivityStatusActive(status);
     const terminal = Object.values(activities).find(
       (activity) =>
-        activity.invocation.toolCallId === invocation.toolCallId &&
-        (activity.status === 'aborted' || (activity.status === 'complete' && isToolActivityStatusActive(status))),
+        activity.invocation.toolCallId === invocation.toolCallId && !isToolActivityStatusActive(activity.status),
     );
-    if (terminal) {
+    // Stale progress never revives a stopped or finished call; only a settled result can replace it.
+    if (terminal && !settled) {
       if (current !== terminal) {
         this.activities.setKey(partId, terminal);
         this.#bumpRevision();
@@ -47,11 +48,12 @@ export class ToolActivityStore {
       return;
     }
     if (!this.#turnActive) {
-      if (isToolActivityStatusActive(status)) {
+      if (!settled) {
         this.activities.setKey(partId, { invocation, status: 'aborted' });
         this.#bumpRevision();
-      } else if (current?.status === 'complete' && current.invocation !== invocation) {
-        // A settled result replaced after its turn (a publish's build result) supersedes the one recorded.
+      } else if (terminal && current?.invocation !== invocation) {
+        // A settled result landing after its turn supersedes the one recorded: a publish's build result
+        // replaces its pending build, and the server's real result replaces a call shown as stopped.
         this.activities.setKey(partId, { invocation, status });
         this.#bumpRevision();
       }

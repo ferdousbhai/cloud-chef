@@ -283,4 +283,31 @@ describe('ToolActivityStore', () => {
 
     expect(store.activities.get()[partId]).toEqual({ invocation: built, status: 'complete' });
   });
+
+  it('takes the real result of a call that was shown stopped, but not stale progress', () => {
+    const store = new ToolActivityStore();
+    const partId = makePartId('message', 0);
+    const running: CloudChefToolInvocation = {
+      type: 'dynamic-tool',
+      state: 'input-available',
+      toolCallId: 'publish-1',
+      toolName: 'publish',
+      input: {},
+    };
+    store.startTurn();
+    store.record(partId, running);
+    store.abortActive();
+    store.record(partId, { ...running });
+
+    expect(store.activities.get()[partId]?.status).toBe('aborted');
+
+    const published: CloudChefToolInvocation = { ...running, state: 'output-available', output: { ok: true } };
+    store.record(partId, published);
+
+    expect(store.activities.get()[partId]).toEqual({ invocation: published, status: 'complete' });
+
+    store.record(partId, { ...running });
+
+    expect(store.activities.get()[partId]).toEqual({ invocation: published, status: 'complete' });
+  });
 });
