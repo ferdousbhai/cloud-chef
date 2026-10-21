@@ -135,10 +135,23 @@ describe('a reasoning model asked for no level', () => {
         // `store: false` means replayed reasoning needs its encrypted content, on every request.
         expect(request!.query.include, model.id).toContain('reasoning.encrypted_content');
       }
-      if (api === 'anthropic-messages') {
-        expect(request!.query.thinking, model.id).toMatchObject({
-          type: expect.stringMatching(/^(adaptive|enabled)$/),
-        });
+      const piModel = piGatewayModel(model.id)?.model;
+      if (piModel?.api === 'anthropic-messages') {
+        const thinking = z
+          .looseObject({ type: z.string(), budget_tokens: z.number().optional() })
+          .parse(request!.query.thinking);
+        const compat = piModel.compat;
+        if (compat !== undefined && 'forceAdaptiveThinking' in compat && compat.forceAdaptiveThinking === true) {
+          expect(thinking, model.id).toMatchObject({ type: 'adaptive' });
+          expect(thinking, model.id).not.toHaveProperty('budget_tokens');
+        } else {
+          // Anthropic has no default budget, so no level thinks at the "High" one, under the ceiling.
+          const maxTokens = z.number().parse(request!.query.max_tokens);
+          expect(thinking, model.id).toMatchObject({
+            type: 'enabled',
+            budget_tokens: Math.min(16_384, maxTokens - 1_024),
+          });
+        }
       }
     }
     expect(offenders).toEqual([]);
@@ -170,6 +183,14 @@ describe('a reasoning model asked for no level', () => {
     await streamOnce(credentials, 'openai/gpt-6-luna');
     expect(requests[0]?.query).toMatchObject({ store: false, reasoning: { summary: 'auto' } });
     expect(requests[0]?.query.reasoning).not.toHaveProperty('effort');
+  });
+
+  it('gives a budget-thinking Claude the "High" budget, and an adaptive one no budget', async () => {
+    const { requests, credentials } = gatewayBinding(refused);
+    await streamOnce(credentials, 'anthropic/claude-sonnet-4-5');
+    await streamOnce(credentials, 'anthropic/claude-opus-5-5');
+    expect(requests[0]?.query).toMatchObject({ thinking: { type: 'enabled', budget_tokens: 16_384 } });
+    expect(requests[1]?.query.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
   });
 
   it('sends grok-4.3 and an OpenRouter reasoning model no effort at all', async () => {

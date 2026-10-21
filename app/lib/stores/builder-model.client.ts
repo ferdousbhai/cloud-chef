@@ -54,7 +54,7 @@ type BuilderReasoningChoices = Readonly<Record<string, BuilderReasoningLevel>>;
 
 /**
  * The reasoning effort this browser chose per model id. A model with no entry runs at its provider's
- * default effort ("Provider default"), which is also what an entry the model no longer offers means.
+ * default effort ("Default"), which is also what an entry the model no longer offers means.
  */
 export const builderReasoningChoicesStore = atom<BuilderReasoningChoices>({});
 

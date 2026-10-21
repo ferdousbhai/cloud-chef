@@ -42,7 +42,8 @@ export type BuilderModelId = WorkersAiModelId | GatewayModelId;
 /**
  * The reasoning efforts a person can choose for a model, weakest first, in Pi's vocabulary. "Off" is
  * never one of them: CloudChef does not turn a reasoning model's reasoning off, and choosing nothing
- * — "Provider default" — sends no level at all, so the provider applies its own default effort.
+ * — "Default" — sends no level at all, so the provider applies its own default effort (an older
+ * Claude model, which has none, thinks at the "high" budget).
  */
 export const BUILDER_REASONING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 

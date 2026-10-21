@@ -124,7 +124,7 @@ type PiPreparationStage = 'tool_setup' | 'model_input' | 'prompt_metrics' | 'mes
 
 /**
  * The reasoning level a builder turn asks for: the person's choice for this model, or `undefined`
- * — "Provider default" — when they made none.
+ * — "Default" — when they made none.
  *
  * The rule: CloudChef never turns a reasoning model's reasoning off, on any provider. With no
  * level chosen, no reasoning directive is sent and each provider reasons at its own default effort
@@ -133,7 +133,8 @@ type PiPreparationStage = 'tool_setup' | 'model_input' | 'prompt_metrics' | 'mes
  * that way. Pi's adapters read "no level" as "off" on some APIs (OpenAI Responses and its OpenRouter
  * dialect send effort `none`, DeepSeek-style dialects `thinking: disabled`), so the transports in
  * `pi-ai-models.ts` strip exactly those values before a request leaves (`provider-default-reasoning.ts`),
- * keep thinking on for Claude (adaptive at Claude's default effort where Anthropic manages it), and ask
+ * keep thinking on for Claude (adaptive at Claude's default effort where Anthropic manages it, and the
+ * "high" budget on older Claude models, which have no default), and ask
  * OpenAI Responses for the encrypted reasoning a `store: false` tool turn has to replay. A level the
  * person chose is sent as chosen, in the model's own vocabulary; "off" is never offered.
  */

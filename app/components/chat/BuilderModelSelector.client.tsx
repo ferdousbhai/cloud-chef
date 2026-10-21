@@ -34,7 +34,7 @@ import { classNames } from '~/utils/classNames';
 /** A provider offering more models than this is shown as its own submenu, so the list stays usable. */
 const COLLAPSED_GROUP_SIZE = 24;
 
-/** How each effort reads in the picker; "Provider default" is the absence of one. */
+/** How each effort reads in the picker; "Default" is the absence of one. */
 const REASONING_LEVEL_LABELS = {
   minimal: 'Minimal',
   low: 'Low',
@@ -44,6 +44,8 @@ const REASONING_LEVEL_LABELS = {
   max: 'Max',
 } as const satisfies Record<BuilderReasoningLevel, string>;
 const PROVIDER_DEFAULT_EFFORT = 'default';
+/** No level is the provider's own effort, except where it has none (older Claude models). */
+const DEFAULT_EFFORT_TITLE = "The provider's own effort, or High for a Claude model that has none.";
 
 /** The catalog dates entries to the day, so the day is all the picker claims. */
 function formatModelAddedDate(model: BuilderModel): string | null {
@@ -70,7 +72,7 @@ export function BuilderModelSelector({
   const model = getBuilderModel(modelId, models);
   const reasoningLevels = model.reasoningLevels ?? [];
   const reasoningLevel = builderReasoningLevelFor(model, reasoningChoices);
-  // Shown only for a model with efforts to choose from; "Default" is the provider's own.
+  // Shown only for a model with efforts to choose from; "Default" is no level chosen.
   const effortLabel =
     reasoningLevels.length === 0
       ? null
@@ -116,7 +118,7 @@ export function BuilderModelSelector({
       <DropdownMenu.Trigger asChild disabled={disabled}>
         <button
           type="button"
-          aria-label={`Builder model. Current: ${model.label}${effortLabel === null ? '' : `, reasoning effort ${reasoningLevel === undefined ? 'provider default' : effortLabel}`}${disabled ? '. Stop or wait for the current response to finish before switching models.' : ''}`}
+          aria-label={`Builder model. Current: ${model.label}${effortLabel === null ? '' : `, reasoning effort ${effortLabel}`}${disabled ? '. Stop or wait for the current response to finish before switching models.' : ''}`}
           className={classNames(
             // A quiet label in the composer toolbar: the prompt is the focus, the model a setting.
             'group inline-flex min-h-7 min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-content-tertiary outline-none transition-colors hover:bg-bolt-elements-background-depth-3 hover:text-content-primary focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50',
@@ -171,7 +173,12 @@ export function BuilderModelSelector({
                 }}
                 className="flex flex-wrap gap-1 px-2 pb-2"
               >
-                <EffortItem value={PROVIDER_DEFAULT_EFFORT} label="Provider default" disabled={disabled} />
+                <EffortItem
+                  value={PROVIDER_DEFAULT_EFFORT}
+                  label="Default"
+                  title={DEFAULT_EFFORT_TITLE}
+                  disabled={disabled}
+                />
                 {reasoningLevels.map((level) => (
                   <EffortItem key={level} value={level} label={REASONING_LEVEL_LABELS[level]} disabled={disabled} />
                 ))}
@@ -221,11 +228,22 @@ export function BuilderModelSelector({
 }
 
 /** One effort choice: a compact chip, at least 36px tall so it is an easy target on a phone. */
-function EffortItem({ value, label, disabled }: { value: string; label: string; disabled: boolean }) {
+function EffortItem({
+  value,
+  label,
+  title,
+  disabled,
+}: {
+  value: string;
+  label: string;
+  title?: string;
+  disabled: boolean;
+}) {
   return (
     <DropdownMenu.RadioItem
       value={value}
       textValue={label}
+      title={title}
       disabled={disabled}
       // Choosing an effort keeps the menu open, so the model list below stays in reach.
       onSelect={(event) => event.preventDefault()}

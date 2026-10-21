@@ -160,9 +160,11 @@ describe('BuilderModelSelector', () => {
     await act(async () => claudeItem?.click());
 
     expect(trigger()?.textContent).toContain('· Default');
-    expect(trigger()?.getAttribute('aria-label')).toContain('reasoning effort provider default');
+    expect(trigger()?.getAttribute('aria-label')).toContain('reasoning effort Default');
     await open();
-    expect(efforts().map((item) => item.textContent)).toEqual(['Provider default', 'Low', 'High', 'Max']);
+    expect(efforts().map((item) => item.textContent)).toEqual(['Default', 'Low', 'High', 'Max']);
+    // Older Claude models have no default effort of their own, so "Default" says what they get.
+    expect(efforts()[0]?.getAttribute('title')).toContain('High for a Claude model');
     expect(efforts()[0]?.getAttribute('aria-checked')).toBe('true');
     await act(async () => efforts()[2]?.click());
 

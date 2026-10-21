@@ -21,7 +21,7 @@ import {
   type AnthropicEffort,
   type AnthropicOptions,
 } from '@earendil-works/pi-ai/api/anthropic-messages';
-import { thinkingBudgetForLevel } from '@earendil-works/pi-ai/api/simple-options';
+import { MIN_ANSWER_TOKENS, thinkingBudgetForLevel } from '@earendil-works/pi-ai/api/simple-options';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { modelTokenEstimateSafetyTokens } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
@@ -353,19 +353,27 @@ const GATEWAY_TRANSPORTS = {
         fetch,
         maxTokens,
         // Thinking is always on for a reasoning model. Pi turns this into adaptive thinking for the
-        // models Anthropic manages it on, at the model's own default effort, and a thinking budget
-        // for older ones; a level is sent only when the person chose one.
+        // models Anthropic manages it on, at the model's own default effort unless the person chose
+        // one, and a thinking budget for older ones.
         thinkingEnabled: model.reasoning,
       };
-      if (reasoning !== undefined && model.reasoning) {
+      if (model.reasoning) {
         if (
           model.compat !== undefined &&
           'forceAdaptiveThinking' in model.compat &&
           model.compat.forceAdaptiveThinking
         ) {
-          merged.effort = anthropicEffort(model, reasoning);
+          if (reasoning !== undefined) {
+            merged.effort = anthropicEffort(model, reasoning);
+          }
         } else {
-          merged.thinkingBudgetTokens = Math.min(thinkingBudgetForLevel(reasoning), Math.max(1_024, maxTokens - 1_024));
+          // Anthropic has no default budget, and Pi's fallback is its minimum, below "Low", so with
+          // no level chosen it thinks at the "High" budget. The budget stays under the response ceiling, as
+          // Anthropic requires, with Pi's room left for the answer.
+          merged.thinkingBudgetTokens = Math.min(
+            thinkingBudgetForLevel(reasoning ?? 'high'),
+            Math.max(1_024, maxTokens - MIN_ANSWER_TOKENS),
+          );
         }
       }
       return ANTHROPIC_MESSAGES_STREAM(model, context, merged);
