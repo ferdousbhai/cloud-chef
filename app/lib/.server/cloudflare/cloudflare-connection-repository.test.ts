@@ -188,7 +188,7 @@ describe('activateCloudflareConnection', () => {
       requested_oauth_scopes_json: '[]',
       granted_oauth_scopes_json: '[]',
       oauth_scope_profile_version: null,
-      oauth_scope_grant_status: 'unknown',
+      oauth_scope_grant_status: 'core',
       oauth_grant_updated_at: null,
       connected_at: 1,
       updated_at: 1,

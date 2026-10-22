@@ -21,7 +21,7 @@ export type CloudflareApiRuntimeIdentity = {
   accountId: string;
   connectionId: string;
   connectionGeneration: number;
-  oauthScopeGrantStatus: Exclude<CloudflareOAuthScopeGrantStatus, 'unknown'>;
+  oauthScopeGrantStatus: CloudflareOAuthScopeGrantStatus;
 };
 
 type RuntimeControlRow = {

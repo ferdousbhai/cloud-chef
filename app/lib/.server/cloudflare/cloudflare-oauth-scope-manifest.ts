@@ -26,7 +26,7 @@ export const CORE_CLOUDFLARE_OAUTH_SCOPES = [
 /** Reviewed broad optional scope IDs; empty, so every requested scope is core. */
 export const BROAD_CLOUDFLARE_OAUTH_SCOPES = [] satisfies readonly string[];
 
-export type CloudflareOAuthScopeGrantStatus = 'unknown' | 'core' | 'partial' | 'full';
+export type CloudflareOAuthScopeGrantStatus = 'core' | 'partial' | 'full';
 
 export const CLOUDCHEF_CAPABILITIES = [
   'workers',
@@ -77,12 +77,13 @@ export function missingCoreOAuthScopes(granted: readonly string[]): string[] {
 }
 
 /**
- * Grant state for a provider-confirmed scope list. 'full' exists only once the broad profile is
- * non-empty; until then a complete grant is exactly the core feature set.
+ * Grant state for a provider-confirmed scope list, which holds every core scope (a grant missing one is
+ * refused before this). 'full' exists only once the broad profile is non-empty; until then a complete
+ * grant is exactly the core feature set.
  */
 export function cloudflareOAuthScopeGrantStatus(granted: readonly string[]): CloudflareOAuthScopeGrantStatus {
   if (missingCoreOAuthScopes(granted).length > 0) {
-    return 'unknown';
+    throw new Error('A Cloudflare grant missing core scopes has no grant status.');
   }
   if (BROAD_CLOUDFLARE_OAUTH_SCOPES.length === 0) {
     return 'core';

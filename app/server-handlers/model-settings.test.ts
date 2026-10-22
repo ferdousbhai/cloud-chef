@@ -267,8 +267,8 @@ async function setup({
   database
     .prepare(
       `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, credential_handle,
-         granted_capabilities_json, created_at, updated_at)
-       VALUES ('acme-connection', ?, ?, 'Acme', 'active', 'credential-1', ?, 1, 1)`,
+         granted_capabilities_json, created_at, updated_at, oauth_scope_grant_status)
+       VALUES ('acme-connection', ?, ?, 'Acme', 'active', 'credential-1', ?, 1, 1, 'core')`,
     )
     .run(orgId, ACCOUNT_ID, JSON.stringify(capabilities));
   return { database, env, admin, member, cloudflare };

@@ -63,8 +63,8 @@ async function createOrg(env: Env, cookie: string, { connect = true } = {}) {
   const { orgId } = createdSchema.parse(await response.json());
   if (connect) {
     await env.DB.prepare(
-      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
-       VALUES ('acme-connection', ?, 'account-acme', 'Acme', 'active', 1, 1)`,
+      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at, oauth_scope_grant_status)
+       VALUES ('acme-connection', ?, 'account-acme', 'Acme', 'active', 1, 1, 'core')`,
     )
       .bind(orgId)
       .run();
@@ -276,8 +276,8 @@ describe('organizations', () => {
       name: 'Acme Claim your prize: https://evil.example/login or evil.example. Thanks',
     });
     await env.DB.prepare(
-      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
-       VALUES ('acme-connection', ?, 'account-acme', 'Acme', 'active', 1, 1)`,
+      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at, oauth_scope_grant_status)
+       VALUES ('acme-connection', ?, 'account-acme', 'Acme', 'active', 1, 1, 'core')`,
     )
       .bind(orgId)
       .run();
@@ -317,8 +317,8 @@ describe('organizations', () => {
       insert.run(admin.userId, first, Date.now());
     }
     await env.DB.prepare(
-      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
-       VALUES ('second-connection', ?, 'account-2', 'Second', 'active', 1, 1)`,
+      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at, oauth_scope_grant_status)
+       VALUES ('second-connection', ?, 'account-2', 'Second', 'active', 1, 1, 'core')`,
     )
       .bind(second)
       .run();
@@ -368,8 +368,8 @@ describe('organizations', () => {
       env,
     }).then(async (response) => createdSchema.parse(await response.json()).orgId);
     await env.DB.prepare(
-      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
-       VALUES ('other-connection', ?, 'account-other', 'Other', 'active', 1, 1)`,
+      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at, oauth_scope_grant_status)
+       VALUES ('other-connection', ?, 'account-other', 'Other', 'active', 1, 1, 'core')`,
     )
       .bind(otherOrgId)
       .run();

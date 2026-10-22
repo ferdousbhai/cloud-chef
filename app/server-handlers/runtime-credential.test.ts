@@ -37,7 +37,7 @@ const connection = {
   requestedOAuthScopes: [],
   grantedOAuthScopes: [],
   oauthScopeProfileVersion: null,
-  oauthScopeGrantStatus: 'unknown',
+  oauthScopeGrantStatus: 'core',
   connectedAt: 1,
   generation: 3,
 };

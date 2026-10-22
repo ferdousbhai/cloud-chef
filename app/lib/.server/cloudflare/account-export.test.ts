@@ -57,7 +57,7 @@ describe('control-plane account export', () => {
         requestedOAuthScopes: [],
         grantedOAuthScopes: [],
         oauthScopeProfileVersion: null,
-        oauthScopeGrantStatus: 'unknown',
+        oauthScopeGrantStatus: 'core',
         defaultBuilderModel: null,
         aiBillingEnabled: true,
         connectedAt: '1970-01-01T00:00:00.001Z',
@@ -386,8 +386,8 @@ function seedAccount(database: DatabaseSyncInstance, userId = 'user-1'): void {
     .prepare(
       `INSERT INTO cloudflare_connections
         (id, user_id, account_id, account_name, status, credential_handle, granted_capabilities_json,
-         connected_at, created_at, updated_at)
-       VALUES (?, ?, 'account-1', 'Account', 'active', ?, '["workers","workers_ai"]', 1, 1, 1)`,
+         connected_at, created_at, updated_at, oauth_scope_grant_status)
+       VALUES (?, ?, 'account-1', 'Account', 'active', ?, '["workers","workers_ai"]', 1, 1, 1, 'core')`,
     )
     .run(`connection-${userId}`, userId, `${CREDENTIAL_HANDLE}-${userId}`);
   database

@@ -120,7 +120,7 @@ const connectionResultSchema = z.object({
   requestedOAuthScopes: z.array(z.string().min(1)),
   grantedOAuthScopes: z.array(z.string().min(1)),
   oauthScopeProfileVersion: z.string().min(1),
-  oauthScopeGrantStatus: z.enum(['unknown', 'core', 'partial', 'full']),
+  oauthScopeGrantStatus: z.enum(['core', 'partial', 'full']),
 });
 type PendingOAuthState = {
   provider_session_id: string;

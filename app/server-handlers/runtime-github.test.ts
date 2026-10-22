@@ -186,8 +186,8 @@ async function setup(
     INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('org-1', 'Sara''s sites', 1, 1);
     INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('org-2', 'Other', 1, 1);
     INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, created_at) VALUES ('cred', 'x', 'y', 1);
-    INSERT INTO cloudflare_connections (id, org_id, account_id, status, credential_handle, connection_generation, created_at, updated_at)
-      VALUES ('conn-1', 'org-1', 'account-1', 'active', 'cred', 2, 1, 1);
+    INSERT INTO cloudflare_connections (id, org_id, account_id, status, credential_handle, connection_generation, created_at, updated_at, oauth_scope_grant_status)
+      VALUES ('conn-1', 'org-1', 'account-1', 'active', 'cred', 2, 1, 1, 'core');
     INSERT INTO github_installations (org_id, installation_id, account_login, account_type, created_at, updated_at)
       VALUES ('org-1', 7, 'ada', 'User', 1, 1);
     INSERT INTO org_projects (id, org_id, name, repo_id, repo_full_name, default_branch, origin, created_at)

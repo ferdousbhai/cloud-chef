@@ -19,7 +19,7 @@ export type CloudflareConnection = {
   grantedCapabilities: string[];
   /** Exact scope IDs the authorization request asked Cloudflare for. */
   requestedOAuthScopes: string[];
-  /** Exact provider-confirmed scope IDs. Empty, with status 'unknown', for a legacy grant. */
+  /** Exact provider-confirmed scope IDs. */
   grantedOAuthScopes: string[];
   oauthScopeProfileVersion: string | null;
   oauthScopeGrantStatus: CloudflareOAuthScopeGrantStatus;
@@ -308,7 +308,7 @@ function parseStoredStringArray(value: string): string[] {
 }
 
 function parseStoredGrantStatus(value: string): CloudflareOAuthScopeGrantStatus {
-  if (value !== 'unknown' && value !== 'core' && value !== 'partial' && value !== 'full') {
+  if (value !== 'core' && value !== 'partial' && value !== 'full') {
     throw new Error('Stored Cloudflare OAuth grant status is invalid.');
   }
   return value;
