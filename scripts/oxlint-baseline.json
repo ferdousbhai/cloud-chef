@@ -1,5 +1,5 @@
 {
-  "total": 1132,
+  "total": 1126,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -509,11 +509,11 @@
       "anti-slop/require-safety-comment-for-type-assertion": 3
     },
     "scripts/deploy-production.mjs": {
-      "anti-slop/no-runtime-typeof": 13,
+      "anti-slop/no-runtime-typeof": 11,
       "eslint/no-control-regex": 1
     },
     "scripts/deploy-production.spec.ts": {
-      "anti-slop/require-safety-comment-for-type-assertion": 12
+      "anti-slop/require-safety-comment-for-type-assertion": 8
     },
     "scripts/lib/worker-policy.mjs": {
       "anti-slop/no-runtime-typeof": 2,
