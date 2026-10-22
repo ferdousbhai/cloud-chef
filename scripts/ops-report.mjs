@@ -637,20 +637,17 @@ function schemaFailure(error) {
 }
 
 function unknownCheck(id, title, attemptResult, hint) {
-  const missingTable = /no such table:\s*([\w.]+)/i.exec(attemptResult.error ?? '')?.[1] ?? null;
   const schemaMismatch = attemptResult.schemaMismatch === true;
   return {
     id,
     title,
     status: 'unknown',
-    sentence: missingTable
-      ? `\`${missingTable}\` does not exist in production yet, so this is unknown.`
-      : schemaMismatch
-        ? `This could not be read: ${attemptResult.error} The schema this report expects and the one production holds have diverged.`
-        : `This could not be read: ${attemptResult.error}`,
+    sentence: schemaMismatch
+      ? `This could not be read: ${attemptResult.error} The schema this report expects and the one production holds have diverged.`
+      : `This could not be read: ${attemptResult.error}`,
     at: null,
     relative: null,
-    detail: { error: attemptResult.error, missingTable, schemaMismatch, hint: hint ?? null },
+    detail: { error: attemptResult.error, schemaMismatch, hint: hint ?? null },
   };
 }
 

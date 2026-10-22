@@ -40,9 +40,6 @@ The first line after the header is the whole answer. Everything below it is grou
 | `COULD NOT BE READ` | The tool could not answer. Do **not** report these as healthy. |
 | `HEALTHY`           | Nothing to do.                                                 |
 
-A `COULD NOT BE READ` entry naming a table that "does not exist in production yet" means that migration has not been
-applied. Report it as unknown.
-
 The `Control-plane Worker` check counts invocation **outcomes**, not log lines. "None of them failed inside the Worker"
 means no invocation ended in `exception`, `exceededCpu`, or any other non-benign outcome in the last 24 hours; it says
 nothing about handled errors, logged warnings, or anything a request logged on its way to a 200, so do not report this
