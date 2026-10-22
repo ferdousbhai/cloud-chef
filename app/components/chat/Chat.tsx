@@ -13,7 +13,7 @@ import { authClient } from '~/lib/auth-client';
 import type { ChatProps } from './chat-types';
 import { UnauthenticatedChat } from './UnauthenticatedChat';
 import { workspacePresentationId, useBuilderAgentChat, type WorkspacePresentationState } from './useBuilderAgentChat';
-import { useChatHistoryProcessing } from './useChatHistoryProcessing';
+import { useProcessedMessages } from '~/lib/hooks/useProcessedMessages';
 import { useCurrentToolStatus } from './useCurrentToolStatus';
 import { useBuildProgress } from './useBuildProgress';
 import { appendPendingUserMessage, useChatMessageSubmission } from './useChatMessageSubmission';
@@ -338,7 +338,7 @@ const AuthenticatedChat = memo(
       presentationId,
       transcript,
     });
-    const parsedMessages = useChatHistoryProcessing({ messages });
+    const parsedMessages = useProcessedMessages(messages);
 
     useEffect(() => {
       chatStore.setKey('started', chatStarted);

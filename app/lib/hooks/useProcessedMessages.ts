@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { makePartId, type PartId } from 'cloudchef-agent/partId';
 import { getToolInvocation, isToolPart, type CloudChefMessage, type CloudChefPart } from 'cloudchef-agent/ai-compat';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
@@ -81,13 +81,18 @@ export function processMessage(message: CloudChefMessage, previousParts: PartCac
   };
 }
 
-export function useProcessedMessages() {
+/**
+ * `messages` with each settled part kept as the object first seen for it, so unchanged parts keep their
+ * identity across updates, and each tool part recorded in the tool activity store as it changes. The chat
+ * SDK already throttles how often `messages` changes while a turn streams.
+ */
+export function useProcessedMessages(messages: CloudChefMessage[]): CloudChefMessage[] {
   const [parsedMessages, setParsedMessages] = useState<CloudChefMessage[]>([]);
 
   const previousMessages = useRef<{ original: CloudChefMessage; parsed: CloudChefMessage }[]>([]);
   const previousParts = useRef<PartCache>(new Map());
 
-  const processMessages = useCallback((messages: CloudChefMessage[]) => {
+  useEffect(() => {
     const nextPrevMessages: { original: CloudChefMessage; parsed: CloudChefMessage }[] = [];
     const prevMessages = previousMessages.current;
 
@@ -110,7 +115,7 @@ export function useProcessedMessages() {
     if (parsedMessagesChanged) {
       setParsedMessages(nextPrevMessages.map((message) => message.parsed));
     }
-  }, []);
+  }, [messages]);
 
-  return { parsedMessages, processMessages };
+  return parsedMessages;
 }

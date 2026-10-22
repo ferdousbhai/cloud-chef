@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, createElement, useEffect } from 'react';
+import { act, createElement, useLayoutEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { CloudChefMessage, CloudChefPart } from 'cloudchef-agent/ai-compat';
@@ -19,14 +19,12 @@ describe('useProcessedMessages', () => {
         { type: 'dynamic-tool', toolName: 'write', toolCallId: 'write-1', state: 'input-available', input: {} },
       ],
     };
+    const messages = [stored];
     let rendered: CloudChefMessage[] = [];
     function Reloaded() {
-      const { parsedMessages, processMessages } = useProcessedMessages();
-      useEffect(() => {
-        toolActivityStore.activateScope('reloaded-chat');
-        processMessages([stored]);
-      }, [processMessages]);
-      rendered = parsedMessages;
+      // As Chat does: the scope is activated in a layout effect, before the messages are processed.
+      useLayoutEffect(() => toolActivityStore.activateScope('reloaded-chat'), []);
+      rendered = useProcessedMessages(messages);
       return null;
     }
     const root = createRoot(document.createElement('div'));
