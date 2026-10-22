@@ -299,23 +299,16 @@ export class D1CloudflareCredentialVault {
     handle: string;
     ciphertextBase64: string;
     ivBase64: string;
-    createdAt?: number;
+    createdAt: number;
     rotatedAt: number | null;
   }): Promise<boolean> {
-    const createdAtClause = expected.createdAt === undefined ? '' : ' AND created_at = ?';
     const row = await this.db
       .prepare(
         `SELECT 1 AS found FROM cloudflare_credentials
          WHERE handle = ? AND ciphertext_base64 = ? AND iv_base64 = ? AND key_version = 1
-           AND rotated_at IS ?${createdAtClause}`,
+           AND rotated_at IS ? AND created_at = ?`,
       )
-      .bind(
-        expected.handle,
-        expected.ciphertextBase64,
-        expected.ivBase64,
-        expected.rotatedAt,
-        ...(expected.createdAt === undefined ? [] : [expected.createdAt]),
-      )
+      .bind(expected.handle, expected.ciphertextBase64, expected.ivBase64, expected.rotatedAt, expected.createdAt)
       .first<{ found: number }>();
     return row?.found === 1;
   }

@@ -59,43 +59,30 @@ const CONNECTION_COLUMNS = `id, user_id, org_id, account_id, account_name, statu
               oauth_scope_profile_version, oauth_scope_grant_status, oauth_grant_updated_at,
               connected_at, updated_at, connection_generation`;
 
-export async function findCloudflareConnectionForUser(
-  db: D1Database,
-  userId: string,
-): Promise<CloudflareConnection | null> {
-  const row = await db
-    .prepare(
-      `SELECT ${CONNECTION_COLUMNS}
-       FROM cloudflare_connections
-       WHERE user_id = ?`,
-    )
-    .bind(userId)
-    .first<CloudflareConnectionRow>();
-  return row ? connectionFromRow(row) : null;
+export function findCloudflareConnectionForUser(db: D1Database, userId: string): Promise<CloudflareConnection | null> {
+  return findCloudflareConnectionForOwner(db, { kind: 'user', userId });
 }
 
-export async function findCloudflareConnectionForOrganization(
+export function findCloudflareConnectionForOrganization(
   db: D1Database,
   orgId: string,
 ): Promise<CloudflareConnection | null> {
+  return findCloudflareConnectionForOwner(db, { kind: 'organization', orgId });
+}
+
+export async function findCloudflareConnectionForOwner(
+  db: D1Database,
+  owner: CloudflareConnectionOwner,
+): Promise<CloudflareConnection | null> {
   const row = await db
     .prepare(
       `SELECT ${CONNECTION_COLUMNS}
        FROM cloudflare_connections
-       WHERE org_id = ?`,
+       WHERE ${ownerColumn(owner)} = ?`,
     )
-    .bind(orgId)
+    .bind(ownerId(owner))
     .first<CloudflareConnectionRow>();
   return row ? connectionFromRow(row) : null;
-}
-
-export function findCloudflareConnectionForOwner(
-  db: D1Database,
-  owner: CloudflareConnectionOwner,
-): Promise<CloudflareConnection | null> {
-  return owner.kind === 'user'
-    ? findCloudflareConnectionForUser(db, owner.userId)
-    : findCloudflareConnectionForOrganization(db, owner.orgId);
 }
 
 export async function findActiveCloudflareConnection(
@@ -254,7 +241,6 @@ async function isExactActivatedCloudflareConnection(
   if (
     !row ||
     (args.expectedGeneration === null && row.id !== args.connectionId) ||
-    (args.owner.kind === 'user' ? row.user_id : row.org_id) !== ownerId(args.owner) ||
     row.account_id !== args.accountId ||
     row.account_name !== args.accountName ||
     row.status !== 'active' ||
