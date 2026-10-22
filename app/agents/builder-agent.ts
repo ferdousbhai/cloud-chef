@@ -107,7 +107,7 @@ import type {
   BuilderWorkspaceSyncPage,
 } from './builder-workspace-types';
 import { builderTemplateSeedId, loadBuilderTemplate } from './builder-template';
-import { parentBuilderWorkspaceSeedId, seedBuilderWorkspace } from './builder-workspace-seed';
+import { parentBuilderWorkspaceSeedId, readWholeSyncFeed, seedBuilderWorkspace } from './builder-workspace-seed';
 import {
   linkedWorkspaceChanges,
   newLinkedBranchKey,
@@ -1682,7 +1682,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       );
     }
     const template = await loadBuilderTemplate();
-    return this.seedWorkspace(builderTemplateSeedId(), template);
+    return seedBuilderWorkspace(this.workspace, builderTemplateSeedId(), template);
   }
 
   /** The publish tools for a workspace opened from an organization's GitHub project; none otherwise. */
@@ -2156,46 +2156,18 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!parentState.initialized) {
       throw new Error('The parent durable project workspace is not initialized.');
     }
-    const entries: BuilderWorkspaceFileInput[] = [];
-    let cursor: string | undefined;
-    let restarts = 0;
-    while (true) {
-      const request: WorkspaceSyncPageRequest = { fromRevision: 0 };
-      if (cursor) {
-        request.cursor = cursor;
-      }
-      const page = await parent.getWorkspaceSyncPage(request);
-      if (page.restart) {
-        restarts += 1;
-        if (restarts > MAX_WORKSPACE_COPY_RESTARTS) {
-          throw new Error('The workspace kept changing while it was being copied. Open the conversation again.');
-        }
-        entries.length = 0;
-        cursor = undefined;
-        continue;
-      }
-      for (const entry of page.entries) {
-        if (entry.kind === 'write') {
-          const input: BuilderWorkspaceFileInput = {
-            path: entry.path,
-            content: entry.content,
-            encoding: entry.encoding,
-          };
-          if (entry.mode !== undefined) {
-            input.mode = entry.mode;
-          }
-          entries.push(input);
-        }
-      }
-      if (!page.nextCursor) {
-        return { entries, targetRevision: page.targetRevision };
-      }
-      cursor = page.nextCursor;
+    const feed = await readWholeSyncFeed((request) => parent.getWorkspaceSyncPage(request));
+    if (!feed) {
+      throw new Error('The workspace kept changing while it was being copied. Open the conversation again.');
     }
-  }
-
-  private async seedWorkspace(seedId: string, entries: BuilderWorkspaceFileInput[]): Promise<BuilderWorkspaceState> {
-    return seedBuilderWorkspace(this.workspace, seedId, entries);
+    const entries = feed.files.map((file) => {
+      const input: BuilderWorkspaceFileInput = { path: file.path, content: file.content, encoding: file.encoding };
+      if (file.mode !== undefined) {
+        input.mode = file.mode;
+      }
+      return input;
+    });
+    return { entries, targetRevision: feed.targetRevision };
   }
 
   private async terminalizeDeployment(job: DeploymentJob): Promise<BuilderDeploymentState> {
@@ -2381,8 +2353,16 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
   }
 
-  /** Deployment follows a settled preview publication, never blocking it — and never skipping it. */
-  private async scheduleDeploymentAfterPreview(job: PreviewPublicationJob, epoch?: number): Promise<void> {
+  /**
+   * Deployment follows a settled pipeline preview, or any preview of a revision a turn asked to publish
+   * — never a manual "Build preview" alone, which must not promote to the public production URL. A
+   * failed preview still deploys behind the pipeline so one broken preview never costs the user the
+   * production deployment. It never blocks the preview, and never skips it.
+   */
+  private async schedulePipelineDeploymentAfterPreview(job: PreviewPublicationJob, epoch?: number): Promise<void> {
+    if (!job.autoDeploy && !this.state.publicationPending) {
+      return;
+    }
     const checkpoint = deploymentJobSchema.safeParse({
       workspaceRevision: job.workspaceRevision,
       revision: job.snapshotRevision,
@@ -3049,18 +3029,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         this.recordFailedPublication(job.snapshotRevision);
       }
       await this.schedulePipelineDeploymentAfterPreview(job, epoch);
-    }
-  }
-
-  /**
-   * Deployment follows a settled pipeline preview, or any preview of a revision a turn asked to publish
-   * — never a manual "Build preview" alone, which must not promote to the public production URL. A
-   * failed preview still deploys behind the pipeline so one broken preview never costs the user the
-   * production deployment.
-   */
-  private async schedulePipelineDeploymentAfterPreview(job: PreviewPublicationJob, epoch?: number): Promise<void> {
-    if (job.autoDeploy || this.state.publicationPending) {
-      await this.scheduleDeploymentAfterPreview(job, epoch);
     }
   }
 

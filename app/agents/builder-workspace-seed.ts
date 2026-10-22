@@ -1,6 +1,42 @@
-import type { BuilderWorkspaceApi } from './builder-workspace-api';
-import type { BuilderWorkspaceFileInput, BuilderWorkspaceState } from './builder-workspace-types';
+import type { BuilderWorkspaceApi, WorkspaceSyncPageRequest } from './builder-workspace-api';
+import type {
+  BuilderWorkspaceFileInput,
+  BuilderWorkspaceState,
+  BuilderWorkspaceSyncEntry,
+  BuilderWorkspaceSyncPage,
+} from './builder-workspace-types';
 import { batchBuilderWorkspaceSeed, builderTemplateTotals } from './builder-template';
+
+/** How many times reading a workspace's whole sync feed starts over because the workspace changed. */
+const MAX_SYNC_FEED_RESTARTS = 5;
+
+type BuilderWorkspaceSyncWrite = Extract<BuilderWorkspaceSyncEntry, { kind: 'write' }>;
+
+/**
+ * Every file a workspace holds, read page by page from the start of its sync feed, and the revision they
+ * are at; null when the workspace kept changing under the read, which starts over each time.
+ */
+export async function readWholeSyncFeed(
+  getPage: (request: WorkspaceSyncPageRequest) => Promise<BuilderWorkspaceSyncPage>,
+): Promise<{ files: BuilderWorkspaceSyncWrite[]; targetRevision: number } | null> {
+  let files: BuilderWorkspaceSyncWrite[] = [];
+  let cursor: string | undefined;
+  for (let restarts = 0; restarts <= MAX_SYNC_FEED_RESTARTS;) {
+    const page = await getPage(cursor ? { fromRevision: 0, cursor } : { fromRevision: 0 });
+    if (page.restart) {
+      restarts += 1;
+      files = [];
+      cursor = undefined;
+      continue;
+    }
+    files.push(...page.entries.filter((entry) => entry.kind === 'write'));
+    if (!page.nextCursor) {
+      return { files, targetRevision: page.targetRevision };
+    }
+    cursor = page.nextCursor;
+  }
+  return null;
+}
 
 export function parentBuilderWorkspaceSeedId(targetRevision: number): string {
   if (!Number.isSafeInteger(targetRevision) || targetRevision < 0) {

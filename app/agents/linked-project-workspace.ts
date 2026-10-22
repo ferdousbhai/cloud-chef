@@ -2,6 +2,7 @@ import { WORK_DIR } from 'cloudchef-agent/constants';
 import type { LinkedSnapshotLine } from '~/lib/.server/cloudflare/linked-project-client';
 import { bytesToBase64, sha256Hex } from '~/lib/hex-digest';
 import type { BuilderWorkspaceApi } from './builder-workspace-api';
+import { readWholeSyncFeed } from './builder-workspace-seed';
 import { gitignoreMatcher, isNeverPublished } from './linked-project-ignore';
 import {
   BUILDER_WORKSPACE_SYNC_BATCH_BYTES,
@@ -201,41 +202,31 @@ function projectPath(path: string): string {
 export async function packDraftSnapshot(
   workspace: Pick<BuilderWorkspaceApi, 'getSyncPage'>,
 ): Promise<{ snapshot: string; files: number }> {
+  const feed = await readWholeSyncFeed((request) => workspace.getSyncPage(request));
+  if (!feed) {
+    throw new Error('The draft kept changing while it was being read. Try again.');
+  }
   let files: { path: string; contentBase64: string }[] = [];
-  let gitignores: { path: string; content: string }[] = [];
-  let cursor: string | undefined;
-  for (;;) {
-    const page = await workspace.getSyncPage(cursor ? { fromRevision: 0, cursor } : { fromRevision: 0 });
-    if (page.restart) {
-      files = [];
-      gitignores = [];
-      cursor = undefined;
+  const gitignores: { path: string; content: string }[] = [];
+  for (const entry of feed.files) {
+    const path = projectPath(entry.path);
+    if (EXCLUDED_ROOTS.has(path.split('/')[0] ?? '') || isNeverPublished(path)) {
       continue;
     }
-    for (const entry of page.entries) {
-      const path = projectPath(entry.path);
-      if (entry.kind !== 'write' || EXCLUDED_ROOTS.has(path.split('/')[0] ?? '') || isNeverPublished(path)) {
-        continue;
-      }
-      if (isGitignore(path)) {
-        gitignores.push({
-          path,
-          content:
-            entry.encoding === 'base64'
-              ? new TextDecoder().decode(Uint8Array.from(atob(entry.content), (char) => char.charCodeAt(0)))
-              : entry.content,
-        });
-      }
-      files.push({
+    if (isGitignore(path)) {
+      gitignores.push({
         path,
-        contentBase64:
-          entry.encoding === 'base64' ? entry.content : bytesToBase64(new TextEncoder().encode(entry.content)),
+        content:
+          entry.encoding === 'base64'
+            ? new TextDecoder().decode(Uint8Array.from(atob(entry.content), (char) => char.charCodeAt(0)))
+            : entry.content,
       });
     }
-    if (!page.nextCursor) {
-      break;
-    }
-    cursor = page.nextCursor;
+    files.push({
+      path,
+      contentBase64:
+        entry.encoding === 'base64' ? entry.content : bytesToBase64(new TextEncoder().encode(entry.content)),
+    });
   }
   const ignored = gitignoreMatcher(gitignores);
   files = files.filter((file) => !ignored(file.path));
