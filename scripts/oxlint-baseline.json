@@ -1,14 +1,9 @@
 {
-  "total": 1106,
+  "total": 1086,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 5
-    },
-    "app/agents/builder-agent-schema.test.ts": {
-      "anti-slop/no-unknown-returns": 1,
-      "anti-slop/no-unsafe-dictionary-type": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 8
     },
     "app/agents/builder-agent.ts": {
       "anti-slop/no-unknown-parameters": 3,
@@ -460,13 +455,6 @@
       "anti-slop/no-runtime-typeof": 1,
       "anti-slop/no-unknown-parameters": 2
     },
-    "cloudchef-agent/line-edit.test.ts": {
-      "anti-slop/no-chained-type-assertions": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 2
-    },
-    "cloudchef-agent/line-edit.ts": {
-      "anti-slop/no-runtime-typeof": 2
-    },
     "cloudchef-agent/model-tool-inputs.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 1
     },
@@ -482,9 +470,6 @@
       "anti-slop/no-runtime-typeof": 1,
       "anti-slop/no-unknown-parameters": 1,
       "anti-slop/no-unsafe-dictionary-type": 1
-    },
-    "cloudchef-agent/utils/stripIndent.ts": {
-      "anti-slop/no-runtime-typeof": 1
     },
     "playwright.config.ts": {
       "anti-slop/no-conditional-empty-object-spread": 1
@@ -611,10 +596,6 @@
       "anti-slop/no-runtime-typeof": 2,
       "anti-slop/no-unknown-parameters": 3,
       "anti-slop/no-unknown-returns": 2
-    },
-    "user-workspace-runtime/src/computer-admission.test.ts": {
-      "anti-slop/no-chained-type-assertions": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 3
     },
     "user-workspace-runtime/src/container-toolchain.test.ts": {
       "anti-slop/no-unknown-parameters": 1,
