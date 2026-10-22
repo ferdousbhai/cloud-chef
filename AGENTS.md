@@ -44,13 +44,8 @@ pnpm run ops:session -- <chat id | user email | user id> [--json] [--full]
 ```
 
 The ops commands read production state through the operator's `cf` CLI login (`cf auth login`, or
-`CLOUDFLARE_API_TOKEN`) and must remain read-only. `ops:session` reconstructs a member's most recent chat (or the
-named one) when they report a problem: the person, runtime, and usage from control-plane D1; the chat, transcripts,
-and deployments from the workspace's own `cloudchef-data-<suffix>` D1; the workspace Worker's Workers Logs over the
-conversation (turns, budgets, model finishes, warnings, errors); every model request filed under the chat in AI
-Gateway, with the conversation (user messages, assistant text, tool calls and errors) from the latest one; and, for
-a GitHub project, the conversation's branch's commits and their Workers Builds check runs through the operator's `gh`
-login (the latest of the member's branches, since which one is the chat's isn't recorded).
+`CLOUDFLARE_API_TOKEN`) and must remain read-only. What each one reads is described under Platform Status in
+DEVELOPMENT.md.
 
 ## Cloudflare CLI
 
