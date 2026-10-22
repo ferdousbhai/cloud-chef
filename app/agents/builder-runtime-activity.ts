@@ -156,38 +156,19 @@ export class BuilderRuntimeActivity {
             waiting = true;
             onWaiting?.(true);
           }
-          await this.pause(Math.min(UPGRADE_WINDOW_POLL_MS, Math.max(0, window.open.expiresAt - now)), signal);
+          await this.sleep(Math.min(UPGRADE_WINDOW_POLL_MS, Math.max(0, window.open.expiresAt - now)), signal);
           continue;
         }
         if (now >= giveUpAt) {
           logger.warn('Starting work the workspace runtime could not record as busy');
           return;
         }
-        await this.pause(UPGRADE_WINDOW_POLL_MS, signal);
+        await this.sleep(UPGRADE_WINDOW_POLL_MS, signal);
       }
     } finally {
       if (waiting) {
         onWaiting?.(false);
       }
-    }
-  }
-
-  /** Sleep between polls, cut short when `signal` aborts (the next poll then throws its reason). */
-  private async pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
-    if (!signal) {
-      await this.sleep(ms);
-      return;
-    }
-    let onAbort: () => void = () => undefined;
-    const aborted = new Promise<void>((resolve) => {
-      onAbort = resolve;
-      signal.addEventListener('abort', onAbort, { once: true });
-    });
-    try {
-      // The sleep hears the signal too, so its timer does not outlive a Stop.
-      await Promise.race([this.sleep(ms, signal), aborted]);
-    } finally {
-      signal.removeEventListener('abort', onAbort);
     }
   }
 

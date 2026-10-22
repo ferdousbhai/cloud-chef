@@ -41,35 +41,17 @@ export function publicationStageLabel(state: BuilderPublicationState | null): st
   return state.percent === null ? `${state.message}…` : `${state.message}… ${state.percent}%`;
 }
 
-/** The newest recorded step of this publication, or null while nothing has been recorded yet. */
+/** The publication's newest recorded step, and where it sits in the lane's ladder. */
 export function publicationProgress(
   lane: BuilderPublicationLane,
-  activity: readonly PublicationActivityRow[],
-): BuilderPublicationState | null {
-  const latest = newestActivity(activity);
-  if (!latest) {
-    return null;
-  }
+  latest: PublicationActivityRow,
+): BuilderPublicationState {
   return {
     lane,
     message: latest.message,
     percent: stagePercent(lane, latest.sequence),
     updatedAt: latest.createdAt,
   };
-}
-
-/**
- * Rows are ordered by the sequence column, but the runtime's shared artifact band interleaves with
- * each lane's own numbering, so the row that happened last is the one with the latest timestamp.
- */
-function newestActivity(activity: readonly PublicationActivityRow[]): PublicationActivityRow | null {
-  let newest: PublicationActivityRow | null = null;
-  for (const row of activity) {
-    if (!newest || row.createdAt > newest.createdAt) {
-      newest = row;
-    }
-  }
-  return newest;
 }
 
 function stagePercent(lane: BuilderPublicationLane, sequence: number): number | null {

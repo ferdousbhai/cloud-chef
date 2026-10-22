@@ -3134,7 +3134,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           continue;
         }
         const latest = await latestDeploymentActivity(this.env.DB, id).catch(() => null);
-        const progress = latest ? publicationProgress(lane, [latest]) : null;
+        const progress = latest ? publicationProgress(lane, latest) : null;
         if (running && progress && progress.updatedAt !== this.state.publication?.updatedAt) {
           this.setState({ ...this.state, publication: progress });
         }
