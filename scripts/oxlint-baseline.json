@@ -1,5 +1,5 @@
 {
-  "total": 1126,
+  "total": 1117,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -73,9 +73,6 @@
     },
     "app/components/chat/useMessageInputController.ts": {
       "anti-slop/no-unknown-parameters": 1
-    },
-    "app/components/cloudflare/ReauthorizeInterstitial.client.test.tsx": {
-      "anti-slop/no-module-mocking": 1
     },
     "app/components/editor/codemirror/editor-change-buffer.test.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 1
@@ -152,7 +149,7 @@
       "anti-slop/require-safety-comment-for-type-assertion": 8
     },
     "app/lib/.server/cloudflare/user-account-api.ts": {
-      "anti-slop/no-runtime-typeof": 33,
+      "anti-slop/no-runtime-typeof": 32,
       "anti-slop/no-unknown-parameters": 12,
       "anti-slop/no-unsafe-dictionary-type": 4,
       "anti-slop/require-safety-comment-for-type-assertion": 4
@@ -448,8 +445,7 @@
       "anti-slop/no-runtime-typeof": 2
     },
     "cloudchef-agent/ai-compat.ts": {
-      "anti-slop/no-runtime-typeof": 10,
-      "anti-slop/no-unknown-parameters": 2,
+      "anti-slop/no-runtime-typeof": 5,
       "anti-slop/no-unsafe-dictionary-type": 2
     },
     "cloudchef-agent/cloudflare-computer.test.ts": {
