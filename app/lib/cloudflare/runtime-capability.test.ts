@@ -1,22 +1,29 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mintRuntimeCapability, verifyRuntimeCapability } from './runtime-capability';
 
 const secret = 'runtime-capability-secret-that-is-long-enough';
 const origin = 'https://cloudchef.build';
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('user runtime capabilities', () => {
   it('binds a short-lived token to its user and browser origin', async () => {
-    const minted = await mintRuntimeCapability({ secret, subject: 'user-1', origin, now: 1_000 });
+    vi.useFakeTimers({ toFake: ['Date'], now: 1_000 });
+    const minted = await mintRuntimeCapability({ secret, subject: 'user-1', origin });
 
-    await expect(verifyRuntimeCapability(secret, minted.token, { origin, now: 2_000 })).resolves.toMatchObject({
+    vi.setSystemTime(2_000);
+    await expect(verifyRuntimeCapability(secret, minted.token, { origin })).resolves.toMatchObject({
       subject: 'user-1',
       origin,
       expiresAt: minted.expiresAt,
     });
     await expect(
-      verifyRuntimeCapability(secret, minted.token, { origin: 'https://attacker.example', now: 2_000 }),
+      verifyRuntimeCapability(secret, minted.token, { origin: 'https://attacker.example' }),
     ).resolves.toBeNull();
-    await expect(verifyRuntimeCapability(secret, minted.token, { origin, now: minted.expiresAt })).resolves.toBeNull();
+    vi.setSystemTime(minted.expiresAt);
+    await expect(verifyRuntimeCapability(secret, minted.token, { origin })).resolves.toBeNull();
   });
 
   it('rejects tampering and non-HTTPS origins', async () => {

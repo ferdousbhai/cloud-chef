@@ -25,10 +25,9 @@ export async function mintRuntimeCapability(args: {
   secret: string;
   subject: string;
   origin: string;
-  now?: number;
 }): Promise<{ token: string; expiresAt: number }> {
   requireSecret(args.secret);
-  const expiresAt = (args.now ?? Date.now()) + RUNTIME_CAPABILITY_TTL_MS;
+  const expiresAt = Date.now() + RUNTIME_CAPABILITY_TTL_MS;
   const payload: RuntimeCapability = {
     version: CAPABILITY_VERSION,
     subject: requireBoundedString(args.subject, 'capability subject', 512),
@@ -44,7 +43,7 @@ export async function mintRuntimeCapability(args: {
 export async function verifyRuntimeCapability(
   secret: string,
   token: string,
-  options: { origin?: string | null; now?: number } = {},
+  options: { origin?: string | null } = {},
 ): Promise<RuntimeCapability | null> {
   try {
     requireSecret(secret);
@@ -63,7 +62,7 @@ export async function verifyRuntimeCapability(
     const capability = parsed.data;
     requireOrigin(capability.origin);
     if (
-      capability.expiresAt <= (options.now ?? Date.now()) ||
+      capability.expiresAt <= Date.now() ||
       (options.origin !== undefined && options.origin !== null && capability.origin !== options.origin)
     ) {
       return null;
