@@ -8,6 +8,7 @@ import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { queryClient } from '~/lib/stores/reactQueryClient';
 import { takeReauthenticationSwitchedAccount } from '~/lib/stores/reauthentication';
 import { ReauthenticatePrompt } from './ReauthenticatePrompt';
+import { errorFeedback, FeedbackLine } from './Feedback';
 import { z } from 'zod';
 import { postJson, RequestError } from '~/lib/json-request';
 
@@ -189,11 +190,7 @@ export function AccountDataCard() {
           Saved <code>{ACCOUNT_EXPORT_FILENAME}</code>.
         </p>
       ) : null}
-      {exportError ? (
-        <p className="mt-2 max-w-2xl text-sm text-bolt-elements-icon-error" role="alert">
-          {exportError}
-        </p>
-      ) : null}
+      <FeedbackLine feedback={errorFeedback(exportError)} className="mt-2 max-w-2xl" />
 
       <details className="mt-3 text-sm text-content-secondary">
         <summary className="cursor-pointer py-1 text-content-primary">Clear this browser</summary>
@@ -332,11 +329,7 @@ export function AccountDataCard() {
           )}
         </>
       )}
-      {error ? (
-        <p className="mt-3 text-sm text-bolt-elements-icon-error" role="alert">
-          {error}
-        </p>
-      ) : null}
+      <FeedbackLine feedback={errorFeedback(error)} className="mt-3" />
     </section>
   );
 }

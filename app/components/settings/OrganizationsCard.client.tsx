@@ -181,11 +181,7 @@ export function OrganizationsCard() {
         Share one Cloudflare account with the people you work with. They sign in with Google or an emailed link, without
         Cloudflare logins of their own, and each builds in their own workspace there.
       </p>
-      {error ? (
-        <p className="mt-3 text-sm text-bolt-elements-icon-error" role="alert">
-          {error}
-        </p>
-      ) : null}
+      <FeedbackLine feedback={errorFeedback(error)} className="mt-3" />
       {githubMessage ? (
         <p className="mt-3 text-sm text-content-secondary" role="status">
           {githubMessage}

@@ -9,6 +9,7 @@ import {
 import { z } from 'zod';
 import { getJson, messageOf, RequestError } from '~/lib/json-request';
 import { ReauthenticatePrompt } from './ReauthenticatePrompt';
+import { errorFeedback, FeedbackLine } from './Feedback';
 
 const connectionStatusSchema = z.looseObject({
   accountName: z.string().nullish(),
@@ -125,11 +126,7 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
           onError={setError}
         />
       ) : null}
-      {error ? (
-        <p className="mt-3 text-sm text-bolt-elements-icon-error" role="alert">
-          {error}
-        </p>
-      ) : null}
+      <FeedbackLine feedback={errorFeedback(error)} className="mt-3" />
       {organization && !admin && !offersOwnAccount ? null : (
         <p className="mt-3 text-xs text-content-tertiary">Requires Cloudflare Workers Paid and Containers.</p>
       )}

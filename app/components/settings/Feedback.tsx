@@ -13,12 +13,11 @@ export function FeedbackLine({ feedback, className = 'mt-2' }: { feedback: Feedb
   if (!feedback) {
     return null;
   }
-  return feedback.error ? (
-    <p className={`${className} text-sm text-bolt-elements-icon-error [overflow-wrap:anywhere]`} role="alert">
-      {feedback.text}
-    </p>
-  ) : (
-    <p className={`${className} text-sm text-content-secondary [overflow-wrap:anywhere]`} role="status">
+  return (
+    <p
+      className={`${className} text-sm ${feedback.error ? 'text-bolt-elements-icon-error' : 'text-content-secondary'} [overflow-wrap:anywhere]`}
+      role={feedback.error ? 'alert' : 'status'}
+    >
       {feedback.text}
     </p>
   );
