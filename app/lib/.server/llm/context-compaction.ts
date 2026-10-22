@@ -7,8 +7,6 @@ export const CONTEXT_HANDOFF_REMINDER_TOKENS = 20_000;
 export const MAX_HANDOFF_CHARACTERS = 20_000;
 const AUTOMATIC_HANDOFF = 'Automatic context rollover recovery record.';
 const HANDOFF_PREFIX = 'Earlier conversation is preserved in history. Continue from this checkpoint:\n\n<summary>\n';
-const LEGACY_PREFIX =
-  'The conversation history before this point was compacted into the following summary:\n\n<summary>\n';
 const HANDOFF_SUFFIX = '\n</summary>';
 
 /** Storage fields stay compatible with checkpoints saved before handoff-based rollover. */
@@ -214,8 +212,9 @@ function readCheckpoint(message: AgentMessage): string | undefined {
     return undefined;
   }
   const text = contentText(message.content);
-  const prefix = [HANDOFF_PREFIX, LEGACY_PREFIX].find((value) => text.startsWith(value));
-  return prefix && text.endsWith(HANDOFF_SUFFIX) ? text.slice(prefix.length, -HANDOFF_SUFFIX.length) : undefined;
+  return text.startsWith(HANDOFF_PREFIX) && text.endsWith(HANDOFF_SUFFIX)
+    ? text.slice(HANDOFF_PREFIX.length, -HANDOFF_SUFFIX.length)
+    : undefined;
 }
 function contentText(content: string | Array<{ type: string; text?: string }>): string {
   return typeof content === 'string'

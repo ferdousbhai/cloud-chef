@@ -25,7 +25,7 @@ export function useCurrentToolStatus(messages: CloudChefMessage[]): {
 export function currentToolStatus(messages: CloudChefMessage[], activities: ToolActivities) {
   const currentPartIds = new Set<string>();
   for (const message of messages) {
-    message.parts?.forEach((_part, index) => currentPartIds.add(makePartId(message.id, index)));
+    message.parts.forEach((_part, index) => currentPartIds.add(makePartId(message.id, index)));
   }
   const activeToolNames = new Set<string>();
   for (const [partId, activity] of Object.entries(activities)) {

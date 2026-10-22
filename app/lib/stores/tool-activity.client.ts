@@ -120,7 +120,7 @@ export class ToolActivityStore {
   }
 
   finishTurn(message: CloudChefMessage): void {
-    message.parts?.forEach((part, index) => {
+    message.parts.forEach((part, index) => {
       const invocation = getToolInvocation(part);
       if (invocation) {
         this.record(makePartId(message.id, index), invocation);

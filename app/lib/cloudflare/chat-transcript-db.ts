@@ -29,7 +29,7 @@ const serializedMessageFields = z
     id: z.string().min(1),
     role: z.enum(['system', 'user', 'assistant']),
     createdAt: z.number().optional(),
-    parts: z.array(z.object({ type: z.string().min(1) }).loose()).optional(),
+    parts: z.array(z.object({ type: z.string().min(1) }).loose()),
   })
   .loose();
 

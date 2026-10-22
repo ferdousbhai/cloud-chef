@@ -24,9 +24,6 @@ export function useReloadMessages(initialMessages: CloudChefMessage[] | undefine
     try {
       const partCache: PartCache = new Map();
       for (const message of initialMessages) {
-        if (!message.parts) {
-          continue;
-        }
         processMessage(message, partCache);
       }
       setReloadState({ initialMessages, partCache, subchatIndex });

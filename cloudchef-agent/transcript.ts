@@ -19,7 +19,7 @@ export const transcriptCheckpointSchema = transcriptIdentitySchema.extend({
 
 export type TranscriptIdentity = z.infer<typeof transcriptIdentitySchema>;
 export type TranscriptCheckpoint = z.infer<typeof transcriptCheckpointSchema>;
-type TranscriptMessage = { id: string; role: string; parts?: unknown[] };
+type TranscriptMessage = { id: string; role: string; parts: unknown[] };
 
 export function transcriptIdentitiesEqual(left: TranscriptIdentity, right: TranscriptIdentity): boolean {
   return (
@@ -107,7 +107,7 @@ function canonicalTranscriptMessage(message: TranscriptMessage) {
   return {
     id: message.id,
     role: message.role,
-    parts: message.parts ?? [],
+    parts: message.parts,
   };
 }
 

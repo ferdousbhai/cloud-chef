@@ -59,9 +59,6 @@ export function processMessage(message: CloudChefMessage, previousParts: PartCac
   if (message.role === 'user') {
     return message;
   }
-  if (!message.parts) {
-    throw new Error('Message has no parts');
-  }
   const parsedParts = [];
   for (let i = 0; i < message.parts.length; i++) {
     const part = message.parts[i];
