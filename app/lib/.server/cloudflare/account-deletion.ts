@@ -10,8 +10,8 @@ import { deleteTeamWorkspace, type DeleteTeamWorkspace } from './team-workspace'
  *
  * Resumable: each step finds its work again from what the earlier ones leave behind, so retrying an
  * erasure interrupted at any point finishes it and reports what it finds then. Team workspaces are
- * found from this person's runtime rows, which stay until the last write, not from their memberships;
- * leaving every team and deleting the teams only they belonged to are one write, so no team is ever
+ * found from this person's runtime rows, which stay until the last write, not from their memberships.
+ * A team only they belong to is deleted with their membership in it, in one write, so no team is ever
  * left behind with nobody in it.
  */
 export async function eraseControlPlaneAccount(args: {
@@ -29,7 +29,7 @@ export async function eraseControlPlaneAccount(args: {
   // A member's own erasure never touches the grant of an organization others still build in.
   // An erasure that must be refused is refused here, before anything changes. Leaving checks again
   // as it writes: only another admin stepping down in between can still refuse it there, after the
-  // workspaces and the sole-member teams' grants are gone, and a retry then picks up from there.
+  // workspaces and the teams only they belonged to are gone, and a retry then picks up from there.
   if ((await organizationsNeedingAnotherAdmin(db, args.userId)).length > 0) {
     throw new OrganizationAdminRequiredError('Make someone else an admin of your team first.');
   }
@@ -41,17 +41,25 @@ export async function eraseControlPlaneAccount(args: {
     args.deleteWorkspace ?? deleteTeamWorkspace,
   );
   let vault: D1CloudflareCredentialVault | null | undefined;
-  const credentialVault = () => (vault === undefined ? (vault = args.vault ?? safeCredentialVault(args.env)) : vault);
-  const soleOrgIds = await soleMemberOrganizations(db, args.userId);
-  // Revoked while their connections still name the grants: deleting the organizations takes the
-  // connections, after which a retry couldn't find these grants again.
-  const soleHandles = await revokeSoleMemberOrganizations(db, args.userId, soleOrgIds);
-  const soleRevocations = await revokeGrants(soleHandles, credentialVault);
-  await leaveOrganizations(db, args.userId, { soleOrgIds, soleHandles });
+  const revokeGrant = (handle: string) => {
+    vault = vault === undefined ? (args.vault ?? safeCredentialVault(args.env)) : vault;
+    return vault ? vault.revokeOAuthCredential(handle) : Promise.resolve(false);
+  };
+  const revocations: boolean[] = [];
+  // Each team only they belong to goes with them, as deleting it would; a retry finds any left from
+  // their membership, which goes with the team.
+  for (const orgId of await soleMemberOrganizations(db, args.userId)) {
+    const revoked = await deleteOrganization(db, orgId, revokeGrant);
+    if (revoked !== null) {
+      revocations.push(revoked);
+    }
+  }
+  await leaveOrganizations(db, args.userId);
   // Their own connection stays in place until the last write, so a retry finds its grant again.
   const credentialHandle = await revokeConnection(db, args.userId);
-  const ownRevocations = await revokeGrants(credentialHandle ? [credentialHandle] : [], credentialVault);
-  const revocations = [...soleRevocations, ...ownRevocations];
+  if (credentialHandle) {
+    revocations.push(await revokeOrWarn(revokeGrant, credentialHandle));
+  }
   const cloudflareAuthorizationRevoked = revocations.length > 0 && revocations.every(Boolean);
 
   await db.batch([
@@ -71,38 +79,62 @@ export async function eraseControlPlaneAccount(args: {
     db.prepare('DELETE FROM user_computer_runtimes WHERE user_id = ?').bind(args.userId),
     db.prepare('DELETE FROM cloudflare_auth_sessions WHERE user_id = ?').bind(args.userId),
     db.prepare('DELETE FROM cloudflare_connections WHERE user_id = ?').bind(args.userId),
-    db
-      .prepare(
-        `DELETE FROM cloudflare_credentials
-         WHERE handle = ? AND NOT EXISTS (
-           SELECT 1 FROM cloudflare_connections WHERE credential_handle = ?
-         )`,
-      )
-      .bind(credentialHandle, credentialHandle),
+    ...(credentialHandle ? [deleteUnusedCredential(db, credentialHandle)] : []),
     db.prepare('DELETE FROM "user" WHERE id = ?').bind(args.userId),
   ]);
 
   return { cloudflareAuthorizationRevoked, workspacesLeftIn };
 }
 
-async function revokeGrants(
-  handles: string[],
-  credentialVault: () => D1CloudflareCredentialVault | null,
-): Promise<boolean[]> {
-  if (handles.length === 0) {
-    return [];
-  }
-  const vault = credentialVault();
-  return Promise.all(
-    handles.map((handle) =>
-      vault
-        ? vault.revokeOAuthCredential(handle).catch(() => {
-            console.warn('Unable to revoke the Cloudflare grant during account erasure');
-            return false;
-          })
-        : false,
-    ),
-  );
+/**
+ * Deletes a team, as its admin deleting it or its last member's erasure does. Its connection is
+ * revoked first, so nothing builds there, then CloudChef's grant on the account is revoked with
+ * Cloudflare, then the team's records go: the team, and with it (by their foreign keys) its
+ * memberships, invites, usage counts, GitHub installation and connection states, linked projects and
+ * who may work on each, production requests and their drafts, its Cloudflare connection and every
+ * workspace locator in it, and the connection's stored authorization. Whether the grant was revoked;
+ * null when the team had none. A connection an earlier, interrupted deletion already revoked is
+ * revoked again.
+ */
+export async function deleteOrganization(
+  db: D1Database,
+  orgId: string,
+  revokeGrant: (credentialHandle: string) => Promise<boolean>,
+): Promise<boolean | null> {
+  const revoked = await db
+    .prepare(
+      `UPDATE cloudflare_connections SET status = 'revoked', updated_at = ? WHERE org_id = ?
+       RETURNING credential_handle`,
+    )
+    .bind(Date.now(), orgId)
+    .first<{ credential_handle: string | null }>();
+  const credentialHandle = revoked?.credential_handle ?? null;
+  const grantRevoked = credentialHandle ? await revokeOrWarn(revokeGrant, credentialHandle) : null;
+  await db.batch([
+    db.prepare('DELETE FROM organizations WHERE id = ?').bind(orgId),
+    ...(credentialHandle ? [deleteUnusedCredential(db, credentialHandle)] : []),
+  ]);
+  return grantRevoked;
+}
+
+/** Deletes a stored authorization once no connection names it. */
+function deleteUnusedCredential(db: D1Database, credentialHandle: string): D1PreparedStatement {
+  return db
+    .prepare(
+      `DELETE FROM cloudflare_credentials
+       WHERE handle = ?1 AND NOT EXISTS (SELECT 1 FROM cloudflare_connections WHERE credential_handle = ?1)`,
+    )
+    .bind(credentialHandle);
+}
+
+async function revokeOrWarn(
+  revokeGrant: (credentialHandle: string) => Promise<boolean>,
+  credentialHandle: string,
+): Promise<boolean> {
+  return revokeGrant(credentialHandle).catch(() => {
+    console.warn('Unable to revoke a Cloudflare grant');
+    return false;
+  });
 }
 
 /**
@@ -195,44 +227,19 @@ export class OrganizationAdminRequiredError extends Error {}
  * Leaves every organization, all or none, in one write that keeps each one's last active admin: it
  * deletes nothing while any of them would be left with others in it and no active admin. Two sole
  * admins erasing their accounts at once can't both leave; the one left over stops with every
- * membership still in place. The organizations only this person belonged to (`soleOrgIds`), and
- * their credentials, are deleted in the same write, and only if the leaving happened.
+ * membership still in place.
  */
-export async function leaveOrganizations(
-  db: D1Database,
-  userId: string,
-  sole: { soleOrgIds: string[]; soleHandles: string[] },
-): Promise<void> {
-  const leftEverything = 'NOT EXISTS (SELECT 1 FROM organization_members WHERE user_id = ?2)';
-  await db.batch([
-    // The condition doesn't depend on the row being deleted, so SQLite settles it once, before deleting.
-    db
-      .prepare(
-        `DELETE FROM organization_members
-         WHERE user_id = ?1 AND NOT EXISTS (
-           SELECT 1 FROM organization_members AS mine WHERE ${SOLE_ACTIVE_ADMIN_WITH_OTHERS}
-         )`,
-      )
-      .bind(userId),
-    // Nobody else in it at this moment: someone who joined meanwhile keeps the organization.
-    ...sole.soleOrgIds.map((orgId) =>
-      db
-        .prepare(
-          `DELETE FROM organizations WHERE id = ?1 AND ${leftEverything}
-           AND NOT EXISTS (SELECT 1 FROM organization_members WHERE org_id = ?1)`,
-        )
-        .bind(orgId, userId),
-    ),
-    ...sole.soleHandles.map((handle) =>
-      db
-        .prepare(
-          `DELETE FROM cloudflare_credentials
-           WHERE handle = ?1 AND ${leftEverything}
-             AND NOT EXISTS (SELECT 1 FROM cloudflare_connections WHERE credential_handle = ?1)`,
-        )
-        .bind(handle, userId),
-    ),
-  ]);
+async function leaveOrganizations(db: D1Database, userId: string): Promise<void> {
+  // The condition doesn't depend on the row being deleted, so SQLite settles it once, before deleting.
+  await db
+    .prepare(
+      `DELETE FROM organization_members
+       WHERE user_id = ?1 AND NOT EXISTS (
+         SELECT 1 FROM organization_members AS mine WHERE ${SOLE_ACTIVE_ADMIN_WITH_OTHERS}
+       )`,
+    )
+    .bind(userId)
+    .run();
   const remaining = await db
     .prepare('SELECT COUNT(*) AS remaining FROM organization_members WHERE user_id = ?')
     .bind(userId)
@@ -254,28 +261,6 @@ async function soleMemberOrganizations(db: D1Database, userId: string): Promise<
     .bind(userId)
     .all<{ org_id: string }>();
   return results.map((row) => row.org_id);
-}
-
-/**
- * Revokes those organizations' connections, while still nobody else belongs to them; their grants'
- * handles. A connection an earlier, interrupted erasure already revoked is named again.
- */
-async function revokeSoleMemberOrganizations(db: D1Database, userId: string, orgIds: string[]): Promise<string[]> {
-  const handles: string[] = [];
-  for (const orgId of orgIds) {
-    const revoked = await db
-      .prepare(
-        `UPDATE cloudflare_connections SET status = 'revoked', updated_at = ?1
-         WHERE org_id = ?2 AND NOT EXISTS (SELECT 1 FROM organization_members WHERE org_id = ?2 AND user_id <> ?3)
-         RETURNING credential_handle`,
-      )
-      .bind(Date.now(), orgId, userId)
-      .first<{ credential_handle: string | null }>();
-    if (revoked?.credential_handle) {
-      handles.push(revoked.credential_handle);
-    }
-  }
-  return handles;
 }
 
 async function revokeConnection(db: D1Database, userId: string): Promise<string | null> {

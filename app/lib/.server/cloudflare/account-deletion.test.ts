@@ -2,7 +2,6 @@ import type { DatabaseSync as DatabaseSyncInstance } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
 import {
   eraseControlPlaneAccount,
-  leaveOrganizations,
   OrganizationAdminRequiredError,
   organizationsNeedingAnotherAdmin,
 } from './account-deletion';
@@ -148,7 +147,7 @@ describe('control-plane account erasure', () => {
         ('alpha', 'admin', 'member', 1), ('beta', 'admin', 'admin', 1), ('beta', 'member', 'member', 1);
     `);
 
-    await expect(leaveOrganizations(db, 'admin', { soleOrgIds: [], soleHandles: [] })).rejects.toBeInstanceOf(
+    await expect(eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'admin' })).rejects.toBeInstanceOf(
       OrganizationAdminRequiredError,
     );
 
@@ -175,7 +174,7 @@ describe('control-plane account erasure', () => {
     // A paused admin is no team's active admin: once Alpha has another, nothing holds them back.
     database.exec(`UPDATE organization_members SET role = 'admin' WHERE org_id = 'alpha' AND user_id = 'member'`);
     expect(await organizationsNeedingAnotherAdmin(db, 'admin')).toEqual([]);
-    await leaveOrganizations(db, 'admin', { soleOrgIds: [], soleHandles: [] });
+    await eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'admin' });
     expect(database.prepare("SELECT org_id FROM organization_members WHERE user_id = 'admin'").all()).toEqual([]);
   });
 
@@ -326,7 +325,11 @@ describe('control-plane account erasure', () => {
   });
 
   describe.each([
-    ['before revoking the teams only they belong to', /SET status = 'revoked', updated_at = \?1/, ['acme', 'solo']],
+    [
+      'before revoking the teams only they belong to',
+      /SET status = 'revoked', updated_at = \? WHERE org_id = \?/,
+      ['acme', 'solo'],
+    ],
     ['before leaving their teams', /DELETE FROM organization_members/, ['acme']],
     ['before revoking their own connection', /WHERE user_id = \? AND status = 'active'/, ['acme']],
     ['before the last write', /DELETE FROM "user"/, ['acme']],

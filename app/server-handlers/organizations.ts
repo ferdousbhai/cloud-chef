@@ -10,7 +10,6 @@ import {
   acceptInvite,
   createInvite,
   createOrganization,
-  deleteOrganizationRecords,
   describeInvite,
   listOrganizations,
   organizationWorkspaceOwners,
@@ -18,7 +17,6 @@ import {
   renameOrganization,
   requireAdmin,
   revokeInvite,
-  revokeOrganizationConnection,
   updateMember,
 } from '~/lib/cloudflare/data/organizations.server';
 import {
@@ -30,6 +28,7 @@ import {
 } from '~/lib/cloudflare/data/org-projects.server';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import { deleteTeamWorkspace } from '~/lib/.server/cloudflare/team-workspace';
+import { deleteOrganization } from '~/lib/.server/cloudflare/account-deletion';
 
 /**
  * Organizations: an admin connects the organization's Cloudflare account and invites people by email;
@@ -312,14 +311,8 @@ export function deleteOrganizationAction({
     if (workspacesLeft > 0) {
       console.error('Unable to delete every workspace of a deleted team');
     }
-    const credentialHandle = await revokeOrganizationConnection(env.DB, orgId);
-    const cloudflareAuthorizationRevoked = credentialHandle
-      ? await revokeGrant(env, credentialHandle).catch(() => {
-          console.warn('Unable to revoke the Cloudflare grant of a deleted team');
-          return false;
-        })
-      : true;
-    await deleteOrganizationRecords(env.DB, { orgId, credentialHandle });
+    const cloudflareAuthorizationRevoked =
+      (await deleteOrganization(env.DB, orgId, (credentialHandle) => revokeGrant(env, credentialHandle))) ?? true;
     return Response.json({ deleted: true, workspacesLeft, cloudflareAuthorizationRevoked });
   });
 }

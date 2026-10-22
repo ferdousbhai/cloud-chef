@@ -158,46 +158,6 @@ export async function organizationWorkspaceOwners(
   return results.map((row) => ({ userId: row.user_id, reachable: row.reachable === 1 }));
 }
 
-/**
- * Stops the team's Cloudflare connection from being used (its grant is revoked next, with the handle
- * returned), so nothing builds there while the team's records are deleted.
- */
-export async function revokeOrganizationConnection(db: D1Database, orgId: string): Promise<string | null> {
-  const revoked = await db
-    .prepare(
-      `UPDATE cloudflare_connections SET status = 'revoked', updated_at = ? WHERE org_id = ?
-       RETURNING credential_handle`,
-    )
-    .bind(Date.now(), orgId)
-    .first<{ credential_handle: string | null }>();
-  return revoked?.credential_handle ?? null;
-}
-
-/**
- * Deletes a team's records, as erasing its last member does: the team, and with it (by their foreign
- * keys) its memberships, invites, usage counts, GitHub installation and connection states, linked
- * projects and who may work on each, production requests and their drafts, its Cloudflare connection
- * and every workspace locator in it. The connection's stored authorization goes too.
- */
-export async function deleteOrganizationRecords(
-  db: D1Database,
-  args: { orgId: string; credentialHandle: string | null },
-): Promise<void> {
-  await db.batch([
-    db.prepare('DELETE FROM organizations WHERE id = ?').bind(args.orgId),
-    ...(args.credentialHandle
-      ? [
-          db
-            .prepare(
-              `DELETE FROM cloudflare_credentials
-               WHERE handle = ?1 AND NOT EXISTS (SELECT 1 FROM cloudflare_connections WHERE credential_handle = ?1)`,
-            )
-            .bind(args.credentialHandle),
-        ]
-      : []),
-  ]);
-}
-
 export async function requireAdmin(db: D1Database, orgId: string, userId: string): Promise<Membership> {
   const membership = await findMembership(db, orgId, userId);
   if (!membership || !isActiveAdmin(membership)) {
