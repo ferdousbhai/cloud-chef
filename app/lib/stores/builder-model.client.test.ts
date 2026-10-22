@@ -367,6 +367,94 @@ describe('provider picker preferences', () => {
     expect([...olderBuilderModelIds([old, current, undated, claudeModel])]).toEqual([old.id]);
   });
 
+  it("keeps only the newest of each family in Pi's labels, by generation and then snapshot", () => {
+    // Labels as Pi's catalogs and the Workers AI catalog write them; `true` marks the ones superseded.
+    const labels: readonly [BuilderModel['id'], string, boolean][] = [
+      ['anthropic/claude-opus-4-7', 'Claude Opus 4.7', true],
+      ['anthropic/claude-opus-5', 'Claude Opus 5', true],
+      ['anthropic/claude-opus-5-5', 'Claude Opus 5.5', false],
+      ['anthropic/claude-haiku-4-5', 'Claude Haiku 4.5', true],
+      ['anthropic/claude-haiku-5-5', 'Claude Haiku 5.5', false],
+      ['openai/gpt-5.4', 'GPT-5.4', true],
+      ['openai/gpt-5.5', 'GPT-5.5', false],
+      ['openai/gpt-5-mini', 'GPT-5 Mini', true],
+      ['openai/gpt-5.4-mini', 'GPT-5.4 mini', false],
+      ['openai/gpt-5.5-pro', 'GPT-5.5 Pro', false],
+      ['openai/gpt-6-sol', 'GPT-6 Sol', true],
+      ['openai/gpt-6.1-sol', 'GPT-6.1 Sol', false],
+      ['openai/gpt-6-luna', 'GPT-6 Luna', false],
+      ['openai/o3-mini', 'o3-mini', true],
+      ['openai/o4-mini', 'o4-mini', false],
+      ['openai/o3', 'o3', false],
+      ['openrouter/x-ai/grok-4.20', 'SpaceXAI: Grok 4.20', true],
+      ['openrouter/x-ai/grok-4.7', 'SpaceXAI: Grok 4.7', false],
+      ['openrouter/openai/gpt-4o', 'OpenAI: GPT-4o', false],
+      ['openrouter/openai/gpt-4o-2024-11-20', 'OpenAI: GPT-4o (2024-11-20)', true],
+      ['openrouter/deepseek/deepseek-v4-pro', 'DeepSeek: DeepSeek V4 Pro 0423', true],
+      ['openrouter/deepseek/deepseek-v4-pro-0813', 'DeepSeek: DeepSeek V4 Pro 0813', false],
+      ['openrouter/cohere/command-r-08-2024', 'Cohere: Command R (08-2024)', false],
+      ['openrouter/qwen/qwen3.5-27b', 'Qwen: Qwen3.5-27B', true],
+      ['openrouter/qwen/qwen3.8-27b', 'Qwen: Qwen3.8 27B', false],
+      ['openrouter/qwen/qwen3.6-35b-a3b', 'Qwen: Qwen3.6 35B A3B', false],
+      ['openrouter/google/gemma-3-27b-it', 'Google: Gemma 3 27B', false],
+      ['openrouter/google/gemma-4-31b-it', 'Google: Gemma 4 31B', false],
+      ['openrouter/mistralai/mistral-large', 'Mistral Large', false],
+      ['openrouter/mistralai/mistral-large-2407', 'Mistral Large 2407', true],
+      ['openrouter/mistralai/mistral-large-2512', 'Mistral: Mistral Large 3 2512', true],
+      ['openrouter/mistralai/mistral-large-4-0', 'Mistral: Mistral Large 4', false],
+      ['openrouter/mistralai/mixtral-8x22b-instruct', 'Mistral: Mixtral 8x22B Instruct', false],
+      ['openrouter/upstage/solar-pro-3', 'Upstage: Solar Pro 3', true],
+      ['openrouter/upstage/solar-pro4', 'Upstage: Solar Pro 4', false],
+      ['@cf/zai-org/glm-5.2', 'GLM 5.2', true],
+      ['@cf/zai-org/glm-5.3', 'GLM 5.3', false],
+      ['@cf/zai-org/glm-4.7-flash', 'GLM 4.7 Flash', true],
+      ['@cf/zai-org/glm-5.3-flash', 'GLM 5.3 Flash', false],
+      ['@cf/moonshotai/kimi-k2.6', 'Kimi K2.6', false],
+      ['@cf/moonshotai/kimi-k2.7-code', 'Kimi K2.7 Code', false],
+      ['@cf/openai/gpt-oss-20b', 'GPT OSS 20B', false],
+      ['@cf/openai/gpt-oss-120b', 'GPT OSS 120B', false],
+    ];
+    const models = labels.map(([id, label]): BuilderModel => ({ ...claudeModel, id, label }));
+    const older = olderBuilderModelIds(models);
+    expect(labels.filter(([id]) => older.has(id)).map(([, label]) => label)).toEqual(
+      labels.filter(([, , superseded]) => superseded).map(([, label]) => label),
+    );
+  });
+
+  it('reads OpenRouter labels with or without their vendor, and month-year snapshots by year first', () => {
+    const unprefixed: BuilderModel = {
+      ...claudeModel,
+      id: 'openrouter/qwen/qwen-2.5-72b-instruct',
+      label: 'Qwen2.5 72B Instruct',
+    };
+    const prefixed: BuilderModel = {
+      ...claudeModel,
+      id: 'openrouter/qwen/qwen-3.8-72b-instruct',
+      label: 'Qwen: Qwen3.8 72B Instruct',
+    };
+    const lastYear: BuilderModel = {
+      ...claudeModel,
+      id: 'openrouter/cohere/command-r-08-2024',
+      label: 'Cohere: Command R (08-2024)',
+    };
+    const thisYear: BuilderModel = {
+      ...claudeModel,
+      id: 'openrouter/cohere/command-r-03-2025',
+      label: 'Cohere: Command R (03-2025)',
+    };
+    expect([...olderBuilderModelIds([unprefixed, prefixed, lastYear, thisYear])]).toEqual([unprefixed.id, lastYear.id]);
+  });
+
+  it('compares models only within one provider', () => {
+    const viaOpenRouter: BuilderModel = {
+      ...claudeModel,
+      id: 'openrouter/anthropic/claude-opus-5.5',
+      label: 'Anthropic: Claude Opus 5.5',
+    };
+    const direct: BuilderModel = { ...claudeModel, id: 'anthropic/claude-opus-4-7', label: 'Claude Opus 4.7' };
+    expect([...olderBuilderModelIds([viaOpenRouter, direct])]).toEqual([]);
+  });
+
   it('discards an invalid stored provider and restores Workers AI', () => {
     loadBuilderModelPreference({ getItem: () => 'invalid', setItem: () => undefined });
     expect(builderProviderStore.get()).toBeNull();

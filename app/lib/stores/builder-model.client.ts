@@ -416,39 +416,104 @@ export function orderBuilderProviders(models: readonly BuilderModel[], defaultMo
   return [...new Set(ordered)];
 }
 
-/** Pi exposes no release dates to the client. Compare numeric generations within the label's
- * family (the remaining words), per provider. Keep unversioned entries current;
- * dates and parameter sizes are not generations, and never make another family obsolete. */
-export function olderBuilderModelIds(models: readonly BuilderModel[]): ReadonlySet<BuilderModelId> {
-  const version = (model: BuilderModel) => {
-    const match = model.label.match(/^(.*?)(\d+(?:[.-]\d+)*)([bBmM]?)/);
-    const generation = match?.[2]?.replaceAll('-', '.') ?? '';
-    return match && Number(generation.split('.')[0]) < 100 && !match[3]
-      ? {
-          family: `${builderProviderFor(model)}/${model.label
-            .replace(/\d+(?:[.-]\d+)*[bB]?/g, '')
-            .replace(/[^a-zA-Z]+/g, ' ')
-            .trim()
-            .toLowerCase()}`,
-          generation,
-        }
-      : null;
+/**
+ * A token that dates a snapshot of a model rather than naming a different one, standing alone or in
+ * parentheses: `(2024-05-13)`, `(08-2024)`, `06-05`, `0731`, `2512`, `(0902)`.
+ */
+const SNAPSHOT_TOKEN = /(?<=^|\s)\(?(\d{4}-\d{2}-\d{2}|\d{2}-\d{4}|\d{2}-\d{2}|\d{4})\)?(?=\s|$)/g;
+/** What follows a number that says how big the model is (`27B`, `2.4T`, `A3B`, `8x22B`, `16E`), not which generation it is. */
+const SIZE_UNIT = /^(?:[xX]\d|[bBtTmMeE](?![a-zA-Z]))/;
+
+type ModelLineage = {
+  /** The provider and the label's words without its generation or snapshot: `anthropic/claude opus`. */
+  family: string;
+  /** The label's first version number, each part after the first read as a decimal: 4.20 is 4.2. */
+  generation: readonly number[] | null;
+  /** The snapshot's date as one number (MM-YYYY reordered to YYYYMM), or null for the undated name. */
+  snapshot: number | null;
+};
+
+function modelLineage(model: BuilderModel): ModelLineage {
+  let snapshot: number | null = null;
+  const name = model.label
+    // OpenRouter labels lead with the vendor ("OpenAI: GPT-5.5"), though not all of them.
+    .replace(/^[^:]*:\s*/, '')
+    .replace(SNAPSHOT_TOKEN, (_token, date: string) => {
+      const parts = date.split('-');
+      const digits = parts.length === 2 && parts[1]?.length === 4 ? `${parts[1]}${parts[0]}` : parts.join('');
+      snapshot = Math.max(snapshot ?? 0, Number(digits));
+      return ' ';
+    });
+  const version = [...name.matchAll(/\d+(?:\.\d+)*/g)].find(
+    (match) => !SIZE_UNIT.test(name.slice(match.index + match[0].length)),
+  );
+  const words = version ? `${name.slice(0, version.index)} ${name.slice(version.index + version[0].length)}` : name;
+  return {
+    family: `${builderProviderFor(model)}/${words
+      .toLowerCase()
+      .replace(/[^a-z0-9+]+/g, ' ')
+      .trim()}`,
+    generation: version
+      ? version[0].split('.').map((part, index) => (index === 0 ? Number(part) : Number(`0.${part}`)))
+      : null,
+    snapshot,
   };
-  const compare = new Intl.Collator('en', { numeric: true }).compare;
-  const newest = new Map<string, string>();
-  for (const model of models) {
-    const entry = version(model);
-    if (entry) {
-      if (compare(entry.generation, newest.get(entry.family) ?? '') > 0) {
-        newest.set(entry.family, entry.generation);
-      }
+}
+
+function compareGenerations(left: readonly number[], right: readonly number[]): number {
+  for (let index = 0; index < Math.max(left.length, right.length); index++) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) {
+      return difference;
     }
   }
+  return 0;
+}
+
+/**
+ * The models a newer one of the same family supersedes, which the picker leaves out. Pi exposes no
+ * release dates, so this reads labels, per provider:
+ *
+ * - A label's family is its words without its generation and snapshot, ignoring case, punctuation,
+ *   and an OpenRouter vendor prefix; parameter sizes and qualifiers stay in it. So "Claude Opus 4.7"
+ *   and "Claude Opus 5.5" are one family, as are "Claude 3.7 Sonnet" and "Claude Sonnet 4.6", while
+ *   "GPT-5.2" and "GPT-5.2 mini", "Kimi K2.6" and "Kimi K2.7 Code", or "Gemma 3 12B" and "Gemma 3 27B"
+ *   are not.
+ * - Its generation is its first number that is not a size or a date; the highest in a family stays.
+ *   Parts after the first are decimals, so "Grok 4.20" is older than "Grok 4.7".
+ * - Snapshots of one generation (dated labels) collapse to the undated name, which providers point at
+ *   their newest snapshot, or else to the newest date: "GPT-4o" over "GPT-4o (2024-11-20)", "DeepSeek
+ *   V4 Flash 0731" over "DeepSeek V4 Flash 0423".
+ * - A label with no generation ("GPT OSS 120B", "Mistral Large") is never superseded by one with a
+ *   generation, only by its own undated name or a newer snapshot.
+ */
+export function olderBuilderModelIds(models: readonly BuilderModel[]): ReadonlySet<BuilderModelId> {
+  const lineages = models.map((model) => ({ id: model.id, ...modelLineage(model) }));
+  const newestGeneration = new Map<string, readonly number[]>();
+  for (const { family, generation } of lineages) {
+    const newest = newestGeneration.get(family);
+    if (generation && (!newest || compareGenerations(generation, newest) > 0)) {
+      newestGeneration.set(family, generation);
+    }
+  }
+  const release = ({ family, generation }: ModelLineage) => `${family}@${generation?.join('.') ?? ''}`;
+  // Per release, the snapshot that stays: null once an undated name is listed.
+  const newestSnapshot = new Map<string, number | null>();
+  for (const lineage of lineages) {
+    const key = release(lineage);
+    const newest = newestSnapshot.get(key);
+    newestSnapshot.set(
+      key,
+      lineage.snapshot === null || newest === null ? null : Math.max(lineage.snapshot, newest ?? 0),
+    );
+  }
   return new Set(
-    models
-      .filter((model) => {
-        const entry = version(model);
-        return entry !== null && compare(entry.generation, newest.get(entry.family) ?? '') < 0;
+    lineages
+      .filter((lineage) => {
+        const newest = newestGeneration.get(lineage.family);
+        const superseded =
+          lineage.generation !== null && newest !== undefined && compareGenerations(lineage.generation, newest) < 0;
+        return superseded || (lineage.snapshot !== null && newestSnapshot.get(release(lineage)) !== lineage.snapshot);
       })
       .map(({ id }) => id),
   );

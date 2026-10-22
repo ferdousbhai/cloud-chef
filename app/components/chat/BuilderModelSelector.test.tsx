@@ -183,13 +183,13 @@ describe('BuilderModelSelector', () => {
     expect(efforts()[2]?.getAttribute('aria-checked')).toBe('true');
   });
 
-  it('opens on the current provider, discloses older models, searches across providers, and clears search before closing', async () => {
+  it('opens on the current provider, lists only the newest of each family, searches across providers, and clears search before closing', async () => {
     const claude: BuilderModel = { ...alternativeModel, id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6' };
     const old: BuilderModel = { ...claude, id: 'anthropic/claude-3-7-sonnet', label: 'Claude 3.7 Sonnet' };
     const extras: BuilderModel[] = Array.from({ length: 6 }, (_, index) => ({
       ...alternativeModel,
       id: `openai/model-${index}`,
-      label: `Other ${index}`,
+      label: `Other ${'ABCDEF'.charAt(index)}`,
     }));
     localStorage.setItem('cloudchef_builder_model_v2', claude.id);
     await renderSelector({ ...catalog, models: [...catalog.models, claude, old, ...extras] });
@@ -198,23 +198,26 @@ describe('BuilderModelSelector', () => {
     await act(async () => trigger?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
     expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Anthropic');
     expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Claude 3.7 Sonnet');
-    const disclosure = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-      (item) => item.textContent === 'Older models',
-    );
-    await act(async () => disclosure?.click());
-    expect(document.querySelector('[role="menu"]')?.textContent).toContain('Claude 3.7 Sonnet');
+    expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Older models');
     const input = document.querySelector<HTMLInputElement>('input[aria-label="Search models"]');
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'openai/model-2');
-      input?.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    const searchFor = async (text: string) =>
+      act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, text);
+        input?.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    // Search finds only what the list offers: the older Sonnet is superseded there too.
+    await searchFor('sonnet');
     expect([...document.querySelectorAll('[role="menuitemradio"]')].map((item) => item.textContent)).toEqual([
-      expect.stringContaining('Other 2'),
+      expect.stringContaining('Claude Sonnet 4.6'),
+    ]);
+    await searchFor('openai/model-2');
+    expect([...document.querySelectorAll('[role="menuitemradio"]')].map((item) => item.textContent)).toEqual([
+      expect.stringContaining('Other C'),
     ]);
     await act(async () =>
       input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })),
     );
-    expect(document.activeElement?.textContent).toContain('Other 2');
+    expect(document.activeElement?.textContent).toContain('Other C');
     await act(async () =>
       input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })),
     );
@@ -224,6 +227,60 @@ describe('BuilderModelSelector', () => {
       input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })),
     );
     expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it('keeps listing a selected model a newer one supersedes, and shows no description line for a model without one', async () => {
+    const newest: BuilderModel = {
+      ...alternativeModel,
+      id: 'anthropic/claude-opus-5-5',
+      label: 'Claude Opus 5.5',
+      description: '',
+    };
+    const chosen: BuilderModel = { ...newest, id: 'anthropic/claude-opus-4-7', label: 'Claude Opus 4.7' };
+    const superseded: BuilderModel = { ...newest, id: 'anthropic/claude-opus-4-6', label: 'Claude Opus 4.6' };
+    const extras: BuilderModel[] = Array.from({ length: 6 }, (_, index) => ({
+      ...alternativeModel,
+      id: `openai/model-${index}`,
+      label: `Other ${'ABCDEF'.charAt(index)}`,
+    }));
+    localStorage.setItem('cloudchef_builder_model_v2', chosen.id);
+    await renderSelector({ ...catalog, models: [...catalog.models, newest, chosen, superseded, ...extras] });
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
+    expect(trigger?.title).toBe('Claude Opus 4.7 — anthropic/claude-opus-4-7');
+    await act(async () => trigger?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
+    const listed = () =>
+      [...document.querySelectorAll<HTMLElement>('#builder-provider-models [role="menuitemradio"]')].map(
+        (item) => item.textContent,
+      );
+    expect(listed()).toEqual([expect.stringContaining('Claude Opus 5.5'), expect.stringContaining('Claude Opus 4.7')]);
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Search models"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'opus');
+      input?.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(listed()).toEqual([expect.stringContaining('Claude Opus 5.5'), expect.stringContaining('Claude Opus 4.7')]);
+    // A row with no description and no date is its label and badges alone.
+    const row = [...document.querySelectorAll<HTMLElement>('#builder-provider-models [role="menuitemradio"]')][0];
+    expect(row?.querySelectorAll('.line-clamp-2')).toHaveLength(0);
+  });
+
+  it('dates a model without a description with no separator before the date', async () => {
+    await renderSelector({
+      ...catalog,
+      models: [
+        DEFAULT_WORKERS_AI_MODEL,
+        { ...alternativeModel, description: '', createdAt: '2026-08-26T00:00:00.000Z' },
+      ],
+    });
+    await act(async () =>
+      document
+        .querySelector('button[aria-label^="Builder model"]')
+        ?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })),
+    );
+    const row = [...document.querySelectorAll<HTMLElement>('#builder-provider-models [role="menuitemradio"]')].find(
+      (item) => item.textContent?.includes('DeepSeek V4.1 Flash 1017'),
+    );
+    expect(row?.querySelector('.line-clamp-2')?.textContent).toBe('added Aug 26');
   });
 
   it('pins only the default when no other recent model remains', async () => {

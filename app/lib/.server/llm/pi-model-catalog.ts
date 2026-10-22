@@ -5,7 +5,6 @@ import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cl
 import { OPENROUTER_MODELS } from '@earendil-works/pi-ai/providers/openrouter.models';
 import { XAI_MODELS } from '@earendil-works/pi-ai/providers/xai.models';
 import {
-  GATEWAY_PROVIDERS,
   GATEWAY_PROVIDER_SLUGS,
   isBuilderModelId,
   isWorkersAiModelId,
@@ -120,7 +119,6 @@ function gatewayApi(api: Api): GatewayApi | null {
 function gatewayCatalog(): Map<string, PiGatewayModel> {
   const catalog = new Map<string, PiGatewayModel>();
   for (const provider of GATEWAY_PROVIDER_SLUGS) {
-    const { label: providerLabel } = GATEWAY_PROVIDERS[provider];
     for (const { models, upstreamBaseUrl } of GATEWAY_MODEL_SOURCES[provider]) {
       for (const piModel of Object.values(models)) {
         const api = gatewayApi(piModel.api);
@@ -143,7 +141,8 @@ function gatewayCatalog(): Map<string, PiGatewayModel> {
           builderModel: {
             id,
             label,
-            description: `${label} from ${providerLabel}, through this account's AI Gateway with its own ${providerLabel} key.`,
+            // The provider tab already says whose model it is and how it is reached.
+            description: '',
             contextTokens: piModel.contextWindow,
             requiresPaid: false,
             reasoning: piModel.reasoning,

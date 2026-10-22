@@ -219,6 +219,8 @@ describe('the builder catalog an account is offered', () => {
     expect(new Set(ids.map((id) => gatewayModelProvider(id)))).toEqual(new Set([null, 'anthropic', 'grok']));
     expect(linked.models.find(({ id }) => id === 'anthropic/claude-opus-5-5')).toMatchObject({
       label: 'Claude Opus 5.5',
+      // The provider tab says whose model it is and how it is reached, so there is no description.
+      description: '',
       contextTokens: 1_000_000,
       reasoning: true,
       vision: true,

@@ -63,7 +63,6 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
   const recents = useStore(builderRecentModelsStore);
   const [provider, selectProvider] = useState<BuilderProvider | null>(null);
   const [search, setSearch] = useState('');
-  const [showOlder, setShowOlder] = useState(false);
   const modelId = useStore(builderModelStore);
   const defaultModelId = useStore(builderDefaultModelStore);
   const models = useStore(builderModelsStore);
@@ -96,7 +95,11 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
   const keyedProviders = providers.filter((slug) => orderedModels.some((entry) => builderProviderFor(entry) === slug));
   const keylessProviders = providers.filter((slug) => !keyedProviders.includes(slug));
   const activeProvider = provider ?? builderProviderFor(model);
-  const older = olderBuilderModelIds(orderedModels);
+  // Only the newest model of each family is listed, and the selected one, so a choice never vanishes.
+  const listedModels = useMemo(() => {
+    const older = olderBuilderModelIds(orderedModels);
+    return orderedModels.filter((entry) => entry.id === modelId || !older.has(entry.id));
+  }, [modelId, orderedModels]);
   const recentModels = [...new Set(recents)].flatMap((id) => {
     const recent = orderedModels.find((entry) => entry.id === id);
     return recent && id !== defaultModel.id ? [recent] : [];
@@ -105,8 +108,8 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
   const query = search.trim().toLowerCase();
   const searching = query.length > 0;
   const visible = searching
-    ? orderedModels.filter((entry) => `${entry.label} ${entry.id}`.toLowerCase().includes(query))
-    : orderedModels.filter((entry) => builderProviderFor(entry) === activeProvider);
+    ? listedModels.filter((entry) => `${entry.label} ${entry.id}`.toLowerCase().includes(query))
+    : listedModels.filter((entry) => builderProviderFor(entry) === activeProvider);
   // What was new when this picker last opened. Opening records the sighting, but the badge is the
   // reason the user opened the picker, so it stays legible for the rest of this session.
   const [openedWithNewIds, setOpenedWithNewIds] = useState<readonly BuilderModel['id'][]>([]);
@@ -150,7 +153,6 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
               : builderProviderFor(model),
           );
           setSearch('');
-          setShowOlder(false);
         }
         setOpenRequested(!disabled && nextOpen);
       }}
@@ -169,7 +171,7 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
           title={
             disabled
               ? 'Stop or wait for the current response to finish before switching models.'
-              : `${model.label} — ${model.description} ${model.id}`
+              : [model.label, model.description, model.id].filter(Boolean).join(' — ')
           }
         >
           <ProviderMark provider={currentProvider} />
@@ -215,7 +217,7 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
           aria-label="Builder model"
           className="z-50 max-h-[min(32rem,var(--radix-dropdown-menu-content-available-height))] w-[min(24rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-none"
         >
-          {orderedModels.length > 8 && (
+          {listedModels.length > 8 && (
             <div className="relative mb-1.5">
               <MagnifyingGlassIcon
                 aria-hidden="true"
@@ -289,7 +291,6 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
                       onClick={() => {
                         selectProvider(slug);
                         setBuilderProvider(slug);
-                        setShowOlder(false);
                       }}
                       onKeyDown={(event) => {
                         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
@@ -334,47 +335,16 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
               aria-label={searching ? 'Search results' : undefined}
               aria-labelledby={searching ? undefined : `builder-provider-${activeProvider}`}
             >
-              {visible
-                .filter((entry) => searching || entry.id === modelId || !older.has(entry.id))
-                .map((entry) => (
-                  <ModelItem
-                    key={entry.id}
-                    model={entry}
-                    disabled={disabled}
-                    defaultModelId={defaultModelId}
-                    newModelIds={newModelIds}
-                    showProvider={searching}
-                  />
-                ))}
-              {!searching && visible.some((entry) => older.has(entry.id) && entry.id !== modelId) && (
-                <DropdownMenu.Item
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setShowOlder(!showOlder);
-                  }}
-                  aria-expanded={showOlder}
-                  className="mx-1 mt-0.5 flex cursor-pointer items-center gap-1 rounded px-2 py-1.5 text-xs text-content-tertiary outline-none transition-colors hover:text-content-secondary data-[highlighted]:bg-bolt-elements-background-depth-2"
-                >
-                  <ChevronDownIcon
-                    aria-hidden="true"
-                    className={classNames('size-3 transition-transform', showOlder ? 'rotate-180' : '')}
-                  />
-                  {showOlder ? 'Hide older models' : 'Older models'}
-                </DropdownMenu.Item>
-              )}
-              {!searching &&
-                showOlder &&
-                visible
-                  .filter((entry) => older.has(entry.id) && entry.id !== modelId)
-                  .map((entry) => (
-                    <ModelItem
-                      key={entry.id}
-                      model={entry}
-                      disabled={disabled}
-                      defaultModelId={defaultModelId}
-                      newModelIds={newModelIds}
-                    />
-                  ))}
+              {visible.map((entry) => (
+                <ModelItem
+                  key={entry.id}
+                  model={entry}
+                  disabled={disabled}
+                  defaultModelId={defaultModelId}
+                  newModelIds={newModelIds}
+                  showProvider={searching}
+                />
+              ))}
             </div>
             {searching && visible.length === 0 && (
               <p className="px-3 py-3 text-center text-xs text-content-tertiary">No models match “{search.trim()}”.</p>
@@ -539,10 +509,16 @@ function ModelItem({
             </span>
           )}
         </span>
-        <span className="mt-0.5 line-clamp-2 block text-xs leading-4 text-content-secondary">
-          {model.description}
-          {addedOn === null ? null : <span className="text-content-tertiary"> · added {addedOn}</span>}
-        </span>
+        {(model.description || addedOn !== null) && (
+          <span className="mt-0.5 line-clamp-2 block text-xs leading-4 text-content-secondary">
+            {model.description}
+            {addedOn === null ? null : (
+              <span className="text-content-tertiary">
+                {model.description ? ' · ' : ''}added {addedOn}
+              </span>
+            )}
+          </span>
+        )}
       </span>
     </DropdownMenu.RadioItem>
   );

@@ -128,7 +128,8 @@ export const MAX_BUILDER_CATALOG_MODELS = 1_000;
 const builderModelSchema = z.object({
   id: builderModelIdSchema,
   label: z.string().min(1).max(128),
-  description: z.string().min(1).max(1_000),
+  // Empty where the label says it all: Pi's catalogs describe no gateway model.
+  description: z.string().max(1_000),
   contextTokens: z.number().int().min(MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS),
   requiresPaid: z.boolean(),
   reasoning: z.boolean(),
