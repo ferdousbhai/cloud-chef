@@ -5,9 +5,9 @@ Experiment and review conclusions that still constrain the product.
 ## Workers AI prefix caching
 
 Two small live samples on 2026-07-16 showed lower latency with stable session affinity, but Workers AI reported zero
-cached input tokens. Production keeps an opaque per-transcript affinity (the `x-session-affinity` header, sent through
-the AI binding's `extraHeaders`) and privacy-safe hit/miss telemetry because both match Cloudflare's supported automatic
-prefix-caching contract. CloudChef claims no cached-token or cost saving without positive provider telemetry.
+cached input tokens. The session affinity and hit/miss telemetry stay (ARCHITECTURE.md, Model Context and Prefix
+Caching) because they match Cloudflare's supported automatic prefix-caching contract, but CloudChef claims no
+cached-token or cost saving without positive provider telemetry.
 
 ## Read-only child agents
 

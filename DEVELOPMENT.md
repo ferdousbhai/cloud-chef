@@ -24,9 +24,10 @@ database, and serves the app at http://localhost:5173 with Vite and the Cloudfla
 and `/api/health` work without any credentials. There is intentionally no `dev` package script: the production-config
 verifier rejects scripts that start a local server.
 
-Signing in and building apps need the `CLOUDFLARE_OAUTH_CLIENT_SECRET` and `CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY`
-secrets and a Cloudflare OAuth client whose callback reaches your origin (see Configuration). The Cloudflare Vite
-plugin warns that they are missing; that is expected for UI work.
+Signing in and building apps need a Cloudflare OAuth client whose callback reaches your origin (see Configuration):
+its ID exported as `CLOUDFLARE_OAUTH_CLIENT_ID` in the shell that starts Vite (`cloudflare.config.ts` binds it from
+the environment), and the `CLOUDFLARE_OAUTH_CLIENT_SECRET` and `CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY` secrets. The
+Cloudflare Vite plugin warns that the secrets are missing; that is expected for UI work.
 
 ## Verification
 
@@ -61,9 +62,10 @@ license diligence but do not replace legal review.
 Vite plugin and deployed with the `cf` CLI. It contains one D1 binding (`DB`, schema in `migrations/`) holding:
 
 - people, sign-in sessions, and sign-in state (Cloudflare OAuth, Google, and emailed-link tokens);
-- Cloudflare connections with their encrypted credentials and OAuth grants, and each connection's default builder
-  model (`default_builder_model`);
-- teams (organizations), their members and invites, and daily per-member model usage (`organization_usage_daily`);
+- Cloudflare connections: each one's OAuth grant (its access and refresh tokens encrypted as the connection's
+  credential, beside the requested and granted scopes) and default builder model (`default_builder_model`);
+- teams (organizations), their members and invites, daily per-member model usage (`organization_usage_daily`), and
+  the invites sent and teams created that count toward their limits (`organization_quota_events`);
 - GitHub projects: App installations, linked repositories, member access, and production requests;
 - per-person settings such as AI Gateway content logging;
 - user workspace runtime discovery and upgrade state.
@@ -186,9 +188,8 @@ Workers Logs queries for the workspace Worker, AI Gateway logs filed under the c
 commits and check runs on the conversation's branch (the latest of the member's: which one is the chat's isn't recorded). It refuses any `cf` command outside a read-only allowlist, and a source it cannot
 read is reported as unknown with the reason. Conversation content exists only for people who kept AI Gateway logging on.
 
-`scripts/ops-report.mjs` is read-only under your `cf` login, through the same allowlist (`scripts/lib/ops-cf.mjs`); `.claude/skills/platform-status/SKILL.md` describes its
-checks and how to read them. Runtime staleness is measured against `app/generated/user-workspace-runtime.generated.ts`,
-so run `pnpm run generate:artifacts` first if the report says it has no build to compare against.
+`.claude/skills/platform-status/SKILL.md` describes `pnpm run ops`: its checks, its read-only allowlist, and how to
+read the report.
 
 ## Decisions
 

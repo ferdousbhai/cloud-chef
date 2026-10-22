@@ -84,10 +84,10 @@ claims the window again and redeploys only once the workspace is idle, so it nev
 A runtime whose owner does not come back would otherwise stay on an old release, and a failed upgrade would stay
 failed until the browser's explicit retry. The control plane's 15-minute cron therefore also sweeps
 (`app/lib/.server/cloudflare/user-workspace-runtime-upgrade-sweep.ts`): it lists ready runtimes that are outdated but
-still serve their connection's generation and protocol, most recently used first and a further page of them on each
-sweep (so a page of upgrades all still waiting never keeps it from the rest), skips anyone who may no longer use
-the connection, and starts or restarts the same gated Workflow instance a session request would name, at most 10
-per sweep. An upgrade still waiting is left alone; one that gave up waiting is restarted; one that failed is
+still serve their connection's generation and protocol, all of them, most recently used first, skips anyone who may
+no longer use the connection, and starts or restarts the same gated Workflow instance a session request would name,
+until it has launched 10 (`UPGRADE_SWEEP_MAX_LAUNCHES`); upgrades still waiting don't count toward that cap, so they
+never keep a sweep from the rest. An upgrade still waiting is left alone; one that gave up waiting is restarted; one that failed is
 restarted on one sweep in four, so at most hourly, unless it failed after redeploying the Worker (which then serves
 without its container image or schedule), which every sweep restarts. First-time provisioning never goes through the sweep: it lists only
 runtimes that are already ready. A busy row a Durable Object never cleared stops counting after the turn wall clock
@@ -102,7 +102,8 @@ migrations, applied before the deferred redeploy, must be additive.
 A Cloudflare connection belongs to one person (their own account) or to an organization (its admins connect the
 organization's account once). Sign-in is separate from connecting: Cloudflare, Google, or an emailed one-time link
 creates a session, and a session works in one context, a connection the person may use, chosen with the workspace
-switcher. People without Cloudflare logins of their own build in an organization's account.
+switcher; a tab names the context it opened in on each runtime-session request and reloads if another tab switched
+the session. People without Cloudflare logins of their own build in an organization's account.
 
 Each person gets their own workspace runtime per connection, named from `sha256(accountId:userId)` for their own
 account and `sha256(accountId:userId:connectionId)` for an organization's (with the runtime secret bound the same
@@ -115,8 +116,11 @@ its secret, so pausing or removing a member stops their runtime at its next call
 redeploy. Every runtime route (`/api/cloudflare/runtime-*`, `app/server-handlers/runtime-authentication.ts`) takes
 the runtime's identity in headers beside its secret and checks both before reading a body, which for a commit can be
 48 MB, and refuses a call that lacks them. Each
-secret may make 600 calls a minute (`RUNTIME_RATE_LIMITER`). In an organization's account the runtime also asks (`/api/cloudflare/runtime-access`) before
-each model turn, since the model runs on the organization's Workers AI without a token from the broker.
+secret may make 600 calls a minute (`RUNTIME_RATE_LIMITER`). In an organization's account the runtime also asks the
+control plane (`/api/cloudflare/runtime-access`) before each model turn, since the model runs on the organization's
+Workers AI without a token from the broker; in a shared account (`CLOUDCHEF_SHARED_ACCOUNT`) the same answer decides,
+each time it is admitted, whether the agent's direct `cloudflare_request` tool is offered, which only the
+organization's active admins get, so a demoted admin loses it at once.
 The same answer carries the person's own AI Gateway content-logging choice (`user.ai_gateway_content_logging`,
 set in Settings), which the runtime asks for before every builder turn, title, and prompt enhancement in any
 account: model requests always go through the account's default gateway, logged (and labelled with chat and
@@ -138,7 +142,7 @@ refuses a custom fetch and so cannot be carried by the binding, and Fireworks, w
 
 Every key is the account's own (BYOK), kept in its Secrets Store and attached to the default gateway as a provider
 key, and nothing about it is CloudChef's: the control plane reads the gateway's provider keys from the account each
-time, whoever added them, and uses each provider's default key, or its first, under whatever alias it has. An
+time, whoever added them, and uses each provider's default key, or its newest, under whatever alias it has. An
 organization's admins, or the person whose own account it is, can also paste a key in Settings, with the
 connection's Cloudflare authorization (`aig.write`, `secrets-store.write`); it goes to Cloudflare once, never into
 CloudChef's storage. Cloudflare's BYOK flow is the only one: it takes a pasted key and stores it as the secret
@@ -162,13 +166,9 @@ alias) are on the gateway, which the control plane asks Cloudflare each time; no
 same answer carries the account's default model (`cloudflare_connections.default_builder_model`), chosen by its
 admins; everyone can still switch, and a saved choice the account no longer offers falls back to it.
 
-An organization's authorization reaches every workspace in its account, so in a shared account
-(`CLOUDCHEF_SHARED_ACCOUNT`) the agent's direct `cloudflare_request` tool is offered only to the
-organization's active admins, asked of the control plane (`/api/cloudflare/runtime-access`) each time it is
-admitted, so a demoted admin loses it at once. A member's changes go through the deployment pipeline or GitHub,
-which touch only their own resources.
-A tab names the
-account it opened in on each runtime-session request and reloads if another tab switched the session.
+An organization's authorization reaches every workspace in its account, which is why only its admins get the
+direct `cloudflare_request` tool in a shared account (above). A member's changes go through the deployment pipeline
+or GitHub, which touch only their own resources.
 
 An organization keeps at least one active admin. Erasing a member's account never revokes the organization's
 authorization; erasing its last member removes the organization and revokes it.
@@ -190,7 +190,7 @@ calls are authenticated like the credential broker and re-check the member's acc
 project belongs to the organization the runtime runs for (`app/server-handlers/runtime-github.ts`). Validation runs the
 repository's own `typecheck`, `lint`, `test`, and `build` scripts. The agent's `publish_preview` commits the workspace's
 changes (as git would, leaving out new files the repository's `.gitignore` files ignore, and never sending a local
-`.env*` or `.dev.vars*`), one commit on top of the commit it was opened from, to the conversation's own branch
+`.env*` other than `.env.example`, `.env.sample`, and `.env.template`, or any `.dev.vars*`), one commit on top of the commit it was opened from, to the conversation's own branch
 (`cloudchef/<member>-<key>`, the key kept with the workspace's link), and `publish` also merges that branch into the
 default branch; the repository's own pipeline (Workers Builds) previews and deploys, and its check runs report the build
 and the preview link. A subchat gets its own key, since its parent can go on working; a new conversation keeps the
@@ -212,8 +212,7 @@ the summary written for the model), and the next turn reads it. Workers Builds' 
 posted one; until then, for a few minutes, other checks finishing don't count as the build. Any finished run that did
 not pass (cancelled, timed out, waiting for an action) fails it. CloudChef does not serve its own instant preview of these workspaces: their builds,
 Worker names, and bindings (D1, R2, and more, under any names) are the repository's own, and CloudChef's hosted preview
-deploys only its starter apps' configuration, rebuilt from trusted inputs; a member limited to GitHub projects has no
-Cloudflare token for it anyway.
+deploys only its starter apps' configuration, rebuilt from trusted inputs.
 
 The agent's `fetch_site` reads the project's live site, its pages and the JSON they load, which is where a site's copy
 from its database or CMS shows. It reaches only the https origins the control plane reports for the repository
@@ -221,7 +220,7 @@ from its database or CMS shows. It reaches only the https origins the control pl
 branch and the conversation's branch, never an address the workspace names. It sends only GETs, follows redirects only
 within those origins, and reads at most 2 MB of a text response. There is no database tool: a database's identity
 would come from the workspace's own configuration, D1 has no read-only query mode, and a member limited to GitHub
-projects holds no Cloudflare token.
+projects (below) could not use one.
 
 A member's new app (a draft) can be sent for review: the request carries the draft's files. Approving it, an admin
 authorizes CloudChef once on GitHub to create a repository as them, the draft becomes its first commit with its
@@ -277,16 +276,18 @@ Reconciliation is deterministic:
 stores files directly in the Durable Object's SQLite VFS. Its container backend projects the same files into the
 Container through FUSE and reconciles changes back to the VFS.
 
-The model receives six workspace primitives, split by what they cost. `read`, `ls`, and `grep` are answered from the
-Durable Object's SQLite VFS alone; `write`, `edit`, and `exec` change the project or run in its Container. `write` and
-`exec` adapt the reviewed `@cloudflare/computer/tools` contracts; CloudChef's `read` returns numbered lines with a
-compact tag bound to the full file SHA-256, and `edit` applies non-overlapping line operations only when that exact
-snapshot is still current.
+The model receives seven workspace primitives (`cloudchef-agent/model-tool-inputs.ts`,
+`app/lib/.server/llm/workers-ai-tools.ts`), split by what they cost. `read`, `ls`, and `grep` are answered from the
+Durable Object's SQLite VFS alone — no container, no sync barrier, and never the exclusive workspace operation lane, so
+discovery answers before the container is warm and stays available while a build command holds the lane. `write`,
+`edit`, `exec`, and `validate` change the project or run in its Container under that lane. All seven are CloudChef's
+own: `read` returns numbered lines with a compact tag bound to the full file SHA-256, `edit` applies non-overlapping
+line operations only when that exact snapshot is still current, `write` honours the turn's abort signal, `exec`
+streams its output, and `validate` runs the project's full validation. `@cloudflare/computer/tools` contributes only
+types.
 
-`ls` enumerates a directory or the tree beneath it and `grep` returns path, 1-based
-line, and matching line for a literal pattern, both directly from the VFS — no container, no sync barrier, and never
-the exclusive workspace operation lane, so discovery answers before the container is warm and stays available while a
-build command holds the lane. Line numbers come from the same splitter `read` and `edit` use, so a search hit names the
+`ls` enumerates a directory or the tree beneath it and `grep` returns path, 1-based line, and matching line for a
+literal pattern. Line numbers come from the same splitter `read` and `edit` use, so a search hit names the
 line an edit would change. `grep` matches literal single-line text and never compiles the model's pattern into a
 regular expression or a shell command: an untrusted pattern must not be able to backtrack the Durable Object into a
 stall or inject into the container. Both tools are bounded in the spirit of Computer's reviewed read and exec limits —
@@ -455,7 +456,9 @@ client, and the project-owned `src/application.ts` handler, reached through a Wo
 security headers cover every page) with no Workers AI
 binding, Agent Durable Object, Agent security D1, cleanup cron, or Agent/AI packages. A project that needs durable AI
 runs `pnpm run agent:enable`; the command applies the reviewed capability manifest, installs its dependencies at
-their latest release, and adds the protected `src/server.ts` entrypoint, Agent security database, Durable Object export, and cleanup schedule together.
+their latest release, switches the Worker entrypoint to the protected `src/server.ts` the template already ships
+(removing it and the Agent modules from `tsconfig.json`'s excludes), and adds the Agent security database, Durable
+Object export, and cleanup schedule together (`template/agent-capability.json`).
 Partial Agent configuration fails validation. When enabled, application data stays in `DB`, while Agent sessions,
 retention state, and inference accounting stay in separately provisioned `AGENT_SECURITY_DB`. Only the AppAgent
 runtime may import that binding; the protected build policy checks the resolved module graph so aliases and
@@ -472,11 +475,8 @@ entrypoints and those packages may import the Agent runtime, and project code ma
 unregistered symbol that enumeration would expose. A web framework is the project's own choice: the builder adds one
 only when the product needs it, and wires its handler into `src/application.ts` behind the same entrypoints.
 
-Root dependencies do not implicitly apply to the template. Generated bundle source is deliberately ignored rather
-than reviewed as source: `pnpm run generate:artifacts` rebuilds both the template snapshot and the user-workspace Worker
-bundle, while `pnpm run generate` also refreshes route and binding types. Build, typecheck, and validation each enter
-through that generation path once. A template change is complete only when standalone verification passes.
-Generated-project package-manager constraints live in
+Root dependencies do not implicitly apply to the template, and a template change is complete only when standalone
+verification passes (generation is in DEVELOPMENT.md, Generated Artifacts). Generated-project package-manager constraints live in
 `template/scripts/lib/project-policy/generated-project-dependency-policy.json`; browser admission and repository/template
 verification consume that same data rather than maintaining separate security override lists.
 
@@ -484,13 +484,14 @@ verification consume that same data rather than maintaining separate security ov
 
 CloudChef intentionally pins `@cloudflare/computer` to `0.2.1`. Cloudflare labels this release preview-only, describes
 its API as unstable, and says it is not suitable for production use. The repository therefore treats every upgrade as
-an architecture review: tests pin the installed version, tool names, complete AI SDK input schemas, result fields used by
-the build lifecycle, read-only behavior, backend selector, and backend capability description. Tool configuration
-explicitly disables Computer's optional `publish` capability and pins the reviewed default limits: 10,000 lines or 1
-MiB per read, 2 MiB per write/edit, and 256 KiB for each exec output stream. These gates detect drift; they cannot turn a
-preview dependency into a stable production contract. Computer 0.2.1's published write executor does not forward `ToolExecutionOptions.abortSignal`, so an in-flight vendor
-write still relies on the workspace runtime's bounded operation. CloudChef's custom streamed `exec` adapter does forward
-cancellation to its Container process.
+an architecture review. `cloudchef-agent/cloudflare-computer.test.ts` pins the declared and installed version (with
+no release-age exemption), canaries both hunks of the local patch (`patches/@cloudflare__computer@0.2.1.patch`)
+against the published bundle so a reflowed upstream region fails rather than silently unpatching, pins the file-tool
+limits, and pins the error shapes that cross Workers RPC (pending-sync and operation-lane conflict). The limits are
+enforced by CloudChef's own tools: 10,000 lines or 1 MiB per read and 2 MiB per write or edit (the Durable Object
+SQLite value limit); separately, the runtime keeps a 256 KiB tail of each exec output stream for the model
+(`user-workspace-runtime/src/index.ts`). These gates detect drift; they cannot turn a preview dependency into a
+stable production contract.
 
 Computer 0.6 and Sandbox 1.0 are one migration, not two version bumps, so both stay pinned until it is done. Computer
 0.3 removed the durable post-command sync retry contract the workspace's correctness rests on (`SyncRetryScheduler`,
