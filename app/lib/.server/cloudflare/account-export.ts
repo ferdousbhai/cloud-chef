@@ -6,7 +6,7 @@ import { findCloudflareConnectionForUser } from './cloudflare-connection-reposit
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
  * kept for years stays readable against the shape it was written in.
  */
-export const ACCOUNT_EXPORT_SCHEMA_VERSION = 6;
+export const ACCOUNT_EXPORT_SCHEMA_VERSION = 7;
 
 /**
  * Per-section ceiling on rows. A list section returns its most recent page and
@@ -80,8 +80,6 @@ type ExportedCloudflareConnection = {
   oauthScopeGrantStatus: string;
   /** The model builders in this account start on, as its owner chose; null for CloudChef's default. */
   defaultBuilderModel: string | null;
-  /** Whether the account's Workers AI is billed for builders: whether its capabilities include workers_ai. */
-  aiBillingEnabled: boolean;
   connectedAt: string | null;
   updatedAt: string;
   generation: number;
@@ -99,8 +97,8 @@ type ExportedComputerRuntime = {
   workerName: string;
   endpoint: string;
   runtimeVersion: string;
-  imageDigest: string | null;
-  protocolVersion: number | null;
+  imageDigest: string;
+  protocolVersion: number;
   status: string;
   lastError: string | null;
   lastSessionAt: string | null;
@@ -377,7 +375,6 @@ async function readCloudflareConnection(
       oauthScopeProfileVersion: connection.oauthScopeProfileVersion,
       oauthScopeGrantStatus: connection.oauthScopeGrantStatus,
       defaultBuilderModel: model?.default_builder_model ?? null,
-      aiBillingEnabled: connection.grantedCapabilities.includes('workers_ai'),
       connectedAt: optionalIsoTimestamp(connection.connectedAt),
       updatedAt: isoTimestamp(connection.updatedAt),
       generation: connection.generation,
@@ -417,8 +414,8 @@ type ComputerRuntimeRow = {
   worker_name: string;
   endpoint: string;
   runtime_version: string;
-  image_digest: string | null;
-  protocol_version: number | null;
+  image_digest: string;
+  protocol_version: number;
   status: string;
   last_error: string | null;
   last_session_at: number | null;

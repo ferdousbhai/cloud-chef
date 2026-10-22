@@ -59,7 +59,6 @@ describe('control-plane account export', () => {
         oauthScopeProfileVersion: null,
         oauthScopeGrantStatus: 'core',
         defaultBuilderModel: null,
-        aiBillingEnabled: true,
         connectedAt: '1970-01-01T00:00:00.001Z',
         updatedAt: '1970-01-01T00:00:00.001Z',
         generation: 1,
@@ -406,9 +405,9 @@ function seedAccount(database: DatabaseSyncInstance, userId = 'user-1'): void {
   database
     .prepare(
       `INSERT INTO user_computer_runtimes
-        (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
-         last_error, created_at, updated_at)
-       VALUES (?, ?, 1, 'worker', 'https://runtime.example', 'sha', 'ready', NULL, 1, 1)`,
+        (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, image_digest,
+         protocol_version, status, last_error, created_at, updated_at)
+       VALUES (?, ?, 1, 'worker', 'https://runtime.example', 'sha', 'sha256:seed', 1, 'ready', NULL, 1, 1)`,
     )
     .run(userId, `connection-${userId}`);
 }
