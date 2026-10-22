@@ -4,6 +4,7 @@ import {
   RUNTIME_BUSY_RENEWAL_MS,
 } from '~/lib/.server/cloudflare/user-workspace-runtime-activity';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
+import { abortableSleep } from '~/lib/abortable-sleep';
 import type { BuilderAgentState } from './builder-agent';
 
 const logger = createScopedLogger('builder-runtime-activity');
@@ -194,21 +195,4 @@ export class BuilderRuntimeActivity {
     await recordRuntimeActivity(this.dependencies.db, { agentName: this.dependencies.agentName(), busy, now });
     this.recorded = { busy, at: now };
   }
-}
-
-/** A timer that is cleared, not left running, when `signal` aborts first. */
-function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal?.aborted) {
-      resolve();
-      return;
-    }
-    const finish = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', finish);
-      resolve();
-    };
-    const timer = setTimeout(finish, ms);
-    signal?.addEventListener('abort', finish, { once: true });
-  });
 }

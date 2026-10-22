@@ -1,6 +1,7 @@
 import { toolFailure, toolSuccess } from 'cloudchef-agent/tool-result';
 import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
 import type { Tool } from 'cloudchef-agent/tool';
+import { abortableSleep } from '~/lib/abortable-sleep';
 import { readBodyBytesWithLimit } from '~/lib/bounded-body';
 
 /**
@@ -61,7 +62,8 @@ async function searchWithRetries(
       if (attempt >= MAX_ATTEMPTS || !isRetryable(error)) {
         throw error;
       }
-      await delay(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), abortSignal);
+      await abortableSleep(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), abortSignal);
+      abortSignal?.throwIfAborted();
     }
   }
 }
@@ -155,20 +157,6 @@ function isRetryable(error: unknown): boolean {
   }
   // A timeout, a dropped connection, or a DNS failure — but not a refused redirect or a bad envelope.
   return error instanceof Error && error.name === 'TypeError';
-}
-
-function delay(ms: number, abortSignal: AbortSignal | undefined): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      abortSignal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(abortSignal?.reason);
-    };
-    abortSignal?.addEventListener('abort', onAbort, { once: true });
-  });
 }
 
 function errorMessage(error: unknown): string {
