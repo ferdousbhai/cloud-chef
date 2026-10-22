@@ -1043,10 +1043,10 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
    * Start this workspace's container and computerd ahead of the work that needs them.
    *
    * Nothing before the model's first `exec` requires a container: seeding writes into the durable
-   * VFS, and `read`/`ls`/`grep` are served from it. So the entire cold start — container boot,
-   * the toolchain and computerd bootstraps, the FUSE mount — used to land in the middle of the
-   * first turn, while the user watched. Opening a chat is the moment we learn a container will be
-   * wanted, and the user is still typing, so that is when to pay for it.
+   * VFS, and `read`/`ls`/`grep` are served from it. Left to that `exec`, the whole cold start —
+   * container boot, the toolchain and computerd bootstraps, the FUSE mount — would land in the
+   * middle of the first turn. Opening a chat is the moment we learn a container will be wanted, and
+   * the user is still typing, so that is when to pay for it.
    *
    * Deliberately outside the stateful operation lane: warming is not a mutation, and taking the
    * lane would make an optimisation block the first write it exists to speed up. Failure is not
