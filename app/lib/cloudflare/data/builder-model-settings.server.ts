@@ -1,5 +1,4 @@
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
-import { upgradeLegacyBuilderModelId } from '~/lib/workers-ai-model';
 import { findMembership } from './organization-access.server';
 
 /**
@@ -22,15 +21,14 @@ export async function canManageModels(
 }
 
 /**
- * The model an account's builders start on, as its admin chose it; null for CloudChef's default. A
- * Claude default saved under its old bare id is read under its current `anthropic/` one.
+ * The model an account's builders start on, as its admin chose it; null for CloudChef's default.
  */
 export async function readDefaultBuilderModel(db: D1Database, connectionId: string): Promise<string | null> {
   const row = await db
     .prepare('SELECT default_builder_model AS model FROM cloudflare_connections WHERE id = ?')
     .bind(connectionId)
     .first<{ model: string | null }>();
-  return upgradeLegacyBuilderModelId(row?.model ?? null);
+  return row?.model ?? null;
 }
 
 export async function setDefaultBuilderModel(
