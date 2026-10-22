@@ -148,7 +148,6 @@ import {
 } from './builder-preview-types';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import { previewWorkerUrl } from '~/lib/common/preview-url';
-import { waitForCancellationBeforeDeadline } from './builder-cancellation';
 import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
@@ -1069,7 +1068,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         status: 'aborted',
       });
     }
-    await waitForCancellationBeforeDeadline(validationCancellation, deadline);
+    await validationCancellation;
     const remainingSettleTime = Math.max(0, deadline - Date.now());
     const settled = await this.waitUntilStable({
       timeout: remainingSettleTime,
