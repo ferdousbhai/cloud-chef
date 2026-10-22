@@ -125,11 +125,8 @@ export function logicalLines(content: string): string[] {
 export function lineAnchoredRead(options: LineAnchoredReadOptions): LineAnchoredReadResult {
   assertPositiveInteger(options.maxLines, 'maxLines');
   assertPositiveInteger(options.maxBytes, 'maxBytes');
+  // The read tool's schema admits only positive integers for both.
   const offset = options.offset ?? 1;
-  assertPositiveInteger(offset, 'offset');
-  if (options.limit !== undefined) {
-    assertPositiveInteger(options.limit, 'limit');
-  }
 
   const lines = logicalLines(options.content);
   if (lines.length === 0) {
@@ -183,15 +180,11 @@ export function lineAnchoredRead(options: LineAnchoredReadOptions): LineAnchored
   return result;
 }
 
-/** Apply every operation to the same original snapshot, never incrementally. */
+/**
+ * Apply every operation to the same original snapshot, never incrementally. The operations are the
+ * ones `lineEditToolParameters` parsed: their count, line numbers, and contents already hold its bounds.
+ */
 export function applyLineEdits(original: string, operations: readonly LineEditOperation[]): AppliedLineEdits {
-  if (operations.length === 0) {
-    throw new Error('edits must contain at least one line operation.');
-  }
-  if (operations.length > LINE_EDIT_MAX_OPERATIONS) {
-    throw new Error(`Apply at most ${LINE_EDIT_MAX_OPERATIONS} line operations in one edit.`);
-  }
-
   const parsed = parseText(original);
   const located = locateText(parsed);
   const textOperations: { operation: { oldText: string; newText: string }; operationIndex: number }[] = [];
@@ -388,9 +381,6 @@ function locateTextReplacement(
   parsed: ParsedText,
   located: LocatedText,
 ): TextMatch {
-  if (operation.oldText.length === 0) {
-    throw new Error(`edits[${operationIndex}].oldText must not be empty.`);
-  }
   const oldText = normalizeLineBreaks(operation.oldText, parsed.carriageReturnBreaks);
   const newText = normalizeLineBreaks(operation.newText, parsed.carriageReturnBreaks);
   const occurrences = countOccurrences(located.text, oldText);
@@ -564,15 +554,6 @@ type LineAnchoredOperation = Exclude<LineEditOperation, { oldText: string }>;
 function planOperation(operation: LineAnchoredOperation, operationIndex: number, parsed: ParsedText): PlannedOperation {
   const totalLines = parsed.lines.length;
   if ('afterLine' in operation) {
-    if (!Number.isSafeInteger(operation.afterLine) || operation.afterLine < 0) {
-      throw new Error(`edits[${operationIndex}].afterLine must be a non-negative integer.`);
-    }
-    if (typeof operation.content !== 'string') {
-      throw new Error(`edits[${operationIndex}].content must be a string.`);
-    }
-    if (operation.content.length === 0) {
-      throw new Error(`edits[${operationIndex}] does not delete or insert content.`);
-    }
     if (operation.afterLine > totalLines) {
       throw new Error(
         `edits[${operationIndex}].afterLine ${operation.afterLine} is beyond insertion line ${totalLines + 1}.`,
@@ -588,14 +569,6 @@ function planOperation(operation: LineAnchoredOperation, operationIndex: number,
       contentLines: content.lines,
       contentHasFinalNewline: content.endings.at(-1) !== '',
     };
-  }
-  assertPositiveInteger(operation.startLine, `edits[${operationIndex}].startLine`);
-  assertPositiveInteger(operation.endLine, `edits[${operationIndex}].endLine`);
-  if (typeof operation.content !== 'string') {
-    throw new Error(`edits[${operationIndex}].content must be a string.`);
-  }
-  if (operation.endLine < operation.startLine) {
-    throw new Error(`edits[${operationIndex}].endLine must be greater than or equal to startLine.`);
   }
   if (operation.endLine > totalLines) {
     throw new Error(

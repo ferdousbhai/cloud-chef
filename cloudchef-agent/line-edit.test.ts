@@ -3,7 +3,6 @@ import {
   applyLineEdits,
   lineAnchoredRead,
   lineEditBaseTag,
-  type LineEditOperation,
   lineEditToolParameters,
   logicalLines,
 } from './line-edit.js';
@@ -219,15 +218,23 @@ describe('line-anchored editing', () => {
   });
 
   it.each([
-    [{ afterLine: -1, content: 'insert' }, 'edits[0].afterLine must be a non-negative integer.'],
-    [{ afterLine: 0.5, content: 'insert' }, 'edits[0].afterLine must be a non-negative integer.'],
-    [{ afterLine: 0, content: '' }, 'edits[0] does not delete or insert content.'],
-    [{ afterLine: 0, content: 1 }, 'edits[0].content must be a string.'],
-    [{ startLine: 0, endLine: 1, content: 'replace' }, 'edits[0].startLine must be a positive integer.'],
-    [{ startLine: 1, endLine: 1.5, content: 'replace' }, 'edits[0].endLine must be a positive integer.'],
-    [{ startLine: 1, endLine: 1, content: 1 }, 'edits[0].content must be a string.'],
-  ] as const)('rejects malformed operations at runtime: %j', (operation, message) => {
-    expect(() => applyLineEdits('one\ntwo', [operation as unknown as LineEditOperation])).toThrow(message);
+    { afterLine: -1, content: 'insert' },
+    { afterLine: 0.5, content: 'insert' },
+    { afterLine: 0, content: '' },
+    { afterLine: 0, content: 1 },
+    { startLine: 0, endLine: 1, content: 'replace' },
+    { startLine: 1, endLine: 1.5, content: 'replace' },
+    { startLine: 2, endLine: 1, content: 'replace' },
+    { startLine: 1, endLine: 1, content: 1 },
+    { oldText: '', newText: 'x' },
+  ])('refuses a malformed operation before it reaches applyLineEdits: %j', (operation) => {
+    expect(
+      lineEditToolParameters.safeParse({
+        path: '/home/project/src/app.ts',
+        base: lineEditBaseTag(SHA),
+        edits: [operation],
+      }).success,
+    ).toBe(false);
   });
 
   it('preserves the complete strict line-edit schema, 24-character base, and 100-operation cap', () => {
