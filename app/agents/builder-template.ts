@@ -2,6 +2,7 @@ import type { BuilderWorkspaceFileInput } from './builder-workspace-types';
 import { BUILDER_TEMPLATE_GZIP_BASE64, BUILDER_TEMPLATE_SOURCE_SHA256 } from './builder-template.generated';
 import type { WorkspaceSeedExpectation } from './builder-workspace-api';
 import { z } from 'zod';
+import { base64ToBytes } from '~/lib/hex-digest';
 
 let cachedTemplate: Promise<BuilderWorkspaceFileInput[]> | undefined;
 
@@ -36,7 +37,7 @@ const builderTemplateFileSchema = z.object({
 });
 
 async function decodeBuilderTemplate(): Promise<BuilderWorkspaceFileInput[]> {
-  const compressed = decodeBase64(BUILDER_TEMPLATE_GZIP_BASE64);
+  const compressed = base64ToBytes(BUILDER_TEMPLATE_GZIP_BASE64);
   const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
   const json = new TextDecoder().decode(await new Response(stream).arrayBuffer());
   const parsed: unknown = JSON.parse(json);
@@ -51,13 +52,4 @@ async function decodeBuilderTemplate(): Promise<BuilderWorkspaceFileInput[]> {
     }
     return entry.data;
   });
-}
-
-function decodeBase64(value: string): Uint8Array<ArrayBuffer> {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
 }

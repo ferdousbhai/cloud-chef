@@ -22,6 +22,11 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+/** The bytes a base64 string encodes; throws on a string that isn't base64. */
+export function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
+  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+}
+
 /** URL-safe, unpadded base64: what OAuth parameters and bearer tokens carry. */
 export function bytesToBase64Url(bytes: Uint8Array): string {
   return bytesToBase64(bytes).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');

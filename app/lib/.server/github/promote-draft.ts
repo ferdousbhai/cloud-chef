@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { base64ToBytes } from '~/lib/hex-digest';
 import { PayloadTooLargeError, readBodyBytesWithLimit } from '~/lib/bounded-body';
 import { commitPathRefusal } from './commit-paths';
 import { commitSizeRefusal } from './repository-client';
@@ -40,7 +41,7 @@ export async function readDraftSnapshot(
 ): Promise<{ files: DraftFile[] } | { refused: string } | null> {
   try {
     const bytes = await readBodyBytesWithLimit(
-      new Response(new Blob([base64Bytes(snapshotGzipBase64)]).stream().pipeThrough(new DecompressionStream('gzip'))),
+      new Response(new Blob([base64ToBytes(snapshotGzipBase64)]).stream().pipeThrough(new DecompressionStream('gzip'))),
       MAX_DRAFT_SNAPSHOT_JSON_BYTES,
       "The draft's files",
     );
@@ -101,7 +102,7 @@ function renameResources(contentBase64: string, workerName: string): string {
 
 function projectFile(contentBase64: string): ProjectFile | null {
   try {
-    const parsed = projectFileSchema.safeParse(JSON.parse(new TextDecoder().decode(base64Bytes(contentBase64))));
+    const parsed = projectFileSchema.safeParse(JSON.parse(new TextDecoder().decode(base64ToBytes(contentBase64))));
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
@@ -115,8 +116,4 @@ function isBase64(value: string): boolean {
   } catch {
     return false;
   }
-}
-
-function base64Bytes(value: string): Uint8Array<ArrayBuffer> {
-  return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
 }

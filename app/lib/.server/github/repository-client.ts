@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { base64ToBytes } from '~/lib/hex-digest';
 import { callGitHub, fetchGitHub, GitHubError } from './github-api';
 
 const refSchema = z.looseObject({ object: z.looseObject({ sha: z.string() }) });
@@ -88,7 +89,7 @@ export function commitSizeRefusal(changes: CommitChange[]): string | null {
  */
 function inlineText(contentBase64: string): string | null {
   try {
-    const bytes = Uint8Array.from(atob(contentBase64), (char) => char.charCodeAt(0));
+    const bytes = base64ToBytes(contentBase64);
     if (bytes.length === 0 || bytes.length > MAX_INLINE_FILE_BYTES || bytes.includes(0)) {
       return null;
     }

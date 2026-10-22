@@ -1,4 +1,4 @@
-import { bytesToBase64Url } from '~/lib/hex-digest';
+import { base64ToBytes, bytesToBase64Url } from '~/lib/hex-digest';
 
 /**
  * The JSON Web Token a GitHub App signs to act as itself (RS256), good for nine minutes: GitHub
@@ -30,10 +30,5 @@ function pemToDer(pem: string): Uint8Array<ArrayBuffer> {
     throw new Error('The GitHub App key must be PKCS#8: convert it with `openssl pkcs8 -topk8 -nocrypt`.');
   }
   const body = pem.replace(/-----(BEGIN|END) PRIVATE KEY-----/g, '').replace(/\s+/g, '');
-  const binary = atob(body);
-  const der = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    der[index] = binary.charCodeAt(index);
-  }
-  return der;
+  return base64ToBytes(body);
 }

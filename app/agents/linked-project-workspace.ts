@@ -1,6 +1,6 @@
 import { WORK_DIR } from 'cloudchef-agent/constants';
 import type { LinkedSnapshotLine } from '~/lib/.server/cloudflare/linked-project-client';
-import { bytesToBase64, sha256Hex } from '~/lib/hex-digest';
+import { base64ToBytes, bytesToBase64, sha256Hex } from '~/lib/hex-digest';
 import type { BuilderWorkspaceApi } from './builder-workspace-api';
 import { readWholeSyncFeed, seedBatches } from './builder-workspace-seed';
 import { gitignoreMatcher, isNeverPublished } from './linked-project-ignore';
@@ -69,7 +69,7 @@ export async function seedLinkedWorkspace(
         if (EXCLUDED_ROOTS.has(line.path.split('/')[0] ?? '')) {
           continue;
         }
-        const bytes = Uint8Array.from(atob(line.contentBase64), (char) => char.charCodeAt(0));
+        const bytes = base64ToBytes(line.contentBase64);
         manifest.push({ path: line.path, sha256: await sha256Hex(bytes), executable: line.executable });
         download.totalBytes += bytes.length;
         // GitHub's mode goes in with the file, so the workspace's own modes are the repository's.
@@ -210,10 +210,7 @@ export async function packDraftSnapshot(
     if (isGitignore(path)) {
       gitignores.push({
         path,
-        content:
-          entry.encoding === 'base64'
-            ? new TextDecoder().decode(Uint8Array.from(atob(entry.content), (char) => char.charCodeAt(0)))
-            : entry.content,
+        content: entry.encoding === 'base64' ? new TextDecoder().decode(base64ToBytes(entry.content)) : entry.content,
       });
     }
     files.push({
