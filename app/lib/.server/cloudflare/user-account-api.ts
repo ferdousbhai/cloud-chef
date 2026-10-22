@@ -173,6 +173,13 @@ const secretsStoreSecretSchema = z.looseObject({
 
 /** A Durable Object namespace as the account listing names it: the Worker and the class it belongs to. */
 const durableObjectNamespaceSchema = z.looseObject({ script: z.string(), class: z.string() });
+/** One rollout of a container application, as Cloudflare reports it. */
+const containerApplicationRolloutSchema = z.looseObject({
+  id: z.string(),
+  created_at: z.string(),
+  status: z.string(),
+  target_configuration: z.record(z.string(), z.json()),
+});
 
 /** A migration receipt's applied SQL; a receipt written before receipts kept it has none. */
 const appliedMigrationSqlSchema = z.looseObject({ sql: z.string() });
@@ -1945,11 +1952,11 @@ function latestContainerApplicationRollout(value: unknown): Required<ContainerAp
     throw new CloudflareAccountApiError('Cloudflare returned invalid workspace container rollouts.');
   }
   const rollouts = value.map((rollout) => {
-    const parsed = containerApplicationRollout(rollout);
-    if (!parsed) {
+    const parsed = containerApplicationRolloutSchema.safeParse(rollout);
+    if (!parsed.success) {
       throw new CloudflareAccountApiError('Cloudflare returned invalid workspace container rollouts.');
     }
-    return parsed;
+    return parsed.data;
   });
   return rollouts.sort((left, right) => right.created_at.localeCompare(left.created_at))[0] ?? null;
 }
@@ -1958,29 +1965,11 @@ function requireContainerApplicationRollout(
   value: unknown,
   rolloutId: string,
 ): Required<ContainerApplicationRolloutReadback> {
-  const rollout = containerApplicationRollout(value);
+  const rollout = containerApplicationRolloutSchema.safeParse(value).data;
   if (rollout?.id !== rolloutId) {
     throw new CloudflareAccountApiError('Cloudflare returned an invalid workspace container rollout.');
   }
   return rollout;
-}
-
-function containerApplicationRollout(value: unknown): Required<ContainerApplicationRolloutReadback> | null {
-  if (
-    !isRecord(value) ||
-    typeof value.id !== 'string' ||
-    typeof value.created_at !== 'string' ||
-    typeof value.status !== 'string' ||
-    !isRecord(value.target_configuration)
-  ) {
-    return null;
-  }
-  return {
-    id: value.id,
-    created_at: value.created_at,
-    status: value.status,
-    target_configuration: value.target_configuration,
-  };
 }
 
 function matchesWorkspaceContainerConfiguration(value: unknown, image: string): boolean {

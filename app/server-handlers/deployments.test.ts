@@ -20,7 +20,6 @@ vi.mock('~/lib/.server/cloudflare/user-workspace-deployment-executor', () => ({
 }));
 
 import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
-import { DeploymentNotFoundError } from '~/lib/.server/cloudflare/deployment-repository';
 import { buildDeploymentPlanFromSource } from '~/lib/.server/cloudflare/deployment-plan';
 import {
   createOrReplayDeploymentPlanForUser,
