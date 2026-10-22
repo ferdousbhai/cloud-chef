@@ -239,17 +239,6 @@ describe('new Workers AI models', () => {
   });
 });
 
-describe('a Claude preference saved under its old bare id', () => {
-  it('restores the same model under its anthropic/ id', () => {
-    const storage = memoryStorage({ cloudchef_builder_model_v2: 'claude-opus-5-5' });
-    installBuilderModelCatalog({ ...catalog, models: [...catalog.models, claudeModel] }, storage);
-    expect(builderModelStore.get()).toBe('anthropic/claude-opus-5-5');
-
-    syncBuilderModelPreference({ key: 'cloudchef_builder_model_v2', newValue: 'claude-opus-5-5' });
-    expect(builderModelStore.get()).toBe('anthropic/claude-opus-5-5');
-  });
-});
-
 describe('a saved model before the live catalog arrives', () => {
   it('runs at its saved effort, and stands in as itself rather than the default model', async () => {
     // A fresh module, so no catalog has been installed yet.

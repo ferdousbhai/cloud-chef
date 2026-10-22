@@ -149,19 +149,6 @@ export type BuilderModelCatalogPayload = {
   models: BuilderModel[];
 };
 
-/**
- * A builder model id as an older CloudChef wrote it. Claude models were briefly named by their bare
- * Anthropic id (`claude-opus-5-5`) before every gateway provider's models took the provider's slug as
- * a prefix (`anthropic/claude-opus-5-5`); a preference or an admin's default saved in between names
- * the same model under the old spelling, so it is read under the new one rather than dropped.
- */
-export function upgradeLegacyBuilderModelId<T extends string | null | undefined>(value: T): T | GatewayModelId {
-  const legacy = legacyClaudeModelIdSchema.safeParse(value);
-  return legacy.success ? `anthropic/${legacy.data}` : value;
-}
-
-const legacyClaudeModelIdSchema = z.string().regex(/^claude-[a-z0-9][a-z0-9._-]*$/);
-
 export function isWorkersAiModelId(value: string | null | undefined): value is WorkersAiModelId {
   return value !== null && value !== undefined && workersAiModelIdSchema.safeParse(value).success;
 }

@@ -5,7 +5,6 @@ import {
   DEFAULT_WORKERS_AI_MODEL,
   isBuilderModelId,
   MAX_BUILDER_CATALOG_MODELS,
-  upgradeLegacyBuilderModelId,
   validateBuilderModelCatalogPayload,
   builderModelCatalogPayloadSchema,
   builderReasoningLevelSchema,
@@ -307,8 +306,7 @@ export function syncBuilderModelPreference(event: Pick<StorageEvent, 'key' | 'ne
 }
 
 function readSavedModelId(value: string | null): BuilderModelId | null {
-  const upgraded = upgradeLegacyBuilderModelId(value);
-  return isBuilderModelId(upgraded) ? upgraded : null;
+  return isBuilderModelId(value) ? value : null;
 }
 
 function readReasoningChoices(storage?: BuilderModelStorage): BuilderReasoningChoices {
