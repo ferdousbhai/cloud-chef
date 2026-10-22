@@ -145,28 +145,20 @@ function verifyScripts(errors, pkg, label) {
     errors.push(`${label} scripts must be configured.`);
     return;
   }
+  // What Workers Builds (workers-builds.production.json and the steps it runs) and the GitHub Actions
+  // browser gate (.github/workflows) invoke by name.
   const requiredNames = [
-    'audit:dependencies',
     'build',
     'd1:bookmark:production',
+    'd1:migrations:apply:production',
+    'generate',
+    'provision:production:check',
+    'test:e2e:install',
+    'validate',
+    'verify:built-browser',
+    'workers-builds:branch',
     'workers-builds:build',
     'workers-builds:deploy',
-    'workers-builds:branch',
-    'provision:production',
-    'provision:production:check',
-    'typecheck',
-    'validate',
-    'validate:agent',
-    'validate:public-beta',
-    'validate:root',
-    'validate:template',
-    'verify:production-config',
-    'verify:workers-builds-config',
-    'verify:built-ssr',
-    'verify:built-browser',
-    'verify:licenses',
-    'verify:static-assets',
-    'verify:stack',
   ];
   for (const name of requiredNames) {
     if (typeof scripts[name] !== 'string') {
@@ -209,9 +201,6 @@ function verifyScripts(errors, pkg, label) {
       'scripts/workers-builds-checks.mjs',
       'scripts/deploy-production.mjs --check-workers-builds',
     ]),
-  );
-  errors.push(
-    ...findMissingCommandSteps(scripts['validate:root'], `${label} root validation script`, ['audit:dependencies']),
   );
 
   for (const [name, command] of Object.entries(scripts)) {

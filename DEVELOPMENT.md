@@ -36,10 +36,10 @@ Run the same complete pipeline used by CI:
 pnpm run validate
 ```
 
-`scripts/validate.mjs` runs the steps of `validate:root`, `validate:agent`, and `validate:template` side by side, one per
-core (`VALIDATE_CONCURRENCY` overrides that), and stops at the first failure with that check's full output. Useful
-narrower checks, run serially, are `validate:root`, `validate:agent`, `validate:template`, `test`, `test:workerd`,
-`test:builder-agent`, `typecheck`, and `lint`. Generated files produced by verification must leave the worktree clean.
+`scripts/validate.mjs` runs every check side by side, one per core, and stops at the first failure with that check's
+full output; `VALIDATE_CONCURRENCY=1 pnpm run validate` runs them serially. Useful narrower checks are `test`,
+`test:workerd`, `test:builder-agent`, `typecheck`, and `lint`. Generated files produced by verification must leave the
+worktree clean.
 
 `test:builder-agent` (`vitest.builder-agent.config.ts`) runs the real `BuilderAgent` class in Node on an in-memory
 Durable Object state, with the runtime's own D1 schema as `env.DB` and the ProjectWorkspace and Workers AI faked at

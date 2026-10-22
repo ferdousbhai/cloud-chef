@@ -1,12 +1,11 @@
 /**
- * `pnpm run validate`: every check `validate:root`, `validate:agent`, and `validate:template` run,
- * scheduled side by side instead of one after another.
+ * `pnpm run validate`: every check of the root project, the cloudchef-agent package, and the template
+ * profiles, scheduled side by side.
  *
  * The checks are independent of each other apart from two orderings, which are the only edges here:
  * everything in the root project reads what `generate` writes (routes, Worker binding types, the
  * generated bundles), and the three built-output checks read what `build:check` writes. The
- * template profiles and the cloudchef-agent package read neither, so they start at once. Nothing is
- * skipped: `scripts/validate.spec.ts` proves this list expands to exactly the serial scripts' steps.
+ * template profiles and the cloudchef-agent package read neither, so they start at once.
  *
  * Output is held per check and printed when it finishes, so parallel logs never interleave. The
  * first failure prints its full output, stops every check still running, and exits non-zero.
