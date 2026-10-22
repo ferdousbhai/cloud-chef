@@ -29,36 +29,31 @@ export type WorkersAiGatewayOptions = {
 };
 
 /**
- * Every model request goes through the account's default AI Gateway, and paid models need it, for
- * Unified Billing credits. A request the person lets be logged is logged there: requests and responses
- * stay in the connected account, beside its transcripts, so the account can review what a conversation
- * sent and got back. Caching stays off: a builder turn is never a repeat.
+ * Every model request goes through the account's default AI Gateway. A request the person lets be logged
+ * is logged there: requests and responses stay in the connected account, beside its transcripts, so the
+ * account can review what a conversation sent and got back. Caching stays off: a builder turn is never a
+ * repeat.
  */
 export function workersAiGatewayOptions(logging: WorkersAiGatewayLogging): WorkersAiGatewayOptions {
-  if (!logging.collectLog) {
-    return { id: 'default', collectLog: false, skipCache: true };
-  }
-  const options: WorkersAiGatewayOptions = { id: 'default', collectLog: true, skipCache: true };
-  if (logging.metadata) {
-    options.metadata = logging.metadata;
-  }
-  return options;
+  return {
+    id: 'default',
+    collectLog: logging.collectLog,
+    skipCache: true,
+    ...(logging.collectLog && logging.metadata ? { metadata: logging.metadata } : {}),
+  };
 }
 
 /**
- * The same choice, as the `cf-aig-*` headers of a request sent to the gateway by provider (a Claude
- * request) rather than through `env.AI.run`: logged only when the person allows it, filed under
- * `metadata` then, and never cached.
+ * The same options, as the `cf-aig-*` headers of a request sent to the gateway by provider (a Claude
+ * request) rather than through `env.AI.run`.
  */
 export function workersAiGatewayHeaders(logging: WorkersAiGatewayLogging): WorkersAiGatewayHeaders {
-  if (!logging.collectLog) {
-    return { 'cf-aig-collect-log': 'false', 'cf-aig-skip-cache': 'true' };
-  }
-  const headers: WorkersAiGatewayHeaders = { 'cf-aig-collect-log': 'true', 'cf-aig-skip-cache': 'true' };
-  if (logging.metadata) {
-    headers['cf-aig-metadata'] = JSON.stringify(logging.metadata);
-  }
-  return headers;
+  const { collectLog, metadata } = workersAiGatewayOptions(logging);
+  return {
+    'cf-aig-collect-log': collectLog ? 'true' : 'false',
+    'cf-aig-skip-cache': 'true',
+    ...(metadata ? { 'cf-aig-metadata': JSON.stringify(metadata) } : {}),
+  };
 }
 
 export type WorkersAiGatewayHeaders = {
