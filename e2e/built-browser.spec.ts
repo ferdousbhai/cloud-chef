@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { HOME_HEADING, TRUST_PAGE_HEADINGS } from '~/lib/trust';
 import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
+import { authSession } from './auth-session';
 import { collectBrowserDiagnostics } from './browser-diagnostics';
 
 test('hydrates the built landing page without replacing meaningful SSR content', async ({ page }, testInfo) => {
@@ -113,19 +114,7 @@ test('renders the public trust routes and persists the telemetry choice', async 
 // A local contract fixture: no real account is connected or deleted.
 test('keeps account details discoverable and clears a cancelled deletion', async ({ page }, testInfo) => {
   const assertClean = collectBrowserDiagnostics(page, testInfo);
-  await page.route('**/api/auth/session', (route) =>
-    route.fulfill({
-      json: {
-        session: {
-          id: 'settings-session',
-          userId: 'settings-user',
-          expiresAt: Date.now() + 86400000,
-          createdAt: Date.now(),
-        },
-        user: { id: 'settings-user', name: 'Settings fixture', email: 'settings@example.invalid', image: null },
-      },
-    }),
-  );
+  await page.route('**/api/auth/session', (route) => route.fulfill({ json: authSession }));
   await page.route('**/api/cloudflare/connection', (route) =>
     route.fulfill({
       json: {

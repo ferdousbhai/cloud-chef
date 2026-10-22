@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { authSession } from './auth-session';
 import { collectBrowserDiagnostics } from './browser-diagnostics';
 
 // Contract doubles, never a Cloudflare account: these tests stub the two Worker
@@ -8,10 +9,6 @@ const RUNTIME_SESSION_ROUTE = '**/api/cloudflare/runtime-session';
 // The Worker's connect-src policy only allows workers.dev origins, so the
 // runtime double has to look like a real user-owned runtime.
 const RUNTIME_ORIGIN = 'https://e2e-recovery-fixture.workers.dev';
-const authSession = {
-  session: { id: 'e2e-session', userId: 'e2e-user', expiresAt: Date.now() + 86_400_000, createdAt: Date.now() },
-  user: { id: 'e2e-user', name: 'Recovery fixture', email: 'recovery@example.invalid', image: null },
-};
 
 async function stubConnectedSession(page: Page) {
   await page.route('**/api/auth/session', (route) => route.fulfill({ json: authSession }));
