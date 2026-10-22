@@ -481,6 +481,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.hydrateDurableIdentity({ required: false, reason: 'agent_start' });
     }
     this.refreshCloudflareExecutionState();
+    const deployment = this.state.deployment;
+    if (deployment?.status === 'succeeded' && deployment.revision && !this.state.productionRevision) {
+      // Stopped between recording the deployment and the revision production serves.
+      this.setState({ ...this.state, productionRevision: deployment.revision });
+    }
     if (this.state.upgradeWaiting) {
       // The turn that waited stopped with the instance before it started.
       this.setState({ ...this.state, upgradeWaiting: false });
@@ -2267,10 +2272,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return;
     }
     if (this.productionServes(snapshot.revision)) {
-      // Recorded as a deployment records it: the next change clears a legacy deployment record that
-      // may be the only evidence, and a return to this revision would then redeploy it.
-      if (this.state.publicationPending || this.state.productionRevision !== snapshot.revision) {
-        this.setState({ ...this.state, productionRevision: snapshot.revision, publicationPending: false });
+      if (this.state.publicationPending) {
+        this.setState({ ...this.state, publicationPending: false });
       }
       return;
     }
@@ -2816,16 +2819,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     await this.recordProductionRevision(job.revision);
   }
 
-  /**
-   * Whether production serves `revision`. An agent last deployed before production's revision was
-   * recorded knows it only from its succeeded deployment record.
-   */
   private productionServes(revision: string): boolean {
-    const deployment = this.state.deployment;
-    return (
-      revision === this.state.productionRevision ||
-      (deployment?.status === 'succeeded' && deployment.revision === revision)
-    );
+    return revision === this.state.productionRevision;
   }
 
   /** Production serves this revision now; the publication a turn asked for is done once it is the current one. */
