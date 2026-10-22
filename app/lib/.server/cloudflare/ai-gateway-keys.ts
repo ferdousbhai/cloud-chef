@@ -1,6 +1,6 @@
 import type { CloudflareConnection } from './cloudflare-connection-repository';
-import { D1CloudflareCredentialVault } from './cloudflare-credential-vault';
-import { UserCloudflareAccountApi, type AiGatewayProviderKey } from './user-account-api';
+import { openConnectionAccountApi } from './connection-account-api';
+import type { AiGatewayProviderKey, UserCloudflareAccountApi } from './user-account-api';
 import { GATEWAY_PROVIDER_SLUGS, type GatewayKey, type GatewayProviderSlug } from '~/lib/workers-ai-model';
 
 /**
@@ -37,16 +37,7 @@ export type GatewayKeyAccountApi = Pick<
 export type OpenGatewayKeyAccountApi = (env: Env, connection: CloudflareConnection) => Promise<GatewayKeyAccountApi>;
 
 /** The connected account's API, with its stored authorization, refreshed once if Cloudflare refuses it. */
-export const openGatewayKeyAccountApi: OpenGatewayKeyAccountApi = async (env, connection) => {
-  const handle = connection.credentialHandle;
-  if (!handle) {
-    throw new Error('The Cloudflare connection has no authorization.');
-  }
-  const vault = D1CloudflareCredentialVault.fromEnv(env);
-  return new UserCloudflareAccountApi(connection.accountId, await vault.resolve(handle), fetch, () =>
-    vault.resolve(handle, { forceRefresh: true }),
-  );
-};
+export const openGatewayKeyAccountApi: OpenGatewayKeyAccountApi = openConnectionAccountApi;
 
 /** Whether the connection's authorization lets CloudChef manage the gateway's provider keys at all. */
 export function canManageAiGatewayKeys(connection: Pick<CloudflareConnection, 'grantedCapabilities'>): boolean {

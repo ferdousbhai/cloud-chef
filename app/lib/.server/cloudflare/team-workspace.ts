@@ -1,6 +1,5 @@
 import { findCloudflareConnectionForOrganization } from './cloudflare-connection-repository';
-import { D1CloudflareCredentialVault } from './cloudflare-credential-vault';
-import { UserCloudflareAccountApi } from './user-account-api';
+import { openConnectionAccountApi } from './connection-account-api';
 import { workspaceRuntimeNames } from '~/workflows/user-workspace-runtime-provisioning';
 
 /**
@@ -14,10 +13,8 @@ export async function deleteTeamWorkspace(env: Env, orgId: string, userId: strin
   if (connection?.status !== 'active' || !connection.credentialHandle) {
     throw new Error('The team has no active Cloudflare connection.');
   }
-  const accessToken = await D1CloudflareCredentialVault.fromEnv(env).resolve(connection.credentialHandle);
-  await new UserCloudflareAccountApi(connection.accountId, accessToken).deleteWorkspaceRuntime(
-    await workspaceRuntimeNames(connection, userId),
-  );
+  const accountApi = await openConnectionAccountApi(env, connection);
+  await accountApi.deleteWorkspaceRuntime(await workspaceRuntimeNames(connection, userId));
 }
 
 export type DeleteTeamWorkspace = typeof deleteTeamWorkspace;
