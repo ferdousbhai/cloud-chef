@@ -7,10 +7,6 @@ import {
   type BuilderModelId,
   type BuilderReasoningLevel,
 } from '~/lib/workers-ai-model';
-import { z } from 'zod';
-
-const MAX_BUILDER_AGENT_NAME_LENGTH = 512;
-const MAX_BUILDER_SUBCHAT_INDEX = 10_000;
 
 export type BuilderTranscriptBinding = {
   agentName: string;
@@ -113,10 +109,11 @@ export async function loadChatOrgProject(
   };
 }
 
-/** The chat request fields the builder scope check reads. Every one arrives unvalidated from the client. */
+/**
+ * The chat request fields the builder scope check reads. Every one arrives unvalidated from the client.
+ * The chat and subchat the browser also sends are not read: the agent's own D1 binding names them.
+ */
 type BuilderChatRequestBody = {
-  chatInitialId?: unknown;
-  subchatIndex?: unknown;
   transcript?: unknown;
   modelId?: unknown;
   reasoningLevel?: unknown;
@@ -131,22 +128,11 @@ type BuilderRequestScope = {
   reasoningLevel?: BuilderReasoningLevel;
 };
 
-const chatInitialIdSchema = z.string().min(1).max(MAX_BUILDER_AGENT_NAME_LENGTH);
-const subchatIndexSchema = z.number().int().min(0).max(MAX_BUILDER_SUBCHAT_INDEX);
-
 export function requireBuilderRequestScope(
   body: BuilderChatRequestBody,
-  binding: BuilderTranscriptBinding | null,
+  binding: BuilderTranscriptBinding,
 ): BuilderRequestScope {
-  const chatInitialId = chatInitialIdSchema.safeParse(body.chatInitialId);
-  if (!chatInitialId.success) {
-    throw new Response('Invalid initial chat identifier', { status: 400 });
-  }
-  const subchatIndex = subchatIndexSchema.safeParse(body.subchatIndex);
-  if (!subchatIndex.success) {
-    throw new Response('Invalid subchat index', { status: 400 });
-  }
-  const transcript = requireBuilderTranscriptIdentity(body.transcript, binding, subchatIndex.data);
+  const transcript = requireBuilderTranscriptIdentity(body.transcript, binding);
   const modelId = builderModelIdSchema.safeParse(body.modelId);
   if (!modelId.success) {
     throw new Response('Invalid builder model', { status: 400 });
@@ -155,12 +141,9 @@ export function requireBuilderRequestScope(
   if (!reasoningLevel.success) {
     throw new Response('Invalid reasoning effort', { status: 400 });
   }
-  if (chatInitialId.data !== binding?.chatInitialId) {
-    throw new Response('Initial chat identifier does not match this transcript', { status: 409 });
-  }
   return {
-    chatInitialId: chatInitialId.data,
-    subchatIndex: subchatIndex.data,
+    chatInitialId: binding.chatInitialId,
+    subchatIndex: binding.subchatIndex,
     transcript,
     modelId: modelId.data,
     reasoningLevel: reasoningLevel.data,
@@ -170,7 +153,6 @@ export function requireBuilderRequestScope(
 export function requireBuilderTranscriptIdentity(
   value: unknown,
   binding: BuilderTranscriptBinding | null,
-  selectedSubchatIndex?: number,
 ): TranscriptIdentity {
   const result = transcriptIdentitySchema.safeParse(value);
   if (!result.success) {
@@ -183,9 +165,6 @@ export function requireBuilderTranscriptIdentity(
     result.data.subchatIndex !== binding.subchatIndex
   ) {
     throw new Response('Transcript identity does not match this agent', { status: 409 });
-  }
-  if (selectedSubchatIndex !== undefined && result.data.subchatIndex !== selectedSubchatIndex) {
-    throw new Response('Transcript identity does not match the selected subchat', { status: 409 });
   }
   return result.data;
 }
