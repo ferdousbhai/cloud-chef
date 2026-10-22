@@ -101,7 +101,6 @@ function phaseMessage(
     case 'recovering':
       return 'Recovering the interrupted build…';
   }
-  return 'Building your project…';
 }
 
 function activityLabel(
@@ -125,7 +124,6 @@ function activityLabel(
     case 'recovering':
       return 'recovering the build';
   }
-  return 'building your project';
 }
 
 /** Each message names the step the workspace runtime reported entering, not a guess from a clock. */

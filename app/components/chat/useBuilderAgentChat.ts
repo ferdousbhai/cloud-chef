@@ -48,9 +48,6 @@ const toolProgressPartSchema = z.object({
   result: z.unknown(),
 });
 
-/** Message metadata is caller-supplied; only an object can carry the transcript checkpoint. */
-const messageMetadataSchema = z.looseObject({});
-
 const AGENT_SEND_READY_TIMEOUT_MS = 10_000;
 const AGENT_CANCEL_SETTLE_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -181,7 +178,6 @@ export function useBuilderAgentChat(args: {
   });
   const workspaceControllerRef = useRef<BuilderWorkspaceSyncController | null>(null);
   // presentationId is the key, not an input: changing presentation must hand out a fresh gate.
-  // createAsyncGate stopped taking it as an argument, which is why the rule now reads it as unused.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate re-key
   const workspaceGateRef = useMemo(() => ({ current: createAsyncGate() }), [args.presentationId]);
   const chat = useAgentChat<BuilderAgentState, UIMessage>({
@@ -426,7 +422,7 @@ export function useBuilderAgentChat(args: {
 
   const sendMessage = useCallback(
     async (
-      message: Parameters<typeof chat.sendMessage>[0],
+      message: NonNullable<Parameters<typeof chat.sendMessage>[0]>,
       options?: Parameters<typeof chat.sendMessage>[1],
       onRequestStart?: () => void,
     ) => {
@@ -443,36 +439,27 @@ export function useBuilderAgentChat(args: {
         throw error;
       }
       assertCurrentPresentation(workspaceGate);
-      if (message !== undefined) {
-        const snapshot = await readAuthoritativeTranscript();
-        assertCurrentPresentation(workspaceGate);
-        const localMessages = messagesRef.current;
-        const reconciledMessages = await reconcileMessagesForSend({
-          snapshot,
-          localMessages,
-        });
-        assertCurrentPresentation(workspaceGate);
-        if (reconciledMessages !== localMessages) {
-          setMessagesRef.current(asUiMessages(reconciledMessages));
-        }
-        const metadata = ('metadata' in message && messageMetadataSchema.safeParse(message.metadata).data) || {};
-        try {
-          const request = chat.sendMessage(
-            {
-              ...message,
-              metadata: { ...metadata, [TRANSCRIPT_BASE_METADATA_KEY]: snapshot.checkpoint },
-            },
-            options,
-          );
-          onRequestStart?.();
-          return await request;
-        } finally {
-          setMessagesRef.current((messages) => messages.map(stripTranscriptBaseMetadata));
-        }
+      const snapshot = await readAuthoritativeTranscript();
+      assertCurrentPresentation(workspaceGate);
+      const localMessages = messagesRef.current;
+      const reconciledMessages = await reconcileMessagesForSend({
+        snapshot,
+        localMessages,
+      });
+      assertCurrentPresentation(workspaceGate);
+      if (reconciledMessages !== localMessages) {
+        setMessagesRef.current(asUiMessages(reconciledMessages));
       }
-      const request = chat.sendMessage(message, options);
-      onRequestStart?.();
-      return request;
+      try {
+        const request = chat.sendMessage(
+          { ...message, metadata: { [TRANSCRIPT_BASE_METADATA_KEY]: snapshot.checkpoint } },
+          options,
+        );
+        onRequestStart?.();
+        return await request;
+      } finally {
+        setMessagesRef.current((messages) => messages.map(stripTranscriptBaseMetadata));
+      }
     },
     [assertCurrentPresentation, builderAgent, chat, readAuthoritativeTranscript, workspaceGateRef],
   );

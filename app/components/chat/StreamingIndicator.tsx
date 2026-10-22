@@ -79,8 +79,6 @@ export default function StreamingIndicator(props: StreamingIndicatorProps) {
         icon = <WarningIcon />;
         message = streamErrorMessage(props.currentError);
         break;
-      case 'ready':
-        break;
     }
   }
 

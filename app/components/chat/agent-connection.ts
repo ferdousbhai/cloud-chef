@@ -3,11 +3,11 @@ const AGENT_CONNECT_ERROR_MESSAGE = 'CloudChef could not connect to the builder.
 const AGENT_CONNECTION_LOST_MESSAGE = 'CloudChef lost its builder connection. Please try again.';
 
 export type AgentSocketLike = {
-  OPEN?: number;
-  readyState?: number;
-  connectionError?: Error | null;
-  addEventListener?(type: 'open' | 'close' | 'error', listener: EventListener, options?: AddEventListenerOptions): void;
-  removeEventListener?(type: 'open' | 'close' | 'error', listener: EventListener): void;
+  OPEN: number;
+  readyState: number;
+  connectionError: Error | null;
+  addEventListener(type: 'open' | 'close' | 'error', listener: EventListener, options?: AddEventListenerOptions): void;
+  removeEventListener(type: 'open' | 'close' | 'error', listener: EventListener): void;
 };
 
 export async function waitForAgentSocketOpen(
@@ -18,18 +18,7 @@ export async function waitForAgentSocketOpen(
     throw agent.connectionError;
   }
 
-  // A transport that exposes no socket state, or no listeners to wait on, is the chat transport
-  // rather than a socket: there is nothing to wait for and nothing to report.
-  if (agent.readyState === undefined) {
-    return;
-  }
-
-  const openReadyState = agent.OPEN ?? 1;
-  if (agent.readyState !== openReadyState) {
-    if (!agent.addEventListener || !agent.removeEventListener) {
-      return;
-    }
-
+  if (agent.readyState !== agent.OPEN) {
     await waitForSocketOpen(agent, timeoutMs);
   }
 
@@ -42,9 +31,9 @@ function waitForSocketOpen(agent: AgentSocketLike, timeoutMs: number): Promise<v
   return new Promise<void>((resolve, reject) => {
     const cleanup = () => {
       clearTimeout(timeoutId);
-      agent.removeEventListener?.('open', onOpen);
-      agent.removeEventListener?.('close', onClose);
-      agent.removeEventListener?.('error', onError);
+      agent.removeEventListener('open', onOpen);
+      agent.removeEventListener('close', onClose);
+      agent.removeEventListener('error', onError);
     };
     const finish = (callback: () => void) => {
       cleanup();
@@ -57,11 +46,10 @@ function waitForSocketOpen(agent: AgentSocketLike, timeoutMs: number): Promise<v
     const timeoutId = setTimeout(() => {
       finish(() => reject(new Error(AGENT_CONNECT_ERROR_MESSAGE)));
     }, timeoutMs);
-    agent.addEventListener?.('open', onOpen);
-    agent.addEventListener?.('close', onClose);
-    agent.addEventListener?.('error', onError);
-    const openReadyState = agent.OPEN ?? 1;
-    if (agent.readyState === openReadyState) {
+    agent.addEventListener('open', onOpen);
+    agent.addEventListener('close', onClose);
+    agent.addEventListener('error', onError);
+    if (agent.readyState === agent.OPEN) {
       onOpen();
     }
   });
