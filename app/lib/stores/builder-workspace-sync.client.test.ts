@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 import type {
   BuilderWorkspaceClientChange,
   BuilderWorkspaceSyncEntry,
@@ -19,6 +20,24 @@ const workbench = vi.hoisted(() => ({
 vi.mock('./workbench.client', () => ({ workbenchStore: workbench }));
 
 import { BuilderWorkspaceSyncController } from './builder-workspace-sync.client';
+
+/** The one workspace these tests open, which nothing supersedes. */
+const ACTIVE = { workspaceId: 'active', isCurrent: () => true };
+
+/**
+ * The revision the controller sends its next change against, read from what a probe change asks the
+ * agent to apply on; the probe's own outcome does not matter.
+ */
+async function nextBaseRevision(
+  controller: BuilderWorkspaceSyncController,
+  agent: { call: { mock: { calls: readonly (readonly unknown[])[] } } },
+): Promise<number> {
+  await controller
+    .push([{ kind: 'write', path: '/home/project/src/probe.ts', content: 'probe' }], () => true)
+    .catch(() => undefined);
+  const applied = agent.call.mock.calls.filter(([method]) => method === 'applyWorkspaceClientChanges').at(-1);
+  return z.tuple([z.object({ baseRevision: z.number() })]).parse(applied?.[1])[0].baseRevision;
+}
 
 describe('BuilderWorkspaceSyncController', () => {
   beforeEach(() => {
@@ -99,7 +118,7 @@ describe('BuilderWorkspaceSyncController', () => {
       }),
     };
 
-    await expect(BuilderWorkspaceSyncController.initialize(agent)).rejects.toThrow(
+    await expect(BuilderWorkspaceSyncController.initialize(agent, ACTIVE)).rejects.toThrow(
       'durable project workspace is not initialized',
     );
     expect(workbench.replaceWorkspaceSnapshot).not.toHaveBeenCalled();
@@ -139,6 +158,7 @@ describe('BuilderWorkspaceSyncController', () => {
 
     const firstInitialization = BuilderWorkspaceSyncController.initialize(firstAgent, {
       workspaceId: 'account-a:shared-agent',
+      isCurrent: () => true,
     }).then(
       () => undefined,
       (error: unknown) => error,
@@ -146,6 +166,7 @@ describe('BuilderWorkspaceSyncController', () => {
     await vi.waitFor(() => expect(firstAgent.call).toHaveBeenCalledWith('getWorkspaceState', [], expect.anything()));
     const secondController = await BuilderWorkspaceSyncController.initialize(secondAgent, {
       workspaceId: 'account-b:shared-agent',
+      isCurrent: () => true,
     });
     releaseFirstAccount();
 
@@ -189,7 +210,7 @@ describe('BuilderWorkspaceSyncController', () => {
         }
       }),
     };
-    const controller = await BuilderWorkspaceSyncController.initialize(agent);
+    const controller = await BuilderWorkspaceSyncController.initialize(agent, ACTIVE);
     workbench.applyWorkspaceSyncEntries.mockClear();
     const localChange: BuilderWorkspaceClientChange = {
       kind: 'write',
@@ -197,7 +218,7 @@ describe('BuilderWorkspaceSyncController', () => {
       content: 'browser-version',
     };
 
-    await controller.push([localChange]);
+    await controller.push([localChange], () => true);
 
     expect(applyRequests).toEqual([{ baseRevision: 1, changes: [localChange] }]);
     expect(workbench.replaceWorkspaceSnapshot).toHaveBeenLastCalledWith(
@@ -207,7 +228,8 @@ describe('BuilderWorkspaceSyncController', () => {
       ],
       undefined,
     );
-    expect(controller.revision).toBe(2);
+
+    expect(await nextBaseRevision(controller, agent)).toBe(2);
   });
 
   test('presents unrelated delta entries without advancing a stale own-save baseline', async () => {
@@ -240,7 +262,7 @@ describe('BuilderWorkspaceSyncController', () => {
         }
       }),
     };
-    const controller = await BuilderWorkspaceSyncController.initialize(agent);
+    const controller = await BuilderWorkspaceSyncController.initialize(agent, ACTIVE);
     const listener = workbench.setWorkspaceChangeListener.mock.calls[0]?.[0] as (
       changes: BuilderWorkspaceClientChange[],
       isCurrentChange: () => boolean,
@@ -255,12 +277,12 @@ describe('BuilderWorkspaceSyncController', () => {
       [{ fromRevision: 1 }],
       expect.objectContaining({ timeout: 30_000 }),
     );
-    expect(controller.revision).toBe(2);
     expect(workbench.applyWorkspaceSyncEntries).toHaveBeenCalledOnce();
     expect(workbench.applyWorkspaceSyncEntries).toHaveBeenCalledWith([
       expect.objectContaining({ path: '/home/project/src/remote.ts', content: 'remote change' }),
     ]);
     expect(workbench.replaceWorkspaceSnapshot).not.toHaveBeenCalled();
+    expect(await nextBaseRevision(controller, agent)).toBe(2);
   });
 
   test('selectively reconciles a snapshot after a successful stale own-save', async () => {
@@ -295,7 +317,7 @@ describe('BuilderWorkspaceSyncController', () => {
         }
       }),
     };
-    const controller = await BuilderWorkspaceSyncController.initialize(agent);
+    const controller = await BuilderWorkspaceSyncController.initialize(agent, ACTIVE);
     const listener = workbench.setWorkspaceChangeListener.mock.calls[0]?.[0] as (
       changes: BuilderWorkspaceClientChange[],
       isCurrentChange: () => boolean,
@@ -312,7 +334,8 @@ describe('BuilderWorkspaceSyncController', () => {
       ],
       new Set(['/home/project/src/local.ts']),
     );
-    expect(controller.revision).toBe(2);
+
+    expect(await nextBaseRevision(controller, agent)).toBe(2);
   });
 
   test('does not present a pull that completes after the controller is disposed and the same workspace remounts', async () => {
@@ -339,7 +362,10 @@ describe('BuilderWorkspaceSyncController', () => {
         throw new Error(`Unexpected RPC: ${method}`);
       }),
     };
-    const controller = await BuilderWorkspaceSyncController.initialize(agent, { workspaceId: 'same-workspace' });
+    const controller = await BuilderWorkspaceSyncController.initialize(agent, {
+      workspaceId: 'same-workspace',
+      isCurrent: () => true,
+    });
     workbench.applyWorkspaceSyncEntries.mockClear();
     revision = 2;
     const pull = controller.pull();
@@ -380,9 +406,15 @@ describe('BuilderWorkspaceSyncController', () => {
         throw new Error(`Unexpected RPC: ${method}`);
       }),
     };
-    const controller = await BuilderWorkspaceSyncController.initialize(agent, { workspaceId: 'same-workspace' });
+    const controller = await BuilderWorkspaceSyncController.initialize(agent, {
+      workspaceId: 'same-workspace',
+      isCurrent: () => true,
+    });
     workbench.replaceWorkspaceSnapshot.mockClear();
-    const push = controller.push([{ kind: 'write', path: '/home/project/src/local.ts', content: 'stale local edit' }]);
+    const push = controller.push(
+      [{ kind: 'write', path: '/home/project/src/local.ts', content: 'stale local edit' }],
+      () => true,
+    );
     await vi.waitFor(() =>
       expect(agent.call).toHaveBeenCalledWith(
         'applyWorkspaceClientChanges',
@@ -429,7 +461,7 @@ describe('BuilderWorkspaceSyncController', () => {
         }
       }),
     };
-    const controller = await BuilderWorkspaceSyncController.initialize(agent);
+    const controller = await BuilderWorkspaceSyncController.initialize(agent, ACTIVE);
 
     await controller.pull();
 
@@ -443,7 +475,8 @@ describe('BuilderWorkspaceSyncController', () => {
     expect(workbench.replaceWorkspaceSnapshot).not.toHaveBeenLastCalledWith([
       expect.objectContaining({ path: '/home/project/src/stale.ts' }),
     ]);
-    expect(controller.revision).toBe(2);
+
+    expect(await nextBaseRevision(controller, agent)).toBe(2);
   });
 
   test('does not silently retry a failed manual edit during a later pull', async () => {
@@ -474,18 +507,19 @@ describe('BuilderWorkspaceSyncController', () => {
         }
       }),
     };
-    const controller = await BuilderWorkspaceSyncController.initialize(agent);
+    const controller = await BuilderWorkspaceSyncController.initialize(agent, ACTIVE);
     const change: BuilderWorkspaceClientChange = {
       kind: 'write',
       path: '/home/project/src/retry.ts',
       content: 'retry me',
     };
 
-    await expect(controller.push([change])).rejects.toThrow('temporary connection failure');
+    await expect(controller.push([change], () => true)).rejects.toThrow('temporary connection failure');
     await expect(controller.pull()).resolves.toBeUndefined();
 
     expect(applyCount).toBe(1);
-    expect(controller.revision).toBe(2);
+
+    expect(await nextBaseRevision(controller, agent)).toBe(2);
   });
 
   test('serializes push and pull operations through one workspace queue', async () => {
@@ -531,11 +565,17 @@ describe('BuilderWorkspaceSyncController', () => {
         }
       }),
     };
-    const controller = await BuilderWorkspaceSyncController.initialize(agent);
-    const firstPush = controller.push([{ kind: 'write', path: '/home/project/src/one.ts', content: 'one' }]);
+    const controller = await BuilderWorkspaceSyncController.initialize(agent, ACTIVE);
+    const firstPush = controller.push(
+      [{ kind: 'write', path: '/home/project/src/one.ts', content: 'one' }],
+      () => true,
+    );
     await vi.waitFor(() => expect(activeApplyCalls).toBe(1));
     const pull = controller.pull();
-    const secondPush = controller.push([{ kind: 'write', path: '/home/project/src/two.ts', content: 'two' }]);
+    const secondPush = controller.push(
+      [{ kind: 'write', path: '/home/project/src/two.ts', content: 'two' }],
+      () => true,
+    );
 
     releaseFirstApply();
     await Promise.all([firstPush, pull, secondPush]);
@@ -563,7 +603,7 @@ describe('BuilderWorkspaceSyncController', () => {
       }),
     };
 
-    await expect(BuilderWorkspaceSyncController.initialize(agent)).rejects.toThrow(
+    await expect(BuilderWorkspaceSyncController.initialize(agent, ACTIVE)).rejects.toThrow(
       'Invalid durable workspace sync response',
     );
     expect(workbench.applyWorkspaceSyncEntries).not.toHaveBeenCalled();
@@ -589,7 +629,7 @@ describe('BuilderWorkspaceSyncController', () => {
       }),
     };
 
-    await expect(BuilderWorkspaceSyncController.initialize(agent)).rejects.toThrow(
+    await expect(BuilderWorkspaceSyncController.initialize(agent, ACTIVE)).rejects.toThrow(
       'target revision changed between pages',
     );
     expect(workbench.applyWorkspaceSyncEntries).not.toHaveBeenCalled();

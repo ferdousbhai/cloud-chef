@@ -38,13 +38,8 @@ export class BuilderWorkspaceSyncController {
 
   static async initialize(
     agent: BuilderWorkspaceAgent,
-    options: {
-      workspaceId?: string;
-      isCurrent?: () => boolean;
-    } = {},
+    { workspaceId, isCurrent }: { workspaceId: string; isCurrent: () => boolean },
   ): Promise<BuilderWorkspaceSyncController> {
-    const workspaceId = options.workspaceId ?? 'active';
-    const isCurrent = options.isCurrent ?? (() => true);
     if (!isCurrent()) {
       throw new Error('The durable workspace connection was superseded.');
     }
@@ -87,10 +82,6 @@ export class BuilderWorkspaceSyncController {
     }
   }
 
-  get revision(): number {
-    return this.#revision;
-  }
-
   dispose(): void {
     this.#disposed = true;
     workbenchStore.clearWorkspaceChangeListener(this.#changeListener);
@@ -99,7 +90,7 @@ export class BuilderWorkspaceSyncController {
 
   async push(
     changes: BuilderWorkspaceClientChange[],
-    isCurrentChange: () => boolean = () => true,
+    isCurrentChange: () => boolean,
   ): Promise<BuilderWorkspaceApplyResult> {
     if (this.#disposed) {
       throw new Error('The durable workspace connection was closed.');
@@ -107,43 +98,30 @@ export class BuilderWorkspaceSyncController {
     if (changes.length === 0) {
       return { ok: true, state: await callWorkspaceAgent(this.agent, 'getWorkspaceState', []), changedPaths: [] };
     }
-    let resolveResult: (result: BuilderWorkspaceApplyResult) => void = () => undefined;
-    let rejectResult: (error: unknown) => void = () => undefined;
-    const result = new Promise<BuilderWorkspaceApplyResult>((resolve, reject) => {
-      resolveResult = resolve;
-      rejectResult = reject;
-    });
-    this.#enqueue(async () => {
-      try {
-        const applied = await callWorkspaceAgent<BuilderWorkspaceApplyResult>(
-          this.agent,
-          'applyWorkspaceClientChanges',
-          [{ baseRevision: this.#revision, changes }],
-        );
-        if (applied.ok) {
-          this.#revision = applied.state.revision;
-          try {
-            const pull = await this.source.pull();
-            this.#revision = pull.revision;
-            if (!this.#disposed) {
-              this.#presentPull(pull, isCurrentChange() ? undefined : new Set(changes.map((change) => change.path)));
-            }
-          } catch (error) {
-            // The edit is already durable. Preserve success and let the next
-            // normal reconciliation retry the in-memory workspace refresh.
-            logger.warn('Failed to refresh the browser workspace view after a durable edit', error);
-          }
-        } else {
-          const pull = await this.source.replaceFromSnapshot();
+    return this.#enqueue(async () => {
+      const applied = await callWorkspaceAgent<BuilderWorkspaceApplyResult>(this.agent, 'applyWorkspaceClientChanges', [
+        { baseRevision: this.#revision, changes },
+      ]);
+      if (applied.ok) {
+        this.#revision = applied.state.revision;
+        try {
+          const pull = await this.source.pull();
           this.#revision = pull.revision;
-          this.#replacePresentationFromCollection();
+          if (!this.#disposed) {
+            this.#presentPull(pull, isCurrentChange() ? undefined : new Set(changes.map((change) => change.path)));
+          }
+        } catch (error) {
+          // The edit is already durable. Preserve success and let the next
+          // normal reconciliation retry the in-memory workspace refresh.
+          logger.warn('Failed to refresh the browser workspace view after a durable edit', error);
         }
-        resolveResult(applied);
-      } catch (error) {
-        rejectResult(error);
+      } else {
+        const pull = await this.source.replaceFromSnapshot();
+        this.#revision = pull.revision;
+        this.#replacePresentationFromCollection();
       }
+      return applied;
     });
-    return result;
   }
 
   pull(): Promise<void> {
@@ -179,9 +157,13 @@ export class BuilderWorkspaceSyncController {
     workbenchStore.replaceWorkspaceSnapshot(snapshot, preservedPaths);
   }
 
-  #enqueue(operation: () => Promise<void>): Promise<void> {
+  /** Runs `operation` after every operation queued before it, settled or not. */
+  #enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const execution = this.#operationQueue.then(operation);
-    this.#operationQueue = execution.catch(() => undefined);
+    this.#operationQueue = execution.then(
+      () => undefined,
+      () => undefined,
+    );
     return execution;
   }
 }
