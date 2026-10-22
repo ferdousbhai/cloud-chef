@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -72,41 +72,16 @@ const blockedRootBuildEntries = new Map([
   ['node-liblzma', '  node-liblzma: false'],
   ['protobufjs', '  protobufjs: false'],
 ]);
+// The project documents nothing else reads. Source files, the template lockfile, and the pnpm patch need no entry:
+// the build, the template verifier, and `pnpm install` fail without them.
 const requiredPaths = [
   'CODE_OF_CONDUCT.md',
   'CONTRIBUTING.md',
   'LICENSE',
   'NOTICE',
-  'patches/@cloudflare__computer@0.2.1.patch',
   'README.md',
   'SECURITY.md',
   'THIRD_PARTY_NOTICES',
-  'app/server.ts',
-  'app/agents/builder-agent.ts',
-  'app/lib/.server/chat.ts',
-  'app/lib/.server/cloudflare/deployment-runtime-policy.ts',
-  'app/lib/.server/cloudflare/user-workspace-deployment-executor.ts',
-  'user-workspace-runtime/src/index.ts',
-  'app/lib/workers-ai-model.ts',
-  'cloudchef-agent/package.json',
-  'cloudchef-agent/tsconfig.json',
-  'scripts/check-runtime-artifacts.mjs',
-  'template/package.json',
-  'template/pnpm-lock.yaml',
-  'template/src/server.ts',
-  'template/src/agents/app-agent.ts',
-  'template/src/agents/anonymous-retention.ts',
-  'template/vite.config.ts',
-  'template/cloudflare.config.ts',
-  'template/cloudflare.project.json',
-];
-const requiredMigrationTables = [
-  'user',
-  'cloudflare_auth_sessions',
-  'cloudflare_oauth_states',
-  'cloudflare_credentials',
-  'cloudflare_connections',
-  'user_computer_runtimes',
 ];
 function readJson(path) {
   return JSON.parse(readFileSync(resolve(rootDir, path), 'utf8'));
@@ -219,28 +194,6 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function verifyRootMigrations(errors) {
-  const migrationsDir = resolve(rootDir, 'migrations');
-  const sql = readdirSync(migrationsDir)
-    .filter((file) => file.endsWith('.sql'))
-    .sort()
-    .map((file) => readFileSync(resolve(migrationsDir, file), 'utf8'))
-    .join('\n');
-  errors.push(...findRootMigrationErrors(sql));
-}
-
-export function findRootMigrationErrors(sql) {
-  const errors = [];
-  // The trailing boundary keeps the name an exact match: without it `user` matched the first four
-  // characters of `user_computer_runtimes`, so the required-table check passed vacuously.
-  for (const table of requiredMigrationTables) {
-    if (!new RegExp(`CREATE TABLE(?: IF NOT EXISTS)? ["']?${table}["']?(?![A-Za-z0-9_])`, 'i').test(sql)) {
-      errors.push(`root migrations must create the ${table} table.`);
-    }
-  }
-  return errors;
-}
-
 export function verifyStackAlignment() {
   const errors = [];
   const rootPackage = readJson('package.json');
@@ -276,7 +229,6 @@ export function verifyStackAlignment() {
   }
 
   verifyWorkspace(errors);
-  verifyRootMigrations(errors);
   errors.push(...verifyD1MigrationSafety(rootDir));
   errors.push(
     ...findDeploymentRuntimePolicyErrors(

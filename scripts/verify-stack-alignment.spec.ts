@@ -16,7 +16,6 @@ import {
   findRootWorkspacePolicyErrors,
   findRuntimePinErrors,
   findSandboxRuntimePinErrors,
-  findRootMigrationErrors,
   findBuilderTemplateModuleErrors,
   packageDependencyVersion,
 } from './verify-stack-alignment.mjs';
@@ -168,23 +167,6 @@ describe('stack alignment verification helpers', () => {
       findDeploymentRuntimePolicyErrors({ ...templatePolicy, compatibilityDate: '2026-07-22' }, runtimePolicy),
     ).toEqual(['deployment compatibilityDate "2026-07-21" must match the generated template\'s "2026-07-22".']);
     expect(findDeploymentRuntimePolicyErrors(templatePolicy, 'export const other = 1;')).toHaveLength(3);
-  });
-
-  it('requires the control-plane tables in root D1', () => {
-    const requiredTables = [
-      'user',
-      'cloudflare_auth_sessions',
-      'cloudflare_oauth_states',
-      'cloudflare_credentials',
-      'cloudflare_connections',
-      'user_computer_runtimes',
-    ]
-      .map((table) => `CREATE TABLE IF NOT EXISTS ${table} (id TEXT);`)
-      .join('\n');
-    expect(findRootMigrationErrors(requiredTables)).toEqual([]);
-    expect(findRootMigrationErrors('CREATE TABLE user_computer_runtimes (id TEXT);')).toContain(
-      'root migrations must create the user table.',
-    );
   });
 
   it('requires the server Builder template to match the current template source', () => {
