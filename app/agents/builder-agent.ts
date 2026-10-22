@@ -475,7 +475,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (props) {
       await this.initializeIdentity(props);
     } else {
-      await this.hydrateDurableIdentity({ required: false, reason: 'agent_start' });
+      await this.hydrateDurableIdentity();
     }
     this.refreshCloudflareExecutionState();
     if (this.state.upgradeWaiting) {
@@ -550,7 +550,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   override async onChatRecovery(ctx: ChatRecoveryContext): Promise<ChatRecoveryOptions> {
-    await this.hydrateDurableIdentity({ required: true, reason: 'chat_recovery', incidentId: ctx.incidentId });
+    await this.requireDurableIdentity('chat_recovery', ctx.incidentId);
     if (this.state.transcript) {
       await this.advanceTranscriptCheckpoint(this.state.transcript);
     }
@@ -578,11 +578,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   override async onFiberRecovered(ctx: FiberRecoveryContext): Promise<void | FiberRecoveryResult> {
-    await this.hydrateDurableIdentity({
-      required: true,
-      reason: 'fiber_recovery',
-      incidentId: ctx.id,
-    });
+    await this.requireDurableIdentity('fiber_recovery', ctx.id);
     if (ctx.name === TITLE_GENERATION_FIBER) {
       const job = titleGenerationJobSchema.safeParse(ctx.metadata).data;
       if (!job || !this.userId) {
@@ -668,10 +664,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     _onFinish?: Parameters<AIChatAgent['onChatMessage']>[0],
     options?: OnChatMessageOptions,
   ) {
-    const durableIdentity = await this.hydrateDurableIdentity({ required: true, reason: 'chat_message' });
-    if (!durableIdentity) {
-      this.rejectIdentity('chat_message_missing', undefined, 401);
-    }
+    const durableIdentity = await this.requireDurableIdentity('chat_message');
     const body = options?.body ?? {};
     const messages = this.messages;
     // A conversation a newer one took over is kept to read: working here would edit an old copy of the
@@ -932,7 +925,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   @callable()
   async steerActiveTurn(input: BuilderSteeringInput): Promise<{ accepted: true }> {
-    await this.hydrateDurableIdentity({ required: true, reason: 'steer_active_turn' });
+    await this.requireDurableIdentity('steer_active_turn');
     const steering = steeringRequestSchema.safeParse(input);
     if (!steering.success) {
       throw new Response('Invalid steering message', { status: 400 });
@@ -1074,7 +1067,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!transcriptOwnerIdSchema.safeParse(ownerId).success) {
       throw new Response('Invalid transcript owner', { status: 400 });
     }
-    const identity = await this.hydrateDurableIdentity({ required: false, reason: 'settle_for_successor' });
+    const identity = await this.hydrateDurableIdentity();
     if (!identity) {
       // Never started, so nothing runs here.
       return;
@@ -1123,11 +1116,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   /** Why this conversation may no longer change its project, or null while it may. */
   private async closedConversationMessage(): Promise<string | null> {
-    const ownerId =
-      this.userId ?? (await this.hydrateDurableIdentity({ required: true, reason: 'archive_check' }))?.userId;
-    if (!ownerId) {
-      return null;
-    }
+    const ownerId = this.userId ?? (await this.requireDurableIdentity('archive_check')).userId;
     const { archived, deleted } = await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId });
     if (deleted) {
       return DELETED_CONVERSATION_MESSAGE;
@@ -1141,9 +1130,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    */
   @callable()
   async requestProduction(input: { title: string; note: string }): Promise<{ outcome: ProductionRequestOutcome }> {
-    const durableIdentity = await this.hydrateDurableIdentity({ required: true, reason: 'request_production' });
+    const durableIdentity = await this.requireDurableIdentity('request_production');
     const identity = runtimeConnectionIdentity(this.env);
-    if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1' || !identity || !durableIdentity) {
+    if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1' || !identity) {
       throw new Error("Production requests are for drafts in a team's account.");
     }
     if (await this.workspace.linkedProject()) {
@@ -1264,7 +1253,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   @callable()
   async deployValidatedRevision(): Promise<BuilderDeploymentState> {
-    await this.hydrateDurableIdentity({ required: true, reason: 'deploy_validated_revision' });
+    await this.requireDurableIdentity('deploy_validated_revision');
     if (await this.workspace.linkedProject()) {
       throw new Error('This project deploys through GitHub: ask the agent to publish it.');
     }
@@ -1381,17 +1370,28 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     this.applyIdentity(identity);
   }
 
-  private async hydrateDurableIdentity(args: {
-    required: boolean;
-    reason: string;
-    incidentId?: string;
-  }): Promise<BuilderAgentDurableIdentity | null> {
+  /** The stored identity, applied, or null when none is stored or it no longer names the active transcript. */
+  private async hydrateDurableIdentity(): Promise<BuilderAgentDurableIdentity | null> {
+    const stored = await this.readDurableIdentity();
+    return stored === 'missing' || stored === 'stale' ? null : stored;
+  }
+
+  /** The stored identity, applied; a missing or stale one rejects the request. */
+  private async requireDurableIdentity(reason: string, incidentId?: string): Promise<BuilderAgentDurableIdentity> {
+    const stored = await this.readDurableIdentity();
+    if (stored === 'missing') {
+      this.rejectIdentity(`${reason}_missing`, incidentId, 401);
+    }
+    if (stored === 'stale') {
+      this.rejectIdentity(`${reason}_stale`, incidentId);
+    }
+    return stored;
+  }
+
+  private async readDurableIdentity(): Promise<BuilderAgentDurableIdentity | 'missing' | 'stale'> {
     const stored = this.identityRepository.get();
     if (!stored) {
-      if (args.required) {
-        this.rejectIdentity(`${args.reason}_missing`, args.incidentId, 401);
-      }
-      return null;
+      return 'missing';
     }
     const activeTranscript = await loadBuilderTranscriptBinding(this.env.DB, {
       agentName: this.name,
@@ -1401,15 +1401,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       !activeTranscript ||
       !builderAgentIdentitiesEqual(stored, { userId: stored.userId, transcript: activeTranscript })
     ) {
-      // Throwing here for a non-required hydration makes `onStart` throw, and the SDK rethrows that
+      // Rejecting here for a non-required hydration makes `onStart` throw, and the SDK rethrows that
       // from every native RPC entry point — including `_cf_scheduleDestroy`. A soft-deleted chat has
       // no active transcript by definition, so the GC sweep could never condemn its Durable Object:
       // it retried forever, re-running the project deletion each round. Startup leaves the identity
-      // unset instead; every operational entry point hydrates with `required: true`.
-      if (args.required) {
-        this.rejectIdentity(`${args.reason}_stale`, args.incidentId);
-      }
-      return null;
+      // unset instead; every operational entry point requires it.
+      return 'stale';
     }
     this.applyIdentity(stored);
     return stored;
@@ -1973,10 +1970,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   private async requireCurrentCloudflareExecutionBinding(reason: string): Promise<CloudflareExecutionBinding> {
-    const durableIdentity = await this.hydrateDurableIdentity({ required: true, reason });
+    const durableIdentity = await this.requireDurableIdentity(reason);
     const transcript = this.transcriptBinding;
     const identity = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
-    if (!durableIdentity || !transcript || !identity || identity.userId !== durableIdentity.userId) {
+    if (!transcript || !identity || identity.userId !== durableIdentity.userId) {
       throw new Response('The Cloudflare execution identity is unavailable.', { status: 409 });
     }
     return { ...identity, transcript };
@@ -2490,7 +2487,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!retry) {
       return;
     }
-    await this.hydrateDurableIdentity({ required: false, reason: 'automatic_deployment_retry' });
+    await this.hydrateDurableIdentity();
     if (!this.userId || !this.transcriptBinding || !this.state.publicationPending) {
       return;
     }
@@ -2533,7 +2530,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!record) {
       return;
     }
-    await this.hydrateDurableIdentity({ required: false, reason: 'deployment_record_settle' });
+    await this.hydrateDurableIdentity();
     const context = this.deploymentContext();
     if (!context || this.destroying) {
       return;
