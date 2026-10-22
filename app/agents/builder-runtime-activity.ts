@@ -49,9 +49,6 @@ export function isBuilderAgentBusy(state: BuilderAgentState | undefined): boolea
 type BuilderRuntimeActivityDependencies = {
   db: Pick<D1Database, 'prepare'>;
   agentName: () => string;
-  now?: () => number;
-  /** Resolves after `ms`, or as soon as `signal` aborts. */
-  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 };
 
 /**
@@ -65,13 +62,8 @@ export class BuilderRuntimeActivity {
   private recorded: { busy: boolean; at: number } | null = null;
   private turnBusy = false;
   private running = 0;
-  private readonly now: () => number;
-  private readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
 
-  constructor(private readonly dependencies: BuilderRuntimeActivityDependencies) {
-    this.now = dependencies.now ?? Date.now;
-    this.sleep = dependencies.sleep ?? abortableSleep;
-  }
+  constructor(private readonly dependencies: BuilderRuntimeActivityDependencies) {}
 
   /** Whether the agent's turn is running. A failed write is logged; it never fails the agent's work. */
   observe(turnBusy: boolean): Promise<void> {
@@ -131,14 +123,14 @@ export class BuilderRuntimeActivity {
    */
   private async waitForUpgradeWindow(options: RuntimeAdmissionOptions): Promise<void> {
     const { signal, maxWaitMs, onWaiting } = options;
-    const startedAt = this.now();
+    const startedAt = Date.now();
     const giveUpAt = startedAt + UNRECORDED_ADMISSION_WAIT_MS;
     let waiting = false;
     try {
       for (;;) {
         signal?.throwIfAborted();
         const recorded = await this.record();
-        const now = this.now();
+        const now = Date.now();
         const window = recorded
           ? await readRuntimeUpgradeWindow(this.dependencies.db, now).then(
               (open) => ({ open }),
@@ -157,14 +149,14 @@ export class BuilderRuntimeActivity {
             waiting = true;
             onWaiting?.(true);
           }
-          await this.sleep(Math.min(UPGRADE_WINDOW_POLL_MS, Math.max(0, window.open.expiresAt - now)), signal);
+          await abortableSleep(Math.min(UPGRADE_WINDOW_POLL_MS, Math.max(0, window.open.expiresAt - now)), signal);
           continue;
         }
         if (now >= giveUpAt) {
           logger.warn('Starting work the workspace runtime could not record as busy');
           return;
         }
-        await this.sleep(UPGRADE_WINDOW_POLL_MS, signal);
+        await abortableSleep(UPGRADE_WINDOW_POLL_MS, signal);
       }
     } finally {
       if (waiting) {
@@ -187,7 +179,7 @@ export class BuilderRuntimeActivity {
   }
 
   private async write(busy: boolean): Promise<void> {
-    const now = this.now();
+    const now = Date.now();
     const recorded = this.recorded;
     if (recorded && recorded.busy === busy && (!busy || now - recorded.at < RUNTIME_BUSY_RENEWAL_MS)) {
       return;
