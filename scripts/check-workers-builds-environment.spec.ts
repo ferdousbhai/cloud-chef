@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { checkWorkersBuildEnvironment } from './check-workers-builds-environment.mjs';
 
 const commitSha = 'a'.repeat(40);
+const toolchain = { node: '26.3.0', pnpm: '11.14.0' };
 const env = {
   WORKERS_CI: '1',
   WORKERS_CI_BRANCH: 'main',
@@ -17,7 +18,9 @@ describe('Workers Builds environment preflight', () => {
       }
       return { status: 0, stdout: '11.14.0\n', stderr: '' };
     });
-    expect(() => checkWorkersBuildEnvironment({ env, nodeVersion: 'v26.3.0', spawn: spawn as never })).not.toThrow();
+    expect(() =>
+      checkWorkersBuildEnvironment({ env, nodeVersion: 'v26.3.0', toolchain, spawn: spawn as never }),
+    ).not.toThrow();
     expect(spawn).toHaveBeenCalledWith('pnpm', ['--version'], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -36,6 +39,7 @@ describe('Workers Builds environment preflight', () => {
       checkWorkersBuildEnvironment({
         env: { ...env, WORKERS_CI_BRANCH: 'feature/cloudflare-preview' },
         nodeVersion: 'v26.3.0',
+        toolchain,
         spawn: spawn as never,
       }),
     ).not.toThrow();
@@ -48,8 +52,8 @@ describe('Workers Builds environment preflight', () => {
       }
       return { status: 0, stdout: '11.13.0\n', stderr: '' };
     });
-    expect(() => checkWorkersBuildEnvironment({ env, nodeVersion: 'v26.3.0', spawn: spawn as never })).toThrow(
-      'Workers Builds must use pnpm 11.14.0; found 11.13.0.',
-    );
+    expect(() =>
+      checkWorkersBuildEnvironment({ env, nodeVersion: 'v26.3.0', toolchain, spawn: spawn as never }),
+    ).toThrow('Workers Builds must use pnpm 11.14.0; found 11.13.0.');
   });
 });

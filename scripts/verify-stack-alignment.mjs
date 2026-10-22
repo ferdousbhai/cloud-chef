@@ -220,16 +220,6 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function verifyToolchainConfig(errors, rootPackage) {
-  const nodeVersion = readFileSync(resolve(rootDir, '.nvmrc'), 'utf8').trim();
-  if (nodeVersion !== '26.3.0') {
-    errors.push('.nvmrc must pin Node.js 26.3.0.');
-  }
-  if (rootPackage?.packageManager !== 'pnpm@11.14.0') {
-    errors.push('package.json must pin pnpm 11.14.0 for Cloudflare Workers Builds.');
-  }
-}
-
 function verifyRootMigrations(errors) {
   const migrationsDir = resolve(rootDir, 'migrations');
   const sql = readdirSync(migrationsDir)
@@ -292,7 +282,6 @@ export function verifyStackAlignment() {
   );
 
   verifyWorkspace(errors);
-  verifyToolchainConfig(errors, rootPackage);
   verifyRootMigrations(errors);
   errors.push(...verifyD1MigrationSafety(rootDir));
   errors.push(

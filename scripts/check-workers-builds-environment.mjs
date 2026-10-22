@@ -1,27 +1,28 @@
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { validateWorkersBuildMetadata } from './deploy-production.mjs';
-
-const EXPECTED_NODE_VERSION = 'v26.3.0';
-const EXPECTED_PNPM_VERSION = '11.14.0';
+import { readPinnedToolchain } from './lib/toolchain.mjs';
 
 /**
+ * The build runs on the toolchain `.nvmrc` and `packageManager` pin.
  * @param {{
  *   env?: Record<string, string | undefined>;
  *   nodeVersion?: string;
  *   spawn?: typeof spawnSync;
+ *   toolchain?: { node: string; pnpm: string };
  * }} [options]
  */
 export function checkWorkersBuildEnvironment({
   env = process.env,
   nodeVersion = process.version,
   spawn = spawnSync,
+  toolchain = readPinnedToolchain(),
 } = {}) {
   validateWorkersBuildMetadata({ env, spawn });
-  if (nodeVersion !== EXPECTED_NODE_VERSION) {
-    throw new Error(`Workers Builds must use Node.js ${EXPECTED_NODE_VERSION}; found ${nodeVersion}.`);
+  if (nodeVersion !== `v${toolchain.node}`) {
+    throw new Error(`Workers Builds must use Node.js v${toolchain.node}; found ${nodeVersion}.`);
   }
-  requireCommandOutput(spawn, 'pnpm', ['--version'], EXPECTED_PNPM_VERSION, 'pnpm');
+  requireCommandOutput(spawn, 'pnpm', ['--version'], toolchain.pnpm, 'pnpm');
 }
 
 function requireCommandOutput(spawn, command, args, expected, label) {

@@ -1,3 +1,5 @@
+import { parsePinnedToolchain } from './lib/toolchain.mjs';
+
 const EXPECTED_WORKER = 'cloudchef';
 const EXPECTED_REPOSITORY = 'ferdousbhai/cloud-chef';
 const EXPECTED_BRANCH = 'main';
@@ -6,11 +8,8 @@ const EXPECTED_DEPLOY_COMMAND = 'pnpm run workers-builds:deploy';
 // A branch build validates and stops: it never uploads a version of the production Worker.
 const EXPECTED_BRANCH_COMMAND = 'pnpm run workers-builds:branch';
 const EXPECTED_TOKEN_NAME = 'account-workers-builds-production';
-const EXPECTED_BUILD_VARIABLES = {
-  NODE_VERSION: '26.3.0',
-  PNPM_VERSION: '11.14.0',
-  SKIP_DEPENDENCY_INSTALL: '1',
-};
+// NODE_VERSION and PNPM_VERSION are the pins in `.nvmrc` and `packageManager`.
+const EXPECTED_BUILD_VARIABLE_NAMES = ['NODE_VERSION', 'PNPM_VERSION', 'SKIP_DEPENDENCY_INSTALL'];
 const EXPECTED_REQUIRED_BUILD_VARIABLES = ['CLOUDFLARE_OAUTH_CLIENT_ID'];
 // The Workers Builds image cannot install Chromium, so the credential-free
 // browser gate is the one release check GitHub Actions owns. Everything else
@@ -64,16 +63,24 @@ export function findWorkersBuildsConfigErrors({
     errors.push('cloudflare.config.ts must not bind CloudChef-owned Containers.');
   }
 
+  const toolchain = parsePinnedToolchain({ nvmrc, packageManager: packageJson?.packageManager });
+  errors.push(...toolchain.errors);
+  const expectedBuildVariables = {
+    NODE_VERSION: toolchain.node,
+    PNPM_VERSION: toolchain.pnpm,
+    SKIP_DEPENDENCY_INSTALL: '1',
+  };
   if (!isRecord(config?.buildVariables)) {
     errors.push('workers-builds.production.json buildVariables must be an object.');
   } else {
-    for (const [name, value] of Object.entries(EXPECTED_BUILD_VARIABLES)) {
+    for (const [name, value] of Object.entries(expectedBuildVariables)) {
+      if (value === null) {
+        continue;
+      }
       requireEqual(errors, `workers-builds.production.json buildVariables.${name}`, config.buildVariables[name], value);
     }
-    // `hasOwn`, not `in`: `in` walks Object.prototype, so a build variable literally named
-    // `constructor` or `toString` would be treated as reviewed and never reported.
     const unexpected = Object.keys(config.buildVariables).filter(
-      (name) => !Object.hasOwn(EXPECTED_BUILD_VARIABLES, name),
+      (name) => !EXPECTED_BUILD_VARIABLE_NAMES.includes(name),
     );
     if (unexpected.length > 0) {
       errors.push(
@@ -115,8 +122,6 @@ export function findWorkersBuildsConfigErrors({
   if (scripts?.['workers-builds:preview'] !== undefined) {
     errors.push('package.json must not define workers-builds:preview; branch builds upload no Worker version.');
   }
-  requireEqual(errors, 'package.json packageManager', packageJson?.packageManager, 'pnpm@11.14.0');
-  requireEqual(errors, '.nvmrc', nvmrc?.trim(), '26.3.0');
 
   if (
     !githubWorkflowPaths?.includes(REQUIRED_GITHUB_WORKFLOW_PATH) ||

@@ -93,14 +93,31 @@ describe('Workers Builds production configuration', () => {
         'workers-builds.production.json buildVariables must not contain unreviewed variables: UNREVIEWED_SECRET.',
         'workers-builds.production.json must not build a CloudChef-owned Sandbox image.',
         'cloudflare.config.ts must not bind CloudChef-owned Containers.',
-        'package.json packageManager must be "pnpm@11.14.0"; found "pnpm@latest".',
+        'package.json packageManager must pin an exact pnpm version; found "pnpm@latest".',
         // The deploy step ships the Worker validation builds, so validation must build exactly the release.
         'package.json scripts.build:check must be "vite build"; found "vite build --mode development".',
         'package.json scripts.validate must be "node scripts/validate.mjs"; found undefined.',
-        '.nvmrc must be "26.3.0"; found "node".',
+        '.nvmrc must pin an exact Node.js version; found "node".',
         'GitHub deployment workflows must not exist; Cloudflare Workers Builds is the only CI/CD provider. Found: .github/workflows/ci.yml, .github/workflows/deploy.yml.',
         '.github/actions/setup-and-build/action.yaml must not exist; the Cloudflare build command owns toolchain setup.',
       ]),
     );
+  });
+
+  it('requires the build image toolchain to match .nvmrc and packageManager', () => {
+    expect(
+      findWorkersBuildsConfigErrors({
+        config: validConfig,
+        packageJson: { ...packageJson, packageManager: 'pnpm@11.15.0' },
+        nvmrc: '26.4.0\n',
+        githubWorkflowPaths: ['.github/workflows/browser-gate.yml'],
+        browserGateWorkflow: '      - run: pnpm run verify:built-browser\n',
+        githubCompositeActionExists: false,
+        workerConfig: { preview_urls: false },
+      }),
+    ).toEqual([
+      'workers-builds.production.json buildVariables.NODE_VERSION must be "26.4.0"; found "26.3.0".',
+      'workers-builds.production.json buildVariables.PNPM_VERSION must be "11.15.0"; found "11.14.0".',
+    ]);
   });
 });

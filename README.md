@@ -8,8 +8,8 @@ Try it at [cloudchef.build](https://cloudchef.build).
 
 ## Requirements
 
-- Node.js 26 or newer
-- pnpm 11.14.0, as pinned by `packageManager`
+- Node.js, at the version `.nvmrc` pins
+- pnpm, at the version `packageManager` pins
 - A Cloudflare account for production deployment
 
 ## Setup

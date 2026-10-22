@@ -28,7 +28,7 @@ jobs:
           node-version-file: .nvmrc
 
       - name: Install the pinned toolchain
-        run: npm install --global pnpm@11.14.0
+        run: npm install --global "$(node -p 'require("./package.json").packageManager')"
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
