@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { userRuntimeDataAction } from './data.server';
+import { userRuntimeDataAction, userRuntimeInitialMessagesAction } from './data.server';
 import { ensureInitialChat } from './data/chat-repository.server';
 import { envWith, userWorkspaceDatabase } from '~/test/control-plane-d1';
 
@@ -29,6 +29,24 @@ describe('user runtime data refusals', () => {
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: 'Chat not found' });
+  });
+});
+
+describe('user runtime transcript reads', () => {
+  it('answers a chat that is not there as missing, in JSON', async () => {
+    const { db } = userWorkspaceDatabase();
+
+    const response = await userRuntimeInitialMessagesAction({
+      request: new Request('https://runtime.example/v1/chats/messages', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId: 'session', chatId: 'missing' }),
+      }),
+      env: envWith({ DB: db }),
+      userId: 'session',
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 'missing' });
   });
 });
 

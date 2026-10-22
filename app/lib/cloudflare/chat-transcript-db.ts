@@ -6,14 +6,10 @@ import { z } from 'zod';
 import {
   TRANSCRIPT_HISTORY_FORMAT_VERSION,
   transcriptCheckpointSchema,
-  transcriptIdentitiesEqual,
   transcriptIdentitySchema,
-  type TranscriptCheckpoint,
-  type TranscriptIdentity,
 } from 'cloudchef-agent/transcript';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
-import { executeDataOperation, UserRuntimeRequestError } from './client';
-import { api } from './data-api';
+import { UserRuntimeRequestError } from './client';
 import { queryClient } from '~/lib/stores/reactQueryClient';
 import { fetchUserRuntime } from './runtime-session';
 import { useQueryCacheError } from './use-query-cache-error';
@@ -37,13 +33,19 @@ const serializedMessageSchema = z.custom<SerializedMessage>(
   'Invalid serialized message.',
 );
 
-const transcriptHistorySchema = z
-  .object({
+/** What the runtime answers for a chat's transcript: the chat is gone, or its identity with any saved history. */
+const transcriptResponseSchema = z.discriminatedUnion('status', [
+  z.strictObject({ status: z.literal('missing') }),
+  z.strictObject({
+    status: z.literal('ready'),
     version: z.literal(TRANSCRIPT_HISTORY_FORMAT_VERSION),
-    transcript: transcriptCheckpointSchema,
+    initialId: z.string().min(1),
+    description: z.string().optional(),
+    transcript: transcriptIdentitySchema,
+    checkpoint: transcriptCheckpointSchema.nullable(),
     messages: z.array(serializedMessageSchema),
-  })
-  .strict();
+  }),
+]);
 
 const missingChatTranscriptSchema = z.object({
   requestKey: z.string().min(1),
@@ -186,40 +188,28 @@ async function loadChatTranscript(
   signal: AbortSignal,
 ): Promise<CachedChatTranscript> {
   signal.throwIfAborted();
-  const chatInfo = await executeDataOperation(api.messages.get, { id: request.chatId, sessionId }, { signal });
-  signal.throwIfAborted();
-  if (chatInfo === null) {
-    return { requestKey, status: 'missing' };
-  }
-  const loadedSubchatIndex = request.subchatIndex ?? chatInfo.subchatIndex;
   const response = await fetchUserRuntime('/v1/chats/messages', {
     method: 'POST',
-    body: JSON.stringify({
-      chatId: request.chatId,
-      sessionId,
-      subchatIndex: loadedSubchatIndex,
-    }),
+    body: JSON.stringify({ chatId: request.chatId, sessionId, subchatIndex: request.subchatIndex }),
     signal: AbortSignal.any([signal, AbortSignal.timeout(TRANSCRIPT_FETCH_TIMEOUT_MS)]),
   });
   if (!response.ok) {
     throw await projectMessagesRequestError(response);
   }
-  const responseTranscript = transcriptIdentityFromHeaders(response.headers);
-  const history =
-    response.status === 204 ? { messages: [], checkpoint: null } : parseMessageHistory(await response.json());
+  const loaded = parseTranscriptResponse(await response.json());
   signal.throwIfAborted();
+  if (loaded.status === 'missing') {
+    return { requestKey, status: 'missing' };
+  }
   return {
     requestKey,
     status: 'ready',
-    loadedChatId: chatInfo.initialId,
-    description: chatInfo.description,
-    loadedSubchatIndex,
-    transcript: responseTranscript,
-    checkpoint:
-      history.checkpoint && transcriptIdentitiesEqual(history.checkpoint, responseTranscript)
-        ? history.checkpoint
-        : null,
-    messages: history.messages,
+    loadedChatId: loaded.initialId,
+    description: loaded.description,
+    loadedSubchatIndex: loaded.transcript.subchatIndex,
+    transcript: loaded.transcript,
+    checkpoint: loaded.checkpoint,
+    messages: loaded.messages,
   };
 }
 
@@ -242,37 +232,6 @@ export async function projectMessagesRequestError(response: Response): Promise<U
   );
 }
 
-export function transcriptIdentityFromHeaders(headers: Headers): TranscriptIdentity {
-  const generation = headers.get('X-CloudChef-Transcript-Generation');
-  const subchatIndex = headers.get('X-CloudChef-Transcript-Subchat');
-  const result = transcriptIdentitySchema.safeParse({
-    agentName: headers.get('X-CloudChef-Transcript-Agent'),
-    generation: parseTranscriptHeaderInteger(generation),
-    subchatIndex: parseTranscriptHeaderInteger(subchatIndex),
-  });
-  if (!result.success) {
-    throw new Error('The user runtime returned invalid transcript identity headers.');
-  }
-  return result.data;
-}
-
-function parseTranscriptHeaderInteger(value: string | null): number {
-  if (value === null || !/^(?:0|[1-9]\d*)$/.test(value)) {
-    return Number.NaN;
-  }
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
-}
-
-type TranscriptMessageHistory = {
-  messages: SerializedMessage[];
-  checkpoint: TranscriptCheckpoint | null;
-};
-
-export function parseMessageHistory(deserialized: unknown): TranscriptMessageHistory {
-  const history = transcriptHistorySchema.parse(deserialized);
-  return {
-    messages: history.messages,
-    checkpoint: history.transcript,
-  };
+export function parseTranscriptResponse(deserialized: unknown): z.infer<typeof transcriptResponseSchema> {
+  return transcriptResponseSchema.parse(deserialized);
 }

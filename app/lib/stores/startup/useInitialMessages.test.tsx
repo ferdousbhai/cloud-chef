@@ -8,35 +8,44 @@ import { subchatIndexStore } from '~/lib/stores/subchats';
 import { useInitialMessages } from './useInitialMessages';
 import { description } from '~/lib/stores/description';
 import { queryClient } from '~/lib/stores/reactQueryClient';
+import { TRANSCRIPT_HISTORY_FORMAT_VERSION } from 'cloudchef-agent/transcript';
 
-const executeDataOperationMock = vi.hoisted(() => vi.fn());
-
-vi.mock('~/lib/cloudflare/client', () => ({
-  executeDataOperation: executeDataOperationMock,
-}));
 vi.mock('~/lib/cloudflare/runtime-session', () => ({
   fetchUserRuntime: (path: string, init?: RequestInit) => fetch(path, init),
 }));
+type TranscriptRequestBody = { chatId: string; sessionId: string; subchatIndex?: number };
+type ChatOnRuntime = { description: string; latestSubchatIndex: number };
+
+/** Serves the runtime's transcript endpoint: the chat `answer` returns, with no saved history, or a missing chat. */
+function stubTranscriptEndpoint(answer: (body: TranscriptRequestBody) => Promise<ChatOnRuntime | null>) {
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    // SAFETY: this stub only ever serves the transcript request, whose body the production caller
+    // builds with exactly these fields.
+    const body = JSON.parse(String(init?.body)) as TranscriptRequestBody;
+    const chat = await answer(body);
+    if (!chat) {
+      return Response.json({ status: 'missing' });
+    }
+    const subchatIndex = body.subchatIndex ?? chat.latestSubchatIndex;
+    return Response.json({
+      status: 'ready',
+      version: TRANSCRIPT_HISTORY_FORMAT_VERSION,
+      initialId: body.chatId,
+      description: chat.description,
+      transcript: { agentName: `${body.chatId}--transcript-${subchatIndex}-0`, generation: 0, subchatIndex },
+      checkpoint: null,
+      messages: [],
+    });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
 describe('useInitialMessages', () => {
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     subchatIndexStore.set(0);
     userIdStore.set(undefined);
-    executeDataOperationMock.mockReset();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        const body = JSON.parse(String(init?.body)) as { chatId: string; subchatIndex: number };
-        return new Response(null, {
-          status: 204,
-          headers: {
-            'X-CloudChef-Transcript-Agent': `${body.chatId}--transcript-${body.subchatIndex}-0`,
-            'X-CloudChef-Transcript-Generation': '0',
-            'X-CloudChef-Transcript-Subchat': body.subchatIndex.toString(),
-          },
-        });
-      }),
-    );
   });
 
   afterEach(() => {
@@ -48,17 +57,9 @@ describe('useInitialMessages', () => {
   });
 
   it('reloads a project when authentication replaces a temporary guest session', async () => {
-    executeDataOperationMock.mockImplementation(async (_operation: unknown, args: { sessionId: string }) => {
-      if (args.sessionId === 'stale-session') {
-        return null;
-      }
-      return {
-        initialId: 'project-id',
-        description: 'Project',
-        subchatIndex: 0,
-        transcript: { agentName: 'project-id', generation: 0, subchatIndex: 0 },
-      };
-    });
+    const fetchMock = stubTranscriptEndpoint(async (body) =>
+      body.sessionId === 'stale-session' ? null : { description: 'Project', latestSubchatIndex: 0 },
+    );
 
     const seen: Array<'loading' | 'missing' | 'ready'> = [];
     const container = document.createElement('div');
@@ -90,7 +91,7 @@ describe('useInitialMessages', () => {
     });
     expect(seen).toContain('missing');
     expect(seen.at(-1)).toBe('ready');
-    expect(executeDataOperationMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(description.get()).toBe('Project');
 
     await act(async () => root.unmount());
@@ -101,32 +102,12 @@ describe('useInitialMessages', () => {
     const subchatLoad = new Promise<void>((resolve) => {
       finishSubchatLoad = resolve;
     });
-    executeDataOperationMock.mockResolvedValue({
-      initialId: 'project-id',
-      description: 'Project',
-      subchatIndex: 0,
+    stubTranscriptEndpoint(async (body) => {
+      if (body.subchatIndex === 1) {
+        await subchatLoad;
+      }
+      return { description: 'Project', latestSubchatIndex: 0 };
     });
-    // The chat-info read is not subchat-specific, so the transcript fetch is what a
-    // subchat navigation actually waits on.
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        // SAFETY: this stub only ever serves the transcript request this test issues, whose body
-        // the production caller builds with exactly these two fields.
-        const body = JSON.parse(String(init?.body)) as { chatId: string; subchatIndex: number };
-        if (body.subchatIndex === 1) {
-          await subchatLoad;
-        }
-        return new Response(null, {
-          status: 204,
-          headers: {
-            'X-CloudChef-Transcript-Agent': `${body.chatId}--transcript-${body.subchatIndex}-0`,
-            'X-CloudChef-Transcript-Generation': '0',
-            'X-CloudChef-Transcript-Subchat': body.subchatIndex.toString(),
-          },
-        });
-      }),
-    );
 
     const states: string[] = [];
     const container = document.createElement('div');
@@ -169,16 +150,7 @@ describe('useInitialMessages', () => {
 
   it('adopts a newer latest subchat discovered during server revalidation', async () => {
     let latestSubchatIndex = 0;
-    executeDataOperationMock.mockImplementation(async () => ({
-      initialId: 'project-id',
-      description: 'Project',
-      subchatIndex: latestSubchatIndex,
-      transcript: {
-        agentName: `project-id--transcript-${latestSubchatIndex}-0`,
-        generation: 0,
-        subchatIndex: latestSubchatIndex,
-      },
-    }));
+    stubTranscriptEndpoint(async () => ({ description: 'Project', latestSubchatIndex }));
 
     const container = document.createElement('div');
     document.body.appendChild(container);

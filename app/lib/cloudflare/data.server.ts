@@ -34,7 +34,6 @@ import { ensureDataBindings, internalErrorResponse } from './data/http.server';
 import { ChatArchivedError } from './data/errors';
 import { requireChatTranscript, transcriptIdentity } from './data/transcript-repository.server';
 import { retryDurableObjectRpc } from './durable-object-rpc.server';
-import type { ChatTranscriptRow } from './data/types';
 
 const dataOperationPathSchema = z.object(dataOperationArgSchemas).keyof();
 const dataRequestSchema = z.object({ path: dataOperationPathSchema, args: z.unknown() });
@@ -86,23 +85,28 @@ export async function userRuntimeInitialMessagesAction(args: {
     }
     const chat = await findChat(args.env.DB, { id: body.chatId, sessionId: args.userId });
     if (!chat) {
-      return new Response(`Chat not found: ${body.chatId}`, { status: 404 });
+      return Response.json({ status: 'missing' });
     }
-    const transcript = await requireChatTranscript(args.env.DB, {
-      chatId: chat.id,
-      subchatIndex: body.subchatIndex ?? 0,
-    });
-    const durable = await getBuilderTranscriptSnapshot(args.env, transcriptIdentity(transcript), args.userId);
-    if (!durable.checkpoint || durable.checkpoint.revision === 0) {
-      return new Response(null, { status: 204, headers: transcriptResponseHeaders(transcript) });
-    }
-    if (!transcriptIdentitiesEqual(durable.checkpoint, transcriptIdentity(transcript))) {
+    const identity = transcriptIdentity(
+      await requireChatTranscript(args.env.DB, {
+        chatId: chat.id,
+        subchatIndex: body.subchatIndex ?? chat.last_subchat_index,
+      }),
+    );
+    const durable = await getBuilderTranscriptSnapshot(args.env, identity, args.userId);
+    const checkpoint = durable.checkpoint && durable.checkpoint.revision > 0 ? durable.checkpoint : null;
+    if (checkpoint && !transcriptIdentitiesEqual(checkpoint, identity)) {
       return transcriptConflictResponse();
     }
-    return Response.json(
-      { version: TRANSCRIPT_HISTORY_FORMAT_VERSION, transcript: durable.checkpoint, messages: durable.messages },
-      { headers: transcriptResponseHeaders(transcript) },
-    );
+    return Response.json({
+      status: 'ready',
+      version: TRANSCRIPT_HISTORY_FORMAT_VERSION,
+      initialId: chat.initial_id,
+      description: chat.description ?? undefined,
+      transcript: identity,
+      checkpoint,
+      messages: checkpoint ? durable.messages : [],
+    });
   } catch (error) {
     return internalErrorResponse(error, 'Unknown initial messages error');
   }
@@ -123,14 +127,6 @@ function getBuilderTranscriptSnapshot(
   return retryDurableObjectRpc(() =>
     env.BuilderAgent.getByName(identity.agentName).getTranscriptSnapshotForOwner(identity, ownerId),
   );
-}
-
-function transcriptResponseHeaders(transcript: ChatTranscriptRow): Headers {
-  return new Headers({
-    'X-CloudChef-Transcript-Agent': transcript.agent_name,
-    'X-CloudChef-Transcript-Generation': transcript.generation.toString(),
-    'X-CloudChef-Transcript-Subchat': transcript.subchat_index.toString(),
-  });
 }
 
 function runKnownDataOperation(
