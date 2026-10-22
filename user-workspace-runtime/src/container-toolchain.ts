@@ -3,6 +3,7 @@ import { WORK_DIR } from '../../cloudchef-agent/constants';
 import templatePackage from '../../template/package.json' with { type: 'json' };
 import { CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS } from './operation-lease-policy';
 import { shellQuote } from './shell-quote';
+import { abortableSleep } from '../../app/lib/abortable-sleep';
 
 /**
  * Where the bootstrap installs computerd on the stock Sandbox image. `/opt` rather than `/tmp` so
@@ -89,12 +90,8 @@ export async function runIdempotentBootstrapStage(options: {
   stage: string;
   budgetMs: number;
   attempt: (remainingMs: number) => Promise<void>;
-  now?: () => number;
-  delay?: (ms: number) => Promise<void>;
 }): Promise<void> {
-  const now = options.now ?? Date.now;
-  const delay = options.delay ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const deadline = now() + options.budgetMs;
+  const deadline = Date.now() + options.budgetMs;
   let attempts = 0;
   // Assigned on every path that reaches the throw: the loop body either
   // returns from a successful attempt or records the failure first.
@@ -102,16 +99,16 @@ export async function runIdempotentBootstrapStage(options: {
   do {
     attempts += 1;
     try {
-      await options.attempt(Math.max(1, deadline - now()));
+      await options.attempt(Math.max(1, deadline - Date.now()));
       return;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
     }
-    if (deadline - now() <= BOOTSTRAP_RETRY_DELAY_MS) {
+    if (deadline - Date.now() <= BOOTSTRAP_RETRY_DELAY_MS) {
       break;
     }
-    await delay(BOOTSTRAP_RETRY_DELAY_MS);
-  } while (now() < deadline);
+    await abortableSleep(BOOTSTRAP_RETRY_DELAY_MS);
+  } while (Date.now() < deadline);
   throw new ContainerToolchainBootstrapError(options.stage, options.budgetMs, attempts, lastError);
 }
 

@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GENERATED_PROJECT_PNPM_VERSION } from '../../cloudchef-agent/cloudflare-computer';
 import {
   BOOTSTRAP_RETRY_DELAY_MS,
@@ -137,44 +137,53 @@ describe('container toolchain bootstrap', () => {
 });
 
 describe('idempotent bootstrap retry', () => {
-  function fakeClock() {
-    let time = 0;
-    return {
-      now: () => time,
-      advance: (ms: number) => {
-        time += ms;
-      },
-    };
+  beforeEach(() => {
+    vi.useFakeTimers({ now: 0 });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Run `stage` to its end, firing its retry delays as they come due. */
+  async function settle(stage: Promise<void>): Promise<unknown> {
+    const outcome = stage.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await vi.runAllTimersAsync();
+    return outcome;
   }
 
   it('retries a launch aborted by the vendor connect timeout and succeeds inside the budget', async () => {
-    const clock = fakeClock();
-    const delays: number[] = [];
+    const starts: number[] = [];
     const budgets: number[] = [];
     let attempts = 0;
 
-    await runIdempotentBootstrapStage({
-      stage: 'toolchain (pnpm)',
-      budgetMs: 10 * 60_000,
-      attempt: async (remainingMs) => {
-        attempts += 1;
-        budgets.push(remainingMs);
-        // The production shape: the exec launch aborts after the hardcoded
-        // 30s control-connection timeout while the container is starting.
-        clock.advance(30_000);
-        if (attempts < 3) {
-          throw new Error('The operation was aborted');
-        }
-      },
-      now: clock.now,
-      delay: async (ms) => {
-        delays.push(ms);
-        clock.advance(ms);
-      },
-    });
+    const failure = await settle(
+      runIdempotentBootstrapStage({
+        stage: 'toolchain (pnpm)',
+        budgetMs: 10 * 60_000,
+        attempt: async (remainingMs) => {
+          attempts += 1;
+          starts.push(Date.now());
+          budgets.push(remainingMs);
+          // The production shape: the exec launch aborts after the hardcoded
+          // 30s control-connection timeout while the container is starting.
+          vi.advanceTimersByTime(30_000);
+          if (attempts < 3) {
+            throw new Error('The operation was aborted');
+          }
+        },
+      }),
+    );
 
+    expect(failure).toBeNull();
     expect(attempts).toBe(3);
-    expect(delays).toEqual([BOOTSTRAP_RETRY_DELAY_MS, BOOTSTRAP_RETRY_DELAY_MS]);
+    expect(starts.slice(1).map((start, index) => start - starts[index]! - 30_000)).toEqual([
+      BOOTSTRAP_RETRY_DELAY_MS,
+      BOOTSTRAP_RETRY_DELAY_MS,
+    ]);
     // Each attempt is offered only what is left of the one stage budget, so a
     // retry cannot quietly extend the ceiling.
     expect(budgets[0]).toBe(10 * 60_000);
@@ -183,20 +192,15 @@ describe('idempotent bootstrap retry', () => {
   });
 
   it('names an exhausted bootstrap instead of surfacing a bare vendor abort', async () => {
-    const clock = fakeClock();
-
-    const failure = await runIdempotentBootstrapStage({
-      stage: 'toolchain (pnpm)',
-      budgetMs: 60_000,
-      attempt: async () => {
-        clock.advance(30_000);
-        throw new Error('The operation was aborted');
-      },
-      now: clock.now,
-      delay: async (ms) => clock.advance(ms),
-    }).then(
-      () => null,
-      (error: unknown) => error,
+    const failure = await settle(
+      runIdempotentBootstrapStage({
+        stage: 'toolchain (pnpm)',
+        budgetMs: 60_000,
+        attempt: async () => {
+          vi.advanceTimersByTime(30_000);
+          throw new Error('The operation was aborted');
+        },
+      }),
     );
 
     expect(failure).toBeInstanceOf(ContainerToolchainBootstrapError);
@@ -210,23 +214,21 @@ describe('idempotent bootstrap retry', () => {
   });
 
   it('stops without another attempt once the budget cannot fit one', async () => {
-    const clock = fakeClock();
     let attempts = 0;
 
-    await expect(
+    const failure = await settle(
       runIdempotentBootstrapStage({
         stage: 'computerd',
         budgetMs: 30_000 + BOOTSTRAP_RETRY_DELAY_MS,
         attempt: async () => {
           attempts += 1;
-          clock.advance(30_000);
+          vi.advanceTimersByTime(30_000);
           throw new Error('The operation was aborted');
         },
-        now: clock.now,
-        delay: async (ms) => clock.advance(ms),
       }),
-    ).rejects.toBeInstanceOf(ContainerToolchainBootstrapError);
+    );
 
+    expect(failure).toBeInstanceOf(ContainerToolchainBootstrapError);
     expect(attempts).toBe(1);
   });
 
@@ -239,12 +241,9 @@ describe('idempotent bootstrap retry', () => {
       attempt: async () => {
         attempts += 1;
       },
-      now: () => 0,
-      delay: async () => {
-        throw new Error('a successful bootstrap must not sleep');
-      },
     });
 
     expect(attempts).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
