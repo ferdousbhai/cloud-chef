@@ -4,7 +4,6 @@ import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import react from '@vitejs/plugin-react';
 import { configDefaults, defineConfig } from 'vitest/config';
 import { optimizeCssModules } from 'vite-plugin-optimize-css-modules';
-import wasm from 'vite-plugin-wasm';
 import { fileURLToPath } from 'node:url';
 
 const fromRoot = (path: string) => fileURLToPath(new URL(path, import.meta.url));
@@ -75,7 +74,6 @@ export default defineConfig((config) => {
         }),
       react(),
       config.mode === 'production' && optimizeCssModules({ apply: 'build' }),
-      wasm(),
     ].filter(Boolean),
     envPrefix: ['VITE_'],
   };

@@ -316,9 +316,6 @@ importers:
       vite-plugin-optimize-css-modules:
         specifier: ^1.4.0
         version: 1.4.0(vite@8.3.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@1.21.7)(sass-embedded@1.83.4)(yaml@2.9.0))
-      vite-plugin-wasm:
-        specifier: ^3.6.0
-        version: 3.6.0(vite@8.3.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@1.21.7)(sass-embedded@1.83.4)(yaml@2.9.0))
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@edge-runtime/vm@5.0.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.2)(jsdom@26.1.0)(vite@8.3.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@1.21.7)(sass-embedded@1.83.4)(yaml@2.9.0))
@@ -6308,11 +6305,6 @@ packages:
     resolution: {integrity: sha512-2U300dlcb4rIOlmNXJ9ro3RcCIj9fXz9fCfNZHNoi5Cq/x5cvAP+RHeePd1OaRc4kvzkzYlE0lHCliKZuMvyGA==}
     peerDependencies:
       vite: ^8.0.0 || ^7.0.0 || ^6.0.0 || ^5.0.0 || ^4.0.0 || ^3.0.0 || ^2.0.0
-
-  vite-plugin-wasm@3.6.0:
-    resolution: {integrity: sha512-mL/QPziiIA4RAA6DkaZZzOstdwbW5jO4Vz7Zenj0wieKWBlNvIvX5L5ljum9lcUX0ShNfBgCNLKTjNkRVVqcsw==}
-    peerDependencies:
-      vite: ^2 || ^3 || ^4 || ^5 || ^6 || ^7 || ^8
 
   vite@8.3.5:
     resolution: {integrity: sha512-z1YpjieJ9g0ebTmQpLBv/oq9E3F9EIlOe+7LahW8SrE3LTiG3udBRUXQOlYXP9b+IC2q2phHeVxj9xGlw34OEQ==}
@@ -13276,10 +13268,6 @@ snapshots:
       vfile-message: 4.0.3
 
   vite-plugin-optimize-css-modules@1.4.0(vite@8.3.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@1.21.7)(sass-embedded@1.83.4)(yaml@2.9.0)):
-    dependencies:
-      vite: 8.3.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@1.21.7)(sass-embedded@1.83.4)(yaml@2.9.0)
-
-  vite-plugin-wasm@3.6.0(vite@8.3.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@1.21.7)(sass-embedded@1.83.4)(yaml@2.9.0)):
     dependencies:
       vite: 8.3.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@1.21.7)(sass-embedded@1.83.4)(yaml@2.9.0)
 
