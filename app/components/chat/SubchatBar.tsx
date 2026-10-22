@@ -9,12 +9,43 @@ import {
   PlusIcon,
 } from '@radix-ui/react-icons';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { useEffect, useState } from 'react';
+import { useState, type Dispatch, type SetStateAction } from 'react';
 import { subchatIndexStore } from '~/lib/stores/subchats';
 import { Spinner } from '@ui/Spinner';
 import { useFileSaveStatus } from '~/lib/stores/fileUpdateCounter';
 import { SubchatDialogs } from './SubchatDialogs';
 import { createSubchatOptions, getSubchatLabel, getSubchatNavigation, type SubchatSummary } from './subchat-model';
+
+/** A dialog opened in one account, chat and subchat scope; the token tells it from a later one there. */
+type ScopedDialog = { context: string; token: symbol };
+
+/**
+ * Runs a dialog's action with its token pending in its scope, closes that dialog (not a later one) when
+ * the action succeeds, and then clears the token unless a later action in the scope replaced it.
+ */
+async function whilePending<T extends ScopedDialog>(
+  dialog: T,
+  setDialog: Dispatch<SetStateAction<T | null>>,
+  setPending: Dispatch<SetStateAction<ReadonlyMap<string, symbol>>>,
+  action: () => Promise<boolean>,
+): Promise<void> {
+  const { context, token } = dialog;
+  setPending((current) => new Map(current).set(context, token));
+  try {
+    if (await action()) {
+      setDialog((current) => (current?.context === context && current.token === token ? null : current));
+    }
+  } finally {
+    setPending((current) => {
+      if (current.get(context) !== token) {
+        return current;
+      }
+      const next = new Map(current);
+      next.delete(context);
+      return next;
+    });
+  }
+}
 
 interface SubchatBarProps {
   chatId: string;
@@ -40,22 +71,17 @@ export function SubchatBar({
   isSubchatLoaded,
 }: SubchatBarProps) {
   const interactionContext = JSON.stringify([userId, chatId, currentSubchatIndex]);
-  const [createDialog, setCreateDialog] = useState<{ context: string; token: symbol } | null>(null);
+  const [createDialog, setCreateDialog] = useState<ScopedDialog | null>(null);
   const activeCreateDialog = createDialog?.context === interactionContext ? createDialog : null;
   const [pendingCreates, setPendingCreates] = useState<ReadonlyMap<string, symbol>>(() => new Map());
   const activeCreateToken = pendingCreates.get(interactionContext);
   const isCreatingSubchat = activeCreateToken !== undefined;
-  const [renameDialog, setRenameDialog] = useState<{ context: string; token: symbol; value: string } | null>(null);
+  const [renameDialog, setRenameDialog] = useState<(ScopedDialog & { value: string }) | null>(null);
   const activeRenameDialog = renameDialog?.context === interactionContext ? renameDialog : null;
   const [pendingRenames, setPendingRenames] = useState<ReadonlyMap<string, symbol>>(() => new Map());
   const activeRenameToken = pendingRenames.get(interactionContext);
   const isRenaming = activeRenameToken !== undefined;
   const fileSaveStatus = useFileSaveStatus();
-
-  useEffect(() => {
-    setCreateDialog(null);
-    setRenameDialog(null);
-  }, [interactionContext]);
 
   const subchatCount = subchats?.length ?? 1;
   const { hasMultipleSubchats, canNavigatePrev, canNavigateNext, canCreateSubchat } = getSubchatNavigation(
@@ -159,47 +185,17 @@ export function SubchatBar({
           if (interactionsDisabled || !activeCreateDialog) {
             return;
           }
-          const { context, token } = activeCreateDialog;
-          setPendingCreates((current) => new Map(current).set(context, token));
-          try {
-            if (await handleCreateSubchat()) {
-              setCreateDialog((current) => (current?.context === context && current.token === token ? null : current));
-            }
-          } finally {
-            setPendingCreates((current) => {
-              if (current.get(context) !== token) {
-                return current;
-              }
-              const next = new Map(current);
-              next.delete(context);
-              return next;
-            });
-          }
+          await whilePending(activeCreateDialog, setCreateDialog, setPendingCreates, handleCreateSubchat);
         }}
         confirmRename={async () => {
-          if (!userId || !activeRenameDialog || isRenaming || activeRenameDialog.context !== interactionContext) {
+          if (!userId || !activeRenameDialog || isRenaming) {
             return;
           }
           const title = activeRenameDialog.value.trim();
           if (!title) {
             return;
           }
-          const { context, token } = activeRenameDialog;
-          setPendingRenames((current) => new Map(current).set(context, token));
-          try {
-            if (await handleRenameSubchat(title)) {
-              setRenameDialog((current) => (current?.context === context && current.token === token ? null : current));
-            }
-          } finally {
-            setPendingRenames((current) => {
-              if (current.get(context) !== token) {
-                return current;
-              }
-              const next = new Map(current);
-              next.delete(context);
-              return next;
-            });
-          }
+          await whilePending(activeRenameDialog, setRenameDialog, setPendingRenames, () => handleRenameSubchat(title));
         }}
       />
       <div className="border-content-secondary/15 flex items-center gap-2 border-b px-1 pb-2.5">
