@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { GitHubReturnMessage } from '~/lib/github-return-messages';
 import { publicOrigin } from '~/lib/.server/public-origin';
 import { getAuthSession } from '~/lib/.server/auth';
-import { GitHubError } from '~/lib/.server/github/github-api';
+import { GitHubError, withGitHubFailure } from '~/lib/.server/github/github-api';
 import { PayloadTooLargeError } from '~/lib/bounded-body';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
 import type { RepositoryClient } from '~/lib/.server/github/repository-client';
@@ -508,13 +508,7 @@ export function listGitHubRepositoriesAction({
     if (!parsed.success) {
       return Response.json({ error: 'Choose a team.' }, { status: 400 });
     }
-    const github = await adminGitHub(env.DB, orgId, session.user.id, app);
-    if (github instanceof Response) {
-      return github;
-    }
-    const repositories = await withGitHub(() =>
-      github.app.installationRepositories(github.installation.installationId),
-    );
+    const repositories = await adminRepositories(env.DB, orgId, session.user.id, app);
     if (repositories instanceof Response) {
       return repositories;
     }
@@ -547,14 +541,8 @@ export function linkGitHubProjectAction({
     if ('response' in body) {
       return body.response;
     }
-    const github = await adminGitHub(env.DB, body.data.orgId, session.user.id, app);
-    if (github instanceof Response) {
-      return github;
-    }
     // Only a repository the organization's installation actually reaches can become its project.
-    const repositories = await withGitHub(() =>
-      github.app.installationRepositories(github.installation.installationId),
-    );
+    const repositories = await adminRepositories(env.DB, body.data.orgId, session.user.id, app);
     if (repositories instanceof Response) {
       return repositories;
     }
@@ -652,21 +640,25 @@ async function isUntouchedNewRepository(
   }
 }
 
-/** Runs a GitHub call, turning its failure into the response an admin sees. */
-async function withGitHub<T>(call: () => Promise<T>): Promise<T | Response> {
-  try {
-    return await call();
-  } catch (error) {
-    if (error instanceof GitHubError) {
-      return Response.json(
+/**
+ * The repositories the organization's installation reaches, for one of its admins; the response saying
+ * what's missing or what GitHub refused otherwise. Throws when `userId` isn't an admin.
+ */
+async function adminRepositories(db: D1Database, orgId: string, userId: string, app: GitHubApp | null) {
+  const github = await adminGitHub(db, orgId, userId, app);
+  if (github instanceof Response) {
+    return github;
+  }
+  return withGitHubFailure(
+    () => github.app.installationRepositories(github.installation.installationId),
+    (error) =>
+      Response.json(
         {
           error: error.status === 404 ? 'GitHub no longer has that installation. Connect GitHub again.' : error.message,
         },
         { status: 502 },
-      );
-    }
-    throw error;
-  }
+      ),
+  );
 }
 
 /**

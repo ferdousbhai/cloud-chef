@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { createGitHubAppJwt } from './app-jwt';
-import { callGitHub, fetchGitHub, GitHubError, type GitHubRequestInit } from './github-api';
+import { callGitHub, callGitHubOrNull, fetchGitHub, GitHubError, type GitHubRequestInit } from './github-api';
 import { RepositoryClient } from './repository-client';
 
 const OAUTH_TOKEN_URL = 'https://github.com/login/oauth/access_token';
@@ -171,16 +171,12 @@ export class GitHubApp {
    */
   async installation(installationId: number): Promise<GitHubInstallation | null> {
     const jwt = await createGitHubAppJwt(this.config.clientId, this.config.privateKey);
-    const response = await fetchGitHub(this.request, `/app/installations/${installationId}`, jwt);
-    if (!response.ok) {
-      await response.body?.cancel();
-      if (response.status === 404) {
-        return null;
-      }
-      throw new GitHubError(`GitHub refused the request (${response.status}).`, response.status);
-    }
-    const installation = installationSchema.safeParse(await response.json().catch(() => null));
-    return installation.success ? installation.data : null;
+    return callGitHubOrNull(
+      this.request,
+      `/app/installations/${installationId}`,
+      jwt,
+      installationSchema.nullable().catch(null),
+    );
   }
 
   /** A token for `installationId`, limited to `repositoryIds` (all it reaches when empty) and `permissions`. */

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GitHubError } from '~/lib/.server/github/github-api';
+import { type GitHubError, withGitHubFailure } from '~/lib/.server/github/github-api';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
 import { commitSizeRefusal, type RepositoryClient } from '~/lib/.server/github/repository-client';
 import { commitPathRefusal } from '~/lib/.server/github/commit-paths';
@@ -64,7 +64,7 @@ const productionRequestSchema = z.strictObject({
   note: z.string().trim().max(1_000),
   /** The draft's hosted preview or deployment, which admins open: only a workers.dev address over https. */
   previewUrl: z.url().max(2_048).refine(isWorkersDevUrl).nullable(),
-  /** The draft's files as gzipped JSON `[{ path, contentBase64, executable }]`, base64. */
+  /** The draft's files as gzipped JSON `[{ path, contentBase64 }]`, base64. */
   snapshot: z.string().min(1).max(MAX_SNAPSHOT_BASE64),
   files: z.number().int().min(1).max(MAX_FILES),
 });
@@ -85,20 +85,17 @@ export async function runtimeGitHubSnapshotAction(args: {
     return opened;
   }
   const { access } = opened;
-  let commit: string | null;
-  let tarball: ReadableStream<Uint8Array<ArrayBuffer>>;
-  try {
-    commit = await access.repository.branchHead(access.defaultBranch);
-    if (!commit) {
-      return json({ error: `The repository has no ${access.defaultBranch} branch.` }, 409);
-    }
-    tarball = await access.repository.tarball(commit);
-  } catch (error) {
-    if (error instanceof GitHubError) {
-      return gitHubFailure(error);
-    }
-    throw error;
+  const head = await withGitHubFailure(async () => {
+    const commit = await access.repository.branchHead(access.defaultBranch);
+    return commit ? { commit, tarball: await access.repository.tarball(commit) } : null;
+  }, gitHubFailure);
+  if (head instanceof Response) {
+    return head;
   }
+  if (!head) {
+    return json({ error: `The repository has no ${access.defaultBranch} branch.` }, 409);
+  }
+  const { commit, tarball } = head;
   const encoder = new TextEncoder();
   const lines = snapshotLines(readRepositoryTarball(tarball), {
     commit,
@@ -181,7 +178,7 @@ export async function runtimeGitHubCommitAction(args: {
   if (tooLarge) {
     return json({ error: tooLarge }, 413);
   }
-  try {
+  return withGitHubFailure(async () => {
     const branch = await memberBranch(args.env.DB, access.userId, body.branchKey);
     const branchHead = await access.repository.branchHead(branch);
     const commit = await access.repository.commit({
@@ -212,12 +209,7 @@ export async function runtimeGitHubCommitAction(args: {
       );
     }
     return json({ commit, branch, published: merged.status === 'merged' ? merged.sha : commit }, 200);
-  } catch (error) {
-    if (error instanceof GitHubError) {
-      return gitHubFailure(error);
-    }
-    throw error;
-  }
+  }, gitHubFailure);
 }
 
 /** What the repository's pipeline reports for a commit: building, built (with its preview link), failed. */
@@ -231,14 +223,7 @@ export async function runtimeGitHubStatusAction(args: {
     return opened;
   }
   const { access, body } = opened;
-  try {
-    return json(await access.repository.buildStatus(body.sha), 200);
-  } catch (error) {
-    if (error instanceof GitHubError) {
-      return gitHubFailure(error);
-    }
-    throw error;
-  }
+  return withGitHubFailure(async () => json(await access.repository.buildStatus(body.sha), 200), gitHubFailure);
 }
 
 /**
@@ -260,7 +245,7 @@ export async function runtimeGitHubSiteAction(args: {
     return opened;
   }
   const { access, body } = opened;
-  try {
+  return withGitHubFailure(async () => {
     const branch = await memberBranch(args.env.DB, access.userId, body.branchKey);
     const [homepage, heads] = await Promise.all([
       access.repository.homepage(),
@@ -280,12 +265,7 @@ export async function runtimeGitHubSiteAction(args: {
     );
     const origins = [...new Set([homepage, ...previews].flatMap((value) => siteOrigin(value) ?? []))];
     return json({ origins }, 200);
-  } catch (error) {
-    if (error instanceof GitHubError) {
-      return gitHubFailure(error);
-    }
-    throw error;
-  }
+  }, gitHubFailure);
 }
 
 /** A public https origin, or null: a bare host on GitHub gets https, and local or IP addresses are never a site. */
@@ -523,8 +503,8 @@ async function openProject<T extends z.infer<typeof snapshotSchema>>(
   if (!app || !installation) {
     return json({ error: "The team's GitHub isn't connected. Ask an admin to connect it." }, 409);
   }
-  try {
-    return {
+  return withGitHubFailure(
+    async () => ({
       access: {
         repository: await app.repository(
           installation.installationId,
@@ -535,13 +515,9 @@ async function openProject<T extends z.infer<typeof snapshotSchema>>(
         userId: identity.userId,
       },
       body,
-    };
-  } catch (error) {
-    if (error instanceof GitHubError) {
-      return gitHubFailure(error);
-    }
-    throw error;
-  }
+    }),
+    gitHubFailure,
+  );
 }
 
 /**

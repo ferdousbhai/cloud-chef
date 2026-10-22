@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { base64ToBytes } from '~/lib/hex-digest';
-import { callGitHub, fetchGitHub, GitHubError } from './github-api';
+import { callGitHub, callGitHubOrNull, fetchGitHub, GitHubError } from './github-api';
 
 const refSchema = z.looseObject({ object: z.looseObject({ sha: z.string() }) });
 const commitSchema = z.looseObject({ sha: z.string(), tree: z.looseObject({ sha: z.string() }) });
@@ -145,14 +145,13 @@ export class RepositoryClient {
 
   /** The commit a branch points at, or null when the branch doesn't exist. */
   async branchHead(branch: string): Promise<string | null> {
-    const response = await fetchGitHub(this.request, `${this.path}/git/ref/heads/${encodeRef(branch)}`, this.token);
-    if (response.status === 404) {
-      return null;
-    }
-    if (!response.ok) {
-      throw new GitHubError(`GitHub refused the request (${response.status}).`, response.status);
-    }
-    return refSchema.parse(await response.json()).object.sha;
+    const ref = await callGitHubOrNull(
+      this.request,
+      `${this.path}/git/ref/heads/${encodeRef(branch)}`,
+      this.token,
+      refSchema,
+    );
+    return ref?.object.sha ?? null;
   }
 
   /** The tree a commit points at. */
