@@ -9,7 +9,7 @@
  */
 
 import { WORK_DIR } from './constants.js';
-import { path } from './utils/path.js';
+import path from 'path-browserify';
 import { getAbsolutePath } from './utils/workDir.js';
 
 const SERVER_REJECTION =
