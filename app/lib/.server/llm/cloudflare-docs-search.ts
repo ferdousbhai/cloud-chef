@@ -25,7 +25,7 @@ const MAX_QUERY_CHARS = 512;
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 150;
 
-export function cloudflareDocsSearchTool(request: typeof fetch = fetch): Tool {
+export function cloudflareDocsSearchTool(): Tool {
   return {
     description:
       "Search Cloudflare's documentation. Returns ranked excerpts with their source URLs; prefer it to recall for Workers, Wrangler, D1, R2, KV, Durable Objects, Workers AI, and any other Cloudflare question.",
@@ -38,7 +38,7 @@ export function cloudflareDocsSearchTool(request: typeof fetch = fetch): Tool {
         return toolFailure(`Query must be 1 to ${MAX_QUERY_CHARS} characters.`);
       }
       try {
-        const text = await searchWithRetries(request, trimmed, options.abortSignal);
+        const text = await searchWithRetries(trimmed, options.abortSignal);
         return text
           ? toolSuccess('Cloudflare documentation excerpts.', { content: text })
           : toolFailure('Cloudflare documentation search returned no match for that query.');
@@ -50,14 +50,10 @@ export function cloudflareDocsSearchTool(request: typeof fetch = fetch): Tool {
   };
 }
 
-async function searchWithRetries(
-  request: typeof fetch,
-  query: string,
-  abortSignal: AbortSignal | undefined,
-): Promise<string> {
+async function searchWithRetries(query: string, abortSignal: AbortSignal | undefined): Promise<string> {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await callDocsSearch(request, query, abortSignal);
+      return await callDocsSearch(query, abortSignal);
     } catch (error) {
       abortSignal?.throwIfAborted();
       if (attempt >= MAX_ATTEMPTS || !isRetryable(error)) {
@@ -69,14 +65,10 @@ async function searchWithRetries(
   }
 }
 
-async function callDocsSearch(
-  request: typeof fetch,
-  query: string,
-  abortSignal: AbortSignal | undefined,
-): Promise<string> {
+async function callDocsSearch(query: string, abortSignal: AbortSignal | undefined): Promise<string> {
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const signal = abortSignal ? AbortSignal.any([abortSignal, timeout]) : timeout;
-  const response = await request(DOCS_SEARCH_ENDPOINT, {
+  const response = await fetch(DOCS_SEARCH_ENDPOINT, {
     method: 'POST',
     redirect: 'error',
     signal,
