@@ -9,10 +9,10 @@ const WORKERS_AI_MODEL_ID_PATTERN = /^@cf\/[a-z0-9][a-z0-9-]{0,63}\/[a-zA-Z0-9][
  * here and its catalog there.
  */
 export const GATEWAY_PROVIDERS = {
-  anthropic: { label: 'Anthropic' },
-  openai: { label: 'OpenAI' },
-  grok: { label: 'xAI' },
-  openrouter: { label: 'OpenRouter' },
+  anthropic: { label: 'Anthropic', mark: 'A' },
+  openai: { label: 'OpenAI', mark: 'O' },
+  grok: { label: 'xAI', mark: 'x' },
+  openrouter: { label: 'OpenRouter', mark: 'OR' },
 } as const;
 
 export type GatewayProviderSlug = keyof typeof GATEWAY_PROVIDERS;

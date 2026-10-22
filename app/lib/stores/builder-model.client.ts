@@ -10,6 +10,9 @@ import {
   builderModelCatalogPayloadSchema,
   builderReasoningLevelSchema,
   getBuilderModel,
+  gatewayModelProvider,
+  GATEWAY_PROVIDER_SLUGS,
+  type GatewayProviderSlug,
   type BuilderModel,
   type BuilderModelCatalogPayload,
   type BuilderModelId,
@@ -75,6 +78,15 @@ export const builderNewModelsStore = atom<readonly BuilderModel[]>([]);
 
 export function loadBuilderModelPreference(storage?: BuilderModelStorage): void {
   applyStoredModelPreference(storage);
+  try {
+    const source = storage ?? localStorage;
+    const tab = source.getItem('cloudchef_builder_provider_v1');
+    builderProviderStore.set(tab === 'workers' ? tab : (GATEWAY_PROVIDER_SLUGS.find((slug) => slug === tab) ?? null));
+    const recents = z.array(z.string()).safeParse(JSON.parse(source.getItem('cloudchef_builder_recents_v1') ?? '[]'));
+    builderRecentModelsStore.set(recents.success ? recents.data.filter(isBuilderModelId).slice(0, 2) : []);
+  } catch {
+    // Browser storage is optional.
+  }
   builderReasoningChoicesStore.set(readReasoningChoices(storage));
 }
 
@@ -259,9 +271,18 @@ export function setBuilderModel(modelId: BuilderModelId, storage?: Pick<Storage,
   if (!builderModelsStore.get().some(({ id }) => id === modelId)) {
     return;
   }
+  if (modelId !== builderDefaultModelStore.get()) {
+    builderRecentModelsStore.set(
+      [
+        modelId,
+        ...builderRecentModelsStore.get().filter((id) => id !== modelId && id !== builderDefaultModelStore.get()),
+      ].slice(0, 2),
+    );
+  }
   builderModelStore.set(modelId);
   try {
     (storage ?? localStorage).setItem(BUILDER_MODEL_STORAGE_KEY, modelId);
+    (storage ?? localStorage).setItem('cloudchef_builder_recents_v1', JSON.stringify(builderRecentModelsStore.get()));
   } catch {
     // The in-memory preference still applies when browser storage is unavailable.
   }
@@ -369,4 +390,68 @@ function applyStoredModelPreference(storage?: BuilderModelStorage): void {
   } catch {
     builderModelStore.set(defaultModel);
   }
+}
+
+export type BuilderProvider = GatewayProviderSlug | 'workers';
+export const builderProviderStore = atom<BuilderProvider | null>(null);
+export const builderRecentModelsStore = atom<readonly BuilderModelId[]>([]);
+
+export function setBuilderProvider(provider: BuilderProvider): void {
+  builderProviderStore.set(provider);
+  try {
+    localStorage.setItem('cloudchef_builder_provider_v1', provider);
+  } catch {
+    // The tab still changes when storage is unavailable.
+  }
+}
+
+export function builderProviderFor(model: BuilderModel): BuilderProvider {
+  return gatewayModelProvider(model.id) ?? 'workers';
+}
+
+export function orderBuilderProviders(models: readonly BuilderModel[], defaultModel: BuilderModel): BuilderProvider[] {
+  const first = builderProviderFor(defaultModel);
+  const keyed = GATEWAY_PROVIDER_SLUGS.filter((provider) =>
+    models.some((model) => builderProviderFor(model) === provider),
+  );
+  const ordered: BuilderProvider[] = [first, ...keyed, 'workers', ...GATEWAY_PROVIDER_SLUGS];
+  return [...new Set(ordered)];
+}
+
+/** Pi exposes no release dates to the client. Compare numeric generations within the label's
+ * family (the remaining words), per provider. Keep unversioned entries current;
+ * dates and parameter sizes are not generations, and never make another family obsolete. */
+export function olderBuilderModelIds(models: readonly BuilderModel[]): ReadonlySet<BuilderModelId> {
+  const version = (model: BuilderModel) => {
+    const match = model.label.match(/^(.*?)(\d+(?:[.-]\d+)*)([bBmM]?)/);
+    const generation = match?.[2]?.replaceAll('-', '.') ?? '';
+    return match && Number(generation.split('.')[0]) < 100 && !match[3]
+      ? {
+          family: `${builderProviderFor(model)}/${model.label
+            .replace(/\d+(?:[.-]\d+)*[bB]?/g, '')
+            .replace(/[^a-zA-Z]+/g, ' ')
+            .trim()
+            .toLowerCase()}`,
+          generation,
+        }
+      : null;
+  };
+  const compare = new Intl.Collator('en', { numeric: true }).compare;
+  const newest = new Map<string, string>();
+  for (const model of models) {
+    const entry = version(model);
+    if (entry) {
+      if (compare(entry.generation, newest.get(entry.family) ?? '') > 0) {
+        newest.set(entry.family, entry.generation);
+      }
+    }
+  }
+  return new Set(
+    models
+      .filter((model) => {
+        const entry = version(model);
+        return entry !== null && compare(entry.generation, newest.get(entry.family) ?? '') < 0;
+      })
+      .map(({ id }) => id),
+  );
 }

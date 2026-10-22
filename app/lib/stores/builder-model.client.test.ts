@@ -9,6 +9,11 @@ import {
 } from '~/lib/workers-ai-model';
 import {
   builderModelCatalogStatusStore,
+  builderProviderStore,
+  builderRecentModelsStore,
+  setBuilderProvider,
+  olderBuilderModelIds,
+  orderBuilderProviders,
   builderModelsStore,
   builderModelStore,
   builderModelRequestFields,
@@ -351,5 +356,53 @@ describe('the reasoning effort chosen per model', () => {
 
     syncBuilderModelPreference({ key: REASONING_KEY, newValue: JSON.stringify({ [gpt.id]: 'low' }) });
     expect(builderReasoningChoicesStore.get()).toEqual({ [gpt.id]: 'low' });
+  });
+});
+
+describe('provider picker preferences', () => {
+  it('orders the default provider before keyed providers, Workers AI, and keyless providers', () => {
+    const openai: BuilderModel = { ...claudeModel, id: 'openai/gpt-5', label: 'GPT 5' };
+    expect(orderBuilderProviders([DEFAULT_WORKERS_AI_MODEL, claudeModel, openai], claudeModel)).toEqual([
+      'anthropic',
+      'openai',
+      'workers',
+      'grok',
+      'openrouter',
+    ]);
+  });
+
+  it('compares generations within families including names whose version moved', () => {
+    const old: BuilderModel = { ...claudeModel, id: 'anthropic/claude-3-7-sonnet', label: 'Claude 3.7 Sonnet' };
+    const current: BuilderModel = { ...claudeModel, id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6' };
+    const undated: BuilderModel = { ...claudeModel, id: 'anthropic/experimental', label: 'Experimental' };
+    expect([...olderBuilderModelIds([old, current, undated, claudeModel])]).toEqual([old.id]);
+  });
+
+  it('discards an invalid stored provider and restores Workers AI', () => {
+    loadBuilderModelPreference({ getItem: () => 'invalid', setItem: () => undefined });
+    expect(builderProviderStore.get()).toBeNull();
+    loadBuilderModelPreference({
+      getItem: (key) => (key === 'cloudchef_builder_provider_v1' ? 'workers' : null),
+      setItem: () => undefined,
+    });
+    expect(builderProviderStore.get()).toBe('workers');
+  });
+
+  it('remembers the tab and deduplicates recent selections in this browser', () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    installBuilderModelCatalog({ ...catalog, models: [...catalog.models, claudeModel] });
+    setBuilderProvider('anthropic');
+    setBuilderModel(claudeModel.id);
+    setBuilderModel(alternativeModel.id);
+    setBuilderModel(claudeModel.id);
+    builderProviderStore.set(null);
+    builderRecentModelsStore.set([]);
+    loadBuilderModelPreference();
+    expect(builderProviderStore.get()).toBe('anthropic');
+    expect(builderRecentModelsStore.get()).toEqual([claudeModel.id, alternativeModel.id]);
   });
 });
