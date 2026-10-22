@@ -23,9 +23,6 @@ export default defineConfig((config) => {
           format: 'esm',
         },
       },
-      commonjsOptions: {
-        transformMixedEsModules: true,
-      },
     },
     environments: {
       client: {
