@@ -13,8 +13,7 @@ type RuntimeCapability = {
   nonce: string;
 };
 
-/** Extra members are preserved rather than stripped so an older minting format still round-trips. */
-const runtimeCapabilitySchema = z.looseObject({
+const runtimeCapabilitySchema = z.object({
   version: z.literal(CAPABILITY_VERSION),
   subject: z.string().min(1).max(512),
   origin: z.string(),
