@@ -39,7 +39,7 @@ const textReplacementSchema = z
   .strict();
 
 const lineEditOperationSchema = z.union([textReplacementSchema, replacementSchema, insertionSchema]);
-export type LineEditOperation = z.infer<typeof lineEditOperationSchema>;
+type LineEditOperation = z.infer<typeof lineEditOperationSchema>;
 
 export const lineEditToolParameters = z.object({
   path: z.string().describe('Absolute project file path.'),
