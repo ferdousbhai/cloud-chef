@@ -19,7 +19,11 @@ import {
   resolveUserWorkspaceCloudflareAccessToken,
   runtimeCredentialBrokerConfigured,
 } from './user-workspace-cloudflare-credential';
-import { runtimeConnectionIdentity, type RuntimeConnectionEnv } from './cloudflare-api-runtime-identity';
+import {
+  runtimeConnectionIdentity,
+  type RuntimeConnectionEnv,
+  type RuntimeConnectionIdentity,
+} from './cloudflare-api-runtime-identity';
 
 type UserOwnedDeploymentArgs = {
   env: Env;
@@ -798,7 +802,7 @@ function requireExecutionIdentity(
 }
 
 /** This runtime's connection, when it is the execution's and the runtime can publish with it. */
-function requireUserOwnedRuntimeContext(args: UserOwnedDeploymentArgs): { connectionGeneration: number } {
+function requireUserOwnedRuntimeContext(args: UserOwnedDeploymentArgs): RuntimeConnectionIdentity {
   const identity = runtimeConnectionIdentity(args.env);
   if (
     !identity ||
@@ -809,7 +813,7 @@ function requireUserOwnedRuntimeContext(args: UserOwnedDeploymentArgs): { connec
   ) {
     throw new Error('Cloudflare connection is unavailable.');
   }
-  return { connectionGeneration: identity.connectionGeneration };
+  return identity;
 }
 
 function requireWorkspaceReference(deployment: Deployment): WorkspaceReference {

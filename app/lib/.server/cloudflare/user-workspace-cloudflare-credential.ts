@@ -198,6 +198,12 @@ export async function readAccountModelSettings(
   }
 }
 
+/** A file a linked project's commit writes (with its content) or deletes (without). */
+export type RuntimeFileChange = { path: string; contentBase64: string | null; executable: boolean };
+
+/** The fields a runtime route is sent. */
+type RuntimeRouteBody = Record<string, string | number | boolean | null | undefined | RuntimeFileChange[]>;
+
 /**
  * A call to one of the control plane's runtime routes, as this runtime, carrying `body` as JSON (a field
  * left undefined is not sent).
@@ -206,7 +212,7 @@ export function postRuntimeRoute(
   env: RuntimeCredentialEnv,
   identity: CloudflareConnectionIdentity,
   route: RuntimeRoute,
-  body: object = {},
+  body: RuntimeRouteBody = {},
   timeoutMs = RUNTIME_ROUTE_TIMEOUT_MS,
 ): Promise<Response> {
   return fetch(runtimeRouteEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, route), {

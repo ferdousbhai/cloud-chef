@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import type { CloudflareApiRuntimeIdentity } from './cloudflare-api-runtime-identity';
-import { postRuntimeRoute } from './user-workspace-cloudflare-credential';
+import { postRuntimeRoute, type RuntimeFileChange } from './user-workspace-cloudflare-credential';
 
 /**
  * A workspace runtime's side of working on an organization's GitHub project: it never holds a GitHub
@@ -47,8 +47,6 @@ const siteOriginsSchema = z.object({ origins: z.array(z.string()).max(16) });
 const productionRequestSentSchema = z.object({ outcome: z.enum(['requested', 'updated', 'unchanged']) });
 
 const errorSchema = z.object({ error: z.string() });
-
-type FileChange = { path: string; contentBase64: string | null; executable: boolean };
 
 /** A project's default branch, file by file, as the control plane streams it. */
 export async function* streamLinkedProjectSnapshot(
@@ -97,7 +95,7 @@ export async function commitLinkedProject(
     baseCommit: string;
     message: string;
     publish: boolean;
-    changes: FileChange[];
+    changes: RuntimeFileChange[];
   },
 ): Promise<LinkedCommitResult> {
   const response = await postRuntimeRoute(env, identity, 'runtime-github/commit', body, COMMIT_TIMEOUT_MS);
