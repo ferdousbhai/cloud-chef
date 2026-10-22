@@ -18,7 +18,7 @@ const EXPECTED_REQUIRED_BUILD_VARIABLES = ['CLOUDFLARE_OAUTH_CLIENT_ID'];
 const REQUIRED_GITHUB_WORKFLOW_PATH = '.github/workflows/browser-gate.yml';
 const ALLOWED_GITHUB_WORKFLOW_PATHS = [REQUIRED_GITHUB_WORKFLOW_PATH, '.github/workflows/runtime-artifacts.yml'];
 
-export function findUnexpectedGithubWorkflowPaths(paths) {
+function findUnexpectedGithubWorkflowPaths(paths) {
   return Array.isArray(paths) ? paths.filter((path) => !ALLOWED_GITHUB_WORKFLOW_PATHS.includes(path)) : [];
 }
 
