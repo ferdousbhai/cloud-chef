@@ -75,6 +75,13 @@ function createDb(
   return { db: { prepare } as unknown as D1Database, prepare, referencedHandles, rows };
 }
 
+const OAUTH = { clientId: 'client-1', clientSecret: 'client-secret' };
+
+/** An OAuth grant whose access token is good for an hour. */
+function grant(accessToken: string) {
+  return { accessToken, refreshToken: 'refresh-token', expiresAt: Date.now() + 3_600_000 };
+}
+
 function encryptionKey(): string {
   return btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
 }
@@ -82,8 +89,8 @@ function encryptionKey(): string {
 describe('D1CloudflareCredentialVault', () => {
   it('stores only authenticated ciphertext and resolves it by opaque handle', async () => {
     const { db, rows } = createDb();
-    const vault = new D1CloudflareCredentialVault(db, encryptionKey());
-    const handle = await vault.store('cloudflare-secret-token', 123);
+    const vault = new D1CloudflareCredentialVault(db, encryptionKey(), OAUTH);
+    const handle = await vault.storeOAuthCredential(grant('cloudflare-secret-token'), 123);
 
     expect(handle).not.toContain('cloudflare-secret-token');
     expect(JSON.stringify(rows.get(handle))).not.toContain('cloudflare-secret-token');
@@ -92,8 +99,8 @@ describe('D1CloudflareCredentialVault', () => {
 
   it('rejects a key that is not 256 bits', async () => {
     const { db } = createDb();
-    const vault = new D1CloudflareCredentialVault(db, btoa('too-short'));
-    await expect(vault.store('token')).rejects.toThrow('exactly 32 bytes');
+    const vault = new D1CloudflareCredentialVault(db, btoa('too-short'), OAUTH);
+    await expect(vault.storeOAuthCredential(grant('token'))).rejects.toThrow('exactly 32 bytes');
   });
 
   it('rejects partial OAuth refresh configuration', () => {
@@ -106,8 +113,10 @@ describe('D1CloudflareCredentialVault', () => {
     ).toThrow('OAuth refresh configuration is incomplete');
   });
 
-  it('rejects malformed structured OAuth credentials without treating them as legacy API tokens', () => {
-    expect(parseStoredOAuthCredential('legacy-api-token')).toBeNull();
+  it('rejects a stored value that is not an OAuth credential', () => {
+    expect(() => parseStoredOAuthCredential('plain-api-token')).toThrow(
+      'Stored Cloudflare OAuth credential is invalid',
+    );
     expect(() => parseStoredOAuthCredential('{invalid')).toThrow('Stored Cloudflare OAuth credential is invalid');
     expect(() => parseStoredOAuthCredential(JSON.stringify({ version: 1, accessToken: 'token' }))).toThrow(
       'Stored Cloudflare OAuth credential is invalid',
@@ -122,12 +131,12 @@ describe('D1CloudflareCredentialVault', () => {
       insertMismatchAfterCommit: true,
     });
 
-    await expect(new D1CloudflareCredentialVault(exact.db, encryptionKey()).store('token', 123)).resolves.toEqual(
-      expect.any(String),
-    );
-    await expect(new D1CloudflareCredentialVault(mismatched.db, encryptionKey()).store('token', 123)).rejects.toBe(
-      acknowledgementError,
-    );
+    await expect(
+      new D1CloudflareCredentialVault(exact.db, encryptionKey(), OAUTH).storeOAuthCredential(grant('token'), 123),
+    ).resolves.toEqual(expect.any(String));
+    await expect(
+      new D1CloudflareCredentialVault(mismatched.db, encryptionKey(), OAUTH).storeOAuthCredential(grant('token'), 123),
+    ).rejects.toBe(acknowledgementError);
   });
 
   it('refreshes expired OAuth credentials and rotates the encrypted record', async () => {
@@ -314,9 +323,9 @@ describe('D1CloudflareCredentialVault', () => {
 
   it('deletes only an unreferenced credential in the same D1 statement', async () => {
     const { db, prepare, referencedHandles, rows } = createDb();
-    const vault = new D1CloudflareCredentialVault(db, encryptionKey());
-    const liveHandle = await vault.store('live-token');
-    const orphanHandle = await vault.store('orphan-token');
+    const vault = new D1CloudflareCredentialVault(db, encryptionKey(), OAUTH);
+    const liveHandle = await vault.storeOAuthCredential(grant('live-token'));
+    const orphanHandle = await vault.storeOAuthCredential(grant('orphan-token'));
     referencedHandles.add(liveHandle);
 
     await expect(vault.deleteIfUnreferenced(liveHandle)).resolves.toBe(false);

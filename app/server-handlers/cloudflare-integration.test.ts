@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => ({
   activateConnection: vi.fn(),
   vault: {
     storeOAuthCredential: vi.fn(),
-    store: vi.fn(),
     deleteIfUnreferenced: vi.fn(),
   },
 }));

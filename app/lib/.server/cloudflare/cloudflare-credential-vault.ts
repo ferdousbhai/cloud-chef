@@ -24,7 +24,7 @@ export class D1CloudflareCredentialVault {
   constructor(
     private readonly db: D1Database,
     private readonly encryptionKeyBase64: string,
-    private readonly oauth?: { clientId: string; clientSecret: string; request?: typeof fetch },
+    private readonly oauth: { clientId: string; clientSecret: string; request?: typeof fetch },
   ) {}
 
   static fromEnv(env: Env): D1CloudflareCredentialVault {
@@ -33,14 +33,24 @@ export class D1CloudflareCredentialVault {
     }
     const clientId = env.CLOUDFLARE_OAUTH_CLIENT_ID;
     const clientSecret = env.CLOUDFLARE_OAUTH_CLIENT_SECRET;
-    if (Boolean(clientId) !== Boolean(clientSecret)) {
+    if (!clientId || !clientSecret) {
       throw new Error('Cloudflare OAuth refresh configuration is incomplete.');
     }
-    const oauth = clientId && clientSecret ? { clientId, clientSecret } : undefined;
-    return new D1CloudflareCredentialVault(env.DB, env.CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY, oauth);
+    return new D1CloudflareCredentialVault(env.DB, env.CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY, {
+      clientId,
+      clientSecret,
+    });
   }
 
-  async store(token: string, now = Date.now()): Promise<string> {
+  /** Stores an OAuth grant, the only kind of credential a connection holds, and returns its handle. */
+  async storeOAuthCredential(
+    credential: { accessToken: string; refreshToken: string; expiresAt: number },
+    now = Date.now(),
+  ): Promise<string> {
+    return this.store(JSON.stringify({ version: 1, ...credential }), now);
+  }
+
+  private async store(token: string, now: number): Promise<string> {
     if (!token) {
       throw new Error('Cannot store an empty Cloudflare credential.');
     }
@@ -72,23 +82,12 @@ export class D1CloudflareCredentialVault {
     return handle;
   }
 
-  async storeOAuthCredential(
-    credential: { accessToken: string; refreshToken: string; expiresAt: number },
-    now = Date.now(),
-  ): Promise<string> {
-    return this.store(JSON.stringify({ version: 1, ...credential }), now);
-  }
-
   async resolve(credentialHandle: string, options: { forceRefresh?: boolean } = {}): Promise<string> {
     const row = await this.readCredentialRow(credentialHandle);
     if (!row) {
       throw new Error('Cloudflare credential is unavailable.');
     }
-    const value = await this.decryptCredentialRow(row);
-    const oauthCredential = parseStoredOAuthCredential(value);
-    if (!oauthCredential) {
-      return value;
-    }
+    const oauthCredential = parseStoredOAuthCredential(await this.decryptCredentialRow(row));
     const now = Date.now();
     const recentlyRotated = (row.rotated_at ?? 0) > now - FORCED_REFRESH_INTERVAL_MS;
     if ((!options.forceRefresh || recentlyRotated) && oauthCredential.expiresAt > now + 60_000) {
@@ -103,17 +102,11 @@ export class D1CloudflareCredentialVault {
    * provider declined; callers treat that as an outcome to report, not a failure.
    */
   async revokeOAuthCredential(credentialHandle: string): Promise<boolean> {
-    if (!this.oauth) {
-      return false;
-    }
     const row = await this.readCredentialRow(credentialHandle);
     if (!row) {
       return false;
     }
     const credential = parseStoredOAuthCredential(await this.decryptCredentialRow(row));
-    if (!credential) {
-      return false;
-    }
     const execute = this.oauth.request ?? fetch;
     const response = await execute(OAUTH_REVOKE_URL, {
       method: 'POST',
@@ -151,9 +144,6 @@ export class D1CloudflareCredentialVault {
     credential: OAuthCredential,
     stored: CredentialRow,
   ): Promise<string> {
-    if (!this.oauth) {
-      throw new Error('Cloudflare authorization expired; reconnect Cloudflare.');
-    }
     const execute = this.oauth.request ?? fetch;
     let response: Response;
     try {
@@ -268,7 +258,7 @@ export class D1CloudflareCredentialVault {
       return null;
     }
     const credential = parseStoredOAuthCredential(await this.decryptCredentialRow(current));
-    return credential && credential.expiresAt > Date.now() + 60_000 ? credential.accessToken : null;
+    return credential.expiresAt > Date.now() + 60_000 ? credential.accessToken : null;
   }
 
   private async readCredentialRow(credentialHandle: string): Promise<CredentialRow | null> {
@@ -342,10 +332,7 @@ const refreshedTokenSchema = z.looseObject({
   expires_in: z.number().optional().catch(undefined),
 });
 
-export function parseStoredOAuthCredential(value: string): OAuthCredential | null {
-  if (!value.trimStart().startsWith('{')) {
-    return null;
-  }
+export function parseStoredOAuthCredential(value: string): OAuthCredential {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);

@@ -32,6 +32,8 @@ async function setup() {
   const env = envWith({
     DB: db,
     CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
+    CLOUDFLARE_OAUTH_CLIENT_ID: 'client-1',
+    CLOUDFLARE_OAUTH_CLIENT_SECRET: 'client-secret',
     CLOUDFLARE_OAUTH_START_RATE_LIMITER: { limit: async () => ({ success: true }) },
   });
   const user = await upsertVerifiedEmailUser(db, { email: 'sam@corp.com' });
