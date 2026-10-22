@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getToolInvocation } from './ai-compat.js';
+import { getToolInvocation, isToolInvocationInProgress } from './ai-compat.js';
 
 describe('chat message helpers', () => {
   it('preserves a native error tool state', () => {
@@ -23,5 +23,19 @@ describe('chat message helpers', () => {
   it('reads only dynamic tool parts as tool calls', () => {
     expect(getToolInvocation({ type: 'text', text: 'Done.' })).toBeNull();
     expect(getToolInvocation({ type: 'data-tool-progress', data: {} })).toBeNull();
+  });
+
+  it('reads a state it does not know as ended in error, and a missing one as streaming input', () => {
+    const denied = getToolInvocation({
+      type: 'dynamic-tool',
+      toolName: 'exec',
+      toolCallId: 'exec-1',
+      state: 'output-denied',
+    });
+    expect(denied?.state).toBe('output-error');
+    expect(denied && isToolInvocationInProgress(denied)).toBe(false);
+    const streaming = getToolInvocation({ type: 'dynamic-tool', toolName: 'exec', toolCallId: 'exec-2' });
+    expect(streaming?.state).toBe('input-streaming');
+    expect(streaming && isToolInvocationInProgress(streaming)).toBe(true);
   });
 });

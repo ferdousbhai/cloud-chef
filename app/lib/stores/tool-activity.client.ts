@@ -1,5 +1,10 @@
 import { atom, map } from 'nanostores';
-import { getToolInvocation, type CloudChefMessage, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
+import {
+  getToolInvocation,
+  toolInvocationPhase,
+  type CloudChefMessage,
+  type CloudChefToolInvocation,
+} from 'cloudchef-agent/ai-compat';
 import { makePartId, type PartId } from 'cloudchef-agent/partId';
 import { isToolActivityStatusActive, type ToolActivityStatus } from '~/lib/common/types';
 
@@ -153,16 +158,7 @@ export class ToolActivityStore {
 }
 
 export function invocationStatus(invocation: CloudChefToolInvocation): ToolActivityStatus {
-  switch (invocation.state) {
-    case 'input-streaming':
-      return 'pending';
-    case 'input-available':
-      return 'running';
-    case 'output-available':
-    case 'output-error':
-      return 'complete';
-  }
-  throw new Error(`Unsupported tool invocation state: ${invocation.state}`);
+  return toolInvocationPhase(invocation);
 }
 
 export const toolActivityStore = new ToolActivityStore();

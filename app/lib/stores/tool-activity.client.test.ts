@@ -1,4 +1,4 @@
-import type { CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
+import { getToolInvocation, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 import { describe, expect, it } from 'vitest';
 import { makePartId, type PartId } from 'cloudchef-agent/partId';
 import { ToolActivityStore } from './tool-activity.client';
@@ -309,5 +309,23 @@ describe('ToolActivityStore', () => {
     store.record(partId, { ...running });
 
     expect(store.activities.get()[partId]).toEqual({ invocation: published, status: 'complete' });
+  });
+
+  it('records a stored call in a state it does not know as complete', () => {
+    const store = new ToolActivityStore();
+    const partId = makePartId('message', 0);
+    const denied = getToolInvocation({
+      type: 'dynamic-tool',
+      toolName: 'exec',
+      toolCallId: 'exec-1',
+      state: 'output-denied',
+    });
+    if (!denied) {
+      throw new Error('Expected a tool invocation.');
+    }
+    store.startTurn();
+    store.record(partId, denied);
+
+    expect(store.activities.get()[partId]?.status).toBe('complete');
   });
 });
