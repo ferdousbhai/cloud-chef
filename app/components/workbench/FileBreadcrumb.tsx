@@ -106,7 +106,6 @@ export const FileBreadcrumb = memo<FileBreadcrumbProps>(function FileBreadcrumb(
                             <FileTree
                               menuItems
                               files={files}
-                              hideRoot
                               rootFolder={path}
                               collapsed
                               allowFolderSelection

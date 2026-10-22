@@ -11,7 +11,6 @@ interface Props {
   selectedFile?: string;
   onFileSelect?: (filePath: string) => void;
   rootFolder?: string;
-  hideRoot?: boolean;
   collapsed?: boolean;
   allowFolderSelection?: boolean;
   unsavedFiles?: Set<string>;
@@ -24,7 +23,6 @@ export const FileTree = memo(function FileTree({
   onFileSelect,
   selectedFile,
   rootFolder,
-  hideRoot = false,
   collapsed = false,
   allowFolderSelection = false,
   className,
@@ -32,7 +30,7 @@ export const FileTree = memo(function FileTree({
   menuItems = false,
 }: Props) {
   renderLogger.trace('FileTree');
-  const fileList = useMemo(() => buildFileList(files, rootFolder, hideRoot), [files, rootFolder, hideRoot]);
+  const fileList = useMemo(() => buildFileList(files, rootFolder), [files, rootFolder]);
   const [collapsedFolders, setCollapsedFolders] = useState(() => initialCollapsedFolders(fileList, collapsed));
 
   useEffect(() => {

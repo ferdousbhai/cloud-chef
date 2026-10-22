@@ -73,7 +73,6 @@ export const EditorPanel = memo(function EditorPanel({
         <FileTree
           className="h-full min-h-0"
           files={files}
-          hideRoot
           unsavedFiles={unsavedFiles}
           rootFolder={WORK_DIR}
           selectedFile={selectedFile}

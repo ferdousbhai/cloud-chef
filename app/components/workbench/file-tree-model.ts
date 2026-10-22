@@ -15,20 +15,15 @@ export type FileNode = BaseNode & { kind: 'file' };
 export type FolderNode = BaseNode & { kind: 'folder' };
 type FileTreeNode = FileNode | FolderNode;
 
-export function buildFileList(files: FileMap, rootFolder = '/', hideRoot: boolean): FileTreeNode[] {
+/** The files under `rootFolder`, depth-first in display order; the root folder itself is not listed. */
+export function buildFileList(files: FileMap, rootFolder = '/'): FileTreeNode[] {
   const folderPaths = new Set<string>();
   const nodes: FileTreeNode[] = [];
-  let defaultDepth = 0;
-
-  if (rootFolder === '/' && !hideRoot) {
-    defaultDepth = 1;
-    nodes.push({ kind: 'folder', name: '/', depth: 0, fullPath: '/' });
-  }
 
   for (const [filePath, dirent] of Object.entries(files)) {
     const segments = filePath.split('/').filter(Boolean);
     const fileName = segments.at(-1);
-    if (!fileName || isHiddenFile(filePath, fileName)) {
+    if (!fileName || DEFAULT_HIDDEN_FILES.some((pattern) => pattern.test(filePath))) {
       continue;
     }
 
@@ -38,22 +33,22 @@ export function buildFileList(files: FileMap, rootFolder = '/', hideRoot: boolea
     while (index < segments.length) {
       const name = segments[index];
       const fullPath = (currentPath += `/${name}`);
-      if (!fullPath.startsWith(rootFolder) || (hideRoot && fullPath === rootFolder)) {
+      if (!fullPath.startsWith(rootFolder) || fullPath === rootFolder) {
         index++;
         continue;
       }
       if (index === segments.length - 1 && dirent?.type === 'file') {
-        nodes.push({ kind: 'file', name, fullPath, depth: depth + defaultDepth });
+        nodes.push({ kind: 'file', name, fullPath, depth });
       } else if (!folderPaths.has(fullPath)) {
         folderPaths.add(fullPath);
-        nodes.push({ kind: 'folder', name, fullPath, depth: depth + defaultDepth });
+        nodes.push({ kind: 'folder', name, fullPath, depth });
       }
       index++;
       depth++;
     }
   }
 
-  return sortFileList(rootFolder, nodes, hideRoot);
+  return sortFileList(rootFolder, nodes);
 }
 
 export function folderPathsFromFileList(nodes: FileTreeNode[]): string[] {
@@ -78,13 +73,7 @@ export function visibleFileList(nodes: FileTreeNode[], collapsedFolders: Set<str
   return visible;
 }
 
-function isHiddenFile(filePath: string, fileName: string): boolean {
-  return DEFAULT_HIDDEN_FILES.some((pathOrRegex) =>
-    pathOrRegex instanceof RegExp ? pathOrRegex.test(filePath) : fileName === pathOrRegex,
-  );
-}
-
-function sortFileList(rootFolder: string, nodes: FileTreeNode[], hideRoot: boolean): FileTreeNode[] {
+function sortFileList(rootFolder: string, nodes: FileTreeNode[]): FileTreeNode[] {
   logger.trace('sortFileList');
   const nodeMap = new Map<string, FileTreeNode>();
   const childrenMap = new Map<string, FileTreeNode[]>();
@@ -115,10 +104,7 @@ function sortFileList(rootFolder: string, nodes: FileTreeNode[], hideRoot: boole
     }
   };
 
-  if (!hideRoot) {
-    visit(rootFolder);
-  }
-  for (const child of hideRoot ? (childrenMap.get(rootFolder) ?? []) : []) {
+  for (const child of childrenMap.get(rootFolder) ?? []) {
     visit(child.fullPath);
   }
   return sorted;
