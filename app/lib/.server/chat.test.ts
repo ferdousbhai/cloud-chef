@@ -70,7 +70,7 @@ describe('chat provider error boundary', () => {
   });
 });
 
-function createResponse(model = DEFAULT_WORKERS_AI_MODEL, gatewayLogging?: WorkersAiGatewayLogging) {
+function createResponse(model = DEFAULT_WORKERS_AI_MODEL, gatewayLogging: WorkersAiGatewayLogging = { collectLog: true }) {
   return createChatResponse({
     gatewayLogging,
     messages: [],

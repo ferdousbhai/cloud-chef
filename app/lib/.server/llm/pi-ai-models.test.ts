@@ -7,6 +7,7 @@ import { gatewayKeyRejectedMessage, getPiModel, type WorkersAiAccountCredentials
 import { completeText } from './pi-ai-invoke';
 import type { ProviderRequestBody } from './provider-default-reasoning';
 import {
+  WORKERS_AI_GATEWAY_UNLOGGED,
   workersAiGatewayLogging,
   type WorkersAiGatewayLogging,
   type WorkersAiGatewayOptions,
@@ -94,7 +95,7 @@ describe('a DeepSeek model Pi characterises', () => {
 
   it('sends a tool-calling transcript the way DeepSeek requires', async () => {
     const { calls, credentials } = captureBindingInputs();
-    const handle = getPiModel(credentials, v4Flash);
+    const handle = getPiModel(credentials, v4Flash, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED });
     const context = normalizeContext({
       systemPrompt: 'You are a builder.',
       tools: [READ_FILE_TOOL],
@@ -274,7 +275,7 @@ describe("a gateway provider's model", () => {
     settings: { gatewayLogging?: WorkersAiGatewayLogging; gatewayKeyAlias?: string; gatewayKeyRevision?: string } = {},
     { reasoning }: { reasoning?: 'high' } = {},
   ) {
-    const handle = getPiModel(credentials, modelId, settings);
+    const handle = getPiModel(credentials, modelId, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED, ...settings });
     const context = normalizeContext({
       systemPrompt: 'You are a builder.',
       tools: [READ_FILE_TOOL],
@@ -289,7 +290,7 @@ describe("a gateway provider's model", () => {
 
   it("is described by Pi's catalog for its provider and spoken to over that provider's API", () => {
     const { credentials } = gatewayBinding(() => anthropicStream(''));
-    expect(getPiModel(credentials, opus).model).toMatchObject({
+    expect(getPiModel(credentials, opus, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED }).model).toMatchObject({
       id: 'claude-opus-5-5',
       api: 'anthropic-messages',
       reasoning: true,
@@ -297,13 +298,13 @@ describe("a gateway provider's model", () => {
       maxTokens: 128_000,
       compat: { forceAdaptiveThinking: true },
     });
-    expect(getPiModel(credentials, 'openai/gpt-5').model).toMatchObject({ id: 'gpt-5', api: 'openai-responses' });
-    expect(getPiModel(credentials, 'grok/grok-4.3').model).toMatchObject({ id: 'grok-4.3', api: 'openai-responses' });
-    expect(getPiModel(credentials, 'openrouter/openai/gpt-5').model).toMatchObject({
+    expect(getPiModel(credentials, 'openai/gpt-5', { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED }).model).toMatchObject({ id: 'gpt-5', api: 'openai-responses' });
+    expect(getPiModel(credentials, 'grok/grok-4.3', { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED }).model).toMatchObject({ id: 'grok-4.3', api: 'openai-responses' });
+    expect(getPiModel(credentials, 'openrouter/openai/gpt-5', { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED }).model).toMatchObject({
       id: 'openai/gpt-5',
       api: 'openai-completions',
     });
-    expect(getPiModel(credentials, 'openrouter/anthropic/claude-fable-5').model).toMatchObject({
+    expect(getPiModel(credentials, 'openrouter/anthropic/claude-fable-5', { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED }).model).toMatchObject({
       id: 'anthropic/claude-fable-5',
       api: 'anthropic-messages',
     });
@@ -524,7 +525,7 @@ describe("a gateway provider's model", () => {
         ? anthropicStream('Hello')
         : Response.json({ type: 'error', error: { type: 'authentication_error', message: 'no key' } }, { status: 401 }),
     );
-    const handle = getPiModel(credentials, opus, { gatewayKeyAlias: 'cloudchef' });
+    const handle = getPiModel(credentials, opus, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED, gatewayKeyAlias: 'cloudchef' });
     const context = normalizeContext({
       systemPrompt: 'You are a builder.',
       tools: [READ_FILE_TOOL],
@@ -576,7 +577,7 @@ describe("a gateway provider's model", () => {
 
 describe('the gateway options a model request is sent with', () => {
   /** The gateway options the binding receives for one title request made with `gatewayLogging`. */
-  async function gatewayOf(gatewayLogging?: WorkersAiGatewayLogging): Promise<WorkersAiGatewayOptions | undefined> {
+  async function gatewayOf(gatewayLogging: WorkersAiGatewayLogging): Promise<WorkersAiGatewayOptions | undefined> {
     const received: (WorkersAiGatewayOptions | undefined)[] = [];
     const binding = {
       run: async (_model: string, _inputs: Record<string, string>, options: { gateway?: WorkersAiGatewayOptions }) => {
@@ -588,12 +589,12 @@ describe('the gateway options a model request is sent with', () => {
     const handle = getPiModel({ binding: binding as Ai }, CLOUDFLARE_PROJECT_TITLE_MODEL, {
       gatewayLogging,
     });
-    await completeText(handle, { prompt: 'Name this' }).catch(() => '');
+    await completeText(handle, { prompt: 'Name this', temperature: 0 }).catch(() => '');
     expect(received).toHaveLength(1);
     return received[0];
   }
 
-  it("carries the person's choice to the binding, and logs nothing a caller didn't say it may", async () => {
+  it("carries the person's choice to the binding, and logs nothing the person didn't allow", async () => {
     expect(await gatewayOf(workersAiGatewayLogging(true, { chat: 'chat-1' }))).toEqual({
       id: 'default',
       collectLog: true,
@@ -605,7 +606,6 @@ describe('the gateway options a model request is sent with', () => {
       collectLog: false,
       skipCache: true,
     });
-    expect(await gatewayOf()).toEqual({ id: 'default', collectLog: false, skipCache: true });
   });
 });
 
@@ -617,7 +617,7 @@ describe('the output budget a Workers AI request asks for', () => {
       return Response.json({ errors: [{ message: 'stop here' }] }, { status: 400 });
     };
     // SAFETY: the binding fetch calls only the raw-response `run`, which this implements.
-    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL);
+    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED });
     const context = normalizeContext({ messages: [{ role: 'user', content: 'Name this', timestamp: 1 }] });
     await handle.stream(handle.model, context, maxTokens === undefined ? {} : { maxTokens }).result();
     return sent[0]?.max_completion_tokens;
@@ -655,7 +655,7 @@ describe('the output budget a Workers AI request asks for', () => {
         : Response.json({ errors: [{ message: 'stop here' }] }, { status: 400 });
     };
     // SAFETY: the binding fetch calls only the raw-response `run`, which this implements.
-    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL);
+    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED });
     const context = normalizeContext({ messages: [{ role: 'user', content: 'Name this', timestamp: 1 }] });
 
     await handle.stream(handle.model, context, {}).result();
@@ -673,7 +673,7 @@ describe('a Workers AI request body CloudChef cannot read', () => {
       return Response.json({ errors: [{ message: 'stop here' }] }, { status: 400 });
     };
     // SAFETY: the binding fetch calls only the raw-response `run`, which this implements.
-    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL);
+    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED });
     const context = normalizeContext({ messages: [{ role: 'user', content: 'Name this', timestamp: 1 }] });
 
     // `thinking` as a number is no shape Pi writes, so the body can't be read as one.

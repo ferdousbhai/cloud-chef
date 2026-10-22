@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { GATEWAY_PROVIDER_SLUGS, isWorkersAiModelId, type BuilderModelId } from '~/lib/workers-ai-model';
 import { getPiModel, type ModelStreamOptions } from './pi-ai-models';
 import { gatewayBuilderModels, piGatewayModel } from './pi-model-catalog';
+import { WORKERS_AI_GATEWAY_UNLOGGED } from './workers-ai-gateway';
 import {
   providerRequestBodySchema,
   withProviderDefaultReasoning,
@@ -73,7 +74,7 @@ async function streamOnce(
   options: ModelStreamOptions = {},
   settings: { sessionAffinity?: string } = {},
 ): Promise<AssistantMessage> {
-  const handle = getPiModel(credentials, modelId, settings);
+  const handle = getPiModel(credentials, modelId, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED, ...settings });
   return handle.stream(handle.model, context, { toolChoice: 'auto', ...options }).result();
 }
 

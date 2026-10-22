@@ -921,6 +921,7 @@ function createAgentStream(
     },
     accountCredentials: { binding: {} as Ai },
     sessionAffinity: 'opaque-session',
+    gatewayLogging: { collectLog: false },
     workspace: {} as never,
     runWithKeepAlive: (operation) => operation(),
     steering,

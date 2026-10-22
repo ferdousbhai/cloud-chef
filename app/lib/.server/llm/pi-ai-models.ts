@@ -5,7 +5,6 @@ import type {
   ModelCost,
   OpenAICompletionsCompat,
   FetchFunction,
-  ProviderHeaders,
   SimpleStreamOptions,
   StreamFunction,
   TranscriptContext,
@@ -40,7 +39,6 @@ import {
   type ProviderRequestBody,
 } from './provider-default-reasoning';
 import {
-  WORKERS_AI_GATEWAY_UNLOGGED,
   workersAiGatewayHeaders,
   workersAiGatewayOptions,
   type WorkersAiGatewayHeaders,
@@ -65,8 +63,8 @@ export type ModelHandle = {
 
 type WorkersAiStreamOptions = OpenAICompletionsOptions & Omit<SimpleStreamOptions, 'toolChoice'>;
 
-// SAFETY: `makeHandle` refuses any model whose `api` is not `openai-completions`, so every model this
-// stream ever receives matches the narrower signature the OpenAI Completions adapter declares. The
+// SAFETY: `getPiModel` streams through this only the Workers AI model it built, whose `api` is
+// `openai-completions`, so every model it receives matches the signature that adapter declares. The
 // options type is that adapter's own, not the generic `SimpleStreamOptions`, because this calls the
 // adapter's api-level entry point directly (see `builderReasoningEffort`).
 const WORKERS_AI_STREAM = openaiCompletionsStream as StreamFunction<Api, WorkersAiStreamOptions>;
@@ -80,22 +78,9 @@ type PiCatalogEntry = Pick<Model<Api>, 'name' | 'reasoning' | 'input' | 'cost' |
 
 /**
  * CloudChef states only what the binding path requires, and Pi's own catalog entry supplies the
- * rest — `compat.thinkingFormat` included, which Pi sets only for the DeepSeek v4 entries.
- *
- * CloudChef used to name a thinking dialect itself, by model-id prefix, for the families Pi does
- * not characterise. That is gone because it was measured to do nothing: Cloudflare ignores every
- * vendor-native thinking block those dialects produce. Toggling `thinking: { type: 'disabled' }`
- * moved the returned reasoning not at all — glm-5.3-flash 43ch against a 43ch baseline,
- * qwen3.8-27b 108 against 150, deepseek-v4-pro 103 against 97 — while only the documented
- * `chat_template_kwargs.enable_thinking = false` took all three to 0ch.
- *
- * With no dialect named, Pi resolves the format from its own provider detection, which for a
- * Cloudflare base URL is the `"openai"` default: a bare `reasoning_effort`, and not even that
- * unless the person chose a level (`builderThinkingLevel` in `pi-agent-runner.ts`) or the model
- * carries a `thinkingLevelMap.off` string, which the model built below never does. With no level
- * chosen, no thinking directive reaches the provider at all — the DeepSeek dialect's
- * `thinking: { type: 'disabled' }` included, which the binding fetch strips — so each model
- * reasons at its own default.
+ * rest — `compat.thinkingFormat` included, which Pi sets only for the DeepSeek v4 entries. With no
+ * dialect named, Pi resolves the format from its provider detection, which for a Cloudflare base URL
+ * is a bare `reasoning_effort`, sent only for a level the person chose (`provider-default-reasoning.ts`).
  */
 function workersAiCompat(catalog: PiCatalogEntry | undefined): OpenAICompletionsCompat {
   return {
@@ -148,8 +133,6 @@ const MINIMUM_OUTPUT_TOKENS = 4_096;
  * Workers AI rejects any request where input tokens + `max_completion_tokens` exceed the model's
  * context window. So the honest answer to "how much may this model write?" is "whatever the window
  * has left once this request's input is counted" — recomputed per request, never a fixed number.
- * A static cap (CloudChef previously asked for 24,576 tokens regardless) only ever truncated a
- * model that could physically have produced far more.
  */
 function availableOutputTokens(model: Model<Api>, context: TranscriptContext): number {
   const reserved = estimateRequestInputTokens(context) + modelTokenEstimateSafetyTokens(model.contextWindow);
@@ -167,70 +150,13 @@ function requestOutputTokens(model: Model<Api>, context: TranscriptContext, requ
   return requested === undefined ? available : Math.max(1, Math.min(requested, available));
 }
 
-type HandleArgs = {
-  model: Model<Api>;
-  apiKey?: string;
-  /** The transport for one request, told whether that request asked for a reasoning level. */
-  fetch?: (reasoningRequested: boolean) => FetchFunction;
-  sessionAffinity?: string;
-};
-
-function makeHandle(args: HandleArgs): ModelHandle {
-  if (args.model.api !== 'openai-completions') {
-    throw new Error(`Workers AI requires the OpenAI Completions protocol; received "${args.model.api}".`);
-  }
-
-  const handle: ModelHandle = {
-    model: args.model,
-    stream: (model, context, options = {}) => {
-      recordPiStage('stream_created', model.id);
-      const streamOptions = { ...options };
-      const headers: ProviderHeaders = { ...streamOptions.headers };
-      const merged: WorkersAiStreamOptions = {
-        ...streamOptions,
-        maxTokens: requestOutputTokens(model, context, streamOptions.maxTokens),
-        sessionId: streamOptions.sessionId ?? args.sessionAffinity,
-      };
-      // Pi's two entry points read the thinking directive from different fields: `streamSimple`
-      // accepts `reasoning` and hands the adapter `reasoningEffort`, while the api-level `stream`
-      // this calls reads only `reasoningEffort`. Every caller here speaks the `reasoning` spelling —
-      // `builderThinkingLevel` in `pi-agent-runner.ts`, and the agent loop that forwards it — so
-      // without this one assignment a level the person chose would be silently dropped. The mapping
-      // is done here rather than
-      // by switching to `streamSimple`, because that entry point re-clamps `maxTokens` with Pi's own
-      // estimator and would quietly undo `requestOutputTokens` — including the
-      // `MINIMUM_OUTPUT_TOKENS` floor that exists to keep Workers AI's 256-token default from
-      // truncating a full-window request.
-      //
-      // Forwarded verbatim rather than through `clampThinkingLevel`: that clamp reads a
-      // `thinkingLevelMap` no Workers AI model here has, so it can only ever downgrade, and a
-      // model's real vocabulary is settled by the provider's own rejection in
-      // `retryWithinSupportedReasoningEffort` — which needs to see what was actually asked for.
-      if (streamOptions.reasoning !== undefined) {
-        merged.reasoningEffort = streamOptions.reasoning;
-      }
-      if (args.apiKey !== undefined) {
-        merged.apiKey = args.apiKey;
-      }
-      if (args.fetch !== undefined) {
-        merged.fetch = args.fetch(streamOptions.reasoning !== undefined);
-      }
-      if (Object.keys(headers).length > 0) {
-        merged.headers = headers;
-      }
-      return WORKERS_AI_STREAM(model, context, merged);
-    },
-  };
-  return handle;
-}
-
 export function getPiModel(
   accountCredentials: WorkersAiAccountCredentials,
   modelId: BuilderModelId,
-  settings?: {
+  settings: {
     model?: BuilderModel;
     sessionAffinity?: string;
-    gatewayLogging?: WorkersAiGatewayLogging;
+    gatewayLogging: WorkersAiGatewayLogging;
     /** For a gateway provider's model: the alias of the account's key for that provider. */
     gatewayKeyAlias?: string;
     /** Which key that alias names, as Cloudflare last changed it. */
@@ -239,10 +165,10 @@ export function getPiModel(
 ): ModelHandle {
   if (gatewayModelProvider(modelId) !== null) {
     return getGatewayPiModel(accountCredentials, modelId, {
-      gatewayLogging: settings?.gatewayLogging ?? WORKERS_AI_GATEWAY_UNLOGGED,
-      keyAlias: settings?.gatewayKeyAlias ?? DEFAULT_GATEWAY_KEY_ALIAS,
-      keyRevision: settings?.gatewayKeyRevision,
-      sessionAffinity: settings?.sessionAffinity,
+      gatewayLogging: settings.gatewayLogging,
+      keyAlias: settings.gatewayKeyAlias ?? DEFAULT_GATEWAY_KEY_ALIAS,
+      keyRevision: settings.gatewayKeyRevision,
+      sessionAffinity: settings.sessionAffinity,
     });
   }
   // Pi's entry for the model; a model Pi does not list is never offered (`readWorkersAiBuilderModelCatalog`).
@@ -253,29 +179,52 @@ export function getPiModel(
     api: 'openai-completions',
     provider: 'cloudflare-workers-ai',
     baseUrl: 'https://workers-ai-binding.invalid/v1',
-    reasoning: settings?.model?.reasoning ?? catalog?.reasoning ?? false,
-    input: settings?.model?.vision ? ['text', 'image'] : (catalog?.input ?? ['text']),
+    reasoning: settings.model?.reasoning ?? catalog?.reasoning ?? false,
+    input: settings.model?.vision ? ['text', 'image'] : (catalog?.input ?? ['text']),
     cost: catalog?.cost ?? ZERO_COST,
-    contextWindow: settings?.model?.contextTokens ?? catalog?.contextWindow ?? 128_000,
+    contextWindow: settings.model?.contextTokens ?? catalog?.contextWindow ?? 128_000,
     // Metadata only: the physical ceiling, never an artificial cap. Pi's catalog numbers are not
     // real provider limits (it lists 16,384 for gpt-oss-120b, which accepted 131,072 in
-    // production), and the request's actual ceiling is computed per request in `makeHandle`.
-    maxTokens: settings?.model?.contextTokens ?? catalog?.contextWindow ?? 128_000,
+    // production), and the request's actual ceiling is computed per request in its `stream`.
+    maxTokens: settings.model?.contextTokens ?? catalog?.contextWindow ?? 128_000,
     compat: workersAiCompat(catalog),
   };
-  return makeHandle({
+  return {
     model,
-    // Pi's OpenAI-compatible serializer requires a non-empty key before calling custom fetch.
-    // The binding adapter forwards only the reviewed session-affinity header.
-    apiKey: 'workers-ai-binding',
-    // Unless the caller says the person allows it, a request is not logged.
-    fetch: (reasoningRequested) =>
-      createWorkersAiBindingFetch(accountCredentials.binding, model, {
-        gatewayLogging: settings?.gatewayLogging ?? WORKERS_AI_GATEWAY_UNLOGGED,
-        reasoningRequested,
-      }),
-    sessionAffinity: settings?.sessionAffinity,
-  });
+    stream: (streamModel, context, options = {}) => {
+      recordPiStage('stream_created', streamModel.id);
+      const merged: WorkersAiStreamOptions = {
+        ...options,
+        maxTokens: requestOutputTokens(streamModel, context, options.maxTokens),
+        sessionId: options.sessionId ?? settings.sessionAffinity,
+        // Pi's OpenAI-compatible serializer requires a non-empty key before calling custom fetch.
+        // The binding adapter forwards only the reviewed session-affinity header.
+        apiKey: 'workers-ai-binding',
+        fetch: createWorkersAiBindingFetch(accountCredentials.binding, model, {
+          gatewayLogging: settings.gatewayLogging,
+          reasoningRequested: options.reasoning !== undefined,
+        }),
+      };
+      // Pi's two entry points read the thinking directive from different fields: `streamSimple`
+      // accepts `reasoning` and hands the adapter `reasoningEffort`, while the api-level `stream`
+      // this calls reads only `reasoningEffort`. Every caller here speaks the `reasoning` spelling —
+      // `builderThinkingLevel` in `pi-agent-runner.ts`, and the agent loop that forwards it — so
+      // without this one assignment a level the person chose would be silently dropped. The mapping
+      // is done here rather than by switching to `streamSimple`, because that entry point re-clamps
+      // `maxTokens` with Pi's own estimator and would quietly undo `requestOutputTokens` — including
+      // the `MINIMUM_OUTPUT_TOKENS` floor that exists to keep Workers AI's 256-token default from
+      // truncating a full-window request.
+      //
+      // Forwarded verbatim rather than through `clampThinkingLevel`: that clamp reads a
+      // `thinkingLevelMap` no Workers AI model here has, so it can only ever downgrade, and a
+      // model's real vocabulary is settled by the provider's own rejection in
+      // `retryWithinSupportedReasoningEffort` — which needs to see what was actually asked for.
+      if (options.reasoning !== undefined) {
+        merged.reasoningEffort = options.reasoning;
+      }
+      return WORKERS_AI_STREAM(streamModel, context, merged);
+    },
+  };
 }
 
 /** The account's own gateway, the one every CloudChef model request goes through. */
@@ -757,20 +706,13 @@ function withinProviderContextLimit(
  *
  * Pi only translates a directive into a model's own vocabulary when its static catalog carries a
  * `thinkingLevelMap` for it, which pi-ai does not carry for most of the Workers AI catalog, so the
- * value goes out as written. Measured against production, `@cf/qwen/qwen3.8-27b` rejects `high`
- * outright with `Unexpected reasoning effort high. Supported types are xhigh (default), medium, and
- * low.` Were `builderThinkingLevel` sending `high`, a user selecting that model would 400 on every
- * single request, and a GLM retirement that failed over to it would break every build at once.
- *
- * The picker offers only the levels Pi's catalog lists for a model, and the server checks the
- * choice against the same list, so this lane is reached only when Pi's catalog and the provider
- * disagree. With no level chosen no builder request carries `reasoning_effort` at all.
+ * value goes out as written; `@cf/qwen/qwen3.8-27b`, for one, rejects `high` with `Unexpected
+ * reasoning effort high. Supported types are xhigh (default), medium, and low.` The picker offers
+ * only the levels Pi's catalog lists, so this is reached only when Pi's catalog and the provider
+ * disagree.
  *
  * The rejection names the supported set verbatim, so it is read rather than guessed, and the
- * strongest offered value wins: the builder writes software, which is the work reasoning is for, so
- * a downgrade below what the model can do is a real loss. Hard-coding a per-model table instead
- * would re-fail the day Cloudflare adds a family nobody has probed; reading the provider's own
- * answer keeps working for models this repository has never seen.
+ * strongest offered value wins: a downgrade below what the model can do is a real loss for a builder.
  */
 const REASONING_EFFORT_MENTION_PATTERN = /reasoning[ _]effort/i;
 const SUPPORTED_REASONING_EFFORT_PATTERN = /supported types are ([^.]+)/i;
