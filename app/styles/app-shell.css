@@ -184,19 +184,6 @@ button,
   color: var(--cc-content-primary);
 }
 
-.app-page-eyebrow {
-  color: var(--cc-content-accent);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: var(--cc-tracking-label);
-  text-transform: uppercase;
-}
-
-.app-page-eyebrow::before {
-  content: '// ';
-  color: var(--cc-content-tertiary);
-}
-
 .app-page-title {
   max-width: 760px;
   margin: 12px 0 0;

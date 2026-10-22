@@ -133,7 +133,6 @@ html.dark {
   /* Theme-independent once routed through --cc-*: the light and dark blocks
      below carry only the values that actually differ. */
   --bolt-elements-bg-depth-3: var(--cc-background-tertiary);
-  --bolt-elements-bg-depth-4: rgb(var(--content-primary-rgb) / 0.06);
   --bolt-elements-code-text: var(--cc-content-primary);
   --bolt-elements-messages-inlineCode-text: var(--cc-content-primary);
   --bolt-elements-artifacts-inlineCode-text: var(--cc-content-primary);
