@@ -56,17 +56,7 @@ export class CloudflareOrchestratorUnavailableError extends Error {
   }
 }
 
-/** Fail closed when neither public OAuth nor a future partner adapter is configured. */
-export class UnavailableCloudflareOrchestrator implements CloudflareOrchestrator {
-  async startConnection(_request: CloudflareConnectionRequest): Promise<CloudflareConnectionChallenge> {
-    throw new CloudflareOrchestratorUnavailableError();
-  }
-
-  async completeConnection(_request: CloudflareConnectionCompletionRequest): Promise<CloudflareConnectionResult> {
-    throw new CloudflareOrchestratorUnavailableError();
-  }
-}
-
+/** Cloudflare OAuth, or CloudflareOrchestratorUnavailableError when it is not configured. */
 export async function createCloudflareOrchestrator(env: Env): Promise<CloudflareOrchestrator> {
   if (env.CLOUDFLARE_OAUTH_CLIENT_ID && env.CLOUDFLARE_OAUTH_CLIENT_SECRET && env.CLOUDFLARE_OAUTH_SCOPES) {
     const { CloudflareOAuthOrchestrator } = await import('./cloudflare-oauth-orchestrator');
@@ -76,5 +66,5 @@ export async function createCloudflareOrchestrator(env: Env): Promise<Cloudflare
       scopes: env.CLOUDFLARE_OAUTH_SCOPES,
     });
   }
-  return new UnavailableCloudflareOrchestrator();
+  throw new CloudflareOrchestratorUnavailableError();
 }

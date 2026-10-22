@@ -1,19 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CloudflareOrchestratorUnavailableError, UnavailableCloudflareOrchestrator } from './cloudflare-orchestrator';
+import { CloudflareOrchestratorUnavailableError, createCloudflareOrchestrator } from './cloudflare-orchestrator';
 
-describe('UnavailableCloudflareOrchestrator', () => {
-  it('fails closed instead of collecting a user API token', async () => {
-    const orchestrator = new UnavailableCloudflareOrchestrator();
-    await expect(
-      orchestrator.startConnection({
-        returnUrl: 'https://cloudchef.build/cloudflare/callback',
-      }),
-    ).rejects.toBeInstanceOf(CloudflareOrchestratorUnavailableError);
-    await expect(
-      orchestrator.completeConnection({
-        providerSessionId: 'provider-session',
-        callbackUrl: 'https://cloudchef.build/api/cloudflare/connection/callback?state=state',
-      }),
-    ).rejects.toBeInstanceOf(CloudflareOrchestratorUnavailableError);
+describe('createCloudflareOrchestrator', () => {
+  it('fails closed instead of collecting a user API token when OAuth is not configured', async () => {
+    // SAFETY: only the three OAuth bindings are read, and each is absent.
+    const env = {} as Env;
+    await expect(createCloudflareOrchestrator(env)).rejects.toBeInstanceOf(CloudflareOrchestratorUnavailableError);
   });
 });
