@@ -25,11 +25,19 @@ const watch: LinkedBuildWatch = {
   defaultBranch: 'main',
 };
 
-const pending: LinkedBuildStatus = { state: 'pending', previewUrl: null, detailsUrl: null };
+const pending: LinkedBuildStatus = {
+  state: 'pending',
+  previewUrl: null,
+  detailsUrl: null,
+  conclusion: null,
+  workersBuilds: true,
+};
 const built: LinkedBuildStatus = {
   state: 'success',
   previewUrl: 'https://abc-site.ada.workers.dev',
   detailsUrl: 'https://dash.cloudflare.com/builds/1',
+  conclusion: null,
+  workersBuilds: true,
 };
 
 /** A clock that moves only when the watch sleeps, recording each sleep. */
@@ -90,14 +98,26 @@ describe("a GitHub project's publish", () => {
     expect(linkedBuildSettledResult({ ...watch, live: true, where: 'merged into main' }, built).summary).toContain(
       'built it and it is live',
     );
-    const failed = linkedBuildSettledResult(watch, { state: 'failure', previewUrl: null, detailsUrl: 'https://d/1' });
+    const failed = linkedBuildSettledResult(watch, {
+      state: 'failure',
+      previewUrl: null,
+      detailsUrl: 'https://d/1',
+      conclusion: null,
+      workersBuilds: true,
+    });
     expect(failed).toMatchObject({ ok: false, data: { build: 'failure' } });
     expect(failed.summary).toContain('Details: https://d/1');
     expect(linkedBuildSettledResult(watch, pending)).toMatchObject({ ok: true, data: { build: 'timed_out' } });
     expect(linkedBuildSettledResult(watch, pending).summary).toContain('still building it after 15 minutes');
-    expect(linkedBuildSettledResult(watch, { state: 'none', previewUrl: null, detailsUrl: null }).summary).toContain(
-      'reported no pipeline',
-    );
+    expect(
+      linkedBuildSettledResult(watch, {
+        state: 'none',
+        previewUrl: null,
+        detailsUrl: null,
+        conclusion: null,
+        workersBuilds: true,
+      }).summary,
+    ).toContain('reported no pipeline');
   });
 
   it('names the local secrets it left out in every result, so the model can tell the person', () => {
@@ -107,9 +127,21 @@ describe("a GitHub project's publish", () => {
     for (const result of [
       linkedBuildStartedResult(withSecrets),
       linkedBuildSettledResult(withSecrets, built),
-      linkedBuildSettledResult(withSecrets, { state: 'failure', previewUrl: null, detailsUrl: null }),
+      linkedBuildSettledResult(withSecrets, {
+        state: 'failure',
+        previewUrl: null,
+        detailsUrl: null,
+        conclusion: null,
+        workersBuilds: true,
+      }),
       linkedBuildSettledResult(withSecrets, pending),
-      linkedBuildSettledResult(withSecrets, { state: 'none', previewUrl: null, detailsUrl: null }),
+      linkedBuildSettledResult(withSecrets, {
+        state: 'none',
+        previewUrl: null,
+        detailsUrl: null,
+        conclusion: null,
+        workersBuilds: true,
+      }),
       linkedBuildUnfollowedResult(withSecrets),
     ]) {
       expect(result.summary).toContain(
@@ -149,7 +181,13 @@ describe("a GitHub project's publish", () => {
 
   it('stops at the first failed build too', async () => {
     const time = clock();
-    const failure: LinkedBuildStatus = { state: 'failure', previewUrl: null, detailsUrl: 'https://d/1' };
+    const failure: LinkedBuildStatus = {
+      state: 'failure',
+      previewUrl: null,
+      detailsUrl: 'https://d/1',
+      conclusion: null,
+      workersBuilds: true,
+    };
     let polls = 0;
     const status = await watchLinkedBuild({
       poll: async () => {
@@ -285,6 +323,7 @@ describe("a GitHub project's publish", () => {
       previewUrl: null,
       detailsUrl: 'https://d/2',
       conclusion: 'cancelled',
+      workersBuilds: true,
     });
     expect(cancelled).toMatchObject({ ok: false, data: { build: 'failure', conclusion: 'cancelled' } });
     expect(cancelled.summary).toContain('did not succeed (cancelled), so the change is not live');

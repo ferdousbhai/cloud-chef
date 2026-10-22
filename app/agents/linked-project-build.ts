@@ -155,7 +155,7 @@ export async function watchLinkedBuild(args: {
     status = await args.poll().catch(() => status);
     polled = true;
     const finished = status?.state === 'success' || status?.state === 'failure';
-    if (finished && (status?.workersBuilds !== false || args.now() >= args.workersBuildsGraceUntil)) {
+    if (finished && (status?.workersBuilds || args.now() >= args.workersBuildsGraceUntil)) {
       return status;
     }
   }

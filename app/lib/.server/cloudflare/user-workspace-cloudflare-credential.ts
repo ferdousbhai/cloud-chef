@@ -11,7 +11,7 @@ import { gatewayKeysSchema, NO_ACCOUNT_MODEL_SETTINGS, type AccountModelSettings
 import { runtimeIdentityHeaders } from './runtime-identity-headers';
 import { CLOUDCHEF_CONTROL_PLANE_ENDPOINT } from './user-workspace-runtime-policy';
 
-const RUNTIME_CREDENTIAL_TIMEOUT_MS = 30_000;
+const RUNTIME_ROUTE_TIMEOUT_MS = 30_000;
 const MAX_RUNTIME_CREDENTIAL_RESPONSE_BYTES = 8 * 1024;
 const runtimeCredentialResponseSchema = z.object({ accessToken: z.string().min(1).max(4_096) }).strict();
 
@@ -198,19 +198,23 @@ export async function readAccountModelSettings(
   }
 }
 
-/** A call to one of the control plane's account routes, as this runtime, carrying `body`. */
-function postRuntimeRoute(
+/**
+ * A call to one of the control plane's runtime routes, as this runtime, carrying `body` as JSON (a field
+ * left undefined is not sent).
+ */
+export function postRuntimeRoute(
   env: RuntimeCredentialEnv,
   identity: CloudflareConnectionIdentity,
-  route: 'runtime-credential' | 'runtime-usage' | 'runtime-access' | 'runtime-models',
-  body: ModelTurnUsage | { forceRefresh: boolean } | Record<string, never> = {},
+  route: RuntimeRoute,
+  body: object = {},
+  timeoutMs = RUNTIME_ROUTE_TIMEOUT_MS,
 ): Promise<Response> {
-  return fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, route), {
+  return fetch(runtimeRouteEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, route), {
     method: 'POST',
     headers: runtimeRequestHeaders(env, identity),
     body: JSON.stringify(body),
     redirect: 'manual',
-    signal: AbortSignal.timeout(RUNTIME_CREDENTIAL_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 }
 
@@ -218,7 +222,7 @@ function postRuntimeRoute(
  * What every call to the control plane's runtime routes carries: the runtime's secret, and who it says
  * it is, in headers, so the control plane checks them before reading the body.
  */
-export function runtimeRequestHeaders(env: RuntimeCredentialEnv, identity: CloudflareConnectionIdentity) {
+function runtimeRequestHeaders(env: RuntimeCredentialEnv, identity: CloudflareConnectionIdentity) {
   return {
     authorization: `Bearer ${env.CONTROL_PLANE_SECRET}`,
     'content-type': 'application/json',
@@ -238,7 +242,7 @@ type RuntimeRoute =
   | 'runtime-github/site'
   | 'runtime-github/request-production';
 
-export function runtimeCredentialEndpoint(value: string, route: RuntimeRoute = 'runtime-credential'): URL {
+function runtimeRouteEndpoint(value: string, route: RuntimeRoute): URL {
   let endpoint: URL;
   try {
     endpoint = new URL(`/api/cloudflare/${route}`, value);

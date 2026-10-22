@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import type { CloudflareApiRuntimeIdentity } from './cloudflare-api-runtime-identity';
-import { runtimeCredentialEndpoint, runtimeRequestHeaders } from './user-workspace-cloudflare-credential';
+import { postRuntimeRoute } from './user-workspace-cloudflare-credential';
 
 /**
  * A workspace runtime's side of working on an organization's GitHub project: it never holds a GitHub
@@ -36,9 +36,9 @@ const buildStatusSchema = z.object({
   state: z.enum(['pending', 'success', 'failure', 'none']),
   previewUrl: z.string().nullable(),
   detailsUrl: z.string().nullable(),
-  conclusion: z.string().nullable().optional(),
-  /** Absent from a control plane deployed before it: that one judged by every check, as if it were Workers Builds'. */
-  workersBuilds: z.boolean().optional(),
+  conclusion: z.string().nullable(),
+  /** Whether the commit has Workers Builds' own check runs, not only other CI. */
+  workersBuilds: z.boolean(),
 });
 export type LinkedBuildStatus = z.infer<typeof buildStatusSchema>;
 
@@ -56,7 +56,13 @@ export async function* streamLinkedProjectSnapshot(
   identity: Identity,
   orgProjectId: string,
 ): AsyncGenerator<LinkedSnapshotLine> {
-  const response = await post(env, identity, 'runtime-github/snapshot', { orgProjectId }, SNAPSHOT_TIMEOUT_MS);
+  const response = await postRuntimeRoute(
+    env,
+    identity,
+    'runtime-github/snapshot',
+    { orgProjectId },
+    SNAPSHOT_TIMEOUT_MS,
+  );
   if (!response.ok || !response.body) {
     throw new Error(await failureMessage(response, 'CloudChef could not read the project from GitHub.'));
   }
@@ -94,7 +100,7 @@ export async function commitLinkedProject(
     changes: FileChange[];
   },
 ): Promise<LinkedCommitResult> {
-  const response = await post(env, identity, 'runtime-github/commit', body, COMMIT_TIMEOUT_MS);
+  const response = await postRuntimeRoute(env, identity, 'runtime-github/commit', body, COMMIT_TIMEOUT_MS);
   const payload = await readJsonBodyWithLimit(
     response,
     MAX_JSON_RESPONSE_BYTES,
@@ -116,7 +122,13 @@ export async function linkedBuildStatus(
   orgProjectId: string,
   sha: string,
 ): Promise<LinkedBuildStatus> {
-  const response = await post(env, identity, 'runtime-github/status', { orgProjectId, sha }, STATUS_TIMEOUT_MS);
+  const response = await postRuntimeRoute(
+    env,
+    identity,
+    'runtime-github/status',
+    { orgProjectId, sha },
+    STATUS_TIMEOUT_MS,
+  );
   if (!response.ok) {
     throw new Error(await failureMessage(response, 'CloudChef could not read the build status.'));
   }
@@ -135,7 +147,13 @@ export async function linkedSiteOrigins(
   orgProjectId: string,
   branchKey: string | undefined,
 ): Promise<string[]> {
-  const response = await post(env, identity, 'runtime-github/site', { orgProjectId, branchKey }, STATUS_TIMEOUT_MS);
+  const response = await postRuntimeRoute(
+    env,
+    identity,
+    'runtime-github/site',
+    { orgProjectId, branchKey },
+    STATUS_TIMEOUT_MS,
+  );
   if (!response.ok) {
     throw new Error(await failureMessage(response, "CloudChef could not look up the project's site."));
   }
@@ -161,38 +179,13 @@ export async function requestProductionReview(
     files: number;
   },
 ): Promise<{ outcome: ProductionRequestOutcome }> {
-  const response = await post(env, identity, 'runtime-github/request-production', body, COMMIT_TIMEOUT_MS);
+  const response = await postRuntimeRoute(env, identity, 'runtime-github/request-production', body, COMMIT_TIMEOUT_MS);
   if (!response.ok) {
     throw new Error(await failureMessage(response, 'CloudChef could not send the request.'));
   }
   return productionRequestSentSchema.parse(
     await readJsonBodyWithLimit(response, MAX_JSON_RESPONSE_BYTES, 'Production request response'),
   );
-}
-
-/**
- * A call to one of the control plane's GitHub routes, as this runtime: who it is rides in the headers.
- * A field left undefined (a workspace without its own `branchKey`) is not sent.
- */
-function post(
-  env: RuntimeEnv,
-  identity: Identity,
-  route:
-    | 'runtime-github/snapshot'
-    | 'runtime-github/commit'
-    | 'runtime-github/status'
-    | 'runtime-github/site'
-    | 'runtime-github/request-production',
-  body: Record<string, string | number | boolean | null | undefined | FileChange[]>,
-  timeoutMs: number,
-): Promise<Response> {
-  return fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, route), {
-    method: 'POST',
-    headers: runtimeRequestHeaders(env, identity),
-    body: JSON.stringify(body),
-    redirect: 'manual',
-    signal: AbortSignal.timeout(timeoutMs),
-  });
 }
 
 async function failureMessage(response: Response, fallback: string): Promise<string> {
