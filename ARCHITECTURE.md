@@ -23,12 +23,6 @@ Cloudflare authorization, authentication state, connection metadata, runtime loc
 events. The root deployment has no Container or application Durable Object binding. Its one Workflow binding durably
 provisions user-owned workspace runtimes without holding the browser's runtime-session request open.
 
-It holds exactly one R2 bucket, and only for a build artifact CloudChef itself publishes: the OCI blobs of the user
-workspace container image. Cloudflare's registry is account-scoped — repository names are `<account_id>/<image>`,
-anonymous reads are refused on every path, and there is no shared namespace or server-side copy API — so the image has
-to be pushed into each user's own registry by a client, and that client needs somewhere to read the bytes from. No
-customer project data enters this bucket, and nothing in it is user-specific.
-
 Opening a project after Cloudflare is connected queues a durable control-plane Workflow that provisions a workspace Worker, D1 database,
 `BuilderAgent` Durable Objects, and a `ProjectWorkspace` Durable Object backed by a Cloudflare Container in that user's
 account. Runtime-session requests return `workspace_preparing` while that Workflow runs, and the browser polls with
@@ -259,8 +253,7 @@ files; the browser editor and container mount are replicas of that state.
 interrupted-turn recovery, and context compaction all read that Agent. User workspace D1 stores only routing and catalog
 facts: the Agent name, generation, subchat index, branch ancestry, and whether the chat has accepted content. It stores
 no message positions, counts, digests, or browser-authored checkpoint. The browser's TanStack collection is a
-rebuildable in-memory view. There is no sharing transcript, server-side rewind snapshot, R2 message backup, or
-WebContainer snapshot.
+rebuildable in-memory view.
 
 Reconciliation is deterministic:
 
@@ -275,17 +268,11 @@ Reconciliation is deterministic:
    parent Agent before the D1 transition, then uses a unique token to recognize an exact commit whose acknowledgement
    was lost.
 
-The open issue that introduced this contract referred to R2 transcript objects, browser-produced compressed history,
-WebContainer snapshots, and preserving legacy rewind behavior. Those storage planes were retired by the intentional
-breaking rebuild. The applicable invariant is therefore readability and recovery of current DO transcripts; importing
-or reconciling the retired R2/WebContainer formats is explicitly not a compatibility requirement.
-
 ## Project Lifecycle
 
 `BuilderAgent` owns conversation execution and delegates project operations to `ProjectWorkspace`. Cloudflare Computer
 stores files directly in the Durable Object's SQLite VFS. Its container backend projects the same files into the
-Container through FUSE and reconciles changes back to the VFS. There is no application-level ZIP archive, R2 backup, or
-duplicate project blob in the control plane.
+Container through FUSE and reconciles changes back to the VFS.
 
 The model receives six workspace primitives, split by what they cost. `read`, `ls`, and `grep` are answered from the
 Durable Object's SQLite VFS alone; `write`, `edit`, and `exec` change the project or run in its Container. `write` and
@@ -293,9 +280,7 @@ Durable Object's SQLite VFS alone; `write`, `edit`, and `exec` change the projec
 compact tag bound to the full file SHA-256, and `edit` applies non-overlapping line operations only when that exact
 snapshot is still current.
 
-Discovery used to go through `exec`, and the cost of that decision was paid on every question about the project's
-shape: a container wake or wait, a shell process launch, and a durable filesystem sync barrier, to answer something the
-Durable Object holds in SQLite. `ls` enumerates a directory or the tree beneath it and `grep` returns path, 1-based
+`ls` enumerates a directory or the tree beneath it and `grep` returns path, 1-based
 line, and matching line for a literal pattern, both directly from the VFS — no container, no sync barrier, and never
 the exclusive workspace operation lane, so discovery answers before the container is warm and stays available while a
 build command holds the lane. Line numbers come from the same splitter `read` and `edit` use, so a search hit names the
@@ -398,8 +383,7 @@ started over. The browser receives the preview Worker's `workers.dev` address, w
 revision until the next preview replaces it. The preview Worker is named `<first 8 of identity>-cloudchef-<identity>-preview`,
 so its host has the shape every project's `application-response.ts` lets cloudchef.build frame (once a versioned
 preview URL's); production's `cloudchef-<identity>` never has it, so production is never framed. Neither Worker serves versioned preview URLs (`previews_enabled` is off),
-so no earlier version stays reachable against the data it was published with. There is no dev/HMR mode, local preview
-database, Vite preview process, quick tunnel, preview expiry alarm, or preview-specific container keep-alive.
+so no earlier version stays reachable against the data it was published with.
 
 Production consumes the same retained artifact for the same source digest, substitutes production bindings, uploads a
 second immutable version, and promotes that exact version. If Computer recycled after validation, artifact preparation
@@ -416,24 +400,25 @@ recoverable artifact cache.
 The deployment executor derives resource names and security-sensitive configuration on the server. It records managed
 Worker intent before publishing, then reads back the deployed version, script etag, bindings, variables, and schedules.
 Ambiguous publish outcomes remain visible for owner review rather than being silently discarded. Once the version is
-promoted, production serves it, so the deployment is recorded as succeeded whatever follows: a step after promotion
-(the schedule, the `workers.dev` address, its records) that fails twice is reported with the success as a warning the
-model and the person see, and the next deployment repeats it. The execution records a receipt of the version it
-promoted, and tries the success write a few times; one that still can't land leaves the record deploying, never
-failed, and asks for a retry, whose recovery of the interrupted record reads the receipt as its success.
-A record left provisioning or deploying holds the project's one deployment slot, and a deployment of its own revision
-is otherwise the only one that settles it, so a project that moved on would never deploy again. The BuilderAgent
-therefore settles a deployment's record a few seconds after its fiber throws, whatever revision the project is at
-by then, unless a fiber of that revision runs again; and a deployment the slot refuses settles the record holding it
-(another revision's, or its own revision's under the id it had before), then tries once more (unless it settled its
-own revision's record as succeeded, which production then serves), when no other fiber of
-the agent deploys that record's revision and the record has shown no work (its update or a step its execution
-recorded) for 15 minutes, since one started through the runtime's deployment route runs outside the agent. Either settles it as an interrupted one is: succeeded when its receipt says production
-serves it, failed otherwise. Either settles only the execution it saw (the one that threw, or the one holding the
-slot): the settling write matches its execution generation, so a later execution of the record runs on, and a settle
-that waited to be admitted looks again for a fiber of the revision before it writes. Only a settle that itself
-settled the record as succeeded records production as serving its revision: one it finds succeeded was settled by a
-later execution, which a later deployment may have replaced since.
+promoted, production serves it, so the deployment is recorded as succeeded whatever follows: a later step (the
+schedule, the `workers.dev` address, its records) that fails twice becomes a warning the model and the person see, and
+the next deployment repeats it. The execution records a receipt of the promoted version and retries the success write
+a few times; if it still can't land, the record stays deploying, never failed, and a retry's recovery of the
+interrupted record reads the receipt as its success.
+
+A record left provisioning or deploying holds the project's one deployment slot, which otherwise only a deployment of
+its own revision settles. Two settles keep a project that moved on deployable. The BuilderAgent settles a record a few
+seconds after its fiber throws, whatever revision the project is at, unless a fiber of that revision runs again. A
+deployment the slot refuses settles the record holding it (another revision's, or its own revision's under an earlier
+id) once no fiber of the agent deploys that revision and the record has shown no work (an update or a recorded step)
+for 15 minutes, since a deployment started through the runtime's deployment route runs outside the agent; it then
+tries once more, unless it settled its own revision's record as succeeded, which production then serves. Each settles
+as recovery of an interrupted record does: succeeded when its receipt says production serves it, failed otherwise.
+Each settles only the execution it saw (the one that threw, or the one holding the slot): the write matches its
+execution generation, so a later execution runs on, and a settle that waited to be admitted looks again for a fiber of
+the revision before writing. Only a settle that itself settled the record as succeeded records production as serving
+its revision; a record it finds already succeeded was settled by a later execution, which a later deployment may have
+replaced.
 
 A CloudChef app's account resources (its Worker and so its `workers.dev` address, `DB`, `AGENT_SECURITY_DB`,
 `APP_STORAGE`, `APP_CACHE`, and the preview Worker and preview counterpart of each) belong to the project, the `ProjectWorkspace` a chat (or subchat)
@@ -525,7 +510,7 @@ nested transaction.
 
 The browser sends open, recently used, and locally modified file context as a bounded turn attachment. The server adds
 that attachment only to the current model view; it never persists the generated context as a transcript message.
-CloudChef starts fresh context windows using builder-authored handoffs, following Ghost's recovery approach.
+CloudChef starts fresh context windows using builder-authored handoffs.
 The `new_context` tool accepts concise continuation state; `history` searches and pages the current authenticated
 conversation, including earlier windows. Before the rollover threshold, the builder gets a best-effort reminder to
 save notes and hand off. If it reaches the threshold or a provider context overflow first, a bounded deterministic
@@ -543,17 +528,13 @@ recent is replaced by a fixed note, keeping each message and tool call in place,
 tokens. Clearing is rare and step-wise, and the note is byte-identical each time, so the cached prefix holds up to the
 first newly cleared result. The transcript and `history` keep the original output.
 
-The installed AI SDK `ToolLoopAgent` remains useful for generated applications, but it does not expose an equivalent to
-Pi's one-at-a-time, persistence-before-delivery steering queue or a continuation after a nominally final model response
-when steering is pending. Replacing Pi would therefore remove a tested runtime behavior or require another custom loop,
-which would not simplify this architecture. The parity review is recorded in `docs/DECISIONS.md`.
+The builder loop stays on Pi rather than AI SDK's `ToolLoopAgent`, which has no equivalent of Pi's steering queue; the
+review is in `docs/DECISIONS.md`.
 
 Workers AI prefix caching is automatic for supported models. CloudChef sends an opaque, stable session-affinity value
-per transcript generation through either the REST header or binding `extraHeaders`, keeps system instructions at the
-front of the prompt, and leaves dynamic project context in the latest user turn. Cache availability never changes the model-visible input or correctness path. Finish telemetry aggregates Pi's native
-`usage.cacheRead` across model turns and reports cache hits or misses without logging prompt contents. Small historical samples observed lower affinity
-latency but reported zero cached tokens, so CloudChef claims no verified cached-token cost savings. The retained
-decision record is `docs/DECISIONS.md`.
+per transcript generation through the AI binding's `extraHeaders`, keeps system instructions at the front of the
+prompt, and leaves dynamic project context in the latest user turn; finish telemetry reports Pi's `usage.cacheRead` as
+hits or misses without logging prompt contents. The evidence on cache savings is in `docs/DECISIONS.md`.
 
 ## Trust Boundaries
 
