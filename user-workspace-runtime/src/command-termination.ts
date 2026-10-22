@@ -1,3 +1,5 @@
+import { abortableSleep } from '../../app/lib/abortable-sleep';
+
 type CommandTerminationRuntime = {
   killExec(id: string, options: { backend: string; signal: 'SIGKILL' }): Promise<void>;
   getExec(
@@ -8,13 +10,9 @@ type CommandTerminationRuntime = {
 
 type CommandTerminationTransportError = { message?: unknown; retryable?: unknown };
 
-type CommandTerminationDeadlineOptions = {
-  attemptTimeoutMs?: number;
-  overallTimeoutMs?: number;
-};
-
-const DEFAULT_ATTEMPT_TIMEOUT_MS = 5_000;
-const DEFAULT_OVERALL_TIMEOUT_MS = 30_000;
+const ATTEMPT_TIMEOUT_MS = 5_000;
+const OVERALL_TIMEOUT_MS = 30_000;
+const RETRY_DELAY_MS = 1_000;
 
 class CommandTerminationAttemptTimeoutError extends Error {
   readonly retryable = true;
@@ -38,11 +36,8 @@ export async function terminateWorkspaceCommand(
   runtime: CommandTerminationRuntime,
   id: string,
   backend: 'container-shell',
-  retryDelay: () => Promise<void> = () => new Promise((resolve) => setTimeout(resolve, 1_000)),
-  options: CommandTerminationDeadlineOptions = {},
 ): Promise<unknown> {
-  const attemptTimeoutMs = options.attemptTimeoutMs ?? DEFAULT_ATTEMPT_TIMEOUT_MS;
-  const deadline = Date.now() + (options.overallTimeoutMs ?? DEFAULT_OVERALL_TIMEOUT_MS);
+  const deadline = Date.now() + OVERALL_TIMEOUT_MS;
   let lastError: unknown;
 
   while (Date.now() < deadline) {
@@ -51,7 +46,6 @@ export async function terminateWorkspaceCommand(
       await boundedAttempt(
         runtime.killExec(id, { backend, signal: 'SIGKILL' }),
         deadline,
-        attemptTimeoutMs,
         'Workspace command kill RPC',
       );
     } catch (error) {
@@ -64,16 +58,10 @@ export async function terminateWorkspaceCommand(
       observer = await boundedAttempt(
         runtime.getExec(id, { backend, encoding: 'utf8', resume: 'tail' }),
         deadline,
-        attemptTimeoutMs,
         'Workspace command observer RPC',
         disposeCommandObserver,
       );
-      return await boundedAttempt(
-        observer.result(),
-        deadline,
-        attemptTimeoutMs,
-        'Workspace command terminal observation',
-      );
+      return await boundedAttempt(observer.result(), deadline, 'Workspace command terminal observation');
     } catch (error) {
       observationError = error;
       lastError = error;
@@ -85,11 +73,7 @@ export async function terminateWorkspaceCommand(
       throw new WorkspaceCommandTerminationIndeterminateError(observationError ?? killError);
     }
 
-    try {
-      await boundedAttempt(retryDelay(), deadline, attemptTimeoutMs, 'Workspace command termination retry delay');
-    } catch (error) {
-      lastError = error;
-    }
+    await abortableSleep(Math.min(RETRY_DELAY_MS, Math.max(0, deadline - Date.now())));
   }
 
   throw new WorkspaceCommandTerminationIndeterminateError(
@@ -100,11 +84,10 @@ export async function terminateWorkspaceCommand(
 async function boundedAttempt<T>(
   promise: Promise<T>,
   deadline: number,
-  attemptTimeoutMs: number,
   operation: string,
   onLateResolve?: (value: T) => void,
 ): Promise<T> {
-  const timeoutMs = Math.min(Math.max(0, attemptTimeoutMs), Math.max(0, deadline - Date.now()));
+  const timeoutMs = Math.min(ATTEMPT_TIMEOUT_MS, Math.max(0, deadline - Date.now()));
   return new Promise<T>((resolve, reject) => {
     let settled = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;

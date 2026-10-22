@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { terminateWorkspaceCommand } from './command-termination';
 
 function harness(overrides: { killError?: Error; resultError?: Error } = {}) {
@@ -23,6 +23,14 @@ function harness(overrides: { killError?: Error; resultError?: Error } = {}) {
 }
 
 describe('workspace command termination', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('uses SIGKILL and observes a terminal result before settling', async () => {
     const { observer, runtime } = harness();
 
@@ -54,12 +62,12 @@ describe('workspace command termination', () => {
       killError: new SyntaxError('kill endpoint rejected the request'),
       resultError: Object.assign(new Error('terminal status unavailable'), { retryable: true }),
     });
-    const retry = deferred<void>();
-    const termination = terminateWorkspaceCommand(runtime, 'command-1', 'container-shell', () => retry.promise);
-    await vi.waitFor(() => expect(observer.result).toHaveBeenCalledOnce());
+    const termination = terminateWorkspaceCommand(runtime, 'command-1', 'container-shell');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(observer.result).toHaveBeenCalledOnce();
 
     observer.result.mockResolvedValueOnce({ status: 'cancelled' });
-    retry.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
 
     await expect(termination).resolves.toEqual({ status: 'cancelled' });
     expect(runtime.killExec).toHaveBeenCalledTimes(2);
@@ -70,109 +78,84 @@ describe('workspace command termination', () => {
     const { observer, runtime } = harness({
       resultError: Object.assign(new Error('terminal status unavailable'), { retryable: true }),
     });
-    const retry = deferred<void>();
-    const retryDelay = vi.fn(() => retry.promise);
-
-    const termination = terminateWorkspaceCommand(runtime, 'command-1', 'container-shell', retryDelay);
-    await vi.waitFor(() => expect(retryDelay).toHaveBeenCalledOnce());
-
+    const termination = terminateWorkspaceCommand(runtime, 'command-1', 'container-shell');
     let settled = false;
     void termination.then(() => {
       settled = true;
     });
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(999);
     expect(settled).toBe(false);
+    expect(runtime.killExec).toHaveBeenCalledOnce();
     expect(observer[Symbol.dispose]).toHaveBeenCalledOnce();
 
     observer.result.mockResolvedValueOnce({ status: 'cancelled' });
-    retry.resolve();
+    await vi.advanceTimersByTimeAsync(1);
     await termination;
     expect(runtime.killExec).toHaveBeenCalledTimes(2);
     expect(observer[Symbol.dispose]).toHaveBeenCalledTimes(2);
   });
 
   it('disposes an observer that resolves after its getExec attempt times out', async () => {
-    vi.useFakeTimers();
-    try {
-      const lateObserver = {
-        result: vi.fn(async () => ({ status: 'cancelled' })),
-        [Symbol.dispose]: vi.fn(),
-      };
-      const retryObserver = {
-        result: vi.fn(async () => ({ status: 'cancelled' })),
-        [Symbol.dispose]: vi.fn(),
-      };
-      const lateGetExec = deferred<typeof lateObserver>();
-      const runtime = {
-        killExec: vi.fn(async () => undefined),
-        getExec: vi
-          .fn()
-          .mockImplementationOnce(() => lateGetExec.promise)
-          .mockResolvedValueOnce(retryObserver),
-      };
+    const lateObserver = {
+      result: vi.fn(async () => ({ status: 'cancelled' })),
+      [Symbol.dispose]: vi.fn(),
+    };
+    const retryObserver = {
+      result: vi.fn(async () => ({ status: 'cancelled' })),
+      [Symbol.dispose]: vi.fn(),
+    };
+    const lateGetExec = deferred<typeof lateObserver>();
+    const runtime = {
+      killExec: vi.fn(async () => undefined),
+      getExec: vi
+        .fn()
+        .mockImplementationOnce(() => lateGetExec.promise)
+        .mockResolvedValueOnce(retryObserver),
+    };
 
-      const termination = terminateWorkspaceCommand(
-        runtime,
-        'command-late-observer',
-        'container-shell',
-        async () => undefined,
-        { attemptTimeoutMs: 10, overallTimeoutMs: 100 },
-      );
-      await vi.advanceTimersByTimeAsync(10);
-      await termination;
+    const termination = terminateWorkspaceCommand(runtime, 'command-late-observer', 'container-shell');
+    // The observer RPC times out after five seconds, and the retry follows a second later.
+    await vi.advanceTimersByTimeAsync(6_000);
+    await termination;
 
-      expect(runtime.getExec).toHaveBeenCalledTimes(2);
-      expect(retryObserver[Symbol.dispose]).toHaveBeenCalledOnce();
-      expect(lateObserver[Symbol.dispose]).not.toHaveBeenCalled();
+    expect(runtime.getExec).toHaveBeenCalledTimes(2);
+    expect(retryObserver[Symbol.dispose]).toHaveBeenCalledOnce();
+    expect(lateObserver[Symbol.dispose]).not.toHaveBeenCalled();
 
-      lateGetExec.resolve(lateObserver);
-      await Promise.resolve();
-      expect(lateObserver[Symbol.dispose]).toHaveBeenCalledOnce();
-      expect(lateObserver.result).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+    lateGetExec.resolve(lateObserver);
+    await Promise.resolve();
+    expect(lateObserver[Symbol.dispose]).toHaveBeenCalledOnce();
+    expect(lateObserver.result).not.toHaveBeenCalled();
   });
 
   it('bounds hung termination RPCs and terminal observation by the overall deadline', async () => {
-    vi.useFakeTimers();
-    try {
-      const pending = new Promise<never>(() => undefined);
-      const observer = { result: vi.fn(() => pending), [Symbol.dispose]: vi.fn() };
-      const runtime = {
-        killExec: vi.fn(async () => undefined),
-        getExec: vi.fn(async () => observer),
-      };
-      const termination = terminateWorkspaceCommand(runtime, 'command-hung', 'container-shell', () => pending, {
-        attemptTimeoutMs: 10,
-        overallTimeoutMs: 50,
-      });
-      const rejection = expect(termination).rejects.toMatchObject({
-        name: 'WorkspaceCommandTerminationIndeterminateError',
-        code: 'workspace_command_termination_indeterminate',
-      });
+    const pending = new Promise<never>(() => undefined);
+    const observer = { result: vi.fn(() => pending), [Symbol.dispose]: vi.fn() };
+    const runtime = {
+      killExec: vi.fn(async () => undefined),
+      getExec: vi.fn(async () => observer),
+    };
+    const termination = terminateWorkspaceCommand(runtime, 'command-hung', 'container-shell');
+    const rejection = expect(termination).rejects.toMatchObject({
+      name: 'WorkspaceCommandTerminationIndeterminateError',
+      code: 'workspace_command_termination_indeterminate',
+    });
 
-      await vi.advanceTimersByTimeAsync(50);
-      await rejection;
-      expect(observer[Symbol.dispose]).toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejection;
+    expect(observer[Symbol.dispose]).toHaveBeenCalled();
   });
 
   it('surfaces permanent observation failures as typed indeterminate outcomes without retrying', async () => {
     const failure = new SyntaxError('unknown command identifier');
     const { runtime } = harness({ resultError: failure });
-    const retryDelay = vi.fn(async () => undefined);
 
-    await expect(
-      terminateWorkspaceCommand(runtime, 'tool:call-install', 'container-shell', retryDelay),
-    ).rejects.toMatchObject({
+    await expect(terminateWorkspaceCommand(runtime, 'tool:call-install', 'container-shell')).rejects.toMatchObject({
       name: 'WorkspaceCommandTerminationIndeterminateError',
       code: 'workspace_command_termination_indeterminate',
       cause: failure,
     });
-    expect(retryDelay).not.toHaveBeenCalled();
+    expect(runtime.killExec).toHaveBeenCalledOnce();
   });
 });
 
