@@ -4,7 +4,6 @@ import { CloudChefAuthProvider } from './chat/CloudChefAuthWrapper';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { Loading } from './Loading';
 import { useReloadMessages } from '~/lib/stores/startup/reloadMessages';
-import { UserProvider } from '~/components/UserProvider';
 import { Toaster } from '~/components/ui/Toaster';
 import { CloudflareSignInPrompt } from '~/components/CloudflareSignInPrompt';
 import { Button } from '@ui/Button';
@@ -23,9 +22,7 @@ export function ExistingChat({ chatId }: { chatId: string }) {
   return (
     <>
       <CloudChefAuthProvider>
-        <UserProvider>
-          <ExistingChatSessionView chatId={chatId} />
-        </UserProvider>
+        <ExistingChatSessionView chatId={chatId} />
       </CloudChefAuthProvider>
       <Toaster />
     </>

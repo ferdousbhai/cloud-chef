@@ -2,7 +2,6 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { CloudChefAuthProvider } from './chat/CloudChefAuthWrapper';
 import { HomeIntro } from './chat/HomeIntro.client';
 import { Toaster } from '~/components/ui/Toaster';
-import { UserProvider } from '~/components/UserProvider';
 import { captureProductEvent } from '~/lib/telemetry.client';
 
 const HomepageChat = lazy(() => import('./HomepageChat.client').then((module) => ({ default: module.HomepageChat })));
@@ -37,15 +36,13 @@ export function Homepage({ initialId }: { initialId: string }) {
   return (
     <>
       <CloudChefAuthProvider>
-        <UserProvider>
-          {initialPrompt === null ? (
-            homeIntro
-          ) : (
-            <Suspense fallback={homeIntro}>
-              <HomepageChat initialId={initialId} initialPrompt={initialPrompt} />
-            </Suspense>
-          )}
-        </UserProvider>
+        {initialPrompt === null ? (
+          homeIntro
+        ) : (
+          <Suspense fallback={homeIntro}>
+            <HomepageChat initialId={initialId} initialPrompt={initialPrompt} />
+          </Suspense>
+        )}
       </CloudChefAuthProvider>
       <Toaster />
     </>

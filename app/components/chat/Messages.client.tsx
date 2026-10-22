@@ -2,8 +2,7 @@ import { forwardRef, type ForwardedRef } from 'react';
 import { classNames } from '~/utils/classNames';
 import { RunNarrative } from './RunNarrative';
 import { UserMessage } from './UserMessage';
-import { useStore } from '@nanostores/react';
-import { profileStore } from '~/lib/stores/profile';
+import { authClient } from '~/lib/auth-client';
 import { ChatBubbleIcon, PersonIcon } from '@radix-ui/react-icons';
 import { messageText, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import styles from './BaseChat.module.css';
@@ -17,7 +16,7 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messa
   { messages, className }: MessagesProps,
   ref: ForwardedRef<HTMLDivElement> | undefined,
 ) {
-  const profile = useStore(profileStore);
+  const user = authClient.useSession().data?.user ?? null;
 
   return (
     <div className={className} ref={ref}>
@@ -39,10 +38,10 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messa
             >
               {isUserMessage && (
                 <div className="flex size-6 shrink-0 items-center justify-center self-start overflow-hidden rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-content-secondary">
-                  {profile?.avatar ? (
+                  {user?.image ? (
                     <img
-                      src={profile.avatar}
-                      alt={profile?.username || 'User'}
+                      src={user.image}
+                      alt={user.name || 'User'}
                       className="size-full object-cover"
                       loading="eager"
                       decoding="sync"

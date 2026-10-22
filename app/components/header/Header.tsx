@@ -4,9 +4,8 @@ import { chatStore } from '~/lib/stores/chatId';
 import { ChatDescription } from '~/components/header/ChatDescription.client';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { HamburgerMenuIcon, PersonIcon, GearIcon, ExitIcon } from '@radix-ui/react-icons';
-import { profileStore, setProfile } from '~/lib/stores/profile';
 import { Menu as MenuComponent, MenuItem as MenuItemComponent } from '@ui/Menu';
-import { signOutOfCloudChef } from '~/lib/auth-client';
+import { authClient, signOutOfCloudChef } from '~/lib/auth-client';
 import { WorkspaceMenuItems, WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { BrandLink } from '~/components/BrandLink';
 import { Button } from '@ui/Button';
@@ -34,13 +33,11 @@ export function Header({ hideSidebarIcon = false }: { hideSidebarIcon?: boolean 
   const isAuthenticated = userId !== null && userId !== undefined;
   const showSidebarIcon = !hideSidebarIcon && isAuthenticated;
 
-  const profile = useStore(profileStore);
+  const user = authClient.useSession().data?.user ?? null;
 
   const handleLogout = async () => {
     try {
-      if (await signOutOfCloudChef()) {
-        setProfile(null);
-      }
+      await signOutOfCloudChef();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to sign out. Please try again.');
     }
@@ -103,7 +100,7 @@ export function Header({ hideSidebarIcon = false }: { hideSidebarIcon?: boolean 
           <ThemeSwitch
             className={chat.started ? 'hidden lg:inline-flex' : '!size-11 !min-h-11 sm:!size-auto sm:!min-h-9'}
           />
-          {profile && (
+          {user && (
             <>
               <div className="hidden items-center gap-1 lg:flex">
                 <WorkspaceSwitcher />
@@ -121,7 +118,7 @@ export function Header({ hideSidebarIcon = false }: { hideSidebarIcon?: boolean 
                     title: 'User menu',
                     inline: true,
                     className: '!size-11 !min-h-11 rounded !p-1.5',
-                    icon: <ProfileAvatar avatar={profile.avatar} username={profile.username} />,
+                    icon: <ProfileAvatar avatar={user.image} username={user.name} />,
                   }}
                 >
                   {/* The workspace switcher doesn't fit beside the menu here: its accounts lead the menu instead. */}
