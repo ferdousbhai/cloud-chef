@@ -2135,13 +2135,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!feed) {
       throw new Error('The workspace kept changing while it was being copied. Open the conversation again.');
     }
-    const entries = feed.files.map((file) => {
-      const input: BuilderWorkspaceFileInput = { path: file.path, content: file.content, encoding: file.encoding };
-      if (file.mode !== undefined) {
-        input.mode = file.mode;
-      }
-      return input;
-    });
+    const entries = feed.files.map(({ path, content, encoding, mode }): BuilderWorkspaceFileInput => ({
+      path,
+      content,
+      encoding,
+      mode,
+    }));
     return { entries, targetRevision: feed.targetRevision };
   }
 
@@ -2798,17 +2797,16 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       this.setValidationProgress(toolCallId, 'computer validation');
     }
     try {
-      const request: Parameters<typeof buildCheckpointForBuilder>[0] = {
-        workspace: this.workspace,
-        requestedSnapshot: { workspaceRevision: snapshot.workspaceRevision, revision: snapshot.revision },
-        publication,
-        toolCallId,
-        onStage: (stage) => this.setValidationProgress(toolCallId, stage),
-      };
-      if (abortSignal) {
-        request.abortSignal = abortSignal;
-      }
-      return await this.keepAliveWhile(() => buildCheckpointForBuilder(request));
+      return await this.keepAliveWhile(() =>
+        buildCheckpointForBuilder({
+          workspace: this.workspace,
+          requestedSnapshot: { workspaceRevision: snapshot.workspaceRevision, revision: snapshot.revision },
+          publication,
+          toolCallId,
+          onStage: (stage) => this.setValidationProgress(toolCallId, stage),
+          abortSignal,
+        }),
+      );
     } finally {
       if (needsBuild) {
         this.setValidationProgress(toolCallId, null);

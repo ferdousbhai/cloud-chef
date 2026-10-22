@@ -44,13 +44,6 @@ export type BuilderDeploymentState = {
 /** A deployment record as a settle left it, and whether that settle is what settled it. */
 type BuilderDeploymentSettle = { settled: boolean; deployment: BuilderDeploymentState };
 
-async function validatedDeploymentCheckpoint(
-  workspace: Pick<BuilderWorkspaceApi, 'checkpoint' | 'hasSuccessfulValidation'>,
-): Promise<BuilderWorkspaceCheckpoint | null> {
-  const snapshot = await workspace.checkpoint();
-  return (await workspace.hasSuccessfulValidation(snapshot.revision)) ? snapshot : null;
-}
-
 /**
  * Build the exact checkpoint a preview or deployment was asked for, unless a validation of that
  * revision already produced its deployable artifact. The full validation is the build: it leaves the
@@ -73,25 +66,23 @@ export async function buildCheckpointForBuilder(args: {
   }
 
   if (!(await args.workspace.hasSuccessfulValidation(current.revision))) {
-    const validationRequest: Parameters<BuilderWorkspaceApi['validate']>[0] = {
+    const validation = await args.workspace.validate({
       toolCallId: args.toolCallId,
       input: { source: args.publication },
-    };
-    if (args.onStage) {
-      validationRequest.onStage = args.onStage;
-    }
-    if (args.abortSignal) {
-      validationRequest.abortSignal = args.abortSignal;
-    }
-    const validation = await args.workspace.validate(validationRequest);
+      onStage: args.onStage,
+      abortSignal: args.abortSignal,
+    });
     if (!validation.ok) {
       throw new Error(`The build failed: ${validation.summary}`);
     }
   }
 
   args.abortSignal?.throwIfAborted();
-  const built = await validatedDeploymentCheckpoint(args.workspace);
-  if (!built || !sameCheckpoint(built, args.requestedSnapshot)) {
+  const built = await args.workspace.checkpoint();
+  if (
+    !sameCheckpoint(built, args.requestedSnapshot) ||
+    !(await args.workspace.hasSuccessfulValidation(built.revision))
+  ) {
     throw new Error(
       `The project changed while the ${args.publication} was being built. Build the current revision instead.`,
     );

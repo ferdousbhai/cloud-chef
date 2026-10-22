@@ -158,16 +158,13 @@ export function requireBuilderRequestScope(
   if (chatInitialId.data !== binding?.chatInitialId) {
     throw new Response('Initial chat identifier does not match this transcript', { status: 409 });
   }
-  const scope: BuilderRequestScope = {
+  return {
     chatInitialId: chatInitialId.data,
     subchatIndex: subchatIndex.data,
     transcript,
     modelId: modelId.data,
+    reasoningLevel: reasoningLevel.data,
   };
-  if (reasoningLevel.data !== undefined) {
-    scope.reasoningLevel = reasoningLevel.data;
-  }
-  return scope;
 }
 
 export function requireBuilderTranscriptIdentity(

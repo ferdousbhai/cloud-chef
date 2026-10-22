@@ -88,8 +88,8 @@ describe('BuilderAgent request policy', () => {
         binding,
       );
     expect(scope('xhigh').reasoningLevel).toBe('xhigh');
-    expect(scope(undefined)).not.toHaveProperty('reasoningLevel');
-    expect(scope(null)).not.toHaveProperty('reasoningLevel');
+    expect(scope(undefined).reasoningLevel).toBeUndefined();
+    expect(scope(null).reasoningLevel).toBeUndefined();
   });
 
   it.each([
