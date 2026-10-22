@@ -1,5 +1,4 @@
 import { useMutation as useTanStackMutation } from '@tanstack/react-query';
-import { useCallback } from 'react';
 import { createCollection } from '@tanstack/db';
 import { queryCollectionOptions } from '@tanstack/query-db-collection';
 import { useLiveQuery } from '@tanstack/react-db';
@@ -15,6 +14,7 @@ import {
 } from './data-api';
 import { queryClient } from '~/lib/stores/reactQueryClient';
 import { useQueryCacheError } from './use-query-cache-error';
+import { collectionCache, useCollectionRetry } from './query-collections';
 
 type SubchatQueryArgs = { chatId: string; sessionId: string };
 
@@ -50,34 +50,15 @@ function createSubchatCollection(args: SubchatQueryArgs) {
   );
 }
 
-type SubchatCollection = ReturnType<typeof createSubchatCollection>;
-
-const subchatCollections = new Map<string, SubchatCollection>();
 const MAX_SUBCHAT_COLLECTIONS = 32;
+const subchatCollections = collectionCache<ReturnType<typeof createSubchatCollection>>(MAX_SUBCHAT_COLLECTIONS);
 
-function getSubchatCollection(args: SubchatQueryArgs) {
-  const scopeKey = `${args.sessionId}:${args.chatId}`;
-  const existing = subchatCollections.get(scopeKey);
-  if (existing) {
-    subchatCollections.delete(scopeKey);
-    subchatCollections.set(scopeKey, existing);
-    return existing;
-  }
-  const collection = createSubchatCollection(args);
-  subchatCollections.set(scopeKey, collection);
-  if (subchatCollections.size > MAX_SUBCHAT_COLLECTIONS) {
-    const [oldestKey] = subchatCollections.keys();
-    if (oldestKey) {
-      const oldest = subchatCollections.get(oldestKey);
-      subchatCollections.delete(oldestKey);
-      void oldest?.cleanup().catch(() => undefined);
-    }
-  }
-  return collection;
+function subchatScopeKey(args: SubchatQueryArgs): string {
+  return `${args.sessionId}:${args.chatId}`;
 }
 
 export async function refreshSubchats(args: SubchatQueryArgs): Promise<void> {
-  const collection = subchatCollections.get(`${args.sessionId}:${args.chatId}`);
+  const collection = subchatCollections.find(subchatScopeKey(args));
   if (collection) {
     await collection.utils.refetch({ throwOnError: true });
     return;
@@ -86,12 +67,11 @@ export async function refreshSubchats(args: SubchatQueryArgs): Promise<void> {
 }
 
 export function useAllSubchatsState(args: SubchatQueryArgs | 'skip') {
-  const collection = args !== 'skip' ? getSubchatCollection(args) : undefined;
+  const collection =
+    args !== 'skip' ? subchatCollections.get(subchatScopeKey(args), () => createSubchatCollection(args)) : undefined;
   const query = useLiveQuery(() => collection, [collection]);
   const error = useQueryCacheError(args === 'skip' ? undefined : subchatQueryKey(args));
-  const retry = useCallback(() => {
-    void collection?.utils.clearError().catch(() => undefined);
-  }, [collection]);
+  const retry = useCollectionRetry(collection);
   if (args === 'skip' || !collection) {
     return { subchats: undefined, error: undefined, retry };
   }

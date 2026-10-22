@@ -16,11 +16,12 @@ import {
 const DATA_OPERATION_TIMEOUT_MS = 15_000;
 
 /**
- * Only the envelope's diagnostic members are described. `result` is deliberately left to the
- * loose passthrough so a legitimately `null` result stays distinguishable from an absent one,
- * and each field falls back on its own so a malformed `retryable` cannot hide the `error`.
+ * What a user runtime answer says about a failure. Only these diagnostic members are described: a data
+ * operation's `result` is left to the loose passthrough so a legitimately `null` result stays
+ * distinguishable from an absent one, and each field falls back on its own so a malformed `retryable`
+ * cannot hide the `error`.
  */
-const dataOperationEnvelopeSchema = z.looseObject({
+export const runtimeFailureSchema = z.looseObject({
   error: z.string().optional().catch(undefined),
   retryable: z.boolean().optional().catch(undefined),
 });
@@ -81,7 +82,7 @@ export async function executeDataOperation<Path extends DataOperationPath>(
       body: JSON.stringify({ path, args }),
       signal,
     });
-    const envelope = dataOperationEnvelopeSchema.safeParse(await response.json().catch(() => null));
+    const envelope = runtimeFailureSchema.safeParse(await response.json().catch(() => null));
     signal.throwIfAborted();
     const body = envelope.success ? envelope.data : null;
     if (!response.ok) {

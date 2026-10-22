@@ -1,12 +1,12 @@
 import { createCollection } from '@tanstack/db';
 import { queryCollectionOptions } from '@tanstack/query-db-collection';
 import { useLiveQuery } from '@tanstack/react-db';
-import { useCallback } from 'react';
 import { z } from 'zod';
 import { executeDataOperation } from './client';
 import { api, type ChatHistorySummary } from './data-api';
 import { queryClient } from '~/lib/stores/reactQueryClient';
 import { useQueryCacheError } from './use-query-cache-error';
+import { collectionCache, useCollectionRetry } from './query-collections';
 
 const chatHistorySummarySchema = z.object({
   id: z.string().min(1),
@@ -37,28 +37,17 @@ function createChatHistoryCollection(sessionId: string) {
   );
 }
 
-type ChatHistoryCollection = ReturnType<typeof createChatHistoryCollection>;
-
-const chatHistoryCollections = new Map<string, ChatHistoryCollection>();
+const chatHistoryCollections = collectionCache<ReturnType<typeof createChatHistoryCollection>>();
 
 function getChatHistoryCollection(sessionId: string) {
-  const existing = chatHistoryCollections.get(sessionId);
-  if (existing) {
-    return existing;
-  }
-
-  const collection = createChatHistoryCollection(sessionId);
-  chatHistoryCollections.set(sessionId, collection);
-  return collection;
+  return chatHistoryCollections.get(sessionId, () => createChatHistoryCollection(sessionId));
 }
 
 export function useChatHistory(sessionId: string | null | undefined) {
   const collection = sessionId ? getChatHistoryCollection(sessionId) : undefined;
   const query = useLiveQuery(() => collection, [collection]);
   const error = useQueryCacheError(sessionId ? chatHistoryQueryKey(sessionId) : undefined);
-  const retry = useCallback(() => {
-    void collection?.utils.clearError().catch(() => undefined);
-  }, [collection]);
+  const retry = useCollectionRetry(collection);
   return {
     projects: query.data ?? [],
     isLoading: query.isLoading,
