@@ -3,13 +3,9 @@ import { pathToFileURL } from 'node:url';
 
 const VERSION_URL = 'https://cloudchef.build/api/version';
 /**
- * Probing starts as soon as the deploy returns. It used to wait a blind 60 seconds first, which was a
- * third of every release, though the very first probe after that wait already saw the new version.
- * Nothing is accepted any sooner than it was: the version must still answer correctly on five
- * consecutive probes 5 seconds apart, a probe that sees the old version resets the count, and the
- * attempt budget covers the old wait as well, so the deadline for converging is unchanged.
+ * Probing starts as soon as the deploy returns. The version must answer correctly on five consecutive
+ * probes 5 seconds apart, and a probe that sees the old version resets the count.
  */
-const DEFAULT_STABILIZATION_MS = 0;
 const DEFAULT_CHECK_INTERVAL_MS = 5_000;
 const DEFAULT_CONSECUTIVE_CHECKS = 5;
 const DEFAULT_MAX_LOCAL_ATTEMPTS = 27;
@@ -93,7 +89,6 @@ async function fetchVersion(expectedSha, attempt, fetchImplementation) {
  * @param {{
  *   expectedSha?: string;
  *   fetchImplementation?: typeof fetch;
- *   stabilizationMs?: number;
  *   checkIntervalMs?: number;
  *   consecutiveChecks?: number;
  *   maxAttempts?: number;
@@ -104,7 +99,6 @@ async function fetchVersion(expectedSha, attempt, fetchImplementation) {
 export async function verifyLocalDeployment({
   expectedSha,
   fetchImplementation = fetch,
-  stabilizationMs = DEFAULT_STABILIZATION_MS,
   checkIntervalMs = DEFAULT_CHECK_INTERVAL_MS,
   consecutiveChecks = DEFAULT_CONSECUTIVE_CHECKS,
   maxAttempts = DEFAULT_MAX_LOCAL_ATTEMPTS,
@@ -112,11 +106,6 @@ export async function verifyLocalDeployment({
   log = console.log,
 } = {}) {
   expectedSha = validateExpectedSha(expectedSha);
-
-  if (stabilizationMs > 0) {
-    log(`Waiting ${stabilizationMs / 1000}s for Worker routing to stabilize.`);
-    await waitImplementation(stabilizationMs);
-  }
 
   let consecutiveSuccesses = 0;
   let lastErrors = ['no probes completed'];

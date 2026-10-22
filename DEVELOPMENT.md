@@ -178,12 +178,6 @@ responses report that commit, a live Worker version ID, configured OAuth binding
 Validation needs no browser (`verify:built-browser` is the GitHub Actions browser gate), so it runs in the Workers
 Builds image exactly as it does on a branch build.
 
-Cloudflare Workers Builds is the normal production release path. The deploy wrapper also supports
-`node scripts/deploy-production.mjs --local` for operator-driven bootstrap deployments from a clean `main` checkout
-matching `origin/main`, with `CLOUDFLARE_OAUTH_CLIENT_ID` supplied in the environment. This local path deploys and
-probes the built Worker; it does not run validation, apply migrations, or record a D1 recovery bookmark. Complete
-those prerequisites separately before using it.
-
 For an emergency rollback from a clean checkout of current `main`, inspect and promote an immutable version with `cf`,
 which addresses the Worker by name and needs no config file:
 

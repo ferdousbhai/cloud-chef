@@ -2,9 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import {
   checkWorkersBuildInputs,
-  deployAndVerifyProduction,
   deployFromWorkersBuilds,
-  deployProduction,
   findUnexpectedDeployChanges,
   latestControlPlaneMigration,
   migratedD1Note,
@@ -13,7 +11,6 @@ import {
   resolveDeployableCommitSha,
   validateCommitSha,
   validateOAuthClientId,
-  validateLocalDeployContext,
   validateWorkersBuildContext,
   validateWorkersBuildMetadata,
   verifyBuiltDeployVars,
@@ -47,46 +44,6 @@ function expectOrdered(content: string, steps: readonly string[]) {
 }
 
 describe('production deploy wrapper', () => {
-  describe('local deploy context', () => {
-    /** Answer the exact `git` queries the guard makes, in order. */
-    function git(branch: string, remoteSha: string, headSha = commitSha) {
-      return vi.fn((_command: string, args: readonly string[]) => {
-        if (args.includes('--abbrev-ref')) {
-          return { status: 0, stdout: `${branch}\n` };
-        }
-        if (args.includes('origin/main^{commit}')) {
-          return { status: 0, stdout: `${remoteSha}\n` };
-        }
-        return { status: 0, stdout: `${headSha}\n` };
-      });
-    }
-
-    it('accepts a clean main checkout that matches the pushed commit', () => {
-      expect(validateLocalDeployContext({ spawn: git('main', commitSha) as never, currentCommitSha: commitSha })).toBe(
-        commitSha,
-      );
-    });
-
-    it('refuses to deploy a branch that is not the production branch', () => {
-      expect(() =>
-        validateLocalDeployContext({ spawn: git('feature', commitSha) as never, currentCommitSha: commitSha }),
-      ).toThrow(/requires the main branch/);
-    });
-
-    it('refuses a commit that has not been pushed, so COMMIT_SHA stays reachable', () => {
-      expect(() =>
-        validateLocalDeployContext({ spawn: git('main', 'b'.repeat(40)) as never, currentCommitSha: commitSha }),
-      ).toThrow(/already-pushed commit/);
-    });
-
-    it('does not require the Workers Builds environment', () => {
-      // The whole point: a workstation has no WORKERS_CI_* metadata to offer.
-      expect(() =>
-        validateLocalDeployContext({ spawn: git('main', commitSha) as never, currentCommitSha: commitSha }),
-      ).not.toThrow();
-    });
-  });
-
   it('allows only validation-generated build output changes in Workers Builds', () => {
     const generatedChanges = ' M app/routeTree.gen.ts';
     expect(findUnexpectedDeployChanges(generatedChanges, { workersBuild: true })).toEqual([]);
@@ -295,14 +252,6 @@ describe('production deploy wrapper', () => {
       expect(() => resolveDeployableCommitSha({ spawn: checkout(head, empty, empty), env: branchEnv })).toThrow(
         'Cloudflare production deploy requires the main branch; found next.',
       );
-      expect(() =>
-        deployProduction({
-          clientId: 'oauth-client-id',
-          env: branchEnv,
-          spawn: checkout(head, empty, empty),
-          readBuiltConfig,
-        }),
-      ).toThrow('requires the main branch');
       const deploySpawn = checkout(head, empty, empty);
       const spawnValidation = vi.fn();
       await expect(
@@ -316,18 +265,6 @@ describe('production deploy wrapper', () => {
       expect(spawnValidation).not.toHaveBeenCalled();
       expect(deploySpawn).toHaveBeenCalledTimes(1);
     });
-  });
-
-  it('builds with the OAuth ID and exact commit, then ships that build with cf without a shell', () => {
-    const spawn = vi.fn(() => ({ status: 0 }));
-    expect(
-      deployProduction({ clientId: 'oauth-client-id', commitSha, env: workersBuildEnv, spawn, readBuiltConfig }),
-    ).toBe(commitSha);
-    const deployEnv = { ...workersBuildEnv, COMMIT_SHA: commitSha, CLOUDFLARE_OAUTH_CLIENT_ID: 'oauth-client-id' };
-    expect(spawn.mock.calls).toEqual([
-      ['pnpm', ['exec', 'vite', 'build'], { stdio: 'inherit', env: deployEnv }],
-      ['pnpm', ['exec', 'cf', 'deploy', '--prebuilt'], { stdio: 'inherit', env: deployEnv }],
-    ]);
   });
 
   it('refuses a build output that does not carry the released commit and OAuth ID', () => {
@@ -346,34 +283,6 @@ describe('production deploy wrapper', () => {
         builtConfig({ COMMIT_SHA: commitSha, CLOUDFLARE_OAUTH_CLIENT_ID: 'other' }),
       ),
     ).toThrow(`${BUILT_WORKER_CONFIG_PATH} must bind CLOUDFLARE_OAUTH_CLIENT_ID to the deploy environment's value.`);
-
-    const spawn = vi.fn(() => ({ status: 0 }));
-    expect(() =>
-      deployProduction({
-        clientId: 'oauth-client-id',
-        commitSha,
-        env: workersBuildEnv,
-        spawn,
-        readBuiltConfig: builtConfig({}),
-      }),
-    ).toThrow('must bind COMMIT_SHA');
-    expect(spawn).toHaveBeenCalledTimes(1);
-  });
-
-  it('verifies the deployment against the deployed commit', async () => {
-    const verifyLocal = vi.fn(async () => undefined);
-
-    await expect(
-      deployAndVerifyProduction({
-        clientId: 'oauth-client-id',
-        commitSha,
-        env: workersBuildEnv,
-        spawn: () => ({ status: 0 }),
-        readBuiltConfig,
-        verifyLocal,
-      }),
-    ).resolves.toBe(commitSha);
-    expect(verifyLocal).toHaveBeenCalledWith({ expectedSha: commitSha });
   });
 
   describe('Workers Builds deploy step', () => {
@@ -610,42 +519,5 @@ describe('production deploy wrapper', () => {
     expect(latestControlPlaneMigration(() => ['0002_b.sql', 'README', '0010_c.sql', '0001_a.sql'])).toBe('0010_c.sql');
     expect(latestControlPlaneMigration(() => [])).toBeNull();
     expect(latestControlPlaneMigration()).toMatch(/^\d{4}_.+\.sql$/);
-  });
-
-  it('propagates process failures', () => {
-    expect(() =>
-      deployProduction({
-        clientId: 'oauth-client-id',
-        commitSha,
-        env: workersBuildEnv,
-        spawn: () => ({ error: new Error('spawn failed') }),
-      }),
-    ).toThrow('spawn failed');
-    expect(() =>
-      deployProduction({
-        clientId: 'oauth-client-id',
-        commitSha,
-        env: workersBuildEnv,
-        spawn: () => ({ status: null }),
-      }),
-    ).toThrow('Vite build terminated without an exit status.');
-    expect(() =>
-      deployProduction({
-        clientId: 'oauth-client-id',
-        commitSha,
-        env: workersBuildEnv,
-        spawn: () => ({ status: 23 }),
-      }),
-    ).toThrow('Vite build failed with exit status 23. Live verification was not run.');
-    const deployFails = vi.fn().mockReturnValueOnce({ status: 0 }).mockReturnValueOnce({ status: 23 });
-    expect(() =>
-      deployProduction({
-        clientId: 'oauth-client-id',
-        commitSha,
-        env: workersBuildEnv,
-        spawn: deployFails,
-        readBuiltConfig,
-      }),
-    ).toThrow('cf deploy failed with exit status 23. Live verification was not run.');
   });
 });

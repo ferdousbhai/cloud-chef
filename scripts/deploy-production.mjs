@@ -13,7 +13,6 @@ const WORKERS_BUILD_UUID_PATTERN = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}
 const WORKERS_BUILD_GENERATED_OUTPUTS = new Set(['app/routeTree.gen.ts']);
 /** The Build Output config `vite build` writes and `cf deploy --prebuilt` ships. */
 export const BUILT_WORKER_CONFIG_PATH = '.cloudflare/output/v0/workers/default/worker.config.json';
-export const VITE_BUILD_ARGS = Object.freeze(['exec', 'vite', 'build']);
 
 /**
  * @typedef {(command: string, args: readonly string[], options: {stdio: 'inherit'}) => {
@@ -131,56 +130,13 @@ export function findUnexpectedDeployChanges(status, { workersBuild = false } = {
 }
 
 /**
- * Assert a local checkout describes exactly what is about to ship: on the
- * production branch, and identical to the pushed commit. Workers Builds proves
- * this from its own metadata; a workstation has to prove it from the remote.
- * @param {{spawn?: DeploySpawn, currentCommitSha?: string}} [options]
- */
-export function validateLocalDeployContext({ spawn = spawnSync, currentCommitSha } = {}) {
-  const branch = runGit(spawn, ['rev-parse', '--abbrev-ref', 'HEAD'], 'resolve the current branch');
-  if (branch !== 'main') {
-    throw new Error(`Local production deploy requires the main branch; found ${branch}.`);
-  }
-  const remoteSha = runGit(spawn, ['rev-parse', '--verify', 'origin/main^{commit}'], 'resolve origin/main');
-  const commitSha = currentCommitSha ?? resolveCurrentCommitSha({ spawn });
-  if (remoteSha !== commitSha) {
-    throw new Error(
-      `Local production deploy requires an already-pushed commit; origin/main is ${remoteSha} but HEAD is ${commitSha}.`,
-    );
-  }
-  return commitSha;
-}
-
-/**
- * @param {DeploySpawn} spawn
- * @param {readonly string[]} args
- * @param {string} purpose
- * @returns {string}
- */
-function runGit(spawn, args, purpose) {
-  const result = spawn('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  if (result.error) {
-    throw result.error;
-  }
-  if (result.status !== 0) {
-    const detail = typeof result.stderr === 'string' ? result.stderr.trim() : '';
-    throw new Error(`Unable to ${purpose}${detail ? `: ${detail}` : '.'}`);
-  }
-  return typeof result.stdout === 'string' ? result.stdout.trim() : '';
-}
-
-/**
  * Resolve a commit that exactly describes the files being deployed. Tracked or
  * untracked changes would make COMMIT_SHA misleading, so production fails closed.
- * @param {{spawn?: typeof spawnSync, env?: Record<string, string | undefined>, local?: boolean}} [options]
+ * @param {{spawn?: typeof spawnSync, env?: Record<string, string | undefined>}} [options]
  */
-export function resolveDeployableCommitSha({ spawn = spawnSync, env = process.env, local = false } = {}) {
+export function resolveDeployableCommitSha({ spawn = spawnSync, env = process.env } = {}) {
   const commitSha = resolveCurrentCommitSha({ spawn });
-  if (local) {
-    validateLocalDeployContext({ spawn, currentCommitSha: commitSha });
-  } else {
-    validateWorkersBuildContext({ env, spawn, currentCommitSha: commitSha });
-  }
+  validateWorkersBuildContext({ env, spawn, currentCommitSha: commitSha });
   requireDeployableWorktree({ spawn, env });
   return commitSha;
 }
@@ -321,97 +277,7 @@ function runPnpmStep(spawn, args, options, label, failureSuffix = '') {
   }
 }
 
-/**
- * Build the Worker with the release's COMMIT_SHA and OAuth client id, then prove the output carries them.
- * @param {{
- *   clientId?: string;
- *   commitSha: string;
- *   env?: Record<string, string | undefined>;
- *   spawn?: DeploySpawn;
- *   readBuiltConfig?: (path: string) => string;
- *   failureSuffix?: string;
- * }} options
- */
-export function buildWithDeployVars({
-  clientId,
-  commitSha,
-  env = process.env,
-  spawn = spawnSync,
-  readBuiltConfig,
-  failureSuffix,
-}) {
-  runPnpmStep(
-    spawn,
-    VITE_BUILD_ARGS,
-    { stdio: 'inherit', env: deployVarsEnv(clientId, commitSha, env) },
-    'Vite build',
-    failureSuffix,
-  );
-  verifyBuiltDeployVars(clientId, commitSha, readBuiltConfig);
-}
-
 export const CF_DEPLOY_ARGS = Object.freeze(['exec', 'cf', 'deploy', '--prebuilt']);
-
-/**
- * @param {{
- *   clientId?: string;
- *   commitSha?: string;
- *   env?: Record<string, string | undefined>;
- *   spawn?: DeploySpawn;
- *   local?: boolean;
- *   readBuiltConfig?: (path: string) => string;
- * }} [options]
- */
-export function deployProduction({
-  clientId = process.env[CLIENT_ID_ENV],
-  commitSha,
-  env = process.env,
-  spawn = spawnSync,
-  local = false,
-  readBuiltConfig,
-} = {}) {
-  commitSha =
-    commitSha === undefined
-      ? resolveDeployableCommitSha({ spawn, env, local })
-      : local
-        ? validateLocalDeployContext({ spawn, currentCommitSha: validateCommitSha(commitSha) })
-        : validateWorkersBuildContext({ env, spawn, currentCommitSha: validateCommitSha(commitSha) });
-  const notVerified = ' Live verification was not run.';
-  buildWithDeployVars({ clientId, commitSha, env, spawn, readBuiltConfig, failureSuffix: notVerified });
-  runPnpmStep(
-    spawn,
-    CF_DEPLOY_ARGS,
-    { stdio: 'inherit', env: deployVarsEnv(clientId, commitSha, env) },
-    'cf deploy',
-    notVerified,
-  );
-  return validateCommitSha(commitSha);
-}
-
-/**
- * @param {{
- *   clientId?: string;
- *   commitSha?: string;
- *   env?: Record<string, string | undefined>;
- *   spawn?: DeploySpawn;
- *   local?: boolean;
- *   readBuiltConfig?: (path: string) => string;
- *   verifyLocal?: typeof verifyLocalDeployment;
- * }} [options]
- */
-export async function deployAndVerifyProduction({
-  clientId = process.env[CLIENT_ID_ENV],
-  commitSha,
-  env = process.env,
-  spawn = spawnSync,
-  local = false,
-  readBuiltConfig,
-  verifyLocal = verifyLocalDeployment,
-} = {}) {
-  const deployedSha = deployProduction({ clientId, commitSha, env, spawn, local, readBuiltConfig });
-  await verifyLocal({ expectedSha: deployedSha });
-  return deployedSha;
-}
 
 /**
  * The Workers Builds deploy step's checks, in order: the account resources are what this release
@@ -598,29 +464,20 @@ export async function deployFromWorkersBuilds({
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const main = async () => {
     const [command, ...extraArgs] = process.argv.slice(2);
-    const allowed = new Set([undefined, '--check-workers-builds', '--workers-builds', '--local']);
+    const allowed = new Set(['--check-workers-builds', '--workers-builds']);
     if (extraArgs.length > 0 || !allowed.has(command)) {
-      throw new Error(
-        'Usage: node scripts/deploy-production.mjs [--check-workers-builds | --workers-builds | --local]',
-      );
+      throw new Error('Usage: node scripts/deploy-production.mjs --check-workers-builds | --workers-builds');
     }
     if (command === '--workers-builds') {
       await deployFromWorkersBuilds();
       return;
     }
-    if (command === '--check-workers-builds') {
-      const commitSha = checkWorkersBuildInputs();
-      console.log(
-        process.env.WORKERS_CI_BRANCH === 'main'
-          ? `Production deploy inputs are valid for commit ${commitSha}.`
-          : `Branch build inputs are valid for commit ${commitSha}; a branch build deploys nothing.`,
-      );
-      return;
-    }
-    const local = command === '--local';
-    const clientId = validateOAuthClientId(process.env[CLIENT_ID_ENV]);
-    const commitSha = resolveDeployableCommitSha({ local });
-    await deployAndVerifyProduction({ clientId, commitSha, local });
+    const commitSha = checkWorkersBuildInputs();
+    console.log(
+      process.env.WORKERS_CI_BRANCH === 'main'
+        ? `Production deploy inputs are valid for commit ${commitSha}.`
+        : `Branch build inputs are valid for commit ${commitSha}; a branch build deploys nothing.`,
+    );
   };
 
   main().catch((error) => {

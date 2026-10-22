@@ -56,7 +56,6 @@ describe('deployment version verification', () => {
       verifyLocalDeployment({
         expectedSha,
         fetchImplementation,
-        stabilizationMs: 0,
         checkIntervalMs: 0,
         consecutiveChecks: 2,
         maxAttempts: 3,
