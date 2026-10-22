@@ -305,7 +305,6 @@ type DeploymentSessionRow = {
   idempotency_key: string;
   expected_workspace_revision: number;
   expected_snapshot_revision: string;
-  deadline: number;
   status: 'active' | 'completed' | 'failed' | 'indeterminate';
 };
 
@@ -1839,15 +1838,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     const session = this.requireActiveDeploymentSession(sessionId);
     this.#activeOperationOwners.add(session.owner);
     try {
-      const lease = this.deploymentSessionLease(session);
-      const renewed = this.#operationLane.renew(lease, OPERATION_LEASE_MS.deployment);
-      this.ctx.storage.sql.exec(
-        `UPDATE cloudchef_deployment_sessions SET deadline = ?, updated_at = ?
-         WHERE operation_id = ? AND status = 'active'`,
-        renewed.deadline,
-        Date.now(),
-        sessionId,
-      );
+      // The lease in the operation lane is what expires; the session row's deadline is only its first one.
+      this.#operationLane.renew(this.deploymentSessionLease(session), OPERATION_LEASE_MS.deployment);
       const checkpoint = await this.checkpoint();
       if (checkpoint.revision !== session.expected_snapshot_revision) {
         console.error('ProjectWorkspace deployment checkpoint mismatch', {
@@ -2557,7 +2549,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       first(
         this.ctx.storage.sql.exec<DeploymentSessionRow>(
           `SELECT operation_id, owner, idempotency_key, expected_workspace_revision,
-                  expected_snapshot_revision, deadline, status
+                  expected_snapshot_revision, status
            FROM cloudchef_deployment_sessions WHERE operation_id = ?`,
           operationId,
         ),
