@@ -326,19 +326,6 @@ describe('ToolOperationJournal', () => {
       status: 'completed',
       result: { command: 'touch file', exitCode: 0 },
     });
-
-    afterRestart.begin({ toolCallId: 'pending-exhausted', toolName: 'exec', argsSha256: 'exhausted' });
-    afterRestart.registerPending({
-      backend: 'container-shell',
-      toolCallId: 'pending-exhausted',
-      result: { command: 'touch other', exitCode: 0 },
-    });
-    const exhausted = { kind: 'workspace-sync-unconfirmed', status: 'exhausted' };
-    expect(afterRestart.completePending('container-shell', exhausted)).toBe(true);
-    expect(afterRestart.begin({ toolCallId: 'pending-exhausted', toolName: 'exec', argsSha256: 'exhausted' })).toEqual({
-      status: 'completed',
-      result: exhausted,
-    });
   });
 
   it('blocks new work after restart when a pending continuation has no Computer retry row', () => {

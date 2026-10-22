@@ -262,18 +262,17 @@ export class ToolOperationJournal {
     });
   }
 
-  completePending(backend: string, overrideResult?: unknown): boolean {
+  completePending(backend: string): boolean {
     return this.storage.transactionSync(() => {
       const pending = this.pending().find((operation) => operation.backend === backend);
       if (!pending) {
         return false;
       }
-      const resultJson = encodeResult(overrideResult === undefined ? pending.result : overrideResult);
       this.storage.sql.exec(
         `UPDATE ghostbuild_tool_operations
          SET status = 'completed', result_json = ?, error = NULL, updated_at = ?
          WHERE tool_call_id = ? AND status = 'running'`,
-        resultJson,
+        encodeResult(pending.result),
         Date.now(),
         pending.toolCallId,
       );

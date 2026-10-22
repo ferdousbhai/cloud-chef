@@ -114,6 +114,7 @@ import {
 } from './isolated-materialization';
 import { shellQuote } from './shell-quote';
 import { addMissingColumn, first } from './sql-rows';
+import { bytesToBase64, sha256Hex } from '../../app/lib/hex-digest';
 import { stableWorkspaceRead } from './stable-workspace-read';
 import {
   isolatedContentDigestCommand,
@@ -174,9 +175,7 @@ interface RuntimeEnv {
 
 /** Payload carried by the Durable Object alarms this class schedules for itself. */
 interface ScheduledRetryPayload {
-  notBefore: number;
   backend?: string;
-  attempt?: number;
 }
 
 const PROJECT_ROOT = WORK_DIR;
@@ -223,14 +222,11 @@ const WORKER_BUNDLE_SCRIPT = [
 ].join('');
 const PREPARED_VALIDATION_ROOT = `${ISOLATED_PROJECT_ROOT}/validated-artifact`;
 const PREPARED_VALIDATION_ARTIFACT_ROOT = `${PREPARED_VALIDATION_ROOT}/.cloudchef-artifact`;
-/**
- * Per-stage validation ceilings. These run through the native Sandbox exec
- * path (`runTransientCommand`), where `timeout` is a remote process-lifetime
- * deadline — the container supervisor ends the process and reports
- * `timedOut: true` — plus a local observation bound in `tracked-command.ts`.
- * A real total-runtime cap, unlike the container-shell `timeoutMs` hint
- * documented at `EXEC_COMMAND_TIMEOUT_MS` (#128).
- */
+// Per-stage validation ceilings. These run through the native Sandbox exec path
+// (`runTransientCommand`), where `timeout` is a remote process-lifetime deadline (the container
+// supervisor ends the process and reports `timedOut: true`) plus a local observation bound in
+// `tracked-command.ts`: a real total-runtime cap, unlike the container-shell `timeoutMs` hint
+// documented at `EXEC_COMMAND_TIMEOUT_MS` (#128).
 /**
  * `pnpm run typecheck` runs `tsr generate` and `cf workers types` before `tsc`, so the route tree
  * and binding declarations it writes are inputs to lint and to the production build. It is the one
@@ -309,7 +305,6 @@ type DeploymentSessionRow = {
   idempotency_key: string;
   expected_workspace_revision: number;
   expected_snapshot_revision: string;
-  acquired_at: number;
   deadline: number;
   status: 'active' | 'completed' | 'failed' | 'indeterminate';
 };
@@ -348,11 +343,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       await this.scheduleOnce(
         Math.max(0, Math.ceil((intent.notBefore - Date.now()) / 1_000)),
         'retryPendingComputerSync',
-        {
-          backend: intent.backend,
-          attempt: intent.attempt,
-          notBefore: intent.notBefore,
-        },
+        { backend: intent.backend },
       );
     });
     this.#syncRetries.initialize();
@@ -613,7 +604,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     const started = this.#toolOperations.begin({
       toolCallId,
       toolName,
-      argsSha256: await sha256Text(argsJson),
+      argsSha256: await sha256Hex(argsJson),
     });
     if (started.status === 'execute') {
       this.#ownedToolOperations.add(toolCallId);
@@ -765,7 +756,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   async appendSeed(seedIdValue: unknown, entriesValue: unknown) {
     const seedId = requireString(seedIdValue, 'seedId', 256);
     const entries = requireFileInputs(entriesValue);
-    const key = `seed:append:${seedId}:${await sha256Text(JSON.stringify(entries))}`;
+    const key = `seed:append:${seedId}:${await sha256Hex(JSON.stringify(entries))}`;
     return this.withStatefulOperation('seed', key, async () => {
       if (this.workspaceRow().seed_id !== seedId) {
         throw new Error('The workspace seed is no longer active.');
@@ -829,7 +820,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     const operationKey =
       typeof input.operationKey === 'string'
         ? requireString(input.operationKey, 'operationKey', 512)
-        : `change:${baseRevision}:${await sha256Text(JSON.stringify(changes))}`;
+        : `change:${baseRevision}:${await sha256Hex(JSON.stringify(changes))}`;
     if (toolCallId) {
       this.#toolOperations.assertRunning(toolCallId);
       this.#activeToolOperations.add(toolCallId);
@@ -867,7 +858,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
             throw new Error(`Workspace file exceeds ${MAX_FILE_BYTES} bytes.`);
           }
           const mode = change.mode ?? projectedFiles.get(change.path)?.mode;
-          decodedWrites.set(change.path, { bytes, mode, sha256: await sha256Bytes(bytes) });
+          decodedWrites.set(change.path, { bytes, mode, sha256: await sha256Hex(new Uint8Array(bytes)) });
           projectedFiles.set(change.path, { size: bytes.byteLength, mode: mode ?? 0o644 });
         }
         const overLimits = deletionsOnly
@@ -1141,10 +1132,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
               this.assertToolOperationRunning(request.toolCallId);
             },
             onHandle: (kill) => {
-              this.#activeCommandKills.set(request.operationKey, kill);
-              if (this.#pendingCommandCancellations.delete(request.operationKey)) {
-                void kill().catch(() => undefined);
-              }
+              this.armCommandKill(request.operationKey, kill);
             },
             onSyncPending: request.toolCallId
               ? (result) => {
@@ -1208,10 +1196,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
                 },
                 onHandle: (kill) => {
                   cancelCommand = kill;
-                  this.#activeCommandKills.set(request.operationKey, kill);
-                  if (cancelled || this.#pendingCommandCancellations.delete(request.operationKey)) {
-                    void kill().catch(() => undefined);
-                  }
+                  this.armCommandKill(request.operationKey, kill, cancelled);
                 },
                 onSyncPending: request.toolCallId
                   ? (pending) => {
@@ -1379,7 +1364,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     const operationKey =
       typeof input.operationKey === 'string'
         ? requireString(input.operationKey, 'operationKey', 512)
-        : `exec:${await sha256Text(JSON.stringify([command, cwd, backend]))}`;
+        : `exec:${await sha256Hex(JSON.stringify([command, cwd, backend]))}`;
     return {
       command,
       cwd,
@@ -1413,7 +1398,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   async checkpoint() {
     const initialRevision = this.currentRevision();
     const files = await this.withComputer(readProjectFiles);
-    const revision = await sha256Text(
+    const revision = await sha256Hex(
       JSON.stringify(files.map((file) => [relativeProjectPath(file.path), file.mode, file.sha256])),
     );
     if (this.currentRevision() !== initialRevision) {
@@ -1464,10 +1449,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
               timeoutMs: INSTALL_TIMEOUT_MS,
               beforeExec: assertMutationAllowed,
               onHandle: (kill) => {
-                this.#activeCommandKills.set(operationKey, kill);
-                if (this.#pendingCommandCancellations.delete(operationKey)) {
-                  void kill().catch(() => undefined);
-                }
+                this.armCommandKill(operationKey, kill);
               },
             });
             try {
@@ -1606,20 +1588,11 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
             // own scripts rather than CloudChef's template checks.
             const checks = await this.runLinkedProjectScripts(isolatedRoot, cancellation, reportStage);
             liveness.observed();
-            liveness.observed();
             const after = await this.checkpoint();
             if (after.revision !== before.revision) {
               throw new Error('The project changed while validation was running. Validate the new revision.');
             }
-            this.ctx.storage.sql.exec(
-              `INSERT INTO cloudchef_validations (revision, workspace_revision, validated_at)
-               VALUES (?, ?, ?)
-               ON CONFLICT(revision) DO UPDATE SET workspace_revision = excluded.workspace_revision,
-                 validated_at = excluded.validated_at`,
-              after.revision,
-              after.workspaceRevision,
-              Date.now(),
-            );
+            this.recordValidation(after);
             return toolSuccess(`Project validation passed at durable source revision ${after.revision}.`, {
               level: 'full',
               revision: after.revision,
@@ -1678,15 +1651,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
             throw new Error('The project changed while validation was running. Validate the new revision.');
           }
           this.ctx.storage.transactionSync(() => {
-            this.ctx.storage.sql.exec(
-              `INSERT INTO cloudchef_validations (revision, workspace_revision, validated_at)
-               VALUES (?, ?, ?)
-               ON CONFLICT(revision) DO UPDATE SET workspace_revision = excluded.workspace_revision,
-                 validated_at = excluded.validated_at`,
-              after.revision,
-              after.workspaceRevision,
-              Date.now(),
-            );
+            this.recordValidation(after);
             this.storePreparedValidationArtifact(after, artifactDigest);
           });
           artifactPrepared = true;
@@ -1906,11 +1871,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     if (!session) {
       return;
     }
-    const lease = this.#operationLane.find(session.idempotency_key, session.owner);
-    if (lease) {
-      this.#operationLane.release(lease);
-    }
-    this.#activeOperationOwners.delete(session.owner);
     if (session.status !== 'completed' && session.status !== 'failed') {
       this.ctx.storage.sql.exec(
         `UPDATE cloudchef_deployment_sessions SET status = 'failed', updated_at = ?
@@ -1919,7 +1879,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         sessionId,
       );
     }
-    await this.releaseContainerKeepAliveIfIdle();
+    await this.releaseDeploymentSession(session);
   }
 
   async finishDeploymentSession(value: unknown) {
@@ -1933,29 +1893,27 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     if (!session) {
       throw new Error('The deployment session does not exist.');
     }
-    if (session.status === status) {
-      const lease = this.#operationLane.find(session.idempotency_key, session.owner);
-      if (lease) {
-        this.#operationLane.release(lease);
+    if (session.status !== status) {
+      if (session.status !== 'active') {
+        throw new WorkspaceOperationIndeterminateError('deployment');
       }
-      this.#activeOperationOwners.delete(session.owner);
-      await this.releaseContainerKeepAliveIfIdle();
-      return;
+      this.ctx.storage.sql.exec(
+        `UPDATE cloudchef_deployment_sessions SET status = ?, updated_at = ?
+         WHERE operation_id = ? AND status = 'active'`,
+        status,
+        Date.now(),
+        sessionId,
+      );
     }
-    if (session.status !== 'active') {
-      throw new WorkspaceOperationIndeterminateError('deployment');
-    }
+    await this.releaseDeploymentSession(session);
+  }
+
+  /** Release a settled deployment session's lease and its hold on the container. */
+  private async releaseDeploymentSession(session: DeploymentSessionRow): Promise<void> {
     const lease = this.#operationLane.find(session.idempotency_key, session.owner);
     if (lease) {
       this.#operationLane.release(lease);
     }
-    this.ctx.storage.sql.exec(
-      `UPDATE cloudchef_deployment_sessions SET status = ?, updated_at = ?
-       WHERE operation_id = ? AND status = 'active'`,
-      status,
-      Date.now(),
-      sessionId,
-    );
     this.#activeOperationOwners.delete(session.owner);
     await this.releaseContainerKeepAliveIfIdle();
   }
@@ -2331,6 +2289,19 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     });
   }
 
+  /** The revision passed full validation. */
+  private recordValidation(checkpoint: { revision: string; workspaceRevision: number }): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO cloudchef_validations (revision, workspace_revision, validated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(revision) DO UPDATE SET workspace_revision = excluded.workspace_revision,
+         validated_at = excluded.validated_at`,
+      checkpoint.revision,
+      checkpoint.workspaceRevision,
+      Date.now(),
+    );
+  }
+
   private storePreparedValidationArtifact(
     checkpoint: { revision: string; workspaceRevision: number },
     artifactDigest: string,
@@ -2368,7 +2339,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     );
     cancellation?.requireActive();
 
-    const files = (await this.withComputer(readProjectFilePaths)).map((path) => ({
+    // Paths only: the copy reads one file at a time, so it must not pull every byte up front.
+    const files = (await this.withComputer(projectFileEntries)).map((path) => ({
       path,
       target: isolatedTargetPath({ isolatedRoot, projectRoot: PROJECT_ROOT, path }),
     }));
@@ -2413,7 +2385,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   private writeContainerFile(path: string, bytes: Uint8Array) {
     return canDecodeUtf8(bytes)
       ? this.writeFile(path, decodeUtf8(bytes), { encoding: 'utf-8' })
-      : this.writeFile(path, encodeBase64(bytes), { encoding: 'base64' });
+      : this.writeFile(path, bytesToBase64(bytes), { encoding: 'base64' });
   }
 
   /**
@@ -2589,7 +2561,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       first(
         this.ctx.storage.sql.exec<DeploymentSessionRow>(
           `SELECT operation_id, owner, idempotency_key, expected_workspace_revision,
-                  expected_snapshot_revision, acquired_at, deadline, status
+                  expected_snapshot_revision, deadline, status
            FROM cloudchef_deployment_sessions WHERE operation_id = ?`,
           operationId,
         ),
@@ -2678,7 +2650,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     const started = this.#toolOperations.begin({
       toolCallId,
       toolName,
-      argsSha256: await sha256Text(argsJson),
+      argsSha256: await sha256Hex(argsJson),
     });
     if (started.status === 'execute') {
       this.#ownedToolOperations.add(toolCallId);
@@ -2847,12 +2819,16 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     requireWorkspaceSyncBarrier(this.#toolOperations.pending(), (backend) => this.#syncRetries.state(backend));
   }
 
-  private finishPendingCommand(backend: string): void {
-    const continuation = this.#toolOperations.pending().find((operation) => operation.backend === backend);
-    if (!continuation) {
-      return;
+  /** Keep a command's kill for a cancellation to come, or use it now for one that already came. */
+  private armCommandKill(operationKey: string, kill: () => Promise<void>, cancelled = false): void {
+    this.#activeCommandKills.set(operationKey, kill);
+    if (cancelled || this.#pendingCommandCancellations.delete(operationKey)) {
+      void kill().catch(() => undefined);
     }
-    this.#toolOperations.completePending(backend, continuation.result);
+  }
+
+  private finishPendingCommand(backend: string): void {
+    this.#toolOperations.completePending(backend);
   }
 
   private failPendingCommand(backend: string, error: string): void {
@@ -2927,9 +2903,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
 
   private async schedulePendingCommandRecovery(delayMs: number): Promise<void> {
     const delaySeconds = Math.max(1, Math.ceil(delayMs / 1_000));
-    await this.scheduleOnce(delaySeconds, 'reconcilePendingCommands', {
-      notBefore: Date.now() + delaySeconds * 1_000,
-    });
+    await this.scheduleOnce(delaySeconds, 'reconcilePendingCommands', {});
   }
 
   /**
@@ -3085,11 +3059,6 @@ async function projectFileEntries(workspace: WorkspaceClient): Promise<string[]>
   return paths;
 }
 
-/** Paths only. The copy reads one file at a time, so it must not pull every byte up front. */
-async function readProjectFilePaths(workspace: WorkspaceClient): Promise<string[]> {
-  return projectFileEntries(workspace);
-}
-
 /** Sizes and modes from metadata alone, however many or large the files are. */
 async function readProjectFileStats(workspace: WorkspaceClient): Promise<ProjectFileStat[]> {
   return (await projectRootExists(workspace)) ? projectFileStats(workspace.fs, PROJECT_SCOPE) : [];
@@ -3128,7 +3097,7 @@ async function readWorkspaceFile(workspace: WorkspaceClient, path: string): Prom
   }
   const stream = await workspace.fs.readFile(path);
   const bytes = await readStream(stream, stat.size);
-  return { path, bytes, size: bytes.byteLength, mode: stat.mode, sha256: await sha256Bytes(bytes) };
+  return { path, bytes, size: bytes.byteLength, mode: stat.mode, sha256: await sha256Hex(new Uint8Array(bytes)) };
 }
 
 type SandboxFileAccess = Pick<ProjectWorkspace, 'exists' | 'listFiles' | 'readFile'>;
@@ -3162,7 +3131,7 @@ async function collectSandboxFiles(
     if (totalBytes > MAX_DEPLOYMENT_ARTIFACT_BYTES) {
       throw new Error('The prepared deployment artifact exceeds its aggregate size limit.');
     }
-    files.push({ path: relativePath, bytes, size: bytes.byteLength, sha256: await sha256Bytes(bytes) });
+    files.push({ path: relativePath, bytes, size: bytes.byteLength, sha256: await sha256Hex(new Uint8Array(bytes)) });
   }
   return files.sort((left, right) => left.path.localeCompare(right.path));
 }
@@ -3264,7 +3233,6 @@ async function openCommandHandle(
     cwd: string;
     backend: 'container-shell';
     timeoutMs: number;
-    env?: Record<string, string>;
     onSyncPending?: (result: WorkspaceRuntimeResult<'utf8'>) => void;
   },
 ): Promise<WorkspaceRuntimeExecHandle<'utf8'>> {
@@ -3281,7 +3249,6 @@ async function openCommandHandle(
       backend: options.backend,
       encoding: 'utf8',
       timeoutMs: options.timeoutMs,
-      env: options.env,
     });
   } catch (error) {
     if (options.id) {
@@ -3293,6 +3260,53 @@ async function openCommandHandle(
     }
     throw error;
   }
+}
+
+/**
+ * Open a command with the termination its caller (`onHandle`) and its own failure share. A termination
+ * that leaves the project's sync pending reports it through `onSyncPending` and resolves true.
+ * `dispose` waits for any termination, then releases the execution.
+ */
+async function openTerminableCommand(
+  workspace: WorkspaceClient,
+  command: string,
+  options: Parameters<typeof openCommandHandle>[2] & {
+    beforeExec?: () => void;
+    onHandle?: (kill: () => Promise<void>) => void;
+  },
+): Promise<{
+  handle: WorkspaceRuntimeExecHandle<'utf8'>;
+  terminate: () => Promise<boolean>;
+  dispose: (description: string) => Promise<void>;
+}> {
+  options.beforeExec?.();
+  const handle = await openCommandHandle(workspace, command, options);
+  let cancellation: Promise<boolean> | undefined;
+  const terminate = () => {
+    cancellation ??= terminateWorkspaceCommand(workspace.runtime, handle.id, options.backend).then((result) => {
+      const pending = pendingWorkspaceRuntimeResult(result);
+      if (pending) {
+        options.onSyncPending?.(pending);
+      }
+      return pending !== null;
+    });
+    return cancellation;
+  };
+  options.onHandle?.(async () => {
+    await terminate();
+  });
+  const dispose = async (description: string) => {
+    try {
+      await cancellation;
+    } finally {
+      handle[Symbol.dispose]();
+      await boundCancellationRpc(
+        workspace.runtime.disposeExec(handle.id, { backend: options.backend }),
+        description,
+      ).catch(() => undefined);
+    }
+  };
+  return { handle, terminate, dispose };
 }
 
 async function streamCommand(
@@ -3310,21 +3324,7 @@ async function streamCommand(
     onSyncPending?: (result: WorkspaceRuntimeResult<'utf8'>) => void;
   },
 ): Promise<WorkspaceRuntimeResult<'utf8'>> {
-  options.beforeExec?.();
-  const handle = await openCommandHandle(workspace, command, options);
-  let cancellation: Promise<void> | undefined;
-  let terminationObservedPending = false;
-  const terminate = () => {
-    cancellation ??= terminateWorkspaceCommand(workspace.runtime, handle.id, options.backend).then((result) => {
-      const pending = pendingWorkspaceRuntimeResult(result);
-      if (pending) {
-        terminationObservedPending = true;
-        options.onSyncPending?.(pending);
-      }
-    });
-    return cancellation;
-  };
-  options.onHandle?.(terminate);
+  const { handle, terminate, dispose } = await openTerminableCommand(workspace, command, options);
   let stdout = '';
   let stderr = '';
   let stdoutBytes = 0;
@@ -3367,7 +3367,7 @@ async function streamCommand(
       }
     } catch (error) {
       // A broken event stream is not proof that the process stopped.
-      await terminate();
+      const terminationObservedPending = await terminate();
       const pending: WorkspaceRuntimeResult<'utf8'> = {
         status: 'failed',
         exitCode,
@@ -3402,16 +3402,7 @@ async function streamCommand(
     options.emit({ type: 'result', result, streamTruncated });
     return result;
   } finally {
-    const id = handle.id;
-    try {
-      await cancellation;
-    } finally {
-      handle[Symbol.dispose]();
-      await boundCancellationRpc(
-        workspace.runtime.disposeExec(id, { backend: options.backend }),
-        'streamed command disposal',
-      ).catch(() => undefined);
-    }
+    await dispose('streamed command disposal');
   }
 }
 
@@ -3455,25 +3446,12 @@ async function runCommand(
     cwd: string;
     backend: 'container-shell';
     timeoutMs: number;
-    env?: Record<string, string>;
     beforeExec?: () => void;
     onHandle?: (kill: () => Promise<void>) => void;
     onSyncPending?: (result: WorkspaceRuntimeResult<'utf8'>) => void;
   },
 ): Promise<WorkspaceRuntimeResult<'utf8'>> {
-  options.beforeExec?.();
-  const handle = await openCommandHandle(workspace, command, options);
-  let cancellation: Promise<void> | undefined;
-  const terminate = () => {
-    cancellation ??= terminateWorkspaceCommand(workspace.runtime, handle.id, options.backend).then((result) => {
-      const pending = pendingWorkspaceRuntimeResult(result);
-      if (pending) {
-        options.onSyncPending?.(pending);
-      }
-    });
-    return cancellation;
-  };
-  options.onHandle?.(terminate);
+  const { handle, terminate, dispose } = await openTerminableCommand(workspace, command, options);
   try {
     const result = await handle.result();
     if (result.sync.status === 'pending') {
@@ -3484,16 +3462,7 @@ async function runCommand(
     await terminate();
     throw error;
   } finally {
-    const id = handle.id;
-    try {
-      await cancellation;
-    } finally {
-      handle[Symbol.dispose]();
-      await boundCancellationRpc(
-        workspace.runtime.disposeExec(id, { backend: options.backend }),
-        'command disposal',
-      ).catch(() => undefined);
-    }
+    await dispose('command disposal');
   }
 }
 
@@ -3543,7 +3512,7 @@ function fileSyncEntry(file: WorkspaceFile, revision: number) {
   return {
     kind: 'write' as const,
     path: file.path,
-    content: utf8 ? decodeUtf8(file.bytes) : encodeBase64(file.bytes),
+    content: utf8 ? decodeUtf8(file.bytes) : bytesToBase64(file.bytes),
     encoding: utf8 ? ('utf8' as const) : ('base64' as const),
     size: file.size,
     sha256: file.sha256,
@@ -3759,14 +3728,6 @@ function decodeUtf8(bytes: Uint8Array): string {
   return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 }
 
-function encodeBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (let index = 0; index < bytes.length; index += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
-  }
-  return btoa(binary);
-}
-
 function decodeBase64(value: string): Uint8Array {
   const binary = atob(value);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
@@ -3880,15 +3841,6 @@ function assertDeploymentSessionIdentity(
 
 function sandboxShellCommand(command: string): SandboxCommand {
   return ['/bin/bash', '-lc', command];
-}
-
-async function sha256Bytes(value: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(value).buffer);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function sha256Text(value: string): Promise<string> {
-  return sha256Bytes(new TextEncoder().encode(value));
 }
 
 function isMissingPath(error: unknown): boolean {
