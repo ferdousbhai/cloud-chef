@@ -78,16 +78,14 @@ export function messageOf(cause: unknown, fallback: string): string {
   return cause instanceof Error ? cause.message : fallback;
 }
 
-/** Runs one request, then `then` (a refresh), or reports why it failed to `onError`. */
+/** Runs one request, clearing `onError` first and reporting to it why the request failed. */
 export async function runRequest(
   action: () => Promise<void>,
-  then: () => void | Promise<void>,
   onError: (message: string | null) => void,
 ): Promise<void> {
   onError(null);
   try {
     await action();
-    await then();
   } catch (failure) {
     onError(messageOf(failure, 'That did not work. Try again.'));
   }

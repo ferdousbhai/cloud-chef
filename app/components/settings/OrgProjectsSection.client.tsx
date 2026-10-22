@@ -86,32 +86,24 @@ export function OrgProjectsSection({
   const unlinked = repositories?.filter((repository) => !linkedIds.has(repository.fullName)) ?? [];
 
   const connect = () =>
-    void runRequest(
-      async () => {
-        const { installUrl } = await postJson(
-          '/api/organizations/github/start',
-          { orgId, callbackURL: createCloudflareReturnURL(window.location.href) },
-          installStartedSchema,
-        );
-        window.location.assign(installUrl);
-      },
-      () => undefined,
-      onError,
-    );
+    void runRequest(async () => {
+      const { installUrl } = await postJson(
+        '/api/organizations/github/start',
+        { orgId, callbackURL: createCloudflareReturnURL(window.location.href) },
+        installStartedSchema,
+      );
+      window.location.assign(installUrl);
+    }, onError);
 
   const chooseRepository = async () => {
     setListing(true);
-    await runRequest(
-      async () => {
-        const listed = await getJson(
-          `/api/organizations/github/repositories?orgId=${encodeURIComponent(orgId)}`,
-          repositoriesSchema,
-        );
-        setRepositories(listed.repositories);
-      },
-      () => undefined,
-      onError,
-    );
+    await runRequest(async () => {
+      const listed = await getJson(
+        `/api/organizations/github/repositories?orgId=${encodeURIComponent(orgId)}`,
+        repositoriesSchema,
+      );
+      setRepositories(listed.repositories);
+    }, onError);
     setListing(false);
   };
 
@@ -122,37 +114,27 @@ export function OrgProjectsSection({
       return;
     }
     setBusy(true);
-    await runRequest(
-      async () => {
-        await postJson(
-          '/api/organizations/projects/link',
-          { orgId, repoId: repository.id, name: name.trim() || repository.fullName.split('/')[1] },
-          linkedSchema,
-        );
-      },
-      async () => {
-        setRepositories(null);
-        setRepoId('');
-        setName('');
-        setFeedback(noteFeedback(`Linked ${repository.fullName}.`));
-        await onChanged();
-      },
-      onError,
-    );
+    await runRequest(async () => {
+      await postJson(
+        '/api/organizations/projects/link',
+        { orgId, repoId: repository.id, name: name.trim() || repository.fullName.split('/')[1] },
+        linkedSchema,
+      );
+      setRepositories(null);
+      setRepoId('');
+      setName('');
+      setFeedback(noteFeedback(`Linked ${repository.fullName}.`));
+      await onChanged();
+    }, onError);
     setBusy(false);
   };
 
   const disconnect = () =>
-    void runRequest(
-      async () => {
-        await postJson('/api/organizations/github/disconnect', { orgId }, noContentSchema);
-      },
-      async () => {
-        setConfirmingDisconnect(false);
-        await onChanged();
-      },
-      onError,
-    );
+    void runRequest(async () => {
+      await postJson('/api/organizations/github/disconnect', { orgId }, noContentSchema);
+      setConfirmingDisconnect(false);
+      await onChanged();
+    }, onError);
 
   return (
     <div className="mt-3 grid min-w-0 gap-2 text-sm">
@@ -300,17 +282,14 @@ function ProjectRow({
   const allowed = new Set(project.memberIds);
   const setAccess = async (userId: string, granted: boolean) => {
     setSaving((current) => new Map(current).set(userId, granted));
-    await runRequest(
-      async () => {
-        await postJson(
-          '/api/organizations/projects/access',
-          { orgId, projectId: project.id, userId, allowed: granted },
-          noContentSchema,
-        );
-      },
-      onChanged,
-      onError,
-    );
+    await runRequest(async () => {
+      await postJson(
+        '/api/organizations/projects/access',
+        { orgId, projectId: project.id, userId, allowed: granted },
+        noContentSchema,
+      );
+      await onChanged();
+    }, onError);
     setSaving((current) => {
       const next = new Map(current);
       next.delete(userId);
@@ -318,13 +297,10 @@ function ProjectRow({
     });
   };
   const unlink = () =>
-    void runRequest(
-      async () => {
-        await postJson('/api/organizations/projects/unlink', { orgId, projectId: project.id }, noContentSchema);
-      },
-      onChanged,
-      onError,
-    );
+    void runRequest(async () => {
+      await postJson('/api/organizations/projects/unlink', { orgId, projectId: project.id }, noContentSchema);
+      await onChanged();
+    }, onError);
   return (
     <li className="grid min-w-0 gap-1 rounded-md border border-bolt-elements-borderColor p-2">
       <div className="flex flex-wrap items-center gap-2">
@@ -444,7 +420,6 @@ function ProductionRequestRow({
         );
         window.location.assign(authorizeUrl);
       },
-      () => undefined,
       (message) => {
         if (message !== null) {
           setApproving(false);
@@ -454,20 +429,15 @@ function ProductionRequestRow({
     );
   };
   const decline = () =>
-    void runRequest(
-      async () => {
-        await postJson(
-          '/api/organizations/production-requests/decline',
-          { orgId, requestId: pending.id, note: decisionNote.trim() },
-          noContentSchema,
-        );
-      },
-      async () => {
-        onFeedback(noteFeedback(`Declined ${pending.title}.`));
-        await onChanged();
-      },
-      onError,
-    );
+    void runRequest(async () => {
+      await postJson(
+        '/api/organizations/production-requests/decline',
+        { orgId, requestId: pending.id, note: decisionNote.trim() },
+        noContentSchema,
+      );
+      onFeedback(noteFeedback(`Declined ${pending.title}.`));
+      await onChanged();
+    }, onError);
   return (
     <li className="grid min-w-0 gap-1 rounded-md border border-bolt-elements-borderColor p-2 [overflow-wrap:anywhere]">
       <span>

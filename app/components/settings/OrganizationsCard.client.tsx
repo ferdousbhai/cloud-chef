@@ -353,8 +353,6 @@ function OrganizationRow({
     void runRequest(
       async () => {
         await postJson('/api/organizations/invite/revoke', { orgId: organization.orgId, inviteId }, noContentSchema);
-      },
-      async () => {
         // The link shown is for an invite that may be this one: it no longer works either way.
         setInviteUrl(null);
         setInviteFeedback(null);
@@ -417,7 +415,6 @@ function OrganizationRow({
                     organizationId: organization.orgId,
                   });
                 },
-                () => undefined,
                 (message) => setConnectFeedback(errorFeedback(message)),
               )
             }
