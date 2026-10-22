@@ -152,23 +152,13 @@ export class BuilderCloudflareExecutionRepository {
     return row ? recordFromRow(row) : null;
   }
 
-  verify(
-    executionId: string,
-    binding: CloudflareExecutionBinding,
-    now = Date.now(),
-  ): Promise<CloudflareExecutionRecord> {
-    return this.requireBound(executionId, binding, now);
-  }
-
-  listRecent(limit = 20): CloudflareExecutionPublicState[] {
-    const boundedLimit = Math.max(1, Math.min(limit, 50));
+  listRecent(): CloudflareExecutionPublicState[] {
     return [
       ...this.storage.sql.exec<CloudflareExecutionRow>(
         `SELECT ${EXECUTION_COLUMNS}
          FROM builder_cloudflare_executions
          ORDER BY created_at DESC, execution_id DESC
-         LIMIT ?`,
-        boundedLimit,
+         LIMIT 20`,
       ),
     ].map((row) => publicExecutionState(recordFromRow(row)));
   }
@@ -178,7 +168,7 @@ export class BuilderCloudflareExecutionRepository {
     binding: CloudflareExecutionBinding,
     now = Date.now(),
   ): Promise<{ record: CloudflareExecutionRecord; transitioned: boolean }> {
-    await this.requireBound(executionId, binding, now);
+    await this.verify(executionId, binding, now);
     let transitioned = false;
     const record = this.storage.transactionSync(() => {
       const current = this.require(executionId);
@@ -205,7 +195,7 @@ export class BuilderCloudflareExecutionRepository {
     binding: CloudflareExecutionBinding,
     now = Date.now(),
   ): Promise<{ record: CloudflareExecutionRecord; transitioned: boolean }> {
-    await this.requireBound(executionId, binding, now);
+    await this.verify(executionId, binding, now);
     const denied: CloudflareExecutionSafeOutcome = {
       status: 'denied',
       summary: 'The user rejected this Cloudflare execution.',
@@ -238,7 +228,7 @@ export class BuilderCloudflareExecutionRepository {
     binding: CloudflareExecutionBinding,
     now = Date.now(),
   ): Promise<CloudflareExecutionRecord | null> {
-    await this.requireBound(executionId, binding, now);
+    await this.verify(executionId, binding, now);
     return this.storage.transactionSync(() => {
       const current = this.require(executionId);
       if (current.status !== 'approved') {
@@ -327,10 +317,11 @@ export class BuilderCloudflareExecutionRepository {
     );
   }
 
-  private async requireBound(
+  /** The execution, provided it is still this binding's and still the proposal it was approved as. */
+  async verify(
     executionId: string,
     binding: CloudflareExecutionBinding,
-    now: number,
+    now = Date.now(),
   ): Promise<CloudflareExecutionRecord> {
     this.expireAwaiting(now);
     const record = this.require(executionId);
@@ -433,20 +424,27 @@ function parseOutcome(value: string | null): CloudflareExecutionSafeOutcome | nu
   return parsed.data;
 }
 
+const terminalExecutionStatuses = ['rejected', 'succeeded', 'failed', 'indeterminate', 'expired'] as const;
+
+const executionStatusSchema = z.enum([
+  'awaiting_approval',
+  'approved',
+  'executing',
+  ...terminalExecutionStatuses,
+]) satisfies z.ZodType<CloudflareExecutionStatus>;
+
+export function isCloudflareExecutionTerminal(
+  status: CloudflareExecutionStatus,
+): status is (typeof terminalExecutionStatuses)[number] {
+  return terminalExecutionStatuses.some((terminal) => terminal === status);
+}
+
 function parseStatus(value: string): CloudflareExecutionStatus {
-  if (
-    value !== 'awaiting_approval' &&
-    value !== 'approved' &&
-    value !== 'rejected' &&
-    value !== 'executing' &&
-    value !== 'succeeded' &&
-    value !== 'failed' &&
-    value !== 'indeterminate' &&
-    value !== 'expired'
-  ) {
+  const status = executionStatusSchema.safeParse(value);
+  if (!status.success) {
     throw new Error('Stored Cloudflare execution status is invalid.');
   }
-  return value;
+  return status.data;
 }
 
 type CloudflareConnectionIdentity = Omit<CloudflareExecutionBinding, 'transcript'>;

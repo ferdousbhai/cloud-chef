@@ -157,6 +157,7 @@ import {
   BuilderCloudflareExecutionRepository,
   CLOUDFLARE_EXECUTION_RISK_NOTE,
   containsCredentialishCloudflareContent,
+  isCloudflareExecutionTerminal,
   publicExecutionState,
   sameCloudflareConnectionIdentity,
   type CloudflareExecutionBinding,
@@ -3236,18 +3237,6 @@ function cloudflareExecutionStatusForOutcome(
   outcome: CloudflareApiOutcome,
 ): Extract<CloudflareExecutionStatus, 'succeeded' | 'failed' | 'indeterminate'> {
   return outcome.status === 'success' ? 'succeeded' : outcome.status === 'indeterminate' ? 'indeterminate' : 'failed';
-}
-
-function isCloudflareExecutionTerminal(
-  status: CloudflareExecutionStatus,
-): status is Exclude<CloudflareExecutionStatus, 'awaiting_approval' | 'approved' | 'executing'> {
-  return (
-    status === 'rejected' ||
-    status === 'succeeded' ||
-    status === 'failed' ||
-    status === 'indeterminate' ||
-    status === 'expired'
-  );
 }
 
 /** Whether every one of `promises` settled within `timeoutMs`. */
