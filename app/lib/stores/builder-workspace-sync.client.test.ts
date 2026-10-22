@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import type { BuilderWorkspaceClientChange, BuilderWorkspaceSyncEntry } from '~/agents/builder-workspace-types';
+import type {
+  BuilderWorkspaceClientChange,
+  BuilderWorkspaceSyncEntry,
+} from '@cloudchef/user-workspace-runtime/protocol';
 
 const workbench = vi.hoisted(() => ({
   activateWorkspace: vi.fn(),

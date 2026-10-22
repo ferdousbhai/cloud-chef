@@ -105,7 +105,7 @@ import type {
   BuilderWorkspaceLinkedProject,
   BuilderWorkspaceState,
   BuilderWorkspaceSyncPage,
-} from './builder-workspace-types';
+} from '@cloudchef/user-workspace-runtime/protocol';
 import { builderTemplateSeedId, loadBuilderTemplate } from './builder-template';
 import { parentBuilderWorkspaceSeedId, readWholeSyncFeed, seedBuilderWorkspace } from './builder-workspace-seed';
 import {

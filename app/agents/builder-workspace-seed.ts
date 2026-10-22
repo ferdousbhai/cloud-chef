@@ -6,7 +6,7 @@ import {
   type BuilderWorkspaceState,
   type BuilderWorkspaceSyncEntry,
   type BuilderWorkspaceSyncPage,
-} from './builder-workspace-types';
+} from '@cloudchef/user-workspace-runtime/protocol';
 import { builderTemplateTotals } from './builder-template';
 
 /** How many times reading a workspace's whole sync feed starts over because the workspace changed. */

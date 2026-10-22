@@ -30,7 +30,7 @@ import type {
   BuilderWorkspaceSeedStartResult,
   BuilderWorkspaceState,
   BuilderWorkspaceSyncPage,
-} from '~/agents/builder-workspace-types';
+} from '@cloudchef/user-workspace-runtime/protocol';
 import { isRetryableDurableObjectError } from '~/lib/cloudflare/durable-object-rpc.server';
 import { z } from 'zod';
 import { isMutationReceipt } from '@cloudchef/user-workspace-runtime/mutation-receipt';

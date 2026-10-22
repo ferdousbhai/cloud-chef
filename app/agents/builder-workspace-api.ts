@@ -11,7 +11,7 @@ import type {
   BuilderWorkspaceLinkedProject,
   BuilderWorkspaceState,
   BuilderWorkspaceSyncPage,
-} from './builder-workspace-types';
+} from '@cloudchef/user-workspace-runtime/protocol';
 
 export type BuilderWorkspaceFileMetadata = {
   path: string;

@@ -16,7 +16,7 @@ import type {
   terminalizeInterruptedDeploymentForBuilder,
 } from '~/agents/builder-deployment-command';
 import type { BuilderWorkspaceApi, BuilderWorkspaceCheckpoint } from '~/agents/builder-workspace-api';
-import type { BuilderWorkspaceState } from '~/agents/builder-workspace-types';
+import type { BuilderWorkspaceState } from '@cloudchef/user-workspace-runtime/protocol';
 import {
   BuilderCloudflareExecutionRepository,
   type CloudflareExecutionBinding,

@@ -4,7 +4,7 @@ import type {
   BuilderWorkspaceEncoding,
   BuilderWorkspaceSyncEntry,
   BuilderWorkspaceSyncPage,
-} from '~/agents/builder-workspace-types';
+} from '@cloudchef/user-workspace-runtime/protocol';
 
 const WORKSPACE_RPC_TIMEOUT_MS = 30_000;
 const WORKSPACE_ROOT = '/home/project';

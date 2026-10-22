@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { BuilderWorkspaceSeedStartResult } from '~/agents/builder-workspace-types';
+import type { BuilderWorkspaceSeedStartResult } from '@cloudchef/user-workspace-runtime/protocol';
 import { builderAgentHarness, settle } from './harness';
 
 /**

@@ -5,7 +5,7 @@ import type {
   BuilderWorkspaceApplyResult,
   BuilderWorkspaceClientChange,
   BuilderWorkspaceSyncEntry,
-} from '~/agents/builder-workspace-types';
+} from '@cloudchef/user-workspace-runtime/protocol';
 
 const downloadProject = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 

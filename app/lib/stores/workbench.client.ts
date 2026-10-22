@@ -6,7 +6,7 @@ import type {
   BuilderWorkspaceApplyResult,
   BuilderWorkspaceClientChange,
   BuilderWorkspaceSyncEntry,
-} from '~/agents/builder-workspace-types';
+} from '@cloudchef/user-workspace-runtime/protocol';
 import type { BuilderLinkedProjectSummary } from '~/agents/builder-agent';
 import { downloadProject } from '~/lib/download/download-project';
 import { description } from './description';

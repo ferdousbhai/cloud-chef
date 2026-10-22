@@ -8,7 +8,7 @@ import type {
   BuilderWorkspaceFileInput,
   BuilderWorkspaceLinkedProject,
   BuilderWorkspaceState,
-} from './builder-workspace-types';
+} from '@cloudchef/user-workspace-runtime/protocol';
 
 /** What the workspace keeps out of its own record (user-workspace-runtime/src/index.ts), skipped here too. */
 const EXCLUDED_ROOTS = new Set(['node_modules', 'dist', '.output', '.tanstack', '.wrangler', '.cloudflare', '.venv']);

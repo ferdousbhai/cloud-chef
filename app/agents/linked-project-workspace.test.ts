@@ -5,7 +5,7 @@ import type {
   BuilderWorkspaceLinkedProject,
   BuilderWorkspaceState,
   BuilderWorkspaceSyncEntry,
-} from './builder-workspace-types';
+} from '@cloudchef/user-workspace-runtime/protocol';
 import { linkedWorkspaceChanges, packDraftSnapshot, seedLinkedWorkspace } from './linked-project-workspace';
 import type { LinkedSnapshotLine } from '~/lib/.server/cloudflare/linked-project-client';
 import { sha256Hex } from '~/lib/hex-digest';

@@ -8,7 +8,7 @@ import type {
   BuilderWorkspaceApplyResult,
   BuilderWorkspaceClientChange,
   BuilderWorkspaceSyncEntry,
-} from '~/agents/builder-workspace-types';
+} from '@cloudchef/user-workspace-runtime/protocol';
 
 class WorkspaceRevisionConflictError extends Error {
   constructor(readonly state: BuilderWorkspaceApplyResult & { ok: false }) {

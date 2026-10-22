@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { BuilderWorkspaceApi } from './builder-workspace-api';
-import type { BuilderWorkspaceState } from './builder-workspace-types';
+import type { BuilderWorkspaceState } from '@cloudchef/user-workspace-runtime/protocol';
 import { parentBuilderWorkspaceSeedId, seedBuilderWorkspace } from './builder-workspace-seed';
 
 const emptyState: BuilderWorkspaceState = {

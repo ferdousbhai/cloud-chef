@@ -3,7 +3,7 @@ import type {
   BuilderWorkspaceApplyResult,
   BuilderWorkspaceClientChange,
   BuilderWorkspaceState,
-} from '~/agents/builder-workspace-types';
+} from '@cloudchef/user-workspace-runtime/protocol';
 import {
   callWorkspaceAgent,
   createBuilderWorkspaceCollection,

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import type { BuilderWorkspaceApi, BuilderWorkspaceFileMetadata } from '~/agents/builder-workspace-api';
-import type { BuilderWorkspaceLinkedProject } from '~/agents/builder-workspace-types';
+import type { BuilderWorkspaceLinkedProject } from '@cloudchef/user-workspace-runtime/protocol';
 import { sha256Hex } from '~/lib/hex-digest';
 import { builderAgentHarness, type BuilderAgentHarness } from './harness';
 

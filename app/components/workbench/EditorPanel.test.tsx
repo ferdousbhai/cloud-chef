@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { BuilderWorkspaceApplyResult } from '~/agents/builder-workspace-types';
+import type { BuilderWorkspaceApplyResult } from '@cloudchef/user-workspace-runtime/protocol';
 import { getAbsolutePath } from 'cloudchef-agent/utils/workDir';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { EditorPanel } from './EditorPanel';

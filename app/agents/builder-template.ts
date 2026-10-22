@@ -1,4 +1,4 @@
-import type { BuilderWorkspaceFileInput } from './builder-workspace-types';
+import type { BuilderWorkspaceFileInput } from '@cloudchef/user-workspace-runtime/protocol';
 import { BUILDER_TEMPLATE_GZIP_BASE64, BUILDER_TEMPLATE_SOURCE_SHA256 } from './builder-template.generated';
 import type { WorkspaceSeedExpectation } from './builder-workspace-api';
 import { z } from 'zod';
