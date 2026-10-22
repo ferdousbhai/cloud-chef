@@ -124,7 +124,7 @@ export function BaseChat({
     try {
       let subchatIndex: number;
       try {
-        subchatIndex = await createSubchat({ chatId, sessionId: userId });
+        subchatIndex = await createSubchat({ chatId });
       } catch (error) {
         if (isActiveChat()) {
           toast.error(messageOf(error, 'Unable to create a new chat.'));
@@ -169,7 +169,6 @@ export function BaseChat({
       try {
         await setSubchatDescription({
           chatId,
-          sessionId: userId,
           subchatIndex: currentSubchatIndex,
           description: title,
         });

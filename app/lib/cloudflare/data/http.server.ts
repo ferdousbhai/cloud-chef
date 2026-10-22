@@ -1,6 +1,5 @@
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { z } from 'zod';
-import { UnauthorizedError } from './auth.server';
 import { ChatArchivedError, DataNotFoundError, SubchatLimitError } from './errors';
 import { InvalidJsonBodyError, PayloadTooLargeError } from '~/lib/bounded-body';
 import { isDurableObjectOverloadedError } from '~/lib/cloudflare/durable-object-rpc.server';
@@ -18,9 +17,6 @@ function errorSummary(error: unknown): string {
 export function internalErrorResponse(error: unknown, fallback: string): Response {
   if (error instanceof z.ZodError) {
     return Response.json({ error: 'Invalid request', issues: error.issues }, { status: 400 });
-  }
-  if (error instanceof UnauthorizedError) {
-    return Response.json({ error: error.message }, { status: 401 });
   }
   if (error instanceof DataNotFoundError) {
     return Response.json({ error: error.message }, { status: 404 });

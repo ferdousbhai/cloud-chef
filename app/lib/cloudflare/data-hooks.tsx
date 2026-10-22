@@ -43,7 +43,7 @@ function createSubchatCollection(args: SubchatQueryArgs) {
       id: `subchats:${args.chatId}`,
       schema: subchatSummarySchema,
       queryKey: subchatQueryKey(args),
-      queryFn: ({ signal }) => executeDataOperation(api.subchats.get, args, { signal }),
+      queryFn: ({ signal }) => executeDataOperation(api.subchats.get, { chatId: args.chatId }, { signal }),
       queryClient,
       getKey: (item) => item.subchatIndex,
     }),

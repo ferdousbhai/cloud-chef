@@ -65,7 +65,7 @@ export function useEditChatDescription({
     }
     submittingRef.current = chatId;
     try {
-      await executeDataOperation(api.messages.setDescription, { id: chatId, sessionId: userId, description });
+      await executeDataOperation(api.messages.setDescription, { id: chatId, description });
       setState((latest) => (latest.chatId === chatId ? { ...latest, value: description } : latest));
       if (syncWithGlobalStore) {
         descriptionStore.set(description);

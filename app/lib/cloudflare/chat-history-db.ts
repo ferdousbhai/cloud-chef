@@ -26,13 +26,11 @@ function createChatHistoryCollection(sessionId: string) {
       schema: chatHistorySummarySchema,
       queryKey: chatHistoryQueryKey(sessionId),
       queryClient,
-      queryFn: ({ signal }) => executeDataOperation(api.messages.getAll, { sessionId }, { signal }),
+      queryFn: ({ signal }) => executeDataOperation(api.messages.getAll, {}, { signal }),
       getKey: (item) => item.initialId,
       onDelete: async ({ transaction }) => {
         await Promise.all(
-          transaction.mutations.map((mutation) =>
-            executeDataOperation(api.messages.remove, { id: mutation.key, sessionId }),
-          ),
+          transaction.mutations.map((mutation) => executeDataOperation(api.messages.remove, { id: mutation.key })),
         );
       },
     }),

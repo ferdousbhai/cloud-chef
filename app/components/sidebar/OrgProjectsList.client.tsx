@@ -92,7 +92,7 @@ export function OrgProjectsList({
     try {
       // A new conversation archives the current one, so staying for edits not yet saved must come first.
       const left = await leavePage(async () => {
-        const args = { sessionId: userId, id: crypto.randomUUID(), orgProjectId: project.id };
+        const args = { id: crypto.randomUUID(), orgProjectId: project.id };
         const { initialId } = fresh
           ? await executeDataOperation(api.messages.startLinkedChat, args)
           : await executeDataOperation(api.messages.openLinkedChat, args);
@@ -184,7 +184,7 @@ function ProjectConversations({
 
   useEffect(() => {
     let cancelled = false;
-    void executeDataOperation(api.messages.linkedChatHistory, { sessionId: userId, orgProjectId: project.id })
+    void executeDataOperation(api.messages.linkedChatHistory, { orgProjectId: project.id })
       .then((conversations) => {
         if (!cancelled) {
           setEarlier(conversations);

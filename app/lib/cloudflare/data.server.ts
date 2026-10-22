@@ -8,7 +8,6 @@ import type { BuilderAgent } from '~/agents/builder-agent';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import type { DataOperationPath, DataOperationResult } from './data-api';
 import { dataOperationArgSchemas, MAX_SUBCHAT_INDEX } from './data-operation-schemas';
-import { getSessionId, UnauthorizedError } from './data/auth.server';
 import {
   findChat,
   isChatArchived,
@@ -37,11 +36,8 @@ import { retryDurableObjectRpc } from './durable-object-rpc.server';
 
 const dataOperationPathSchema = z.object(dataOperationArgSchemas).keyof();
 const dataRequestSchema = z.object({ path: dataOperationPathSchema, args: z.unknown() });
-const chatRequestSchema = z.object({
-  sessionId: z.string().min(1).max(512),
+const initialMessagesRequestSchema = z.object({
   chatId: z.string().min(1).max(512),
-});
-const initialMessagesRequestSchema = chatRequestSchema.extend({
   subchatIndex: z.number().int().nonnegative().max(MAX_SUBCHAT_INDEX).optional(),
 });
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
@@ -58,10 +54,7 @@ export async function userRuntimeDataAction(args: {
       await readJsonBodyWithLimit(args.request, MAX_DATA_REQUEST_BYTES, 'Data request'),
     );
     ensureDataBindings(args.env);
-    if (getSessionId(body.args) !== args.userId) {
-      throw new UnauthorizedError();
-    }
-    const result = runKnownDataOperation(args.env, body.path, body.args, args.executionCtx);
+    const result = runKnownDataOperation(args.env, body.path, body.args, args.userId, args.executionCtx);
     args.executionCtx?.waitUntil(sweepAgentGcCandidatesBestEffort(args.env));
     args.executionCtx?.waitUntil(sweepAppResourceGcCandidatesBestEffort(args.env));
     return Response.json({ result: await result });
@@ -80,9 +73,6 @@ export async function userRuntimeInitialMessagesAction(args: {
     const body = initialMessagesRequestSchema.parse(
       await readJsonBodyWithLimit(args.request, MAX_INITIAL_MESSAGES_REQUEST_BYTES, 'Initial messages request'),
     );
-    if (body.sessionId !== args.userId) {
-      throw new UnauthorizedError();
-    }
     const chat = await findChat(args.env.DB, { id: body.chatId, sessionId: args.userId });
     if (!chat) {
       return Response.json({ status: 'missing' });
@@ -133,33 +123,39 @@ function runKnownDataOperation(
   env: Env,
   path: DataOperationPath,
   rawArgs: unknown,
+  sessionId: string,
   executionCtx: Pick<ExecutionContext, 'waitUntil'> | undefined,
 ): Promise<DataOperationResult<DataOperationPath>> {
+  // Every operation acts for the signed-in user the runtime session belongs to, never one the request names.
   switch (path) {
     case 'messages.initializeChat':
-      return initializeChat(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
+      return initializeChat(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.openLinkedChat':
-      return openLinkedChat(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
+      return openLinkedChat(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.startLinkedChat':
-      return startLinkedChatAndStopArchived(env, dataOperationArgSchemas[path].parse(rawArgs), executionCtx);
+      return startLinkedChatAndStopArchived(
+        env,
+        { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId },
+        executionCtx,
+      );
     case 'messages.linkedChatHistory':
-      return listLinkedChatHistory(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
+      return listLinkedChatHistory(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.discardEmptyChat':
-      return discardEmptyChat(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
+      return discardEmptyChat(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.get':
-      return getChat(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
+      return getChat(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.getAll':
-      return getAllChats(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
+      return getAllChats(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.setDescription':
-      return setDescription(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
+      return setDescription(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.remove':
-      return removeChat(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
+      return removeChat(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'subchats.get':
-      return getSubchats(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
+      return getSubchats(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'subchats.create':
-      return createSubchatFromAgent(env, dataOperationArgSchemas[path].parse(rawArgs));
+      return createSubchatFromAgent(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'subchats.setDescription':
-      return setSubchatDescription(env.DB, dataOperationArgSchemas[path].parse(rawArgs));
+      return setSubchatDescription(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     default:
       path satisfies never;
       throw new Error(`Unsupported data operation: ${path}`);

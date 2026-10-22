@@ -190,7 +190,7 @@ async function loadChatTranscript(
   signal.throwIfAborted();
   const response = await fetchUserRuntime('/v1/chats/messages', {
     method: 'POST',
-    body: JSON.stringify({ chatId: request.chatId, sessionId, subchatIndex: request.subchatIndex }),
+    body: JSON.stringify({ chatId: request.chatId, subchatIndex: request.subchatIndex }),
     signal: AbortSignal.any([signal, AbortSignal.timeout(TRANSCRIPT_FETCH_TIMEOUT_MS)]),
   });
   if (!response.ok) {

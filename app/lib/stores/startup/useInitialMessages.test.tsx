@@ -13,7 +13,7 @@ import { TRANSCRIPT_HISTORY_FORMAT_VERSION } from 'cloudchef-agent/transcript';
 vi.mock('~/lib/cloudflare/runtime-session', () => ({
   fetchUserRuntime: (path: string, init?: RequestInit) => fetch(path, init),
 }));
-type TranscriptRequestBody = { chatId: string; sessionId: string; subchatIndex?: number };
+type TranscriptRequestBody = { chatId: string; subchatIndex?: number };
 type ChatOnRuntime = { description: string; latestSubchatIndex: number };
 
 /** Serves the runtime's transcript endpoint: the chat `answer` returns, with no saved history, or a missing chat. */
@@ -57,8 +57,9 @@ describe('useInitialMessages', () => {
   });
 
   it('reloads a project when authentication replaces a temporary guest session', async () => {
-    const fetchMock = stubTranscriptEndpoint(async (body) =>
-      body.sessionId === 'stale-session' ? null : { description: 'Project', latestSubchatIndex: 0 },
+    // The runtime answers for whoever the runtime session belongs to.
+    const fetchMock = stubTranscriptEndpoint(async () =>
+      userIdStore.get() === 'stale-session' ? null : { description: 'Project', latestSubchatIndex: 0 },
     );
 
     const seen: Array<'loading' | 'missing' | 'ready'> = [];

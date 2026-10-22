@@ -31,7 +31,7 @@ describe('executeDataOperation', () => {
     );
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ result: { created: true } }));
 
-    const request = executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' });
+    const request = executeDataOperation(api.messages.initializeChat, { id: 'chat-1' });
     await vi.advanceTimersByTimeAsync(4 * 60_000);
 
     await expect(request).resolves.toEqual({ created: true });
@@ -46,7 +46,7 @@ describe('executeDataOperation', () => {
       });
     });
 
-    const request = executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' });
+    const request = executeDataOperation(api.messages.initializeChat, { id: 'chat-1' });
     const rejection = expect(request).rejects.toMatchObject({
       name: 'WorkspacePreparingError',
       message: 'CloudChef is still preparing your workspace, so messages.initializeChat could not run yet.',
@@ -67,7 +67,7 @@ describe('executeDataOperation', () => {
       });
     });
 
-    const request = executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' });
+    const request = executeDataOperation(api.messages.initializeChat, { id: 'chat-1' });
     const rejection = expect(request).rejects.toMatchObject({
       name: 'UserRuntimeRequestError',
       message: 'CloudChef timed out while running messages.initializeChat. Please try again.',
@@ -100,11 +100,7 @@ describe('executeDataOperation', () => {
       });
     });
 
-    const request = executeDataOperation(
-      api.messages.initializeChat,
-      { id: 'chat-1', sessionId: 'session-1' },
-      { signal: caller.signal },
-    );
+    const request = executeDataOperation(api.messages.initializeChat, { id: 'chat-1' }, { signal: caller.signal });
     // The operation now acquires the runtime session first, so wait for the request it dispatches.
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
     caller.abort(new DOMException('Query cancelled', 'AbortError'));
@@ -116,35 +112,43 @@ describe('executeDataOperation', () => {
   it('rejects a successful response without a result field', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ unexpected: true }));
 
-    await expect(
-      executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' }),
-    ).rejects.toThrow('Data operation returned a malformed response: messages.initializeChat');
+    await expect(executeDataOperation(api.messages.initializeChat, { id: 'chat-1' })).rejects.toThrow(
+      'Data operation returned a malformed response: messages.initializeChat',
+    );
   });
 
   it('preserves HTTP status and retryability for query policy decisions', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({ error: 'Invalid request' }, { status: 400 }));
 
-    await expect(
-      executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' }),
-    ).rejects.toMatchObject({ name: 'UserRuntimeRequestError', status: 400, retryable: false });
+    await expect(executeDataOperation(api.messages.initializeChat, { id: 'chat-1' })).rejects.toMatchObject({
+      name: 'UserRuntimeRequestError',
+      status: 400,
+      retryable: false,
+    });
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({ error: 'Try later' }, { status: 503 }));
-    await expect(
-      executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' }),
-    ).rejects.toMatchObject({ name: 'UserRuntimeRequestError', status: 503, retryable: true });
+    await expect(executeDataOperation(api.messages.initializeChat, { id: 'chat-1' })).rejects.toMatchObject({
+      name: 'UserRuntimeRequestError',
+      status: 503,
+      retryable: true,
+    });
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       Response.json({ error: 'Overloaded', retryable: false }, { status: 503 }),
     );
-    await expect(
-      executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' }),
-    ).rejects.toMatchObject({ name: 'UserRuntimeRequestError', status: 503, retryable: false });
+    await expect(executeDataOperation(api.messages.initializeChat, { id: 'chat-1' })).rejects.toMatchObject({
+      name: 'UserRuntimeRequestError',
+      status: 503,
+      retryable: false,
+    });
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       Response.json({ error: 'Malformed marker', retryable: 'false' }, { status: 500 }),
     );
-    await expect(
-      executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' }),
-    ).rejects.toMatchObject({ name: 'UserRuntimeRequestError', status: 500, retryable: true });
+    await expect(executeDataOperation(api.messages.initializeChat, { id: 'chat-1' })).rejects.toMatchObject({
+      name: 'UserRuntimeRequestError',
+      status: 500,
+      retryable: true,
+    });
   });
 });

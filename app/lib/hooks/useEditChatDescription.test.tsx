@@ -88,7 +88,6 @@ describe('useEditChatDescription', () => {
     await act(async () => latest.handleSubmit(submitEvent));
     expect(mocks.executeDataOperation).toHaveBeenCalledWith(mocks.setDescription, {
       id: 'chat-1',
-      sessionId: 'user-1',
       description: 'Café menu: v2 & more 🍰',
     });
     expect(latest.currentDescription).toBe('Café menu: v2 & more 🍰');
@@ -129,7 +128,6 @@ describe('useEditChatDescription', () => {
     expect(mocks.executeDataOperation).toHaveBeenCalledTimes(1);
     expect(mocks.executeDataOperation).toHaveBeenCalledWith(mocks.setDescription, {
       id: 'chat-1',
-      sessionId: 'user-1',
       description: 'First title',
     });
 

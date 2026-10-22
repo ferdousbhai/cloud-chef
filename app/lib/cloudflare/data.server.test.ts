@@ -9,7 +9,7 @@ describe('user runtime data refusals', () => {
     await ensureInitialChat(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
     database.exec("UPDATE chats SET archived_at = 1 WHERE id = 'chat-row'");
 
-    const response = await dataAction(db, 'subchats.create', { sessionId: 'session', chatId: 'chat' });
+    const response = await dataAction(db, 'subchats.create', { chatId: 'chat' });
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
@@ -21,7 +21,6 @@ describe('user runtime data refusals', () => {
     const { db } = userWorkspaceDatabase();
 
     const response = await dataAction(db, 'subchats.setDescription', {
-      sessionId: 'session',
       chatId: 'missing',
       subchatIndex: 0,
       description: 'Title',
@@ -39,7 +38,7 @@ describe('user runtime transcript reads', () => {
     const response = await userRuntimeInitialMessagesAction({
       request: new Request('https://runtime.example/v1/chats/messages', {
         method: 'POST',
-        body: JSON.stringify({ sessionId: 'session', chatId: 'missing' }),
+        body: JSON.stringify({ chatId: 'missing' }),
       }),
       env: envWith({ DB: db }),
       userId: 'session',

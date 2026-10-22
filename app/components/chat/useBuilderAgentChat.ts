@@ -635,7 +635,7 @@ async function refreshProjectMetadata(
   try {
     const [, chat] = await Promise.all([
       refreshChatHistory(accountId),
-      executeDataOperation(api.messages.get, { id: chatId, sessionId: accountId }),
+      executeDataOperation(api.messages.get, { id: chatId }),
     ]);
     if (!isActive()) {
       return;
