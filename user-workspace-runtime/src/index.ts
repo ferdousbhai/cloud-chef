@@ -1545,7 +1545,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     toolCallId: string,
     input: unknown,
     cancellation: ValidationCancellation,
-    reportStage: (stage: BuilderValidationStage) => void = () => undefined,
+    reportStage: (stage: BuilderValidationStage) => void,
   ): Promise<CloudChefToolResult> {
     return this.runToolOperation(toolCallId, 'validation', input, () =>
       this.withStatefulOperation('validate', `tool:${toolCallId}`, async (liveness) => {
@@ -1569,92 +1569,31 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
             // own scripts rather than CloudChef's template checks.
             const checks = await this.runLinkedProjectScripts(isolatedRoot, cancellation, reportStage);
             liveness.observed();
-            const after = await this.checkpoint();
-            if (after.revision !== before.revision) {
-              throw new Error('The project changed while validation was running. Validate the new revision.');
-            }
-            this.recordValidation(after);
-            return toolSuccess(`Project validation passed at durable source revision ${after.revision}.`, {
-              level: 'full',
-              revision: after.revision,
-              workspaceRevision: after.workspaceRevision,
-              buildEnvironment: 'cloudflare-computer-container',
-              checks: checks.map((name) => ({ name, status: 'passed' as const })),
-              durationMs: Date.now() - startedAt,
+            return await this.recordPassedValidation({
+              before,
+              startedAt,
+              cancellation,
+              checks,
               nextAction: 'publish',
             });
           }
-          reportStage('installing');
-          await this.runTransientCommand(isolatedRoot, INSTALL_COMMAND, INSTALL_TIMEOUT_MS, cancellation);
-          liveness.observed();
-          reportStage('typecheck');
-          await this.runTransientCommand(
-            isolatedRoot,
-            REVISION_CODEGEN_COMMAND.command,
-            REVISION_CODEGEN_COMMAND.timeoutMs,
-            cancellation,
-          );
-          liveness.observed();
-          reportStage('lint');
-          await this.runTransientCommand(
-            isolatedRoot,
-            parallelValidationStagesCommand(PARALLEL_VALIDATION_STAGES, {
-              logRoot: VALIDATION_STAGE_LOG_ROOT,
-            }),
-            parallelStagesTimeoutMs(PARALLEL_VALIDATION_STAGES),
-            cancellation,
-          );
-          liveness.observed();
-          const project = await this.readDeploymentProjectProfile();
-          const artifact = await this.buildDeploymentArtifact({
+          const { checks, artifactDigest } = await this.validateGeneratedProject({
             revision: before.revision,
             isolatedRoot,
-            artifactRoot: PREPARED_VALIDATION_ARTIFACT_ROOT,
-            project,
-            deploymentConfig: validationDeploymentConfig(project),
             cancellation,
             liveness,
-            // The build reports the same stage ladder the deployment records as activity, so the
-            // wait the user watches is the one the container is actually in.
-            activity: (sequence) => {
-              const stage = BUILD_ARTIFACT_STAGES.get(sequence);
-              if (stage) {
-                reportStage(stage);
-              }
-              return Promise.resolve();
-            },
+            reportStage,
           });
-          const artifactDigest = await preparedDeploymentArtifactDigest(artifact);
-          cancellation.requireActive();
-          const after = await this.checkpoint();
-          cancellation.requireActive();
-          if (after.revision !== before.revision) {
-            throw new Error('The project changed while validation was running. Validate the new revision.');
-          }
-          this.ctx.storage.transactionSync(() => {
-            this.recordValidation(after);
-            this.storePreparedValidationArtifact(after, artifactDigest);
+          const result = await this.recordPassedValidation({
+            before,
+            startedAt,
+            cancellation,
+            checks,
+            nextAction: 'prepare-deployment',
+            artifactDigest,
           });
           artifactPrepared = true;
-          return toolSuccess(`Project validation passed at durable source revision ${after.revision}.`, {
-            level: 'full',
-            revision: after.revision,
-            workspaceRevision: after.workspaceRevision,
-            buildEnvironment: 'cloudflare-computer-container',
-            checks: [
-              'workspace-policy',
-              'dependency-installation',
-              'typecheck',
-              'stack-verification',
-              'lint',
-              'license-verification',
-              'production-build',
-              'worker-dry-run',
-              ...(project.type === 'web_app' ? ['worker-bundle'] : []),
-            ].map((name) => ({ name, status: 'passed' as const })),
-            durationMs: Date.now() - startedAt,
-            nextAction: 'prepare-deployment',
-          });
+          return result;
         } catch (error) {
           cleanupAllowed = !(error instanceof SandboxProcessTerminationUnconfirmedError);
           if (error instanceof WorkspaceSyncPendingError) {
@@ -1677,6 +1616,110 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         }
       }),
     );
+  }
+
+  /**
+   * CloudChef's template checks on a generated app copied to `isolatedRoot`, then its production build:
+   * the checks that passed and the digest of the deployment artifact the build left.
+   */
+  private async validateGeneratedProject(args: {
+    revision: string;
+    isolatedRoot: string;
+    cancellation: ValidationCancellation;
+    liveness: OperationLiveness;
+    reportStage: (stage: BuilderValidationStage) => void;
+  }): Promise<{ checks: string[]; artifactDigest: string }> {
+    const { isolatedRoot, cancellation, liveness, reportStage } = args;
+    reportStage('installing');
+    await this.runTransientCommand(isolatedRoot, INSTALL_COMMAND, INSTALL_TIMEOUT_MS, cancellation);
+    liveness.observed();
+    reportStage('typecheck');
+    await this.runTransientCommand(
+      isolatedRoot,
+      REVISION_CODEGEN_COMMAND.command,
+      REVISION_CODEGEN_COMMAND.timeoutMs,
+      cancellation,
+    );
+    liveness.observed();
+    reportStage('lint');
+    await this.runTransientCommand(
+      isolatedRoot,
+      parallelValidationStagesCommand(PARALLEL_VALIDATION_STAGES, {
+        logRoot: VALIDATION_STAGE_LOG_ROOT,
+      }),
+      parallelStagesTimeoutMs(PARALLEL_VALIDATION_STAGES),
+      cancellation,
+    );
+    liveness.observed();
+    const project = await this.readDeploymentProjectProfile();
+    const artifact = await this.buildDeploymentArtifact({
+      revision: args.revision,
+      isolatedRoot,
+      artifactRoot: PREPARED_VALIDATION_ARTIFACT_ROOT,
+      project,
+      deploymentConfig: validationDeploymentConfig(project),
+      cancellation,
+      liveness,
+      // The build reports the same stage ladder the deployment records as activity, so the
+      // wait the user watches is the one the container is actually in.
+      activity: (sequence) => {
+        const stage = BUILD_ARTIFACT_STAGES.get(sequence);
+        if (stage) {
+          reportStage(stage);
+        }
+        return Promise.resolve();
+      },
+    });
+    return {
+      checks: [
+        'workspace-policy',
+        'dependency-installation',
+        'typecheck',
+        'stack-verification',
+        'lint',
+        'license-verification',
+        'production-build',
+        'worker-dry-run',
+        ...(project.type === 'web_app' ? ['worker-bundle'] : []),
+      ],
+      artifactDigest: await preparedDeploymentArtifactDigest(artifact),
+    };
+  }
+
+  /**
+   * Records a validation that passed, with the artifact it prepared if any, provided the project is still
+   * at the revision it validated.
+   */
+  private async recordPassedValidation(args: {
+    before: { revision: string };
+    startedAt: number;
+    cancellation: ValidationCancellation;
+    checks: string[];
+    nextAction: 'publish' | 'prepare-deployment';
+    artifactDigest?: string;
+  }): Promise<CloudChefToolResult> {
+    args.cancellation.requireActive();
+    const after = await this.checkpoint();
+    args.cancellation.requireActive();
+    if (after.revision !== args.before.revision) {
+      throw new Error('The project changed while validation was running. Validate the new revision.');
+    }
+    const { artifactDigest } = args;
+    this.ctx.storage.transactionSync(() => {
+      this.recordValidation(after);
+      if (artifactDigest !== undefined) {
+        this.storePreparedValidationArtifact(after, artifactDigest);
+      }
+    });
+    return toolSuccess(`Project validation passed at durable source revision ${after.revision}.`, {
+      level: 'full',
+      revision: after.revision,
+      workspaceRevision: after.workspaceRevision,
+      buildEnvironment: 'cloudflare-computer-container',
+      checks: args.checks.map((name) => ({ name, status: 'passed' as const })),
+      durationMs: Date.now() - args.startedAt,
+      nextAction: args.nextAction,
+    });
   }
 
   /**
