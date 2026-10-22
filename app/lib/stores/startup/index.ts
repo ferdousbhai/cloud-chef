@@ -1,5 +1,5 @@
 import { useDiscardEmptyChat, useInitializeChat } from './useInitializeChat';
-import { useInitialMessages, useInitialMessagesState } from './useInitialMessages';
+import { useInitialMessagesState } from './useInitialMessages';
 import { useChatSelectionSync } from './history';
 import { useCallback, useEffect, useState } from 'react';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
@@ -18,7 +18,7 @@ export function useChatHomepage(chatId: string) {
   const [chatInitialized, setChatInitialized] = useState(false);
   const initializeChat = useInitializeChat(chatId, setChatInitialized);
   const discardEmptyChat = useDiscardEmptyChat(chatId);
-  const loaded = useInitialMessages(chatInitialized ? chatId : undefined);
+  const loaded = useInitialMessagesState(chatInitialized ? chatId : undefined).initialMessages;
   useChatSelectionSync(loaded?.loadedSubchatIndex ?? (chatInitialized ? 0 : undefined));
   const subchatState = useSubchats(chatId, chatInitialized);
   const subchats = subchatState.subchats;

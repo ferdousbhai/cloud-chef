@@ -8,9 +8,7 @@ export function useChatSelectionSync(loadedSubchatIndex?: number): void {
       return undefined;
     }
     loadedSubchatIndexStore.set(loadedSubchatIndex);
-    if (subchatIndexStore.get() !== loadedSubchatIndex) {
-      subchatIndexStore.set(loadedSubchatIndex);
-    }
+    subchatIndexStore.set(loadedSubchatIndex);
     return () => {
       if (loadedSubchatIndexStore.get() === loadedSubchatIndex) {
         loadedSubchatIndexStore.set(undefined);

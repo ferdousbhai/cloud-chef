@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { userIdStore } from '~/lib/stores/userId';
 import { subchatIndexStore } from '~/lib/stores/subchats';
-import { useInitialMessages } from './useInitialMessages';
+import { useInitialMessagesState } from './useInitialMessages';
 import { description } from '~/lib/stores/description';
 import { queryClient } from '~/lib/stores/reactQueryClient';
 import { TRANSCRIPT_HISTORY_FORMAT_VERSION } from 'cloudchef-agent/transcript';
@@ -68,7 +68,7 @@ describe('useInitialMessages', () => {
     const root = createRoot(container);
 
     function Harness() {
-      const messages = useInitialMessages('project-id');
+      const messages = useInitialMessagesState('project-id').initialMessages;
       const state = messages === undefined ? 'loading' : messages === null ? 'missing' : 'ready';
       useEffect(() => {
         seen.push(state);
@@ -116,7 +116,7 @@ describe('useInitialMessages', () => {
     const root = createRoot(container);
 
     function Harness() {
-      const messages = useInitialMessages('project-id');
+      const messages = useInitialMessagesState('project-id').initialMessages;
       const state =
         messages === undefined ? 'loading' : messages === null ? 'missing' : `ready-${messages.loadedSubchatIndex}`;
       useEffect(() => {
@@ -158,7 +158,7 @@ describe('useInitialMessages', () => {
     const root = createRoot(container);
 
     function Harness() {
-      const messages = useInitialMessages('project-id');
+      const messages = useInitialMessagesState('project-id').initialMessages;
       return <span>{messages ? `ready-${messages.loadedSubchatIndex}` : 'loading'}</span>;
     }
 

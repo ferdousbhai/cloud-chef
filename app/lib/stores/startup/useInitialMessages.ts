@@ -42,24 +42,18 @@ type InitialMessagesState = {
   retry: () => void;
 };
 
-export function useInitialMessages(chatId: string | undefined): InitialMessages | null | undefined {
-  return useInitialMessagesState(chatId).initialMessages;
-}
-
 export function useInitialMessagesState(chatId: string | undefined): InitialMessagesState {
   const userId = useUserIdOrNullOrLoading();
   const subchatIndex = useStore(subchatIndexStore);
   const scope = chatId && userId ? `${userId}:${chatId}` : undefined;
   const [selection, setSelection] = useState<TranscriptSelection>();
-  const activeSelection = selection?.scope === scope ? selection : undefined;
+  // A new scope starts from its latest subchat, until its transcript says which one that is.
+  const scopeStart = useMemo<TranscriptSelection | undefined>(() => (scope ? { scope } : undefined), [scope]);
+  const activeSelection = selection?.scope === scope ? selection : scopeStart;
   const cached = useCachedChatTranscript(
     userId,
     chatId && activeSelection ? transcriptRequest(chatId, activeSelection) : undefined,
   );
-
-  useEffect(() => {
-    setSelection(scope ? { scope } : undefined);
-  }, [scope]);
 
   useEffect(() => {
     const transcript = cached.transcript;
@@ -70,9 +64,7 @@ export function useInitialMessagesState(chatId: string | undefined): InitialMess
       return;
     }
     if (activeSelection.loadedSubchatIndex !== transcript.loadedSubchatIndex) {
-      if (subchatIndexStore.get() !== transcript.loadedSubchatIndex) {
-        subchatIndexStore.set(transcript.loadedSubchatIndex);
-      }
+      subchatIndexStore.set(transcript.loadedSubchatIndex);
       setSelection({
         ...activeSelection,
         loadedSubchatIndex: transcript.loadedSubchatIndex,
