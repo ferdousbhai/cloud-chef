@@ -1,10 +1,9 @@
-const levelOrder = ['trace', 'debug', 'info', 'warn', 'error'] as const;
+const levelOrder = ['debug', 'info', 'warn', 'error'] as const;
 type DebugLevel = (typeof levelOrder)[number];
 
 type LoggerFunction = (...messages: unknown[]) => void;
 
 interface Logger {
-  trace: LoggerFunction;
   debug: LoggerFunction;
   info: LoggerFunction;
   warn: LoggerFunction;
@@ -14,7 +13,6 @@ interface Logger {
 const currentLevel: DebugLevel = 'warn';
 
 export const logger: Logger = {
-  trace: (...messages: unknown[]) => log('trace', undefined, messages),
   debug: (...messages: unknown[]) => log('debug', undefined, messages),
   info: (...messages: unknown[]) => log('info', undefined, messages),
   warn: (...messages: unknown[]) => log('warn', undefined, messages),
@@ -23,7 +21,6 @@ export const logger: Logger = {
 
 export function createScopedLogger(scope: string): Logger {
   return {
-    trace: (...messages: unknown[]) => log('trace', scope, messages),
     debug: (...messages: unknown[]) => log('debug', scope, messages),
     info: (...messages: unknown[]) => log('info', scope, messages),
     warn: (...messages: unknown[]) => log('warn', scope, messages),
@@ -41,8 +38,5 @@ function log(level: DebugLevel, scope: string | undefined, messages: unknown[]) 
     labelText = `${labelText}[${scope}] `;
   }
 
-  const consoleLevel = level === 'trace' ? 'debug' : level;
-  console[consoleLevel](labelText, ...messages);
+  console[level](labelText, ...messages);
 }
-
-export const renderLogger = createScopedLogger('Render');

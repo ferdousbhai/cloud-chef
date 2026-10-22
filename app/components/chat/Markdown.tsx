@@ -1,13 +1,10 @@
 import { memo } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
-import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { markdownRehypePlugins, markdownRemarkPlugins } from '~/utils/markdown';
 import { allowedHTMLElements } from 'cloudchef-agent/allowed-html-elements';
 import { CodeBlock } from './CodeBlock';
 
 import styles from './Markdown.module.css';
-
-const logger = createScopedLogger('MarkdownComponent');
 
 interface MarkdownProps {
   children: string;
@@ -35,8 +32,6 @@ const markdownComponents = {
 } satisfies Components;
 
 export const Markdown = memo(function Markdown({ children }: MarkdownProps) {
-  logger.trace('Render');
-
   return (
     <ReactMarkdown
       allowedElements={allowedHTMLElements}

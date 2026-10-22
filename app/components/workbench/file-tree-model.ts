@@ -1,7 +1,4 @@
 import type { FileMap } from 'cloudchef-agent/types';
-import { createScopedLogger } from 'cloudchef-agent/utils/logger';
-
-const logger = createScopedLogger('FileTreeModel');
 
 const DEFAULT_HIDDEN_FILES = [/\/node_modules\//, /\/\.next/, /\/\.astro/];
 
@@ -74,7 +71,6 @@ export function visibleFileList(nodes: FileTreeNode[], collapsedFolders: Set<str
 }
 
 function sortFileList(rootFolder: string, nodes: FileTreeNode[]): FileTreeNode[] {
-  logger.trace('sortFileList');
   const nodeMap = new Map<string, FileTreeNode>();
   const childrenMap = new Map<string, FileTreeNode[]>();
   nodes.sort(compareNodes);

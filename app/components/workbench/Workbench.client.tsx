@@ -15,7 +15,6 @@ import { Slider, type SliderOption } from '~/components/ui/Slider';
 import type { WorkbenchViewType } from '~/lib/stores/workbench.client';
 import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
-import { renderLogger } from 'cloudchef-agent/utils/logger';
 import { EditorPanel } from './EditorPanel';
 import { Cross2Icon, ReloadIcon } from '@radix-ui/react-icons';
 import { useWorkbenchController } from './useWorkbenchController';
@@ -69,7 +68,6 @@ const workbenchVariants = {
 } satisfies Variants;
 
 export const Workbench = memo(function Workbench({ isStreaming, beforeChatStarted }: WorkbenchProps) {
-  renderLogger.trace('Workbench');
   const showWorkbench = useStore(workbenchStore.showWorkbench);
   const [hasMountedWorkbench, setHasMountedWorkbench] = useState(showWorkbench);
 

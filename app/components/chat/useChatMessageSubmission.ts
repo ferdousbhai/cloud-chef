@@ -68,7 +68,6 @@ export function useChatMessageSubmission(args: {
     }
     const admissionRef = steering ? steeringInProgressRef : turnSubmissionInProgressRef;
     if (admissionRef.current) {
-      logger.debug('Message submission already in progress');
       return false;
     }
     const pending: PendingUserMessage = {

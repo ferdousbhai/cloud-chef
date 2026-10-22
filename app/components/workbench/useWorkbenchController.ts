@@ -82,7 +82,6 @@ export function useWorkbenchController(isStreaming?: boolean) {
     (update) => {
       const updatePath = getAbsolutePath(update.filePath);
       if (update.projectId !== projectId) {
-        logger.debug(`Editor update ignored for stale project, changed: ${update.projectId} current: ${projectId}`);
         return;
       }
       workbenchStore.setDocumentContent(updatePath, update.content);

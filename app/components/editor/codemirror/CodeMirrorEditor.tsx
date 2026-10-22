@@ -2,7 +2,7 @@ import { Compartment, type EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { forwardRef, memo, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import type { EditorDocument } from 'cloudchef-agent/types';
-import { createScopedLogger, renderLogger } from 'cloudchef-agent/utils/logger';
+import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import type { Theme } from '~/lib/stores/theme';
 import { classNames } from '~/utils/classNames';
 import { BinaryContent } from './BinaryContent';
@@ -53,7 +53,6 @@ export const CodeMirrorEditor = memo(
     },
     ref,
   ) {
-    renderLogger.trace('CodeMirrorEditor');
     const [languageCompartment] = useState(() => new Compartment());
     const containerRef = useRef<HTMLDivElement | null>(null);
     const viewRef = useRef<EditorView | null>(null);

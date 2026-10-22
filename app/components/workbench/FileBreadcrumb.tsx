@@ -5,7 +5,6 @@ import type { FileMap } from 'cloudchef-agent/types';
 import { classNames } from '~/utils/classNames';
 import { WORK_DIR } from 'cloudchef-agent/constants';
 import { cubicEasingFn } from '~/utils/easings';
-import { renderLogger } from 'cloudchef-agent/utils/logger';
 import { FileTree } from './FileTree';
 import { FileIcon, ChevronRightIcon } from '@radix-ui/react-icons';
 
@@ -45,8 +44,6 @@ export const FileBreadcrumb = memo<FileBreadcrumbProps>(function FileBreadcrumb(
   pathSegments = [],
   onFileSelect,
 }: FileBreadcrumbProps) {
-  renderLogger.trace('FileBreadcrumb');
-
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   if (files === undefined || pathSegments.length === 0) {

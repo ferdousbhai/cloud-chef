@@ -1,6 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { FileMap } from 'cloudchef-agent/types';
-import { renderLogger } from 'cloudchef-agent/utils/logger';
 import { DEFAULT_COLLAPSED_FOLDERS } from '~/utils/constants';
 import { classNames } from '~/utils/classNames';
 import { FileTreeNode } from './FileTreeNodes';
@@ -29,7 +28,6 @@ export const FileTree = memo(function FileTree({
   unsavedFiles,
   menuItems = false,
 }: Props) {
-  renderLogger.trace('FileTree');
   const fileList = useMemo(() => buildFileList(files, rootFolder), [files, rootFolder]);
   const [collapsedFolders, setCollapsedFolders] = useState(() => initialCollapsedFolders(fileList, collapsed));
 

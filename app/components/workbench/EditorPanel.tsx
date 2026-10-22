@@ -14,7 +14,6 @@ import type { EditorDocument, FileMap } from 'cloudchef-agent/types';
 import { themeStore } from '~/lib/stores/theme';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { WORK_DIR } from 'cloudchef-agent/constants';
-import { renderLogger } from 'cloudchef-agent/utils/logger';
 import { isMobile } from '~/utils/mobile';
 import { FileBreadcrumb } from './FileBreadcrumb';
 import { FileTree } from './FileTree';
@@ -54,7 +53,6 @@ export const EditorPanel = memo(function EditorPanel({
   onFileSave,
   onFileReset,
 }: EditorPanelProps) {
-  renderLogger.trace('EditorPanel');
   const theme = useStore(themeStore);
   const activeFileSegments = editorDocument?.filePath.split('/');
   const activeFileUnsaved = editorDocument !== undefined && unsavedFiles?.has(editorDocument.filePath);
