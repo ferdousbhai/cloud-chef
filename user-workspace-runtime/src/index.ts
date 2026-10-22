@@ -1922,7 +1922,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     this.requireCompletedComputerSync();
     const input = record(value);
     const sessionId = requireString(input.sessionId, 'sessionId', 256);
-    const operationId = requireString(input.operationId, 'operationId', 256);
     const revision = requireString(input.revision, 'revision', 64);
     const deploymentId = requireString(input.deploymentId, 'deploymentId', 128);
     const executionGeneration = requireInteger(
@@ -1931,9 +1930,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       Number.MAX_SAFE_INTEGER,
     );
     const session = this.requireActiveDeploymentSession(sessionId);
-    if (session.operation_id !== operationId || sessionId !== operationId) {
-      throw new Error('The deployment activity identity does not match its active deployment session.');
-    }
     if (revision !== session.expected_snapshot_revision) {
       throw new Error('The deployment artifact revision does not match its active deployment session.');
     }

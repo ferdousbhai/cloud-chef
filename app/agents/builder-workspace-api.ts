@@ -131,8 +131,8 @@ export type WorkspaceDeploymentSessionRequest = {
 };
 
 export type WorkspaceDeploymentArtifactRequest = {
+  /** The deployment session's id, which is the operation id it began with. */
   sessionId: string;
-  operationId: string;
   revision: string;
   deploymentId: string;
   executionGeneration: number;
