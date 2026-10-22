@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { waitForUserWorkspaceRuntimeReadiness } from '../../app/lib/.server/cloudflare/user-workspace-runtime-readiness';
 import {
   changeUserWorkspaceRuntimeUpgradeWindow,
@@ -16,6 +16,10 @@ import { routeUserWorkspaceRuntimeControlPlaneRequest } from './readiness-route'
 const runtimeVersion = 'a'.repeat(64);
 const controlPlaneSecret = 's'.repeat(32);
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('user workspace runtime control-plane readiness route', () => {
   it('accepts the provisioner raw secret and proves the ProjectWorkspace runtime end to end', async () => {
     const runReadinessProbe = vi.fn(async () => undefined);
@@ -26,13 +30,13 @@ describe('user workspace runtime control-plane readiness route', () => {
       const response = await routeUserWorkspaceRuntimeControlPlaneRequest(new Request(input, init), env as never);
       return response ?? new Response(null, { status: 404 });
     });
+    vi.stubGlobal('fetch', request);
 
     await expect(
       waitForUserWorkspaceRuntimeReadiness({
         endpoint: 'https://workspace-runtime.example',
         controlPlaneSecret,
         runtimeVersion,
-        request,
       }),
     ).resolves.toBeUndefined();
 
@@ -74,7 +78,7 @@ describe('user workspace runtime upgrade window route', () => {
 
   it('grants the window to the control plane while nothing runs, and refuses it while a turn does', async () => {
     const { db } = userWorkspaceDatabase();
-    const request = routedFetch(upgradeWindowEnv(db), () => 1_000_000);
+    stubRoutedFetch(upgradeWindowEnv(db), () => 1_000_000);
 
     await expect(
       claimUserWorkspaceRuntimeUpgradeWindow({
@@ -82,7 +86,6 @@ describe('user workspace runtime upgrade window route', () => {
         controlPlaneSecret,
         targetVersion,
         holder,
-        request,
       }),
     ).resolves.toEqual({ status: 'granted' });
 
@@ -93,7 +96,6 @@ describe('user workspace runtime upgrade window route', () => {
         controlPlaneSecret,
         targetVersion,
         holder: 'workspace-later-upgrade',
-        request,
       }),
     ).resolves.toEqual({ status: 'busy', busy: 1 });
   });
@@ -101,8 +103,8 @@ describe('user workspace runtime upgrade window route', () => {
   it('holds the claimed window while work waits on it, and releases it once the upgrade serves', async () => {
     const { db } = userWorkspaceDatabase();
     let now = 1_000_000;
-    const request = routedFetch(upgradeWindowEnv(db), () => now);
-    const args = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, holder, request };
+    stubRoutedFetch(upgradeWindowEnv(db), () => now);
+    const args = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, holder };
     await claimUserWorkspaceRuntimeUpgradeWindow(args);
     await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now });
 
@@ -117,8 +119,8 @@ describe('user workspace runtime upgrade window route', () => {
   it('refuses to open a lapsed window again over work that started meanwhile, which the upgrade waits for', async () => {
     const { db } = userWorkspaceDatabase();
     let now = 1_000_000;
-    const request = routedFetch(upgradeWindowEnv(db), () => now);
-    const args = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, holder, request };
+    stubRoutedFetch(upgradeWindowEnv(db), () => now);
+    const args = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, holder };
     await claimUserWorkspaceRuntimeUpgradeWindow(args);
 
     now += RUNTIME_UPGRADE_WINDOW_MS + 1_000;
@@ -174,7 +176,7 @@ describe('user workspace runtime upgrade window route', () => {
 
   it('fails, never redeploying unasked, when a runtime with the window refuses the secret', async () => {
     const { db } = userWorkspaceDatabase();
-    const request = routedFetch(upgradeWindowEnv(db), () => 1_000_000);
+    stubRoutedFetch(upgradeWindowEnv(db), () => 1_000_000);
 
     await expect(
       claimUserWorkspaceRuntimeUpgradeWindow({
@@ -182,15 +184,14 @@ describe('user workspace runtime upgrade window route', () => {
         controlPlaneSecret: 'x'.repeat(32),
         targetVersion,
         holder,
-        request,
       }),
     ).rejects.toThrow('refused the control plane secret');
   });
 
   it("keeps one upgrade's window from another, named by the holder each sends", async () => {
     const { db } = userWorkspaceDatabase();
-    const request = routedFetch(upgradeWindowEnv(db), () => 1_000_000);
-    const base = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, holder, request };
+    stubRoutedFetch(upgradeWindowEnv(db), () => 1_000_000);
+    const base = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, holder };
     await expect(claimUserWorkspaceRuntimeUpgradeWindow({ ...base, holder: 'workspace-first' })).resolves.toEqual({
       status: 'granted',
     });
@@ -239,6 +240,7 @@ describe('user workspace runtime upgrade window route', () => {
 
   it('fails rather than guess when the runtime cannot read its activity', async () => {
     const request = vi.fn<typeof fetch>(async () => Response.json({ error: 'unavailable' }, { status: 503 }));
+    vi.stubGlobal('fetch', request);
 
     await expect(
       claimUserWorkspaceRuntimeUpgradeWindow({
@@ -246,7 +248,6 @@ describe('user workspace runtime upgrade window route', () => {
         controlPlaneSecret,
         targetVersion,
         holder,
-        request,
       }),
     ).rejects.toThrow('HTTP 503');
   });
@@ -270,8 +271,9 @@ function upgradeWindowEnv(db: D1Database): ControlPlaneRouteEnv {
   };
 }
 
-function routedFetch(env: ControlPlaneRouteEnv, now: () => number) {
-  return vi.fn<typeof fetch>(async (input, init) => {
+/** Route every fetch to the runtime's control-plane routes, as the runtime Worker would serve them. */
+function stubRoutedFetch(env: ControlPlaneRouteEnv, now: () => number): void {
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await routeUserWorkspaceRuntimeControlPlaneRequest(new Request(input, init), env, now);
     return response ?? new Response(null, { status: 404 });
   });

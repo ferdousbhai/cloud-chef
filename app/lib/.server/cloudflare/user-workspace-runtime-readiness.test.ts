@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { waitForUserWorkspaceRuntimeReadiness } from './user-workspace-runtime-readiness';
 
 const runtimeVersion = 'a'.repeat(64);
 const controlPlaneSecret = 's'.repeat(32);
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('user workspace runtime readiness', () => {
   it('accepts the exact healthy runtime', async () => {
@@ -13,13 +17,13 @@ describe('user workspace runtime readiness', () => {
         runtimeVersion,
       }),
     );
+    vi.stubGlobal('fetch', request);
 
     await expect(
       waitForUserWorkspaceRuntimeReadiness({
         endpoint: 'https://workspace-runtime.example',
         controlPlaneSecret,
         runtimeVersion,
-        request,
       }),
     ).resolves.toBeUndefined();
 
@@ -31,13 +35,13 @@ describe('user workspace runtime readiness', () => {
 
   it('leaves retries to the durable Workflow step', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 503 }));
+    vi.stubGlobal('fetch', request);
 
     await expect(
       waitForUserWorkspaceRuntimeReadiness({
         endpoint: 'https://workspace-runtime.example',
         controlPlaneSecret,
         runtimeVersion,
-        request,
       }),
     ).rejects.toThrow('HTTP 503');
 
@@ -52,13 +56,13 @@ describe('user workspace runtime readiness', () => {
         runtimeVersion: 'b'.repeat(64),
       }),
     );
+    vi.stubGlobal('fetch', request);
 
     await expect(
       waitForUserWorkspaceRuntimeReadiness({
         endpoint: 'https://workspace-runtime.example',
         controlPlaneSecret,
         runtimeVersion,
-        request,
       }),
     ).rejects.toThrow('invalid health response');
   });

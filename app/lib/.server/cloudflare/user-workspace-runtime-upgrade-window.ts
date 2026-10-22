@@ -32,9 +32,8 @@ export async function claimUserWorkspaceRuntimeUpgradeWindow(args: {
   targetVersion: string;
   /** The upgrade's Workflow instance. */
   holder: string;
-  request?: typeof fetch;
 }): Promise<UserWorkspaceRuntimeUpgradeWindow> {
-  const response = await (args.request ?? fetch)(new URL('/v1/upgrade-window', args.endpoint), {
+  const response = await fetch(new URL('/v1/upgrade-window', args.endpoint), {
     method: 'POST',
     headers: upgradeWindowHeaders(args.controlPlaneSecret, args.holder),
     body: JSON.stringify({ targetVersion: args.targetVersion }),
@@ -92,9 +91,8 @@ export async function changeUserWorkspaceRuntimeUpgradeWindow(args: {
   targetVersion: string;
   /** The upgrade's Workflow instance, the one that claimed the window. */
   holder: string;
-  request?: typeof fetch;
 }): Promise<void> {
-  const response = await (args.request ?? fetch)(new URL('/v1/upgrade-window', args.endpoint), {
+  const response = await fetch(new URL('/v1/upgrade-window', args.endpoint), {
     method: args.change === 'hold' ? 'PUT' : 'DELETE',
     headers: upgradeWindowHeaders(args.controlPlaneSecret, args.holder),
     body: JSON.stringify({ targetVersion: args.targetVersion }),

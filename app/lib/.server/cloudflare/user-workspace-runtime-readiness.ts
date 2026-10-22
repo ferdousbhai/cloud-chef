@@ -16,9 +16,8 @@ export async function waitForUserWorkspaceRuntimeReadiness(args: {
   endpoint: string;
   controlPlaneSecret: string;
   runtimeVersion: string;
-  request?: typeof fetch;
 }): Promise<void> {
-  const response = await (args.request ?? fetch)(new URL('/v1/readiness', args.endpoint), {
+  const response = await fetch(new URL('/v1/readiness', args.endpoint), {
     headers: { authorization: `Bearer ${args.controlPlaneSecret}` },
     signal: AbortSignal.timeout(8 * 60_000),
   });

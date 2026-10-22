@@ -512,7 +512,6 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         endpoint,
         controlPlaneSecret,
         runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
-        request: fetch,
       });
     });
     if (windowed) {
