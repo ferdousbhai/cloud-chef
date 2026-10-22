@@ -2708,10 +2708,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     });
   }
 
-  private failDeployment(job: DeploymentJob, error: unknown): BuilderDeploymentState {
-    const deployment = { status: 'failed' as const, ...job, error: deploymentErrorMessage(error) };
-    this.setDeploymentResult(job, deployment);
-    return deployment;
+  private failDeployment(job: DeploymentJob, error: unknown): void {
+    this.setDeploymentResult(job, { status: 'failed', ...job, error: deploymentErrorMessage(error) });
   }
 
   private setDeploymentResult(job: DeploymentJob, deployment: BuilderDeploymentState | null): void {
