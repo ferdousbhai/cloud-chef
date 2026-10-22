@@ -65,7 +65,6 @@ import {
 } from '../../cloudchef-agent/tool-result';
 import { rejectedWorkspaceCommand } from '../../cloudchef-agent/workspace-boundary';
 import { applyAtomicWorkspaceChanges, type AtomicWorkspaceChange } from './atomic-workspace-changes';
-import { ComputerAdmissionControl } from './computer-admission';
 import { isComputerContainerCallback } from './container-fetch-routing';
 import { CONTAINER_PNPM_STORE_DIR } from './container-toolchain';
 import { matchDeploymentRoute } from './deployment-route';
@@ -313,7 +312,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   readonly #toolOperations: ToolOperationJournal;
   readonly #operationLane: WorkspaceOperationLane;
   readonly #syncRetries: DurableWorkspaceSyncRetryScheduler;
-  readonly #admission: ComputerAdmissionControl;
   readonly #activeOperationOwners = new Set<string>();
   #activeValidation: ActiveValidation | null = null;
   /**
@@ -351,7 +349,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         .reconcile()
         .catch((error) => console.error('Unable to reconcile persisted Computer sync retries', error)),
     );
-    this.#admission = new ComputerAdmissionControl(env.DB);
     this.#workspace = new Workspace(this.createComputerWorkspaceOptions(this.#syncRetries));
     this.#toolOperations = new ToolOperationJournal(ctx.storage);
     this.#toolOperations.initialize();
@@ -594,7 +591,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   async beginToolOperation(value: unknown): Promise<ToolOperationStartResult | { status: 'reattach' }> {
-    await this.#admission.admitNewOperation();
     this.requireCompletedComputerSync();
     const input = record(value);
     const toolCallId = requireString(input.toolCallId, 'toolCallId', 512);
@@ -727,7 +723,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   async beginSeed(seedIdValue: unknown) {
-    await this.#admission.admitNewOperation();
     const seedId = requireString(seedIdValue, 'seedId', 256);
     return this.withStatefulOperation('seed', `seed:begin:${seedId}`, async () => {
       const row = this.workspaceRow();
@@ -1394,7 +1389,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   async installDependenciesTool(value: unknown): Promise<CloudChefToolResult> {
-    await this.#admission.admitNewOperation();
     const input = record(value);
     const toolCallId = requireString(input.toolCallId, 'toolCallId', 512);
     const mode = input.mode === 'sync-lockfile' ? 'sync-lockfile' : input.mode === 'add' ? 'add' : null;
@@ -1511,8 +1505,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       }
       throw new Error('ProjectWorkspace validation is already running.');
     }
-    // Joining the validation already running starts nothing; a new one is new Container work.
-    await this.#admission.admitNewOperation();
     const cancellation = new ValidationCancellation();
     const validation = this.runValidationTool(toolCallId, input.input, cancellation, reportStage);
     const activeRecord = { toolCallId, inputJson, cancellation, promise: validation };
@@ -1824,8 +1816,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       return;
     }
 
-    // A session already open finishes; the switch stops a new one before its build and upload.
-    await this.#admission.admitNewOperation();
     const lease = this.#operationLane.acquire({
       owner,
       idempotencyKey,
