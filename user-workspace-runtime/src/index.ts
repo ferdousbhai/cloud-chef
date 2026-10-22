@@ -48,6 +48,7 @@ import {
   WORKER_MAIN_MODULE,
 } from '../../app/lib/.server/cloudflare/deployment-artifact';
 import { addRequestedDependencies } from '../../app/lib/runtime/action-runner/dependency-manifest';
+import { stableJson } from '../../app/lib/stable-json';
 import { userRuntimeDataAction, userRuntimeInitialMessagesAction } from '../../app/lib/cloudflare/data.server';
 import { verifyRuntimeCapability } from '../../app/lib/cloudflare/runtime-capability';
 import { userRuntimeDeploymentAction } from '../../app/server-handlers/deployments';
@@ -1495,7 +1496,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     const input = record(value);
     const toolCallId = requireString(input.toolCallId, 'toolCallId', 512);
     const reportStage = validationStageReporter(onStage);
-    const inputJson = JSON.stringify(stableValue(input.input)) ?? 'null';
+    const inputJson = stableJson(input.input) ?? 'null';
     if (this.#activeValidation) {
       if (this.#activeValidation.toolCallId === toolCallId) {
         if (this.#activeValidation.inputJson !== inputJson) {
@@ -2628,7 +2629,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       }
       throw error;
     }
-    const argsJson = JSON.stringify(stableValue(args)) ?? 'null';
+    const argsJson = stableJson(args) ?? 'null';
     const started = this.#toolOperations.begin({
       toolCallId,
       toolName,
@@ -3752,20 +3753,6 @@ function validationStageReporter(onStage?: WorkspaceValidationStageReporter): (s
       // A disconnected caller is not a validation failure.
     }
   };
-}
-
-function stableValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(stableValue);
-  }
-  if (isRecord(value)) {
-    return Object.fromEntries(
-      Object.keys(value)
-        .sort()
-        .map((key) => [key, stableValue(value[key])]),
-    );
-  }
-  return value;
 }
 
 function requireString(value: unknown, name: string, maxLength: number): string {

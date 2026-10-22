@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { readJsonBodyWithLimit } from '../../app/lib/bounded-body';
+import { constantTimeEqual } from '../../app/lib/constant-time-equal';
 import {
   claimRuntimeUpgradeWindow,
   holdRuntimeUpgradeWindow,
@@ -109,17 +110,10 @@ function noStoreHeaders(): HeadersInit {
 }
 
 function authorized(request: Request, expected: string): boolean {
-  const supplied = request.headers.get('authorization')?.slice('Bearer '.length) ?? '';
-  if (
-    !request.headers.get('authorization')?.startsWith('Bearer ') ||
-    expected.length < 32 ||
-    supplied.length !== expected.length
-  ) {
-    return false;
-  }
-  let mismatch = 0;
-  for (let index = 0; index < supplied.length; index += 1) {
-    mismatch |= supplied.charCodeAt(index) ^ expected.charCodeAt(index);
-  }
-  return mismatch === 0;
+  const authorization = request.headers.get('authorization');
+  return (
+    authorization?.startsWith('Bearer ') === true &&
+    expected.length >= 32 &&
+    constantTimeEqual(authorization.slice('Bearer '.length), expected)
+  );
 }
