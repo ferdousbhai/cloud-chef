@@ -21,7 +21,7 @@ export type ModelToolResultPart = {
 export type ModelMessage =
   | { role: 'user' | 'system'; content: string }
   | { role: 'assistant'; content: (ModelTextPart | ModelToolCallPart)[] }
-  | { role: 'tool'; content: ModelToolResultPart[] };
+  | { role: 'tool'; content: [ModelToolResultPart] };
 
 /** Convert the authoritative UI transcript into the text/tool protocol consumed by Pi. */
 export function cleanupAssistantMessages(messages: CloudChefMessage[]): ModelMessage[] {
@@ -104,7 +104,5 @@ function isTerminalToolState(state: string): boolean {
 }
 
 function stripHiddenReasoning(message: string): string {
-  return message
-    .replace(/<div\s+class=["']__cloudchefThought__["'][^>]*>[\s\S]*?<\/div>/gi, '')
-    .replace(/<think(?:\s[^>]*)?>[\s\S]*?<\/think>/gi, '');
+  return message.replace(/<think(?:\s[^>]*)?>[\s\S]*?<\/think>/gi, '');
 }

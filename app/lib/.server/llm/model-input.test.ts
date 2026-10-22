@@ -59,7 +59,6 @@ describe('prepareModelInput', () => {
     const scheduleCompaction = vi.fn(async () => undefined);
 
     const result = await prepare(largeHistory(18), { scheduleCompaction });
-    expect(result.compactionAction).toBe('background');
     expect(scheduleCompaction).toHaveBeenCalledOnce();
     expect(result.nextCompaction).toBeNull();
   });
@@ -71,7 +70,7 @@ describe('prepareModelInput', () => {
       scheduleCompaction,
     });
 
-    expect(result.compactionAction).toBe('none');
+    expect(result.nextCompaction).toBeNull();
     expect(scheduleCompaction).not.toHaveBeenCalled();
   });
 

@@ -98,7 +98,7 @@ describe('cleanupAssistantMessages', () => {
         parts: [
           {
             type: 'text',
-            text: '<think>private one</think>Visible<div class="__cloudchefThought__">private two</div> answer',
+            text: '<think>private one</think>Visible<think>private two</think> answer',
           },
         ],
       },

@@ -44,10 +44,7 @@ function toPiMessage(message: ModelMessage): Message {
   }
 
   if (message.role === 'tool') {
-    const result = message.content.find((part) => part.type === 'tool-result');
-    if (!result) {
-      return userMessage(JSON.stringify(message.content));
-    }
+    const [result] = message.content;
     return toPiToolResult(result.toolCallId, result.toolName, result.output);
   }
 

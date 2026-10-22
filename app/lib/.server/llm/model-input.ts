@@ -1,4 +1,4 @@
-import { decideConversationCompaction, type ConversationCompactionAction } from '~/lib/compaction';
+import { decideConversationCompaction } from '~/lib/compaction';
 import type { ModelMessage } from './message-conversion';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
@@ -25,7 +25,6 @@ type PreparedModelInput = {
   estimatedTokens: number;
   contextCompacted: boolean;
   nextCompaction: ContextCompaction | null;
-  compactionAction: ConversationCompactionAction;
 };
 
 /**
@@ -85,7 +84,7 @@ export async function prepareModelInput(args: {
 }): Promise<PreparedModelInput> {
   let assembled = assembleCompactedContext(args.messages, args.currentCompaction);
   let promptMessages = injectTurnContext(assembled.messages, args.turnContext);
-  let modelInput = await assembleModelInput(promptMessages, args);
+  let modelInput = assembleModelInput(promptMessages, args);
   const policy = modelCompactionPolicy(args.contextWindow);
   const compactionAction = decideConversationCompaction({
     estimatedTokens: modelInput.estimatedTokens,
@@ -102,7 +101,6 @@ export async function prepareModelInput(args: {
       promptMessages,
       contextCompacted: assembled.overlayApplied,
       nextCompaction: null,
-      compactionAction,
     };
   }
 
@@ -125,7 +123,7 @@ export async function prepareModelInput(args: {
   const messagesBefore = assembled.messages.length;
   assembled = assembleCompactedContext(args.messages, nextCompaction);
   promptMessages = injectTurnContext(assembled.messages, args.turnContext);
-  modelInput = await assembleModelInput(promptMessages, args);
+  modelInput = assembleModelInput(promptMessages, args);
   if (modelInput.estimatedTokens >= policy.hardLimitTokens) {
     throw new ModelInputBudgetExceededError(modelInput.estimatedTokens, policy.hardLimitTokens);
   }
@@ -142,14 +140,13 @@ export async function prepareModelInput(args: {
     promptMessages,
     contextCompacted: true,
     nextCompaction,
-    compactionAction,
   };
 }
 
-async function assembleModelInput(
+function assembleModelInput(
   uiMessages: CloudChefMessage[],
   args: Pick<Parameters<typeof prepareModelInput>[0], 'systemPrompt' | 'tools'>,
-): Promise<{ messages: ModelMessage[]; estimatedTokens: number }> {
+): { messages: ModelMessage[]; estimatedTokens: number } {
   const messages = cleanupAssistantMessages(uiMessages);
   const estimatedTokens = estimateTextTokens(
     JSON.stringify({

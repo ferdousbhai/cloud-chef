@@ -1,4 +1,4 @@
-export type ConversationCompactionAction = 'none' | 'background' | 'blocking';
+type ConversationCompactionAction = 'none' | 'background' | 'blocking';
 
 type ConversationCompactionPolicy = Readonly<{
   proactiveTokens: number;
