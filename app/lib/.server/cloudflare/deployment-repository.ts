@@ -1,6 +1,5 @@
-import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
 import { parseWorkspaceReference } from './workspace-reference';
-import { parseDeploymentPlanJson, type DeploymentPlan, type DeploymentResourceNaming } from './deployment-plan';
+import { parseDeploymentPlanJson, type DeploymentPlan } from './deployment-plan';
 
 export type DeploymentStatus = 'approved' | 'provisioning' | 'deploying' | 'succeeded' | 'failed';
 
@@ -274,21 +273,6 @@ export async function claimApprovedDeployment(args: {
     throw new DeploymentStateConflictError(committed.deployment.status);
   }
   return { ...expected, status: 'provisioning', updatedAt: now };
-}
-
-/**
- * How the project's plans name its account resources: after the project's own identity, so every
- * revision deploys onto the same ones.
- */
-export async function projectResourceNaming(
-  _db: D1Database,
-  deployment: Pick<Deployment, 'userId' | 'chatId' | 'workspaceReference'>,
-): Promise<DeploymentResourceNaming> {
-  const reference = parseWorkspaceReference(deployment.workspaceReference);
-  if (!reference) {
-    throw new Error('The deployment does not belong to a CloudChef project.');
-  }
-  return { identity: await appResourceIdentity(reference.projectId) };
 }
 
 /** A deployment holding its project's one deployment slot, and the revision it publishes. */

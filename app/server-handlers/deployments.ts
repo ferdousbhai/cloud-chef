@@ -9,10 +9,10 @@ import {
   DeploymentStateConflictError,
   listDeploymentActivity,
   prepareDeploymentRetry,
-  projectResourceNaming,
   requireDeploymentForUser,
   type Deployment,
 } from '~/lib/.server/cloudflare/deployment-repository';
+import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
 import { findChat } from '~/lib/cloudflare/data/chat-repository.server';
 import {
   executeUserOwnedDeployment,
@@ -62,11 +62,7 @@ export async function createOrReplayDeploymentPlanForUser(args: {
     sourceSha256: args.revision,
     project: args.project,
     // The revision deploys onto the project's resources, not resources of its own.
-    naming: await projectResourceNaming(args.env.DB, {
-      userId: args.userId,
-      chatId: chat.id,
-      workspaceReference: reference,
-    }),
+    naming: { identity: await appResourceIdentity(args.projectId) },
   });
   if (existing) {
     const current =

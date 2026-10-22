@@ -10,13 +10,11 @@ import {
   latestDeploymentActivity,
   listDeploymentActivity,
   prepareDeploymentRetry,
-  projectResourceNaming,
   recordDeploymentActivity,
   requireDeploymentForUser,
   transitionDeployment,
   type Deployment,
 } from './deployment-repository';
-import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
 import { type DeploymentPlan } from './deployment-plan';
 
 const sourceSha256 = 'a'.repeat(64);
@@ -425,24 +423,6 @@ describe('deployment repository', () => {
       errorCode: null,
       errorMessage: null,
     });
-  });
-});
-
-describe('project resource naming', () => {
-  it('names every revision of a project after the project alone', async () => {
-    await expect(
-      projectResourceNaming(db, {
-        userId: 'user-1',
-        chatId: 'chat-1',
-        workspaceReference: `workspace-runtime:project:9:${sourceSha256}`,
-      }),
-    ).resolves.toEqual({ identity: await appResourceIdentity('project') });
-  });
-
-  it('refuses a reference that is not a CloudChef project’s', async () => {
-    await expect(
-      projectResourceNaming(db, { userId: 'user-1', chatId: 'chat-1', workspaceReference: 'github:ada/site' }),
-    ).rejects.toThrow('does not belong to a CloudChef project');
   });
 });
 
