@@ -1,5 +1,5 @@
 {
-  "total": 1134,
+  "total": 1132,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -489,9 +489,6 @@
     },
     "cloudchef-agent/utils/stripIndent.ts": {
       "anti-slop/no-runtime-typeof": 1
-    },
-    "e2e/launch-critical-journey.spec.ts": {
-      "anti-slop/require-safety-comment-for-type-assertion": 2
     },
     "playwright.config.ts": {
       "anti-slop/no-conditional-empty-object-spread": 1

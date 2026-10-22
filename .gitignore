@@ -13,7 +13,6 @@ dist-ssr
 *.tsbuildinfo
 playwright-report/
 test-results/
-/playwright/.auth/
 .tanstack
 cloudchef-system-prompts.txt
 *.local

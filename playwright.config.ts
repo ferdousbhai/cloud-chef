@@ -36,19 +36,11 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: /launch-critical-journey\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'mobile-chromium',
-      testIgnore: /launch-critical-journey\.spec\.ts/,
       use: { ...devices['Pixel 7'] },
-    },
-    {
-      name: 'launch-critical-chromium',
-      testMatch: /launch-critical-journey\.spec\.ts/,
-      // This journey creates billable resources and intentionally has no automatic cleanup yet.
-      use: { ...devices['Desktop Chrome'] },
     },
   ],
 });

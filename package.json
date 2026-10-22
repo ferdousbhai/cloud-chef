@@ -36,7 +36,6 @@
     "test:workerd": "vitest run --config vitest.workerd.config.ts",
     "test:builder-agent": "vitest run --config vitest.builder-agent.config.ts",
     "test:e2e:install": "playwright install --with-deps chromium",
-    "test:e2e:critical": "playwright test e2e/launch-critical-journey.spec.ts --project=launch-critical-chromium --reporter=line",
     "test:watch": "vitest",
     "lint:code": "eslint --cache --cache-location ./node_modules/.cache/eslint app cloudchef-agent scripts make-bootstrap-snapshot.js",
     "lint": "pnpm run lint:code && pnpm run lint:format && pnpm run lint:oxlint",
