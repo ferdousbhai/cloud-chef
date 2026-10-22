@@ -431,65 +431,62 @@ async function readComputerRuntimes(
   db: D1Database,
   userId: string,
 ): Promise<BoundedList<{ computerRuntimes: ExportedComputerRuntime[] }>> {
-  const rows = await db
-    .prepare(
-      `SELECT connection_id, connection_generation, worker_name, endpoint, runtime_version, image_digest,
+  const { items: computerRuntimes, ...bounds } = await readBoundedList(
+    db,
+    userId,
+    `SELECT connection_id, connection_generation, worker_name, endpoint, runtime_version, image_digest,
               protocol_version, status, last_error, last_session_at, created_at, updated_at,
               COUNT(*) OVER () AS total_rows
        FROM user_computer_runtimes WHERE user_id = ?
        ORDER BY created_at DESC LIMIT ?`,
-    )
-    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
-    .all<ComputerRuntimeRow & { total_rows: number }>();
-  const computerRuntimes = rows.results.map((row) => ({
-    connectionId: row.connection_id,
-    connectionGeneration: row.connection_generation,
-    workerName: row.worker_name,
-    endpoint: row.endpoint,
-    runtimeVersion: row.runtime_version,
-    imageDigest: row.image_digest,
-    protocolVersion: row.protocol_version,
-    status: row.status,
-    lastError: row.last_error,
-    lastSessionAt: optionalIsoTimestamp(row.last_session_at),
-    createdAt: isoTimestamp(row.created_at),
-    updatedAt: isoTimestamp(row.updated_at),
-  }));
-  return { computerRuntimes, ...boundsOf(rows.results, computerRuntimes.length) };
+    (row: ComputerRuntimeRow) => ({
+      connectionId: row.connection_id,
+      connectionGeneration: row.connection_generation,
+      workerName: row.worker_name,
+      endpoint: row.endpoint,
+      runtimeVersion: row.runtime_version,
+      imageDigest: row.image_digest,
+      protocolVersion: row.protocol_version,
+      status: row.status,
+      lastError: row.last_error,
+      lastSessionAt: optionalIsoTimestamp(row.last_session_at),
+      createdAt: isoTimestamp(row.created_at),
+      updatedAt: isoTimestamp(row.updated_at),
+    }),
+  );
+  return { computerRuntimes, ...bounds };
 }
 
 async function readMemberships(
   db: D1Database,
   userId: string,
 ): Promise<BoundedList<{ memberships: ExportedMembership[] }>> {
-  const rows = await db
-    .prepare(
-      `SELECT members.org_id, organizations.name, members.role, members.joined_at, members.paused_at,
+  const { items: memberships, ...bounds } = await readBoundedList(
+    db,
+    userId,
+    `SELECT members.org_id, organizations.name, members.role, members.joined_at, members.paused_at,
               members.drafts_allowed, COUNT(*) OVER () AS total_rows
        FROM organization_members AS members
        JOIN organizations ON organizations.id = members.org_id
        WHERE members.user_id = ?
        ORDER BY members.joined_at LIMIT ?`,
-    )
-    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
-    .all<{
+    (row: {
       org_id: string;
       name: string;
       role: string;
       joined_at: number;
       paused_at: number | null;
       drafts_allowed: number;
-      total_rows: number;
-    }>();
-  const memberships = rows.results.map((row) => ({
-    organizationId: row.org_id,
-    organizationName: row.name,
-    role: row.role,
-    joinedAt: isoTimestamp(row.joined_at),
-    pausedAt: optionalIsoTimestamp(row.paused_at),
-    draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
-  }));
-  return { memberships, ...boundsOf(rows.results, memberships.length) };
+    }) => ({
+      organizationId: row.org_id,
+      organizationName: row.name,
+      role: row.role,
+      joinedAt: isoTimestamp(row.joined_at),
+      pausedAt: optionalIsoTimestamp(row.paused_at),
+      draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
+    }),
+  );
+  return { memberships, ...bounds };
 }
 
 type AuthSessionRow = {
@@ -497,30 +494,28 @@ type AuthSessionRow = {
   created_at: number;
   updated_at: number;
   expires_at: number;
-  total_rows: number;
 };
 
 async function readAuthSessions(
   db: D1Database,
   userId: string,
 ): Promise<BoundedList<{ sessions: ExportedAuthSession[] }>> {
-  const rows = await db
-    .prepare(
-      `SELECT id, created_at, updated_at, expires_at, COUNT(*) OVER () AS total_rows
-       FROM cloudflare_auth_sessions WHERE user_id = ?
-       ORDER BY created_at DESC LIMIT ?`,
-    )
-    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
-    .all<AuthSessionRow>();
   // The token hash authenticates a live session, so only the record of the
   // session's existence and lifetime is exported.
-  const sessions = rows.results.map((row) => ({
-    id: row.id,
-    createdAt: isoTimestamp(row.created_at),
-    updatedAt: isoTimestamp(row.updated_at),
-    expiresAt: isoTimestamp(row.expires_at),
-  }));
-  return { sessions, ...boundsOf(rows.results, sessions.length) };
+  const { items: sessions, ...bounds } = await readBoundedList(
+    db,
+    userId,
+    `SELECT id, created_at, updated_at, expires_at, COUNT(*) OVER () AS total_rows
+       FROM cloudflare_auth_sessions WHERE user_id = ?
+       ORDER BY created_at DESC LIMIT ?`,
+    (row: AuthSessionRow) => ({
+      id: row.id,
+      createdAt: isoTimestamp(row.created_at),
+      updatedAt: isoTimestamp(row.updated_at),
+      expiresAt: isoTimestamp(row.expires_at),
+    }),
+  );
+  return { sessions, ...bounds };
 }
 
 type OAuthStateRow = {
@@ -529,34 +524,34 @@ type OAuthStateRow = {
   expires_at: number;
   created_at: number;
   updated_at: number;
-  total_rows: number;
 };
 
 async function readOAuthStates(db: D1Database, userId: string): Promise<BoundedList<{ states: ExportedOAuthState[] }>> {
-  const rows = await db
-    .prepare(
-      `SELECT status, return_to, expires_at, created_at, updated_at, COUNT(*) OVER () AS total_rows
-       FROM cloudflare_oauth_states WHERE authenticated_user_id = ?1 OR linking_user_id = ?1
-       ORDER BY created_at DESC LIMIT ?2`,
-    )
-    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
-    .all<OAuthStateRow>();
   // The state id is what Cloudflare's return is checked against, and the provider session identifier
   // the handle its authorization flow is resumed with, so only the local record of the attempt is exported.
-  const states = rows.results.map((row) => ({
-    status: row.status,
-    returnTo: row.return_to,
-    expiresAt: isoTimestamp(row.expires_at),
-    createdAt: isoTimestamp(row.created_at),
-    updatedAt: isoTimestamp(row.updated_at),
-  }));
-  return { states, ...boundsOf(rows.results, states.length) };
+  const { items: states, ...bounds } = await readBoundedList(
+    db,
+    userId,
+    `SELECT status, return_to, expires_at, created_at, updated_at, COUNT(*) OVER () AS total_rows
+       FROM cloudflare_oauth_states WHERE authenticated_user_id = ?1 OR linking_user_id = ?1
+       ORDER BY created_at DESC LIMIT ?2`,
+    (row: OAuthStateRow) => ({
+      status: row.status,
+      returnTo: row.return_to,
+      expiresAt: isoTimestamp(row.expires_at),
+      createdAt: isoTimestamp(row.created_at),
+      updatedAt: isoTimestamp(row.updated_at),
+    }),
+  );
+  return { states, ...bounds };
 }
 
 async function readInvites(db: D1Database, userId: string): Promise<BoundedList<{ invites: ExportedInvite[] }>> {
-  const rows = await db
-    .prepare(
-      `SELECT organizations.name, invites.role, invites.created_at, invites.expires_at, invites.accepted_at,
+  // The invite token's hash authenticates acceptance, so only the record of the invite is exported.
+  const { items: invites, ...bounds } = await readBoundedList(
+    db,
+    userId,
+    `SELECT organizations.name, invites.role, invites.created_at, invites.expires_at, invites.accepted_at,
               invites.project_ids, invites.drafts_allowed, COUNT(*) OVER () AS total_rows
        FROM organization_invites AS invites
        JOIN organizations ON organizations.id = invites.org_id
@@ -564,9 +559,7 @@ async function readInvites(db: D1Database, userId: string): Promise<BoundedList<
        -- who holds it, and the invites to it aren't this person's to see.
        WHERE invites.email = (SELECT email FROM "user" WHERE id = ? AND email_proven_at IS NOT NULL) COLLATE NOCASE
        ORDER BY invites.created_at DESC LIMIT ?`,
-    )
-    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
-    .all<{
+    (row: {
       name: string;
       role: string;
       created_at: number;
@@ -574,66 +567,61 @@ async function readInvites(db: D1Database, userId: string): Promise<BoundedList<
       accepted_at: number | null;
       project_ids: string | null;
       drafts_allowed: number;
-      total_rows: number;
-    }>();
-  // The invite token's hash authenticates acceptance, so only the record of the invite is exported.
-  const invites = rows.results.map((row) => ({
-    organizationName: row.name,
-    role: row.role,
-    createdAt: isoTimestamp(row.created_at),
-    expiresAt: isoTimestamp(row.expires_at),
-    acceptedAt: optionalIsoTimestamp(row.accepted_at),
-    projectIds: storedProjectIds(row.project_ids),
-    draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
-  }));
-  return { invites, ...boundsOf(rows.results, invites.length) };
+    }) => ({
+      organizationName: row.name,
+      role: row.role,
+      createdAt: isoTimestamp(row.created_at),
+      expiresAt: isoTimestamp(row.expires_at),
+      acceptedAt: optionalIsoTimestamp(row.accepted_at),
+      projectIds: storedProjectIds(row.project_ids),
+      draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
+    }),
+  );
+  return { invites, ...bounds };
 }
 
 const quotaEventKindSchema = z.enum(['invite', 'team']);
 
 async function readQuotaEvents(db: D1Database, userId: string): Promise<BoundedList<{ events: ExportedQuotaEvent[] }>> {
-  const rows = await db
-    .prepare(
-      `SELECT kind, org_id, created_at, COUNT(*) OVER () AS total_rows
+  const { items: events, ...bounds } = await readBoundedList(
+    db,
+    userId,
+    `SELECT kind, org_id, created_at, COUNT(*) OVER () AS total_rows
        FROM organization_quota_events WHERE user_id = ?
        ORDER BY created_at DESC LIMIT ?`,
-    )
-    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
-    .all<{ kind: string; org_id: string; created_at: number; total_rows: number }>();
-  const events = rows.results.map((row) => ({
-    kind: quotaEventKindSchema.parse(row.kind),
-    organizationId: row.org_id,
-    createdAt: isoTimestamp(row.created_at),
-  }));
-  return { events, ...boundsOf(rows.results, events.length) };
+    (row: { kind: string; org_id: string; created_at: number }) => ({
+      kind: quotaEventKindSchema.parse(row.kind),
+      organizationId: row.org_id,
+      createdAt: isoTimestamp(row.created_at),
+    }),
+  );
+  return { events, ...bounds };
 }
 
 async function readUsage(db: D1Database, userId: string): Promise<BoundedList<{ usage: ExportedUsageDay[] }>> {
-  const rows = await db
-    .prepare(
-      `SELECT org_id, day, turns, input_tokens, output_tokens, cached_tokens, COUNT(*) OVER () AS total_rows
+  const { items: usage, ...bounds } = await readBoundedList(
+    db,
+    userId,
+    `SELECT org_id, day, turns, input_tokens, output_tokens, cached_tokens, COUNT(*) OVER () AS total_rows
        FROM organization_usage_daily WHERE user_id = ?
        ORDER BY day DESC LIMIT ?`,
-    )
-    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
-    .all<{
+    (row: {
       org_id: string;
       day: string;
       turns: number;
       input_tokens: number;
       output_tokens: number;
       cached_tokens: number;
-      total_rows: number;
-    }>();
-  const usage = rows.results.map((row) => ({
-    organizationId: row.org_id,
-    day: row.day,
-    turns: row.turns,
-    inputTokens: row.input_tokens,
-    outputTokens: row.output_tokens,
-    cachedTokens: row.cached_tokens,
-  }));
-  return { usage, ...boundsOf(rows.results, usage.length) };
+    }) => ({
+      organizationId: row.org_id,
+      day: row.day,
+      turns: row.turns,
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+      cachedTokens: row.cached_tokens,
+    }),
+  );
+  return { usage, ...bounds };
 }
 
 /** An invite's stored project ids, exactly as kept; anything unreadable is none. */
@@ -653,13 +641,21 @@ const storedProjectIdsSchema = z.array(z.string());
 type ExportSectionBounds = { total: number; truncated: boolean };
 
 /**
- * `COUNT(*) OVER ()` counts the matching rows before `LIMIT` applies, so a
- * truncated section reports how many records it left behind rather than implying
- * the page it returned was all of them.
+ * One list section: the most recent page of the rows `sql` selects for the person (bound to the user id
+ * and the row limit, in that order), each as `toItem` exports it. `sql` selects `COUNT(*) OVER ()` as
+ * `total_rows`, which counts the matching rows before `LIMIT` applies, so a truncated section reports how
+ * many records it left behind rather than implying the page it returned was all of them.
  */
-function boundsOf(rows: { total_rows: number }[], returned: number): ExportSectionBounds {
-  const total = rows[0]?.total_rows ?? 0;
-  return { total, truncated: total > returned };
+async function readBoundedList<Row, Item>(
+  db: D1Database,
+  userId: string,
+  sql: string,
+  toItem: (row: Row) => Item,
+): Promise<{ items: Item[] } & ExportSectionBounds> {
+  const rows = await db.prepare(sql).bind(userId, ACCOUNT_EXPORT_ROW_LIMIT).all<Row & { total_rows: number }>();
+  const items = rows.results.map(toItem);
+  const total = rows.results[0]?.total_rows ?? 0;
+  return { items, total, truncated: total > items.length };
 }
 
 function isoTimestamp(epochMilliseconds: number): string {
@@ -674,38 +670,36 @@ async function readProjectAccess(
   db: D1Database,
   userId: string,
 ): Promise<BoundedList<{ projects: ExportedProjectAccess[] }>> {
-  const rows = await db
-    .prepare(
-      `SELECT projects.org_id, projects.name, projects.repo_full_name, access.granted_at, COUNT(*) OVER () AS total_rows
+  const { items: projects, ...bounds } = await readBoundedList(
+    db,
+    userId,
+    `SELECT projects.org_id, projects.name, projects.repo_full_name, access.granted_at, COUNT(*) OVER () AS total_rows
        FROM org_project_access AS access
        JOIN org_projects AS projects ON projects.id = access.project_id
        WHERE access.user_id = ?
        ORDER BY access.granted_at DESC LIMIT ?`,
-    )
-    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
-    .all<{ org_id: string; name: string; repo_full_name: string; granted_at: number; total_rows: number }>();
-  const projects = rows.results.map((row) => ({
-    organizationId: row.org_id,
-    projectName: row.name,
-    repository: row.repo_full_name,
-    grantedAt: new Date(row.granted_at).toISOString(),
-  }));
-  return { projects, ...boundsOf(rows.results, projects.length) };
+    (row: { org_id: string; name: string; repo_full_name: string; granted_at: number }) => ({
+      organizationId: row.org_id,
+      projectName: row.name,
+      repository: row.repo_full_name,
+      grantedAt: new Date(row.granted_at).toISOString(),
+    }),
+  );
+  return { projects, ...bounds };
 }
 
 async function readProductionRequests(
   db: D1Database,
   userId: string,
 ): Promise<BoundedList<{ requests: ExportedProductionRequest[] }>> {
-  const rows = await db
-    .prepare(
-      `SELECT id, org_id, title, note, preview_url, draft_id, draft_revision, status, decision_note, project_id,
+  const { items: requests, ...bounds } = await readBoundedList(
+    db,
+    userId,
+    `SELECT id, org_id, title, note, preview_url, draft_id, draft_revision, status, decision_note, project_id,
               created_at, updated_at, decided_at, snapshot_files, snapshot_gzip_base64, COUNT(*) OVER () AS total_rows
        FROM production_requests WHERE requested_by = ?
        ORDER BY created_at DESC LIMIT ?`,
-    )
-    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
-    .all<{
+    (row: {
       id: string;
       org_id: string;
       title: string;
@@ -721,116 +715,97 @@ async function readProductionRequests(
       decided_at: number | null;
       snapshot_files: number;
       snapshot_gzip_base64: string;
-      total_rows: number;
-    }>();
-  const requests = rows.results.map((row) => ({
-    id: row.id,
-    organizationId: row.org_id,
-    title: row.title,
-    note: row.note,
-    previewUrl: row.preview_url,
-    draftId: row.draft_id,
-    draftRevision: row.draft_revision,
-    status: row.status,
-    decisionNote: row.decision_note,
-    projectId: row.project_id,
-    createdAt: isoTimestamp(row.created_at),
-    updatedAt: optionalIsoTimestamp(row.updated_at),
-    decidedAt: optionalIsoTimestamp(row.decided_at),
-    draftFiles: row.snapshot_files,
-    // The member's own source; a decided request keeps none (an empty string).
-    draftSourceGzipBase64: row.snapshot_gzip_base64 || null,
-  }));
-  return { requests, ...boundsOf(rows.results, requests.length) };
+    }) => ({
+      id: row.id,
+      organizationId: row.org_id,
+      title: row.title,
+      note: row.note,
+      previewUrl: row.preview_url,
+      draftId: row.draft_id,
+      draftRevision: row.draft_revision,
+      status: row.status,
+      decisionNote: row.decision_note,
+      projectId: row.project_id,
+      createdAt: isoTimestamp(row.created_at),
+      updatedAt: optionalIsoTimestamp(row.updated_at),
+      decidedAt: optionalIsoTimestamp(row.decided_at),
+      draftFiles: row.snapshot_files,
+      // The member's own source; a decided request keeps none (an empty string).
+      draftSourceGzipBase64: row.snapshot_gzip_base64 || null,
+    }),
+  );
+  return { requests, ...bounds };
 }
 
 async function readGitHubConnections(
   db: D1Database,
   userId: string,
 ): Promise<BoundedList<{ connections: ExportedGitHubConnection[] }>> {
-  const rows = await db
-    .prepare(
-      `SELECT org_id, return_to, created_at, expires_at, used_at, COUNT(*) OVER () AS total_rows
+  // The state id is what GitHub's return is checked against, so only the record is exported.
+  const { items: connections, ...bounds } = await readBoundedList(
+    db,
+    userId,
+    `SELECT org_id, return_to, created_at, expires_at, used_at, COUNT(*) OVER () AS total_rows
        FROM github_install_states WHERE user_id = ?
        ORDER BY created_at DESC LIMIT ?`,
-    )
-    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
-    .all<{
-      org_id: string;
-      return_to: string;
-      created_at: number;
-      expires_at: number;
-      used_at: number | null;
-      total_rows: number;
-    }>();
-  // The state id is what GitHub's return is checked against, so only the record is exported.
-  const connections = rows.results.map((row) => ({
-    organizationId: row.org_id,
-    returnTo: row.return_to,
-    createdAt: isoTimestamp(row.created_at),
-    expiresAt: isoTimestamp(row.expires_at),
-    usedAt: optionalIsoTimestamp(row.used_at),
-  }));
-  return { connections, ...boundsOf(rows.results, connections.length) };
+    (row: { org_id: string; return_to: string; created_at: number; expires_at: number; used_at: number | null }) => ({
+      organizationId: row.org_id,
+      returnTo: row.return_to,
+      createdAt: isoTimestamp(row.created_at),
+      expiresAt: isoTimestamp(row.expires_at),
+      usedAt: optionalIsoTimestamp(row.used_at),
+    }),
+  );
+  return { connections, ...bounds };
 }
 
 async function readGitHubApprovals(
   db: D1Database,
   userId: string,
 ): Promise<BoundedList<{ approvals: ExportedGitHubApproval[] }>> {
-  const rows = await db
-    .prepare(
-      `SELECT request_id, repo_name, private, created_at, expires_at, used_at, COUNT(*) OVER () AS total_rows
+  const { items: approvals, ...bounds } = await readBoundedList(
+    db,
+    userId,
+    `SELECT request_id, repo_name, private, created_at, expires_at, used_at, COUNT(*) OVER () AS total_rows
        FROM github_approval_states WHERE user_id = ?
        ORDER BY created_at DESC LIMIT ?`,
-    )
-    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
-    .all<{
+    (row: {
       request_id: string;
       repo_name: string;
       private: number;
       created_at: number;
       expires_at: number;
       used_at: number | null;
-      total_rows: number;
-    }>();
-  const approvals = rows.results.map((row) => ({
-    requestId: row.request_id,
-    repositoryName: row.repo_name,
-    private: row.private === 1,
-    createdAt: isoTimestamp(row.created_at),
-    expiresAt: isoTimestamp(row.expires_at),
-    usedAt: optionalIsoTimestamp(row.used_at),
-  }));
-  return { approvals, ...boundsOf(rows.results, approvals.length) };
+    }) => ({
+      requestId: row.request_id,
+      repositoryName: row.repo_name,
+      private: row.private === 1,
+      createdAt: isoTimestamp(row.created_at),
+      expiresAt: isoTimestamp(row.expires_at),
+      usedAt: optionalIsoTimestamp(row.used_at),
+    }),
+  );
+  return { approvals, ...bounds };
 }
 
 async function readEmailSignInLinks(
   db: D1Database,
   userId: string,
 ): Promise<BoundedList<{ links: ExportedEmailSignInLink[] }>> {
-  const rows = await db
-    .prepare(
-      `SELECT email, return_to, created_at, expires_at, used_at, COUNT(*) OVER () AS total_rows
+  // The token's hash signs the person in, so only the record of the link is exported.
+  const { items: links, ...bounds } = await readBoundedList(
+    db,
+    userId,
+    `SELECT email, return_to, created_at, expires_at, used_at, COUNT(*) OVER () AS total_rows
        FROM email_sign_in_tokens WHERE email = (SELECT lower(email) FROM "user" WHERE id = ?)
        ORDER BY created_at DESC LIMIT ?`,
-    )
-    .bind(userId, ACCOUNT_EXPORT_ROW_LIMIT)
-    .all<{
-      email: string;
-      return_to: string;
-      created_at: number;
-      expires_at: number;
-      used_at: number | null;
-      total_rows: number;
-    }>();
-  // The token's hash signs the person in, so only the record of the link is exported.
-  const links = rows.results.map((row) => ({
-    email: row.email,
-    returnTo: row.return_to,
-    createdAt: isoTimestamp(row.created_at),
-    expiresAt: isoTimestamp(row.expires_at),
-    usedAt: optionalIsoTimestamp(row.used_at),
-  }));
-  return { links, ...boundsOf(rows.results, links.length) };
+    (row: { email: string; return_to: string; created_at: number; expires_at: number; used_at: number | null }) => ({
+      email: row.email,
+      returnTo: row.return_to,
+      createdAt: isoTimestamp(row.created_at),
+      expiresAt: isoTimestamp(row.expires_at),
+      usedAt: optionalIsoTimestamp(row.used_at),
+    }),
+  );
+  return { links, ...bounds };
 }
