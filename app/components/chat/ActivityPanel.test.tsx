@@ -25,7 +25,7 @@ const message: CloudChefMessage = {
     { type: 'text', text: 'Your app is ready.', state: 'done' },
     tool('write', 'write-1', 'src/index.ts'),
     tool('write', 'write-2', 'src/index.ts'),
-    tool('validate', 'validate-1'),
+    { ...tool('validate', 'validate-1'), output: { validation: toolSuccess('All checks passed') } },
   ],
 };
 
@@ -54,7 +54,7 @@ it('collapses finished tool history into an accurate summary without duplicating
 it('reports the latest validation failure rather than an earlier success', async () => {
   const failed: CloudChefMessage = {
     ...message,
-    parts: [...message.parts, { ...tool('validate', 'validate-2'), output: toolFailure('Type error') }],
+    parts: [...message.parts, { ...tool('validate', 'validate-2'), output: { validation: toolFailure('Type error') } }],
   };
   await act(async () => root.render(<ActivityPanel messages={[failed]} isStreaming={false} compact={false} />));
   expect(container.textContent).toContain('Validation failed');

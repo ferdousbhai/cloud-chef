@@ -9,8 +9,9 @@ import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
 import { formatStreamedSize, streamedToolInput } from './streaming-tool-input';
 import { z, type ZodType } from 'zod';
 import { cloudflareApiRequestDisplaySchema, cloudflareApiRequestIsRead } from 'cloudchef-agent/cloudflare-api';
-import { isCloudChefToolResult, toolFailure, toolResultSucceeded } from 'cloudchef-agent/tool-result';
+import { toolFailure, toolResultSucceeded } from 'cloudchef-agent/tool-result';
 import { linkedPublishView, type LinkedPublishView } from '~/lib/common/linked-publish';
+import { validationFailed } from './validation-verdict';
 
 const MAX_TOOL_TITLE_VALUE_CHARACTERS = 160;
 /** Keyed by the model-facing tool name, which arrives as an unconstrained string on the invocation. */
@@ -190,20 +191,6 @@ function historyTitle(invocation: CloudChefToolInvocation, status: ToolActivityS
         ? `${running ? 'Reading' : 'Read'} an earlier message`
         : `${running ? 'Searching' : 'Searched'} the conversation`;
   return titleRow(title, <MagnifyingGlassIcon className="text-content-secondary" />);
-}
-
-const validationAttachmentSchema = z.looseObject({ validation: z.unknown().optional() });
-
-/** A validation's verdict rides in `validation`; the tool call itself succeeds either way. */
-function validationFailed(invocation: CloudChefToolInvocation): boolean {
-  if (invocation.state === 'output-error' || invocation.state === 'output-denied') {
-    return true;
-  }
-  if (invocation.state !== 'output-available') {
-    return false;
-  }
-  const attached = validationAttachmentSchema.safeParse(invocation.output).data?.validation;
-  return isCloudChefToolResult(attached) ? !attached.ok : !toolResultSucceeded(invocation.output);
 }
 
 /** A site address as a person reads it: host and path, without the scheme. */

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { isToolInvocationInProgress, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 import { isCloudChefToolResult, toolResultSucceeded, toolResultSummary } from 'cloudchef-agent/tool-result';
 import { ToolResultFrame } from './ToolResultFrame';
+import { attachedValidation } from './validation-verdict';
 import { captureProductEvent } from '~/lib/telemetry.client';
 import {
   cloudflareApiRequestDisplaySchema,
@@ -405,8 +406,6 @@ const runningToolProgressSchema = z.looseObject({
   details: z.unknown().optional(),
 });
 
-const validationOutputSchema = z.looseObject({ validation: z.unknown().optional() });
-
 /** The canonical validation reports its pipeline; anything it does not report is simply absent. */
 const validationReportSchema = z.looseObject({
   durationMs: z.number().optional().catch(undefined),
@@ -429,12 +428,7 @@ function ValidationToolContents({ invocation }: { invocation: CloudChefToolInvoc
   if (invocation.state === 'output-denied') {
     return <ToolResultFrame>{invocation.approval?.reason ?? 'Project validation was denied.'}</ToolResultFrame>;
   }
-  const attached = validationOutputSchema.safeParse(invocation.output).data?.validation;
-  const result = isCloudChefToolResult(attached)
-    ? attached
-    : isCloudChefToolResult(invocation.output)
-      ? invocation.output
-      : null;
+  const result = attachedValidation(invocation);
   if (!result) {
     return <ToolResultFrame>{toolResultSummary(invocation.output)}</ToolResultFrame>;
   }
@@ -478,11 +472,7 @@ function ValidationToolContents({ invocation }: { invocation: CloudChefToolInvoc
 function StructuredResultTool({ invocation }: { invocation: CloudChefToolInvocation }) {
   const complete = !isToolInvocationInProgress(invocation);
   const succeeded = invocation.state === 'output-available' && toolResultSucceeded(invocation.output);
-  const validation =
-    invocation.state === 'output-available'
-      ? validationOutputSchema.safeParse(invocation.output).data?.validation
-      : undefined;
-  const validationSucceeded = isCloudChefToolResult(validation) && validation.ok;
+  const validationSucceeded = attachedValidation(invocation)?.ok === true;
   useEffect(() => {
     if (!complete) {
       return;

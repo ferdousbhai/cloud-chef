@@ -10,6 +10,7 @@ import type {
 import { activityRevealStore } from '~/lib/stores/activity-reveal';
 import { AssistantMessage } from './AssistantMessage';
 import { DetailsToggle } from './DetailsToggle';
+import { validationFailed } from './validation-verdict';
 import styles from './BaseChat.module.css';
 
 const filePathInput = z.object({ path: z.string() });
@@ -137,13 +138,7 @@ function ActivityRun({
   const summary = [
     `${tools.length} tool step${tools.length === 1 ? '' : 's'}`,
     ...(changedFiles.size ? [`${changedFiles.size} file${changedFiles.size === 1 ? '' : 's'} changed`] : []),
-    ...(validation
-      ? [
-          validation.state === 'output-available' && toolResultSucceeded(validation.output)
-            ? 'Validation passed'
-            : 'Validation failed',
-        ]
-      : []),
+    ...(validation ? [validationFailed(validation) ? 'Validation failed' : 'Validation passed'] : []),
   ].join(' · ');
   return (
     <section ref={sectionRef} className="min-w-0 border-b border-bolt-elements-borderColor last:border-0">
