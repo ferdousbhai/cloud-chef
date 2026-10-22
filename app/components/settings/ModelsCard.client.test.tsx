@@ -65,9 +65,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined });
   resetUserRuntimeSession();
-  installBuilderModelCatalog(
-    { defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] },
-  );
+  installBuilderModelCatalog({ defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] });
   builderModelCatalogStatusStore.set('ready');
 });
 
