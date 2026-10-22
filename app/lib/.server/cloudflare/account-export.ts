@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AccountExportSectionName } from '~/lib/account-data';
 import { findCloudflareConnectionForUser } from './cloudflare-connection-repository';
+import { draftsAllowed, type OrganizationRole } from '~/lib/cloudflare/data/organization-access.server';
 
 /**
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
@@ -470,7 +471,7 @@ async function readMemberships(
     (row: {
       org_id: string;
       name: string;
-      role: string;
+      role: OrganizationRole;
       joined_at: number;
       paused_at: number | null;
       drafts_allowed: number;
@@ -480,7 +481,7 @@ async function readMemberships(
       role: row.role,
       joinedAt: isoTimestamp(row.joined_at),
       pausedAt: optionalIsoTimestamp(row.paused_at),
-      draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
+      draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
     }),
   );
   return { memberships, ...bounds };
@@ -558,7 +559,7 @@ async function readInvites(db: D1Database, userId: string): Promise<BoundedList<
        ORDER BY invites.created_at DESC LIMIT ?`,
     (row: {
       name: string;
-      role: string;
+      role: OrganizationRole;
       created_at: number;
       expires_at: number;
       accepted_at: number | null;
@@ -571,7 +572,7 @@ async function readInvites(db: D1Database, userId: string): Promise<BoundedList<
       expiresAt: isoTimestamp(row.expires_at),
       acceptedAt: optionalIsoTimestamp(row.accepted_at),
       projectIds: storedProjectIds(row.project_ids),
-      draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
+      draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
     }),
   );
   return { invites, ...bounds };

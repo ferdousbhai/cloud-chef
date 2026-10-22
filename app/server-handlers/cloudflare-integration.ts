@@ -17,7 +17,7 @@ import {
   withinAddressRateLimit,
 } from '~/lib/.server/request-guards';
 import { WORKSPACE_HEADER } from '~/lib/cloudflare/workspace-header';
-import { canUseConnection, findMembership } from '~/lib/cloudflare/data/organization-access.server';
+import { canUseConnection, findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
 import {
   activateCloudflareConnection,
   CloudflareConnectionChangedError,
@@ -384,7 +384,7 @@ export async function startCloudflareConnectionAction(args: {
     }
     if (payload.organizationId) {
       const membership = signedIn ? await findMembership(args.env.DB, payload.organizationId, signedIn.user.id) : null;
-      if (membership?.role !== 'admin' || membership.pausedAt !== null) {
+      if (!isActiveAdmin(membership)) {
         return Response.json({ error: "Only a team's admin can connect its Cloudflare account." }, { status: 403 });
       }
     }
@@ -497,7 +497,7 @@ export async function completeCloudflareConnectionAction(args: {
       // The organization's account, connected by one of its admins with their own Cloudflare login.
       const admin = oauthState.linking_user_id;
       const membership = admin ? await findMembership(args.env.DB, orgId, admin) : null;
-      if (!admin || membership?.role !== 'admin' || membership.pausedAt !== null) {
+      if (!admin || !isActiveAdmin(membership)) {
         throw new ConnectReturnError('admin_only');
       }
       userId = admin;
