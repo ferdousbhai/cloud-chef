@@ -17,6 +17,7 @@ const runtimeVersion = 'a'.repeat(64);
 const controlPlaneSecret = 's'.repeat(32);
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -78,7 +79,8 @@ describe('user workspace runtime upgrade window route', () => {
 
   it('grants the window to the control plane while nothing runs, and refuses it while a turn does', async () => {
     const { db } = userWorkspaceDatabase();
-    stubRoutedFetch(upgradeWindowEnv(db), () => 1_000_000);
+    vi.useFakeTimers({ now: 1_000_000, toFake: ['Date'] });
+    stubRoutedFetch(upgradeWindowEnv(db));
 
     await expect(
       claimUserWorkspaceRuntimeUpgradeWindow({
@@ -103,12 +105,14 @@ describe('user workspace runtime upgrade window route', () => {
   it('holds the claimed window while work waits on it, and releases it once the upgrade serves', async () => {
     const { db } = userWorkspaceDatabase();
     let now = 1_000_000;
-    stubRoutedFetch(upgradeWindowEnv(db), () => now);
+    vi.useFakeTimers({ now, toFake: ['Date'] });
+    stubRoutedFetch(upgradeWindowEnv(db));
     const args = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, holder };
     await claimUserWorkspaceRuntimeUpgradeWindow(args);
     await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now });
 
     now += RUNTIME_UPGRADE_WINDOW_MS - 1;
+    vi.setSystemTime(now);
     await changeUserWorkspaceRuntimeUpgradeWindow({ ...args, change: 'hold' });
     await expect(readRuntimeUpgradeWindow(db, now + 1)).resolves.toMatchObject({ targetVersion });
 
@@ -119,11 +123,13 @@ describe('user workspace runtime upgrade window route', () => {
   it('refuses to open a lapsed window again over work that started meanwhile, which the upgrade waits for', async () => {
     const { db } = userWorkspaceDatabase();
     let now = 1_000_000;
-    stubRoutedFetch(upgradeWindowEnv(db), () => now);
+    vi.useFakeTimers({ now, toFake: ['Date'] });
+    stubRoutedFetch(upgradeWindowEnv(db));
     const args = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, holder };
     await claimUserWorkspaceRuntimeUpgradeWindow(args);
 
     now += RUNTIME_UPGRADE_WINDOW_MS + 1_000;
+    vi.setSystemTime(now);
     await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now });
     const refused = changeUserWorkspaceRuntimeUpgradeWindow({ ...args, change: 'hold' });
     await expect(refused).rejects.toBeInstanceOf(RuntimeUpgradeWindowRefusedError);
@@ -176,7 +182,8 @@ describe('user workspace runtime upgrade window route', () => {
 
   it('fails, never redeploying unasked, when a runtime with the window refuses the secret', async () => {
     const { db } = userWorkspaceDatabase();
-    stubRoutedFetch(upgradeWindowEnv(db), () => 1_000_000);
+    vi.useFakeTimers({ now: 1_000_000, toFake: ['Date'] });
+    stubRoutedFetch(upgradeWindowEnv(db));
 
     await expect(
       claimUserWorkspaceRuntimeUpgradeWindow({
@@ -190,7 +197,8 @@ describe('user workspace runtime upgrade window route', () => {
 
   it("keeps one upgrade's window from another, named by the holder each sends", async () => {
     const { db } = userWorkspaceDatabase();
-    stubRoutedFetch(upgradeWindowEnv(db), () => 1_000_000);
+    vi.useFakeTimers({ now: 1_000_000, toFake: ['Date'] });
+    stubRoutedFetch(upgradeWindowEnv(db));
     const base = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, holder };
     await expect(claimUserWorkspaceRuntimeUpgradeWindow({ ...base, holder: 'workspace-first' })).resolves.toEqual({
       status: 'granted',
@@ -272,9 +280,9 @@ function upgradeWindowEnv(db: D1Database): ControlPlaneRouteEnv {
 }
 
 /** Route every fetch to the runtime's control-plane routes, as the runtime Worker would serve them. */
-function stubRoutedFetch(env: ControlPlaneRouteEnv, now: () => number): void {
+function stubRoutedFetch(env: ControlPlaneRouteEnv): void {
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
-    const response = await routeUserWorkspaceRuntimeControlPlaneRequest(new Request(input, init), env, now);
+    const response = await routeUserWorkspaceRuntimeControlPlaneRequest(new Request(input, init), env);
     return response ?? new Response(null, { status: 404 });
   });
 }

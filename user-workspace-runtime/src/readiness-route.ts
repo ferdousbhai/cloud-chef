@@ -36,11 +36,10 @@ type RuntimeReadinessEnv = {
 export async function routeUserWorkspaceRuntimeControlPlaneRequest(
   request: Request,
   env: RuntimeReadinessEnv,
-  now: () => number = Date.now,
 ): Promise<Response | null> {
   const pathname = new URL(request.url).pathname;
   if (pathname === UPGRADE_WINDOW_PATH && UPGRADE_WINDOW_METHODS.has(request.method)) {
-    return upgradeWindow(request, env, now());
+    return upgradeWindow(request, env);
   }
   if (request.method !== 'GET' || pathname !== '/v1/readiness') {
     return null;
@@ -66,7 +65,7 @@ export async function routeUserWorkspaceRuntimeControlPlaneRequest(
  * it waits until the upgrade releases it, so the control plane can redeploy the Worker and roll out its
  * container without cutting anything off.
  */
-async function upgradeWindow(request: Request, env: RuntimeReadinessEnv, now: number): Promise<Response> {
+async function upgradeWindow(request: Request, env: RuntimeReadinessEnv): Promise<Response> {
   if (!authorized(request, env.CONTROL_PLANE_SECRET)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders() });
   }
@@ -79,14 +78,14 @@ async function upgradeWindow(request: Request, env: RuntimeReadinessEnv, now: nu
     if (request.method === 'PUT') {
       // A lapsed window is not opened again over work that started meanwhile, nor another upgrade's
       // open window taken over: the upgrade waits for either.
-      const hold = await holdRuntimeUpgradeWindow(env.DB, { targetVersion, now, holder });
+      const hold = await holdRuntimeUpgradeWindow(env.DB, { targetVersion, now: Date.now(), holder });
       return Response.json(hold, { status: hold.held ? 200 : 409, headers: noStoreHeaders() });
     }
     if (request.method === 'DELETE') {
       await releaseRuntimeUpgradeWindow(env.DB, { targetVersion, holder });
       return Response.json({ released: true }, { headers: noStoreHeaders() });
     }
-    return Response.json(await claimRuntimeUpgradeWindow(env.DB, { targetVersion, now, holder }), {
+    return Response.json(await claimRuntimeUpgradeWindow(env.DB, { targetVersion, now: Date.now(), holder }), {
       headers: noStoreHeaders(),
     });
   } catch {
