@@ -72,8 +72,8 @@ describe('BuilderModelSelector', () => {
     });
 
     const menu = document.querySelector('[role="menu"]');
-    expect(menu?.textContent).toContain('Cloudflare Workers AI');
-    expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(2);
+    expect(menu?.textContent).toContain('Workers AI');
+    expect(document.querySelectorAll('#builder-provider-models [role="menuitemradio"]')).toHaveLength(2);
     const alternative = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
       item.textContent?.includes('DeepSeek V4.1 Flash 1017'),
     );
@@ -116,15 +116,16 @@ describe('BuilderModelSelector', () => {
     await act(async () => {
       trigger?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
     });
-    // The innermost groups: the radio group holding them is a group too.
-    const groups = [...document.querySelectorAll('[role="group"]')]
-      .filter((group) => group.querySelector('[role="group"]') === null)
-      .map((group) => group.textContent ?? '');
-    expect(groups).toHaveLength(2);
-    expect(groups[0]).toContain('Cloudflare Workers AI');
-    expect(groups[0]).not.toContain('Claude Opus 5.5');
-    expect(groups[1]).toContain('Anthropic');
-    expect(groups[1]).toContain('Claude Opus 5.5');
+    expect([...document.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
+      'Workers AI',
+      'Anthropic',
+    ]);
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Workers AI');
+    // Providers without a key share one link to Settings, after the tabs.
+    expect(document.querySelector('a[href="/settings#models"]')?.getAttribute('aria-label')).toBe(
+      'Add a key for OpenAI or xAI or OpenRouter in Settings',
+    );
+    await chooseTab('Anthropic');
 
     const item = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((element) =>
       element.textContent?.includes('Claude Opus 5.5'),
@@ -158,6 +159,7 @@ describe('BuilderModelSelector', () => {
     expect(trigger()?.textContent).not.toContain('·');
     await open();
     expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Reasoning effort');
+    await chooseTab('Anthropic');
     const claudeItem = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
       item.textContent?.includes('Claude Opus 5.5'),
     );
@@ -179,6 +181,84 @@ describe('BuilderModelSelector', () => {
     // Choosing an effort leaves the menu open on the model list.
     expect(document.querySelector('[role="menu"]')).not.toBeNull();
     expect(efforts()[2]?.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('opens on the current provider, discloses older models, searches across providers, and clears search before closing', async () => {
+    const claude: BuilderModel = { ...alternativeModel, id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6' };
+    const old: BuilderModel = { ...claude, id: 'anthropic/claude-3-7-sonnet', label: 'Claude 3.7 Sonnet' };
+    const extras: BuilderModel[] = Array.from({ length: 6 }, (_, index) => ({
+      ...alternativeModel,
+      id: `openai/model-${index}`,
+      label: `Other ${index}`,
+    }));
+    localStorage.setItem('cloudchef_builder_model_v2', claude.id);
+    await renderSelector(() =>
+      installBuilderModelCatalog({ ...catalog, models: [...catalog.models, claude, old, ...extras] }),
+    );
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
+    expect(trigger?.textContent).toBe('AClaude Sonnet 4.6');
+    await act(async () => trigger?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Anthropic');
+    expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Claude 3.7 Sonnet');
+    const disclosure = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (item) => item.textContent === 'Older models',
+    );
+    await act(async () => disclosure?.click());
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('Claude 3.7 Sonnet');
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Search models"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'openai/model-2');
+      input?.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect([...document.querySelectorAll('[role="menuitemradio"]')].map((item) => item.textContent)).toEqual([
+      expect.stringContaining('Other 2'),
+    ]);
+    await act(async () =>
+      input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })),
+    );
+    expect(document.activeElement?.textContent).toContain('Other 2');
+    await act(async () =>
+      input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })),
+    );
+    expect(input?.value).toBe('');
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    await act(async () =>
+      input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })),
+    );
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it('pins only the default when no other recent model remains', async () => {
+    localStorage.setItem('cloudchef_builder_recents_v1', JSON.stringify([CLOUDFLARE_WORKERS_AI_MODEL]));
+    await renderSelector();
+    await act(async () =>
+      document.querySelector('button')?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })),
+    );
+    const pins = [...document.querySelectorAll('[aria-label="Quick switch"] [role="menuitemradio"]')];
+    expect(pins.map((pin) => pin.getAttribute('aria-label'))).toEqual(['GLM 5.3 Flash, team default']);
+  });
+
+  it('pins the default and recent models and restores the last provider tab', async () => {
+    localStorage.setItem(
+      'cloudchef_builder_recents_v1',
+      JSON.stringify([alternativeModel.id, CLOUDFLARE_WORKERS_AI_MODEL]),
+    );
+    localStorage.setItem('cloudchef_builder_provider_v1', 'anthropic');
+    const claude: BuilderModel = { ...alternativeModel, id: 'anthropic/claude-opus-5-5', label: 'Claude Opus 5.5' };
+    await renderSelector(() => installBuilderModelCatalog({ ...catalog, models: [...catalog.models, claude] }));
+    await act(async () =>
+      document.querySelector('button')?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })),
+    );
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Anthropic');
+    const pins = [...document.querySelectorAll('[aria-label="Quick switch"] [role="menuitemradio"]')];
+    expect(pins.map((pin) => pin.getAttribute('aria-label'))).toEqual([
+      'GLM 5.3 Flash, team default',
+      'DeepSeek V4.1 Flash 1017, recent',
+    ]);
+    // The provider list stays whole: the restored Anthropic tab lists its own models.
+    expect(
+      [...document.querySelectorAll('#builder-provider-models [role="menuitemradio"]')].map((item) => item.textContent),
+    ).toEqual([expect.stringContaining('Claude Opus 5.5')]);
   });
 
   it('closes the menu and prevents changes when a turn becomes active', async () => {
@@ -211,7 +291,7 @@ describe('BuilderModelSelector', () => {
       trigger?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
     });
 
-    expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(2);
+    expect(document.querySelectorAll('#builder-provider-models [role="menuitemradio"]')).toHaveLength(2);
     const status = document.querySelector('[role="status"]')?.textContent;
     expect(status).toContain('could not be refreshed just now, so these are the models it last listed');
     expect(status).not.toContain('Only the default model is available');
@@ -287,4 +367,10 @@ function installDatedCatalog(): void {
     ...catalog,
     models: [DEFAULT_WORKERS_AI_MODEL, { ...alternativeModel, createdAt: '2026-08-26T00:00:00.000Z' }],
   });
+}
+
+async function chooseTab(label: string) {
+  await act(async () =>
+    [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === label)?.click(),
+  );
 }
