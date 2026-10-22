@@ -1,4 +1,7 @@
-import { getOptionalBinding } from '~/lib/.server/env';
+import {
+  runtimeConnectionIdentity,
+  type RuntimeConnectionIdentity,
+} from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
 import { buildDeploymentPlanFromSource, isCurrentDeploymentPlan } from '~/lib/.server/cloudflare/deployment-plan';
 import type { DeploymentProjectProfile } from '~/lib/.server/cloudflare/deployment-project-profile';
 import {
@@ -68,8 +71,8 @@ export async function createOrReplayDeploymentPlanForUser(args: {
   if (existing) {
     const current =
       existing.planDigest === digest &&
-      existing.connectionId === connection.id &&
-      existing.connectionGeneration === connection.generation;
+      existing.connectionId === connection.connectionId &&
+      existing.connectionGeneration === connection.connectionGeneration;
     return current ? publicDeployment(existing) : null;
   }
   return publicDeployment(
@@ -78,8 +81,8 @@ export async function createOrReplayDeploymentPlanForUser(args: {
       id: args.deploymentId,
       chatId: chat.id,
       userId: args.userId,
-      connectionId: connection.id,
-      connectionGeneration: connection.generation,
+      connectionId: connection.connectionId,
+      connectionGeneration: connection.connectionGeneration,
       workspaceReference: reference,
       plan,
       planDigest: digest,
@@ -121,7 +124,7 @@ export async function terminalizeInterruptedDeploymentForUser(args: {
     env: args.env,
     deploymentId: deployment.id,
     userId: args.userId,
-    connectionId: connection.id,
+    connectionId: connection.connectionId,
     executionGeneration,
   });
   return { deployment: publicDeployment(settled), settled: true };
@@ -142,7 +145,10 @@ export async function deployForUser(args: {
   if (!isCurrentDeploymentPlan(deployment.plan)) {
     throw new DeploymentStateConflictError(deployment.status);
   }
-  if (deployment.connectionId !== connection.id || deployment.connectionGeneration !== connection.generation) {
+  if (
+    deployment.connectionId !== connection.connectionId ||
+    deployment.connectionGeneration !== connection.connectionGeneration
+  ) {
     throw new DeploymentConnectionChangedError();
   }
   if (deployment.status === 'succeeded' || deployment.status === 'provisioning' || deployment.status === 'deploying') {
@@ -153,8 +159,8 @@ export async function deployForUser(args: {
       db: args.env.DB,
       deploymentId: deployment.id,
       userId: args.userId,
-      connectionId: connection.id,
-      connectionGeneration: connection.generation,
+      connectionId: connection.connectionId,
+      connectionGeneration: connection.connectionGeneration,
       executionGeneration: deployment.executionGeneration,
     });
   }
@@ -167,7 +173,7 @@ export async function deployForUser(args: {
       env: args.env,
       deploymentId: deployment.id,
       userId: args.userId,
-      connectionId: connection.id,
+      connectionId: connection.connectionId,
       executionGeneration: deployment.executionGeneration,
       abortSignal: args.abortSignal,
     }),
@@ -188,7 +194,10 @@ export async function previewForUser(args: {
   if (!isCurrentDeploymentPlan(deployment.plan)) {
     throw new DeploymentStateConflictError(deployment.status);
   }
-  if (deployment.connectionId !== connection.id || deployment.connectionGeneration !== connection.generation) {
+  if (
+    deployment.connectionId !== connection.connectionId ||
+    deployment.connectionGeneration !== connection.connectionGeneration
+  ) {
     throw new DeploymentConnectionChangedError();
   }
   if (deployment.status === 'provisioning' || deployment.status === 'deploying') {
@@ -199,7 +208,7 @@ export async function previewForUser(args: {
     deploymentId: deployment.id,
     previewId: args.previewId,
     userId: args.userId,
-    connectionId: connection.id,
+    connectionId: connection.connectionId,
     executionGeneration: deployment.executionGeneration,
     abortSignal: args.abortSignal,
   });
@@ -233,24 +242,13 @@ async function requireActiveDeploymentChat(db: D1Database, deployment: Deploymen
   }
 }
 
-type RuntimeCloudflareIdentity = {
-  id: string;
-  generation: number;
-};
-
-function runtimeCloudflareIdentity(env: Env, userId: string): RuntimeCloudflareIdentity {
-  const connectionId = getOptionalBinding(env, 'CLOUDCHEF_CONNECTION_ID');
-  const generation = Number(getOptionalBinding(env, 'CLOUDCHEF_CONNECTION_GENERATION'));
-  if (
-    getOptionalBinding(env, 'CLOUDCHEF_USER_RUNTIME') !== '1' ||
-    getOptionalBinding(env, 'CLOUDCHEF_USER_ID') !== userId ||
-    !connectionId ||
-    !Number.isSafeInteger(generation) ||
-    generation < 1
-  ) {
+/** The connection this user-owned runtime was provisioned for, which must be the requesting person's. */
+function runtimeCloudflareIdentity(env: Env, userId: string): RuntimeConnectionIdentity {
+  const connection = runtimeConnectionIdentity(env);
+  if (connection?.userId !== userId) {
     throw new DeploymentConnectionRequiredError();
   }
-  return { id: connectionId, generation };
+  return connection;
 }
 
 function publicDeployment(deployment: Deployment) {

@@ -232,6 +232,7 @@ function runtimeEnv(db: D1Database): Env {
     DB: db,
     CLOUDCHEF_USER_RUNTIME: '1',
     CLOUDCHEF_USER_ID: 'user-1',
+    CLOUDFLARE_ACCOUNT_ID: 'account-1',
     CLOUDCHEF_CONNECTION_ID: 'connection-1',
     CLOUDCHEF_CONNECTION_GENERATION: '1',
   } as unknown as Env;
