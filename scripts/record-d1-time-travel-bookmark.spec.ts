@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  controlPlaneDatabaseId,
   d1BookmarkArgs,
   D1_RESTORE_RECEIPT_MARKER,
   formatD1RestoreSummary,
@@ -8,6 +7,7 @@ import {
   recordD1TimeTravelBookmark,
   resolveReleaseIdentity,
 } from './record-d1-time-travel-bookmark.mjs';
+import { controlPlaneDatabaseId } from './lib/cloudflare-config.mjs';
 
 const commitSha = 'a'.repeat(40);
 const databaseId = '04680db0-07a0-468d-9547-e07f5091756c';

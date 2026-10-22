@@ -8,6 +8,9 @@ const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 /** Values cloudflare.config.ts binds only when the deploy tooling supplies them. */
 const DEPLOY_INJECTED_VARS = Object.freeze(['COMMIT_SHA', 'CLOUDFLARE_OAUTH_CLIENT_ID']);
 
+/** The D1 database id cloudflare.config.ts carries until `pnpm run provision:production` binds a real one. */
+export const PLACEHOLDER_D1_ID = '00000000-0000-0000-0000-000000000000';
+
 /** Where `writeDerivedWranglerConfig` puts the Wrangler-format view of cloudflare.config.ts. */
 const DERIVED_WRANGLER_CONFIG_PATH = resolve(rootDir, '.cloudflare/wrangler.json');
 
@@ -37,6 +40,20 @@ export async function loadCommittedWranglerConfig({ path = resolve(rootDir, 'clo
     throw new Error(`${relative(rootDir, path)} is invalid: ${JSON.stringify(parsed?.error?.issues ?? parsed?.error)}`);
   }
   return convertToWranglerConfig({ containers: [], ...parsed.data });
+}
+
+/**
+ * The control-plane D1 database's id. `cf d1` addresses a database by id, so it is read from cloudflare.config.ts
+ * rather than repeated.
+ * @param {Record<string, any>} config Wrangler-format view of cloudflare.config.ts.
+ * @returns {string}
+ */
+export function controlPlaneDatabaseId(config) {
+  const database = config?.d1_databases?.find((binding) => binding?.binding === 'DB');
+  if (!database?.database_id || database.database_id === PLACEHOLDER_D1_ID) {
+    throw new Error('cloudflare.config.ts must bind DB to a provisioned D1 database id.');
+  }
+  return database.database_id;
 }
 
 /**

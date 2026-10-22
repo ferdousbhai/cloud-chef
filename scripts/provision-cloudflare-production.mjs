@@ -2,11 +2,10 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
+import { loadCommittedWranglerConfig, PLACEHOLDER_D1_ID } from './lib/cloudflare-config.mjs';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const configPath = resolve(rootDir, 'cloudflare.config.ts');
-const PLACEHOLDER_D1_ID = '00000000-0000-0000-0000-000000000000';
 /** `cf d1 list` pages; a page shorter than this is the last. */
 const D1_LIST_PAGE_SIZE = 100;
 const isDryRun = process.argv.includes('--dry-run');

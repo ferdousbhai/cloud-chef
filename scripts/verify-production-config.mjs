@@ -10,7 +10,7 @@ import {
 } from '../template/scripts/lib/project-policy.mjs';
 import { WORKERS_BUILDS_PRE_DEPLOY_STEPS } from './deploy-production.mjs';
 import { VALIDATION_TASKS } from './validate.mjs';
-import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
+import { loadCommittedWranglerConfig, PLACEHOLDER_D1_ID } from './lib/cloudflare-config.mjs';
 import { findWorkerObservabilityErrors, findWorkerRuntimeSecretErrors } from './lib/worker-policy.mjs';
 import { runVerifierIfMain } from './run-verifier.mjs';
 
@@ -21,7 +21,6 @@ const REQUIRED_COMPATIBILITY_DATE = '2026-07-21';
 const REQUIRED_OAUTH_SCOPES =
   'account-settings.read user-details.read workers-scripts.write containers.write d1.write workers-r2.write workers-kv-storage.write ai.read aig.write secrets-store.write';
 const REQUIRED_SECRET_NAMES = ['CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY', 'CLOUDFLARE_OAUTH_CLIENT_SECRET'];
-const PLACEHOLDER_D1_ID = '00000000-0000-0000-0000-000000000000';
 // Checked in the Wrangler format `cf deploy` converts it to, so the field names below are what is uploaded.
 const CONFIG_PATH = 'cloudflare.config.ts';
 const CUSTOM_DOMAINS = ['cloudchef.build', 'www.cloudchef.build'];

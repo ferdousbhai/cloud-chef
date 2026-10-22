@@ -1,9 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
+import { controlPlaneDatabaseId, loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
 
 const DATABASE_NAME = 'cloudchef';
-const PLACEHOLDER_D1_ID = '00000000-0000-0000-0000-000000000000';
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
 const BUILD_UUID_PATTERN = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 export const D1_RESTORE_RECEIPT_MARKER = 'CLOUDCHEF_D1_RESTORE_RECEIPT';
@@ -18,18 +17,6 @@ export function parseD1TimeTravelBookmark(output) {
     throw new Error('Cloudflare D1 Time Travel returned an invalid bookmark.');
   }
   return bookmark;
-}
-
-/**
- * `cf d1` addresses a database by id, so read it from cloudflare.config.ts rather than repeating it.
- * @param {Record<string, any>} config Wrangler-format view of cloudflare.config.ts.
- */
-export function controlPlaneDatabaseId(config) {
-  const database = config?.d1_databases?.find((binding) => binding?.binding === 'DB');
-  if (!database?.database_id || database.database_id === PLACEHOLDER_D1_ID) {
-    throw new Error('cloudflare.config.ts must bind DB to a provisioned D1 database id.');
-  }
-  return database.database_id;
 }
 
 /** @param {string} databaseId */
