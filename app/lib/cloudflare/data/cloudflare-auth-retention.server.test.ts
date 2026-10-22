@@ -9,7 +9,7 @@ import {
 import { ORGANIZATION_QUOTA_WINDOW_MS } from './organizations.server';
 
 describe('Cloudflare authorization retention', () => {
-  it('prunes each class independently in bounded batches and preserves live credential references', async () => {
+  it('prunes each expired class and preserves live credential references', async () => {
     const { database, db } = retentionDatabase();
     const now = 2 * UNREFERENCED_CREDENTIAL_RETENTION_MS;
     const insertState = database.prepare(
@@ -57,21 +57,20 @@ describe('Cloudflare authorization retention', () => {
     insertInvite.run('invite-accepted-live', now + 1, now - 2);
     insertInvite.run('invite-live', now + 1, null);
 
-    await expect(pruneCloudflareAuthData({ db, now, limit: 2, rounds: 1 })).resolves.toBeUndefined();
-    expect(values(database, 'cloudflare_oauth_states', 'id')).toEqual(['state-3', 'state-live']);
-    expect(values(database, 'cloudflare_auth_sessions', 'id')).toEqual(['session-3', 'session-live']);
-    expect(values(database, 'email_sign_in_tokens', 'token_hash')).toEqual(['link-3', 'link-live']);
+    await expect(pruneCloudflareAuthData({ db, now })).resolves.toBeUndefined();
+    expect(values(database, 'cloudflare_oauth_states', 'id')).toEqual(['state-live']);
+    expect(values(database, 'cloudflare_auth_sessions', 'id')).toEqual(['session-live']);
+    expect(values(database, 'email_sign_in_tokens', 'token_hash')).toEqual(['link-live']);
     expect(values(database, 'google_sign_in_states', 'id')).toEqual(['google-live']);
     expect(values(database, 'github_install_states', 'id')).toEqual(['github-live']);
     expect(values(database, 'organization_invites', 'id')).toEqual(['invite-accepted-live', 'invite-live']);
     expect(values(database, 'cloudflare_credentials', 'handle')).toEqual([
-      'credential-3',
       'credential-fresh',
       'credential-recently-rotated',
       'credential-referenced',
     ]);
 
-    await expect(pruneCloudflareAuthData({ db, now, limit: 2, rounds: 1 })).resolves.toBeUndefined();
+    await expect(pruneCloudflareAuthData({ db, now })).resolves.toBeUndefined();
     expect(values(database, 'cloudflare_credentials', 'handle')).toContain('credential-referenced');
   });
 
@@ -94,12 +93,12 @@ describe('Cloudflare authorization retention', () => {
     expect(values(database, 'cloudflare_oauth_states', 'id')).toEqual(['state-live']);
     expect(values(database, 'cloudflare_auth_sessions', 'id')).toEqual([]);
 
-    // Bounded: at most `rounds` batches in one sweep.
-    for (let index = 0; index < 10; index += 1) {
+    // Bounded: at most 25 batches of 100 in one sweep.
+    for (let index = 0; index < 2_510; index += 1) {
       insertState.run(`again-${index}`, 'pending', now - 1);
     }
-    await pruneCloudflareAuthData({ db, now, limit: 2, rounds: 3 });
-    expect(values(database, 'cloudflare_oauth_states', 'id')).toHaveLength(5);
+    await pruneCloudflareAuthData({ db, now });
+    expect(values(database, 'cloudflare_oauth_states', 'id')).toHaveLength(11);
   });
 
   it('keeps invite and team-creation entries for as long as the limits they count toward', async () => {

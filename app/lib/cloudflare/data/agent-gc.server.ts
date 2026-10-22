@@ -45,9 +45,8 @@ export function prepareAgentGcCandidatesStatement(
 
 export async function sweepAgentGcCandidates(
   env: Pick<Env, 'BuilderAgent' | 'DB'>,
-  options: { limit?: number; now?: number } = {},
+  options: { now?: number } = {},
 ): Promise<void> {
-  const limit = Math.max(1, Math.min(options.limit ?? AGENT_GC_SWEEP_LIMIT, AGENT_GC_SWEEP_LIMIT));
   const now = options.now ?? Date.now();
   const result = await env.DB.prepare(
     `SELECT candidates.chat_id, candidates.initial_id, chats.creator_id AS owner_id,
@@ -59,7 +58,7 @@ export async function sweepAgentGcCandidates(
      ORDER BY candidates.not_before, candidates.chat_id, candidates.subchat_index
      LIMIT ?`,
   )
-    .bind(now, limit)
+    .bind(now, AGENT_GC_SWEEP_LIMIT)
     .all<AgentGcCandidateRow>();
 
   await Promise.all(result.results.map((candidate) => destroyCandidateGeneration(env, candidate, now)));

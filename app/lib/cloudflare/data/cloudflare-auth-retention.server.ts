@@ -11,22 +11,10 @@ export const UNREFERENCED_CREDENTIAL_RETENTION_MS = 24 * 60 * 60 * 1000;
 /** The window of the per-address limit on sign-in emails (`EMAIL_SIGN_IN_LINKS_PER_HOUR`). */
 const EMAIL_SIGN_IN_TOKEN_RETENTION_MS = 60 * 60 * 1000;
 
-export async function pruneCloudflareAuthData(args: {
-  db: D1Database;
-  now?: number;
-  limit?: number;
-  rounds?: number;
-}): Promise<void> {
+export async function pruneCloudflareAuthData(args: { db: D1Database; now?: number }): Promise<void> {
   const now = args.now ?? Date.now();
-  const limit = args.limit ?? CLOUDFLARE_AUTH_RETENTION_SWEEP_LIMIT;
-  const rounds = args.rounds ?? CLOUDFLARE_AUTH_RETENTION_SWEEP_ROUNDS;
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > CLOUDFLARE_AUTH_RETENTION_SWEEP_LIMIT) {
-    throw new Error('Cloudflare auth retention sweep limit is invalid.');
-  }
-  if (!Number.isSafeInteger(rounds) || rounds < 1 || rounds > CLOUDFLARE_AUTH_RETENTION_SWEEP_ROUNDS) {
-    throw new Error('Cloudflare auth retention sweep rounds are invalid.');
-  }
-  for (let round = 0; round < rounds; round += 1) {
+  const limit = CLOUDFLARE_AUTH_RETENTION_SWEEP_LIMIT;
+  for (let round = 0; round < CLOUDFLARE_AUTH_RETENTION_SWEEP_ROUNDS; round += 1) {
     const results = await pruneBatch(args.db, now, limit);
     if (!results.some((result) => result.meta.changes >= limit)) {
       return;

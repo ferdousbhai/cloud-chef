@@ -87,14 +87,14 @@ describe('BuilderAgent garbage collection', () => {
     expect(scheduled).toEqual(['deleted']);
   });
 
-  it('caps concurrent Agent destruction work even when a caller asks for more', async () => {
+  it('caps concurrent Agent destruction work', async () => {
     const database = new AgentGcDatabase(
       Array.from({ length: AGENT_GC_SWEEP_LIMIT + 3 }, (_, index) =>
         candidate({ chat_id: `chat-row-${index}`, initial_id: `chat-${index}` }),
       ),
     );
 
-    await expect(sweepAgentGcCandidates(database.env, { now: 100, limit: 999 })).resolves.toBeUndefined();
+    await expect(sweepAgentGcCandidates(database.env, { now: 100 })).resolves.toBeUndefined();
     expect(database.scheduleDestroy).toHaveBeenCalledTimes(AGENT_GC_SWEEP_LIMIT);
     expect(database.candidates).toHaveLength(3);
   });
