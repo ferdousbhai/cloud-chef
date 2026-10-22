@@ -18,8 +18,6 @@ import {
   type CloudflareOrchestrator,
 } from './cloudflare-orchestrator';
 
-export { CloudflareOAuthError } from './cloudflare-orchestrator';
-
 const AUTHORIZE_URL = 'https://dash.cloudflare.com/oauth2/auth';
 const TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token';
 const USER_DETAILS_URL = 'https://api.cloudflare.com/client/v4/user';

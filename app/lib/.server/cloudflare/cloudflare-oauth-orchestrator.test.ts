@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { CORE_CLOUDFLARE_OAUTH_SCOPES } from './cloudflare-oauth-scope-manifest';
-import { CloudflareOAuthError, CloudflareOAuthOrchestrator } from './cloudflare-oauth-orchestrator';
+import { CloudflareOAuthOrchestrator } from './cloudflare-oauth-orchestrator';
+import { CloudflareOAuthError } from './cloudflare-orchestrator';
 
 const scopes = CORE_CLOUDFLARE_OAUTH_SCOPES.join(' ');
 const config = { clientId: 'client-1', clientSecret: 'client-secret', scopes };
