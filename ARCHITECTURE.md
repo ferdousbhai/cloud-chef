@@ -35,11 +35,15 @@ requires them. Cloudflare meters those resources to the user's account.
 
 Redeploying a workspace Worker resets its Durable Objects, which ends whatever they are running. A CloudChef
 release therefore never redeploys a runtime that is working. `USER_WORKSPACE_RUNTIME_SHA256` is the digest of the
-runtime bundle itself, so a control-plane-only release leaves every runtime alone. When a runtime is from an earlier
-release but serves the same connection generation and speaks the same `USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION`
+runtime bundle itself, so a control-plane-only release leaves every runtime alone.
+
+The control plane and a workspace runtime run the same build. Neither carries fallbacks for an older counterpart:
+a runtime from an earlier release is upgraded rather than spoken to in an older protocol. While one serves the same
+connection generation and speaks the same `USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION`
 (`user-workspace-runtime/src/protocol.ts`), the runtime-session request keeps issuing sessions for it and starts the
-provisioning Workflow in the background; the browser shows no preparation. A missing runtime, one for an earlier
-connection generation, or one speaking another protocol is prepared before a session is issued, as before. A
+provisioning Workflow in the background, so a running conversation is never cut off; the browser shows no
+preparation. A missing runtime, one for an earlier connection generation, or one speaking another protocol is
+prepared before a session is issued, and the browser shows the workspace being upgraded. A
 runtime of an earlier generation (a reconnect, whose redeploy rotates its secret) still waits for the upgrade window,
 asked with the secret derived for the generation it was deployed with; one that refuses that secret and the new
 one is redeployed at once, as a first workspace is. That wait is capped at 15 minutes from when the Workflow found
@@ -60,9 +64,9 @@ grants it only when no row is active. It then redeploys the Worker, configures i
 and waits for the new runtime to be ready, renewing the window on the new runtime (`PUT`) throughout, and releases
 it (`DELETE`) once the runtime serves; the rollout replaces running containers at once, so nothing may start before
 it completes. Each of these is its own Workflow step, so a retry never claims the window again or redeploys. Each
-call names the Workflow instance holding the window (a `cloudchef-upgrade-holder` header, which a runtime from
-before holders ignores): another upgrade's claim or renewal is refused while it is open, as for a busy workspace,
-and only its holder releases it; a window claimed without a holder may be renewed or released by any. The holder's
+call names the Workflow instance holding the window (a `cloudchef-upgrade-holder` header, which every call must
+carry): another upgrade's claim or renewal is refused while it is open, as for a busy workspace, and only its holder
+releases it. The holder's
 own claim of its window still open is granted whatever is busy, so a retried deploy step (which may find the Worker
 it already redeployed) keeps the window rather than letting it lapse under work waiting for it. Work
 that starts records itself first and then waits while any window is open, on the old Worker or the new one; a
@@ -87,12 +91,11 @@ per sweep. An upgrade still waiting is left alone; one that gave up waiting is r
 restarted on one sweep in four, so at most hourly, unless it failed after redeploying the Worker (which then serves
 without its container image or schedule), which every sweep restarts. First-time provisioning never goes through the sweep: it lists only
 runtimes that are already ready. A busy row a Durable Object never cleared stops counting after the turn wall clock
-plus 30 minutes. A runtime from before the window existed cannot answer, so it is upgraded only once the control
-plane has issued no session for it for that long, since a turn needs a session to start.
+plus 30 minutes.
 
-Because a deferred runtime keeps serving the current browser and control plane, runtime routes, callables, state, and
-control-plane calls must stay compatible with the previous runtime, and user-workspace D1 migrations, applied before
-the deferred redeploy, must be additive. A change the previous runtime cannot serve bumps the protocol version.
+Because a deferred runtime keeps serving the current browser and control plane until it is idle, a release whose
+browser or control-plane calls that runtime cannot serve bumps the protocol version, and user-workspace D1
+migrations, applied before the deferred redeploy, must be additive.
 
 ## Accounts, Organizations, and Contexts
 
@@ -425,18 +428,12 @@ A CloudChef app's account resources (its Worker and so its `workers.dev` address
 builds in, not to a revision: every deployment replaces the Worker's version in place and keeps the data. A subchat
 starts from its parent's files in a workspace of its own, so it publishes as an app of its own, with its own address
 and empty data; it never adopts its parent's resources, which the parent may still be deploying onto. A deployment
-id is only the record and idempotency key of one revision's publication. A plan names each resource as the latest
-succeeded deployment of the project that has it named it, and any other after the project's own identity
-(`projectResourceNaming`, `appResourceIdentity`). An app first deployed when each deployment named its own resources
-therefore adopts the one production last served, with its data and address; earlier ones stay until the chat is
-deleted. Only a succeeded deployment names a resource, and the executor, holding the project's one deployment slot,
-refuses a plan whose names differ from that answer before touching anything, so no deployment ever changes it. Those
-publications' ids are derived apart from the earlier ones, so a plan made before is never replayed; only recovery of an
-interrupted record looks up the earlier id, and settles it even once the revision has a plan under the current one;
-a record that recovery settles as succeeded, under either id, is the one it reports, since production serves it. Nor is a stored plan replayed once the revision would get another (the
-project's names, or the Cloudflare connection, changed since it was made): the revision is planned again under the
-next of its deterministic ids, and recovery terminalizes each of them. Each database keeps a receipt (name, digest, and, since
-receipts began keeping it, the SQL) of every migration it applied: a deployment applies only the ones it lacks, and
+id is only the record and idempotency key of one revision's publication. A plan names every resource after the project's own
+identity (`appResourceIdentity`), and must name both the production and the preview Worker. A stored plan is not
+replayed once the revision would get another (the Cloudflare connection, or the plan a release makes, changed since
+it was made): the revision is planned again under the next of its deterministic ids, and recovery terminalizes each
+of them, reporting the one it settled as succeeded, since production serves it. Each database keeps a receipt (name,
+digest, and the SQL, which receipts written before it kept do not have) of every migration it applied: a deployment applies only the ones it lacks, and
 refuses before applying any when one it applied has changed, telling the model to make the change in a new migration
 and restore the applied one, quoting its applied SQL when the receipt has it. Generated-app migrations, the template's
 included, are therefore append-only.
