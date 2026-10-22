@@ -14,7 +14,6 @@ import {
   DEPLOYMENT_PREVIEW_URLS_ENABLED,
   DEPLOYMENT_SECURITY_CLEANUP_CRON,
 } from './deployment-runtime-policy';
-import { workspaceImageAdmissionError } from './workspace-image-reference';
 import {
   PROJECT_WORKSPACE_CONTAINER_DIMENSIONS,
   PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE,
@@ -1249,10 +1248,6 @@ export class UserCloudflareAccountApi {
     requireWorkerName(args.applicationName);
     if (!/^[0-9a-f-]{32,64}$/i.test(args.namespaceId)) {
       throw new CloudflareAccountApiError('The workspace Sandbox namespace is invalid.');
-    }
-    const inadmissibleImage = workspaceImageAdmissionError(args.image, this.accountId);
-    if (inadmissibleImage) {
-      throw new CloudflareAccountApiError(inadmissibleImage);
     }
     const applications = await this.callContainer<unknown>('/applications', {
       method: 'GET',
