@@ -6,6 +6,7 @@ import {
   assembleCompactedContext,
   compactContext,
   compactPiContext,
+  estimatePiContextTokens,
   MAX_HANDOFF_CHARACTERS,
 } from './context-compaction';
 
@@ -118,11 +119,11 @@ describe('handoff context windows', () => {
     ];
     const original = structuredClone(messages);
     const next = compactPiContext({ messages, handoff: 'Next: validate revision 42' });
-    expect(next?.messages).toHaveLength(1);
-    expect(JSON.stringify(next?.messages)).toContain('Revision 42 saved');
-    expect(JSON.stringify(next?.messages)).toContain('Next: validate revision 42');
-    expect(next?.tokensAfter).toBeLessThan(6000);
-    expect(next?.tokensBefore).toBeGreaterThan(100000);
+    expect(next).toHaveLength(1);
+    expect(JSON.stringify(next)).toContain('Revision 42 saved');
+    expect(JSON.stringify(next)).toContain('Next: validate revision 42');
+    expect(estimatePiContextTokens(next ?? [])).toBeLessThan(6000);
+    expect(estimatePiContextTokens(messages)).toBeGreaterThan(100000);
     expect(messages).toEqual(original);
   });
 
@@ -133,10 +134,10 @@ describe('handoff context windows', () => {
     ];
     const first = compactPiContext({ messages: [...originalInputs, toolCall()] });
     const second = compactPiContext({
-      messages: [...(first?.messages ?? []), toolCall()],
+      messages: [...(first ?? []), toolCall()],
       previousInputs: originalInputs,
     });
-    expect(JSON.stringify(second?.messages)).toContain('Correction: store tasks only in the browser');
+    expect(JSON.stringify(second)).toContain('Correction: store tasks only in the browser');
   });
 
   it('bounds recovery records for oversized user inputs and tool batches', () => {
@@ -153,8 +154,8 @@ describe('handoff context windows', () => {
       })),
     ];
     const next = compactPiContext({ messages });
-    expect(JSON.stringify(next?.messages).length).toBeLessThan(25000);
-    expect(JSON.stringify(next?.messages)).toContain('Truncated');
+    expect(JSON.stringify(next).length).toBeLessThan(25000);
+    expect(JSON.stringify(next)).toContain('Truncated');
   });
 
   it('does not discard an initial prompt to hide a provider rejection', () => {

@@ -5,6 +5,8 @@ import { getToolInvocation, messageText, type CloudChefMessage } from 'cloudchef
 /** Best-effort checkpoint reminder distance from the automatic rollover line. */
 export const CONTEXT_HANDOFF_REMINDER_TOKENS = 20_000;
 export const MAX_HANDOFF_CHARACTERS = 20_000;
+/** The longest handoff the model may author for `new_context`, and how much of one a rollover carries. */
+export const MAX_AUTHORED_HANDOFF_CHARACTERS = 6_000;
 const AUTOMATIC_HANDOFF = 'Automatic context rollover recovery record.';
 const HANDOFF_PREFIX = 'Earlier conversation is preserved in history. Continue from this checkpoint:\n\n<summary>\n';
 const HANDOFF_SUFFIX = '\n</summary>';
@@ -104,9 +106,7 @@ export function compactPiContext(args: {
   /** This turn's workspace context, which only the live prompt carried: the durable copy lacks it. */
   turnContext?: string;
   handoff?: string;
-  signal?: AbortSignal;
-}): { messages: AgentMessage[]; tokensBefore: number; tokensAfter: number } | null {
-  args.signal?.throwIfAborted();
+}): AgentMessage[] | null {
   // An initial prompt alone has no completed work to hand off. Keep the real provider error.
   const conversation = args.messages.filter((message) => message.role !== 'system');
   if (
@@ -143,12 +143,7 @@ export function compactPiContext(args: {
   };
   // The fresh window keeps the current prompt and tool declarations, folded into one system message.
   const systemMessage = getCurrentSystemMessage(args.messages);
-  const messages: AgentMessage[] = systemMessage ? [systemMessage, checkpoint] : [checkpoint];
-  return {
-    messages,
-    tokensBefore: estimatePiContextTokens(args.messages),
-    tokensAfter: estimatePiContextTokens(messages),
-  };
+  return systemMessage ? [systemMessage, checkpoint] : [checkpoint];
 }
 
 function recoveryRecord(
@@ -187,7 +182,7 @@ function carryHandoff(checkpoint?: string): string | undefined {
     return undefined;
   }
   if (!checkpoint.startsWith(`${AUTOMATIC_HANDOFF}\n`)) {
-    return boundedText(checkpoint, 6_000);
+    return boundedText(checkpoint, MAX_AUTHORED_HANDOFF_CHARACTERS);
   }
   try {
     const record: unknown = JSON.parse(checkpoint.slice(AUTOMATIC_HANDOFF.length + 1));

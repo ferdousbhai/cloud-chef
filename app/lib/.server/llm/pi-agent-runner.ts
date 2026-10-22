@@ -538,7 +538,7 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
     checkpointReminderSent = false;
     runtimeContextCompacted = true;
     compaction.requestDurableCompaction();
-    return { ...source, messages: compacted.messages };
+    return { ...source, messages: compacted };
   };
 
   void (async () => {

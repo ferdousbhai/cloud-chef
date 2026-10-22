@@ -1,10 +1,9 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { z } from 'zod';
-import type { HistoryEntry } from './context-compaction';
+import { MAX_AUTHORED_HANDOFF_CHARACTERS, type HistoryEntry } from './context-compaction';
 
-const MAX_HANDOFF_CHARS = 6_000;
 const PAGE_CHARS = 8_000;
-const newContextInput = z.object({ handoff: z.string().trim().max(MAX_HANDOFF_CHARS).optional() });
+const newContextInput = z.object({ handoff: z.string().trim().max(MAX_AUTHORED_HANDOFF_CHARACTERS).optional() });
 const historyInput = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('search'),
@@ -30,7 +29,7 @@ export function createContextWindowTools(args: {
       execute: async (_id, input, signal?: AbortSignal) => {
         signal?.throwIfAborted();
         const { handoff } = newContextInput.parse(input);
-        if (handoff && JSON.stringify(handoff).length > MAX_HANDOFF_CHARS + 2) {
+        if (handoff && JSON.stringify(handoff).length > MAX_AUTHORED_HANDOFF_CHARACTERS + 2) {
           throw new Error(
             'Handoff is too large after encoding. Save longer notes to a project file and pass a shorter handoff.',
           );
