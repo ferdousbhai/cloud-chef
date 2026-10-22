@@ -16,5 +16,3 @@ export async function deleteTeamWorkspace(env: Env, orgId: string, userId: strin
   const accountApi = await openConnectionAccountApi(env, connection);
   await accountApi.deleteWorkspaceRuntime(await workspaceRuntimeNames(connection, userId));
 }
-
-export type DeleteTeamWorkspace = typeof deleteTeamWorkspace;

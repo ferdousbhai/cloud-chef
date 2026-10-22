@@ -14,24 +14,72 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** An Env that can open the credential vault: the database, the encryption key, and the OAuth client. */
+function vaultEnv(db: D1Database): Env {
+  return envWith({
+    DB: db,
+    CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: ENCRYPTION_KEY,
+    CLOUDFLARE_OAUTH_CLIENT_ID: 'client',
+    CLOUDFLARE_OAUTH_CLIENT_SECRET: 'secret',
+  });
+}
+
+/**
+ * Cloudflare as an erasure reaches it, in place of the global fetch: each team account's API, where a
+ * workspace's Worker is deleted (`onDelete` sees each, by account) and nothing else is found, and the
+ * OAuth revocation endpoint, whose request bodies are `revoked`. Every call into an account listed in
+ * `unavailable` fails.
+ */
+function stubCloudflare({
+  unavailable = [],
+  onDelete = () => undefined,
+}: { unavailable?: string[]; onDelete?: (accountId: string) => void } = {}) {
+  const deletedIn: string[] = [];
+  const revoked: string[] = [];
+  const request = vi.fn<typeof fetch>(async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.href === 'https://dash.cloudflare.com/oauth2/revoke') {
+      revoked.push(String(init?.body));
+      return new Response(null, { status: 200 });
+    }
+    const accountId = /\/accounts\/([^/]+)\//.exec(url.pathname)?.[1] ?? '';
+    if (unavailable.includes(accountId)) {
+      return Response.json(
+        { success: false, errors: [{ code: 7000, message: 'Cloudflare is unavailable' }] },
+        { status: 400 },
+      );
+    }
+    if (init?.method === 'DELETE' && url.pathname.includes('/workers/scripts/')) {
+      onDelete(accountId);
+      deletedIn.push(accountId);
+    }
+    return Response.json({ success: true, result: [], result_info: { total_pages: 1 } });
+  });
+  vi.stubGlobal('fetch', request);
+  return { request, deletedIn, revoked };
+}
+
+/** Stores an unexpired OAuth grant under `refreshToken` and returns its handle. */
+function storeGrant(env: Env, refreshToken: string, accessToken = 'access'): Promise<string> {
+  return D1CloudflareCredentialVault.fromEnv(env).storeOAuthCredential({
+    accessToken,
+    refreshToken,
+    expiresAt: Date.now() + 3_600_000,
+  });
+}
+
 describe('control-plane account erasure', () => {
   it('erases the account and revokes its Cloudflare grant', async () => {
     const { database, db } = controlPlaneDatabase();
-    const revoke = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
-    vi.stubGlobal('fetch', revoke);
-    const vault = new D1CloudflareCredentialVault(db, ENCRYPTION_KEY, { clientId: 'client', clientSecret: 'secret' });
-    const handle = await vault.storeOAuthCredential({
-      accessToken: 'access',
-      refreshToken: 'refresh',
-      expiresAt: Date.now() + 3_600_000,
-    });
-    seedAccount(database, handle);
+    const env = vaultEnv(db);
+    const cloudflare = stubCloudflare();
+    seedAccount(database, await storeGrant(env, 'refresh'));
 
-    await expect(eraseControlPlaneAccount({ env: { DB: db } as Env, userId: 'user-1', vault })).resolves.toEqual({
+    await expect(eraseControlPlaneAccount({ env, userId: 'user-1' })).resolves.toEqual({
       cloudflareAuthorizationRevoked: true,
       workspacesLeftIn: [],
     });
-    expect(revoke).toHaveBeenCalledOnce();
+    expect(cloudflare.revoked).toHaveLength(1);
     expect(rowCount(database, 'user')).toBe(0);
     expect(rowCount(database, 'cloudflare_credentials')).toBe(0);
   });
@@ -69,19 +117,10 @@ describe('control-plane account erasure', () => {
 
   it("never revokes an organization's grant while others still build in it, but takes a sole member's organization along", async () => {
     const { database, db } = controlPlaneDatabase();
-    const revoke = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
-    vi.stubGlobal('fetch', revoke);
-    const vault = new D1CloudflareCredentialVault(db, ENCRYPTION_KEY, { clientId: 'client', clientSecret: 'secret' });
-    const shared = await vault.storeOAuthCredential({
-      accessToken: 'a',
-      refreshToken: 'r',
-      expiresAt: Date.now() + 3_600_000,
-    });
-    const solo = await vault.storeOAuthCredential({
-      accessToken: 'b',
-      refreshToken: 's',
-      expiresAt: Date.now() + 3_600_000,
-    });
+    const env = vaultEnv(db);
+    const cloudflare = stubCloudflare();
+    const shared = await storeGrant(env, 'r', 'a');
+    const solo = await storeGrant(env, 's', 'b');
     seedAccount(database, null, 'user-1');
     seedAccount(database, null, 'user-2');
     database.exec(`
@@ -102,9 +141,9 @@ describe('control-plane account erasure', () => {
       )
       .run('solo-connection', 'solo', solo);
 
-    await eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'user-1', vault });
+    await eraseControlPlaneAccount({ env, userId: 'user-1' });
 
-    expect(revoke).toHaveBeenCalledOnce();
+    expect(cloudflare.revoked).toHaveLength(1);
     expect(database.prepare('SELECT id, status FROM cloudflare_connections WHERE org_id IS NOT NULL').all()).toEqual([
       { id: 'shared-connection', status: 'active' },
     ]);
@@ -188,11 +227,16 @@ describe('control-plane account erasure', () => {
         ('acme', 'user-1', 'member', 1), ('acme', 'admin', 'admin', 1),
         ('side', 'user-1', 'member', 1), ('side', 'admin', 'admin', 1),
         ('idle', 'user-1', 'member', 1), ('idle', 'admin', 'admin', 1);
-      INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at) VALUES
-        ('acme-connection', 'acme', 'acme-account', 'active', 1, 1),
-        ('side-connection', 'side', 'side-account', 'active', 1, 1),
-        ('idle-connection', 'idle', 'idle-account', 'active', 1, 1);
     `);
+    const env = vaultEnv(db);
+    for (const orgId of ['acme', 'side', 'idle']) {
+      database
+        .prepare(
+          `INSERT INTO cloudflare_connections (id, org_id, account_id, status, credential_handle, created_at, updated_at)
+           VALUES (?, ?, ?, 'active', ?, 1, 1)`,
+        )
+        .run(`${orgId}-connection`, orgId, `${orgId}-account`, await storeGrant(env, orgId));
+    }
     for (const connectionId of ['acme-connection', 'side-connection']) {
       database
         .prepare(
@@ -203,28 +247,25 @@ describe('control-plane account erasure', () => {
         )
         .run(connectionId);
     }
-    const deleted: string[] = [];
-
-    const erasure = await eraseControlPlaneAccount({
-      env: envWith({ DB: db }),
-      userId: 'user-1',
-      deleteWorkspace: async (_env, orgId, userId) => {
+    const cloudflare = stubCloudflare({
+      unavailable: ['side-account'],
+      onDelete: (accountId) => {
         // Still in the team, with the team's connection in place, when it's asked: leaving comes last.
         expect(
-          database.prepare('SELECT COUNT(*) AS count FROM organization_members WHERE user_id = ?').get(userId),
+          database.prepare("SELECT COUNT(*) AS count FROM organization_members WHERE user_id = 'user-1'").get(),
         ).toEqual({ count: 3 });
-        expect(database.prepare('SELECT status FROM cloudflare_connections WHERE org_id = ?').get(orgId)).toEqual({
-          status: 'active',
-        });
-        if (orgId === 'side') {
-          throw new Error('Cloudflare is unavailable');
-        }
-        deleted.push(`${orgId}:${userId}`);
+        expect(
+          database.prepare('SELECT status FROM cloudflare_connections WHERE account_id = ?').get(accountId),
+        ).toEqual({ status: 'active' });
       },
     });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const erasure = await eraseControlPlaneAccount({ env, userId: 'user-1' });
+    warn.mockRestore();
 
     // Idle has no workspace of theirs to delete.
-    expect(deleted).toEqual(['acme:user-1']);
+    expect(cloudflare.deletedIn).toEqual(['acme-account']);
     expect(erasure.workspacesLeftIn).toEqual(['Side']);
     expect(
       database.prepare("SELECT COUNT(*) AS count FROM user_computer_runtimes WHERE user_id = 'user-1'").get(),
@@ -252,19 +293,13 @@ describe('control-plane account erasure', () => {
          last_error, created_at, updated_at)
         VALUES ('user-1', 'acme-connection', 1, 'worker', 'https://runtime.example', 'sha', 'ready', NULL, 1, 1);
     `);
-    const deleted: string[] = [];
+    const cloudflare = stubCloudflare();
 
-    await expect(
-      eraseControlPlaneAccount({
-        env: envWith({ DB: db }),
-        userId: 'user-1',
-        deleteWorkspace: async (_env, orgId) => {
-          deleted.push(orgId);
-        },
-      }),
-    ).rejects.toBeInstanceOf(OrganizationAdminRequiredError);
+    await expect(eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'user-1' })).rejects.toBeInstanceOf(
+      OrganizationAdminRequiredError,
+    );
 
-    expect(deleted).toEqual([]);
+    expect(cloudflare.request).not.toHaveBeenCalled();
     expect(rowCount(database, 'organization_members')).toBe(2);
   });
 
@@ -284,17 +319,11 @@ describe('control-plane account erasure', () => {
     for (const connectionId of ['acme-connection', 'solo-connection']) {
       insertRuntime(database, 'user-1', connectionId);
     }
-    const deleted: string[] = [];
+    const cloudflare = stubCloudflare();
 
-    const erasure = await eraseControlPlaneAccount({
-      env: envWith({ DB: db }),
-      userId: 'user-1',
-      deleteWorkspace: async (_env, orgId) => {
-        deleted.push(orgId);
-      },
-    });
+    const erasure = await eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'user-1' });
 
-    expect(deleted).toEqual([]);
+    expect(cloudflare.deletedIn).toEqual([]);
     expect(erasure.workspacesLeftIn).toEqual(['Acme']);
   });
 
@@ -334,11 +363,9 @@ describe('control-plane account erasure', () => {
   ])('an erasure interrupted %s', (_stage, interruptedStatement, retriedWorkspaces) => {
     it('is finished by a retry, which reports truthfully', async () => {
       const { database, db } = controlPlaneDatabase();
-      const revoke = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
-      vi.stubGlobal('fetch', revoke);
-      const vault = new D1CloudflareCredentialVault(db, ENCRYPTION_KEY, { clientId: 'client', clientSecret: 'secret' });
-      const store = (refreshToken: string) =>
-        vault.storeOAuthCredential({ accessToken: 'a', refreshToken, expiresAt: Date.now() + 3_600_000 });
+      const env = vaultEnv(db);
+      const cloudflare = stubCloudflare();
+      const store = (refreshToken: string) => storeGrant(env, refreshToken, 'a');
       const [own, acme, solo] = [await store('own'), await store('acme'), await store('solo')];
       seedAccount(database, own, 'user-1');
       seedAccount(database, null, 'admin');
@@ -354,32 +381,20 @@ describe('control-plane account erasure', () => {
         database
           .prepare(
             `INSERT INTO cloudflare_connections (id, org_id, account_id, status, credential_handle, created_at, updated_at)
-             VALUES (?, ?, 'team-account', 'active', ?, 1, 1)`,
+             VALUES (?, ?, ?, 'active', ?, 1, 1)`,
           )
-          .run(`${orgId}-connection`, orgId, handle);
+          .run(`${orgId}-connection`, orgId, `${orgId}-account`, handle);
         insertRuntime(database, 'user-1', `${orgId}-connection`);
       }
 
       await expect(
-        eraseControlPlaneAccount({
-          env: envWith({ DB: interruptedAt(db, interruptedStatement) }),
-          userId: 'user-1',
-          vault,
-          deleteWorkspace: async () => undefined,
-        }),
+        eraseControlPlaneAccount({ env: { ...env, DB: interruptedAt(db, interruptedStatement) }, userId: 'user-1' }),
       ).rejects.toThrow('interrupted');
-      const deleted: string[] = [];
-      const erasure = await eraseControlPlaneAccount({
-        env: envWith({ DB: db }),
-        userId: 'user-1',
-        vault,
-        deleteWorkspace: async (_env, orgId) => {
-          deleted.push(orgId);
-        },
-      });
+      cloudflare.deletedIn.length = 0;
+      const erasure = await eraseControlPlaneAccount({ env, userId: 'user-1' });
 
       expect(erasure).toEqual({ cloudflareAuthorizationRevoked: true, workspacesLeftIn: [] });
-      expect(deleted).toEqual(retriedWorkspaces);
+      expect(cloudflare.deletedIn).toEqual(retriedWorkspaces.map((orgId) => `${orgId}-account`));
       expect(database.prepare('SELECT id FROM "user"').all()).toEqual([{ id: 'admin' }]);
       expect(database.prepare('SELECT id FROM organizations').all()).toEqual([{ id: 'acme' }]);
       expect(database.prepare('SELECT org_id, user_id FROM organization_members').all()).toEqual([
@@ -387,7 +402,7 @@ describe('control-plane account erasure', () => {
       ]);
       expect(database.prepare('SELECT handle FROM cloudflare_credentials').all()).toEqual([{ handle: acme }]);
       expect(rowCount(database, 'user_computer_runtimes')).toBe(1);
-      const revokedTokens = revoke.mock.calls.map(([, init]) => String(init?.body)).join(' ');
+      const revokedTokens = cloudflare.revoked.join(' ');
       expect(revokedTokens).toContain('token=own');
       expect(revokedTokens).toContain('token=solo');
       expect(revokedTokens).not.toContain('token=acme');

@@ -1,5 +1,5 @@
 import { D1CloudflareCredentialVault } from './cloudflare-credential-vault';
-import { deleteTeamWorkspace, type DeleteTeamWorkspace } from './team-workspace';
+import { deleteTeamWorkspace } from './team-workspace';
 
 /**
  * Erase operator-held account data and revoke the OAuth grant. Resources deployed into the user's
@@ -17,8 +17,6 @@ import { deleteTeamWorkspace, type DeleteTeamWorkspace } from './team-workspace'
 export async function eraseControlPlaneAccount(args: {
   env: Env;
   userId: string;
-  vault?: D1CloudflareCredentialVault;
-  deleteWorkspace?: DeleteTeamWorkspace;
 }): Promise<{ cloudflareAuthorizationRevoked: boolean; workspacesLeftIn: string[] }> {
   const db = args.env.DB;
   // Project resource cleanup runs in the user workspace and needs the Cloudflare authorization
@@ -38,11 +36,10 @@ export async function eraseControlPlaneAccount(args: {
     args.env,
     args.userId,
     await teamsWithWorkspaces(db, args.userId),
-    args.deleteWorkspace ?? deleteTeamWorkspace,
   );
   let vault: D1CloudflareCredentialVault | null | undefined;
   const revokeGrant = (handle: string) => {
-    vault = vault === undefined ? (args.vault ?? safeCredentialVault(args.env)) : vault;
+    vault = vault === undefined ? safeCredentialVault(args.env) : vault;
     return vault ? vault.revokeOAuthCredential(handle) : Promise.resolve(false);
   };
   const revocations: boolean[] = [];
@@ -172,7 +169,6 @@ async function deleteTeamWorkspaces(
   env: Env,
   userId: string,
   teams: { id: string; name: string; reachable: boolean }[],
-  deleteWorkspace: DeleteTeamWorkspace,
 ): Promise<string[]> {
   const left: string[] = [];
   for (const team of teams) {
@@ -181,7 +177,7 @@ async function deleteTeamWorkspaces(
       continue;
     }
     try {
-      await deleteWorkspace(env, team.id, userId);
+      await deleteTeamWorkspace(env, team.id, userId);
     } catch {
       console.warn('Unable to delete a team workspace during account erasure');
       left.push(team.name);
