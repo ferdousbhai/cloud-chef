@@ -1,119 +1,64 @@
-import { describe, expect, it, vi } from 'vitest';
-import { initializeBuilderAgentSchema, runBuilderAgentSchemaMigrations } from './builder-agent-schema';
+import { DatabaseSync } from 'node:sqlite';
+import { describe, expect, it } from 'vitest';
+import { initializeBuilderAgentSchema } from './builder-agent-schema';
 
-type MigrationRow = { version: number; name: string };
-
-class TestSchemaStorage {
-  readonly applied: MigrationRow[] = [];
-  readonly statements: string[] = [];
-  transactionCount = 0;
-
-  readonly sql = {
-    exec: <T = Record<string, unknown>>(query: string, ...bindings: unknown[]): Iterable<T> => {
-      const normalized = query.replace(/\s+/g, ' ').trim();
-      this.statements.push(normalized);
-      if (normalized.startsWith('SELECT version, name')) {
-        return [...this.applied] as T[];
-      }
-      if (normalized.startsWith('INSERT INTO _ghostbuild_builder_schema_migrations')) {
-        this.applied.push({ version: Number(bindings[0]), name: String(bindings[1]) });
-      }
-      return [];
+/** A Durable Object context over SQLite, whose concurrency gate runs its callback at once. */
+function agentContext(database: DatabaseSync) {
+  const gates: Promise<void>[] = [];
+  const ctx = {
+    storage: {
+      sql: {
+        exec(query: string) {
+          database.exec(query);
+        },
+      },
+    },
+    blockConcurrencyWhile(callback: () => Promise<void>) {
+      gates.push(callback());
     },
   };
-
-  transactionSync<T>(closure: () => T): T {
-    this.transactionCount += 1;
-    return closure();
-  }
+  // SAFETY: the schema uses only `blockConcurrencyWhile` and `storage.sql.exec` without bindings, which this implements.
+  return { ctx: ctx as never, gates };
 }
 
-describe('BuilderAgent schema migrations', () => {
-  it('applies all migrations in version order and records them atomically', () => {
-    const storage = new TestSchemaStorage();
+function schemaObjects(database: DatabaseSync): string[] {
+  return database
+    .prepare(`SELECT name FROM sqlite_master WHERE name LIKE 'builder_%' ORDER BY name`)
+    .all()
+    .map((row) => String(row.name));
+}
 
-    runBuilderAgentSchemaMigrations(storage as never);
+describe('BuilderAgent schema', () => {
+  it("creates the agent's tables behind the constructor's concurrency gate", async () => {
+    const database = new DatabaseSync(':memory:');
+    const { ctx, gates } = agentContext(database);
 
-    expect(storage.applied).toEqual([
-      { version: 1, name: 'create_builder_turns' },
-      { version: 2, name: 'create_builder_context_state' },
-      { version: 3, name: 'create_builder_tool_replays' },
-      { version: 4, name: 'remove_builder_tool_replays' },
-      { version: 5, name: 'persist_builder_identity' },
-      { version: 6, name: 'remove_builder_turns' },
-      { version: 7, name: 'create_cloudflare_execution_approvals' },
-      { version: 8, name: 'clear_cloudflare_mcp_execute_proposals' },
+    initializeBuilderAgentSchema(ctx);
+
+    expect(gates).toHaveLength(1);
+    await Promise.all(gates);
+    expect(schemaObjects(database)).toEqual([
+      'builder_cloudflare_executions',
+      'builder_cloudflare_executions_status_expiry',
+      'builder_context_state',
+      'builder_identity',
     ]);
-    expect(storage.transactionCount).toBe(8);
-    expect(storage.statements.some((statement) => statement.includes('builder_turns'))).toBe(false);
-    expect(
-      storage.statements.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS builder_context_state')),
-    ).toBe(true);
-    expect(storage.statements.some((statement) => statement.includes('builder_workspace_files'))).toBe(false);
-    expect(storage.statements.some((statement) => statement.includes('builder_preview_jobs'))).toBe(false);
-    expect(
-      storage.statements.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS builder_identity')),
-    ).toBe(true);
-    expect(
-      storage.statements.some((statement) =>
-        statement.includes('CREATE TABLE IF NOT EXISTS builder_cloudflare_executions'),
-      ),
-    ).toBe(true);
   });
 
-  it('is idempotent after the current schema has been recorded', () => {
-    const storage = new TestSchemaStorage();
-    runBuilderAgentSchemaMigrations(storage as never);
+  it('starts an agent created under the versioned schema, keeping what it holds', async () => {
+    const database = new DatabaseSync(':memory:');
+    initializeBuilderAgentSchema(agentContext(database).ctx);
+    database.exec(`
+      CREATE TABLE _ghostbuild_builder_schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL);
+      INSERT INTO _ghostbuild_builder_schema_migrations (version, name) VALUES (8, 'clear_cloudflare_mcp_execute_proposals');
+      INSERT INTO builder_identity (id, owner_id, user_id, agent_name, chat_initial_id, generation, subchat_index, created_at)
+      VALUES ('active', 'owner', 'owner', 'agent', 'chat', 0, 0, 'now');
+    `);
 
-    storage.statements.length = 0;
-    storage.transactionCount = 0;
-    runBuilderAgentSchemaMigrations(storage as never);
+    const { ctx, gates } = agentContext(database);
+    initializeBuilderAgentSchema(ctx);
+    await Promise.all(gates);
 
-    expect(storage.transactionCount).toBe(0);
-    expect(storage.statements).toHaveLength(2);
-  });
-
-  it('advances an existing replay-table schema without rewriting published history', () => {
-    const storage = new TestSchemaStorage();
-    storage.applied.push(
-      { version: 1, name: 'create_builder_turns' },
-      { version: 2, name: 'create_builder_context_state' },
-      { version: 3, name: 'create_builder_tool_replays' },
-    );
-
-    runBuilderAgentSchemaMigrations(storage as never);
-
-    expect(storage.applied.slice(-5)).toEqual([
-      { version: 4, name: 'remove_builder_tool_replays' },
-      { version: 5, name: 'persist_builder_identity' },
-      { version: 6, name: 'remove_builder_turns' },
-      { version: 7, name: 'create_cloudflare_execution_approvals' },
-      { version: 8, name: 'clear_cloudflare_mcp_execute_proposals' },
-    ]);
-    expect(storage.transactionCount).toBe(5);
-  });
-
-  it('fails closed when a deployed database has an unknown migration history', () => {
-    const storage = new TestSchemaStorage();
-    storage.applied.push({ version: 1, name: 'unexpected_migration' });
-
-    expect(() => runBuilderAgentSchemaMigrations(storage as never)).toThrow(
-      'Unsupported BuilderAgent schema migration history at version 1 (unexpected_migration).',
-    );
-    expect(storage.transactionCount).toBe(0);
-  });
-
-  it('registers migration work with the constructor concurrency gate', async () => {
-    const storage = new TestSchemaStorage();
-    let initialization: Promise<unknown> | undefined;
-    const blockConcurrencyWhile = vi.fn((callback: () => Promise<unknown>) => {
-      initialization = callback();
-    });
-
-    initializeBuilderAgentSchema({ storage: storage as never, blockConcurrencyWhile } as never);
-
-    expect(blockConcurrencyWhile).toHaveBeenCalledOnce();
-    await expect(initialization).resolves.toBeUndefined();
-    expect(storage.applied).toHaveLength(8);
+    expect(database.prepare('SELECT user_id FROM builder_identity').all()).toEqual([{ user_id: 'owner' }]);
   });
 });
