@@ -5,7 +5,6 @@ import { useStore } from '@nanostores/react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { BuilderAgent, BuilderAgentState, BuilderSteeringInput } from '~/agents/builder-agent';
 import { workbenchStore } from '~/lib/stores/workbench.client';
-import { isAuthenticated } from '~/lib/stores/userId';
 import { captureMessage } from '~/lib/telemetry.client';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import type { UIMessage } from 'ai';
@@ -187,9 +186,6 @@ export function useBuilderAgentChat(args: {
     syncMessagesToServer: false,
     throttle: 100,
     prepareSendMessagesRequest: ({ body }) => {
-      if (!isAuthenticated()) {
-        throw new Error('Not authenticated');
-      }
       return {
         body: {
           ...body,
