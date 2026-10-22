@@ -568,18 +568,27 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
   }
 
   /**
-   * Retries `attempt` until it reports the operation settled or the overall deadline passes.
-   * A non-retryable failure and an exhausted deadline both surface as an indeterminate
-   * settlement, so the caller never mistakes an unknown outcome for a settled one.
+   * Retries `attempt` until it returns the settled outcome (anything but undefined) or the overall
+   * deadline passes. A non-retryable failure and an exhausted deadline both surface as an indeterminate
+   * settlement, so the caller never mistakes an unknown outcome for a settled one; a stop ends the wait
+   * with its own reason.
    */
-  async #settleWithRetries(description: string, attempt: (deadline: number) => Promise<boolean>): Promise<void> {
+  async #settleWithRetries<T>(
+    description: string,
+    attempt: (deadline: number) => Promise<T | undefined>,
+    abortSignal?: AbortSignal,
+  ): Promise<T> {
     const deadline = Date.now() + SETTLEMENT_OVERALL_TIMEOUT_MS;
     while (Date.now() < deadline) {
       try {
-        if (await attempt(deadline)) {
-          return;
+        const settled = await raceAgainstAbort(attempt(deadline), abortSignal);
+        if (settled !== undefined) {
+          return settled;
         }
       } catch (error) {
+        if (abortSignal?.aborted) {
+          throw error;
+        }
         if (!isRetryableSettlementError(error)) {
           throw indeterminateSettlementError(description, error);
         }
@@ -587,7 +596,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       if (Date.now() >= deadline) {
         break;
       }
-      await delay(Math.min(SETTLEMENT_RETRY_DELAY_MS, deadline - Date.now()));
+      await raceAgainstAbort(delay(Math.min(SETTLEMENT_RETRY_DELAY_MS, deadline - Date.now())), abortSignal);
     }
     throw indeterminateSettlementError(description, new SettlementDeadlineError());
   }
@@ -630,7 +639,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
         deadline,
         description,
       );
-      return result.status === 'settled';
+      return result.status === 'settled' || undefined;
     });
   }
 
@@ -702,7 +711,23 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     }
     if (started.status === 'active') {
       try {
-        started = await this.#pollActiveToolReplay(toolCallId, toolName, argsJson, abortSignal);
+        // Another execution of this call is running: wait for its outcome rather than run it again.
+        const description = 'active workspace tool replay observation';
+        started = await this.#settleWithRetries(
+          description,
+          async (deadline) => {
+            const replay = await this.#settlementRpcAttempt(
+              () => this.#stub().then((current) => beginToolOperation(current, { toolCallId, toolName, argsJson })),
+              deadline,
+              description,
+            );
+            if (replay.status === 'execute') {
+              throw new Error('An active workspace tool replay unexpectedly lost its durable journal row.');
+            }
+            return replay.status === 'active' ? undefined : replay;
+          },
+          abortSignal,
+        );
       } catch (error) {
         if (abortSignal?.aborted) {
           await this.#cancelStartedToolOperation(
@@ -822,40 +847,6 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       : terminalize;
   }
 
-  async #pollActiveToolReplay(
-    toolCallId: string,
-    toolName: string,
-    argsJson: string,
-    abortSignal?: AbortSignal,
-  ): Promise<Exclude<ToolOperationStartResult, { status: 'active' }>> {
-    const deadline = Date.now() + ACTIVE_REPLAY_OVERALL_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      await raceAgainstAbort(delay(Math.min(ACTIVE_REPLAY_RETRY_DELAY_MS, deadline - Date.now())), abortSignal);
-      try {
-        const replay = await raceAgainstAbort(
-          this.#settlementRpcAttempt(
-            () => this.#stub().then((stub) => beginToolOperation(stub, { toolCallId, toolName, argsJson })),
-            deadline,
-            'active workspace tool replay observation',
-          ),
-          abortSignal,
-        );
-        if (replay.status === 'active') {
-          continue;
-        }
-        if (replay.status === 'execute') {
-          throw new Error('An active workspace tool replay unexpectedly lost its durable journal row.');
-        }
-        return replay;
-      } catch (error) {
-        if (!isRetryableSettlementError(error)) {
-          throw indeterminateSettlementError('active workspace tool replay observation', error);
-        }
-      }
-    }
-    throw indeterminateSettlementError('active workspace tool replay observation', new SettlementDeadlineError());
-  }
-
   #setState(value: BuilderWorkspaceState): BuilderWorkspaceState {
     this.#state = value;
     return value;
@@ -950,8 +941,6 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
 }
 
 const COMMAND_UPDATE_TAIL_CHARACTERS = 64 * 1024;
-const ACTIVE_REPLAY_RETRY_DELAY_MS = 1_000;
-const ACTIVE_REPLAY_OVERALL_TIMEOUT_MS = 30_000;
 const SETTLEMENT_RPC_ATTEMPT_TIMEOUT_MS = 5_000;
 const SETTLEMENT_OVERALL_TIMEOUT_MS = 30_000;
 const SETTLEMENT_RETRY_DELAY_MS = 1_000;
