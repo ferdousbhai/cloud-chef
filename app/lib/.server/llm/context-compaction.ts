@@ -9,7 +9,7 @@ const AUTOMATIC_HANDOFF = 'Automatic context rollover recovery record.';
 const HANDOFF_PREFIX = 'Earlier conversation is preserved in history. Continue from this checkpoint:\n\n<summary>\n';
 const HANDOFF_SUFFIX = '\n</summary>';
 
-/** Storage fields stay compatible with checkpoints saved before handoff-based rollover. */
+/** A context rollover: the handoff summary standing in for messages `fromMessageId` through `toMessageId`. */
 export type ContextCompaction = {
   summary: string;
   fromMessageId: string;
