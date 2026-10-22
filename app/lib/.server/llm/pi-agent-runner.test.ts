@@ -109,6 +109,8 @@ vi.mock('./workers-ai-telemetry', () => ({
   recordWorkersAiFinish: mocks.recordFinish,
   turnUsage: () => ({ inputTokens: 0, outputTokens: 0, cachedTokens: 0 }),
 }));
+import { logger } from 'cloudchef-agent/utils/logger';
+import { ModelInputBudgetExceededError } from './model-input';
 import { piAgentRunner } from './pi-agent-runner';
 import { PiSteeringQueue } from './pi-steering';
 import {
@@ -122,6 +124,12 @@ describe('piAgentRunner', () => {
     vi.clearAllMocks();
     mocks.piMessages = [];
     mocks.piRun.mockResolvedValue(undefined);
+  });
+
+  it('answers input too large to send with a 413 the browser shows', async () => {
+    mocks.prepareModelInput.mockRejectedValueOnce(new ModelInputBudgetExceededError(10, 5));
+
+    await expect(createAgentStream()).rejects.toMatchObject({ status: 413 });
   });
 
   it('surfaces provider protocol failures instead of finishing an empty successful turn', async () => {
@@ -160,13 +168,21 @@ describe('piAgentRunner', () => {
     );
   });
 
-  it('classifies pre-stream preparation failures without exposing their cause', async () => {
-    mocks.prepareModelInput.mockRejectedValueOnce(new Error('private prompt details'));
+  it('answers a pre-stream preparation failure with a bare 500, logging its stage but not its cause', async () => {
+    const logged = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    mocks.prepareModelInput.mockRejectedValueOnce(
+      Object.assign(new Error('private prompt details'), { requestBodyValues: { prompt: 'SECRET_PROVIDER_PROMPT' } }),
+    );
 
-    await expect(createAgentStream()).rejects.toMatchObject({
-      name: 'PiAgentPreparationError',
+    await expect(createAgentStream()).rejects.toMatchObject({ status: 500 });
+
+    expect(logged).toHaveBeenCalledWith('Workers AI chat request failed', {
+      kind: 'PiAgentPreparationError',
       diagnosticCode: 'pi_prepare:model_input',
     });
+    expect(JSON.stringify(logged.mock.calls)).not.toContain('SECRET_PROVIDER_PROMPT');
+    expect(JSON.stringify(logged.mock.calls)).not.toContain('private prompt details');
+    logged.mockRestore();
   });
 
   it('translates Pi tool events into chat tool chunks with structured details', async () => {
@@ -917,7 +933,6 @@ function createAgentStream(
     },
     compaction: {
       current: null,
-      pending: false,
       save: vi.fn(),
       schedule: async () => undefined,
       requestDurableCompaction: vi.fn(),

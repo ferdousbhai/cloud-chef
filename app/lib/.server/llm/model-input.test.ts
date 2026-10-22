@@ -31,7 +31,6 @@ function prepare(messages: CloudChefMessage[], options: Partial<Parameters<typeo
     systemPrompt: '',
     tools,
     currentCompaction: null,
-    compactionPending: false,
     scheduleCompaction: async () => undefined,
     ...options,
   });
@@ -64,17 +63,6 @@ describe('prepareModelInput', () => {
     const result = await prepare(largeHistory(18), { scheduleCompaction });
     expect(scheduleCompaction).toHaveBeenCalledOnce();
     expect(result.nextCompaction).toBeNull();
-  });
-
-  test('does not schedule another proactive compaction while one is pending', async () => {
-    const scheduleCompaction = vi.fn(async () => undefined);
-    const result = await prepare(largeHistory(18), {
-      compactionPending: true,
-      scheduleCompaction,
-    });
-
-    expect(result.nextCompaction).toBeNull();
-    expect(scheduleCompaction).not.toHaveBeenCalled();
   });
 
   test('counts turn-local context but never places it in the persisted recovery record', async () => {

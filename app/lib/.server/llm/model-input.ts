@@ -73,7 +73,6 @@ export async function prepareModelInput(args: {
   messages: CloudChefMessage[];
   turnContext?: ChatTurnContext;
   currentCompaction: ContextCompaction | null;
-  compactionPending: boolean;
   scheduleCompaction: () => Promise<void>;
   signal?: AbortSignal;
   contextWindow: number;
@@ -86,7 +85,7 @@ export async function prepareModelInput(args: {
   let modelInput = assembleModelInput(promptMessages, args);
   const policy = modelCompactionPolicy(args.contextWindow);
   if (modelInput.estimatedTokens < policy.hardLimitTokens) {
-    if (modelInput.estimatedTokens >= policy.proactiveTokens && !args.compactionPending) {
+    if (modelInput.estimatedTokens >= policy.proactiveTokens) {
       await args.scheduleCompaction();
     }
     return {

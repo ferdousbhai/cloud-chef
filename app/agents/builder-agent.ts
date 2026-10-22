@@ -8,7 +8,7 @@ import {
 } from '@cloudflare/ai-chat';
 import { callable, type Connection, type FiberRecoveryContext, type FiberRecoveryResult } from 'agents';
 import { canApplyConversationCompaction, conversationCompactionKey } from '~/lib/compaction';
-import { createChatResponse } from '~/lib/.server/chat';
+import { piAgentRunner } from '~/lib/.server/llm/pi-agent-runner';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import {
   completeBuilderTurn,
@@ -22,7 +22,7 @@ import { DurableObjectContextCompactionRepository } from '~/lib/.server/llm/cont
 import { compactContext } from '~/lib/.server/llm/context-compaction';
 import { chatTurnContextSchema, type ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { getUserWorkersAiCredentials } from '~/lib/.server/cloudflare/workers-ai-billing-context';
-import type { UIMessage } from 'ai';
+import { createUIMessageStreamResponse, type UIMessage } from 'ai';
 import {
   buildCheckpointForBuilder,
   deployValidatedRevisionForBuilder,
@@ -50,7 +50,7 @@ import {
   type DeploymentFailure,
 } from './builder-publication-retry';
 import { isRetryableDurableObjectError } from '~/lib/cloudflare/durable-object-rpc.server';
-import { generateConversationTitle, generateProjectTitle } from '~/lib/.server/llm/workers-ai-title';
+import { generateModelTitle } from '~/lib/.server/llm/workers-ai-title';
 import { markChatStarted } from '~/lib/cloudflare/data/chat-repository.server';
 import {
   setGeneratedProjectDescription,
@@ -139,7 +139,7 @@ import {
 import type { LinkedProjectModelToolContext } from '~/lib/.server/llm/linked-project-model-tools';
 import { fetchLinkedSitePage, type LinkedSiteFetchInput } from '~/lib/.server/llm/linked-site-fetch';
 import { BUILDER_TURN_WALL_CLOCK_MS } from '~/lib/.server/llm/builder-turn-limits';
-import { deriveProvisionalTitle, shouldGenerateConversationTitle } from '~/lib/title-generation';
+import { deriveProvisionalTitle, shouldGenerateConversationTitle, type TitleSubject } from '~/lib/title-generation';
 import {
   failedBuilderPreviewState,
   idleBuilderPreviewState,
@@ -774,8 +774,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           workersAiGatewayLogging(contentLogging),
         );
       }
-      const compactionPending = await this.hasPendingContextCompaction();
-      return await createChatResponse({
+      const stream = await piAgentRunner({
         abortSignal: options?.abortSignal,
         firstUserMessage,
         turnContext,
@@ -806,7 +805,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         onModelUsage: (usage) => this.reportModelUsage(usage),
         compaction: {
           current: this.contextCompaction.getCompaction(),
-          pending: compactionPending,
           save: (compaction) => this.contextCompaction.saveCompaction(compaction),
           schedule: async () => {
             const throughMessageId = messages.at(-1)?.id;
@@ -827,6 +825,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         model,
         reasoningLevel: chosenReasoningLevel,
       });
+      return createUIMessageStreamResponse({ stream });
     } catch (error) {
       steering.close();
       settleSteering();
@@ -1493,16 +1492,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     // critical chat path as soon as the first prompt is accepted.
     // Naming the chat is model use too, counted toward an organization member's usage.
     const countUsage = (usage: Usage) => this.reportModelUsage(turnUsage(usage));
-    const conversationTitlePromise = generateConversationTitle(
-      args.prompt,
-      args.accountCredentials,
-      args.gatewayLogging,
-      countUsage,
-    );
-    const projectTitlePromise =
-      args.firstPrompt && args.subchatIndex === 0
-        ? generateProjectTitle(args.prompt, args.accountCredentials, args.gatewayLogging, countUsage)
-        : null;
+    const generateTitle = (subject: TitleSubject) =>
+      generateModelTitle(args.prompt, subject, args.accountCredentials, args.gatewayLogging, countUsage);
+    const conversationTitlePromise = generateTitle('conversation');
+    const projectTitlePromise = args.firstPrompt && args.subchatIndex === 0 ? generateTitle('project') : null;
     const provisionalTitle = args.firstPrompt ? deriveProvisionalTitle(args.prompt) : null;
 
     if (provisionalTitle) {

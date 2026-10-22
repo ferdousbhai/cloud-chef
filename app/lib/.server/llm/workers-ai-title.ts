@@ -6,31 +6,13 @@ import type { WorkersAiGatewayLogging } from './workers-ai-gateway';
 import { completeText } from './pi-ai-invoke';
 import type { Usage } from '@earendil-works/pi-ai';
 
-export function generateProjectTitle(
-  prompt: string,
-  accountCredentials: WorkersAiAccountCredentials,
-  gatewayLogging: WorkersAiGatewayLogging,
-  onUsage?: (usage: Usage) => void,
-): Promise<string | null> {
-  return generateModelTitle(prompt, 'project', accountCredentials, gatewayLogging, onUsage);
-}
-
-export function generateConversationTitle(
-  prompt: string,
-  accountCredentials: WorkersAiAccountCredentials,
-  gatewayLogging: WorkersAiGatewayLogging,
-  onUsage?: (usage: Usage) => void,
-): Promise<string | null> {
-  return generateModelTitle(prompt, 'conversation', accountCredentials, gatewayLogging, onUsage);
-}
-
 /**
  * Resolves to `null` only when there is nothing to name or the model named it badly. A model that
  * answered with no text at all rejects with `EmptyTitleReplyError` instead, so the builder's title
  * fiber reports it on its existing warn path rather than leaving the heuristic title in place with
  * no trace of why.
  */
-async function generateModelTitle(
+export async function generateModelTitle(
   prompt: string,
   subject: TitleSubject,
   accountCredentials: WorkersAiAccountCredentials,

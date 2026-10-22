@@ -90,7 +90,6 @@ export interface PiAgentOptions {
   turnContext?: ChatTurnContext;
   compaction: {
     current: ContextCompaction | null;
-    pending: boolean;
     save: (compaction: ContextCompaction) => void;
     schedule: () => Promise<void>;
     requestDurableCompaction: () => void;
@@ -152,7 +151,24 @@ class PiAgentPreparationError extends Error {
   }
 }
 
+/**
+ * Runs a builder turn and streams it. A turn that fails before it streams is thrown as the Response the
+ * browser shows: 413 for input too large to send, otherwise a bare 500, with only the failure's
+ * non-identifying facts logged.
+ */
 export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableStream<UIMessageChunk>> {
+  try {
+    return await startPiAgent(options);
+  } catch (error) {
+    logProviderFailure(logger, 'Workers AI chat request failed', error);
+    if (error instanceof ModelInputBudgetExceededError) {
+      throw new Response(error.message, { status: 413, statusText: 'Current request is too large' });
+    }
+    throw new Response(null, { status: 500, statusText: 'Internal Server Error' });
+  }
+}
+
+async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIMessageChunk>> {
   const {
     abortSignal,
     firstUserMessage,
@@ -252,7 +268,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       messages,
       turnContext,
       currentCompaction: compaction.current,
-      compactionPending: compaction.pending,
       scheduleCompaction: compaction.schedule,
       signal: loopSignal,
       contextWindow: handle.model.contextWindow,
