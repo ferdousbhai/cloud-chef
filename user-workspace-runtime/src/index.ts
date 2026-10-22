@@ -77,7 +77,7 @@ import {
   type ProjectScope,
   workspaceLimitMessage,
 } from './workspace-inventory';
-import { routeUserWorkspaceRuntimeControlPlaneRequest } from './readiness-route';
+import { READINESS_WORKSPACE_NAME, routeUserWorkspaceRuntimeControlPlaneRequest } from './readiness-route';
 import { scheduleUserWorkspaceRuntimeMaintenance } from './scheduled-maintenance';
 import {
   ToolOperationJournal,
@@ -2923,7 +2923,14 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     await this.schedule(delaySeconds, callback, payload);
   }
 
+  /**
+   * Clears what the readiness probe wrote, which a command's sync may pull back in after the probe's own
+   * cleanup. Only the readiness workspace runs the probe, so only it has anything to clear.
+   */
   private async cleanupReadinessRoot(): Promise<void> {
+    if (!this.ctx.id.equals(this.env.PROJECT_WORKSPACE.idFromName(READINESS_WORKSPACE_NAME))) {
+      return;
+    }
     await this.withComputer((workspace) => workspace.fs.rm(READINESS_ROOT, { recursive: true, force: true }));
   }
 

@@ -7,7 +7,8 @@ import {
 } from '../../app/lib/.server/cloudflare/user-workspace-runtime-activity';
 import { readUserWorkspaceRuntimeHealth } from '../../app/lib/.server/cloudflare/user-workspace-runtime-health';
 
-const READINESS_WORKSPACE_NAME = 'cloudchef-runtime-readiness';
+/** The ProjectWorkspace the readiness probe runs in, which holds no project. */
+export const READINESS_WORKSPACE_NAME = 'cloudchef-runtime-readiness';
 const UPGRADE_WINDOW_PATH = '/v1/upgrade-window';
 const MAX_UPGRADE_WINDOW_REQUEST_BYTES = 1_024;
 const UPGRADE_WINDOW_METHODS = new Set(['POST', 'PUT', 'DELETE']);
