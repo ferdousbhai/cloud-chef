@@ -17,12 +17,13 @@ export const GATEWAY_PROVIDERS = {
 
 export type GatewayProviderSlug = keyof typeof GATEWAY_PROVIDERS;
 
-export const GATEWAY_PROVIDER_SLUGS = [
-  'anthropic',
-  'openai',
-  'grok',
-  'openrouter',
-] as const satisfies readonly GatewayProviderSlug[];
+function isGatewayProviderSlug(value: string): value is GatewayProviderSlug {
+  return value in GATEWAY_PROVIDERS;
+}
+
+/** The providers' slugs in `GATEWAY_PROVIDERS` order. */
+export const GATEWAY_PROVIDER_SLUGS: readonly GatewayProviderSlug[] =
+  Object.keys(GATEWAY_PROVIDERS).filter(isGatewayProviderSlug);
 
 const GATEWAY_MODEL_ID_PATTERN = new RegExp(
   `^(?:${GATEWAY_PROVIDER_SLUGS.join('|')})/[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$`,

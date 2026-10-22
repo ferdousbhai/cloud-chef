@@ -3,7 +3,6 @@ import { z, ZodType } from 'zod';
 import { MODEL_TOOL_NAMES, type ModelToolName } from 'cloudchef-agent/model-tool-inputs';
 import type { Tool } from 'cloudchef-agent/tool';
 import { isWorkspaceToolOperationIndeterminateError, type BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
-import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import type { BuilderSkillReader } from './builder-skills';
 import {
   BUILDER_TOOL_DEADLINES_MS,
@@ -11,14 +10,9 @@ import {
   BuilderToolDeadlineError,
   BuilderToolUnsettledError,
 } from './builder-turn-limits';
-import { createWorkersAiTools } from './workers-ai-tools';
+import { createWorkersAiTools, type BuilderOperationContext } from './workers-ai-tools';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 import type { LinkedProjectModelToolContext } from './linked-project-model-tools';
-
-type BuilderOperationContext = {
-  onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
-  runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
-};
 
 const toolLabels = {
   read: 'Read file',

@@ -22,7 +22,6 @@ import {
   type AnthropicOptions,
 } from '@earendil-works/pi-ai/api/anthropic-messages';
 import { MIN_ANSWER_TOKENS, thinkingBudgetForLevel } from '@earendil-works/pi-ai/api/simple-options';
-import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { modelTokenEstimateSafetyTokens } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
 import {
@@ -33,7 +32,7 @@ import {
   type BuilderModelId,
   type GatewayProviderSlug,
 } from '~/lib/workers-ai-model';
-import { GATEWAY_BINDING_ORIGIN, piGatewayModel, type GatewayApi } from './pi-model-catalog';
+import { GATEWAY_BINDING_ORIGIN, piGatewayModel, piWorkersAiModel, type GatewayApi } from './pi-model-catalog';
 import { recordPiStage } from './pi-telemetry';
 import {
   providerRequestBodySchema,
@@ -74,19 +73,10 @@ const WORKERS_AI_STREAM = openaiCompletionsStream as StreamFunction<Api, Workers
 
 const ZERO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
-type WorkersAiCatalogModel = (typeof CLOUDFLARE_WORKERS_AI_MODELS)[keyof typeof CLOUDFLARE_WORKERS_AI_MODELS];
-
 /** What `getPiModel` reads from a Workers AI catalog entry. */
 type PiCatalogEntry = Pick<Model<Api>, 'name' | 'reasoning' | 'input' | 'cost' | 'contextWindow'> & {
   compat?: OpenAICompletionsCompat;
 };
-
-const WORKERS_AI_CATALOG = new Map<string, WorkersAiCatalogModel>(Object.entries(CLOUDFLARE_WORKERS_AI_MODELS));
-
-/** Pi's entry for a model; a model Pi does not list is never offered (`readWorkersAiBuilderModelCatalog`). */
-function catalogModel(modelId: string): PiCatalogEntry | undefined {
-  return WORKERS_AI_CATALOG.get(modelId);
-}
 
 /**
  * CloudChef states only what the binding path requires, and Pi's own catalog entry supplies the
@@ -255,7 +245,8 @@ export function getPiModel(
       sessionAffinity: settings?.sessionAffinity,
     });
   }
-  const catalog = catalogModel(modelId);
+  // Pi's entry for the model; a model Pi does not list is never offered (`readWorkersAiBuilderModelCatalog`).
+  const catalog: PiCatalogEntry | undefined = piWorkersAiModel(modelId);
   const model: Model<Api> = {
     id: modelId,
     name: catalog?.name ?? modelId,

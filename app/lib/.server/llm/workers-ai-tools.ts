@@ -31,7 +31,8 @@ import { sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 import { linkedProjectModelTools, type LinkedProjectModelToolContext } from './linked-project-model-tools';
 
-type BuilderOperationContext = {
+/** What a builder turn lends its workspace tools: validation progress, and keeping the turn alive while one runs. */
+export type BuilderOperationContext = {
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
 };

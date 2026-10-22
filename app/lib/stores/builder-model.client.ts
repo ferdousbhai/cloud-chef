@@ -232,16 +232,16 @@ function requestBuilderModelCatalog(
   return operation;
 }
 
+/**
+ * Installs a catalog `validateBuilderModelCatalogPayload` accepted: its default, the one the account's
+ * admin chose while it is still offered, is one of its models.
+ */
 export function installBuilderModelCatalog(payload: BuilderModelCatalogPayload, storage?: BuilderModelStorage): void {
-  // The runtime names the default: the one the account's admin chose, while it is still offered.
-  const models = payload.models;
-  const defaultModel = models.find(({ id }) => id === payload.defaultModelId) ?? models[0] ?? DEFAULT_WORKERS_AI_MODEL;
-  const offeredModels = models.length > 0 ? models : [defaultModel];
-  builderModelsStore.set(offeredModels);
-  builderDefaultModelStore.set(defaultModel.id);
+  builderModelsStore.set(payload.models);
+  builderDefaultModelStore.set(payload.defaultModelId);
   catalogInstalled = true;
   applyStoredModelPreference(storage);
-  applyUnseenModels(offeredModels, storage);
+  applyUnseenModels(payload.models, storage);
 }
 
 /**
