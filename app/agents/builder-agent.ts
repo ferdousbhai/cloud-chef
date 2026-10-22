@@ -159,6 +159,7 @@ import {
   CLOUDFLARE_EXECUTION_RISK_NOTE,
   containsCredentialishCloudflareContent,
   publicExecutionState,
+  sameCloudflareConnectionIdentity,
   type CloudflareExecutionBinding,
   type CloudflareExecutionRecord,
 } from './builder-cloudflare-execution';
@@ -1134,18 +1135,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   /** Whether every publish to GitHub and editor save under way settled within `timeoutMs`. */
   private async waitForWorkspaceWrites(timeoutMs: number): Promise<boolean> {
-    if (this.runningLinkedPublishes.size === 0 && this.runningSaves.size === 0) {
-      return true;
-    }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const settled = await Promise.race([
-      Promise.allSettled([...this.runningLinkedPublishes, ...this.runningSaves]).then(() => true),
-      new Promise<boolean>((resolve) => {
-        timer = setTimeout(() => resolve(false), timeoutMs);
-      }),
-    ]);
-    clearTimeout(timer);
-    return settled;
+    return settledWithin([...this.runningLinkedPublishes, ...this.runningSaves], timeoutMs);
   }
 
   /**
@@ -2293,14 +2283,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     for (const publication of stopping) {
       publication.controller.abort(new PublicationSupersededError());
     }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      Promise.all(stopping.map((publication) => publication.settled)),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, PUBLICATION_STOP_WAIT_MS);
-      }),
-    ]);
-    clearTimeout(timer);
+    await settledWithin(
+      stopping.map((publication) => publication.settled),
+      PUBLICATION_STOP_WAIT_MS,
+    );
   }
 
   /**
@@ -3217,7 +3203,7 @@ function admitCloudflareApiRequest(
 ): { admission: CloudflareApiRuntimeAdmission } | { rejection: string } {
   if (
     !admission ||
-    !cloudflareRuntimeIdentitiesEqual(admission.identity, expectedIdentity) ||
+    !sameCloudflareConnectionIdentity(admission.identity, expectedIdentity) ||
     !admission.controls.cloudflare_api
   ) {
     return { rejection: 'Cloudflare API requests are disabled or the authenticated connection changed.' };
@@ -3226,19 +3212,6 @@ function admitCloudflareApiRequest(
     return { rejection: 'Cloudflare account changes are disabled for this workspace. Only GET requests can run.' };
   }
   return { admission };
-}
-
-function cloudflareRuntimeIdentitiesEqual(
-  left: CloudflareApiRuntimeIdentity,
-  right: CloudflareApiRuntimeIdentity,
-): boolean {
-  return (
-    left.userId === right.userId &&
-    left.accountId === right.accountId &&
-    left.connectionId === right.connectionId &&
-    left.connectionGeneration === right.connectionGeneration &&
-    left.oauthScopeGrantStatus === right.oauthScopeGrantStatus
-  );
 }
 
 function cloudflareRequestFailure(accountId: string, content: string): CloudflareRequestImmediateResult {
@@ -3290,4 +3263,20 @@ function isCloudflareExecutionTerminal(
     status === 'indeterminate' ||
     status === 'expired'
   );
+}
+
+/** Whether every one of `promises` settled within `timeoutMs`. */
+async function settledWithin(promises: readonly Promise<unknown>[], timeoutMs: number): Promise<boolean> {
+  if (promises.length === 0) {
+    return true;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const settled = await Promise.race([
+    Promise.allSettled(promises).then(() => true),
+    new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  return settled;
 }

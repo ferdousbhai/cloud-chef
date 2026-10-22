@@ -449,14 +449,25 @@ function parseStatus(value: string): CloudflareExecutionStatus {
   return value;
 }
 
-function executionBindingsEqual(left: CloudflareExecutionBinding, right: CloudflareExecutionBinding): boolean {
+type CloudflareConnectionIdentity = Omit<CloudflareExecutionBinding, 'transcript'>;
+
+/** Whether both are the same person on the same Cloudflare connection, generation and grant. */
+export function sameCloudflareConnectionIdentity(
+  left: CloudflareConnectionIdentity,
+  right: CloudflareConnectionIdentity,
+): boolean {
   return (
     left.userId === right.userId &&
     left.accountId === right.accountId &&
     left.connectionId === right.connectionId &&
     left.connectionGeneration === right.connectionGeneration &&
-    left.oauthScopeGrantStatus === right.oauthScopeGrantStatus &&
-    builderTranscriptBindingsEqual(left.transcript, right.transcript)
+    left.oauthScopeGrantStatus === right.oauthScopeGrantStatus
+  );
+}
+
+function executionBindingsEqual(left: CloudflareExecutionBinding, right: CloudflareExecutionBinding): boolean {
+  return (
+    sameCloudflareConnectionIdentity(left, right) && builderTranscriptBindingsEqual(left.transcript, right.transcript)
   );
 }
 
