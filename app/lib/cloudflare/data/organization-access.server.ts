@@ -41,8 +41,7 @@ export async function canUseConnection(
   if (connection.orgId === null) {
     return false;
   }
-  const membership = await findMembership(db, connection.orgId, userId);
-  return membership !== null && membership.pausedAt === null;
+  return (await findMembership(db, connection.orgId, userId))?.pausedAt === null;
 }
 
 export async function findMembership(db: D1Database, orgId: string, userId: string): Promise<Membership | null> {
@@ -58,7 +57,6 @@ export async function findMembership(db: D1Database, orgId: string, userId: stri
     .first<MembershipRow>();
   return row ? membershipFromRow(row) : null;
 }
-
 /**
  * Every Cloudflare account this person can build in right now: their own active connection first,
  * then each organization they are an unpaused member of whose connection is active.
@@ -83,7 +81,7 @@ export async function listWorkspaceContexts(db: D1Database, userId: string): Pro
     .bind(userId)
     .all<ContextRow>();
   return results.map((row) =>
-    row.org_id === null || row.org_name === null || row.role === null
+    row.org_id === null
       ? { kind: 'personal', connectionId: row.connection_id, accountName: row.account_name }
       : {
           kind: 'organization',
@@ -91,43 +89,41 @@ export async function listWorkspaceContexts(db: D1Database, userId: string): Pro
           accountName: row.account_name,
           orgId: row.org_id,
           orgName: row.org_name,
-          role: parseRole(row.role),
-          draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
+          role: row.role,
+          draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
         },
   );
 }
 
+/** An admin who isn't paused: who may run the team. */
+export function isActiveAdmin(membership: Pick<Membership, 'role' | 'pausedAt'> | null): boolean {
+  return membership?.role === 'admin' && membership.pausedAt === null;
+}
+
+/** Whether a member builds new apps of their own, from its stored flag: an admin always may. */
+export function draftsAllowed(role: OrganizationRole, stored: number): boolean {
+  return role === 'admin' || stored === 1;
+}
+
+/** The role is one of the two the table's CHECK allows. */
 type MembershipRow = {
   org_id: string;
   org_name: string;
-  role: string;
+  role: OrganizationRole;
   paused_at: number | null;
   drafts_allowed: number;
 };
 
-type ContextRow = {
-  connection_id: string;
-  account_name: string | null;
-  org_id: string | null;
-  org_name: string | null;
-  role: string | null;
-  drafts_allowed: number;
-};
+type ContextRow = { connection_id: string; account_name: string | null; drafts_allowed: number } & (
+  { org_id: null; org_name: null; role: null } | { org_id: string; org_name: string; role: OrganizationRole }
+);
 
 function membershipFromRow(row: MembershipRow): Membership {
-  const role = parseRole(row.role);
   return {
     orgId: row.org_id,
     orgName: row.org_name,
-    role,
+    role: row.role,
     pausedAt: row.paused_at,
-    draftsAllowed: role === 'admin' || row.drafts_allowed === 1,
+    draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
   };
-}
-
-function parseRole(value: string): OrganizationRole {
-  if (value !== 'admin' && value !== 'member') {
-    throw new Error('Stored organization role is invalid.');
-  }
-  return value;
 }

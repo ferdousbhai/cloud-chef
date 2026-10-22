@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { sha256Hex, bytesToBase64Url } from '~/lib/hex-digest';
-import { findMembership, type Membership, type OrganizationRole } from './organization-access.server';
+import {
+  draftsAllowed,
+  findMembership,
+  isActiveAdmin,
+  type Membership,
+  type OrganizationRole,
+} from './organization-access.server';
 
 /** An invite works once, for a week: long enough to pass on, short enough not to linger. */
 const ORGANIZATION_INVITE_TTL_MS = 7 * 24 * 60 * 60_000;
@@ -125,7 +131,7 @@ export async function prepareOrganizationDeletion(
     .all<{ user_id: string }>();
   const memberIds = results.map((row) => row.user_id);
   const soleMember = memberIds.length === 1 && memberIds[0] === args.actorId;
-  if (!soleMember && (membership.role !== 'admin' || membership.pausedAt !== null)) {
+  if (!soleMember && !isActiveAdmin(membership)) {
     throw new OrganizationError("Only a team's admin can delete it.", 403);
   }
 }
@@ -194,7 +200,7 @@ export async function deleteOrganizationRecords(
 
 export async function requireAdmin(db: D1Database, orgId: string, userId: string): Promise<Membership> {
   const membership = await findMembership(db, orgId, userId);
-  if (membership?.role !== 'admin' || membership.pausedAt !== null) {
+  if (!membership || !isActiveAdmin(membership)) {
     throw new OrganizationError("Only a team's admin can do that.", 403);
   }
   return membership;
@@ -532,13 +538,13 @@ export async function listOrganizations(
     }>();
   return Promise.all(
     results.map(async (row) => {
-      const admin = row.role === 'admin' && row.paused_at === null;
+      const admin = isActiveAdmin({ role: row.role, pausedAt: row.paused_at });
       return {
         orgId: row.org_id,
         orgName: row.org_name,
         role: row.role,
         pausedAt: row.paused_at,
-        draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
+        draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
         connection:
           row.connection_status === null
             ? null
@@ -587,7 +593,7 @@ async function listMembers(db: D1Database, orgId: string, now: number): Promise<
     role: row.role,
     joinedAt: row.joined_at,
     pausedAt: row.paused_at,
-    draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
+    draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
     usage: { turns: row.turns, inputTokens: row.input_tokens, outputTokens: row.output_tokens },
   }));
 }
@@ -614,7 +620,7 @@ async function listPendingInvites(db: D1Database, orgId: string, now: number): P
     role: row.role,
     expiresAt: row.expires_at,
     projectIds: storedProjectIds(row.project_ids),
-    draftsAllowed: row.role === 'admin' || row.drafts_allowed === 1,
+    draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
   }));
 }
 
@@ -626,7 +632,7 @@ function storedProjectIds(stored: string | null): string[] {
     return [];
   }
   try {
-    return storedProjectIdsSchema.catch([]).parse(JSON.parse(stored));
+    return storedProjectIdsSchema.parse(JSON.parse(stored));
   } catch {
     return [];
   }

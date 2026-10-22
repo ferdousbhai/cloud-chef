@@ -1,5 +1,5 @@
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
-import { findMembership } from './organization-access.server';
+import { findMembership, isActiveAdmin } from './organization-access.server';
 
 /**
  * Who may choose the account's models: the person whose own account it is, or an active admin of the
@@ -16,8 +16,7 @@ export async function canManageModels(
   if (connection.orgId === null) {
     return false;
   }
-  const membership = await findMembership(db, connection.orgId, userId);
-  return membership?.role === 'admin' && membership.pausedAt === null;
+  return isActiveAdmin(await findMembership(db, connection.orgId, userId));
 }
 
 /**

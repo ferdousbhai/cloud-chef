@@ -1,4 +1,4 @@
-import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
+import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
 import { readAiGatewayContentLogging } from '~/lib/cloudflare/data/ai-gateway-logging.server';
 import { z } from 'zod';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
@@ -105,7 +105,7 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
   const membership = orgId ? await findMembership(args.env.DB, orgId, identity.userId) : null;
   return Response.json(
     {
-      organizationAdmin: membership?.role === 'admin' && membership.pausedAt === null,
+      organizationAdmin: isActiveAdmin(membership),
       // The person's own choice, wherever they build: a team's admins can't turn it back on for them.
       aiGatewayContentLogging: await readAiGatewayContentLogging(args.env.DB, identity.userId),
     },

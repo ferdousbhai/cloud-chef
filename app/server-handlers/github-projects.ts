@@ -7,7 +7,7 @@ import { PayloadTooLargeError } from '~/lib/bounded-body';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
 import type { RepositoryClient } from '~/lib/.server/github/repository-client';
 import { readCookie, readJsonRequest, safeReturnTo, serializeCookie } from '~/lib/.server/request-guards';
-import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
+import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
 import { promotedDraftFiles, promotedWorkerName, readDraftSnapshot } from '~/lib/.server/github/promote-draft';
 import {
   declineProductionRequest,
@@ -182,7 +182,7 @@ async function completeInstallation(args: {
   }
   const session = await getAuthSession(env, request);
   const membership = session ? await findMembership(env.DB, pending.org_id, session.user.id) : null;
-  if (session?.user.id !== pending.user_id || membership?.role !== 'admin' || membership.pausedAt !== null) {
+  if (session?.user.id !== pending.user_id || !isActiveAdmin(membership)) {
     return back('install_other_admin');
   }
   try {
@@ -365,7 +365,7 @@ async function finishProductionApproval(args: {
     .first<{ org_id: string }>();
   const session = await getAuthSession(env, request);
   const membership = session && owner ? await findMembership(env.DB, owner.org_id, session.user.id) : null;
-  if (!owner || session?.user.id !== pending.user_id || membership?.role !== 'admin' || membership.pausedAt !== null) {
+  if (!owner || session?.user.id !== pending.user_id || !isActiveAdmin(membership)) {
     return { message: 'approval_other_admin' };
   }
   const installation = await findGitHubInstallation(env.DB, owner.org_id);
