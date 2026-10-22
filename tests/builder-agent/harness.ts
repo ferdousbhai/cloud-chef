@@ -259,7 +259,7 @@ export async function builderAgentHarness(
   Reflect.set(agent, 'workspace', fakeWorkspace(options.workspace));
   // SAFETY: as above, for the publication commands; the fake implements every one the agent calls.
   Reflect.set(agent, 'publisher', fakePublisher(options.publisher));
-  await agent.onStart({ ownerId: OWNER_ID, userId: OWNER_ID });
+  await agent.onStart({ userId: OWNER_ID });
   // The agent's own table: a proposal filed here is the one the Cloudflare request tool files mid-turn.
   // SAFETY: the repository uses only `sql.exec` and `transactionSync`, which the fake storage implements.
   const executions = new BuilderCloudflareExecutionRepository(ctx.storage as never);

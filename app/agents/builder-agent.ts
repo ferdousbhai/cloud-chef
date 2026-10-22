@@ -387,10 +387,8 @@ export type BuilderSteeringInput = {
   turnContext?: ChatTurnContext;
 };
 
-type BuilderAgentProps = {
-  ownerId: string;
-  userId: string;
-};
+/** The person the request is from, who owns the chat. */
+type BuilderAgentProps = { userId: string };
 
 export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAgentProps> {
   static override options = {
@@ -433,7 +431,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private readonly identityRepository: BuilderAgentIdentityRepository;
   private readonly cloudflareExecutions: BuilderCloudflareExecutionRepository;
   private readonly workspace: BuilderWorkspaceApi;
-  private ownerId: string | null = null;
   private userId: string | null = null;
   private transcriptBinding: BuilderTranscriptBinding | null = null;
   private activeSteering: { turnId: string; queue: PiSteeringQueue } | null = null;
@@ -538,7 +535,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!transcriptOwnerIdSchema.safeParse(ownerId).success) {
       throw new Response('Invalid transcript owner', { status: 400 });
     }
-    if (this.ownerId && this.ownerId !== ownerId) {
+    if (this.userId && this.userId !== ownerId) {
       throw new Response('Agent not found.', { status: 404 });
     }
     const owned = await this.env.DB.prepare(
@@ -554,7 +551,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!owned) {
       throw new Response('Agent not found.', { status: 404 });
     }
-    this.ownerId = ownerId;
     this.userId = ownerId;
   }
 
@@ -688,7 +684,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const messages = this.messages;
     // A conversation a newer one took over is kept to read: working here would edit an old copy of the
     // project and publish it over the newer one's work.
-    if ((await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId: durableIdentity.ownerId })).archived) {
+    if ((await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId: durableIdentity.userId })).archived) {
       throw new Response(ARCHIVED_CONVERSATION_MESSAGE, { status: 409 });
     }
     const { chatInitialId, subchatIndex, transcript, modelId, reasoningLevel } = requireBuilderRequestScope(
@@ -715,7 +711,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         // workspace this turn edits. It publishes again, with this turn's changes, when this turn ends.
         await this.stopAutomaticPublications();
         await markChatStarted(this.env.DB, {
-          sessionId: durableIdentity.ownerId,
+          sessionId: durableIdentity.userId,
           chatId: chatInitialId,
           agentName: transcript.agentName,
         });
@@ -1109,7 +1105,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       // Never started, so nothing runs here.
       return;
     }
-    if (identity.ownerId !== ownerId) {
+    if (identity.userId !== ownerId) {
       throw new Response('Agent not found.', { status: 404 });
     }
     if (!(await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId })).archived) {
@@ -1165,7 +1161,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   /** Why this conversation may no longer change its project, or null while it may. */
   private async closedConversationMessage(): Promise<string | null> {
     const ownerId =
-      this.ownerId ?? (await this.hydrateDurableIdentity({ required: true, reason: 'archive_check' }))?.ownerId;
+      this.userId ?? (await this.hydrateDurableIdentity({ required: true, reason: 'archive_check' }))?.userId;
     if (!ownerId) {
       return null;
     }
@@ -1369,7 +1365,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!transcriptOwnerIdSchema.safeParse(ownerId).success) {
       throw new Response('Invalid transcript owner', { status: 400 });
     }
-    await this.initializeIdentity({ ownerId, userId: ownerId });
+    await this.initializeIdentity({ userId: ownerId });
     return this.getTranscriptSnapshot(identityValue);
   }
 
@@ -1403,21 +1399,17 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   private async initializeIdentity(props: BuilderAgentProps): Promise<void> {
-    if (!transcriptOwnerIdSchema.safeParse(props.ownerId).success || props.userId !== props.ownerId) {
+    if (!transcriptOwnerIdSchema.safeParse(props.userId).success) {
       throw new Response('Agent not found.', { status: 404 });
     }
     const transcriptBinding = await loadBuilderTranscriptBinding(this.env.DB, {
       agentName: this.name,
-      ownerId: props.ownerId,
+      ownerId: props.userId,
     });
     if (!transcriptBinding) {
       throw new Response('Agent not found.', { status: 404 });
     }
-    const identity: BuilderAgentDurableIdentity = {
-      ownerId: props.ownerId,
-      userId: props.userId,
-      transcript: transcriptBinding,
-    };
+    const identity: BuilderAgentDurableIdentity = { userId: props.userId, transcript: transcriptBinding };
     try {
       this.identityRepository.claim(identity);
     } catch (error) {
@@ -1445,15 +1437,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const activeTranscript = await loadBuilderTranscriptBinding(this.env.DB, {
       agentName: this.name,
-      ownerId: stored.ownerId,
+      ownerId: stored.userId,
     });
     if (
       !activeTranscript ||
-      !builderAgentIdentitiesEqual(stored, {
-        ownerId: stored.ownerId,
-        userId: stored.userId,
-        transcript: activeTranscript,
-      })
+      !builderAgentIdentitiesEqual(stored, { userId: stored.userId, transcript: activeTranscript })
     ) {
       // Throwing here for a non-required hydration makes `onStart` throw, and the SDK rethrows that
       // from every native RPC entry point — including `_cf_scheduleDestroy`. A soft-deleted chat has
@@ -1471,21 +1459,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   private applyIdentity(identity: BuilderAgentDurableIdentity): void {
     if (
-      (this.ownerId && this.ownerId !== identity.ownerId) ||
       (this.userId && this.userId !== identity.userId) ||
       (this.transcriptBinding &&
-        !builderAgentIdentitiesEqual(
-          {
-            ownerId: this.ownerId ?? identity.ownerId,
-            userId: this.userId ?? identity.userId,
-            transcript: this.transcriptBinding,
-          },
-          identity,
-        ))
+        !builderAgentIdentitiesEqual({ userId: identity.userId, transcript: this.transcriptBinding }, identity))
     ) {
       this.rejectIdentity('memory_identity_mismatch');
     }
-    this.ownerId = identity.ownerId;
     this.userId = identity.userId;
     this.transcriptBinding = identity.transcript;
   }
@@ -1532,7 +1511,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       gatewayLogging: WorkersAiGatewayLogging;
     },
   ): Promise<void> {
-    const ownerId = this.ownerId;
+    const ownerId = this.userId;
     if (!ownerId) {
       return;
     }
@@ -2903,7 +2882,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private async requestPreviewInternal(
     options: { snapshot?: BuilderWorkspaceCheckpoint; autoDeploy?: boolean; epoch?: number } = {},
   ): Promise<BuilderPreviewState> {
-    if (!this.ownerId || !this.userId || !this.transcriptBinding) {
+    if (!this.userId || !this.transcriptBinding) {
       throw new Response('Agent authentication is required.', { status: 401 });
     }
     this.refuseIfDestroying();

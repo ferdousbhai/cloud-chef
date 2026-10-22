@@ -1,10 +1,7 @@
 import { routeAgentRequest } from 'agents';
 import { ensureInitialChat } from '~/lib/cloudflare/data/chat-repository.server';
 
-type AgentRequestIdentity = {
-  ownerId: string;
-  userId: string;
-};
+type AgentRequestIdentity = { userId: string };
 
 const MAX_BUILDER_AGENT_NAME_LENGTH = 512;
 const CANONICAL_ROOT_AGENT_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -52,7 +49,7 @@ export async function routeUserRuntimeAgentRequest(
   if (route.kind === 'rejected') {
     return agentNotFoundResponse();
   }
-  const identity = { ownerId: userId, userId };
+  const identity = { userId };
   const denial = await authorizeAgentForIdentity(env, route.canonicalName, identity);
   if (denial) {
     return denial;
@@ -74,7 +71,7 @@ async function authorizeAgentForIdentity(
      LEFT JOIN chat_transcripts ON chat_transcripts.chat_id = chats.id
      WHERE chats.initial_id = ? OR chat_transcripts.agent_name = ?`,
   )
-    .bind(identity.ownerId, agentName, agentName)
+    .bind(identity.userId, agentName, agentName)
     .first<{ match_count: number; active_match_count: number; has_owner_conflict: number | null }>();
   if (!chat || chat.match_count === 0) {
     if (!CANONICAL_ROOT_AGENT_NAME.test(agentName)) {
@@ -83,7 +80,7 @@ async function authorizeAgentForIdentity(
     try {
       await ensureInitialChat(env.DB, {
         id: crypto.randomUUID(),
-        creatorId: identity.ownerId,
+        creatorId: identity.userId,
         initialId: agentName,
       });
     } catch (error) {
@@ -99,7 +96,7 @@ async function authorizeAgentForIdentity(
       if (!activeOwner) {
         throw error;
       }
-      if (activeOwner.creator_id !== identity.ownerId) {
+      if (activeOwner.creator_id !== identity.userId) {
         return Response.json({ error: 'Agent not found.' }, { status: 404 });
       }
     }

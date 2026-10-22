@@ -44,7 +44,7 @@ describe('user-runtime Agent routing', () => {
       await expect(routeUserRuntimeAgentRequest(request, env, 'owner-1')).resolves.toHaveProperty('status', 200);
       expect(database.values).toEqual(['owner-1', 'chat', 'chat']);
       expect(routeAgentRequest).toHaveBeenCalledWith(request, env, {
-        props: { ownerId: 'owner-1', userId: 'owner-1' },
+        props: { userId: 'owner-1' },
       });
     },
   );
@@ -107,7 +107,7 @@ describe('user-runtime Agent routing', () => {
     const env = envWithChats([{ creatorId: 'owner' }]);
     expect((await route('/agents/builder-agent/my-chat', env))?.status).toBe(200);
     expect(routeAgentRequest).toHaveBeenCalledWith(expect.any(Request), env, {
-      props: { ownerId: 'owner', userId: 'owner' },
+      props: { userId: 'owner' },
     });
   });
 

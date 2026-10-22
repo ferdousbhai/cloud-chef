@@ -7,7 +7,6 @@ import {
 } from './builder-agent-identity';
 
 const identity: BuilderAgentDurableIdentity = {
-  ownerId: 'owner-1',
   userId: 'owner-1',
   transcript: {
     agentName: 'chat--transcript-2-3',
@@ -64,7 +63,6 @@ describe('BuilderAgent durable identity', () => {
   });
 
   it.each([
-    { ownerId: 'owner-2' },
     { userId: 'owner-2' },
     { transcript: { ...identity.transcript, agentName: 'other-agent' } },
     { transcript: { ...identity.transcript, generation: 4 } },

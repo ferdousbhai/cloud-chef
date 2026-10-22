@@ -12,8 +12,8 @@ type BuilderIdentityRow = {
   parent_agent_name: string | null;
 };
 
+/** The person whose chat this is, who alone uses the agent, and the transcript it serves. */
 export type BuilderAgentDurableIdentity = {
-  ownerId: string;
   userId: string;
   transcript: BuilderTranscriptBinding;
 };
@@ -54,7 +54,7 @@ export class BuilderAgentIdentityRepository {
            id, owner_id, user_id, agent_name, chat_initial_id, generation,
            subchat_index, parent_agent_name, created_at
          ) VALUES ('active', ?, ?, ?, ?, ?, ?, ?, ?)`,
-        identity.ownerId,
+        identity.userId,
         identity.userId,
         identity.transcript.agentName,
         identity.transcript.chatInitialId,
@@ -79,16 +79,11 @@ export function builderAgentIdentitiesEqual(
   left: BuilderAgentDurableIdentity,
   right: BuilderAgentDurableIdentity,
 ): boolean {
-  return (
-    left.ownerId === right.ownerId &&
-    left.userId === right.userId &&
-    builderTranscriptBindingsEqual(left.transcript, right.transcript)
-  );
+  return left.userId === right.userId && builderTranscriptBindingsEqual(left.transcript, right.transcript);
 }
 
 function fromRow(row: BuilderIdentityRow): BuilderAgentDurableIdentity {
   return {
-    ownerId: row.owner_id,
     userId: row.user_id,
     transcript: {
       agentName: row.agent_name,
