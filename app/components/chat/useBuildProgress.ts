@@ -1,3 +1,4 @@
+import { useStore } from '@nanostores/react';
 import { useEffect, useMemo, useState } from 'react';
 import { getToolInvocation, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { StreamStatus } from '~/lib/common/types';
@@ -5,6 +6,8 @@ import { getBuildProgress } from './build-progress';
 import { streamedToolInput } from './streaming-tool-input';
 import { reasoningPartView } from './ReasoningPart';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
+import { toolActivityStore } from '~/lib/stores/tool-activity.client';
+import { toolProgressStore } from '~/lib/stores/tool-progress.client';
 
 const CLOCK_INTERVAL_MS = 1_000;
 
@@ -20,24 +23,27 @@ export function useBuildProgress(args: {
   isProjectUpdate: boolean;
   activeToolNames: string[];
   validationStage: BuilderValidationStage | null;
-  toolActivityRevision: number;
-  toolProgressRevision: number;
   messages: CloudChefMessage[];
 }) {
+  const toolActivities = useStore(toolActivityStore.activities);
+  const toolProgress = useStore(toolProgressStore.progress);
   const activeToolActivity = args.activeToolNames.toSorted().join(',');
-  const activityKey = useMemo(
+  const turnKey = useMemo(
     () =>
-      `${messageActivityKey(args.messages)}:${args.toolActivityRevision}:${args.toolProgressRevision}:${activeToolActivity}:${args.streamStatus}:${args.isRecovering}:${args.isProjectUpdate}:${args.validationStage ?? ''}`,
+      `${messageActivityKey(args.messages)}:${activeToolActivity}:${args.streamStatus}:${args.isRecovering}:${args.isProjectUpdate}:${args.validationStage ?? ''}`,
     [
       activeToolActivity,
       args.isProjectUpdate,
       args.isRecovering,
       args.messages,
       args.streamStatus,
-      args.toolActivityRevision,
-      args.toolProgressRevision,
       args.validationStage,
     ],
+  );
+  // A new key whenever the turn moves, tool activity and progress included: each change replaces its store's value.
+  const activityKey = useMemo(
+    () => ({ turnKey, toolActivities, toolProgress }),
+    [turnKey, toolActivities, toolProgress],
   );
   const reasoningKey = useMemo(() => streamingReasoningKey(args.messages), [args.messages]);
   const [clock, setClock] = useState(() => {

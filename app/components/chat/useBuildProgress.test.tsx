@@ -16,8 +16,6 @@ function Harness({ messages }: { messages: CloudChefMessage[] }) {
     isProjectUpdate: false,
     activeToolNames: [],
     validationStage: null,
-    toolActivityRevision: 0,
-    toolProgressRevision: 0,
     messages,
   });
   return null;

@@ -351,15 +351,13 @@ const AuthenticatedChat = memo(
       chatStore.setKey('aborted', true);
     };
 
-    const { activeToolNames, activityRevision, progressRevision } = useCurrentToolStatus(messages);
+    const activeToolNames = useCurrentToolStatus(messages);
     const buildProgress = useBuildProgress({
       streamStatus,
       isRecovering,
       isProjectUpdate,
       activeToolNames,
       validationStage,
-      toolActivityRevision: activityRevision,
-      toolProgressRevision: progressRevision,
       messages,
     });
 

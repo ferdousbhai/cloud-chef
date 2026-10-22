@@ -1,4 +1,4 @@
-import { atom, map } from 'nanostores';
+import { map } from 'nanostores';
 import {
   getToolInvocation,
   toolInvocationPhase,
@@ -15,7 +15,6 @@ type ToolActivity = {
 
 export class ToolActivityStore {
   readonly activities = map<Record<PartId, ToolActivity>>({});
-  readonly revision = atom(0);
   #scope: string | null = null;
   #turnActive = false;
   #turnHandoffPending = false;
@@ -31,7 +30,6 @@ export class ToolActivityStore {
     this.#turnHandoffPending = false;
     if (Object.keys(this.activities.get()).length > 0) {
       this.activities.set({});
-      this.#bumpRevision();
     }
   }
 
@@ -48,19 +46,16 @@ export class ToolActivityStore {
     if (terminal && !settled) {
       if (current !== terminal) {
         this.activities.setKey(partId, terminal);
-        this.#bumpRevision();
       }
       return;
     }
     if (!this.#turnActive) {
       if (!settled) {
         this.activities.setKey(partId, { invocation, status: 'aborted' });
-        this.#bumpRevision();
       } else if (terminal && current?.invocation !== invocation) {
         // A settled result landing after its turn supersedes the one recorded: a publish's build result
         // replaces its pending build, and the server's real result replaces a call shown as stopped.
         this.activities.setKey(partId, { invocation, status });
-        this.#bumpRevision();
       }
       return;
     }
@@ -68,7 +63,6 @@ export class ToolActivityStore {
       return;
     }
     this.activities.setKey(partId, { invocation, status });
-    this.#bumpRevision();
   }
 
   startTurn(): void {
@@ -117,7 +111,6 @@ export class ToolActivityStore {
         }
       }
     });
-    this.#bumpRevision();
   }
 
   handoffActiveTurn(): void {
@@ -137,7 +130,6 @@ export class ToolActivityStore {
   abortActive(): void {
     this.#turnActive = false;
     this.#turnHandoffPending = false;
-    let changed = false;
     // SAFETY: every key in this map was written through `setKey(partId, ...)`, so the entries are
     // PartId-keyed; `Object.entries` only widens the branded key back to `string`.
     for (const [partId, activity] of Object.entries(this.activities.get()) as Array<[PartId, ToolActivity]>) {
@@ -145,15 +137,7 @@ export class ToolActivityStore {
         continue;
       }
       this.activities.setKey(partId, { ...activity, status: 'aborted' });
-      changed = true;
     }
-    if (changed) {
-      this.#bumpRevision();
-    }
-  }
-
-  #bumpRevision(): void {
-    this.revision.set(this.revision.get() + 1);
   }
 }
 
