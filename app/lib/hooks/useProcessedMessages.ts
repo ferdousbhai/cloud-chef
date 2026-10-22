@@ -81,11 +81,11 @@ export function processMessage(message: CloudChefMessage, previousParts: PartCac
   };
 }
 
-export function useProcessedMessages(partCache: PartCache) {
+export function useProcessedMessages() {
   const [parsedMessages, setParsedMessages] = useState<CloudChefMessage[]>([]);
 
   const previousMessages = useRef<{ original: CloudChefMessage; parsed: CloudChefMessage }[]>([]);
-  const previousParts = useRef<PartCache>(partCache);
+  const previousParts = useRef<PartCache>(new Map());
 
   const processMessages = useCallback((messages: CloudChefMessage[]) => {
     const nextPrevMessages: { original: CloudChefMessage; parsed: CloudChefMessage }[] = [];

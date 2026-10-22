@@ -3,7 +3,6 @@ import { Chat } from './chat/Chat';
 import { CloudChefAuthProvider } from './chat/CloudChefAuthWrapper';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { Loading } from './Loading';
-import { useReloadMessages } from '~/lib/stores/startup/reloadMessages';
 import { Toaster } from '~/components/ui/Toaster';
 import { CloudflareSignInPrompt } from '~/components/CloudflareSignInPrompt';
 import { Button } from '@ui/Button';
@@ -60,8 +59,6 @@ function AuthenticatedExistingChat({ chatId }: { chatId: string }) {
     retrySubchats,
   } = useExistingChat(chatId);
 
-  const reloadState = useReloadMessages(initialMessages ?? undefined);
-
   if (loadError && initialMessages == null) {
     return <ProjectLoadError error={loadError} onRetry={retryLoad} />;
   }
@@ -73,7 +70,7 @@ function AuthenticatedExistingChat({ chatId }: { chatId: string }) {
   }
 
   // Wait for the account-owned chat and workbench state without running any actions.
-  if (initialMessages === undefined || !transcript || reloadState === undefined) {
+  if (initialMessages === undefined || !transcript) {
     return <ProjectLoading />;
   }
   return (
@@ -81,7 +78,6 @@ function AuthenticatedExistingChat({ chatId }: { chatId: string }) {
     <PromptPrefillContext.Provider value={false}>
       <Chat
         initialMessages={initialMessages}
-        partCache={reloadState.partCache}
         initializeChat={initializeChat}
         discardEmptyChat={discardEmptyChat}
         onBuilderRequestStart={onBuilderRequestStart}

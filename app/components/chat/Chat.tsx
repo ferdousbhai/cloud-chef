@@ -41,7 +41,6 @@ const logger = createScopedLogger('Chat');
 export const Chat = memo(
   ({
     initialMessages,
-    partCache,
     initializeChat,
     discardEmptyChat,
     onBuilderRequestStart,
@@ -105,7 +104,6 @@ export const Chat = memo(
       <AuthenticatedChat
         accountId={userId}
         initialMessages={initialMessages}
-        partCache={partCache}
         initializeChat={initializeChat}
         discardEmptyChat={discardEmptyChat}
         onBuilderRequestStart={onBuilderRequestStart}
@@ -270,7 +268,6 @@ const AuthenticatedChat = memo(
   ({
     accountId,
     initialMessages,
-    partCache,
     initializeChat,
     discardEmptyChat,
     onBuilderRequestStart,
@@ -340,7 +337,7 @@ const AuthenticatedChat = memo(
       presentationId,
       transcript,
     });
-    const parsedMessages = useChatHistoryProcessing({ messages, partCache });
+    const parsedMessages = useChatHistoryProcessing({ messages });
 
     useEffect(() => {
       chatStore.setKey('started', chatStarted);

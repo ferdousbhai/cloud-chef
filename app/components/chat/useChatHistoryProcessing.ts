@@ -1,15 +1,15 @@
 import { useEffect, useMemo } from 'react';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { createSampler } from '~/utils/sampler';
-import { useProcessedMessages, type PartCache } from '~/lib/hooks/useProcessedMessages';
+import { useProcessedMessages } from '~/lib/hooks/useProcessedMessages';
 
 interface ProcessMessagesOptions {
   messages: CloudChefMessage[];
   processMessages: (messages: CloudChefMessage[]) => void;
 }
 
-export function useChatHistoryProcessing(args: { messages: CloudChefMessage[]; partCache: PartCache }) {
-  const { parsedMessages, processMessages } = useProcessedMessages(args.partCache);
+export function useChatHistoryProcessing(args: { messages: CloudChefMessage[] }) {
+  const { parsedMessages, processMessages } = useProcessedMessages();
   const { messages } = args;
   const processSampledMessages = useMemo(
     () =>
