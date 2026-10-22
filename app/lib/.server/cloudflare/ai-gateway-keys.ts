@@ -1,4 +1,5 @@
 import type { CloudflareConnection } from './cloudflare-connection-repository';
+import { missingCoreOAuthScopes } from './cloudflare-oauth-scope-manifest';
 import { openConnectionAccountApi } from './connection-account-api';
 import type { AiGatewayProviderKey, UserCloudflareAccountApi } from './user-account-api';
 import { GATEWAY_PROVIDER_SLUGS, type GatewayKey, type GatewayProviderSlug } from '~/lib/workers-ai-model';
@@ -38,11 +39,6 @@ export type OpenGatewayKeyAccountApi = (env: Env, connection: CloudflareConnecti
 
 /** The connected account's API, with its stored authorization, refreshed once if Cloudflare refuses it. */
 export const openGatewayKeyAccountApi: OpenGatewayKeyAccountApi = openConnectionAccountApi;
-
-/** Whether the connection's authorization lets CloudChef manage the gateway's provider keys at all. */
-export function canManageAiGatewayKeys(connection: Pick<CloudflareConnection, 'grantedCapabilities'>): boolean {
-  return connection.grantedCapabilities.includes('ai_gateway_keys');
-}
 
 /**
  * Newest first, by when Cloudflare last changed each key; keys it gives no time for go last, by alias.
@@ -96,7 +92,7 @@ export async function linkedGatewayKeys(
   connection: CloudflareConnection,
   open: OpenGatewayKeyAccountApi = openGatewayKeyAccountApi,
 ): Promise<GatewayKey[]> {
-  if (!canManageAiGatewayKeys(connection)) {
+  if (missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0) {
     return [];
   }
   try {

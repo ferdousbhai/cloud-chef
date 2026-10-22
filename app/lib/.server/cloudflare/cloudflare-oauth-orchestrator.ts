@@ -1,22 +1,10 @@
 import { z } from 'zod';
 import { bytesToBase64Url } from '~/lib/hex-digest';
 import {
-  BROAD_CLOUDFLARE_OAUTH_SCOPES,
-  capabilitiesFromOAuthScopes,
-  CLOUDFLARE_OAUTH_SCOPE_PROFILE_VERSION,
-  cloudflareOAuthScopeGrantStatus,
   CORE_CLOUDFLARE_OAUTH_SCOPES,
   missingCoreOAuthScopes,
   parseReportedOAuthScopes,
 } from './cloudflare-oauth-scope-manifest';
-import {
-  CloudflareOAuthError,
-  type CloudflareConnectionChallenge,
-  type CloudflareConnectionCompletionRequest,
-  type CloudflareConnectionRequest,
-  type CloudflareConnectionResult,
-  type CloudflareOrchestrator,
-} from './cloudflare-orchestrator';
 
 const AUTHORIZE_URL = 'https://dash.cloudflare.com/oauth2/auth';
 const TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token';
@@ -24,6 +12,42 @@ const USER_DETAILS_URL = 'https://api.cloudflare.com/client/v4/user';
 const ACCOUNTS_URL = 'https://api.cloudflare.com/client/v4/accounts?per_page=2';
 const SESSION_LIFETIME_MS = 10 * 60 * 1000;
 const OAUTH_REQUEST_TIMEOUT_MS = 30_000;
+
+export type CloudflareConnectionChallenge = {
+  sessionId: string;
+  authorizationUrl: string;
+  expiresAt: number;
+};
+
+export type CloudflareConnectionResult = {
+  user: {
+    subject: string;
+    email: string | null;
+    name: string | null;
+    picture: string | null;
+  };
+  accountId: string;
+  accountName: string | null;
+  accessToken: string;
+  refreshToken: string;
+  accessTokenExpiresAt: number;
+  /** Exact provider-confirmed scope IDs, every core scope among them. */
+  grantedOAuthScopes: string[];
+};
+
+export class CloudflareOAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CloudflareOAuthError';
+  }
+}
+
+export class CloudflareOAuthUnavailableError extends Error {
+  constructor() {
+    super('Cloudflare account provisioning is not configured for this environment.');
+    this.name = 'CloudflareOAuthUnavailableError';
+  }
+}
 
 type OAuthSession = {
   verifier: string;
@@ -70,18 +94,25 @@ const accountsSchema = z.looseObject({
     .catch(undefined),
 });
 
-export class CloudflareOAuthOrchestrator implements CloudflareOrchestrator {
+/** Cloudflare's OAuth authorization of CloudChef, requesting exactly the manifest's scopes. */
+export class CloudflareOAuthOrchestrator {
   constructor(
-    private readonly config: { clientId: string; clientSecret: string; scopes: string },
+    private readonly config: { clientId: string; clientSecret: string },
     private readonly request: typeof fetch = fetch,
   ) {}
 
-  async startConnection(request: CloudflareConnectionRequest): Promise<CloudflareConnectionChallenge> {
-    const configuredScopes = new Set(this.config.scopes.split(/\s+/).filter(Boolean));
-    const missingScopes = CORE_CLOUDFLARE_OAUTH_SCOPES.filter((scope) => !configuredScopes.has(scope));
-    if (missingScopes.length > 0) {
-      throw new CloudflareOAuthError(`Cloudflare OAuth is missing required scopes: ${missingScopes.join(', ')}.`);
+  /** The configured client, or CloudflareOAuthUnavailableError when this environment has none. */
+  static fromEnv(env: Env): CloudflareOAuthOrchestrator {
+    if (!env.CLOUDFLARE_OAUTH_CLIENT_ID || !env.CLOUDFLARE_OAUTH_CLIENT_SECRET) {
+      throw new CloudflareOAuthUnavailableError();
     }
+    return new CloudflareOAuthOrchestrator({
+      clientId: env.CLOUDFLARE_OAUTH_CLIENT_ID,
+      clientSecret: env.CLOUDFLARE_OAUTH_CLIENT_SECRET,
+    });
+  }
+
+  async startConnection(request: { returnUrl: string }): Promise<CloudflareConnectionChallenge> {
     const returnUrl = new URL(request.returnUrl);
     const state = returnUrl.searchParams.get('state');
     if (!state) {
@@ -96,7 +127,7 @@ export class CloudflareOAuthOrchestrator implements CloudflareOrchestrator {
     authorizationUrl.searchParams.set('response_type', 'code');
     authorizationUrl.searchParams.set('client_id', this.config.clientId);
     authorizationUrl.searchParams.set('redirect_uri', returnUrl.toString());
-    authorizationUrl.searchParams.set('scope', [...configuredScopes, 'offline_access'].join(' '));
+    authorizationUrl.searchParams.set('scope', [...CORE_CLOUDFLARE_OAUTH_SCOPES, 'offline_access'].join(' '));
     authorizationUrl.searchParams.set('state', state);
     authorizationUrl.searchParams.set('code_challenge', challenge);
     authorizationUrl.searchParams.set('code_challenge_method', 'S256');
@@ -110,7 +141,10 @@ export class CloudflareOAuthOrchestrator implements CloudflareOrchestrator {
     };
   }
 
-  async completeConnection(request: CloudflareConnectionCompletionRequest): Promise<CloudflareConnectionResult> {
+  async completeConnection(request: {
+    providerSessionId: string;
+    callbackUrl: string;
+  }): Promise<CloudflareConnectionResult> {
     const execute = this.request;
     const session = parseSession(request.providerSessionId);
     const callback = new URL(request.callbackUrl);
@@ -147,11 +181,7 @@ export class CloudflareOAuthOrchestrator implements CloudflareOrchestrator {
         'Cloudflare did not issue a refresh token. Reconnect with offline access enabled.',
       );
     }
-    const requestedScopes = [...new Set(this.config.scopes.split(/\s+/).filter(Boolean))];
-    const grantedScopes = resolveGrantedScopes(
-      token.scope ?? callback.searchParams.get('scope') ?? undefined,
-      requestedScopes,
-    );
+    const grantedScopes = resolveGrantedScopes(token.scope ?? callback.searchParams.get('scope') ?? undefined);
     const userDetailsResponse = await execute(USER_DETAILS_URL, {
       headers: { authorization: `Bearer ${token.access_token}` },
       signal: AbortSignal.timeout(OAUTH_REQUEST_TIMEOUT_MS),
@@ -185,30 +215,21 @@ export class CloudflareOAuthOrchestrator implements CloudflareOrchestrator {
       accountName: account.name ?? null,
       accessToken: token.access_token,
       refreshToken: token.refresh_token,
-      accessTokenExpiresAt:
-        typeof token.expires_in === 'number' ? Date.now() + Math.max(0, token.expires_in) * 1_000 : undefined,
-      grantedCapabilities: capabilitiesFromOAuthScopes(grantedScopes),
-      requestedOAuthScopes: requestedScopes,
+      // A token without a reported lifetime is treated as already due, so its first use refreshes it.
+      accessTokenExpiresAt: Date.now() + Math.max(0, token.expires_in ?? 0) * 1_000,
       grantedOAuthScopes: grantedScopes,
-      oauthScopeProfileVersion: CLOUDFLARE_OAUTH_SCOPE_PROFILE_VERSION,
-      oauthScopeGrantStatus: cloudflareOAuthScopeGrantStatus(grantedScopes),
     };
   }
 }
 
 /**
  * The scope IDs Cloudflare actually granted. The provider reports them on the callback and in the
- * token response; when it reports neither, the grant is provable only because the broad optional
- * profile is empty - every configured scope is then required at the Cloudflare client, so a
- * completed exchange carries exactly the requested set. Never equate requested optional scopes
- * with granted ones.
+ * token response; when it reports neither, every requested scope is required at the Cloudflare
+ * client, so a completed exchange carries exactly the manifest's.
  */
-function resolveGrantedScopes(reported: string | undefined, requestedScopes: string[]): string[] {
+function resolveGrantedScopes(reported: string | undefined): string[] {
   if (reported === undefined || reported.trim() === '') {
-    if (BROAD_CLOUDFLARE_OAUTH_SCOPES.length > 0) {
-      throw new CloudflareOAuthError('Cloudflare did not report which optional permissions were granted.');
-    }
-    return requestedScopes;
+    return [...CORE_CLOUDFLARE_OAUTH_SCOPES];
   }
   const parsed = parseReportedOAuthScopes(reported);
   if ('unknownScopes' in parsed) {

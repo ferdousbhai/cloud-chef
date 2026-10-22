@@ -16,11 +16,7 @@ describe('activateCloudflareConnection', () => {
         accountId: 'account-1',
         accountName: 'Account',
         credentialHandle: 'credential-loser',
-        grantedCapabilities: ['workers'],
-        requestedOAuthScopes: ['workers-scripts.write'],
         grantedOAuthScopes: ['workers-scripts.write'],
-        oauthScopeProfileVersion: 'core-v1',
-        oauthScopeGrantStatus: 'core' as const,
         expectedGeneration: 4,
         now: 100,
       }),
@@ -40,11 +36,7 @@ describe('activateCloudflareConnection', () => {
         accountId: 'account-2',
         accountName: 'New account',
         credentialHandle: 'credential-new',
-        grantedCapabilities: ['workers', 'workers_ai'],
-        requestedOAuthScopes: ['workers-scripts.write', 'ai.read'],
         grantedOAuthScopes: ['workers-scripts.write', 'ai.read'],
-        oauthScopeProfileVersion: 'core-v1',
-        oauthScopeGrantStatus: 'core' as const,
         expectedGeneration: 5,
         now: 200,
       }),
@@ -64,11 +56,7 @@ describe('activateCloudflareConnection', () => {
         accountId: 'account-2',
         accountName: 'New account',
         credentialHandle: 'credential-committed',
-        grantedCapabilities: ['workers'],
-        requestedOAuthScopes: ['workers-scripts.write'],
         grantedOAuthScopes: ['workers-scripts.write'],
-        oauthScopeProfileVersion: 'core-v1',
-        oauthScopeGrantStatus: 'core' as const,
         expectedGeneration: 2,
         now: 300,
       }),
@@ -92,11 +80,7 @@ describe('activateCloudflareConnection', () => {
         accountId: 'account-2',
         accountName: 'New account',
         credentialHandle: 'credential-committed',
-        grantedCapabilities: ['workers', 'workers_ai'],
-        requestedOAuthScopes: ['workers-scripts.write', 'ai.read'],
         grantedOAuthScopes: ['workers-scripts.write', 'ai.read'],
-        oauthScopeProfileVersion: 'core-v1',
-        oauthScopeGrantStatus: 'core' as const,
         expectedGeneration: 2,
         now: 300,
       }),
@@ -119,11 +103,7 @@ describe('activateCloudflareConnection', () => {
         accountId: 'account-2',
         accountName: 'New account',
         credentialHandle: 'credential-loser',
-        grantedCapabilities: ['workers'],
-        requestedOAuthScopes: ['workers-scripts.write'],
         grantedOAuthScopes: ['workers-scripts.write'],
-        oauthScopeProfileVersion: 'core-v1',
-        oauthScopeGrantStatus: 'core' as const,
         expectedGeneration: 5,
         now: 300,
       }),
@@ -143,11 +123,7 @@ describe('activateCloudflareConnection', () => {
         accountId: 'account-new',
         accountName: null,
         credentialHandle: 'credential-new',
-        grantedCapabilities: ['workers'],
-        requestedOAuthScopes: ['workers-scripts.write'],
         grantedOAuthScopes: ['workers-scripts.write'],
-        oauthScopeProfileVersion: 'core-v1',
-        oauthScopeGrantStatus: 'core' as const,
         expectedGeneration: null,
         now: 400,
       }),
@@ -165,18 +141,14 @@ describe('activateCloudflareConnection', () => {
         accountId: 'account-new',
         accountName: null,
         credentialHandle: 'credential-new',
-        grantedCapabilities: ['workers'],
-        requestedOAuthScopes: ['workers-scripts.write'],
         grantedOAuthScopes: ['workers-scripts.write'],
-        oauthScopeProfileVersion: 'core-v1',
-        oauthScopeGrantStatus: 'core' as const,
         expectedGeneration: null,
         now: 400,
       }),
     ).resolves.toBeUndefined();
   });
 
-  it('rejects corrupt persisted capability scopes instead of silently removing them', async () => {
+  it('rejects corrupt persisted scopes instead of silently removing them', async () => {
     const row = {
       id: 'connection-1',
       user_id: 'user-1',
@@ -184,12 +156,7 @@ describe('activateCloudflareConnection', () => {
       account_name: 'Account',
       status: 'active',
       credential_handle: 'credential-1',
-      granted_capabilities_json: '{invalid',
-      requested_oauth_scopes_json: '[]',
-      granted_oauth_scopes_json: '[]',
-      oauth_scope_profile_version: null,
-      oauth_scope_grant_status: 'core',
-      oauth_grant_updated_at: null,
+      granted_oauth_scopes_json: '{invalid',
       connected_at: 1,
       updated_at: 1,
       connection_generation: 1,
@@ -209,12 +176,7 @@ type FakeConnectionState = {
   credentialHandle: string;
   accountId: string;
   accountName: string | null;
-  capabilities: string[];
-  requestedScopes: string[];
   grantedScopes: string[];
-  profileVersion: string | null;
-  grantStatus: string;
-  grantUpdatedAt: number | null;
   connectedAt: number;
   updatedAt: number;
 };
@@ -232,12 +194,7 @@ function connectionDatabase(
     credentialHandle: initial.credentialHandle,
     accountId: 'account-1',
     accountName: 'Account',
-    capabilities: ['workers'],
-    requestedScopes: ['workers-scripts.write'],
     grantedScopes: ['workers-scripts.write'],
-    profileVersion: 'core-v1',
-    grantStatus: 'core',
-    grantUpdatedAt: 1,
     connectedAt: 1,
     updatedAt: 1,
   };
@@ -249,12 +206,7 @@ function connectionDatabase(
     account_name: state.accountName,
     status: 'active' as const,
     credential_handle: state.credentialHandle,
-    granted_capabilities_json: JSON.stringify(state.capabilities),
-    requested_oauth_scopes_json: JSON.stringify(state.requestedScopes),
     granted_oauth_scopes_json: JSON.stringify(state.grantedScopes),
-    oauth_scope_profile_version: state.profileVersion,
-    oauth_scope_grant_status: state.grantStatus,
-    oauth_grant_updated_at: state.grantUpdatedAt,
     connected_at: state.connectedAt,
     updated_at: state.updatedAt,
     connection_generation: state.generation,
@@ -262,47 +214,15 @@ function connectionDatabase(
   const applyUpdate = (values: unknown[]) => {
     // SAFETY: mirrors the exact bind order of the repository's UPDATE statement, which the
     // assertions on the fake's observable state prove end to end.
-    const [
-      accountId,
-      accountName,
-      credentialHandle,
-      capabilitiesJson,
-      requestedScopesJson,
-      grantedScopesJson,
-      profileVersion,
-      grantStatus,
-      grantUpdatedAt,
-      connectedAt,
-      updatedAt,
-      ,
-      expectedGeneration,
-    ] = values as [
-      string,
-      string | null,
-      string,
-      string,
-      string,
-      string,
-      string,
-      string,
-      number,
-      number,
-      number,
-      string,
-      number,
-    ];
+    const [accountId, accountName, credentialHandle, grantedScopesJson, connectedAt, updatedAt, , expectedGeneration] =
+      values as [string, string | null, string, string, number, number, string, number];
     if (expectedGeneration !== state.generation) {
       return false;
     }
     state.accountId = accountId;
     state.accountName = accountName;
     state.credentialHandle = credentialHandle;
-    state.capabilities = JSON.parse(capabilitiesJson);
-    state.requestedScopes = JSON.parse(requestedScopesJson);
     state.grantedScopes = JSON.parse(grantedScopesJson);
-    state.profileVersion = profileVersion;
-    state.grantStatus = grantStatus;
-    state.grantUpdatedAt = grantUpdatedAt;
     state.connectedAt = connectedAt;
     state.updatedAt = updatedAt;
     state.generation++;
@@ -387,37 +307,8 @@ function newConnectionDatabase(options: { insertErrorAfterCommit?: Error } = {})
 function insertedConnectionRow(values: unknown[]) {
   // SAFETY: mirrors the exact bind order of the repository's INSERT statement, which the
   // returning-row assertions in the tests above prove end to end.
-  const [
-    id,
-    userId,
-    accountId,
-    accountName,
-    credentialHandle,
-    capabilitiesJson,
-    requestedScopesJson,
-    grantedScopesJson,
-    profileVersion,
-    grantStatus,
-    grantUpdatedAt,
-    connectedAt,
-    ,
-    updatedAt,
-  ] = values as [
-    string,
-    string,
-    string,
-    string | null,
-    string,
-    string,
-    string,
-    string,
-    string,
-    string,
-    number,
-    number,
-    number,
-    number,
-  ];
+  const [id, userId, accountId, accountName, credentialHandle, grantedScopesJson, connectedAt, , updatedAt] =
+    values as [string, string, string, string | null, string, string, number, number, number];
   return {
     id,
     user_id: userId,
@@ -425,12 +316,7 @@ function insertedConnectionRow(values: unknown[]) {
     account_name: accountName,
     status: 'active' as const,
     credential_handle: credentialHandle,
-    granted_capabilities_json: capabilitiesJson,
-    requested_oauth_scopes_json: requestedScopesJson,
     granted_oauth_scopes_json: grantedScopesJson,
-    oauth_scope_profile_version: profileVersion,
-    oauth_scope_grant_status: grantStatus,
-    oauth_grant_updated_at: grantUpdatedAt,
     connected_at: connectedAt,
     updated_at: updatedAt,
     connection_generation: 1,

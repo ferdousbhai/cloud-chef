@@ -53,11 +53,7 @@ describe('control-plane account export', () => {
         accountId: 'account-1',
         accountName: 'Account',
         status: 'active',
-        grantedCapabilities: ['workers', 'workers_ai'],
-        requestedOAuthScopes: [],
-        grantedOAuthScopes: [],
-        oauthScopeProfileVersion: null,
-        oauthScopeGrantStatus: 'core',
+        grantedOAuthScopes: ['workers-scripts.write', 'ai.read'],
         defaultBuilderModel: null,
         connectedAt: '1970-01-01T00:00:00.001Z',
         updatedAt: '1970-01-01T00:00:00.001Z',
@@ -258,8 +254,7 @@ describe('control-plane account export', () => {
     seedAccount(database);
     database.exec(`
       UPDATE "user" SET email_proven_at = 5 WHERE id = 'user-1';
-      UPDATE cloudflare_connections SET default_builder_model = 'anthropic/claude-sonnet-4-5',
-        requested_oauth_scopes_json = '["workers-scripts.write"]', oauth_scope_profile_version = 'core-v1';
+      UPDATE cloudflare_connections SET default_builder_model = 'anthropic/claude-sonnet-4-5';
       UPDATE user_computer_runtimes SET image_digest = 'sha256:abc', protocol_version = 7, last_session_at = 9;
       INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('acme', 'Acme', 1, 1);
       INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed) VALUES ('acme', 'user-1', 'member', 2, 0);
@@ -288,8 +283,6 @@ describe('control-plane account export', () => {
 
     expect(exported.sections.cloudflareConnection).toMatchObject({
       connection: {
-        requestedOAuthScopes: ['workers-scripts.write'],
-        oauthScopeProfileVersion: 'core-v1',
         defaultBuilderModel: 'anthropic/claude-sonnet-4-5',
       },
     });
@@ -384,9 +377,9 @@ function seedAccount(database: DatabaseSyncInstance, userId = 'user-1'): void {
   database
     .prepare(
       `INSERT INTO cloudflare_connections
-        (id, user_id, account_id, account_name, status, credential_handle, granted_capabilities_json,
-         connected_at, created_at, updated_at, oauth_scope_grant_status)
-       VALUES (?, ?, 'account-1', 'Account', 'active', ?, '["workers","workers_ai"]', 1, 1, 1, 'core')`,
+        (id, user_id, account_id, account_name, status, credential_handle, granted_oauth_scopes_json,
+         connected_at, created_at, updated_at)
+       VALUES (?, ?, 'account-1', 'Account', 'active', ?, '["workers-scripts.write","ai.read"]', 1, 1, 1)`,
     )
     .run(`connection-${userId}`, userId, `${CREDENTIAL_HANDLE}-${userId}`);
   database

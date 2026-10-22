@@ -12,14 +12,7 @@ import { ReauthenticateButtons } from './ReauthenticateButtons';
 
 const connectionStatusSchema = z.looseObject({
   accountName: z.string().nullish(),
-  oauthScopeGrantStatus: z.enum(['core', 'partial', 'full']).nullish(),
 });
-
-const GRANT_STATUS_SENTENCES = {
-  core: 'Core build permissions granted.',
-  partial: 'Partial Cloudflare permissions granted. Reauthorize to grant full access.',
-  full: 'Full Cloudflare permissions granted.',
-} as const;
 
 type ConnectionStatus = z.infer<typeof connectionStatusSchema>;
 
@@ -95,10 +88,6 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
           ) : connection ? (
             <p className="mt-1 text-sm text-content-secondary">
               Connected{connection.accountName ? ` to ${connection.accountName}` : ''}.
-              {/* What to reauthorize is for whoever can: the account's owner, or an organization's admins. */}
-              {connection.oauthScopeGrantStatus && (!organization || admin)
-                ? ` ${GRANT_STATUS_SENTENCES[connection.oauthScopeGrantStatus]}`
-                : ''}
             </p>
           ) : organization ? null : (
             <p className="mt-1 max-w-2xl text-sm text-content-secondary">

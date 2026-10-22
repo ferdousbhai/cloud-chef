@@ -15,7 +15,6 @@ declare global {
     CLOUDFLARE_ACCOUNT_ID: string;
     CLOUDCHEF_CONNECTION_ID: string;
     CLOUDCHEF_CONNECTION_GENERATION: string;
-    CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS: string;
     /** '1' in an organization's account, which this runtime shares with the other members' workspaces. */
     CLOUDCHEF_SHARED_ACCOUNT?: string;
   }

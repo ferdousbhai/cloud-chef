@@ -7,7 +7,7 @@ import { draftsAllowed, type OrganizationRole } from '~/lib/cloudflare/data/orga
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
  * kept for years stays readable against the shape it was written in.
  */
-export const ACCOUNT_EXPORT_SCHEMA_VERSION = 7;
+export const ACCOUNT_EXPORT_SCHEMA_VERSION = 8;
 
 /**
  * Per-section ceiling on rows. A list section returns its most recent page and
@@ -74,11 +74,7 @@ type ExportedCloudflareConnection = {
   accountId: string;
   accountName: string | null;
   status: string;
-  grantedCapabilities: string[];
-  requestedOAuthScopes: string[];
   grantedOAuthScopes: string[];
-  oauthScopeProfileVersion: string | null;
-  oauthScopeGrantStatus: string;
   /** The model builders in this account start on, as its owner chose; null for CloudChef's default. */
   defaultBuilderModel: string | null;
   connectedAt: string | null;
@@ -370,11 +366,7 @@ async function readCloudflareConnection(
       accountId: connection.accountId,
       accountName: connection.accountName,
       status: connection.status,
-      grantedCapabilities: connection.grantedCapabilities,
-      requestedOAuthScopes: connection.requestedOAuthScopes,
       grantedOAuthScopes: connection.grantedOAuthScopes,
-      oauthScopeProfileVersion: connection.oauthScopeProfileVersion,
-      oauthScopeGrantStatus: connection.oauthScopeGrantStatus,
       defaultBuilderModel: model?.default_builder_model ?? null,
       connectedAt: optionalIsoTimestamp(connection.connectedAt),
       updatedAt: isoTimestamp(connection.updatedAt),

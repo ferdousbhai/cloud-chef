@@ -118,10 +118,7 @@ test('keeps account details discoverable and clears a cancelled deletion', async
   await page.route('**/api/auth/session', (route) => route.fulfill({ json: authSession }));
   await page.route('**/api/cloudflare/connection', (route) =>
     route.fulfill({
-      json: {
-        accountName: 'Test account',
-        oauthScopeGrantStatus: 'full',
-      },
+      json: { accountName: 'Test account' },
     }),
   );
   // Every card a signed-in member's settings load, answered as for a member with no teams and no keys yet.

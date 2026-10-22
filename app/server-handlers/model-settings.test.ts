@@ -5,6 +5,7 @@ import { createAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { createOrganization } from '~/lib/cloudflare/data/organizations.server';
 import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { linkedGatewayKeys } from '~/lib/.server/cloudflare/ai-gateway-keys';
+import { CORE_CLOUDFLARE_OAUTH_SCOPES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 import { GATEWAY_PROVIDER_SLUGS, type GatewayKey, type GatewayProviderSlug } from '~/lib/workers-ai-model';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import { runtimeIdentityHeaders } from '~/lib/.server/cloudflare/runtime-identity-headers';
@@ -23,16 +24,7 @@ const PASTED_KEY = 'sk-ant-api03-this-is-a-test-key-0123456789';
 /** A key the fake Cloudflare refuses to store. */
 const REFUSED_KEY = 'sk-ant-api03-a-key-cloudflare-refuses-000';
 const ENCRYPTION_KEY = btoa('a'.repeat(32));
-const ALL_CAPABILITIES = [
-  'workers',
-  'containers',
-  'd1',
-  'r2',
-  'kv',
-  'durable_objects',
-  'workers_ai',
-  'ai_gateway_keys',
-];
+const ALL_SCOPES: string[] = [...CORE_CLOUDFLARE_OAUTH_SCOPES];
 const GATEWAY_PATH = '/ai-gateway/gateways/default';
 const PROVIDER_PATH = `${GATEWAY_PATH}/provider_configs`;
 
@@ -242,9 +234,9 @@ function fakeCloudflare({
 }
 
 async function setup({
-  capabilities = ALL_CAPABILITIES,
+  scopes = ALL_SCOPES,
   cloudflare = fakeCloudflare(),
-}: { capabilities?: string[]; cloudflare?: ReturnType<typeof fakeCloudflare> } = {}) {
+}: { scopes?: string[]; cloudflare?: ReturnType<typeof fakeCloudflare> } = {}) {
   const { database, db } = controlPlaneDatabase();
   const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: ENCRYPTION_KEY });
   const signIn = async (email: string) => {
@@ -268,10 +260,10 @@ async function setup({
   database
     .prepare(
       `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, credential_handle,
-         granted_capabilities_json, created_at, updated_at, oauth_scope_grant_status)
-       VALUES ('acme-connection', ?, ?, 'Acme', 'active', 'credential-1', ?, 1, 1, 'core')`,
+         granted_oauth_scopes_json, created_at, updated_at)
+       VALUES ('acme-connection', ?, ?, 'Acme', 'active', 'credential-1', ?, 1, 1)`,
     )
-    .run(orgId, ACCOUNT_ID, JSON.stringify(capabilities));
+    .run(orgId, ACCOUNT_ID, JSON.stringify(scopes));
   return { database, env, admin, member, cloudflare };
 }
 
@@ -797,7 +789,7 @@ describe('Settings: models', () => {
     });
     const requestsBefore = cloudflare.requests.length;
 
-    const withoutGrant = { ...connectionOf(database), grantedCapabilities: ALL_CAPABILITIES.slice(0, -1) };
+    const withoutGrant = { ...connectionOf(database), grantedOAuthScopes: ALL_SCOPES.slice(0, -1) };
     expect(await linkedGatewayKeys(env, withoutGrant, openAccountApi)).toEqual([]);
     expect(cloudflare.requests).toHaveLength(requestsBefore);
     // Cloudflare unreachable: also a no.
@@ -837,7 +829,7 @@ describe('Settings: models', () => {
   });
 
   it('asks for a reauthorization when the connection predates AI Gateway keys, without calling Cloudflare', async () => {
-    const { env, admin, cloudflare } = await setup({ capabilities: ALL_CAPABILITIES.slice(0, -1) });
+    const { env, admin, cloudflare } = await setup({ scopes: ALL_SCOPES.slice(0, -1) });
     const openAccountApi = cloudflare.openAccountApi;
 
     expect(await (await modelSettingsAction({ request: get(admin.cookie), env, openAccountApi })).json()).toMatchObject(
@@ -956,8 +948,8 @@ describe("the team's default model", () => {
 
 function connectionOf(database: ReturnType<typeof controlPlaneDatabase>['database']) {
   const row = z
-    .object({ id: z.string(), account_id: z.string(), granted_capabilities_json: z.string() })
-    .parse(database.prepare('SELECT id, account_id, granted_capabilities_json FROM cloudflare_connections').get());
+    .object({ id: z.string(), account_id: z.string(), granted_oauth_scopes_json: z.string() })
+    .parse(database.prepare('SELECT id, account_id, granted_oauth_scopes_json FROM cloudflare_connections').get());
   return {
     id: row.id,
     userId: null,
@@ -966,11 +958,7 @@ function connectionOf(database: ReturnType<typeof controlPlaneDatabase>['databas
     accountName: 'Acme',
     status: 'active' as const,
     credentialHandle: 'credential-1',
-    grantedCapabilities: z.array(z.string()).parse(JSON.parse(row.granted_capabilities_json)),
-    requestedOAuthScopes: [],
-    grantedOAuthScopes: [],
-    oauthScopeProfileVersion: null,
-    oauthScopeGrantStatus: 'core' as const,
+    grantedOAuthScopes: z.array(z.string()).parse(JSON.parse(row.granted_oauth_scopes_json)),
     connectedAt: 1,
     updatedAt: 1,
     generation: 1,

@@ -5,7 +5,6 @@ import { applyD1Migrations, type D1Migration } from 'cloudflare:test';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 type WorkerdTestEnv = {
-  CLOUDFLARE_OAUTH_SCOPES: string;
   DB: D1Database;
   TEST_MIGRATIONS: D1Migration[];
 };
@@ -42,8 +41,6 @@ describe('root Worker in workerd', () => {
       name: string;
     }>();
     expect(migration?.name).toBe(testEnv.TEST_MIGRATIONS.at(-1)?.name);
-
-    expect(testEnv.CLOUDFLARE_OAUTH_SCOPES).toContain('workers-scripts.write');
   });
 
   it('exposes deployment metadata through the Worker entrypoint', async () => {

@@ -48,7 +48,6 @@ type RuntimeIdentityBindings = {
   CLOUDFLARE_ACCOUNT_ID: string;
   CLOUDCHEF_CONNECTION_ID: string;
   CLOUDCHEF_CONNECTION_GENERATION: string;
-  CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS: string;
   CLOUDCHEF_CONTROL_PLANE_ENDPOINT: string;
   CONTROL_PLANE_SECRET: string;
 };
@@ -61,7 +60,6 @@ const RUNTIME_IDENTITY: RuntimeIdentityBindings = {
   CLOUDFLARE_ACCOUNT_ID: ACCOUNT_ID,
   CLOUDCHEF_CONNECTION_ID: 'connection-1',
   CLOUDCHEF_CONNECTION_GENERATION: '1',
-  CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS: 'full',
   CLOUDCHEF_CONTROL_PLANE_ENDPOINT: 'https://control-plane.test',
   CONTROL_PLANE_SECRET: 'runtime-secret',
 };
@@ -290,7 +288,6 @@ export async function builderAgentHarness(
         accountId: ACCOUNT_ID,
         connectionId: RUNTIME_IDENTITY.CLOUDCHEF_CONNECTION_ID,
         connectionGeneration: 1,
-        oauthScopeGrantStatus: 'full',
         transcript: {
           agentName: AGENT_NAME,
           chatInitialId: CHAT_INITIAL_ID,

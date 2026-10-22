@@ -116,7 +116,6 @@ describe('userRuntimeEnhancePromptAction billing', () => {
       CLOUDFLARE_ACCOUNT_ID: 'account-1',
       CLOUDCHEF_CONNECTION_ID: 'connection-1',
       CLOUDCHEF_CONNECTION_GENERATION: '3',
-      CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS: 'full',
     });
     const enhance = (aiGatewayContentLogging: boolean) =>
       userRuntimeEnhancePromptAction({

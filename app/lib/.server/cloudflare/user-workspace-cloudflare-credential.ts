@@ -2,9 +2,9 @@ import { z } from 'zod';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import type { CloudflareAccessTokenResolution } from './cloudflare-api-client';
 import {
-  runtimeIdentity,
+  runtimeConnectionIdentity,
   type CloudflareApiRuntimeEnv,
-  type CloudflareApiRuntimeIdentity,
+  type RuntimeConnectionIdentity,
 } from './cloudflare-api-runtime-identity';
 import type { ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import { gatewayKeysSchema, NO_ACCOUNT_MODEL_SETTINGS, type AccountModelSettings } from '~/lib/workers-ai-model';
@@ -15,10 +15,7 @@ const RUNTIME_ROUTE_TIMEOUT_MS = 30_000;
 const MAX_RUNTIME_CREDENTIAL_RESPONSE_BYTES = 8 * 1024;
 const runtimeCredentialResponseSchema = z.object({ accessToken: z.string().min(1).max(4_096) }).strict();
 
-type CloudflareConnectionIdentity = Pick<
-  CloudflareApiRuntimeIdentity,
-  'userId' | 'connectionId' | 'connectionGeneration'
->;
+type CloudflareConnectionIdentity = Pick<RuntimeConnectionIdentity, 'userId' | 'connectionId' | 'connectionGeneration'>;
 
 const tokenWithheldSchema = z.object({ code: z.literal('cloudflare_token_withheld'), error: z.string() });
 
@@ -146,7 +143,7 @@ export async function modelRequestAccess(
   confirm: ConfirmUserWorkspaceAccess = confirmUserWorkspaceAccess,
 ): Promise<ModelRequestAccess> {
   const organization = env.CLOUDCHEF_SHARED_ACCOUNT === '1';
-  const identity = runtimeIdentity(env);
+  const identity = runtimeConnectionIdentity(env);
   if (!identity) {
     return organization ? { allowed: false } : { allowed: true, contentLogging: false, report: null };
   }
@@ -179,7 +176,7 @@ const accountModelSettingsSchema = z.object({
 export async function readAccountModelSettings(
   env: RuntimeCredentialEnv & CloudflareApiRuntimeEnv,
 ): Promise<AccountModelSettings> {
-  const identity = runtimeIdentity(env);
+  const identity = runtimeConnectionIdentity(env);
   if (!identity) {
     return NO_ACCOUNT_MODEL_SETTINGS;
   }

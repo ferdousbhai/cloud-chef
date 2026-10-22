@@ -7,15 +7,15 @@ import {
   type CloudflareExecutionStatus,
 } from 'cloudchef-agent/cloudflare-api';
 import { sha256Hex } from '~/lib/hex-digest';
-import type { CloudflareApiRuntimeIdentity } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
+import type { RuntimeConnectionIdentity } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
 import { builderTranscriptBindingsEqual, type BuilderTranscriptBinding } from './builder-request-policy';
 import { z } from 'zod';
 
 type CloudflareExecutionStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
 
 export type CloudflareExecutionBinding = Pick<
-  CloudflareApiRuntimeIdentity,
-  'userId' | 'accountId' | 'connectionId' | 'connectionGeneration' | 'oauthScopeGrantStatus'
+  RuntimeConnectionIdentity,
+  'userId' | 'accountId' | 'connectionId' | 'connectionGeneration'
 > & {
   transcript: BuilderTranscriptBinding;
 };
@@ -32,7 +32,6 @@ type CloudflareExecutionRow = {
   account_id: string;
   connection_id: string;
   connection_generation: number;
-  oauth_scope_grant_status: string;
   transcript_agent_name: string;
   transcript_chat_initial_id: string;
   transcript_generation: number;
@@ -50,7 +49,7 @@ type CloudflareExecutionRow = {
 };
 
 const EXECUTION_COLUMNS = `execution_id, tool_call_id, user_id, account_id, connection_id,
-  connection_generation, oauth_scope_grant_status, transcript_agent_name, transcript_chat_initial_id, transcript_generation,
+  connection_generation, transcript_agent_name, transcript_chat_initial_id, transcript_generation,
   transcript_subchat_index, transcript_parent_agent_name, execute_input_json, proposal_sha256,
   status, created_at, decided_at, started_at, completed_at, expires_at, outcome_json`;
 
@@ -126,7 +125,8 @@ export class BuilderCloudflareExecutionRepository {
         args.binding.accountId,
         args.binding.connectionId,
         args.binding.connectionGeneration,
-        args.binding.oauthScopeGrantStatus,
+        // No longer read: every connection holds the whole core grant. The column stays NOT NULL.
+        'core',
         args.binding.transcript.agentName,
         args.binding.transcript.chatInitialId,
         args.binding.transcript.generation,
@@ -392,7 +392,6 @@ function recordFromRow(row: CloudflareExecutionRow): CloudflareExecutionRecord {
       accountId: row.account_id,
       connectionId: row.connection_id,
       connectionGeneration: row.connection_generation,
-      oauthScopeGrantStatus: parseGrantStatus(row.oauth_scope_grant_status),
       transcript: {
         agentName: row.transcript_agent_name,
         chatInitialId: row.transcript_chat_initial_id,
@@ -449,7 +448,7 @@ function parseStatus(value: string): CloudflareExecutionStatus {
 
 type CloudflareConnectionIdentity = Omit<CloudflareExecutionBinding, 'transcript'>;
 
-/** Whether both are the same person on the same Cloudflare connection, generation and grant. */
+/** Whether both are the same person on the same Cloudflare connection and generation. */
 export function sameCloudflareConnectionIdentity(
   left: CloudflareConnectionIdentity,
   right: CloudflareConnectionIdentity,
@@ -458,8 +457,7 @@ export function sameCloudflareConnectionIdentity(
     left.userId === right.userId &&
     left.accountId === right.accountId &&
     left.connectionId === right.connectionId &&
-    left.connectionGeneration === right.connectionGeneration &&
-    left.oauthScopeGrantStatus === right.oauthScopeGrantStatus
+    left.connectionGeneration === right.connectionGeneration
   );
 }
 
@@ -472,14 +470,13 @@ function executionBindingsEqual(left: CloudflareExecutionBinding, right: Cloudfl
 function proposalDigest(toolCallId: string, binding: CloudflareExecutionBinding, inputJson: string): Promise<string> {
   return sha256Hex(
     JSON.stringify({
-      version: 2,
+      version: 3,
       toolName: 'cloudflare_request',
       toolCallId,
       userId: binding.userId,
       accountId: binding.accountId,
       connectionId: binding.connectionId,
       connectionGeneration: binding.connectionGeneration,
-      oauthScopeGrantStatus: binding.oauthScopeGrantStatus,
       transcript: binding.transcript,
       input: JSON.parse(inputJson),
     }),
@@ -491,11 +488,4 @@ function first<T>(rows: Iterable<T>): T | undefined {
     return row;
   }
   return undefined;
-}
-
-function parseGrantStatus(value: string): CloudflareExecutionBinding['oauthScopeGrantStatus'] {
-  if (value !== 'core' && value !== 'partial' && value !== 'full') {
-    throw new Error('Stored Cloudflare execution grant status is invalid.');
-  }
-  return value;
 }

@@ -338,10 +338,6 @@ overrides:
     );
   });
 
-  it('pins the least-privilege OAuth scope list in the Worker configuration', () => {
-    expect(configErrors.join('\n')).not.toContain('cloudflare.config.ts vars.CLOUDFLARE_OAUTH_SCOPES');
-  });
-
   it('passes against the committed configuration', () => {
     expect(configErrors).toEqual([]);
   });

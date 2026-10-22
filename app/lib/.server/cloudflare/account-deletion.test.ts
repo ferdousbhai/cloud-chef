@@ -427,9 +427,8 @@ function seedAccount(database: DatabaseSyncInstance, credentialHandle: string | 
   database
     .prepare(
       `INSERT INTO cloudflare_connections
-        (id, user_id, account_id, account_name, status, credential_handle, granted_capabilities_json,
-         connected_at, created_at, updated_at)
-       VALUES (?, ?, 'account-1', 'Account', 'active', ?, '["workers"]', 1, 1, 1)`,
+        (id, user_id, account_id, account_name, status, credential_handle, connected_at, created_at, updated_at)
+       VALUES (?, ?, 'account-1', 'Account', 'active', ?, 1, 1, 1)`,
     )
     .run(`connection-${userId}`, userId, credentialHandle);
   database

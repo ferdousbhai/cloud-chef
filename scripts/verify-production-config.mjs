@@ -18,8 +18,6 @@ export { findWorkerObservabilityErrors, findWorkerRuntimeSecretErrors };
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REQUIRED_COMPATIBILITY_DATE = '2026-07-21';
-const REQUIRED_OAUTH_SCOPES =
-  'account-settings.read user-details.read workers-scripts.write containers.write d1.write workers-r2.write workers-kv-storage.write ai.read aig.write secrets-store.write';
 const REQUIRED_SECRET_NAMES = ['CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY', 'CLOUDFLARE_OAUTH_CLIENT_SECRET'];
 // Checked in the Wrangler format `cf deploy` converts it to, so the field names below are what is uploaded.
 const CONFIG_PATH = 'cloudflare.config.ts';
@@ -103,12 +101,6 @@ function verifyWorker(errors, config) {
   }
   requireEqual(errors, `${label} version_metadata.binding`, config?.version_metadata?.binding, 'CF_VERSION_METADATA');
   errors.push(...findWorkerOAuthStartRateLimitErrors(config, label));
-  requireEqual(
-    errors,
-    `${label} vars.CLOUDFLARE_OAUTH_SCOPES`,
-    config?.vars?.CLOUDFLARE_OAUTH_SCOPES,
-    REQUIRED_OAUTH_SCOPES,
-  );
   errors.push(
     ...findWorkerObservabilityErrors(config, label),
     ...findWorkerRoutingErrors(config, label, CUSTOM_DOMAINS),

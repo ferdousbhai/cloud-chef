@@ -1,23 +1,12 @@
-import type { CloudflareOAuthScopeGrantStatus } from './cloudflare-oauth-scope-manifest';
-
-export type CloudflareApiRuntimeIdentity = {
+/** The person, account and connection generation a user-owned runtime was provisioned for. */
+export type RuntimeConnectionIdentity = {
   userId: string;
   accountId: string;
   connectionId: string;
   connectionGeneration: number;
-  oauthScopeGrantStatus: CloudflareOAuthScopeGrantStatus;
 };
 
-export type CloudflareApiRuntimeEnv = Pick<
-  Env,
-  | 'CLOUDCHEF_USER_RUNTIME'
-  | 'CLOUDCHEF_USER_ID'
-  | 'CLOUDFLARE_ACCOUNT_ID'
-  | 'CLOUDCHEF_CONNECTION_ID'
-  | 'CLOUDCHEF_CONNECTION_GENERATION'
-  | 'CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS'
-  | 'CLOUDCHEF_SHARED_ACCOUNT'
->;
+export type CloudflareApiRuntimeEnv = RuntimeConnectionEnv & Pick<Env, 'CLOUDCHEF_SHARED_ACCOUNT'>;
 
 /**
  * The connection identity a user-owned runtime sends Cloudflare API requests as, or null when its
@@ -28,8 +17,8 @@ export async function readCloudflareApiRuntimeIdentity(
   env: CloudflareApiRuntimeEnv,
   /** In an organization's account: whether this person is now one of its active admins. */
   isOrganizationAdmin: () => Promise<boolean> = async () => false,
-): Promise<CloudflareApiRuntimeIdentity | null> {
-  const identity = runtimeIdentity(env);
+): Promise<RuntimeConnectionIdentity | null> {
+  const identity = runtimeConnectionIdentity(env);
   if (!identity) {
     return null;
   }
@@ -41,21 +30,6 @@ export async function readCloudflareApiRuntimeIdentity(
   }
   return identity;
 }
-
-/** The person, account, connection generation and known grant a user-owned runtime was provisioned for. */
-export function runtimeIdentity(env: CloudflareApiRuntimeEnv): CloudflareApiRuntimeIdentity | null {
-  const connection = runtimeConnectionIdentity(env);
-  const oauthScopeGrantStatus = env.CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS;
-  if (
-    !connection ||
-    (oauthScopeGrantStatus !== 'core' && oauthScopeGrantStatus !== 'partial' && oauthScopeGrantStatus !== 'full')
-  ) {
-    return null;
-  }
-  return { ...connection, oauthScopeGrantStatus };
-}
-
-export type RuntimeConnectionIdentity = Omit<CloudflareApiRuntimeIdentity, 'oauthScopeGrantStatus'>;
 
 /** The bindings naming a runtime's connection; one without its user-runtime marker is not a user runtime. */
 export type RuntimeConnectionEnv = Pick<

@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
 import { envWith } from '~/test/control-plane-d1';
+import { CORE_CLOUDFLARE_OAUTH_SCOPES } from './cloudflare-oauth-scope-manifest';
 import {
-  USER_WORKSPACE_REQUIRED_CAPABILITIES,
   USER_WORKSPACE_SANDBOX_BASE_IMAGE,
   type UserWorkspaceRuntimeUpgradeSweepOutcome,
 } from '~/workflows/user-workspace-runtime-provisioning';
@@ -28,11 +28,7 @@ function connectionFor(id: string, overrides: Partial<CloudflareConnection> = {}
     accountName: null,
     status: 'active',
     credentialHandle: 'handle-1',
-    grantedCapabilities: [...USER_WORKSPACE_REQUIRED_CAPABILITIES],
-    requestedOAuthScopes: [],
-    grantedOAuthScopes: [],
-    oauthScopeProfileVersion: null,
-    oauthScopeGrantStatus: 'full',
+    grantedOAuthScopes: [...CORE_CLOUDFLARE_OAUTH_SCOPES],
     connectedAt: 1,
     updatedAt: 1,
     generation: 1,
@@ -109,7 +105,7 @@ describe('scheduled workspace runtime upgrade sweep', () => {
     const connections = new Map([
       ['paused', connectionFor('paused', { userId: null, orgId: 'org-1' })],
       ['regenerated', connectionFor('regenerated', { generation: 2 })],
-      ['missing-capability', connectionFor('missing-capability', { grantedCapabilities: ['workers'] })],
+      ['missing-scope', connectionFor('missing-scope', { grantedOAuthScopes: ['workers-scripts.write'] })],
       ['no-credential', connectionFor('no-credential', { credentialHandle: null })],
     ]);
     const dependencies = sweepDependencies({

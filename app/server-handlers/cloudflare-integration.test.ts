@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  CloudflareConnectionResult,
-  CloudflareOrchestrator,
-} from '~/lib/.server/cloudflare/cloudflare-orchestrator';
+import type { CloudflareOAuthOrchestrator } from '~/lib/.server/cloudflare/cloudflare-oauth-orchestrator';
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
 import { USER_WORKSPACE_SANDBOX_BASE_IMAGE } from '~/workflows/user-workspace-runtime-provisioning';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { cloudflareConnectMessageText } from '~/lib/cloudflare/authorization-recovery';
+import { CORE_CLOUDFLARE_OAUTH_SCOPES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 
 /** Shaped like a real Cloudflare account id; a registry namespace is derived from it. */
 const ACCOUNT_ID = '0af9e0921b880657d84a6c07307f8aef';
@@ -93,11 +91,7 @@ describe('Cloudflare-only authentication', () => {
       accountName: 'User Cloudflare',
       status: 'active',
       credentialHandle: 'credential-1',
-      grantedCapabilities: ['workers', 'd1', 'r2', 'durable_objects', 'workers_ai'],
-      requestedOAuthScopes: ['workers-scripts.write', 'd1.write'],
       grantedOAuthScopes: ['workers-scripts.write', 'd1.write'],
-      oauthScopeProfileVersion: 'core-v1',
-      oauthScopeGrantStatus: 'core' as const,
       connectedAt: 100,
       updatedAt: 100,
       generation: 1,
@@ -136,7 +130,6 @@ describe('Cloudflare-only authentication', () => {
     await expect(response.json()).resolves.toEqual({
       accountId: ACCOUNT_ID,
       accountName: 'User Cloudflare',
-      oauthScopeGrantStatus: 'core',
     });
   });
 
@@ -302,10 +295,13 @@ describe('Cloudflare-only authentication', () => {
     });
   });
 
-  it('requires reauthorization when the connection is missing a current workspace capability', async () => {
+  it('requires reauthorization when the connection is missing a core scope added since it was authorized', async () => {
     mocks.getAuthSession.mockResolvedValue(signedInSession);
     mocks.findConnection.mockResolvedValue(
-      activeConnection(1, ['workers', 'containers', 'd1', 'r2', 'durable_objects', 'workers_ai']),
+      activeConnection(
+        1,
+        CORE_CLOUDFLARE_OAUTH_SCOPES.filter((scope) => scope !== 'secrets-store.write'),
+      ),
     );
     const provision = vi.fn();
     const response = await cloudflareRuntimeSessionAction({
@@ -706,11 +702,7 @@ describe('Cloudflare-only authentication', () => {
         accountName: 'Different account',
         status: 'active',
         credentialHandle: 'credential-winner',
-        grantedCapabilities: ['workers', 'd1', 'r2', 'durable_objects', 'workers_ai'],
-        requestedOAuthScopes: ['workers-scripts.write', 'd1.write'],
         grantedOAuthScopes: ['workers-scripts.write', 'd1.write'],
-        oauthScopeProfileVersion: 'core-v1',
-        oauthScopeGrantStatus: 'core' as const,
         connectedAt: 101,
         updatedAt: 101,
         generation: 5,
@@ -758,11 +750,7 @@ describe('Cloudflare-only authentication', () => {
       accountName: 'User Cloudflare',
       status: 'active',
       credentialHandle: 'credential-winner',
-      grantedCapabilities: ['workers', 'd1', 'r2', 'durable_objects', 'workers_ai'],
-      requestedOAuthScopes: ['workers-scripts.write', 'd1.write'],
       grantedOAuthScopes: ['workers-scripts.write', 'd1.write'],
-      oauthScopeProfileVersion: 'core-v1',
-      oauthScopeGrantStatus: 'core' as const,
       connectedAt: 101,
       updatedAt: 101,
       generation: 1,
@@ -804,11 +792,7 @@ describe('Cloudflare-only authentication', () => {
       accountName: 'User Cloudflare',
       status: 'active',
       credentialHandle: 'credential-1',
-      grantedCapabilities: ['workers'],
-      requestedOAuthScopes: ['workers-scripts.write', 'd1.write'],
       grantedOAuthScopes: ['workers-scripts.write', 'd1.write'],
-      oauthScopeProfileVersion: 'core-v1',
-      oauthScopeGrantStatus: 'core' as const,
       connectedAt: 100,
       updatedAt: 100,
       generation: 5,
@@ -838,10 +822,7 @@ const signedInSession = {
   context: { kind: 'personal', connectionId: 'connection-1', accountName: 'User Cloudflare' },
 };
 
-function activeConnection(
-  generation = 1,
-  grantedCapabilities = ['workers', 'containers', 'd1', 'r2', 'kv', 'durable_objects', 'workers_ai'],
-) {
+function activeConnection(generation = 1, grantedOAuthScopes: string[] = [...CORE_CLOUDFLARE_OAUTH_SCOPES]) {
   return {
     id: 'connection-1',
     userId: 'user-1',
@@ -850,11 +831,7 @@ function activeConnection(
     accountName: 'User Cloudflare',
     status: 'active' as const,
     credentialHandle: 'credential-1',
-    grantedCapabilities,
-    requestedOAuthScopes: ['workers-scripts.write', 'd1.write'],
-    grantedOAuthScopes: ['workers-scripts.write', 'd1.write'],
-    oauthScopeProfileVersion: 'core-v1',
-    oauthScopeGrantStatus: 'core' as const,
+    grantedOAuthScopes,
     connectedAt: 100,
     updatedAt: 100,
     generation,
@@ -928,7 +905,7 @@ function sessionsRecorded(env: Env): number {
   return recordedSessions.get(env)?.count ?? 0;
 }
 
-function fakeOrchestrator(): CloudflareOrchestrator {
+function fakeOrchestrator(): Pick<CloudflareOAuthOrchestrator, 'startConnection' | 'completeConnection'> {
   return {
     startConnection: vi.fn(async () => ({
       sessionId: 'provider-session',
@@ -947,17 +924,7 @@ function fakeOrchestrator(): CloudflareOrchestrator {
       accessToken: 'access-token',
       refreshToken: 'refresh-token',
       accessTokenExpiresAt: Date.now() + 3_600_000,
-      grantedCapabilities: [
-        'workers',
-        'd1',
-        'r2',
-        'durable_objects',
-        'workers_ai',
-      ] as CloudflareConnectionResult['grantedCapabilities'],
-      requestedOAuthScopes: ['workers-scripts.write', 'd1.write'],
       grantedOAuthScopes: ['workers-scripts.write', 'd1.write'],
-      oauthScopeProfileVersion: 'core-v1',
-      oauthScopeGrantStatus: 'core' as const,
     })),
   };
 }

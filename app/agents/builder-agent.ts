@@ -179,8 +179,8 @@ import {
 } from 'cloudchef-agent/cloudflare-api';
 import {
   readCloudflareApiRuntimeIdentity,
-  type CloudflareApiRuntimeIdentity,
-  runtimeIdentity,
+  type RuntimeConnectionIdentity,
+  runtimeConnectionIdentity,
 } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
 import { CloudflareApiClient, type CloudflareApiOutcome } from '~/lib/.server/cloudflare/cloudflare-api-client';
 import {
@@ -1158,7 +1158,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   @callable()
   async requestProduction(input: { title: string; note: string }): Promise<{ outcome: ProductionRequestOutcome }> {
     const durableIdentity = await this.hydrateDurableIdentity({ required: true, reason: 'request_production' });
-    const identity = runtimeIdentity(this.env);
+    const identity = runtimeConnectionIdentity(this.env);
     if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1' || !identity || !durableIdentity) {
       throw new Error("Production requests are for drafts in a team's account.");
     }
@@ -1639,7 +1639,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
     }
     if (orgProjectId) {
-      const identity = runtimeIdentity(this.env);
+      const identity = runtimeConnectionIdentity(this.env);
       if (!identity) {
         throw new Error('This workspace is not connected to CloudChef, so it cannot open the project.');
       }
@@ -1687,7 +1687,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     options: { toolCallId: string; abortSignal?: AbortSignal },
   ): Promise<CloudChefToolResult> {
     const linked = await this.workspace.linkedProject();
-    const identity = runtimeIdentity(this.env);
+    const identity = runtimeConnectionIdentity(this.env);
     if (!linked || !identity) {
       return toolFailure("This workspace is not one of the team's GitHub projects.");
     }
@@ -1760,7 +1760,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    * output. The output is saved with its turn's message when the turn ends, so the result waits for that.
    */
   private async runLinkedBuildWatch(watch: LinkedBuildWatch, signal?: AbortSignal): Promise<void> {
-    const identity = runtimeIdentity(this.env);
+    const identity = runtimeConnectionIdentity(this.env);
     const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
     const build = identity
       ? await watchLinkedBuild({
@@ -1838,7 +1838,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     options: { abortSignal?: AbortSignal },
   ): Promise<CloudChefToolResult> {
     const linked = await this.workspace.linkedProject();
-    const identity = runtimeIdentity(this.env);
+    const identity = runtimeConnectionIdentity(this.env);
     if (!linked || !identity) {
       return toolFailure("This workspace is not one of the team's GitHub projects.");
     }
@@ -1851,7 +1851,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   /** Whether this person is now an active admin of the organization whose account this runtime uses. */
   private async isOrganizationAdmin(): Promise<boolean> {
-    const identity = runtimeIdentity(this.env);
+    const identity = runtimeConnectionIdentity(this.env);
     return identity ? (await confirmUserWorkspaceAccess(this.env, identity))?.organizationAdmin === true : false;
   }
 
@@ -1872,7 +1872,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   /** Each finished turn's token counts go to the control plane, which keeps them for organization admins. */
   private reportModelUsage(usage: ModelTurnUsage): void {
-    const identity = runtimeIdentity(this.env);
+    const identity = runtimeConnectionIdentity(this.env);
     if (!identity) {
       return;
     }
@@ -1912,7 +1912,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private async handleCloudflareRequest(
     input: CloudflareApiRequestInput,
     options: ModelToolExecutionOptions,
-    expectedIdentity: CloudflareApiRuntimeIdentity,
+    expectedIdentity: RuntimeConnectionIdentity,
     transcript: BuilderTranscriptBinding,
   ): Promise<CloudflareRequestImmediateResult | CloudflareRequestProposal> {
     options.abortSignal?.throwIfAborted();
@@ -1974,7 +1974,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /** The approval fiber re-admits the stored change; a rejection there settles it as failed. */
-  private async requireCloudflareApiWriteAdmission(expectedIdentity: CloudflareApiRuntimeIdentity): Promise<void> {
+  private async requireCloudflareApiWriteAdmission(expectedIdentity: RuntimeConnectionIdentity): Promise<void> {
     if (!(await this.readCurrentCloudflareApiIdentity(expectedIdentity))) {
       throw new Error(CLOUDFLARE_API_IDENTITY_CHANGED);
     }
@@ -1982,13 +1982,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   /** The runtime's Cloudflare API identity, only while it is still the connection the turn started with. */
   private async readCurrentCloudflareApiIdentity(
-    expectedIdentity: CloudflareApiRuntimeIdentity,
-  ): Promise<CloudflareApiRuntimeIdentity | null> {
+    expectedIdentity: RuntimeConnectionIdentity,
+  ): Promise<RuntimeConnectionIdentity | null> {
     const identity = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
     return identity && sameCloudflareConnectionIdentity(identity, expectedIdentity) ? identity : null;
   }
 
-  private createCloudflareApiClient(identity: CloudflareApiRuntimeIdentity): CloudflareApiClient {
+  private createCloudflareApiClient(identity: RuntimeConnectionIdentity): CloudflareApiClient {
     return new CloudflareApiClient({
       resolveAccessToken: (options) => resolveUserWorkspaceCloudflareAccessToken(this.env, identity, options),
     });

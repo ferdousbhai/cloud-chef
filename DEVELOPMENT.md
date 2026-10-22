@@ -83,7 +83,8 @@ The checked-in D1 ID belongs to CloudChef production. Before provisioning a fork
 that identifier, and refuses to replace an unknown non-placeholder ID.
 
 The OAuth callback is `https://<deployment-origin>/connect/return`. Keep its permissions aligned with
-`CLOUDFLARE_OAUTH_SCOPES` in `cloudflare.config.ts`. Those permissions let CloudChef create a workspace runtime in the
+`CORE_CLOUDFLARE_OAUTH_SCOPES` in `app/lib/.server/cloudflare/cloudflare-oauth-scope-manifest.ts`, which CloudChef
+requests exactly. Those permissions let CloudChef create a workspace runtime in the
 connected user's account; they do not add customer storage or compute to the CloudChef account.
 
 ## Generated Artifacts

@@ -1,13 +1,11 @@
 /**
  * The checked-in Cloudflare OAuth scope manifest.
  *
- * Production requests exactly this reviewed profile; nothing composes a scope string from a live
- * catalog during login. The broad optional profile is empty, so every scope the Cloudflare OAuth
- * client is configured with is required, and a completed authorization proves the whole core grant.
+ * Production requests exactly these reviewed scopes; nothing composes a scope string from a live
+ * catalog during login. Every one is required: a grant missing any is refused when it completes, and a
+ * connection missing one added since it was authorized is asked to reauthorize before it is used.
  * Every scope here is checked against the reviewed capture of GET /oauth/scopes beside this file.
  */
-export const CLOUDFLARE_OAUTH_SCOPE_PROFILE_VERSION = 'core-v1';
-
 export const CORE_CLOUDFLARE_OAUTH_SCOPES = [
   'account-settings.read',
   'user-details.read',
@@ -23,50 +21,13 @@ export const CORE_CLOUDFLARE_OAUTH_SCOPES = [
   'secrets-store.write',
 ] as const;
 
-/** Reviewed broad optional scope IDs; empty, so every requested scope is core. */
-export const BROAD_CLOUDFLARE_OAUTH_SCOPES = [] satisfies readonly string[];
-
-export type CloudflareOAuthScopeGrantStatus = 'core' | 'partial' | 'full';
-
-export const CLOUDCHEF_CAPABILITIES = [
-  'workers',
-  'containers',
-  'd1',
-  'r2',
-  'kv',
-  'durable_objects',
-  'workers_ai',
-  'ai_gateway_keys',
-] as const;
-
-export type CloudChefCapability = (typeof CLOUDCHEF_CAPABILITIES)[number];
-
-/** The scope IDs each CloudChef product capability needs before it can be considered granted. */
-const CAPABILITY_SCOPE_REQUIREMENTS = {
-  workers: ['workers-scripts.write'],
-  containers: ['containers.write'],
-  d1: ['d1.write'],
-  r2: ['workers-r2.write'],
-  kv: ['workers-kv-storage.write'],
-  durable_objects: ['workers-scripts.write'],
-  workers_ai: ['ai.read'],
-  // Not needed to build: a connection authorized before it existed works as before, and only linking
-  // an Anthropic key asks for a reauthorization.
-  ai_gateway_keys: ['aig.write', 'secrets-store.write'],
-} satisfies Record<CloudChefCapability, readonly string[]>;
-
-/** Stable, deduplicated scope request order: core first, then the broad optional profile. */
-export function requestedCloudflareOAuthScopes(): string[] {
-  return [...new Set<string>([...CORE_CLOUDFLARE_OAUTH_SCOPES, ...BROAD_CLOUDFLARE_OAUTH_SCOPES])];
-}
-
 /**
  * Normalize a provider-reported scope string. `offline_access` is the refresh-token grant, not a
  * resource permission, so it never reaches the stored grant.
  */
 export function parseReportedOAuthScopes(reported: string): { granted: string[] } | { unknownScopes: string[] } {
   const scopes = [...new Set(reported.split(/\s+/).filter(Boolean))].filter((scope) => scope !== 'offline_access');
-  const known = new Set(requestedCloudflareOAuthScopes());
+  const known = new Set<string>(CORE_CLOUDFLARE_OAUTH_SCOPES);
   const unknownScopes = scopes.filter((scope) => !known.has(scope));
   return unknownScopes.length > 0 ? { unknownScopes } : { granted: scopes };
 }
@@ -74,28 +35,4 @@ export function parseReportedOAuthScopes(reported: string): { granted: string[] 
 export function missingCoreOAuthScopes(granted: readonly string[]): string[] {
   const held = new Set(granted);
   return CORE_CLOUDFLARE_OAUTH_SCOPES.filter((scope) => !held.has(scope));
-}
-
-/**
- * Grant state for a provider-confirmed scope list, which holds every core scope (a grant missing one is
- * refused before this). 'full' exists only once the broad profile is non-empty; until then a complete
- * grant is exactly the core feature set.
- */
-export function cloudflareOAuthScopeGrantStatus(granted: readonly string[]): CloudflareOAuthScopeGrantStatus {
-  if (missingCoreOAuthScopes(granted).length > 0) {
-    throw new Error('A Cloudflare grant missing core scopes has no grant status.');
-  }
-  if (BROAD_CLOUDFLARE_OAUTH_SCOPES.length === 0) {
-    return 'core';
-  }
-  const held = new Set(granted);
-  return BROAD_CLOUDFLARE_OAUTH_SCOPES.every((scope) => held.has(scope)) ? 'full' : 'partial';
-}
-
-/** The product capabilities whose scope requirements the grant fully covers. */
-export function capabilitiesFromOAuthScopes(granted: readonly string[]): CloudChefCapability[] {
-  const held = new Set(granted);
-  return CLOUDCHEF_CAPABILITIES.filter((capability) =>
-    CAPABILITY_SCOPE_REQUIREMENTS[capability].every((scope) => held.has(scope)),
-  );
 }

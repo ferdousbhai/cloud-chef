@@ -2,11 +2,9 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import {
-  capabilitiesFromOAuthScopes,
   CORE_CLOUDFLARE_OAUTH_SCOPES,
   missingCoreOAuthScopes,
   parseReportedOAuthScopes,
-  requestedCloudflareOAuthScopes,
 } from './cloudflare-oauth-scope-manifest';
 
 describe('cloudflare-oauth-scope-manifest', () => {
@@ -26,29 +24,6 @@ describe('cloudflare-oauth-scope-manifest', () => {
     expect(missingCoreOAuthScopes([...CORE_CLOUDFLARE_OAUTH_SCOPES])).toEqual([]);
   });
 
-  test('derives product capabilities only from scopes the grant fully covers', () => {
-    expect(capabilitiesFromOAuthScopes([...CORE_CLOUDFLARE_OAUTH_SCOPES])).toEqual([
-      'workers',
-      'containers',
-      'd1',
-      'r2',
-      'kv',
-      'durable_objects',
-      'workers_ai',
-      'ai_gateway_keys',
-    ]);
-    // A grant from before Anthropic keys could be linked still builds; it only cannot link one.
-    expect(
-      capabilitiesFromOAuthScopes(CORE_CLOUDFLARE_OAUTH_SCOPES.filter((scope) => scope !== 'secrets-store.write')),
-    ).not.toContain('ai_gateway_keys');
-    expect(capabilitiesFromOAuthScopes(['workers-scripts.write', 'ai.read'])).toEqual([
-      'workers',
-      'durable_objects',
-      'workers_ai',
-    ]);
-    expect(capabilitiesFromOAuthScopes([])).toEqual([]);
-  });
-
   test('every manifest scope exists in the checked-in provider catalog', () => {
     // The catalog is the reviewed capture of GET /oauth/scopes. A digest change means the
     // provider catalog was re-fetched; review the diff, then update the recorded digest here.
@@ -61,7 +36,7 @@ describe('cloudflare-oauth-scope-manifest', () => {
     const ids = new Set(rows.map((row) => row.split('\t')[0]));
     expect(rows).toHaveLength(383);
     expect(ids.size).toBe(rows.length);
-    for (const scope of requestedCloudflareOAuthScopes()) {
+    for (const scope of CORE_CLOUDFLARE_OAUTH_SCOPES) {
       expect(ids.has(scope), scope).toBe(true);
     }
     // offline_access is an OAuth protocol scope, not a catalog permission; the manifest and the

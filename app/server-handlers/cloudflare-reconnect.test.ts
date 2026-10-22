@@ -1,17 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { createAuthSession, getAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
-import type {
-  CloudflareConnectionResult,
-  CloudflareOrchestrator,
-} from '~/lib/.server/cloudflare/cloudflare-orchestrator';
+import type { CloudflareOAuthOrchestrator } from '~/lib/.server/cloudflare/cloudflare-oauth-orchestrator';
 import { completeCloudflareConnectionAction, startCloudflareConnectionAction } from './cloudflare-integration';
 
 const ORIGIN = 'https://cloudchef.build';
 const HOUR = 60 * 60_000;
 
 /** Cloudflare's side of the OAuth exchange, answering as the Cloudflare login `subject`. */
-function cloudflareAs(subject: string): CloudflareOrchestrator {
+function cloudflareAs(subject: string): Pick<CloudflareOAuthOrchestrator, 'startConnection' | 'completeConnection'> {
   return {
     startConnection: vi.fn(async () => ({
       sessionId: 'provider-session',
@@ -25,19 +22,7 @@ function cloudflareAs(subject: string): CloudflareOrchestrator {
       accessToken: 'access-token',
       refreshToken: 'refresh-token',
       accessTokenExpiresAt: Date.now() + HOUR,
-      grantedCapabilities: [
-        'workers',
-        'containers',
-        'd1',
-        'r2',
-        'kv',
-        'durable_objects',
-        'workers_ai',
-      ] satisfies CloudflareConnectionResult['grantedCapabilities'],
-      requestedOAuthScopes: ['workers-scripts.write'],
       grantedOAuthScopes: ['workers-scripts.write'],
-      oauthScopeProfileVersion: 'core-v1',
-      oauthScopeGrantStatus: 'core' as const,
     })),
   };
 }
@@ -58,7 +43,11 @@ async function setup() {
 }
 
 /** Starts a connection while signed in, then comes back from Cloudflare as `orchestrator`'s login. */
-async function connect(env: Env, cookie: string, orchestrator: CloudflareOrchestrator) {
+async function connect(
+  env: Env,
+  cookie: string,
+  orchestrator: Pick<CloudflareOAuthOrchestrator, 'startConnection' | 'completeConnection'>,
+) {
   const started = await startCloudflareConnectionAction({
     request: new Request(`${ORIGIN}/api/cloudflare/connection/start`, {
       method: 'POST',

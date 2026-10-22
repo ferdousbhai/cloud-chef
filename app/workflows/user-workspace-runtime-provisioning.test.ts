@@ -41,8 +41,8 @@ import {
   workspaceRuntimeNames,
   type UserWorkspaceRuntimeProvisioningDependencies,
   type UserWorkspaceRuntimeProvisioningStep,
-  USER_WORKSPACE_REQUIRED_CAPABILITIES,
 } from './user-workspace-runtime-provisioning';
+import { CORE_CLOUDFLARE_OAUTH_SCOPES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 
 const NOW = 100 * 60 * 60_000;
 
@@ -54,11 +54,7 @@ const connection: CloudflareConnection = {
   accountName: 'Account',
   status: 'active',
   credentialHandle: 'handle-1',
-  grantedCapabilities: [...USER_WORKSPACE_REQUIRED_CAPABILITIES],
-  requestedOAuthScopes: [],
-  grantedOAuthScopes: [],
-  oauthScopeProfileVersion: null,
-  oauthScopeGrantStatus: 'core',
+  grantedOAuthScopes: [...CORE_CLOUDFLARE_OAUTH_SCOPES],
   connectedAt: 1,
   updatedAt: 1,
   generation: 1,
@@ -786,7 +782,7 @@ describe('workspace runtime provisioning Workflow', () => {
   });
 
   it('fails closed when the connection cannot provision the runtime', async () => {
-    mocks.requireActiveConnection.mockResolvedValueOnce({ ...connection, grantedCapabilities: [] });
+    mocks.requireActiveConnection.mockResolvedValueOnce({ ...connection, grantedOAuthScopes: [] });
 
     await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs())).resolves.toEqual({
       status: 'error',

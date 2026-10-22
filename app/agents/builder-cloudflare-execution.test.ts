@@ -12,7 +12,6 @@ type TestRow = {
   account_id: string;
   connection_id: string;
   connection_generation: number;
-  oauth_scope_grant_status: string;
   transcript_agent_name: string;
   transcript_chat_initial_id: string;
   transcript_generation: number;
@@ -61,7 +60,6 @@ class TestExecutionStorage {
           account_id: String(bindings[3]),
           connection_id: String(bindings[4]),
           connection_generation: Number(bindings[5]),
-          oauth_scope_grant_status: String(bindings[6]),
           transcript_agent_name: String(bindings[7]),
           transcript_chat_initial_id: String(bindings[8]),
           transcript_generation: Number(bindings[9]),
@@ -167,7 +165,6 @@ const binding: CloudflareExecutionBinding = {
   accountId: 'account-1',
   connectionId: 'connection-1',
   connectionGeneration: 4,
-  oauthScopeGrantStatus: 'full',
   transcript: {
     agentName: 'chat--transcript-0-1',
     chatInitialId: 'chat',
@@ -219,7 +216,6 @@ describe('durable Cloudflare execution approval repository', () => {
     ['account', { accountId: 'account-2' }],
     ['connection', { connectionId: 'connection-2' }],
     ['generation', { connectionGeneration: 5 }],
-    ['grant', { oauthScopeGrantStatus: 'partial' as const }],
     ['transcript', { transcript: { ...binding.transcript, generation: 2 } }],
   ])('rejects a %s identity mismatch', async (_label, changed) => {
     const { repository } = executionRepository();

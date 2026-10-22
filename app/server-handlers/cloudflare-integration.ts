@@ -29,14 +29,14 @@ import {
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import {
   CloudflareOAuthError,
-  CloudflareOrchestratorUnavailableError,
-  createCloudflareOrchestrator,
-  type CloudflareOrchestrator,
-} from '~/lib/.server/cloudflare/cloudflare-orchestrator';
+  CloudflareOAuthOrchestrator,
+  CloudflareOAuthUnavailableError,
+  type CloudflareConnectionResult,
+} from '~/lib/.server/cloudflare/cloudflare-oauth-orchestrator';
+import { missingCoreOAuthScopes } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 import { InvalidJsonBodyError, PayloadTooLargeError, readJsonBodyWithLimit } from '~/lib/bounded-body';
 import {
   isCurrentUserWorkspaceRuntime,
-  missingUserWorkspaceRuntimeCapabilities,
   startUserWorkspaceRuntimeProvisioning,
   type UserWorkspaceRuntimeProvisioningErrorCode,
 } from '~/workflows/user-workspace-runtime-provisioning';
@@ -54,7 +54,6 @@ import {
   CLOUDFLARE_CONNECT_MESSAGE_PARAM,
   type CloudflareConnectMessage,
 } from '~/lib/cloudflare/authorization-recovery';
-import { CLOUDCHEF_CAPABILITIES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 
 type WorkspacePreparationFailure = {
   code: UserWorkspaceRuntimeProvisioningErrorCode;
@@ -91,32 +90,6 @@ const callbackPayloadSchema = z
     scope: z.string().max(MAX_OAUTH_CALLBACK_TEXT_LENGTH).optional(),
   })
   .refine((payload) => Boolean(payload.code || payload.error), 'An OAuth code or error is required.');
-const challengeSchema = z.object({
-  sessionId: z.string().min(1),
-  authorizationUrl: z
-    .string()
-    .url()
-    .refine((value) => new URL(value).protocol === 'https:', 'HTTPS is required'),
-  expiresAt: z.number().int().positive(),
-});
-const connectionResultSchema = z.object({
-  user: z.object({
-    subject: z.string().min(1),
-    email: z.string().email().nullable(),
-    name: z.string().min(1).nullable(),
-    picture: z.string().url().nullable(),
-  }),
-  accountId: z.string().min(1),
-  accountName: z.string().min(1).nullable(),
-  accessToken: z.string().min(1),
-  refreshToken: z.string().min(1).optional(),
-  accessTokenExpiresAt: z.number().int().positive().optional(),
-  grantedCapabilities: z.array(z.enum(CLOUDCHEF_CAPABILITIES)),
-  requestedOAuthScopes: z.array(z.string().min(1)),
-  grantedOAuthScopes: z.array(z.string().min(1)),
-  oauthScopeProfileVersion: z.string().min(1),
-  oauthScopeGrantStatus: z.enum(['core', 'partial', 'full']),
-});
 type PendingOAuthState = {
   provider_session_id: string;
   return_to: string;
@@ -149,7 +122,6 @@ export async function cloudflareConnectionStatusAction({
     {
       accountId: connection.accountId,
       accountName: connection.accountName,
-      oauthScopeGrantStatus: connection.oauthScopeGrantStatus,
     },
     { headers: { 'Cache-Control': 'private, no-store' } },
   );
@@ -202,7 +174,7 @@ export async function cloudflareRuntimeSessionAction({
   if (!env.CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY) {
     return Response.json({ error: 'Runtime authorization is unavailable.' }, { status: 503 });
   }
-  if (missingUserWorkspaceRuntimeCapabilities(connection).length > 0) {
+  if (missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0) {
     return Response.json(
       {
         code: 'cloudflare_reauthorization_required',
@@ -346,7 +318,7 @@ function isCurrentWorkspaceRuntime(runtime: UserWorkspaceRuntime | null, connect
 export async function startCloudflareConnectionAction(args: {
   request: Request;
   env: Env;
-  orchestrator?: CloudflareOrchestrator;
+  orchestrator?: Pick<CloudflareOAuthOrchestrator, 'startConnection'>;
 }): Promise<Response> {
   try {
     if (!hasSameOrigin(args.request)) {
@@ -392,16 +364,9 @@ export async function startCloudflareConnectionAction(args: {
     const requestUrl = new URL(args.request.url);
     const returnUrl = new URL('/connect/return', publicOrigin(args.request));
     returnUrl.searchParams.set('state', state);
-    const orchestrator = args.orchestrator ?? (await createCloudflareOrchestrator(args.env));
-    const challenge = challengeSchema.parse(
-      await orchestrator.startConnection({
-        returnUrl: returnUrl.toString(),
-      }),
-    );
+    const orchestrator = args.orchestrator ?? CloudflareOAuthOrchestrator.fromEnv(args.env);
+    const challenge = await orchestrator.startConnection({ returnUrl: returnUrl.toString() });
     const now = Date.now();
-    if (challenge.expiresAt <= now) {
-      throw new Error('Cloudflare returned an expired authorization challenge.');
-    }
     await args.env.DB.prepare(
       `INSERT INTO cloudflare_oauth_states
         (id, provider_session_id, return_to, status, expires_at, created_at, updated_at, linking_user_id,
@@ -438,7 +403,7 @@ export async function startCloudflareConnectionAction(args: {
 export async function completeCloudflareConnectionAction(args: {
   request: Request;
   env: Env;
-  orchestrator?: CloudflareOrchestrator;
+  orchestrator?: Pick<CloudflareOAuthOrchestrator, 'completeConnection'>;
 }): Promise<Response> {
   let returnTo: string | null = null;
   try {
@@ -475,13 +440,11 @@ export async function completeCloudflareConnectionAction(args: {
     }
 
     const orgId = oauthState.connecting_org_id;
-    const orchestrator = args.orchestrator ?? (await createCloudflareOrchestrator(args.env));
-    const result = connectionResultSchema.parse(
-      await orchestrator.completeConnection({
-        providerSessionId: oauthState.provider_session_id,
-        callbackUrl,
-      }),
-    );
+    const orchestrator = args.orchestrator ?? CloudflareOAuthOrchestrator.fromEnv(args.env);
+    const result = await orchestrator.completeConnection({
+      providerSessionId: oauthState.provider_session_id,
+      callbackUrl,
+    });
     // A signed-in person who came back from Cloudflare with the login already on their account proved
     // who they are again, like a fresh sign-in: their session is replaced with a new one.
     let reproved = false;
@@ -518,13 +481,11 @@ export async function completeCloudflareConnectionAction(args: {
     }
     const previous = await findCloudflareConnectionForOwner(args.env.DB, owner);
     const vault = D1CloudflareCredentialVault.fromEnv(args.env);
-    const credentialHandle = result.refreshToken
-      ? await vault.storeOAuthCredential({
-          accessToken: result.accessToken,
-          refreshToken: result.refreshToken,
-          expiresAt: result.accessTokenExpiresAt ?? Date.now(),
-        })
-      : await vault.store(result.accessToken);
+    const credentialHandle = await vault.storeOAuthCredential({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      expiresAt: result.accessTokenExpiresAt,
+    });
     try {
       await activateCloudflareConnection({
         db: args.env.DB,
@@ -532,11 +493,7 @@ export async function completeCloudflareConnectionAction(args: {
         accountId: result.accountId,
         accountName: result.accountName,
         credentialHandle,
-        grantedCapabilities: result.grantedCapabilities,
-        requestedOAuthScopes: result.requestedOAuthScopes,
         grantedOAuthScopes: result.grantedOAuthScopes,
-        oauthScopeProfileVersion: result.oauthScopeProfileVersion,
-        oauthScopeGrantStatus: result.oauthScopeGrantStatus,
         expectedGeneration: previous?.generation ?? null,
       });
     } catch (error) {
@@ -672,7 +629,7 @@ async function hasCloudflareLogin(db: D1Database, userId: string): Promise<boole
 function isEquivalentRacedConnection(
   connection: CloudflareConnection,
   owner: CloudflareConnectionOwner,
-  result: z.infer<typeof connectionResultSchema>,
+  result: CloudflareConnectionResult,
   expectedGeneration: number | null,
 ): boolean {
   return (
@@ -682,11 +639,7 @@ function isEquivalentRacedConnection(
     connection.accountId === result.accountId &&
     connection.accountName === result.accountName &&
     connection.generation === (expectedGeneration ?? 0) + 1 &&
-    sameStringArray(connection.grantedCapabilities, result.grantedCapabilities) &&
-    sameStringArray(connection.requestedOAuthScopes, result.requestedOAuthScopes) &&
-    sameStringArray(connection.grantedOAuthScopes, result.grantedOAuthScopes) &&
-    connection.oauthScopeProfileVersion === result.oauthScopeProfileVersion &&
-    connection.oauthScopeGrantStatus === result.oauthScopeGrantStatus
+    sameStringArray(connection.grantedOAuthScopes, result.grantedOAuthScopes)
   );
 }
 
@@ -761,7 +714,7 @@ function cloudflareIntegrationErrorResponse(error: unknown): Response {
   if (error instanceof InvalidCloudflareIntegrationRequestError) {
     return Response.json({ error: error.message }, { status: 400 });
   }
-  if (error instanceof CloudflareOrchestratorUnavailableError) {
+  if (error instanceof CloudflareOAuthUnavailableError) {
     return Response.json({ error: 'Cloudflare OAuth is not configured for this environment.' }, { status: 503 });
   }
   if (error instanceof CloudflareOAuthError || error instanceof IdentityConflictError) {

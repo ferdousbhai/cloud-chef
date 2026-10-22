@@ -8,7 +8,6 @@ describe('versionAction', () => {
         COMMIT_SHA: 'test-commit-sha',
         CLOUDFLARE_OAUTH_CLIENT_ID: 'client-id',
         CLOUDFLARE_OAUTH_CLIENT_SECRET: 'client-secret',
-        CLOUDFLARE_OAUTH_SCOPES: 'openid profile email',
         CF_VERSION_METADATA: {
           id: '11111111-2222-3333-4444-555555555555',
           tag: '',

@@ -1,10 +1,13 @@
 import { describe, expect, test, vi } from 'vitest';
 import { CORE_CLOUDFLARE_OAUTH_SCOPES } from './cloudflare-oauth-scope-manifest';
-import { CloudflareOAuthOrchestrator } from './cloudflare-oauth-orchestrator';
-import { CloudflareOAuthError } from './cloudflare-orchestrator';
+import {
+  CloudflareOAuthError,
+  CloudflareOAuthOrchestrator,
+  CloudflareOAuthUnavailableError,
+} from './cloudflare-oauth-orchestrator';
 
 const scopes = CORE_CLOUDFLARE_OAUTH_SCOPES.join(' ');
-const config = { clientId: 'client-1', clientSecret: 'client-secret', scopes };
+const config = { clientId: 'client-1', clientSecret: 'client-secret' };
 
 describe('CloudflareOAuthOrchestrator', () => {
   test('starts authorization code + PKCE with server-owned state and no secret in the browser URL', async () => {
@@ -29,17 +32,10 @@ describe('CloudflareOAuthOrchestrator', () => {
     });
   });
 
-  test('fails closed when a required resource scope is not configured', async () => {
-    const orchestrator = new CloudflareOAuthOrchestrator({
-      ...config,
-      scopes: CORE_CLOUDFLARE_OAUTH_SCOPES.filter((scope) => scope !== 'workers-r2.write').join(' '),
-    });
-    await expect(
-      orchestrator.startConnection({
-        returnUrl:
-          'https://cloudchef.build/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
-      }),
-    ).rejects.toThrow('workers-r2.write');
+  test('fails closed instead of collecting a user API token when OAuth is not configured', () => {
+    // SAFETY: only the two OAuth client bindings are read, and each is absent.
+    const env = {} as Env;
+    expect(() => CloudflareOAuthOrchestrator.fromEnv(env)).toThrow(CloudflareOAuthUnavailableError);
   });
 
   test('exchanges the callback code and requires exactly one authorized account', async () => {
@@ -78,22 +74,7 @@ describe('CloudflareOAuthOrchestrator', () => {
       accessToken: 'oauth-access-token',
       refreshToken: 'oauth-refresh-token',
       accessTokenExpiresAt: expect.any(Number),
-      // Derived from the confirmed grant, not echoed from the request: the core scopes cover
-      // every product capability.
-      grantedCapabilities: [
-        'workers',
-        'containers',
-        'd1',
-        'r2',
-        'kv',
-        'durable_objects',
-        'workers_ai',
-        'ai_gateway_keys',
-      ],
-      requestedOAuthScopes: [...CORE_CLOUDFLARE_OAUTH_SCOPES],
       grantedOAuthScopes: [...CORE_CLOUDFLARE_OAUTH_SCOPES],
-      oauthScopeProfileVersion: 'core-v1',
-      oauthScopeGrantStatus: 'core',
     });
     expect(request).toHaveBeenNthCalledWith(
       1,

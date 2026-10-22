@@ -27,19 +27,10 @@ import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspa
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import { sha256Hex } from '~/lib/hex-digest';
 import { z } from 'zod';
+import { missingCoreOAuthScopes } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 
 export const USER_WORKSPACE_SANDBOX_BASE_IMAGE =
   'docker.io/cloudflare/sandbox:0.13.0-next.724.1@sha256:d5856e09ccb02c2cd00f73946360369d5655faa9b67b156e0d8627bf143619f1';
-
-export const USER_WORKSPACE_REQUIRED_CAPABILITIES = [
-  'workers',
-  'containers',
-  'd1',
-  'r2',
-  'kv',
-  'durable_objects',
-  'workers_ai',
-] as const;
 
 type ProvisioningParams = {
   userId: string;
@@ -418,7 +409,6 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
             userId: params.userId,
             connectionId: connection.id,
             connectionGeneration: connection.generation,
-            oauthScopeGrantStatus: connection.oauthScopeGrantStatus,
             endpoint,
             sharedAccount: connection.orgId !== null,
           });
@@ -669,7 +659,7 @@ async function expectedConnection(
 
 /**
  * Whether the connection, at the generation a workspace was asked for, can provision it: still that
- * generation, with a credential and every capability a workspace needs. Who may use it is asked apart.
+ * generation, with a credential and every core scope granted. Who may use it is asked apart.
  */
 export function connectionProvisionsWorkspace(
   connection: CloudflareConnection,
@@ -678,7 +668,7 @@ export function connectionProvisionsWorkspace(
   return (
     connection.generation === connectionGeneration &&
     connection.credentialHandle !== null &&
-    missingUserWorkspaceRuntimeCapabilities(connection).length === 0
+    missingCoreOAuthScopes(connection.grantedOAuthScopes).length === 0
   );
 }
 
@@ -687,11 +677,5 @@ export function isCurrentUserWorkspaceRuntime(runtime: { runtimeVersion: string;
   return (
     runtime.runtimeVersion === USER_WORKSPACE_RUNTIME_SHA256 &&
     runtime.imageDigest === USER_WORKSPACE_SANDBOX_BASE_IMAGE
-  );
-}
-
-export function missingUserWorkspaceRuntimeCapabilities(connection: CloudflareConnection): string[] {
-  return USER_WORKSPACE_REQUIRED_CAPABILITIES.filter(
-    (capability) => !connection.grantedCapabilities.includes(capability),
   );
 }

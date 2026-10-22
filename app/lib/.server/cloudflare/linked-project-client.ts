@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
-import type { CloudflareApiRuntimeIdentity } from './cloudflare-api-runtime-identity';
+import type { RuntimeConnectionIdentity } from './cloudflare-api-runtime-identity';
 import { postRuntimeRoute, type RuntimeFileChange } from './user-workspace-cloudflare-credential';
 
 /**
@@ -13,7 +13,7 @@ const STATUS_TIMEOUT_MS = 30_000;
 const MAX_JSON_RESPONSE_BYTES = 64 * 1024;
 
 type RuntimeEnv = Pick<Env, 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT' | 'CONTROL_PLANE_SECRET'>;
-type Identity = Pick<CloudflareApiRuntimeIdentity, 'userId' | 'connectionId' | 'connectionGeneration'>;
+type Identity = Pick<RuntimeConnectionIdentity, 'userId' | 'connectionId' | 'connectionGeneration'>;
 
 const snapshotLineSchema = z.union([
   z.object({ commit: z.string(), defaultBranch: z.string(), repository: z.string() }),

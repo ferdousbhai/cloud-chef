@@ -1,30 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { readCloudflareApiRuntimeIdentity, type CloudflareApiRuntimeEnv } from './cloudflare-api-runtime-identity';
 
-function testEnv(grant = 'full'): CloudflareApiRuntimeEnv {
+function testEnv(): CloudflareApiRuntimeEnv {
   return {
     CLOUDCHEF_USER_RUNTIME: '1',
     CLOUDCHEF_USER_ID: 'user-1',
     CLOUDFLARE_ACCOUNT_ID: 'account-1',
     CLOUDCHEF_CONNECTION_ID: 'connection-1',
     CLOUDCHEF_CONNECTION_GENERATION: '3',
-    CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS: grant,
   };
 }
 
 describe('Cloudflare API runtime identity', () => {
-  it('admits a known grant from complete bindings', async () => {
+  it('admits complete bindings', async () => {
     await expect(readCloudflareApiRuntimeIdentity(testEnv())).resolves.toEqual({
       userId: 'user-1',
       accountId: 'account-1',
       connectionId: 'connection-1',
       connectionGeneration: 3,
-      oauthScopeGrantStatus: 'full',
     });
   });
 
   it.each([
-    { label: 'unknown grant', env: testEnv('unknown') },
     { label: 'shared organization account', env: { ...testEnv(), CLOUDCHEF_SHARED_ACCOUNT: '1' } },
     { label: 'missing generation', env: { ...testEnv(), CLOUDCHEF_CONNECTION_GENERATION: '' } },
   ])('fails closed for a $label', async ({ env }) => {

@@ -1,5 +1,3 @@
-import type { CloudflareOAuthScopeGrantStatus } from './cloudflare-oauth-scope-manifest';
-
 export type CloudflareConnectionStatus = 'active' | 'revoked';
 
 /** Who a connection belongs to: one person's own Cloudflare account, or an organization's. */
@@ -15,14 +13,8 @@ export type CloudflareConnection = {
   accountName: string | null;
   status: CloudflareConnectionStatus;
   credentialHandle: string | null;
-  /** CloudChef product capabilities (workers, d1, ...), never OAuth scope IDs. */
-  grantedCapabilities: string[];
-  /** Exact scope IDs the authorization request asked Cloudflare for. */
-  requestedOAuthScopes: string[];
-  /** Exact provider-confirmed scope IDs. */
+  /** Exact provider-confirmed scope IDs; one missing a core scope asks for reauthorization. */
   grantedOAuthScopes: string[];
-  oauthScopeProfileVersion: string | null;
-  oauthScopeGrantStatus: CloudflareOAuthScopeGrantStatus;
   connectedAt: number | null;
   updatedAt: number;
   generation: number;
@@ -43,21 +35,18 @@ type CloudflareConnectionRow = {
   account_name: string | null;
   status: CloudflareConnectionStatus;
   credential_handle: string | null;
-  granted_capabilities_json: string;
-  requested_oauth_scopes_json: string;
   granted_oauth_scopes_json: string;
-  oauth_scope_profile_version: string | null;
-  oauth_scope_grant_status: string;
-  oauth_grant_updated_at: number | null;
   connected_at: number | null;
   updated_at: number;
   connection_generation: number;
 };
 
+// granted_capabilities_json, requested_oauth_scopes_json, oauth_scope_profile_version, oauth_scope_grant_status
+// and oauth_grant_updated_at are no longer read or written; their defaults cover new rows. They are dropped by a
+// migration in the release after this one: migrations apply before a deploy goes live, and the previous Worker
+// still selects them on every connection read.
 const CONNECTION_COLUMNS = `id, user_id, org_id, account_id, account_name, status, credential_handle,
-              granted_capabilities_json, requested_oauth_scopes_json, granted_oauth_scopes_json,
-              oauth_scope_profile_version, oauth_scope_grant_status, oauth_grant_updated_at,
-              connected_at, updated_at, connection_generation`;
+              granted_oauth_scopes_json, connected_at, updated_at, connection_generation`;
 
 export function findCloudflareConnectionForUser(db: D1Database, userId: string): Promise<CloudflareConnection | null> {
   return findCloudflareConnectionForOwner(db, { kind: 'user', userId });
@@ -125,25 +114,17 @@ export async function activateCloudflareConnection(args: {
   accountId: string;
   accountName: string | null;
   credentialHandle: string;
-  grantedCapabilities: string[];
-  requestedOAuthScopes: string[];
   grantedOAuthScopes: string[];
-  oauthScopeProfileVersion: string;
-  oauthScopeGrantStatus: CloudflareOAuthScopeGrantStatus;
   expectedGeneration: number | null;
   now?: number;
 }): Promise<void> {
   const now = args.now ?? Date.now();
   const connectionId = crypto.randomUUID();
-  const capabilitiesJson = JSON.stringify(args.grantedCapabilities);
-  const requestedScopesJson = JSON.stringify(args.requestedOAuthScopes);
   const grantedScopesJson = JSON.stringify(args.grantedOAuthScopes);
   const verifyCommitted = () =>
     isExactActivatedCloudflareConnection({
       ...args,
       connectionId,
-      capabilitiesJson,
-      requestedScopesJson,
       grantedScopesJson,
       now,
     }).catch(() => false);
@@ -155,10 +136,8 @@ export async function activateCloudflareConnection(args: {
             .prepare(
               `INSERT INTO cloudflare_connections (
         id, ${ownerColumn(args.owner)}, account_id, account_name, status, credential_handle,
-        granted_capabilities_json, requested_oauth_scopes_json, granted_oauth_scopes_json,
-        oauth_scope_profile_version, oauth_scope_grant_status, oauth_grant_updated_at,
-        connected_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        granted_oauth_scopes_json, connected_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
       ON CONFLICT(${ownerColumn(args.owner)}) DO NOTHING
       RETURNING ${CONNECTION_COLUMNS}`,
             )
@@ -168,12 +147,7 @@ export async function activateCloudflareConnection(args: {
               args.accountId,
               args.accountName,
               args.credentialHandle,
-              capabilitiesJson,
-              requestedScopesJson,
               grantedScopesJson,
-              args.oauthScopeProfileVersion,
-              args.oauthScopeGrantStatus,
-              now,
               now,
               now,
               now,
@@ -183,9 +157,7 @@ export async function activateCloudflareConnection(args: {
             .prepare(
               `UPDATE cloudflare_connections
              SET account_id = ?, account_name = ?, status = 'active', credential_handle = ?,
-                 granted_capabilities_json = ?, requested_oauth_scopes_json = ?,
-                 granted_oauth_scopes_json = ?, oauth_scope_profile_version = ?, oauth_scope_grant_status = ?,
-                 oauth_grant_updated_at = ?, connected_at = ?,
+                 granted_oauth_scopes_json = ?, connected_at = ?,
                  connection_generation = connection_generation + 1, updated_at = ?
              WHERE ${ownerColumn(args.owner)} = ? AND connection_generation = ?
              RETURNING ${CONNECTION_COLUMNS}`,
@@ -194,12 +166,7 @@ export async function activateCloudflareConnection(args: {
               args.accountId,
               args.accountName,
               args.credentialHandle,
-              capabilitiesJson,
-              requestedScopesJson,
               grantedScopesJson,
-              args.oauthScopeProfileVersion,
-              args.oauthScopeGrantStatus,
-              now,
               now,
               now,
               ownerId(args.owner),
@@ -223,8 +190,6 @@ export async function activateCloudflareConnection(args: {
 async function isExactActivatedCloudflareConnection(
   args: Parameters<typeof activateCloudflareConnection>[0] & {
     connectionId: string;
-    capabilitiesJson: string;
-    requestedScopesJson: string;
     grantedScopesJson: string;
     now: number;
   },
@@ -245,12 +210,7 @@ async function isExactActivatedCloudflareConnection(
     row.account_name !== args.accountName ||
     row.status !== 'active' ||
     row.credential_handle !== args.credentialHandle ||
-    row.granted_capabilities_json !== args.capabilitiesJson ||
-    row.requested_oauth_scopes_json !== args.requestedScopesJson ||
     row.granted_oauth_scopes_json !== args.grantedScopesJson ||
-    row.oauth_scope_profile_version !== args.oauthScopeProfileVersion ||
-    row.oauth_scope_grant_status !== args.oauthScopeGrantStatus ||
-    row.oauth_grant_updated_at !== args.now ||
     row.connected_at !== args.now ||
     row.updated_at !== args.now ||
     row.connection_generation !== intendedGeneration
@@ -269,11 +229,7 @@ function connectionFromRow(row: CloudflareConnectionRow): CloudflareConnection {
     accountName: row.account_name,
     status: row.status,
     credentialHandle: row.credential_handle,
-    grantedCapabilities: parseStoredStringArray(row.granted_capabilities_json),
-    requestedOAuthScopes: parseStoredStringArray(row.requested_oauth_scopes_json),
     grantedOAuthScopes: parseStoredStringArray(row.granted_oauth_scopes_json),
-    oauthScopeProfileVersion: row.oauth_scope_profile_version,
-    oauthScopeGrantStatus: parseStoredGrantStatus(row.oauth_scope_grant_status),
     connectedAt: row.connected_at,
     updatedAt: row.updated_at,
     generation: row.connection_generation,
@@ -291,11 +247,4 @@ function parseStoredStringArray(value: string): string[] {
     throw new Error('Stored Cloudflare connection scopes are invalid.');
   }
   return parsed;
-}
-
-function parseStoredGrantStatus(value: string): CloudflareOAuthScopeGrantStatus {
-  if (value !== 'core' && value !== 'partial' && value !== 'full') {
-    throw new Error('Stored Cloudflare OAuth grant status is invalid.');
-  }
-  return value;
 }

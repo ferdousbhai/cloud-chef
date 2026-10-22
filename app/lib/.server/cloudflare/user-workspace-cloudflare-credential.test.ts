@@ -17,7 +17,6 @@ function runtimeEnv(bindings: Partial<Env> = {}): Env {
     CLOUDFLARE_ACCOUNT_ID: 'account-1',
     CLOUDCHEF_CONNECTION_ID: 'connection-1',
     CLOUDCHEF_CONNECTION_GENERATION: '3',
-    CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS: 'full',
     CLOUDCHEF_CONTROL_PLANE_ENDPOINT: 'https://cloudchef.build',
     CONTROL_PLANE_SECRET: 'runtime-secret',
     ...bindings,

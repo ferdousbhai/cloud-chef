@@ -28,9 +28,6 @@ export default defineConfig({
     // Worker source maps are private uploads: vite.config.ts builds them for the Worker environment only, and
     // `cf deploy` uploads the ones listed in the build output.
     env: {
-      CLOUDFLARE_OAUTH_SCOPES: bindings.text(
-        'account-settings.read user-details.read workers-scripts.write containers.write d1.write workers-r2.write workers-kv-storage.write ai.read aig.write secrets-store.write',
-      ),
       // Configure production secrets in Cloudflare, not local env files.
       // Deployment credentials are supplied by the CI environment, not as Worker runtime secrets.
       CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: bindings.secret(),

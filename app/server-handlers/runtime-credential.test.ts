@@ -33,11 +33,7 @@ const connection = {
   accountName: 'Account',
   status: 'active',
   credentialHandle: 'credential-1',
-  grantedCapabilities: [],
-  requestedOAuthScopes: [],
   grantedOAuthScopes: [],
-  oauthScopeProfileVersion: null,
-  oauthScopeGrantStatus: 'core',
   connectedAt: 1,
   generation: 3,
 };

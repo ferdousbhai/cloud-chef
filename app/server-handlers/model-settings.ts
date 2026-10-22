@@ -4,7 +4,6 @@ import { readJsonRequest } from '~/lib/.server/request-guards';
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import {
   AI_GATEWAY_ID,
-  canManageAiGatewayKeys,
   cloudchefKeySecretName,
   findGatewayKeys,
   gatewayKeyInUse,
@@ -12,6 +11,7 @@ import {
   type GatewayKeyAccountApi,
   type OpenGatewayKeyAccountApi,
 } from '~/lib/.server/cloudflare/ai-gateway-keys';
+import { missingCoreOAuthScopes } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 import { CloudflareAccountApiError } from '~/lib/.server/cloudflare/user-account-api';
 import {
   canManageModels,
@@ -83,7 +83,7 @@ function withContext(
     if (manage && !canManage) {
       return Response.json({ error: "Only the team's admins can change its models." }, { status: 403 });
     }
-    if (manage === 'keys' && !canManageAiGatewayKeys(connection)) {
+    if (manage === 'keys' && missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0) {
       return reauthorizationRequired();
     }
     return handler({ session, connection, canManage });
@@ -94,7 +94,7 @@ function withContext(
 export function modelSettingsAction({ request, env, openAccountApi = openGatewayKeyAccountApi }: RequestArgs & Deps) {
   return withContext(request, env, async ({ connection, canManage }) => {
     const defaultModelId = await readDefaultBuilderModel(env.DB, connection.id);
-    if (!canManageAiGatewayKeys(connection)) {
+    if (missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0) {
       return settingsResponse({ canManage, defaultModelId, keys: { status: 'reauthorization_required' } });
     }
     let api: GatewayKeyAccountApi;

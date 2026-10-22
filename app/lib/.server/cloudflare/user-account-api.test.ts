@@ -1083,7 +1083,6 @@ describe('UserCloudflareAccountApi', () => {
         connectionId: 'connection-1',
         connectionGeneration: 1,
         sharedAccount: false,
-        oauthScopeGrantStatus: 'full',
         endpoint: 'https://cloudchef-workspace-user.example.workers.dev',
       }),
     ).resolves.toEqual({ namespaceId: '0123456789abcdef0123456789abcdef' });
