@@ -52,8 +52,7 @@ export const linkedBuildWatchSchema = z.object({
   where: z.string().min(1).max(512),
   live: z.boolean(),
   startedAt: z.number().int().positive(),
-  /** Absent from watches started before it was recorded. */
-  defaultBranch: z.string().min(1).max(256).optional(),
+  defaultBranch: z.string().min(1).max(256),
   /** Local secrets the workspace changed that the commit left out (`linkedWorkspaceChanges`). */
   heldBack: z.array(z.string().min(1).max(4096)).max(LINKED_HELD_BACK_LIMIT).optional(),
 });
@@ -72,10 +71,8 @@ function linkedBuildData(
     previewUrl: status?.previewUrl ?? null,
     detailsUrl: status?.detailsUrl ?? null,
     startedAt: watch.startedAt,
+    defaultBranch: watch.defaultBranch,
   };
-  if (watch.defaultBranch) {
-    data.defaultBranch = watch.defaultBranch;
-  }
   if (build === 'failure') {
     data.conclusion = status?.conclusion ?? 'failure';
   }

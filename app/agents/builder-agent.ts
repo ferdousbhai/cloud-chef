@@ -265,7 +265,7 @@ const previewPublicationJobSchema = z.object({
   requestedAt: z.number().int().positive(),
   // Manual "Build preview" requests must not promote to the public production URL. Only the
   // end-of-turn pipeline (publishRevision) opts into the deployment behind the preview.
-  autoDeploy: z.boolean().default(true),
+  autoDeploy: z.boolean(),
 });
 type PreviewPublicationJob = z.infer<typeof previewPublicationJobSchema>;
 
@@ -282,8 +282,8 @@ const deploymentRecordSettleSchema = deploymentJobSchema.extend({
 type DeploymentRecordSettle = z.infer<typeof deploymentRecordSettleSchema>;
 /** Kept beside the job in a deployment fiber's metadata: whether a turn started it, and how many retries preceded it. */
 const deploymentRunSchema = z.object({
-  automatic: z.boolean().default(false),
-  attempt: z.number().int().min(0).default(0),
+  automatic: z.boolean(),
+  attempt: z.number().int().min(0),
 });
 type DeploymentRun = z.infer<typeof deploymentRunSchema>;
 
@@ -620,10 +620,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     if (ctx.name === DEPLOYMENT_FIBER) {
       const job = deploymentJobSchema.safeParse(ctx.metadata).data;
-      if (!job || !this.userId || !this.transcriptBinding) {
+      const run = deploymentRunSchema.safeParse(ctx.metadata).data;
+      if (!job || !run || !this.userId || !this.transcriptBinding) {
         return { status: 'error', error: 'missing deployment recovery data' };
       }
-      const run = deploymentRunSchema.safeParse(ctx.metadata ?? {}).data ?? { automatic: false, attempt: 0 };
       const error = new Error(DEPLOYMENT_INTERRUPTED_MESSAGE);
       let terminalized: BuilderDeploymentState;
       try {

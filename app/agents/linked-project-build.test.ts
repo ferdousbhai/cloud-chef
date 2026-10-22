@@ -22,6 +22,7 @@ const watch: LinkedBuildWatch = {
   where: 'on the branch cloudchef/sara-abc123',
   live: false,
   startedAt: 1_000,
+  defaultBranch: 'main',
 };
 
 const pending: LinkedBuildStatus = { state: 'pending', previewUrl: null, detailsUrl: null };
