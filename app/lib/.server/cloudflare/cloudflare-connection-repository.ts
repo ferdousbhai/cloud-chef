@@ -1,6 +1,6 @@
 import type { CloudflareOAuthScopeGrantStatus } from './cloudflare-oauth-scope-manifest';
 
-export type CloudflareConnectionStatus = 'linking' | 'active' | 'revoked' | 'error';
+export type CloudflareConnectionStatus = 'active' | 'revoked';
 
 /** Who a connection belongs to: one person's own Cloudflare account, or an organization's. */
 export type CloudflareConnectionOwner = { kind: 'user'; userId: string } | { kind: 'organization'; orgId: string };
