@@ -67,7 +67,6 @@ beforeEach(() => {
   resetUserRuntimeSession();
   installBuilderModelCatalog(
     { defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] },
-    { getItem: () => null, setItem: () => undefined },
   );
   builderModelCatalogStatusStore.set('ready');
 });

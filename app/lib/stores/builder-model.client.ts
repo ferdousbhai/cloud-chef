@@ -24,6 +24,12 @@ const BUILDER_MODEL_STORAGE_KEY = 'cloudchef_builder_model_v2';
 const BUILDER_SEEN_MODELS_STORAGE_KEY = 'cloudchef_seen_builder_models_v1';
 /** The reasoning effort chosen for each model, so switching models never carries a level across. */
 const BUILDER_REASONING_STORAGE_KEY = 'cloudchef_builder_reasoning_v1';
+/** The provider tab the picker last showed. */
+const BUILDER_PROVIDER_STORAGE_KEY = 'cloudchef_builder_provider_v1';
+/** The models most recently chosen, newest first, which the picker pins beside the default. */
+const BUILDER_RECENTS_STORAGE_KEY = 'cloudchef_builder_recents_v1';
+/** How many recently chosen models are kept. */
+const MAX_RECENT_MODELS = 2;
 /** One more than the catalog payload's ceiling, so a full catalog always fits. */
 const MAX_SEEN_MODEL_IDS = MAX_BUILDER_CATALOG_MODELS + 1;
 let pendingCatalog: Promise<void> | null = null;
@@ -38,12 +44,6 @@ let catalogRequests = 0;
  * it no longer offers falls back to the catalog's default (the team's, where its admin chose one).
  */
 let catalogInstalled = false;
-
-/**
- * Reading is required; writing is optional so an existing caller that only stubs `getItem` keeps
- * working, and the real `localStorage` is used for the write it did not stub.
- */
-type BuilderModelStorage = Pick<Storage, 'getItem'> & Partial<Pick<Storage, 'setItem'>>;
 
 const seenModelIdsSchema = z.array(z.string()).max(MAX_SEEN_MODEL_IDS);
 /** Unreadable entries are skipped one by one, so a single bad value never discards every choice. */
@@ -75,18 +75,21 @@ export const builderReasoningChoicesStore = atom<BuilderReasoningChoices>({});
  */
 export const builderNewModelsStore = atom<readonly BuilderModel[]>([]);
 
-export function loadBuilderModelPreference(storage?: BuilderModelStorage): void {
-  applyStoredModelPreference(storage);
+export function loadBuilderModelPreference(): void {
+  applyStoredModelPreference();
   try {
-    const source = storage ?? localStorage;
-    const tab = source.getItem('cloudchef_builder_provider_v1');
+    const tab = localStorage.getItem(BUILDER_PROVIDER_STORAGE_KEY);
     builderProviderStore.set(tab === 'workers' ? tab : (GATEWAY_PROVIDER_SLUGS.find((slug) => slug === tab) ?? null));
-    const recents = z.array(z.string()).safeParse(JSON.parse(source.getItem('cloudchef_builder_recents_v1') ?? '[]'));
-    builderRecentModelsStore.set(recents.success ? recents.data.filter(isBuilderModelId).slice(0, 2) : []);
+    const recents = z
+      .array(z.string())
+      .safeParse(JSON.parse(localStorage.getItem(BUILDER_RECENTS_STORAGE_KEY) ?? '[]'));
+    builderRecentModelsStore.set(
+      recents.success ? recents.data.filter(isBuilderModelId).slice(0, MAX_RECENT_MODELS) : [],
+    );
   } catch {
     // Browser storage is optional.
   }
-  builderReasoningChoicesStore.set(readReasoningChoices(storage));
+  builderReasoningChoicesStore.set(readReasoningChoices());
 }
 
 /**
@@ -136,11 +139,6 @@ export function builderModelFor(
   return standIn;
 }
 
-/** The effort the current turn's model asks for, as the request body carries it. */
-function currentBuilderReasoningLevel(modelId: BuilderModelId): BuilderReasoningLevel | undefined {
-  return builderReasoningLevelFor(builderModelFor(modelId));
-}
-
 /**
  * The model fields every builder turn's request carries: the model, and the effort chosen for it —
  * no `reasoningLevel` at all for the provider's default, so nothing is sent that could override it.
@@ -149,21 +147,17 @@ export function builderModelRequestFields(modelId: BuilderModelId = builderModel
   modelId: BuilderModelId;
   reasoningLevel?: BuilderReasoningLevel;
 } {
-  const reasoningLevel = currentBuilderReasoningLevel(modelId);
+  const reasoningLevel = builderReasoningLevelFor(builderModelFor(modelId));
   return reasoningLevel === undefined ? { modelId } : { modelId, reasoningLevel };
 }
 
 /** Records the effort chosen for one model; `undefined` returns it to the provider's default. */
-export function setBuilderReasoningLevel(
-  modelId: BuilderModelId,
-  level: BuilderReasoningLevel | undefined,
-  storage?: Pick<Storage, 'setItem'>,
-): void {
+export function setBuilderReasoningLevel(modelId: BuilderModelId, level: BuilderReasoningLevel | undefined): void {
   const { [modelId]: _previous, ...others } = builderReasoningChoicesStore.get();
   const next = level === undefined ? others : { ...others, [modelId]: level };
   builderReasoningChoicesStore.set(next);
   try {
-    (storage ?? localStorage).setItem(BUILDER_REASONING_STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(BUILDER_REASONING_STORAGE_KEY, JSON.stringify(next));
   } catch {
     // The in-memory choice still applies when browser storage is unavailable.
   }
@@ -174,11 +168,8 @@ export function setBuilderReasoningLevel(
  * account offers (a key linked or unlinked) call `reloadBuilderModelCatalog`, whose request starts
  * after that change rather than being one sent before it.
  */
-export function loadBuilderModelCatalog(
-  request: typeof fetchUserRuntime = fetchUserRuntime,
-  storage?: BuilderModelStorage,
-): Promise<void> {
-  return pendingCatalog ?? requestBuilderModelCatalog(request, storage);
+export function loadBuilderModelCatalog(): Promise<void> {
+  return pendingCatalog ?? requestBuilderModelCatalog({});
 }
 
 /**
@@ -187,22 +178,15 @@ export function loadBuilderModelCatalog(
  * keep its catalog for a minute, so this request skips that cache to see the change and replaces the
  * cached catalog with it, so a plain load in the next minute cannot bring the old one back.
  */
-export function reloadBuilderModelCatalog(
-  request: typeof fetchUserRuntime = fetchUserRuntime,
-  storage?: BuilderModelStorage,
-): Promise<void> {
-  return requestBuilderModelCatalog(request, storage, { cache: 'reload' });
+export function reloadBuilderModelCatalog(): Promise<void> {
+  return requestBuilderModelCatalog({ cache: 'reload' });
 }
 
-function requestBuilderModelCatalog(
-  request: typeof fetchUserRuntime,
-  storage?: BuilderModelStorage,
-  init: RequestInit = {},
-): Promise<void> {
+function requestBuilderModelCatalog(init: RequestInit): Promise<void> {
   const requestNumber = ++catalogRequests;
   const superseded = () => requestNumber !== catalogRequests;
   builderModelCatalogStatusStore.set('loading');
-  const operation: Promise<void> = request('/v1/models', { ...init, headers: { Accept: 'application/json' } })
+  const operation: Promise<void> = fetchUserRuntime('/v1/models', { ...init, headers: { Accept: 'application/json' } })
     .then(async (response) => {
       const parsed = builderModelCatalogPayloadSchema.safeParse(await response.json().catch(() => null));
       const payload = parsed.success ? validateBuilderModelCatalogPayload(parsed.data) : null;
@@ -212,7 +196,7 @@ function requestBuilderModelCatalog(
       if (!response.ok || payload === null) {
         throw new Error('The Workers AI model catalog response is invalid.');
       }
-      installBuilderModelCatalog(payload, storage);
+      installBuilderModelCatalog(payload);
       builderModelCatalogStatusStore.set('ready');
     })
     .catch(() => {
@@ -235,27 +219,24 @@ function requestBuilderModelCatalog(
  * Installs a catalog `validateBuilderModelCatalogPayload` accepted: its default, the one the account's
  * admin chose while it is still offered, is one of its models.
  */
-export function installBuilderModelCatalog(payload: BuilderModelCatalogPayload, storage?: BuilderModelStorage): void {
+export function installBuilderModelCatalog(payload: BuilderModelCatalogPayload): void {
   builderModelsStore.set(payload.models);
   builderDefaultModelStore.set(payload.defaultModelId);
   catalogInstalled = true;
-  applyStoredModelPreference(storage);
-  applyUnseenModels(payload.models, storage);
+  applyStoredModelPreference();
+  applyUnseenModels(payload.models);
 }
 
 /**
  * The user has now been shown what is new — because the picker opened, or because the notice was
  * dismissed — so the current catalog becomes the baseline the next load is compared against.
  */
-export function markBuilderModelsSeen(storage?: BuilderModelStorage): void {
+export function markBuilderModelsSeen(): void {
   if (builderNewModelsStore.get().length === 0) {
     return;
   }
   builderNewModelsStore.set([]);
-  writeSeenModelIds(
-    builderModelsStore.get().map(({ id }) => id),
-    storage,
-  );
+  writeSeenModelIds(builderModelsStore.get().map(({ id }) => id));
 }
 
 /** Keep the default first. */
@@ -266,7 +247,7 @@ export function orderBuilderModelsForDisplay(
   return [...models].sort((left, right) => Number(right.id === defaultModelId) - Number(left.id === defaultModelId));
 }
 
-export function setBuilderModel(modelId: BuilderModelId, storage?: Pick<Storage, 'setItem'>): void {
+export function setBuilderModel(modelId: BuilderModelId): void {
   if (!builderModelsStore.get().some(({ id }) => id === modelId)) {
     return;
   }
@@ -275,13 +256,13 @@ export function setBuilderModel(modelId: BuilderModelId, storage?: Pick<Storage,
       [
         modelId,
         ...builderRecentModelsStore.get().filter((id) => id !== modelId && id !== builderDefaultModelStore.get()),
-      ].slice(0, 2),
+      ].slice(0, MAX_RECENT_MODELS),
     );
   }
   builderModelStore.set(modelId);
   try {
-    (storage ?? localStorage).setItem(BUILDER_MODEL_STORAGE_KEY, modelId);
-    (storage ?? localStorage).setItem('cloudchef_builder_recents_v1', JSON.stringify(builderRecentModelsStore.get()));
+    localStorage.setItem(BUILDER_MODEL_STORAGE_KEY, modelId);
+    localStorage.setItem(BUILDER_RECENTS_STORAGE_KEY, JSON.stringify(builderRecentModelsStore.get()));
   } catch {
     // The in-memory preference still applies when browser storage is unavailable.
   }
@@ -295,23 +276,23 @@ export function syncBuilderModelPreference(event: Pick<StorageEvent, 'key' | 'ne
   if (event.key !== BUILDER_MODEL_STORAGE_KEY) {
     return;
   }
-  const models = builderModelsStore.get();
-  const saved = readSavedModelId(event.newValue);
-  // The same trust as a saved preference on load: before the catalog arrives, any well-formed id.
-  builderModelStore.set(
-    saved !== null && (!catalogInstalled || models.some(({ id }) => id === saved))
-      ? saved
-      : builderDefaultModelStore.get(),
-  );
+  // The same trust as a saved preference on load.
+  builderModelStore.set(savedModelOrDefault(event.newValue));
 }
 
-function readSavedModelId(value: string | null): BuilderModelId | null {
-  return isBuilderModelId(value) ? value : null;
+/**
+ * A saved model id while it may be used (before the catalog arrives any well-formed id, see
+ * `catalogInstalled`; after it, one the catalog offers), and the catalog's default otherwise.
+ */
+function savedModelOrDefault(saved: string | null): BuilderModelId {
+  return isBuilderModelId(saved) && (!catalogInstalled || builderModelsStore.get().some(({ id }) => id === saved))
+    ? saved
+    : builderDefaultModelStore.get();
 }
 
-function readReasoningChoices(storage?: BuilderModelStorage): BuilderReasoningChoices {
+function readReasoningChoices(): BuilderReasoningChoices {
   try {
-    return parseReasoningChoices((storage ?? localStorage).getItem(BUILDER_REASONING_STORAGE_KEY));
+    return parseReasoningChoices(localStorage.getItem(BUILDER_REASONING_STORAGE_KEY));
   } catch {
     return {};
   }
@@ -339,23 +320,20 @@ function parseReasoningChoices(value: string | null): BuilderReasoningChoices {
   );
 }
 
-function applyUnseenModels(models: readonly BuilderModel[], storage?: BuilderModelStorage): void {
-  const seen = readSeenModelIds(storage);
+function applyUnseenModels(models: readonly BuilderModel[]): void {
+  const seen = readSeenModelIds();
   if (seen === null) {
     // Nothing recorded yet: this browser has no "before", so today's catalog is the baseline.
     builderNewModelsStore.set([]);
-    writeSeenModelIds(
-      models.map(({ id }) => id),
-      storage,
-    );
+    writeSeenModelIds(models.map(({ id }) => id));
     return;
   }
   builderNewModelsStore.set(models.filter(({ id }) => !seen.has(id)));
 }
 
-function readSeenModelIds(storage?: BuilderModelStorage): Set<string> | null {
+function readSeenModelIds(): Set<string> | null {
   try {
-    const persisted = (storage ?? localStorage).getItem(BUILDER_SEEN_MODELS_STORAGE_KEY);
+    const persisted = localStorage.getItem(BUILDER_SEEN_MODELS_STORAGE_KEY);
     if (persisted === null) {
       return null;
     }
@@ -368,25 +346,19 @@ function readSeenModelIds(storage?: BuilderModelStorage): Set<string> | null {
   }
 }
 
-function writeSeenModelIds(modelIds: readonly string[], storage?: BuilderModelStorage): void {
+function writeSeenModelIds(modelIds: readonly string[]): void {
   try {
-    const write = storage?.setItem?.bind(storage) ?? localStorage.setItem.bind(localStorage);
-    write(BUILDER_SEEN_MODELS_STORAGE_KEY, JSON.stringify(modelIds.slice(0, MAX_SEEN_MODEL_IDS)));
+    localStorage.setItem(BUILDER_SEEN_MODELS_STORAGE_KEY, JSON.stringify(modelIds.slice(0, MAX_SEEN_MODEL_IDS)));
   } catch {
     // Nothing is recorded when browser storage is unavailable; the next load simply reseeds.
   }
 }
 
-function applyStoredModelPreference(storage?: BuilderModelStorage): void {
-  const defaultModel = builderDefaultModelStore.get();
-  const models = builderModelsStore.get();
+function applyStoredModelPreference(): void {
   try {
-    const persisted = readSavedModelId((storage ?? localStorage).getItem(BUILDER_MODEL_STORAGE_KEY));
-    builderModelStore.set(
-      persisted !== null && (!catalogInstalled || models.some(({ id }) => id === persisted)) ? persisted : defaultModel,
-    );
+    builderModelStore.set(savedModelOrDefault(localStorage.getItem(BUILDER_MODEL_STORAGE_KEY)));
   } catch {
-    builderModelStore.set(defaultModel);
+    builderModelStore.set(builderDefaultModelStore.get());
   }
 }
 
@@ -397,7 +369,7 @@ export const builderRecentModelsStore = atom<readonly BuilderModelId[]>([]);
 export function setBuilderProvider(provider: BuilderProvider): void {
   builderProviderStore.set(provider);
   try {
-    localStorage.setItem('cloudchef_builder_provider_v1', provider);
+    localStorage.setItem(BUILDER_PROVIDER_STORAGE_KEY, provider);
   } catch {
     // The tab still changes when storage is unavailable.
   }
@@ -405,15 +377,6 @@ export function setBuilderProvider(provider: BuilderProvider): void {
 
 export function builderProviderFor(model: BuilderModel): BuilderProvider {
   return gatewayModelProvider(model.id) ?? 'workers';
-}
-
-export function orderBuilderProviders(models: readonly BuilderModel[], defaultModel: BuilderModel): BuilderProvider[] {
-  const first = builderProviderFor(defaultModel);
-  const keyed = GATEWAY_PROVIDER_SLUGS.filter((provider) =>
-    models.some((model) => builderProviderFor(model) === provider),
-  );
-  const ordered: BuilderProvider[] = [first, ...keyed, 'workers', ...GATEWAY_PROVIDER_SLUGS];
-  return [...new Set(ordered)];
 }
 
 /**

@@ -1,19 +1,19 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CLOUDFLARE_WORKERS_AI_MODEL,
   DEFAULT_WORKERS_AI_MODEL,
   type BuilderModel,
   type BuilderModelCatalogPayload,
 } from '~/lib/workers-ai-model';
+import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import {
   builderModelCatalogStatusStore,
   builderProviderStore,
   builderRecentModelsStore,
   setBuilderProvider,
   olderBuilderModelIds,
-  orderBuilderProviders,
   builderModelsStore,
   builderModelStore,
   builderModelRequestFields,
@@ -51,58 +51,93 @@ const catalog: BuilderModelCatalogPayload = {
   models: [DEFAULT_WORKERS_AI_MODEL, alternativeModel],
 };
 
-function memoryStorage(entries: Record<string, string> = {}) {
-  const values = new Map(Object.entries(entries));
-  return {
-    getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => void values.set(key, value),
-    read: (key: string) => values.get(key) ?? null,
-  };
+const MODEL_KEY = 'cloudchef_builder_model_v2';
+const SEEN_KEY = 'cloudchef_seen_builder_models_v1';
+const RUNTIME_ENDPOINT = 'https://workspace.example';
+
+type CatalogRequest = { url: string; init: RequestInit };
+
+/** Grants a runtime session, and answers each catalog request with what `answer` returns, recording it. */
+function serveCatalog(answer: () => Promise<Response>): CatalogRequest[] {
+  const requests: CatalogRequest[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      if (String(input) === '/api/cloudflare/runtime-session') {
+        return Response.json({ endpoint: RUNTIME_ENDPOINT, token: 'token', expiresAt: Date.now() + 60_000 });
+      }
+      requests.push({ url: String(input), init });
+      return answer();
+    }),
+  );
+  return requests;
 }
 
-const SEEN_KEY = 'cloudchef_seen_builder_models_v1';
+/** What a catalog request asked of the browser's cache, and the answer it accepts. */
+function requestedCatalog({ url, init }: CatalogRequest) {
+  return { url, cache: init.cache, accept: new Headers(init.headers).get('Accept') };
+}
+
+beforeEach(() => {
+  // This browser's storage, empty for each test.
+  const values = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  });
+  resetUserRuntimeSession();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('builder model preference', () => {
   beforeEach(() => {
-    installBuilderModelCatalog(
-      { defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] },
-      memoryStorage(),
-    );
+    installBuilderModelCatalog({ defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] });
     builderModelCatalogStatusStore.set('idle');
     builderNewModelsStore.set([]);
   });
 
   it('installs the live catalog and restores only a current member', () => {
-    installBuilderModelCatalog(catalog, { getItem: () => alternativeModel.id });
+    localStorage.setItem(MODEL_KEY, alternativeModel.id);
+    installBuilderModelCatalog(catalog);
     expect(builderModelStore.get()).toBe(alternativeModel.id);
 
-    loadBuilderModelPreference({ getItem: () => '@cf/example/retired' });
+    localStorage.setItem(MODEL_KEY, '@cf/example/retired');
+    loadBuilderModelPreference();
     expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
   });
 
   it("starts on the default the account's catalog names, and a saved model no longer offered falls back to it", () => {
     const teamCatalog = { defaultModelId: claudeModel.id, models: [claudeModel, DEFAULT_WORKERS_AI_MODEL] };
 
-    installBuilderModelCatalog(teamCatalog, { getItem: () => null });
+    installBuilderModelCatalog(teamCatalog);
     expect(builderModelStore.get()).toBe(claudeModel.id);
 
     // Anyone can switch away from the team's default.
-    installBuilderModelCatalog(teamCatalog, { getItem: () => CLOUDFLARE_WORKERS_AI_MODEL });
+    localStorage.setItem(MODEL_KEY, CLOUDFLARE_WORKERS_AI_MODEL);
+    installBuilderModelCatalog(teamCatalog);
     expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
 
     // Claude was unlinked since: the saved Claude choice is not offered, so the catalog's default applies.
-    installBuilderModelCatalog(catalog, { getItem: () => claudeModel.id });
+    localStorage.setItem(MODEL_KEY, claudeModel.id);
+    installBuilderModelCatalog(catalog);
     expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
-    syncBuilderModelPreference({ key: 'cloudchef_builder_model_v2', newValue: claudeModel.id });
+    syncBuilderModelPreference({ key: MODEL_KEY, newValue: claudeModel.id });
     expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
   });
 
   it('loads and validates the authenticated runtime catalog', async () => {
-    const request = vi.fn(async () => Response.json(catalog));
+    localStorage.setItem(MODEL_KEY, alternativeModel.id);
+    const requests = serveCatalog(async () => Response.json(catalog));
 
-    await loadBuilderModelCatalog(request, { getItem: () => alternativeModel.id });
+    await loadBuilderModelCatalog();
 
-    expect(request).toHaveBeenCalledWith('/v1/models', { headers: { Accept: 'application/json' } });
+    expect(requests.map(requestedCatalog)).toEqual([
+      { url: `${RUNTIME_ENDPOINT}/v1/models`, cache: undefined, accept: 'application/json' },
+    ]);
     expect(builderModelCatalogStatusStore.get()).toBe('ready');
     expect(builderModelsStore.get()).toEqual(catalog.models);
     expect(builderModelStore.get()).toBe(alternativeModel.id);
@@ -112,17 +147,20 @@ describe('builder model preference', () => {
     // Fresh modules, so no catalog has been installed yet.
     vi.resetModules();
     const fresh = await import('./builder-model.client');
+    serveCatalog(async () => new Response(null, { status: 503 }));
 
-    await fresh.loadBuilderModelCatalog(async () => new Response(null, { status: 503 }));
+    await fresh.loadBuilderModelCatalog();
 
     expect(fresh.builderModelCatalogStatusStore.get()).toBe('error');
     expect(fresh.builderModelsStore.get()).toEqual([DEFAULT_WORKERS_AI_MODEL]);
   });
 
   it('keeps the installed catalog, and says it is stale, when a refresh fails', async () => {
-    await loadBuilderModelCatalog(async () => Response.json(catalog), memoryStorage());
+    serveCatalog(async () => Response.json(catalog));
+    await loadBuilderModelCatalog();
 
-    await loadBuilderModelCatalog(async () => new Response(null, { status: 503 }));
+    serveCatalog(async () => new Response(null, { status: 503 }));
+    await loadBuilderModelCatalog();
 
     expect(builderModelCatalogStatusStore.get()).toBe('stale');
     expect(builderModelsStore.get()).toEqual(catalog.models);
@@ -130,19 +168,17 @@ describe('builder model preference', () => {
 
   it('joins a request in flight, and a reload supersedes it with one of its own', async () => {
     const responses: ((response: Response) => void)[] = [];
-    const request = vi.fn(() => new Promise<Response>((resolve) => responses.push(resolve)));
-    const storage = memoryStorage();
+    const requests = serveCatalog(() => new Promise<Response>((resolve) => responses.push(resolve)));
 
-    const beforeChange = loadBuilderModelCatalog(request, storage);
-    expect(loadBuilderModelCatalog(request, storage)).toBe(beforeChange);
-    const afterChange = reloadBuilderModelCatalog(request, storage);
-    expect(request).toHaveBeenCalledTimes(2);
+    const beforeChange = loadBuilderModelCatalog();
+    expect(loadBuilderModelCatalog()).toBe(beforeChange);
+    const afterChange = reloadBuilderModelCatalog();
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
     // Only the reload skips the browser's cached catalog, replacing it; a plain load may use it.
-    expect(request).toHaveBeenNthCalledWith(1, '/v1/models', { headers: { Accept: 'application/json' } });
-    expect(request).toHaveBeenNthCalledWith(2, '/v1/models', {
-      cache: 'reload',
-      headers: { Accept: 'application/json' },
-    });
+    expect(requests.map(requestedCatalog)).toEqual([
+      { url: `${RUNTIME_ENDPOINT}/v1/models`, cache: undefined, accept: 'application/json' },
+      { url: `${RUNTIME_ENDPOINT}/v1/models`, cache: 'reload', accept: 'application/json' },
+    ]);
     let beforeChangeSettled = false;
     void beforeChange.then(() => {
       beforeChangeSettled = true;
@@ -161,10 +197,11 @@ describe('builder model preference', () => {
 
   it('settles a superseded request only once the reload that superseded it has', async () => {
     const responses: ((response: Response) => void)[] = [];
-    const request = vi.fn(() => new Promise<Response>((resolve) => responses.push(resolve)));
+    const requests = serveCatalog(() => new Promise<Response>((resolve) => responses.push(resolve)));
 
-    const beforeChange = loadBuilderModelCatalog(request, memoryStorage());
-    const afterChange = reloadBuilderModelCatalog(request, memoryStorage());
+    const beforeChange = loadBuilderModelCatalog();
+    const afterChange = reloadBuilderModelCatalog();
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
     let beforeChangeSettled = false;
     void beforeChange.then(() => {
       beforeChangeSettled = true;
@@ -187,48 +224,52 @@ describe('new Workers AI models', () => {
   });
 
   it('seeds the first ever catalog silently instead of announcing every model', () => {
-    const storage = memoryStorage();
-
-    installBuilderModelCatalog(catalog, storage);
+    installBuilderModelCatalog(catalog);
 
     expect(builderNewModelsStore.get()).toEqual([]);
-    expect(JSON.parse(storage.read(SEEN_KEY) ?? 'null')).toEqual([DEFAULT_WORKERS_AI_MODEL.id, alternativeModel.id]);
+    expect(JSON.parse(localStorage.getItem(SEEN_KEY) ?? 'null')).toEqual([
+      DEFAULT_WORKERS_AI_MODEL.id,
+      alternativeModel.id,
+    ]);
   });
 
   it('reports only the ids this browser has never seen', () => {
-    const storage = memoryStorage({ [SEEN_KEY]: JSON.stringify([DEFAULT_WORKERS_AI_MODEL.id]) });
+    localStorage.setItem(SEEN_KEY, JSON.stringify([DEFAULT_WORKERS_AI_MODEL.id]));
 
-    installBuilderModelCatalog(catalog, storage);
+    installBuilderModelCatalog(catalog);
 
     expect(builderNewModelsStore.get()).toEqual([alternativeModel]);
     // Diffing alone must not record the sighting: the user has not been shown anything yet.
-    expect(JSON.parse(storage.read(SEEN_KEY) ?? 'null')).toEqual([DEFAULT_WORKERS_AI_MODEL.id]);
+    expect(JSON.parse(localStorage.getItem(SEEN_KEY) ?? 'null')).toEqual([DEFAULT_WORKERS_AI_MODEL.id]);
   });
 
   it('clears the notice once the models have been seen, and stays clear on the next load', () => {
-    const storage = memoryStorage({ [SEEN_KEY]: JSON.stringify([DEFAULT_WORKERS_AI_MODEL.id]) });
-    installBuilderModelCatalog(catalog, storage);
+    localStorage.setItem(SEEN_KEY, JSON.stringify([DEFAULT_WORKERS_AI_MODEL.id]));
+    installBuilderModelCatalog(catalog);
 
-    markBuilderModelsSeen(storage);
+    markBuilderModelsSeen();
 
     expect(builderNewModelsStore.get()).toEqual([]);
-    installBuilderModelCatalog(catalog, storage);
+    installBuilderModelCatalog(catalog);
     expect(builderNewModelsStore.get()).toEqual([]);
   });
 
   it('reseeds rather than announcing everything when the stored set is unreadable', () => {
-    const storage = memoryStorage({ [SEEN_KEY]: 'not-json' });
+    localStorage.setItem(SEEN_KEY, 'not-json');
 
-    installBuilderModelCatalog(catalog, storage);
+    installBuilderModelCatalog(catalog);
 
     expect(builderNewModelsStore.get()).toEqual([]);
-    expect(JSON.parse(storage.read(SEEN_KEY) ?? 'null')).toEqual([DEFAULT_WORKERS_AI_MODEL.id, alternativeModel.id]);
+    expect(JSON.parse(localStorage.getItem(SEEN_KEY) ?? 'null')).toEqual([
+      DEFAULT_WORKERS_AI_MODEL.id,
+      alternativeModel.id,
+    ]);
   });
 
   it('offers every model the catalog lists, with the default first', () => {
     const pro: BuilderModel = { ...alternativeModel, id: '@cf/deepseek-ai/deepseek-v4-pro-0813' };
     const broadCatalog = { defaultModelId: pro.id, models: [alternativeModel, claudeModel, pro] };
-    installBuilderModelCatalog(broadCatalog, { getItem: () => null });
+    installBuilderModelCatalog(broadCatalog);
     expect(builderModelStore.get()).toBe(pro.id);
     expect(builderModelsStore.get().map(({ id }) => id)).toEqual([alternativeModel.id, claudeModel.id, pro.id]);
     expect(orderBuilderModelsForDisplay(broadCatalog.models, pro.id).map(({ id }) => id)).toEqual([
@@ -244,11 +285,9 @@ describe('a saved model before the live catalog arrives', () => {
     // A fresh module, so no catalog has been installed yet.
     vi.resetModules();
     const fresh = await import('./builder-model.client');
-    const storage = memoryStorage({
-      cloudchef_builder_model_v2: claudeModel.id,
-      cloudchef_builder_reasoning_v1: JSON.stringify({ [claudeModel.id]: 'max' }),
-    });
-    fresh.loadBuilderModelPreference(storage);
+    localStorage.setItem(MODEL_KEY, claudeModel.id);
+    localStorage.setItem('cloudchef_builder_reasoning_v1', JSON.stringify({ [claudeModel.id]: 'max' }));
+    fresh.loadBuilderModelPreference();
 
     expect(fresh.builderModelStore.get()).toBe(claudeModel.id);
     expect(fresh.builderModelRequestFields()).toEqual({ modelId: claudeModel.id, reasoningLevel: 'max' });
@@ -256,7 +295,7 @@ describe('a saved model before the live catalog arrives', () => {
 
     // Once the catalog describes the model, it decides which efforts still apply.
     const opus = { ...claudeModel, reasoningLevels: ['low', 'high'] } satisfies BuilderModel;
-    fresh.installBuilderModelCatalog({ ...catalog, models: [...catalog.models, opus] }, storage);
+    fresh.installBuilderModelCatalog({ ...catalog, models: [...catalog.models, opus] });
     expect(fresh.builderModelFor(claudeModel.id)).toEqual(opus);
     expect(fresh.builderModelRequestFields()).toEqual({ modelId: claudeModel.id });
   });
@@ -268,10 +307,11 @@ describe('a model chosen in another tab before the live catalog arrives', () => 
     vi.resetModules();
     const fresh = await import('./builder-model.client');
 
-    fresh.syncBuilderModelPreference({ key: 'cloudchef_builder_model_v2', newValue: claudeModel.id });
+    fresh.syncBuilderModelPreference({ key: MODEL_KEY, newValue: claudeModel.id });
     expect(fresh.builderModelStore.get()).toBe(claudeModel.id);
 
-    fresh.installBuilderModelCatalog(catalog, memoryStorage({ cloudchef_builder_model_v2: claudeModel.id }));
+    localStorage.setItem(MODEL_KEY, claudeModel.id);
+    fresh.installBuilderModelCatalog(catalog);
     expect(fresh.builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
   });
 });
@@ -287,31 +327,31 @@ describe('the reasoning effort chosen per model', () => {
   };
 
   beforeEach(() => {
-    installBuilderModelCatalog({ ...catalog, models: [...catalog.models, opus, gpt] }, memoryStorage());
-    loadBuilderModelPreference(memoryStorage());
+    installBuilderModelCatalog({ ...catalog, models: [...catalog.models, opus, gpt] });
+    loadBuilderModelPreference();
   });
 
   it('starts at the provider default, and persists a choice for that model alone', () => {
-    const storage = memoryStorage();
     expect(builderModelRequestFields(opus.id).reasoningLevel).toBeUndefined();
 
-    setBuilderReasoningLevel(opus.id, 'xhigh', storage);
+    setBuilderReasoningLevel(opus.id, 'xhigh');
 
     expect(builderModelRequestFields(opus.id).reasoningLevel).toBe('xhigh');
     expect(builderModelRequestFields(gpt.id).reasoningLevel).toBeUndefined();
-    expect(JSON.parse(storage.read(REASONING_KEY) ?? 'null')).toEqual({ [opus.id]: 'xhigh' });
+    expect(JSON.parse(localStorage.getItem(REASONING_KEY) ?? 'null')).toEqual({ [opus.id]: 'xhigh' });
 
-    loadBuilderModelPreference(storage);
+    builderReasoningChoicesStore.set({});
+    loadBuilderModelPreference();
     expect(builderReasoningChoicesStore.get()).toEqual({ [opus.id]: 'xhigh' });
 
-    setBuilderReasoningLevel(opus.id, undefined, storage);
+    setBuilderReasoningLevel(opus.id, undefined);
     expect(builderModelRequestFields(opus.id).reasoningLevel).toBeUndefined();
-    expect(JSON.parse(storage.read(REASONING_KEY) ?? 'null')).toEqual({});
+    expect(JSON.parse(localStorage.getItem(REASONING_KEY) ?? 'null')).toEqual({});
   });
 
   it("carries the chosen effort in a turn's request, and no effort field at all for the default", () => {
     expect(builderModelRequestFields(opus.id)).toEqual({ modelId: opus.id });
-    setBuilderReasoningLevel(opus.id, 'high', memoryStorage());
+    setBuilderReasoningLevel(opus.id, 'high');
     expect(builderModelRequestFields(opus.id)).toEqual({ modelId: opus.id, reasoningLevel: 'high' });
     expect(builderModelRequestFields(gpt.id)).toEqual({ modelId: gpt.id });
   });
@@ -323,24 +363,24 @@ describe('the reasoning effort chosen per model', () => {
   });
 
   it('keeps each model its own effort across a switch', () => {
-    const storage = memoryStorage();
-    setBuilderModel(opus.id, storage);
-    setBuilderReasoningLevel(opus.id, 'max', storage);
-    setBuilderModel(gpt.id, storage);
+    setBuilderModel(opus.id);
+    setBuilderReasoningLevel(opus.id, 'max');
+    setBuilderModel(gpt.id);
     expect(builderModelRequestFields(builderModelStore.get()).reasoningLevel).toBeUndefined();
-    setBuilderModel(opus.id, storage);
+    setBuilderModel(opus.id);
     expect(builderModelRequestFields(builderModelStore.get()).reasoningLevel).toBe('max');
   });
 
   it('skips unreadable entries one by one, and never reads off', () => {
-    loadBuilderModelPreference(
-      memoryStorage({
-        [REASONING_KEY]: JSON.stringify({ [opus.id]: 'high', [gpt.id]: 'off', 'not a model': 'low', x: 3 }),
-      }),
+    localStorage.setItem(
+      REASONING_KEY,
+      JSON.stringify({ [opus.id]: 'high', [gpt.id]: 'off', 'not a model': 'low', x: 3 }),
     );
+    loadBuilderModelPreference();
     expect(builderReasoningChoicesStore.get()).toEqual({ [opus.id]: 'high' });
 
-    loadBuilderModelPreference(memoryStorage({ [REASONING_KEY]: '{not json' }));
+    localStorage.setItem(REASONING_KEY, '{not json');
+    loadBuilderModelPreference();
     expect(builderReasoningChoicesStore.get()).toEqual({});
 
     syncBuilderModelPreference({ key: REASONING_KEY, newValue: JSON.stringify({ [gpt.id]: 'low' }) });
@@ -349,17 +389,6 @@ describe('the reasoning effort chosen per model', () => {
 });
 
 describe('provider picker preferences', () => {
-  it('orders the default provider before keyed providers, Workers AI, and keyless providers', () => {
-    const openai: BuilderModel = { ...claudeModel, id: 'openai/gpt-5', label: 'GPT 5' };
-    expect(orderBuilderProviders([DEFAULT_WORKERS_AI_MODEL, claudeModel, openai], claudeModel)).toEqual([
-      'anthropic',
-      'openai',
-      'workers',
-      'grok',
-      'openrouter',
-    ]);
-  });
-
   it('compares generations within families including names whose version moved', () => {
     const old: BuilderModel = { ...claudeModel, id: 'anthropic/claude-3-7-sonnet', label: 'Claude 3.7 Sonnet' };
     const current: BuilderModel = { ...claudeModel, id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6' };
@@ -456,21 +485,15 @@ describe('provider picker preferences', () => {
   });
 
   it('discards an invalid stored provider and restores Workers AI', () => {
-    loadBuilderModelPreference({ getItem: () => 'invalid', setItem: () => undefined });
+    localStorage.setItem('cloudchef_builder_provider_v1', 'invalid');
+    loadBuilderModelPreference();
     expect(builderProviderStore.get()).toBeNull();
-    loadBuilderModelPreference({
-      getItem: (key) => (key === 'cloudchef_builder_provider_v1' ? 'workers' : null),
-      setItem: () => undefined,
-    });
+    localStorage.setItem('cloudchef_builder_provider_v1', 'workers');
+    loadBuilderModelPreference();
     expect(builderProviderStore.get()).toBe('workers');
   });
 
   it('remembers the tab and deduplicates recent selections in this browser', () => {
-    const values = new Map<string, string>();
-    vi.stubGlobal('localStorage', {
-      getItem: (key: string) => values.get(key) ?? null,
-      setItem: (key: string, value: string) => values.set(key, value),
-    });
     installBuilderModelCatalog({ ...catalog, models: [...catalog.models, claudeModel] });
     setBuilderProvider('anthropic');
     setBuilderModel(claudeModel.id);

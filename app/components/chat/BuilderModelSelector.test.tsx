@@ -42,11 +42,8 @@ beforeEach(() => {
     setItem: (key: string, value: string) => values.set(key, value),
     removeItem: (key: string) => values.delete(key),
   });
-  installBuilderModelCatalog(
-    { defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] },
-    { getItem: () => null },
-  );
-  loadBuilderModelPreference({ getItem: () => null });
+  installBuilderModelCatalog({ defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] });
+  loadBuilderModelPreference();
   builderModelCatalogStatusStore.set('ready');
 });
 

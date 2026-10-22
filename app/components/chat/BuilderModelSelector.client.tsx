@@ -4,6 +4,7 @@ import { CheckIcon, ChevronDownIcon, MagnifyingGlassIcon, PlusIcon } from '@radi
 import { useEffect, useMemo, useState } from 'react';
 import {
   GATEWAY_PROVIDERS,
+  GATEWAY_PROVIDER_SLUGS,
   isBuilderModelId,
   builderModelPublishedTime,
   builderReasoningLevelSchema,
@@ -17,7 +18,6 @@ import {
   builderProviderStore,
   builderRecentModelsStore,
   setBuilderProvider,
-  orderBuilderProviders,
   olderBuilderModelIds,
   builderModelFor,
   builderModelCatalogStatusStore,
@@ -91,9 +91,10 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
     [defaultModelId, model, models, standingIn],
   );
   const defaultModel = orderedModels.find(({ id }) => id === defaultModelId) ?? model;
-  const providers = orderBuilderProviders(orderedModels, defaultModel);
-  const keyedProviders = providers.filter((slug) => orderedModels.some((entry) => builderProviderFor(entry) === slug));
-  const keylessProviders = providers.filter((slug) => !keyedProviders.includes(slug));
+  const hasModels = (slug: BuilderProvider) => orderedModels.some((entry) => builderProviderFor(entry) === slug);
+  // The default model's provider first, then the other providers with models, Workers AI last.
+  const keyedProviders = [...new Set([builderProviderFor(defaultModel), ...ALL_PROVIDERS.filter(hasModels)])];
+  const keylessProviders = GATEWAY_PROVIDER_SLUGS.filter((slug) => !hasModels(slug));
   const activeProvider = provider ?? builderProviderFor(model);
   // Only the newest model of each family is listed, and the selected one, so a choice never vanishes.
   const listedModels = useMemo(() => {
@@ -428,6 +429,9 @@ function EffortItem({
 }
 
 /** A provider's name as the tabs show it; Workers AI is CloudChef's own, so "Cloudflare" is implied. */
+/** Every provider in tab order: the gateway's in `GATEWAY_PROVIDERS` order, then Workers AI. */
+const ALL_PROVIDERS: readonly BuilderProvider[] = [...GATEWAY_PROVIDER_SLUGS, 'workers'];
+
 function providerLabel(provider: BuilderProvider): string {
   return provider === 'workers' ? 'Workers AI' : GATEWAY_PROVIDERS[provider].label;
 }
