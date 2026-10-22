@@ -4,7 +4,6 @@ import { versionAction } from './server-handlers/version';
 
 export { UserWorkspaceRuntimeProvisioningWorkflow } from './workflows/user-workspace-runtime-provisioning';
 import {
-  CLOUDFLARE_CONNECTION_CALLBACK_METHOD,
   cloudflareConnectionStatusAction,
   cloudflareRuntimeSessionAction,
   completeCloudflareConnectionAction,
@@ -73,13 +72,6 @@ import { sha256Hex } from './lib/hex-digest';
 const APPLICATION_CSP_BASELINE = "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'";
 const HSTS_MIN_AGE_SECONDS = '31536000';
 const PRODUCTION_HOSTNAME = 'cloudchef.build';
-function methodNotAllowed(allowedMethod: string) {
-  return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: allowedMethod } });
-}
-
-function requireMethod(request: Request, method: string, handler: () => Response | Promise<Response>) {
-  return request.method === method ? handler() : methodNotAllowed(method);
-}
 
 function applyContentSecurityPolicyBaseline(headers: Headers, nonce?: string) {
   const applicationPolicy = nonce
@@ -153,217 +145,62 @@ function withApplicationSecurityHeaders(response: Response, pathname: string, no
   });
 }
 
-type ServerRoute = {
-  method: 'GET' | 'POST';
-  handler: (request: Request, env: Env) => Response | Promise<Response>;
-};
+type RouteHandler = (args: { request: Request; env: Env }) => Response | Promise<Response>;
 
-const exactRoutes = new Map<string, ServerRoute>(
+/** Each exact path's one method and its handler. */
+const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
   Object.entries({
-    '/api/health': {
-      method: 'GET',
-      handler: () => healthAction(),
-    },
-    '/api/client-telemetry': {
-      method: 'POST',
-      handler: (request, env) => clientTelemetryAction({ request, env }),
-    },
-    '/api/auth/session': {
-      method: 'GET',
-      handler: (request, env) => authSessionAction({ request, env }),
-    },
-    '/api/auth/sign-out': {
-      method: 'POST',
-      handler: (request, env) => signOutAction({ request, env }),
-    },
-    '/api/auth/email/start': {
-      method: 'POST',
-      handler: (request, env) => startEmailSignInAction({ request, env }),
-    },
-    '/api/auth/email/describe': {
-      method: 'POST',
-      handler: (request, env) => describeEmailSignInAction({ request, env }),
-    },
-    '/api/auth/email/complete': {
-      method: 'POST',
-      handler: (request, env) => completeEmailSignInAction({ request, env }),
-    },
-    '/api/auth/google/start': {
-      method: 'POST',
-      handler: (request, env) => startGoogleSignInAction({ request, env }),
-    },
-    '/api/organizations/github/start': {
-      method: 'POST',
-      handler: (request, env) => startGitHubInstallAction({ request, env }),
-    },
-    '/api/organizations/github/disconnect': {
-      method: 'POST',
-      handler: (request, env) => disconnectGitHubAction({ request, env }),
-    },
-    '/api/organizations/github/repositories': {
-      method: 'GET',
-      handler: (request, env) => listGitHubRepositoriesAction({ request, env }),
-    },
-    '/api/organizations/production-requests/approve': {
-      method: 'POST',
-      handler: (request, env) => approveProductionRequestAction({ request, env }),
-    },
-    '/api/organizations/production-requests/decline': {
-      method: 'POST',
-      handler: (request, env) => declineProductionRequestAction({ request, env }),
-    },
-    '/api/organizations/projects/link': {
-      method: 'POST',
-      handler: (request, env) => linkGitHubProjectAction({ request, env }),
-    },
-    '/api/organizations/projects/unlink': {
-      method: 'POST',
-      handler: (request, env) => unlinkGitHubProjectAction({ request, env }),
-    },
-    '/api/organizations/projects/access': {
-      method: 'POST',
-      handler: (request, env) => setProjectAccessAction({ request, env }),
-    },
-    '/api/cloudflare/runtime-github/snapshot': {
-      method: 'POST',
-      handler: (request, env) => runtimeGitHubSnapshotAction({ request, env }),
-    },
-    '/api/cloudflare/runtime-github/commit': {
-      method: 'POST',
-      handler: (request, env) => runtimeGitHubCommitAction({ request, env }),
-    },
-    '/api/cloudflare/runtime-github/request-production': {
-      method: 'POST',
-      handler: (request, env) => runtimeRequestProductionAction({ request, env }),
-    },
-    '/api/cloudflare/runtime-github/status': {
-      method: 'POST',
-      handler: (request, env) => runtimeGitHubStatusAction({ request, env }),
-    },
-    '/api/cloudflare/runtime-github/site': {
-      method: 'POST',
-      handler: (request, env) => runtimeGitHubSiteAction({ request, env }),
-    },
-    '/api/org-projects': {
-      method: 'GET',
-      handler: (request, env) => listMyProjectsAction({ request, env }),
-    },
-    [GITHUB_RETURN_PATH]: {
-      method: 'GET',
-      handler: (request, env) => completeGitHubInstallAction({ request, env }),
-    },
-    '/api/organizations': {
-      method: 'GET',
-      handler: (request, env) => listOrganizationsAction({ request, env }),
-    },
-    '/api/organizations/invite/describe': {
-      method: 'POST',
-      handler: (request, env) => describeInviteAction({ request, env }),
-    },
-    '/api/organizations/create': {
-      method: 'POST',
-      handler: (request, env) => createOrganizationAction({ request, env }),
-    },
-    '/api/organizations/invite': {
-      method: 'POST',
-      handler: (request, env) => inviteToOrganizationAction({ request, env }),
-    },
-    '/api/organizations/accept': {
-      method: 'POST',
-      handler: (request, env) => acceptInviteAction({ request, env }),
-    },
-    '/api/organizations/member': {
-      method: 'POST',
-      handler: (request, env) => updateMemberAction({ request, env }),
-    },
-    '/api/organizations/invite/revoke': {
-      method: 'POST',
-      handler: (request, env) => revokeInviteAction({ request, env }),
-    },
-    '/api/organizations/rename': {
-      method: 'POST',
-      handler: (request, env) => renameOrganizationAction({ request, env }),
-    },
-    '/api/organizations/delete': {
-      method: 'POST',
-      handler: (request, env) => deleteOrganizationAction({ request, env }),
-    },
-    '/api/context': {
-      method: 'POST',
-      handler: (request, env) => switchContextAction({ request, env }),
-    },
-    [GOOGLE_RETURN_PATH]: {
-      method: 'GET',
-      handler: (request, env) => completeGoogleSignInAction({ request, env }),
-    },
-    '/api/account/delete': {
-      method: 'POST',
-      handler: (request, env) => deleteAccountAction({ request, env }),
-    },
-    '/api/account/export': {
-      method: 'POST',
-      handler: (request, env) => exportAccountAction({ request, env }),
-    },
-    '/api/settings/ai-gateway-logging': {
-      method: 'GET',
-      handler: (request, env) => aiGatewayLoggingAction({ request, env }),
-    },
-    '/api/settings/ai-gateway-logging/update': {
-      method: 'POST',
-      handler: (request, env) => updateAiGatewayLoggingAction({ request, env }),
-    },
-    '/api/settings/models': {
-      method: 'GET',
-      handler: (request, env) => modelSettingsAction({ request, env }),
-    },
-    '/api/settings/models/default': {
-      method: 'POST',
-      handler: (request, env) => updateDefaultModelAction({ request, env }),
-    },
-    '/api/settings/models/keys/link': {
-      method: 'POST',
-      handler: (request, env) => linkGatewayKeyAction({ request, env }),
-    },
-    '/api/settings/models/keys/unlink': {
-      method: 'POST',
-      handler: (request, env) => unlinkGatewayKeyAction({ request, env }),
-    },
-    '/api/cloudflare/connection': {
-      method: 'GET',
-      handler: (request, env) => cloudflareConnectionStatusAction({ request, env }),
-    },
-    '/api/cloudflare/connection/start': {
-      method: 'POST',
-      handler: (request, env) => startCloudflareConnectionAction({ request, env }),
-    },
-    '/api/cloudflare/runtime-session': {
-      method: 'POST',
-      handler: (request, env) => cloudflareRuntimeSessionAction({ request, env }),
-    },
-    '/api/cloudflare/runtime-credential': {
-      method: 'POST',
-      handler: (request, env) => runtimeCredentialAction({ request, env }),
-    },
-    '/api/cloudflare/runtime-access': {
-      method: 'POST',
-      handler: (request, env) => runtimeAccessAction({ request, env }),
-    },
-    '/api/cloudflare/runtime-models': {
-      method: 'POST',
-      handler: (request, env) => runtimeModelsAction({ request, env }),
-    },
-    '/api/cloudflare/runtime-usage': {
-      method: 'POST',
-      handler: (request, env) => runtimeUsageAction({ request, env }),
-    },
-    '/connect/return': {
-      method: CLOUDFLARE_CONNECTION_CALLBACK_METHOD,
-      handler: (request, env) => completeCloudflareConnectionAction({ request, env }),
-    },
-    '/api/version': {
-      method: 'GET',
-      handler: (_request, env) => versionAction({ env }),
-    },
+    '/api/health': ['GET', healthAction],
+    '/api/client-telemetry': ['POST', clientTelemetryAction],
+    '/api/auth/session': ['GET', authSessionAction],
+    '/api/auth/sign-out': ['POST', signOutAction],
+    '/api/auth/email/start': ['POST', startEmailSignInAction],
+    '/api/auth/email/describe': ['POST', describeEmailSignInAction],
+    '/api/auth/email/complete': ['POST', completeEmailSignInAction],
+    '/api/auth/google/start': ['POST', startGoogleSignInAction],
+    '/api/organizations/github/start': ['POST', startGitHubInstallAction],
+    '/api/organizations/github/disconnect': ['POST', disconnectGitHubAction],
+    '/api/organizations/github/repositories': ['GET', listGitHubRepositoriesAction],
+    '/api/organizations/production-requests/approve': ['POST', approveProductionRequestAction],
+    '/api/organizations/production-requests/decline': ['POST', declineProductionRequestAction],
+    '/api/organizations/projects/link': ['POST', linkGitHubProjectAction],
+    '/api/organizations/projects/unlink': ['POST', unlinkGitHubProjectAction],
+    '/api/organizations/projects/access': ['POST', setProjectAccessAction],
+    '/api/cloudflare/runtime-github/snapshot': ['POST', runtimeGitHubSnapshotAction],
+    '/api/cloudflare/runtime-github/commit': ['POST', runtimeGitHubCommitAction],
+    '/api/cloudflare/runtime-github/request-production': ['POST', runtimeRequestProductionAction],
+    '/api/cloudflare/runtime-github/status': ['POST', runtimeGitHubStatusAction],
+    '/api/cloudflare/runtime-github/site': ['POST', runtimeGitHubSiteAction],
+    '/api/org-projects': ['GET', listMyProjectsAction],
+    [GITHUB_RETURN_PATH]: ['GET', completeGitHubInstallAction],
+    '/api/organizations': ['GET', listOrganizationsAction],
+    '/api/organizations/invite/describe': ['POST', describeInviteAction],
+    '/api/organizations/create': ['POST', createOrganizationAction],
+    '/api/organizations/invite': ['POST', inviteToOrganizationAction],
+    '/api/organizations/accept': ['POST', acceptInviteAction],
+    '/api/organizations/member': ['POST', updateMemberAction],
+    '/api/organizations/invite/revoke': ['POST', revokeInviteAction],
+    '/api/organizations/rename': ['POST', renameOrganizationAction],
+    '/api/organizations/delete': ['POST', deleteOrganizationAction],
+    '/api/context': ['POST', switchContextAction],
+    [GOOGLE_RETURN_PATH]: ['GET', completeGoogleSignInAction],
+    '/api/account/delete': ['POST', deleteAccountAction],
+    '/api/account/export': ['POST', exportAccountAction],
+    '/api/settings/ai-gateway-logging': ['GET', aiGatewayLoggingAction],
+    '/api/settings/ai-gateway-logging/update': ['POST', updateAiGatewayLoggingAction],
+    '/api/settings/models': ['GET', modelSettingsAction],
+    '/api/settings/models/default': ['POST', updateDefaultModelAction],
+    '/api/settings/models/keys/link': ['POST', linkGatewayKeyAction],
+    '/api/settings/models/keys/unlink': ['POST', unlinkGatewayKeyAction],
+    '/api/cloudflare/connection': ['GET', cloudflareConnectionStatusAction],
+    '/api/cloudflare/connection/start': ['POST', startCloudflareConnectionAction],
+    '/api/cloudflare/runtime-session': ['POST', cloudflareRuntimeSessionAction],
+    '/api/cloudflare/runtime-credential': ['POST', runtimeCredentialAction],
+    '/api/cloudflare/runtime-access': ['POST', runtimeAccessAction],
+    '/api/cloudflare/runtime-models': ['POST', runtimeModelsAction],
+    '/api/cloudflare/runtime-usage': ['POST', runtimeUsageAction],
+    '/connect/return': ['GET', completeCloudflareConnectionAction],
+    '/api/version': ['GET', versionAction],
   }),
 );
 
@@ -413,26 +250,28 @@ async function runtimeRateLimited(request: Request, env: Env): Promise<boolean> 
 async function routeApplicationRequest(request: Request, env: Env, nonce: string, pathname: string): Promise<Response> {
   const route = exactRoutes.get(pathname);
   if (route) {
-    return requireMethod(request, route.method, async () => {
-      try {
-        return isRuntimeRoute(pathname) && (await runtimeRateLimited(request, env))
-          ? Response.json(
-              { error: 'Too many requests from this workspace. Try again shortly.' },
-              { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': '60' } },
-            )
-          : await route.handler(request, env);
-      } catch (error) {
-        // A route that threw, such as on a passing D1 or GitHub failure, is answered here so the
-        // error still gets the security headers rather than Cloudflare's own error page. No route
-        // throws a Response on purpose. Only the route and the error are logged, never the request.
-        console.error(
-          'A route failed',
-          pathname,
-          error instanceof Error ? `${error.name}: ${error.message}` : 'not an Error',
-        );
-        return Response.json({ error: 'Something went wrong. Try again.' }, { status: 500 });
-      }
-    });
+    const [method, routeHandler] = route;
+    if (request.method !== method) {
+      return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: method } });
+    }
+    try {
+      return isRuntimeRoute(pathname) && (await runtimeRateLimited(request, env))
+        ? Response.json(
+            { error: 'Too many requests from this workspace. Try again shortly.' },
+            { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': '60' } },
+          )
+        : await routeHandler({ request, env });
+    } catch (error) {
+      // A route that threw, such as on a passing D1 or GitHub failure, is answered here so the
+      // error still gets the security headers rather than Cloudflare's own error page. No route
+      // throws a Response on purpose. Only the route and the error are logged, never the request.
+      console.error(
+        'A route failed',
+        pathname,
+        error instanceof Error ? `${error.name}: ${error.message}` : 'not an Error',
+      );
+      return Response.json({ error: 'Something went wrong. Try again.' }, { status: 500 });
+    }
   }
 
   const headers = new Headers(request.headers);

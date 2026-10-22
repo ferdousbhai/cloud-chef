@@ -60,7 +60,6 @@ type WorkspacePreparationFailure = {
   upgradeUrl?: string;
 };
 
-export const CLOUDFLARE_CONNECTION_CALLBACK_METHOD = 'GET' as const;
 const OAUTH_STATE_COOKIE = 'cloudchef_oauth_state';
 const OAUTH_STATE_COOKIE_MAX_AGE_SECONDS = 10 * 60;
 const OAUTH_START_RATE_LIMIT_RETRY_SECONDS = 60;

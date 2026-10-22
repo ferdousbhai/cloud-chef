@@ -14,14 +14,19 @@ vi.mock('@tanstack/react-start/server-entry', () => ({ default: { fetch: tanstac
 vi.mock('./lib/.server/auth', () => ({ getAuthSession }));
 vi.mock('./server-handlers/auth', () => ({ authSessionAction: vi.fn(), signOutAction: vi.fn() }));
 vi.mock('./server-handlers/cloudflare-integration', () => ({
-  CLOUDFLARE_CONNECTION_CALLBACK_METHOD: 'GET',
   cloudflareConnectionStatusAction,
+  cloudflareRuntimeSessionAction: vi.fn(),
   completeCloudflareConnectionAction,
   startCloudflareConnectionAction,
 }));
 vi.mock('./server-handlers/health', () => ({ healthAction }));
 vi.mock('./server-handlers/version', () => ({ versionAction: vi.fn() }));
-vi.mock('./server-handlers/runtime-credential', () => ({ runtimeCredentialAction }));
+vi.mock('./server-handlers/runtime-credential', () => ({
+  runtimeAccessAction: vi.fn(),
+  runtimeCredentialAction,
+  runtimeModelsAction: vi.fn(),
+  runtimeUsageAction: vi.fn(),
+}));
 vi.mock('./server-handlers/client-telemetry', () => ({ clientTelemetryAction }));
 vi.mock('./lib/cloudflare/data/cloudflare-auth-retention.server', () => ({ pruneCloudflareAuthDataBestEffort }));
 

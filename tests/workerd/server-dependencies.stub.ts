@@ -2,7 +2,6 @@ const unavailable = () => new Response('Unavailable in the workerd route integra
 
 export default { fetch: unavailable };
 
-export const CLOUDFLARE_CONNECTION_CALLBACK_METHOD = 'GET' as const;
 export const authSessionAction = unavailable;
 export const cloudflareConnectionStatusAction = unavailable;
 export const cloudflareRuntimeSessionAction = unavailable;
