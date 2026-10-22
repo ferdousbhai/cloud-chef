@@ -2,6 +2,7 @@ import { useStore } from '@nanostores/react';
 import { useCallback, useEffect, useState } from 'react';
 import { z } from 'zod';
 import { Button } from '~/components/ui/primitives/Button';
+import { classNames } from '~/utils/classNames';
 import type { CloudflareAuthSession } from '~/lib/.server/auth';
 import { authClient, createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
 import {
@@ -282,55 +283,104 @@ function ProviderKeyRow({
   onUnlink: () => Promise<boolean>;
 }) {
   const [apiKey, setApiKey] = useState('');
+  const [replacing, setReplacing] = useState(false);
   const { label } = GATEWAY_PROVIDERS[provider];
-  const status = key
-    ? `Linked${key.secretPreview ? ` (${key.secretPreview})` : ''}, alias ${key.alias}, ${
-        key.addedByCloudChef ? 'added in CloudChef' : 'added in Cloudflare'
-      }: ${label} models are in the picker.`
-    : `Not linked: ${label} models aren’t offered in this account.`;
+  const secretTail = key?.secretPreview?.replace(/^\*+/, '');
+  const details = key
+    ? [
+        secretTail ? `Key ending ${secretTail}` : 'Key linked',
+        key.alias === 'default' ? 'default alias' : `alias ${key.alias}`,
+        key.addedByCloudChef ? 'added in CloudChef' : 'added in Cloudflare',
+      ].join(' · ')
+    : `${label} models aren’t offered until a key is added.`;
   return (
-    <li className="rounded border border-bolt-elements-borderColor p-3">
-      <p className="text-sm font-medium text-content-primary">{label}</p>
-      <p className="mt-1 text-sm text-content-secondary">{status}</p>
+    <li className="rounded-md border border-bolt-elements-borderColor p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-medium text-content-primary">{label}</p>
+        <span
+          className={classNames(
+            'inline-flex shrink-0 items-center gap-1.5 text-xs',
+            key ? 'text-content-success' : 'text-content-tertiary',
+          )}
+        >
+          <span
+            aria-hidden="true"
+            className={classNames('size-1.5 rounded-full', key ? 'bg-current' : 'border border-current')}
+          />
+          {key ? 'Linked' : 'Not linked'}
+        </span>
+      </div>
+      <p className="mt-1 text-xs leading-5 text-content-secondary">
+        {details}
+        {key ? <span className="text-content-tertiary"> · stored in your Cloudflare account</span> : null}
+      </p>
       {canManage ? (
         <>
-          <form
-            className="mt-2 flex flex-wrap items-center gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void onLink(apiKey).then((linked) => {
-                // A refused key stays in the field, to correct or try again.
-                if (linked) {
-                  setApiKey('');
-                }
-              });
-            }}
-          >
-            <input
-              type="password"
-              autoComplete="off"
-              aria-label={`${label} API key`}
-              placeholder={`Paste a ${label} API key`}
-              className="min-w-0 grow rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-sm text-content-primary"
-              value={apiKey}
-              disabled={busy}
-              onChange={(event) => setApiKey(event.target.value)}
-            />
-            <Button size="sm" variant="neutral" type="submit" disabled={busy || apiKey.trim().length === 0}>
-              {key ? 'Replace' : 'Save to Secrets Store'}
-            </Button>
-          </form>
-          {key && !key.addedByCloudChef ? (
-            <p className="mt-1 text-xs text-content-tertiary">
+          {key && !replacing ? (
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="neutral" disabled={busy} onClick={() => setReplacing(true)}>
+                Replace key
+              </Button>
+              {key.addedByCloudChef ? (
+                <Button
+                  size="sm"
+                  variant="subtle"
+                  className="!text-content-error"
+                  disabled={busy}
+                  onClick={() => void onUnlink()}
+                >
+                  Remove {label} key
+                </Button>
+              ) : null}
+            </div>
+          ) : (
+            <form
+              className="mt-2.5 flex flex-wrap items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void onLink(apiKey).then((linked) => {
+                  // A refused key stays in the field, to correct or try again.
+                  if (linked) {
+                    setApiKey('');
+                    setReplacing(false);
+                  }
+                });
+              }}
+            >
+              <input
+                type="password"
+                autoComplete="off"
+                aria-label={`${label} API key`}
+                placeholder={`Paste ${/^(?:[aeiou]|xai)/i.test(label) ? 'an' : 'a'} ${label} API key`}
+                className="min-w-0 grow basis-48 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1.5 text-sm text-content-primary outline-none placeholder:text-content-tertiary focus-visible:border-accent-500"
+                value={apiKey}
+                disabled={busy}
+                // Opened by "Replace key", so the field is where the person is about to type.
+                autoFocus={replacing}
+                onChange={(event) => setApiKey(event.target.value)}
+              />
+              <Button size="sm" variant="neutral" type="submit" disabled={busy || apiKey.trim().length === 0}>
+                {key ? 'Replace' : 'Save to Secrets Store'}
+              </Button>
+              {key && replacing ? (
+                <Button
+                  size="sm"
+                  variant="subtle"
+                  disabled={busy}
+                  onClick={() => {
+                    setReplacing(false);
+                    setApiKey('');
+                  }}
+                >
+                  Cancel
+                </Button>
+              ) : null}
+            </form>
+          )}
+          {key && replacing && !key.addedByCloudChef ? (
+            <p className="mt-1.5 text-xs text-content-tertiary">
               Saving a key here replaces the one added in Cloudflare (alias {key.alias}) on the gateway.
             </p>
-          ) : null}
-          {key?.addedByCloudChef ? (
-            <div className="mt-2">
-              <Button size="sm" variant="danger" disabled={busy} onClick={() => void onUnlink()}>
-                Remove {label} key
-              </Button>
-            </div>
           ) : null}
         </>
       ) : null}

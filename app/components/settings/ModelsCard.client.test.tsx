@@ -26,13 +26,21 @@ const linked = {
   providers: [{ provider: 'anthropic', key: { alias: 'default', secretPreview: null, addedByCloudChef: true } }],
 };
 
+type KeysFixture = {
+  status: string;
+  providers: {
+    provider: string;
+    key: { alias: string; secretPreview: string | null; addedByCloudChef: boolean } | null;
+  }[];
+};
+let initialKeys: KeysFixture = unlinked;
 let root: Root | undefined;
 /** Answers each request to the account's catalog in turn; the default answer serves the rest. */
 let catalogAnswers: (() => Promise<Response>)[] = [];
 let catalogAnswer: () => Promise<Response> = async () => new Response(null, { status: 503 });
 const fetchMock = vi.fn(async (input: string, init?: RequestInit): Promise<Response> => {
   if (input === '/api/settings/models') {
-    return Response.json({ canManage: true, defaultModelId: null, keys: unlinked });
+    return Response.json({ canManage: true, defaultModelId: null, keys: initialKeys });
   }
   if (input === '/api/settings/models/keys/link' && init?.method === 'POST') {
     return Response.json({ keys: linked, authenticationTurnedOn: false, previousKeysRemain: false });
@@ -52,6 +60,7 @@ const fetchMock = vi.fn(async (input: string, init?: RequestInit): Promise<Respo
 beforeEach(() => {
   Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, value: true });
   fetchMock.mockClear();
+  initialKeys = unlinked;
   catalogAnswers = [];
   vi.stubGlobal('fetch', fetchMock);
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined });
@@ -93,6 +102,78 @@ function defaultModelChoices(): string[] {
 }
 
 describe('ModelsCard', () => {
+  it('uses the label to choose the API key article', async () => {
+    initialKeys = {
+      status: 'ready',
+      providers: ['anthropic', 'openai', 'openrouter', 'grok'].map((provider) => ({ provider, key: null })),
+    };
+    await render();
+    expect([...document.querySelectorAll('input')].map((input) => input.placeholder)).toEqual([
+      'Paste an Anthropic API key',
+      'Paste an OpenAI API key',
+      'Paste an OpenRouter API key',
+      'Paste an xAI API key',
+    ]);
+  });
+
+  it('shows linked key facts and reveals the replacement input and warning on request', async () => {
+    initialKeys = {
+      status: 'ready',
+      providers: [
+        { provider: 'anthropic', key: { alias: 'sg', secretPreview: '********wAA', addedByCloudChef: false } },
+      ],
+    };
+    await render();
+    expect(document.body.textContent).toContain(
+      'Key ending wAA · alias sg · added in Cloudflare · stored in your Cloudflare account',
+    );
+    expect(
+      [...document.querySelectorAll('button')].find((button) => button.textContent === 'Replace key')?.parentElement
+        ?.className,
+    ).toContain('mt-2.5');
+    expect(document.querySelector('input')).toBeNull();
+    expect(document.body.textContent).not.toContain('Saving a key here replaces');
+    await act(async () =>
+      [...document.querySelectorAll('button')].find((button) => button.textContent === 'Replace key')?.click(),
+    );
+    expect(document.querySelector('input[aria-label="Anthropic API key"]')).not.toBeNull();
+    expect(document.body.textContent).toContain('Saving a key here replaces');
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Anthropic API key"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'sk-ant-replacement');
+      input?.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () =>
+      [...document.querySelectorAll('button')].find((button) => button.textContent === 'Cancel')?.click(),
+    );
+    expect(document.querySelector('input')).toBeNull();
+    expect(document.body.textContent).not.toContain('Saving a key here replaces');
+    await act(async () =>
+      [...document.querySelectorAll('button')].find((button) => button.textContent === 'Replace key')?.click(),
+    );
+    const replacement = document.querySelector<HTMLInputElement>('input[aria-label="Anthropic API key"]');
+    expect(replacement?.value).toBe('');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        replacement,
+        'sk-ant-replacement',
+      );
+      replacement?.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => document.querySelector<HTMLButtonElement>('button[type="submit"]')?.click());
+    await settle();
+    expect(document.querySelector('input')).toBeNull();
+    expect(document.body.textContent).not.toContain('Saving a key here replaces');
+  });
+
+  it('describes the default alias without repeating alias default', async () => {
+    initialKeys = linked;
+    await render();
+    expect(document.body.textContent).toContain(
+      'Key linked · default alias · added in CloudChef · stored in your Cloudflare account',
+    );
+  });
+
   it("lists a linked key's models from a catalog requested after linking, not one already in flight", async () => {
     let answerFirstRequest: (response: Response) => void = () => undefined;
     catalogAnswers = [() => new Promise<Response>((resolve) => (answerFirstRequest = resolve))];
