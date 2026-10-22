@@ -56,9 +56,9 @@ export async function findUserWorkspaceRuntime(
  */
 export async function recordUserWorkspaceRuntimeSession(
   db: D1Database,
-  args: { userId: string; connectionId: string; now?: number },
+  args: { userId: string; connectionId: string },
 ): Promise<void> {
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   await db
     .prepare(
       `UPDATE user_computer_runtimes SET last_session_at = ?
@@ -78,9 +78,8 @@ export async function upsertUserWorkspaceRuntime(args: {
   runtimeVersion: string;
   imageDigest: string;
   protocolVersion: number;
-  now?: number;
 }): Promise<void> {
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   await args.db
     .prepare(
       `INSERT INTO user_computer_runtimes (
