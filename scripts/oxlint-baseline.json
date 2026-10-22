@@ -1,5 +1,5 @@
 {
-  "total": 1117,
+  "total": 1115,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -413,7 +413,7 @@
     "app/server-handlers/cloudflare-integration.test.ts": {
       "anti-slop/no-chained-type-assertions": 4,
       "anti-slop/no-module-mocking": 3,
-      "anti-slop/require-safety-comment-for-type-assertion": 23
+      "anti-slop/require-safety-comment-for-type-assertion": 21
     },
     "app/server-handlers/cloudflare-integration.ts": {
       "anti-slop/no-unknown-parameters": 2
