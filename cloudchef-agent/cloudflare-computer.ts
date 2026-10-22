@@ -1,14 +1,9 @@
-import type { CreateAIToolsOptions } from '@cloudflare/computer/tools';
-
 // @cloudflare/computer declares itself preview-only. Keep the exact pin below, the local dist patch,
 // and the durable workspace surfaces reviewed together.
 export const CLOUDFLARE_COMPUTER_VERSION = '0.2.1';
 export const GENERATED_PROJECT_PNPM_VERSION = '11.14.0';
 
-export const COMPUTER_SHELL_BACKEND_IDS = ['container-shell'] as const;
-export type ComputerShellBackend = (typeof COMPUTER_SHELL_BACKEND_IDS)[number];
-
-export const COMPUTER_DEFAULT_SHELL_BACKEND = 'container-shell' satisfies ComputerShellBackend;
+export const COMPUTER_DEFAULT_SHELL_BACKEND = 'container-shell';
 
 export const COMPUTER_SYNC_PENDING_ERROR_CODE = 'workspace_sync_pending';
 export const COMPUTER_SYNC_EXHAUSTED_ERROR_CODE = 'workspace_sync_exhausted';
@@ -122,31 +117,12 @@ export const COMPUTER_TOOL_LIMITS = {
   execMaxBytesPerStream: 256 * 1024,
 } as const;
 
-export const COMPUTER_SHELL_TOOL_OPTIONS = {
-  defaultBackend: COMPUTER_DEFAULT_SHELL_BACKEND,
-  backends: {
-    [COMPUTER_DEFAULT_SHELL_BACKEND]: {
-      description:
-        'Cloudflare Container with full Linux userland, public network access, Node.js, pnpm, git, the credential-free `cf` CLI, and build tools.',
-    },
-  },
-} as const satisfies {
-  defaultBackend: ComputerShellBackend;
-  backends: Record<ComputerShellBackend, { description: string }>;
-};
-
-// Keep every optional createAITools capability explicit. In particular,
-// publishing must not appear if the structural workspace later gains assets.
+/** The read, write, and edit caps the model's file tools enforce. */
 export const COMPUTER_AI_TOOL_OPTIONS = {
-  assets: false,
   read: {
     maxBytes: COMPUTER_TOOL_LIMITS.readMaxBytes,
     maxLines: COMPUTER_TOOL_LIMITS.readMaxLines,
   },
   write: { maxBytes: COMPUTER_TOOL_LIMITS.mutationMaxBytes },
   edit: { maxBytes: COMPUTER_TOOL_LIMITS.mutationMaxBytes },
-  shell: {
-    ...COMPUTER_SHELL_TOOL_OPTIONS,
-    maxBytes: COMPUTER_TOOL_LIMITS.execMaxBytesPerStream,
-  },
-} as const satisfies Omit<CreateAIToolsOptions, 'workspace'>;
+} as const;

@@ -373,7 +373,7 @@ describe('minimal Workers AI tool surface', () => {
 
     expect(workspace.installDependencies).toHaveBeenCalledWith({
       toolCallId: 'tool-call',
-      input: { mode: 'add', packages: 'date-fns' },
+      input: { command: 'pnpm add date-fns' },
       mode: 'add',
       packages: ['date-fns'],
     });

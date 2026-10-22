@@ -69,10 +69,8 @@ describe('dependency command parameters', () => {
     expect(npmInstallToolParameters.safeParse({ packages: 'date-tools@npm:date-fns@^4.0.0' }).success).toBe(true);
   });
 
-  it('allows the agent to synchronize a lockfile without accepting arbitrary pnpm flags', () => {
-    expect(npmInstallToolParameters.parse({ mode: 'sync-lockfile' })).toEqual({ mode: 'sync-lockfile' });
-    expect(npmInstallToolParameters.safeParse({ mode: 'sync-lockfile', packages: 'date-fns' }).success).toBe(false);
-    expect(npmInstallToolParameters.safeParse({ mode: 'add' }).success).toBe(false);
+  it('requires at least one package', () => {
+    expect(npmInstallToolParameters.safeParse({ packages: '  ' }).success).toBe(false);
   });
 
   it('parses only the dependency command subset exposed through exec', () => {

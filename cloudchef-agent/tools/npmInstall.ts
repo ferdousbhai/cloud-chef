@@ -19,32 +19,12 @@ function findInvalidNpmInstallSpecs(packages: string) {
   return splitPackageSpecs(packages).filter((spec) => spec.startsWith('-'));
 }
 
+/** The packages of a `pnpm add`: registry specs only, no flags, and none the stack policy forbids. */
 export const npmInstallToolParameters = z
   .object({
-    mode: z.enum(['add', 'sync-lockfile']).optional(),
-    packages: z.string().trim().max(2_000).optional(),
+    packages: z.string().trim().min(1, 'At least one package is required.').max(2_000),
   })
-  .superRefine((input, ctx) => {
-    const mode = input.mode ?? 'add';
-    if (mode === 'sync-lockfile') {
-      if (input.packages) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['packages'],
-          message: 'Package names are not allowed when synchronizing the lockfile.',
-        });
-      }
-      return;
-    }
-    if (!input.packages) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['packages'],
-        message: 'At least one package is required in add mode.',
-      });
-      return;
-    }
-    const packages = input.packages;
+  .superRefine(({ packages }, ctx) => {
     if (splitPackageSpecs(packages).length > 50) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -92,7 +72,7 @@ export function parseNpmInstallCommand(command: string): ParsedNpmInstallCommand
   }
   if (normalized.startsWith('pnpm add ')) {
     const packagesText = normalized.slice('pnpm add '.length);
-    npmInstallToolParameters.parse({ mode: 'add', packages: packagesText });
+    npmInstallToolParameters.parse({ packages: packagesText });
     return { mode: 'add', packages: splitPackageSpecs(packagesText) };
   }
   if (/^(?:pnpm|npm|yarn|bun)\s+(?:add|install|remove|uninstall|update|up)\b/.test(normalized)) {

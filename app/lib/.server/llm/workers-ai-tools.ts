@@ -426,7 +426,7 @@ function computerWorkspaceTool(
             options.abortSignal?.throwIfAborted();
             const installRequest: Parameters<BuilderWorkspaceApi['installDependencies']>[0] = {
               toolCallId: options.toolCallId,
-              input: { mode: dependencyCommand.mode, packages: dependencyCommand.packages.join(' ') || undefined },
+              input,
               mode: dependencyCommand.mode,
               packages: dependencyCommand.packages,
             };

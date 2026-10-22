@@ -4,10 +4,7 @@ import {
   CLOUDFLARE_COMPUTER_VERSION,
   GENERATED_PROJECT_PNPM_VERSION,
   COMPUTER_AI_TOOL_OPTIONS,
-  COMPUTER_DEFAULT_SHELL_BACKEND,
   COMPUTER_EXEC_APPLICATION_POLICY,
-  COMPUTER_SHELL_BACKEND_IDS,
-  COMPUTER_SHELL_TOOL_OPTIONS,
   COMPUTER_TOOL_LIMITS,
   computerSyncUnconfirmedToolResult,
   workspaceOperationConflict,
@@ -106,24 +103,15 @@ describe('Cloudflare Computer preview contract', () => {
     expect(bundle).not.toContain('this.sql.exec(`ROLLBACK TO ${sp}`);');
   });
 
-  it('keeps backend selection explicit and every tool limit reviewed', () => {
-    expect(COMPUTER_AI_TOOL_OPTIONS).toMatchObject({
-      assets: false,
+  it('keeps every tool limit reviewed', () => {
+    expect(COMPUTER_AI_TOOL_OPTIONS).toEqual({
       read: {
         maxBytes: COMPUTER_TOOL_LIMITS.readMaxBytes,
         maxLines: COMPUTER_TOOL_LIMITS.readMaxLines,
       },
       write: { maxBytes: COMPUTER_TOOL_LIMITS.mutationMaxBytes },
       edit: { maxBytes: COMPUTER_TOOL_LIMITS.mutationMaxBytes },
-      shell: { maxBytes: COMPUTER_TOOL_LIMITS.execMaxBytesPerStream },
     });
-    expect(COMPUTER_SHELL_TOOL_OPTIONS.defaultBackend).toBe(COMPUTER_DEFAULT_SHELL_BACKEND);
-    expect(Object.keys(COMPUTER_SHELL_TOOL_OPTIONS.backends)).toEqual(COMPUTER_SHELL_BACKEND_IDS);
-    expect(
-      Object.values(COMPUTER_SHELL_TOOL_OPTIONS.backends).every(({ description }) => description.length >= 80),
-    ).toBe(true);
-    expect(COMPUTER_SHELL_TOOL_OPTIONS.backends['container-shell'].description).toContain('public network access');
-    expect(COMPUTER_SHELL_TOOL_OPTIONS.backends['container-shell'].description).toContain('pnpm');
     expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('development, preview, watch');
     expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('long-running servers are refused');
   });
