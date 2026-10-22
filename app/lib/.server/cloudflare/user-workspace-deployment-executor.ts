@@ -186,7 +186,6 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     const artifact = await prepareValidatedArtifact({
       workspace,
       sessionId: session.sessionId,
-      operationId,
       executionGeneration: args.executionGeneration,
       deployment,
       reference,
@@ -371,7 +370,6 @@ export async function executeUserOwnedPreview(
     const artifact = await prepareValidatedArtifact({
       workspace,
       sessionId: session.sessionId,
-      operationId,
       executionGeneration: args.executionGeneration,
       deployment,
       reference,
@@ -592,7 +590,6 @@ async function ensurePublicationResources(args: {
 async function prepareValidatedArtifact(args: {
   workspace: ProjectWorkspaceStub;
   sessionId: string;
-  operationId: string;
   executionGeneration: number;
   deployment: Deployment;
   reference: WorkspaceReference;
