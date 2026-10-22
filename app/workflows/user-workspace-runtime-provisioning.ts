@@ -5,12 +5,12 @@ import {
   USER_WORKSPACE_RUNTIME_SHA256,
   USER_WORKSPACE_RUNTIME_SOURCE,
 } from '~/generated/user-workspace-runtime.generated';
-import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
+import { openConnectionAccountApi } from '~/lib/.server/cloudflare/connection-account-api';
 import {
   requireActiveCloudflareConnection,
   type CloudflareConnection,
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
-import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
+import type { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { waitForUserWorkspaceRuntimeReadiness } from '~/lib/.server/cloudflare/user-workspace-runtime-readiness';
 import {
   findUserWorkspaceRuntime,
@@ -133,8 +133,7 @@ type ProvisioningAccountApi = Pick<
 
 export type UserWorkspaceRuntimeProvisioningDependencies = {
   requireConnection: typeof requireActiveCloudflareConnection;
-  resolveCredential(env: Env, handle: string): Promise<string>;
-  createAccountApi(accountId: string, accessToken: string): ProvisioningAccountApi;
+  openAccountApi(env: Env, connection: CloudflareConnection): Promise<ProvisioningAccountApi>;
   deriveSecret: typeof deriveUserWorkspaceRuntimeSecret;
   waitForReadiness: typeof waitForUserWorkspaceRuntimeReadiness;
   upsertRuntime: typeof upsertUserWorkspaceRuntime;
@@ -148,8 +147,7 @@ export type UserWorkspaceRuntimeProvisioningDependencies = {
 
 const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
   requireConnection: requireActiveCloudflareConnection,
-  resolveCredential: (env, handle) => D1CloudflareCredentialVault.fromEnv(env).resolve(handle),
-  createAccountApi: (accountId, accessToken) => new UserCloudflareAccountApi(accountId, accessToken),
+  openAccountApi: openConnectionAccountApi,
   deriveSecret: deriveUserWorkspaceRuntimeSecret,
   waitForReadiness: waitForUserWorkspaceRuntimeReadiness,
   upsertRuntime: upsertUserWorkspaceRuntime,
@@ -338,8 +336,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
     const dependencies = args.dependencies ?? provisioningDependencies;
     const params = args.event.payload;
     const connection = await expectedConnection(args.env, params, dependencies.requireConnection);
-    const accessToken = await dependencies.resolveCredential(args.env, connection.credentialHandle);
-    const accountApi = dependencies.createAccountApi(connection.accountId, accessToken);
+    const accountApi = await dependencies.openAccountApi(args.env, connection);
     const { workerName, databaseName } = await workspaceRuntimeNames(connection, params.userId);
 
     const inspection = await args.step.do('inspect account', STEP_CONFIG, async () => {

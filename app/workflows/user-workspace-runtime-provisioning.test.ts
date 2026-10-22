@@ -11,7 +11,6 @@ import {
 
 const mocks = {
   requireActiveConnection: vi.fn(),
-  resolveCredential: vi.fn(),
   deriveSecret: vi.fn(),
   waitForReadiness: vi.fn(),
   upsertRuntime: vi.fn(),
@@ -67,8 +66,7 @@ const connection: CloudflareConnection = {
 
 const dependencies = {
   requireConnection: mocks.requireActiveConnection,
-  resolveCredential: mocks.resolveCredential,
-  createAccountApi: () => mocks.accountApi,
+  openAccountApi: async () => mocks.accountApi,
   deriveSecret: mocks.deriveSecret,
   waitForReadiness: mocks.waitForReadiness,
   upsertRuntime: mocks.upsertRuntime,
@@ -83,7 +81,6 @@ describe('workspace runtime provisioning Workflow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireActiveConnection.mockResolvedValue(connection);
-    mocks.resolveCredential.mockResolvedValue('user-token');
     mocks.deriveSecret.mockResolvedValue('s'.repeat(64));
     mocks.accountApi.readWorkspaceContainersEntitlement.mockResolvedValue({ status: 'entitled' });
     mocks.accountApi.getWorkersSubdomain.mockResolvedValue('user');
