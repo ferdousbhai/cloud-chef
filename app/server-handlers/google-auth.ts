@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { publicOrigin } from '~/lib/.server/public-origin';
-import { createAuthSession, getAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import { createAuthSession, getAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
 import {
   hasSameOrigin,
@@ -150,8 +150,7 @@ export async function completeGoogleSignInAction({
       Date.now(),
       signedIn?.user.id ?? null,
     );
-    const session = await prepareAuthSession(user.id, request);
-    const cookie = await createAuthSession(env, session);
+    const { cookie } = await createAuthSession(env, user.id, request);
     const response = redirect(new URL(returnTo, url.origin), cookie);
     response.headers.append('Set-Cookie', stateCookie('', 0, request));
     return response;

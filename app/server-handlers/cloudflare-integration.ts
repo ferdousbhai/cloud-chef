@@ -5,7 +5,6 @@ import {
   type CloudflareAuthSession,
   createAuthSession,
   getAuthSession,
-  prepareAuthSession,
   upsertCloudflareUser,
 } from '~/lib/.server/auth';
 import { isRecentSignIn, reauthenticationRequired } from '~/lib/.server/account-reauthentication';
@@ -122,7 +121,6 @@ type PendingOAuthState = {
   provider_session_id: string;
   return_to: string;
   expires_at: number;
-  authenticated_user_id: string | null;
   /** Who was signed in when the connection started: the connection becomes theirs. */
   linking_user_id: string | null;
   /** The organization whose account is being connected, by its admin `linking_user_id`. */
@@ -449,7 +447,7 @@ export async function completeCloudflareConnectionAction(args: {
       throw new ConnectReturnError('other_browser');
     }
     const oauthState = await args.env.DB.prepare(
-      `SELECT provider_session_id, return_to, expires_at, authenticated_user_id, linking_user_id, connecting_org_id
+      `SELECT provider_session_id, return_to, expires_at, linking_user_id, connecting_org_id
        FROM cloudflare_oauth_states
        WHERE id = ? AND status = 'pending'`,
     )
@@ -469,14 +467,7 @@ export async function completeCloudflareConnectionAction(args: {
       throw new ConnectReturnError('expired');
     }
     if (providerRejectedAuthorization) {
-      await transitionOAuthState({
-        db: args.env.DB,
-        stateId: state,
-        expected: oauthState,
-        fromUserId: oauthState.authenticated_user_id,
-        status: 'error',
-        userId: oauthState.authenticated_user_id,
-      });
+      await settleOAuthState(args.env.DB, state, 'error', null);
       return cloudflareAuthorizationRecoveryResponse(args.request, oauthState.return_to);
     }
     if (!args.env.CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY) {
@@ -484,115 +475,92 @@ export async function completeCloudflareConnectionAction(args: {
     }
 
     const orgId = oauthState.connecting_org_id;
+    const orchestrator = args.orchestrator ?? (await createCloudflareOrchestrator(args.env));
+    const result = connectionResultSchema.parse(
+      await orchestrator.completeConnection({
+        providerSessionId: oauthState.provider_session_id,
+        callbackUrl,
+      }),
+    );
     // A signed-in person who came back from Cloudflare with the login already on their account proved
     // who they are again, like a fresh sign-in: their session is replaced with a new one.
     let reproved = false;
-    let userId = oauthState.authenticated_user_id;
-    let owner: CloudflareConnectionOwner | null = userId
-      ? orgId
-        ? { kind: 'organization', orgId }
-        : { kind: 'user', userId }
-      : null;
-    if (owner) {
-      const connection = await findCloudflareConnectionForOwner(args.env.DB, owner);
-      if (connection?.status !== 'active' || !connection.credentialHandle) {
-        throw new Error('Cloudflare authorization checkpoint no longer has an active connection.');
-      }
-    } else {
-      const orchestrator = args.orchestrator ?? (await createCloudflareOrchestrator(args.env));
-      const result = connectionResultSchema.parse(
-        await orchestrator.completeConnection({
-          providerSessionId: oauthState.provider_session_id,
-          callbackUrl,
-        }),
-      );
-      if (oauthState.linking_user_id) {
-        const holder = await args.env.DB.prepare('SELECT id FROM "user" WHERE cloudflare_subject = ?')
-          .bind(result.user.subject)
-          .first<{ id: string }>();
-        reproved = holder?.id === oauthState.linking_user_id;
-      }
-      if (orgId) {
-        // The organization's account, connected by one of its admins with their own Cloudflare login.
-        const admin = oauthState.linking_user_id;
-        const membership = admin ? await findMembership(args.env.DB, orgId, admin) : null;
-        if (!admin || membership?.role !== 'admin' || membership.pausedAt !== null) {
-          throw new ConnectReturnError('admin_only');
-        }
-        userId = admin;
-        owner = { kind: 'organization', orgId };
-      } else {
-        const linkingUserId = oauthState.linking_user_id;
-        const user = await (
-          linkingUserId
-            ? attachCloudflareIdentity(args.env.DB, linkingUserId, result.user.subject)
-            : upsertCloudflareUser(args.env.DB, result.user, result.accountName)
-        ).catch((error: Error) => {
-          throw error instanceof IdentityConflictError
-            ? new ConnectReturnError(linkingUserId ? 'login_linked_elsewhere' : 'email_has_account')
-            : error;
-        });
-        userId = user.id;
-        owner = { kind: 'user', userId };
-      }
-      const connectionOwner = owner;
-      const previous = await findCloudflareConnectionForOwner(args.env.DB, connectionOwner);
-      const vault = D1CloudflareCredentialVault.fromEnv(args.env);
-      const credentialHandle = result.refreshToken
-        ? await vault.storeOAuthCredential({
-            accessToken: result.accessToken,
-            refreshToken: result.refreshToken,
-            expiresAt: result.accessTokenExpiresAt ?? Date.now(),
-          })
-        : await vault.store(result.accessToken);
-      try {
-        await activateCloudflareConnection({
-          db: args.env.DB,
-          owner: connectionOwner,
-          accountId: result.accountId,
-          accountName: result.accountName,
-          credentialHandle,
-          grantedCapabilities: result.grantedCapabilities,
-          requestedOAuthScopes: result.requestedOAuthScopes,
-          grantedOAuthScopes: result.grantedOAuthScopes,
-          oauthScopeProfileVersion: result.oauthScopeProfileVersion,
-          oauthScopeGrantStatus: result.oauthScopeGrantStatus,
-          expectedGeneration: previous?.generation ?? null,
-        });
-      } catch (error) {
-        const racedConnection =
-          error instanceof CloudflareConnectionChangedError
-            ? await findCloudflareConnectionForOwner(args.env.DB, connectionOwner).catch((readError) => {
-                console.warn('Unable to read raced Cloudflare connection', readError);
-                return null;
-              })
-            : null;
-        const canAdoptRace =
-          racedConnection &&
-          isEquivalentRacedConnection(racedConnection, connectionOwner, result, previous?.generation ?? null);
-        await vault.deleteIfUnreferenced(credentialHandle).catch((cleanupError) => {
-          console.warn('Unable to clean up orphaned Cloudflare credential', cleanupError);
-        });
-        if (!canAdoptRace) {
-          throw error;
-        }
-      }
-      if (previous?.credentialHandle && previous.credentialHandle !== credentialHandle) {
-        await vault.deleteIfUnreferenced(previous.credentialHandle).catch((cleanupError) => {
-          console.warn('Unable to clean up previous Cloudflare credential', cleanupError);
-        });
-      }
-      await transitionOAuthState({
-        db: args.env.DB,
-        stateId: state,
-        expected: oauthState,
-        fromUserId: null,
-        status: 'pending',
-        userId,
-      });
+    if (oauthState.linking_user_id) {
+      const holder = await args.env.DB.prepare('SELECT id FROM "user" WHERE cloudflare_subject = ?')
+        .bind(result.user.subject)
+        .first<{ id: string }>();
+      reproved = holder?.id === oauthState.linking_user_id;
     }
-    if (!userId || !owner) {
-      throw new Error('Cloudflare authorization completed without a user.');
+    let userId: string;
+    let owner: CloudflareConnectionOwner;
+    if (orgId) {
+      // The organization's account, connected by one of its admins with their own Cloudflare login.
+      const admin = oauthState.linking_user_id;
+      const membership = admin ? await findMembership(args.env.DB, orgId, admin) : null;
+      if (!admin || membership?.role !== 'admin' || membership.pausedAt !== null) {
+        throw new ConnectReturnError('admin_only');
+      }
+      userId = admin;
+      owner = { kind: 'organization', orgId };
+    } else {
+      const linkingUserId = oauthState.linking_user_id;
+      const user = await (
+        linkingUserId
+          ? attachCloudflareIdentity(args.env.DB, linkingUserId, result.user.subject)
+          : upsertCloudflareUser(args.env.DB, result.user, result.accountName)
+      ).catch((error: Error) => {
+        throw error instanceof IdentityConflictError
+          ? new ConnectReturnError(linkingUserId ? 'login_linked_elsewhere' : 'email_has_account')
+          : error;
+      });
+      userId = user.id;
+      owner = { kind: 'user', userId };
+    }
+    const previous = await findCloudflareConnectionForOwner(args.env.DB, owner);
+    const vault = D1CloudflareCredentialVault.fromEnv(args.env);
+    const credentialHandle = result.refreshToken
+      ? await vault.storeOAuthCredential({
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
+          expiresAt: result.accessTokenExpiresAt ?? Date.now(),
+        })
+      : await vault.store(result.accessToken);
+    try {
+      await activateCloudflareConnection({
+        db: args.env.DB,
+        owner,
+        accountId: result.accountId,
+        accountName: result.accountName,
+        credentialHandle,
+        grantedCapabilities: result.grantedCapabilities,
+        requestedOAuthScopes: result.requestedOAuthScopes,
+        grantedOAuthScopes: result.grantedOAuthScopes,
+        oauthScopeProfileVersion: result.oauthScopeProfileVersion,
+        oauthScopeGrantStatus: result.oauthScopeGrantStatus,
+        expectedGeneration: previous?.generation ?? null,
+      });
+    } catch (error) {
+      const racedConnection =
+        error instanceof CloudflareConnectionChangedError
+          ? await findCloudflareConnectionForOwner(args.env.DB, owner).catch((readError) => {
+              console.warn('Unable to read raced Cloudflare connection', readError);
+              return null;
+            })
+          : null;
+      const canAdoptRace =
+        racedConnection &&
+        isEquivalentRacedConnection(racedConnection, owner, result, previous?.generation ?? null);
+      await vault.deleteIfUnreferenced(credentialHandle).catch((cleanupError) => {
+        console.warn('Unable to clean up orphaned Cloudflare credential', cleanupError);
+      });
+      if (!canAdoptRace) {
+        throw error;
+      }
+    }
+    if (previous?.credentialHandle && previous.credentialHandle !== credentialHandle) {
+      await vault.deleteIfUnreferenced(previous.credentialHandle).catch((cleanupError) => {
+        console.warn('Unable to clean up previous Cloudflare credential', cleanupError);
+      });
     }
     // Signing in with Cloudflare starts a session. Connecting while already signed in (your own account,
     // or an organization's) doesn't: the session that asked keeps going, now in the account just
@@ -607,15 +575,15 @@ export async function completeCloudflareConnectionAction(args: {
       }
       sessionId = current.session.id;
       if (reproved) {
-        const fresh = await prepareAuthSession(userId, args.request);
-        sessionCookie = await createAuthSession(args.env, fresh);
+        const fresh = await createAuthSession(args.env, userId, args.request);
+        sessionCookie = fresh.cookie;
         await args.env.DB.prepare('DELETE FROM cloudflare_auth_sessions WHERE id = ?').bind(current.session.id).run();
         sessionId = fresh.id;
       }
     } else {
-      const preparedSession = await prepareAuthSession(userId, args.request);
-      sessionCookie = await createAuthSession(args.env, preparedSession);
-      sessionId = preparedSession.id;
+      const created = await createAuthSession(args.env, userId, args.request);
+      sessionCookie = created.cookie;
+      sessionId = created.id;
     }
     await args.env.DB.prepare(
       `UPDATE cloudflare_auth_sessions SET context_connection_id = (
@@ -624,14 +592,7 @@ export async function completeCloudflareConnectionAction(args: {
     )
       .bind(owner.kind === 'user' ? owner.userId : owner.orgId, sessionId)
       .run();
-    await transitionOAuthState({
-      db: args.env.DB,
-      stateId: state,
-      expected: oauthState,
-      fromUserId: userId,
-      status: 'completed',
-      userId,
-    });
+    await settleOAuthState(args.env.DB, state, 'completed', userId);
     const headers = new Headers({
       Location: new URL(
         safeReturnTo(oauthState.return_to, new URL(args.request.url).origin),
@@ -734,91 +695,23 @@ function sameStringArray(left: readonly string[], right: readonly string[]): boo
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-/**
- * Moves a pending authorization state, still as `expected` read it and held by `fromUserId`, to `status`
- * held by `userId`: recording who authenticated (still pending), completing it, or recording the
- * provider's refusal. A write that throws or changes nothing still counts when the row reads back exactly
- * as this write would have left it.
- */
-async function transitionOAuthState(args: {
-  db: D1Database;
-  stateId: string;
-  expected: PendingOAuthState;
-  fromUserId: string | null;
-  status: 'pending' | 'completed' | 'error';
-  userId: string | null;
-}): Promise<void> {
-  const updatedAt = Date.now();
-  const landed = () => isExactOAuthState(args.db, args.stateId, args.expected, args.status, args.userId, updatedAt);
-  try {
-    const result = await args.db
-      .prepare(
-        `UPDATE cloudflare_oauth_states SET status = ?, authenticated_user_id = ?, updated_at = ?
-         WHERE id = ? AND status = 'pending' AND provider_session_id = ? AND return_to = ?
-           AND expires_at = ? AND authenticated_user_id IS ?`,
-      )
-      .bind(
-        args.status,
-        args.userId,
-        updatedAt,
-        args.stateId,
-        args.expected.provider_session_id,
-        args.expected.return_to,
-        args.expected.expires_at,
-        args.fromUserId,
-      )
-      .run();
-    if (result.meta.changes === 1) {
-      return;
-    }
-  } catch (error) {
-    if (
-      await landed().catch((readError) => {
-        console.warn('Unable to verify OAuth state', args.status, readError);
-        return false;
-      })
-    ) {
-      return;
-    }
-    throw error;
-  }
-  if (await landed()) {
-    return;
-  }
-  throw new Error(`Cloudflare authorization state changed before it could be recorded as ${args.status}.`);
-}
-
-async function isExactOAuthState(
+/** Settles a still-pending authorization state as completed by `userId`, or as the provider's refusal. */
+async function settleOAuthState(
   db: D1Database,
   stateId: string,
-  expected: PendingOAuthState,
-  status: 'pending' | 'completed' | 'error',
-  authenticatedUserId: string | null,
-  updatedAt: number,
-): Promise<boolean> {
-  const row = await readOAuthState(db, stateId);
-  if (!row) {
-    return false;
-  }
-  return (
-    row.provider_session_id === expected.provider_session_id &&
-    row.return_to === expected.return_to &&
-    row.status === status &&
-    row.expires_at === expected.expires_at &&
-    row.authenticated_user_id === authenticatedUserId &&
-    row.updated_at === updatedAt
-  );
-}
-
-async function readOAuthState(db: D1Database, stateId: string) {
-  return db
+  status: 'completed' | 'error',
+  userId: string | null,
+): Promise<void> {
+  const result = await db
     .prepare(
-      `SELECT provider_session_id, return_to, status, expires_at, authenticated_user_id, updated_at
-       FROM cloudflare_oauth_states
-       WHERE id = ?`,
+      `UPDATE cloudflare_oauth_states SET status = ?, authenticated_user_id = ?, updated_at = ?
+       WHERE id = ? AND status = 'pending'`,
     )
-    .bind(stateId)
-    .first<PendingOAuthState & { status: string; updated_at: number }>();
+    .bind(status, userId, Date.now(), stateId)
+    .run();
+  if (result.meta.changes !== 1) {
+    throw new Error(`Cloudflare authorization state changed before it could be recorded as ${status}.`);
+  }
 }
 
 async function readCloudflareCallback(

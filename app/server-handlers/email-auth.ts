@@ -4,7 +4,6 @@ import {
   createAuthSession,
   getAuthSession,
   normalizeEmail,
-  prepareAuthSession,
   upsertVerifiedEmailUser,
 } from '~/lib/.server/auth';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
@@ -141,8 +140,7 @@ export async function completeEmailSignInAction({ request, env }: { request: Req
   try {
     const signedIn = await getAuthSession(env, request);
     const user = await upsertVerifiedEmailUser(env.DB, { email: claimed.email }, Date.now(), signedIn?.user.id ?? null);
-    const session = await prepareAuthSession(user.id, request);
-    const cookie = await createAuthSession(env, session);
+    const { cookie } = await createAuthSession(env, user.id, request);
     return Response.json(
       { returnTo: safeReturnTo(claimed.return_to, new URL(request.url).origin) },
       { headers: { 'Set-Cookie': cookie, 'Cache-Control': 'no-store' } },

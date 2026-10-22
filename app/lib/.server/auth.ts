@@ -32,15 +32,6 @@ export type CloudflareAuthSession = {
   contexts: WorkspaceContext[];
 };
 
-type PreparedAuthSession = {
-  id: string;
-  userId: string;
-  tokenHash: string;
-  expiresAt: number;
-  createdAt: number;
-  cookie: string;
-};
-
 type CloudflareOAuthIdentity = {
   subject: string;
   email: string | null;
@@ -108,40 +99,22 @@ export async function setSessionContext(env: Env, request: Request, connectionId
   return true;
 }
 
-export async function prepareAuthSession(
+/** Starts a session for `userId`: the new session's id, and the cookie that carries it. */
+export async function createAuthSession(
+  env: Env,
   userId: string,
   request?: Request,
   now = Date.now(),
-): Promise<PreparedAuthSession> {
+): Promise<{ id: string; cookie: string }> {
+  const id = crypto.randomUUID();
   const token = randomToken();
-  return {
-    id: crypto.randomUUID(),
-    userId,
-    tokenHash: await sha256Hex(token),
-    expiresAt: now + SESSION_MAX_AGE_SECONDS * 1_000,
-    createdAt: now,
-    cookie: serializeSessionCookie(token, SESSION_MAX_AGE_SECONDS, request),
-  };
-}
-
-export async function createAuthSession(env: Env, session: PreparedAuthSession): Promise<string> {
-  try {
-    await env.DB.prepare(
-      `INSERT INTO cloudflare_auth_sessions (id, user_id, token_hash, expires_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(session.id, session.userId, session.tokenHash, session.expiresAt, session.createdAt, session.createdAt)
-      .run();
-  } catch (error) {
-    const committed = await isExactAuthSessionCommitted(env.DB, session).catch((readError) => {
-      console.warn('Unable to verify auth session commit', readError);
-      return false;
-    });
-    if (!committed) {
-      throw error;
-    }
-  }
-  return session.cookie;
+  await env.DB.prepare(
+    `INSERT INTO cloudflare_auth_sessions (id, user_id, token_hash, expires_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(id, userId, await sha256Hex(token), now + SESSION_MAX_AGE_SECONDS * 1_000, now, now)
+    .run();
+  return { id, cookie: serializeSessionCookie(token, SESSION_MAX_AGE_SECONDS, request) };
 }
 
 export async function deleteAuthSession(env: Env, request: Request): Promise<void> {
@@ -203,22 +176,7 @@ export async function upsertCloudflareUser(
       .bind(id, name, email, emailVerified, image, now, now, identity.subject)
       .run();
   } catch (error) {
-    const committed = await isExactCloudflareUser(db, {
-      id,
-      subject: identity.subject,
-      name,
-      email,
-      emailVerified,
-      image,
-      createdAt: now,
-      updatedAt: now,
-    }).catch((readError) => {
-      console.warn('Unable to verify Cloudflare user commit', readError);
-      return false;
-    });
-    if (committed) {
-      return { id, name, email, image };
-    }
+    // Two sign-ins with one new Cloudflare login raced: the other created the user.
     const racedUser = await findCloudflareUserBySubject(db, identity).catch((readError) => {
       console.warn('Unable to read raced Cloudflare user', readError);
       return null;
@@ -411,101 +369,21 @@ async function updateUser(
   now: number,
 ) {
   const emailVerified = email.endsWith('@users.cloudflare.invalid') ? 0 : 1;
-  try {
-    const result = await db
-      .prepare(
-        `UPDATE "user"
-         SET cloudflare_subject = ?, name = ?, email = ?, emailVerified = ?, image = ?, updatedAt = ?
-         WHERE id = ? AND (cloudflare_subject IS NULL OR cloudflare_subject = ?)`,
-      )
-      .bind(subject, name, email, emailVerified, image, now, id, subject)
-      .run();
-    if (result.meta.changes === 1) {
-      return;
-    }
-  } catch (error) {
-    const committed = await isExactCloudflareUser(db, {
-      id,
-      subject,
-      name,
-      email,
-      emailVerified,
-      image,
-      updatedAt: now,
-    }).catch((readError) => {
-      console.warn('Unable to verify Cloudflare user update', readError);
-      return false;
-    });
-    if (!committed) {
-      throw error;
-    }
-    return;
-  }
-  if (
-    await isExactCloudflareUser(db, {
-      id,
-      subject,
-      name,
-      email,
-      emailVerified,
-      image,
-      updatedAt: now,
-    })
-  ) {
-    return;
-  }
-  throw new Error('Cloudflare user changed while authentication was being persisted.');
-}
-
-async function isExactCloudflareUser(
-  db: D1Database,
-  expected: {
-    id: string;
-    subject: string;
-    name: string;
-    email: string;
-    emailVerified: number;
-    image: string | null;
-    createdAt?: number;
-    updatedAt: number;
-  },
-): Promise<boolean> {
-  const createdAtClause = expected.createdAt === undefined ? '' : ' AND createdAt = ?';
-  const statement = db
+  const result = await db
     .prepare(
-      `SELECT 1 AS found FROM "user"
-       WHERE id = ? AND cloudflare_subject = ? AND name = ? AND email = ?
-         AND emailVerified = ? AND image IS ? AND updatedAt = ?${createdAtClause}`,
+      `UPDATE "user"
+       SET cloudflare_subject = ?, name = ?, email = ?, emailVerified = ?, image = ?, updatedAt = ?
+       WHERE id = ? AND (cloudflare_subject IS NULL OR cloudflare_subject = ?)`,
     )
-    .bind(
-      expected.id,
-      expected.subject,
-      expected.name,
-      expected.email,
-      expected.emailVerified,
-      expected.image,
-      expected.updatedAt,
-      ...(expected.createdAt === undefined ? [] : [expected.createdAt]),
-    );
-  const row = await statement.first<{ found: number }>();
-  return row?.found === 1;
+    .bind(subject, name, email, emailVerified, image, now, id, subject)
+    .run();
+  if (result.meta.changes !== 1) {
+    throw new Error('Cloudflare user changed while authentication was being persisted.');
+  }
 }
 
 function serializeSessionCookie(token: string, maxAge: number, request?: Request): string {
   return serializeCookie({ name: SESSION_COOKIE, value: token, path: '/', maxAge, request });
-}
-
-async function isExactAuthSessionCommitted(db: D1Database, session: PreparedAuthSession): Promise<boolean> {
-  const row = await db
-    .prepare(
-      `SELECT 1 AS found
-       FROM cloudflare_auth_sessions
-       WHERE id = ? AND user_id = ? AND token_hash = ? AND expires_at = ?
-         AND created_at = ? AND updated_at = ?`,
-    )
-    .bind(session.id, session.userId, session.tokenHash, session.expiresAt, session.createdAt, session.createdAt)
-    .first<{ found: number }>();
-  return row?.found === 1;
 }
 
 function randomToken(): string {

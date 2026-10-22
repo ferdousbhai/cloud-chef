@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
-import { createAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import { createAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { GitHubApp } from '~/lib/.server/github/github-app';
 import { promotedDraftFiles, readDraftSnapshot } from '~/lib/.server/github/promote-draft';
 import { bytesToBase64 } from '~/lib/hex-digest';
@@ -166,7 +166,7 @@ async function setup(options: GitHubOptions = {}) {
   const env = envWith({ DB: db });
   const signIn = async (email: string) => {
     const user = await upsertVerifiedEmailUser(db, { email });
-    const cookie = (await createAuthSession(env, await prepareAuthSession(user.id))).split(';')[0];
+    const cookie = (await createAuthSession(env, user.id)).cookie.split(';')[0];
     return { userId: user.id, cookie };
   };
   const admin = await signIn('ada@example.com');
@@ -644,7 +644,7 @@ describe('production requests', () => {
     database
       .prepare(`INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES (?, ?, 'admin', 1)`)
       .run(ORG, other.id);
-    const otherCookie = (await createAuthSession(env, await prepareAuthSession(other.id))).split(';')[0];
+    const otherCookie = (await createAuthSession(env, other.id)).cookie.split(';')[0];
     expect((await approve(otherCookie)).status).toBe(409);
     const again = await approve(admin.cookie);
     expect(again.status).toBe(201);

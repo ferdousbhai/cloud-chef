@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
-import { createAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import { createAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { createOrganization } from '~/lib/cloudflare/data/organizations.server';
 import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { linkedGatewayKeys } from '~/lib/.server/cloudflare/ai-gateway-keys';
@@ -249,7 +249,7 @@ async function setup({
   const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: ENCRYPTION_KEY });
   const signIn = async (email: string) => {
     const user = await upsertVerifiedEmailUser(db, { email });
-    const cookie = (await createAuthSession(env, await prepareAuthSession(user.id))).split(';')[0] ?? '';
+    const cookie = (await createAuthSession(env, user.id)).cookie.split(';')[0] ?? '';
     return { userId: user.id, cookie };
   };
   const admin = await signIn('ada@acme.com');

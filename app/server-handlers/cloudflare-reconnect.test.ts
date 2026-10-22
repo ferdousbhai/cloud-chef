@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
-import { createAuthSession, getAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import { createAuthSession, getAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import type {
   CloudflareConnectionResult,
   CloudflareOrchestrator,
@@ -51,8 +51,7 @@ async function setup() {
   });
   const user = await upsertVerifiedEmailUser(db, { email: 'sam@corp.com' });
   // Signed in an hour ago: too long ago for export or erasure.
-  const stale = await prepareAuthSession(user.id, undefined, Date.now() - HOUR);
-  const cookie = (await createAuthSession(env, stale)).split(';')[0];
+  const cookie = (await createAuthSession(env, user.id, undefined, Date.now() - HOUR)).cookie.split(';')[0];
   return { database, db, env, user, cookie };
 }
 
@@ -141,7 +140,7 @@ describe('connecting Cloudflare while signed in', () => {
     const { database, db, env, user } = await setup();
     const other = await upsertVerifiedEmailUser(db, { email: 'kim@corp.com' });
     database.prepare('UPDATE "user" SET cloudflare_subject = ? WHERE id = ?').run('cf-sam', other.id);
-    const recent = (await createAuthSession(env, await prepareAuthSession(user.id))).split(';')[0];
+    const recent = (await createAuthSession(env, user.id)).cookie.split(';')[0];
 
     const response = await connect(env, recent, cloudflareAs('cf-sam'));
     expect(response.status).toBe(303);

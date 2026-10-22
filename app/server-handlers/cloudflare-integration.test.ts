@@ -14,7 +14,6 @@ const ACCOUNT_ID = '0af9e0921b880657d84a6c07307f8aef';
 const mocks = vi.hoisted(() => ({
   CloudflareConnectionChangedError: class CloudflareConnectionChangedError extends Error {},
   getAuthSession: vi.fn(),
-  prepareAuthSession: vi.fn(),
   createAuthSession: vi.fn(),
   upsertCloudflareUser: vi.fn(),
   findConnection: vi.fn(),
@@ -29,7 +28,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('~/lib/.server/auth', () => ({
   getAuthSession: mocks.getAuthSession,
-  prepareAuthSession: mocks.prepareAuthSession,
   createAuthSession: mocks.createAuthSession,
   upsertCloudflareUser: mocks.upsertCloudflareUser,
 }));
@@ -72,15 +70,10 @@ function returnFailure(response: Response): string | null {
 describe('Cloudflare-only authentication', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.prepareAuthSession.mockResolvedValue({
+    mocks.createAuthSession.mockResolvedValue({
       id: 'session-1',
-      userId: 'user-1',
-      tokenHash: 'f'.repeat(64),
-      expiresAt: 2_592_000_100,
-      createdAt: 100,
       cookie: 'cloudchef_session=opaque; HttpOnly; Secure',
     });
-    mocks.createAuthSession.mockImplementation(async (_env, session) => session.cookie);
     mocks.upsertCloudflareUser.mockResolvedValue({
       id: 'user-1',
       name: 'Person',
@@ -534,11 +527,7 @@ describe('Cloudflare-only authentication', () => {
         expectedGeneration: null,
       }),
     );
-    expect(mocks.prepareAuthSession).toHaveBeenCalledWith('user-1', expect.any(Request));
-    expect(mocks.createAuthSession).toHaveBeenCalledWith(
-      database.env,
-      expect.objectContaining({ id: 'session-1', tokenHash: 'f'.repeat(64) }),
-    );
+    expect(mocks.createAuthSession).toHaveBeenCalledWith(database.env, 'user-1', expect.any(Request));
     expect(database.state?.status).toBe('completed');
 
     const replay = await completeCloudflareConnectionAction({
@@ -615,33 +604,6 @@ describe('Cloudflare-only authentication', () => {
     expect(orchestrator.completeConnection).not.toHaveBeenCalled();
   });
 
-  it('recovers when provider rejection persistence commits before acknowledgement fails', async () => {
-    const database = oauthDatabase({ providerErrorAfterCommit: new Error('D1 acknowledgement lost') });
-    const orchestrator = fakeOrchestrator();
-    const start = await startCloudflareConnectionAction({
-      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
-        body: '{}',
-      }),
-      env: database.env,
-      orchestrator,
-    });
-    const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
-
-    const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&error=access_denied`, {
-        headers: { cookie: stateCookie },
-      }),
-      env: database.env,
-      orchestrator,
-    });
-
-    expect(response.status).toBe(303);
-    expect(database.state?.status).toBe('error');
-    expect(database.exactCompletionRead).toHaveBeenCalledOnce();
-  });
-
   it('rejects an oversized OAuth callback field before provider or persistence work', async () => {
     const database = oauthDatabase();
     const orchestrator = fakeOrchestrator();
@@ -671,148 +633,9 @@ describe('Cloudflare-only authentication', () => {
     expect(mocks.createAuthSession).not.toHaveBeenCalled();
   });
 
-  it('finishes the callback when the exact state completion committed before acknowledgement failed', async () => {
-    const database = oauthDatabase({
-      completionErrorAfterCommit: new Error('state completion acknowledgement failed'),
-    });
-    const orchestrator = fakeOrchestrator();
-    const start = await startCloudflareConnectionAction({
-      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
-        body: '{}',
-      }),
-      env: database.env,
-      orchestrator,
-    });
-    const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
-
-    const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
-        headers: { cookie: stateCookie },
-      }),
-      env: database.env,
-      orchestrator,
-    });
-
-    expect(response.status).toBe(303);
-    expect(database.state?.status).toBe('completed');
-    expect(database.exactCompletionRead).toHaveBeenCalledTimes(1);
-    expect(orchestrator.completeConnection).toHaveBeenCalledTimes(1);
-    expect(mocks.createAuthSession).toHaveBeenCalledTimes(1);
-  });
-
-  it('continues when the exact authenticated-user checkpoint committed before acknowledgement failed', async () => {
-    const database = oauthDatabase({
-      checkpointErrorAfterCommit: new Error('authentication checkpoint acknowledgement failed'),
-    });
-    const orchestrator = fakeOrchestrator();
-    const start = await startCloudflareConnectionAction({
-      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
-        body: '{}',
-      }),
-      env: database.env,
-      orchestrator,
-    });
-    const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
-
-    const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
-        headers: { cookie: stateCookie },
-      }),
-      env: database.env,
-      orchestrator,
-    });
-
-    expect(response.status).toBe(303);
-    expect(database.state?.status).toBe('completed');
-    expect(database.exactCompletionRead).toHaveBeenCalledTimes(1);
-    expect(orchestrator.completeConnection).toHaveBeenCalledTimes(1);
-  });
-
-  it('rejects an acknowledgement failure for a mismatched authenticated-user checkpoint', async () => {
-    const database = oauthDatabase({
-      checkpointErrorAfterCommit: new Error('authentication checkpoint acknowledgement failed'),
-      checkpointMismatchAfterCommit: true,
-    });
-    const orchestrator = fakeOrchestrator();
-    const start = await startCloudflareConnectionAction({
-      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
-        body: '{}',
-      }),
-      env: database.env,
-      orchestrator,
-    });
-    const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
-
-    const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
-        headers: { cookie: stateCookie },
-      }),
-      env: database.env,
-      orchestrator,
-    });
-
-    expect(returnFailure(response)).toBe('Cloudflare couldn’t be connected just now. Try again.');
-    expect(database.state?.status).toBe('pending');
-    expect(database.exactCompletionRead).toHaveBeenCalledTimes(1);
-    expect(mocks.createAuthSession).not.toHaveBeenCalled();
-  });
-
-  it('rejects a state completion acknowledgement failure when the committed state does not match exactly', async () => {
-    const database = oauthDatabase({
-      completionErrorAfterCommit: new Error('state completion acknowledgement failed'),
-      completionMismatchAfterCommit: true,
-    });
-    const orchestrator = fakeOrchestrator();
-    const start = await startCloudflareConnectionAction({
-      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
-        body: '{}',
-      }),
-      env: database.env,
-      orchestrator,
-    });
-    const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
-
-    const response = await completeCloudflareConnectionAction({
-      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
-        headers: { cookie: stateCookie },
-      }),
-      env: database.env,
-      orchestrator,
-    });
-
-    expect(returnFailure(response)).toBe('Cloudflare couldn’t be connected just now. Try again.');
-    expect(database.state?.status).toBe('completed');
-    expect(database.exactCompletionRead).toHaveBeenCalledTimes(1);
-    expect(orchestrator.completeConnection).toHaveBeenCalledTimes(1);
-  });
-
-  it('resumes a session persistence failure without replaying the one-time provider exchange', async () => {
+  it('leaves the authorization pending when the session cannot be created, so connecting starts over', async () => {
     const database = oauthDatabase();
     const orchestrator = fakeOrchestrator();
-    mocks.findConnection.mockResolvedValueOnce(null).mockResolvedValueOnce({
-      id: 'connection-1',
-      userId: 'user-1',
-      accountId: ACCOUNT_ID,
-      accountName: 'User Cloudflare',
-      status: 'active',
-      credentialHandle: 'credential-1',
-      grantedCapabilities: ['workers'],
-      requestedOAuthScopes: ['workers-scripts.write', 'd1.write'],
-      grantedOAuthScopes: ['workers-scripts.write', 'd1.write'],
-      oauthScopeProfileVersion: 'core-v1',
-      oauthScopeGrantStatus: 'core' as const,
-      connectedAt: 100,
-      updatedAt: 100,
-      generation: 1,
-    });
     const start = await startCloudflareConnectionAction({
       request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
@@ -835,22 +658,7 @@ describe('Cloudflare-only authentication', () => {
 
     expect(returnFailure(response)).toBe('Cloudflare couldn’t be connected just now. Try again.');
     expect(database.state?.status).toBe('pending');
-    expect(database.state?.authenticatedUserId).toBe('user-1');
-    expect(database.completeStateWrite).not.toHaveBeenCalled();
-    expect(orchestrator.completeConnection).toHaveBeenCalledTimes(1);
-
-    const retry = await completeCloudflareConnectionAction({
-      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
-        headers: { cookie: stateCookie },
-      }),
-      env: database.env,
-      orchestrator,
-    });
-
-    expect(retry.status).toBe(303);
-    expect(database.state?.status).toBe('completed');
-    expect(orchestrator.completeConnection).toHaveBeenCalledTimes(1);
-    expect(mocks.activateConnection).toHaveBeenCalledTimes(1);
+    expect(database.state?.authenticatedUserId).toBeNull();
   });
 
   it('rejects a callback that was not initiated by the same browser', async () => {
@@ -1154,16 +962,7 @@ function fakeOrchestrator(): CloudflareOrchestrator {
   };
 }
 
-function oauthDatabase(
-  options: {
-    rateLimitSuccess?: boolean;
-    checkpointErrorAfterCommit?: Error;
-    checkpointMismatchAfterCommit?: boolean;
-    completionErrorAfterCommit?: Error;
-    completionMismatchAfterCommit?: boolean;
-    providerErrorAfterCommit?: Error;
-  } = {},
-) {
+function oauthDatabase(options: { rateLimitSuccess?: boolean } = {}) {
   type State = {
     id: string;
     providerSessionId: string;
@@ -1175,8 +974,6 @@ function oauthDatabase(
   };
   let state: State | null = null;
   const limit = vi.fn(async () => ({ success: options.rateLimitSuccess ?? true }));
-  const completeStateWrite = vi.fn();
-  const exactCompletionRead = vi.fn();
   const db = {
     prepare(sql: string) {
       return {
@@ -1186,20 +983,6 @@ function oauthDatabase(
               if (!sql.includes('FROM cloudflare_oauth_states') || !state) {
                 return null;
               }
-              if (sql.includes('status, expires_at, authenticated_user_id, updated_at')) {
-                exactCompletionRead(...values);
-                if (values[0] !== state.id) {
-                  return null;
-                }
-                return {
-                  provider_session_id: state.providerSessionId,
-                  return_to: state.returnTo,
-                  status: state.status,
-                  expires_at: state.expiresAt,
-                  authenticated_user_id: state.authenticatedUserId,
-                  updated_at: state.updatedAt,
-                };
-              }
               if (state.status !== 'pending' || values[0] !== state.id) {
                 return null;
               }
@@ -1207,7 +990,6 @@ function oauthDatabase(
                 provider_session_id: state.providerSessionId,
                 return_to: state.returnTo,
                 expires_at: state.expiresAt,
-                authenticated_user_id: state.authenticatedUserId,
               };
             },
             run: async () => {
@@ -1224,36 +1006,17 @@ function oauthDatabase(
               } else if (sql.includes("status = 'expired'") && state) {
                 state = { ...state, status: 'expired', updatedAt: values[0] as number };
               } else if (sql.includes('SET status = ?, authenticated_user_id = ?') && state) {
-                const [status, userId, updatedAt, id, providerSessionId, returnTo, expiresAt, fromUserId] = values;
-                if (status === 'completed') {
-                  completeStateWrite(...values);
-                }
-                const matches =
-                  state.status === 'pending' &&
-                  id === state.id &&
-                  providerSessionId === state.providerSessionId &&
-                  returnTo === state.returnTo &&
-                  expiresAt === state.expiresAt &&
-                  fromUserId === state.authenticatedUserId;
-                if (!matches) {
+                const [status, userId, updatedAt, id] = values;
+                if (state.status !== 'pending' || id !== state.id) {
                   return { success: true, meta: { changes: 0 } };
                 }
-                const [mismatchAfterCommit, errorAfterCommit] =
-                  status === 'pending'
-                    ? [options.checkpointMismatchAfterCommit, options.checkpointErrorAfterCommit]
-                    : status === 'completed'
-                      ? [options.completionMismatchAfterCommit, options.completionErrorAfterCommit]
-                      : [false, options.providerErrorAfterCommit];
                 state = {
                   ...state,
-                  // SAFETY: the transition binds its status, user, and time first, in that order.
+                  // SAFETY: the settle binds its status, user, and time first, in that order.
                   status: status as State['status'],
                   authenticatedUserId: userId as string | null,
-                  updatedAt: (updatedAt as number) + (mismatchAfterCommit ? 1 : 0),
+                  updatedAt: updatedAt as number,
                 };
-                if (errorAfterCommit) {
-                  throw errorAfterCommit;
-                }
               }
               return { success: true, meta: { changes: 1 } };
             },
@@ -1272,7 +1035,5 @@ function oauthDatabase(
       return state;
     },
     limit,
-    completeStateWrite,
-    exactCompletionRead,
   };
 }
