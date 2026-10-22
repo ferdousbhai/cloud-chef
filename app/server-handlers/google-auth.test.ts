@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
 import { getAuthSession } from '~/lib/.server/auth';
 import { z } from 'zod';
@@ -24,14 +24,20 @@ function setup() {
 
 /** Google's token and userinfo endpoints, answering with these claims. */
 function google(claims: Partial<z.input<typeof googleUserinfoSchema>>) {
-  return vi.fn<typeof fetch>(async (input) => {
+  const fetchGoogle = vi.fn<typeof fetch>(async (input) => {
     const url = String(input);
     if (url.startsWith('https://oauth2.googleapis.com/token')) {
       return Response.json({ access_token: 'access', token_type: 'Bearer' });
     }
     return Response.json(claims);
   });
+  vi.stubGlobal('fetch', fetchGoogle);
+  return fetchGoogle;
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 async function start(env: Env) {
   const response = await startGoogleSignInAction({
@@ -74,7 +80,7 @@ describe('Google sign-in', () => {
       name: 'Sam',
       hd: 'acme.com',
     });
-    const done = await completeGoogleSignInAction({ request: callback(state), env, fetchGoogle });
+    const done = await completeGoogleSignInAction({ request: callback(state), env });
     expect(done.status).toBe(303);
     expect(done.headers.get('location')).toBe(`${ORIGIN}/settings`);
     const tokenBody = String(fetchGoogle.mock.calls[0][1]?.body);
@@ -85,23 +91,23 @@ describe('Google sign-in', () => {
     expect(database.prepare('SELECT google_subject FROM "user"').get()).toEqual({ google_subject: 'g-1' });
 
     // The state is used once.
-    const replay = await completeGoogleSignInAction({ request: callback(state), env, fetchGoogle });
+    const replay = await completeGoogleSignInAction({ request: callback(state), env });
     expect(replay.status).toBe(410);
   });
 
   it('finds the same user when their Google email changes', async () => {
     const { env } = setup();
     const first = await start(env);
+    google({ sub: 'g-1', email: 'old@acme.com', email_verified: true });
     const one = await completeGoogleSignInAction({
       request: callback(first.state),
       env,
-      fetchGoogle: google({ sub: 'g-1', email: 'old@acme.com', email_verified: true }),
     });
     const second = await start(env);
+    google({ sub: 'g-1', email: 'new@acme.com', email_verified: true });
     const two = await completeGoogleSignInAction({
       request: callback(second.state),
       env,
-      fetchGoogle: google({ sub: 'g-1', email: 'new@acme.com', email_verified: true }),
     });
     expect((await sessionFrom(env, two))?.user.id).toBe((await sessionFrom(env, one))?.user.id);
   });
@@ -109,18 +115,18 @@ describe('Google sign-in', () => {
   it('refuses an unverified email, a different browser, and an email tied to another Google account', async () => {
     const { env, database } = setup();
     const unverified = await start(env);
+    google({ sub: 'g-1', email: 'sam@acme.com', email_verified: false });
     const refused = await completeGoogleSignInAction({
       request: callback(unverified.state),
       env,
-      fetchGoogle: google({ sub: 'g-1', email: 'sam@acme.com', email_verified: false }),
     });
     expect(refused.status).toBe(403);
 
     const otherBrowser = await start(env);
+    google({});
     const mismatch = await completeGoogleSignInAction({
       request: callback(otherBrowser.state, 'someone-else'),
       env,
-      fetchGoogle: google({}),
     });
     expect(mismatch.status).toBe(400);
 
@@ -131,10 +137,10 @@ describe('Google sign-in', () => {
       )
       .run();
     const conflict = await start(env);
+    google({ sub: 'g-2', email: 'sam@acme.com', email_verified: true });
     const taken = await completeGoogleSignInAction({
       request: callback(conflict.state),
       env,
-      fetchGoogle: google({ sub: 'g-2', email: 'sam@acme.com', email_verified: true }),
     });
     expect(taken.status).toBe(409);
   });
@@ -152,7 +158,6 @@ describe('Google sign-in', () => {
     const failed = await completeGoogleSignInAction({
       request: callback(state),
       env: { ...env, DB: failing },
-      fetchGoogle,
     });
     expect(failed.status).toBe(500);
     expect(await failed.json()).toEqual({ error: 'Google sign-in failed.' });

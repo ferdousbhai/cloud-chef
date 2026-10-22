@@ -36,8 +36,6 @@ export const googleUserinfoSchema = z.looseObject({
   hd: z.string().optional(),
 });
 
-type GoogleFetch = typeof fetch;
-
 export async function startGoogleSignInAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   if (!hasSameOrigin(request)) {
     return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
@@ -81,15 +79,7 @@ export async function startGoogleSignInAction({ request, env }: { request: Reque
   );
 }
 
-export async function completeGoogleSignInAction({
-  request,
-  env,
-  fetchGoogle = fetch,
-}: {
-  request: Request;
-  env: Env;
-  fetchGoogle?: GoogleFetch;
-}): Promise<Response> {
+export async function completeGoogleSignInAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   const url = new URL(request.url);
   const state = url.searchParams.get('state');
   if (!state || readCookie(request, STATE_COOKIE) !== state) {
@@ -119,7 +109,7 @@ export async function completeGoogleSignInAction({
     return redirect(new URL(returnTo, url.origin), stateCookie('', 0, request));
   }
   try {
-    const tokenResponse = await fetchGoogle(TOKEN_URL, {
+    const tokenResponse = await fetch(TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -135,7 +125,7 @@ export async function completeGoogleSignInAction({
       return Response.json({ error: 'Google did not accept the sign-in. Start again.' }, { status: 400 });
     }
     const { access_token } = tokenSchema.parse(await tokenResponse.json());
-    const infoResponse = await fetchGoogle(USERINFO_URL, { headers: { Authorization: `Bearer ${access_token}` } });
+    const infoResponse = await fetch(USERINFO_URL, { headers: { Authorization: `Bearer ${access_token}` } });
     if (!infoResponse.ok) {
       return Response.json({ error: 'Google did not share your account details.' }, { status: 502 });
     }
