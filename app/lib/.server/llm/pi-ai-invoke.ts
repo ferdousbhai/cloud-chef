@@ -1,22 +1,6 @@
 import { normalizeContext, type Message, type Tool, type ToolCall, type Usage } from '@earendil-works/pi-ai';
 import type { ModelHandle } from './pi-ai-models';
 
-class AgentTurnError extends Error {
-  readonly statusCode?: number;
-  constructor(message: string, statusCode?: number) {
-    super(message);
-    this.statusCode = statusCode;
-  }
-}
-
-function httpStatusFromError(errorMessage: string, handle: ModelHandle): number | undefined {
-  const match = /^(\d{3})\b/.exec(errorMessage.trim());
-  if (match) {
-    return Number(match[1]);
-  }
-  return handle.lastResponse?.status;
-}
-
 export async function completeText(
   handle: ModelHandle,
   args: {
@@ -40,7 +24,7 @@ export async function completeText(
   if (message.stopReason === 'error' || message.stopReason === 'aborted') {
     args.signal?.throwIfAborted();
     const errorMessage = message.errorMessage ?? 'The model request failed.';
-    throw new AgentTurnError(errorMessage, httpStatusFromError(errorMessage, handle));
+    throw new Error(errorMessage);
   }
   return message.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('');
 }
@@ -77,13 +61,13 @@ export async function completeToolCall(
   if (message.stopReason === 'error' || message.stopReason === 'aborted') {
     args.signal?.throwIfAborted();
     const errorMessage = message.errorMessage ?? 'The model request failed.';
-    throw new AgentTurnError(errorMessage, httpStatusFromError(errorMessage, handle));
+    throw new Error(errorMessage);
   }
   const calls = message.content.filter(
     (block): block is ToolCall => block.type === 'toolCall' && block.name === args.tool.name,
   );
   if (calls.length !== 1) {
-    throw new AgentTurnError('The model returned an invalid structured response.');
+    throw new Error('The model returned an invalid structured response.');
   }
   return calls[0]!.arguments;
 }

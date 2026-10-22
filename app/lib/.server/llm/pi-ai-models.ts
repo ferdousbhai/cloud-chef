@@ -62,7 +62,6 @@ export type ModelStreamOptions = Omit<SimpleStreamOptions, 'toolChoice'> & {
 export type ModelHandle = {
   model: Model<Api>;
   stream: (model: Model<Api>, context: TranscriptContext, options?: ModelStreamOptions) => AssistantMessageEventStream;
-  lastResponse?: { status: number };
 };
 
 type WorkersAiStreamOptions = OpenAICompletionsOptions & Omit<SimpleStreamOptions, 'toolChoice'>;
@@ -195,17 +194,12 @@ function makeHandle(args: HandleArgs): ModelHandle {
     model: args.model,
     stream: (model, context, options = {}) => {
       recordPiStage('stream_created', model.id);
-      handle.lastResponse = undefined;
       const streamOptions = { ...options };
       const headers: ProviderHeaders = { ...streamOptions.headers };
       const merged: WorkersAiStreamOptions = {
         ...streamOptions,
         maxTokens: requestOutputTokens(model, context, streamOptions.maxTokens),
         sessionId: streamOptions.sessionId ?? args.sessionAffinity,
-        onResponse: async (response, responseModel) => {
-          handle.lastResponse = { status: response.status };
-          await streamOptions.onResponse?.(response, responseModel);
-        },
       };
       // Pi's two entry points read the thinking directive from different fields: `streamSimple`
       // accepts `reasoning` and hands the adapter `reasoningEffort`, while the api-level `stream`
@@ -447,7 +441,6 @@ function getGatewayPiModel(
     model: entry.model,
     stream: (streamModel, context, options = {}) => {
       recordPiStage('stream_created', streamModel.id);
-      handle.lastResponse = undefined;
       return transport.stream({
         model: streamModel,
         context,
@@ -466,10 +459,6 @@ function getGatewayPiModel(
           // its session id, so a chat's requests keep reusing its cached prefix.
           ...options,
           sessionId: options.sessionId ?? sessionAffinity,
-          onResponse: async (response, responseModel) => {
-            handle.lastResponse = { status: response.status };
-            await options.onResponse?.(response, responseModel);
-          },
         },
       });
     },
