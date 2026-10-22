@@ -13,7 +13,6 @@ import {
   type DataOperationResult,
   type SubchatSummary,
 } from './data-api';
-import { loadAllSubchats } from './data-page-loader';
 import { queryClient } from '~/lib/stores/reactQueryClient';
 import { registerClientCollectionDisposer } from './client-collections';
 import { useQueryCacheError } from './use-query-cache-error';
@@ -45,7 +44,7 @@ function createSubchatCollection(args: SubchatQueryArgs) {
       id: `subchats:${args.chatId}`,
       schema: subchatSummarySchema,
       queryKey: subchatQueryKey(args),
-      queryFn: ({ signal }) => loadAllSubchats(args.chatId, args.sessionId, signal),
+      queryFn: ({ signal }) => executeDataOperation(api.subchats.get, args, { signal }),
       queryClient,
       getKey: (item) => item.subchatIndex,
     }),

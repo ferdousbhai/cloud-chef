@@ -6,7 +6,6 @@ import { z } from 'zod';
 import { executeDataOperation } from './client';
 import { api, type ChatHistorySummary } from './data-api';
 import { queryClient } from '~/lib/stores/reactQueryClient';
-import { loadAllChatHistory } from './data-page-loader';
 import { registerClientCollectionDisposer } from './client-collections';
 import { useQueryCacheError } from './use-query-cache-error';
 
@@ -28,7 +27,7 @@ function createChatHistoryCollection(sessionId: string) {
       schema: chatHistorySummarySchema,
       queryKey: chatHistoryQueryKey(sessionId),
       queryClient,
-      queryFn: ({ signal }) => loadAllChatHistory(sessionId, signal),
+      queryFn: ({ signal }) => executeDataOperation(api.messages.getAll, { sessionId }, { signal }),
       getKey: (item) => item.initialId,
       onDelete: async ({ transaction }) => {
         await Promise.all(

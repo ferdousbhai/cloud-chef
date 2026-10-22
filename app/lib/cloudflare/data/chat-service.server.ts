@@ -2,12 +2,7 @@ import { ensureInitialChat, findChat, requireChat } from './chat-repository.serv
 import { transcriptAgentName } from 'cloudchef-agent/transcript';
 import { prepareInsertChatTranscript, requireChatTranscript } from './transcript-repository.server';
 import { prepareAgentGcCandidatesStatement } from './agent-gc.server';
-import {
-  boundedDataPageSize,
-  MAX_SUBCHAT_INDEX,
-  type ChatHistoryCursor,
-  type SubchatCursor,
-} from '~/lib/cloudflare/data-pagination';
+import { MAX_SUBCHAT_INDEX } from '~/lib/cloudflare/data-operation-schemas';
 import { DataNotFoundError, SubchatLimitError } from './errors';
 import { EMPTY_CHAT_DISCARD_PREDICATE } from './empty-chat.server';
 import { prepareAppResourceGcCandidateStatement } from './app-resource-gc.server';
@@ -53,16 +48,10 @@ export async function getChat(db: D1Database, args: { id: string; sessionId: str
   };
 }
 
-export async function getAllChats(
-  db: D1Database,
-  args: { sessionId: string; cursor?: ChatHistoryCursor; limit?: number },
-) {
-  const limit = boundedDataPageSize(args.limit);
-  const cursorClause = args.cursor ? 'AND (chats.timestamp, chats.id) < (?, ?)' : '';
+export async function getAllChats(db: D1Database, args: { sessionId: string }) {
   const { results } = await db
     .prepare(
       `SELECT
-         chats.id AS row_id,
          chats.initial_id,
          COALESCE(
            NULLIF(TRIM(chats.description), ''),
@@ -82,34 +71,20 @@ export async function getAllChats(
          AND chats.has_messages = 1
          -- A GitHub project's chat is listed with the GitHub projects, not as an app of one's own.
          AND chats.org_project_id IS NULL
-         ${cursorClause}
-       ORDER BY chats.timestamp DESC, chats.id DESC
-       LIMIT ?`,
+       ORDER BY chats.timestamp DESC, chats.id DESC`,
     )
-    .bind(args.sessionId, ...(args.cursor ? [args.cursor.timestamp, args.cursor.rowId] : []), limit + 1)
+    .bind(args.sessionId)
     .all<{
-      row_id: string;
       initial_id: string;
       description: string | null;
       timestamp: string;
     }>();
-  const pageRows = results.slice(0, limit);
-  const lastRow = pageRows.at(-1);
-  return {
-    items: pageRows.map((row) => ({
-      id: row.initial_id,
-      initialId: row.initial_id,
-      description: row.description ?? undefined,
-      timestamp: row.timestamp,
-    })),
-    nextCursor:
-      results.length > limit && lastRow
-        ? {
-            timestamp: lastRow.timestamp,
-            rowId: lastRow.row_id,
-          }
-        : undefined,
-  };
+  return results.map((row) => ({
+    id: row.initial_id,
+    initialId: row.initial_id,
+    description: row.description ?? undefined,
+    timestamp: row.timestamp,
+  }));
 }
 
 export async function setDescription(
@@ -274,22 +249,16 @@ export async function removeChat(db: D1Database, args: { sessionId: string; id: 
   return { kind: 'success' } as const;
 }
 
-export async function getSubchats(
-  db: D1Database,
-  args: { sessionId: string; chatId: string; cursor?: SubchatCursor; limit?: number },
-) {
+export async function getSubchats(db: D1Database, args: { sessionId: string; chatId: string }) {
   const chat = await requireChat(db, { id: args.chatId, sessionId: args.sessionId });
-  const limit = boundedDataPageSize(args.limit);
-  const cursorSubchatIndex = args.cursor?.subchatIndex ?? -1;
   const { results } = await db
     .prepare(
       `SELECT subchat_index, description, updated_at, generation, agent_name
        FROM chat_transcripts
-       WHERE chat_id = ? AND subchat_index > ?
-       ORDER BY subchat_index ASC
-       LIMIT ?`,
+       WHERE chat_id = ?
+       ORDER BY subchat_index ASC`,
     )
-    .bind(chat.id, cursorSubchatIndex, limit + 1)
+    .bind(chat.id)
     .all<{
       subchat_index: number;
       description: string | null;
@@ -297,26 +266,16 @@ export async function getSubchats(
       generation: number;
       agent_name: string;
     }>();
-  const pageRows = results.slice(0, limit);
-  const lastRow = pageRows.at(-1);
-  return {
-    items: pageRows.map((row) => ({
+  return results.map((row) => ({
+    subchatIndex: row.subchat_index,
+    description: row.description ?? undefined,
+    updatedAt: row.updated_at,
+    transcript: {
+      agentName: row.agent_name,
+      generation: row.generation,
       subchatIndex: row.subchat_index,
-      description: row.description ?? undefined,
-      updatedAt: row.updated_at,
-      transcript: {
-        agentName: row.agent_name,
-        generation: row.generation,
-        subchatIndex: row.subchat_index,
-      },
-    })),
-    nextCursor:
-      results.length > limit && lastRow
-        ? {
-            subchatIndex: lastRow.subchat_index,
-          }
-        : undefined,
-  };
+    },
+  }));
 }
 
 export async function createSubchat(

@@ -1,7 +1,6 @@
 import type { z } from 'zod';
 import type { dataOperationArgSchemas } from './data-operation-schemas';
 import type { TranscriptIdentity } from 'cloudchef-agent/transcript';
-import type { ChatHistoryCursor, DataPage, SubchatCursor } from './data-pagination';
 
 type ChatSummary = {
   initialId: string;
@@ -26,7 +25,7 @@ export type SubchatSummary = {
 
 type DataOperationResults = {
   'messages.get': ChatSummary | null;
-  'messages.getAll': DataPage<ChatHistorySummary, ChatHistoryCursor>;
+  'messages.getAll': ChatHistorySummary[];
   'messages.initializeChat': { created: boolean };
   'messages.openLinkedChat': { initialId: string; created: boolean };
   'messages.startLinkedChat': { initialId: string };
@@ -35,7 +34,7 @@ type DataOperationResults = {
   'messages.remove': { kind: 'success' };
   'messages.setDescription': null;
   'subchats.create': number;
-  'subchats.get': DataPage<SubchatSummary, SubchatCursor>;
+  'subchats.get': SubchatSummary[];
   'subchats.setDescription': null;
 };
 

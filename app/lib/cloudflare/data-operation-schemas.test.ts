@@ -25,39 +25,13 @@ describe('data operation argument bounds', () => {
     ).toBe(false);
   });
 
-  it('accepts only bounded, exact pagination arguments', () => {
+  it('bounds the subchat index', () => {
+    const args = { sessionId: 'user-1', chatId: 'chat-1', description: 'Title' };
     expect(
-      dataOperationArgSchemas['messages.getAll'].safeParse({
-        sessionId: 'user-1',
-        limit: 100,
-        cursor: { timestamp: '2026-02-03T04:05:06.000Z', rowId: 'row-1' },
-      }).success,
+      dataOperationArgSchemas['subchats.setDescription'].safeParse({ ...args, subchatIndex: 10_000 }).success,
     ).toBe(true);
     expect(
-      dataOperationArgSchemas['subchats.get'].safeParse({
-        sessionId: 'user-1',
-        chatId: 'chat-1',
-        cursor: { subchatIndex: 10_000 },
-      }).success,
-    ).toBe(true);
-    expect(
-      dataOperationArgSchemas['subchats.get'].safeParse({
-        sessionId: 'user-1',
-        chatId: 'chat-1',
-        cursor: { subchatIndex: 10_001 },
-      }).success,
+      dataOperationArgSchemas['subchats.setDescription'].safeParse({ ...args, subchatIndex: 10_001 }).success,
     ).toBe(false);
-
-    for (const args of [
-      { sessionId: 'user-1', limit: 101 },
-      { sessionId: 'user-1', cursor: { timestamp: 'not-a-timestamp', rowId: 'row-1' } },
-      { sessionId: 'user-1', cursor: { timestamp: '2026-02-03T06:05:06.000+02:00', rowId: 'row-1' } },
-      {
-        sessionId: 'user-1',
-        cursor: { timestamp: '2026-02-03T04:05:06.000Z', rowId: 'row-1', unexpected: true },
-      },
-    ]) {
-      expect(dataOperationArgSchemas['messages.getAll'].safeParse(args).success).toBe(false);
-    }
   });
 });

@@ -39,43 +39,30 @@ describe('empty chat lifecycle', () => {
   });
 });
 
-describe('bounded chat reads', () => {
-  it('uses the row id to paginate chats that have identical timestamps', async () => {
-    const timestamp = '2026-02-03T04:05:06.000Z';
-    const historyRows = ['row-c', 'row-b', 'row-a'].map((rowId) => ({
-      row_id: rowId,
-      initial_id: `initial-${rowId}`,
-      description: null,
-      timestamp,
-    }));
-    const all = vi
-      .fn()
-      .mockResolvedValueOnce({ results: historyRows })
-      .mockResolvedValueOnce({ results: historyRows.slice(2) });
+describe('chat reads', () => {
+  it('lists every chat of ones own newest first', async () => {
+    const all = vi.fn().mockResolvedValue({
+      results: ['c', 'b', 'a'].map((id) => ({
+        initial_id: `initial-${id}`,
+        description: null,
+        timestamp: '2026-02-03T04:05:06.000Z',
+      })),
+    });
     const bind = vi.fn(() => ({ all }));
     const prepare = vi.fn(() => ({ bind }));
+    // SAFETY: getAllChats calls only prepare().bind().all(), which this stub provides.
     const db = { prepare } as unknown as D1Database;
 
-    const firstPage = await getAllChats(db, { sessionId: 'user-1', limit: 2 });
-    const lastPage = await getAllChats(db, {
-      sessionId: 'user-1',
-      limit: 2,
-      cursor: firstPage.nextCursor,
-    });
+    const chats = await getAllChats(db, { sessionId: 'user-1' });
 
-    expect(firstPage.items.map((item) => item.initialId)).toEqual(['initial-row-c', 'initial-row-b']);
-    expect(firstPage.nextCursor).toEqual({ timestamp, rowId: 'row-b' });
-    expect(lastPage.items.map((item) => item.initialId)).toEqual(['initial-row-a']);
-    expect(lastPage.nextCursor).toBeUndefined();
+    expect(chats.map((chat) => chat.initialId)).toEqual(['initial-c', 'initial-b', 'initial-a']);
     expect(prepare).toHaveBeenCalledWith(expect.stringContaining('ORDER BY chats.timestamp DESC, chats.id DESC'));
     // A GitHub project's chat is listed with the GitHub projects, never also as one of the user's apps.
     expect(prepare).toHaveBeenCalledWith(expect.stringContaining('AND chats.org_project_id IS NULL'));
-    expect(prepare).toHaveBeenLastCalledWith(expect.stringContaining('(chats.timestamp, chats.id) < (?, ?)'));
-    expect(bind).toHaveBeenNthCalledWith(1, 'user-1', 3);
-    expect(bind).toHaveBeenNthCalledWith(2, 'user-1', timestamp, 'row-b', 3);
+    expect(bind).toHaveBeenCalledWith('user-1');
   });
 
-  it('caps the subchat query and advances from the last returned index', async () => {
+  it('lists every subchat of a chat in order', async () => {
     const subchatRows = [0, 1, 2].map((subchatIndex) => ({
       subchat_index: subchatIndex,
       description: null,
@@ -101,19 +88,11 @@ describe('bounded chat reads', () => {
       }),
     }));
 
-    const page = await getSubchats({ prepare } as unknown as D1Database, {
-      sessionId: 'user-1',
-      chatId: 'chat',
-      limit: 2,
-    });
+    // SAFETY: getSubchats calls only prepare().bind().first() and .all(), which this stub provides.
+    const subchats = await getSubchats({ prepare } as unknown as D1Database, { sessionId: 'user-1', chatId: 'chat' });
 
-    expect(page.items.map((item) => item.subchatIndex)).toEqual([0, 1]);
-    expect(page.nextCursor).toEqual({ subchatIndex: 1 });
-    expect(prepare).toHaveBeenLastCalledWith(expect.stringContaining('LIMIT ?'));
-    expect(binds).toEqual([
-      ['user-1', 'chat'],
-      ['chat-row', -1, 3],
-    ]);
+    expect(subchats.map((item) => item.subchatIndex)).toEqual([0, 1, 2]);
+    expect(binds).toEqual([['user-1', 'chat'], ['chat-row']]);
   });
 });
 

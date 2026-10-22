@@ -6,9 +6,8 @@ import {
 import { z } from 'zod';
 import type { BuilderAgent } from '~/agents/builder-agent';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
-import { MAX_SUBCHAT_INDEX } from './data-pagination';
 import type { DataOperationPath, DataOperationResult } from './data-api';
-import { dataOperationArgSchemas } from './data-operation-schemas';
+import { dataOperationArgSchemas, MAX_SUBCHAT_INDEX } from './data-operation-schemas';
 import { getSessionId, UnauthorizedError } from './data/auth.server';
 import {
   findChat,
