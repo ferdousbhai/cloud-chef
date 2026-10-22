@@ -74,33 +74,20 @@ export const EditorPanel = memo(function EditorPanel({
           unsavedFiles={unsavedFiles}
           rootFolder={WORK_DIR}
           selectedFile={selectedFile}
-          onFileSelect={(filePath) => {
-            editorRef.current?.flushPendingChange();
-            onFileSelect?.(filePath);
-          }}
+          onFileSelect={onFileSelect}
         />
       </aside>
       <section className="flex min-h-0 min-w-0 flex-col">
         <PanelHeader className="overflow-x-auto">
           {(activeFileSegments?.length ?? 0) > 0 && (
             <div className="flex flex-1 items-center text-sm">
-              <FileBreadcrumb
-                pathSegments={activeFileSegments}
-                files={files}
-                onFileSelect={(filePath) => {
-                  editorRef.current?.flushPendingChange();
-                  onFileSelect?.(filePath);
-                }}
-              />
+              <FileBreadcrumb pathSegments={activeFileSegments} files={files} onFileSelect={onFileSelect} />
               {activeFileUnsaved && !readOnly && (
                 <div className="-mr-1.5 ml-auto flex gap-1">
                   <PanelHeaderButton
                     disabled={savesInFlight}
                     title={savesInFlight ? 'Saving…' : undefined}
-                    onClick={() => {
-                      editorRef.current?.flushPendingChange();
-                      onFileReset?.();
-                    }}
+                    onClick={onFileReset}
                   >
                     <ResetIcon />
                     Reset
