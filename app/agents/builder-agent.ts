@@ -479,11 +479,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.hydrateDurableIdentity({ required: false, reason: 'agent_start' });
     }
     this.refreshCloudflareExecutionState();
-    const deployment = this.state.deployment;
-    if (deployment?.status === 'succeeded' && deployment.revision && !this.state.productionRevision) {
-      // Stopped between recording the deployment and the revision production serves.
-      this.setState({ ...this.state, productionRevision: deployment.revision });
-    }
     if (this.state.upgradeWaiting) {
       // The turn that waited stopped with the instance before it started.
       this.setState({ ...this.state, upgradeWaiting: false });
@@ -2732,8 +2727,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   /** The deployment of `job` succeeded, as it ran or as its record in the user's account says. */
   private async recordDeploymentSucceeded(job: DeploymentJob, deployment: BuilderDeploymentState): Promise<void> {
-    this.setDeploymentResult(job, { ...deployment, ...job });
-    await this.recordProductionRevision(job.revision);
+    await this.recordProductionRevision(job.revision, { ...deployment, ...job });
   }
 
   /** Who a publication runs for and the chat it records, once this agent knows its identity. */
@@ -2755,11 +2749,16 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return revision === this.state.productionRevision;
   }
 
-  /** Production serves this revision now; the publication a turn asked for is done once it is the current one. */
-  private async recordProductionRevision(revision: string): Promise<void> {
+  /**
+   * Production serves this revision now; the publication a turn asked for is done once it is the current one.
+   * The deployment that put it there, if given, is recorded in the same write, so no stop falls between them.
+   */
+  private async recordProductionRevision(revision: string, deployment?: BuilderDeploymentState): Promise<void> {
     const current = await this.workspace.checkpoint().catch(() => null);
+    const recordsDeployment = deployment !== undefined && this.state.deployment?.revision === revision;
     this.setState({
       ...this.state,
+      deployment: recordsDeployment ? deployment : this.state.deployment,
       productionRevision: revision,
       publicationPending: current?.revision === revision ? false : this.state.publicationPending,
     });

@@ -140,6 +140,21 @@ describe('BuilderAgent automatic publication', () => {
     );
   });
 
+  it('records a succeeded deployment and the revision production serves in one write', async () => {
+    const deploy = vi.fn<BuilderPublisher['deploy']>(async () => ({ status: 'succeeded', id: 'deployment-1' }));
+    const harness = await publicationHarness({ publisher: { deploy } });
+    const setState = vi.spyOn(harness.agent, 'setState');
+
+    await finishChangingTurn(harness);
+
+    await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
+    const written = setState.mock.calls.map(([state]) => state);
+    expect(written.some((state) => state.deployment?.status === 'succeeded')).toBe(true);
+    for (const state of written.filter(({ deployment }) => deployment?.status === 'succeeded')) {
+      expect(state.productionRevision).toBe(CHECKPOINT.revision);
+    }
+  });
+
   it('publishes the changes of a turn that was stopped or failed', async () => {
     const deploy = vi.fn<BuilderPublisher['deploy']>(async () => ({ status: 'succeeded', id: 'deployment-1' }));
     const harness = await publicationHarness({ publisher: { deploy } });
