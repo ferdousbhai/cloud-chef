@@ -61,7 +61,7 @@ const mocks = vi.hoisted(() => ({
   piMessages: [] as unknown[],
   piRun: vi.fn(),
   prepareModelInput: vi.fn(async (options: { messages: unknown[] }) => ({
-    messages: [],
+    messages: mocks.piMessages,
     promptMessages: options.messages,
     nextCompaction: null,
     contextCompacted: false,
@@ -84,9 +84,6 @@ vi.mock('./pi-ai-models', () => ({
 vi.mock('./model-input', async (importOriginal) => ({
   ...(await importOriginal()),
   prepareModelInput: mocks.prepareModelInput,
-}));
-vi.mock('./pi-message-conversion', () => ({
-  modelMessagesToPi: vi.fn(() => mocks.piMessages),
 }));
 vi.mock('./builder-skills', () => ({
   createBuilderSkillContext: vi.fn(async () => ({

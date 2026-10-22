@@ -46,7 +46,6 @@ import {
 } from './context-compaction';
 import { createContextWindowTools } from './context-window-tools';
 import { ModelInputBudgetExceededError, modelCompactionPolicy, prepareModelInput } from './model-input';
-import { modelMessagesToPi } from './pi-message-conversion';
 import { createToolTimeAccounting } from './tool-time-accounting';
 import {
   clearOldToolResults,
@@ -115,7 +114,7 @@ export interface PiAgentOptions {
   onModelUsage?: (usage: ModelTurnUsage) => void;
 }
 
-type PiPreparationStage = 'tool_setup' | 'model_input' | 'prompt_metrics' | 'message_conversion';
+type PiPreparationStage = 'tool_setup' | 'model_input' | 'prompt_metrics' | 'tool_result_clearing';
 
 /**
  * The reasoning level a builder turn asks for: the person's choice for this model, or `undefined`
@@ -300,8 +299,8 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
     return { messages: cleared.messages, tokens: tokens - cleared.savedTokens };
   };
   const piMessages = withPreparationStage(
-    'message_conversion',
-    () => withOldToolResultsCleared(modelMessagesToPi(modelInput.messages), modelInput.estimatedTokens).messages,
+    'tool_result_clearing',
+    () => withOldToolResultsCleared(modelInput.messages, modelInput.estimatedTokens).messages,
   );
   const replayedMessages = new Set<AgentMessage>(piMessages);
   recordPiStage('prepared', modelId);
@@ -547,7 +546,7 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
       recordPiStage('loop_start', modelId);
       const loopConfig: AgentLoopConfig & { toolChoice: 'auto' } = {
         model: handle.model,
-        // SAFETY: every message in this loop's context originates from `modelMessagesToPi`, the Pi
+        // SAFETY: every message in this loop's context originates from `transcriptToPiMessages`, the Pi
         // tool adapter, or the Pi stream itself, so the context never holds a custom agent message.
         convertToLlm: (agentMessages) => agentMessages as Message[],
         getSteeringMessages: () => steering.drain(),

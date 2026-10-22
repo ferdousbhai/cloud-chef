@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { toolSuccess } from 'cloudchef-agent/tool-result';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
-import { cleanupAssistantMessages } from './message-conversion';
+import { transcriptToPiMessages } from './message-conversion';
 
-describe('cleanupAssistantMessages', () => {
-  it('converts native tool success without a compatibility message shape', async () => {
-    const messages = await cleanupAssistantMessages([
+describe('transcriptToPiMessages', () => {
+  it('replays a tool success as a Pi tool call and its JSON result', () => {
+    const messages = transcriptToPiMessages([
       assistantToolMessage({
         type: 'dynamic-tool',
         toolName: 'read',
@@ -16,62 +16,53 @@ describe('cleanupAssistantMessages', () => {
       }),
     ]);
 
-    expect(messages).toEqual([
+    expect(messages).toMatchObject([
       {
         role: 'assistant',
         content: [
           {
-            type: 'tool-call',
-            toolCallId: 'read-1',
-            toolName: 'read',
-            input: { path: '/home/project/src/app.ts' },
+            type: 'toolCall',
+            id: 'read-1',
+            name: 'read',
+            arguments: { path: '/home/project/src/app.ts' },
           },
         ],
+        model: 'pi-bridge',
+        stopReason: 'stop',
       },
       {
-        role: 'tool',
-        content: [
-          {
-            type: 'tool-result',
-            toolCallId: 'read-1',
-            toolName: 'read',
-            output: {
-              type: 'json',
-              value: toolSuccess('Read file', { content: 'const answer = 42;' }),
-            },
-          },
-        ],
+        role: 'toolResult',
+        toolCallId: 'read-1',
+        toolName: 'read',
+        content: [{ type: 'text', text: JSON.stringify(toolSuccess('Read file', { content: 'const answer = 42;' })) }],
+        isError: false,
       },
     ]);
   });
 
-  it('keeps failed tool output typed through model conversion', async () => {
-    const messages = await cleanupAssistantMessages([
+  it('marks a failed tool result as an error carrying its error text', () => {
+    const messages = transcriptToPiMessages([
       assistantToolMessage({
         type: 'dynamic-tool',
-        toolName: 'read',
-        toolCallId: 'read-error',
+        toolName: 'exec',
+        toolCallId: 'exec-1',
         state: 'output-error',
-        input: { path: '/home/project/missing.ts' },
-        errorText: 'File not found',
+        input: { command: 'rm -rf /' },
+        errorText: 'User denied execution',
       }),
     ]);
 
-    expect(messages).toContainEqual({
-      role: 'tool',
-      content: [
-        {
-          type: 'tool-result',
-          toolCallId: 'read-error',
-          toolName: 'read',
-          output: { type: 'error-text', value: 'File not found' },
-        },
-      ],
+    expect(messages.at(-1)).toMatchObject({
+      role: 'toolResult',
+      toolCallId: 'exec-1',
+      toolName: 'exec',
+      content: [{ type: 'text', text: 'User denied execution' }],
+      isError: true,
     });
   });
 
-  it('preserves tool-result ordering before later assistant text', async () => {
-    const messages = await cleanupAssistantMessages([
+  it('preserves tool-result ordering before later assistant text', () => {
+    const messages = transcriptToPiMessages([
       {
         id: 'assistant-ordered',
         role: 'assistant',
@@ -89,12 +80,15 @@ describe('cleanupAssistantMessages', () => {
       },
     ]);
 
-    expect(messages.map((message) => message.role)).toEqual(['assistant', 'tool', 'assistant']);
-    expect(messages.at(-1)).toEqual({ role: 'assistant', content: [{ type: 'text', text: 'Now I can answer.' }] });
+    expect(messages.map((message) => message.role)).toEqual(['assistant', 'toolResult', 'assistant']);
+    expect(messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Now I can answer.' }],
+    });
   });
 
-  it('removes every hidden reasoning block before the transcript returns to the model', async () => {
-    const messages = await cleanupAssistantMessages([
+  it('removes every hidden reasoning block before the transcript returns to the model', () => {
+    const messages = transcriptToPiMessages([
       {
         id: 'assistant-1',
         role: 'assistant',
@@ -107,7 +101,8 @@ describe('cleanupAssistantMessages', () => {
       },
     ]);
 
-    expect(messages).toEqual([{ role: 'assistant', content: [{ type: 'text', text: 'Visible answer' }] }]);
+    expect(messages).toMatchObject([{ role: 'assistant', content: [{ type: 'text', text: 'Visible answer' }] }]);
+    expect(messages).toHaveLength(1);
   });
 });
 

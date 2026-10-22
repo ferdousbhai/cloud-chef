@@ -1,102 +1,117 @@
+import type { AssistantMessage, JsonObject, Message, TextContent, ToolCall } from '@earendil-works/pi-ai';
 import { getToolInvocation, type CloudChefMessage, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
+import { isRecord } from 'cloudchef-agent/utils/isRecord';
 
-export type ModelTextPart = { type: 'text'; text: string };
-
-export type ModelToolCallPart = {
-  type: 'tool-call';
-  toolCallId: string;
-  toolName: string;
-  input: Record<string, unknown>;
+/**
+ * Pi requires provider/usage bookkeeping on assistant turns; replayed history carries none, so the
+ * conversion reports a zero-cost `pi-bridge` origin.
+ */
+const BRIDGE_USAGE: AssistantMessage['usage'] = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
-export type ModelToolOutput = { type: 'json'; value: unknown } | { type: 'error-text'; value: string };
-
-export type ModelToolResultPart = {
-  type: 'tool-result';
-  toolCallId: string;
-  toolName: string;
-  output: ModelToolOutput;
-};
-
-export type ModelMessage =
-  | { role: 'user' | 'system'; content: string }
-  | { role: 'assistant'; content: (ModelTextPart | ModelToolCallPart)[] }
-  | { role: 'tool'; content: [ModelToolResultPart] };
-
-/** Convert the authoritative UI transcript into the text/tool protocol consumed by Pi. */
-export function cleanupAssistantMessages(messages: CloudChefMessage[]): ModelMessage[] {
-  return messages.flatMap(toModelMessages);
+/** Convert the authoritative UI transcript into the Pi messages a model turn replays. */
+export function transcriptToPiMessages(messages: CloudChefMessage[]): Message[] {
+  return messages.flatMap(toPiMessages);
 }
 
-function toModelMessages(message: CloudChefMessage): ModelMessage[] {
+function toPiMessages(message: CloudChefMessage): Message[] {
   if (message.role !== 'assistant') {
-    const text = message.parts.map(partText).join('');
-    return text || message.role === 'user' ? [{ role: message.role, content: text }] : [];
+    const content = message.parts.map(partText).join('');
+    if (message.role === 'user') {
+      return [{ role: 'user', content, timestamp: Date.now() }];
+    }
+    return content ? [{ role: 'system', content, timestamp: Date.now() }] : [];
   }
 
-  const result: ModelMessage[] = [];
+  const result: Message[] = [];
   let pendingText = '';
-  const flushText = (): ModelTextPart[] => {
+  const flushText = (): TextContent[] => {
     const text = pendingText.trim();
     pendingText = '';
     return text ? [{ type: 'text', text }] : [];
   };
 
   for (const part of message.parts) {
-    if (part.type === 'text' && typeof part.text === 'string') {
-      pendingText += stripHiddenReasoning(part.text);
+    if (part.type === 'text') {
+      pendingText += partText(part);
       continue;
     }
     const invocation = getToolInvocation(part);
     if (!invocation || !isTerminalToolState(invocation.state) || !invocation.toolCallId || !invocation.toolName) {
       continue;
     }
-    result.push({
-      role: 'assistant',
-      content: [
+    result.push(
+      assistantMessage([
         ...flushText(),
         {
-          type: 'tool-call',
-          toolCallId: invocation.toolCallId,
-          toolName: invocation.toolName,
-          input: toolCallInput(invocation.input),
+          type: 'toolCall',
+          id: invocation.toolCallId,
+          name: invocation.toolName,
+          arguments: toolCallArguments(invocation.input),
         },
-      ],
-    });
+      ]),
+    );
+    const failed = invocation.state === 'output-error';
     result.push({
-      role: 'tool',
+      role: 'toolResult',
+      toolCallId: invocation.toolCallId,
+      toolName: invocation.toolName,
       content: [
         {
-          type: 'tool-result',
-          toolCallId: invocation.toolCallId,
-          toolName: invocation.toolName,
-          output:
-            invocation.state === 'output-available'
-              ? { type: 'json', value: invocation.output }
-              : { type: 'error-text', value: invocation.errorText ?? 'Tool execution failed.' },
+          type: 'text',
+          text: failed ? (invocation.errorText ?? 'Tool execution failed.') : toolOutputText(invocation.output),
         },
       ],
+      isError: failed,
+      timestamp: Date.now(),
     });
   }
 
   const finalText = flushText();
   if (finalText.length > 0) {
-    result.push({ role: 'assistant', content: finalText });
+    result.push(assistantMessage(finalText));
   }
   return result;
 }
 
-/** Tool-call inputs arrive as decoded JSON from the transcript; anything but an object carries no arguments. */
-function toolCallInput(input: CloudChefToolInvocation['input']): Record<string, unknown> {
-  return isArgumentObject(input) ? input : {};
+function assistantMessage(content: (TextContent | ToolCall)[]): AssistantMessage {
+  return {
+    role: 'assistant',
+    content,
+    timestamp: Date.now(),
+    api: 'openai-completions',
+    provider: 'cloudflare-workers-ai',
+    model: 'pi-bridge',
+    usage: BRIDGE_USAGE,
+    stopReason: 'stop',
+  };
 }
 
-function isArgumentObject(value: CloudChefToolInvocation['input']): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+/** Tool-call inputs arrive as decoded JSON from the transcript; anything but an object carries no arguments. */
+function toolCallArguments(input: CloudChefToolInvocation['input']): JsonObject {
+  // SAFETY: replayed tool inputs were parsed from the persisted JSON transcript.
+  return isRecord(input) ? (input as JsonObject) : {};
+}
+
+function toolOutputText(output: CloudChefToolInvocation['output']): string {
+  if (typeof output === 'string') {
+    return output;
+  }
+  try {
+    return JSON.stringify(output) ?? String(output ?? '');
+  } catch {
+    return String(output ?? '');
+  }
 }
 
 function partText(part: CloudChefMessage['parts'][number]): string {
-  return part.type === 'text' && typeof part.text === 'string' ? stripHiddenReasoning(part.text) : '';
+  return part.type === 'text' && part.text ? stripHiddenReasoning(part.text) : '';
 }
 
 function isTerminalToolState(state: string): boolean {

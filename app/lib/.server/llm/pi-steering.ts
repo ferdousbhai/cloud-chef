@@ -1,8 +1,7 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
-import { cleanupAssistantMessages } from './message-conversion';
-import { modelMessagesToPi } from './pi-message-conversion';
+import { transcriptToPiMessages } from './message-conversion';
 import { injectTurnContext } from './turn-context';
 
 type PiSteeringReservation = {
@@ -45,7 +44,7 @@ export class PiSteeringQueue {
 }
 
 function toPiSteeringMessage(message: CloudChefMessage, turnContext?: ChatTurnContext): AgentMessage {
-  const [converted] = modelMessagesToPi(cleanupAssistantMessages(injectTurnContext([message], turnContext)));
+  const [converted] = transcriptToPiMessages(injectTurnContext([message], turnContext));
   if (!converted || converted.role !== 'user') {
     throw new TypeError('Pi steering requires a user message.');
   }

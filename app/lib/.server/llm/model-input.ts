@@ -1,4 +1,4 @@
-import type { ModelMessage } from './message-conversion';
+import type { Message } from '@earendil-works/pi-ai';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { modelTokenEstimateSafetyTokens } from 'cloudchef-agent/context-limits';
@@ -10,11 +10,11 @@ import {
   estimateTextTokens,
   type ContextCompaction,
 } from './context-compaction';
-import { cleanupAssistantMessages } from './message-conversion';
+import { transcriptToPiMessages } from './message-conversion';
 import { injectTurnContext } from './turn-context';
 
 type PreparedModelInput = {
-  messages: ModelMessage[];
+  messages: Message[];
   promptMessages: CloudChefMessage[];
   estimatedTokens: number;
   contextCompacted: boolean;
@@ -119,11 +119,12 @@ function assembleModelInput(
   uiMessages: CloudChefMessage[],
   args: Pick<Parameters<typeof prepareModelInput>[0], 'systemPrompt' | 'tools'>,
 ) {
-  const messages = cleanupAssistantMessages(uiMessages);
+  const messages = transcriptToPiMessages(uiMessages);
   const estimatedTokens = estimateTextTokens(
     JSON.stringify({
       instructions: args.systemPrompt,
-      messages,
+      // A replayed message's timestamp and usage bookkeeping never reach the provider.
+      messages: messages.map(({ role, content }) => ({ role, content })),
       tools: args.tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
       toolChoice: 'auto',
     }),
