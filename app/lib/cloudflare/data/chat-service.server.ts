@@ -1,6 +1,6 @@
 import { ensureInitialChat, findChat, requireChat } from './chat-repository.server';
-import { transcriptAgentName } from 'cloudchef-agent/transcript';
-import { prepareInsertChatTranscript, requireChatTranscript } from './transcript-repository.server';
+import { prepareInsertChatTranscript } from './transcript-repository.server';
+import type { ChatRow, ChatTranscriptRow } from './types';
 import { prepareAgentGcCandidatesStatement } from './agent-gc.server';
 import { MAX_SUBCHAT_INDEX } from '~/lib/cloudflare/data-operation-schemas';
 import { DataNotFoundError, SubchatLimitError } from './errors';
@@ -278,85 +278,45 @@ export async function getSubchats(db: D1Database, args: { sessionId: string; cha
   }));
 }
 
+/**
+ * Adds the chat's next subchat, continuing `parent`, its latest. The batch commits only while the chat
+ * still ends at that parent and the parent is still that generation, so values read earlier cannot add a
+ * second subchat at the same index.
+ */
 export async function createSubchat(
   db: D1Database,
-  args: { sessionId: string; chatId: string; parentRevision: number },
+  args: { sessionId: string; chat: ChatRow; parent: ChatTranscriptRow; parentRevision: number },
 ) {
-  const chat = await requireChat(db, { id: args.chatId, sessionId: args.sessionId });
+  const { chat, parent } = args;
   if (chat.last_subchat_index >= MAX_SUBCHAT_INDEX) {
     throw new SubchatLimitError();
   }
   const newSubchatIndex = chat.last_subchat_index + 1;
-  const parentTranscript = await requireChatTranscript(db, {
-    chatId: chat.id,
-    subchatIndex: chat.last_subchat_index,
-  });
-  const now = Date.now();
   const transitionToken = crypto.randomUUID();
-  const parentRevision = args.parentRevision;
-  const agentName = transcriptAgentName(chat.initial_id, newSubchatIndex, 0);
-  let results: D1Result[];
-  try {
-    results = await db.batch([
-      prepareInsertChatTranscript(db, {
-        chatId: chat.id,
-        initialId: chat.initial_id,
-        subchatIndex: newSubchatIndex,
-        parent: {
-          subchatIndex: parentTranscript.subchat_index,
-          generation: parentTranscript.generation,
-          revision: parentRevision,
-        },
-        ownerId: args.sessionId,
-        transitionToken,
-        now,
-      }),
-      db
-        .prepare(
-          `UPDATE chats
-           SET last_subchat_index = ?
-           WHERE id = ? AND last_subchat_index = ? AND EXISTS (
-             SELECT 1 FROM chat_transcripts
-             WHERE chat_id = ? AND subchat_index = ? AND generation = 0 AND transition_token = ?
-           )`,
-        )
-        .bind(newSubchatIndex, chat.id, chat.last_subchat_index, chat.id, newSubchatIndex, transitionToken),
-    ]);
-  } catch (error) {
-    try {
-      const committed = await db
-        .prepare(
-          `SELECT 1 AS found
-           FROM chats
-           JOIN chat_transcripts AS transcripts ON transcripts.chat_id = chats.id
-           WHERE chats.id = ? AND chats.creator_id = ? AND chats.is_deleted = 0
-             AND chats.last_subchat_index = ?
-             AND transcripts.subchat_index = ? AND transcripts.generation = 0
-             AND transcripts.agent_name = ? AND transcripts.transition_token = ?
-             AND transcripts.parent_subchat_index = ? AND transcripts.parent_generation = ?
-             AND transcripts.parent_revision = ?
-           LIMIT 1`,
-        )
-        .bind(
-          chat.id,
-          args.sessionId,
-          newSubchatIndex,
-          newSubchatIndex,
-          agentName,
-          transitionToken,
-          parentTranscript.subchat_index,
-          parentTranscript.generation,
-          parentRevision,
-        )
-        .first<{ found: number }>();
-      if (committed) {
-        return newSubchatIndex;
-      }
-    } catch {
-      // Preserve the original batch failure when the commit receipt cannot be read.
-    }
-    throw error;
-  }
+  const results = await db.batch([
+    prepareInsertChatTranscript(db, {
+      chatId: chat.id,
+      initialId: chat.initial_id,
+      subchatIndex: newSubchatIndex,
+      parent: {
+        subchatIndex: parent.subchat_index,
+        generation: parent.generation,
+        revision: args.parentRevision,
+      },
+      ownerId: args.sessionId,
+      transitionToken,
+    }),
+    db
+      .prepare(
+        `UPDATE chats
+         SET last_subchat_index = ?
+         WHERE id = ? AND last_subchat_index = ? AND EXISTS (
+           SELECT 1 FROM chat_transcripts
+           WHERE chat_id = ? AND subchat_index = ? AND generation = 0 AND transition_token = ?
+         )`,
+      )
+      .bind(newSubchatIndex, chat.id, chat.last_subchat_index, chat.id, newSubchatIndex, transitionToken),
+  ]);
   if (results.some((result) => result.meta.changes !== 1)) {
     throw new Error('Chat transcript changed while creating a subchat; retry the operation');
   }

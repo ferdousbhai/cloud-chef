@@ -200,7 +200,9 @@ async function createSubchatFromAgent(env: Env, args: { sessionId: string; chatI
     throw new Error('Parent transcript identity changed while creating a subchat.');
   }
   return createSubchat(env.DB, {
-    ...args,
+    sessionId: args.sessionId,
+    chat,
+    parent,
     parentRevision: durable.checkpoint?.revision ?? 0,
   });
 }

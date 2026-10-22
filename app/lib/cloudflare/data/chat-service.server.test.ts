@@ -129,71 +129,50 @@ describe('chat deletion', () => {
 
 describe('transcript generation transitions', () => {
   it('rejects subchat creation at the validated index ceiling', async () => {
-    const first = vi.fn().mockResolvedValue({
-      id: 'chat-row',
-      creator_id: 'user-1',
-      initial_id: 'chat',
-      description: null,
-      timestamp: '2026-01-01T00:00:00.000Z',
-      last_subchat_index: 10_000,
-      has_messages: 1,
-      is_deleted: 0,
-    });
-    const prepare = vi.fn(() => ({ bind: vi.fn(() => ({ first })) }));
+    const database = subchatDatabase();
 
     await expect(
-      createSubchat({ prepare } as unknown as D1Database, { sessionId: 'user-1', chatId: 'chat', parentRevision: 0 }),
+      createSubchat(database.db, {
+        sessionId: 'user-1',
+        chat: { ...latestChat, last_subchat_index: 10_000 },
+        parent: latestTranscript,
+        parentRevision: 0,
+      }),
     ).rejects.toThrow('maximum number of subchats');
-    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(database.statements).toHaveLength(0);
   });
 
   it('creates a subchat with its own agent identity and parent checkpoint', async () => {
-    const database = new ChatServiceDatabase();
+    const database = subchatDatabase();
 
     const created = await createSubchat(database.db, {
       sessionId: 'user-1',
-      chatId: 'chat',
+      chat: latestChat,
+      parent: latestTranscript,
       parentRevision: 9,
     });
 
     expect(created).toBe(3);
-    const transcriptInsert = database.batchStatements[0];
+    const transcriptInsert = database.statements[0];
     expect(transcriptInsert.query).toContain('INSERT INTO chat_transcripts');
     expect(transcriptInsert.values.slice(0, 7)).toEqual(['chat-row', 3, 0, 'chat--transcript-3-0', 2, 4, 9]);
     expect(transcriptInsert.query).toContain('WHERE chat_id = ? AND subchat_index = ? AND generation = ?');
     expect(transcriptInsert.query).toContain('chats.is_deleted = 0');
     expect(transcriptInsert.values.at(-1)).toBe('user-1');
-    expect(database.batchStatements[1].query).toContain('last_subchat_index = ?');
+    expect(database.statements[1].query).toContain('last_subchat_index = ?');
   });
 
   it('rejects subchat creation when the parent generation changes before the batch', async () => {
-    const database = new ChatServiceDatabase([0, 0]);
+    const database = subchatDatabase([0, 0]);
 
     await expect(
-      createSubchat(database.db, { sessionId: 'user-1', chatId: 'chat', parentRevision: 9 }),
+      createSubchat(database.db, {
+        sessionId: 'user-1',
+        chat: latestChat,
+        parent: latestTranscript,
+        parentRevision: 9,
+      }),
     ).rejects.toThrow('Chat transcript changed while creating a subchat');
-  });
-
-  it('adopts an exactly matching subchat transition when D1 commits before losing its acknowledgement', async () => {
-    const database = new ChatServiceDatabase([1, 1], true);
-
-    await expect(createSubchat(database.db, { sessionId: 'user-1', chatId: 'chat', parentRevision: 9 })).resolves.toBe(
-      3,
-    );
-
-    expect(database.committedBatch).toBe(true);
-    expect(database.receiptStatements).toHaveLength(1);
-    expect(database.receiptStatements[0].query).toContain('chats.creator_id = ?');
-    expect(database.receiptStatements[0].query).toContain('transcripts.transition_token = ?');
-    expect(database.receiptStatements[0].query).toContain('chats.last_subchat_index = ?');
-  });
-
-  it('preserves the batch failure when the transition receipt does not match exactly', async () => {
-    const database = new ChatServiceDatabase([1, 1], true, false);
-
-    await expect(
-      createSubchat(database.db, { sessionId: 'user-1', chatId: 'chat', parentRevision: 9 }),
-    ).rejects.toThrow('D1 acknowledgement lost');
   });
 });
 
@@ -258,107 +237,42 @@ function emptyChatDatabase(): { sqlite: DatabaseSync; db: D1Database } {
   return { sqlite, db };
 }
 
-type BoundStatement = {
-  query: string;
-  values: unknown[];
-  run: () => Promise<D1Result>;
+type BoundStatement = { query: string; values: unknown[] };
+
+const latestChat: ChatRow = {
+  id: 'chat-row',
+  creator_id: 'user-1',
+  initial_id: 'chat',
+  description: null,
+  timestamp: '2026-01-01T00:00:00.000Z',
+  last_subchat_index: 2,
+  has_messages: 1,
+  is_deleted: 0,
 };
 
-class ChatServiceDatabase {
-  readonly batchStatements: BoundStatement[] = [];
-  readonly receiptStatements: Array<{ query: string; values: unknown[] }> = [];
-  committedBatch = false;
-  private committedReceiptValues: unknown[] | null = null;
+const latestTranscript: ChatTranscriptRow = {
+  chat_id: 'chat-row',
+  subchat_index: 2,
+  generation: 4,
+  agent_name: 'chat--transcript-2-4',
+  description: 'Feature',
+  parent_subchat_index: 1,
+  parent_generation: 0,
+  parent_revision: 3,
+  transition_token: 'previous-transition',
+  created_at: 1,
+  updated_at: 2,
+};
 
-  private readonly chat: ChatRow = {
-    id: 'chat-row',
-    creator_id: 'user-1',
-    initial_id: 'chat',
-    description: null,
-    timestamp: '2026-01-01T00:00:00.000Z',
-    last_subchat_index: 2,
-    has_messages: 1,
-    is_deleted: 0,
-  };
-
-  private readonly transcript: ChatTranscriptRow = {
-    chat_id: 'chat-row',
-    subchat_index: 2,
-    generation: 4,
-    agent_name: 'chat--transcript-2-4',
-    description: 'Feature',
-    parent_subchat_index: 1,
-    parent_generation: 0,
-    parent_revision: 3,
-    transition_token: 'previous-transition',
-    created_at: 1,
-    updated_at: 2,
-  };
-
-  constructor(
-    private readonly batchChanges = [1, 1],
-    private readonly throwAfterBatchCommit = false,
-    private readonly receiptMatches = true,
-  ) {}
-
-  readonly db = {
-    prepare: (query: string) => ({
-      bind: (...values: unknown[]) => {
-        const statement: BoundStatement = {
-          query,
-          values,
-          run: async () => ({ success: true, meta: { changes: 1 } }) as D1Result,
-        };
-        return {
-          ...statement,
-          first: async () => this.first(query, values),
-        };
-      },
-    }),
-    batch: async (statements: BoundStatement[]) => {
-      this.batchStatements.push(...statements);
-      const results = statements.map(
-        (_statement, index) => ({ success: true, meta: { changes: this.batchChanges[index] ?? 1 } }) as D1Result,
-      );
-      if (this.throwAfterBatchCommit) {
-        this.committedBatch = true;
-        this.committedReceiptValues = this.expectedReceiptValues(statements);
-        throw new Error('D1 acknowledgement lost');
-      }
-      return results;
+/** A database whose one batch reports `batchChanges` rows changed by each statement. */
+function subchatDatabase(batchChanges = [1, 1]): { db: D1Database; statements: BoundStatement[] } {
+  const statements: BoundStatement[] = [];
+  const db = {
+    prepare: (query: string) => ({ bind: (...values: unknown[]) => ({ query, values }) }),
+    batch: async (batch: BoundStatement[]) => {
+      statements.push(...batch);
+      return batch.map((_statement, index) => ({ success: true, meta: { changes: batchChanges[index] ?? 1 } }));
     },
   } as unknown as D1Database;
-
-  private first(query: string, values: unknown[]): ChatRow | ChatTranscriptRow | { found: number } | null {
-    if (query.includes('SELECT 1 AS found')) {
-      this.receiptStatements.push({ query, values });
-      return this.committedBatch &&
-        this.receiptMatches &&
-        JSON.stringify(values) === JSON.stringify(this.committedReceiptValues)
-        ? { found: 1 }
-        : null;
-    }
-    if (query.includes('FROM chats')) {
-      return this.chat;
-    }
-    if (query.includes('FROM chat_transcripts')) {
-      return this.transcript;
-    }
-    return null;
-  }
-
-  private expectedReceiptValues(statements: BoundStatement[]): unknown[] {
-    const [transcript] = statements;
-    return [
-      transcript.values[0],
-      transcript.values.at(-1),
-      transcript.values[1],
-      transcript.values[1],
-      transcript.values[3],
-      transcript.values[7],
-      transcript.values[4],
-      transcript.values[5],
-      transcript.values[6],
-    ];
-  }
+  return { db, statements };
 }
