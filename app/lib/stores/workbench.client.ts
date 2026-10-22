@@ -13,12 +13,11 @@ import { description } from './description';
 import { EditorStore } from './editor';
 import { FilesStore } from './files';
 import { PreviewsStore } from './previews';
-import { workbenchCurrentView } from './workbench-ui-state';
 
 /** Editor buffers that differ from what is on disk and are renderable as text. */
 type UnsavedTextFiles = Record<AbsolutePath, File>;
 
-export type { WorkbenchViewType } from './workbench-ui-state';
+export type WorkbenchViewType = 'code' | 'preview';
 
 type WorkspaceChangeListener = (
   changes: BuilderWorkspaceClientChange[],
@@ -41,7 +40,7 @@ export class WorkbenchStore {
   #stagedRecreations = new Set<AbsolutePath>();
   #savesInFlight = atom(false);
   showWorkbench: WritableAtom<boolean> = import.meta.hot?.data.showWorkbench ?? atom(false);
-  currentView = workbenchCurrentView;
+  currentView: WritableAtom<WorkbenchViewType> = import.meta.hot?.data.workbenchCurrentView ?? atom('code');
   unsavedFiles: WritableAtom<Set<AbsolutePath>> = import.meta.hot?.data.unsavedFiles ?? atom(new Set<AbsolutePath>());
   /**
    * The GitHub project the active workspace works on, or null for a CloudChef app (and until the agent
@@ -53,6 +52,7 @@ export class WorkbenchStore {
     if (import.meta.hot) {
       import.meta.hot.data.unsavedFiles = this.unsavedFiles;
       import.meta.hot.data.showWorkbench = this.showWorkbench;
+      import.meta.hot.data.workbenchCurrentView = this.currentView;
     }
   }
 
