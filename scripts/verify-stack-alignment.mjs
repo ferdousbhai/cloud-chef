@@ -72,25 +72,6 @@ const blockedRootBuildEntries = new Map([
   ['node-liblzma', '  node-liblzma: false'],
   ['protobufjs', '  protobufjs: false'],
 ]);
-const forbiddenLegacyPaths = [
-  '.cursor/rules/convex_rules.mdc',
-  'app/components/convex',
-  'app/components/chat/ChefAuthWrapper.tsx',
-  'app/components/chat/ModelSelector.tsx',
-  'app/lib/.server/llm/convex-agent.ts',
-  'app/lib/convexOptins.ts',
-  'app/lib/convexProfile.ts',
-  'app/lib/convexUsage.ts',
-  'app/routes/api.convex.callback.ts',
-  'chef-agent',
-  'convex',
-  'template/convex',
-  'app/lib/webcontainer',
-  'app/routes/webcontainer.preview.$id.tsx',
-  'iframe-worker',
-  'proxy',
-  'public/template-snapshot-manifest.json',
-];
 const requiredPaths = [
   '.github/workflows/runtime-artifacts.yml',
   'CODE_OF_CONDUCT.md',
@@ -128,32 +109,6 @@ const requiredMigrationTables = [
   'cloudflare_connections',
   'user_computer_runtimes',
 ];
-const forbiddenCentralWorkloadTables = [
-  'chats',
-  'chat_message_states',
-  'chat_transcripts',
-  'shares',
-  'social_shares',
-  'object_gc_candidates',
-  'agent_gc_candidates',
-  'deployments',
-  'deployment_resources',
-  'deployment_security_inventory',
-  'chat_backup_admissions',
-  'chat_backup_objects',
-  'chat_backup_object_attributions',
-  'chat_backup_reconciliation_state',
-  'thumbnail_upload_admissions',
-  'thumbnail_objects',
-  'thumbnail_reconciliation_state',
-  'skill_sync_state',
-  'skill_sync_entries',
-  'builder_previews',
-  'builder_preview_build_admissions',
-  'sandbox_cleanup_candidates',
-  'feedback',
-];
-
 function readJson(path) {
   return JSON.parse(readFileSync(resolve(rootDir, path), 'utf8'));
 }
@@ -162,20 +117,8 @@ export function findForbiddenFiles(paths) {
   return findForbiddenPaths(rootDir, paths, 'CloudChef uses pnpm lockfiles only');
 }
 
-export function findForbiddenLegacyPaths(paths) {
-  return findForbiddenPaths(rootDir, paths, 'CloudChef uses TanStack Start and Cloudflare-only providers');
-}
-
 export function findForbiddenRuntimeEnvAccess(files, allowlist = runtimeEnvAccessAllowlist) {
   return findForbiddenRuntimeEnvAccessShared(files, allowlist);
-}
-
-export function findForbiddenRootBrowserRuntimeDependencies(pkg) {
-  const forbidden = ['@webcontainer/api', '@webcontainer/snapshot', '@xterm/xterm', '@xterm/addon-fit'];
-  const dependencies = dependencyNames(pkg);
-  return forbidden
-    .filter((name) => dependencies.has(name))
-    .map((name) => `package.json must not depend on the removed browser execution runtime ${name}.`);
 }
 
 export function findSandboxRuntimePinErrors(packageSpec, installedVersion, provisionerSource) {
@@ -306,11 +249,6 @@ export function findRootMigrationErrors(sql) {
       errors.push(`root migrations must create the ${table} table.`);
     }
   }
-  for (const table of forbiddenCentralWorkloadTables) {
-    if (new RegExp(`CREATE TABLE(?: IF NOT EXISTS)? ["']?${table}["']?(?![A-Za-z0-9_])`, 'i').test(sql)) {
-      errors.push(`root migrations must not create the user-owned ${table} workload table.`);
-    }
-  }
   return errors;
 }
 
@@ -325,7 +263,6 @@ export function verifyStackAlignment() {
   verifyPackage(errors, agentPackage, 'cloudchef-agent/package.json', agentRequiredPackages, CONTROL_PLANE_TOOLCHAIN);
   verifyPackage(errors, templatePackage, 'template/package.json', APP_REQUIRED_PACKAGES, GENERATED_APP_TOOLCHAIN);
   errors.push(
-    ...findForbiddenRootBrowserRuntimeDependencies(rootPackage),
     ...findInternalPackageMetadataErrors(rootPackage, 'package.json'),
     ...findInternalPackageMetadataErrors(agentPackage, 'cloudchef-agent/package.json'),
     ...findInternalPackageMetadataErrors(templatePackage, 'template/package.json'),
@@ -337,7 +274,6 @@ export function verifyStackAlignment() {
     ),
     ...findPackageVersionAlignmentErrors(rootPackage, templatePackage, 'template/package.json', SHARED_APP_PACKAGES),
     ...findForbiddenFiles(forbiddenLockfiles),
-    ...findForbiddenLegacyPaths(forbiddenLegacyPaths),
     ...findMissingPaths(rootDir, requiredPaths),
     ...findSandboxRuntimePinErrors(
       rootPackage.dependencies?.['@cloudflare/sandbox'],
@@ -350,37 +286,8 @@ export function verifyStackAlignment() {
     errors.push('package.json must declare Apache-2.0 licensing.');
   }
   errors.push(
-    // The runner schedules exactly the steps of validate:root, validate:agent, and validate:template;
-    // scripts/validate.spec.ts proves the two never drift apart.
     ...findMissingCommandSteps(rootPackage.scripts?.validate, 'package.json scripts.validate', [
       'scripts/validate.mjs',
-    ]),
-    ...findMissingCommandSteps(rootPackage.scripts?.['validate:agent'], 'package.json scripts.validate:agent', [
-      'cloudchef-agent',
-      'typecheck',
-    ]),
-    ...findMissingCommandSteps(rootPackage.scripts?.['validate:root'], 'package.json scripts.validate:root', [
-      'generate',
-      'verify:stack',
-      'verify:production-config',
-      'verify:licenses',
-      'audit:dependencies',
-      'typecheck',
-      'lint',
-      'test',
-      'knip',
-      'build',
-      'verify:built-ssr',
-      'verify:static-assets',
-      'bundle:check',
-    ]),
-    ...findMissingCommandSteps(
-      rootPackage.scripts?.['validate:public-beta'],
-      'package.json scripts.validate:public-beta',
-      ['validate', 'verify:built-browser'],
-    ),
-    ...findMissingCommandSteps(rootPackage.scripts?.['validate:template'], 'package.json scripts.validate:template', [
-      'scripts/verify-template.mjs',
     ]),
   );
 

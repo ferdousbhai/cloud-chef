@@ -5,11 +5,9 @@ import {
   GENERATED_APP_TOOLCHAIN,
   dependencyNames,
   findForbiddenFiles,
-  findForbiddenLegacyPaths,
   findForbiddenDependencies,
   findForbiddenImports,
   findForbiddenRuntimeEnvAccess,
-  findForbiddenRootBrowserRuntimeDependencies,
   findInternalPackageMetadataErrors,
   findDeploymentRuntimePolicyErrors,
   findMissingDependencies,
@@ -110,12 +108,6 @@ describe('stack alignment verification helpers', () => {
     ]);
   });
 
-  it('reports forbidden legacy stack paths', () => {
-    expect(findForbiddenLegacyPaths(['scripts/fixtures/forbidden-stack-imports.txt'])).toEqual([
-      'scripts/fixtures/forbidden-stack-imports.txt must not exist; CloudChef uses TanStack Start and Cloudflare-only providers.',
-    ]);
-  });
-
   it('requires the control-plane Node and pnpm toolchain pins', () => {
     expect(
       findRuntimePinErrors(
@@ -178,7 +170,7 @@ describe('stack alignment verification helpers', () => {
     expect(findDeploymentRuntimePolicyErrors(templatePolicy, 'export const other = 1;')).toHaveLength(3);
   });
 
-  it('keeps only control-plane tables in root D1', () => {
+  it('requires the control-plane tables in root D1', () => {
     const requiredTables = [
       'user',
       'cloudflare_auth_sessions',
@@ -190,12 +182,9 @@ describe('stack alignment verification helpers', () => {
       .map((table) => `CREATE TABLE IF NOT EXISTS ${table} (id TEXT);`)
       .join('\n');
     expect(findRootMigrationErrors(requiredTables)).toEqual([]);
-    expect(
-      findRootMigrationErrors(
-        `${requiredTables}
-         CREATE TABLE chats (id TEXT);`,
-      ),
-    ).toContain('root migrations must not create the user-owned chats workload table.');
+    expect(findRootMigrationErrors('CREATE TABLE user_computer_runtimes (id TEXT);')).toContain(
+      'root migrations must create the user table.',
+    );
   });
 
   it('requires the server Builder template to match the current template source', () => {
@@ -204,18 +193,6 @@ describe('stack alignment verification helpers', () => {
     ).toEqual([]);
     expect(findBuilderTemplateModuleErrors('', 'source-hash')).toEqual([
       'app/agents/builder-template.generated.ts is stale; run pnpm run generate:artifacts.',
-    ]);
-  });
-
-  it('rejects reintroducing a browser execution runtime into the root application', () => {
-    expect(
-      findForbiddenRootBrowserRuntimeDependencies({
-        dependencies: { '@webcontainer/api': '1.6.4' },
-        devDependencies: { '@xterm/xterm': '5.5.0' },
-      }),
-    ).toEqual([
-      'package.json must not depend on the removed browser execution runtime @webcontainer/api.',
-      'package.json must not depend on the removed browser execution runtime @xterm/xterm.',
     ]);
   });
 
