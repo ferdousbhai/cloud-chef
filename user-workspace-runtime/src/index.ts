@@ -113,7 +113,7 @@ import {
   requiredDirectories,
 } from './isolated-materialization';
 import { shellQuote } from './shell-quote';
-import { first } from './sql-rows';
+import { addMissingColumn, first } from './sql-rows';
 import { stableWorkspaceRead } from './stable-workspace-read';
 import {
   isolatedContentDigestCommand,
@@ -300,7 +300,6 @@ type WorkspaceFile = {
 type PreparedValidationRow = {
   revision: string;
   workspace_revision: number;
-  snapshot_root: string;
   artifact_digest: string | null;
 };
 
@@ -409,12 +408,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
          artifact_digest TEXT
        )`,
     );
-    const preparedColumns = [
-      ...this.ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(cloudchef_prepared_validation)'),
-    ];
-    if (!preparedColumns.some((column) => column.name === 'artifact_digest')) {
-      this.ctx.storage.sql.exec('ALTER TABLE cloudchef_prepared_validation ADD COLUMN artifact_digest TEXT');
-    }
+    addMissingColumn(this.ctx.storage.sql, 'cloudchef_prepared_validation', 'artifact_digest', 'TEXT');
     this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS cloudchef_workspace_identity (
          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -447,19 +441,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
          updated_at INTEGER NOT NULL
        )`,
     );
-    const linkedProjectColumns = new Set(
-      [...this.ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(cloudchef_linked_project)')].map(
-        (column) => column.name,
-      ),
-    );
-    if (!linkedProjectColumns.has('branch_key')) {
-      this.ctx.storage.sql.exec('ALTER TABLE cloudchef_linked_project ADD COLUMN branch_key TEXT');
-    }
-    if (!linkedProjectColumns.has('workspace_modes')) {
-      this.ctx.storage.sql.exec(
-        'ALTER TABLE cloudchef_linked_project ADD COLUMN workspace_modes INTEGER NOT NULL DEFAULT 0',
-      );
-    }
+    addMissingColumn(this.ctx.storage.sql, 'cloudchef_linked_project', 'branch_key', 'TEXT');
+    addMissingColumn(this.ctx.storage.sql, 'cloudchef_linked_project', 'workspace_modes', 'INTEGER NOT NULL DEFAULT 0');
     // Its files at the base commit, a row each: a repository's whole list is too large for one value.
     this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS cloudchef_linked_manifest (
@@ -468,16 +451,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
          executable INTEGER NOT NULL DEFAULT 0
        )`,
     );
-    // Runtime schema migration: previews are now immutable Worker versions in the user's account,
-    // so no process, tunnel, cancellation, or expiry state belongs in this container Durable Object.
-    for (const table of [
-      'cloudchef_active_preview',
-      'cloudchef_pending_previews',
-      'cloudchef_preview_results',
-      'cloudchef_preview_cancellations',
-    ]) {
-      this.ctx.storage.sql.exec(`DROP TABLE IF EXISTS ${table}`);
-    }
   }
 
   override fetch(request: Request): Promise<Response> {
@@ -2081,10 +2054,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       const prepared = this.preparedValidationArtifact();
       const preparedMatchesRevision =
         prepared?.revision === revision && prepared.workspace_revision === checkpoint.workspaceRevision;
-      const canReuse =
-        preparedMatchesRevision &&
-        prepared.snapshot_root === PREPARED_VALIDATION_ROOT &&
-        (await this.exists(PREPARED_VALIDATION_ARTIFACT_ROOT)).exists;
+      const canReuse = preparedMatchesRevision && (await this.exists(PREPARED_VALIDATION_ARTIFACT_ROOT)).exists;
       let artifact: PreparedDeploymentArtifact;
       if (canReuse) {
         await activity(31, 'Reusing validated build artifact');
@@ -2094,10 +2064,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
           artifactRoot: PREPARED_VALIDATION_ARTIFACT_ROOT,
           project,
         });
-        const observedDigest = await preparedDeploymentArtifactDigest(artifact);
-        if (prepared.artifact_digest === null) {
-          this.storePreparedValidationArtifact(checkpoint, observedDigest);
-        } else if (prepared.artifact_digest !== observedDigest) {
+        if (prepared.artifact_digest !== (await preparedDeploymentArtifactDigest(artifact))) {
           throw new Error('The retained deployment artifact no longer matches the bytes produced by validation.');
         }
       } else {
@@ -2610,7 +2577,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     return (
       first(
         this.ctx.storage.sql.exec<PreparedValidationRow>(
-          `SELECT revision, workspace_revision, snapshot_root, artifact_digest
+          `SELECT revision, workspace_revision, artifact_digest
            FROM cloudchef_prepared_validation WHERE singleton = 1`,
         ),
       ) ?? null

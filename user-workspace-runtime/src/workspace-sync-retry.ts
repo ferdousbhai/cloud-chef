@@ -3,7 +3,7 @@ import {
   COMPUTER_SYNC_EXHAUSTED_ERROR_CODE,
   COMPUTER_SYNC_PENDING_ERROR_CODE,
 } from '../../cloudchef-agent/cloudflare-computer';
-import { first } from './sql-rows';
+import { addMissingColumn, first } from './sql-rows';
 
 type SyncRetryStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
 
@@ -111,16 +111,10 @@ export class DurableWorkspaceSyncRetryScheduler implements SyncRetryScheduler {
          runtime_id TEXT
        )`,
     );
-    // CREATE TABLE IF NOT EXISTS will not add the column to an already-provisioned workspace, and
-    // without it the retry loses the identity of the runtime that ran the command: Computer then
+    // Without it the retry loses the identity of the runtime that ran the command: Computer then
     // skips its stale-runtime assertion and a pull from a replacement container reports the
     // interrupted command as durably synced.
-    const columns = [
-      ...this.storage.sql.exec<{ name: string }>('PRAGMA table_info(ghostbuild_workspace_sync_retries)'),
-    ];
-    if (!columns.some((column) => column.name === 'runtime_id')) {
-      this.storage.sql.exec('ALTER TABLE ghostbuild_workspace_sync_retries ADD COLUMN runtime_id TEXT');
-    }
+    addMissingColumn(this.storage.sql, 'ghostbuild_workspace_sync_retries', 'runtime_id', 'TEXT');
   }
 
   async get(backend: string): Promise<SyncRetryIntent | undefined> {
