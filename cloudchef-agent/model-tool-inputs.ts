@@ -20,7 +20,7 @@ export const WORKSPACE_TOOL_NAMES = [...WORKSPACE_READ_ONLY_TOOL_NAMES, ...WORKS
 export type WorkspaceToolName = (typeof WORKSPACE_TOOL_NAMES)[number];
 export type WorkspaceReadOnlyToolName = (typeof WORKSPACE_READ_ONLY_TOOL_NAMES)[number];
 
-/** Cloudflare API tools, admitted per turn by runtime controls. They never enter the workspace operation lane. */
+/** Cloudflare API tools, offered when the turn has the account's runtime identity behind it. They never enter the workspace operation lane. */
 export const CLOUDFLARE_API_MODEL_TOOL_NAMES = ['cloudflare_request'] as const;
 export type CloudflareApiModelToolName = (typeof CLOUDFLARE_API_MODEL_TOOL_NAMES)[number];
 
