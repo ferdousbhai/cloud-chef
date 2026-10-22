@@ -66,7 +66,7 @@ Vite plugin and deployed with the `cf` CLI. It contains one D1 binding (`DB`, sc
 - teams (organizations), their members and invites, and daily per-member model usage (`organization_usage_daily`);
 - GitHub projects: App installations, linked repositories, member access, and production requests;
 - per-person settings such as AI Gateway content logging;
-- user workspace runtime discovery, provisioning leases, and upgrade state, plus daily maintenance receipts.
+- user workspace runtime discovery and upgrade state.
 
 It declares these secrets, which are configured in Cloudflare and never stored in source or local environment files:
 
