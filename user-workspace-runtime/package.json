@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "exports": {
-    "./protocol": "./src/protocol.ts"
+    "./protocol": "./src/protocol.ts",
+    "./mutation-receipt": "./src/mutation-receipt.ts"
   },
   "license": "Apache-2.0",
   "engines": {

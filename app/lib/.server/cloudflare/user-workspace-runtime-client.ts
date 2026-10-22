@@ -33,6 +33,8 @@ import type {
 } from '~/agents/builder-workspace-types';
 import { isRetryableDurableObjectError } from '~/lib/cloudflare/durable-object-rpc.server';
 import { z } from 'zod';
+import { isMutationReceipt } from '@cloudchef/user-workspace-runtime/mutation-receipt';
+import { stableJson } from '~/lib/stable-json';
 type ProjectWorkspaceStub = DurableObjectStub<ProjectWorkspaceRpc>;
 
 /** Sent after a command's result when it left the project over its limits. */
@@ -392,20 +394,17 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
           buffer = buffer.slice(newline + 1);
           if (line) {
             const event: unknown = JSON.parse(line);
-            if (isCommandOutputEvent(event)) {
-              if (event.channel === 'stdout') {
-                stdout = appendOutputTail(stdout, event.chunk);
+            const command = commandEventSchema.safeParse(event);
+            if (command.data?.type === 'output') {
+              if (command.data.channel === 'stdout') {
+                stdout = appendOutputTail(stdout, command.data.chunk);
               } else {
-                stderr = appendOutputTail(stderr, event.chunk);
+                stderr = appendOutputTail(stderr, command.data.chunk);
               }
               scheduleUpdate();
-            } else if (isCommandResultEvent(event)) {
-              finalResult = {
-                exitCode: event.result.exitCode,
-                stdout: event.result.stdout,
-                stderr: event.result.stderr,
-              };
-              if (event.streamTruncated) {
+            } else if (command.data?.type === 'result') {
+              finalResult = { ...command.data.result };
+              if (command.data.streamTruncated) {
                 finalResult.streamTruncated = true;
               }
             } else if (finalResult) {
@@ -459,7 +458,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
   ) {
     abortSignal?.throwIfAborted();
     const toolCallId = requireToolCallId(toolCallIdValue);
-    const argsJson = JSON.stringify(stableValue(args));
+    const argsJson = stableJson(args) ?? 'null';
     const existing = this.#inFlight.get(toolCallId);
     if (existing) {
       if (existing.toolName !== toolName || existing.argsJson !== argsJson) {
@@ -1060,70 +1059,29 @@ class SettlementDeadlineError extends Error {
   }
 }
 
-type CommandOutputEvent = { type: 'output'; channel: 'stdout' | 'stderr'; chunk: string };
-type CommandResultEvent = {
-  type: 'result';
-  streamTruncated: boolean;
-  result: { exitCode: number; stdout: string; stderr: string };
-};
-
-function isCommandOutputEvent(value: unknown): value is CommandOutputEvent {
-  if (!isObject(value) || !('type' in value) || !('channel' in value) || !('chunk' in value)) {
-    return false;
-  }
-  return (
-    value.type === 'output' &&
-    (value.channel === 'stdout' || value.channel === 'stderr') &&
-    typeof value.chunk === 'string'
-  );
-}
-
-function isCommandResultEvent(value: unknown): value is CommandResultEvent {
-  if (!isObject(value) || !('type' in value) || !('result' in value) || !('streamTruncated' in value)) {
-    return false;
-  }
-  const { result } = value;
-  if (value.type !== 'result' || !isObject(result)) {
-    return false;
-  }
-  return (
-    typeof value.streamTruncated === 'boolean' &&
-    'exitCode' in result &&
-    typeof result.exitCode === 'number' &&
-    'stdout' in result &&
-    typeof result.stdout === 'string' &&
-    'stderr' in result &&
-    typeof result.stderr === 'string'
-  );
-}
+/** One line of a streamed command: a chunk of its output, or its final result. */
+const commandEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('output'), channel: z.enum(['stdout', 'stderr']), chunk: z.string() }),
+  z.object({
+    type: z.literal('result'),
+    streamTruncated: z.boolean(),
+    result: z.object({ exitCode: z.number(), stdout: z.string(), stderr: z.string() }),
+  }),
+]);
 
 function appendOutputTail(current: string, chunk: string): string {
   const next = `${current}${chunk}`;
   return next.length <= COMMAND_UPDATE_TAIL_CHARACTERS ? next : next.slice(-COMMAND_UPDATE_TAIL_CHARACTERS);
 }
 
-/**
- * A committed workspace mutation the Durable Object acknowledges, either while the journal row is
- * still being settled (`pending`) or once it has been (`complete`).
- */
-function isMutationReceipt(value: unknown, acknowledgement: 'pending' | 'complete'): boolean {
-  return (
-    isObject(value) &&
-    'kind' in value &&
-    value.kind === 'workspace-mutation-receipt' &&
-    'committed' in value &&
-    value.committed === true &&
-    'acknowledgement' in value &&
-    value.acknowledgement === acknowledgement
-  );
-}
-
+/** A committed workspace mutation whose journal row is still being settled. */
 function isPendingMutationReceipt(value: unknown): boolean {
-  return isMutationReceipt(value, 'pending');
+  return isMutationReceipt(value) && value.acknowledgement === 'pending';
 }
 
+/** A committed workspace mutation the Durable Object has acknowledged. */
 function isCompletedMutationReceipt(value: unknown): boolean {
-  return isMutationReceipt(value, 'complete');
+  return isMutationReceipt(value) && value.acknowledgement === 'complete';
 }
 
 function isComputerToolError(value: unknown): boolean {
@@ -1205,15 +1163,4 @@ function indeterminateSettlementError(operation: string, cause: unknown): Worksp
     `Unable to confirm ${operation}; the workspace operation outcome is indeterminate.`,
     { cause },
   );
-}
-
-function stableValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(stableValue);
-  }
-  if (value && typeof value === 'object') {
-    const fields = new Map(Object.entries(value));
-    return Object.fromEntries([...fields.keys()].sort().map((key) => [key, stableValue(fields.get(key))]));
-  }
-  return value;
 }
