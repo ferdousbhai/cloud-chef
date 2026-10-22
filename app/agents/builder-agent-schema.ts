@@ -2,40 +2,20 @@ type BuilderAgentSchemaStorage = Pick<DurableObjectStorage, 'sql' | 'transaction
 
 type BuilderAgentInitializationContext = Pick<DurableObjectState, 'blockConcurrencyWhile' | 'storage'>;
 
+/**
+ * Published migration history is immutable. A migration whose table a later one dropped keeps its
+ * version and name and changes nothing.
+ */
 type SchemaMigration = {
   version: number;
   name: string;
-  apply(sql: SqlStorage): void;
+  apply?(sql: SqlStorage): void;
 };
 
 const MIGRATION_TABLE = '_ghostbuild_builder_schema_migrations';
 
 const migrations: readonly SchemaMigration[] = [
-  {
-    version: 1,
-    name: 'create_builder_turns',
-    apply(sql) {
-      sql.exec(`
-        CREATE TABLE IF NOT EXISTS builder_turns (
-          id TEXT PRIMARY KEY,
-          request_id TEXT NOT NULL,
-          chat_initial_id TEXT NOT NULL,
-          status TEXT NOT NULL,
-          started_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          continuation INTEGER NOT NULL,
-          first_user_message INTEGER NOT NULL,
-          message_count INTEGER NOT NULL,
-          last_user_message_preview TEXT,
-          recovery_incident_id TEXT,
-          recovery_attempt INTEGER,
-          recovery_kind TEXT,
-          partial_text_length INTEGER,
-          error TEXT
-        )
-      `);
-    },
-  },
+  { version: 1, name: 'create_builder_turns' },
   {
     version: 2,
     name: 'create_builder_context_state',
@@ -52,30 +32,8 @@ const migrations: readonly SchemaMigration[] = [
       `);
     },
   },
-  {
-    // Published migration history is immutable even though replay ownership
-    // has moved to the user-owned ProjectWorkspace Durable Object.
-    version: 3,
-    name: 'create_builder_tool_replays',
-    apply(sql) {
-      sql.exec(`
-        CREATE TABLE IF NOT EXISTS builder_workspace_tool_results (
-          tool_call_id TEXT PRIMARY KEY,
-          tool_name TEXT NOT NULL,
-          args_sha256 TEXT NOT NULL,
-          result_json TEXT NOT NULL,
-          created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )
-      `);
-    },
-  },
-  {
-    version: 4,
-    name: 'remove_builder_tool_replays',
-    apply(sql) {
-      sql.exec('DROP TABLE IF EXISTS builder_workspace_tool_results');
-    },
-  },
+  { version: 3, name: 'create_builder_tool_replays' },
+  { version: 4, name: 'remove_builder_tool_replays' },
   {
     version: 5,
     name: 'persist_builder_identity',
@@ -95,13 +53,7 @@ const migrations: readonly SchemaMigration[] = [
       `);
     },
   },
-  {
-    version: 6,
-    name: 'remove_builder_turns',
-    apply(sql) {
-      sql.exec('DROP TABLE IF EXISTS builder_turns');
-    },
-  },
+  { version: 6, name: 'remove_builder_turns' },
   {
     version: 7,
     name: 'create_cloudflare_execution_approvals',
@@ -187,7 +139,7 @@ export function runBuilderAgentSchemaMigrations(storage: BuilderAgentSchemaStora
 
   for (const migration of migrations.slice(applied.length)) {
     storage.transactionSync(() => {
-      migration.apply(storage.sql);
+      migration.apply?.(storage.sql);
       storage.sql.exec(
         `INSERT INTO ${MIGRATION_TABLE} (version, name) VALUES (?, ?)`,
         migration.version,

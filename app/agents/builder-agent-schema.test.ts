@@ -45,19 +45,15 @@ describe('BuilderAgent schema migrations', () => {
       { version: 8, name: 'clear_cloudflare_mcp_execute_proposals' },
     ]);
     expect(storage.transactionCount).toBe(8);
-    expect(storage.statements.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS builder_turns'))).toBe(
-      true,
-    );
+    expect(storage.statements.some((statement) => statement.includes('builder_turns'))).toBe(false);
     expect(
       storage.statements.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS builder_context_state')),
     ).toBe(true);
     expect(storage.statements.some((statement) => statement.includes('builder_workspace_files'))).toBe(false);
     expect(storage.statements.some((statement) => statement.includes('builder_preview_jobs'))).toBe(false);
-    expect(storage.statements).toContain('DROP TABLE IF EXISTS builder_workspace_tool_results');
     expect(
       storage.statements.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS builder_identity')),
     ).toBe(true);
-    expect(storage.statements).toContain('DROP TABLE IF EXISTS builder_turns');
     expect(
       storage.statements.some((statement) =>
         statement.includes('CREATE TABLE IF NOT EXISTS builder_cloudflare_executions'),
@@ -95,7 +91,6 @@ describe('BuilderAgent schema migrations', () => {
       { version: 8, name: 'clear_cloudflare_mcp_execute_proposals' },
     ]);
     expect(storage.transactionCount).toBe(5);
-    expect(storage.statements).toContain('DROP TABLE IF EXISTS builder_workspace_tool_results');
   });
 
   it('fails closed when a deployed database has an unknown migration history', () => {
