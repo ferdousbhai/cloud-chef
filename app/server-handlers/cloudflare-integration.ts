@@ -36,10 +36,10 @@ import {
 } from '~/lib/.server/cloudflare/cloudflare-orchestrator';
 import { InvalidJsonBodyError, PayloadTooLargeError, readJsonBodyWithLimit } from '~/lib/bounded-body';
 import {
+  isCurrentUserWorkspaceRuntime,
   missingUserWorkspaceRuntimeCapabilities,
   startUserWorkspaceRuntimeProvisioning,
   type UserWorkspaceRuntimeProvisioningErrorCode,
-  USER_WORKSPACE_SANDBOX_BASE_IMAGE,
 } from '~/workflows/user-workspace-runtime-provisioning';
 import {
   findUserWorkspaceRuntime,
@@ -47,7 +47,6 @@ import {
   type UserWorkspaceRuntime,
 } from '~/lib/.server/cloudflare/user-workspace-runtime-repository';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
-import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import { mintRuntimeCapability } from '~/lib/cloudflare/runtime-capability';
 import {
@@ -334,9 +333,7 @@ function usableWorkspaceRuntime(
   if (isCurrentWorkspaceRuntime(runtime, connection)) {
     return { runtime, upgradePending: false };
   }
-  return (runtime.protocolVersion ?? 1) === USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION
-    ? { runtime, upgradePending: true }
-    : null;
+  return runtime.protocolVersion === USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION ? { runtime, upgradePending: true } : null;
 }
 
 function isCurrentWorkspaceRuntime(runtime: UserWorkspaceRuntime | null, connection: CloudflareConnection): boolean {
@@ -344,8 +341,7 @@ function isCurrentWorkspaceRuntime(runtime: UserWorkspaceRuntime | null, connect
     runtime !== null &&
     runtime.connectionId === connection.id &&
     runtime.connectionGeneration === connection.generation &&
-    runtime.runtimeVersion === USER_WORKSPACE_RUNTIME_SHA256 &&
-    runtime.imageDigest === USER_WORKSPACE_SANDBOX_BASE_IMAGE
+    isCurrentUserWorkspaceRuntime(runtime)
   );
 }
 

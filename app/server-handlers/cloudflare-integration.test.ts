@@ -5,6 +5,7 @@ import type {
 } from '~/lib/.server/cloudflare/cloudflare-orchestrator';
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
 import { USER_WORKSPACE_SANDBOX_BASE_IMAGE } from '~/workflows/user-workspace-runtime-provisioning';
+import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { cloudflareConnectMessageText } from '~/lib/cloudflare/authorization-recovery';
 
 /** Shaped like a real Cloudflare account id; a registry namespace is derived from it. */
@@ -150,7 +151,10 @@ describe('Cloudflare-only authentication', () => {
     ['absent', null],
     ['stale connection', runtimeRow({ connectionGeneration: 0 })],
     // A runtime speaking another protocol cannot serve this release's browser, so it waits for the upgrade.
-    ['incompatible', runtimeRow({ runtimeVersion: '0'.repeat(64), protocolVersion: 2 })],
+    [
+      'incompatible',
+      runtimeRow({ runtimeVersion: '0'.repeat(64), protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION + 1 }),
+    ],
   ])('starts background provisioning for an %s runtime', async (_case, initialRuntime) => {
     mocks.getAuthSession.mockResolvedValue(signedInSession);
     mocks.findConnection.mockResolvedValue(activeConnection());
@@ -175,11 +179,9 @@ describe('Cloudflare-only authentication', () => {
 
   it.each([
     ['from an earlier release', runtimeRow({ runtimeVersion: '0'.repeat(64) })],
-    ['recorded with the current protocol', runtimeRow({ runtimeVersion: '0'.repeat(64), protocolVersion: 1 })],
-    // A row pinned to a different image than the current one, or one that never recorded an image,
-    // is upgraded so a base-image bump reaches workspaces that were provisioned before it.
+    // A row pinned to a different image than the current one is upgraded so a base-image bump reaches
+    // workspaces that were provisioned before it.
     ['on a superseded image', runtimeRow({ imageDigest: `docker.io/cloudflare/sandbox:x@sha256:${'a'.repeat(64)}` })],
-    ['provisioned before the image was recorded', runtimeRow({ imageDigest: null })],
   ])(
     'keeps a runtime %s working while its upgrade waits for nothing to be running in it',
     async (_case, initialRuntime) => {
@@ -201,7 +203,6 @@ describe('Cloudflare-only authentication', () => {
       expect(provision).toHaveBeenCalledWith(
         expect.objectContaining({ userId: 'user-1', connectionId: 'connection-1', connectionGeneration: 1 }),
       );
-      // The session counts as use, so a runtime too old to report its activity is not upgraded under it.
       expect(sessionsRecorded(env)).toBe(1);
     },
   );
@@ -1056,8 +1057,8 @@ function runtimeRow(
   overrides: {
     connectionGeneration?: number;
     runtimeVersion?: string;
-    imageDigest?: string | null;
-    protocolVersion?: number | null;
+    imageDigest?: string;
+    protocolVersion?: number;
   } = {},
 ) {
   return {
@@ -1067,8 +1068,8 @@ function runtimeRow(
     worker_name: 'cloudchef-workspace-test',
     endpoint: 'https://workspace.example',
     runtime_version: overrides.runtimeVersion ?? USER_WORKSPACE_RUNTIME_SHA256,
-    image_digest: overrides.imageDigest === undefined ? USER_WORKSPACE_SANDBOX_BASE_IMAGE : overrides.imageDigest,
-    protocol_version: overrides.protocolVersion ?? null,
+    image_digest: overrides.imageDigest ?? USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+    protocol_version: overrides.protocolVersion ?? USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
     last_session_at: 100,
     created_at: 100,
     updated_at: 100,
