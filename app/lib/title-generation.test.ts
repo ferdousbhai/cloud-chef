@@ -10,15 +10,15 @@ describe('title generation', () => {
   it('builds a subject-specific, bounded request', async () => {
     let request: { prompt: string; maxOutputTokens: number; temperature: number } | undefined;
     const generated = await generateTitle({
-      execute: async (value) => {
+      complete: async (value) => {
         request = value;
-        return { text: 'Feature Launch' };
+        return 'Feature Launch';
       },
       prompt: 'Plan the feature launch',
       subject: 'conversation',
     });
 
-    expect(generated?.title).toBe('Feature Launch');
+    expect(generated).toBe('Feature Launch');
     expect(request).toMatchObject({ maxOutputTokens: 4_096, temperature: 0 });
     expect(request?.prompt).toContain('title for this conversation');
     expect(request?.prompt).toContain('untrusted data');
@@ -28,7 +28,7 @@ describe('title generation', () => {
   it('fails loudly when the model answers with no text', async () => {
     await expect(
       generateTitle({
-        execute: async () => ({ text: '   \n  ' }),
+        complete: async () => '   \n  ',
         prompt: 'Plan the feature launch',
         subject: 'project',
       }),
@@ -37,12 +37,12 @@ describe('title generation', () => {
 
   it('still resolves to a null title when the model answers with a weak one', async () => {
     const generated = await generateTitle({
-      execute: async () => ({ text: 'New chat' }),
+      complete: async () => 'New chat',
       prompt: 'Plan the feature launch',
       subject: 'conversation',
     });
 
-    expect(generated?.title).toBeNull();
+    expect(generated).toBeNull();
   });
 
   it('normalizes framing and rejects weak output', () => {

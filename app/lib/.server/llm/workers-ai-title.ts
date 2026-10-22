@@ -20,17 +20,15 @@ export async function generateModelTitle(
   onUsage?: (usage: Usage) => void,
 ): Promise<string | null> {
   const handle = getPiModel(accountCredentials, CLOUDFLARE_PROJECT_TITLE_MODEL, { gatewayLogging });
-  const generated = await generateTitle({
-    execute: async (request) => ({
-      text: await completeText(handle, {
+  return generateTitle({
+    complete: (request) =>
+      completeText(handle, {
         prompt: request.prompt,
         maxTokens: request.maxOutputTokens,
         temperature: request.temperature,
         onUsage,
       }),
-    }),
     prompt,
     subject,
   });
-  return generated?.title ?? null;
 }

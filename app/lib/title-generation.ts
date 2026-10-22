@@ -39,22 +39,10 @@ type TitleGenerationPromptInput = Readonly<{
   subject: TitleSubject;
 }>;
 
-type TitleGenerationExecutionRequest = Readonly<{
+type TitleCompletionRequest = Readonly<{
   prompt: string;
   maxOutputTokens: number;
   temperature: number;
-}>;
-
-type TitleGenerationTextResult = Readonly<{ text: string }>;
-
-type GenerateTitleInput<Result extends TitleGenerationTextResult> = TitleGenerationPromptInput &
-  Readonly<{
-    execute: (request: TitleGenerationExecutionRequest) => Promise<Result>;
-  }>;
-
-type GenerateTitleResult<Result extends TitleGenerationTextResult> = Readonly<{
-  result: Result;
-  title: string | null;
 }>;
 
 function isWeakTitle(value: string | null | undefined): boolean {
@@ -137,23 +125,24 @@ export class EmptyTitleReplyError extends Error {
   }
 }
 
-export async function generateTitle<Result extends TitleGenerationTextResult>(
-  input: GenerateTitleInput<Result>,
-): Promise<GenerateTitleResult<Result> | null> {
+/** The model's title for the prompt, or null when there is nothing to name or the model named it badly. */
+export async function generateTitle(
+  input: TitleGenerationPromptInput & Readonly<{ complete: (request: TitleCompletionRequest) => Promise<string> }>,
+): Promise<string | null> {
   const prompt = buildPrompt(input);
   if (!prompt) {
     return null;
   }
 
-  const result = await input.execute({
+  const text = await input.complete({
     prompt,
     maxOutputTokens: TITLE_GENERATION_MAX_OUTPUT_TOKENS,
     temperature: TITLE_GENERATION_TEMPERATURE,
   });
-  if (!result.text.trim()) {
+  if (!text.trim()) {
     throw new EmptyTitleReplyError(input.subject);
   }
-  return { result, title: normalizeGeneratedTitle(result.text) };
+  return normalizeGeneratedTitle(text);
 }
 
 export function normalizeGeneratedTitle(text: string): string | null {
