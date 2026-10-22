@@ -218,7 +218,7 @@ describe('tracked Sandbox commands', () => {
   it('bounds persisted command output while retaining the failure summary', () => {
     const message = sandboxCommandFailureMessage(
       { stdout: 'x'.repeat(10_000), stderr: 'failure details' },
-      { summary: 'Sandbox command failed with exit code 1.' },
+      'Sandbox command failed with exit code 1.',
     );
 
     expect(message).toHaveLength(4_000);
@@ -228,7 +228,10 @@ describe('tracked Sandbox commands', () => {
   });
 
   it('reserves diagnostic space for both full stderr and stdout streams', () => {
-    const message = sandboxCommandFailureMessage({ stdout: 'o'.repeat(10_000), stderr: 'e'.repeat(10_000) });
+    const message = sandboxCommandFailureMessage(
+      { stdout: 'o'.repeat(10_000), stderr: 'e'.repeat(10_000) },
+      'Sandbox command failed.',
+    );
 
     expect(message).toHaveLength(4_000);
     expect(message).toContain(`\n${'o'.repeat(100)}`);

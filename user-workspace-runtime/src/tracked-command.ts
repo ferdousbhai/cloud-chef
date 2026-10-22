@@ -57,18 +57,10 @@ export async function runTrackedSandboxCommand(
     clearTimeout(deadline);
   }
   if (result.timedOut) {
-    throw new Error(
-      sandboxCommandFailureMessage(result, {
-        summary: `Sandbox command timed out after ${options.timeout}ms.`,
-      }),
-    );
+    throw new Error(sandboxCommandFailureMessage(result, `Sandbox command timed out after ${options.timeout}ms.`));
   }
   if (result.exitCode !== 0) {
-    throw new Error(
-      sandboxCommandFailureMessage(result, {
-        summary: `Sandbox command failed with exit code ${result.exitCode}.`,
-      }),
-    );
+    throw new Error(sandboxCommandFailureMessage(result, `Sandbox command failed with exit code ${result.exitCode}.`));
   }
   return result;
 }
@@ -111,10 +103,7 @@ export async function terminateTrackedSandboxProcess(process: TrackedSandboxProc
   }
 }
 
-export function sandboxCommandFailureMessage(
-  result: { stdout: string; stderr: string },
-  { summary = 'Sandbox command failed.' }: { summary?: string } = {},
-): string {
+export function sandboxCommandFailureMessage(result: { stdout: string; stderr: string }, summary: string): string {
   const availableOutputLength = Math.max(0, MAX_SANDBOX_FAILURE_MESSAGE_LENGTH - summary.length - 1);
   const output = boundedSandboxOutput(result, availableOutputLength);
   if (!output) {

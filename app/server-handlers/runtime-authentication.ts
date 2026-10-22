@@ -34,7 +34,7 @@ export async function readAuthenticatedRuntimeRequest<T>(
   if (authenticated instanceof Response) {
     return authenticated;
   }
-  const body = await readRuntimeBody(request, schema, options.maxBytes, options);
+  const body = await readRuntimeBody(request, schema, options);
   if (body instanceof Response) {
     return body;
   }
@@ -44,11 +44,10 @@ export async function readAuthenticatedRuntimeRequest<T>(
 async function readRuntimeBody<T>(
   request: Request,
   schema: z.ZodType<T>,
-  maxBytes: number,
-  options: { label: string; invalid: string },
+  options: { maxBytes: number; label: string; invalid: string },
 ): Promise<T | Response> {
   try {
-    return schema.parse(await readJsonBodyWithLimit(request, maxBytes, options.label));
+    return schema.parse(await readJsonBodyWithLimit(request, options.maxBytes, options.label));
   } catch (error) {
     if (error instanceof PayloadTooLargeError) {
       return credentialResponse({ error: error.message }, 413);
