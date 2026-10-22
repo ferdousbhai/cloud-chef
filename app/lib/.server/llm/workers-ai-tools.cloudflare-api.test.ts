@@ -7,9 +7,8 @@ import { createWorkersAiTools } from './workers-ai-tools';
 const workspace = {} as BuilderWorkspaceApi;
 const operationContext = { runWithKeepAlive: <T>(operation: () => Promise<T>) => operation() };
 
-function apiContext(writeEnabled = true): CloudflareApiModelToolContext {
+function apiContext(): CloudflareApiModelToolContext {
   return {
-    writeEnabled,
     request: vi.fn<CloudflareApiModelToolContext['request']>(async () => ({
       kind: 'cloudflare_request_result',
       status: 'success',

@@ -319,8 +319,7 @@ model passes the dry-run JSON to `cloudflare_request`, which the runtime Worker 
 only the connected account) and sends with a fresh access token from the credential broker. GET requests run
 immediately. Every other method is stored as a durable, expiring proposal bound to the account, connection, transcript,
 and exact request digest; it pauses the turn until the owner approves or rejects it, and an interrupted approved
-request is marked indeterminate rather than replayed. `cloudflare_api` and `cloudflare_api_write` in the user workspace
-`runtime_controls` table are the operator kill switches for reads and writes.
+request is marked indeterminate rather than replayed.
 
 Model tools and editor reads use the same workspace API. Browser saves use
 compare-and-swap against the numeric revision the browser loaded; a conflict refreshes from the user runtime and never

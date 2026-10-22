@@ -11,7 +11,6 @@ export type ModelToolExecutionOptions = {
 
 /** Agent-owned callbacks keep Cloudflare API requests outside the workspace tool lane and journal. */
 export type CloudflareApiModelToolContext = {
-  writeEnabled: boolean;
   request: (
     input: CloudflareApiRequestInput,
     options: ModelToolExecutionOptions,

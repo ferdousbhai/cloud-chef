@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
-import type { CloudflareApiRuntimeIdentity } from './cloudflare-api-runtime-controls';
+import type { CloudflareApiRuntimeIdentity } from './cloudflare-api-runtime-identity';
 import { runtimeCredentialEndpoint, runtimeRequestHeaders } from './user-workspace-cloudflare-credential';
 
 /**

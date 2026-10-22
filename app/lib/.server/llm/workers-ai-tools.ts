@@ -44,7 +44,8 @@ const CLOUDFLARE_REQUEST_TOOL_DESCRIPTION =
   'In the workspace, find the operation with `cf cli search "<task>"` (describe the action only, never names or IDs), ' +
   'check it with `cf schema <command>`, run `cf <command> --dry-run`, and pass that JSON unchanged here: cf has no ' +
   'credential in the workspace, so only this tool sends requests. Report insufficient scopes honestly, and deploy ' +
-  'generated apps through the workspace deployment path, not this tool.';
+  'generated apps through the workspace deployment path, not this tool. GET runs immediately; any other method is ' +
+  'stored for fresh user approval and pauses the turn.';
 
 export function createWorkersAiTools(
   workspace: BuilderWorkspaceApi,
@@ -68,11 +69,7 @@ export function createWorkersAiTools(
 
   if (cloudflareApi) {
     tools.cloudflare_request = {
-      description: `${CLOUDFLARE_REQUEST_TOOL_DESCRIPTION} ${
-        cloudflareApi.writeEnabled
-          ? 'GET runs immediately; any other method is stored for fresh user approval and pauses the turn.'
-          : 'Only GET requests are enabled; changes to the account are not.'
-      }`,
+      description: CLOUDFLARE_REQUEST_TOOL_DESCRIPTION,
       inputSchema: MODEL_TOOL_INPUT_SCHEMAS.cloudflare_request,
       execute: async (input, options) =>
         cloudflareApi.request(MODEL_TOOL_INPUT_SCHEMAS.cloudflare_request.parse(input), options),

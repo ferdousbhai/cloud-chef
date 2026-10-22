@@ -9,7 +9,6 @@ const operationContext = { runWithKeepAlive: <T>(operation: () => Promise<T>) =>
 
 function context(): CloudflareApiModelToolContext {
   return {
-    writeEnabled: true,
     request: vi.fn<CloudflareApiModelToolContext['request']>(async (input, options) => ({
       kind: 'cloudflare_request_proposal',
       status: 'awaiting_approval',

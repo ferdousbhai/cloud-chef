@@ -5,7 +5,7 @@ import {
   runtimeIdentity,
   type CloudflareApiRuntimeEnv,
   type CloudflareApiRuntimeIdentity,
-} from './cloudflare-api-runtime-controls';
+} from './cloudflare-api-runtime-identity';
 import type { ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import { gatewayKeysSchema, NO_ACCOUNT_MODEL_SETTINGS, type AccountModelSettings } from '~/lib/workers-ai-model';
 import { runtimeIdentityHeaders } from './runtime-identity-headers';

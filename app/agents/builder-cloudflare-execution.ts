@@ -7,7 +7,7 @@ import {
   type CloudflareExecutionStatus,
 } from 'cloudchef-agent/cloudflare-api';
 import { sha256Hex } from '~/lib/hex-digest';
-import type { CloudflareApiRuntimeIdentity } from '~/lib/.server/cloudflare/cloudflare-api-runtime-controls';
+import type { CloudflareApiRuntimeIdentity } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
 import { builderTranscriptBindingsEqual, type BuilderTranscriptBinding } from './builder-request-policy';
 import { z } from 'zod';
 

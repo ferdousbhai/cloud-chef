@@ -178,12 +178,10 @@ import {
   type CloudflareRequestProposal,
 } from 'cloudchef-agent/cloudflare-api';
 import {
-  cloudflareApiWriteEnabled,
-  readCloudflareApiRuntimeAdmission,
-  type CloudflareApiRuntimeAdmission,
+  readCloudflareApiRuntimeIdentity,
   type CloudflareApiRuntimeIdentity,
   runtimeIdentity,
-} from '~/lib/.server/cloudflare/cloudflare-api-runtime-controls';
+} from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
 import { CloudflareApiClient, type CloudflareApiOutcome } from '~/lib/.server/cloudflare/cloudflare-api-client';
 import {
   confirmUserWorkspaceAccess,
@@ -1888,19 +1886,17 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private async createCloudflareApiToolContext(
     transcript: BuilderTranscriptBinding,
   ): Promise<CloudflareApiModelToolContext | undefined> {
-    const admission = await readCloudflareApiRuntimeAdmission(this.env, () => this.isOrganizationAdmin());
+    const expectedIdentity = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
     if (
-      !admission?.controls.cloudflare_api ||
+      !expectedIdentity ||
       !this.userId ||
-      admission.identity.userId !== this.userId ||
+      expectedIdentity.userId !== this.userId ||
       !this.transcriptBinding ||
       !builderTranscriptBindingsEqual(this.transcriptBinding, transcript)
     ) {
       return undefined;
     }
-    const expectedIdentity = admission.identity;
     return {
-      writeEnabled: cloudflareApiWriteEnabled(admission.controls),
       request: (input, options) => this.handleCloudflareRequest(input, options, expectedIdentity, transcript),
     };
   }
@@ -1930,30 +1926,25 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return cloudflareRequestFailure(expectedIdentity.accountId, error.message);
     }
     const write = !cloudflareApiRequestIsRead(request);
-    const admitted = admitCloudflareApiRequest(
-      await readCloudflareApiRuntimeAdmission(this.env, () => this.isOrganizationAdmin()),
-      expectedIdentity,
-      write,
-    );
-    if ('rejection' in admitted) {
-      return cloudflareRequestFailure(expectedIdentity.accountId, admitted.rejection);
+    const identity = await this.readCurrentCloudflareApiIdentity(expectedIdentity);
+    if (!identity) {
+      return cloudflareRequestFailure(expectedIdentity.accountId, CLOUDFLARE_API_IDENTITY_CHANGED);
     }
-    const { admission } = admitted;
     if (!write) {
       const signal = options.abortSignal ?? new AbortController().signal;
       let outcome: CloudflareApiOutcome;
       try {
-        outcome = await this.createCloudflareApiClient(admission.identity).send(request, signal);
+        outcome = await this.createCloudflareApiClient(identity).send(request, signal);
       } catch {
         // A failed tool result lets the model report or retry instead of ending the turn.
         signal.throwIfAborted();
-        return cloudflareRequestFailure(admission.identity.accountId, 'The Cloudflare credential is unavailable.');
+        return cloudflareRequestFailure(identity.accountId, 'The Cloudflare credential is unavailable.');
       }
       return {
         kind: 'cloudflare_request_result',
         // Only a change can be left half-applied; an unobserved read is simply a failure to retry.
         status: outcome.status === 'indeterminate' ? 'failure' : outcome.status,
-        accountId: admission.identity.accountId,
+        accountId: identity.accountId,
         content: outcome.content,
         requestId: outcome.requestId,
         httpStatus: outcome.httpStatus,
@@ -1965,7 +1956,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const record = await this.cloudflareExecutions.createProposal({
       toolCallId: options.toolCallId,
-      binding: { ...admission.identity, transcript },
+      binding: { ...identity, transcript },
       request,
     });
     this.refreshCloudflareExecutionState();
@@ -1984,14 +1975,17 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   /** The approval fiber re-admits the stored change; a rejection there settles it as failed. */
   private async requireCloudflareApiWriteAdmission(expectedIdentity: CloudflareApiRuntimeIdentity): Promise<void> {
-    const admitted = admitCloudflareApiRequest(
-      await readCloudflareApiRuntimeAdmission(this.env, () => this.isOrganizationAdmin()),
-      expectedIdentity,
-      true,
-    );
-    if ('rejection' in admitted) {
-      throw new Error(admitted.rejection);
+    if (!(await this.readCurrentCloudflareApiIdentity(expectedIdentity))) {
+      throw new Error(CLOUDFLARE_API_IDENTITY_CHANGED);
     }
+  }
+
+  /** The runtime's Cloudflare API identity, only while it is still the connection the turn started with. */
+  private async readCurrentCloudflareApiIdentity(
+    expectedIdentity: CloudflareApiRuntimeIdentity,
+  ): Promise<CloudflareApiRuntimeIdentity | null> {
+    const identity = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
+    return identity && sameCloudflareConnectionIdentity(identity, expectedIdentity) ? identity : null;
   }
 
   private createCloudflareApiClient(identity: CloudflareApiRuntimeIdentity): CloudflareApiClient {
@@ -2003,11 +1997,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private async requireCurrentCloudflareExecutionBinding(reason: string): Promise<CloudflareExecutionBinding> {
     const durableIdentity = await this.hydrateDurableIdentity({ required: true, reason });
     const transcript = this.transcriptBinding;
-    const admission = await readCloudflareApiRuntimeAdmission(this.env, () => this.isOrganizationAdmin());
-    if (!durableIdentity || !transcript || !admission || admission.identity.userId !== durableIdentity.userId) {
+    const identity = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
+    if (!durableIdentity || !transcript || !identity || identity.userId !== durableIdentity.userId) {
       throw new Response('The Cloudflare execution identity is unavailable.', { status: 409 });
     }
-    return { ...admission.identity, transcript };
+    return { ...identity, transcript };
   }
 
   private async runApprovedCloudflareExecution(
@@ -3163,27 +3157,8 @@ function deploymentErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Deployment failed.';
 }
 
-/**
- * Admit one request only while the switches allow it and the connection is still the one the turn
- * started with; otherwise say why, for the model to report.
- */
-function admitCloudflareApiRequest(
-  admission: CloudflareApiRuntimeAdmission | null,
-  expectedIdentity: CloudflareApiRuntimeIdentity,
-  write: boolean,
-): { admission: CloudflareApiRuntimeAdmission } | { rejection: string } {
-  if (
-    !admission ||
-    !sameCloudflareConnectionIdentity(admission.identity, expectedIdentity) ||
-    !admission.controls.cloudflare_api
-  ) {
-    return { rejection: 'Cloudflare API requests are disabled or the authenticated connection changed.' };
-  }
-  if (write && !cloudflareApiWriteEnabled(admission.controls)) {
-    return { rejection: 'Cloudflare account changes are disabled for this workspace. Only GET requests can run.' };
-  }
-  return { admission };
-}
+const CLOUDFLARE_API_IDENTITY_CHANGED =
+  'Cloudflare API requests are unavailable or the authenticated connection changed.';
 
 function cloudflareRequestFailure(accountId: string, content: string): CloudflareRequestImmediateResult {
   return {
