@@ -313,7 +313,8 @@ Framework references are read from the packages the project itself installed, so
 builds against. The builder's skills (`app/lib/.server/llm/builder-skills.ts`) are bundled into the Worker: CloudChef's
 own `project-stack`, which covers only what is specific to its starter app, and Cloudflare's official skills, vendored
 from github.com/cloudflare/skills at a pinned commit into `app/lib/.server/llm/skills/cloudflare-skills.vendored.ts`
-by `pnpm run skills:sync`, so they stay Cloudflare's current guidance rather than a hand-written copy. They are exposed
+by `pnpm run skills:sync` (optionally `-- <commit>`; never edited by hand), so they stay Cloudflare's current guidance
+rather than a hand-written copy. They are exposed
 through the existing `read` tool under `/__skills__/<skill>/`; no activation or separate resource-reader tool is
 added. That namespace is a read-only control-plane overlay: it never enters the project VFS, revision, or deployment
 artifact, project files cannot shadow it, and it never appears in `ls` or `grep`, which are asked only about the

@@ -79,37 +79,12 @@ It declares these secrets, which are configured in Cloudflare and never stored i
   GitHub App for team projects kept in GitHub; unset, those projects report themselves unavailable.
 
 The checked-in D1 ID belongs to CloudChef production. Before provisioning a fork in another account, replace it with
-`00000000-0000-0000-0000-000000000000`. The provisioner refuses to replace an unknown non-placeholder ID.
-
-The builder's skills (`app/lib/.server/llm/builder-skills.ts`) are bundled into the Worker and served read-only
-under `/__skills__/`: CloudChef's own `project-stack` (`app/lib/guidance/project-stack/SKILL.md`, edited by hand like
-any other source file), and Cloudflare's official skills from github.com/cloudflare/skills, vendored at a pinned
-commit into `app/lib/.server/llm/skills/cloudflare-skills.vendored.ts`. Do not edit that file; update it with
-`pnpm run skills:sync` (optionally `-- <commit>`), which also names the skills it takes. Each skill's frontmatter
-`name` and `description` are what the system prompt catalogs. The rest of Cloudflare's documentation is retrieved live
-by the `search_cloudflare_docs` tool, and a framework's packaged skills are read from the project's own
-`node_modules`, so neither needs syncing or pinning.
+`00000000-0000-0000-0000-000000000000`. `pnpm run provision:production` bootstraps the control-plane D1 or reconciles
+that identifier, and refuses to replace an unknown non-placeholder ID.
 
 The OAuth callback is `https://<deployment-origin>/connect/return`. Keep its permissions aligned with
 `CLOUDFLARE_OAUTH_SCOPES` in `cloudflare.config.ts`. Those permissions let CloudChef create a workspace runtime in the
 connected user's account; they do not add customer storage or compute to the CloudChef account.
-
-`workers-builds.production.json` is the reviewed contract for Cloudflare dashboard build settings. Cloudflare does not
-read it automatically. Mirror it in the `cloudchef` Worker's Builds settings:
-
-- connect `ferdousbhai/cloud-chef`, production branch `main`, with non-production builds enabled
-- set the build command to `pnpm run workers-builds:build` and deploy command to `pnpm run workers-builds:deploy`
-- set non-production deploys to `pnpm run workers-builds:branch`, which uploads nothing: a branch build only validates,
-  since every version of the `cloudchef` Worker carries production's D1 and secrets (preview URLs are off for the same
-  reason)
-- use `/` as the root, include all paths, and enable build caching
-- select `account-workers-builds-production`
-- configure the pinned `NODE_VERSION`, `PNPM_VERSION`, `SKIP_DEPENDENCY_INSTALL=1`, and
-  `CLOUDFLARE_OAUTH_CLIENT_ID`
-
-The Workers Builds token needs only the permissions required to deploy the control-plane Worker, read its deployment,
-and manage the control-plane D1 migrations. User workspace and generated-application resources are provisioned with the
-connected user's authorization.
 
 ## Generated Artifacts
 
@@ -119,51 +94,33 @@ After editing `template/` or `user-workspace-runtime/`:
 pnpm run generate:artifacts
 ```
 
-Do not edit generated route trees, Worker binding types, `app/generated/user-workspace-runtime.generated.ts`, or the
-generated Builder template module directly.
-
-`template/scripts/lib/project-policy/generated-project-dependency-policy.json` is the single machine-readable source
-for generated-project pnpm cooling, lifecycle-build approvals, and security overrides. The root and template verifiers
-import it through `template/scripts/lib/project-policy.mjs`.
-
-`vite build` writes the Worker as Build Output under `.cloudflare/output/`, which `cf deploy --prebuilt` ships. The
-client build emits no source maps, so none can become a public static asset. Worker source maps sit in the bundle and
-`cf deploy` uploads them as private
-[Worker source maps](https://developers.cloudflare.com/workers/observability/source-maps/). `verify:static-assets`
-checks both sides of that policy against the build output.
-
-`cf build` refuses to run at a pnpm workspace root, so the repository builds with `vite build` directly.
-`@cloudflare/vitest-plugin` and local D1 migrations still read Wrangler config, so they run against
-`.cloudflare/wrangler.json`, a Wrangler-format copy of `cloudflare.config.ts` that `scripts/lib/cloudflare-config.mjs`
-writes on demand; never edit it.
-
-## User Workspace Runtime
-
-`pnpm run generate:artifacts` bundles `user-workspace-runtime/` together with its migrations and rebuilds the generated
-application template snapshot in one deterministic step.
-The control plane deploys that bundle into each connected user's Cloudflare account and provisions its D1 database,
-`BuilderAgent` Durable Objects, `ProjectWorkspace` Durable Objects, and Container application there. The R2 permission
-is retained for generated applications that request an R2 binding; project workspace bytes do not use an R2 backup
-bucket.
-
-There is intentionally no migration path from retired CloudChef-owned project or chat storage. A new deployment of
-the control plane bootstraps its current D1 schema; each newly provisioned user runtime bootstraps the current
-`user-workspace-migrations/` schema. Existing user runtimes are replaced when their recorded bundle digest differs from
-the current digest.
-
-Cloudflare Computer's SQLite VFS in `ProjectWorkspace` owns the current project. Its container backend projects the
-same files through FUSE for shell commands, dependency installation, validation, preview, and generated-app deployment.
-No ZIP, `DirectoryBackup`, or project copy passes through CloudChef.
+This bundles `user-workspace-runtime/` with its migrations and rebuilds the generated application template snapshot in
+one deterministic step. Do not edit generated files directly: the route trees, Worker binding types,
+`app/generated/user-workspace-runtime.generated.ts`, the generated Builder template module, and
+`.cloudflare/wrangler.json` (the Wrangler-format copy of `cloudflare.config.ts` that `@cloudflare/vitest-plugin` and
+local D1 migrations read).
 
 ## Deployment
 
-The `cloudchef` Worker is connected to `ferdousbhai/cloud-chef` in Workers Builds. Its build settings are
-specified in `workers-builds.production.json`: keep the dashboard commands, branch controls, build variables,
-and token selection aligned with that file. Runtime secrets remain on the Worker and are not build variables.
+The `cloudchef` Worker is connected to `ferdousbhai/cloud-chef` in Workers Builds. `workers-builds.production.json` is
+the reviewed contract for its dashboard build settings; Cloudflare does not read it, so mirror it in the Worker's Builds
+settings:
+
+- production branch `main`, with non-production builds enabled
+- build command `pnpm run workers-builds:build`, deploy command `pnpm run workers-builds:deploy`
+- non-production deploy command `pnpm run workers-builds:branch`, which uploads nothing: every version of the
+  `cloudchef` Worker carries production's D1 and secrets (preview URLs are off for the same reason)
+- root `/`, all paths included, build caching on
+- build token `account-workers-builds-production`, which needs only the permissions to deploy the Worker, read its
+  deployment, and manage the control-plane D1 migrations
+- the pinned `NODE_VERSION`, `PNPM_VERSION`, `SKIP_DEPENDENCY_INSTALL=1`, and `CLOUDFLARE_OAUTH_CLIENT_ID`
+
+Runtime secrets remain on the Worker and are not build variables. User workspace and generated-application resources
+are provisioned with the connected user's authorization.
 
 Cloudflare Workers Builds runs the full `pnpm run validate` on every non-production branch
 (`scripts/workers-builds-checks.mjs`), checks its build identity and clean checkout but not the production branch
-(`deploy-production.mjs --check-workers-builds`), and uploads nothing (`pnpm run workers-builds:branch`). A push to `main` validates too, inside the deploy step, so a
+(`deploy-production.mjs --check-workers-builds`), and uploads nothing. A push to `main` validates too, inside the deploy step, so a
 release that fails validation deploys and migrates nothing. Its build command only regenerates the checked-in outputs
 and checks the release inputs. The deploy command (`scripts/deploy-production.mjs --workers-builds`), which runs only
 from the exact Workers Builds checkout, then runs `pnpm run validate` with the exact 40-character commit ID and OAuth
@@ -195,42 +152,25 @@ the current secrets before passing it.
 Rollback changes the Worker version but not D1 data. If a release also changed control-plane data, use the recovery
 bookmark recorded by the release pipeline (below).
 
+Generated applications deploy independently inside the user workspace runtime. AppAgent projects provision `DB` for
+application data and `AGENT_SECURITY_DB` for Agent sessions, retention, and inference accounting. CloudChef validates
+the artifact, supplies the trusted bindings, and promotes the exact uploaded Worker version.
+
 ### Failed release after migrations
 
-The deploy step records a D1 Time Travel bookmark (`d1:bookmark:production`, which prints a `### Pre-migration D1
-restore point` summary and a `CLOUDCHEF_D1_RESTORE_RECEIPT` JSON line into the Workers Builds log) and then applies the
-control-plane migrations. A failure before the bookmark changes nothing. A failure from the migrations on leaves
-production in one of these states, and its error says which:
-
-- **The migrations failed** ("may be partially migrated"). D1 has the migrations before the failing one, and
-  possibly part of that one; `cf d1 migrations apply` records each migration only once it has succeeded. Nothing was
-  deployed, so the previous Worker is still serving.
-- **A later step failed** ("was already migrated through `<migration>`"): the built-output check or `cf deploy`
-  (nothing deployed; the previous Worker serves against the new schema), or the live probe (the new Worker is
-  deployed but did not report the release).
-
-To recover, first read the failure; `pnpm exec cf d1 migrations list <database-id>` lists the
-migrations not yet applied.
-Migrations are written to be additive, so the previous Worker usually runs correctly on the new schema, and the fix is
-to correct the cause and release again; the migrations step then applies only what is still pending. Restore the
-bookmark only when the schema change itself is the problem, since a restore also discards every write made since it
-was recorded:
+The deploy step records a D1 Time Travel bookmark (`d1:bookmark:production`) in the Workers Builds log, under
+"Pre-migration D1 restore point", before it applies the control-plane migrations. Migrations are additive, so the usual
+fix is to correct the cause and release again; restore the bookmark only when the schema change itself is the problem
+(a restore discards every write made since it was recorded), then roll the Worker back (above) to a version built for
+the restored schema:
 
 ```bash
 pnpm exec cf d1 time-travel restore '<database-id>' --bookmark='<bookmark from the build log>'
 ```
 
-The receipt's `databaseId` and the summary's restore command name the database. After a restore, roll the Worker back
-(above) to a version built for the restored schema. Run `pnpm run provision:production` separately only when bootstrapping the
-control-plane D1 or intentionally reconciling its checked-in identifier.
-
-Generated applications deploy independently inside the user workspace runtime. AppAgent projects provision `DB` for
-application data and `AGENT_SECURITY_DB` for Agent sessions, retention, and inference accounting. CloudChef validates
-the artifact, supplies the trusted bindings, and promotes the exact uploaded Worker version.
-
 ## Platform Status
 
-There is no deployed admin dashboard. The operational state of production is reported from a terminal:
+The operational state of production is reported from a terminal:
 
 ```bash
 pnpm run ops        # Worker health, builder model, users, sessions, connected accounts, and runtime staleness
@@ -244,15 +184,10 @@ Workers Logs queries for the workspace Worker, AI Gateway logs filed under the c
 commits and check runs on the conversation's branch (the latest of the member's: which one is the chat's isn't recorded). It refuses any `cf` command outside a read-only allowlist, and a source it cannot
 read is reported as unknown with the reason. Conversation content exists only for people who kept AI Gateway logging on.
 
-`scripts/ops-report.mjs` reads production control-plane D1 with `cf d1 query`, the control-plane Worker's invocation
-outcomes from Workers Logs with a dry-run `cf o11y telemetry query`, and the Workers AI catalog with
-`cf ai models list`, all under your existing `cf` login. It issues only `SELECT` statements and holds no secret of its own. Problems
-are printed first; a check the tool could not answer is reported as unknown together with the reason, rather than as a
-zero that reads as healthy. Runtime staleness is measured against `app/generated/user-workspace-runtime.generated.ts`,
+`scripts/ops-report.mjs` is read-only under your `cf` login; `.claude/skills/platform-status/SKILL.md` describes its
+checks and how to read them. Runtime staleness is measured against `app/generated/user-workspace-runtime.generated.ts`,
 so run `pnpm run generate:artifacts` first if the report says it has no build to compare against.
 
-## Historical Evaluations
+## Decisions
 
-Experiment conclusions that still constrain the product are summarized in `docs/DECISIONS.md`. The
-repository does not ship or support one-off remote evaluation Workers. Run launch-capacity measurements against the
-exact release candidate in isolated staging infrastructure and retain provider telemetry with the release evidence.
+Experiment and review conclusions that still constrain the product are in `docs/DECISIONS.md`.
