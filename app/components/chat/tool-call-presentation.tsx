@@ -207,7 +207,7 @@ function icon(content: ReactNode, color: string): ReactNode {
   return <div className={classNames('text-base', color)}>{content}</div>;
 }
 
-function isErrorResult(invocation: CloudChefToolInvocation): boolean {
+export function isErrorResult(invocation: CloudChefToolInvocation): boolean {
   if (invocation.toolName === 'validate') {
     return validationFailed(invocation);
   }

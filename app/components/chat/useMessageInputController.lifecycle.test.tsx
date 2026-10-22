@@ -74,7 +74,7 @@ describe('useMessageInputController lifecycle', () => {
 
     await act(async () => root?.render(<Harness key="old" onSend={onSend} />));
     await act(async () => setMessageInput('keep this draft'));
-    await act(async () => controller?.handleButtonClick());
+    await act(async () => controller?.runPrimaryAction());
     expect(onSend).toHaveBeenCalledWith('keep this draft', expect.any(Function));
 
     await act(async () =>

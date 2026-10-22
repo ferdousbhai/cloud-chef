@@ -146,8 +146,6 @@ export function useMessageInputController({
     }
   }, [primaryAction, onStop, send, signIn]);
 
-  const handleButtonClick = runPrimaryAction;
-
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = useCallback(
     (event) => {
       if (event.key !== 'Enter' || event.shiftKey) {
@@ -207,19 +205,14 @@ export function useMessageInputController({
     [],
   );
 
-  const enhancePrompt = useCallback(async () => {
-    const sourceInput = messageInputStore.get();
-    const sourceRevision = getMessageInputRevision();
+  /** Runs one refinement request in place of any still in flight; one replaced or cancelled ends quietly. */
+  const runRefinementRequest = useCallback(async (request: (controller: AbortController) => Promise<void>) => {
     enhanceRequestRef.current?.abort();
     const controller = new AbortController();
     enhanceRequestRef.current = controller;
     try {
       setIsEnhancing(true);
-      if (!isAuthenticated()) {
-        throw new Error('Not authenticated');
-      }
-      setRefinement(null);
-      await requestPromptRefinement(sourceInput, sourceRevision, [], controller);
+      await request(controller);
     } catch (error) {
       if (isAbortError(error)) {
         return;
@@ -232,34 +225,31 @@ export function useMessageInputController({
         setIsEnhancing(false);
       }
     }
-  }, [requestPromptRefinement]);
+  }, []);
+
+  const enhancePrompt = useCallback(() => {
+    const sourceInput = messageInputStore.get();
+    const sourceRevision = getMessageInputRevision();
+    return runRefinementRequest(async (controller) => {
+      if (!isAuthenticated()) {
+        throw new Error('Not authenticated');
+      }
+      setRefinement(null);
+      await requestPromptRefinement(sourceInput, sourceRevision, [], controller);
+    });
+  }, [requestPromptRefinement, runRefinementRequest]);
 
   const answerRefinementQuestions = useCallback(
     async (roundAnswers: PromptRefinementAnswer[]) => {
       if (!refinement || isEnhancing) {
         return;
       }
-      enhanceRequestRef.current?.abort();
-      const controller = new AbortController();
-      enhanceRequestRef.current = controller;
       const answers = [...refinement.answers, ...roundAnswers];
-      try {
-        setIsEnhancing(true);
-        await requestPromptRefinement(refinement.sourceInput, refinement.sourceRevision, answers, controller);
-      } catch (error) {
-        if (isAbortError(error)) {
-          return;
-        }
-        captureException('Failed to enhance prompt', error, { level: 'error' });
-        toast.error(error instanceof Error ? error.message : 'Failed to refine the build plan. Please try again.');
-      } finally {
-        if (enhanceRequestRef.current === controller) {
-          enhanceRequestRef.current = null;
-          setIsEnhancing(false);
-        }
-      }
+      await runRefinementRequest((controller) =>
+        requestPromptRefinement(refinement.sourceInput, refinement.sourceRevision, answers, controller),
+      );
     },
-    [isEnhancing, refinement, requestPromptRefinement],
+    [isEnhancing, refinement, requestPromptRefinement, runRefinementRequest],
   );
 
   const cancelRefinement = useCallback(() => {
@@ -275,13 +265,13 @@ export function useMessageInputController({
     authState,
     cancelRefinement,
     enhancePrompt,
-    handleButtonClick,
     handleChange,
     handleKeyDown,
     input,
     isEnhancing,
     primaryAction,
     refinement,
+    runPrimaryAction,
     signIn,
   };
 }
@@ -352,15 +342,6 @@ export function getMessageInputPrimaryActionLabel(
     return 'Connect Cloudflare';
   }
   return isStreaming ? 'Send guidance' : 'Send';
-}
-
-/**
- * The opening turn reads the project and writes most of the application, so the choice
- * of model has to be available before it, not only once a chat exists. It still belongs
- * to a connected session: a signed-out visitor has no model to run.
- */
-export function shouldOfferBuilderModelSelector(authKind: 'loading' | 'unauthenticated' | 'fullyLoggedIn'): boolean {
-  return authKind === 'fullyLoggedIn';
 }
 
 function isPromptUnchanged(sourceInput: string, expectedRevision: number): boolean {

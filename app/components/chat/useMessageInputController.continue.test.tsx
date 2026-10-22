@@ -126,7 +126,7 @@ describe('continuing a submit that stopped to connect Cloudflare', () => {
     await mountComposer(onSend);
     await act(async () => setMessageInput('Build a launch checklist.'));
 
-    await act(async () => controller?.handleButtonClick());
+    await act(async () => controller?.runPrimaryAction());
 
     expect(auth.signInWithCloudflare).toHaveBeenCalledWith('http://localhost/', {
       continuePrompt: 'Build a launch checklist.',

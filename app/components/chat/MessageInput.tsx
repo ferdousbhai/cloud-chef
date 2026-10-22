@@ -18,11 +18,7 @@ import { LinkButton } from '~/components/ui/LinkButton';
 import { classNames } from '~/utils/classNames';
 import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { EnhancePromptButton } from './EnhancePromptButton.client';
-import {
-  getMessageInputPrimaryActionLabel,
-  shouldOfferBuilderModelSelector,
-  useMessageInputController,
-} from './useMessageInputController';
+import { getMessageInputPrimaryActionLabel, useMessageInputController } from './useMessageInputController';
 import { BuilderModelSelector } from './BuilderModelSelector.client';
 import { NewModelsNotice } from './NewModelsNotice.client';
 import { PromptRefinementDialog } from './PromptRefinementDialog.client';
@@ -62,7 +58,9 @@ export const MessageInput = memo(function MessageInput({
   const { data: session, error: sessionError } = authClient.useSession();
   const primaryActionLabel = getMessageInputPrimaryActionLabel(primaryAction, isStreaming);
   const hasActiveSession = authState.kind === 'fullyLoggedIn';
-  const modelSelector = shouldOfferBuilderModelSelector(authState.kind) && (
+  // The opening turn writes most of the application, so the model is chosen before it, not only once a chat
+  // exists; a signed-out visitor has no model to run.
+  const modelSelector = hasActiveSession && (
     <BuilderModelSelector disabled={disabled || isStreaming || sendMessageInProgress} />
   );
   const placeholder = chatStarted
@@ -95,7 +93,7 @@ export const MessageInput = memo(function MessageInput({
           sendMessageInProgress
         }
         tip={authState.kind === 'unauthenticated' ? 'Connect Cloudflare to continue' : undefined}
-        onClick={controller.handleButtonClick}
+        onClick={controller.runPrimaryAction}
         size="xs"
         className={classNames('ml-1 h-8 min-w-8 rounded', !chatStarted ? 'cloudchef-message-input__send' : '')}
         aria-label={primaryActionLabel}
