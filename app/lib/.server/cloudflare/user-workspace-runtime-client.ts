@@ -110,10 +110,8 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
         }
       },
       readdir: async (path) => (await this.#stub()).readDirectory(path),
-      // Computer 0.2.x's fs contract added grep/find, which back the model's search tools.
-      // `searchProjectFiles` is a literal content search; regex grep and directory results are not
-      // yet mapped, and `find` filters the known file list rather than walking the tree. Adequate
-      // for the common literal/path case; refine once the exec path is confirmed on 0.2.x.
+      // Computer's grep and find back the model's search tools: `grep` is a literal content search
+      // (`searchProjectFiles`), and `find` filters the known file list rather than walking the tree.
       grep: async (pattern, path, options) => {
         const result = await this.searchProjectFiles({ pattern, path, ignoreCase: options?.ignoreCase });
         return result.matches.map((match) => ({ path: match.path, line: match.line, text: match.text }));
@@ -566,13 +564,8 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
   }
 
   async cancelActiveValidation(): Promise<void> {
-    const toolCallId = this.#activeValidationToolCallId;
-    if (!toolCallId) {
-      // The BuilderAgent can restart while ProjectWorkspace still owns the validation.
-      await this.#cancelValidation();
-      return;
-    }
-    await this.#cancelValidation(toolCallId);
+    // None known here when the BuilderAgent restarted while ProjectWorkspace still owns the validation.
+    await this.#cancelValidation(this.#activeValidationToolCallId ?? undefined);
   }
 
   /**
@@ -600,14 +593,16 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     throw indeterminateSettlementError(description, new SettlementDeadlineError());
   }
 
-  async #cancelValidation(toolCallId?: string): Promise<void> {
-    const description = 'workspace validation cancellation';
+  #cancelValidation(toolCallId?: string): Promise<void> {
+    return this.#cancelUntilAnswered('workspace validation cancellation', () =>
+      this.#stub().then((stub) => stub.cancelValidation(toolCallId ? { toolCallId } : {})),
+    );
+  }
+
+  /** Retry a cancellation RPC until the workspace answers it. */
+  async #cancelUntilAnswered<T>(description: string, cancel: () => Promise<T>): Promise<void> {
     await this.#settleWithRetries(description, async (deadline) => {
-      await this.#settlementRpcAttempt(
-        () => this.#stub().then((stub) => stub.cancelValidation(toolCallId ? { toolCallId } : {})),
-        deadline,
-        description,
-      );
+      await this.#settlementRpcAttempt(cancel, deadline, description);
       return true;
     });
   }
@@ -617,25 +612,15 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     if (existing) {
       return existing;
     }
-    const cancellation = this.#performExecutionCancellation(operationKey).finally(() => {
+    const cancellation = this.#cancelUntilAnswered('workspace command cancellation', () =>
+      this.#stub().then((stub) => stub.cancelExecution({ operationKey })),
+    ).finally(() => {
       if (this.#executionCancellations.get(operationKey) === cancellation) {
         this.#executionCancellations.delete(operationKey);
       }
     });
     this.#executionCancellations.set(operationKey, cancellation);
     return cancellation;
-  }
-
-  async #performExecutionCancellation(operationKey: string): Promise<void> {
-    const description = 'workspace command cancellation';
-    await this.#settleWithRetries(description, async (deadline) => {
-      await this.#settlementRpcAttempt(
-        () => this.#stub().then((stub) => stub.cancelExecution({ operationKey })),
-        deadline,
-        description,
-      );
-      return true;
-    });
   }
 
   async #terminalizeToolOperationAfterExecution(toolCallId: string, error: string): Promise<void> {
