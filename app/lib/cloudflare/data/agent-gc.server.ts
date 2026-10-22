@@ -124,6 +124,7 @@ function advanceCompletedCandidate(db: D1Database, candidate: AgentGcCandidateRo
     .run();
 }
 
-function retryDelay(attempts: number): number {
+/** How long a sweep waits before trying a candidate again after `attempts` failures. */
+export function retryDelay(attempts: number): number {
   return Math.min(AGENT_GC_RETRY_BASE_MS * 2 ** Math.min(attempts, 7), AGENT_GC_RETRY_MAX_MS);
 }

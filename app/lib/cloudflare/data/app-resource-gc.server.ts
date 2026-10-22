@@ -6,7 +6,7 @@ import {
 } from '~/lib/.server/cloudflare/deployment-plan';
 import { createUserAccountApi } from '~/lib/.server/cloudflare/user-workspace-deployment-executor';
 import type { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
-import { AGENT_GC_GRACE_PERIOD_MS, AGENT_GC_RETRY_BASE_MS } from './agent-gc.server';
+import { AGENT_GC_GRACE_PERIOD_MS, retryDelay } from './agent-gc.server';
 
 const APP_RESOURCE_GC_SWEEP_LIMIT = 2;
 /**
@@ -17,7 +17,6 @@ const APP_RESOURCE_GC_SWEEP_LIMIT = 2;
 const APP_RESOURCE_GC_DEPLOYMENTS_PER_SWEEP = 6;
 /** Deployments of one chat read per sweep; only a run of plans this build cannot read fills it. */
 const APP_RESOURCE_GC_DEPLOYMENT_PAGE = 50;
-const APP_RESOURCE_GC_RETRY_MAX_MS = 60 * 60 * 1000;
 /** Removed chats with leftover deployment records one scheduled sweep queues; later sweeps queue the rest. */
 const APP_RESOURCE_GC_REQUEUE_PER_SWEEP = 20;
 
@@ -79,9 +78,8 @@ export async function sweepAppResourceGcCandidates(
     | 'CLOUDCHEF_CONNECTION_GENERATION'
     | 'CLOUDFLARE_ACCOUNT_ID'
   >,
-  options: AppResourceGcSweepOptions & { limit?: number; now?: number; accountApi?: AppResourceCleanupApi } = {},
+  options: AppResourceGcSweepOptions & { now?: number; accountApi?: AppResourceCleanupApi } = {},
 ): Promise<void> {
-  const limit = Math.max(1, Math.min(options.limit ?? APP_RESOURCE_GC_SWEEP_LIMIT, APP_RESOURCE_GC_SWEEP_LIMIT));
   const now = options.now ?? Date.now();
   if (options.requeueRemovedChats) {
     await requeueRemovedChatsWithDeployments(env.DB, now);
@@ -94,7 +92,7 @@ export async function sweepAppResourceGcCandidates(
      ORDER BY candidates.not_before, candidates.chat_id
      LIMIT ?`,
   )
-    .bind(now, limit)
+    .bind(now, APP_RESOURCE_GC_SWEEP_LIMIT)
     .all<AppResourceGcCandidateRow>();
   if (result.results.length === 0) {
     return;
@@ -409,8 +407,4 @@ function rescheduleCandidate(
     )
     .bind(failed ? candidate.attempts + 1 : candidate.attempts, retryAt, candidate.chat_id, candidate.not_before)
     .run();
-}
-
-function retryDelay(attempts: number): number {
-  return Math.min(AGENT_GC_RETRY_BASE_MS * 2 ** Math.min(attempts, 7), APP_RESOURCE_GC_RETRY_MAX_MS);
 }
