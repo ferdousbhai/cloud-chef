@@ -31,7 +31,8 @@ interface MessageInputProps {
   onStop: () => void;
   onSend: (message: string, onAccepted?: () => void) => Promise<boolean>;
   disabled: boolean;
-  numMessages: number | undefined;
+  /** Whether a started chat has messages yet, which its placeholder follows. */
+  hasMessages: boolean;
   /** What an empty, unstarted composer asks for, when the project already says what it is. */
   placeholder?: string;
 }
@@ -43,7 +44,7 @@ export const MessageInput = memo(function MessageInput({
   onStop,
   onSend,
   disabled,
-  numMessages,
+  hasMessages,
   placeholder: unstartedPlaceholder = 'Describe your app…',
 }: MessageInputProps) {
   const prefillAllowed = useContext(PromptPrefillContext);
@@ -66,7 +67,7 @@ export const MessageInput = memo(function MessageInput({
   const placeholder = chatStarted
     ? isStreaming
       ? 'Add guidance while CloudChef works…'
-      : numMessages !== undefined && numMessages > 0
+      : hasMessages
         ? 'What would you like to do next?'
         : 'Start this chat with a prompt…'
     : unstartedPlaceholder;

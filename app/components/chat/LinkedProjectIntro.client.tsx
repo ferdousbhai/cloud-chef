@@ -14,7 +14,6 @@ export function LinkedProjectIntro({
   linkedProject,
   disabledReason,
   isStreaming,
-  messagesLength,
   onSend,
   onStop,
   sendMessageInProgress,
@@ -22,7 +21,6 @@ export function LinkedProjectIntro({
   linkedProject: BuilderLinkedProjectSummary;
   disabledReason: ReactNode | null;
   isStreaming: boolean;
-  messagesLength: number;
   onSend: (messageInput: string, onAccepted?: () => void) => Promise<boolean>;
   onStop: () => void;
   sendMessageInProgress: boolean;
@@ -59,7 +57,7 @@ export function LinkedProjectIntro({
                 disabled={disabledReason !== null}
                 onStop={onStop}
                 onSend={onSend}
-                numMessages={messagesLength}
+                hasMessages={false}
                 placeholder={`What should change in ${repository}?`}
               />
               <DisabledChatMessageSheet message={disabledReason} />

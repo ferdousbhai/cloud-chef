@@ -10,7 +10,6 @@ const DisabledChatMessageSheet = lazy(() =>
 interface HomeIntroProps {
   disabledReason: ReactNode | null;
   isStreaming: boolean;
-  messagesLength: number;
   onSend: (messageInput: string, onAccepted?: () => void) => Promise<boolean>;
   onStop: () => void;
   sendMessageInProgress: boolean;
@@ -21,7 +20,6 @@ interface HomeIntroProps {
 export function HomeIntro({
   disabledReason,
   isStreaming,
-  messagesLength,
   onSend,
   onStop,
   sendMessageInProgress,
@@ -56,7 +54,7 @@ export function HomeIntro({
                   disabled={disabledReason !== null}
                   onStop={onStop}
                   onSend={onSend}
-                  numMessages={messagesLength}
+                  hasMessages={false}
                 />
                 {/* The home page never closes its composer, so it loads no sheet; elsewhere the sheet's live
                     region stays mounted, so a reason that appears is announced. */}

@@ -243,7 +243,6 @@ export function BaseChat({
                     linkedProject={linkedProject}
                     disabledReason={disabledReason}
                     isStreaming={isStreaming}
-                    messagesLength={messages.length}
                     onSend={onSend}
                     onStop={onStop}
                     sendMessageInProgress={sendMessageInProgress}
@@ -252,7 +251,6 @@ export function BaseChat({
                   <HomeIntro
                     disabledReason={disabledReason}
                     isStreaming={isStreaming}
-                    messagesLength={messages.length}
                     onSend={onSend}
                     onStop={onStop}
                     sendMessageInProgress={sendMessageInProgress}
@@ -335,7 +333,7 @@ export function BaseChat({
                             disabled={disabledReason !== null}
                             onStop={onStop}
                             onSend={onSend}
-                            numMessages={messages.length}
+                            hasMessages={messages.length > 0}
                           />
                         </>
                       )}

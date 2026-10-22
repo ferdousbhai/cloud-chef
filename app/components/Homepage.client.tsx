@@ -25,7 +25,6 @@ export function Homepage({ initialId }: { initialId: string }) {
       homepage
       disabledReason={null}
       isStreaming={false}
-      messagesLength={0}
       onSend={startChat}
       onStop={() => undefined}
       sendMessageInProgress={initialPrompt !== null}
