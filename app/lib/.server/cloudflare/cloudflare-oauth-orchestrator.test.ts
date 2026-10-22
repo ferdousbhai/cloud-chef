@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { CORE_CLOUDFLARE_OAUTH_SCOPES } from './cloudflare-oauth-scope-manifest';
 import {
   CloudflareOAuthError,
@@ -8,6 +8,10 @@ import {
 
 const scopes = CORE_CLOUDFLARE_OAUTH_SCOPES.join(' ');
 const config = { clientId: 'client-1', clientSecret: 'client-secret' };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('CloudflareOAuthOrchestrator', () => {
   test('starts authorization code + PKCE with server-owned state and no secret in the browser URL', async () => {
@@ -51,7 +55,8 @@ describe('CloudflareOAuthOrchestrator', () => {
         }),
       )
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ id: 'account-1', name: 'User account' }] }));
-    const orchestrator = new CloudflareOAuthOrchestrator(config, request);
+    vi.stubGlobal('fetch', request);
+    const orchestrator = new CloudflareOAuthOrchestrator(config);
     const challenge = await orchestrator.startConnection({
       returnUrl:
         'https://cloudchef.build/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
@@ -94,7 +99,6 @@ describe('CloudflareOAuthOrchestrator', () => {
       'https://api.cloudflare.com/client/v4/accounts?per_page=2',
       expect.objectContaining({ headers: { authorization: 'Bearer oauth-access-token' } }),
     );
-    expect(request.mock.contexts).toEqual([undefined, undefined, undefined]);
   });
 
   test('rejects multiple-account grants instead of guessing which account pays', async () => {
@@ -105,7 +109,8 @@ describe('CloudflareOAuthOrchestrator', () => {
       )
       .mockResolvedValueOnce(Response.json({ success: true, result: { id: 'cf-user-1' } }))
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ id: 'one' }, { id: 'two' }] }));
-    const orchestrator = new CloudflareOAuthOrchestrator(config, request);
+    vi.stubGlobal('fetch', request);
+    const orchestrator = new CloudflareOAuthOrchestrator(config);
     const challenge = await orchestrator.startConnection({
       returnUrl:
         'https://cloudchef.build/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
@@ -120,7 +125,8 @@ describe('CloudflareOAuthOrchestrator', () => {
 
   test('rejects an access-only grant that cannot be refreshed', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ access_token: 'oauth-access-token' }));
-    const orchestrator = new CloudflareOAuthOrchestrator(config, request);
+    vi.stubGlobal('fetch', request);
+    const orchestrator = new CloudflareOAuthOrchestrator(config);
     const challenge = await orchestrator.startConnection({
       returnUrl:
         'https://cloudchef.build/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',
@@ -140,7 +146,8 @@ describe('CloudflareOAuthOrchestrator', () => {
         Response.json({ access_token: 'oauth-access-token', refresh_token: 'oauth-refresh-token' }),
       )
       .mockResolvedValueOnce(Response.json({ success: false, result: null }, { status: 403 }));
-    const orchestrator = new CloudflareOAuthOrchestrator(config, request);
+    vi.stubGlobal('fetch', request);
+    const orchestrator = new CloudflareOAuthOrchestrator(config);
     const challenge = await orchestrator.startConnection({
       returnUrl:
         'https://cloudchef.build/api/cloudflare/connection/callback?state=00000000-0000-4000-8000-000000000001',

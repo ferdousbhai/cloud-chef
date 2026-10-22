@@ -96,10 +96,7 @@ const accountsSchema = z.looseObject({
 
 /** Cloudflare's OAuth authorization of CloudChef, requesting exactly the manifest's scopes. */
 export class CloudflareOAuthOrchestrator {
-  constructor(
-    private readonly config: { clientId: string; clientSecret: string },
-    private readonly request: typeof fetch = fetch,
-  ) {}
+  constructor(private readonly config: { clientId: string; clientSecret: string }) {}
 
   /** The configured client, or CloudflareOAuthUnavailableError when this environment has none. */
   static fromEnv(env: Env): CloudflareOAuthOrchestrator {
@@ -145,7 +142,6 @@ export class CloudflareOAuthOrchestrator {
     providerSessionId: string;
     callbackUrl: string;
   }): Promise<CloudflareConnectionResult> {
-    const execute = this.request;
     const session = parseSession(request.providerSessionId);
     const callback = new URL(request.callbackUrl);
     const providerError = callback.searchParams.get('error');
@@ -163,7 +159,7 @@ export class CloudflareOAuthOrchestrator {
       redirect_uri: session.redirectUri,
       code_verifier: session.verifier,
     });
-    const tokenResponse = await execute(TOKEN_URL, {
+    const tokenResponse = await fetch(TOKEN_URL, {
       method: 'POST',
       headers: {
         authorization: `Basic ${btoa(`${this.config.clientId}:${this.config.clientSecret}`)}`,
@@ -182,7 +178,7 @@ export class CloudflareOAuthOrchestrator {
       );
     }
     const grantedScopes = resolveGrantedScopes(token.scope ?? callback.searchParams.get('scope') ?? undefined);
-    const userDetailsResponse = await execute(USER_DETAILS_URL, {
+    const userDetailsResponse = await fetch(USER_DETAILS_URL, {
       headers: { authorization: `Bearer ${token.access_token}` },
       signal: AbortSignal.timeout(OAUTH_REQUEST_TIMEOUT_MS),
     });
@@ -191,7 +187,7 @@ export class CloudflareOAuthOrchestrator {
     if (!userDetailsResponse.ok || userDetailsPayload?.success !== true || !userDetails?.id) {
       throw new CloudflareOAuthError('Cloudflare did not return an authenticated user identity.');
     }
-    const accountsResponse = await execute(ACCOUNTS_URL, {
+    const accountsResponse = await fetch(ACCOUNTS_URL, {
       headers: { authorization: `Bearer ${token.access_token}` },
       signal: AbortSignal.timeout(OAUTH_REQUEST_TIMEOUT_MS),
     });
