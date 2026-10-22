@@ -1344,9 +1344,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     identityValue: TranscriptIdentity,
     ownerId: string,
   ): ReturnType<BuilderAgent['getTranscriptSnapshot']> {
-    if (!transcriptOwnerIdSchema.safeParse(ownerId).success) {
-      throw new Response('Invalid transcript owner', { status: 400 });
-    }
     await this.initializeIdentity({ userId: ownerId });
     return this.getTranscriptSnapshot(identityValue);
   }
