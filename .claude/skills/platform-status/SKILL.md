@@ -1,6 +1,6 @@
 ---
 name: platform-status
-description: Report the operational state of the CloudChef platform - whether the control-plane Worker is serving without throwing, whether the pinned default builder model is still current, connected Cloudflare accounts, workspace runtime staleness, users, and sign-in sessions. Use whenever asked for a platform update, a production status report, whether anything is broken or needs attention, or how CloudChef is doing. Replaces the retired admin.cloudchef.build dashboard.
+description: Report the operational state of the CloudChef platform - whether the control-plane Worker is serving without throwing, whether the pinned default builder model is still current, connected Cloudflare accounts, workspace runtime staleness, users, and sign-in sessions. Use whenever asked for a platform update, a production status report, whether anything is broken or needs attention, or how CloudChef is doing.
 ---
 
 # Platform status
@@ -79,8 +79,7 @@ code.
 
 `scripts/ops-report.mjs`, a plain ESM Node script. It reads production control-plane D1 with `cf d1 query` (the
 database id comes from `cloudflare.config.ts`), the control-plane Worker's invocation outcomes from Workers Logs with
-`cf o11y telemetry query` run as a dry run, which saves no query or result (`o11y` is what cf 1.0.0-beta.20 calls the
-former `observability` commands), and the Workers AI catalog with `cf ai models list`, all under the operator's existing `cf` login. Every statement is a `SELECT` and every command is a
+`cf o11y telemetry query` run as a dry run, which saves no query or result, and the Workers AI catalog with `cf ai models list`, all under the operator's existing `cf` login. Every statement is a `SELECT` and every command is a
 read; the tool never writes, deletes, or upgrades anything, and holds no credential of its own. If the login can see more
 than one account, set `CLOUDFLARE_ACCOUNT_ID` so `cf` knows which one to ask about.
 
