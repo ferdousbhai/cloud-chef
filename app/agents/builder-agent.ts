@@ -600,7 +600,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         accountCredentials: credentials,
         gatewayLogging: workersAiGatewayLogging(access?.allowed === true && access.contentLogging),
       });
-      return { status: 'completed', snapshot: ctx.snapshot };
+      return { status: 'completed' };
     }
     if (ctx.name === PREVIEW_PUBLICATION_FIBER) {
       const job = previewPublicationJobSchema.safeParse(ctx.metadata).data;
@@ -608,7 +608,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         return { status: 'error', error: 'missing preview publication recovery data' };
       }
       await this.runPreviewPublication(job);
-      return { status: 'completed', snapshot: ctx.snapshot };
+      return { status: 'completed' };
     }
     if (ctx.name === DEPLOYMENT_FIBER) {
       const job = deploymentJobSchema.safeParse(ctx.metadata).data;
@@ -630,7 +630,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (terminalized.status === 'succeeded') {
         // It finished in the user's account before this instance stopped: production serves it.
         await this.recordDeploymentSucceeded(job, terminalized);
-        return { status: 'completed', snapshot: ctx.snapshot };
+        return { status: 'completed' };
       }
       this.failDeployment(job, error);
       await this.scheduleAutomaticDeploymentRetry(job, run, { message: error.message, retryable: false });
@@ -642,7 +642,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         return { status: 'error', error: 'missing linked build recovery data' };
       }
       await this.runtimeActivity.run(() => this.keepAliveWhile(() => this.runLinkedBuildWatch(watch)));
-      return { status: 'completed', snapshot: ctx.snapshot };
+      return { status: 'completed' };
     }
     if (ctx.name === CLOUDFLARE_EXECUTION_FIBER) {
       const job = cloudflareExecutionFiberSchema.safeParse(ctx.metadata).data;
@@ -665,7 +665,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return { status: 'error', error: 'missing context compaction recovery data' };
     }
     await this.runContextCompaction(compaction.data.throughMessageId);
-    return { status: 'completed', snapshot: ctx.snapshot };
+    return { status: 'completed' };
   }
 
   override async onChatMessage(
@@ -858,8 +858,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     await this.startFiber(
       CONTEXT_COMPACTION_FIBER,
-      async (fiber) => {
-        fiber.stash({ throughMessageId, version: 1 });
+      async () => {
         await this.runContextCompaction(throughMessageId);
       },
       {
@@ -1015,8 +1014,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     await this.runtimeActivity.admit();
     const fiber = await this.startFiber(
       CLOUDFLARE_EXECUTION_FIBER,
-      async (context) => {
-        context.stash(job);
+      async () => {
         await this.runtimeActivity.run(() => this.runApprovedCloudflareExecution(job, binding));
       },
       {
@@ -1479,8 +1477,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   ): Promise<void> {
     await this.startFiber(
       TITLE_GENERATION_FIBER,
-      async (fiber) => {
-        fiber.stash({ ...job, version: 1 });
+      async () => {
         await this.generateTitlesForPrompt({ ...job, accountCredentials, gatewayLogging });
       },
       {
@@ -1758,7 +1755,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.startFiber(
         LINKED_BUILD_FIBER,
         async (fiber) => {
-          fiber.stash(watch);
           await this.runtimeActivity.run(() =>
             this.keepAliveWhile(() => this.runLinkedBuildWatch(watch, fiber.signal)),
           );
@@ -2457,7 +2453,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.startFiber(
         DEPLOYMENT_FIBER,
         async (fiber) => {
-          fiber.stash(job);
           await this.trackPublication(
             run.automatic,
             fiber.signal,
@@ -2893,7 +2888,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.startFiber(
         PREVIEW_PUBLICATION_FIBER,
         async (fiber) => {
-          fiber.stash(job);
           await this.runPreviewPublication(job, fiber.signal, options.epoch);
         },
         {
