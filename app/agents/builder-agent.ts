@@ -1819,7 +1819,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     return fetchLinkedSitePage(input, {
       origins: () => linkedSiteOrigins(this.env, identity, linked.orgProjectId, linked.branchKey),
-      fetch: (request, init) => fetch(request, init),
       signal: options.abortSignal,
     });
   }

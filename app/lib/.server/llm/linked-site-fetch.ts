@@ -30,7 +30,6 @@ export async function fetchLinkedSitePage(
   deps: {
     /** The site's https origins, from the control plane. */
     origins: () => Promise<readonly string[]>;
-    fetch: (request: string, init: RequestInit) => Promise<Response>;
     signal?: AbortSignal;
   },
 ): Promise<CloudChefToolResult> {
@@ -64,7 +63,7 @@ export async function fetchLinkedSitePage(
   let response: Response;
   for (let redirects = 0; ; redirects += 1) {
     try {
-      response = await deps.fetch(url.href, {
+      response = await fetch(url.href, {
         method: 'GET',
         redirect: 'manual',
         headers: {
