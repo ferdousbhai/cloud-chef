@@ -8,27 +8,25 @@ import {
 } from './agent-gc.server';
 
 describe('BuilderAgent garbage collection', () => {
-  it('durably schedules every deterministic generation before removing a subchat range receipt', async () => {
-    const database = new AgentGcDatabase([candidate({ max_generation: 1 })]);
+  it("durably schedules each subchat's Agent destroy before removing its receipt", async () => {
+    const database = new AgentGcDatabase([candidate(), candidate({ subchat_index: 1 })]);
 
     await expect(sweepAgentGcCandidates(database.env, { now: 100 })).resolves.toBeUndefined();
-    expect(database.scheduleDestroy).toHaveBeenLastCalledWith('chat', 'owner');
-    expect(database.candidates[0]).toMatchObject({ next_generation: 1, attempts: 0, not_before: 100 });
-
-    await expect(sweepAgentGcCandidates(database.env, { now: 100 })).resolves.toBeUndefined();
-    expect(database.scheduleDestroy).toHaveBeenLastCalledWith('chat--transcript-0-1', 'owner');
+    expect(database.scheduleDestroy.mock.calls).toEqual([
+      ['chat', 'owner'],
+      ['chat--transcript-1-0', 'owner'],
+    ]);
     expect(database.candidates).toEqual([]);
     expect(database.destroy).not.toHaveBeenCalled();
   });
 
-  it('retains a generation when its durable destroy schedule is not accepted', async () => {
+  it('retains a receipt when its durable destroy schedule is not accepted', async () => {
     const database = new AgentGcDatabase([candidate({ attempts: 2 })]);
     database.scheduleDestroy.mockRejectedValueOnce(new Error('transient RPC failure'));
 
     await expect(sweepAgentGcCandidates(database.env, { now: 1_000 })).resolves.toBeUndefined();
 
     expect(database.candidates[0]).toMatchObject({
-      next_generation: 0,
       attempts: 3,
       not_before: 1_000 + AGENT_GC_RETRY_BASE_MS * 4,
     });
@@ -105,8 +103,6 @@ type Candidate = {
   initial_id: string;
   owner_id: string;
   subchat_index: number;
-  next_generation: number;
-  max_generation: number;
   not_before: number;
   attempts: number;
 };
@@ -117,8 +113,6 @@ function candidate(overrides: Partial<Candidate> = {}): Candidate {
     initial_id: 'chat',
     owner_id: 'owner',
     subchat_index: 0,
-    next_generation: 0,
-    max_generation: 0,
     not_before: 50,
     attempts: 0,
     ...overrides,
@@ -171,8 +165,8 @@ class AgentGcDatabase {
 
   private run(query: string, values: unknown[]): D1Result {
     if (query.includes('DELETE FROM agent_gc_candidates')) {
-      const [chatId, subchatIndex, nextGeneration, notBefore] = values as [string, number, number, number];
-      const index = this.find(chatId, subchatIndex, nextGeneration, notBefore);
+      const [chatId, subchatIndex, notBefore] = values as [string, number, number];
+      const index = this.find(chatId, subchatIndex, notBefore);
       if (index < 0) {
         return changed(0);
       }
@@ -180,25 +174,9 @@ class AgentGcDatabase {
       return changed(1);
     }
 
-    if (query.includes('next_generation = next_generation + 1')) {
-      const [now, chatId, subchatIndex, nextGeneration, notBefore] = values as [number, string, number, number, number];
-      const index = this.find(chatId, subchatIndex, nextGeneration, notBefore);
-      if (index < 0) {
-        return changed(0);
-      }
-      Object.assign(this.candidates[index], { next_generation: nextGeneration + 1, attempts: 0, not_before: now });
-      return changed(1);
-    }
-
     if (query.includes('attempts = attempts + 1')) {
-      const [retryAt, chatId, subchatIndex, nextGeneration, notBefore] = values as [
-        number,
-        string,
-        number,
-        number,
-        number,
-      ];
-      const index = this.find(chatId, subchatIndex, nextGeneration, notBefore);
+      const [retryAt, chatId, subchatIndex, notBefore] = values as [number, string, number, number];
+      const index = this.find(chatId, subchatIndex, notBefore);
       if (index < 0) {
         return changed(0);
       }
@@ -212,13 +190,9 @@ class AgentGcDatabase {
     return changed(0);
   }
 
-  private find(chatId: string, subchatIndex: number, nextGeneration: number, notBefore: number): number {
+  private find(chatId: string, subchatIndex: number, notBefore: number): number {
     return this.candidates.findIndex(
-      (item) =>
-        item.chat_id === chatId &&
-        item.subchat_index === subchatIndex &&
-        item.next_generation === nextGeneration &&
-        item.not_before === notBefore,
+      (item) => item.chat_id === chatId && item.subchat_index === subchatIndex && item.not_before === notBefore,
     );
   }
 }

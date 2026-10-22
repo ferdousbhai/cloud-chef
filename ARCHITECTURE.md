@@ -254,20 +254,20 @@ files; the browser editor and container mount are replicas of that state.
 
 `BuilderAgent` DO SQLite is the only authoritative message transcript and checkpoint store. Generation, reload,
 interrupted-turn recovery, and context compaction all read that Agent. User workspace D1 stores only routing and catalog
-facts: the Agent name, generation, subchat index, branch ancestry, and whether the chat has accepted content. It stores
+facts: the Agent name, subchat index, branch ancestry, and whether the chat has accepted content. It stores
 no message positions, counts, digests, or browser-authored checkpoint. The browser's TanStack collection is a
 rebuildable in-memory view.
 
 Reconciliation is deterministic:
 
 1. Reload resolves the owner-scoped transcript identity from D1 and asks that exact `BuilderAgent` for its checkpoint
-   and messages. A mismatched Agent identity or generation is a conflict, never a fallback to another history.
+   and messages. A mismatched Agent identity is a conflict, never a fallback to another history.
 2. Before send, the browser asks the Agent for its current checkpoint and compares it with the complete local view. A
    mismatch blocks the send and requires a reload. The checkpoint rides with the message only as transient base
    metadata, so the Agent rejects a stale client that races after the preflight; it is stripped before persistence.
 3. Once the Agent accepts the first user content, it marks the chat visible in D1 using its bound identity. This writes
    one catalog boolean, not a transcript projection. D1 never receives the message body or checkpoint hash.
-4. A subchat records its parent subchat, generation, and revision. The runtime reads that revision directly from the
+4. A subchat records its parent subchat and revision. The runtime reads that revision directly from the
    parent Agent before the D1 transition, then uses a unique token to recognize an exact commit whose acknowledgement
    was lost.
 
@@ -528,7 +528,7 @@ The builder loop stays on Pi rather than AI SDK's `ToolLoopAgent`, which has no 
 review is in `docs/DECISIONS.md`.
 
 Workers AI prefix caching is automatic for supported models. CloudChef sends an opaque, stable session-affinity value
-per transcript generation through the AI binding's `extraHeaders`, keeps system instructions at the front of the
+per transcript and model through the AI binding's `extraHeaders`, keeps system instructions at the front of the
 prompt, and leaves dynamic project context in the latest user turn; finish telemetry reports Pi's `usage.cacheRead` as
 hits or misses without logging prompt contents. The evidence on cache savings is in `docs/DECISIONS.md`.
 

@@ -177,7 +177,7 @@ describe('BuilderAgent runtime activity', () => {
       body: {
         chatInitialId: CHAT_INITIAL_ID,
         subchatIndex: 0,
-        transcript: { agentName: AGENT_NAME, generation: 0, subchatIndex: 0 },
+        transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
         modelId: CLOUDFLARE_WORKERS_AI_MODEL,
       },
     });
@@ -215,7 +215,7 @@ describe('BuilderAgent runtime activity', () => {
         body: {
           chatInitialId: CHAT_INITIAL_ID,
           subchatIndex: 0,
-          transcript: { agentName: AGENT_NAME, generation: 0, subchatIndex: 0 },
+          transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
           modelId: CLOUDFLARE_WORKERS_AI_MODEL,
         },
       }),

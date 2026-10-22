@@ -10,7 +10,6 @@ export async function createWorkersAiSessionAffinity(
     JSON.stringify({
       agentName: identity.agentName,
       subchatIndex: identity.subchatIndex,
-      generation: identity.generation,
       modelId,
     }),
   )}`;

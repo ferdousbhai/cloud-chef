@@ -12,11 +12,9 @@ export type ChatRow = {
 export type ChatTranscriptRow = {
   chat_id: string;
   subchat_index: number;
-  generation: number;
   agent_name: string;
   description: string | null;
   parent_subchat_index: number | null;
-  parent_generation: number | null;
   parent_revision: number | null;
   transition_token: string;
   created_at: number;

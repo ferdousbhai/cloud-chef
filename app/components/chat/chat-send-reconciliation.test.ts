@@ -70,7 +70,7 @@ describe('reconcileMessagesForSend', () => {
   });
 });
 
-const identity = { agentName: 'agent', generation: 0, subchatIndex: 0 } as const;
+const identity = { agentName: 'agent', subchatIndex: 0 } as const;
 
 function message(id: string): CloudChefMessage {
   return { id, role: 'user', parts: [{ type: 'text', text: id }] };

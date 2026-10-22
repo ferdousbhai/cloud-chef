@@ -32,7 +32,7 @@ function stubTranscriptEndpoint(answer: (body: TranscriptRequestBody) => Promise
       version: TRANSCRIPT_HISTORY_FORMAT_VERSION,
       initialId: body.chatId,
       description: chat.description,
-      transcript: { agentName: `${body.chatId}--transcript-${subchatIndex}-0`, generation: 0, subchatIndex },
+      transcript: { agentName: `${body.chatId}--transcript-${subchatIndex}-0`, subchatIndex },
       checkpoint: null,
       messages: [],
     });

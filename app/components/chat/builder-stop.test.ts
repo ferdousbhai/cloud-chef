@@ -8,11 +8,7 @@ describe('settleBuilderStop', () => {
       { id: 'user-1', role: 'user' as const, parts: [{ type: 'text' as const, text: 'Build a game' }] },
       { id: 'assistant-1', role: 'assistant' as const, parts: [{ type: 'text' as const, text: 'Partial' }] },
     ];
-    const checkpoint = await advanceTranscriptCheckpoint(
-      null,
-      { agentName: 'agent-1', generation: 0, subchatIndex: 0 },
-      messages,
-    );
+    const checkpoint = await advanceTranscriptCheckpoint(null, { agentName: 'agent-1', subchatIndex: 0 }, messages);
     const order: string[] = [];
     const reconcileMessages = vi.fn(() => order.push('reconcile'));
     const refreshWorkspace = vi.fn(async () => {

@@ -357,7 +357,6 @@ function subchat(subchatIndex: number, description: string) {
     updatedAt: subchatIndex,
     transcript: {
       agentName: `chat-${subchatIndex}`,
-      generation: 0,
       subchatIndex,
     },
   };

@@ -291,7 +291,6 @@ export async function builderAgentHarness(
         transcript: {
           agentName: AGENT_NAME,
           chatInitialId: CHAT_INITIAL_ID,
-          generation: 0,
           subchatIndex: 0,
           parentAgentName: null,
         },

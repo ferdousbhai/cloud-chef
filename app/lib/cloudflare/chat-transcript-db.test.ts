@@ -4,7 +4,6 @@ import { parseTranscriptResponse, projectMessagesRequestError } from './chat-tra
 
 const checkpoint = {
   agentName: 'agent-1',
-  generation: 0,
   subchatIndex: 0,
   revision: 1,
   digest: 'a'.repeat(64),
@@ -16,7 +15,7 @@ describe('parseTranscriptResponse', () => {
     status: 'ready',
     version: TRANSCRIPT_HISTORY_FORMAT_VERSION,
     initialId: 'chat-1',
-    transcript: { agentName: 'agent-1', generation: 0, subchatIndex: 0 },
+    transcript: { agentName: 'agent-1', subchatIndex: 0 },
     checkpoint,
     messages: [{ id: 'message-1', role: 'user', parts: [{ type: 'text', text: 'Build' }] }],
   };

@@ -2,12 +2,9 @@ import { z } from 'zod';
 
 export const TRANSCRIPT_HISTORY_FORMAT_VERSION = 2 as const;
 export const TRANSCRIPT_BASE_METADATA_KEY = 'cloudchefTranscriptBase' as const;
-/** New transcripts remain generation zero; nonzero values identify deployed rewind-era objects. */
-export const CURRENT_TRANSCRIPT_GENERATION = 0 as const;
 
 export const transcriptIdentitySchema = z.object({
   agentName: z.string().min(1).max(512),
-  generation: z.number().int().nonnegative(),
   subchatIndex: z.number().int().nonnegative(),
 });
 
@@ -22,11 +19,7 @@ export type TranscriptCheckpoint = z.infer<typeof transcriptCheckpointSchema>;
 type TranscriptMessage = { id: string; role: string; parts: unknown[] };
 
 export function transcriptIdentitiesEqual(left: TranscriptIdentity, right: TranscriptIdentity): boolean {
-  return (
-    left.agentName === right.agentName &&
-    left.generation === right.generation &&
-    left.subchatIndex === right.subchatIndex
-  );
+  return left.agentName === right.agentName && left.subchatIndex === right.subchatIndex;
 }
 
 export function transcriptCheckpointsEqual(
@@ -44,11 +37,12 @@ export function transcriptCheckpointsEqual(
   );
 }
 
-export function transcriptAgentName(initialId: string, subchatIndex: number, generation: number): string {
-  if (subchatIndex === 0 && generation === CURRENT_TRANSCRIPT_GENERATION) {
-    return initialId;
-  }
-  return `${initialId}--transcript-${subchatIndex}-${generation}`;
+/**
+ * A transcript's BuilderAgent name: the chat's initial id for its first subchat, and a fixed `-0` suffix for the
+ * others, which existing Agents are named by.
+ */
+export function transcriptAgentName(initialId: string, subchatIndex: number): string {
+  return subchatIndex === 0 ? initialId : `${initialId}--transcript-${subchatIndex}-0`;
 }
 
 export async function digestTranscriptMessages(messages: TranscriptMessage[]): Promise<string> {

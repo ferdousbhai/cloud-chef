@@ -11,7 +11,6 @@ import {
 export type BuilderTranscriptBinding = {
   agentName: string;
   chatInitialId: string;
-  generation: number;
   subchatIndex: number;
   parentAgentName: string | null;
 };
@@ -23,7 +22,6 @@ export function builderTranscriptBindingsEqual(
   return (
     left.agentName === right.agentName &&
     left.chatInitialId === right.chatInitialId &&
-    left.generation === right.generation &&
     left.subchatIndex === right.subchatIndex &&
     left.parentAgentName === right.parentAgentName
   );
@@ -32,7 +30,6 @@ export function builderTranscriptBindingsEqual(
 type BuilderTranscriptRow = {
   agent_name: string;
   initial_id: string;
-  generation: number;
   subchat_index: number;
   parent_agent_name: string | null;
 };
@@ -46,7 +43,6 @@ export async function loadBuilderTranscriptBinding(
     .prepare(
       `SELECT transcripts.agent_name,
               chats.initial_id,
-              transcripts.generation,
               transcripts.subchat_index,
               parent.agent_name AS parent_agent_name
        FROM chat_transcripts AS transcripts
@@ -54,7 +50,6 @@ export async function loadBuilderTranscriptBinding(
        LEFT JOIN chat_transcripts AS parent
          ON parent.chat_id = transcripts.chat_id
         AND parent.subchat_index = transcripts.parent_subchat_index
-        AND parent.generation = transcripts.parent_generation
        WHERE transcripts.agent_name = ?
          AND chats.creator_id = ?
          AND chats.is_deleted = 0
@@ -67,7 +62,6 @@ export async function loadBuilderTranscriptBinding(
     ? {
         agentName: row.agent_name,
         chatInitialId: row.initial_id,
-        generation: row.generation,
         subchatIndex: row.subchat_index,
         parentAgentName: row.parent_agent_name ?? null,
       }
@@ -158,12 +152,7 @@ export function requireBuilderTranscriptIdentity(
   if (!result.success) {
     throw new Response('Invalid transcript identity', { status: 400 });
   }
-  if (
-    !binding ||
-    result.data.agentName !== binding.agentName ||
-    result.data.generation !== binding.generation ||
-    result.data.subchatIndex !== binding.subchatIndex
-  ) {
+  if (!binding || result.data.agentName !== binding.agentName || result.data.subchatIndex !== binding.subchatIndex) {
     throw new Response('Transcript identity does not match this agent', { status: 409 });
   }
   return result.data;

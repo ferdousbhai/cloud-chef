@@ -14,7 +14,6 @@ type TestRow = {
   connection_generation: number;
   transcript_agent_name: string;
   transcript_chat_initial_id: string;
-  transcript_generation: number;
   transcript_subchat_index: number;
   transcript_parent_agent_name: string | null;
   execute_input_json: string;
@@ -60,20 +59,19 @@ class TestExecutionStorage {
           account_id: String(bindings[3]),
           connection_id: String(bindings[4]),
           connection_generation: Number(bindings[5]),
-          transcript_agent_name: String(bindings[7]),
-          transcript_chat_initial_id: String(bindings[8]),
-          transcript_generation: Number(bindings[9]),
-          transcript_subchat_index: Number(bindings[10]),
-          transcript_parent_agent_name: bindings[11] === null ? null : String(bindings[11]),
-          execute_input_json: String(bindings[12]),
-          proposal_sha256: String(bindings[13]),
-          risk_reasons_json: String(bindings[14]),
+          transcript_agent_name: String(bindings[6]),
+          transcript_chat_initial_id: String(bindings[7]),
+          transcript_subchat_index: Number(bindings[8]),
+          transcript_parent_agent_name: bindings[9] === null ? null : String(bindings[9]),
+          execute_input_json: String(bindings[10]),
+          proposal_sha256: String(bindings[11]),
+          risk_reasons_json: String(bindings[12]),
           status: 'awaiting_approval',
-          created_at: Number(bindings[15]),
+          created_at: Number(bindings[13]),
           decided_at: null,
           started_at: null,
           completed_at: null,
-          expires_at: Number(bindings[16]),
+          expires_at: Number(bindings[14]),
           outcome_json: null,
         };
         this.rows.set(row.execution_id, row);
@@ -166,9 +164,8 @@ const binding: CloudflareExecutionBinding = {
   connectionId: 'connection-1',
   connectionGeneration: 4,
   transcript: {
-    agentName: 'chat--transcript-0-1',
+    agentName: 'chat',
     chatInitialId: 'chat',
-    generation: 1,
     subchatIndex: 0,
     parentAgentName: null,
   },
@@ -216,7 +213,7 @@ describe('durable Cloudflare execution approval repository', () => {
     ['account', { accountId: 'account-2' }],
     ['connection', { connectionId: 'connection-2' }],
     ['generation', { connectionGeneration: 5 }],
-    ['transcript', { transcript: { ...binding.transcript, generation: 2 } }],
+    ['transcript', { transcript: { ...binding.transcript, subchatIndex: 1 } }],
   ])('rejects a %s identity mismatch', async (_label, changed) => {
     const { repository } = executionRepository();
     const proposal = await repository.createProposal({

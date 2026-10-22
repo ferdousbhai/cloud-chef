@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceTranscriptCheckpoint,
-  CURRENT_TRANSCRIPT_GENERATION,
   digestTranscriptMessages,
   stripTranscriptBaseMetadata,
   transcriptAgentName,
@@ -11,14 +10,13 @@ import {
 } from './transcript.js';
 
 describe('transcript identity', () => {
-  it('preserves the legacy initial agent name only for the original transcript', () => {
-    expect(transcriptAgentName('chat', 0, CURRENT_TRANSCRIPT_GENERATION)).toBe('chat');
-    expect(transcriptAgentName('chat', 1, CURRENT_TRANSCRIPT_GENERATION)).toBe('chat--transcript-1-0');
-    expect(transcriptAgentName('chat', 0, 2)).toBe('chat--transcript-0-2');
+  it('names the first subchat by the chat and every other by its index', () => {
+    expect(transcriptAgentName('chat', 0)).toBe('chat');
+    expect(transcriptAgentName('chat', 1)).toBe('chat--transcript-1-0');
   });
 
   it('compares every identity field and removes only transport metadata', () => {
-    const identity = { agentName: 'chat', generation: 1, subchatIndex: 2 };
+    const identity = { agentName: 'chat', subchatIndex: 2 };
     expect(transcriptIdentitiesEqual(identity, { ...identity })).toBe(true);
     expect(transcriptIdentitiesEqual(identity, { ...identity, subchatIndex: 3 })).toBe(false);
     expect(
@@ -41,7 +39,7 @@ describe('digestTranscriptMessages', () => {
   });
 
   it('advances once for recovered partial output and is idempotent after replay', async () => {
-    const identity = { agentName: 'chat', generation: 0, subchatIndex: 0 };
+    const identity = { agentName: 'chat', subchatIndex: 0 };
     const initial = await advanceTranscriptCheckpoint(null, identity, [
       { id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Build' }] },
     ]);

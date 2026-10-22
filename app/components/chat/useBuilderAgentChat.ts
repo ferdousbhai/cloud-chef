@@ -112,12 +112,8 @@ export function useBuilderAgentChat(args: {
     };
   }, [args.presentationId]);
   const transcript = useMemo<TranscriptIdentity>(
-    () => ({
-      agentName: args.transcript.agentName,
-      generation: args.transcript.generation,
-      subchatIndex: args.transcript.subchatIndex,
-    }),
-    [args.transcript.agentName, args.transcript.generation, args.transcript.subchatIndex],
+    () => ({ agentName: args.transcript.agentName, subchatIndex: args.transcript.subchatIndex }),
+    [args.transcript.agentName, args.transcript.subchatIndex],
   );
   const currentSubchatIndex = useStore(subchatIndexStore) ?? 0;
   const previousSubchatIndexRef = useRef(currentSubchatIndex);

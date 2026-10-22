@@ -17,8 +17,8 @@ describe('empty chat lifecycle', () => {
     for (const chatId of ['empty-row', 'message-row']) {
       database.sqlite
         .prepare(
-          `INSERT INTO chat_transcripts (chat_id, subchat_index, generation)
-           VALUES (?, 0, 0)`,
+          `INSERT INTO chat_transcripts (chat_id, subchat_index)
+           VALUES (?, 0)`,
         )
         .run(chatId);
     }
@@ -67,7 +67,6 @@ describe('chat reads', () => {
       subchat_index: subchatIndex,
       description: null,
       updated_at: subchatIndex,
-      generation: 0,
       agent_name: `chat--transcript-${subchatIndex}-0`,
     }));
     const all = vi.fn().mockResolvedValue({ results: subchatRows });
@@ -127,7 +126,7 @@ describe('chat deletion', () => {
   });
 });
 
-describe('transcript generation transitions', () => {
+describe('subchat creation', () => {
   it('rejects subchat creation at the validated index ceiling', async () => {
     const database = subchatDatabase();
 
@@ -155,14 +154,14 @@ describe('transcript generation transitions', () => {
     expect(created).toBe(3);
     const transcriptInsert = database.statements[0];
     expect(transcriptInsert.query).toContain('INSERT INTO chat_transcripts');
-    expect(transcriptInsert.values.slice(0, 7)).toEqual(['chat-row', 3, 0, 'chat--transcript-3-0', 2, 4, 9]);
-    expect(transcriptInsert.query).toContain('WHERE chat_id = ? AND subchat_index = ? AND generation = ?');
+    expect(transcriptInsert.values.slice(0, 5)).toEqual(['chat-row', 3, 'chat--transcript-3-0', 2, 9]);
+    expect(transcriptInsert.query).toContain('WHERE chat_id = ? AND subchat_index = ?');
     expect(transcriptInsert.query).toContain('chats.is_deleted = 0');
     expect(transcriptInsert.values.at(-1)).toBe('user-1');
     expect(database.statements[1].query).toContain('last_subchat_index = ?');
   });
 
-  it('rejects subchat creation when the parent generation changes before the batch', async () => {
+  it('rejects subchat creation when the chat changes before the batch', async () => {
     const database = subchatDatabase([0, 0]);
 
     await expect(
@@ -191,8 +190,7 @@ function emptyChatDatabase(): { sqlite: DatabaseSync; db: D1Database } {
     );
     CREATE TABLE chat_transcripts (
       chat_id TEXT NOT NULL,
-      subchat_index INTEGER NOT NULL,
-      generation INTEGER NOT NULL
+      subchat_index INTEGER NOT NULL
     );
     CREATE TABLE agent_gc_candidates (
       chat_id TEXT NOT NULL,
@@ -253,11 +251,9 @@ const latestChat: ChatRow = {
 const latestTranscript: ChatTranscriptRow = {
   chat_id: 'chat-row',
   subchat_index: 2,
-  generation: 4,
-  agent_name: 'chat--transcript-2-4',
+  agent_name: 'chat--transcript-2-0',
   description: 'Feature',
   parent_subchat_index: 1,
-  parent_generation: 0,
   parent_revision: 3,
   transition_token: 'previous-transition',
   created_at: 1,

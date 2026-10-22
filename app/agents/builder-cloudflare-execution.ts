@@ -34,7 +34,6 @@ type CloudflareExecutionRow = {
   connection_generation: number;
   transcript_agent_name: string;
   transcript_chat_initial_id: string;
-  transcript_generation: number;
   transcript_subchat_index: number;
   transcript_parent_agent_name: string | null;
   execute_input_json: string;
@@ -49,7 +48,7 @@ type CloudflareExecutionRow = {
 };
 
 const EXECUTION_COLUMNS = `execution_id, tool_call_id, user_id, account_id, connection_id,
-  connection_generation, transcript_agent_name, transcript_chat_initial_id, transcript_generation,
+  connection_generation, transcript_agent_name, transcript_chat_initial_id,
   transcript_subchat_index, transcript_parent_agent_name, execute_input_json, proposal_sha256,
   status, created_at, decided_at, started_at, completed_at, expires_at, outcome_json`;
 
@@ -114,22 +113,20 @@ export class BuilderCloudflareExecutionRepository {
       this.storage.sql.exec(
         `INSERT INTO builder_cloudflare_executions (
            execution_id, tool_call_id, user_id, account_id, connection_id, connection_generation,
+           -- Neither is read: every connection holds the whole core grant, and transcripts have no generation.
            oauth_scope_grant_status,
            transcript_agent_name, transcript_chat_initial_id, transcript_generation,
            transcript_subchat_index, transcript_parent_agent_name, execute_input_json,
            proposal_sha256, risk_reasons_json, status, created_at, expires_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_approval', ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, 'core', ?, ?, 0, ?, ?, ?, ?, ?, 'awaiting_approval', ?, ?)`,
         executionId,
         args.toolCallId,
         args.binding.userId,
         args.binding.accountId,
         args.binding.connectionId,
         args.binding.connectionGeneration,
-        // No longer read: every connection holds the whole core grant. The column stays NOT NULL.
-        'core',
         args.binding.transcript.agentName,
         args.binding.transcript.chatInitialId,
-        args.binding.transcript.generation,
         args.binding.transcript.subchatIndex,
         args.binding.transcript.parentAgentName,
         inputJson,
@@ -395,7 +392,6 @@ function recordFromRow(row: CloudflareExecutionRow): CloudflareExecutionRecord {
       transcript: {
         agentName: row.transcript_agent_name,
         chatInitialId: row.transcript_chat_initial_id,
-        generation: row.transcript_generation,
         subchatIndex: row.transcript_subchat_index,
         parentAgentName: row.transcript_parent_agent_name,
       },

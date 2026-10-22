@@ -27,7 +27,7 @@ export function useChatHomepage(chatId: string) {
   const transcript =
     loadedTranscript ??
     subchats?.find((subchat) => subchat.subchatIndex === subchatIndex)?.transcript ??
-    ({ agentName: transcriptAgentName(chatId, subchatIndex, 0), generation: 0, subchatIndex } as const);
+    ({ agentName: transcriptAgentName(chatId, subchatIndex), subchatIndex } as const);
   const onBuilderRequestStart = useCallback(() => {
     toolActivityStore.handoffActiveTurn();
     void navigateToChat(chatId);

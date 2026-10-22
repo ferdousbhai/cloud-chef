@@ -253,7 +253,7 @@ export async function getSubchats(db: D1Database, args: { sessionId: string; cha
   const chat = await requireChat(db, { id: args.chatId, sessionId: args.sessionId });
   const { results } = await db
     .prepare(
-      `SELECT subchat_index, description, updated_at, generation, agent_name
+      `SELECT subchat_index, description, updated_at, agent_name
        FROM chat_transcripts
        WHERE chat_id = ?
        ORDER BY subchat_index ASC`,
@@ -263,25 +263,19 @@ export async function getSubchats(db: D1Database, args: { sessionId: string; cha
       subchat_index: number;
       description: string | null;
       updated_at: number;
-      generation: number;
       agent_name: string;
     }>();
   return results.map((row) => ({
     subchatIndex: row.subchat_index,
     description: row.description ?? undefined,
     updatedAt: row.updated_at,
-    transcript: {
-      agentName: row.agent_name,
-      generation: row.generation,
-      subchatIndex: row.subchat_index,
-    },
+    transcript: { agentName: row.agent_name, subchatIndex: row.subchat_index },
   }));
 }
 
 /**
  * Adds the chat's next subchat, continuing `parent`, its latest. The batch commits only while the chat
- * still ends at that parent and the parent is still that generation, so values read earlier cannot add a
- * second subchat at the same index.
+ * still ends at that parent, so values read earlier cannot add a second subchat at the same index.
  */
 export async function createSubchat(
   db: D1Database,
@@ -298,11 +292,7 @@ export async function createSubchat(
       chatId: chat.id,
       initialId: chat.initial_id,
       subchatIndex: newSubchatIndex,
-      parent: {
-        subchatIndex: parent.subchat_index,
-        generation: parent.generation,
-        revision: args.parentRevision,
-      },
+      parent: { subchatIndex: parent.subchat_index, revision: args.parentRevision },
       ownerId: args.sessionId,
       transitionToken,
     }),
@@ -312,7 +302,7 @@ export async function createSubchat(
          SET last_subchat_index = ?
          WHERE id = ? AND last_subchat_index = ? AND EXISTS (
            SELECT 1 FROM chat_transcripts
-           WHERE chat_id = ? AND subchat_index = ? AND generation = 0 AND transition_token = ?
+           WHERE chat_id = ? AND subchat_index = ? AND transition_token = ?
          )`,
       )
       .bind(newSubchatIndex, chat.id, chat.last_subchat_index, chat.id, newSubchatIndex, transitionToken),

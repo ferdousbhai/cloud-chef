@@ -412,7 +412,6 @@ describe('useBuilderAgentChat stale presentation operations', () => {
   it('does not apply terminal transcript reconciliation after the presentation switches', async () => {
     const checkpoint = {
       agentName: 'agent-1',
-      generation: 1,
       subchatIndex: 0,
       digest: 'a'.repeat(64),
       messageCount: 1,
@@ -595,7 +594,7 @@ function chatArgs(presentationId: string) {
     initialMessages: [],
     onSubchatTitle: vi.fn(),
     presentationId,
-    transcript: { agentName: 'agent-1', generation: 1, subchatIndex: 0 },
+    transcript: { agentName: 'agent-1', subchatIndex: 0 },
   };
 }
 

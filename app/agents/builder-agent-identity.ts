@@ -6,7 +6,6 @@ type BuilderIdentityRow = {
   user_id: string;
   agent_name: string;
   chat_initial_id: string;
-  generation: number;
   subchat_index: number;
   parent_agent_name: string | null;
 };
@@ -28,8 +27,7 @@ export class BuilderAgentIdentityRepository {
   get(): BuilderAgentDurableIdentity | null {
     const row = [
       ...this.storage.sql.exec<BuilderIdentityRow>(`
-        SELECT user_id, agent_name, chat_initial_id, generation,
-               subchat_index, parent_agent_name
+        SELECT user_id, agent_name, chat_initial_id, subchat_index, parent_agent_name
         FROM builder_identity
         WHERE id = 'active'
         LIMIT 1
@@ -52,12 +50,11 @@ export class BuilderAgentIdentityRepository {
         `INSERT INTO builder_identity (
            id, owner_id, user_id, agent_name, chat_initial_id, generation,
            subchat_index, parent_agent_name, created_at
-         ) VALUES ('active', ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES ('active', ?, ?, ?, ?, 0, ?, ?, ?)`,
         identity.userId,
         identity.userId,
         identity.transcript.agentName,
         identity.transcript.chatInitialId,
-        identity.transcript.generation,
         identity.transcript.subchatIndex,
         identity.transcript.parentAgentName,
         new Date().toISOString(),
@@ -87,7 +84,6 @@ function fromRow(row: BuilderIdentityRow): BuilderAgentDurableIdentity {
     transcript: {
       agentName: row.agent_name,
       chatInitialId: row.chat_initial_id,
-      generation: row.generation,
       subchatIndex: row.subchat_index,
       parentAgentName: row.parent_agent_name,
     },

@@ -493,7 +493,7 @@ export async function collectSession(target, { cf, gh, controlPlaneDatabaseId, n
       select(
         cf,
         databaseId,
-        `SELECT subchat_index, generation, agent_name, description, created_at, updated_at FROM chat_transcripts
+        `SELECT subchat_index, agent_name, description, created_at, updated_at FROM chat_transcripts
          WHERE chat_id = ?1 ORDER BY subchat_index`,
         [chat.id],
         { accountId },

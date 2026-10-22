@@ -10,11 +10,10 @@ import {
 } from './builder-request-policy';
 
 const binding: BuilderTranscriptBinding = {
-  agentName: 'chat--transcript-2-3',
+  agentName: 'chat--transcript-2-0',
   chatInitialId: 'chat',
-  generation: 3,
   subchatIndex: 2,
-  parentAgentName: 'chat--transcript-1-2',
+  parentAgentName: 'chat--transcript-1-0',
 };
 
 describe('BuilderAgent request policy', () => {
@@ -22,7 +21,6 @@ describe('BuilderAgent request policy', () => {
     const first = vi.fn(async () => ({
       agent_name: binding.agentName,
       initial_id: binding.chatInitialId,
-      generation: binding.generation,
       subchat_index: binding.subchatIndex,
       parent_agent_name: binding.parentAgentName,
     }));
@@ -39,19 +37,19 @@ describe('BuilderAgent request policy', () => {
     expect(prepare.mock.calls[0]?.[0]).toContain('chats.is_deleted = 0');
   });
 
-  it('accepts only an exact D1-bound chat, subchat, and generation, naming them from the binding', () => {
+  it('accepts only an exact D1-bound chat and subchat, naming them from the binding', () => {
     // What the browser still sends for the chat and subchat is not read.
     const body = {
       chatInitialId: 'other-chat',
       subchatIndex: 0,
       modelId: '@cf/zai-org/glm-5.3-flash',
-      transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
+      transcript: { agentName: binding.agentName, subchatIndex: 2 },
     };
     expect(requireBuilderRequestScope(body, binding)).toEqual({
       chatInitialId: 'chat',
       subchatIndex: 2,
       modelId: '@cf/zai-org/glm-5.3-flash',
-      transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
+      transcript: { agentName: binding.agentName, subchatIndex: 2 },
     });
   });
 
@@ -62,7 +60,7 @@ describe('BuilderAgent request policy', () => {
         requireBuilderRequestScope(
           {
             modelId,
-            transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
+            transcript: { agentName: binding.agentName, subchatIndex: 2 },
           },
           binding,
         ).modelId,
@@ -75,7 +73,7 @@ describe('BuilderAgent request policy', () => {
       requireBuilderRequestScope(
         {
           modelId: 'anthropic/claude-opus-5-5',
-          transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
+          transcript: { agentName: binding.agentName, subchatIndex: 2 },
           reasoningLevel,
         },
         binding,
@@ -95,14 +93,13 @@ describe('BuilderAgent request policy', () => {
     [{ modelId: 'anthropic/' }, 400],
     [{ modelId: 'anthropic/claude Opus 5' }, 400],
     [{ modelId: 'fireworks/kimi-k2' }, 400],
-    [{ transcript: { agentName: binding.agentName, generation: 4, subchatIndex: 2 } }, 409],
-    [{ transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 1 } }, 409],
+    [{ transcript: { agentName: binding.agentName, subchatIndex: 1 } }, 409],
   ])('rejects mismatched or malformed scope fields: %o', (override, status) => {
     const action = () =>
       requireBuilderRequestScope(
         {
           modelId: '@cf/zai-org/glm-5.3-flash',
-          transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
+          transcript: { agentName: binding.agentName, subchatIndex: 2 },
           ...override,
         },
         binding,
@@ -112,9 +109,9 @@ describe('BuilderAgent request policy', () => {
   });
 
   it('rejects transcript operations when no active D1 binding exists', () => {
-    expect(() =>
-      requireBuilderTranscriptIdentity({ agentName: binding.agentName, generation: 3, subchatIndex: 2 }, null),
-    ).toThrow(expect.objectContaining({ status: 409 }));
+    expect(() => requireBuilderTranscriptIdentity({ agentName: binding.agentName, subchatIndex: 2 }, null)).toThrow(
+      expect.objectContaining({ status: 409 }),
+    );
   });
 
   it('bounds direct-client user text without altering assistant tool parts', () => {

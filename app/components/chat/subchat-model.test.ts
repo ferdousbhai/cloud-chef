@@ -25,5 +25,5 @@ describe('subchat model', () => {
 });
 
 function transcript(subchatIndex: number) {
-  return { agentName: `chat-${subchatIndex}`, generation: 0, subchatIndex };
+  return { agentName: `chat-${subchatIndex}`, subchatIndex };
 }

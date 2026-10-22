@@ -14,8 +14,6 @@ type AgentGcCandidateRow = {
   initial_id: string;
   owner_id: string;
   subchat_index: number;
-  next_generation: number;
-  max_generation: number;
   not_before: number;
   attempts: number;
 };
@@ -31,13 +29,12 @@ export function prepareAgentGcCandidatesStatement(
       `INSERT INTO agent_gc_candidates (
          chat_id, initial_id, subchat_index, next_generation, max_generation, not_before, created_at, attempts
        )
-       SELECT chats.id, chats.initial_id, transcripts.subchat_index, 0, transcripts.generation, ?, ?, 0
+       SELECT chats.id, chats.initial_id, transcripts.subchat_index, 0, 0, ?, ?, 0
        FROM chats
        JOIN chat_transcripts AS transcripts ON transcripts.chat_id = chats.id
        WHERE chats.creator_id = ? AND chats.initial_id = ?
          AND ${args.requireEmpty ? EMPTY_CHAT_DISCARD_PREDICATE : 'chats.is_deleted = 0'}
        ON CONFLICT(chat_id, subchat_index) DO UPDATE SET
-         max_generation = MAX(agent_gc_candidates.max_generation, excluded.max_generation),
          not_before = MIN(agent_gc_candidates.not_before, excluded.not_before)`,
     )
     .bind(notBefore, now, args.ownerId, args.initialId);
@@ -50,8 +47,7 @@ export async function sweepAgentGcCandidates(
   const now = options.now ?? Date.now();
   const result = await env.DB.prepare(
     `SELECT candidates.chat_id, candidates.initial_id, chats.creator_id AS owner_id,
-            candidates.subchat_index, candidates.next_generation, candidates.max_generation,
-            candidates.not_before, candidates.attempts
+            candidates.subchat_index, candidates.not_before, candidates.attempts
      FROM agent_gc_candidates AS candidates
      INNER JOIN chats ON chats.id = candidates.chat_id
      WHERE candidates.not_before <= ? AND chats.is_deleted = 1
@@ -61,7 +57,7 @@ export async function sweepAgentGcCandidates(
     .bind(now, AGENT_GC_SWEEP_LIMIT)
     .all<AgentGcCandidateRow>();
 
-  await Promise.all(result.results.map((candidate) => destroyCandidateGeneration(env, candidate, now)));
+  await Promise.all(result.results.map((candidate) => destroyCandidateAgent(env, candidate, now)));
 }
 
 export async function sweepAgentGcCandidatesBestEffort(env: Pick<Env, 'BuilderAgent' | 'DB'>): Promise<void> {
@@ -72,34 +68,29 @@ export async function sweepAgentGcCandidatesBestEffort(env: Pick<Env, 'BuilderAg
   }
 }
 
-async function destroyCandidateGeneration(
+async function destroyCandidateAgent(
   env: Pick<Env, 'BuilderAgent' | 'DB'>,
   candidate: AgentGcCandidateRow,
   now: number,
 ): Promise<void> {
   try {
-    const name = transcriptAgentName(candidate.initial_id, candidate.subchat_index, candidate.next_generation);
+    const name = transcriptAgentName(candidate.initial_id, candidate.subchat_index);
     const agent = env.BuilderAgent.getByName(name);
     // The SDK durably records a condemned marker and alarm before this RPC
-    // resolves. Advance the D1 receipt only after that schedule is accepted;
+    // resolves. Delete the D1 receipt only after that schedule is accepted;
     // the alarm owns the abort-shaped physical teardown and can resume it.
     await agent.scheduleDestroyForGc(candidate.owner_id);
-    await (candidate.next_generation === candidate.max_generation
-      ? deleteCompletedCandidate(env.DB, candidate)
-      : advanceCompletedCandidate(env.DB, candidate, now));
+    await deleteCompletedCandidate(env.DB, candidate);
   } catch {
     const retryAt = now + retryDelay(candidate.attempts);
     await env.DB.prepare(
       `UPDATE agent_gc_candidates
        SET attempts = attempts + 1, not_before = ?
-       WHERE chat_id = ? AND subchat_index = ? AND next_generation = ? AND not_before = ?`,
+       WHERE chat_id = ? AND subchat_index = ? AND not_before = ?`,
     )
-      .bind(retryAt, candidate.chat_id, candidate.subchat_index, candidate.next_generation, candidate.not_before)
+      .bind(retryAt, candidate.chat_id, candidate.subchat_index, candidate.not_before)
       .run();
-    logger.warn('Unable to destroy deferred BuilderAgent generation', {
-      subchatIndex: candidate.subchat_index,
-      generation: candidate.next_generation,
-    });
+    logger.warn('Unable to destroy deferred BuilderAgent', { subchatIndex: candidate.subchat_index });
   }
 }
 
@@ -107,20 +98,9 @@ function deleteCompletedCandidate(db: D1Database, candidate: AgentGcCandidateRow
   return db
     .prepare(
       `DELETE FROM agent_gc_candidates
-       WHERE chat_id = ? AND subchat_index = ? AND next_generation = ? AND not_before = ?`,
+       WHERE chat_id = ? AND subchat_index = ? AND not_before = ?`,
     )
-    .bind(candidate.chat_id, candidate.subchat_index, candidate.next_generation, candidate.not_before)
-    .run();
-}
-
-function advanceCompletedCandidate(db: D1Database, candidate: AgentGcCandidateRow, now: number): Promise<D1Result> {
-  return db
-    .prepare(
-      `UPDATE agent_gc_candidates
-       SET next_generation = next_generation + 1, attempts = 0, not_before = ?
-       WHERE chat_id = ? AND subchat_index = ? AND next_generation = ? AND not_before = ?`,
-    )
-    .bind(now, candidate.chat_id, candidate.subchat_index, candidate.next_generation, candidate.not_before)
+    .bind(candidate.chat_id, candidate.subchat_index, candidate.not_before)
     .run();
 }
 
