@@ -30,6 +30,7 @@ import { cloudflareDocsSearchTool } from './cloudflare-docs-search';
 import { sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 import { linkedProjectModelTools, type LinkedProjectModelToolContext } from './linked-project-model-tools';
+import { isRecord } from 'cloudchef-agent/utils/isRecord';
 
 /** What a builder turn lends its workspace tools: validation progress, and keeping the turn alive while one runs. */
 export type BuilderOperationContext = {
@@ -517,10 +518,6 @@ function isExecInput(input: unknown): input is { command: string } {
 
 function isFullValidationCommand(command: string): boolean {
   return /^(?:cd\s+\/home\/project\s*&&\s*)?pnpm\s+run\s+validate(?:\s+2>&1)?$/.test(command.trim());
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }
 
 function isMissingFileError(error: unknown): boolean {

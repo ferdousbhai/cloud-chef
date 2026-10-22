@@ -154,6 +154,7 @@ import {
 } from '../../template/scripts/lib/cloudflare-project.mjs';
 import { COMPUTERD_ENV, COMPUTERD_PROCESS_ROLE, ComputerSandboxBase, CONTAINER_TOOL_ENV } from './computer-sandbox';
 import { createContainerDirectoryCommand, ISOLATED_PROJECT_ROOT, relativeIsolatedPath } from './isolated-project';
+import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 
 export { WorkspaceProxy };
 
@@ -3723,10 +3724,6 @@ function decodeBase64(value: string): Uint8Array {
 function bearerToken(request: Request): string | null {
   const authorization = request.headers.get('authorization');
   return authorization?.startsWith('Bearer ') ? authorization.slice(7) : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function record(value: unknown): Record<string, unknown> {

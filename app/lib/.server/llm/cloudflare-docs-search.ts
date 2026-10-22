@@ -3,6 +3,7 @@ import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
 import type { Tool } from 'cloudchef-agent/tool';
 import { abortableSleep } from '~/lib/abortable-sleep';
 import { readBodyBytesWithLimit } from '~/lib/bounded-body';
+import { isRecord } from 'cloudchef-agent/utils/isRecord';
 
 /**
  * Cloudflare's own documentation search, the single useful tool exposed by the
@@ -131,10 +132,6 @@ function readContentText(body: string): string {
     }
   }
   throw new Error('the service returned an unrecognized response.');
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }
 
 function sseDataLines(body: string): string[] {

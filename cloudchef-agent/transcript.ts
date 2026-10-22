@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isRecord } from './utils/isRecord';
 
 export const TRANSCRIPT_HISTORY_FORMAT_VERSION = 2 as const;
 export const TRANSCRIPT_BASE_METADATA_KEY = 'cloudchefTranscriptBase' as const;
@@ -103,8 +104,4 @@ function canonicalTranscriptMessage(message: TranscriptMessage) {
     role: message.role,
     parts: message.parts,
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

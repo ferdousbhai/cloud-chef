@@ -23,6 +23,7 @@ import {
 import { CLOUDCHEF_CONTROL_PLANE_ENDPOINT, USER_WORKSPACE_RUNTIME_GC_CRON } from './user-workspace-runtime-policy';
 import { bytesToBase64, sha256Hex } from '~/lib/hex-digest';
 import { PayloadTooLargeError, readBodyBytesWithLimit } from '~/lib/bounded-body';
+import { isRecord } from 'cloudchef-agent/utils/isRecord';
 
 const API_ROOT = 'https://api.cloudflare.com/client/v4';
 const CLOUDFLARE_API_TIMEOUT_MS = 30_000;
@@ -1677,10 +1678,6 @@ function requireCloudflareResourceName(name: string): void {
   if (!CLOUDFLARE_RESOURCE_NAME_PATTERN.test(name)) {
     throw new CloudflareAccountApiError('Cloudflare resource name is invalid.');
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function d1ResultsContain(results: D1QueryResult[], predicate: (row: Record<string, unknown>) => boolean): boolean {

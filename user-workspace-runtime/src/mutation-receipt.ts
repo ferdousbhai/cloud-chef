@@ -1,4 +1,5 @@
 import { COMPUTER_TOOL_LIMITS } from '../../cloudchef-agent/cloudflare-computer';
+import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 
 export type MutationReceiptFile = {
   path: string;
@@ -132,8 +133,4 @@ function byteLength(value: string): number {
 
 function recordOrNull(value: unknown): Record<string, unknown> | null {
   return isRecord(value) ? value : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

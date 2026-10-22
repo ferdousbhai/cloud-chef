@@ -73,6 +73,7 @@ import { ProviderStopError, providerStopDiagnosticCode } from './provider-stop-e
 import type { PiSteeringQueue } from './pi-steering';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 import type { LinkedProjectModelToolContext } from './linked-project-model-tools';
+import { isRecord } from 'cloudchef-agent/utils/isRecord';
 
 type Messages = CloudChefMessage[];
 type UIMessageChunk = PiStreamChunk;
@@ -850,10 +851,6 @@ function addUsage(total: Usage, usage: Usage): Usage {
       total: total.cost.total + usage.cost.total,
     },
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }
 
 function eventContentIndex(event: AssistantMessageEvent): number | undefined {
