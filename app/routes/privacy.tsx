@@ -182,23 +182,24 @@ function PrivacyPage() {
           The user-owned workspace runtime sends the prompt, conversation context, and project files needed for a
           request to the selected builder model through Cloudflare AI in the connected account. The in-chat model
           selector offers the Workers AI models in CloudChef’s model catalog that the account’s current Cloudflare
-          catalog also serves and that meet the builder’s function-calling and context requirements. When the account’s default AI Gateway holds the account’s
-          own key for an AI provider (Anthropic, OpenAI, xAI, or OpenRouter), whether an admin of the account (or, for
-          your own account, you) added it in Cloudflare or pasted it in Settings, the selector also offers that
-          provider’s models: those requests go from the same runtime through the account’s AI Gateway to that provider,
-          which bills that key and handles the content under the account’s agreement with it. The key is kept in the
-          account’s Cloudflare Secrets Store and attached to its AI Gateway; CloudChef passes a pasted key to Cloudflare
-          once and never stores, logs, or reads it, and removing a key CloudChef added deletes it from the Secrets
-          Store. A team’s admins also choose the model new chats start on. Every request goes through the account’s
-          default AI Gateway. Unless you turn it off, the gateway logs each request in that account: what was sent (the
-          prompt, conversation context, and project files) and the model’s reply, labelled with the conversation and the
-          person who sent it, so the account can review what a conversation did. The logs follow AI Gateway’s retention
-          settings in that account, and anyone with access to the account can read them, which for a team includes its
-          admins; CloudChef’s operator receives no copy. You can turn this logging off under AI request logs in
-          Settings. It is your own choice, wherever you build, and it applies to your later requests: they still go
-          through the gateway but are not logged and carry no conversation or person label. Logs already recorded stay
-          in the account until its AI Gateway retention removes them or someone with access deletes them in the
-          Cloudflare dashboard. AI Gateway caching is skipped for every request. Cloudflare describes its handling of Workers AI content in its{' '}
+          catalog also serves and that meet the builder’s function-calling and context requirements. When the account’s
+          default AI Gateway holds the account’s own key for an AI provider (Anthropic, OpenAI, xAI, or OpenRouter),
+          whether an admin of the account (or, for your own account, you) added it in Cloudflare or pasted it in
+          Settings, the selector also offers that provider’s models: those requests go from the same runtime through the
+          account’s AI Gateway to that provider, which bills that key and handles the content under the account’s
+          agreement with it. The key is kept in the account’s Cloudflare Secrets Store and attached to its AI Gateway;
+          CloudChef passes a pasted key to Cloudflare once and never stores, logs, or reads it, and removing a key
+          CloudChef added deletes it from the Secrets Store. A team’s admins also choose the model new chats start on.
+          Every request goes through the account’s default AI Gateway. Unless you turn it off, the gateway logs each
+          request in that account: what was sent (the prompt, conversation context, and project files) and the model’s
+          reply, labelled with the conversation and the person who sent it, so the account can review what a
+          conversation did. The logs follow AI Gateway’s retention settings in that account, and anyone with access to
+          the account can read them, which for a team includes its admins; CloudChef’s operator receives no copy. You
+          can turn this logging off under AI request logs in Settings. It is your own choice, wherever you build, and it
+          applies to your later requests: they still go through the gateway but are not logged and carry no conversation
+          or person label. Logs already recorded stay in the account until its AI Gateway retention removes them or
+          someone with access deletes them in the Cloudflare dashboard. AI Gateway caching is skipped for every request.
+          Cloudflare describes its handling of Workers AI content in its{' '}
           <a href="https://developers.cloudflare.com/workers-ai/platform/data-usage/">Workers AI data-usage notice</a>.
           CloudChef does not use AI to make decisions that produce legal or similarly significant effects about you.
         </p>

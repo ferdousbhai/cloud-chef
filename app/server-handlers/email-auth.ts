@@ -1,11 +1,6 @@
 import { z } from 'zod';
 import { publicOrigin } from '~/lib/.server/public-origin';
-import {
-  createAuthSession,
-  getAuthSession,
-  normalizeEmail,
-  upsertVerifiedEmailUser,
-} from '~/lib/.server/auth';
+import { createAuthSession, getAuthSession, normalizeEmail, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
 import { hasSameOrigin, readJsonRequest, safeReturnTo, withinAddressRateLimit } from '~/lib/.server/request-guards';
 import { bytesToBase64Url, sha256Hex } from '~/lib/hex-digest';
