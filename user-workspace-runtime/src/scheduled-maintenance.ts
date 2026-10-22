@@ -14,5 +14,5 @@ export function scheduleUserWorkspaceRuntimeMaintenance(
     return;
   }
   ctx.waitUntil(sweepAgentGcCandidatesBestEffort(env));
-  ctx.waitUntil(sweepAppResourceGcCandidatesBestEffort(env));
+  ctx.waitUntil(sweepAppResourceGcCandidatesBestEffort(env, { requeueRemovedChats: true }));
 }

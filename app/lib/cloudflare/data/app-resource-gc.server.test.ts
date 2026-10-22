@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildDeploymentPlanFromSource, type DeploymentResourceNaming } from '~/lib/.server/cloudflare/deployment-plan';
 import { appResourceName } from '~/lib/cloudflare/app-resource-names';
 import { userWorkspaceDatabase } from '~/test/control-plane-d1';
-import { AGENT_GC_RETRY_BASE_MS } from './agent-gc.server';
+import { AGENT_GC_GRACE_PERIOD_MS, AGENT_GC_RETRY_BASE_MS } from './agent-gc.server';
 import { sweepAppResourceGcCandidates } from './app-resource-gc.server';
 
 describe('app resource garbage collection', () => {
@@ -198,6 +198,62 @@ describe('app resource garbage collection', () => {
     ]);
   });
 
+  it('queues, from the scheduled sweep only, removed chats whose deployment records outlived their candidate, and releases them after the grace period', async () => {
+    const workspace = new AppResourceGcWorkspace(0, { queued: false });
+    const plan = JSON.stringify(await deploymentPlan());
+    workspace.deployment('deployment-1', plan, [['d1', 'DB', 'db-id-1']]);
+    // A project still in use, and a removed one with nothing left to release, are never queued.
+    workspace.chat('chat-active', { removed: false });
+    workspace.deployment('deployment-active', plan, [], 'chat-active');
+    workspace.chat('chat-empty', { removed: true });
+    const accountApi = cleanupApi(true);
+
+    // A request's sweep adds no write.
+    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi });
+    expect(workspace.candidates()).toEqual([]);
+
+    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi, requeueRemovedChats: true });
+    expect(workspace.candidates()).toEqual([
+      { chat_id: 'chat-row', not_before: 1_000 + AGENT_GC_GRACE_PERIOD_MS, attempts: 0 },
+    ]);
+    expect(accountApi.deleteManagedWorker).not.toHaveBeenCalled();
+
+    await sweepAppResourceGcCandidates(workspace.env, {
+      now: 1_000 + AGENT_GC_GRACE_PERIOD_MS,
+      accountApi,
+      requeueRemovedChats: true,
+    });
+
+    // What is left is deleted, by id where it was recorded and by name otherwise; a name already gone is
+    // the account API's to skip.
+    expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-deployment-1');
+    expect(accountApi.deleteD1DatabaseById).toHaveBeenCalledWith('db-id-1');
+    expect(workspace.deploymentIds()).toEqual(['deployment-active']);
+    expect(workspace.activityDeploymentIds()).toEqual(['deployment-active']);
+    expect(workspace.resourceCount()).toBe(0);
+    expect(workspace.candidates()).toEqual([]);
+  });
+
+  it('queues a bounded number of removed chats per scheduled sweep', async () => {
+    const workspace = new AppResourceGcWorkspace(0, { queued: false });
+    const plan = JSON.stringify(await deploymentPlan());
+    for (let index = 0; index < 25; index += 1) {
+      const chatId = `chat-${String(index).padStart(2, '0')}`;
+      workspace.chat(chatId, { removed: true });
+      workspace.deployment(`deployment-${chatId}`, plan, [], chatId);
+    }
+    const accountApi = cleanupApi(true);
+
+    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi, requeueRemovedChats: true });
+    expect(workspace.candidates()).toHaveLength(20);
+
+    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi, requeueRemovedChats: true });
+    // The rest, without queueing any twice; `chat-row` has no deployment records, so it is never queued.
+    expect(workspace.candidates().map(({ chat_id }) => chat_id)).toEqual(
+      Array.from({ length: 25 }, (_, index) => `chat-${String(index).padStart(2, '0')}`),
+    );
+  });
+
   it('backs off and preserves the receipt when Cloudflare cleanup fails', async () => {
     const workspace = new AppResourceGcWorkspace(2);
     workspace.deployment('deployment-1', JSON.stringify(await deploymentPlan()));
@@ -244,36 +300,54 @@ class AppResourceGcWorkspace {
   readonly env: Parameters<typeof sweepAppResourceGcCandidates>[0];
   #created = 0;
 
-  constructor(attempts = 0) {
+  /** `queued: false` leaves the removed chat without a candidate, as an older collector did. */
+  constructor(attempts = 0, { queued = true }: { queued?: boolean } = {}) {
     const { database, db } = userWorkspaceDatabase();
     this.#database = database;
     // SAFETY: the sweep reads only `DB` once it is handed an account API.
     this.env = { DB: db } as Parameters<typeof sweepAppResourceGcCandidates>[0];
-    database
-      .prepare(
-        `INSERT INTO chats (id, creator_id, initial_id, timestamp, is_deleted)
-         VALUES ('chat-row', 'user-1', 'initial-1', '2026-10-01T00:00:00.000Z', 1)`,
-      )
-      .run();
-    database
-      .prepare(
-        `INSERT INTO app_resource_gc_candidates (chat_id, not_before, created_at, attempts)
-         VALUES ('chat-row', 50, 0, ?)`,
-      )
-      .run(attempts);
+    this.chat('chat-row', { removed: true });
+    if (queued) {
+      database
+        .prepare(
+          `INSERT INTO app_resource_gc_candidates (chat_id, not_before, created_at, attempts)
+           VALUES ('chat-row', 50, 0, ?)`,
+        )
+        .run(attempts);
+    }
   }
 
-  deployment(id: string, planJson: string, resources: [type: string, logicalName: string, providerId: string][] = []) {
+  chat(id: string, { removed }: { removed: boolean }) {
+    this.#database
+      .prepare(
+        `INSERT INTO chats (id, creator_id, initial_id, timestamp, is_deleted)
+         VALUES (?, 'user-1', ?, '2026-10-01T00:00:00.000Z', ?)`,
+      )
+      .run(id, `initial-${id}`, removed ? 1 : 0);
+  }
+
+  deployment(
+    id: string,
+    planJson: string,
+    resources: [type: string, logicalName: string, providerId: string][] = [],
+    chatId = 'chat-row',
+  ) {
     this.#created += 1;
     this.#database
       .prepare(
         `INSERT INTO deployments (
            id, chat_id, user_id, connection_id, connection_generation, workspace_reference,
            status, plan_json, plan_digest, created_at, updated_at
-         ) VALUES (?, 'chat-row', 'user-1', 'connection-1', 1, 'workspace-runtime:project:1:hash',
+         ) VALUES (?, ?, 'user-1', 'connection-1', 1, 'workspace-runtime:project:1:hash',
            'succeeded', ?, 'digest', ?, ?)`,
       )
-      .run(id, planJson, this.#created, this.#created);
+      .run(id, chatId, planJson, this.#created, this.#created);
+    this.#database
+      .prepare(
+        `INSERT INTO deployment_activity (deployment_id, execution_generation, sequence, message, created_at)
+         VALUES (?, 1, 1, 'Deployed', 0)`,
+      )
+      .run(id);
     for (const [type, logicalName, providerId] of resources) {
       this.#database
         .prepare(
@@ -300,5 +374,12 @@ class AppResourceGcWorkspace {
 
   resourceCount() {
     return this.#database.prepare('SELECT COUNT(*) AS count FROM deployment_resources').get()?.count;
+  }
+
+  activityDeploymentIds() {
+    return this.#database
+      .prepare('SELECT deployment_id FROM deployment_activity ORDER BY deployment_id')
+      .all()
+      .map((row) => row.deployment_id);
   }
 }

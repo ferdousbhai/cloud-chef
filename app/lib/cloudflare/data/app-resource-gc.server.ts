@@ -18,6 +18,8 @@ const APP_RESOURCE_GC_DEPLOYMENTS_PER_SWEEP = 6;
 /** Deployments of one chat read per sweep; only a run of plans this build cannot read fills it. */
 const APP_RESOURCE_GC_DEPLOYMENT_PAGE = 50;
 const APP_RESOURCE_GC_RETRY_MAX_MS = 60 * 60 * 1000;
+/** Removed chats with leftover deployment records one scheduled sweep queues; later sweeps queue the rest. */
+const APP_RESOURCE_GC_REQUEUE_PER_SWEEP = 20;
 
 const logger = createScopedLogger('CloudflareAppResourceGc');
 
@@ -77,10 +79,13 @@ export async function sweepAppResourceGcCandidates(
     | 'CLOUDCHEF_CONNECTION_GENERATION'
     | 'CLOUDFLARE_ACCOUNT_ID'
   >,
-  options: { limit?: number; now?: number; accountApi?: AppResourceCleanupApi } = {},
+  options: AppResourceGcSweepOptions & { limit?: number; now?: number; accountApi?: AppResourceCleanupApi } = {},
 ): Promise<void> {
   const limit = Math.max(1, Math.min(options.limit ?? APP_RESOURCE_GC_SWEEP_LIMIT, APP_RESOURCE_GC_SWEEP_LIMIT));
   const now = options.now ?? Date.now();
+  if (options.requeueRemovedChats) {
+    await requeueRemovedChatsWithDeployments(env.DB, now);
+  }
   const result = await env.DB.prepare(
     `SELECT candidates.chat_id, candidates.not_before, candidates.attempts
      FROM app_resource_gc_candidates AS candidates
@@ -106,14 +111,47 @@ export async function sweepAppResourceGcCandidates(
   }
 }
 
+type AppResourceGcSweepOptions = {
+  /**
+   * First queue removed chats that still have deployment records but no candidate, as the scheduled
+   * maintenance sweep does. A request's sweep leaves this to it, so a data request adds no write.
+   */
+  requeueRemovedChats?: boolean;
+};
+
+/**
+ * Queues, a bounded number at a time, removed chats whose deployment records outlived their candidate:
+ * an older collector deleted their resources and receipt but not the records, and a deployment can
+ * also be recorded after its chat's cleanup finished. Each is then released like any other candidate,
+ * after the same grace period: what is left of its resources is deleted (a name already gone is
+ * skipped) and its records with them. A chat that is not removed is never queued.
+ */
+function requeueRemovedChatsWithDeployments(db: D1Database, now: number): Promise<D1Result> {
+  return db
+    .prepare(
+      `INSERT INTO app_resource_gc_candidates (chat_id, not_before, created_at, attempts)
+       SELECT chats.id, ?, ?, 0
+       FROM chats
+       WHERE chats.is_deleted = 1
+         AND EXISTS (SELECT 1 FROM deployments WHERE deployments.chat_id = chats.id)
+         AND NOT EXISTS (SELECT 1 FROM app_resource_gc_candidates AS queued WHERE queued.chat_id = chats.id)
+       ORDER BY chats.id
+       LIMIT ?
+       ON CONFLICT(chat_id) DO NOTHING`,
+    )
+    .bind(now + AGENT_GC_GRACE_PERIOD_MS, now, APP_RESOURCE_GC_REQUEUE_PER_SWEEP)
+    .run();
+}
+
 /** What is left of one sweep's work: the deployments it may still release. */
 type CleanupSweep = { budget: number };
 
 export async function sweepAppResourceGcCandidatesBestEffort(
   env: Parameters<typeof sweepAppResourceGcCandidates>[0],
+  options: AppResourceGcSweepOptions = {},
 ): Promise<void> {
   try {
-    await sweepAppResourceGcCandidates(env);
+    await sweepAppResourceGcCandidates(env, options);
   } catch {
     logger.warn('Unable to sweep deferred app Cloudflare resources');
   }

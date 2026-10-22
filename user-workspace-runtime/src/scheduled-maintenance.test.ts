@@ -34,8 +34,10 @@ describe('user workspace runtime scheduled maintenance', () => {
 
     for (const job of MAINTENANCE_JOBS) {
       expect(job).toHaveBeenCalledOnce();
-      expect(job).toHaveBeenCalledWith(env);
     }
+    expect(sweepAgentGcCandidatesBestEffort).toHaveBeenCalledWith(env);
+    // Only the scheduled sweep looks for removed chats whose deployment records outlived their candidate.
+    expect(sweepAppResourceGcCandidatesBestEffort).toHaveBeenCalledWith(env, { requeueRemovedChats: true });
     expect(waitUntil).toHaveBeenCalledTimes(MAINTENANCE_JOBS.length);
     await Promise.all(waitUntil.mock.calls.map(([promise]) => promise));
   });
