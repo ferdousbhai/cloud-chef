@@ -308,7 +308,7 @@ export class UserCloudflareAccountApi {
          sql TEXT
        )`,
     );
-    await this.ensureD1MigrationReceiptColumns(databaseId);
+    await this.ensureD1MigrationSqlColumn(databaseId);
     // One receipt read for the whole set rather than one per migration. Applying migration N
     // cannot change migration N+1's receipt, so the extra round trips bought nothing — and this
     // path runs on every runtime upgrade for every existing account, where the answer is always
@@ -326,11 +326,8 @@ export class UserCloudflareAccountApi {
       if (receipt?.digest === digest) {
         continue;
       }
-      if (receipt?.digest) {
-        throw new D1MigrationChangedError(migration.name, await this.appliedD1MigrationSql(databaseId, migration.name));
-      }
       if (receipt) {
-        throw new CloudflareAccountApiError(`User-runtime D1 migration receipt lacks a digest: ${migration.name}`);
+        throw new D1MigrationChangedError(migration.name, await this.appliedD1MigrationSql(databaseId, migration.name));
       }
       pending.push({ ...migration, digest });
     }
@@ -359,7 +356,7 @@ export class UserCloudflareAccountApi {
         if (committedReceipt?.digest === digest) {
           continue;
         }
-        if (committedReceipt?.digest) {
+        if (committedReceipt) {
           throw new D1MigrationChangedError(
             migration.name,
             await this.appliedD1MigrationSql(databaseId, migration.name),
@@ -371,15 +368,13 @@ export class UserCloudflareAccountApi {
   }
 
   /**
-   * Adds the receipt columns a table created before them lacks. Receipts written before each keep it
-   * empty: a digest is required to apply anything, while a migration's applied SQL is only reported.
+   * Adds the `sql` column a receipt table created before receipts kept their SQL lacks; the receipts
+   * written before it keep none, which is only ever reported.
    */
-  private async ensureD1MigrationReceiptColumns(databaseId: string): Promise<void> {
+  private async ensureD1MigrationSqlColumn(databaseId: string): Promise<void> {
     const columns = await this.executeD1(databaseId, 'PRAGMA table_info(cloudchef_runtime_migrations)');
-    for (const column of ['digest', 'sql']) {
-      if (!d1ResultsContain(columns, (row) => row.name === column)) {
-        await this.executeD1(databaseId, `ALTER TABLE cloudchef_runtime_migrations ADD COLUMN ${column} TEXT`);
-      }
+    if (!d1ResultsContain(columns, (row) => row.name === 'sql')) {
+      await this.executeD1(databaseId, 'ALTER TABLE cloudchef_runtime_migrations ADD COLUMN sql TEXT');
     }
   }
 

@@ -687,30 +687,6 @@ describe('UserCloudflareAccountApi', () => {
     expect(String(request.mock.calls[3]?.[1]?.body)).toContain('SELECT sql FROM cloudchef_runtime_migrations');
   });
 
-  test('rejects a pre-digest migration receipt without modifying it', async () => {
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: [] }] }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: [{ success: true, results: RECEIPT_COLUMNS }] }))
-      .mockResolvedValueOnce(
-        Response.json({
-          success: true,
-          result: [{ success: true, results: [{ name: '0001_user_workspace.sql', digest: null }] }],
-        }),
-      );
-
-    await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).applyD1Migrations(
-        '0123456789abcdef0123456789abcdef',
-        [{ name: '0001_user_workspace.sql', sql: 'CREATE TABLE chats (id TEXT PRIMARY KEY)' }],
-      ),
-    ).rejects.toThrow('receipt lacks a digest');
-    expect(request).toHaveBeenCalledTimes(3);
-    expect(request.mock.calls.map((call) => String(call[1]?.body)).join('\n')).not.toContain(
-      'UPDATE cloudchef_runtime_migrations',
-    );
-  });
-
   test('replaces runtime schedules with exactly one deterministic GC trigger', async () => {
     const authorizeRequest = vi.fn(async () => undefined);
     const request = vi.fn<typeof fetch>().mockResolvedValueOnce(
