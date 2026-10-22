@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { constantTimeEqual } from '~/lib/constant-time-equal';
+import { base64ToBytes, bytesToBase64Url } from '~/lib/hex-digest';
 
 const CAPABILITY_VERSION = 1;
 const RUNTIME_CAPABILITY_TTL_MS = 5 * 60_000;
@@ -35,7 +37,7 @@ export async function mintRuntimeCapability(args: {
     expiresAt,
     nonce: crypto.randomUUID(),
   };
-  const encoded = encodeBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  const encoded = bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
   const signature = await sign(args.secret, encoded);
   return { token: `${encoded}.${signature}`, expiresAt };
 }
@@ -105,26 +107,7 @@ async function sign(secret: string, value: string): Promise<string> {
     false,
     ['sign'],
   );
-  return encodeBase64Url(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value))));
-}
-
-function constantTimeEqual(left: string, right: string): boolean {
-  if (left.length !== right.length) {
-    return false;
-  }
-  let mismatch = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index);
-  }
-  return mismatch === 0;
-}
-
-function encodeBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-  }
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  return bytesToBase64Url(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value))));
 }
 
 function decodeBase64Url(value: string): Uint8Array {
@@ -132,6 +115,5 @@ function decodeBase64Url(value: string): Uint8Array {
     throw new Error('Invalid base64url value.');
   }
   const padded = `${value.replaceAll('-', '+').replaceAll('_', '/')}${'='.repeat((4 - (value.length % 4)) % 4)}`;
-  const binary = atob(padded);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return base64ToBytes(padded);
 }

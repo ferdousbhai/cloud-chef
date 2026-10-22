@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { InvalidJsonBodyError, PayloadTooLargeError, readJsonBodyWithLimit } from '~/lib/bounded-body';
 import { canUseConnection } from '~/lib/cloudflare/data/organization-access.server';
+import { constantTimeEqual } from '~/lib/constant-time-equal';
 import {
   findActiveCloudflareConnection,
   type CloudflareConnection,
@@ -105,17 +106,6 @@ function readBearerToken(request: Request): string | null {
   }
   const token = header.slice(7);
   return token.length >= 32 && token.length <= 512 ? token : null;
-}
-
-function constantTimeEqual(left: string, right: string): boolean {
-  if (left.length !== right.length) {
-    return false;
-  }
-  let difference = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
-  }
-  return difference === 0;
 }
 
 export function credentialResponse(body: Record<string, string>, status: number): Response {
