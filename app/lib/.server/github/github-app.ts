@@ -51,10 +51,7 @@ type GitHubAppConfig = {
  * to the one repository and the permissions it needs, which expires within the hour.
  */
 export class GitHubApp {
-  constructor(
-    private readonly config: GitHubAppConfig,
-    private readonly request: typeof fetch = fetch,
-  ) {}
+  constructor(private readonly config: GitHubAppConfig) {}
 
   /** Where an admin installs the App, choosing the account and repositories it may reach. */
   installUrl(): string {
@@ -101,7 +98,7 @@ export class GitHubApp {
 
   /** Whether the GitHub user behind `userToken` is an active owner of the GitHub organization `org`. */
   async isOrganizationOwner(userToken: string, org: string): Promise<boolean> {
-    const response = await fetchGitHub(this.request, `/user/memberships/orgs/${encodeURIComponent(org)}`, userToken);
+    const response = await fetchGitHub(`/user/memberships/orgs/${encodeURIComponent(org)}`, userToken);
     if (!response.ok) {
       await response.body?.cancel();
       return false;
@@ -112,7 +109,7 @@ export class GitHubApp {
 
   /** A repository the GitHub user behind `userToken` can see, by `owner/name`, or null. */
   async findRepository(userToken: string, fullName: string): Promise<GitHubRepository | null> {
-    const response = await fetchGitHub(this.request, `/repos/${fullName}`, userToken);
+    const response = await fetchGitHub(`/repos/${fullName}`, userToken);
     if (!response.ok) {
       await response.body?.cancel();
       return null;
@@ -122,7 +119,7 @@ export class GitHubApp {
 
   /** A client for a repository acting as the GitHub user behind `userToken`, before the App may reach it. */
   userRepository(userToken: string, fullName: string): RepositoryClient {
-    return new RepositoryClient(userToken, fullName, this.request);
+    return new RepositoryClient(userToken, fullName);
   }
 
   /**
@@ -132,7 +129,6 @@ export class GitHubApp {
    */
   async addRepositoryToInstallation(userToken: string, installationId: number, repositoryId: number): Promise<void> {
     const response = await fetchGitHub(
-      this.request,
       `/user/installations/${installationId}/repositories/${repositoryId}`,
       userToken,
       { method: 'PUT' },
@@ -146,8 +142,7 @@ export class GitHubApp {
 
   /** Exchanges the code GitHub returns after installing (user authorization during installation). */
   async userToken(code: string): Promise<string> {
-    const request = this.request;
-    const response = await request(OAUTH_TOKEN_URL, {
+    const response = await fetch(OAUTH_TOKEN_URL, {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -171,12 +166,7 @@ export class GitHubApp {
    */
   async installation(installationId: number): Promise<GitHubInstallation | null> {
     const jwt = await createGitHubAppJwt(this.config.clientId, this.config.privateKey);
-    return callGitHubOrNull(
-      this.request,
-      `/app/installations/${installationId}`,
-      jwt,
-      installationSchema.nullable().catch(null),
-    );
+    return callGitHubOrNull(`/app/installations/${installationId}`, jwt, installationSchema.nullable().catch(null));
   }
 
   /** A token for `installationId`, limited to `repositoryIds` (all it reaches when empty) and `permissions`. */
@@ -219,16 +209,16 @@ export class GitHubApp {
     permissions: GitHubTokenPermissions,
   ): Promise<RepositoryClient> {
     const token = await this.installationToken(installationId, permissions, [repository.id]);
-    return new RepositoryClient(token, repository.fullName, this.request);
+    return new RepositoryClient(token, repository.fullName);
   }
 
   private call<T>(path: string, token: string, schema: z.ZodType<T>, init: GitHubRequestInit = {}): Promise<T> {
-    return callGitHub(this.request, path, token, schema, init);
+    return callGitHub(path, token, schema, init);
   }
 }
 
 /** The App this deployment is configured with, or null: GitHub features then report themselves unavailable. */
-export function gitHubAppFromEnv(env: Env, request: typeof fetch = fetch): GitHubApp | null {
+export function gitHubAppFromEnv(env: Env): GitHubApp | null {
   if (
     !env.GITHUB_APP_CLIENT_ID ||
     !env.GITHUB_APP_CLIENT_SECRET ||
@@ -237,13 +227,10 @@ export function gitHubAppFromEnv(env: Env, request: typeof fetch = fetch): GitHu
   ) {
     return null;
   }
-  return new GitHubApp(
-    {
-      clientId: env.GITHUB_APP_CLIENT_ID,
-      clientSecret: env.GITHUB_APP_CLIENT_SECRET,
-      privateKey: env.GITHUB_APP_PRIVATE_KEY,
-      slug: env.GITHUB_APP_SLUG,
-    },
-    request,
-  );
+  return new GitHubApp({
+    clientId: env.GITHUB_APP_CLIENT_ID,
+    clientSecret: env.GITHUB_APP_CLIENT_SECRET,
+    privateKey: env.GITHUB_APP_PRIVATE_KEY,
+    slug: env.GITHUB_APP_SLUG,
+  });
 }

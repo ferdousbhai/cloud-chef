@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
@@ -17,6 +17,10 @@ import {
 
 const ORIGIN = 'https://cloudchef.build';
 const INSTALLATION_ID = 4242;
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 const REPOSITORIES = [
   { id: 11, full_name: 'ada/site', default_branch: 'main', private: true },
   { id: 12, full_name: 'ada/blog', default_branch: 'trunk', private: false },
@@ -68,10 +72,8 @@ function fakeGitHub(pem: string, login = 'ada') {
     }
     return new Response('not found', { status: 404 });
   };
-  const app = new GitHubApp(
-    { clientId: 'Iv1.test', clientSecret: 'secret', privateKey: pem, slug: 'cloudchef' },
-    request,
-  );
+  vi.stubGlobal('fetch', request);
+  const app = new GitHubApp({ clientId: 'Iv1.test', clientSecret: 'secret', privateKey: pem, slug: 'cloudchef' });
   return { app, calls };
 }
 
@@ -315,13 +317,10 @@ describe('GitHub projects', () => {
     expect(unsaved.status).toBe(303);
     expect(githubMessage(unsaved)).toBe('GitHub refused the connection. Connect GitHub again.');
 
-    const offline = new GitHubApp(
-      { clientId: 'Iv1.test', clientSecret: 'secret', privateKey: 'unused', slug: 'cloudchef' },
-      async () => {
-        throw new TypeError('Network connection lost.');
-      },
-    );
-    const unreached = await install(env, offline, admin.cookie, orgId);
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('Network connection lost.');
+    });
+    const unreached = await install(env, app, admin.cookie, orgId);
     expect(unreached.status).toBe(303);
     expect(githubMessage(unreached)).toBe('GitHub refused the connection. Connect GitHub again.');
     expect(logged).toHaveBeenCalledWith('A CloudChef installation failed', 'TypeError: Network connection lost.');

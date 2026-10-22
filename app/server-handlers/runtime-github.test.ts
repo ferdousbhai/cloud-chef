@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { upsertVerifiedEmailUser } from '~/lib/.server/auth';
@@ -19,6 +19,10 @@ import {
   runtimeIdentityHeaders,
 } from '~/lib/.server/cloudflare/runtime-identity-headers';
 import { linkedBuildStatus } from '~/lib/.server/cloudflare/linked-project-client';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const ORIGIN = 'https://cloudchef.build';
 const ENCRYPTION_KEY = btoa('k'.repeat(32));
@@ -153,11 +157,14 @@ function fakeRepository(options: {
     }
     return new Response('unexpected', { status: 500 });
   };
-  const app = new GitHubApp(
-    { clientId: 'Iv1.test', clientSecret: 'secret', privateKey: PRIVATE_KEY.pem, slug: 'cloudchef' },
-    request,
-  );
-  return { app, writes, refs, tokenRequested: () => tokenRequest };
+  vi.stubGlobal('fetch', request);
+  const app = new GitHubApp({
+    clientId: 'Iv1.test',
+    clientSecret: 'secret',
+    privateKey: PRIVATE_KEY.pem,
+    slug: 'cloudchef',
+  });
+  return { app, gitHub: request, writes, refs, tokenRequested: () => tokenRequest };
 }
 
 const PRIVATE_KEY = { pem: '' };
@@ -703,24 +710,23 @@ describe('a member working on a GitHub project', () => {
     });
 
     it('reaches the control plane in headers from the runtime client', async () => {
-      const { env, app, sara, secret } = await setup();
+      const { env, app, gitHub, sara, secret } = await setup();
       const seen: Headers[] = [];
       vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
         const request = new Request(input, init);
+        if (!request.url.startsWith(ORIGIN)) {
+          return gitHub(input, init);
+        }
         seen.push(request.headers);
         return runtimeGitHubStatusAction({ request, env, app });
       });
-      try {
-        const status = await linkedBuildStatus(
-          { CLOUDCHEF_CONTROL_PLANE_ENDPOINT: ORIGIN, CONTROL_PLANE_SECRET: secret },
-          { userId: sara.id, connectionId: 'conn-1', connectionGeneration: 2 },
-          SITE,
-          'c'.repeat(40),
-        );
-        expect(status.state).toBe('success');
-      } finally {
-        vi.unstubAllGlobals();
-      }
+      const status = await linkedBuildStatus(
+        { CLOUDCHEF_CONTROL_PLANE_ENDPOINT: ORIGIN, CONTROL_PLANE_SECRET: secret },
+        { userId: sara.id, connectionId: 'conn-1', connectionGeneration: 2 },
+        SITE,
+        'c'.repeat(40),
+      );
+      expect(status.state).toBe('success');
       expect(seen[0]?.get(RUNTIME_USER_HEADER)).toBe(sara.id);
       expect(seen[0]?.get(RUNTIME_GENERATION_HEADER)).toBe('2');
     });

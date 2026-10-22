@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
@@ -58,6 +58,10 @@ type GitHubOptions = {
 };
 
 /** GitHub as the approval sees it: the admin `ada`, a new repository, and what CloudChef wrote to it. */
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 async function fakeGitHub(options: GitHubOptions = {}) {
   const pair = await crypto.subtle.generateKey(
     { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
@@ -149,15 +153,13 @@ async function fakeGitHub(options: GitHubOptions = {}) {
     }
     return new Response('unexpected', { status: 500 });
   };
-  const app = new GitHubApp(
-    {
-      clientId: 'Iv1.test',
-      clientSecret: 'secret',
-      privateKey: `-----BEGIN PRIVATE KEY-----\n${bytesToBase64(der)}\n-----END PRIVATE KEY-----`,
-      slug: 'cloudchef',
-    },
-    request,
-  );
+  vi.stubGlobal('fetch', request);
+  const app = new GitHubApp({
+    clientId: 'Iv1.test',
+    clientSecret: 'secret',
+    privateKey: `-----BEGIN PRIVATE KEY-----\n${bytesToBase64(der)}\n-----END PRIVATE KEY-----`,
+    slug: 'cloudchef',
+  });
   return { app, calls, during };
 }
 

@@ -140,17 +140,11 @@ export class RepositoryClient {
   constructor(
     private readonly token: string,
     readonly fullName: string,
-    private readonly request: typeof fetch,
   ) {}
 
   /** The commit a branch points at, or null when the branch doesn't exist. */
   async branchHead(branch: string): Promise<string | null> {
-    const ref = await callGitHubOrNull(
-      this.request,
-      `${this.path}/git/ref/heads/${encodeRef(branch)}`,
-      this.token,
-      refSchema,
-    );
+    const ref = await callGitHubOrNull(`${this.path}/git/ref/heads/${encodeRef(branch)}`, this.token, refSchema);
     return ref?.object.sha ?? null;
   }
 
@@ -166,7 +160,7 @@ export class RepositoryClient {
 
   /** The gzipped tarball of a commit's files, as a stream. */
   async tarball(sha: string): Promise<ReadableStream<Uint8Array<ArrayBuffer>>> {
-    const response = await fetchGitHub(this.request, `${this.path}/tarball/${sha}`, this.token);
+    const response = await fetchGitHub(`${this.path}/tarball/${sha}`, this.token);
     if (!response.ok || !response.body) {
       throw new GitHubError(`GitHub refused the download (${response.status}).`, response.status);
     }
@@ -238,7 +232,7 @@ export class RepositoryClient {
 
   /** Merges `head` into `base` on GitHub. */
   async merge(base: string, head: string, message: string): Promise<MergeOutcome> {
-    const response = await fetchGitHub(this.request, `${this.path}/merges`, this.token, {
+    const response = await fetchGitHub(`${this.path}/merges`, this.token, {
       method: 'POST',
       body: JSON.stringify({ base, head, commit_message: message }),
     });
@@ -287,7 +281,7 @@ export class RepositoryClient {
   }
 
   private call<T>(path: string, schema: z.ZodType<T>, init: { method?: string; body?: string } = {}): Promise<T> {
-    return callGitHub(this.request, `${this.path}${path}`, this.token, schema, init);
+    return callGitHub(`${this.path}${path}`, this.token, schema, init);
   }
 }
 

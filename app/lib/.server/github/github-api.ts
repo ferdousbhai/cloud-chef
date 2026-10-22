@@ -16,12 +16,7 @@ export class GitHubError extends Error {
 export type GitHubRequestInit = { method?: string; body?: string };
 
 /** One GitHub REST request, answered as it came: for callers that read the status or stream the body. */
-export function fetchGitHub(
-  request: typeof fetch,
-  path: string,
-  token: string,
-  init: GitHubRequestInit = {},
-): Promise<Response> {
+export function fetchGitHub(path: string, token: string, init: GitHubRequestInit = {}): Promise<Response> {
   const headers = new Headers({
     Accept: 'application/vnd.github+json',
     Authorization: `Bearer ${token}`,
@@ -31,28 +26,22 @@ export function fetchGitHub(
   if (init.body !== undefined) {
     headers.set('Content-Type', 'application/json');
   }
-  return request(`${API}${path}`, { method: init.method ?? 'GET', headers, body: init.body });
+  return fetch(`${API}${path}`, { method: init.method ?? 'GET', headers, body: init.body });
 }
 
 /** One GitHub REST request whose successful JSON answer is parsed with `schema`. */
 export async function callGitHub<T>(
-  request: typeof fetch,
   path: string,
   token: string,
   schema: z.ZodType<T>,
   init: GitHubRequestInit = {},
 ): Promise<T> {
-  return parseGitHubResponse(await fetchGitHub(request, path, token, init), schema);
+  return parseGitHubResponse(await fetchGitHub(path, token, init), schema);
 }
 
 /** As `callGitHub`, answering null for what GitHub doesn't have (404). */
-export async function callGitHubOrNull<T>(
-  request: typeof fetch,
-  path: string,
-  token: string,
-  schema: z.ZodType<T>,
-): Promise<T | null> {
-  const response = await fetchGitHub(request, path, token);
+export async function callGitHubOrNull<T>(path: string, token: string, schema: z.ZodType<T>): Promise<T | null> {
+  const response = await fetchGitHub(path, token);
   if (response.status === 404) {
     await response.body?.cancel();
     return null;
