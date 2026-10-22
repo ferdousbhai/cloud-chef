@@ -34,14 +34,7 @@ const noDirectProcessEnv = {
 
 export default [
   {
-    ignores: [
-      '**/dist',
-      '**/node_modules',
-      '**/.wrangler',
-      'scripts/fixtures/**',
-      'template/**',
-      'app/generated/**',
-    ],
+    ignores: ['**/dist', '**/node_modules', '**/.wrangler', 'scripts/fixtures/**', 'template/**', 'app/generated/**'],
   },
   ...blitzPlugin.configs.recommended(),
   {
