@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { getToolInvocation, type CloudChefMessage, type CloudChefPart } from 'cloudchef-agent/ai-compat';
+import { replaceToolCallPart, type CloudChefMessage, type CloudChefPart } from 'cloudchef-agent/ai-compat';
 import { toolFailure, toolSuccess, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import type { LinkedBuildStatus } from '~/lib/.server/cloudflare/linked-project-client';
 import { LINKED_BUILD_WATCH_MS, type LinkedPublishData } from '~/lib/common/linked-publish';
@@ -182,27 +182,17 @@ export function withLinkedBuildResult(
   output: CloudChefToolResult,
   options: { onlyFailed?: boolean } = {},
 ): CloudChefMessage[] | null {
-  let replaced = false;
-  const next = messages.map((message) => ({
-    ...message,
-    parts: message.parts.map((part): CloudChefPart => {
-      const invocation = getToolInvocation(part);
-      if (
-        (invocation?.toolName !== 'publish_preview' && invocation?.toolName !== 'publish') ||
-        invocation.toolCallId !== toolCallId
-      ) {
-        return part;
-      }
-      const failed = invocation.state === 'output-error';
-      const pending = invocation.state === 'output-available' && pendingOutputSchema.safeParse(part.output).success;
-      if (!(failed || (pending && !options.onlyFailed))) {
-        return part;
-      }
-      replaced = true;
-      const landed: CloudChefPart = { ...part, state: 'output-available', output };
-      delete landed.errorText;
-      return landed;
-    }),
-  }));
-  return replaced ? next : null;
+  return replaceToolCallPart(messages, toolCallId, (part, invocation) => {
+    if (invocation.toolName !== 'publish_preview' && invocation.toolName !== 'publish') {
+      return null;
+    }
+    const failed = invocation.state === 'output-error';
+    const pending = invocation.state === 'output-available' && pendingOutputSchema.safeParse(part.output).success;
+    if (!(failed || (pending && !options.onlyFailed))) {
+      return null;
+    }
+    const landed: CloudChefPart = { ...part, state: 'output-available', output };
+    delete landed.errorText;
+    return landed;
+  });
 }

@@ -58,6 +58,31 @@ export function getToolInvocation(part: CloudChefPart): CloudChefToolInvocation 
   return invocation;
 }
 
+/**
+ * The messages with the part of tool call `toolCallId` swapped for what `replace` makes of it, or null
+ * when no part of that call is replaced (`replace` answers null to keep one).
+ */
+export function replaceToolCallPart(
+  messages: readonly CloudChefMessage[],
+  toolCallId: string,
+  replace: (part: CloudChefPart, invocation: CloudChefToolInvocation) => CloudChefPart | null,
+): CloudChefMessage[] | null {
+  let replaced = false;
+  const next = messages.map((message) => ({
+    ...message,
+    parts: message.parts.map((part) => {
+      const invocation = getToolInvocation(part);
+      const replacement = invocation?.toolCallId === toolCallId ? replace(part, invocation) : null;
+      if (!replacement) {
+        return part;
+      }
+      replaced = true;
+      return replacement;
+    }),
+  }));
+  return replaced ? next : null;
+}
+
 export function isToolInvocationInProgress(invocation: Pick<CloudChefToolInvocation, 'state'>): boolean {
   return invocation.state === 'input-streaming' || invocation.state === 'input-available';
 }

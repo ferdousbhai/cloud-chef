@@ -58,7 +58,7 @@ import {
   setHeuristicProjectDescriptionIfMissing,
   setHeuristicSubchatDescriptionIfMissing,
 } from '~/lib/cloudflare/data/chat-service.server';
-import { getToolInvocation, messageText, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
+import { messageText, replaceToolCallPart, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import {
   transcriptCheckpointSchema,
   transcriptCheckpointsEqual,
@@ -1851,13 +1851,18 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!messages) {
       return false;
     }
-    // SAFETY: these are the agent's existing AI SDK messages with only one terminal tool part of a publish
-    // changed: its JSON-serializable output replaced, or a stopped call's error replaced by its real output.
+    await this.persistReplacedToolOutput(messages);
+    return true;
+  }
+
+  /** Persists the transcript after one finished tool call's output was replaced, and its checkpoint with it. */
+  private async persistReplacedToolOutput(messages: CloudChefMessage[]): Promise<void> {
+    // SAFETY: these are the agent's existing AI SDK messages with only one terminal tool part changed: its
+    // JSON-serializable output replaced, or a stopped call's error replaced by its real output.
     await this.persistMessages(messages as UIMessage[]);
     if (this.state.transcript) {
       await this.advanceTranscriptCheckpoint(this.state.transcript);
     }
-    return true;
   }
 
   /** Reads a page of the project's own live site: only addresses GitHub reports for this repository. */
@@ -2105,30 +2110,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       status: record.status,
       outcome: record.outcome,
     };
-    let replaced = false;
-    const messages: CloudChefMessage[] = this.messages.map((message) => ({
-      ...message,
-      parts: message.parts.map((part) => {
-        const invocation = getToolInvocation(part);
-        if (
-          invocation?.toolName !== 'cloudflare_request' ||
-          invocation.toolCallId !== record.toolCallId ||
-          invocation.state !== 'output-available'
-        ) {
-          return part;
-        }
-        replaced = true;
-        return { ...part, output };
-      }),
-    }));
-    if (!replaced) {
-      return;
-    }
-    // SAFETY: these are the agent's existing AI SDK messages with only one already-terminal tool
-    // output replaced by another JSON-serializable output; no part discriminant or state changes.
-    await this.persistMessages(messages as UIMessage[]);
-    if (this.state.transcript) {
-      await this.advanceTranscriptCheckpoint(this.state.transcript);
+    const messages = replaceToolCallPart(this.messages, record.toolCallId, (part, invocation) =>
+      invocation.toolName === 'cloudflare_request' && invocation.state === 'output-available'
+        ? { ...part, output }
+        : null,
+    );
+    if (messages) {
+      await this.persistReplacedToolOutput(messages);
     }
   }
 
