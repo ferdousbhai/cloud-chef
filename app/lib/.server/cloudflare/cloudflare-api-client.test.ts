@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CLOUDFLARE_API_MAX_CONTENT_BYTES, CloudflareApiClient } from './cloudflare-api-client';
 
 const url = 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts';
@@ -15,13 +15,17 @@ function client(responses: Array<Response | Error>, tokens = ['token-1', 'token-
     }
     return next;
   });
-  // SAFETY: the stub implements the only fetch call shape the client uses.
+  vi.stubGlobal('fetch', request);
   return {
-    api: new CloudflareApiClient({ resolveAccessToken, request: request as typeof fetch }),
+    api: new CloudflareApiClient({ resolveAccessToken }),
     request,
     resolveAccessToken,
   };
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('CloudflareApiClient', () => {
   it('sends the exact request with a bearer token and returns the response', async () => {

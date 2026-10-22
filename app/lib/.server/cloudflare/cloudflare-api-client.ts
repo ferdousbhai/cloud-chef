@@ -29,7 +29,6 @@ export type CloudflareApiOutcome = {
 
 interface CloudflareApiClientDependencies {
   resolveAccessToken(options?: CloudflareAccessTokenResolution): Promise<string>;
-  request?: typeof fetch;
 }
 
 /**
@@ -39,11 +38,7 @@ interface CloudflareApiClientDependencies {
  * reflected into content, and redirects are refused so it cannot follow a request elsewhere.
  */
 export class CloudflareApiClient {
-  private readonly request: typeof fetch;
-
-  constructor(private readonly dependencies: CloudflareApiClientDependencies) {
-    this.request = dependencies.request ?? fetch;
-  }
+  constructor(private readonly dependencies: CloudflareApiClientDependencies) {}
 
   /** `request` must already be canonical: callers normalize it with `normalizeCloudflareApiRequest` at the tool boundary. */
   async send(request: CloudflareApiRequest, signal: AbortSignal): Promise<CloudflareApiOutcome> {
@@ -105,8 +100,7 @@ export class CloudflareApiClient {
 
   private fetchOnce(request: CloudflareApiRequest, accessToken: string, signal: AbortSignal): Promise<Response> {
     const headers = { authorization: `Bearer ${accessToken}`, accept: 'application/json' };
-    const send = this.request;
-    return send(request.url, {
+    return fetch(request.url, {
       method: request.method,
       headers: request.body === undefined ? headers : { ...headers, 'content-type': 'application/json' },
       body: request.body === undefined ? undefined : JSON.stringify(request.body),
