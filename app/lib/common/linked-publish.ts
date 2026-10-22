@@ -78,7 +78,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
     return null;
   }
   const live = invocation.toolName === 'publish';
-  if (invocation.state === 'output-error' || invocation.state === 'output-denied') {
+  if (invocation.state === 'output-error') {
     return notSent(live, invocation.errorText ?? 'The call stopped before anything reached GitHub.');
   }
   if (invocation.state !== 'output-available' || !isCloudChefToolResult(invocation.output)) {

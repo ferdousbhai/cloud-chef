@@ -24,7 +24,8 @@ describe('processMessage', () => {
 
   it("shows a settled call's output replaced in place after its turn, and keeps an equal one", () => {
     const pending: CloudChefPart = {
-      type: 'tool-publish_preview',
+      type: 'dynamic-tool',
+      toolName: 'publish_preview',
       toolCallId: 'publish-1',
       state: 'output-available',
       input: {},
@@ -42,7 +43,8 @@ describe('processMessage', () => {
 
   it("serializes the cached part's settled output once across updates", () => {
     const settled: CloudChefPart = {
-      type: 'tool-exec',
+      type: 'dynamic-tool',
+      toolName: 'exec',
       toolCallId: 'exec-1',
       state: 'output-available',
       input: {},

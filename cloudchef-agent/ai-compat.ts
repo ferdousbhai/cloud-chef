@@ -8,7 +8,6 @@ export type CloudChefPart = {
   input?: unknown;
   output?: unknown;
   errorText?: string;
-  approval?: unknown;
   data?: unknown;
   url?: unknown;
   mediaType?: unknown;
@@ -23,7 +22,6 @@ export type CloudChefToolInvocation = {
   input?: unknown;
   output?: unknown;
   errorText?: string;
-  approval?: { id?: string; approved?: boolean; reason?: string };
 } & Record<string, unknown>;
 
 export type CloudChefMessage = {
@@ -39,7 +37,7 @@ export function messageText(message: Pick<CloudChefMessage, 'parts'>): string {
 }
 
 export function isToolPart(part: CloudChefPart): boolean {
-  return typeof part.type === 'string' && (part.type.startsWith('tool-') || part.type === 'dynamic-tool');
+  return part.type === 'dynamic-tool';
 }
 
 export function getToolInvocation(part: CloudChefPart): CloudChefToolInvocation | null {
@@ -50,10 +48,9 @@ export function getToolInvocation(part: CloudChefPart): CloudChefToolInvocation 
   const invocation: CloudChefToolInvocation = {
     ...part,
     type: 'dynamic-tool',
-    toolName: typeof fields.toolName === 'string' ? fields.toolName : part.type.replace(/^tool-/, ''),
+    toolName: typeof fields.toolName === 'string' ? fields.toolName : '',
     toolCallId: typeof fields.toolCallId === 'string' ? fields.toolCallId : '',
     state: typeof fields.state === 'string' ? fields.state : 'input-streaming',
-    approval: toolApproval(fields.approval),
   };
   if (typeof fields.errorText === 'string') {
     invocation.errorText = fields.errorText;
@@ -62,12 +59,7 @@ export function getToolInvocation(part: CloudChefPart): CloudChefToolInvocation 
 }
 
 export function isToolInvocationInProgress(invocation: Pick<CloudChefToolInvocation, 'state'>): boolean {
-  return (
-    invocation.state === 'input-streaming' ||
-    invocation.state === 'input-available' ||
-    invocation.state === 'approval-requested' ||
-    invocation.state === 'approval-responded'
-  );
+  return invocation.state === 'input-streaming' || invocation.state === 'input-available';
 }
 
 /** The tool-carrying fields a part may expose, before any of them are known to be well-formed. */
@@ -77,28 +69,4 @@ type ToolInvocationFields = {
   toolCallId?: unknown;
   state?: unknown;
   errorText?: unknown;
-  approval?: unknown;
 };
-
-type ToolApproval = NonNullable<CloudChefToolInvocation['approval']>;
-
-function toolApproval(value: unknown): ToolApproval | undefined {
-  if (!isApprovalFields(value)) {
-    return undefined;
-  }
-  const approval: ToolApproval = {};
-  if (typeof value.id === 'string') {
-    approval.id = value.id;
-  }
-  if (typeof value.approved === 'boolean') {
-    approval.approved = value.approved;
-  }
-  if (typeof value.reason === 'string') {
-    approval.reason = value.reason;
-  }
-  return approval;
-}
-
-function isApprovalFields(value: unknown): value is { id?: unknown; approved?: unknown; reason?: unknown } {
-  return typeof value === 'object' && value !== null;
-}

@@ -7,7 +7,8 @@ describe('cleanupAssistantMessages', () => {
   it('converts native tool success without a compatibility message shape', async () => {
     const messages = await cleanupAssistantMessages([
       assistantToolMessage({
-        type: 'tool-read',
+        type: 'dynamic-tool',
+        toolName: 'read',
         toolCallId: 'read-1',
         state: 'output-available',
         input: { path: '/home/project/src/app.ts' },
@@ -47,7 +48,8 @@ describe('cleanupAssistantMessages', () => {
   it('keeps failed tool output typed through model conversion', async () => {
     const messages = await cleanupAssistantMessages([
       assistantToolMessage({
-        type: 'tool-read',
+        type: 'dynamic-tool',
+        toolName: 'read',
         toolCallId: 'read-error',
         state: 'output-error',
         input: { path: '/home/project/missing.ts' },
@@ -75,7 +77,8 @@ describe('cleanupAssistantMessages', () => {
         role: 'assistant',
         parts: [
           {
-            type: 'tool-read',
+            type: 'dynamic-tool',
+            toolName: 'read',
             toolCallId: 'read-ordered',
             state: 'output-available',
             input: { path: '/home/project/package.json' },

@@ -18,7 +18,7 @@ export function attachedValidation(invocation: CloudChefToolInvocation): CloudCh
 
 /** A validation's verdict rides in `validation`; the tool call itself succeeds either way. */
 export function validationFailed(invocation: CloudChefToolInvocation): boolean {
-  if (invocation.state === 'output-error' || invocation.state === 'output-denied') {
+  if (invocation.state === 'output-error') {
     return true;
   }
   if (invocation.state !== 'output-available') {

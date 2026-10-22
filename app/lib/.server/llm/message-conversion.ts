@@ -100,7 +100,7 @@ function partText(part: CloudChefMessage['parts'][number]): string {
 }
 
 function isTerminalToolState(state: string): boolean {
-  return state === 'output-available' || state === 'output-error' || state === 'output-denied';
+  return state === 'output-available' || state === 'output-error';
 }
 
 function stripHiddenReasoning(message: string): string {

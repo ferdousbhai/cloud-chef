@@ -95,10 +95,6 @@ function AssistantMessagePart({
     return <ReasoningPart part={part} isActive={isStreaming} revealKey={revealKey} />;
   }
 
-  if (part.type === 'step-start' || part.type === 'reasoning-file') {
-    return null;
-  }
-
   return <UnknownAssistantMessagePart partId={partId} />;
 }
 

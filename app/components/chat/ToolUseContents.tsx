@@ -425,9 +425,6 @@ function ValidationToolContents({ invocation }: { invocation: CloudChefToolInvoc
   if (invocation.state === 'output-error') {
     return <ToolResultFrame>{invocation.errorText ?? 'Project validation failed.'}</ToolResultFrame>;
   }
-  if (invocation.state === 'output-denied') {
-    return <ToolResultFrame>{invocation.approval?.reason ?? 'Project validation was denied.'}</ToolResultFrame>;
-  }
   const result = attachedValidation(invocation);
   if (!result) {
     return <ToolResultFrame>{toolResultSummary(invocation.output)}</ToolResultFrame>;
@@ -480,7 +477,7 @@ function StructuredResultTool({ invocation }: { invocation: CloudChefToolInvocat
     // Every completed tool card reaches this effect, so the once-per-journey claim
     // inside `captureProductEvent` is what keeps this a single funnel event.
     void captureProductEvent('first_tool_completed', {
-      outcome: succeeded ? 'success' : invocation.state === 'output-denied' ? 'cancelled' : 'failure',
+      outcome: succeeded ? 'success' : 'failure',
     });
     if (validationSucceeded) {
       void captureProductEvent('validation_succeeded', { outcome: 'success' });
@@ -489,9 +486,6 @@ function StructuredResultTool({ invocation }: { invocation: CloudChefToolInvocat
 
   if (invocation.state === 'output-error') {
     return <ToolResultFrame>{invocation.errorText}</ToolResultFrame>;
-  }
-  if (invocation.state === 'output-denied') {
-    return <ToolResultFrame>{invocation.approval?.reason ?? 'Tool execution was denied.'}</ToolResultFrame>;
   }
   if (!isCloudChefToolResult(invocation.output)) {
     return <ToolResultFrame>{toolResultSummary(invocation.output)}</ToolResultFrame>;

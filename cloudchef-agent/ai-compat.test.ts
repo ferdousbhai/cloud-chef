@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { getToolInvocation } from './ai-compat.js';
 
 describe('chat message helpers', () => {
-  it('preserves native error and denial tool states', () => {
+  it('preserves a native error tool state', () => {
     expect(
       getToolInvocation({
-        type: 'tool-read',
+        type: 'dynamic-tool',
+        toolName: 'read',
         toolCallId: 'read-1',
         state: 'output-error',
         input: { path: '/home/project/missing.ts' },
@@ -17,18 +18,10 @@ describe('chat message helpers', () => {
       state: 'output-error',
       errorText: 'File not found',
     });
-    expect(
-      getToolInvocation({
-        type: 'dynamic-tool',
-        toolName: 'exec',
-        toolCallId: 'exec-1',
-        state: 'output-denied',
-        input: { command: 'dangerous' },
-        approval: { id: 'approval-1', approved: false, reason: 'Not approved' },
-      }),
-    ).toMatchObject({
-      state: 'output-denied',
-      approval: { approved: false, reason: 'Not approved' },
-    });
+  });
+
+  it('reads only dynamic tool parts as tool calls', () => {
+    expect(getToolInvocation({ type: 'text', text: 'Done.' })).toBeNull();
+    expect(getToolInvocation({ type: 'data-tool-progress', data: {} })).toBeNull();
   });
 });

@@ -47,8 +47,6 @@ function partCharacterCount(part: CloudChefPart): number {
       return stringLength(part.title) + stringLength(part.url);
     case 'source-document':
       return stringLength(part.title) + stringLength(part.mediaType);
-    case 'step-start':
-      return 0;
     default: {
       const invocation = getToolInvocation(part);
       if (!invocation) {
@@ -66,8 +64,6 @@ function terminalCharacterCount(invocation: CloudChefToolInvocation): number {
       return stringifyLength(invocation.output);
     case 'output-error':
       return stringLength(invocation.errorText);
-    case 'output-denied':
-      return stringifyLength(invocation.approval?.reason);
     default:
       return 0;
   }

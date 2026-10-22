@@ -157,12 +157,9 @@ export function invocationStatus(invocation: CloudChefToolInvocation): ToolActiv
     case 'input-streaming':
       return 'pending';
     case 'input-available':
-    case 'approval-requested':
-    case 'approval-responded':
       return 'running';
     case 'output-available':
     case 'output-error':
-    case 'output-denied':
       return 'complete';
   }
   throw new Error(`Unsupported tool invocation state: ${invocation.state}`);

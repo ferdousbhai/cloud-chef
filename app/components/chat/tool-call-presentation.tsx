@@ -213,7 +213,6 @@ export function isErrorResult(invocation: CloudChefToolInvocation): boolean {
   }
   return (
     invocation.state === 'output-error' ||
-    invocation.state === 'output-denied' ||
     (invocation.state === 'output-available' && !toolResultSucceeded(invocation.output))
   );
 }
