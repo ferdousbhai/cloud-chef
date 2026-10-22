@@ -19,12 +19,7 @@ describe('Cloudflare auth sessions', () => {
       },
     } as unknown as Env;
 
-    const { cookie } = await createAuthSession(
-      env,
-      'user-1',
-      new Request('https://cloudchef.build/connect/return'),
-      1_000,
-    );
+    const { cookie } = await createAuthSession(env, 'user-1', new Request('https://cloudchef.build/connect/return'));
     const token = cookie.match(/^cloudchef_session=([^;]+)/)?.[1];
     expect(token).toBeTruthy();
     expect(cookie).toContain('HttpOnly');
@@ -90,7 +85,6 @@ describe('Cloudflare auth sessions', () => {
         db,
         { subject: 'cf-user-1', email: 'Person@Example.com', name: 'Person', picture: null },
         'Account',
-        123,
       ),
     ).rejects.toThrow(IdentityConflictError);
     expect(database.prepare('SELECT id, name, cloudflare_subject FROM "user"').all()).toEqual([
@@ -107,7 +101,6 @@ describe('Cloudflare auth sessions', () => {
         db,
         { subject: 'cf-user-attacker', email: 'person@example.com', name: 'Other person', picture: null },
         'Account',
-        123,
       ),
     ).rejects.toThrow('verified email is already linked to a different Cloudflare identity');
     expect(updates).toEqual([]);
@@ -117,16 +110,17 @@ describe('Cloudflare auth sessions', () => {
     'adopts and exactly updates a concurrently inserted user matched by %s',
     async (match) => {
       const { db, updates } = racedUserDb(match);
+      vi.useFakeTimers({ toFake: ['Date'], now: 123 });
 
       await expect(
         upsertCloudflareUser(
           db,
           { subject: 'cf-user-1', email: 'person@example.com', name: 'Person', picture: null },
           'Account',
-          123,
         ),
       ).resolves.toMatchObject({ id: 'raced-user', name: 'Person', email: 'person@example.com' });
       expect(updates).toEqual([['cf-user-1', 'Person', 'person@example.com', 1, null, 123, 'raced-user', 'cf-user-1']]);
+      vi.useRealTimers();
     },
   );
 
@@ -138,7 +132,6 @@ describe('Cloudflare auth sessions', () => {
         db,
         { subject: 'cf-user-1', email: 'person@example.com', name: 'Person', picture: null },
         'Account',
-        123,
       ),
     ).rejects.toBe(insertError);
     expect(updates).toEqual([]);
@@ -152,7 +145,6 @@ describe('Cloudflare auth sessions', () => {
         db,
         { subject: 'cf-user-1', email: 'person@example.com', name: 'Person', picture: null },
         'Account',
-        123,
       ),
     ).rejects.toBe(insertError);
     expect(updates).toEqual([]);

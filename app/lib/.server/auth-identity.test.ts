@@ -83,7 +83,7 @@ describe('signing in without Cloudflare, then connecting it', () => {
       { subject: 'cf-sam', email: 'sam@corp.com', name: 'Sam', picture: null },
       null,
     );
-    const proven = await upsertVerifiedEmailUser(db, { email: 'sam@corp.com' }, Date.now(), owner.id);
+    const proven = await upsertVerifiedEmailUser(db, { email: 'sam@corp.com' }, owner.id);
     expect(proven.id).toBe(owner.id);
   });
 

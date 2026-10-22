@@ -137,7 +137,6 @@ export async function completeGoogleSignInAction({ request, env }: { request: Re
     const user = await upsertVerifiedEmailUser(
       env.DB,
       { email: info.email, name: info.name, image: info.picture, googleSubject: info.sub },
-      Date.now(),
       signedIn?.user.id ?? null,
     );
     const { cookie } = await createAuthSession(env, user.id, request);

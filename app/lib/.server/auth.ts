@@ -104,9 +104,9 @@ export async function createAuthSession(
   env: Env,
   userId: string,
   request: Request,
-  now = Date.now(),
 ): Promise<{ id: string; cookie: string }> {
   const id = crypto.randomUUID();
+  const now = Date.now();
   const token = randomToken();
   await env.DB.prepare(
     `INSERT INTO cloudflare_auth_sessions (id, user_id, token_hash, expires_at, created_at, updated_at)
@@ -135,8 +135,8 @@ export async function upsertCloudflareUser(
   db: D1Database,
   identity: CloudflareOAuthIdentity,
   accountName: string | null,
-  now = Date.now(),
 ): Promise<CloudflareAuthUser> {
+  const now = Date.now();
   const existingBySubject = await db
     .prepare('SELECT id, name, email, image, email_proven_at FROM "user" WHERE cloudflare_subject = ?')
     .bind(identity.subject)
@@ -198,10 +198,10 @@ export async function upsertCloudflareUser(
 export async function upsertVerifiedEmailUser(
   db: D1Database,
   identity: { email: string; name?: string | null; image?: string | null; googleSubject?: string | null },
-  now = Date.now(),
   /** Who was signed in when the email was proven, if anyone. */
   signedInUserId: string | null = null,
 ): Promise<CloudflareAuthUser> {
+  const now = Date.now();
   const email = normalizeEmail(identity.email);
   const googleSubject = identity.googleSubject ?? null;
   if (googleSubject) {
@@ -285,8 +285,8 @@ export async function attachCloudflareIdentity(
   db: D1Database,
   userId: string,
   subject: string,
-  now = Date.now(),
 ): Promise<CloudflareAuthUser> {
+  const now = Date.now();
   const owner = await db
     .prepare('SELECT id FROM "user" WHERE cloudflare_subject = ?')
     .bind(subject)

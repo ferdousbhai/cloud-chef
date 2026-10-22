@@ -3,6 +3,8 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type * as NodeSqlite from 'node:sqlite';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
+import { vi } from 'vitest';
+import { createAuthSession } from '~/lib/.server/auth';
 
 type ControlPlaneTestDatabase = { database: DatabaseSync; db: D1Database };
 
@@ -50,6 +52,17 @@ export function withStatementHook(db: D1Database, beforePrepare: (query: string)
 export function envWith(bindings: Partial<Env>): Env {
   // SAFETY: each test passes every binding the code under test reads; the rest are never touched.
   return bindings as Env;
+}
+
+/** The session cookie of a sign-in made `ago` milliseconds before now. */
+export async function sessionCookieSignedInBefore(env: Env, userId: string, ago: number): Promise<string> {
+  vi.useFakeTimers({ toFake: ['Date'], now: Date.now() - ago });
+  try {
+    const { cookie } = await createAuthSession(env, userId, new Request('https://cloudchef.build/'));
+    return cookie.split(';')[0];
+  } finally {
+    vi.useRealTimers();
+  }
 }
 
 function result<T>(results: T[], changes = 0): D1Result<T> {
