@@ -5,7 +5,7 @@ import type { DeploymentProjectProfile } from './deployment-project-profile';
 
 const DEPLOYMENT_PLAN_VERSION = 5 as const;
 
-export type DeploymentResourceType = 'worker' | 'd1' | 'r2' | 'kv' | 'durable_object' | 'workers_ai';
+type DeploymentResourceType = 'worker' | 'd1' | 'r2' | 'kv' | 'durable_object' | 'workers_ai';
 
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 const deploymentProjectProfileSchema: z.ZodType<DeploymentProjectProfile> = z.strictObject({
