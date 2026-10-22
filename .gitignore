@@ -27,7 +27,6 @@ test-results/
 *.sln
 *.sw?
 
-/.history
 /.cache
 /build
 .env.local
