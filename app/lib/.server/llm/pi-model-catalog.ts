@@ -40,11 +40,11 @@ const PI_GATEWAY_BASE_URL = 'https://gateway.ai.cloudflare.com/v1/{CLOUDFLARE_AC
 type GatewayModelSource = { models: Readonly<Record<string, PiCatalogModel>>; upstreamBaseUrl: string };
 
 const GATEWAY_MODEL_SOURCES = {
-  anthropic: [{ models: CLOUDFLARE_AI_GATEWAY_MODELS, upstreamBaseUrl: `${PI_GATEWAY_BASE_URL}/anthropic` }],
-  openai: [{ models: CLOUDFLARE_AI_GATEWAY_MODELS, upstreamBaseUrl: `${PI_GATEWAY_BASE_URL}/openai` }],
-  grok: [{ models: XAI_MODELS, upstreamBaseUrl: 'https://api.x.ai' }],
-  openrouter: [{ models: OPENROUTER_MODELS, upstreamBaseUrl: 'https://openrouter.ai/api' }],
-} satisfies Record<GatewayProviderSlug, readonly GatewayModelSource[]>;
+  anthropic: { models: CLOUDFLARE_AI_GATEWAY_MODELS, upstreamBaseUrl: `${PI_GATEWAY_BASE_URL}/anthropic` },
+  openai: { models: CLOUDFLARE_AI_GATEWAY_MODELS, upstreamBaseUrl: `${PI_GATEWAY_BASE_URL}/openai` },
+  grok: { models: XAI_MODELS, upstreamBaseUrl: 'https://api.x.ai' },
+  openrouter: { models: OPENROUTER_MODELS, upstreamBaseUrl: 'https://openrouter.ai/api' },
+} satisfies Record<GatewayProviderSlug, GatewayModelSource>;
 
 /**
  * Never fetched: a gateway model's SDK builds its URLs on this, and the gateway transport reads only
@@ -119,38 +119,37 @@ function gatewayApi(api: Api): GatewayApi | null {
 function gatewayCatalog(): Map<string, PiGatewayModel> {
   const catalog = new Map<string, PiGatewayModel>();
   for (const provider of GATEWAY_PROVIDER_SLUGS) {
-    for (const { models, upstreamBaseUrl } of GATEWAY_MODEL_SOURCES[provider]) {
-      for (const piModel of Object.values(models)) {
-        const api = gatewayApi(piModel.api);
-        const id = `${provider}/${piModel.id}`;
-        if (
-          api === null ||
-          !piModel.baseUrl.startsWith(upstreamBaseUrl) ||
-          piModel.contextWindow < MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS ||
-          !isBuilderCapableKind(piModel.id) ||
-          !isBuilderModelId(id) ||
-          catalog.has(id)
-        ) {
-          continue;
-        }
-        const label = piModel.name.replace(/\s*\(latest\)\s*$/i, '');
-        catalog.set(id, {
-          provider,
-          api,
-          model: { ...piModel, baseUrl: `${GATEWAY_BINDING_ORIGIN}${piModel.baseUrl.slice(upstreamBaseUrl.length)}` },
-          builderModel: {
-            id,
-            label,
-            // The provider tab already says whose model it is and how it is reached.
-            description: '',
-            contextTokens: piModel.contextWindow,
-            requiresPaid: false,
-            reasoning: piModel.reasoning,
-            vision: piModel.input.includes('image'),
-            ...withReasoningLevels(piModel),
-          },
-        });
+    const { models, upstreamBaseUrl } = GATEWAY_MODEL_SOURCES[provider];
+    for (const piModel of Object.values(models)) {
+      const api = gatewayApi(piModel.api);
+      const id = `${provider}/${piModel.id}`;
+      if (
+        api === null ||
+        !piModel.baseUrl.startsWith(upstreamBaseUrl) ||
+        piModel.contextWindow < MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS ||
+        !isBuilderCapableKind(piModel.id) ||
+        !isBuilderModelId(id) ||
+        catalog.has(id)
+      ) {
+        continue;
       }
+      const label = piModel.name.replace(/\s*\(latest\)\s*$/i, '');
+      catalog.set(id, {
+        provider,
+        api,
+        model: { ...piModel, baseUrl: `${GATEWAY_BINDING_ORIGIN}${piModel.baseUrl.slice(upstreamBaseUrl.length)}` },
+        builderModel: {
+          id,
+          label,
+          // The provider tab already says whose model it is and how it is reached.
+          description: '',
+          contextTokens: piModel.contextWindow,
+          requiresPaid: false,
+          reasoning: piModel.reasoning,
+          vision: piModel.input.includes('image'),
+          ...withReasoningLevels(piModel),
+        },
+      });
     }
   }
   return catalog;
