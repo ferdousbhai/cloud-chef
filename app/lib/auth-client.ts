@@ -1,4 +1,5 @@
 import { useStore } from '@nanostores/react';
+import { createClientOnlyFn } from '@tanstack/react-start';
 import { atom, onMount } from 'nanostores';
 import { useEffect } from 'react';
 import { z } from 'zod';
@@ -14,6 +15,11 @@ import { clearPendingSubmit, recordPendingSubmit } from '~/lib/stores/pending-su
 import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
 import { getJson, noContentSchema, postJson, RequestError } from '~/lib/json-request';
 import { userIdStore } from '~/lib/stores/userId';
+
+// Client-only: the telemetry module may not be reached from server code, which imports this file.
+const captureCloudflareConnectStarted = createClientOnlyFn(() => {
+  void captureProductEvent('cloudflare_connect_started');
+});
 
 type AuthState = {
   data: CloudflareAuthSession | null;
@@ -133,7 +139,7 @@ async function startCloudflareAuthorization(
   callbackURL: string,
   options: { continuePrompt?: string; organizationId?: string },
 ) {
-  void captureProductEvent('cloudflare_connect_started');
+  captureCloudflareConnectStarted();
   clearPendingSubmit();
   if (options.continuePrompt) {
     recordPendingSubmit(options.continuePrompt);
