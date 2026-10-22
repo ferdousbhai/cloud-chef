@@ -256,22 +256,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
                 closeDialog();
               }}
               dialogTitle="Remove project"
-              dialogBody={
-                <div className="space-y-2">
-                  <p>
-                    You are about to remove{' '}
-                    <ProjectTitle className="font-medium text-content-primary">
-                      {deleteTarget.description || 'Untitled project'}
-                    </ProjectTitle>
-                    .
-                  </p>
-                  <p className="text-content-secondary">
-                    This removes it from your project list and schedules cleanup of its workspace and deployed
-                    Cloudflare resources. Provider-retained logs and browser data are not erased. See the{' '}
-                    <Link to="/privacy">Privacy notice</Link>.
-                  </p>
-                </div>
-              }
+              dialogBody={<RemoveProjectNotice title={deleteTarget.description || 'Untitled project'} />}
             />
           )}
         </div>
@@ -282,3 +267,23 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
 });
 
 Menu.displayName = 'Menu';
+
+/**
+ * What removing one of the person's own apps does. The grace period is `AGENT_GC_GRACE_PERIOD_MS`,
+ * after which the sweeps delete its Cloudflare resources and workspace. A GitHub project's conversation
+ * is never listed here, so its repository and Workers Builds deployment need no mention.
+ */
+export function RemoveProjectNotice({ title }: { title: string }) {
+  return (
+    <div className="space-y-2">
+      <p>
+        You are about to remove <ProjectTitle className="font-medium text-content-primary">{title}</ProjectTitle>.
+      </p>
+      <p className="text-content-secondary">
+        It leaves your project list now. After a 30-minute grace period, its live site, databases, stored files, and
+        workspace are deleted. Provider-retained logs and browser data are not erased. See the{' '}
+        <Link to="/privacy">Privacy notice</Link>.
+      </p>
+    </div>
+  );
+}
