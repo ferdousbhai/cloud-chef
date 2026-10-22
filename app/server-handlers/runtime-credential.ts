@@ -54,7 +54,7 @@ const runtimeUsageRequestSchema = z
  * A workspace runtime reporting one finished model turn's token counts. Recorded only for an
  * organization's account, where admins see each member's use; counts only, never content.
  */
-export async function runtimeUsageAction(args: { request: Request; env: Env; now?: number }): Promise<Response> {
+export async function runtimeUsageAction(args: { request: Request; env: Env }): Promise<Response> {
   const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, runtimeUsageRequestSchema, {
     maxBytes: MAX_RUNTIME_CREDENTIAL_REQUEST_BYTES,
     label: 'Workspace runtime usage report',
@@ -66,7 +66,7 @@ export async function runtimeUsageAction(args: { request: Request; env: Env; now
   const { body, identity } = authenticated;
   const orgId = authenticated.connection.orgId;
   if (orgId) {
-    const day = new Date(args.now ?? Date.now()).toISOString().slice(0, 10);
+    const day = new Date().toISOString().slice(0, 10);
     await args.env.DB.prepare(
       `INSERT INTO organization_usage_daily (org_id, user_id, day, turns, input_tokens, output_tokens, cached_tokens)
        VALUES (?, ?, ?, 1, ?, ?, ?)

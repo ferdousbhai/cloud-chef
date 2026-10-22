@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import { runtimeIdentityHeaders, type RuntimeIdentity } from '~/lib/.server/cloudflare/runtime-identity-headers';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
@@ -41,6 +41,10 @@ const connection = {
 beforeEach(() => {
   mocks.requireActiveCloudflareConnection.mockReset().mockResolvedValue(connection);
   mocks.resolve.mockReset().mockResolvedValue('fresh-access-token');
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('runtimeCredentialAction', () => {
@@ -168,8 +172,8 @@ describe('runtimeUsageAction', () => {
           { inputTokens: 100, outputTokens: 20, cachedTokens: 40 },
         ),
         env,
-        now: Date.UTC(2026, 9, 18),
       });
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.UTC(2026, 9, 18) });
 
     mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, userId: null, orgId: 'org-1' });
     expect((await report(await runtimeSecret('member-1', 'connection-1'))).status).toBe(204);
