@@ -41,6 +41,26 @@ describe('chat provider error boundary', () => {
     },
   );
 
+  it('streams the turn in the AI SDK SSE wire protocol the chat client reads', async () => {
+    piAgentRunner.mockResolvedValueOnce(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: 'start' });
+          controller.enqueue({ type: 'finish', finishReason: 'stop' });
+          controller.close();
+        },
+      }),
+    );
+
+    const response = await createResponse();
+
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    expect(response.headers.get('x-vercel-ai-ui-message-stream')).toBe('v1');
+    await expect(response.text()).resolves.toBe(
+      'data: {"type":"start"}\n\ndata: {"type":"finish","finishReason":"stop"}\n\ndata: [DONE]\n\n',
+    );
+  });
+
   it("hands the runner the turn's gateway logging, so an opted-out person's turn stays unlogged", async () => {
     piAgentRunner.mockResolvedValueOnce(new ReadableStream({ start: (controller) => controller.close() }));
 

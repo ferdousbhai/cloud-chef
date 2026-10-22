@@ -13,7 +13,7 @@ import {
   type Message,
   type Usage,
 } from '@earendil-works/pi-ai';
-import type { PiStreamChunk } from './pi-stream';
+import { normalizeTextPartBoundaries, type PiStreamChunk } from './pi-stream';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { calculatePromptCharacterCounts } from 'cloudchef-agent/context-message-metrics';
 import { systemPrompt } from 'cloudchef-agent/prompts/system';
@@ -56,7 +56,6 @@ import {
 } from './tool-result-clearing';
 import { getPiModel, type WorkersAiAccountCredentials } from './pi-ai-models';
 import type { WorkersAiGatewayLogging } from './workers-ai-gateway';
-import { normalizeTextPartBoundaries } from './workers-ai-stream';
 import {
   recordFirstBuilderMutation,
   recordFirstMeaningfulWorkersAiProgress,
