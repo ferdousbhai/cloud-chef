@@ -32,7 +32,7 @@ const workerTargets = [
     main: 'app/server.ts',
     databaseName: 'cloudchef',
     durableObjects: [],
-    customDomains: ['cloudchef.build', 'www.cloudchef.build', 'ghostbuild.dev', 'www.ghostbuild.dev'],
+    customDomains: ['cloudchef.build', 'www.cloudchef.build'],
   },
 ];
 

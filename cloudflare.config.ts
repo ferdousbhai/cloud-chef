@@ -17,16 +17,10 @@ export default defineConfig({
     workersDev: false,
     // No preview URLs: every version of this Worker carries production's D1 and secrets.
     previewUrls: false,
-    domains: [
-      'cloudchef.build',
-      'www.cloudchef.build',
-      // The retired ghostbuild.dev origin, attached only so the Worker can redirect it to
-      // cloudchef.build. Removing these domains strands every link that still points at it.
-      'ghostbuild.dev',
-      'www.ghostbuild.dev',
-    ],
+    domains: ['cloudchef.build', 'www.cloudchef.build'],
     triggers: [triggers.scheduled({ schedule: '*/15 * * * *' })],
     observability: {
+      redactQueryString: true,
       enabled: true,
       logs: { enabled: true, headSamplingRate: 0.6 },
       traces: { enabled: true, headSamplingRate: 0.05 },
