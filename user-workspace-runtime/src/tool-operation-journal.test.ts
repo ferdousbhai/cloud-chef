@@ -328,6 +328,21 @@ describe('ToolOperationJournal', () => {
     });
   });
 
+  it('fails the command waiting on a backend whose synchronization can never complete', () => {
+    const journal = journalOn(new TestStorage());
+    journal.initialize();
+    journal.failPending('container-shell', 'nothing waits');
+    journal.begin({ toolCallId: 'pending-lost', toolName: 'exec', argsSha256: 'lost' });
+    journal.registerPending({ backend: 'container-shell', toolCallId: 'pending-lost', result: { exitCode: 0 } });
+
+    journal.failPending('container-shell', 'The container that ran it is gone.');
+
+    expect(journal.pending()).toEqual([]);
+    expect(journal.begin({ toolCallId: 'pending-lost', toolName: 'exec', argsSha256: 'lost' })).toMatchObject({
+      status: 'failed',
+    });
+  });
+
   it('blocks new work after restart when a pending continuation has no Computer retry row', () => {
     const storage = new TestStorage();
     const beforeRestart = journalOn(storage);

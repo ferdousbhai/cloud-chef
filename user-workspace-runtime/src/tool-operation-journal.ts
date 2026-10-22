@@ -281,6 +281,14 @@ export class ToolOperationJournal {
     });
   }
 
+  /** Fails the operation waiting on `backend`'s synchronization, if one is. */
+  failPending(backend: string, error: string): void {
+    const pending = this.pending().find((operation) => operation.backend === backend);
+    if (pending) {
+      this.fail({ toolCallId: pending.toolCallId, error });
+    }
+  }
+
   fail(args: { toolCallId: string; error: string; now?: number }): void {
     this.storage.transactionSync(() => {
       const existing = this.require(args.toolCallId);

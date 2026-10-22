@@ -521,7 +521,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       this.#syncRetries.recordFailure(backend, result.error, result.status === 'exhausted');
     }
     if (result.status === 'complete' || result.status === 'idle') {
-      this.finishPendingCommand(backend);
+      this.#toolOperations.completePending(backend);
       await this.cleanupReadinessRoot().catch(() => undefined);
     } else if (result.status === 'lost') {
       // The runtime that ran the command is gone, so its output can never be pulled and the durable
@@ -529,7 +529,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       // that did not land as durably synced, so it terminalizes as a failure instead. Computer has
       // already cleared its intent; failing the journal row stops the continuation from being
       // finished by reconcilePendingCommands' "no retry row" pull.
-      this.failPendingCommand(
+      this.#toolOperations.failPending(
         backend,
         `The workspace command cannot be confirmed: the container that ran it is gone (${result.error}).`,
       );
@@ -581,7 +581,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
           // command. An ordinary pull is idempotent and proves remote changes
           // reached the durable VFS before the tool result is exposed.
           await this.#workspace.pull(backend);
-          this.finishPendingCommand(backend);
+          this.#toolOperations.completePending(backend);
           await this.cleanupReadinessRoot().catch(() => undefined);
         }
       } catch {
@@ -1138,13 +1138,9 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       },
       { resume },
     );
-    this.#activeCommandSettlements.set(request.operationKey, settlement);
     try {
-      return await settlement;
+      return await this.trackCommandSettlement(request.operationKey, settlement);
     } finally {
-      this.#activeCommandKills.delete(request.operationKey);
-      this.#activeCommandSettlements.delete(request.operationKey);
-      this.#pendingCommandCancellations.delete(request.operationKey);
       if (request.toolCallId) {
         this.#activeToolOperations.delete(request.toolCallId);
       }
@@ -1214,8 +1210,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
           },
           { resume },
         );
-        this.#activeCommandSettlements.set(request.operationKey, settlement);
-        void settlement
+        void this.trackCommandSettlement(request.operationKey, settlement)
           .then(
             () => {
               if (!cancelled) {
@@ -1229,10 +1224,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
             },
           )
           .finally(() => {
-            this.#activeCommandKills.delete(request.operationKey);
             this.#activeCommandStreams.delete(request.operationKey);
-            this.#activeCommandSettlements.delete(request.operationKey);
-            this.#pendingCommandCancellations.delete(request.operationKey);
           });
       },
       cancel: async () => {
@@ -1501,12 +1493,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
           }
         });
       });
-      this.#activeCommandSettlements.set(operationKey, settlement);
-      return settlement.finally(() => {
-        this.#activeCommandKills.delete(operationKey);
-        this.#activeCommandSettlements.delete(operationKey);
-        this.#pendingCommandCancellations.delete(operationKey);
-      });
+      return this.trackCommandSettlement(operationKey, settlement);
     });
   }
 
@@ -2789,16 +2776,14 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     }
   }
 
-  private finishPendingCommand(backend: string): void {
-    this.#toolOperations.completePending(backend);
-  }
-
-  private failPendingCommand(backend: string, error: string): void {
-    const continuation = this.#toolOperations.pending().find((operation) => operation.backend === backend);
-    if (!continuation) {
-      return;
-    }
-    this.#toolOperations.fail({ toolCallId: continuation.toolCallId, error });
+  /** Records a command's settlement for a cancellation to await, and forgets the command once it settles. */
+  private trackCommandSettlement<T>(operationKey: string, settlement: Promise<T>): Promise<T> {
+    this.#activeCommandSettlements.set(operationKey, settlement);
+    return settlement.finally(() => {
+      this.#activeCommandKills.delete(operationKey);
+      this.#activeCommandSettlements.delete(operationKey);
+      this.#pendingCommandCancellations.delete(operationKey);
+    });
   }
 
   private async recoverExhaustedComputerSync(backend: string): Promise<boolean> {
@@ -2813,7 +2798,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         // fresh backend handle rather than another attempt on the failed one.
         await this.#workspace.close();
         await this.#workspace.pull(backend);
-        this.finishPendingCommand(backend);
+        this.#toolOperations.completePending(backend);
         await this.#syncRetries.clear(backend);
         await this.cleanupReadinessRoot().catch(() => undefined);
         this.#syncRecoveryFailures.delete(backend);
