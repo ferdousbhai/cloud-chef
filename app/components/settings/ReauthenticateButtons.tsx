@@ -1,11 +1,7 @@
 import { Button } from '@ui/Button';
-import {
-  authClient,
-  createCloudflareReturnURL,
-  requestEmailSignInLink,
-  signInWithCloudflare,
-  signInWithGoogle,
-} from '~/lib/auth-client';
+import { authClient, createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
+import { useGoogleOrEmailSignIn } from '~/lib/hooks/useGoogleOrEmailSignIn';
+import { messageOf } from '~/lib/json-request';
 import { recordReauthenticatingUser } from '~/lib/stores/reauthentication';
 
 /**
@@ -20,24 +16,26 @@ export function ReauthenticateButtons({
   onLinkSent: (email: string) => void;
 }) {
   const { data: session } = authClient.useSession();
+  const { continueWithGoogle, emailLink } = useGoogleOrEmailSignIn({
+    onError,
+    onLinkSent,
+    failure: 'Unable to sign in again.',
+  });
 
-  const reauthenticate = async (method: 'cloudflare' | 'google' | 'email') => {
-    onError(null);
-    const returnTo = createCloudflareReturnURL(window.location.href);
+  /** Where the new sign-in returns to, noting who is signing in again so the return can tell. */
+  const returnTo = () => {
     if (session) {
       recordReauthenticatingUser(session.user.id);
     }
+    return createCloudflareReturnURL(window.location.href);
+  };
+
+  const reconnectCloudflare = async () => {
+    onError(null);
     try {
-      if (method === 'cloudflare') {
-        await signInWithCloudflare(returnTo);
-      } else if (method === 'google') {
-        await signInWithGoogle(returnTo);
-      } else if (session) {
-        await requestEmailSignInLink(session.user.email, returnTo);
-        onLinkSent(session.user.email);
-      }
+      await signInWithCloudflare(returnTo());
     } catch (authorizationError) {
-      onError(authorizationError instanceof Error ? authorizationError.message : 'Unable to sign in again.');
+      onError(messageOf(authorizationError, 'Unable to sign in again.'));
     }
   };
 
@@ -45,15 +43,15 @@ export function ReauthenticateButtons({
     <>
       {/* Only for someone who signs in with Cloudflare: for anyone else it would attach a Cloudflare login. */}
       {session?.contexts.some((option) => option.kind === 'personal') ? (
-        <Button size="sm" variant="neutral" onClick={() => void reauthenticate('cloudflare')}>
+        <Button size="sm" variant="neutral" onClick={() => void reconnectCloudflare()}>
           Reconnect Cloudflare
         </Button>
       ) : null}
-      <Button size="sm" variant="neutral" onClick={() => void reauthenticate('google')}>
+      <Button size="sm" variant="neutral" onClick={() => void continueWithGoogle(returnTo())}>
         Continue with Google
       </Button>
       {session ? (
-        <Button size="sm" variant="neutral" onClick={() => void reauthenticate('email')}>
+        <Button size="sm" variant="neutral" onClick={() => void emailLink(session.user.email, returnTo())}>
           Email me a sign-in link
         </Button>
       ) : null}

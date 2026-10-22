@@ -8,12 +8,12 @@ import {
   authClient,
   createCloudflareReturnURL,
   ReauthenticationRequiredError,
-  requestEmailSignInLink,
   retrySession,
   signInWithCloudflare,
-  signInWithGoogle,
   signOutOfCloudChef,
 } from '~/lib/auth-client';
+import { useGoogleOrEmailSignIn } from '~/lib/hooks/useGoogleOrEmailSignIn';
+import { messageOf } from '~/lib/json-request';
 import { CloudflareConnectLegalNotice } from '~/components/CloudflareConnectLegalNotice';
 import { ReauthenticateButtons } from '~/components/settings/ReauthenticateButtons';
 import { classNames } from '~/utils/classNames';
@@ -38,15 +38,20 @@ export function CloudflareSignInPrompt({
   const returnURL = () =>
     createCloudflareReturnURL(returnTo ? new URL(returnTo, window.location.origin).href : undefined);
   const { data: session, error: sessionError } = authClient.useSession();
-  const [busy, setBusy] = useState<'cloudflare' | 'google' | 'email' | 'sign-out' | null>(null);
+  const [busy, setBusy] = useState<'cloudflare' | 'sign-out' | null>(null);
   const [error, setError] = useState<string | null>(initialError);
   const [email, setEmail] = useState('');
   const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
+  const withoutCloudflare = useGoogleOrEmailSignIn({
+    onError: setError,
+    onLinkSent: setEmailSentTo,
+    failure: 'Unable to sign in.',
+  });
   // Connecting Cloudflare to a Google or emailed-link account asks for a recent sign-in first.
   const [reauthenticateReason, setReauthenticateReason] = useState<string | null>(null);
   const [reauthenticationLinkSentTo, setReauthenticationLinkSentTo] = useState<string | null>(null);
 
-  const run = async (kind: 'cloudflare' | 'google' | 'email' | 'sign-out', action: () => Promise<boolean | void>) => {
+  const run = async (kind: 'cloudflare' | 'sign-out', action: () => Promise<boolean>) => {
     setBusy(kind);
     setError(null);
     try {
@@ -57,18 +62,14 @@ export function CloudflareSignInPrompt({
         return;
       }
       const fallback = kind === 'sign-out' ? 'Unable to sign out. Please try again.' : 'Unable to sign in.';
-      setError(failure instanceof Error ? failure.message : fallback);
+      setError(messageOf(failure, fallback));
     } finally {
-      // Cloudflare, Google and signing out navigate away on success; the email form stays.
+      // Connecting Cloudflare and signing out navigate away on success.
       setBusy(null);
     }
   };
 
-  const sendLinkTo = (address: string) =>
-    void run('email', async () => {
-      await requestEmailSignInLink(address, returnURL());
-      setEmailSentTo(address);
-    });
+  const sendLinkTo = (address: string) => void withoutCloudflare.emailLink(address, returnURL());
 
   const sendLink = (event: FormEvent) => {
     event.preventDefault();
@@ -142,8 +143,8 @@ export function CloudflareSignInPrompt({
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               variant="neutral"
-              loading={busy === 'google'}
-              onClick={() => void run('google', () => signInWithGoogle(returnURL()))}
+              loading={withoutCloudflare.busy === 'google'}
+              onClick={() => void withoutCloudflare.continueWithGoogle(returnURL())}
             >
               Continue with Google
             </Button>
@@ -155,10 +156,18 @@ export function CloudflareSignInPrompt({
                 It works once, for 15 minutes.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button variant="neutral" loading={busy === 'email'} onClick={() => sendLinkTo(emailSentTo)}>
+                <Button
+                  variant="neutral"
+                  loading={withoutCloudflare.busy === 'email'}
+                  onClick={() => sendLinkTo(emailSentTo)}
+                >
                   Resend
                 </Button>
-                <Button variant="subtle" disabled={busy === 'email'} onClick={() => setEmailSentTo(null)}>
+                <Button
+                  variant="subtle"
+                  disabled={withoutCloudflare.busy === 'email'}
+                  onClick={() => setEmailSentTo(null)}
+                >
                   Use a different address
                 </Button>
               </div>
@@ -175,7 +184,7 @@ export function CloudflareSignInPrompt({
                 onChange={(event) => setEmail(event.target.value)}
                 className="min-w-0 flex-1"
               />
-              <Button type="submit" variant="neutral" loading={busy === 'email'}>
+              <Button type="submit" variant="neutral" loading={withoutCloudflare.busy === 'email'}>
                 Email me a link
               </Button>
             </form>
