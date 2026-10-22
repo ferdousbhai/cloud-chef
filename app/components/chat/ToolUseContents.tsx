@@ -14,7 +14,7 @@ import {
 } from 'cloudchef-agent/cloudflare-api';
 import { Button } from '~/components/ui/primitives/Button';
 import { isToolActivityStatusActive, type ToolActivityStatus } from '~/lib/common/types';
-import { linkedPublishView, type LinkedPublishView } from '~/lib/common/linked-publish';
+import type { LinkedPublishView } from '~/lib/common/linked-publish';
 import { getRelativePath } from 'cloudchef-agent/utils/workDir';
 import { messageOf } from '~/lib/json-request';
 
@@ -31,8 +31,8 @@ export const ToolUseContents = memo(function ToolUseContents({
   progress?: unknown;
   cloudflareExecution?: CloudflareExecutionPublicState;
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
-  /** A GitHub publish's view as of now (useLinkedPublishView); worked out here when absent. */
-  publish?: LinkedPublishView | null;
+  /** A GitHub publish's view as of now (useLinkedPublishView), or null for any other call. */
+  publish: LinkedPublishView | null;
 }) {
   // A stopped or finished call keeps whatever invocation state the provider last streamed, so the
   // invocation alone cannot say whether work is still happening. The card's own status can, and a
@@ -58,8 +58,7 @@ export const ToolUseContents = memo(function ToolUseContents({
     return <ValidationToolContents invocation={invocation} />;
   }
   if (invocation.toolName === 'publish' || invocation.toolName === 'publish_preview') {
-    const view = publish ?? linkedPublishView(invocation, Date.now());
-    return view ? <PublishContents view={view} /> : <StructuredResultTool invocation={invocation} />;
+    return publish ? <PublishContents view={publish} /> : <StructuredResultTool invocation={invocation} />;
   }
   if (
     invocation.toolName === 'read' ||

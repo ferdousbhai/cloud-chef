@@ -85,7 +85,8 @@ export const FileToolGroup = memo(function FileToolGroup({
             <FileIcon className="shrink-0 text-content-secondary" />
             <span className="truncate">{describeFileGroup(invocations)}</span>
           </div>
-          {statusIcon(aggregate, errored ?? invocations[0])}
+          {/* File tools are never a GitHub publish. */}
+          {statusIcon(aggregate, errored ?? invocations[0], null)}
         </div>
       }
       body={

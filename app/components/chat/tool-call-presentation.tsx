@@ -10,7 +10,7 @@ import { formatStreamedSize, streamedToolInput } from './streaming-tool-input';
 import { z, type ZodType } from 'zod';
 import { cloudflareApiRequestDisplaySchema, cloudflareApiRequestIsRead } from 'cloudchef-agent/cloudflare-api';
 import { toolFailure, toolResultSucceeded } from 'cloudchef-agent/tool-result';
-import { linkedPublishView, type LinkedPublishView } from '~/lib/common/linked-publish';
+import type { LinkedPublishView } from '~/lib/common/linked-publish';
 import { validationFailed } from './validation-verdict';
 
 const MAX_TOOL_TITLE_VALUE_CHARACTERS = 160;
@@ -48,13 +48,13 @@ export function normalizeToolInvocation(invocation: CloudChefToolInvocation): Cl
 }
 
 /**
- * `publish` is the view of a GitHub publish as of now (see useLinkedPublishView); without it, it is worked
- * out here. A publish whose pipeline is still building shows its spinner in the title, never a check beside it.
+ * `publish` is the view of a GitHub publish as of now (see useLinkedPublishView), or null for any other
+ * call. A publish whose pipeline is still building shows its spinner in the title, never a check beside it.
  */
 export function statusIcon(
   status: ToolActivityStatus,
   invocation: CloudChefToolInvocation,
-  publish: LinkedPublishView | null = linkedPublishView(invocation, Date.now()),
+  publish: LinkedPublishView | null,
 ): ReactNode {
   if (publish && status !== 'aborted' && status !== 'running' && status !== 'pending') {
     if (publish.building) {
@@ -83,7 +83,7 @@ export function statusIcon(
 export function toolTitle(
   invocation: CloudChefToolInvocation,
   status: ToolActivityStatus,
-  publish: LinkedPublishView | null = linkedPublishView(invocation, Date.now()),
+  publish: LinkedPublishView | null,
 ): ReactNode {
   if (status === 'aborted') {
     return STOPPED_TOOL_TITLES.get(invocation.toolName) ?? 'Tool stopped';
