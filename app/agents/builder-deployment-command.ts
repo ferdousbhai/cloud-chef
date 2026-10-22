@@ -13,7 +13,7 @@ import type {
   WorkspaceValidationStageReporter,
 } from './builder-workspace-api';
 
-type BuilderDeploymentContext = {
+export type BuilderDeploymentContext = {
   env: Env;
   userId: string;
   chatInitialId: string;

@@ -29,6 +29,7 @@ import {
   previewValidatedRevisionForBuilder,
   settleDeploymentForBuilder,
   terminalizeInterruptedDeploymentForBuilder,
+  type BuilderDeploymentContext,
   type BuilderDeploymentState,
 } from './builder-deployment-command';
 import {
@@ -2210,17 +2211,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   private async terminalizeDeployment(job: DeploymentJob): Promise<BuilderDeploymentState> {
-    const userId = this.userId;
-    const transcriptBinding = this.transcriptBinding;
-    if (!userId || !transcriptBinding) {
-      throw new Response('Agent authentication is required.', { status: 401 });
-    }
     return this.publisher.terminalize({
-      context: {
-        env: this.env,
-        userId,
-        chatInitialId: transcriptBinding.chatInitialId,
-      },
+      context: this.requireDeploymentContext(),
       workspace: this.workspace,
       toolCallId: deploymentToolCallId(job.workspaceRevision, job.revision),
       validatedRevision: job.revision,
@@ -2639,15 +2631,14 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return;
     }
     await this.hydrateDurableIdentity({ required: false, reason: 'deployment_record_settle' });
-    const userId = this.userId;
-    const transcriptBinding = this.transcriptBinding;
-    if (!userId || !transcriptBinding || this.destroying) {
+    const context = this.deploymentContext();
+    if (!context || this.destroying) {
       return;
     }
     const { deploymentId, executionGeneration, ...job } = record;
     const settle = () =>
       this.publisher.settle({
-        context: { env: this.env, userId, chatInitialId: transcriptBinding.chatInitialId },
+        context,
         deploymentId,
         executionGeneration,
       });
@@ -2679,12 +2670,14 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     job: DeploymentJob,
     deploymentId: string | null,
   ): Promise<{ serves: BuilderDeploymentState | null } | null> {
-    const userId = this.userId;
-    const transcriptBinding = this.transcriptBinding;
-    if (!userId || !transcriptBinding) {
+    const context = this.deploymentContext();
+    if (!context) {
       return null;
     }
-    const blocking = await findActiveProjectDeployment(this.env.DB, { userId, projectId: this.workspace.projectId });
+    const blocking = await findActiveProjectDeployment(this.env.DB, {
+      userId: context.userId,
+      projectId: this.workspace.projectId,
+    });
     if (
       !blocking ||
       blocking.id === deploymentId ||
@@ -2697,7 +2690,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const blockingJob: DeploymentJob = { workspaceRevision: blocking.workspaceRevision, revision: blocking.revision };
     // Only the execution seen holding the slot: one started since is left to run.
     const settled = await this.publisher.settle({
-      context: { env: this.env, userId, chatInitialId: transcriptBinding.chatInitialId },
+      context,
       deploymentId: blocking.id,
       executionGeneration: blocking.executionGeneration,
     });
@@ -2727,11 +2720,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     abortSignal: AbortSignal,
     onExecution: (execution: DeploymentExecution) => void,
   ): Promise<BuilderDeploymentState> {
-    const userId = this.userId;
-    const transcriptBinding = this.transcriptBinding;
-    if (!userId || !transcriptBinding) {
-      throw new Response('Agent authentication is required.', { status: 401 });
-    }
+    const context = this.requireDeploymentContext();
     const startedAt = Date.now();
     // Validation changes nothing in production: however a stop cuts it short, it is a stop.
     await this.buildCheckpoint(
@@ -2747,11 +2736,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       this.withPublicationActivity('deployment', (onPlanned) =>
         this.keepAliveWhile(() =>
           this.publisher.deploy({
-            context: {
-              env: this.env,
-              userId,
-              chatInitialId: transcriptBinding.chatInitialId,
-            },
+            context,
             workspace: this.workspace,
             toolCallId: deploymentToolCallId(job.workspaceRevision, job.revision),
             validatedRevision: job.revision,
@@ -2796,6 +2781,21 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private async recordDeploymentSucceeded(job: DeploymentJob, deployment: BuilderDeploymentState): Promise<void> {
     this.setDeploymentResult(job, { ...deployment, ...job });
     await this.recordProductionRevision(job.revision);
+  }
+
+  /** Who a publication runs for and the chat it records, once this agent knows its identity. */
+  private deploymentContext(): BuilderDeploymentContext | null {
+    return this.userId && this.transcriptBinding
+      ? { env: this.env, userId: this.userId, chatInitialId: this.transcriptBinding.chatInitialId }
+      : null;
+  }
+
+  private requireDeploymentContext(): BuilderDeploymentContext {
+    const context = this.deploymentContext();
+    if (!context) {
+      throw new Response('Agent authentication is required.', { status: 401 });
+    }
+    return context;
   }
 
   private productionServes(revision: string): boolean {
@@ -3007,11 +3007,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         ...this.currentPreviewState(),
         status: 'building',
       });
-      const userId = this.userId;
-      const transcriptBinding = this.transcriptBinding;
-      if (!userId || !transcriptBinding) {
-        throw new Response('Agent authentication is required.', { status: 401 });
-      }
+      const context = this.requireDeploymentContext();
       const validatedSnapshot = await this.buildCheckpoint(
         { workspaceRevision: job.workspaceRevision, revision: job.snapshotRevision },
         'preview',
@@ -3025,11 +3021,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       const success = await this.withPublicationActivity('preview', (onPlanned) =>
         this.keepAliveWhile(() =>
           this.publisher.preview({
-            context: {
-              env: this.env,
-              userId,
-              chatInitialId: transcriptBinding.chatInitialId,
-            },
+            context,
             workspace: this.workspace,
             toolCallId: deploymentToolCallId(job.workspaceRevision, job.snapshotRevision),
             previewId: job.previewId,
