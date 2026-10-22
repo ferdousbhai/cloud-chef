@@ -42,18 +42,38 @@ export async function readCloudflareApiRuntimeIdentity(
   return identity;
 }
 
-/** The person, account and connection generation a user-owned runtime was provisioned for, from its bindings. */
+/** The person, account, connection generation and known grant a user-owned runtime was provisioned for. */
 export function runtimeIdentity(env: CloudflareApiRuntimeEnv): CloudflareApiRuntimeIdentity | null {
-  const connectionGeneration = Number(env.CLOUDCHEF_CONNECTION_GENERATION);
+  const connection = runtimeConnectionIdentity(env);
   const oauthScopeGrantStatus = env.CLOUDCHEF_OAUTH_SCOPE_GRANT_STATUS;
+  if (
+    !connection ||
+    (oauthScopeGrantStatus !== 'core' && oauthScopeGrantStatus !== 'partial' && oauthScopeGrantStatus !== 'full')
+  ) {
+    return null;
+  }
+  return { ...connection, oauthScopeGrantStatus };
+}
+
+export type RuntimeConnectionIdentity = Omit<CloudflareApiRuntimeIdentity, 'oauthScopeGrantStatus'>;
+
+/** The bindings naming a runtime's connection; one without its user-runtime marker is not a user runtime. */
+export type RuntimeConnectionEnv = Pick<
+  Env,
+  'CLOUDCHEF_USER_ID' | 'CLOUDFLARE_ACCOUNT_ID' | 'CLOUDCHEF_CONNECTION_ID' | 'CLOUDCHEF_CONNECTION_GENERATION'
+> &
+  Partial<Pick<Env, 'CLOUDCHEF_USER_RUNTIME'>>;
+
+/** The person, account and connection generation a user-owned runtime was provisioned for, from its bindings. */
+export function runtimeConnectionIdentity(env: RuntimeConnectionEnv): RuntimeConnectionIdentity | null {
+  const connectionGeneration = Number(env.CLOUDCHEF_CONNECTION_GENERATION);
   if (
     env.CLOUDCHEF_USER_RUNTIME !== '1' ||
     !env.CLOUDCHEF_USER_ID ||
     !env.CLOUDFLARE_ACCOUNT_ID ||
     !env.CLOUDCHEF_CONNECTION_ID ||
     !Number.isSafeInteger(connectionGeneration) ||
-    connectionGeneration < 1 ||
-    (oauthScopeGrantStatus !== 'core' && oauthScopeGrantStatus !== 'partial' && oauthScopeGrantStatus !== 'full')
+    connectionGeneration < 1
   ) {
     return null;
   }
@@ -62,6 +82,5 @@ export function runtimeIdentity(env: CloudflareApiRuntimeEnv): CloudflareApiRunt
     accountId: env.CLOUDFLARE_ACCOUNT_ID,
     connectionId: env.CLOUDCHEF_CONNECTION_ID,
     connectionGeneration,
-    oauthScopeGrantStatus,
   };
 }

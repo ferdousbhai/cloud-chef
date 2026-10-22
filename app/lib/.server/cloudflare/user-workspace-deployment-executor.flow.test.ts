@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   claimApprovedDeployment: vi.fn(),
@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
     getWorkersSubdomain: vi.fn(),
   },
   UserCloudflareAccountApi: vi.fn(),
+  /** The credential broker, reached through the global fetch. */
+  credentialFetch: vi.fn<typeof fetch>(),
 }));
 
 vi.mock('./deployment-plan', async (importOriginal) => ({
@@ -59,9 +61,17 @@ import {
   terminalizeInterruptedUserOwnedDeployment,
 } from './user-workspace-deployment-executor';
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('executeUserOwnedDeployment credential-free Computer flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.credentialFetch.mockImplementation(async () =>
+      Response.json({ accessToken: 'user-oauth-token' }, { headers: { 'Cache-Control': 'no-store' } }),
+    );
+    vi.stubGlobal('fetch', mocks.credentialFetch);
     // Vitest must expose a constructible implementation because production
     // instantiates the account API with `new`.
     // eslint-disable-next-line prefer-arrow-callback
@@ -287,15 +297,6 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
       .mockResolvedValueOnce({ ...deployment, status: 'deploying' })
       .mockResolvedValueOnce({ ...deployment, status: 'succeeded' });
     mocks.claimApprovedDeployment.mockResolvedValue({ ...deployment, status: 'provisioning' });
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json({ accessToken: 'provisioning-oauth-token' }, { headers: { 'Cache-Control': 'no-store' } }),
-      )
-      .mockResolvedValueOnce(
-        Response.json({ accessToken: 'publishing-oauth-token' }, { headers: { 'Cache-Control': 'no-store' } }),
-      );
-
     await executeUserOwnedDeployment({
       env: {
         DB: {} as D1Database,
@@ -312,7 +313,6 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
       userId: 'user-1',
       connectionId: 'connection-1',
       executionGeneration: 4,
-      request,
     });
 
     expect(prepareDeploymentArtifact).toHaveBeenCalledOnce();
@@ -331,11 +331,12 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
         modules: expect.any(Array),
       }),
     );
-    expect(request).toHaveBeenCalledTimes(2);
-    expect(
-      request.mock.calls.every(([url]) => url === 'https://cloudchef.build/api/cloudflare/runtime-credential'),
-    ).toBe(true);
-    expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toMatchObject({ forceRefresh: false });
+    // One token for the whole publication: a token that expires meanwhile is refreshed when Cloudflare refuses it.
+    expect(mocks.credentialFetch).toHaveBeenCalledOnce();
+    expect(String(mocks.credentialFetch.mock.calls[0]?.[0])).toBe(
+      'https://cloudchef.build/api/cloudflare/runtime-credential',
+    );
+    expect(JSON.parse(String(mocks.credentialFetch.mock.calls[0]?.[1]?.body))).toMatchObject({ forceRefresh: false });
     expect(beginDeploymentSession).toHaveBeenCalledWith({
       operationId: 'deployment-1:4',
       expectedWorkspaceRevision: 7,
@@ -433,11 +434,6 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
         ? { id: 'preview-agent-database-id', name: 'cloudchef-deployment-1-preview-agent' }
         : { id: 'preview-database-id', name: 'cloudchef-deployment-1-preview' },
     );
-    const request = vi
-      .fn<typeof fetch>()
-      .mockImplementation(async () =>
-        Response.json({ accessToken: 'user-oauth-token' }, { headers: { 'Cache-Control': 'no-store' } }),
-      );
     // SAFETY: this test double supplies every user-runtime binding read by the preview executor.
     const previewEnv = Object.assign({} as Env, {
       DB: {},
@@ -459,7 +455,6 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
         userId: 'user-1',
         connectionId: 'connection-1',
         executionGeneration: 4,
-        request,
       }),
     ).resolves.toMatchObject({
       id: '11111111-1111-4111-8111-111111111111',
@@ -1151,16 +1146,12 @@ async function workerDeployment(options: { d1?: boolean; storage?: boolean } = {
     CLOUDCHEF_CONNECTION_GENERATION: '3',
     PROJECT_WORKSPACE: { idFromName: (name: string) => `id:${name}`, get: () => workspace },
   });
-  const request = vi.fn<typeof fetch>(async () =>
-    Response.json({ accessToken: 'user-oauth-token' }, { headers: { 'Cache-Control': 'no-store' } }),
-  );
   const execution = {
     env,
     deploymentId: deployment.id,
     userId: 'user-1',
     connectionId: 'connection-1',
     executionGeneration: 4,
-    request,
   };
   return { execution, deployment, workspace };
 }

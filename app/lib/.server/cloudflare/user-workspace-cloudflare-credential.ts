@@ -9,6 +9,7 @@ import {
 import type { ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import { gatewayKeysSchema, NO_ACCOUNT_MODEL_SETTINGS, type AccountModelSettings } from '~/lib/workers-ai-model';
 import { runtimeIdentityHeaders } from './runtime-identity-headers';
+import { CLOUDCHEF_CONTROL_PLANE_ENDPOINT } from './user-workspace-runtime-policy';
 
 const RUNTIME_CREDENTIAL_TIMEOUT_MS = 30_000;
 const MAX_RUNTIME_CREDENTIAL_RESPONSE_BYTES = 8 * 1024;
@@ -19,28 +20,56 @@ type CloudflareConnectionIdentity = Pick<
   'userId' | 'connectionId' | 'connectionGeneration'
 >;
 
+const tokenWithheldSchema = z.object({ code: z.literal('cloudflare_token_withheld'), error: z.string() });
+
 type RuntimeCredentialEnv = Pick<Env, 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT' | 'CONTROL_PLANE_SECRET'>;
 
-/** Resolve an access token through the authenticated control-plane broker without retaining it. */
+/** Whether this runtime can reach its credential broker: the pinned control plane, with the runtime's secret. */
+export function runtimeCredentialBrokerConfigured(env: RuntimeCredentialEnv): boolean {
+  return env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT === CLOUDCHEF_CONTROL_PLANE_ENDPOINT && Boolean(env.CONTROL_PLANE_SECRET);
+}
+
+/**
+ * Resolve an access token through the authenticated control-plane broker without retaining it. Only the
+ * pinned control plane is asked, and only its direct, non-cacheable answer is taken.
+ */
 export async function resolveUserWorkspaceCloudflareAccessToken(
   env: RuntimeCredentialEnv,
   identity: CloudflareConnectionIdentity,
   options: CloudflareAccessTokenResolution = {},
 ): Promise<string> {
+  if (!runtimeCredentialBrokerConfigured(env)) {
+    throw new Error('Cloudflare connection is unavailable.');
+  }
   const response = await postRuntimeRoute(env, identity, 'runtime-credential', {
     forceRefresh: options.forceRefresh === true,
   });
-  if (!response.ok) {
+  if (!response.ok && response.status !== 403) {
     await response.body?.cancel().catch(() => undefined);
-    throw new Error('The Cloudflare credential broker rejected this runtime.');
+    throw new Error('Cloudflare connection is unavailable.');
   }
-  const parsed = runtimeCredentialResponseSchema.safeParse(
-    await readJsonBodyWithLimit(response, MAX_RUNTIME_CREDENTIAL_RESPONSE_BYTES, 'Runtime credential response'),
-  );
-  if (!parsed.success) {
-    throw new Error('The Cloudflare credential broker returned an invalid response.');
+  const body = await readJsonBodyWithLimit(
+    response,
+    MAX_RUNTIME_CREDENTIAL_RESPONSE_BYTES,
+    'Runtime credential response',
+  ).catch(() => null);
+  if (!response.ok) {
+    // Said plainly: the member works on the organization's GitHub projects only, so drafts can't deploy.
+    const withheld = tokenWithheldSchema.safeParse(body);
+    throw new Error(withheld.success ? withheld.data.error : 'Cloudflare connection is unavailable.');
+  }
+  const parsed = runtimeCredentialResponseSchema.safeParse(body);
+  if (!parsed.success || !containsNoStore(response.headers.get('Cache-Control') ?? '')) {
+    throw new Error('Cloudflare connection is unavailable.');
   }
   return parsed.data.accessToken;
+}
+
+function containsNoStore(value: string): boolean {
+  return value
+    .toLowerCase()
+    .split(',')
+    .some((directive) => directive.trim() === 'no-store');
 }
 
 /**

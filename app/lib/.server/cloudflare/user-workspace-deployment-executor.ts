@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { deploymentPlanResourceName, isCurrentDeploymentPlan } from './deployment-plan';
 import {
   claimApprovedDeployment,
@@ -16,9 +15,11 @@ import { parseWorkspaceReference, type WorkspaceReference } from './workspace-re
 import { validatePreparedDeploymentArtifact, type PreparedDeploymentArtifact } from './deployment-artifact';
 import type { DeploymentProjectProfile } from './deployment-project-profile';
 import { D1MigrationChangedError, UserCloudflareAccountApi, type ManagedWorkerVersionArgs } from './user-account-api';
-import { CLOUDCHEF_CONTROL_PLANE_ENDPOINT } from './user-workspace-runtime-policy';
-import { runtimeRequestHeaders } from './user-workspace-cloudflare-credential';
-import { readJsonBodyWithLimit } from '~/lib/bounded-body';
+import {
+  resolveUserWorkspaceCloudflareAccessToken,
+  runtimeCredentialBrokerConfigured,
+} from './user-workspace-cloudflare-credential';
+import { runtimeConnectionIdentity, type RuntimeConnectionEnv } from './cloudflare-api-runtime-identity';
 
 type UserOwnedDeploymentArgs = {
   env: Env;
@@ -26,7 +27,6 @@ type UserOwnedDeploymentArgs = {
   userId: string;
   connectionId: string;
   executionGeneration: number;
-  request?: typeof fetch;
   /**
    * Stops the publication at its next step while stopping is still clean: before migrations run and
    * the version is uploaded. Past that point it finishes, since stopping would leave production half
@@ -34,11 +34,6 @@ type UserOwnedDeploymentArgs = {
    * rejects with its own error, aborted signal or not.
    */
   abortSignal?: AbortSignal;
-};
-
-type UserOwnedRuntimeContext = {
-  connectionGeneration: number;
-  request: typeof fetch;
 };
 
 type ProjectWorkspaceStub = ReturnType<Env['PROJECT_WORKSPACE']['get']>;
@@ -137,7 +132,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
   const abortSignal = args.abortSignal;
   try {
     abortSignal?.throwIfAborted();
-    const { connectionGeneration, request } = requireUserOwnedRuntimeContext(args);
+    const { connectionGeneration } = requireUserOwnedRuntimeContext(args);
     let deployment = await requireDeployment(args.env.DB, args.deploymentId);
     requireExecutionIdentity(deployment, args, 'deployment');
     deployment = await claimApprovedDeployment({
@@ -150,7 +145,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     });
     phase = 'provisioning';
     await activity(args, 10, 'Preparing Cloudflare resources');
-    const accountApi = await createUserAccountApi(args.env, request);
+    const accountApi = await createUserAccountApi(args.env);
     const reference = requireApprovedWorkspaceReference(deployment, 'deployment');
     const workspace = args.env.PROJECT_WORKSPACE.get(args.env.PROJECT_WORKSPACE.idFromName(reference.projectId));
     const operationId = `${deployment.id}:${args.executionGeneration}`;
@@ -193,18 +188,14 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
       resources,
     });
 
-    // The build may take several minutes. Resolve again at the authenticated
-    // boundary; the credential vault refreshes expiring tokens and the API
-    // client retries once if Cloudflare reports that the token expired.
-    const publishApi = await createUserAccountApi(args.env, request);
     await workspace.assertDeploymentSession({ sessionId: session.sessionId });
     // The last point at which stopping leaves production as it was.
     abortSignal?.throwIfAborted();
     await activity(args, 40, 'Applying database migrations');
-    await applyProductionMigrations(publishApi, resources, artifact);
+    await applyProductionMigrations(accountApi, resources, artifact);
     providerChangesPossible = true;
     await activity(args, 50, 'Uploading assets and publishing Worker');
-    const published = await publishApi.deployManagedWorker(
+    const published = await accountApi.deployManagedWorker(
       managedWorkerVersionArgs({ workerName, profile, reference, artifact, resources }),
     );
     // Production serves the new revision from here on, so the deployment succeeded whatever follows:
@@ -225,14 +216,14 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     const followUps = new PublicationFollowUps();
     await followUps.run('recording the route step', () => activity(args, 60, 'Configuring public Cloudflare route'));
     await followUps.run("setting the Worker's schedule", () =>
-      publishApi.configureManagedWorkerSchedule(workerName, profile.bindings.appAgent),
+      accountApi.configureManagedWorkerSchedule(workerName, profile.bindings.appAgent),
     );
-    await followUps.run('turning on its workers.dev address', () => publishApi.enableWorkerSubdomain(workerName));
+    await followUps.run('turning on its workers.dev address', () => accountApi.enableWorkerSubdomain(workerName));
     await followUps.run("recording the app's Worker", () =>
       recordResource(args.env.DB, deployment.id, 'worker', PRODUCTION_BINDINGS.worker, workerName),
     );
     const workersSubdomain = await followUps.run("reading the account's workers.dev subdomain", () =>
-      publishApi.getWorkersSubdomain(),
+      accountApi.getWorkersSubdomain(),
     );
     const productionUrl = workersSubdomain === null ? null : workersDevUrl(workerName, workersSubdomain);
     const warning = followUps.warning();
@@ -329,7 +320,7 @@ export async function executeUserOwnedPreview(
   }
   const abortSignal = args.abortSignal;
   abortSignal?.throwIfAborted();
-  const { connectionGeneration, request } = requireUserOwnedRuntimeContext(args);
+  const { connectionGeneration } = requireUserOwnedRuntimeContext(args);
   const deployment = await requireDeployment(args.env.DB, args.deploymentId);
   requireExecutionIdentity(deployment, args, 'preview', connectionGeneration);
   const reference = requireApprovedWorkspaceReference(deployment, 'preview');
@@ -341,8 +332,8 @@ export async function executeUserOwnedPreview(
     'worker_version',
     `preview:${args.previewId}`,
   );
+  const accountApi = await createUserAccountApi(args.env);
   if (versionReceipt) {
-    const accountApi = await createUserAccountApi(args.env, request);
     return {
       id: versionReceipt.providerResourceId,
       url: workersDevUrl(workerName, await accountApi.getWorkersSubdomain()),
@@ -359,12 +350,11 @@ export async function executeUserOwnedPreview(
     // workspace sooner.
     abortSignal?.throwIfAborted();
     await activity(args, 1, 'Preparing Cloudflare preview resources');
-    const provisionApi = await createUserAccountApi(args.env, request);
     const resourcePlan = publicationResourcePlan(deployment.plan, PREVIEW_BINDINGS);
     const provisioned = await ensurePublicationResources({
       db: args.env.DB,
       deployment,
-      accountApi: provisionApi,
+      accountApi,
       resourcePlan,
     });
     abortSignal?.throwIfAborted();
@@ -385,29 +375,28 @@ export async function executeUserOwnedPreview(
     await workspace.assertDeploymentSession({ sessionId: session.sessionId });
     abortSignal?.throwIfAborted();
 
-    const publishApi = await createUserAccountApi(args.env, request);
     await activity(args, 3, 'Applying preview database migrations');
     // The artifact's bytes do not depend on which database it binds, so one started over binds as well.
     const resources = await applyPreviewMigrations({
       db: args.env.DB,
       deploymentId: deployment.id,
-      accountApi: publishApi,
+      accountApi,
       resources: provisioned,
       resourcePlan,
       artifact,
     });
     abortSignal?.throwIfAborted();
     await activity(args, 4, 'Uploading assets and publishing the preview Worker');
-    if (!profile.bindings.appAgent && (await hasAppAgentObjects(publishApi, workerName))) {
+    if (!profile.bindings.appAgent && (await hasAppAgentObjects(accountApi, workerName))) {
       // Unlike production's, the preview's Agent data is only what previews wrote, and deleting the
       // Worker deletes its Durable Objects with it, so the preview Worker starts over without them.
-      await publishApi.deleteManagedWorker(workerName);
+      await accountApi.deleteManagedWorker(workerName);
     }
-    const published = await publishApi.deployManagedWorker(
+    const published = await accountApi.deployManagedWorker(
       managedWorkerVersionArgs({ workerName, profile, reference, artifact, resources }),
     );
-    await publishApi.configureManagedWorkerSchedule(workerName, profile.bindings.appAgent);
-    await publishApi.enableWorkerSubdomain(workerName);
+    await accountApi.configureManagedWorkerSchedule(workerName, profile.bindings.appAgent);
+    await accountApi.enableWorkerSubdomain(workerName);
     await recordResource(args.env.DB, deployment.id, 'worker', PREVIEW_BINDINGS.worker, workerName);
     await recordResource(
       args.env.DB,
@@ -416,7 +405,7 @@ export async function executeUserOwnedPreview(
       `preview:${args.previewId}`,
       published.workerVersionId,
     );
-    const url = workersDevUrl(workerName, await publishApi.getWorkersSubdomain());
+    const url = workersDevUrl(workerName, await accountApi.getWorkersSubdomain());
     const checkpoint = await workspace.assertDeploymentSession({ sessionId: session.sessionId });
     const readyAt = new Date().toISOString();
     await activity(args, 5, 'Workers preview ready');
@@ -752,103 +741,22 @@ function activity(args: UserOwnedDeploymentArgs, sequence: number, message: stri
   });
 }
 
-const tokenWithheldSchema = z.object({ code: z.literal('cloudflare_token_withheld'), error: z.string() });
-
-export async function resolveFreshCloudflareAccessToken(
-  env: {
-    CLOUDCHEF_CONTROL_PLANE_ENDPOINT?: string;
-    CONTROL_PLANE_SECRET?: string;
-    CLOUDCHEF_USER_ID?: string;
-    CLOUDCHEF_CONNECTION_ID?: string;
-    CLOUDCHEF_CONNECTION_GENERATION?: string;
-  },
-  request: typeof fetch = fetch,
-  forceRefresh = false,
-): Promise<string> {
-  if (
-    env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT !== CLOUDCHEF_CONTROL_PLANE_ENDPOINT ||
-    !env.CONTROL_PLANE_SECRET ||
-    !env.CLOUDCHEF_USER_ID ||
-    !env.CLOUDCHEF_CONNECTION_ID
-  ) {
-    throw new Error('Cloudflare connection is unavailable.');
-  }
-  const connectionGeneration = Number(env.CLOUDCHEF_CONNECTION_GENERATION);
-  if (!Number.isSafeInteger(connectionGeneration) || connectionGeneration < 1) {
-    throw new Error('Cloudflare connection is unavailable.');
-  }
-  const response = await request(`${CLOUDCHEF_CONTROL_PLANE_ENDPOINT}/api/cloudflare/runtime-credential`, {
-    method: 'POST',
-    // Who it is rides in headers, so the control plane checks the secret before reading the body.
-    headers: runtimeRequestHeaders(
-      { CLOUDCHEF_CONTROL_PLANE_ENDPOINT, CONTROL_PLANE_SECRET: env.CONTROL_PLANE_SECRET },
-      { userId: env.CLOUDCHEF_USER_ID, connectionId: env.CLOUDCHEF_CONNECTION_ID, connectionGeneration },
-    ),
-    body: JSON.stringify({ forceRefresh }),
-    redirect: 'manual',
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (response.status >= 300 && response.status < 400) {
-    await response.body?.cancel().catch(() => undefined);
-    throw new Error('Cloudflare connection is unavailable.');
-  }
-  const cacheControl = response.headers.get('Cache-Control') ?? '';
-  if (!containsNoStore(cacheControl)) {
-    throw new Error('Cloudflare connection is unavailable.');
-  }
-  let body: Record<string, unknown> | null;
-  try {
-    const parsed = await readJsonBodyWithLimit(response, 8 * 1024, 'Cloudflare runtime credential');
-    body = isCredentialResponseBody(parsed) ? parsed : null;
-  } catch {
-    body = null;
-  }
-  // Said plainly: the member works on the organization's GitHub projects only, so drafts can't deploy.
-  const withheld = tokenWithheldSchema.safeParse(body);
-  if (response.status === 403 && withheld.success) {
-    throw new Error(withheld.data.error);
-  }
-  if (
-    !response.ok ||
-    !body ||
-    typeof body.accessToken !== 'string' ||
-    body.accessToken.length < 1 ||
-    body.accessToken.length > 4_096
-  ) {
-    throw new Error('Cloudflare connection is unavailable.');
-  }
-  return body.accessToken;
-}
-
+/**
+ * The account API as this runtime's connection, with a token from the credential broker; a token that
+ * expires during a long publication is refreshed when Cloudflare refuses it.
+ */
 export async function createUserAccountApi(
-  env: {
-    CLOUDCHEF_CONTROL_PLANE_ENDPOINT?: string;
-    CONTROL_PLANE_SECRET?: string;
-    CLOUDCHEF_USER_ID?: string;
-    CLOUDCHEF_CONNECTION_ID?: string;
-    CLOUDCHEF_CONNECTION_GENERATION?: string;
-    CLOUDFLARE_ACCOUNT_ID?: string;
-  },
-  request: typeof fetch,
+  env: RuntimeConnectionEnv & Pick<Env, 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT' | 'CONTROL_PLANE_SECRET'>,
+  request: typeof fetch = fetch,
 ): Promise<UserCloudflareAccountApi> {
-  if (!env.CLOUDFLARE_ACCOUNT_ID) {
+  const identity = runtimeConnectionIdentity(env);
+  if (!identity) {
     throw new Error('Cloudflare connection is unavailable.');
   }
-  const accessToken = await resolveFreshCloudflareAccessToken(env, request);
-  return new UserCloudflareAccountApi(env.CLOUDFLARE_ACCOUNT_ID, accessToken, request, undefined, () =>
-    resolveFreshCloudflareAccessToken(env, request, true),
+  const accessToken = await resolveUserWorkspaceCloudflareAccessToken(env, identity);
+  return new UserCloudflareAccountApi(identity.accountId, accessToken, request, undefined, () =>
+    resolveUserWorkspaceCloudflareAccessToken(env, identity, { forceRefresh: true }),
   );
-}
-
-function isCredentialResponseBody(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function containsNoStore(value: string): boolean {
-  return value
-    .toLowerCase()
-    .split(',')
-    .some((directive) => directive.trim() === 'no-store');
 }
 
 /**
@@ -889,23 +797,19 @@ function requireExecutionIdentity(
   }
 }
 
-function requireUserOwnedRuntimeContext(args: UserOwnedDeploymentArgs): UserOwnedRuntimeContext {
-  const runtimeEnv = args.env;
-  const connectionGeneration = Number(runtimeEnv.CLOUDCHEF_CONNECTION_GENERATION);
+/** This runtime's connection, when it is the execution's and the runtime can publish with it. */
+function requireUserOwnedRuntimeContext(args: UserOwnedDeploymentArgs): { connectionGeneration: number } {
+  const identity = runtimeConnectionIdentity(args.env);
   if (
-    runtimeEnv.CLOUDCHEF_USER_RUNTIME !== '1' ||
-    runtimeEnv.CLOUDCHEF_USER_ID !== args.userId ||
-    runtimeEnv.CLOUDCHEF_CONNECTION_ID !== args.connectionId ||
-    !Number.isSafeInteger(connectionGeneration) ||
-    connectionGeneration < 1 ||
-    !runtimeEnv.CLOUDFLARE_ACCOUNT_ID ||
-    runtimeEnv.CLOUDCHEF_CONTROL_PLANE_ENDPOINT !== CLOUDCHEF_CONTROL_PLANE_ENDPOINT ||
-    !runtimeEnv.CONTROL_PLANE_SECRET ||
-    !runtimeEnv.PROJECT_WORKSPACE
+    !identity ||
+    identity.userId !== args.userId ||
+    identity.connectionId !== args.connectionId ||
+    !runtimeCredentialBrokerConfigured(args.env) ||
+    !args.env.PROJECT_WORKSPACE
   ) {
     throw new Error('Cloudflare connection is unavailable.');
   }
-  return { connectionGeneration, request: args.request ?? fetch };
+  return { connectionGeneration: identity.connectionGeneration };
 }
 
 function requireWorkspaceReference(deployment: Deployment): WorkspaceReference {

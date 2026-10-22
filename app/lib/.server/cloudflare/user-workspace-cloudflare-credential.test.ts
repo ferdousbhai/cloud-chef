@@ -5,6 +5,7 @@ import {
   confirmUserWorkspaceAccess,
   modelRequestAccess,
   readAccountModelSettings,
+  resolveUserWorkspaceCloudflareAccessToken,
   type ConfirmUserWorkspaceAccess,
   type UserWorkspaceAccess,
 } from './user-workspace-cloudflare-credential';
@@ -132,5 +133,86 @@ describe('modelRequestAccess', () => {
     expect(await modelRequestAccess(env, answering(optedOut))).toMatchObject({ allowed: true, contentLogging: false });
     expect(await modelRequestAccess(env, answering(null))).toEqual({ allowed: false });
     await expect(modelRequestAccess(env, unreachable)).rejects.toThrow('could not confirm');
+  });
+});
+
+describe('resolveUserWorkspaceCloudflareAccessToken', () => {
+  const tokenResponse = (accessToken: string, cacheControl = 'no-store') =>
+    Response.json({ accessToken }, { headers: { 'Cache-Control': cacheControl } });
+
+  it('requests a non-cacheable token for the exact runtime identity', async () => {
+    const respond = vi.fn<typeof fetch>().mockResolvedValue(tokenResponse('fresh-access-token', 'private, no-store'));
+    vi.stubGlobal('fetch', respond);
+
+    await expect(resolveUserWorkspaceCloudflareAccessToken(runtimeEnv(), identity)).resolves.toBe('fresh-access-token');
+    expect(String(respond.mock.calls[0]?.[0])).toBe('https://cloudchef.build/api/cloudflare/runtime-credential');
+    expect(respond.mock.calls[0]?.[1]).toMatchObject({
+      method: 'POST',
+      redirect: 'manual',
+      // Who the runtime is rides in headers, so the control plane checks it before the body.
+      headers: {
+        authorization: 'Bearer runtime-secret',
+        'content-type': 'application/json',
+        'X-CloudChef-User-Id': 'user-1',
+        'X-CloudChef-Connection-Id': 'connection-1',
+        'X-CloudChef-Connection-Generation': '3',
+      },
+      body: JSON.stringify({ forceRefresh: false }),
+      signal: expect.any(AbortSignal),
+    });
+
+    respond.mockResolvedValue(tokenResponse('refreshed-access-token'));
+    await expect(
+      resolveUserWorkspaceCloudflareAccessToken(runtimeEnv(), identity, { forceRefresh: true }),
+    ).resolves.toBe('refreshed-access-token');
+    expect(JSON.parse(String(respond.mock.calls[1]?.[1]?.body))).toMatchObject({ forceRefresh: true });
+  });
+
+  it.each([
+    ['an unpinned control plane', { CLOUDCHEF_CONTROL_PLANE_ENDPOINT: 'https://attacker.example' }],
+    ['a missing runtime secret', { CONTROL_PLANE_SECRET: '' }],
+  ])('rejects %s before making a request', async (_label, bindings) => {
+    const respond = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', respond);
+
+    await expect(resolveUserWorkspaceCloudflareAccessToken(runtimeEnv(bindings), identity)).rejects.toThrow(
+      'Cloudflare connection is unavailable.',
+    );
+    expect(respond).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a cacheable response', () => Response.json({ accessToken: 'token' })],
+    [
+      'a provider failure',
+      () => Response.json({ error: 'provider detail' }, { status: 503, headers: { 'Cache-Control': 'no-store' } }),
+    ],
+    ['an oversized token', () => tokenResponse('a'.repeat(4_097))],
+    [
+      'an unexpected redirect',
+      () => new Response(null, { status: 302, headers: { location: 'https://attacker.example' } }),
+    ],
+  ])('fails closed on %s', async (_label, response) => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(response()));
+    await expect(resolveUserWorkspaceCloudflareAccessToken(runtimeEnv(), identity)).rejects.toThrow(
+      'Cloudflare connection is unavailable.',
+    );
+  });
+
+  it('says why a team withholds its authorization from a member who works on its GitHub projects only', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          Response.json(
+            { code: 'cloudflare_token_withheld', error: 'Your team lets you work on its GitHub projects only.' },
+            { status: 403, headers: { 'Cache-Control': 'no-store' } },
+          ),
+        ),
+    );
+    await expect(resolveUserWorkspaceCloudflareAccessToken(runtimeEnv(), identity)).rejects.toThrow(
+      'Your team lets you work on its GitHub projects only.',
+    );
   });
 });
