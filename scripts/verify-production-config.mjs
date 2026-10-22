@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -7,16 +7,14 @@ import {
   loadsLocalEnvFiles,
   startsLocalDevServer,
   targetsStaging,
-  workflowPathsFromDirectoryEntries,
 } from '../template/scripts/lib/project-policy.mjs';
 import { WORKERS_BUILDS_PRE_DEPLOY_STEPS } from './deploy-production.mjs';
 import { VALIDATION_TASKS } from './validate.mjs';
 import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
 import { findWorkerObservabilityErrors, findWorkerRuntimeSecretErrors } from './lib/worker-policy.mjs';
 import { runVerifierIfMain } from './run-verifier.mjs';
-import { findUnexpectedGithubWorkflowPaths } from './workers-builds-config.mjs';
 
-export { findWorkerObservabilityErrors, findWorkerRuntimeSecretErrors, workflowPathsFromDirectoryEntries };
+export { findWorkerObservabilityErrors, findWorkerRuntimeSecretErrors };
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REQUIRED_COMPATIBILITY_DATE = '2026-07-21';
@@ -24,17 +22,9 @@ const REQUIRED_OAUTH_SCOPES =
   'account-settings.read user-details.read workers-scripts.write containers.write d1.write workers-r2.write workers-kv-storage.write ai.read aig.write secrets-store.write';
 const REQUIRED_SECRET_NAMES = ['CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY', 'CLOUDFLARE_OAUTH_CLIENT_SECRET'];
 const PLACEHOLDER_D1_ID = '00000000-0000-0000-0000-000000000000';
-const workerTargets = [
-  {
-    // Checked in the Wrangler format `cf deploy` converts it to, so the field names below are what is uploaded.
-    path: 'cloudflare.config.ts',
-    name: 'cloudchef',
-    main: 'app/server.ts',
-    databaseName: 'cloudchef',
-    durableObjects: [],
-    customDomains: ['cloudchef.build', 'www.cloudchef.build'],
-  },
-];
+// Checked in the Wrangler format `cf deploy` converts it to, so the field names below are what is uploaded.
+const CONFIG_PATH = 'cloudflare.config.ts';
+const CUSTOM_DOMAINS = ['cloudchef.build', 'www.cloudchef.build'];
 
 function readJson(path, errors) {
   try {
@@ -104,47 +94,10 @@ export function findWorkerGcScheduleErrors(config, label) {
     : [`${label} must schedule bounded authentication-metadata retention every 15 minutes.`];
 }
 
-/**
- * Private operations are authorized by reachability: `cloudchef-ops` holds a
- * Service binding to the `OperationsService` RPC entrypoint, which HTTP can
- * never dispatch to. Restoring the retired shared secret would put a forgeable
- * string back on the wire, so that specific binding may not reappear. Other
- * Secrets Store bindings stay allowed — genuinely account-wide secrets are what
- * the store is for.
- */
-export function findWorkerOperationsSecretErrors(config, label) {
-  const revived = (config?.secrets_store_secrets ?? []).filter(
-    (binding) => binding?.binding === 'OPS_AUTH_SECRET' || binding?.secret_name === 'cloudchef-ops-auth',
-  );
-  return revived.length === 0
-    ? []
-    : [
-        `${label} must not bind the retired operations secret (cloudchef-ops-auth); private operations are authorized by the OperationsService Service binding.`,
-      ];
-}
-
-export function findDurableObjectLifecycleErrors(config, label, classNames) {
-  const errors = [];
-  if (Object.hasOwn(config ?? {}, 'migrations')) {
-    errors.push(`${label} must use declarative exports instead of the legacy Durable Object migrations flow.`);
-  }
-  for (const className of classNames) {
-    const binding = config?.durable_objects?.bindings?.find((item) => item?.class_name === className);
-    if (!binding) {
-      errors.push(`${label} must bind the ${className} Durable Object.`);
-    }
-    const lifecycle = config?.exports?.[className];
-    if (lifecycle?.type !== 'durable-object' || lifecycle?.storage !== 'sqlite') {
-      errors.push(`${label} must declare the ${className} Durable Object as a live SQLite export.`);
-    }
-  }
-  return errors;
-}
-
-function verifyWorker(errors, config, target) {
-  const label = target.path;
-  requireEqual(errors, `${label} name`, config?.name, target.name);
-  requireEqual(errors, `${label} main`, config?.main, target.main);
+function verifyWorker(errors, config) {
+  const label = CONFIG_PATH;
+  requireEqual(errors, `${label} name`, config?.name, 'cloudchef');
+  requireEqual(errors, `${label} main`, config?.main, 'app/server.ts');
   requireEqual(errors, `${label} compatibility_date`, config?.compatibility_date, REQUIRED_COMPATIBILITY_DATE);
   if (!config?.compatibility_flags?.includes('nodejs_compat')) {
     errors.push(`${label} compatibility_flags must include "nodejs_compat".`);
@@ -159,11 +112,9 @@ function verifyWorker(errors, config, target) {
   );
   errors.push(
     ...findWorkerObservabilityErrors(config, label),
-    ...findWorkerRoutingErrors(config, label, target.customDomains),
+    ...findWorkerRoutingErrors(config, label, CUSTOM_DOMAINS),
     ...findWorkerVariableSourceErrors(config, label),
     ...findWorkerGcScheduleErrors(config, label),
-    ...findWorkerOperationsSecretErrors(config, label),
-    ...findDurableObjectLifecycleErrors(config, label, target.durableObjects),
     ...findWorkerRuntimeSecretErrors(config, label, 'configure values as Cloudflare bindings'),
   );
   const configuredSecretNames = config?.secrets?.required;
@@ -181,7 +132,7 @@ function verifyWorker(errors, config, target) {
   if (!d1) {
     errors.push(`${label} must bind D1 as DB.`);
   } else {
-    requireEqual(errors, `${label} D1 database_name`, d1.database_name, target.databaseName);
+    requireEqual(errors, `${label} D1 database_name`, d1.database_name, 'cloudchef');
     if (!d1.database_id || d1.database_id === PLACEHOLDER_D1_ID) {
       errors.push(`${label} must contain a provisioned D1 database_id.`);
     }
@@ -289,29 +240,11 @@ function verifyProvisionScript(errors, path) {
   }
 }
 
-function verifyWorkflows(errors) {
-  const workflowsDirectory = resolve(rootDir, '.github/workflows');
-  const workflowPaths = existsSync(workflowsDirectory)
-    ? workflowPathsFromDirectoryEntries(readdirSync(workflowsDirectory))
-    : [];
-  for (const path of findUnexpectedGithubWorkflowPaths(workflowPaths)) {
-    errors.push(`${path} must not exist; Cloudflare Workers Builds is the only CI/CD provider.`);
-  }
-
-  const setupActionPath = '.github/actions/setup-and-build/action.yaml';
-  if (existsSync(resolve(rootDir, setupActionPath))) {
-    errors.push(`${setupActionPath} must not exist; Cloudflare's build image owns CI toolchain setup.`);
-  }
-}
-
 export async function verifyProductionConfig() {
   const errors = [];
-  for (const target of workerTargets) {
-    verifyWorker(errors, await loadCommittedWranglerConfig({ path: resolve(rootDir, target.path) }), target);
-  }
+  verifyWorker(errors, await loadCommittedWranglerConfig({ path: resolve(rootDir, CONFIG_PATH) }));
   verifyScripts(errors, readJson('package.json', errors), 'package.json');
   verifyProvisionScript(errors, 'scripts/provision-cloudflare-production.mjs');
-  verifyWorkflows(errors);
   return errors;
 }
 

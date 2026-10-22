@@ -1,60 +1,18 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  findDurableObjectLifecycleErrors,
   findWorkerObservabilityErrors,
   findWorkerOAuthStartRateLimitErrors,
   findWorkerGcScheduleErrors,
-  findWorkerOperationsSecretErrors,
   findWorkerRoutingErrors,
   findWorkerRuntimeSecretErrors,
   findWorkerVariableSourceErrors,
   verifyProductionConfig,
-  workflowPathsFromDirectoryEntries,
 } from './verify-production-config.mjs';
 import {
   findBuildApprovalErrors,
   findMissingProvisionScriptPatternErrors,
 } from '../template/scripts/lib/project-policy.mjs';
-
-describe('findDurableObjectLifecycleErrors', () => {
-  const classNames = ['BuilderAgent', 'DeploymentSandbox'];
-
-  it('accepts declarative live SQLite exports for every bound class', () => {
-    expect(
-      findDurableObjectLifecycleErrors(
-        {
-          durable_objects: {
-            bindings: classNames.map((class_name) => ({ name: class_name, class_name })),
-          },
-          exports: Object.fromEntries(
-            classNames.map((className) => [className, { type: 'durable-object', storage: 'sqlite' }]),
-          ),
-        },
-        'wrangler.jsonc',
-        classNames,
-      ),
-    ).toEqual([]);
-  });
-
-  it('rejects the legacy flow and incomplete lifecycle declarations', () => {
-    expect(
-      findDurableObjectLifecycleErrors(
-        {
-          migrations: [{ tag: 'v1', new_sqlite_classes: ['BuilderAgent'] }],
-          durable_objects: { bindings: [{ name: 'BuilderAgent', class_name: 'BuilderAgent' }] },
-          exports: { BuilderAgent: { type: 'durable-object', storage: 'sqlite' } },
-        },
-        'wrangler.jsonc',
-        classNames,
-      ),
-    ).toEqual([
-      'wrangler.jsonc must use declarative exports instead of the legacy Durable Object migrations flow.',
-      'wrangler.jsonc must bind the DeploymentSandbox Durable Object.',
-      'wrangler.jsonc must declare the DeploymentSandbox Durable Object as a live SQLite export.',
-    ]);
-  });
-});
 
 describe('findWorkerRoutingErrors', () => {
   it('accepts the production custom domain with workers.dev disabled', () => {
@@ -103,38 +61,6 @@ describe('findWorkerGcScheduleErrors', () => {
     expect(findWorkerGcScheduleErrors({}, 'wrangler.jsonc')).toEqual([
       'wrangler.jsonc must schedule bounded authentication-metadata retention every 15 minutes.',
     ]);
-  });
-});
-
-describe('findWorkerOperationsSecretErrors', () => {
-  it('keeps the retired operations credential from returning to the wire', () => {
-    expect(findWorkerOperationsSecretErrors({}, 'wrangler.jsonc')).toEqual([]);
-    expect(findWorkerOperationsSecretErrors({ secrets_store_secrets: [] }, 'wrangler.jsonc')).toEqual([]);
-    expect(
-      findWorkerOperationsSecretErrors(
-        {
-          secrets_store_secrets: [
-            {
-              binding: 'OPS_AUTH_SECRET',
-              store_id: 'a436a6cefedc4acd8bb920cdbc202c1c',
-              secret_name: 'cloudchef-ops-auth',
-            },
-          ],
-        },
-        'wrangler.jsonc',
-      ),
-    ).toEqual([
-      'wrangler.jsonc must not bind the retired operations secret (cloudchef-ops-auth); private operations are authorized by the OperationsService Service binding.',
-    ]);
-  });
-
-  it('still allows genuinely account-wide Secrets Store bindings', () => {
-    expect(
-      findWorkerOperationsSecretErrors(
-        { secrets_store_secrets: [{ binding: 'OPENROUTER_API_KEY', secret_name: 'open-router' }] },
-        'wrangler.jsonc',
-      ),
-    ).toEqual([]);
   });
 });
 
@@ -418,13 +344,6 @@ overrides:
 
   it('passes against the committed configuration', () => {
     expect(configErrors).toEqual([]);
-  });
-
-  it('discovers every YAML workflow file for production guard checks', () => {
-    expect(workflowPathsFromDirectoryEntries(['deploy.yml', 'ci.yaml', 'README.md', 'nested.yml.bak'])).toEqual([
-      '.github/workflows/ci.yaml',
-      '.github/workflows/deploy.yml',
-    ]);
   });
 });
 

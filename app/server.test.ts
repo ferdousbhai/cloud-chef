@@ -376,9 +376,7 @@ describe('server Agent routing boundary', () => {
   });
 
   it('exports only the Worker handler and its durable provisioning Workflow', async () => {
-    // `OperationsService` existed only so a second deployed Worker could reach the control
-    // plane's credentials over RPC. Its caller now runs in this Worker, so the entrypoint - and
-    // the Service binding that authorized it - are gone rather than left reachable.
+    // No RPC entrypoint is exported, so nothing outside this Worker can reach its credentials.
     const exported = await import('./server');
 
     expect(Object.keys(exported).sort()).toEqual(['UserWorkspaceRuntimeProvisioningWorkflow', 'default']);
