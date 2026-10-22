@@ -62,7 +62,7 @@ export function LinkedProjectIntro({
                 numMessages={messagesLength}
                 placeholder={`What should change in ${repository}?`}
               />
-              {disabledReason && <DisabledChatMessageSheet message={disabledReason} />}
+              <DisabledChatMessageSheet message={disabledReason} />
             </div>
           </div>
         </div>

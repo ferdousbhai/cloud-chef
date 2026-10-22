@@ -58,7 +58,9 @@ export function HomeIntro({
                   onSend={onSend}
                   numMessages={messagesLength}
                 />
-                {disabledReason && (
+                {/* The home page never closes its composer, so it loads no sheet; elsewhere the sheet's live
+                    region stays mounted, so a reason that appears is announced. */}
+                {homepage ? null : (
                   <Suspense fallback={null}>
                     <DisabledChatMessageSheet message={disabledReason} />
                   </Suspense>
