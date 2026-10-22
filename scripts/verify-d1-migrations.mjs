@@ -7,9 +7,10 @@ import { runVerifierIfMain } from './run-verifier.mjs';
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const migrationNamePattern = /^(\d{4})_[a-z0-9]+(?:_[a-z0-9]+)*\.sql$/;
 
-// Every schema begins at one immutable migration (0001). Later changes remain
-// additive and checksum-tracked so deployed D1 databases can advance safely.
-const legacyCutoff = 1;
+// Every migration is pinned by its SHA-256 checksum, so one that may have been applied can never be edited, and a
+// new one ships only once its checksum is recorded here. Changes stay additive (expand/contract safe) unless the
+// migration is named in its directory's `contractAllowlist`, the reviewed exceptions; the checksum pins what was
+// reviewed.
 const migrationPolicies = [
   {
     directory: 'migrations',
@@ -47,36 +48,35 @@ const migrationPolicies = [
       '0030_organization_quota_events.sql': 'a840b9ffea1d8a68bfc003faa5df6a67ef0738b91b3e099e9eb558172ce62d5a',
       '0031_drop_ai_billing_enabled.sql': '759babf4f25026871c9b86d77e8a3dae707e0309184dabb81f213dac287b902c',
     },
-    contractAllowlist: {
+    contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
       // unused table, and keeping it would preserve a false compatibility path.
-      '0004_remove_legacy_workspace_runtime.sql': 'fd0a0a6a4297ccc046216ff11216bb217afaaeb399548501a2581f7e4450ae5f',
+      '0004_remove_legacy_workspace_runtime.sql',
       // Full launch removes the default-off gate that blocked automatic provisioning.
-      '0006_remove_launch_controls.sql': '48cb5986ca4291a46609b4714747878adb197dea2024d6c0a8bdd817327bb99f',
+      '0006_remove_launch_controls.sql',
       // Operator receipts moved to the retired private operator database.
-      '0008_remove_upstream_monitor_runs.sql': '1ca903265be41d756da88c11dcebdec0547309bf4f5fc24c82b2fd9b9f295112',
+      '0008_remove_upstream_monitor_runs.sql',
       // No code reads these tables once skills stop being mirrored; the sync that wrote them is gone.
-      '0012_remove_builder_skill_sync.sql': '5731448cabed0deec30178e99a87419103d1f9a96ca1ecbc6bdc5d36ecf1a708',
+      '0012_remove_builder_skill_sync.sql',
       // The legacy capability column: 0016 split capabilities from OAuth scopes and the pre-launch
       // dual-write was removed, so nothing reads or writes it.
-      '0017_drop_granted_scopes_json.sql': 'afd3fdd37bc396fea58da077118a9da38d99aaab764994910ab1141829f2501f',
+      '0017_drop_granted_scopes_json.sql',
       // Workspace resource names are derived from the account and user, so the record this table
       // kept is recomputable and its writer and reclamation path are gone.
-      '0018_remove_user_workspace_runtime_resources.sql':
-        'd7f9e902632e82e7750e6bfd4cd986d981a14b4199188f1bdc00f17e79664918',
+      '0018_remove_user_workspace_runtime_resources.sql',
       // The daily-maintenance receipts, the reconcile-sweep receipts and the provisioning-lease and
       // upgrade-deferral columns all lost their last reader and writer with the workspace-lifecycle
       // simplification.
-      '0019_remove_dead_control_plane_schema.sql': 'cf136090e98b908ec89166f224a7416381d4d67feffe8f12058f041c3d35073a',
+      '0019_remove_dead_control_plane_schema.sql',
       // A connection can belong to an organization, and a runtime is keyed by (user, connection): SQLite
       // can't relax NOT NULL or change a primary key in place, so both tables are rebuilt with every row
       // copied. The runtime rows step aside first so dropping the connections can't cascade to them.
-      '0021_organizations.sql': 'c181f20c983af3a41e36fb9723d9e4987b2e997cef044ae814e22ac1d6421f61',
+      '0021_organizations.sql',
       // Whether a connection bills Workers AI is derived from its granted capabilities. The deploy that
       // ships this no longer names the column, so it is applied after that deploy: until then the
       // column's default covers the new code's writes, and the previous code still finds it.
-      '0031_drop_ai_billing_enabled.sql': '759babf4f25026871c9b86d77e8a3dae707e0309184dabb81f213dac287b902c',
-    },
+      '0031_drop_ai_billing_enabled.sql',
+    ],
   },
   {
     directory: 'user-workspace-migrations',
@@ -96,16 +96,16 @@ const migrationPolicies = [
       '0013_runtime_upgrade_window_holder.sql': '09abd121f50b951d6b8ab162d12f7eeb61471ef5cf72a24188d6a3dee24eeb58',
       '0014_deployment_claim_id.sql': 'f446823bdb02790ecd961c375d3d0c9d89a922cee636f70676bffce8c384d9e5',
     },
-    contractAllowlist: {
+    contractAllowlist: [
       // Chat identity has one immutable key; remove the unused alternate URL column and index.
-      '0002_remove_chat_url_id.sql': '0f09b6846af83b969db428ee1177d5b17fbf0210cc1c53368167d65dfb4004f1',
+      '0002_remove_chat_url_id.sql',
       // BuilderAgent now owns transcript content and revisions. Rebuild the D1
       // catalog table once to remove checkpoint columns that no runtime reads.
-      '0007_builder_agent_transcript_authority.sql': 'ab725f59263f1c754bbef8b3a930bc00bcc63c2978e597b3e169a0d4c84ec616',
+      '0007_builder_agent_transcript_authority.sql',
       // One conversation per GitHub project becomes one current conversation: the narrower index is
       // created first, so the rule is never unenforced, and the old one can only go.
-      '0011_linked_chat_history.sql': '48e8758a86aa97c46923d1b4170766c03d30d43f0111da9a9d057df06b4bc37e',
-    },
+      '0011_linked_chat_history.sql',
+    ],
   },
   {
     directory: 'template/migrations',
@@ -114,14 +114,14 @@ const migrationPolicies = [
     checksums: {
       '0001_app_data.sql': 'e4fbb51e181315da68082613a0c17936cdaf9887a151c435b7a56faf8a8cf346',
     },
-    contractAllowlist: {},
+    contractAllowlist: [],
   },
   {
     directory: 'template/agent-security-migrations',
     checksums: {
       '0001_agent_security.sql': 'cc62c34bcfb5e176155e371a099d000679ae69877facf252fe3d3c7e1190fbeb',
     },
-    contractAllowlist: {},
+    contractAllowlist: [],
   },
 ];
 
@@ -259,7 +259,7 @@ export function findUnsafeD1MigrationOperations(sql) {
 }
 
 export function findD1MigrationSafetyErrors(migrations, options) {
-  const { directory, checksums, contractAllowlist = {} } = options;
+  const { directory, checksums, contractAllowlist = [] } = options;
   const errors = [];
   const byName = new Map(migrations.map((migration) => [migration.name, migration.content]));
 
@@ -274,30 +274,22 @@ export function findD1MigrationSafetyErrors(migrations, options) {
     }
   }
 
-  const futureMigrations = [];
+  const versioned = [];
   for (const migration of migrations) {
     const match = migrationNamePattern.exec(migration.name);
     if (!match) {
       errors.push(`${directory}/${migration.name} must use the NNNN_lowercase_name.sql migration format.`);
       continue;
     }
-    const version = Number.parseInt(match[1], 10);
     if (!Object.hasOwn(checksums, migration.name)) {
       errors.push(`${directory}/${migration.name} must have an exact SHA-256 checksum entry before it can ship.`);
     }
-    if (version <= legacyCutoff && !Object.hasOwn(checksums, migration.name)) {
-      errors.push(
-        `${directory}/${migration.name} cannot be inserted into legacy migration history at or before ${String(legacyCutoff).padStart(4, '0')}.`,
-      );
-    }
-    if (version > legacyCutoff) {
-      futureMigrations.push({ ...migration, version, digest: sha256(migration.content) });
-    }
+    versioned.push({ ...migration, version: Number.parseInt(match[1], 10) });
   }
 
-  futureMigrations.sort((left, right) => left.version - right.version || left.name.localeCompare(right.name));
-  let expectedVersion = legacyCutoff + 1;
-  for (const migration of futureMigrations) {
+  versioned.sort((left, right) => left.version - right.version || left.name.localeCompare(right.name));
+  let expectedVersion = 1;
+  for (const migration of versioned) {
     if (migration.version !== expectedVersion) {
       errors.push(
         `${directory}/${migration.name} must be migration ${String(expectedVersion).padStart(4, '0')} so D1 history stays contiguous.`,
@@ -306,14 +298,10 @@ export function findD1MigrationSafetyErrors(migrations, options) {
     }
     expectedVersion += 1;
     const unsafeOperations = findUnsafeD1MigrationOperations(migration.content);
-    const approvedContractDigest = contractAllowlist[migration.name];
-    if (approvedContractDigest !== undefined && approvedContractDigest !== migration.digest) {
-      errors.push(`${directory}/${migration.name} contract allowlist digest does not match the migration content.`);
-    }
-    if (approvedContractDigest !== migration.digest) {
+    if (!contractAllowlist.includes(migration.name)) {
       for (const operation of unsafeOperations) {
         errors.push(
-          `${directory}/${migration.name} is not expand/contract safe: ${operation}; stage the additive replacement before a separately reviewed exact-digest contract exception.`,
+          `${directory}/${migration.name} is not expand/contract safe: ${operation}; stage the additive replacement before a separately reviewed contract exception.`,
         );
       }
     } else if (unsafeOperations.length === 0) {
@@ -321,16 +309,11 @@ export function findD1MigrationSafetyErrors(migrations, options) {
     }
   }
 
-  for (const name of Object.keys(contractAllowlist)) {
-    if (!Object.hasOwn(checksums, name)) {
-      errors.push(`${directory}/${name} contract allowlist entry must reference a checksum-tracked migration.`);
-    }
-    if (!byName.has(name)) {
-      errors.push(`${directory}/${name} contract allowlist entry must reference an existing migration.`);
-    }
-    const version = Number.parseInt(migrationNamePattern.exec(name)?.[1] ?? '0', 10);
-    if (version <= legacyCutoff) {
-      errors.push(`${directory}/${name} contract allowlist entry is unnecessary for legacy migration history.`);
+  for (const name of contractAllowlist) {
+    if (!Object.hasOwn(checksums, name) || !byName.has(name)) {
+      errors.push(
+        `${directory}/${name} contract allowlist entry must reference an existing checksum-tracked migration.`,
+      );
     }
   }
 
@@ -345,13 +328,8 @@ function readMigrations(repositoryRoot, directory) {
 }
 
 export function verifyD1MigrationSafety(repositoryRoot = rootDir) {
-  return migrationPolicies.flatMap(({ directory, checksums, legacyCutoff, contractAllowlist }) =>
-    findD1MigrationSafetyErrors(readMigrations(repositoryRoot, directory), {
-      directory,
-      checksums,
-      legacyCutoff,
-      contractAllowlist,
-    }),
+  return migrationPolicies.flatMap(({ directory, checksums, contractAllowlist }) =>
+    findD1MigrationSafetyErrors(readMigrations(repositoryRoot, directory), { directory, checksums, contractAllowlist }),
   );
 }
 

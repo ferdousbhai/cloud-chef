@@ -53,7 +53,7 @@ describe('D1 migration rollout policy', () => {
     ['PRAGMA writable_schema = ON;', 'PRAGMA writable_schema bypasses schema safety'],
   ])('rejects unsafe new migration SQL: %s', (sql, reason) => {
     expect(errorsFor(sql)).toContain(
-      `migrations/0002_change.sql is not expand/contract safe: ${reason}; stage the additive replacement before a separately reviewed exact-digest contract exception.`,
+      `migrations/0002_change.sql is not expand/contract safe: ${reason}; stage the additive replacement before a separately reviewed contract exception.`,
     );
   });
 
@@ -68,7 +68,7 @@ describe('D1 migration rollout policy', () => {
     ).toEqual(['UPDATE without a top-level WHERE rewrites every row']);
   });
 
-  it('keeps every checksum-tracked migration immutable and rejects legacy history insertion', () => {
+  it('keeps every checksum-tracked migration immutable and rejects inserting one into history', () => {
     const baseline = 'CREATE TABLE example (id TEXT PRIMARY KEY);';
     expect(
       findD1MigrationSafetyErrors(
@@ -84,7 +84,7 @@ describe('D1 migration rollout policy', () => {
     ).toEqual([
       'migrations/0001_initial.sql is checksum-tracked D1 migration history and must remain immutable; add a new additive migration instead.',
       'migrations/0001_replacement.sql must have an exact SHA-256 checksum entry before it can ship.',
-      'migrations/0001_replacement.sql cannot be inserted into legacy migration history at or before 0001.',
+      'migrations/0001_replacement.sql must be migration 0002 so D1 history stays contiguous.',
     ]);
   });
 
@@ -142,11 +142,11 @@ describe('D1 migration rollout policy', () => {
         },
       ),
     ).toContain(
-      'migrations/0002_contract.sql is not expand/contract safe: DROP removes schema in place; stage the additive replacement before a separately reviewed exact-digest contract exception.',
+      'migrations/0002_contract.sql is not expand/contract safe: DROP removes schema in place; stage the additive replacement before a separately reviewed contract exception.',
     );
   });
 
-  it('requires a separate exact-digest allowlist for a reviewed contract migration', () => {
+  it('allows a reviewed contract migration only by name, and only while it still contracts', () => {
     const baseline = 'CREATE TABLE example (id TEXT PRIMARY KEY);';
     const contract = 'DROP TABLE example;';
     const checksums = { '0001_initial.sql': digest(baseline), '0002_contract.sql': digest(contract) };
@@ -159,32 +159,32 @@ describe('D1 migration rollout policy', () => {
       findD1MigrationSafetyErrors(migrations, {
         directory: 'migrations',
         checksums,
-        contractAllowlist: { '0002_contract.sql': digest(contract) },
+        contractAllowlist: ['0002_contract.sql'],
       }),
     ).toEqual([]);
     expect(
       findD1MigrationSafetyErrors(migrations, {
         directory: 'migrations',
         checksums,
-        contractAllowlist: { '0002_contract.sql': digest(`${contract}\n`) },
+        contractAllowlist: ['0001_initial.sql', '0003_missing.sql'],
       }),
-    ).toEqual(
-      expect.arrayContaining([
-        'migrations/0002_contract.sql contract allowlist digest does not match the migration content.',
-        'migrations/0002_contract.sql is not expand/contract safe: DROP removes schema in place; stage the additive replacement before a separately reviewed exact-digest contract exception.',
-      ]),
-    );
+    ).toEqual([
+      'migrations/0001_initial.sql has an unnecessary contract allowlist entry; remove the exception.',
+      'migrations/0002_contract.sql is not expand/contract safe: DROP removes schema in place; stage the additive replacement before a separately reviewed contract exception.',
+      'migrations/0003_missing.sql contract allowlist entry must reference an existing checksum-tracked migration.',
+    ]);
   });
 
-  it('rejects contract exceptions for grandfathered legacy migrations', () => {
-    const legacy = 'DROP TABLE example;';
+  it('checks the first migration for unsafe operations too', () => {
+    const initial = 'DROP TABLE example;';
     expect(
-      findD1MigrationSafetyErrors([{ name: '0001_legacy.sql', content: legacy }], {
+      findD1MigrationSafetyErrors([{ name: '0001_initial.sql', content: initial }], {
         directory: 'migrations',
-        checksums: { '0001_legacy.sql': digest(legacy) },
-        contractAllowlist: { '0001_legacy.sql': digest(legacy) },
+        checksums: { '0001_initial.sql': digest(initial) },
       }),
-    ).toContain('migrations/0001_legacy.sql contract allowlist entry is unnecessary for legacy migration history.');
+    ).toEqual([
+      'migrations/0001_initial.sql is not expand/contract safe: DROP removes schema in place; stage the additive replacement before a separately reviewed contract exception.',
+    ]);
   });
 
   it('requires new migration versions to remain contiguous', () => {
