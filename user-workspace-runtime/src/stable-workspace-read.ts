@@ -1,3 +1,5 @@
+const MAX_STABLE_READ_ATTEMPTS = 3;
+
 class StableWorkspaceReadConflictError extends Error {
   readonly code = 'workspace_read_conflict';
 
@@ -11,9 +13,8 @@ class StableWorkspaceReadConflictError extends Error {
 export async function stableWorkspaceRead<T>(
   revision: () => number,
   read: () => Promise<T>,
-  maxAttempts = 3,
 ): Promise<{ value: T; revision: number }> {
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+  for (let attempt = 0; attempt < MAX_STABLE_READ_ATTEMPTS; attempt += 1) {
     const before = revision();
     const value = await read();
     const after = revision();

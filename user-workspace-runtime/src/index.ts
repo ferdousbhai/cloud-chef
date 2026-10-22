@@ -68,7 +68,6 @@ import {
 } from '../../cloudchef-agent/tool-result';
 import { rejectedWorkspaceCommand } from '../../cloudchef-agent/workspace-boundary';
 import { applyAtomicWorkspaceChanges, isMissingPath, type AtomicWorkspaceChange } from './atomic-workspace-changes';
-import { isComputerContainerCallback } from './container-fetch-routing';
 import { CONTAINER_PNPM_STORE_DIR } from './container-toolchain';
 import { matchDeploymentRoute } from './deployment-route';
 import {
@@ -444,7 +443,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   override fetch(request: Request): Promise<Response> {
-    if (isComputerContainerCallback(request)) {
+    // The Computer container calls back on `/ws`; everything else is the Agent's own request.
+    if (new URL(request.url).pathname === '/ws') {
       return this.containerBackend.handleFetch(request);
     }
     return super.fetch(request);
