@@ -53,7 +53,8 @@ export function recordWorkersAiFinish(options: FinishTelemetryOptions): ModelTur
 }
 
 export function recordPiStage(stage: string, modelId: string, status?: number): void {
-  console.info({ event: 'cloudchef_pi_stage', stage, modelId, ...(status === undefined ? {} : { status }) });
+  const entry = { event: 'cloudchef_pi_stage', stage, modelId };
+  console.info(status === undefined ? entry : { ...entry, status });
 }
 
 export function recordPiTurnReport(modelId: string, report: BuilderTurnReport): void {

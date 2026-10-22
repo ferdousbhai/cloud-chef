@@ -298,13 +298,22 @@ describe("a gateway provider's model", () => {
       maxTokens: 128_000,
       compat: { forceAdaptiveThinking: true },
     });
-    expect(getPiModel(credentials, 'openai/gpt-5', { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED }).model).toMatchObject({ id: 'gpt-5', api: 'openai-responses' });
-    expect(getPiModel(credentials, 'grok/grok-4.3', { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED }).model).toMatchObject({ id: 'grok-4.3', api: 'openai-responses' });
-    expect(getPiModel(credentials, 'openrouter/openai/gpt-5', { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED }).model).toMatchObject({
+    expect(
+      getPiModel(credentials, 'openai/gpt-5', { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED }).model,
+    ).toMatchObject({ id: 'gpt-5', api: 'openai-responses' });
+    expect(
+      getPiModel(credentials, 'grok/grok-4.3', { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED }).model,
+    ).toMatchObject({ id: 'grok-4.3', api: 'openai-responses' });
+    expect(
+      getPiModel(credentials, 'openrouter/openai/gpt-5', { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED }).model,
+    ).toMatchObject({
       id: 'openai/gpt-5',
       api: 'openai-completions',
     });
-    expect(getPiModel(credentials, 'openrouter/anthropic/claude-fable-5', { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED }).model).toMatchObject({
+    expect(
+      getPiModel(credentials, 'openrouter/anthropic/claude-fable-5', { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED })
+        .model,
+    ).toMatchObject({
       id: 'anthropic/claude-fable-5',
       api: 'anthropic-messages',
     });
@@ -525,7 +534,10 @@ describe("a gateway provider's model", () => {
         ? anthropicStream('Hello')
         : Response.json({ type: 'error', error: { type: 'authentication_error', message: 'no key' } }, { status: 401 }),
     );
-    const handle = getPiModel(credentials, opus, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED, gatewayKeyAlias: 'cloudchef' });
+    const handle = getPiModel(credentials, opus, {
+      gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED,
+      gatewayKeyAlias: 'cloudchef',
+    });
     const context = normalizeContext({
       systemPrompt: 'You are a builder.',
       tools: [READ_FILE_TOOL],
@@ -617,7 +629,9 @@ describe('the output budget a Workers AI request asks for', () => {
       return Response.json({ errors: [{ message: 'stop here' }] }, { status: 400 });
     };
     // SAFETY: the binding fetch calls only the raw-response `run`, which this implements.
-    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED });
+    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL, {
+      gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED,
+    });
     const context = normalizeContext({ messages: [{ role: 'user', content: 'Name this', timestamp: 1 }] });
     await handle.stream(handle.model, context, maxTokens === undefined ? {} : { maxTokens }).result();
     return sent[0]?.max_completion_tokens;
@@ -655,7 +669,9 @@ describe('the output budget a Workers AI request asks for', () => {
         : Response.json({ errors: [{ message: 'stop here' }] }, { status: 400 });
     };
     // SAFETY: the binding fetch calls only the raw-response `run`, which this implements.
-    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED });
+    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL, {
+      gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED,
+    });
     const context = normalizeContext({ messages: [{ role: 'user', content: 'Name this', timestamp: 1 }] });
 
     await handle.stream(handle.model, context, {}).result();
@@ -673,7 +689,9 @@ describe('a Workers AI request body CloudChef cannot read', () => {
       return Response.json({ errors: [{ message: 'stop here' }] }, { status: 400 });
     };
     // SAFETY: the binding fetch calls only the raw-response `run`, which this implements.
-    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED });
+    const handle = getPiModel({ binding: Object.assign({} as Ai, { run }) }, CLOUDFLARE_PROJECT_TITLE_MODEL, {
+      gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED,
+    });
     const context = normalizeContext({ messages: [{ role: 'user', content: 'Name this', timestamp: 1 }] });
 
     // `thinking` as a number is no shape Pi writes, so the body can't be read as one.

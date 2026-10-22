@@ -35,12 +35,11 @@ export type WorkersAiGatewayOptions = {
  * repeat.
  */
 export function workersAiGatewayOptions(logging: WorkersAiGatewayLogging): WorkersAiGatewayOptions {
-  return {
-    id: 'default',
-    collectLog: logging.collectLog,
-    skipCache: true,
-    ...(logging.collectLog && logging.metadata ? { metadata: logging.metadata } : {}),
-  };
+  const options: WorkersAiGatewayOptions = { id: 'default', collectLog: logging.collectLog, skipCache: true };
+  if (logging.collectLog && logging.metadata) {
+    options.metadata = logging.metadata;
+  }
+  return options;
 }
 
 /**
@@ -49,11 +48,14 @@ export function workersAiGatewayOptions(logging: WorkersAiGatewayLogging): Worke
  */
 export function workersAiGatewayHeaders(logging: WorkersAiGatewayLogging): WorkersAiGatewayHeaders {
   const { collectLog, metadata } = workersAiGatewayOptions(logging);
-  return {
+  const headers: WorkersAiGatewayHeaders = {
     'cf-aig-collect-log': collectLog ? 'true' : 'false',
     'cf-aig-skip-cache': 'true',
-    ...(metadata ? { 'cf-aig-metadata': JSON.stringify(metadata) } : {}),
   };
+  if (metadata) {
+    headers['cf-aig-metadata'] = JSON.stringify(metadata);
+  }
+  return headers;
 }
 
 export type WorkersAiGatewayHeaders = {

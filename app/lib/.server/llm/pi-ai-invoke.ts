@@ -1,10 +1,4 @@
-import {
-  normalizeContext,
-  type AssistantMessage,
-  type Tool,
-  type ToolCall,
-  type Usage,
-} from '@earendil-works/pi-ai';
+import { normalizeContext, type AssistantMessage, type Tool, type ToolCall, type Usage } from '@earendil-works/pi-ai';
 import type { ModelHandle, ModelStreamOptions } from './pi-ai-models';
 
 type CompletionArgs = {
@@ -34,7 +28,10 @@ async function complete(
   return message;
 }
 
-export async function completeText(handle: ModelHandle, args: CompletionArgs & { temperature: number }): Promise<string> {
+export async function completeText(
+  handle: ModelHandle,
+  args: CompletionArgs & { temperature: number },
+): Promise<string> {
   const message = await complete(handle, args, { temperature: args.temperature });
   return message.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('');
 }
