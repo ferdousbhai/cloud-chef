@@ -62,14 +62,13 @@ export type BuilderModel = {
   vision: boolean;
   /**
    * The efforts the person may choose for this model, from Pi's catalog, weakest first. Absent for a
-   * model that does not reason, or one served by a runtime that predates the field: either way the
-   * picker offers no effort control and the provider's default applies.
+   * model with none to choose: the picker then offers no effort control and the provider's default
+   * applies.
    */
   reasoningLevels?: BuilderReasoningLevel[];
   /**
    * When Cloudflare added this model to the account-visible catalog, as an ISO timestamp. Optional
-   * on purpose: a user-owned runtime built before this field existed still serves a valid catalog,
-   * and Cloudflare itself does not date every entry. Absence means "unknown", never "old".
+   * because Cloudflare does not date every entry: absence means "unknown", never "old".
    */
   createdAt?: string;
 };
@@ -135,7 +134,7 @@ const builderModelSchema = z.object({
   reasoning: z.boolean(),
   vision: z.boolean(),
   reasoningLevels: z.array(builderReasoningLevelSchema).max(BUILDER_REASONING_LEVELS.length).optional(),
-  // A runtime that predates this field simply omits it, so an absent value must stay valid.
+  // Cloudflare does not date every model, so an undated one stays valid.
   createdAt: z.string().min(1).max(64).optional(),
 });
 
