@@ -166,9 +166,9 @@ export function gatewayModelProvider(modelId: BuilderModelId): GatewayProviderSl
  * A provider key on the account's default gateway, as a runtime needs it: which provider, and the
  * alias it is stored under, which a request names unless it is the provider's default, and which key
  * that is, as Cloudflare last changed it (its id and modification time), so what one key was refused
- * isn't held against another put under the same alias. Absent from an older control plane's answer.
+ * isn't held against another put under the same alias.
  */
-export type GatewayKey = { provider: GatewayProviderSlug; alias: string; revision?: string };
+export type GatewayKey = { provider: GatewayProviderSlug; alias: string; revision: string };
 
 /**
  * The aliases CloudChef links a pasted key under; any other alias is a key added outside CloudChef.
@@ -190,7 +190,7 @@ export const gatewayKeysSchema = z.array(
   z.object({
     provider: gatewayProviderSlugSchema,
     alias: z.string().min(1).max(128),
-    revision: z.string().max(256).optional(),
+    revision: z.string().max(256),
   }),
 );
 

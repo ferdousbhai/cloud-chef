@@ -72,8 +72,8 @@ describe('readAccountModelSettings', () => {
     vi.stubGlobal('fetch', respond);
 
     const gatewayKeys = [
-      { provider: 'anthropic', alias: 'sg' },
-      { provider: 'openrouter', alias: 'default' },
+      { provider: 'anthropic', alias: 'sg', revision: 'key-sg@1' },
+      { provider: 'openrouter', alias: 'default', revision: 'key-default@1' },
     ];
     respond.mockResolvedValueOnce(Response.json({ defaultModelId: 'anthropic/claude-opus-5-5', gatewayKeys }));
     expect(await readAccountModelSettings(runtimeEnv())).toEqual({

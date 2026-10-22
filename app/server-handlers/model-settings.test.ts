@@ -940,7 +940,7 @@ describe("the team's default model", () => {
         gatewayKeys: async () => keys,
       });
 
-    const keys: GatewayKey[] = [{ provider: 'anthropic', alias: 'sg' }];
+    const keys: GatewayKey[] = [{ provider: 'anthropic', alias: 'sg', revision: 'key@1' }];
     expect(await (await ask(keys)).json()).toEqual({
       defaultModelId: 'anthropic/claude-opus-5-5',
       gatewayKeys: keys,
