@@ -54,7 +54,7 @@
     "provision:production:check": "node scripts/provision-cloudflare-production.mjs --check",
     "verify:stack": "node scripts/verify-stack-alignment.mjs",
     "verify:production-config": "node scripts/verify-production-config.mjs",
-    "verify:workers-builds-config": "node scripts/verify-workers-builds-config.mjs",
+    "verify:workers-builds-config": "node scripts/workers-builds-config.mjs",
     "verify:licenses": "node scripts/verify-production-licenses.mjs",
     "verify:built-ssr": "node scripts/verify-built-ssr.mjs",
     "verify:built-browser": "pnpm run d1:migrations:apply:local && playwright test --project=chromium --project=mobile-chromium",

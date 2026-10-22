@@ -1,4 +1,12 @@
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
+import { readJson, requireEqual } from './lib/config-checks.mjs';
 import { parsePinnedToolchain } from './lib/toolchain.mjs';
+import { runVerifierIfMain } from './run-verifier.mjs';
+
+const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const EXPECTED_WORKER = 'cloudchef';
 const EXPECTED_REPOSITORY = 'ferdousbhai/cloud-chef';
@@ -130,12 +138,6 @@ export function findWorkersBuildsConfigErrors({
   return errors;
 }
 
-function requireEqual(errors, label, actual, expected) {
-  if (actual !== expected) {
-    errors.push(`${label} must be ${JSON.stringify(expected)}; found ${JSON.stringify(actual)}.`);
-  }
-}
-
 function requireStringArray(errors, label, actual, expected) {
   if (
     !Array.isArray(actual) ||
@@ -149,3 +151,34 @@ function requireStringArray(errors, label, actual, expected) {
 function isRecord(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
+
+export async function verifyWorkersBuildsConfig() {
+  const errors = [];
+  const config = readJson('workers-builds.production.json', errors);
+  const packageJson = readJson('package.json', errors);
+  const workerConfig = await loadCommittedWranglerConfig();
+  const nvmrc = readFileSync(resolve(rootDir, '.nvmrc'), 'utf8');
+  const workflowsDirectory = resolve(rootDir, '.github/workflows');
+  const githubWorkflowPaths = existsSync(workflowsDirectory)
+    ? readdirSync(workflowsDirectory)
+        .filter((entry) => /\.ya?ml$/i.test(entry))
+        .sort()
+        .map((entry) => `.github/workflows/${entry}`)
+    : [];
+  const browserGateWorkflowPath = resolve(rootDir, REQUIRED_GITHUB_WORKFLOW_PATH);
+  errors.push(
+    ...findWorkersBuildsConfigErrors({
+      config,
+      packageJson,
+      nvmrc,
+      githubWorkflowPaths,
+      browserGateWorkflow: existsSync(browserGateWorkflowPath)
+        ? readFileSync(browserGateWorkflowPath, 'utf8')
+        : undefined,
+      workerConfig,
+    }),
+  );
+  return errors;
+}
+
+runVerifierIfMain(import.meta.url, verifyWorkersBuildsConfig);
