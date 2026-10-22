@@ -30,6 +30,9 @@ function prepare(messages: CloudChefMessage[], options: Partial<Parameters<typeo
     contextWindow: TEST_CONTEXT_WINDOW,
     systemPrompt: '',
     tools,
+    currentCompaction: null,
+    compactionPending: false,
+    scheduleCompaction: async () => undefined,
     ...options,
   });
 }

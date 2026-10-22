@@ -1,28 +1,3 @@
-type ConversationCompactionAction = 'none' | 'background' | 'blocking';
-
-type ConversationCompactionPolicy = Readonly<{
-  proactiveTokens: number;
-  hardLimitTokens: number;
-}>;
-
-export function decideConversationCompaction(
-  input: Readonly<{
-    estimatedTokens: number;
-    pending?: boolean;
-    policy: ConversationCompactionPolicy;
-  }>,
-): ConversationCompactionAction {
-  assertPolicy(input.policy);
-  const estimated = nonNegativeInteger(input.estimatedTokens, 'estimatedTokens');
-  if (estimated >= input.policy.hardLimitTokens) {
-    return 'blocking';
-  }
-  if (estimated >= input.policy.proactiveTokens && !input.pending) {
-    return 'background';
-  }
-  return 'none';
-}
-
 export function conversationCompactionKey(
   input: Readonly<{
     scope: string;
@@ -54,21 +29,6 @@ export function canApplyConversationCompaction(
   }
   const currentEnd = input.currentMessageIds.indexOf(input.currentThroughId);
   return currentEnd < end;
-}
-
-function assertPolicy(policy: ConversationCompactionPolicy): void {
-  const proactive = nonNegativeInteger(policy.proactiveTokens, 'proactiveTokens');
-  const hard = nonNegativeInteger(policy.hardLimitTokens, 'hardLimitTokens');
-  if (proactive < 1 || hard <= proactive) {
-    throw new Error('Compaction policy requires 0 < proactiveTokens < hardLimitTokens');
-  }
-}
-
-function nonNegativeInteger(value: number, name: string): number {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${name} must be a non-negative safe integer`);
-  }
-  return value;
 }
 
 function requiredKeyPart(value: string, name: string): string {

@@ -91,8 +91,8 @@ export interface PiAgentOptions {
     current: ContextCompaction | null;
     pending: boolean;
     save: (compaction: ContextCompaction) => void;
-    schedule?: () => Promise<void>;
-    requestDurableCompaction?: () => void;
+    schedule: () => Promise<void>;
+    requestDurableCompaction: () => void;
   };
   accountCredentials: WorkersAiAccountCredentials;
   sessionAffinity: string;
@@ -240,7 +240,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       requestRollover: (handoff) => {
         manualHandoff = handoff;
         rolloverRequested = true;
-        compaction.requestDurableCompaction?.();
+        compaction.requestDurableCompaction();
       },
     }),
   );
@@ -522,7 +522,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     rolloverRequested = false;
     checkpointReminderSent = false;
     runtimeContextCompacted = true;
-    compaction.requestDurableCompaction?.();
+    compaction.requestDurableCompaction();
     return { ...source, messages: compacted.messages };
   };
 
@@ -638,7 +638,7 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
       }
       const finalContextTokens = estimatePiContextTokens(context.messages);
       if (finalContextTokens >= compactionPolicy.proactiveTokens) {
-        compaction.requestDurableCompaction?.();
+        compaction.requestDurableCompaction();
       }
       const turnUsage = recordWorkersAiFinish({
         usage: totalUsage,

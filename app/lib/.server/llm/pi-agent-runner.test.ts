@@ -917,6 +917,8 @@ function createAgentStream(
       current: null,
       pending: false,
       save: vi.fn(),
+      schedule: async () => undefined,
+      requestDurableCompaction: vi.fn(),
       ...compactionOverrides,
     },
     accountCredentials: { binding: {} as Ai },

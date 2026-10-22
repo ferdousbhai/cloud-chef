@@ -76,7 +76,7 @@ function createResponse(model = DEFAULT_WORKERS_AI_MODEL, gatewayLogging: Worker
     messages: [],
     model,
     firstUserMessage: true,
-    compaction: { current: null, pending: false, save: vi.fn() },
+    compaction: { current: null, pending: false, save: vi.fn(), schedule: vi.fn(), requestDurableCompaction: vi.fn() },
     accountCredentials: { binding: {} as Ai },
     sessionAffinity: 'session',
     workspace: {} as never,

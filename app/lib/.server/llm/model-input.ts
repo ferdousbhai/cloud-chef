@@ -1,4 +1,3 @@
-import { decideConversationCompaction } from '~/lib/compaction';
 import type { ModelMessage } from './message-conversion';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
@@ -73,9 +72,9 @@ export class ModelInputBudgetExceededError extends Error {
 export async function prepareModelInput(args: {
   messages: CloudChefMessage[];
   turnContext?: ChatTurnContext;
-  currentCompaction?: ContextCompaction | null;
-  compactionPending?: boolean;
-  scheduleCompaction?: () => Promise<void>;
+  currentCompaction: ContextCompaction | null;
+  compactionPending: boolean;
+  scheduleCompaction: () => Promise<void>;
   signal?: AbortSignal;
   contextWindow: number;
   systemPrompt: string;
@@ -86,15 +85,9 @@ export async function prepareModelInput(args: {
   let promptMessages = injectTurnContext(assembled.messages, args.turnContext);
   let modelInput = assembleModelInput(promptMessages, args);
   const policy = modelCompactionPolicy(args.contextWindow);
-  const compactionAction = decideConversationCompaction({
-    estimatedTokens: modelInput.estimatedTokens,
-    pending: args.compactionPending,
-    policy,
-  });
-
-  if (compactionAction !== 'blocking') {
-    if (compactionAction === 'background') {
-      await args.scheduleCompaction?.();
+  if (modelInput.estimatedTokens < policy.hardLimitTokens) {
+    if (modelInput.estimatedTokens >= policy.proactiveTokens && !args.compactionPending) {
+      await args.scheduleCompaction();
     }
     return {
       ...modelInput,
