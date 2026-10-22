@@ -12,6 +12,7 @@ import {
   type Deployment,
   type DeploymentStatus,
 } from './deployment-repository';
+import { parseWorkspaceReference, type WorkspaceReference } from './workspace-reference';
 import { validatePreparedDeploymentArtifact, type PreparedDeploymentArtifact } from './deployment-artifact';
 import type { DeploymentProjectProfile } from './deployment-project-profile';
 import { D1MigrationChangedError, UserCloudflareAccountApi, type ManagedWorkerVersionArgs } from './user-account-api';
@@ -36,7 +37,6 @@ type UserOwnedDeploymentArgs = {
 };
 
 type UserOwnedRuntimeContext = {
-  runtimeEnv: Env;
   connectionGeneration: number;
   request: typeof fetch;
 };
@@ -49,7 +49,6 @@ const MIGRATION_SQL_QUOTE_LIMIT = 2_000;
 /** How many times the success write is tried once production serves the version, which nothing may record as failed. */
 const SUCCESS_WRITE_ATTEMPTS = 3;
 const SUCCESS_WRITE_RETRY_DELAY_MS = 200;
-type WorkspaceReference = ReturnType<typeof parseWorkspaceReference>;
 type PublicationSession = { sessionId: string; finish(status: 'completed' | 'failed'): Promise<void> };
 
 /**
@@ -91,8 +90,8 @@ type PublicationResources = {
 
 export async function terminalizeInterruptedUserOwnedDeployment(args: UserOwnedDeploymentArgs): Promise<Deployment> {
   const deployment = await requireDeployment(args.env.DB, args.deploymentId);
-  requireExecutionIdentityForRecovery(deployment, args);
-  const reference = parseWorkspaceReference(deployment.workspaceReference);
+  requireExecutionIdentity(deployment, args, 'recovery');
+  const reference = requireWorkspaceReference(deployment);
   const workspace = args.env.PROJECT_WORKSPACE.get(args.env.PROJECT_WORKSPACE.idFromName(reference.projectId));
   await workspace.terminalizeInterruptedDeploymentSession({
     sessionId: `${deployment.id}:${args.executionGeneration}`,
@@ -138,9 +137,9 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
   const abortSignal = args.abortSignal;
   try {
     abortSignal?.throwIfAborted();
-    const { runtimeEnv, connectionGeneration, request } = requireUserOwnedRuntimeContext(args);
+    const { connectionGeneration, request } = requireUserOwnedRuntimeContext(args);
     let deployment = await requireDeployment(args.env.DB, args.deploymentId);
-    requireExecutionIdentity(deployment, args);
+    requireExecutionIdentity(deployment, args, 'deployment');
     deployment = await claimApprovedDeployment({
       db: args.env.DB,
       deploymentId: deployment.id,
@@ -151,9 +150,9 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     });
     phase = 'provisioning';
     await activity(args, 10, 'Preparing Cloudflare resources');
-    const accountApi = await createUserAccountApi(runtimeEnv, request);
+    const accountApi = await createUserAccountApi(args.env, request);
     const reference = requireApprovedWorkspaceReference(deployment, 'deployment');
-    const workspace = runtimeEnv.PROJECT_WORKSPACE.get(runtimeEnv.PROJECT_WORKSPACE.idFromName(reference.projectId));
+    const workspace = args.env.PROJECT_WORKSPACE.get(args.env.PROJECT_WORKSPACE.idFromName(reference.projectId));
     const operationId = `${deployment.id}:${args.executionGeneration}`;
     await requireAgentCapabilityKept(
       accountApi,
@@ -197,7 +196,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     // The build may take several minutes. Resolve again at the authenticated
     // boundary; the credential vault refreshes expiring tokens and the API
     // client retries once if Cloudflare reports that the token expired.
-    const publishApi = await createUserAccountApi(runtimeEnv, request);
+    const publishApi = await createUserAccountApi(args.env, request);
     await workspace.assertDeploymentSession({ sessionId: session.sessionId });
     // The last point at which stopping leaves production as it was.
     abortSignal?.throwIfAborted();
@@ -330,11 +329,11 @@ export async function executeUserOwnedPreview(
   }
   const abortSignal = args.abortSignal;
   abortSignal?.throwIfAborted();
-  const { runtimeEnv, connectionGeneration, request } = requireUserOwnedRuntimeContext(args);
+  const { connectionGeneration, request } = requireUserOwnedRuntimeContext(args);
   const deployment = await requireDeployment(args.env.DB, args.deploymentId);
-  requirePreviewExecutionIdentity(deployment, args, connectionGeneration);
+  requireExecutionIdentity(deployment, args, 'preview', connectionGeneration);
   const reference = requireApprovedWorkspaceReference(deployment, 'preview');
-  const workspace = runtimeEnv.PROJECT_WORKSPACE.get(runtimeEnv.PROJECT_WORKSPACE.idFromName(reference.projectId));
+  const workspace = args.env.PROJECT_WORKSPACE.get(args.env.PROJECT_WORKSPACE.idFromName(reference.projectId));
   const workerName = requireResourceName(deployment, PREVIEW_BINDINGS.worker);
   const versionReceipt = await findDeploymentResource(
     args.env.DB,
@@ -343,7 +342,7 @@ export async function executeUserOwnedPreview(
     `preview:${args.previewId}`,
   );
   if (versionReceipt) {
-    const accountApi = await createUserAccountApi(runtimeEnv, request);
+    const accountApi = await createUserAccountApi(args.env, request);
     return {
       id: versionReceipt.providerResourceId,
       url: workersDevUrl(workerName, await accountApi.getWorkersSubdomain()),
@@ -360,7 +359,7 @@ export async function executeUserOwnedPreview(
     // workspace sooner.
     abortSignal?.throwIfAborted();
     await activity(args, 1, 'Preparing Cloudflare preview resources');
-    const provisionApi = await createUserAccountApi(runtimeEnv, request);
+    const provisionApi = await createUserAccountApi(args.env, request);
     const resourcePlan = publicationResourcePlan(deployment.plan, PREVIEW_BINDINGS);
     const provisioned = await ensurePublicationResources({
       db: args.env.DB,
@@ -386,7 +385,7 @@ export async function executeUserOwnedPreview(
     await workspace.assertDeploymentSession({ sessionId: session.sessionId });
     abortSignal?.throwIfAborted();
 
-    const publishApi = await createUserAccountApi(runtimeEnv, request);
+    const publishApi = await createUserAccountApi(args.env, request);
     await activity(args, 3, 'Applying preview database migrations');
     // The artifact's bytes do not depend on which database it binds, so one started over binds as well.
     const resources = await applyPreviewMigrations({
@@ -853,45 +852,41 @@ function containsNoStore(value: string): boolean {
     .some((directive) => directive.trim() === 'no-store');
 }
 
-function requireExecutionIdentityForRecovery(deployment: Deployment, args: UserOwnedDeploymentArgs): void {
-  if (
-    deployment.userId !== args.userId ||
-    deployment.connectionId !== args.connectionId ||
-    deployment.executionGeneration !== args.executionGeneration ||
-    (deployment.status !== 'provisioning' && deployment.status !== 'deploying') ||
-    !isCurrentDeploymentPlan(deployment.plan)
-  ) {
-    throw new Error('Deployment no longer matches the interrupted user-owned execution.');
-  }
-}
+/**
+ * The statuses a record may be in for each execution of it, and what a record that no longer matches
+ * is refused as: recovery settles an interrupted one, a deployment claims an approved one, and a
+ * preview publishes any that is not running.
+ */
+const EXECUTIONS = {
+  recovery: {
+    statuses: ['provisioning', 'deploying'],
+    refusal: 'Deployment no longer matches the interrupted user-owned execution.',
+  },
+  deployment: { statuses: ['approved'], refusal: 'Deployment no longer matches the approved user-owned execution.' },
+  preview: {
+    statuses: ['approved', 'succeeded', 'failed'],
+    refusal: 'Preview no longer matches the approved user-owned execution.',
+  },
+} as const satisfies Record<string, { statuses: readonly DeploymentStatus[]; refusal: string }>;
 
-function requireExecutionIdentity(deployment: Deployment, args: UserOwnedDeploymentArgs): void {
-  if (
-    deployment.userId !== args.userId ||
-    deployment.connectionId !== args.connectionId ||
-    deployment.executionGeneration !== args.executionGeneration ||
-    deployment.status !== 'approved' ||
-    !isCurrentDeploymentPlan(deployment.plan)
-  ) {
-    throw new Error('Deployment no longer matches the approved user-owned execution.');
-  }
-}
-
-function requirePreviewExecutionIdentity(
+/** The record is this execution's, in a status it runs from, with a plan this release makes. */
+function requireExecutionIdentity(
   deployment: Deployment,
   args: UserOwnedDeploymentArgs,
-  connectionGeneration: number,
+  execution: keyof typeof EXECUTIONS,
+  /** The connection generation the record must be planned under, when the execution checks it itself. */
+  connectionGeneration?: number,
 ): void {
+  const { statuses, refusal }: { statuses: readonly DeploymentStatus[]; refusal: string } = EXECUTIONS[execution];
   if (
     deployment.userId !== args.userId ||
     deployment.connectionId !== args.connectionId ||
-    deployment.connectionGeneration !== connectionGeneration ||
+    (connectionGeneration !== undefined && deployment.connectionGeneration !== connectionGeneration) ||
     deployment.executionGeneration !== args.executionGeneration ||
-    deployment.status === 'provisioning' ||
-    deployment.status === 'deploying' ||
+    !statuses.includes(deployment.status) ||
     !isCurrentDeploymentPlan(deployment.plan)
   ) {
-    throw new Error('Preview no longer matches the approved user-owned execution.');
+    throw new Error(refusal);
   }
 }
 
@@ -911,23 +906,19 @@ function requireUserOwnedRuntimeContext(args: UserOwnedDeploymentArgs): UserOwne
   ) {
     throw new Error('Cloudflare connection is unavailable.');
   }
-  return {
-    runtimeEnv,
-    connectionGeneration,
-    request: args.request ?? fetch,
-  };
+  return { connectionGeneration, request: args.request ?? fetch };
 }
 
-function parseWorkspaceReference(value: string | null) {
-  const match = /^workspace-runtime:([^:]+):(\d+):([a-f0-9]{64})$/.exec(value ?? '');
-  if (!match) {
+function requireWorkspaceReference(deployment: Deployment): WorkspaceReference {
+  const reference = parseWorkspaceReference(deployment.workspaceReference);
+  if (!reference) {
     throw new Error('The approved user-owned workspace reference is invalid.');
   }
-  return { projectId: decodeURIComponent(match[1]!), workspaceRevision: Number(match[2]), revision: match[3]! };
+  return reference;
 }
 
 function requireApprovedWorkspaceReference(deployment: Deployment, publication: 'deployment' | 'preview') {
-  const reference = parseWorkspaceReference(deployment.workspaceReference);
+  const reference = requireWorkspaceReference(deployment);
   if (reference.revision !== deployment.plan.sourceSha256) {
     throw new Error(`The approved ${publication} revision no longer matches its workspace reference.`);
   }

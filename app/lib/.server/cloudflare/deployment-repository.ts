@@ -1,7 +1,13 @@
 import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
+import { parseWorkspaceReference } from './workspace-reference';
 import { parseDeploymentPlanJson, type DeploymentPlan, type DeploymentResourceNaming } from './deployment-plan';
 
 export type DeploymentStatus = 'approved' | 'provisioning' | 'deploying' | 'succeeded' | 'failed';
+
+/** The start every workspace reference to a revision of the project shares. */
+function projectReferencePrefix(projectId: string): string {
+  return `workspace-runtime:${encodeURIComponent(projectId)}:`;
+}
 
 export type Deployment = {
   id: string;
@@ -196,11 +202,15 @@ export async function claimApprovedDeployment(args: {
   if (expected.executionGeneration !== args.executionGeneration || expected.status !== 'approved') {
     throw new DeploymentStateConflictError(expected.status);
   }
+  const reference = parseWorkspaceReference(expected.workspaceReference);
+  if (!reference) {
+    throw new Error('The deployment does not belong to a CloudChef project.');
+  }
   const now = args.now ?? Date.now();
   // Which claim this is: another one landing in the same millisecond would match a timestamp too.
   const claim = crypto.randomUUID();
   // One project deploys one revision at a time; a person's other projects deploy alongside it.
-  const project = deploymentProjectScope(expected.workspaceReference);
+  const project = projectReferencePrefix(reference.projectId);
   let result: D1Result;
   try {
     result = await args.db
@@ -250,15 +260,11 @@ export async function claimApprovedDeployment(args: {
     throw error;
   }
   if (result.meta.changes !== 1) {
-    const active = await args.db
-      .prepare(
-        `SELECT id FROM deployments
-         WHERE user_id = ? AND id <> ? AND substr(workspace_reference, 1, ?) = ?
-           AND status IN ('provisioning', 'deploying') LIMIT 1`,
-      )
-      .bind(expected.userId, expected.id, project.length, project)
-      .first<{ id: string }>();
-    if (active) {
+    const active = await findActiveProjectDeployment(args.db, {
+      userId: expected.userId,
+      projectId: reference.projectId,
+    });
+    if (active && active.id !== expected.id) {
       throw new DeploymentConcurrencyLimitError();
     }
     const committed = await readClaimedDeployment(args.db, expected.id, expected.userId);
@@ -278,11 +284,11 @@ export async function projectResourceNaming(
   _db: D1Database,
   deployment: Pick<Deployment, 'userId' | 'chatId' | 'workspaceReference'>,
 ): Promise<DeploymentResourceNaming> {
-  const match = /^workspace-runtime:([^:]+):/.exec(deployment.workspaceReference);
-  if (!match) {
+  const reference = parseWorkspaceReference(deployment.workspaceReference);
+  if (!reference) {
     throw new Error('The deployment does not belong to a CloudChef project.');
   }
-  return { identity: await appResourceIdentity(decodeURIComponent(match[1]!)) };
+  return { identity: await appResourceIdentity(reference.projectId) };
 }
 
 /** A deployment holding its project's one deployment slot, and the revision it publishes. */
@@ -303,7 +309,7 @@ export async function findActiveProjectDeployment(
   db: D1Database,
   args: { userId: string; projectId: string },
 ): Promise<ActiveProjectDeployment | null> {
-  const project = `workspace-runtime:${encodeURIComponent(args.projectId)}:`;
+  const project = projectReferencePrefix(args.projectId);
   const row = await db
     .prepare(
       `SELECT id, execution_generation, workspace_reference,
@@ -320,26 +326,17 @@ export async function findActiveProjectDeployment(
     )
     .bind(args.userId, project.length, project)
     .first<{ id: string; execution_generation: number; workspace_reference: string; last_active_at: number }>();
-  const reference = row && /^workspace-runtime:[^:]+:(\d+):([a-f0-9]{64})$/.exec(row.workspace_reference);
+  const reference = row && parseWorkspaceReference(row.workspace_reference);
   if (!row || !reference) {
     return null;
   }
   return {
     id: row.id,
     executionGeneration: row.execution_generation,
-    workspaceRevision: Number(reference[1]),
-    revision: reference[2]!,
+    workspaceRevision: reference.workspaceRevision,
+    revision: reference.revision,
     lastActiveAt: row.last_active_at,
   };
-}
-
-/**
- * The part of a workspace reference (`workspace-runtime:<project>:<revision>:<sha>`) every revision of
- * one project shares. A reference in another form names only itself.
- */
-function deploymentProjectScope(workspaceReference: string): string {
-  const match = /^workspace-runtime:[^:]+:/.exec(workspaceReference);
-  return match ? match[0] : workspaceReference;
 }
 
 export async function prepareDeploymentRetry(args: {
