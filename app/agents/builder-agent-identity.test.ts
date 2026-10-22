@@ -24,7 +24,7 @@ class TestIdentityStorage {
   readonly sql = {
     exec: <T>(query: string, ...bindings: unknown[]): Iterable<T> => {
       const normalized = query.replace(/\s+/g, ' ').trim();
-      if (normalized.startsWith('SELECT owner_id')) {
+      if (normalized.startsWith('SELECT user_id')) {
         return (this.row ? [this.row] : []) as T[];
       }
       if (normalized.startsWith('INSERT INTO builder_identity')) {
