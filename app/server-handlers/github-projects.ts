@@ -235,10 +235,9 @@ export function approveProductionRequestAction({
     if ('response' in body) {
       return body.response;
     }
-    await requireAdmin(env.DB, body.data.orgId, session.user.id);
-    const installation = await findGitHubInstallation(env.DB, body.data.orgId);
-    if (!app || !installation) {
-      return Response.json({ error: app ? 'Connect GitHub first.' : UNAVAILABLE }, { status: 409 });
+    const github = await adminGitHub(env.DB, body.data.orgId, session.user.id, app);
+    if (github instanceof Response) {
+      return github;
     }
     // Claimed now, not on the way back: the member can't swap the draft while the admin is on GitHub.
     // The claim and the state that finishes it are written together.
@@ -257,7 +256,7 @@ export function approveProductionRequestAction({
     }
     const redirectUri = new URL(GITHUB_RETURN_PATH, publicOrigin(request)).toString();
     return Response.json(
-      { authorizeUrl: app.authorizeUrl(state, redirectUri) },
+      { authorizeUrl: github.app.authorizeUrl(state, redirectUri) },
       {
         status: 201,
         headers: { 'Set-Cookie': githubReturnCookie(APPROVAL_COOKIE, state, STATE_TTL_MS / 1_000, request) },
@@ -509,12 +508,13 @@ export function listGitHubRepositoriesAction({
     if (!parsed.success) {
       return Response.json({ error: 'Choose a team.' }, { status: 400 });
     }
-    await requireAdmin(env.DB, orgId, session.user.id);
-    const installation = await findGitHubInstallation(env.DB, orgId);
-    if (!app || !installation) {
-      return Response.json({ error: app ? 'Connect GitHub first.' : UNAVAILABLE }, { status: 409 });
+    const github = await adminGitHub(env.DB, orgId, session.user.id, app);
+    if (github instanceof Response) {
+      return github;
     }
-    const repositories = await withGitHub(() => app.installationRepositories(installation.installationId));
+    const repositories = await withGitHub(() =>
+      github.app.installationRepositories(github.installation.installationId),
+    );
     if (repositories instanceof Response) {
       return repositories;
     }
@@ -547,13 +547,14 @@ export function linkGitHubProjectAction({
     if ('response' in body) {
       return body.response;
     }
-    await requireAdmin(env.DB, body.data.orgId, session.user.id);
-    const installation = await findGitHubInstallation(env.DB, body.data.orgId);
-    if (!app || !installation) {
-      return Response.json({ error: app ? 'Connect GitHub first.' : UNAVAILABLE }, { status: 409 });
+    const github = await adminGitHub(env.DB, body.data.orgId, session.user.id, app);
+    if (github instanceof Response) {
+      return github;
     }
     // Only a repository the organization's installation actually reaches can become its project.
-    const repositories = await withGitHub(() => app.installationRepositories(installation.installationId));
+    const repositories = await withGitHub(() =>
+      github.app.installationRepositories(github.installation.installationId),
+    );
     if (repositories instanceof Response) {
       return repositories;
     }
@@ -666,6 +667,19 @@ async function withGitHub<T>(call: () => Promise<T>): Promise<T | Response> {
     }
     throw error;
   }
+}
+
+/**
+ * The App and the organization's installation, for one of its admins; the response saying which is
+ * missing when either is. Throws when `userId` isn't an admin.
+ */
+async function adminGitHub(db: D1Database, orgId: string, userId: string, app: GitHubApp | null) {
+  await requireAdmin(db, orgId, userId);
+  const installation = await findGitHubInstallation(db, orgId);
+  if (!app || !installation) {
+    return Response.json({ error: app ? 'Connect GitHub first.' : UNAVAILABLE }, { status: 409 });
+  }
+  return { app, installation };
 }
 
 /** Settings' organizations, saying what a return from GitHub did (as a code: Settings has the text). */

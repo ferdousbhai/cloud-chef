@@ -227,10 +227,10 @@ export class RepositoryClient {
     return commit.sha;
   }
 
-  /** How many commits a branch has, counting up to `limit`. */
-  async commitCount(branch: string, limit = 2): Promise<number> {
+  /** How many commits a branch has, counting up to two: whether it has more than its first. */
+  async commitCount(branch: string): Promise<number> {
     const commits = await this.call(
-      `/commits?sha=${encodeURIComponent(branch)}&per_page=${limit}`,
+      `/commits?sha=${encodeURIComponent(branch)}&per_page=2`,
       z.array(z.looseObject({ sha: z.string() })),
     );
     return commits.length;
