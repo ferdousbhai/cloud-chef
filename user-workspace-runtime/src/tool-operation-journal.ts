@@ -73,7 +73,7 @@ export class ToolOperationJournal {
     );
   }
 
-  begin(args: { toolCallId: string; toolName: string; argsSha256: string; now?: number }): ToolOperationStartResult {
+  begin(args: { toolCallId: string; toolName: string; argsSha256: string }): ToolOperationStartResult {
     return this.storage.transactionSync(() => {
       const existing = this.read(args.toolCallId);
       if (existing) {
@@ -82,7 +82,7 @@ export class ToolOperationJournal {
       }
       const cancellation = this.cancellation(args.toolCallId);
       if (cancellation) {
-        const now = args.now ?? Date.now();
+        const now = Date.now();
         this.storage.sql.exec(
           `INSERT INTO ghostbuild_tool_operations (
              tool_call_id, tool_name, args_sha256, status, result_json, error, created_at, updated_at
@@ -108,7 +108,7 @@ export class ToolOperationJournal {
       if ((running ?? 0) >= MAX_INDETERMINATE_TOOL_OPERATIONS) {
         throw new Error('The workspace has too many indeterminate tool operations to safely start another.');
       }
-      const now = args.now ?? Date.now();
+      const now = Date.now();
       this.storage.sql.exec(
         `INSERT INTO ghostbuild_tool_operations (
            tool_call_id, tool_name, args_sha256, status, result_json, error, created_at, updated_at
@@ -124,7 +124,7 @@ export class ToolOperationJournal {
     });
   }
 
-  complete(args: { toolCallId: string; result: unknown; now?: number }): unknown {
+  complete(args: { toolCallId: string; result: unknown }): unknown {
     const resultJson = encodeResult(args.result);
     return this.storage.transactionSync(() => {
       const existing = this.require(args.toolCallId);
@@ -145,7 +145,7 @@ export class ToolOperationJournal {
          SET status = 'completed', result_json = ?, error = NULL, updated_at = ?
          WHERE tool_call_id = ? AND status = 'running'`,
         resultJson,
-        args.now ?? Date.now(),
+        Date.now(),
         args.toolCallId,
       );
       this.pruneTerminalOperations();
@@ -153,15 +153,15 @@ export class ToolOperationJournal {
     });
   }
 
-  commitMutation(args: { toolCallId: string; receipt: MutationReceipt; now?: number }): MutationReceipt {
-    const committed = this.complete({ toolCallId: args.toolCallId, result: args.receipt, now: args.now });
+  commitMutation(args: { toolCallId: string; receipt: MutationReceipt }): MutationReceipt {
+    const committed = this.complete({ toolCallId: args.toolCallId, result: args.receipt });
     if (!isMutationReceipt(committed)) {
       throw new Error('The completed workspace operation is not a mutation receipt.');
     }
     return committed;
   }
 
-  acknowledgeMutation(args: { toolCallId: string; result: unknown; now?: number }): MutationReceipt {
+  acknowledgeMutation(args: { toolCallId: string; result: unknown }): MutationReceipt {
     return this.storage.transactionSync(() => {
       const existing = this.require(args.toolCallId);
       if (existing.status !== 'completed' || existing.result_json === null) {
@@ -181,7 +181,7 @@ export class ToolOperationJournal {
          SET result_json = ?, updated_at = ?
          WHERE tool_call_id = ? AND status = 'completed'`,
         resultJson,
-        args.now ?? Date.now(),
+        Date.now(),
         args.toolCallId,
       );
       return acknowledged;
@@ -219,7 +219,7 @@ export class ToolOperationJournal {
     return isMutationReceipt(result) ? result : null;
   }
 
-  registerPending(args: { backend: string; toolCallId: string; result: unknown; now?: number }): void {
+  registerPending(args: { backend: string; toolCallId: string; result: unknown }): void {
     const resultJson = encodeResult({
       kind: 'workspace-sync-pending',
       backend: args.backend,
@@ -239,7 +239,7 @@ export class ToolOperationJournal {
          SET result_json = ?, updated_at = ?
          WHERE tool_call_id = ? AND status = 'running'`,
         resultJson,
-        args.now ?? Date.now(),
+        Date.now(),
         args.toolCallId,
       );
     });
@@ -289,7 +289,7 @@ export class ToolOperationJournal {
     }
   }
 
-  fail(args: { toolCallId: string; error: string; now?: number }): void {
+  fail(args: { toolCallId: string; error: string }): void {
     this.storage.transactionSync(() => {
       const existing = this.require(args.toolCallId);
       if (existing.status !== 'running' || existing.error !== null) {
@@ -300,14 +300,14 @@ export class ToolOperationJournal {
          SET status = 'failed', result_json = NULL, error = ?, updated_at = ?
          WHERE tool_call_id = ? AND status = 'running'`,
         args.error.slice(-MAX_TOOL_ERROR_LENGTH),
-        args.now ?? Date.now(),
+        Date.now(),
         args.toolCallId,
       );
       this.pruneTerminalOperations();
     });
   }
 
-  cancel(args: { toolCallId: string; error: string; active: boolean; now?: number }): ToolOperationCancellationResult {
+  cancel(args: { toolCallId: string; error: string; active: boolean }): ToolOperationCancellationResult {
     if (args.active) {
       this.storage.transactionSync(() => {
         const existing = this.read(args.toolCallId);
@@ -319,7 +319,7 @@ export class ToolOperationJournal {
              SET error = ?, updated_at = ?
              WHERE tool_call_id = ? AND status = 'running' AND error IS NULL`,
             args.error.slice(-MAX_TOOL_ERROR_LENGTH),
-            args.now ?? Date.now(),
+            Date.now(),
             args.toolCallId,
           );
         }
@@ -336,7 +336,7 @@ export class ToolOperationJournal {
         `UPDATE ghostbuild_tool_operations
          SET status = 'failed', result_json = NULL, updated_at = ?
          WHERE tool_call_id = ? AND status = 'running'`,
-        args.now ?? Date.now(),
+        Date.now(),
         args.toolCallId,
       );
       this.pruneTerminalOperations();
@@ -360,14 +360,14 @@ export class ToolOperationJournal {
     throw new Error('The workspace tool operation already completed.');
   }
 
-  private recordCancellation(args: { toolCallId: string; error: string; now?: number }): void {
+  private recordCancellation(args: { toolCallId: string; error: string }): void {
     this.storage.sql.exec(
       `INSERT INTO ghostbuild_tool_cancellations (tool_call_id, error, cancelled_at)
        VALUES (?, ?, ?)
        ON CONFLICT(tool_call_id) DO NOTHING`,
       args.toolCallId,
       args.error.slice(-MAX_TOOL_ERROR_LENGTH),
-      args.now ?? Date.now(),
+      Date.now(),
     );
     this.storage.sql.exec(
       `DELETE FROM ghostbuild_tool_cancellations

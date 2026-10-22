@@ -1,17 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToolOperationJournal } from './tool-operation-journal';
 import { requireWorkspaceSyncBarrier, WorkspaceSyncPendingError } from './workspace-sync-retry';
 
 describe('ToolOperationJournal', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ now: 1 });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('replays the exact completed result without executing the operation again', () => {
     const storage = new TestStorage();
     const journal = journalOn(storage);
     journal.initialize();
 
     expect(journal.begin(invocation())).toEqual({ status: 'execute' });
-    expect(
-      journal.complete({ toolCallId: 'call-1', result: { path: '/home/project/a.ts', bytes: 12 }, now: 2 }),
-    ).toEqual({
+    expect(journal.complete({ toolCallId: 'call-1', result: { path: '/home/project/a.ts', bytes: 12 } })).toEqual({
       path: '/home/project/a.ts',
       bytes: 12,
     });
@@ -46,7 +52,7 @@ describe('ToolOperationJournal', () => {
 
       expect(journal.interrupted(input.toolCallId)).toEqual({ toolName });
 
-      journal.complete({ toolCallId: input.toolCallId, result: { ok: true }, now: 2 });
+      journal.complete({ toolCallId: input.toolCallId, result: { ok: true } });
       expect(journal.interrupted(input.toolCallId)).toBeNull();
     },
   );
@@ -56,7 +62,7 @@ describe('ToolOperationJournal', () => {
     const input = { ...invocation(), toolName: 'exec' };
     journal.initialize();
     journal.begin(input);
-    journal.cancel({ toolCallId: input.toolCallId, error: 'exec cancelled', active: true, now: 2 });
+    journal.cancel({ toolCallId: input.toolCallId, error: 'exec cancelled', active: true });
 
     expect(journal.isRunning(input.toolCallId)).toBe(true);
     expect(journal.interrupted(input.toolCallId)).toBeNull();
@@ -70,9 +76,9 @@ describe('ToolOperationJournal', () => {
       journal.initialize();
 
       expect(journal.begin(input)).toEqual({ status: 'execute' });
-      expect(
-        journal.cancel({ toolCallId: input.toolCallId, error: `${toolName} cancelled`, active: false, now: 2 }),
-      ).toEqual({ status: 'settled' });
+      expect(journal.cancel({ toolCallId: input.toolCallId, error: `${toolName} cancelled`, active: false })).toEqual({
+        status: 'settled',
+      });
       expect(journal.begin(input)).toEqual({ status: 'failed', error: `${toolName} cancelled` });
       expect(() => journal.assertRunning(input.toolCallId)).toThrow(`${toolName} cancelled`);
     },
@@ -83,7 +89,7 @@ describe('ToolOperationJournal', () => {
     const journal = journalOn(storage);
     journal.initialize();
 
-    expect(journal.cancel({ toolCallId: 'call-1', error: 'cancelled before begin', active: false, now: 1 })).toEqual({
+    expect(journal.cancel({ toolCallId: 'call-1', error: 'cancelled before begin', active: false })).toEqual({
       status: 'settled',
     });
     expect(journal.begin(invocation())).toEqual({ status: 'failed', error: 'cancelled before begin' });
@@ -95,13 +101,13 @@ describe('ToolOperationJournal', () => {
     journal.initialize();
     expect(journal.begin(invocation())).toEqual({ status: 'execute' });
 
-    expect(journal.cancel({ toolCallId: 'call-1', error: 'cancelled', active: true, now: 2 })).toEqual({
+    expect(journal.cancel({ toolCallId: 'call-1', error: 'cancelled', active: true })).toEqual({
       status: 'active',
     });
 
     const restarted = journalOn(storage);
     expect(() => restarted.assertRunning('call-1')).toThrow('cancelled');
-    expect(() => restarted.complete({ toolCallId: 'call-1', result: { mutated: true }, now: 3 })).toThrow('cancelled');
+    expect(() => restarted.complete({ toolCallId: 'call-1', result: { mutated: true } })).toThrow('cancelled');
     expect(restarted.begin(invocation())).toEqual({ status: 'indeterminate', error: 'cancelled' });
     restarted.registerPending({ backend: 'container-shell', toolCallId: 'call-1', result: { exitCode: 0 } });
     expect(restarted.pending()).toEqual([
@@ -109,7 +115,7 @@ describe('ToolOperationJournal', () => {
     ]);
     expect(restarted.completePending('container-shell')).toBe(true);
     expect(restarted.begin(invocation())).toEqual({ status: 'completed', result: { exitCode: 0 } });
-    expect(restarted.cancel({ toolCallId: 'call-1', error: 'replacement', active: false, now: 4 })).toEqual({
+    expect(restarted.cancel({ toolCallId: 'call-1', error: 'replacement', active: false })).toEqual({
       status: 'settled',
     });
     expect(restarted.begin(invocation())).toEqual({ status: 'completed', result: { exitCode: 0 } });
@@ -121,8 +127,8 @@ describe('ToolOperationJournal', () => {
     journal.begin(invocation());
     const result = { committed: true };
 
-    journal.complete({ toolCallId: 'call-1', result, now: 2 });
-    expect(journal.cancel({ toolCallId: 'call-1', error: 'cancelled', active: false, now: 3 })).toEqual({
+    journal.complete({ toolCallId: 'call-1', result });
+    expect(journal.cancel({ toolCallId: 'call-1', error: 'cancelled', active: false })).toEqual({
       status: 'settled',
     });
     expect(journal.begin(invocation())).toEqual({ status: 'completed', result });
@@ -133,10 +139,10 @@ describe('ToolOperationJournal', () => {
     journal.initialize();
     journal.begin(invocation());
 
-    journal.cancel({ toolCallId: 'call-1', error: 'cancelled', active: true, now: 2 });
+    journal.cancel({ toolCallId: 'call-1', error: 'cancelled', active: true });
     expect(journal.begin(invocation())).toEqual({ status: 'indeterminate', error: 'cancelled' });
 
-    expect(journal.cancel({ toolCallId: 'call-1', error: 'replacement', active: false, now: 3 })).toEqual({
+    expect(journal.cancel({ toolCallId: 'call-1', error: 'replacement', active: false })).toEqual({
       status: 'settled',
     });
     expect(journal.begin(invocation())).toEqual({ status: 'failed', error: 'cancelled' });
@@ -148,7 +154,8 @@ describe('ToolOperationJournal', () => {
     journal.initialize();
 
     for (let index = 0; index <= 500; index += 1) {
-      journal.cancel({ toolCallId: `cancel-${index}`, error: 'cancelled', active: false, now: index });
+      vi.setSystemTime(index);
+      journal.cancel({ toolCallId: `cancel-${index}`, error: 'cancelled', active: false });
     }
 
     expect(storage.cancellations.size).toBe(500);
@@ -163,8 +170,9 @@ describe('ToolOperationJournal', () => {
 
     for (let index = 0; index <= 500; index += 1) {
       const toolCallId = `completed-${index}`;
-      journal.begin({ toolCallId, toolName: 'exec', argsSha256: `sha-${index}`, now: index });
-      journal.complete({ toolCallId, result: { index }, now: index });
+      vi.setSystemTime(index);
+      journal.begin({ toolCallId, toolName: 'exec', argsSha256: `sha-${index}` });
+      journal.complete({ toolCallId, result: { index } });
     }
 
     expect(storage.rows.size).toBe(500);
@@ -179,8 +187,9 @@ describe('ToolOperationJournal', () => {
 
     for (let index = 0; index <= 500; index += 1) {
       const toolCallId = `cancelled-begin-${index}`;
-      journal.cancel({ toolCallId, error: 'cancelled', active: false, now: index });
-      expect(journal.begin({ toolCallId, toolName: 'write', argsSha256: `sha-${index}`, now: index })).toEqual({
+      vi.setSystemTime(index);
+      journal.cancel({ toolCallId, error: 'cancelled', active: false });
+      expect(journal.begin({ toolCallId, toolName: 'write', argsSha256: `sha-${index}` })).toEqual({
         status: 'failed',
         error: 'cancelled',
       });
@@ -223,7 +232,7 @@ describe('ToolOperationJournal', () => {
     const journal = journalOn(new TestStorage());
     journal.initialize();
     journal.begin(invocation());
-    journal.fail({ toolCallId: 'call-1', error: 'command failed', now: 2 });
+    journal.fail({ toolCallId: 'call-1', error: 'command failed' });
 
     expect(journal.begin(invocation())).toEqual({ status: 'failed', error: 'command failed' });
     expect(() => journal.begin({ ...invocation(), argsSha256: 'b'.repeat(64) })).toThrow(
@@ -256,13 +265,12 @@ describe('ToolOperationJournal', () => {
       truncated: { result: false, diff: false, paths: false, omittedBytes: 0 },
     };
 
-    journal.commitMutation({ toolCallId: 'call-1', receipt, now: 2 });
+    journal.commitMutation({ toolCallId: 'call-1', receipt });
 
     expect(journal.begin(invocation())).toEqual({ status: 'completed', result: receipt });
     const acknowledged = journal.acknowledgeMutation({
       toolCallId: 'call-1',
       result: { diff: 'x'.repeat(700_000), patch: 'y'.repeat(700_000) },
-      now: 3,
     });
     expect(acknowledged).toMatchObject({
       committed: true,
@@ -396,7 +404,7 @@ function journalOn(storage: TestStorage): ToolOperationJournal {
 }
 
 function invocation() {
-  return { toolCallId: 'call-1', toolName: 'write', argsSha256: 'a'.repeat(64), now: 1 };
+  return { toolCallId: 'call-1', toolName: 'write', argsSha256: 'a'.repeat(64) };
 }
 
 type Row = {
