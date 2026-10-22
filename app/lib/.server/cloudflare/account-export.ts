@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import type { AccountExportSectionName } from '~/lib/account-data';
 import { findCloudflareConnectionForUser } from './cloudflare-connection-repository';
-import { draftsAllowed, type OrganizationRole } from '~/lib/cloudflare/data/organization-access.server';
+import {
+  draftsAllowed,
+  storedProjectIds,
+  type OrganizationRole,
+} from '~/lib/cloudflare/data/organization-access.server';
 
 /**
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
@@ -613,20 +617,6 @@ async function readUsage(db: D1Database, userId: string): Promise<BoundedList<{ 
   );
   return { usage, ...bounds };
 }
-
-/** An invite's stored project ids, exactly as kept; anything unreadable is none. */
-function storedProjectIds(stored: string | null): string[] {
-  if (stored === null) {
-    return [];
-  }
-  try {
-    return storedProjectIdsSchema.catch([]).parse(JSON.parse(stored));
-  } catch {
-    return [];
-  }
-}
-
-const storedProjectIdsSchema = z.array(z.string());
 
 type ExportSectionBounds = { total: number; truncated: boolean };
 

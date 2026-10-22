@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 
 /**
@@ -103,6 +104,20 @@ export function isActiveAdmin(membership: Pick<Membership, 'role' | 'pausedAt'> 
 /** Whether a member builds new apps of their own, from its stored flag: an admin always may. */
 export function draftsAllowed(role: OrganizationRole, stored: number): boolean {
   return role === 'admin' || stored === 1;
+}
+
+const storedProjectIdsSchema = z.array(z.string());
+
+/** An invite's stored project ids; anything unreadable gives none. */
+export function storedProjectIds(stored: string | null): string[] {
+  if (stored === null) {
+    return [];
+  }
+  try {
+    return storedProjectIdsSchema.parse(JSON.parse(stored));
+  } catch {
+    return [];
+  }
 }
 
 /** The role is one of the two the table's CHECK allows. */

@@ -1,9 +1,9 @@
-import { z } from 'zod';
 import { sha256Hex, bytesToBase64Url } from '~/lib/hex-digest';
 import {
   draftsAllowed,
   findMembership,
   isActiveAdmin,
+  storedProjectIds,
   type Membership,
   type OrganizationRole,
 } from './organization-access.server';
@@ -577,20 +577,6 @@ async function listPendingInvites(db: D1Database, orgId: string, now: number): P
     projectIds: storedProjectIds(row.project_ids),
     draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
   }));
-}
-
-const storedProjectIdsSchema = z.array(z.string());
-
-/** An invite's stored project ids; anything unreadable gives none. */
-function storedProjectIds(stored: string | null): string[] {
-  if (stored === null) {
-    return [];
-  }
-  try {
-    return storedProjectIdsSchema.parse(JSON.parse(stored));
-  } catch {
-    return [];
-  }
 }
 
 type MemberAction = 'pause' | 'resume' | 'remove' | 'make_admin' | 'make_member' | 'allow_drafts' | 'disallow_drafts';
