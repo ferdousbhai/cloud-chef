@@ -1,5 +1,5 @@
 {
-  "total": 1043,
+  "total": 1013,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -141,8 +141,8 @@
       "anti-slop/require-safety-comment-for-type-assertion": 8
     },
     "app/lib/.server/cloudflare/user-account-api.ts": {
-      "anti-slop/no-runtime-typeof": 25,
-      "anti-slop/no-unknown-parameters": 12,
+      "anti-slop/no-runtime-typeof": 12,
+      "anti-slop/no-unknown-parameters": 11,
       "anti-slop/no-unsafe-dictionary-type": 4,
       "anti-slop/require-safety-comment-for-type-assertion": 4
     },
@@ -153,9 +153,7 @@
       "anti-slop/require-safety-comment-for-type-assertion": 9
     },
     "app/lib/.server/cloudflare/user-workspace-deployment-executor.ts": {
-      "anti-slop/no-runtime-typeof": 2,
-      "anti-slop/no-unknown-parameters": 2,
-      "anti-slop/no-unsafe-dictionary-type": 2
+      "anti-slop/no-unknown-parameters": 1
     },
     "app/lib/.server/cloudflare/user-workspace-runtime-client.test.ts": {
       "anti-slop/no-chained-type-assertions": 5,
@@ -168,9 +166,9 @@
     "app/lib/.server/cloudflare/user-workspace-runtime-client.ts": {
       "anti-slop/no-reflect-apply": 1,
       "anti-slop/no-reflect-get": 1,
-      "anti-slop/no-runtime-typeof": 12,
-      "anti-slop/no-unknown-parameters": 18,
-      "anti-slop/no-unknown-returns": 3,
+      "anti-slop/no-runtime-typeof": 6,
+      "anti-slop/no-unknown-parameters": 14,
+      "anti-slop/no-unknown-returns": 2,
       "anti-slop/require-safety-comment-for-type-assertion": 1
     },
     "app/lib/.server/cloudflare/workers-ai-billing-context.test.ts": {
