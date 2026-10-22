@@ -385,8 +385,7 @@ type ProductionRequestBody = z.infer<typeof productionRequestSchema> & { userId:
 
 /**
  * A draft has at most one open request: sent again (an improved revision, a reload, a second tab), it
- * replaces what the admins see, keeping its place in their list. A request sent before drafts were
- * tracked is adopted by the draft that sends the same name.
+ * replaces what the admins see, keeping its place in their list.
  */
 async function sendProductionRequest(
   db: D1Database,
@@ -397,18 +396,16 @@ async function sendProductionRequest(
   const open = await db
     .prepare(
       `SELECT id, status, claimed_at, title, note, draft_revision FROM production_requests
-       WHERE org_id = ? AND requested_by = ? AND status IN ('pending', 'approving')
-         AND (draft_id = ? OR (draft_id IS NULL AND title = ? COLLATE NOCASE))
-       ORDER BY draft_id IS NULL LIMIT 1`,
+       WHERE org_id = ? AND requested_by = ? AND status IN ('pending', 'approving') AND draft_id = ?`,
     )
-    .bind(orgId, body.userId, body.draftId, body.title)
+    .bind(orgId, body.userId, body.draftId)
     .first<{
       id: string;
       status: 'pending' | 'approving';
       claimed_at: number | null;
       title: string;
       note: string | null;
-      draft_revision: string | null;
+      draft_revision: string;
     }>();
   const beingApproved = (title: string) =>
     json(
@@ -429,12 +426,11 @@ async function sendProductionRequest(
     const updated = await db
       .prepare(
         `UPDATE production_requests
-         SET draft_id = ?, draft_revision = ?, title = ?, note = ?, preview_url = ?, snapshot_gzip_base64 = ?,
+         SET draft_revision = ?, title = ?, note = ?, preview_url = ?, snapshot_gzip_base64 = ?,
              snapshot_files = ?, updated_at = ?, status = 'pending', claimed_at = NULL
          WHERE id = ? AND (status = 'pending' OR (status = 'approving' AND claimed_at < ?))`,
       )
       .bind(
-        body.draftId,
         body.draftRevision,
         body.title,
         body.note || null,

@@ -896,16 +896,6 @@ describe('a member working on a GitHub project', () => {
       });
     });
 
-    it('lets a draft take over a request sent under its name before drafts were tracked', async () => {
-      const { database, env, call } = await setup();
-      const sent = await send(call, env, {});
-      const { requestId } = z.object({ requestId: z.string() }).parse(await sent.json());
-      database.prepare('UPDATE production_requests SET draft_id = NULL, draft_revision = NULL').run();
-      const adopted = await send(call, env, { title: 'BOOKINGS', draftRevision: 'rev-2' });
-      expect(await adopted.json()).toEqual({ requestId, outcome: 'updated' });
-      expect(requests(database)).toEqual([expect.objectContaining({ draft_id: 'chat-1', draft_revision: 'rev-2' })]);
-    });
-
     it('replaces the request another tab recorded for the same draft between the check and the insert', async () => {
       const { database, env, sara, call } = await setup();
       const racing = envWith({
