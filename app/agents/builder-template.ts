@@ -30,26 +30,16 @@ export function builderTemplateTotals(entries: BuilderWorkspaceFileInput[]): Wor
   };
 }
 
-const builderTemplateFileSchema = z.object({
-  path: z.string(),
-  content: z.string(),
-  encoding: z.enum(['utf8', 'base64']),
-});
+const builderTemplateSchema = z.array(
+  z.object({
+    path: z.string(),
+    content: z.string(),
+    encoding: z.enum(['utf8', 'base64']),
+  }),
+);
 
 async function decodeBuilderTemplate(): Promise<BuilderWorkspaceFileInput[]> {
   const compressed = base64ToBytes(BUILDER_TEMPLATE_GZIP_BASE64);
   const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
-  const json = new TextDecoder().decode(await new Response(stream).arrayBuffer());
-  const parsed: unknown = JSON.parse(json);
-  if (!Array.isArray(parsed)) {
-    throw new Error('The bundled Builder template is invalid.');
-  }
-  const files: unknown[] = parsed;
-  return files.map((file) => {
-    const entry = builderTemplateFileSchema.safeParse(file);
-    if (!entry.success) {
-      throw new Error('The bundled Builder template contains an invalid file.');
-    }
-    return entry.data;
-  });
+  return builderTemplateSchema.parse(JSON.parse(await new Response(stream).text()));
 }
