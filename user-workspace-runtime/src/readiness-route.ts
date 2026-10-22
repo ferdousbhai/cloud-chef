@@ -12,10 +12,7 @@ const UPGRADE_WINDOW_PATH = '/v1/upgrade-window';
 const MAX_UPGRADE_WINDOW_REQUEST_BYTES = 1_024;
 const UPGRADE_WINDOW_METHODS = new Set(['POST', 'PUT', 'DELETE']);
 const upgradeWindowRequestSchema = z.object({ targetVersion: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
-/**
- * The upgrade asking, named by its Workflow instance. A header, not a body field: a runtime from before
- * holders refuses a body field it does not know, and the claim goes to the runtime being replaced.
- */
+/** The upgrade asking, named by its Workflow instance. */
 const UPGRADE_WINDOW_HOLDER_HEADER = 'cloudchef-upgrade-holder';
 const upgradeWindowHolderSchema = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/);
 
@@ -72,9 +69,7 @@ async function upgradeWindow(request: Request, env: RuntimeReadinessEnv, now: nu
     return Response.json({ error: 'Unauthorized' }, { status: 401, headers: noStoreHeaders() });
   }
   const targetVersion = await readTargetVersion(request);
-  const holderHeader = request.headers.get(UPGRADE_WINDOW_HOLDER_HEADER);
-  // A control plane from before holders names none, and its calls work as they always did.
-  const holder = holderHeader === null ? null : upgradeWindowHolderSchema.safeParse(holderHeader).data;
+  const holder = upgradeWindowHolderSchema.safeParse(request.headers.get(UPGRADE_WINDOW_HOLDER_HEADER)).data;
   if (!targetVersion || holder === undefined) {
     return Response.json({ error: 'Invalid upgrade window request.' }, { status: 400, headers: noStoreHeaders() });
   }

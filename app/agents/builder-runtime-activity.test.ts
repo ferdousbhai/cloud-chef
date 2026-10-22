@@ -18,6 +18,7 @@ import {
 import { createBuilderTurn } from './builder-turn-state';
 
 const NEW_VERSION = 'b'.repeat(64);
+const HOLDER = 'workspace-upgrade';
 const START = 10 * 60 * 60_000;
 
 describe('builder agent runtime activity', () => {
@@ -87,7 +88,7 @@ describe('builder agent runtime activity', () => {
     const sleep = vi.fn(async (ms: number) => {
       now += ms;
     });
-    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now });
+    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now });
     const activity = new BuilderRuntimeActivity({ db, agentName: () => 'chat-a', now: () => now, sleep });
 
     await activity.admit();
@@ -104,13 +105,13 @@ describe('builder agent runtime activity', () => {
     const sleep = vi.fn(async (ms: number) => {
       now += ms;
       if ((now - START) % 60_000 === 0) {
-        await holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now });
+        await holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now });
       }
       if (now === START + RUNTIME_UPGRADE_WINDOW_MS + 10_000) {
-        await releaseRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION });
+        await releaseRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER });
       }
     });
-    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now });
+    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now });
     const activity = new BuilderRuntimeActivity({ db, agentName: () => 'chat-a', now: () => now, sleep });
 
     await activity.admit();
@@ -126,10 +127,10 @@ describe('builder agent runtime activity', () => {
       now += ms;
       // The upgrade renews its window every minute, and never finishes.
       if ((now - START) % 60_000 === 0) {
-        await holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now });
+        await holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now });
       }
     });
-    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now });
+    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now });
     const activity = new BuilderRuntimeActivity({ db, agentName: () => 'chat-a', now: () => now, sleep });
     const waiting: boolean[] = [];
 
@@ -145,7 +146,7 @@ describe('builder agent runtime activity', () => {
 
   it('a stop calls the wait off at once', async () => {
     const { db } = userWorkspaceDatabase();
-    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: Date.now() });
+    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: Date.now() });
     // Real time: the poll would otherwise sleep its full second.
     const activity = new BuilderRuntimeActivity({ db, agentName: () => 'chat-a' });
     const stop = new AbortController();
@@ -173,7 +174,9 @@ describe('builder agent runtime activity', () => {
 
     await activity.admit();
 
-    await expect(claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: START + 1_000 })).resolves.toEqual({
+    await expect(
+      claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: START + 1_000 }),
+    ).resolves.toEqual({
       granted: false,
       busy: 1,
     });
@@ -201,7 +204,9 @@ describe('builder agent runtime activity', () => {
     await activity.admit();
 
     expect(sleep).toHaveBeenCalledTimes(3);
-    await expect(claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now })).resolves.toMatchObject({
+    await expect(
+      claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now }),
+    ).resolves.toMatchObject({
       granted: false,
     });
     warn.mockRestore();

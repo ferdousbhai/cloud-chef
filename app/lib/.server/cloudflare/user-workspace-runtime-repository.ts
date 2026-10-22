@@ -3,11 +3,9 @@ export type UserWorkspaceRuntime = {
   connectionGeneration: number;
   endpoint: string;
   runtimeVersion: string;
-  imageDigest: string | null;
-  /** The runtime protocol it speaks; null for one provisioned before that was recorded, which speaks 1. */
-  protocolVersion: number | null;
-  /** When a browser last received a session for it. */
-  lastSessionAt: number | null;
+  imageDigest: string;
+  /** The runtime protocol it speaks. */
+  protocolVersion: number;
 };
 
 type UserWorkspaceRuntimeRow = {
@@ -15,13 +13,12 @@ type UserWorkspaceRuntimeRow = {
   connection_generation: number;
   endpoint: string;
   runtime_version: string;
-  image_digest: string | null;
-  protocol_version: number | null;
-  last_session_at: number | null;
+  image_digest: string;
+  protocol_version: number;
 };
 
 const RUNTIME_COLUMNS =
-  'connection_id, connection_generation, endpoint, runtime_version, image_digest, protocol_version, last_session_at';
+  'connection_id, connection_generation, endpoint, runtime_version, image_digest, protocol_version';
 /** A session within this long of the last recorded one is not written again. */
 const SESSION_RECORD_INTERVAL_MS = 60_000;
 
@@ -49,14 +46,13 @@ export async function findUserWorkspaceRuntime(
         runtimeVersion: row.runtime_version,
         imageDigest: row.image_digest,
         protocolVersion: row.protocol_version,
-        lastSessionAt: row.last_session_at,
       }
     : null;
 }
 
 /**
- * Note that a browser received a session for the runtime: a runtime too old to report its own activity
- * is upgraded only once none was issued for longer than a turn can run.
+ * Note that a browser received a session for the runtime: the upgrade sweep visits the most recently
+ * used runtimes first, and `ops:session` shows it.
  */
 export async function recordUserWorkspaceRuntimeSession(
   db: D1Database,
@@ -143,8 +139,8 @@ export async function listOutdatedUserWorkspaceRuntimes(
         AND connections.status = 'active'
         AND connections.connection_generation = runtimes.connection_generation
        WHERE runtimes.status = 'ready'
-         AND (runtimes.runtime_version <> ? OR runtimes.image_digest IS NULL OR runtimes.image_digest <> ?)
-         AND COALESCE(runtimes.protocol_version, 1) = ?`;
+         AND (runtimes.runtime_version <> ? OR runtimes.image_digest <> ?)
+         AND runtimes.protocol_version = ?`;
   const bindings = [args.runtimeVersion, args.imageDigest, args.protocolVersion];
   const page = async (limit: number, offset: number) =>
     (

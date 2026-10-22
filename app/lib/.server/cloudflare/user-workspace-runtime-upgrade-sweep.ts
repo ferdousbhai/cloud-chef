@@ -2,7 +2,8 @@ import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspa
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
 import { canUseConnection } from '~/lib/cloudflare/data/organization-access.server';
 import {
-  missingUserWorkspaceRuntimeCapabilities,
+  connectionProvisionsWorkspace,
+  isCurrentUserWorkspaceRuntime,
   sweepUserWorkspaceRuntimeUpgrade,
   USER_WORKSPACE_SANDBOX_BASE_IMAGE,
   type UserWorkspaceRuntimeUpgradeSweepOutcome,
@@ -83,9 +84,7 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
       const connection = await dependencies.findConnection(args.env.DB, candidate.connectionId);
       if (
         !connection ||
-        connection.generation !== candidate.connectionGeneration ||
-        !connection.credentialHandle ||
-        missingUserWorkspaceRuntimeCapabilities(connection).length > 0 ||
+        !connectionProvisionsWorkspace(connection, candidate.connectionGeneration) ||
         !(await dependencies.canUseConnection(args.env.DB, candidate.userId, connection))
       ) {
         summary.skipped += 1;
@@ -101,11 +100,7 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
         restartFailed: (sweep + sweepSlot(candidate)) % FAILED_UPGRADE_RESTART_EVERY_SWEEPS === 0,
         isCurrent: async () => {
           const runtime = await dependencies.findRuntime(args.env.DB, candidate.userId, candidate.connectionId);
-          return (
-            runtime?.runtimeVersion === USER_WORKSPACE_RUNTIME_SHA256 &&
-            runtime.imageDigest === USER_WORKSPACE_SANDBOX_BASE_IMAGE &&
-            runtime.protocolVersion === USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION
-          );
+          return runtime !== null && isCurrentUserWorkspaceRuntime(runtime);
         },
       });
       summary[outcome] += 1;

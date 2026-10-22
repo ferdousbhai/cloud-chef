@@ -13,12 +13,15 @@ import {
 
 const NEW_VERSION = 'b'.repeat(64);
 const NOW = 10 * 60 * 60_000;
+const HOLDER = 'workspace-upgrade';
 
 describe('workspace runtime activity', () => {
   it('grants an upgrade window to a workspace where nothing has run', async () => {
     const { db } = userWorkspaceDatabase();
 
-    await expect(claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW })).resolves.toEqual({
+    await expect(
+      claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: NOW }),
+    ).resolves.toEqual({
       granted: true,
     });
     await expect(readRuntimeUpgradeWindow(db, NOW)).resolves.toEqual({
@@ -33,7 +36,9 @@ describe('workspace runtime activity', () => {
     await recordRuntimeActivity(db, { agentName: 'chat-b', busy: true, now: NOW - 1_000 });
     await recordRuntimeActivity(db, { agentName: 'chat-c', busy: false, now: NOW - 60 * 60_000 });
 
-    await expect(claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW })).resolves.toEqual({
+    await expect(
+      claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: NOW }),
+    ).resolves.toEqual({
       granted: false,
       busy: 2,
     });
@@ -46,10 +51,14 @@ describe('workspace runtime activity', () => {
     await recordRuntimeActivity(db, { agentName: 'chat-a', busy: false, now: NOW });
 
     await expect(
-      claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW + RUNTIME_QUIET_PERIOD_MS - 1 }),
+      claimRuntimeUpgradeWindow(db, {
+        targetVersion: NEW_VERSION,
+        holder: HOLDER,
+        now: NOW + RUNTIME_QUIET_PERIOD_MS - 1,
+      }),
     ).resolves.toMatchObject({ granted: false });
     await expect(
-      claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW + RUNTIME_QUIET_PERIOD_MS }),
+      claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: NOW + RUNTIME_QUIET_PERIOD_MS }),
     ).resolves.toEqual({ granted: true });
   });
 
@@ -59,16 +68,20 @@ describe('workspace runtime activity', () => {
     await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now: NOW });
 
     await expect(
-      claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW + RUNTIME_BUSY_LEASE_MS - 1 }),
+      claimRuntimeUpgradeWindow(db, {
+        targetVersion: NEW_VERSION,
+        holder: HOLDER,
+        now: NOW + RUNTIME_BUSY_LEASE_MS - 1,
+      }),
     ).resolves.toMatchObject({ granted: false });
     await expect(
-      claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW + RUNTIME_BUSY_LEASE_MS }),
+      claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: NOW + RUNTIME_BUSY_LEASE_MS }),
     ).resolves.toEqual({ granted: true });
   });
 
   it('closes the window when it expires', async () => {
     const { db } = userWorkspaceDatabase();
-    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW });
+    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: NOW });
 
     await expect(readRuntimeUpgradeWindow(db, NOW + RUNTIME_UPGRADE_WINDOW_MS - 1)).resolves.not.toBeNull();
     await expect(readRuntimeUpgradeWindow(db, NOW + RUNTIME_UPGRADE_WINDOW_MS)).resolves.toBeNull();
@@ -76,12 +89,16 @@ describe('workspace runtime activity', () => {
 
   it('keeps a claimed window open while the upgrade finishes, though work is now waiting on it', async () => {
     const { db } = userWorkspaceDatabase();
-    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW });
+    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: NOW });
     // Work that started meanwhile recorded itself busy, which would refuse a fresh claim.
     await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now: NOW + 1_000 });
 
     await expect(
-      holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW + RUNTIME_UPGRADE_WINDOW_MS - 1 }),
+      holdRuntimeUpgradeWindow(db, {
+        targetVersion: NEW_VERSION,
+        holder: HOLDER,
+        now: NOW + RUNTIME_UPGRADE_WINDOW_MS - 1,
+      }),
     ).resolves.toEqual({ held: true });
 
     await expect(readRuntimeUpgradeWindow(db, NOW + RUNTIME_UPGRADE_WINDOW_MS)).resolves.toEqual({
@@ -93,17 +110,21 @@ describe('workspace runtime activity', () => {
   it('opens a lapsed window again only while nothing started after it lapsed', async () => {
     const { db } = userWorkspaceDatabase();
     const lapsed = NOW + RUNTIME_UPGRADE_WINDOW_MS;
-    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW });
+    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: NOW });
 
     // A retry's backoff outlasted the window, but nothing started: the upgrade goes on.
-    await expect(holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: lapsed + 1_000 })).resolves.toEqual({
+    await expect(
+      holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: lapsed + 1_000 }),
+    ).resolves.toEqual({
       held: true,
     });
-    await releaseRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION });
+    await releaseRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER });
 
     // This time a turn started while no window was open: the rollout would cut it off.
     await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now: lapsed + 2_000 });
-    await expect(holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: lapsed + 3_000 })).resolves.toEqual({
+    await expect(
+      holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: lapsed + 3_000 }),
+    ).resolves.toEqual({
       held: false,
       busy: 1,
     });
@@ -111,19 +132,21 @@ describe('workspace runtime activity', () => {
 
     // Once it ended, the upgrade goes on.
     await recordRuntimeActivity(db, { agentName: 'chat-a', busy: false, now: lapsed + 4_000 });
-    await expect(holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: lapsed + 5_000 })).resolves.toEqual({
+    await expect(
+      holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: lapsed + 5_000 }),
+    ).resolves.toEqual({
       held: true,
     });
   });
 
   it('releases only the window of the upgrade that finished', async () => {
     const { db } = userWorkspaceDatabase();
-    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW });
+    await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: NOW });
 
-    await releaseRuntimeUpgradeWindow(db, { targetVersion: 'c'.repeat(64) });
+    await releaseRuntimeUpgradeWindow(db, { targetVersion: 'c'.repeat(64), holder: HOLDER });
     await expect(readRuntimeUpgradeWindow(db, NOW)).resolves.not.toBeNull();
 
-    await releaseRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION });
+    await releaseRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER });
     await expect(readRuntimeUpgradeWindow(db, NOW)).resolves.toBeNull();
   });
 
@@ -184,18 +207,6 @@ describe('workspace runtime activity', () => {
 
       const lapsed = NOW + 1_000 + RUNTIME_UPGRADE_WINDOW_MS;
       await expect(claimRuntimeUpgradeWindow(db, { ...first, now: lapsed })).resolves.toEqual({ granted: true });
-    });
-
-    it('a window claimed without a holder, as a control plane from before holders does, is renewed and released by any', async () => {
-      const { db } = userWorkspaceDatabase();
-      await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, now: NOW });
-
-      await expect(holdRuntimeUpgradeWindow(db, { ...first, now: NOW + 1_000 })).resolves.toEqual({ held: true });
-      // Holding it made it the first's.
-      await releaseRuntimeUpgradeWindow(db, second);
-      await expect(readRuntimeUpgradeWindow(db, NOW + 1_000)).resolves.not.toBeNull();
-      await releaseRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION });
-      await expect(readRuntimeUpgradeWindow(db, NOW + 1_000)).resolves.toBeNull();
     });
   });
 });

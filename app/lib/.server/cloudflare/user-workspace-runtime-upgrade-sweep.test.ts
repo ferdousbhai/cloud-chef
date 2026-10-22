@@ -188,7 +188,6 @@ describe('scheduled workspace runtime upgrade sweep', () => {
         runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
         imageDigest: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
         protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
-        lastSessionAt: null,
       },
       outcome: async ({ isCurrent }) => ((await isCurrent()) ? 'left' : 'restarted'),
     });
@@ -197,25 +196,5 @@ describe('scheduled workspace runtime upgrade sweep', () => {
       left: 1,
     });
     expect(dependencies.findRuntime).toHaveBeenCalledWith(env.DB, 'owner-of-a', 'a');
-  });
-
-  it('does not count a runtime recorded with an earlier protocol as current', async () => {
-    const dependencies = sweepDependencies({
-      outdated: [runtime('a')],
-      live: {
-        connectionId: 'a',
-        connectionGeneration: 1,
-        endpoint: 'https://workspace.example',
-        runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
-        imageDigest: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
-        protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION - 1,
-        lastSessionAt: null,
-      },
-      outcome: async ({ isCurrent }) => ((await isCurrent()) ? 'left' : 'restarted'),
-    });
-
-    await expect(sweepUserWorkspaceRuntimeUpgrades({ env, scheduledTime: 0, dependencies })).resolves.toMatchObject({
-      restarted: 1,
-    });
   });
 });

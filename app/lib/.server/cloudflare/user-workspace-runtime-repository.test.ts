@@ -43,8 +43,8 @@ describe('workspace runtime locator', () => {
 
     await expect(findUserWorkspaceRuntime(db, 'user-1', 'connection-1')).resolves.toMatchObject({
       protocolVersion: 1,
-      lastSessionAt: 1_000,
     });
+    await expect(lastSessionAt(db)).resolves.toBe(1_000);
   });
 
   it('records when a session was last issued, at most once a minute', async () => {
@@ -52,14 +52,10 @@ describe('workspace runtime locator', () => {
     await upsertUserWorkspaceRuntime(runtimeArgs(db, { runtimeVersion: 'a'.repeat(64), now: 1_000 }));
 
     await recordUserWorkspaceRuntimeSession(db, { userId: 'user-1', connectionId: 'connection-1', now: 30_000 });
-    await expect(findUserWorkspaceRuntime(db, 'user-1', 'connection-1')).resolves.toMatchObject({
-      lastSessionAt: 1_000,
-    });
+    await expect(lastSessionAt(db)).resolves.toBe(1_000);
 
     await recordUserWorkspaceRuntimeSession(db, { userId: 'user-1', connectionId: 'connection-1', now: 61_001 });
-    await expect(findUserWorkspaceRuntime(db, 'user-1', 'connection-1')).resolves.toMatchObject({
-      lastSessionAt: 61_001,
-    });
+    await expect(lastSessionAt(db)).resolves.toBe(61_001);
   });
 
   it('lists the outdated runtimes a session could still be issued for, most recently used first', async () => {
@@ -178,4 +174,13 @@ function runtimeDatabase(): D1Database {
       VALUES ('org-connection', 'org-1', 'account-2', 'active', 1, 1);
   `);
   return db;
+}
+
+async function lastSessionAt(db: D1Database): Promise<number | undefined> {
+  const row = await db
+    .prepare(
+      "SELECT last_session_at FROM user_computer_runtimes WHERE user_id = 'user-1' AND connection_id = 'connection-1'",
+    )
+    .first<{ last_session_at: number }>();
+  return row?.last_session_at;
 }

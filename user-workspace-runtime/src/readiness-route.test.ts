@@ -70,6 +70,7 @@ describe('user workspace runtime control-plane readiness route', () => {
 
 describe('user workspace runtime upgrade window route', () => {
   const targetVersion = 'b'.repeat(64);
+  const holder = 'workspace-upgrade';
 
   it('grants the window to the control plane while nothing runs, and refuses it while a turn does', async () => {
     const { db } = userWorkspaceDatabase();
@@ -80,6 +81,7 @@ describe('user workspace runtime upgrade window route', () => {
         endpoint: 'https://workspace-runtime.example',
         controlPlaneSecret,
         targetVersion,
+        holder,
         request,
       }),
     ).resolves.toEqual({ status: 'granted' });
@@ -90,6 +92,7 @@ describe('user workspace runtime upgrade window route', () => {
         endpoint: 'https://workspace-runtime.example',
         controlPlaneSecret,
         targetVersion,
+        holder: 'workspace-later-upgrade',
         request,
       }),
     ).resolves.toEqual({ status: 'busy', busy: 1 });
@@ -99,7 +102,7 @@ describe('user workspace runtime upgrade window route', () => {
     const { db } = userWorkspaceDatabase();
     let now = 1_000_000;
     const request = routedFetch(upgradeWindowEnv(db), () => now);
-    const args = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, request };
+    const args = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, holder, request };
     await claimUserWorkspaceRuntimeUpgradeWindow(args);
     await recordRuntimeActivity(db, { agentName: 'chat-a', busy: true, now });
 
@@ -115,7 +118,7 @@ describe('user workspace runtime upgrade window route', () => {
     const { db } = userWorkspaceDatabase();
     let now = 1_000_000;
     const request = routedFetch(upgradeWindowEnv(db), () => now);
-    const args = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, request };
+    const args = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, holder, request };
     await claimUserWorkspaceRuntimeUpgradeWindow(args);
 
     now += RUNTIME_UPGRADE_WINDOW_MS + 1_000;
@@ -169,20 +172,6 @@ describe('user workspace runtime upgrade window route', () => {
     expect(response?.status).toBe(400);
   });
 
-  it('reports a runtime from before the window existed as unable to say, never as idle', async () => {
-    // Such a runtime routes the request to its browser API, which wants a capability and refuses it.
-    const request = vi.fn<typeof fetch>(async () => Response.json({ error: 'Unauthorized' }, { status: 401 }));
-
-    await expect(
-      claimUserWorkspaceRuntimeUpgradeWindow({
-        endpoint: 'https://workspace-runtime.example',
-        controlPlaneSecret,
-        targetVersion,
-        request,
-      }),
-    ).resolves.toEqual({ status: 'unsupported' });
-  });
-
   it('fails, never redeploying unasked, when a runtime with the window refuses the secret', async () => {
     const { db } = userWorkspaceDatabase();
     const request = routedFetch(upgradeWindowEnv(db), () => 1_000_000);
@@ -192,6 +181,7 @@ describe('user workspace runtime upgrade window route', () => {
         endpoint: 'https://workspace-runtime.example',
         controlPlaneSecret: 'x'.repeat(32),
         targetVersion,
+        holder,
         request,
       }),
     ).rejects.toThrow('refused the control plane secret');
@@ -200,7 +190,7 @@ describe('user workspace runtime upgrade window route', () => {
   it("keeps one upgrade's window from another, named by the holder each sends", async () => {
     const { db } = userWorkspaceDatabase();
     const request = routedFetch(upgradeWindowEnv(db), () => 1_000_000);
-    const base = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, request };
+    const base = { endpoint: 'https://workspace-runtime.example', controlPlaneSecret, targetVersion, holder, request };
     await expect(claimUserWorkspaceRuntimeUpgradeWindow({ ...base, holder: 'workspace-first' })).resolves.toEqual({
       status: 'granted',
     });
@@ -217,6 +207,20 @@ describe('user workspace runtime upgrade window route', () => {
 
     await changeUserWorkspaceRuntimeUpgradeWindow({ ...base, holder: 'workspace-first', change: 'release' });
     await expect(readRuntimeUpgradeWindow(db, 1_000_000)).resolves.toBeNull();
+  });
+
+  it('rejects a request that names no holder', async () => {
+    const { db } = userWorkspaceDatabase();
+    const response = await routeUserWorkspaceRuntimeControlPlaneRequest(
+      new Request('https://workspace-runtime.example/v1/upgrade-window', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${controlPlaneSecret}` },
+        body: JSON.stringify({ targetVersion }),
+      }),
+      upgradeWindowEnv(db),
+    );
+
+    expect(response?.status).toBe(400);
   });
 
   it('rejects a holder that is not an instance name', async () => {
@@ -241,6 +245,7 @@ describe('user workspace runtime upgrade window route', () => {
         endpoint: 'https://workspace-runtime.example',
         controlPlaneSecret,
         targetVersion,
+        holder,
         request,
       }),
     ).rejects.toThrow('HTTP 503');

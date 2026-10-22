@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { USER_WORKSPACE_DATA_MIGRATIONS } from '~/generated/user-workspace-runtime.generated';
 import { sha256Hex } from '~/lib/hex-digest';
+import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import type { UserWorkspaceRuntime } from '~/lib/.server/cloudflare/user-workspace-runtime-repository';
 import {
@@ -33,7 +34,6 @@ const mocks = {
 
 import {
   EARLIER_GENERATION_MAX_WAIT_MS,
-  LEGACY_RUNTIME_QUIET_MS,
   runUserWorkspaceRuntimeProvisioningWorkflow,
   startUserWorkspaceRuntimeProvisioning,
   sweepUserWorkspaceRuntimeUpgrade,
@@ -228,7 +228,10 @@ describe('workspace runtime provisioning Workflow', () => {
       for (const status of [
         { status: 'errored' as const },
         { status: 'terminated' as const },
-        { status: 'complete' as const, output: { status: 'error', errorCode: 'workspace_preparation_failed' } },
+        {
+          status: 'complete' as const,
+          output: { status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null },
+        },
       ]) {
         const instance = workflowInstance(vi.fn<WorkflowInstance['status']>().mockResolvedValue(status));
         const env = workflowEnv(
@@ -357,24 +360,6 @@ describe('workspace runtime provisioning Workflow', () => {
       expect(now - NOW).toBeGreaterThanOrEqual(UPGRADE_MAX_WAIT_MS);
       expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
       expect(mocks.upsertRuntime).not.toHaveBeenCalled();
-    });
-
-    it('upgrades a runtime too old to report activity only after no session for longer than a turn runs', async () => {
-      mocks.claimUpgradeWindow.mockResolvedValue({ status: 'unsupported' });
-      let now = NOW;
-      mocks.now.mockImplementation(() => now);
-      mocks.findRuntime.mockResolvedValue({ ...liveRuntime(endpoint), lastSessionAt: NOW - 60_000 });
-      const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async (_name, duration) => {
-        expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
-        now += duration;
-      });
-
-      await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
-        status: 'ready',
-      });
-
-      expect(now).toBe(NOW - 60_000 + LEGACY_RUNTIME_QUIET_MS);
-      expect(mocks.accountApi.deployWorkspaceRuntimeWorker).toHaveBeenCalledOnce();
     });
 
     it('records the protocol the new runtime speaks', async () => {
@@ -673,29 +658,6 @@ describe('workspace runtime provisioning Workflow', () => {
         warn.mockRestore();
       });
 
-      it('caps the wait for one too old to report activity too, whatever its last session', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-        mocks.claimUpgradeWindow.mockResolvedValue({ status: 'unsupported' });
-        let now = NOW;
-        mocks.now.mockImplementation(() => now);
-        mocks.findRuntime.mockResolvedValue({
-          ...liveRuntime(endpoint),
-          connectionGeneration: 0,
-          lastSessionAt: NOW - 60_000,
-        });
-        const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async (_name, duration) => {
-          now += duration;
-        });
-
-        await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
-          status: 'ready',
-        });
-
-        expect(now - NOW).toBe(EARLIER_GENERATION_MAX_WAIT_MS);
-        expect(mocks.changeUpgradeWindow).not.toHaveBeenCalled();
-        warn.mockRestore();
-      });
-
       it('upgrades it inside the window when it goes quiet before the cap', async () => {
         mocks.claimUpgradeWindow
           .mockResolvedValueOnce({ status: 'busy', busy: 1 })
@@ -844,9 +806,8 @@ function liveRuntime(endpoint: string): UserWorkspaceRuntime {
     connectionGeneration: 1,
     endpoint,
     runtimeVersion: '0'.repeat(64),
-    imageDigest: null,
-    protocolVersion: null,
-    lastSessionAt: 0,
+    imageDigest: 'docker.io/cloudflare/sandbox:earlier',
+    protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
   };
 }
 
