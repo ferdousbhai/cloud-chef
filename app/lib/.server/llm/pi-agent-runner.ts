@@ -190,7 +190,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     onSettled,
   } = options;
 
-  logger.debug('Starting Pi agent runner');
   const startedAt = Date.now();
   const modelId = model.id;
   const handle = getPiModel(accountCredentials, modelId, {
@@ -299,10 +298,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     for (const copy of cleared.cleared) {
       clearedCopies.add(copy);
     }
-    logger.info('Cleared old tool output from the model context', {
-      tokensBefore: tokens,
-      tokensAfter: tokens - cleared.savedTokens,
-    });
     return { messages: cleared.messages, tokens: tokens - cleared.savedTokens };
   };
   const piMessages = withPreparationStage(
@@ -545,10 +540,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
     checkpointReminderSent = false;
     runtimeContextCompacted = true;
     compaction.requestDurableCompaction?.();
-    logger.info('Started a fresh live context window', {
-      tokensBefore: compacted.tokensBefore,
-      tokensAfter: compacted.tokensAfter,
-    });
     return { ...source, messages: compacted.messages };
   };
 

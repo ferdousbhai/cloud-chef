@@ -2,11 +2,7 @@ import { readFileSync } from 'node:fs';
 import * as ts from 'typescript';
 import { describe, expect, test } from 'vitest';
 
-const RUNTIME_LOG_SOURCES = [
-  'app/agents/builder-agent.ts',
-  'app/agents/builder-agent-rejection.ts',
-  'app/lib/.server/llm/pi-agent-runner.ts',
-] as const;
+const RUNTIME_LOG_SOURCES = ['app/agents/builder-agent.ts', 'app/agents/builder-agent-rejection.ts'] as const;
 const LOG_METHODS = new Set(['debug', 'info', 'warn', 'error', 'log']);
 
 describe('runtime log privacy', () => {

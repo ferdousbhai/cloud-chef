@@ -562,9 +562,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       lastTurn?.status === 'aborted' &&
       (lastTurn.requestId === ctx.requestId || lastTurn.requestId === ctx.recoveryRootRequestId)
     ) {
-      logger.info('Skipping recovery for a durably cancelled CloudChef chat turn', {
-        incidentId: ctx.incidentId,
-      });
       return { persist: true, continue: false };
     }
     const nextTurn = createRecoveryTurn(ctx, this.state.activeTurn);
@@ -1512,7 +1509,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
     if (provisionalTitle) {
       try {
-        const [savedHeuristicProject, savedHeuristicSubchat] = await Promise.all([
+        const [, savedHeuristicSubchat] = await Promise.all([
           args.subchatIndex === 0
             ? setHeuristicProjectDescriptionIfMissing(this.env.DB, {
                 sessionId: ownerId,
@@ -1535,10 +1532,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
             generatedSubchatTitle: { subchatIndex: args.subchatIndex, title: provisionalTitle, updatedAt },
           });
         }
-        logger.info('Saved heuristic titles for first prompt', {
-          savedHeuristicProject,
-          savedHeuristicSubchat,
-        });
       } catch {
         logger.warn('Heuristic title save failed; continuing generated title work');
       }
