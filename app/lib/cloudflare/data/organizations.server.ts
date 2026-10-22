@@ -65,8 +65,9 @@ const MAX_ORGANIZATIONS_PER_CREATOR = 10;
 export const ORGANIZATION_QUOTA_WINDOW_MS = 30 * 24 * 60 * 60_000;
 
 /** A new organization with its creator as admin; its Cloudflare account is connected next. */
-export async function createOrganization(db: D1Database, userId: string, name: string, now = Date.now()) {
+export async function createOrganization(db: D1Database, userId: string, name: string) {
   const orgId = crypto.randomUUID();
+  const now = Date.now();
   // The limits are checked inside the write itself, so two requests at the same moment can't both pass
   // them; the membership and the log entry are written only with the team.
   const [created] = await db.batch([
@@ -104,12 +105,12 @@ export async function createOrganization(db: D1Database, userId: string, name: s
 /** An admin renames their team. */
 export async function renameOrganization(
   db: D1Database,
-  args: { orgId: string; actorId: string; name: string; now?: number },
+  args: { orgId: string; actorId: string; name: string },
 ): Promise<void> {
   await requireAdmin(db, args.orgId, args.actorId);
   await db
     .prepare('UPDATE organizations SET name = ?, updated_at = ? WHERE id = ?')
-    .bind(args.name, args.now ?? Date.now(), args.orgId)
+    .bind(args.name, Date.now(), args.orgId)
     .run();
 }
 
@@ -193,10 +194,9 @@ export async function createInvite(
     invitedBy: string;
     projectIds?: string[];
     draftsAllowed?: boolean;
-    now?: number;
   },
 ): Promise<{ token: string; expiresAt: number }> {
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   const limitValues = [args.orgId, now, now - 24 * 60 * 60_000, args.email, args.invitedBy] as const;
   const projectIds = await orgProjectIds(db, args.orgId, args.projectIds ?? []);
   const token = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
@@ -320,7 +320,6 @@ async function orgProjectIds(db: D1Database, orgId: string, projectIds: string[]
 export async function describeInvite(
   db: D1Database,
   token: string,
-  now = Date.now(),
 ): Promise<{ orgName: string; email: string; inviterName: string } | null> {
   const row = await db
     .prepare(
@@ -335,7 +334,7 @@ export async function describeInvite(
        LEFT JOIN "user" AS users ON users.id = invites.invited_by
        WHERE invites.token_hash = ? AND invites.accepted_at IS NULL AND invites.expires_at > ?`,
     )
-    .bind(await sha256Hex(token), now)
+    .bind(await sha256Hex(token), Date.now())
     .first<{ org_name: string; email: string; inviter_name: string | null; inviter_is_admin: number }>();
   if (!row) {
     return null;
@@ -361,9 +360,9 @@ function inviterNotAdmin(orgName: string): OrganizationError {
  */
 export async function acceptInvite(
   db: D1Database,
-  args: { token: string; userId: string; now?: number },
+  args: { token: string; userId: string },
 ): Promise<{ orgId: string }> {
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   const invite = await db
     .prepare(
       // An invite speaks for the admin who sent it: once they're removed, paused or no longer an admin,
@@ -466,11 +465,7 @@ export async function acceptInvite(
 }
 
 /** The organizations this person belongs to, with their members and invites where they are an admin. */
-export async function listOrganizations(
-  db: D1Database,
-  userId: string,
-  now = Date.now(),
-): Promise<OrganizationSummary[]> {
+export async function listOrganizations(db: D1Database, userId: string): Promise<OrganizationSummary[]> {
   const { results } = await db
     .prepare(
       `SELECT members.org_id, organizations.name AS org_name, members.role, members.paused_at,
@@ -491,6 +486,7 @@ export async function listOrganizations(
       account_name: string | null;
       connection_status: string | null;
     }>();
+  const now = Date.now();
   return Promise.all(
     results.map(async (row) => {
       const admin = isActiveAdmin({ role: row.role, pausedAt: row.paused_at });
@@ -587,7 +583,7 @@ type MemberAction = 'pause' | 'resume' | 'remove' | 'make_admin' | 'make_member'
  */
 export async function updateMember(
   db: D1Database,
-  args: { orgId: string; actorId: string; userId: string; action: MemberAction; now?: number },
+  args: { orgId: string; actorId: string; userId: string; action: MemberAction },
 ): Promise<void> {
   const leaving = args.action === 'remove' && args.actorId === args.userId;
   if (!leaving) {
@@ -614,7 +610,7 @@ export async function updateMember(
     target.role === 'admin' &&
     target.pausedAt === null &&
     (args.action === 'pause' || args.action === 'remove' || args.action === 'make_member');
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   // Taking away the last active admin is refused inside the write itself, so two admins stepping each
   // other down at the same moment can't both succeed.
   const keepsAnAdmin = losesAdmin

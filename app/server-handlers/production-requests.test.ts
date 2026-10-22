@@ -370,20 +370,22 @@ describe('production requests', () => {
     database
       .prepare(`INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES (?, ?, 'admin', 1)`)
       .run(ORG, bo.id);
-    const claim = (adminId: string, state: string, now: number) =>
+    const claim = (adminId: string, state: string) =>
       claimProductionRequestForApproval(env.DB, {
         orgId: ORG,
         requestId: REQUEST,
         adminId,
         approval: { state, repoName: 'new-app', private: true, ttlMs: 600_000 },
-        now,
       });
     const now = Date.now();
+    vi.useFakeTimers({ toFake: ['Date'], now });
 
-    expect(await claim(admin.userId, 'state-ada', now)).toBe(now);
-    expect(await claim(bo.id, 'state-bo', now)).toBeNull();
+    expect(await claim(admin.userId, 'state-ada')).toBe(now);
+    expect(await claim(bo.id, 'state-bo')).toBeNull();
     // Nor later: the claim is still Ada's.
-    expect(await claim(bo.id, 'state-bo-again', now + 1)).toBeNull();
+    vi.setSystemTime(now + 1);
+    expect(await claim(bo.id, 'state-bo-again')).toBeNull();
+    vi.useRealTimers();
     expect(database.prepare('SELECT user_id FROM github_approval_states').all()).toEqual([{ user_id: admin.userId }]);
   });
 

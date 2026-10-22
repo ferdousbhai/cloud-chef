@@ -34,9 +34,9 @@ export async function findGitHubInstallation(db: D1Database, orgId: string): Pro
 
 export async function saveGitHubInstallation(
   db: D1Database,
-  args: { orgId: string; userId: string; installation: GitHubInstallationSummary; now?: number },
+  args: { orgId: string; userId: string; installation: GitHubInstallationSummary },
 ): Promise<void> {
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   await db
     .prepare(
       `INSERT INTO github_installations (org_id, installation_id, account_login, account_type, connected_by, created_at, updated_at)
@@ -152,7 +152,6 @@ export async function linkProject(
     actorId: string;
     name: string;
     repository: { id: number; fullName: string; defaultBranch: string };
-    now?: number;
   },
 ): Promise<string> {
   await requireAdmin(db, args.orgId, args.actorId);
@@ -171,7 +170,7 @@ export async function linkProject(
       args.repository.fullName,
       args.repository.defaultBranch,
       args.actorId,
-      args.now ?? Date.now(),
+      Date.now(),
     )
     .run();
   if (inserted.meta.changes !== 1) {
@@ -188,7 +187,7 @@ export async function unlinkProject(db: D1Database, args: { orgId: string; actor
 /** Grants or withdraws a member's access to one project. */
 export async function setProjectAccess(
   db: D1Database,
-  args: { orgId: string; actorId: string; projectId: string; userId: string; allowed: boolean; now?: number },
+  args: { orgId: string; actorId: string; projectId: string; userId: string; allowed: boolean },
 ): Promise<void> {
   await requireAdmin(db, args.orgId, args.actorId);
   const project = await db
@@ -214,7 +213,7 @@ export async function setProjectAccess(
        WHERE EXISTS (SELECT 1 FROM organization_members WHERE org_id = ? AND user_id = ?)
        ON CONFLICT(project_id, user_id) DO UPDATE SET granted_at = org_project_access.granted_at`,
     )
-    .bind(args.projectId, args.userId, args.actorId, args.now ?? Date.now(), args.orgId, args.userId)
+    .bind(args.projectId, args.userId, args.actorId, Date.now(), args.orgId, args.userId)
     .run();
   if (granted.meta.changes === 0) {
     throw new OrganizationError('That person is not in this team.', 404);
@@ -328,9 +327,10 @@ export async function listOwnProductionRequests(
 
 export async function declineProductionRequest(
   db: D1Database,
-  args: { orgId: string; actorId: string; requestId: string; note: string; now?: number },
+  args: { orgId: string; actorId: string; requestId: string; note: string },
 ): Promise<void> {
   await requireAdmin(db, args.orgId, args.actorId);
+  const now = Date.now();
   const declined = await db
     .prepare(
       // The decision keeps only the request's title and file count: the draft, its note and its preview
@@ -339,14 +339,7 @@ export async function declineProductionRequest(
          snapshot_gzip_base64 = '', note = NULL, preview_url = NULL
        WHERE id = ? AND org_id = ? AND ${OPEN_REQUEST}`,
     )
-    .bind(
-      args.actorId,
-      args.now ?? Date.now(),
-      args.note || null,
-      args.requestId,
-      args.orgId,
-      (args.now ?? Date.now()) - APPROVAL_CLAIM_MS,
-    )
+    .bind(args.actorId, now, args.note || null, args.requestId, args.orgId, lapsedApprovalClaimBefore(now))
     .run();
   if (declined.meta.changes !== 1) {
     throw new OrganizationError('That request was already decided.', 409);
@@ -374,10 +367,9 @@ export async function claimProductionRequestForApproval(
     requestId: string;
     adminId: string;
     approval: { state: string; repoName: string; private: boolean; ttlMs: number };
-    now?: number;
   },
 ): Promise<number | null> {
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   const [claimed] = await db.batch([
     db
       .prepare(
@@ -420,11 +412,8 @@ export async function claimProductionRequestForApproval(
  * Approve (`claimedAt`) still holds, renewed for the time creating the repository takes. Null when it
  * was decided, or lapsed and was taken over or replaced by the member since.
  */
-export async function holdApprovalClaim(
-  db: D1Database,
-  args: { orgId: string; requestId: string; claimedAt: number; now?: number },
-) {
-  const now = args.now ?? Date.now();
+export async function holdApprovalClaim(db: D1Database, args: { orgId: string; requestId: string; claimedAt: number }) {
+  const now = Date.now();
   const row = await db
     .prepare(
       `UPDATE production_requests SET claimed_at = ?
@@ -472,10 +461,9 @@ export async function recordApprovedRequest(
     name: string;
     claimedAt: number;
     repository: { id: number; fullName: string; defaultBranch: string };
-    now?: number;
   },
 ): Promise<string | null> {
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   const newProjectId = crypto.randomUUID();
   // The decision is written first, and the project and its access only behind it, all in one batch: the
   // request approved by this claim, with no project yet, is what the later statements look for.
