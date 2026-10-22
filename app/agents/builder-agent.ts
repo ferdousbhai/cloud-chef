@@ -7,7 +7,7 @@ import {
   type OnChatMessageOptions,
 } from '@cloudflare/ai-chat';
 import { callable, type Connection, type FiberRecoveryContext, type FiberRecoveryResult } from 'agents';
-import { canApplyConversationCompaction, conversationCompactionKey } from '~/lib/compaction';
+import { conversationCompactionKey } from '~/lib/compaction';
 import { piAgentRunner } from '~/lib/.server/llm/pi-agent-runner';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import {
@@ -854,7 +854,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     await this.startFiber(
       CONTEXT_COMPACTION_FIBER,
       async () => {
-        await this.runContextCompaction(throughMessageId);
+        this.runContextCompaction(throughMessageId);
       },
       {
         idempotencyKey: conversationCompactionKey({
@@ -867,33 +867,18 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     );
   }
 
-  private async runContextCompaction(throughMessageId: string): Promise<void> {
-    const currentMessages = this.messages;
-    const throughIndex = currentMessages.findIndex((message) => message.id === throughMessageId);
+  private runContextCompaction(throughMessageId: string): void {
+    const throughIndex = this.messages.findIndex((message) => message.id === throughMessageId);
     if (throughIndex < 0) {
       return;
     }
-    const sourceMessages = currentMessages.slice(0, throughIndex + 1);
-    const expected = this.contextCompaction.getCompaction();
     const next = compactContext({
-      messages: sourceMessages,
-      current: expected,
+      messages: this.messages.slice(0, throughIndex + 1),
+      current: this.contextCompaction.getCompaction(),
     });
-    if (!next) {
-      return;
+    if (next) {
+      this.contextCompaction.saveCompaction(next);
     }
-    const latestIds = this.messages.map((message) => message.id);
-    if (
-      !canApplyConversationCompaction({
-        expectedFromId: next.fromMessageId,
-        expectedThroughId: next.toMessageId,
-        currentMessageIds: latestIds,
-        currentThroughId: this.contextCompaction.getCompaction()?.toMessageId,
-      })
-    ) {
-      return;
-    }
-    this.contextCompaction.saveCompactionIfCurrent(next, expected);
   }
 
   private async hasPendingContextCompaction(): Promise<boolean> {

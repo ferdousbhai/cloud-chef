@@ -33,19 +33,6 @@ export class DurableObjectContextCompactionRepository {
     `;
   }
 
-  saveCompactionIfCurrent(compaction: ContextCompaction, expected: ContextCompaction | null): boolean {
-    const current = this.getCompaction();
-    if (
-      current?.summary !== expected?.summary ||
-      current?.fromMessageId !== expected?.fromMessageId ||
-      current?.toMessageId !== expected?.toMessageId
-    ) {
-      return false;
-    }
-    this.saveCompaction(compaction);
-    return true;
-  }
-
   private read(id: string): ContextCompaction | null {
     const row = this.db.sql<ContextStateRow>`
       SELECT summary, from_message_id, to_message_id
