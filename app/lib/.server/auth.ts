@@ -1,6 +1,7 @@
 const SESSION_COOKIE = 'cloudchef_session';
 import { bytesToBase64Url, sha256Hex } from '~/lib/hex-digest';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
+import { readCookie, serializeCookie } from '~/lib/.server/request-guards';
 import { listWorkspaceContexts, type WorkspaceContextOption } from '~/lib/cloudflare/data/organization-access.server';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
@@ -64,7 +65,7 @@ type CloudflareAuthUserRow = CloudflareAuthUser & {
 };
 
 export async function getAuthSession(env: Env, request: Request): Promise<CloudflareAuthSession | null> {
-  const token = cookieValue(request.headers.get('cookie'), SESSION_COOKIE);
+  const token = readCookie(request, SESSION_COOKIE);
   if (!token) {
     return null;
   }
@@ -119,7 +120,7 @@ export async function prepareAuthSession(
     tokenHash: await sha256Hex(token),
     expiresAt: now + SESSION_MAX_AGE_SECONDS * 1_000,
     createdAt: now,
-    cookie: serializeSessionCookie(token, SESSION_MAX_AGE_SECONDS, isHttps(request)),
+    cookie: serializeSessionCookie(token, SESSION_MAX_AGE_SECONDS, request),
   };
 }
 
@@ -144,7 +145,7 @@ export async function createAuthSession(env: Env, session: PreparedAuthSession):
 }
 
 export async function deleteAuthSession(env: Env, request: Request): Promise<void> {
-  const token = cookieValue(request.headers.get('cookie'), SESSION_COOKIE);
+  const token = readCookie(request, SESSION_COOKIE);
   if (!token) {
     return;
   }
@@ -154,7 +155,7 @@ export async function deleteAuthSession(env: Env, request: Request): Promise<voi
 }
 
 export function clearAuthSessionCookie(request?: Request): string {
-  return serializeSessionCookie('', 0, isHttps(request));
+  return serializeSessionCookie('', 0, request);
 }
 
 export async function upsertCloudflareUser(
@@ -490,29 +491,8 @@ async function isExactCloudflareUser(
   return row?.found === 1;
 }
 
-function serializeSessionCookie(token: string, maxAge: number, secure: boolean): string {
-  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly${secure ? '; Secure' : ''}; SameSite=Lax; Max-Age=${maxAge}`;
-}
-
-function isHttps(request?: Request): boolean {
-  return !request || new URL(request.url).protocol === 'https:';
-}
-
-function cookieValue(header: string | null, name: string): string | null {
-  if (!header) {
-    return null;
-  }
-  for (const part of header.split(';')) {
-    const [candidate, ...value] = part.trim().split('=');
-    if (candidate === name) {
-      try {
-        return decodeURIComponent(value.join('='));
-      } catch {
-        return null;
-      }
-    }
-  }
-  return null;
+function serializeSessionCookie(token: string, maxAge: number, request?: Request): string {
+  return serializeCookie({ name: SESSION_COOKIE, value: token, path: '/', maxAge, request });
 }
 
 async function isExactAuthSessionCommitted(db: D1Database, session: PreparedAuthSession): Promise<boolean> {

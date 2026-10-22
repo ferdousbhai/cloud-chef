@@ -10,7 +10,7 @@ import {
 } from '~/lib/.server/auth';
 import { isRecentSignIn, reauthenticationRequired } from '~/lib/.server/account-reauthentication';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
-import { hasSameOrigin, readCookie, safeReturnTo } from '~/lib/.server/request-guards';
+import { hasSameOrigin, readCookie, safeReturnTo, serializeCookie } from '~/lib/.server/request-guards';
 import { WORKSPACE_HEADER } from '~/lib/cloudflare/workspace-header';
 import { canUseConnection, findMembership } from '~/lib/cloudflare/data/organization-access.server';
 import {
@@ -916,8 +916,7 @@ function parseIntegrationRequest<T>(schema: z.ZodType<T>, value: unknown): T {
 }
 
 function oauthStateCookie(value: string, maxAge: number, request: Request): string {
-  const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
-  return `${OAUTH_STATE_COOKIE}=${encodeURIComponent(value)}; Path=/connect/return; HttpOnly${secure}; SameSite=Lax; Max-Age=${maxAge}`;
+  return serializeCookie({ name: OAUTH_STATE_COOKIE, value, path: '/connect/return', maxAge, request });
 }
 
 function cloudflareIntegrationErrorResponse(error: unknown): Response {

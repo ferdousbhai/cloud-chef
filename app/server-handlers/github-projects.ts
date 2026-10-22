@@ -6,7 +6,7 @@ import { GitHubError } from '~/lib/.server/github/github-api';
 import { PayloadTooLargeError } from '~/lib/bounded-body';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
 import type { RepositoryClient } from '~/lib/.server/github/repository-client';
-import { readCookie, readJsonRequest, safeReturnTo } from '~/lib/.server/request-guards';
+import { readCookie, readJsonRequest, safeReturnTo, serializeCookie } from '~/lib/.server/request-guards';
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
 import { promotedDraftFiles, promotedWorkerName, readDraftSnapshot } from '~/lib/.server/github/promote-draft';
 import {
@@ -98,7 +98,10 @@ export function startGitHubInstallAction({ request, env }: { request: Request; e
     installUrl.searchParams.set('state', state);
     return Response.json(
       { installUrl: installUrl.toString() },
-      { status: 201, headers: { 'Set-Cookie': stateCookie(state, STATE_TTL_MS / 1_000, request) } },
+      {
+        status: 201,
+        headers: { 'Set-Cookie': githubReturnCookie(STATE_COOKIE, state, STATE_TTL_MS / 1_000, request) },
+      },
     );
   });
 }
@@ -255,7 +258,10 @@ export function approveProductionRequestAction({
     const redirectUri = new URL(GITHUB_RETURN_PATH, publicOrigin(request)).toString();
     return Response.json(
       { authorizeUrl: app.authorizeUrl(state, redirectUri) },
-      { status: 201, headers: { 'Set-Cookie': approvalCookie(state, STATE_TTL_MS / 1_000, request) } },
+      {
+        status: 201,
+        headers: { 'Set-Cookie': githubReturnCookie(APPROVAL_COOKIE, state, STATE_TTL_MS / 1_000, request) },
+      },
     );
   });
 }
@@ -292,7 +298,7 @@ async function completeProductionApproval(args: {
     if (promoted) {
       location.searchParams.set('promoted', promoted);
     }
-    return redirectClearing(location, args.request, APPROVAL_COOKIE);
+    return redirect(location, args.request, APPROVAL_COOKIE);
   };
   const claim: ApprovalClaimHeld = {};
   try {
@@ -671,36 +677,18 @@ function settingsWithMessage(origin: string, message: GitHubReturnMessage | null
   location.hash = 'organizations';
   return location;
 }
-
-/** Back to CloudChef, with the installation's browser state cleared. */
-function redirect(location: URL, request: Request): Response {
-  return new Response(null, {
-    status: 303,
-    headers: { Location: location.toString(), 'Cache-Control': 'no-store', 'Set-Cookie': stateCookie('', 0, request) },
-  });
-}
-
-/** Back to CloudChef, with an approval's browser state cleared. */
-function redirectClearing(location: URL, request: Request, cookie: string): Response {
+/** Back to CloudChef, with the browser state of the installation (or of an approval) cleared. */
+function redirect(location: URL, request: Request, cookie = STATE_COOKIE): Response {
   return new Response(null, {
     status: 303,
     headers: {
       Location: location.toString(),
       'Cache-Control': 'no-store',
-      'Set-Cookie': cookieFor(cookie, '', 0, request),
+      'Set-Cookie': githubReturnCookie(cookie, '', 0, request),
     },
   });
 }
 
-function approvalCookie(value: string, maxAge: number, request: Request): string {
-  return cookieFor(APPROVAL_COOKIE, value, maxAge, request);
-}
-
-function cookieFor(name: string, value: string, maxAge: number, request: Request): string {
-  const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
-  return `${name}=${encodeURIComponent(value)}; Path=${GITHUB_RETURN_PATH}; HttpOnly${secure}; SameSite=Lax; Max-Age=${maxAge}`;
-}
-
-function stateCookie(value: string, maxAge: number, request: Request): string {
-  return cookieFor(STATE_COOKIE, value, maxAge, request);
+function githubReturnCookie(name: string, value: string, maxAge: number, request: Request): string {
+  return serializeCookie({ name, value, path: GITHUB_RETURN_PATH, maxAge, request });
 }

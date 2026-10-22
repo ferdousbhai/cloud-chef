@@ -29,6 +29,21 @@ export function safeReturnTo(callbackURL: string | undefined, origin: string): s
   return returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/';
 }
 
+/**
+ * A `Set-Cookie` value for an HttpOnly, SameSite=Lax cookie sent only to `path`, Secure unless `request`
+ * came over plain HTTP. A `maxAge` of 0 clears it.
+ */
+export function serializeCookie(args: {
+  name: string;
+  value: string;
+  path: string;
+  maxAge: number;
+  request?: Request;
+}): string {
+  const secure = !args.request || new URL(args.request.url).protocol === 'https:' ? '; Secure' : '';
+  return `${args.name}=${encodeURIComponent(args.value)}; Path=${args.path}; HttpOnly${secure}; SameSite=Lax; Max-Age=${args.maxAge}`;
+}
+
 export function readCookie(request: Request, name: string): string | null {
   for (const part of (request.headers.get('cookie') ?? '').split(';')) {
     const [candidate, ...value] = part.trim().split('=');

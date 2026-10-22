@@ -2,7 +2,13 @@ import { z } from 'zod';
 import { publicOrigin } from '~/lib/.server/public-origin';
 import { createAuthSession, getAuthSession, prepareAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
-import { hasSameOrigin, readCookie, readJsonRequest, safeReturnTo } from '~/lib/.server/request-guards';
+import {
+  hasSameOrigin,
+  readCookie,
+  readJsonRequest,
+  safeReturnTo,
+  serializeCookie,
+} from '~/lib/.server/request-guards';
 import { bytesToBase64Url } from '~/lib/hex-digest';
 
 /**
@@ -176,6 +182,5 @@ function redirect(location: URL, cookie: string): Response {
 }
 
 function stateCookie(value: string, maxAge: number, request: Request): string {
-  const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
-  return `${STATE_COOKIE}=${encodeURIComponent(value)}; Path=${GOOGLE_RETURN_PATH}; HttpOnly${secure}; SameSite=Lax; Max-Age=${maxAge}`;
+  return serializeCookie({ name: STATE_COOKIE, value, path: GOOGLE_RETURN_PATH, maxAge, request });
 }
