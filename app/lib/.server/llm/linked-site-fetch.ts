@@ -1,3 +1,4 @@
+import { readBodyTextPrefix } from '~/lib/bounded-body';
 import {
   toolFailure,
   toolSuccess,
@@ -94,7 +95,7 @@ export async function fetchLinkedSitePage(
     await response.body?.cancel();
     return toolFailure(`${url.href} answered ${response.status} with ${contentType}, which isn't text.`);
   }
-  const { text: body, truncated } = await readBounded(response, SITE_FETCH_MAX_BYTES);
+  const { text: body, truncated } = await readBodyTextPrefix(response, SITE_FETCH_MAX_BYTES);
   const html = contentType === 'text/html' || contentType === 'application/xhtml+xml';
   const content = html && input.format !== 'html' ? htmlToText(body) : body;
   const start = Math.min(input.offset ?? 0, content.length);
@@ -130,46 +131,6 @@ function parseSiteUrl(value: string, base?: URL): URL | null {
     return null;
   }
   return url;
-}
-
-/** The first `limit` bytes of a body as text, and whether there was more. */
-async function readBounded(response: Response, limit: number): Promise<{ text: string; truncated: boolean }> {
-  if (!response.body) {
-    return { text: '', truncated: false };
-  }
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  let truncated = false;
-  for (;;) {
-    const next = await reader.read();
-    if (next.done) {
-      break;
-    }
-    const room = limit - size;
-    if (next.value.length >= room) {
-      chunks.push(next.value.subarray(0, room));
-      size = limit;
-      truncated = next.value.length > room;
-      if (!truncated) {
-        const after = await reader.read();
-        truncated = !after.done;
-      }
-      if (truncated) {
-        await reader.cancel();
-      }
-      break;
-    }
-    chunks.push(next.value);
-    size += next.value.length;
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return { text: new TextDecoder().decode(bytes), truncated };
 }
 
 const NAMED_ENTITIES = new Map([

@@ -23,6 +23,7 @@ import {
 } from './project-workspace-container-policy';
 import { CLOUDCHEF_CONTROL_PLANE_ENDPOINT, USER_WORKSPACE_RUNTIME_GC_CRON } from './user-workspace-runtime-policy';
 import { bytesToBase64, sha256Hex } from '~/lib/hex-digest';
+import { PayloadTooLargeError, readBodyBytesWithLimit } from '~/lib/bounded-body';
 import type { CloudflareOAuthScopeGrantStatus } from './cloudflare-oauth-scope-manifest';
 
 const API_ROOT = 'https://api.cloudflare.com/client/v4';
@@ -1454,7 +1455,7 @@ export class UserCloudflareAccountApi {
       await response.body?.cancel().catch(() => undefined);
       return;
     }
-    const text = await readBoundedResponseText(response, MAX_CLOUDFLARE_RESPONSE_BYTES);
+    const text = await readBoundedResponseText(response);
     if (!response.ok || text === null) {
       throw new CloudflareAccountApiError(`Cloudflare API request failed (${response.status}).`);
     }
@@ -1741,12 +1742,7 @@ function requireEnvelopeResult<T>(payload: CloudflareEnvelope<T> | null, respons
 }
 
 async function readBoundedJson<T>(response: Response): Promise<T | null> {
-  const contentLength = Number(response.headers.get('Content-Length') ?? 0);
-  if (Number.isFinite(contentLength) && contentLength > MAX_CLOUDFLARE_RESPONSE_BYTES) {
-    await response.body?.cancel().catch(() => undefined);
-    return null;
-  }
-  const text = await readBoundedResponseText(response, MAX_CLOUDFLARE_RESPONSE_BYTES);
+  const text = await readBoundedResponseText(response);
   if (text === null) {
     return null;
   }
@@ -1757,36 +1753,18 @@ async function readBoundedJson<T>(response: Response): Promise<T | null> {
   }
 }
 
-async function readBoundedResponseText(response: Response, limit: number): Promise<string | null> {
-  if (!response.body) {
-    return '';
-  }
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
+/** A Cloudflare response's text, or null past the size CloudChef reads, whose rest is left unread. */
+async function readBoundedResponseText(response: Response): Promise<string | null> {
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      total += value.byteLength;
-      if (total > limit) {
-        await reader.cancel().catch(() => undefined);
-        return null;
-      }
-      chunks.push(value);
+    return new TextDecoder().decode(
+      await readBodyBytesWithLimit(response, MAX_CLOUDFLARE_RESPONSE_BYTES, 'Cloudflare response'),
+    );
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) {
+      return null;
     }
-  } finally {
-    reader.releaseLock();
+    throw error;
   }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
 }
 
 function requireAssetUploadJwt(value: unknown): string {

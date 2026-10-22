@@ -1,4 +1,5 @@
 import type { CloudflareApiRequest } from 'cloudchef-agent/cloudflare-api';
+import { readBodyTextPrefix } from '~/lib/bounded-body';
 
 const CLOUDFLARE_API_TIMEOUT_MS = 60_000;
 export const CLOUDFLARE_API_MAX_CONTENT_BYTES = 48 * 1024;
@@ -78,9 +79,9 @@ export class CloudflareApiClient {
       };
     }
 
-    let body: { text: string; more: boolean };
+    let body: { text: string; truncated: boolean };
     try {
-      body = await readTextPrefix(response, CLOUDFLARE_API_READ_BYTES);
+      body = await readBodyTextPrefix(response, CLOUDFLARE_API_READ_BYTES);
     } catch {
       signal.throwIfAborted();
       return {
@@ -92,7 +93,7 @@ export class CloudflareApiClient {
       };
     }
 
-    const { content, truncated } = boundedContent(redactBearerTokens(body.text, accessToken), body.more);
+    const { content, truncated } = boundedContent(redactBearerTokens(body.text, accessToken), body.truncated);
     return {
       status: response.ok ? 'success' : response.status === 403 ? 'insufficient_scope' : 'failure',
       content,
@@ -122,38 +123,6 @@ function responseRequestId(response: Response): string | null {
 
 function redactBearerTokens(value: string, accessToken: string): string {
   return value.replace(bearerTokenPattern, '[REDACTED]').replaceAll(accessToken, '[REDACTED]');
-}
-
-/** Read at most `limit` bytes and cancel the rest, so a large listing costs only what is kept. */
-async function readTextPrefix(response: Response, limit: number): Promise<{ text: string; more: boolean }> {
-  if (!response.body) {
-    return { text: '', more: false };
-  }
-  const reader = response.body.getReader();
-  const bytes = new Uint8Array(limit);
-  let length = 0;
-  let more = false;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      const kept = Math.min(value.byteLength, limit - length);
-      bytes.set(value.subarray(0, kept), length);
-      length += kept;
-      if (kept < value.byteLength || length === limit) {
-        more = kept < value.byteLength || !(await reader.read()).done;
-        break;
-      }
-    }
-  } finally {
-    if (more) {
-      await reader.cancel().catch(() => undefined);
-    }
-    reader.releaseLock();
-  }
-  return { text: new TextDecoder().decode(bytes.subarray(0, length)), more };
 }
 
 function boundedContent(value: string, more: boolean): Pick<CloudflareApiOutcome, 'content' | 'truncated'> {
