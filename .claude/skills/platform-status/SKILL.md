@@ -80,7 +80,7 @@ code.
 `scripts/ops-report.mjs`, a plain ESM Node script. It reads production control-plane D1 with `cf d1 query` (the
 database id comes from `cloudflare.config.ts`), the control-plane Worker's invocation outcomes from Workers Logs with
 `cf o11y telemetry query` run as a dry run, which saves no query or result, and the Workers AI catalog with `cf ai models list`, all under the operator's existing `cf` login. Every statement is a `SELECT` and every command is a
-read; the tool never writes, deletes, or upgrades anything, and holds no credential of its own. If the login can see more
+read, checked against a read-only allowlist (`scripts/lib/ops-cf.mjs`) before it runs; the tool never writes, deletes, or upgrades anything, and holds no credential of its own. If the login can see more
 than one account, set `CLOUDFLARE_ACCOUNT_ID` so `cf` knows which one to ask about.
 
 Runtime staleness is measured against `app/generated/user-workspace-runtime.generated.ts`, the workspace runtime build

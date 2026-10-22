@@ -113,7 +113,8 @@ settings:
 - root `/`, all paths included, build caching on
 - build token `account-workers-builds-production`, which needs only the permissions to deploy the Worker, read its
   deployment, and manage the control-plane D1 migrations
-- the pinned `NODE_VERSION`, `PNPM_VERSION`, `SKIP_DEPENDENCY_INSTALL=1`, and `CLOUDFLARE_OAUTH_CLIENT_ID`
+- `NODE_VERSION` and `PNPM_VERSION` as `.nvmrc` and `packageManager` pin them, `SKIP_DEPENDENCY_INSTALL=1`, and
+  `CLOUDFLARE_OAUTH_CLIENT_ID`
 
 Runtime secrets remain on the Worker and are not build variables. User workspace and generated-application resources
 are provisioned with the connected user's authorization.
@@ -184,7 +185,7 @@ Workers Logs queries for the workspace Worker, AI Gateway logs filed under the c
 commits and check runs on the conversation's branch (the latest of the member's: which one is the chat's isn't recorded). It refuses any `cf` command outside a read-only allowlist, and a source it cannot
 read is reported as unknown with the reason. Conversation content exists only for people who kept AI Gateway logging on.
 
-`scripts/ops-report.mjs` is read-only under your `cf` login; `.claude/skills/platform-status/SKILL.md` describes its
+`scripts/ops-report.mjs` is read-only under your `cf` login, through the same allowlist (`scripts/lib/ops-cf.mjs`); `.claude/skills/platform-status/SKILL.md` describes its
 checks and how to read them. Runtime staleness is measured against `app/generated/user-workspace-runtime.generated.ts`,
 so run `pnpm run generate:artifacts` first if the report says it has no build to compare against.
 

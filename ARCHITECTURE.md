@@ -114,7 +114,7 @@ an active, unpaused member of the organization that owns it. The credential brok
 its secret, so pausing or removing a member stops their runtime at its next call, without a
 redeploy. Every runtime route (`/api/cloudflare/runtime-*`, `app/server-handlers/runtime-authentication.ts`) takes
 the runtime's identity in headers beside its secret and checks both before reading a body, which for a commit can be
-48 MB; a runtime from before those headers names itself in the body, which is then read only up to 64 KB first. Each
+48 MB, and refuses a call that lacks them. Each
 secret may make 600 calls a minute (`RUNTIME_RATE_LIMITER`). In an organization's account the runtime also asks (`/api/cloudflare/runtime-access`) before
 each model turn, since the model runs on the organization's Workers AI without a token from the broker.
 The same answer carries the person's own AI Gateway content-logging choice (`user.ai_gateway_content_logging`,
