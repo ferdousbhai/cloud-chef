@@ -25,9 +25,7 @@ export const dataOperationArgSchemas = {
   'messages.startLinkedChat': chatIdentityArgsSchema.extend({ orgProjectId: z.string().uuid() }),
   'messages.linkedChatHistory': sessionIdArgsSchema.extend({ orgProjectId: z.string().uuid() }),
   'messages.discardEmptyChat': chatIdentityArgsSchema,
-  // `subchatIndex` no longer affects the result; it stays accepted so already-deployed
-  // workspace runtimes that still send it are not rejected by the strict schema.
-  'messages.get': chatIdentityArgsSchema.extend({ subchatIndex: subchatIndexSchema.optional() }),
+  'messages.get': chatIdentityArgsSchema,
   'messages.getAll': sessionIdArgsSchema.extend({ cursor: chatHistoryCursorSchema, limit: pageLimitSchema }),
   'messages.setDescription': chatIdentityArgsSchema.extend({ description: descriptionSchema }),
   'messages.remove': chatIdentityArgsSchema,
