@@ -72,12 +72,15 @@ const PREVIEW_BINDINGS = {
 } as const;
 type PublicationBindings = typeof PRODUCTION_BINDINGS | typeof PREVIEW_BINDINGS;
 
+/** One of the plan's provider resources: the binding it is recorded under, and the name the plan gives it. */
+type PlannedResource<Binding extends string> = { binding: Binding; name: string } | null;
+
 /** Which of the plan's provider resources this publication needs, before any of them exist. */
 type PublicationResourcePlan = {
-  d1: PublicationBindings['app'] | null;
-  agentD1: PublicationBindings['agentSecurity'] | null;
-  r2: PublicationBindings['storage'] | null;
-  kv: PublicationBindings['cache'] | null;
+  d1: PlannedResource<PublicationBindings['app']>;
+  agentD1: PlannedResource<PublicationBindings['agentSecurity']>;
+  r2: PlannedResource<PublicationBindings['storage']>;
+  kv: PlannedResource<PublicationBindings['cache']>;
 };
 
 type PublicationResources = {
@@ -547,11 +550,15 @@ function hasAppAgentObjects(accountApi: UserCloudflareAccountApi, workerName: st
 }
 
 function publicationResourcePlan(plan: Deployment['plan'], bindings: PublicationBindings): PublicationResourcePlan {
+  const planned = <Binding extends string>(type: 'd1' | 'r2' | 'kv', binding: Binding): PlannedResource<Binding> => {
+    const name = deploymentPlanResourceName(plan, type, binding);
+    return name ? { binding, name } : null;
+  };
   return {
-    d1: deploymentPlanResourceName(plan, 'd1', bindings.app) ? bindings.app : null,
-    agentD1: deploymentPlanResourceName(plan, 'd1', bindings.agentSecurity) ? bindings.agentSecurity : null,
-    r2: deploymentPlanResourceName(plan, 'r2', bindings.storage) ? bindings.storage : null,
-    kv: deploymentPlanResourceName(plan, 'kv', bindings.cache) ? bindings.cache : null,
+    d1: planned('d1', bindings.app),
+    agentD1: planned('d1', bindings.agentSecurity),
+    r2: planned('r2', bindings.storage),
+    kv: planned('kv', bindings.cache),
   };
 }
 
@@ -564,20 +571,20 @@ async function ensurePublicationResources(args: {
   const { db, deployment, accountApi, resourcePlan } = args;
   const resources: PublicationResources = { d1: null, agentD1: null, r2: null, kv: null };
   if (resourcePlan.d1) {
-    resources.d1 = await accountApi.ensureD1ForPlan(deployment.plan, resourcePlan.d1);
-    await recordResource(db, deployment.id, 'd1', resourcePlan.d1, resources.d1.id);
+    resources.d1 = await accountApi.ensureD1Database(resourcePlan.d1.name);
+    await recordResource(db, deployment.id, 'd1', resourcePlan.d1.binding, resources.d1.id);
   }
   if (resourcePlan.agentD1) {
-    resources.agentD1 = await accountApi.ensureD1ForPlan(deployment.plan, resourcePlan.agentD1);
-    await recordResource(db, deployment.id, 'd1', resourcePlan.agentD1, resources.agentD1.id);
+    resources.agentD1 = await accountApi.ensureD1Database(resourcePlan.agentD1.name);
+    await recordResource(db, deployment.id, 'd1', resourcePlan.agentD1.binding, resources.agentD1.id);
   }
   if (resourcePlan.r2) {
-    resources.r2 = await accountApi.ensureR2ForPlan(deployment.plan, resourcePlan.r2);
-    await recordResource(db, deployment.id, 'r2', resourcePlan.r2, resources.r2.id);
+    resources.r2 = await accountApi.ensureR2Bucket(resourcePlan.r2.name);
+    await recordResource(db, deployment.id, 'r2', resourcePlan.r2.binding, resources.r2.id);
   }
   if (resourcePlan.kv) {
-    resources.kv = await accountApi.ensureKvForPlan(deployment.plan, resourcePlan.kv);
-    await recordResource(db, deployment.id, 'kv', resourcePlan.kv, resources.kv.id);
+    resources.kv = await accountApi.ensureKvNamespace(resourcePlan.kv.name);
+    await recordResource(db, deployment.id, 'kv', resourcePlan.kv.binding, resources.kv.id);
   }
   return resources;
 }
@@ -682,10 +689,13 @@ async function applyPreviewMigrations(args: {
   };
   return {
     ...resources,
-    d1: resources.d1 && resourcePlan.d1 ? await apply(resources.d1, resourcePlan.d1, artifact.migrations.DB) : null,
+    d1:
+      resources.d1 && resourcePlan.d1
+        ? await apply(resources.d1, resourcePlan.d1.binding, artifact.migrations.DB)
+        : null,
     agentD1:
       resources.agentD1 && resourcePlan.agentD1
-        ? await apply(resources.agentD1, resourcePlan.agentD1, artifact.migrations.AGENT_SECURITY_DB)
+        ? await apply(resources.agentD1, resourcePlan.agentD1.binding, artifact.migrations.AGENT_SECURITY_DB)
         : null,
   };
 }
@@ -758,7 +768,7 @@ export async function createUserAccountApi(
     throw new Error('Cloudflare connection is unavailable.');
   }
   const accessToken = await resolveUserWorkspaceCloudflareAccessToken(env, identity);
-  return new UserCloudflareAccountApi(identity.accountId, accessToken, request, undefined, () =>
+  return new UserCloudflareAccountApi(identity.accountId, accessToken, request, () =>
     resolveUserWorkspaceCloudflareAccessToken(env, identity, { forceRefresh: true }),
   );
 }

@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { deploymentPlanResourceName, type DeploymentPlan, type DeploymentResourceType } from './deployment-plan';
 import {
   deploymentAssetExtension,
   deploymentAssetHash,
@@ -183,6 +182,37 @@ const containerApplicationRolloutSchema = z.looseObject({
 
 /** A migration receipt's applied SQL; a receipt written before receipts kept it has none. */
 const appliedMigrationSqlSchema = z.looseObject({ sql: z.string() });
+/** A migration receipt's name and digest; a receipt from before receipts kept digests has none. */
+const d1MigrationReceiptSchema = z.looseObject({ name: z.string(), digest: z.string().nullable() });
+/** Every statement of a D1 query, each of which must have succeeded. */
+const d1QueryResultsSchema = z
+  .array(z.looseObject({ success: z.literal(true), results: z.array(z.unknown()).optional() }))
+  .min(1);
+type D1QueryResult = z.infer<typeof d1QueryResultsSchema>[number];
+/** The D1 databases the account lists under a name. */
+const d1DatabasesSchema = z.array(z.looseObject({ name: z.string().min(1), uuid: z.string().min(1).max(256) }));
+/** A KV namespace as the account lists it; one listed without an id or title is not CloudChef's to use. */
+const kvNamespaceSchema = z.looseObject({ id: z.string(), title: z.string() });
+/** A Worker's cron triggers, as Cloudflare reports them after a change and on a read. */
+const workerSchedulesSchema = z.looseObject({ schedules: z.array(z.looseObject({ cron: z.string().min(1) })) });
+/** A Worker's deployments, each with the versions it routes traffic to. */
+const workerDeploymentsSchema = z.looseObject({
+  deployments: z.array(
+    z.looseObject({
+      id: z.string().min(1),
+      created_on: z.string().min(1),
+      versions: z.array(z.looseObject({ percentage: z.number(), version_id: z.string().min(1) })),
+    }),
+  ),
+});
+type WorkerDeploymentRow = z.infer<typeof workerDeploymentsSchema>['deployments'][number];
+/** The account's container applications, each named. */
+const containerApplicationsSchema = z.array(z.looseObject({ name: z.string().min(1) }));
+/** A container application CloudChef found by name: its id and the Durable Object namespace it serves. */
+const containerApplicationSchema = z.looseObject({
+  id: z.string().min(1),
+  durable_objects: z.looseObject({ namespace_id: z.string().min(1) }),
+});
 
 /** An AI Gateway's settings as Cloudflare returns them, each kept so an update can write it back. */
 const aiGatewaySettingsSchema = z.record(z.string(), z.json());
@@ -229,17 +259,11 @@ function aiGatewayProviderKey(value: z.infer<typeof aiGatewayProviderKeySchema>)
   };
 }
 
-type D1QueryResult = {
-  success?: boolean;
-  results?: unknown[];
-};
-
 export class UserCloudflareAccountApi {
   constructor(
     private readonly accountId: string,
     private accessToken: string,
     private readonly request: typeof fetch = fetch,
-    private readonly authorizeRequest?: () => Promise<void>,
     private readonly refreshAccessToken?: () => Promise<string>,
   ) {
     if (!accountId || !accessToken) {
@@ -247,26 +271,28 @@ export class UserCloudflareAccountApi {
     }
   }
 
+  /** The D1 database with this name, created when the account has none. */
   async ensureD1Database(resourceName: string): Promise<{ id: string; name: string }> {
     requireCloudflareResourceName(resourceName);
-    const databases = await this.call<unknown>(`/d1/database?name=${encodeURIComponent(resourceName)}`, {
-      method: 'GET',
-    });
-    const existingId = existingD1DatabaseId(databases, resourceName);
-    if (existingId) {
-      return { id: existingId, name: resourceName };
-    }
-    const result = await this.call<{ uuid?: string; name?: string }>('/d1/database', {
-      method: 'POST',
-      body: JSON.stringify({ name: resourceName }),
-    });
-    if (!result.uuid || result.name !== resourceName) {
-      throw new CloudflareAccountApiError('Cloudflare returned an invalid D1 resource.');
-    }
-    return { id: result.uuid, name: result.name };
+    return findOrCreate(
+      async () => {
+        const id = await this.findD1DatabaseId(resourceName);
+        return id ? { id, name: resourceName } : null;
+      },
+      async () => {
+        const result = await this.call<{ uuid?: string; name?: string }>('/d1/database', {
+          method: 'POST',
+          body: JSON.stringify({ name: resourceName }),
+        });
+        if (!result.uuid || result.name !== resourceName) {
+          throw new CloudflareAccountApiError('Cloudflare returned an invalid D1 resource.');
+        }
+        return { id: result.uuid, name: result.name };
+      },
+    );
   }
 
-  async executeD1(databaseId: string, sql: string, params: unknown[] = []): Promise<D1QueryResult[]> {
+  private async executeD1(databaseId: string, sql: string, params: unknown[] = []): Promise<D1QueryResult[]> {
     if (!sql.trim()) {
       throw new CloudflareAccountApiError('Invalid D1 query.');
     }
@@ -289,21 +315,16 @@ export class UserCloudflareAccountApi {
     if (!/^[0-9a-f-]{32,64}$/i.test(databaseId)) {
       throw new CloudflareAccountApiError('Invalid D1 query.');
     }
-    const result = await this.call<unknown>(`/d1/database/${encodeURIComponent(databaseId)}/query`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-    if (
-      !Array.isArray(result) ||
-      result.length === 0 ||
-      result.some(
-        (query) =>
-          !isRecord(query) || query.success !== true || (query.results !== undefined && !Array.isArray(query.results)),
-      )
-    ) {
+    const result = d1QueryResultsSchema.safeParse(
+      await this.call<unknown>(`/d1/database/${encodeURIComponent(databaseId)}/query`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    );
+    if (!result.success) {
       throw new CloudflareAccountApiError('Cloudflare returned an unsuccessful D1 query result.');
     }
-    return result;
+    return result.data;
   }
 
   async applyD1Migrations(databaseId: string, migrations: readonly { name: string; sql: string }[]): Promise<void> {
@@ -405,13 +426,6 @@ export class UserCloudflareAccountApi {
     return null;
   }
 
-  async ensureD1ForPlan(
-    plan: DeploymentPlan,
-    logicalName: 'DB' | 'DB_PREVIEW' | 'AGENT_SECURITY_DB' | 'AGENT_SECURITY_DB_PREVIEW',
-  ): Promise<{ id: string; name: string }> {
-    return this.ensureD1Database(requirePlanResourceName(plan, 'd1', logicalName));
-  }
-
   private async createR2Bucket(resourceName: string): Promise<{ id: string; name: string }> {
     requireR2BucketName(resourceName);
     const result = await this.call<{ name?: string }>('/r2/buckets', {
@@ -422,14 +436,6 @@ export class UserCloudflareAccountApi {
       throw new CloudflareAccountApiError('Cloudflare returned an invalid R2 resource.');
     }
     return { id: result.name, name: result.name };
-  }
-
-  async ensureR2ForPlan(
-    plan: DeploymentPlan,
-    logicalName: 'APP_STORAGE' | 'APP_STORAGE_PREVIEW',
-  ): Promise<{ id: string; name: string }> {
-    const resourceName = requirePlanResourceName(plan, 'r2', logicalName);
-    return this.ensureR2Bucket(resourceName);
   }
 
   private async readR2Bucket(resourceName: string): Promise<{ id: string; name: string } | null> {
@@ -445,54 +451,30 @@ export class UserCloudflareAccountApi {
     return null;
   }
 
+  /** The R2 bucket with this name, created when the account has none. */
   async ensureR2Bucket(resourceName: string): Promise<{ id: string; name: string }> {
     requireR2BucketName(resourceName);
-    const existing = await this.readR2Bucket(resourceName);
-    if (existing) {
-      return existing;
-    }
-    try {
-      return await this.createR2Bucket(resourceName);
-    } catch (error) {
-      if (!(error instanceof CloudflareAccountApiError)) {
-        throw error;
-      }
-      const raced = await this.readR2Bucket(resourceName);
-      if (raced) {
-        return raced;
-      }
-      throw error;
-    }
+    return findOrCreate(
+      () => this.readR2Bucket(resourceName),
+      () => this.createR2Bucket(resourceName),
+    );
   }
 
-  async ensureKvForPlan(
-    plan: DeploymentPlan,
-    logicalName: 'APP_CACHE' | 'APP_CACHE_PREVIEW',
-  ): Promise<{ id: string; name: string }> {
-    const resourceName = requirePlanResourceName(plan, 'kv', logicalName);
-    const existing = await this.findKvNamespace(resourceName);
-    if (existing) {
-      return existing;
-    }
-    try {
-      const created = await this.call<{ id?: string; title?: string }>('/storage/kv/namespaces', {
-        method: 'POST',
-        body: JSON.stringify({ title: resourceName }),
-      });
-      if (!created.id || !/^[a-f0-9]{32}$/.test(created.id) || created.title !== resourceName) {
-        throw new CloudflareAccountApiError('Cloudflare returned an invalid KV namespace.');
-      }
-      return { id: created.id, name: resourceName };
-    } catch (error) {
-      if (!(error instanceof CloudflareAccountApiError)) {
-        throw error;
-      }
-      const raced = await this.findKvNamespace(resourceName);
-      if (raced) {
-        return raced;
-      }
-      throw error;
-    }
+  /** The KV namespace with this title, created when the account has none. */
+  async ensureKvNamespace(resourceName: string): Promise<{ id: string; name: string }> {
+    return findOrCreate(
+      () => this.findKvNamespace(resourceName),
+      async () => {
+        const created = await this.call<{ id?: string; title?: string }>('/storage/kv/namespaces', {
+          method: 'POST',
+          body: JSON.stringify({ title: resourceName }),
+        });
+        if (!created.id || !/^[a-f0-9]{32}$/.test(created.id) || created.title !== resourceName) {
+          throw new CloudflareAccountApiError('Cloudflare returned an invalid KV namespace.');
+        }
+        return { id: created.id, name: resourceName };
+      },
+    );
   }
 
   /** Resolve one namespace by name out of the account listing, which is the only KV lookup there is. */
@@ -550,12 +532,19 @@ export class UserCloudflareAccountApi {
   }
 
   /** The id Cloudflare holds for a database name, or null when the account has no such database. */
-  async findD1DatabaseId(resourceName: string): Promise<string | null> {
+  private async findD1DatabaseId(resourceName: string): Promise<string | null> {
     requireCloudflareResourceName(resourceName);
-    const databases = await this.call<unknown>(`/d1/database?name=${encodeURIComponent(resourceName)}`, {
-      method: 'GET',
-    });
-    return existingD1DatabaseId(databases, resourceName);
+    const databases = d1DatabasesSchema.safeParse(
+      await this.call<unknown>(`/d1/database?name=${encodeURIComponent(resourceName)}`, { method: 'GET' }),
+    );
+    if (!databases.success) {
+      throw new CloudflareAccountApiError('Cloudflare returned an invalid D1 resource list.');
+    }
+    const matches = databases.data.filter((database) => database.name === resourceName);
+    if (matches.length > 1) {
+      throw new CloudflareAccountApiError('Cloudflare returned an ambiguous D1 resource list.');
+    }
+    return matches[0]?.uuid ?? null;
   }
 
   /**
@@ -640,13 +629,12 @@ export class UserCloudflareAccountApi {
   }
 
   /** List every KV namespace in the connected account. Namespaces carry no creation time. */
-  async listKvNamespaces(): Promise<{ id: string; name: string }[]> {
+  private async listKvNamespaces(): Promise<{ id: string; name: string }[]> {
     const namespaces = await this.listAllPages('/storage/kv/namespaces', 'Cloudflare returned invalid KV namespaces.');
-    return namespaces.flatMap((value) =>
-      isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string'
-        ? [{ id: value.id, name: value.title }]
-        : [],
-    );
+    return namespaces.flatMap((value) => {
+      const namespace = kvNamespaceSchema.safeParse(value);
+      return namespace.success ? [{ id: namespace.data.id, name: namespace.data.title }] : [];
+    });
   }
 
   /**
@@ -776,21 +764,18 @@ export class UserCloudflareAccountApi {
 
   /** Replace every trigger with the one server-owned AppAgent cleanup schedule, or none. */
   async configureManagedWorkerSchedule(workerName: string, appAgent: boolean): Promise<void> {
+    await this.replaceWorkerSchedules(workerName, appAgent ? [DEPLOYMENT_SECURITY_CLEANUP_CRON] : []);
+  }
+
+  /** Replace every trigger with exactly `expected`, as Cloudflare answers the change and then reads it back. */
+  private async replaceWorkerSchedules(workerName: string, expected: readonly string[]): Promise<void> {
     requireWorkerName(workerName);
-    const expected = appAgent ? [DEPLOYMENT_SECURITY_CLEANUP_CRON] : [];
-    const result = await this.call<{ schedules?: Array<{ cron?: string }> }>(
-      `/workers/scripts/${encodeURIComponent(workerName)}/schedules`,
-      {
-        method: 'PUT',
-        body: JSON.stringify(expected.map((cron) => ({ cron }))),
-      },
+    const path = `/workers/scripts/${encodeURIComponent(workerName)}/schedules`;
+    requireExactSchedules(
+      await this.call<unknown>(path, { method: 'PUT', body: JSON.stringify(expected.map((cron) => ({ cron }))) }),
+      expected,
     );
-    requireExactSchedules(result, expected);
-    const readback = await this.call<{ schedules?: Array<{ cron?: string }> }>(
-      `/workers/scripts/${encodeURIComponent(workerName)}/schedules`,
-      { method: 'GET' },
-    );
-    requireExactSchedules(readback, expected);
+    requireExactSchedules(await this.call<unknown>(path, { method: 'GET' }), expected);
   }
 
   private async uploadStaticAssets(workerName: string, assets: readonly DeploymentArtifactFile[]): Promise<string> {
@@ -1267,7 +1252,6 @@ export class UserCloudflareAccountApi {
     applicationName: string;
     namespaceId: string;
     image: string;
-    sleep?: (milliseconds: number) => Promise<void>;
   }): Promise<void> {
     requireWorkerName(args.applicationName);
     if (!/^[0-9a-f-]{32,64}$/i.test(args.namespaceId)) {
@@ -1340,7 +1324,6 @@ export class UserCloudflareAccountApi {
         applicationName: args.applicationName,
         rolloutId,
         image: args.image,
-        sleep: args.sleep,
       });
     }
   }
@@ -1376,9 +1359,7 @@ export class UserCloudflareAccountApi {
     applicationName: string;
     rolloutId: string;
     image: string;
-    sleep?: (milliseconds: number) => Promise<void>;
   }): Promise<void> {
-    const sleep = args.sleep ?? ((milliseconds: number) => scheduler.wait(milliseconds));
     const deadline = Date.now() + CONTAINER_ROLLOUT_DEADLINE_MS;
     while (Date.now() < deadline) {
       const rollout = requireContainerApplicationRollout(
@@ -1399,7 +1380,7 @@ export class UserCloudflareAccountApi {
           `Cloudflare did not complete the workspace container rollout for ${args.applicationName}.`,
         );
       }
-      await sleep(Math.min(CONTAINER_ROLLOUT_POLL_INTERVAL_MS, Math.max(1, deadline - Date.now())));
+      await scheduler.wait(Math.min(CONTAINER_ROLLOUT_POLL_INTERVAL_MS, Math.max(1, deadline - Date.now())));
     }
     throw new CloudflareAccountApiError(
       `Cloudflare did not complete the workspace container rollout for ${args.applicationName} before the deadline.`,
@@ -1421,12 +1402,7 @@ export class UserCloudflareAccountApi {
 
   /** Replace every trigger with CloudChef's single deterministic runtime-GC schedule. */
   async configureWorkspaceRuntimeGcSchedule(workerName: string): Promise<void> {
-    requireWorkerName(workerName);
-    const result = await this.call<unknown>(`/workers/scripts/${encodeURIComponent(workerName)}/schedules`, {
-      method: 'PUT',
-      body: JSON.stringify([{ cron: USER_WORKSPACE_RUNTIME_GC_CRON }]),
-    });
-    requireExactSchedules(result, [USER_WORKSPACE_RUNTIME_GC_CRON]);
+    await this.replaceWorkerSchedules(workerName, [USER_WORKSPACE_RUNTIME_GC_CRON]);
   }
 
   private async call<T>(path: string, init: RequestInit): Promise<T> {
@@ -1511,7 +1487,6 @@ export class UserCloudflareAccountApi {
   }
 
   private async callRaw(path: string, init: RequestInit): Promise<Response> {
-    await this.authorizeRequest?.();
     let response = await this.executeRaw(path, init, this.accessToken);
     if (response.status === 401 && this.refreshAccessToken) {
       await response.body?.cancel().catch(() => undefined);
@@ -1520,7 +1495,6 @@ export class UserCloudflareAccountApi {
         throw new CloudflareAccountApiError('Cloudflare connection is unavailable.');
       }
       this.accessToken = refreshed;
-      await this.authorizeRequest?.();
       response = await this.executeRaw(path, init, refreshed);
     }
     return response;
@@ -1662,12 +1636,27 @@ function describeUnknownError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function requirePlanResourceName(plan: DeploymentPlan, type: DeploymentResourceType, logicalName: string): string {
-  const name = deploymentPlanResourceName(plan, type, logicalName);
-  if (!name) {
-    throw new CloudflareAccountApiError(`Approved deployment plan has an invalid ${type} resource.`);
+/**
+ * The resource `find` finds, or the one `create` makes. A create Cloudflare refuses because another
+ * request made the same resource first finds that one instead.
+ */
+async function findOrCreate<T>(find: () => Promise<T | null>, create: () => Promise<T>): Promise<T> {
+  const existing = await find();
+  if (existing) {
+    return existing;
   }
-  return name;
+  try {
+    return await create();
+  } catch (error) {
+    if (!(error instanceof CloudflareAccountApiError)) {
+      throw error;
+    }
+    const raced = await find();
+    if (raced) {
+      return raced;
+    }
+    throw error;
+  }
 }
 
 function requireR2BucketName(name: string): void {
@@ -1676,8 +1665,11 @@ function requireR2BucketName(name: string): void {
   }
 }
 
+/** A name Cloudflare accepts for a Worker, a D1 database or a KV namespace CloudChef manages. */
+const CLOUDFLARE_RESOURCE_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
 function requireWorkerName(name: string): void {
-  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name)) {
+  if (!CLOUDFLARE_RESOURCE_NAME_PATTERN.test(name)) {
     throw new CloudflareAccountApiError('Worker name is invalid.');
   }
 }
@@ -1691,7 +1683,7 @@ function isR2ObjectKeySafeForPathDeletion(key: string): boolean {
 }
 
 function requireCloudflareResourceName(name: string): void {
-  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name)) {
+  if (!CLOUDFLARE_RESOURCE_NAME_PATTERN.test(name)) {
     throw new CloudflareAccountApiError('Cloudflare resource name is invalid.');
   }
 }
@@ -1707,8 +1699,9 @@ function d1ResultsContain(results: D1QueryResult[], predicate: (row: Record<stri
 function d1MigrationReceipt(results: D1QueryResult[], name: string): { name: string; digest: string | null } | null {
   for (const result of results) {
     for (const row of result.results ?? []) {
-      if (isRecord(row) && row.name === name && (typeof row.digest === 'string' || row.digest === null)) {
-        return { name, digest: row.digest };
+      const receipt = d1MigrationReceiptSchema.safeParse(row);
+      if (receipt.success && receipt.data.name === name) {
+        return { name, digest: receipt.data.digest };
       }
     }
   }
@@ -1828,43 +1821,11 @@ function requireExactSchedules(result: unknown, expected: readonly string[]): vo
 }
 
 function requireSchedules(value: unknown): string[] {
-  if (!isRecord(value) || !Array.isArray(value.schedules)) {
+  const parsed = workerSchedulesSchema.safeParse(value);
+  if (!parsed.success) {
     throw new CloudflareAccountApiError('Cloudflare returned invalid Worker schedules.');
   }
-  return value.schedules.map((schedule) => {
-    if (!isRecord(schedule) || typeof schedule.cron !== 'string' || schedule.cron.length === 0) {
-      throw new CloudflareAccountApiError('Cloudflare returned invalid Worker schedules.');
-    }
-    return schedule.cron;
-  });
-}
-
-function existingD1DatabaseId(value: unknown, resourceName: string): string | null {
-  if (!Array.isArray(value)) {
-    throw new CloudflareAccountApiError('Cloudflare returned an invalid D1 resource list.');
-  }
-  const databases = value.map((database) => {
-    if (
-      !isRecord(database) ||
-      typeof database.name !== 'string' ||
-      database.name.length === 0 ||
-      typeof database.uuid !== 'string' ||
-      database.uuid.length === 0 ||
-      database.uuid.length > 256
-    ) {
-      throw new CloudflareAccountApiError('Cloudflare returned an invalid D1 resource.');
-    }
-    return { name: database.name, uuid: database.uuid };
-  });
-  const matches = databases.filter((database) => database.name === resourceName);
-  if (matches.length > 1) {
-    throw new CloudflareAccountApiError('Cloudflare returned an ambiguous D1 resource list.');
-  }
-  const existing = matches[0];
-  if (!existing) {
-    return null;
-  }
-  return existing.uuid;
+  return parsed.data.schedules.map((schedule) => schedule.cron);
 }
 
 /** The versions of the newest deployment Cloudflare lists that route all production traffic. */
@@ -1873,78 +1834,34 @@ function fullyRoutedWorkerVersions(deployments: WorkerDeploymentRow[]) {
   return deployment?.versions.filter((version) => version.percentage === 100) ?? [];
 }
 
-type WorkerDeploymentRow = {
-  id: string;
-  created_on: string;
-  versions: Array<{ percentage: number; version_id: string }>;
-};
-
 function requireWorkerDeployments(value: unknown): WorkerDeploymentRow[] {
-  if (!isRecord(value) || !Array.isArray(value.deployments)) {
+  const parsed = workerDeploymentsSchema.safeParse(value);
+  if (!parsed.success) {
     throw new CloudflareAccountApiError('Cloudflare returned invalid Worker deployments.');
   }
-  return value.deployments.map((deployment) => {
-    if (
-      !isRecord(deployment) ||
-      typeof deployment.id !== 'string' ||
-      deployment.id.length === 0 ||
-      typeof deployment.created_on !== 'string' ||
-      deployment.created_on.length === 0 ||
-      !Array.isArray(deployment.versions)
-    ) {
-      throw new CloudflareAccountApiError('Cloudflare returned invalid Worker deployments.');
-    }
-    const versions = deployment.versions.map((version) => {
-      if (
-        !isRecord(version) ||
-        typeof version.percentage !== 'number' ||
-        !Number.isFinite(version.percentage) ||
-        typeof version.version_id !== 'string' ||
-        version.version_id.length === 0
-      ) {
-        throw new CloudflareAccountApiError('Cloudflare returned invalid Worker deployments.');
-      }
-      return { percentage: version.percentage, version_id: version.version_id };
-    });
-    return { id: deployment.id, created_on: deployment.created_on, versions };
-  });
+  return parsed.data.deployments;
 }
 
 function existingContainerApplication(
   value: unknown,
   applicationName: string,
-): Required<Pick<ContainerApplicationReadback, 'id' | 'name' | 'durable_objects'>> | null {
-  if (!Array.isArray(value)) {
+): z.infer<typeof containerApplicationSchema> | null {
+  const applications = containerApplicationsSchema.safeParse(value);
+  if (!applications.success) {
     throw new CloudflareAccountApiError('Cloudflare returned invalid workspace container applications.');
   }
-  const applications = value.map((application) => {
-    if (!isRecord(application) || typeof application.name !== 'string' || application.name.length === 0) {
-      throw new CloudflareAccountApiError('Cloudflare returned invalid workspace container applications.');
-    }
-    return application;
-  });
-  const matches = applications.filter((application) => application.name === applicationName);
+  const matches = applications.data.filter((application) => application.name === applicationName);
   if (matches.length > 1) {
     throw new CloudflareAccountApiError('Cloudflare returned ambiguous workspace container applications.');
   }
-  const existing = matches[0];
-  if (!existing) {
+  if (matches.length === 0) {
     return null;
   }
-  if (
-    typeof existing.id !== 'string' ||
-    existing.id.length === 0 ||
-    !isRecord(existing.durable_objects) ||
-    typeof existing.durable_objects.namespace_id !== 'string' ||
-    existing.durable_objects.namespace_id.length === 0
-  ) {
+  const existing = containerApplicationSchema.safeParse(matches[0]);
+  if (!existing.success) {
     throw new CloudflareAccountApiError('Cloudflare returned invalid workspace container application.');
   }
-  return {
-    id: existing.id,
-    name: applicationName,
-    durable_objects: { namespace_id: existing.durable_objects.namespace_id },
-  };
+  return existing.data;
 }
 
 function latestContainerApplicationRollout(value: unknown): Required<ContainerApplicationRolloutReadback> | null {

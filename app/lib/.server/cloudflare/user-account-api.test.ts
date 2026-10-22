@@ -1,29 +1,9 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE } from './project-workspace-container-policy';
 import { describe, expect, test, vi } from 'vitest';
-import type { DeploymentPlan } from './deployment-plan';
 import { deploymentAssetHash, type DeploymentArtifactFile } from './deployment-artifact';
 import { CloudflareAccountApiError, D1MigrationChangedError, UserCloudflareAccountApi } from './user-account-api';
 import { USER_WORKSPACE_RUNTIME_GC_CRON } from './user-workspace-runtime-policy';
-
-const plan: DeploymentPlan = {
-  version: 5,
-  deploymentId: 'deployment-1',
-  sourceSha256: 'a'.repeat(64),
-  project: { type: 'web_app', bindings: { ai: true, d1: true, r2: true, kv: true, appAgent: true } },
-  resources: [
-    { type: 'd1', logicalName: 'DB', proposedName: 'cloudchef-deployment-1' },
-    {
-      type: 'd1',
-      logicalName: 'AGENT_SECURITY_DB',
-      proposedName: 'cloudchef-deployment-1-agent-security',
-    },
-    { type: 'r2', logicalName: 'APP_STORAGE', proposedName: 'cloudchef-deployment-1-storage' },
-    { type: 'r2', logicalName: 'APP_STORAGE_PREVIEW', proposedName: 'cloudchef-deployment-1-preview-storage' },
-    { type: 'kv', logicalName: 'APP_CACHE', proposedName: 'cloudchef-deployment-1-cache' },
-    { type: 'kv', logicalName: 'APP_CACHE_PREVIEW', proposedName: 'cloudchef-deployment-1-preview-cache' },
-  ],
-};
 
 async function artifactFile(path: string, contents: string): Promise<DeploymentArtifactFile> {
   const bytes = new TextEncoder().encode(contents);
@@ -174,10 +154,12 @@ describe('UserCloudflareAccountApi', () => {
         Response.json({ success: true, result: { uuid: 'd1-id', name: 'cloudchef-deployment-1' } }),
       )
       .mockResolvedValueOnce(Response.json({ success: true, result: { subdomain: 'user-subdomain' } }));
-    const authorizeRequest = vi.fn(async () => undefined);
-    const api = new UserCloudflareAccountApi('account-1', 'user-token', request, authorizeRequest);
+    const api = new UserCloudflareAccountApi('account-1', 'user-token', request);
 
-    await expect(api.ensureD1ForPlan(plan, 'DB')).resolves.toEqual({ id: 'd1-id', name: 'cloudchef-deployment-1' });
+    await expect(api.ensureD1Database('cloudchef-deployment-1')).resolves.toEqual({
+      id: 'd1-id',
+      name: 'cloudchef-deployment-1',
+    });
     await expect(api.getWorkersSubdomain()).resolves.toBe('user-subdomain');
 
     expect(request).toHaveBeenNthCalledWith(
@@ -192,10 +174,6 @@ describe('UserCloudflareAccountApi', () => {
       }),
     );
     expect(request.mock.contexts).toEqual([undefined, undefined, undefined]);
-    expect(authorizeRequest).toHaveBeenCalledTimes(3);
-    authorizeRequest.mock.invocationCallOrder.forEach((authorizationOrder, index) => {
-      expect(authorizationOrder).toBeLessThan(request.mock.invocationCallOrder[index]);
-    });
   });
 
   test('fails closed instead of following a redirected Cloudflare API response', async () => {
@@ -207,7 +185,7 @@ describe('UserCloudflareAccountApi', () => {
     );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'user-token', request).ensureD1ForPlan(plan, 'DB'),
+      new UserCloudflareAccountApi('account-1', 'user-token', request).ensureD1Database('cloudchef-deployment-1'),
     ).rejects.toThrow('Cloudflare API request redirected unexpectedly.');
     expect(request).toHaveBeenCalledWith(
       'https://api.cloudflare.com/client/v4/accounts/account-1/d1/database?name=cloudchef-deployment-1',
@@ -230,7 +208,9 @@ describe('UserCloudflareAccountApi', () => {
       );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureD1ForPlan(plan, 'AGENT_SECURITY_DB'),
+      new UserCloudflareAccountApi('account-1', 'token', request).ensureD1Database(
+        'cloudchef-deployment-1-agent-security',
+      ),
     ).resolves.toEqual({
       id: 'agent-security-d1-id',
       name: 'cloudchef-deployment-1-agent-security',
@@ -245,19 +225,15 @@ describe('UserCloudflareAccountApi', () => {
     );
   });
 
-  test('fails closed when Cloudflare returns a different resource or the plan is malformed', async () => {
+  test('fails closed when Cloudflare returns a different resource', async () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ success: true, result: [] }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: { uuid: 'd1-id', name: 'some-other-database' } }));
+      .mockResolvedValueOnce(Response.json({ success: true, result: { uuid: 'd1-id', name: 'some-other-database' } }))
+      // Looked for again in case another request created it meanwhile: still none.
+      .mockResolvedValueOnce(Response.json({ success: true, result: [] }));
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureD1ForPlan(plan, 'DB'),
-    ).rejects.toBeInstanceOf(CloudflareAccountApiError);
-    await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureR2ForPlan(
-        { ...plan, resources: [] },
-        'APP_STORAGE',
-      ),
+      new UserCloudflareAccountApi('account-1', 'token', request).ensureD1Database('cloudchef-deployment-1'),
     ).rejects.toBeInstanceOf(CloudflareAccountApiError);
   });
 
@@ -346,11 +322,11 @@ describe('UserCloudflareAccountApi', () => {
       )
       .mockResolvedValueOnce(Response.json({ success: true, result: { name: 'cloudchef-deployment-1-storage' } }));
     const api = new UserCloudflareAccountApi('account-1', 'token', request);
-    await expect(api.ensureD1ForPlan(plan, 'DB')).resolves.toEqual({
+    await expect(api.ensureD1Database('cloudchef-deployment-1')).resolves.toEqual({
       id: 'existing-d1',
       name: 'cloudchef-deployment-1',
     });
-    await expect(api.ensureR2ForPlan(plan, 'APP_STORAGE')).resolves.toEqual({
+    await expect(api.ensureR2Bucket('cloudchef-deployment-1-storage')).resolves.toEqual({
       id: 'cloudchef-deployment-1-storage',
       name: 'cloudchef-deployment-1-storage',
     });
@@ -376,11 +352,11 @@ describe('UserCloudflareAccountApi', () => {
       );
     const api = new UserCloudflareAccountApi('account-1', 'token', request);
 
-    await expect(api.ensureR2ForPlan(plan, 'APP_STORAGE_PREVIEW')).resolves.toEqual({
+    await expect(api.ensureR2Bucket('cloudchef-deployment-1-preview-storage')).resolves.toEqual({
       id: 'cloudchef-deployment-1-preview-storage',
       name: 'cloudchef-deployment-1-preview-storage',
     });
-    await expect(api.ensureKvForPlan(plan, 'APP_CACHE_PREVIEW')).resolves.toEqual({
+    await expect(api.ensureKvNamespace('cloudchef-deployment-1-preview-cache')).resolves.toEqual({
       id: namespaceId,
       name: 'cloudchef-deployment-1-preview-cache',
     });
@@ -402,7 +378,7 @@ describe('UserCloudflareAccountApi', () => {
       );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureKvForPlan(plan, 'APP_CACHE'),
+      new UserCloudflareAccountApi('account-1', 'token', request).ensureKvNamespace('cloudchef-deployment-1-cache'),
     ).resolves.toEqual({
       id: namespaceId,
       name: 'cloudchef-deployment-1-cache',
@@ -428,64 +404,9 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ name: 'cloudchef-deployment-1' }] }));
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureD1ForPlan(plan, 'DB'),
+      new UserCloudflareAccountApi('account-1', 'token', request).ensureD1Database('cloudchef-deployment-1'),
     ).rejects.toThrow('invalid D1 resource');
     expect(request).toHaveBeenCalledOnce();
-  });
-
-  test('revalidates authorization for the create request after an ensure lookup', async () => {
-    let generation = 1;
-    const authorizeRequest = vi.fn(async () => {
-      if (generation !== 1) {
-        throw new Error('Cloudflare connection is unavailable.');
-      }
-    });
-    const request = vi.fn<typeof fetch>(async (_input, init) => {
-      if (init?.method === 'GET') {
-        generation = 2;
-        return Response.json({ success: true, result: [] });
-      }
-      return Response.json({
-        success: true,
-        result: { uuid: 'd1-id', name: 'cloudchef-deployment-1' },
-      });
-    });
-    const api = new UserCloudflareAccountApi('account-1', 'token', request, authorizeRequest);
-
-    await expect(api.ensureD1ForPlan(plan, 'DB')).rejects.toThrow('Cloudflare connection is unavailable.');
-
-    expect(authorizeRequest).toHaveBeenCalledTimes(2);
-    expect(request).toHaveBeenCalledOnce();
-    expect(request).toHaveBeenCalledWith(
-      expect.stringContaining('/d1/database?name='),
-      expect.objectContaining({ method: 'GET' }),
-    );
-  });
-
-  test('revalidates authorization for an R2 create after a not-found lookup', async () => {
-    let generation = 1;
-    const authorizeRequest = vi.fn(async () => {
-      if (generation !== 1) {
-        throw new Error('Cloudflare connection is unavailable.');
-      }
-    });
-    const request = vi.fn<typeof fetch>(async (_input, init) => {
-      if (init?.method === 'GET') {
-        generation = 2;
-        return Response.json({ success: false }, { status: 404 });
-      }
-      return Response.json({ success: true, result: { name: 'cloudchef-deployment-1-storage' } });
-    });
-    const api = new UserCloudflareAccountApi('account-1', 'token', request, authorizeRequest);
-
-    await expect(api.ensureR2ForPlan(plan, 'APP_STORAGE')).rejects.toThrow('Cloudflare connection is unavailable.');
-
-    expect(authorizeRequest).toHaveBeenCalledTimes(2);
-    expect(request).toHaveBeenCalledOnce();
-    expect(request).toHaveBeenCalledWith(
-      expect.stringContaining('/r2/buckets/cloudchef-deployment-1-storage'),
-      expect.objectContaining({ method: 'GET' }),
-    );
   });
 
   test('accepts a bucket concurrently created after its create request loses the race', async () => {
@@ -509,7 +430,7 @@ describe('UserCloudflareAccountApi', () => {
     const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ success: true, result: {} }));
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureR2ForPlan(plan, 'APP_STORAGE'),
+      new UserCloudflareAccountApi('account-1', 'token', request).ensureR2Bucket('cloudchef-deployment-1-storage'),
     ).rejects.toThrow('invalid R2 resource');
     expect(request).toHaveBeenCalledOnce();
   });
@@ -521,7 +442,7 @@ describe('UserCloudflareAccountApi', () => {
         Response.json({ success: false, errors: [{ message: 'permission denied' }] }, { status: 403 }),
       );
     await expect(
-      new UserCloudflareAccountApi('account-1', 'secret-token', request).ensureD1ForPlan(plan, 'DB'),
+      new UserCloudflareAccountApi('account-1', 'secret-token', request).ensureD1Database('cloudchef-deployment-1'),
     ).rejects.toThrow('permission denied');
   });
 
@@ -537,9 +458,9 @@ describe('UserCloudflareAccountApi', () => {
     );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).executeD1(
+      new UserCloudflareAccountApi('account-1', 'token', request).applyD1Migrations(
         '0123456789abcdef0123456789abcdef',
-        'CREATE TABLE first (id TEXT); CREATE TABLE second (id TEXT)',
+        [],
       ),
     ).rejects.toThrow('unsuccessful D1 query result');
   });
@@ -548,9 +469,9 @@ describe('UserCloudflareAccountApi', () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ success: true, result }));
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).executeD1(
+      new UserCloudflareAccountApi('account-1', 'token', request).applyD1Migrations(
         '0123456789abcdef0123456789abcdef',
-        'SELECT 1',
+        [],
       ),
     ).rejects.toThrow('unsuccessful D1 query result');
   });
@@ -692,9 +613,8 @@ describe('UserCloudflareAccountApi', () => {
     expect(String(request.mock.calls[3]?.[1]?.body)).toContain('SELECT sql FROM cloudchef_runtime_migrations');
   });
 
-  test('replaces runtime schedules with exactly one deterministic GC trigger', async () => {
-    const authorizeRequest = vi.fn(async () => undefined);
-    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(
+  test('replaces runtime schedules with exactly one deterministic GC trigger, and reads them back', async () => {
+    const request = vi.fn<typeof fetch>(async () =>
       Response.json({
         success: true,
         result: {
@@ -710,7 +630,7 @@ describe('UserCloudflareAccountApi', () => {
     );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request, authorizeRequest).configureWorkspaceRuntimeGcSchedule(
+      new UserCloudflareAccountApi('account-1', 'token', request).configureWorkspaceRuntimeGcSchedule(
         'cloudchef-workspace-1',
       ),
     ).resolves.toBeUndefined();
@@ -727,7 +647,7 @@ describe('UserCloudflareAccountApi', () => {
         signal: expect.any(AbortSignal),
       }),
     );
-    expect(authorizeRequest).toHaveBeenCalledOnce();
+    expect(request.mock.calls.map(([, init]) => init?.method)).toEqual(['PUT', 'GET']);
   });
 
   test.each([
@@ -1020,7 +940,7 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(Response.json({ success: false }, { status: 401 }))
       .mockResolvedValueOnce(Response.json({ success: true, result: { subdomain: 'fresh-subdomain' } }));
     const refreshAccessToken = vi.fn(async () => 'fresh-token');
-    const api = new UserCloudflareAccountApi('account-1', 'expired-token', request, undefined, refreshAccessToken);
+    const api = new UserCloudflareAccountApi('account-1', 'expired-token', request, refreshAccessToken);
 
     await expect(api.getWorkersSubdomain()).resolves.toBe('fresh-subdomain');
     expect(refreshAccessToken).toHaveBeenCalledOnce();
@@ -1031,7 +951,7 @@ describe('UserCloudflareAccountApi', () => {
   test('does not loop when Cloudflare rejects the forced-refresh retry', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ success: false }, { status: 401 }));
     const refreshAccessToken = vi.fn(async () => 'fresh-token');
-    const api = new UserCloudflareAccountApi('account-1', 'expired-token', request, undefined, refreshAccessToken);
+    const api = new UserCloudflareAccountApi('account-1', 'expired-token', request, refreshAccessToken);
 
     await expect(api.getWorkersSubdomain()).rejects.toThrow('Cloudflare API request failed (401)');
     expect(refreshAccessToken).toHaveBeenCalledOnce();
@@ -1411,16 +1331,17 @@ describe('UserCloudflareAccountApi', () => {
           target_configuration: targetConfiguration,
         }),
       );
-    const sleep = vi.fn(async () => undefined);
+    const wait = vi.fn(async () => undefined);
+    vi.stubGlobal('scheduler', { wait });
 
     await new UserCloudflareAccountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
       applicationName: 'cloudchef-workspace-user',
       namespaceId: '0123456789abcdef0123456789abcdef',
       image,
-      sleep,
     });
 
-    expect(sleep).toHaveBeenCalledOnce();
+    expect(wait).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
     expect(request).toHaveBeenCalledTimes(5);
   });
 
@@ -1478,7 +1399,7 @@ describe('UserCloudflareAccountApi', () => {
 
     // A namespace on the second page must be reused, not created a second time.
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureKvForPlan(plan, 'APP_CACHE'),
+      new UserCloudflareAccountApi('account-1', 'token', request).ensureKvNamespace('cloudchef-deployment-1-cache'),
     ).resolves.toEqual({
       id: namespaceId,
       name: 'cloudchef-deployment-1-cache',

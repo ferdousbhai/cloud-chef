@@ -43,7 +43,7 @@ export const openGatewayKeyAccountApi: OpenGatewayKeyAccountApi = async (env, co
     throw new Error('The Cloudflare connection has no authorization.');
   }
   const vault = D1CloudflareCredentialVault.fromEnv(env);
-  return new UserCloudflareAccountApi(connection.accountId, await vault.resolve(handle), fetch, undefined, () =>
+  return new UserCloudflareAccountApi(connection.accountId, await vault.resolve(handle), fetch, () =>
     vault.resolve(handle, { forceRefresh: true }),
   );
 };
