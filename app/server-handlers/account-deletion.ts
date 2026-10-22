@@ -1,11 +1,7 @@
 import { z } from 'zod';
 import { clearAuthSessionCookie } from '~/lib/.server/auth';
 import { requireRecentlyAuthenticatedSession } from '~/lib/.server/account-reauthentication';
-import {
-  eraseControlPlaneAccount,
-  OrganizationAdminRequiredError,
-  organizationsNeedingAnotherAdmin,
-} from '~/lib/.server/cloudflare/account-deletion';
+import { eraseControlPlaneAccount, OrganizationAdminRequiredError } from '~/lib/.server/cloudflare/account-deletion';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
 
@@ -33,16 +29,6 @@ export async function deleteAccountAction({ request, env }: { request: Request; 
     return Response.json(
       { error: 'Confirm the exact phrase and the retained-resources acknowledgement.' },
       { status: 400 },
-    );
-  }
-
-  const needingAdmin = await organizationsNeedingAnotherAdmin(env.DB, session.user.id);
-  if (needingAdmin.length > 0) {
-    return Response.json(
-      {
-        error: `You're the only admin of ${needingAdmin.join(', ')}. Make someone else an admin first, so the team isn't left without one.`,
-      },
-      { status: 409 },
     );
   }
 

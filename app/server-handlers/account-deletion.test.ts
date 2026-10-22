@@ -4,7 +4,6 @@ const mocks = vi.hoisted(() => ({
   clearAuthSessionCookie: vi.fn(() => 'cloudchef_session=; Path=/; HttpOnly; Max-Age=0'),
   getAuthSession: vi.fn(),
   eraseControlPlaneAccount: vi.fn(),
-  organizationsNeedingAnotherAdmin: vi.fn(async (): Promise<string[]> => []),
 }));
 
 vi.mock('~/lib/.server/auth', () => ({
@@ -13,11 +12,11 @@ vi.mock('~/lib/.server/auth', () => ({
 }));
 vi.mock('~/lib/.server/cloudflare/account-deletion', () => ({
   eraseControlPlaneAccount: mocks.eraseControlPlaneAccount,
-  organizationsNeedingAnotherAdmin: mocks.organizationsNeedingAnotherAdmin,
   OrganizationAdminRequiredError: class extends Error {},
 }));
 
 import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
+import { OrganizationAdminRequiredError } from '~/lib/.server/cloudflare/account-deletion';
 import { ACCOUNT_REAUTHENTICATION_WINDOW_MS } from '~/lib/.server/account-reauthentication';
 import { deleteAccountAction } from './account-deletion';
 
@@ -55,10 +54,12 @@ describe('deleteAccountAction', () => {
       session: { id: 'session-1', userId: 'user-1', expiresAt: Date.now() + 60_000, createdAt: Date.now() },
       user: { id: 'user-1', name: 'Ada', email: 'ada@acme.com', image: null },
     });
-    mocks.organizationsNeedingAnotherAdmin.mockResolvedValueOnce(['Acme']);
+    mocks.eraseControlPlaneAccount.mockRejectedValueOnce(
+      new OrganizationAdminRequiredError('Make someone else an admin of your team first.'),
+    );
     const response = await deleteAccountAction({ request: deletionRequest(validBody), env });
     expect(response.status).toBe(409);
-    expect(mocks.eraseControlPlaneAccount).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toEqual({ error: 'Make someone else an admin of your team first.' });
   });
 
   it('erases the control plane, expires the cookie, and reports the revocation outcome', async () => {
