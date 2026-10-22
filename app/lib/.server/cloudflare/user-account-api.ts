@@ -785,27 +785,6 @@ export class UserCloudflareAccountApi {
     requireExactSchedules(readback, expected);
   }
 
-  private async readWorkerSubdomainState(workerName: string): Promise<{ enabled: boolean; previewsEnabled: boolean }> {
-    const state = await this.call<{ enabled?: boolean; previews_enabled?: boolean }>(
-      `/workers/scripts/${encodeURIComponent(workerName)}/subdomain`,
-      { method: 'GET' },
-    );
-    if (
-      (state.enabled !== true && state.enabled !== false) ||
-      (state.previews_enabled !== true && state.previews_enabled !== false)
-    ) {
-      throw new CloudflareAccountApiError('Cloudflare returned invalid managed Worker subdomain state.');
-    }
-    return { enabled: state.enabled, previewsEnabled: state.previews_enabled };
-  }
-
-  private async readExactWorkerSubdomainState(workerName: string): Promise<void> {
-    const state = await this.readWorkerSubdomainState(workerName);
-    if (state.enabled !== true || state.previewsEnabled !== DEPLOYMENT_PREVIEW_URLS_ENABLED) {
-      throw new CloudflareAccountApiError('Cloudflare returned invalid managed Worker subdomain state.');
-    }
-  }
-
   private async uploadStaticAssets(workerName: string, assets: readonly DeploymentArtifactFile[]): Promise<string> {
     try {
       return await this.uploadStaticAssetsOnce(workerName, assets);
@@ -1422,17 +1401,14 @@ export class UserCloudflareAccountApi {
   /** Serve the Worker's active version at its workers.dev address, and no earlier version anywhere. */
   async enableWorkerSubdomain(workerName: string): Promise<void> {
     requireWorkerName(workerName);
-    const state = await this.call<{ enabled?: boolean; previews_enabled?: boolean }>(
-      `/workers/scripts/${encodeURIComponent(workerName)}/subdomain`,
-      {
+    const path = `/workers/scripts/${encodeURIComponent(workerName)}/subdomain`;
+    requireServedWorkerSubdomain(
+      await this.call<WorkerSubdomainState>(path, {
         method: 'POST',
         body: JSON.stringify({ enabled: true, previews_enabled: DEPLOYMENT_PREVIEW_URLS_ENABLED }),
-      },
+      }),
     );
-    if (state.enabled !== true || state.previews_enabled !== DEPLOYMENT_PREVIEW_URLS_ENABLED) {
-      throw new CloudflareAccountApiError('Cloudflare returned invalid managed Worker subdomain state.');
-    }
-    await this.readExactWorkerSubdomainState(workerName);
+    requireServedWorkerSubdomain(await this.call<WorkerSubdomainState>(path, { method: 'GET' }));
   }
 
   /** Replace every trigger with CloudChef's single deterministic runtime-GC schedule. */
@@ -1442,18 +1418,7 @@ export class UserCloudflareAccountApi {
       method: 'PUT',
       body: JSON.stringify([{ cron: USER_WORKSPACE_RUNTIME_GC_CRON }]),
     });
-    if (!isRecord(result) || !Array.isArray(result.schedules) || result.schedules.length !== 1) {
-      throw new CloudflareAccountApiError('Cloudflare returned invalid workspace runtime schedules.');
-    }
-    const schedule = result.schedules[0];
-    if (
-      !isRecord(schedule) ||
-      schedule.cron !== USER_WORKSPACE_RUNTIME_GC_CRON ||
-      (schedule.created_on !== undefined && typeof schedule.created_on !== 'string') ||
-      (schedule.modified_on !== undefined && typeof schedule.modified_on !== 'string')
-    ) {
-      throw new CloudflareAccountApiError('Cloudflare returned invalid workspace runtime schedules.');
-    }
+    requireExactSchedules(result, [USER_WORKSPACE_RUNTIME_GC_CRON]);
   }
 
   private async call<T>(path: string, init: RequestInit): Promise<T> {
@@ -1465,19 +1430,17 @@ export class UserCloudflareAccountApi {
   }
 
   private async listR2ObjectKeys(bucketName: string): Promise<string[]> {
-    const response = await this.callRaw(
+    const listed = await this.callOptional<unknown>(
       `/r2/buckets/${encodeURIComponent(bucketName)}/objects?per_page=${R2_CLEANUP_BATCH_SIZE}`,
       { method: 'GET' },
     );
-    const payload = await readBoundedJson<CloudflareEnvelope<unknown>>(response);
-    if (response.status === 404) {
+    if (listed === null) {
       return [];
     }
-    if (!response.ok || payload?.success !== true || !Array.isArray(payload.result)) {
-      const providerMessage = payload?.errors?.find((error) => error.message)?.message;
-      throw new CloudflareAccountApiError(providerMessage || `Cloudflare API request failed (${response.status}).`);
+    if (!Array.isArray(listed)) {
+      throw new CloudflareAccountApiError('Cloudflare returned an invalid R2 object list.');
     }
-    return payload.result.map((value) => {
+    return listed.map((value) => {
       if (!isRecord(value) || typeof value.key !== 'string' || value.key.length === 0 || value.key.length > 1_024) {
         throw new CloudflareAccountApiError('Cloudflare returned an invalid R2 object list.');
       }
@@ -1863,20 +1826,29 @@ function requireExactDeploymentVersion(
   }
 }
 
+type WorkerSubdomainState = { enabled?: boolean; previews_enabled?: boolean };
+
+/** The Worker serves at its workers.dev address, with preview URLs as CloudChef sets them. */
+function requireServedWorkerSubdomain(state: WorkerSubdomainState): void {
+  if (state.enabled !== true || state.previews_enabled !== DEPLOYMENT_PREVIEW_URLS_ENABLED) {
+    throw new CloudflareAccountApiError('Cloudflare returned invalid managed Worker subdomain state.');
+  }
+}
+
 function requireExactSchedules(result: unknown, expected: readonly string[]): void {
   const observed = requireSchedules(result);
   if (observed.length !== expected.length || observed.some((cron, index) => cron !== expected[index])) {
-    throw new CloudflareAccountApiError('Cloudflare returned invalid managed Worker schedules.');
+    throw new CloudflareAccountApiError('Cloudflare returned invalid Worker schedules.');
   }
 }
 
 function requireSchedules(value: unknown): string[] {
   if (!isRecord(value) || !Array.isArray(value.schedules)) {
-    throw new CloudflareAccountApiError('Cloudflare returned invalid managed Worker schedules.');
+    throw new CloudflareAccountApiError('Cloudflare returned invalid Worker schedules.');
   }
   return value.schedules.map((schedule) => {
     if (!isRecord(schedule) || typeof schedule.cron !== 'string' || schedule.cron.length === 0) {
-      throw new CloudflareAccountApiError('Cloudflare returned invalid managed Worker schedules.');
+      throw new CloudflareAccountApiError('Cloudflare returned invalid Worker schedules.');
     }
     return schedule.cron;
   });
@@ -1995,21 +1967,11 @@ function latestContainerApplicationRollout(value: unknown): Required<ContainerAp
     throw new CloudflareAccountApiError('Cloudflare returned invalid workspace container rollouts.');
   }
   const rollouts = value.map((rollout) => {
-    if (
-      !isRecord(rollout) ||
-      typeof rollout.id !== 'string' ||
-      typeof rollout.created_at !== 'string' ||
-      typeof rollout.status !== 'string' ||
-      !isRecord(rollout.target_configuration)
-    ) {
+    const parsed = containerApplicationRollout(rollout);
+    if (!parsed) {
       throw new CloudflareAccountApiError('Cloudflare returned invalid workspace container rollouts.');
     }
-    return {
-      id: rollout.id,
-      created_at: rollout.created_at,
-      status: rollout.status,
-      target_configuration: rollout.target_configuration,
-    };
+    return parsed;
   });
   return rollouts.sort((left, right) => right.created_at.localeCompare(left.created_at))[0] ?? null;
 }
@@ -2018,17 +1980,25 @@ function requireContainerApplicationRollout(
   value: unknown,
   rolloutId: string,
 ): Required<ContainerApplicationRolloutReadback> {
+  const rollout = containerApplicationRollout(value);
+  if (rollout?.id !== rolloutId) {
+    throw new CloudflareAccountApiError('Cloudflare returned an invalid workspace container rollout.');
+  }
+  return rollout;
+}
+
+function containerApplicationRollout(value: unknown): Required<ContainerApplicationRolloutReadback> | null {
   if (
     !isRecord(value) ||
-    value.id !== rolloutId ||
+    typeof value.id !== 'string' ||
     typeof value.created_at !== 'string' ||
     typeof value.status !== 'string' ||
     !isRecord(value.target_configuration)
   ) {
-    throw new CloudflareAccountApiError('Cloudflare returned an invalid workspace container rollout.');
+    return null;
   }
   return {
-    id: rolloutId,
+    id: value.id,
     created_at: value.created_at,
     status: value.status,
     target_configuration: value.target_configuration,

@@ -735,7 +735,6 @@ describe('UserCloudflareAccountApi', () => {
     ['no schedule', { schedules: [] }],
     ['an additional schedule', { schedules: [{ cron: USER_WORKSPACE_RUNTIME_GC_CRON }, { cron: '0 0 * * *' }] }],
     ['a changed schedule', { schedules: [{ cron: '0 0 * * *' }] }],
-    ['invalid schedule metadata', { schedules: [{ cron: USER_WORKSPACE_RUNTIME_GC_CRON, created_on: 1 }] }],
   ])('rejects schedule readback with %s', async (_label, result) => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ success: true, result }));
 
@@ -743,7 +742,7 @@ describe('UserCloudflareAccountApi', () => {
       new UserCloudflareAccountApi('account-1', 'token', request).configureWorkspaceRuntimeGcSchedule(
         'cloudchef-workspace-1',
       ),
-    ).rejects.toThrow('invalid workspace runtime schedules');
+    ).rejects.toThrow('invalid Worker schedules');
 
     expect(request).toHaveBeenCalledOnce();
   });
@@ -1112,7 +1111,7 @@ describe('UserCloudflareAccountApi', () => {
         'cloudchef-app',
         false,
       ),
-    ).rejects.toThrow('invalid managed Worker schedules');
+    ).rejects.toThrow('invalid Worker schedules');
   });
 
   test('deploys the Computer workspace and execution bindings into the user account', async () => {
