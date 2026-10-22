@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  aiGatewayCreditStatusStore,
   fetchUserRuntime,
   getUserRuntimeSession,
   resetUserRuntimeSession,
@@ -23,7 +22,6 @@ describe('user runtime session', () => {
         endpoint: 'https://workspace.example/path',
         token: 'capability-token',
         expiresAt: Date.now() + 60_000,
-        aiGatewayCreditStatus: 'available',
       }),
     );
     vi.stubGlobal('fetch', request);
@@ -44,7 +42,6 @@ describe('user runtime session', () => {
     );
     expect(new Headers(request.mock.calls[0]?.[1]?.headers).get('Accept')).toBe('application/json');
     expect(userRuntimeEndpointStore.get()).toBe('https://workspace.example');
-    expect(aiGatewayCreditStatusStore.get()).toBe('available');
   });
 
   it('surfaces automatic provisioning failures', async () => {

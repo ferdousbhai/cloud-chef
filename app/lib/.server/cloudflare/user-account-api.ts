@@ -1004,17 +1004,6 @@ export class UserCloudflareAccountApi {
     };
   }
 
-  async getAiGatewayCreditBalance(signal?: AbortSignal): Promise<number> {
-    const result = await this.call<{ balance?: unknown }>('/ai-gateway/billing/credit-balance', {
-      method: 'GET',
-      signal,
-    });
-    if (typeof result.balance !== 'number' || !Number.isFinite(result.balance)) {
-      throw new CloudflareAccountApiError('Cloudflare returned an invalid AI Gateway credit balance.');
-    }
-    return result.balance;
-  }
-
   /**
    * The provider keys (BYOK) stored on one of the account's AI Gateways: names and masked previews
    * only, since Cloudflare never returns a key. A gateway that does not exist yet has none.

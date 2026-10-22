@@ -56,9 +56,7 @@ import {
   CLOUDFLARE_CONNECT_MESSAGE_PARAM,
   type CloudflareConnectMessage,
 } from '~/lib/cloudflare/authorization-recovery';
-import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { CLOUDCHEF_CAPABILITIES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
-import type { AiGatewayCreditStatus } from '~/lib/cloudflare/ai-gateway-credit';
 
 type WorkspacePreparationFailure = {
   code: UserWorkspaceRuntimeProvisioningErrorCode;
@@ -72,7 +70,6 @@ const OAUTH_START_RATE_LIMIT_RETRY_SECONDS = 60;
 const MAX_OAUTH_START_REQUEST_BYTES = 4 * 1024;
 const MAX_OAUTH_CALLBACK_CODE_LENGTH = 4_096;
 const MAX_OAUTH_CALLBACK_TEXT_LENGTH = 2_048;
-const AI_GATEWAY_CREDIT_CHECK_TIMEOUT_MS = 5_000;
 const RUNTIME_PROVISIONING_RETRY_HEADER = 'CloudChef-Runtime-Provisioning-Retry';
 const WORKSPACE_PLAN_REQUIRED_MESSAGE =
   'Cloudflare Containers requires the Workers Paid plan. Enable Workers Paid in Cloudflare, then return here and try again. CloudChef does not change your plan automatically.';
@@ -180,12 +177,10 @@ export async function cloudflareRuntimeSessionAction({
   request,
   env,
   provision = startUserWorkspaceRuntimeProvisioning,
-  readAiGatewayCreditStatus,
 }: {
   request: Request;
   env: Env;
   provision?: typeof startUserWorkspaceRuntimeProvisioning;
-  readAiGatewayCreditStatus?: ReadAiGatewayCreditStatus;
 }): Promise<Response> {
   if (!hasSameOrigin(request)) {
     return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
@@ -288,21 +283,13 @@ export async function cloudflareRuntimeSessionAction({
     runtimeVersion: runtime.runtimeVersion,
     upgradePending,
   });
-  const [capability, aiGatewayCreditStatus] = await Promise.all([
-    mintRuntimeCapability({
-      secret,
-      subject: session.user.id,
-      origin: new URL(request.url).origin,
-    }),
-    readAiGatewayCreditStatusWithTimeout(
-      (readAiGatewayCreditStatus ?? getAiGatewayCreditStatus)({
-        env,
-        connection,
-      }),
-    ),
-  ]);
+  const capability = await mintRuntimeCapability({
+    secret,
+    subject: session.user.id,
+    origin: new URL(request.url).origin,
+  });
   return Response.json(
-    { endpoint: runtime.endpoint, ...capability, aiGatewayCreditStatus, correlationId },
+    { endpoint: runtime.endpoint, ...capability, correlationId },
     { headers: { 'Cache-Control': 'private, no-store' } },
   );
 }
@@ -326,50 +313,6 @@ function workspaceProvisioningFailureResponse(
   }
   return Response.json(body, { status: 502, headers: { 'Cache-Control': 'private, no-store' } });
 }
-
-async function readAiGatewayCreditStatusWithTimeout(
-  operation: Promise<AiGatewayCreditStatus>,
-): Promise<AiGatewayCreditStatus> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<AiGatewayCreditStatus>((resolve) => {
-    timer = setTimeout(() => resolve('unknown'), AI_GATEWAY_CREDIT_CHECK_TIMEOUT_MS);
-  });
-  try {
-    return await Promise.race([operation.catch(() => 'unknown' as const), timeout]);
-  } finally {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-    }
-  }
-}
-
-async function getAiGatewayCreditStatus({
-  env,
-  connection,
-}: {
-  env: Env;
-  connection: CloudflareConnection;
-}): Promise<AiGatewayCreditStatus> {
-  if (!connection.credentialHandle) {
-    return 'unknown';
-  }
-  try {
-    const signal = AbortSignal.timeout(AI_GATEWAY_CREDIT_CHECK_TIMEOUT_MS);
-    const accessToken = await D1CloudflareCredentialVault.fromEnv(env).resolve(connection.credentialHandle);
-    const balance = await new UserCloudflareAccountApi(connection.accountId, accessToken).getAiGatewayCreditBalance(
-      signal,
-    );
-    return balance > 0 ? 'available' : 'unavailable';
-  } catch {
-    console.warn('Unable to check AI Gateway Unified Billing credit availability.');
-    return 'unknown';
-  }
-}
-
-type ReadAiGatewayCreditStatus = (args: {
-  env: Env;
-  connection: CloudflareConnection;
-}) => Promise<AiGatewayCreditStatus>;
 
 /**
  * The runtime a session can be issued for: the current one, or one from an earlier release that serves

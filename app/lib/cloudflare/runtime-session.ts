@@ -1,13 +1,11 @@
 import { atom } from 'nanostores';
 import { z } from 'zod';
-import { aiGatewayCreditStatusSchema, type AiGatewayCreditStatus } from './ai-gateway-credit';
 import { WORKSPACE_HEADER } from './workspace-header';
 
 type UserRuntimeSession = {
   endpoint: string;
   token: string;
   expiresAt: number;
-  aiGatewayCreditStatus?: AiGatewayCreditStatus;
   correlationId?: string;
 };
 
@@ -41,7 +39,6 @@ const runtimeSessionPayloadSchema = z.looseObject({
   code: z.string().optional().catch(undefined),
   error: z.string().optional().catch(undefined),
   upgradeUrl: z.string().optional().catch(undefined),
-  aiGatewayCreditStatus: aiGatewayCreditStatusSchema.optional().catch(undefined),
   correlationId: z.string().optional().catch(undefined),
   upgrading: z.boolean().optional().catch(undefined),
 });
@@ -62,7 +59,6 @@ const REFRESH_SKEW_MS = 30_000;
 const PREPARATION_RETRY_DELAY_MS = 5_000;
 let pending: Promise<UserRuntimeSession> | null = null;
 export const userRuntimeEndpointStore = atom<string | null>(null);
-export const aiGatewayCreditStatusStore = atom<AiGatewayCreditStatus>('unknown');
 
 /**
  * Whether the control plane last answered that the workspace is still being prepared.
@@ -100,7 +96,6 @@ export async function getUserRuntimeSession(
         throw new Error('The runtime session request was canceled.');
       }
       current = session;
-      aiGatewayCreditStatusStore.set(session.aiGatewayCreditStatus ?? 'unknown');
       userRuntimeEndpointStore.set(session.endpoint);
       telemetryCorrelationIdStore.set(session.correlationId ?? null);
       return session;
@@ -238,7 +233,6 @@ async function pollUserRuntimeSession(
       endpoint: new URL(payload.endpoint).origin,
       token: payload.token,
       expiresAt: payload.expiresAt,
-      aiGatewayCreditStatus: payload.aiGatewayCreditStatus ?? 'unknown',
       correlationId: payload.correlationId,
     };
     return session;
@@ -291,7 +285,6 @@ export function resetUserRuntimeSession(): void {
   current = null;
   pending = null;
   userRuntimeEndpointStore.set(null);
-  aiGatewayCreditStatusStore.set('unknown');
   telemetryCorrelationIdStore.set(null);
   setWorkspacePreparing(false);
 }

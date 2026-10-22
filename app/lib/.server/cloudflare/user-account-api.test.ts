@@ -54,23 +54,6 @@ async function textDigest(value: string): Promise<string> {
 }
 
 describe('UserCloudflareAccountApi', () => {
-  test('reads the AI Gateway Unified Billing credit balance from the connected account', async () => {
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({ success: true, result: { balance: 12.5 } }));
-    const api = new UserCloudflareAccountApi('account-1', 'user-token', request);
-
-    await expect(api.getAiGatewayCreditBalance()).resolves.toBe(12.5);
-    expect(request).toHaveBeenCalledWith(
-      'https://api.cloudflare.com/client/v4/accounts/account-1/ai-gateway/billing/credit-balance',
-      expect.objectContaining({
-        method: 'GET',
-        redirect: 'manual',
-        headers: expect.objectContaining({ authorization: 'Bearer user-token' }),
-      }),
-    );
-  });
-
   test('reads the workspace Containers entitlement from the account capability endpoint', async () => {
     const request = vi
       .fn<typeof fetch>()
@@ -181,16 +164,6 @@ describe('UserCloudflareAccountApi', () => {
       status: 'undetermined',
       reason: 'Cloudflare returned an unreadable Containers account response. status=200 codes=none wording=none',
     });
-  });
-
-  test('rejects an invalid AI Gateway credit balance', async () => {
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({ success: true, result: { balance: '12.5' } }));
-
-    await expect(
-      new UserCloudflareAccountApi('account-1', 'user-token', request).getAiGatewayCreditBalance(),
-    ).rejects.toThrow('invalid AI Gateway credit balance');
   });
 
   test('creates only the D1 name fixed by the approved plan in the connected account', async () => {

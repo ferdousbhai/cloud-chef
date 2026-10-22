@@ -191,7 +191,6 @@ describe('Cloudflare-only authentication', () => {
         request: runtimeSessionRequest(),
         env,
         provision,
-        readAiGatewayCreditStatus: vi.fn().mockResolvedValue('available'),
       });
 
       expect(response.status).toBe(200);
@@ -215,7 +214,6 @@ describe('Cloudflare-only authentication', () => {
       request: runtimeSessionRequest(),
       env: runtimeEnv([runtimeRow({ runtimeVersion: '0'.repeat(64) })]),
       provision: vi.fn().mockRejectedValue(new Error('Workflows is unavailable')),
-      readAiGatewayCreditStatus: vi.fn().mockResolvedValue('available'),
     });
 
     expect(response.status).toBe(200);
@@ -256,7 +254,6 @@ describe('Cloudflare-only authentication', () => {
       request: runtimeSessionRequest(),
       env: runtimeEnv([runtimeRow(), runtimeRow()]),
       provision: vi.fn(),
-      readAiGatewayCreditStatus: vi.fn().mockResolvedValue('available'),
     });
 
     const { correlationId } = (await response.json()) as { correlationId?: string };
@@ -264,42 +261,6 @@ describe('Cloudflare-only authentication', () => {
     expect(info).toHaveBeenCalledWith(expect.objectContaining({ event: 'runtime_session_issued', correlationId }));
     // The join key must never be accompanied by the account it was issued for.
     expect(JSON.stringify(info.mock.calls)).not.toContain('user-1');
-  });
-
-  it('falls back to an unknown credit status when the optional check fails', async () => {
-    mocks.getAuthSession.mockResolvedValue(signedInSession);
-    mocks.findConnection.mockResolvedValue(activeConnection());
-    const response = await cloudflareRuntimeSessionAction({
-      request: runtimeSessionRequest(),
-      env: runtimeEnv([runtimeRow(), runtimeRow()]),
-      provision: vi.fn(),
-      readAiGatewayCreditStatus: vi.fn().mockRejectedValue(new Error('provider detail')),
-    });
-
-    await expect(response.json()).resolves.toMatchObject({ aiGatewayCreditStatus: 'unknown' });
-  });
-
-  it('does not block runtime access when the credit check stalls', async () => {
-    vi.useFakeTimers();
-    try {
-      mocks.getAuthSession.mockResolvedValue(signedInSession);
-      mocks.findConnection.mockResolvedValue(activeConnection());
-      const pendingResponse = cloudflareRuntimeSessionAction({
-        request: runtimeSessionRequest(),
-        env: runtimeEnv([runtimeRow(), runtimeRow()]),
-        provision: vi.fn(),
-        readAiGatewayCreditStatus: vi.fn(() => new Promise<'available'>(() => undefined)),
-      });
-
-      await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0));
-      await vi.advanceTimersByTimeAsync(5_000);
-
-      const response = await pendingResponse;
-      expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toMatchObject({ aiGatewayCreditStatus: 'unknown' });
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('sends a tab that opened in another account back to reload, rather than into the new one', async () => {
