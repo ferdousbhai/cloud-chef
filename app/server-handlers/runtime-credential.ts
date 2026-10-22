@@ -117,8 +117,7 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
  * A workspace runtime asking about its account's models, for the picker's catalog and before a
  * gateway provider's turn: the default its admin chose, and the provider keys its default AI Gateway
  * holds (each provider's, with the alias its requests name), asked of Cloudflare each time so a key
- * removed in the dashboard stops its provider's models at once. `claude` is what runtimes built
- * before other providers read.
+ * removed in the dashboard stops its provider's models at once.
  */
 export async function runtimeModelsAction(args: {
   request: Request;
@@ -138,6 +137,5 @@ export async function runtimeModelsAction(args: {
     readDefaultBuilderModel(args.env.DB, connection.id),
     (args.gatewayKeys ?? linkedGatewayKeys)(args.env, connection),
   ]);
-  const claude = gatewayKeys.some(({ provider }) => provider === 'anthropic');
-  return Response.json({ defaultModelId, gatewayKeys, claude }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ defaultModelId, gatewayKeys }, { headers: { 'Cache-Control': 'no-store' } });
 }

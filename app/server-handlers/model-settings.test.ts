@@ -944,10 +944,7 @@ describe("the team's default model", () => {
     expect(await (await ask(keys)).json()).toEqual({
       defaultModelId: 'anthropic/claude-opus-5-5',
       gatewayKeys: keys,
-      // What runtimes built before other providers read.
-      claude: true,
     });
-    expect(await (await ask([{ provider: 'openai', alias: 'default' }])).json()).toMatchObject({ claude: false });
     expect((await ask(keys, 'b'.repeat(43))).status).toBe(401);
 
     // A paused member's runtime learns nothing.

@@ -75,9 +75,7 @@ describe('readAccountModelSettings', () => {
       { provider: 'anthropic', alias: 'sg' },
       { provider: 'openrouter', alias: 'default' },
     ];
-    respond.mockResolvedValueOnce(
-      Response.json({ defaultModelId: 'anthropic/claude-opus-5-5', gatewayKeys, claude: true }),
-    );
+    respond.mockResolvedValueOnce(Response.json({ defaultModelId: 'anthropic/claude-opus-5-5', gatewayKeys }));
     expect(await readAccountModelSettings(runtimeEnv())).toEqual({
       defaultModelId: 'anthropic/claude-opus-5-5',
       gatewayKeys,
