@@ -15,7 +15,7 @@ import {
 import { useGoogleOrEmailSignIn } from '~/lib/hooks/useGoogleOrEmailSignIn';
 import { messageOf } from '~/lib/json-request';
 import { CloudflareConnectLegalNotice } from '~/components/CloudflareConnectLegalNotice';
-import { ReauthenticateButtons } from '~/components/settings/ReauthenticateButtons';
+import { ReauthenticatePrompt } from '~/components/settings/ReauthenticatePrompt';
 import { classNames } from '~/utils/classNames';
 
 /**
@@ -49,7 +49,6 @@ export function CloudflareSignInPrompt({
   });
   // Connecting Cloudflare to a Google or emailed-link account asks for a recent sign-in first.
   const [reauthenticateReason, setReauthenticateReason] = useState<string | null>(null);
-  const [reauthenticationLinkSentTo, setReauthenticationLinkSentTo] = useState<string | null>(null);
 
   const run = async (kind: 'cloudflare' | 'sign-out', action: () => Promise<boolean>) => {
     setBusy(kind);
@@ -95,16 +94,12 @@ export function CloudflareSignInPrompt({
         </p>
       ) : null}
       {session && reauthenticateReason ? (
-        <div role="status" className="mt-4 text-sm text-content-secondary">
-          <p>
-            {reauthenticationLinkSentTo
-              ? `Open the link sent to ${reauthenticationLinkSentTo}, then come back here and connect Cloudflare again.`
-              : reauthenticateReason}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <ReauthenticateButtons onError={setError} onLinkSent={setReauthenticationLinkSentTo} />
-          </div>
-        </div>
+        <ReauthenticatePrompt
+          className="mt-4 text-sm text-content-secondary"
+          reason={reauthenticateReason}
+          next="come back here and connect Cloudflare again"
+          onError={setError}
+        />
       ) : null}
       {error && (
         <p className="mt-4 text-sm text-content-error" role="alert">

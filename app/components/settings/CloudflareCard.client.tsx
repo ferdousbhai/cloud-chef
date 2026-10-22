@@ -8,7 +8,7 @@ import {
 } from '~/lib/auth-client';
 import { z } from 'zod';
 import { getJson, messageOf, RequestError } from '~/lib/json-request';
-import { ReauthenticateButtons } from './ReauthenticateButtons';
+import { ReauthenticatePrompt } from './ReauthenticatePrompt';
 
 const connectionStatusSchema = z.looseObject({
   accountName: z.string().nullish(),
@@ -26,7 +26,6 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
   const [error, setError] = useState<string | null>(initialError);
   // Attaching a Cloudflare login to a Google or emailed-link account asks for a recent sign-in first.
   const [reauthenticateReason, setReauthenticateReason] = useState<string | null>(null);
-  const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
   const admin = organization?.role === 'admin';
   // An organization member can't change its connection; they may connect an account of their own.
   const offersOwnAccount = organization !== null && !session?.contexts.some((option) => option.kind === 'personal');
@@ -119,16 +118,12 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
         ) : null}
       </div>
       {reauthenticateReason ? (
-        <div role="status" className="mt-3 text-sm text-content-secondary">
-          <p>
-            {linkSentTo
-              ? `Open the link sent to ${linkSentTo}, then come back here and connect Cloudflare again.`
-              : reauthenticateReason}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <ReauthenticateButtons onError={setError} onLinkSent={setLinkSentTo} />
-          </div>
-        </div>
+        <ReauthenticatePrompt
+          className="mt-3 text-sm text-content-secondary"
+          reason={reauthenticateReason}
+          next="come back here and connect Cloudflare again"
+          onError={setError}
+        />
       ) : null}
       {error ? (
         <p className="mt-3 text-sm text-bolt-elements-icon-error" role="alert">

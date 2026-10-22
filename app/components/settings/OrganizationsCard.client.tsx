@@ -20,7 +20,7 @@ import {
   productionRequestSchema,
 } from './OrgProjectsSection.client';
 import { getJson, messageOf, noContentSchema, postJson, RequestError, runRequest } from '~/lib/json-request';
-import { ReauthenticateButtons } from './ReauthenticateButtons';
+import { ReauthenticatePrompt } from './ReauthenticatePrompt';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 
 const roleSchema = z.enum(['admin', 'member']);
@@ -700,7 +700,6 @@ function DeleteTeam({
   const [feedback, setFeedback] = useState<Feedback>(null);
   // Deleting asks for a sign-in within the last few minutes, as erasing an account does.
   const [reauthenticate, setReauthenticate] = useState(false);
-  const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
   const remove = async () => {
     setDeleting(true);
     setFeedback(null);
@@ -762,19 +761,11 @@ function DeleteTeam({
         </Button>
       </div>
       {reauthenticate ? (
-        <div role="status" className="grid gap-2">
-          <p>
-            {linkSentTo
-              ? `Open the link sent to ${linkSentTo}, then return here and delete ${orgName} again.`
-              : `Sign in again to confirm it is you, then return here and delete ${orgName} again.`}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <ReauthenticateButtons
-              onError={(message) => setFeedback(errorFeedback(message))}
-              onLinkSent={setLinkSentTo}
-            />
-          </div>
-        </div>
+        <ReauthenticatePrompt
+          reason={`Sign in again to confirm it is you, then return here and delete ${orgName} again.`}
+          next={`return here and delete ${orgName} again`}
+          onError={(message) => setFeedback(errorFeedback(message))}
+        />
       ) : null}
       <FeedbackLine feedback={feedback} className="" />
     </div>
@@ -808,7 +799,6 @@ function MemberRow({
   // Removing someone deletes their workspace, so it asks for a sign-in within the last few minutes, as
   // deleting the team does.
   const [reauthenticate, setReauthenticate] = useState(false);
-  const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
   const who = member.name || member.email;
   const cancel = () => {
     setConfirming(null);
@@ -907,19 +897,12 @@ function MemberRow({
             </Button>
           </div>
           {reauthenticate ? (
-            <div role="status" className="grid gap-2 text-xs text-content-secondary">
-              <p>
-                {linkSentTo
-                  ? `Open the link sent to ${linkSentTo}, then return here and remove ${who} again.`
-                  : `Sign in again to confirm it is you, then return here and remove ${who} again.`}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <ReauthenticateButtons
-                  onError={(message) => onFeedback(errorFeedback(message))}
-                  onLinkSent={setLinkSentTo}
-                />
-              </div>
-            </div>
+            <ReauthenticatePrompt
+              className="text-xs text-content-secondary"
+              reason={`Sign in again to confirm it is you, then return here and remove ${who} again.`}
+              next={`return here and remove ${who} again`}
+              onError={(message) => onFeedback(errorFeedback(message))}
+            />
           ) : null}
         </div>
       ) : (

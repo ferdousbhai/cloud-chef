@@ -7,7 +7,7 @@ import { authClient } from '~/lib/auth-client';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { queryClient } from '~/lib/stores/reactQueryClient';
 import { takeReauthenticationSwitchedAccount } from '~/lib/stores/reauthentication';
-import { ReauthenticateButtons } from './ReauthenticateButtons';
+import { ReauthenticatePrompt } from './ReauthenticatePrompt';
 import { z } from 'zod';
 import { postJson, RequestError } from '~/lib/json-request';
 
@@ -103,7 +103,6 @@ export function AccountDataCard() {
     setError(null);
   };
 
-  const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
   // A fresh sign-in that landed in another account than the one that asked for it: export and
   // erasure would act on that other account, so they wait until the person signs back in.
   const [switchedAccount, setSwitchedAccount] = useState(false);
@@ -113,10 +112,6 @@ export function AccountDataCard() {
       setSwitchedAccount(true);
     }
   }, [userId]);
-
-  const reauthenticateButtons = (purpose: 'export' | 'delete') => (
-    <ReauthenticateButtons onError={purpose === 'export' ? setExportError : setError} onLinkSent={setLinkSentTo} />
-  );
 
   return (
     <section
@@ -174,14 +169,14 @@ export function AccountDataCard() {
         >
           Download account data
         </Button>
-        {exportPhase === 'reauthenticate' ? reauthenticateButtons('export') : null}
       </div>
       {exportPhase === 'reauthenticate' ? (
-        <p className="mt-2 max-w-2xl text-sm text-content-secondary" role="status">
-          {linkSentTo
-            ? `Open the link sent to ${linkSentTo}, then download again.`
-            : 'Sign in again to confirm it is you, then download again.'}
-        </p>
+        <ReauthenticatePrompt
+          className="mt-2 max-w-2xl text-sm text-content-secondary"
+          reason="Sign in again to confirm it is you, then download again."
+          next="download again"
+          onError={setExportError}
+        />
       ) : null}
       {unavailableSections.length > 0 ? (
         <p className="mt-2 max-w-2xl text-sm text-bolt-elements-icon-error" role="alert">
@@ -298,28 +293,25 @@ export function AccountDataCard() {
                 />
               </label>
               {phase === 'reauthenticate' ? (
-                <div role="status" className="text-sm text-content-secondary">
-                  <p>
-                    {linkSentTo
-                      ? `Open the link sent to ${linkSentTo}, then return here and delete again.`
-                      : 'Sign in again to confirm it is you, then return here and delete again.'}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {reauthenticateButtons('delete')}
-                    {/* Signed in again elsewhere (an emailed link opened in another tab): delete from here. */}
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      disabled={!confirmed || switchedAccount}
-                      onClick={() => void requestDeletion()}
-                    >
-                      Permanently delete
-                    </Button>
-                    <Button size="sm" variant="neutral" onClick={cancelDeletion}>
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
+                <ReauthenticatePrompt
+                  className="text-sm text-content-secondary"
+                  reason="Sign in again to confirm it is you, then return here and delete again."
+                  next="return here and delete again"
+                  onError={setError}
+                >
+                  {/* Signed in again elsewhere (an emailed link opened in another tab): delete from here. */}
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={!confirmed || switchedAccount}
+                    onClick={() => void requestDeletion()}
+                  >
+                    Permanently delete
+                  </Button>
+                  <Button size="sm" variant="neutral" onClick={cancelDeletion}>
+                    Cancel
+                  </Button>
+                </ReauthenticatePrompt>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   <Button
