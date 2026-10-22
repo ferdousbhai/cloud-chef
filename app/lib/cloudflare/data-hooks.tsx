@@ -14,7 +14,6 @@ import {
   type SubchatSummary,
 } from './data-api';
 import { queryClient } from '~/lib/stores/reactQueryClient';
-import { registerClientCollectionDisposer } from './client-collections';
 import { useQueryCacheError } from './use-query-cache-error';
 
 type SubchatQueryArgs = { chatId: string; sessionId: string };
@@ -55,12 +54,6 @@ type SubchatCollection = ReturnType<typeof createSubchatCollection>;
 
 const subchatCollections = new Map<string, SubchatCollection>();
 const MAX_SUBCHAT_COLLECTIONS = 32;
-
-registerClientCollectionDisposer(async () => {
-  const collections = new Set(subchatCollections.values());
-  subchatCollections.clear();
-  await Promise.allSettled([...collections].map((collection) => collection.cleanup()));
-});
 
 function getSubchatCollection(args: SubchatQueryArgs) {
   const scopeKey = `${args.sessionId}:${args.chatId}`;

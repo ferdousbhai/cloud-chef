@@ -4,8 +4,8 @@ import { Button } from '@ui/Button';
 import { TextInput } from '@ui/TextInput';
 import { ACCOUNT_DELETION_CONFIRMATION, accountExportSectionLabel } from '~/lib/account-data';
 import { authClient } from '~/lib/auth-client';
-import { disposeClientCollections } from '~/lib/cloudflare/client-collections';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
+import { queryClient } from '~/lib/stores/reactQueryClient';
 import { takeReauthenticationSwitchedAccount } from '~/lib/stores/reauthentication';
 import { ReauthenticateButtons } from './ReauthenticateButtons';
 import { z } from 'zod';
@@ -77,7 +77,7 @@ export function AccountDataCard() {
         accountDeletionSchema,
         'Unable to delete.',
       );
-      await disposeClientCollections();
+      queryClient.clear();
       resetUserRuntimeSession();
       setHadOwnAccount(session?.contexts.some((option) => option.kind === 'personal') ?? false);
       setRevoked(deleted.cloudflareAuthorizationRevoked === true);

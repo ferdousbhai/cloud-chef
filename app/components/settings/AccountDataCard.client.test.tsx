@@ -11,7 +11,6 @@ vi.mock('@tanstack/react-router', () => ({
 const mocks = vi.hoisted(() => ({
   createCloudflareReturnURL: vi.fn(() => 'https://cloudchef.build/settings'),
   signInWithCloudflare: vi.fn(),
-  disposeClientCollections: vi.fn(async () => undefined),
   resetUserRuntimeSession: vi.fn(),
   saveAs: vi.fn(),
 }));
@@ -33,16 +32,15 @@ vi.mock('~/lib/auth-client', () => ({
   signInWithCloudflare: mocks.signInWithCloudflare,
   signInWithGoogle: vi.fn(),
 }));
-vi.mock('~/lib/cloudflare/client-collections', () => ({
-  disposeClientCollections: mocks.disposeClientCollections,
-}));
 vi.mock('~/lib/cloudflare/runtime-session', () => ({ resetUserRuntimeSession: mocks.resetUserRuntimeSession }));
 
 import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
+import { queryClient } from '~/lib/stores/reactQueryClient';
 import { AccountDataCard } from './AccountDataCard.client';
 
 let root: Root | undefined;
 const fetchMock = vi.fn();
+const clearQueries = vi.spyOn(queryClient, 'clear');
 
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -198,7 +196,7 @@ describe('AccountDataCard', () => {
       confirmation: ACCOUNT_DELETION_CONFIRMATION,
       acknowledgeCloudflareResourcesRetained: true,
     });
-    expect(mocks.disposeClientCollections).toHaveBeenCalledOnce();
+    expect(clearQueries).toHaveBeenCalledOnce();
     expect(mocks.resetUserRuntimeSession).toHaveBeenCalledOnce();
     expect(document.body.textContent).toContain('Cloudflare did not confirm the revocation');
     expect(document.body.textContent).toContain('still in the Cloudflare accounts they were deployed to');

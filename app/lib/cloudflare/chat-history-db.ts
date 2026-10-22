@@ -6,7 +6,6 @@ import { z } from 'zod';
 import { executeDataOperation } from './client';
 import { api, type ChatHistorySummary } from './data-api';
 import { queryClient } from '~/lib/stores/reactQueryClient';
-import { registerClientCollectionDisposer } from './client-collections';
 import { useQueryCacheError } from './use-query-cache-error';
 
 const chatHistorySummarySchema = z.object({
@@ -43,12 +42,6 @@ function createChatHistoryCollection(sessionId: string) {
 type ChatHistoryCollection = ReturnType<typeof createChatHistoryCollection>;
 
 const chatHistoryCollections = new Map<string, ChatHistoryCollection>();
-
-registerClientCollectionDisposer(async () => {
-  const collections = new Set(chatHistoryCollections.values());
-  chatHistoryCollections.clear();
-  await Promise.allSettled([...collections].map((collection) => collection.cleanup()));
-});
 
 function getChatHistoryCollection(sessionId: string) {
   const existing = chatHistoryCollections.get(sessionId);

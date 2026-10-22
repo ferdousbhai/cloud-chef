@@ -7,7 +7,6 @@ import { SessionCheckError } from '~/components/CloudflareSignInPrompt';
 import { Loading } from '~/components/Loading';
 import { authClient, signOutOfCloudChef } from '~/lib/auth-client';
 import { useGoogleOrEmailSignIn } from '~/lib/hooks/useGoogleOrEmailSignIn';
-import { disposeClientCollections } from '~/lib/cloudflare/client-collections';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { createPrivatePageHead } from '~/lib/social-meta';
 import { messageOf, postJson, RequestError } from '~/lib/json-request';
@@ -85,7 +84,6 @@ function Join() {
         return;
       }
       // The builder reopens in the organization's account, with nothing left over from the last one.
-      await disposeClientCollections();
       resetUserRuntimeSession();
       window.location.assign('/');
     } catch (joinError) {

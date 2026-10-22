@@ -15,7 +15,6 @@ import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { executeDataOperation, UserRuntimeRequestError } from './client';
 import { api } from './data-api';
 import { queryClient } from '~/lib/stores/reactQueryClient';
-import { registerClientCollectionDisposer } from './client-collections';
 import { fetchUserRuntime } from './runtime-session';
 import { useQueryCacheError } from './use-query-cache-error';
 
@@ -135,12 +134,6 @@ function createTranscriptCollection(sessionId: string) {
 type TranscriptCollection = ReturnType<typeof createTranscriptCollection>;
 
 const transcriptCollections = new Map<string, TranscriptCollection>();
-
-registerClientCollectionDisposer(async () => {
-  const collections = new Set(transcriptCollections.values());
-  transcriptCollections.clear();
-  await Promise.allSettled([...collections].map((collection) => collection.cleanup()));
-});
 
 function getTranscriptCollection(sessionId: string) {
   const existing = transcriptCollections.get(sessionId);

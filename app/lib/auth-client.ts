@@ -4,7 +4,6 @@ import { atom, onMount } from 'nanostores';
 import { useEffect } from 'react';
 import { z } from 'zod';
 import type { CloudflareAuthSession } from '~/lib/.server/auth';
-import { disposeClientCollections } from '~/lib/cloudflare/client-collections';
 import { rememberTabWorkspace, resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { captureProductEvent } from '~/lib/telemetry.client';
 import {
@@ -220,7 +219,6 @@ export function switchWorkspace(connectionId: string): Promise<boolean> {
 
 async function switchAndReopen(connectionId: string) {
   await postJson('/api/context', { connectionId }, noContentSchema, 'Unable to switch accounts.');
-  await disposeClientCollections();
   resetUserRuntimeSession();
   clearPendingSubmit();
   window.location.assign('/');
@@ -259,7 +257,6 @@ export function signOutOfCloudChef(callbackURL = window.location.origin): Promis
 async function signOutAndLeave(callbackURL: string) {
   await postJson('/api/auth/sign-out', {}, noContentSchema, 'Unable to sign out of CloudChef.');
   setState({ data: null, isPending: false, error: null });
-  await disposeClientCollections();
   resetUserRuntimeSession();
   clearPendingSubmit();
   window.location.assign(callbackURL);
