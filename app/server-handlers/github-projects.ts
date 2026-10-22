@@ -276,8 +276,14 @@ export function declineProductionRequestAction({ request, env }: { request: Requ
   });
 }
 
-/** The production request's claim an approval's return took over by using its state, once it has. */
+/**
+ * The production request's claim an approval's return took over by using its state, while it holds it:
+ * an approval that ends any way but recording its decision hands it back.
+ */
 type ApprovalClaimHeld = { taken?: { requestId: string; claimedAt: number } };
+
+/** What an approval's return came to: the message Settings shows, and the project it made. */
+type ApprovalOutcome = { message: GitHubReturnMessage; projectId?: string };
 
 /**
  * Back from GitHub with the admin's authorization: create the repository as them (in the account the
@@ -290,30 +296,29 @@ async function completeProductionApproval(args: {
   app: GitHubApp | null;
   state: string;
 }): Promise<Response> {
-  const url = new URL(args.request.url);
-  // This is a browser coming back from GitHub: every outcome returns to Settings, which says what happened.
-  const back = (message: GitHubReturnMessage | null, promoted?: string) => {
-    const location = settingsWithMessage(url.origin, message);
-    if (promoted) {
-      location.searchParams.set('promoted', promoted);
-    }
-    return redirect(location, args.request, APPROVAL_COOKIE);
-  };
   const claim: ApprovalClaimHeld = {};
-  try {
-    return await finishProductionApproval({ ...args, back, claim });
-  } catch (error) {
-    // Any failure the steps don't answer themselves, such as D1's or the network's, hands the request back
-    // if D1 can, and returns this browser to Settings either way.
-    console.error(
-      'A production approval failed',
-      error instanceof Error ? `${error.name}: ${error.message}` : 'not an Error',
-    );
-    if (claim.taken) {
-      await releaseApprovalClaim(args.env.DB, claim.taken.requestId, claim.taken.claimedAt).catch(() => undefined);
+  const outcome = await finishProductionApproval({ ...args, claim }).catch((error: Error): ApprovalOutcome => {
+    if (error instanceof GitHubError) {
+      console.error('GitHub refused part of a production approval', error.status);
+      return { message: 'approval_failed' };
     }
-    return back('approval_failed');
+    if (error instanceof PayloadTooLargeError) {
+      return { message: 'draft_too_large' };
+    }
+    // Any other failure, such as D1's or the network's, still returns this browser to Settings.
+    console.error('A production approval failed', `${error.name}: ${error.message}`);
+    return { message: 'approval_failed' };
+  });
+  // The request is open again at once, if D1 can hand it back.
+  if (claim.taken) {
+    await releaseApprovalClaim(args.env.DB, claim.taken.requestId, claim.taken.claimedAt).catch(() => undefined);
   }
+  // This is a browser coming back from GitHub: every outcome returns to Settings, which says what happened.
+  const location = settingsWithMessage(new URL(args.request.url).origin, outcome.message);
+  if (outcome.projectId) {
+    location.searchParams.set('promoted', outcome.projectId);
+  }
+  return redirect(location, args.request, APPROVAL_COOKIE);
 }
 
 async function finishProductionApproval(args: {
@@ -321,10 +326,9 @@ async function finishProductionApproval(args: {
   env: Env;
   app: GitHubApp | null;
   state: string;
-  back: (message: GitHubReturnMessage | null, promoted?: string) => Response;
   claim: ApprovalClaimHeld;
-}): Promise<Response> {
-  const { request, env, app, back } = args;
+}): Promise<ApprovalOutcome> {
+  const { request, env, app } = args;
   const url = new URL(request.url);
   const now = Date.now();
   const pending = await env.DB.prepare(
@@ -339,10 +343,7 @@ async function finishProductionApproval(args: {
   }
   const code = url.searchParams.get('code');
   if (!app) {
-    if (pending) {
-      await releaseApprovalClaim(env.DB, pending.request_id, pending.created_at);
-    }
-    return back('github_unavailable');
+    return { message: 'github_unavailable' };
   }
   if (!pending) {
     // Its claim on the request ends with it, so the request is open again at once.
@@ -352,13 +353,12 @@ async function finishProductionApproval(args: {
       .bind(args.state)
       .first<{ request_id: string; created_at: number }>();
     if (expired) {
-      await releaseApprovalClaim(env.DB, expired.request_id, expired.created_at);
+      args.claim.taken = { requestId: expired.request_id, claimedAt: expired.created_at };
     }
-    return back('approval_expired');
+    return { message: 'approval_expired' };
   }
   if (!code) {
-    await releaseApprovalClaim(env.DB, pending.request_id, pending.created_at);
-    return back('approval_cancelled');
+    return { message: 'approval_cancelled' };
   }
   const owner = await env.DB.prepare('SELECT org_id FROM production_requests WHERE id = ?')
     .bind(pending.request_id)
@@ -366,13 +366,11 @@ async function finishProductionApproval(args: {
   const session = await getAuthSession(env, request);
   const membership = session && owner ? await findMembership(env.DB, owner.org_id, session.user.id) : null;
   if (!owner || session?.user.id !== pending.user_id || membership?.role !== 'admin' || membership.pausedAt !== null) {
-    await releaseApprovalClaim(env.DB, pending.request_id, pending.created_at);
-    return back('approval_other_admin');
+    return { message: 'approval_other_admin' };
   }
   const installation = await findGitHubInstallation(env.DB, owner.org_id);
   if (!installation) {
-    await releaseApprovalClaim(env.DB, pending.request_id, pending.created_at);
-    return back('github_disconnected');
+    return { message: 'github_disconnected' };
   }
   // The draft as it was when the admin clicked Approve: the claim made then must still hold, and it keeps
   // any other admin from creating a second repository while this one is created.
@@ -383,113 +381,100 @@ async function finishProductionApproval(args: {
   });
   if (!productionRequest) {
     args.claim.taken = undefined;
-    return back('approval_changed');
+    return { message: 'approval_changed' };
   }
   args.claim.taken = { requestId: productionRequest.id, claimedAt: productionRequest.claimedAt };
-  const fail = async (message: GitHubReturnMessage) => {
-    await releaseApprovalClaim(env.DB, productionRequest.id, productionRequest.claimedAt);
-    return back(message);
-  };
-  try {
-    // Read before anything is made on GitHub: a draft that can't be committed leaves no empty repository.
-    const draft = await readDraftSnapshot(productionRequest.snapshot);
-    if (!draft) {
-      return await fail('draft_unreadable');
-    }
-    if ('refused' in draft) {
-      return await fail('draft_refused');
-    }
-    const userToken = await app.userToken(code);
-    const login = await app.userLogin(userToken);
-    if (installation.accountType === 'User' && login !== installation.accountLogin) {
-      return await fail('approval_wrong_account');
-    }
-    const repoOwner = installation.accountType === 'Organization' ? installation.accountLogin : null;
-    const fullName = `${installation.accountLogin}/${pending.repo_name}`;
-    const created = await app
-      .createRepository(userToken, {
-        owner: repoOwner,
-        name: pending.repo_name,
-        private: pending.private === 1,
-        description: productionRequest.title,
-      })
-      .catch((error: GitHubError | Error) => {
-        if (error instanceof GitHubError && error.status === 422) {
-          return null;
-        }
-        throw error;
-      });
-    // Taken already: an approval that created it and then couldn't reach it, retried after the admin gave
-    // the App access. Such a repository holds only GitHub's first commit, its README; any other is refused,
-    // read as the admin before the App is given it, so a refused repository never gains the App's access.
-    // So is one the admin doesn't administer: seeing a coworker's new repository doesn't make it theirs.
-    const repository = created ?? (await app.findRepository(userToken, fullName));
-    if (!repository) {
-      return await fail('repository_name_refused');
-    }
-    if (!created && repository.permissions?.admin !== true) {
-      return await fail('repository_name_taken');
-    }
-    const untouched = created
-      ? true
-      : await isUntouchedNewRepository(app.userRepository(userToken, fullName), repository);
-    if (untouched === null) {
-      return await fail('repository_not_ready');
-    }
-    if (!untouched) {
-      return await fail('repository_name_taken');
-    }
-    await app.addRepositoryToInstallation(userToken, installation.installationId, repository.id);
-    const client = await app
-      .repository(
-        installation.installationId,
-        { id: repository.id, fullName: repository.full_name },
-        { contents: 'write' },
-      )
-      .catch(() => null);
-    if (!client) {
-      return await fail('repository_unreachable');
-    }
-    // The README commit GitHub makes for a new repository can take a moment to appear.
-    let head: string | null = null;
-    for (let attempt = 0; attempt < 5 && !head; attempt += 1) {
-      head = await client.branchHead(repository.default_branch);
-      if (!head) {
-        await new Promise((resolve) => setTimeout(resolve, 1_000));
-      }
-    }
-    if (!head) {
-      return await fail('repository_not_ready');
-    }
-    await client.commit({
-      branch: repository.default_branch,
-      parent: head,
-      baseTree: await client.commitTree(head),
-      message: `${productionRequest.title}, from CloudChef`,
-      changes: promotedDraftFiles(draft.files, promotedWorkerName(pending.repo_name)),
-      branchExists: true,
-    });
-    const projectId = await recordApprovedRequest(env.DB, {
-      orgId: owner.org_id,
-      actorId: pending.user_id,
-      requestId: productionRequest.id,
-      requestedBy: productionRequest.requestedBy,
-      name: productionRequest.title,
-      claimedAt: productionRequest.claimedAt,
-      repository: { id: repository.id, fullName: repository.full_name, defaultBranch: repository.default_branch },
-    });
-    // Its requester left or was removed while the repository was being made: it isn't a project.
-    return projectId === null ? back('approval_withdrawn') : back('approved', projectId);
-  } catch (error) {
-    if (error instanceof GitHubError) {
-      console.error('GitHub refused part of a production approval', error.status);
-      return await fail('approval_failed').catch(() => back('approval_failed'));
-    }
-    if (error instanceof PayloadTooLargeError) {
-      return await fail('draft_too_large').catch(() => back('draft_too_large'));
-    }
-    throw error;
+  // Read before anything is made on GitHub: a draft that can't be committed leaves no empty repository.
+  const draft = await readDraftSnapshot(productionRequest.snapshot);
+  if (!draft) {
+    return { message: 'draft_unreadable' };
   }
+  if ('refused' in draft) {
+    return { message: 'draft_refused' };
+  }
+  const userToken = await app.userToken(code);
+  const login = await app.userLogin(userToken);
+  if (installation.accountType === 'User' && login !== installation.accountLogin) {
+    return { message: 'approval_wrong_account' };
+  }
+  const repoOwner = installation.accountType === 'Organization' ? installation.accountLogin : null;
+  const fullName = `${installation.accountLogin}/${pending.repo_name}`;
+  const created = await app
+    .createRepository(userToken, {
+      owner: repoOwner,
+      name: pending.repo_name,
+      private: pending.private === 1,
+      description: productionRequest.title,
+    })
+    .catch((error: GitHubError | Error) => {
+      if (error instanceof GitHubError && error.status === 422) {
+        return null;
+      }
+      throw error;
+    });
+  // Taken already: an approval that created it and then couldn't reach it, retried after the admin gave
+  // the App access. Such a repository holds only GitHub's first commit, its README; any other is refused,
+  // read as the admin before the App is given it, so a refused repository never gains the App's access.
+  // So is one the admin doesn't administer: seeing a coworker's new repository doesn't make it theirs.
+  const repository = created ?? (await app.findRepository(userToken, fullName));
+  if (!repository) {
+    return { message: 'repository_name_refused' };
+  }
+  if (!created && repository.permissions?.admin !== true) {
+    return { message: 'repository_name_taken' };
+  }
+  const untouched = created
+    ? true
+    : await isUntouchedNewRepository(app.userRepository(userToken, fullName), repository);
+  if (untouched === null) {
+    return { message: 'repository_not_ready' };
+  }
+  if (!untouched) {
+    return { message: 'repository_name_taken' };
+  }
+  await app.addRepositoryToInstallation(userToken, installation.installationId, repository.id);
+  const client = await app
+    .repository(
+      installation.installationId,
+      { id: repository.id, fullName: repository.full_name },
+      { contents: 'write' },
+    )
+    .catch(() => null);
+  if (!client) {
+    return { message: 'repository_unreachable' };
+  }
+  // The README commit GitHub makes for a new repository can take a moment to appear.
+  let head: string | null = null;
+  for (let attempt = 0; attempt < 5 && !head; attempt += 1) {
+    head = await client.branchHead(repository.default_branch);
+    if (!head) {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+  if (!head) {
+    return { message: 'repository_not_ready' };
+  }
+  await client.commit({
+    branch: repository.default_branch,
+    parent: head,
+    baseTree: await client.commitTree(head),
+    message: `${productionRequest.title}, from CloudChef`,
+    changes: promotedDraftFiles(draft.files, promotedWorkerName(pending.repo_name)),
+    branchExists: true,
+  });
+  const projectId = await recordApprovedRequest(env.DB, {
+    orgId: owner.org_id,
+    actorId: pending.user_id,
+    requestId: productionRequest.id,
+    requestedBy: productionRequest.requestedBy,
+    name: productionRequest.title,
+    claimedAt: productionRequest.claimedAt,
+    repository: { id: repository.id, fullName: repository.full_name, defaultBranch: repository.default_branch },
+  });
+  // Decided: approved, or withdrawn because its requester left or was removed while the repository was
+  // being made, when it isn't a project.
+  args.claim.taken = undefined;
+  return projectId === null ? { message: 'approval_withdrawn' } : { message: 'approved', projectId };
 }
 
 /** The repositories the organization's installation reaches, for an admin choosing one to link. */
