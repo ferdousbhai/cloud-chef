@@ -36,7 +36,7 @@ export class ToolActivityStore {
   record(partId: PartId, invocation: CloudChefToolInvocation): void {
     const activities = this.activities.get();
     const current = activities[partId];
-    const status = invocationStatus(invocation);
+    const status = toolInvocationPhase(invocation);
     const settled = !isToolActivityStatusActive(status);
     const terminal = Object.values(activities).find(
       (activity) =>
@@ -88,7 +88,7 @@ export class ToolActivityStore {
     }
     for (const part of message.parts) {
       const invocation = getToolInvocation(part);
-      if (invocation && invocationStatus(invocation) === 'complete') {
+      if (invocation && toolInvocationPhase(invocation) === 'complete') {
         resumableIds.add(invocation.toolCallId);
       }
     }
@@ -141,8 +141,13 @@ export class ToolActivityStore {
   }
 }
 
-export function invocationStatus(invocation: CloudChefToolInvocation): ToolActivityStatus {
-  return toolInvocationPhase(invocation);
+/** A part's status: as its activity recorded it, or else as its invocation reads. */
+export function partStatus(
+  activities: Readonly<Record<PartId, ToolActivity>>,
+  partId: PartId,
+  invocation: CloudChefToolInvocation,
+): ToolActivityStatus {
+  return activities[partId]?.status ?? toolInvocationPhase(invocation);
 }
 
 export const toolActivityStore = new ToolActivityStore();

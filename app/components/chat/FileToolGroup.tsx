@@ -5,7 +5,7 @@ import { getToolInvocation, type CloudChefPart, type CloudChefToolInvocation } f
 import type { PartId } from 'cloudchef-agent/partId';
 import { ExpandableToolCard } from './ExpandableToolCard';
 import { ToolCall } from './ToolCall';
-import { invocationStatus, toolActivityStore } from '~/lib/stores/tool-activity.client';
+import { partStatus, toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { isErrorResult, statusIcon } from './tool-call-presentation';
 
 /** File tools worth folding into one row when they arrive back-to-back, and the verb each is summarised with. */
@@ -55,7 +55,7 @@ export function describeFileGroup(invocations: CloudChefToolInvocation[]): strin
   }
   const summary = [...counts]
     .map(([toolName, count]) => {
-      const verb = GROUP_VERBS.get(toolName) ?? toolName;
+      const verb = GROUP_VERBS.get(toolName);
       return `${verb} ${count} file${count === 1 ? '' : 's'}`;
     })
     .join(', ');
@@ -68,7 +68,7 @@ export const FileToolGroup = memo(function FileToolGroup({
   entries: Array<{ invocation: CloudChefToolInvocation; partId: PartId }>;
 }) {
   const activities = useStore(toolActivityStore.activities);
-  const statuses = entries.map(({ invocation, partId }) => activities[partId]?.status ?? invocationStatus(invocation));
+  const statuses = entries.map(({ invocation, partId }) => partStatus(activities, partId, invocation));
   const aggregate = statuses.includes('running') ? 'running' : statuses.includes('pending') ? 'pending' : 'complete';
   const [showAll, setShowAll] = useState(false);
   const expanded = showAll || aggregate === 'pending' || aggregate === 'running';

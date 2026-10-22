@@ -36,17 +36,9 @@ const cloudflareRequestMethodSchema = cloudflareApiRequestDisplaySchema.pick({ m
 
 const MODEL_TOOL_INPUT_SCHEMA_BY_NAME = new Map<string, ZodType>(Object.entries(MODEL_TOOL_INPUT_SCHEMAS));
 
-const emptyInvocation: CloudChefToolInvocation = {
-  type: 'dynamic-tool',
-  state: 'input-streaming',
-  toolCallId: '',
-  toolName: '',
-  input: {},
-};
-
-export function normalizeToolInvocation(invocation: CloudChefToolInvocation | undefined): CloudChefToolInvocation {
-  if (!invocation || invocation.state !== 'output-available' || isErrorResult(invocation)) {
-    return invocation ?? emptyInvocation;
+export function normalizeToolInvocation(invocation: CloudChefToolInvocation): CloudChefToolInvocation {
+  if (invocation.state !== 'output-available' || isErrorResult(invocation)) {
+    return invocation;
   }
   const schema = MODEL_TOOL_INPUT_SCHEMA_BY_NAME.get(invocation.toolName);
   const parsed = schema?.safeParse(invocation.input);
