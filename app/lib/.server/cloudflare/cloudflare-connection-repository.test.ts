@@ -18,7 +18,6 @@ describe('activateCloudflareConnection', () => {
         credentialHandle: 'credential-loser',
         grantedOAuthScopes: ['workers-scripts.write'],
         expectedGeneration: 4,
-        now: 100,
       }),
     ).rejects.toBeInstanceOf(CloudflareConnectionChangedError);
 
@@ -38,7 +37,6 @@ describe('activateCloudflareConnection', () => {
         credentialHandle: 'credential-new',
         grantedOAuthScopes: ['workers-scripts.write', 'ai.read'],
         expectedGeneration: 5,
-        now: 200,
       }),
     ).resolves.toBeUndefined();
 
@@ -58,7 +56,6 @@ describe('activateCloudflareConnection', () => {
         credentialHandle: 'credential-committed',
         grantedOAuthScopes: ['workers-scripts.write'],
         expectedGeneration: 2,
-        now: 300,
       }),
     ).resolves.toBeUndefined();
 
@@ -82,7 +79,6 @@ describe('activateCloudflareConnection', () => {
         credentialHandle: 'credential-committed',
         grantedOAuthScopes: ['workers-scripts.write', 'ai.read'],
         expectedGeneration: 2,
-        now: 300,
       }),
     ).resolves.toBeUndefined();
 
@@ -105,7 +101,6 @@ describe('activateCloudflareConnection', () => {
         credentialHandle: 'credential-loser',
         grantedOAuthScopes: ['workers-scripts.write'],
         expectedGeneration: 5,
-        now: 300,
       }),
     ).rejects.toBe(acknowledgementError);
 
@@ -125,7 +120,6 @@ describe('activateCloudflareConnection', () => {
         credentialHandle: 'credential-new',
         grantedOAuthScopes: ['workers-scripts.write'],
         expectedGeneration: null,
-        now: 400,
       }),
     ).resolves.toBeUndefined();
   });
@@ -143,7 +137,6 @@ describe('activateCloudflareConnection', () => {
         credentialHandle: 'credential-new',
         grantedOAuthScopes: ['workers-scripts.write'],
         expectedGeneration: null,
-        now: 400,
       }),
     ).resolves.toBeUndefined();
   });

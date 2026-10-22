@@ -116,9 +116,8 @@ export async function activateCloudflareConnection(args: {
   credentialHandle: string;
   grantedOAuthScopes: string[];
   expectedGeneration: number | null;
-  now?: number;
 }): Promise<void> {
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   const connectionId = crypto.randomUUID();
   const grantedScopesJson = JSON.stringify(args.grantedOAuthScopes);
   const verifyCommitted = () =>
