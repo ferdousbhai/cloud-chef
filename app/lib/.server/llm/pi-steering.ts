@@ -39,10 +39,6 @@ export class PiSteeringQueue {
     return next ? [await next] : [];
   }
 
-  hasPending(): boolean {
-    return this.#pending.length > 0;
-  }
-
   close(): void {
     this.#closed = true;
   }
