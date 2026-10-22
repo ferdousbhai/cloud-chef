@@ -19,7 +19,8 @@ import {
   ownRequestSchema,
   productionRequestSchema,
 } from './OrgProjectsSection.client';
-import { messageOf, noContentSchema, postJson, RequestError, run } from './organization-requests.client';
+import { getJson, messageOf, noContentSchema, postJson, RequestError } from '~/lib/json-request';
+import { run } from './organization-requests.client';
 import { ReauthenticateButtons } from './ReauthenticateButtons';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 
@@ -118,19 +119,15 @@ export function OrganizationsCard() {
   }, []);
 
   const load = useCallback(async () => {
-    const response = await fetch('/api/organizations', { credentials: 'same-origin' });
-    const parsed = organizationsSchema.safeParse(await response.json().catch(() => null));
-    if (!response.ok || !parsed.success) {
-      throw new Error('Unable to load your teams.');
-    }
-    setOrganizations(parsed.data.organizations);
+    const { organizations } = await getJson('/api/organizations', organizationsSchema, 'Unable to load your teams.');
+    setOrganizations(organizations);
     setError(null);
   }, []);
 
   /** Loads again after a change; a failure says so instead of leaving stale controls unexplained. */
   const reload = useCallback(
     () =>
-      load().catch((loadError: Error) => {
+      load().catch((loadError) => {
         setError(messageOf(loadError, 'Unable to load your teams.'));
       }),
     [load],
@@ -165,11 +162,11 @@ export function OrganizationsCard() {
       // Straight on to connecting its Cloudflare account, which only its admin can do.
       await signInWithCloudflare(createCloudflareReturnURL(window.location.href), { organizationId: orgId });
     } catch (createError) {
-      const reason = messageOf(createError instanceof Error ? createError : null, 'That did not work.');
+      const reason = messageOf(createError, 'That did not work.');
       setError(
         created
           ? `Created ${orgName}, but connecting its Cloudflare account didn't start: ${reason} Use its "Connect its Cloudflare account" button below.`
-          : messageOf(createError instanceof Error ? createError : null, 'Unable to create the team.'),
+          : messageOf(createError, 'Unable to create the team.'),
       );
       setBusy(false);
       void reload();
@@ -267,7 +264,7 @@ function OpenButton({ connectionId }: { connectionId: string }) {
     try {
       await switchWorkspace(connectionId);
     } catch (switchError) {
-      toast.error(messageOf(switchError instanceof Error ? switchError : null, 'Unable to switch accounts.'));
+      toast.error(messageOf(switchError, 'Unable to switch accounts.'));
       setOpening(false);
     }
   };
@@ -346,9 +343,7 @@ function OrganizationRow({
       setChosenProjects(null);
       await onChanged();
     } catch (inviteError) {
-      setInviteFeedback(
-        errorFeedback(messageOf(inviteError instanceof Error ? inviteError : null, 'Unable to invite.')),
-      );
+      setInviteFeedback(errorFeedback(messageOf(inviteError, 'Unable to invite.')));
     } finally {
       setBusy(false);
     }
@@ -590,9 +585,7 @@ function LeaveOrganization({
         setSoleMember(true);
         return;
       }
-      setFeedback(
-        errorFeedback(messageOf(leaveError instanceof Error ? leaveError : null, 'That did not work. Try again.')),
-      );
+      setFeedback(errorFeedback(messageOf(leaveError, 'That did not work. Try again.')));
     }
   };
   if (soleMember) {
@@ -660,9 +653,7 @@ function RenameTeam({
       await postJson('/api/organizations/rename', { orgId, name: name.trim() }, noContentSchema);
       await onDone(true);
     } catch (renameError) {
-      setFeedback(
-        errorFeedback(messageOf(renameError instanceof Error ? renameError : null, 'Unable to rename the team.')),
-      );
+      setFeedback(errorFeedback(messageOf(renameError, 'Unable to rename the team.')));
       setSaving(false);
     }
   };
@@ -739,9 +730,7 @@ function DeleteTeam({
       if (deleteError instanceof RequestError && deleteError.code === 'reauthentication_required') {
         setReauthenticate(true);
       } else {
-        setFeedback(
-          errorFeedback(messageOf(deleteError instanceof Error ? deleteError : null, 'Unable to delete the team.')),
-        );
+        setFeedback(errorFeedback(messageOf(deleteError, 'Unable to delete the team.')));
       }
       setDeleting(false);
     }
@@ -846,9 +835,7 @@ function MemberRow({
       }
       // Already gone (removed from another tab, or by another admin): the list catches up below.
       if (!(action === 'remove' && actionError instanceof RequestError && actionError.status === 404)) {
-        onFeedback(
-          errorFeedback(messageOf(actionError instanceof Error ? actionError : null, 'That did not work. Try again.')),
-        );
+        onFeedback(errorFeedback(messageOf(actionError, 'That did not work. Try again.')));
         setBusy(false);
         return;
       }

@@ -20,7 +20,7 @@ import {
   type GatewayProviderSlug,
 } from '~/lib/workers-ai-model';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
-import { getJson, messageOf, postJson } from './organization-requests.client';
+import { getJson, messageOf, postJson } from '~/lib/json-request';
 
 const providerKeySchema = z.object({
   provider: z.enum(GATEWAY_PROVIDER_SLUGS),
@@ -81,7 +81,7 @@ export function ModelsCard() {
 
   useEffect(() => {
     refresh().catch((failure) => {
-      setFeedback(errorFeedback(messageOf(failure instanceof Error ? failure : null, 'Unable to load models.')));
+      setFeedback(errorFeedback(messageOf(failure, 'Unable to load models.')));
     });
     void loadBuilderModelCatalog();
   }, [refresh]);
@@ -95,7 +95,7 @@ export function ModelsCard() {
       setFeedback(note === null ? null : noteFeedback(note));
       return true;
     } catch (failure) {
-      setFeedback(errorFeedback(messageOf(failure instanceof Error ? failure : null, 'That did not work. Try again.')));
+      setFeedback(errorFeedback(messageOf(failure, 'That did not work. Try again.')));
       if (refreshOnFailure) {
         // A failed change may have gone partway in Cloudflare: show the keys as they are now.
         await refresh().catch(() => undefined);

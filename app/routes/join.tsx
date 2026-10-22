@@ -9,13 +9,11 @@ import { authClient, requestEmailSignInLink, signInWithGoogle, signOutOfCloudChe
 import { disposeClientCollections } from '~/lib/cloudflare/client-collections';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { createPrivatePageHead } from '~/lib/social-meta';
+import { messageOf, postJson, RequestError } from '~/lib/json-request';
 
 const joinSearchSchema = z.object({ token: z.string().optional().catch(undefined) });
-const acceptedSchema = z.object({ switched: z.boolean() });
-const errorSchema = z.looseObject({
-  error: z.string().optional().catch(undefined),
-  code: z.string().optional().catch(undefined),
-});
+// An answer without `switched` leaves the person where they were, as a join with no account to open does.
+const acceptedSchema = z.object({ switched: z.boolean() }).catch({ switched: false });
 
 /**
  * Where an organization invite lands. Signing in comes first (Google, an emailed link, or Cloudflare),
@@ -54,24 +52,12 @@ function Join() {
     if (!token) {
       return;
     }
-    void fetch('/api/organizations/invite/describe', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
-    })
-      .then(async (response) => {
-        const payload: unknown = await response.json().catch(() => null);
-        const parsed = inviteSchema.safeParse(payload);
-        if (!response.ok) {
-          const refusal = errorSchema.safeParse(payload);
-          if (refusal.success && refusal.data.code === 'inviter_not_admin' && refusal.data.error) {
-            setLapsedReason(refusal.data.error);
-          }
-        }
-        setInvite(response.ok && parsed.success ? parsed.data : 'invalid');
-      })
-      .catch(() => setInvite('invalid'));
+    void postJson('/api/organizations/invite/describe', { token }, inviteSchema).then(setInvite, (refusal) => {
+      if (refusal instanceof RequestError && refusal.code === 'inviter_not_admin') {
+        setLapsedReason(refusal.message);
+      }
+      setInvite('invalid');
+    });
   }, [token]);
 
   const join = async () => {
@@ -81,19 +67,13 @@ function Join() {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch('/api/organizations/accept', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      });
-      if (!response.ok) {
-        const parsed = errorSchema.safeParse(await response.json().catch(() => null));
-        setNeedsProof(parsed.success && parsed.data.code === 'email_unproven');
-        throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Unable to accept this invite.');
-      }
-      const accepted = acceptedSchema.safeParse(await response.json().catch(() => null));
-      if (!accepted.success || !accepted.data.switched) {
+      const { switched } = await postJson(
+        '/api/organizations/accept',
+        { token },
+        acceptedSchema,
+        'Unable to accept this invite.',
+      );
+      if (!switched) {
         // Still in whatever account they were in: opening the builder would land them in the wrong one.
         setJoinedWithoutAccount(true);
         setBusy(false);
@@ -104,7 +84,8 @@ function Join() {
       resetUserRuntimeSession();
       window.location.assign('/');
     } catch (joinError) {
-      setError(joinError instanceof Error ? joinError.message : 'Unable to accept this invite.');
+      setNeedsProof(joinError instanceof RequestError && joinError.code === 'email_unproven');
+      setError(messageOf(joinError, 'Unable to accept this invite.'));
       setBusy(false);
     }
   };

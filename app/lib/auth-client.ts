@@ -11,6 +11,7 @@ import {
 } from '~/lib/cloudflare/authorization-recovery';
 import { clearPendingSubmit, recordPendingSubmit } from '~/lib/stores/pending-submit';
 import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
+import { noContentSchema, postJson, RequestError } from '~/lib/json-request';
 
 const captureCloudflareConnectStarted = createClientOnlyFn(() => {
   void captureProductEvent('cloudflare_connect_started');
@@ -54,16 +55,10 @@ const cloudflareAuthSessionSchema: z.ZodType<CloudflareAuthSession> = z.object({
   contexts: z.array(workspaceContextSchema),
 });
 
-const authorizationStartSchema = z.looseObject({
-  authorizationUrl: z.string().optional().catch(undefined),
-  code: z.string().optional().catch(undefined),
-  error: z.string().optional().catch(undefined),
-});
+const authorizationStartSchema = z.object({ authorizationUrl: z.string() });
 
 /** Refused until the person signs in again (Cloudflare, Google or an emailed link): their session is too old. */
 export class ReauthenticationRequiredError extends Error {}
-
-const requestErrorSchema = z.looseObject({ error: z.string().optional().catch(undefined) });
 
 const listeners = new Set<() => void>();
 const serverSnapshot: AuthState = { data: null, isPending: true, error: null };
@@ -155,25 +150,19 @@ async function startCloudflareAuthorization(
     recordPendingSubmit(options.continuePrompt);
   }
   try {
-    const response = await fetch('/api/cloudflare/connection/start', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ callbackURL, organizationId: options.organizationId }),
-    });
-    const parsed = authorizationStartSchema.safeParse(await response.json().catch(() => null));
-    const payload = parsed.success ? parsed.data : null;
-    if (!response.ok || !payload?.authorizationUrl) {
-      const message = payload?.error ?? 'Unable to start Cloudflare authorization.';
-      throw payload?.code === 'reauthentication_required'
-        ? new ReauthenticationRequiredError(message)
-        : new Error(message);
-    }
-    window.location.assign(payload.authorizationUrl);
+    const { authorizationUrl } = await postJson(
+      '/api/cloudflare/connection/start',
+      { callbackURL, organizationId: options.organizationId },
+      authorizationStartSchema,
+      'Unable to start Cloudflare authorization.',
+    );
+    window.location.assign(authorizationUrl);
   } catch (error) {
     // An authorization that never started must not leave an instruction waiting to resume.
     clearPendingSubmit();
-    throw error;
+    throw error instanceof RequestError && error.code === 'reauthentication_required'
+      ? new ReauthenticationRequiredError(error.message)
+      : error;
   }
 }
 
@@ -187,66 +176,41 @@ export function signInWithGoogle(callbackURL = window.location.href): Promise<bo
 
 async function startGoogleSignIn(callbackURL: string) {
   clearPendingSubmit();
-  const response = await fetch('/api/auth/google/start', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ callbackURL }),
-  });
-  const parsed = authorizationStartSchema.safeParse(await response.json().catch(() => null));
-  const payload = parsed.success ? parsed.data : null;
-  if (!response.ok || !payload?.authorizationUrl) {
-    throw new Error(payload?.error ?? 'Unable to start Google sign-in.');
-  }
-  window.location.assign(payload.authorizationUrl);
+  const { authorizationUrl } = await postJson(
+    '/api/auth/google/start',
+    { callbackURL },
+    authorizationStartSchema,
+    'Unable to start Google sign-in.',
+  );
+  window.location.assign(authorizationUrl);
 }
 
 /** Emails a one-time sign-in link to `email`; the link returns to `callbackURL`. */
 export async function requestEmailSignInLink(email: string, callbackURL = window.location.href) {
   clearPendingSubmit();
-  const response = await fetch('/api/auth/email/start', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, callbackURL }),
-  });
-  if (!response.ok) {
-    const parsed = requestErrorSchema.safeParse(await response.json().catch(() => null));
-    throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Unable to send a sign-in link.');
-  }
+  await postJson('/api/auth/email/start', { email, callbackURL }, z.looseObject({}), 'Unable to send a sign-in link.');
 }
 
 /** The address an emailed sign-in link is for, without using it up. */
 export async function describeEmailSignIn(token: string): Promise<string> {
-  const response = await fetch('/api/auth/email/describe', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token }),
-  });
-  const body: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const parsed = requestErrorSchema.safeParse(body);
-    throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'This sign-in link is not valid.');
-  }
-  return z.object({ email: z.string() }).parse(body).email;
+  const { email } = await postJson(
+    '/api/auth/email/describe',
+    { token },
+    z.object({ email: z.string() }),
+    'This sign-in link is not valid.',
+  );
+  return email;
 }
 
 /** Completes a sign-in from an emailed link; returns where to go next. */
 export async function completeEmailSignIn(token: string): Promise<string> {
-  const response = await fetch('/api/auth/email/complete', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token }),
-  });
-  const body: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const parsed = requestErrorSchema.safeParse(body);
-    throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Unable to sign in with this link.');
-  }
-  const parsed = z.object({ returnTo: z.string() }).safeParse(body);
-  return parsed.success ? parsed.data.returnTo : '/';
+  const { returnTo } = await postJson(
+    '/api/auth/email/complete',
+    { token },
+    z.object({ returnTo: z.string() }).catch({ returnTo: '/' }),
+    'Unable to sign in with this link.',
+  );
+  return returnTo;
 }
 
 /**
@@ -260,16 +224,7 @@ export function switchWorkspace(connectionId: string): Promise<boolean> {
 }
 
 async function switchAndReopen(connectionId: string) {
-  const response = await fetch('/api/context', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ connectionId }),
-  });
-  if (!response.ok) {
-    const parsed = requestErrorSchema.safeParse(await response.json().catch(() => null));
-    throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Unable to switch accounts.');
-  }
+  await postJson('/api/context', { connectionId }, noContentSchema, 'Unable to switch accounts.');
   await disposeClientCollections();
   resetUserRuntimeSession();
   clearPendingSubmit();
@@ -307,11 +262,7 @@ export function signOutOfCloudChef(callbackURL = window.location.origin): Promis
 }
 
 async function signOutAndLeave(callbackURL: string) {
-  const response = await fetch('/api/auth/sign-out', { method: 'POST', credentials: 'same-origin' });
-  if (!response.ok) {
-    const parsed = requestErrorSchema.safeParse(await response.json().catch(() => null));
-    throw new Error((parsed.success ? parsed.data.error : undefined) ?? 'Unable to sign out of CloudChef.');
-  }
+  await postJson('/api/auth/sign-out', {}, noContentSchema, 'Unable to sign out of CloudChef.');
   setState({ data: null, isPending: false, error: null });
   await disposeClientCollections();
   resetUserRuntimeSession();

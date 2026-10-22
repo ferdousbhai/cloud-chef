@@ -4,7 +4,8 @@ import { Button } from '@ui/Button';
 import { TextInput } from '@ui/TextInput';
 import { createCloudflareReturnURL } from '~/lib/auth-client';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
-import { getJson, noContentSchema, postJson, run } from './organization-requests.client';
+import { getJson, noContentSchema, postJson } from '~/lib/json-request';
+import { run } from './organization-requests.client';
 
 export const orgGitHubSchema = z.object({ accountLogin: z.string(), accountType: z.string() }).nullable();
 export const orgProjectSchema = z.object({

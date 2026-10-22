@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
-import { getJson, messageOf, postJson } from './organization-requests.client';
+import { getJson, messageOf, postJson } from '~/lib/json-request';
 
 const preferenceSchema = z.object({ contentLogging: z.boolean() });
 
@@ -27,9 +27,7 @@ export function AiRequestLogsCard() {
       })
       .catch((failure) => {
         if (!canceled) {
-          setFeedback(
-            errorFeedback(messageOf(failure instanceof Error ? failure : null, 'Unable to load this setting.')),
-          );
+          setFeedback(errorFeedback(messageOf(failure, 'Unable to load this setting.')));
         }
       });
     return () => {
@@ -51,7 +49,7 @@ export function AiRequestLogsCard() {
         ),
       );
     } catch (failure) {
-      setFeedback(errorFeedback(messageOf(failure instanceof Error ? failure : null, 'Unable to save. Try again.')));
+      setFeedback(errorFeedback(messageOf(failure, 'Unable to save. Try again.')));
     } finally {
       setSaving(false);
     }
