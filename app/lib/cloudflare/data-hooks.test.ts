@@ -3,7 +3,7 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DataOperationError } from './client';
+import { UserRuntimeRequestError } from './client';
 import { useAllSubchatsState } from './data-hooks';
 import { useChatHistory } from './chat-history-db';
 import { queryClient as collectionQueryClient } from '~/lib/stores/reactQueryClient';
@@ -23,7 +23,6 @@ vi.mock('./client', () => {
 
   return {
     UserRuntimeRequestError,
-    DataOperationError: class DataOperationError extends UserRuntimeRequestError {},
     executeDataOperation,
   };
 });
@@ -58,7 +57,7 @@ describe('Query DB collection errors', () => {
     ['project history', useProjectHistoryError],
     ['subchat history', useSubchatHistoryError],
   ])('surfaces an initial %s failure after the source collection becomes ready', async (_name, useError) => {
-    executeDataOperation.mockRejectedValue(new DataOperationError('cold load failed', 400, false));
+    executeDataOperation.mockRejectedValue(new UserRuntimeRequestError('cold load failed', 400, false));
     const container = document.createElement('div');
     document.body.appendChild(container);
     const root = createRoot(container);

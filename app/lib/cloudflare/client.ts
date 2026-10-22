@@ -39,19 +39,12 @@ export class UserRuntimeRequestError extends Error {
   }
 }
 
-export class DataOperationError extends UserRuntimeRequestError {
-  constructor(message: string, status: number | undefined, retryable?: boolean) {
-    super(message, status, retryable);
-    this.name = 'DataOperationError';
-  }
-}
-
 /**
  * Not a fault: the workspace is being built, so the operation could not be answered yet.
  * It resolves on its own once provisioning finishes, which is why it stays retryable and
  * why the surfaces that render it say "not ready yet" rather than "something went wrong".
  */
-export class WorkspacePreparingError extends DataOperationError {
+export class WorkspacePreparingError extends UserRuntimeRequestError {
   constructor(path: DataOperationPath) {
     super(`CloudChef is still preparing your workspace, so ${path} could not run yet.`, undefined, true);
     this.name = 'WorkspacePreparingError';
@@ -75,18 +68,9 @@ export async function executeDataOperation<Path extends DataOperationPath>(
   // Acquired before the operation clock starts: the session request waits for durable background
   // provisioning, while this operation's timeout covers only the operation itself.
   const session = await getUserRuntimeSession({ signal: options.signal });
-  options.signal?.throwIfAborted();
-  const controller = new AbortController();
-  let timedOut = false;
-  const abortFromCaller = () => controller.abort(options.signal?.reason);
-  options.signal?.addEventListener('abort', abortFromCaller, { once: true });
-  if (options.signal?.aborted) {
-    abortFromCaller();
-  }
-  const timeoutId = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, DATA_OPERATION_TIMEOUT_MS);
+  const timeout = new AbortController();
+  const timeoutId = setTimeout(() => timeout.abort(), DATA_OPERATION_TIMEOUT_MS);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeout.signal]) : timeout.signal;
 
   try {
     const response = await fetchWithRuntimeSession(session, '/v1/data', {
@@ -95,38 +79,37 @@ export async function executeDataOperation<Path extends DataOperationPath>(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ path, args }),
-      signal: controller.signal,
+      signal,
     });
-    if (timedOut) {
-      throw dataOperationTimeoutError(path);
-    }
-    options.signal?.throwIfAborted();
-
     const envelope = dataOperationEnvelopeSchema.safeParse(await response.json().catch(() => null));
+    signal.throwIfAborted();
     const body = envelope.success ? envelope.data : null;
-    if (timedOut) {
-      throw dataOperationTimeoutError(path);
-    }
-    options.signal?.throwIfAborted();
     if (!response.ok) {
-      throw new DataOperationError(body?.error ?? `Data operation failed: ${path}`, response.status, body?.retryable);
+      throw new UserRuntimeRequestError(
+        body?.error ?? `Data operation failed: ${path}`,
+        response.status,
+        body?.retryable,
+      );
     }
     if (!body || !Object.hasOwn(body, 'result')) {
-      throw new DataOperationError(`Data operation returned a malformed response: ${path}`, response.status, false);
+      throw new UserRuntimeRequestError(
+        `Data operation returned a malformed response: ${path}`,
+        response.status,
+        false,
+      );
     }
     // SAFETY: `path` selected the operation on both sides, the envelope was confirmed to carry a
     // `result` member, and the user runtime answers `/v1/data` from the same DataOperationResults
     // contract this client is generic over. There is no response schema to narrow it further.
     return body.result as DataOperationResult<Path>;
   } catch (error) {
-    if (timedOut) {
+    options.signal?.throwIfAborted();
+    if (timeout.signal.aborted) {
       throw dataOperationTimeoutError(path);
     }
-    options.signal?.throwIfAborted();
     throw error;
   } finally {
     clearTimeout(timeoutId);
-    options.signal?.removeEventListener('abort', abortFromCaller);
   }
 }
 
@@ -137,5 +120,5 @@ function dataOperationTimeoutError(path: DataOperationPath): Error {
   if (userWorkspacePreparingStore.get()) {
     return new WorkspacePreparingError(path);
   }
-  return new DataOperationError(`CloudChef timed out while running ${path}. Please try again.`, undefined, true);
+  return new UserRuntimeRequestError(`CloudChef timed out while running ${path}. Please try again.`, undefined, true);
 }

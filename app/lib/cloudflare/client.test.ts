@@ -69,7 +69,7 @@ describe('executeDataOperation', () => {
 
     const request = executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' });
     const rejection = expect(request).rejects.toMatchObject({
-      name: 'DataOperationError',
+      name: 'UserRuntimeRequestError',
       message: 'CloudChef timed out while running messages.initializeChat. Please try again.',
     });
     await vi.advanceTimersByTimeAsync(15_000);
@@ -126,25 +126,25 @@ describe('executeDataOperation', () => {
 
     await expect(
       executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' }),
-    ).rejects.toMatchObject({ name: 'DataOperationError', status: 400, retryable: false });
+    ).rejects.toMatchObject({ name: 'UserRuntimeRequestError', status: 400, retryable: false });
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({ error: 'Try later' }, { status: 503 }));
     await expect(
       executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' }),
-    ).rejects.toMatchObject({ name: 'DataOperationError', status: 503, retryable: true });
+    ).rejects.toMatchObject({ name: 'UserRuntimeRequestError', status: 503, retryable: true });
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       Response.json({ error: 'Overloaded', retryable: false }, { status: 503 }),
     );
     await expect(
       executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' }),
-    ).rejects.toMatchObject({ name: 'DataOperationError', status: 503, retryable: false });
+    ).rejects.toMatchObject({ name: 'UserRuntimeRequestError', status: 503, retryable: false });
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       Response.json({ error: 'Malformed marker', retryable: 'false' }, { status: 500 }),
     );
     await expect(
       executeDataOperation(api.messages.initializeChat, { id: 'chat-1', sessionId: 'session-1' }),
-    ).rejects.toMatchObject({ name: 'DataOperationError', status: 500, retryable: true });
+    ).rejects.toMatchObject({ name: 'UserRuntimeRequestError', status: 500, retryable: true });
   });
 });
