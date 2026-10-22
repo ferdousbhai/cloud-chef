@@ -4,8 +4,7 @@ import { Button } from '@ui/Button';
 import { TextInput } from '@ui/TextInput';
 import { createCloudflareReturnURL } from '~/lib/auth-client';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
-import { getJson, noContentSchema, postJson } from '~/lib/json-request';
-import { run } from './organization-requests.client';
+import { getJson, noContentSchema, postJson, runRequest } from '~/lib/json-request';
 
 export const orgGitHubSchema = z.object({ accountLogin: z.string(), accountType: z.string() }).nullable();
 export const orgProjectSchema = z.object({
@@ -87,7 +86,7 @@ export function OrgProjectsSection({
   const unlinked = repositories?.filter((repository) => !linkedIds.has(repository.fullName)) ?? [];
 
   const connect = () =>
-    void run(
+    void runRequest(
       async () => {
         const { installUrl } = await postJson(
           '/api/organizations/github/start',
@@ -102,7 +101,7 @@ export function OrgProjectsSection({
 
   const chooseRepository = async () => {
     setListing(true);
-    await run(
+    await runRequest(
       async () => {
         const listed = await getJson(
           `/api/organizations/github/repositories?orgId=${encodeURIComponent(orgId)}`,
@@ -123,7 +122,7 @@ export function OrgProjectsSection({
       return;
     }
     setBusy(true);
-    await run(
+    await runRequest(
       async () => {
         await postJson(
           '/api/organizations/projects/link',
@@ -144,7 +143,7 @@ export function OrgProjectsSection({
   };
 
   const disconnect = () =>
-    void run(
+    void runRequest(
       async () => {
         await postJson('/api/organizations/github/disconnect', { orgId }, noContentSchema);
       },
@@ -301,7 +300,7 @@ function ProjectRow({
   const allowed = new Set(project.memberIds);
   const setAccess = async (userId: string, granted: boolean) => {
     setSaving((current) => new Map(current).set(userId, granted));
-    await run(
+    await runRequest(
       async () => {
         await postJson(
           '/api/organizations/projects/access',
@@ -319,7 +318,7 @@ function ProjectRow({
     });
   };
   const unlink = () =>
-    void run(
+    void runRequest(
       async () => {
         await postJson('/api/organizations/projects/unlink', { orgId, projectId: project.id }, noContentSchema);
       },
@@ -436,7 +435,7 @@ function ProductionRequestRow({
   // On the way to GitHub, the button stays busy until the page goes; a refusal frees it.
   const approve = () => {
     setApproving(true);
-    void run(
+    void runRequest(
       async () => {
         const { authorizeUrl } = await postJson(
           '/api/organizations/production-requests/approve',
@@ -455,7 +454,7 @@ function ProductionRequestRow({
     );
   };
   const decline = () =>
-    void run(
+    void runRequest(
       async () => {
         await postJson(
           '/api/organizations/production-requests/decline',

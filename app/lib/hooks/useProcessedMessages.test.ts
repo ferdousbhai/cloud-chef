@@ -1,7 +1,45 @@
+// @vitest-environment jsdom
+
+import { act, createElement, useLayoutEffect } from 'react';
+import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { CloudChefMessage, CloudChefPart } from 'cloudchef-agent/ai-compat';
 import { makePartId } from 'cloudchef-agent/partId';
-import { processMessage, type PartCache } from './useProcessedMessages';
+import { toolActivityStore } from '~/lib/stores/tool-activity.client';
+import { processMessage, useProcessedMessages, type PartCache } from './useProcessedMessages';
+
+describe('useProcessedMessages', () => {
+  it("records a reloaded chat's interrupted calls as stopped once its scope is active, and reads stored ones it does not know", () => {
+    Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
+    const stored: CloudChefMessage = {
+      id: 'assistant-1',
+      role: 'assistant',
+      parts: [
+        { type: 'dynamic-tool', toolName: 'exec', toolCallId: 'exec-1', state: 'output-denied', input: {} },
+        { type: 'dynamic-tool', toolName: 'write', toolCallId: 'write-1', state: 'input-available', input: {} },
+      ],
+    };
+    const messages = [stored];
+    let rendered: CloudChefMessage[] = [];
+    function Reloaded() {
+      // As Chat does: the scope is activated in a layout effect, before the messages are processed.
+      useLayoutEffect(() => toolActivityStore.activateScope('reloaded-chat'), []);
+      rendered = useProcessedMessages(messages);
+      return null;
+    }
+    const root = createRoot(document.createElement('div'));
+    act(() => root.render(createElement(Reloaded)));
+
+    expect(rendered).toEqual([stored]);
+    expect(toolActivityStore.activities.get()).toEqual({
+      [makePartId('assistant-1', 1)]: {
+        invocation: expect.objectContaining({ toolCallId: 'write-1' }),
+        status: 'aborted',
+      },
+    });
+    act(() => root.unmount());
+  });
+});
 
 describe('processMessage', () => {
   it('replaces an incomplete recovered tool part without reading a missing state', () => {

@@ -5,6 +5,7 @@ import type {
   BuilderWorkspaceState,
 } from '~/agents/builder-workspace-types';
 import {
+  callWorkspaceAgent,
   createBuilderWorkspaceCollection,
   type BuilderWorkspaceAgent,
   type BuilderWorkspaceCollection,
@@ -13,7 +14,6 @@ import {
 } from './builder-workspace-collection.client';
 import { workbenchStore } from './workbench.client';
 
-const WORKSPACE_RPC_TIMEOUT_MS = 30_000;
 const logger = createScopedLogger('BuilderWorkspaceSyncController');
 
 /**
@@ -49,7 +49,7 @@ export class BuilderWorkspaceSyncController {
       throw new Error('The durable workspace connection was superseded.');
     }
     workbenchStore.activateWorkspace(workspaceId);
-    const state = await callAgent<BuilderWorkspaceState>(agent, 'getWorkspaceState', []);
+    const state = await callWorkspaceAgent<BuilderWorkspaceState>(agent, 'getWorkspaceState', []);
     if (!isCurrent() || !workbenchStore.isWorkspaceActive(workspaceId)) {
       throw new Error('The durable workspace connection was superseded.');
     }
@@ -105,7 +105,7 @@ export class BuilderWorkspaceSyncController {
       throw new Error('The durable workspace connection was closed.');
     }
     if (changes.length === 0) {
-      return { ok: true, state: await callAgent(this.agent, 'getWorkspaceState', []), changedPaths: [] };
+      return { ok: true, state: await callWorkspaceAgent(this.agent, 'getWorkspaceState', []), changedPaths: [] };
     }
     let resolveResult: (result: BuilderWorkspaceApplyResult) => void = () => undefined;
     let rejectResult: (error: unknown) => void = () => undefined;
@@ -115,9 +115,11 @@ export class BuilderWorkspaceSyncController {
     });
     this.#enqueue(async () => {
       try {
-        const applied = await callAgent<BuilderWorkspaceApplyResult>(this.agent, 'applyWorkspaceClientChanges', [
-          { baseRevision: this.#revision, changes },
-        ]);
+        const applied = await callWorkspaceAgent<BuilderWorkspaceApplyResult>(
+          this.agent,
+          'applyWorkspaceClientChanges',
+          [{ baseRevision: this.#revision, changes }],
+        );
         if (applied.ok) {
           this.#revision = applied.state.revision;
           try {
@@ -182,8 +184,4 @@ export class BuilderWorkspaceSyncController {
     this.#operationQueue = execution.catch(() => undefined);
     return execution;
   }
-}
-
-async function callAgent<T>(agent: BuilderWorkspaceAgent, method: string, args: unknown[]): Promise<T> {
-  return (await agent.call(method, args, { timeout: WORKSPACE_RPC_TIMEOUT_MS })) as T;
 }

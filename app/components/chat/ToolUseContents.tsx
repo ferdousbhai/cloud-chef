@@ -16,6 +16,7 @@ import { Button } from '~/components/ui/primitives/Button';
 import { isToolActivityStatusActive, type ToolActivityStatus } from '~/lib/common/types';
 import { linkedPublishView, type LinkedPublishView } from '~/lib/common/linked-publish';
 import { getRelativePath } from 'cloudchef-agent/utils/workDir';
+import { messageOf } from '~/lib/json-request';
 
 export const ToolUseContents = memo(function ToolUseContents({
   invocation,
@@ -294,7 +295,7 @@ function CloudflareRequestApprovalContents({
     try {
       await onDecision(executionId, decision);
     } catch (error) {
-      setDecisionError(error instanceof Error ? error.message : 'The Cloudflare execution decision failed.');
+      setDecisionError(messageOf(error, 'The Cloudflare execution decision failed.'));
     } finally {
       setPendingDecision(null);
     }

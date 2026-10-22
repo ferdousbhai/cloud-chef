@@ -61,6 +61,8 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
             inline
             tip="Save project name"
             aria-label="Save project name"
+            // Keeps the field focused, so leaving it does not put the name back before this saves it.
+            onMouseDown={(event) => event.preventDefault()}
           />
         </form>
       ) : (

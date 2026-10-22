@@ -25,10 +25,7 @@ vi.mock('~/lib/cloudflare/runtime-session', () => ({
 
 vi.mock('~/lib/stores/userId', () => ({
   isAuthenticated: () => true,
-}));
-
-vi.mock('./CloudChefAuthWrapper', () => ({
-  useCloudChefAuth: () => ({ kind: session.kind }),
+  useCloudChefAuthKind: () => session.kind,
 }));
 
 type OnSend = (message: string, onAccepted?: () => void) => Promise<boolean>;

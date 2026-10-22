@@ -14,11 +14,13 @@ export type CloudChefPart = {
   title?: unknown;
 } & Record<string, unknown>;
 
+export type ToolInvocationState = 'input-streaming' | 'input-available' | 'output-available' | 'output-error';
+
 export type CloudChefToolInvocation = {
   type: 'dynamic-tool';
   toolName: string;
   toolCallId: string;
-  state: string;
+  state: ToolInvocationState;
   input?: unknown;
   output?: unknown;
   errorText?: string;
@@ -50,7 +52,7 @@ export function getToolInvocation(part: CloudChefPart): CloudChefToolInvocation 
     type: 'dynamic-tool',
     toolName: typeof fields.toolName === 'string' ? fields.toolName : '',
     toolCallId: typeof fields.toolCallId === 'string' ? fields.toolCallId : '',
-    state: typeof fields.state === 'string' ? fields.state : 'input-streaming',
+    state: toolInvocationState(fields.state),
   };
   if (typeof fields.errorText === 'string') {
     invocation.errorText = fields.errorText;
@@ -83,8 +85,37 @@ export function replaceToolCallPart(
   return replaced ? next : null;
 }
 
+/** A part's state as one CloudChef renders: none is still streaming input, and any other (a stored `output-denied`) has ended in error. */
+function toolInvocationState(state: ToolInvocationFields['state']): ToolInvocationState {
+  switch (state) {
+    case undefined:
+    case 'input-streaming':
+      return 'input-streaming';
+    case 'input-available':
+    case 'output-available':
+    case 'output-error':
+      return state;
+    default:
+      return 'output-error';
+  }
+}
+
+/** Where a tool call stands: its input still streaming (pending), its input complete (running), or ended. */
+export function toolInvocationPhase(
+  invocation: Pick<CloudChefToolInvocation, 'state'>,
+): 'pending' | 'running' | 'complete' {
+  switch (invocation.state) {
+    case 'input-streaming':
+      return 'pending';
+    case 'input-available':
+      return 'running';
+    default:
+      return 'complete';
+  }
+}
+
 export function isToolInvocationInProgress(invocation: Pick<CloudChefToolInvocation, 'state'>): boolean {
-  return invocation.state === 'input-streaming' || invocation.state === 'input-available';
+  return toolInvocationPhase(invocation) !== 'complete';
 }
 
 /** The tool-carrying fields a part may expose, before any of them are known to be well-formed. */

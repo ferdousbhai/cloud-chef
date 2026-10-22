@@ -11,6 +11,7 @@ import { api, type DataOperationResult } from '~/lib/cloudflare/data-api';
 import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
 import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
+import { getJson } from '~/lib/json-request';
 
 const projectsSchema = z.object({
   projects: z.array(z.object({ id: z.string(), name: z.string(), repoFullName: z.string() })),
@@ -48,13 +49,7 @@ export function OrgProjectsList({
     }
     const controller = new AbortController();
     setLoadFailed(false);
-    void fetch('/api/org-projects', { credentials: 'same-origin', signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`GitHub projects could not be loaded (${response.status}).`);
-        }
-        return projectsSchema.parse(await response.json());
-      })
+    void getJson('/api/org-projects', projectsSchema, undefined, controller.signal)
       .then((parsed) => setProjects(parsed.projects))
       .catch(() => {
         if (!controller.signal.aborted) {

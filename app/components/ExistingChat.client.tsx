@@ -1,9 +1,7 @@
 import { useExistingChat } from '~/lib/stores/startup';
 import { Chat } from './chat/Chat';
-import { CloudChefAuthProvider } from './chat/CloudChefAuthWrapper';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { Loading } from './Loading';
-import { useReloadMessages } from '~/lib/stores/startup/reloadMessages';
 import { Toaster } from '~/components/ui/Toaster';
 import { CloudflareSignInPrompt } from '~/components/CloudflareSignInPrompt';
 import { Button } from '@ui/Button';
@@ -17,13 +15,12 @@ import {
 import { isWorkspacePreparingError } from '~/lib/cloudflare/client';
 import { WorkspacePreparingLoading, WorkspacePreparingPanel } from '~/components/WorkspacePreparing';
 import { PromptPrefillContext } from './chat/prompt-prefill';
+import { messageOf } from '~/lib/json-request';
 
 export function ExistingChat({ chatId }: { chatId: string }) {
   return (
     <>
-      <CloudChefAuthProvider>
-        <ExistingChatSessionView chatId={chatId} />
-      </CloudChefAuthProvider>
+      <ExistingChatSessionView chatId={chatId} />
       <Toaster />
     </>
   );
@@ -60,8 +57,6 @@ function AuthenticatedExistingChat({ chatId }: { chatId: string }) {
     retrySubchats,
   } = useExistingChat(chatId);
 
-  const reloadState = useReloadMessages(initialMessages ?? undefined);
-
   if (loadError && initialMessages == null) {
     return <ProjectLoadError error={loadError} onRetry={retryLoad} />;
   }
@@ -73,7 +68,7 @@ function AuthenticatedExistingChat({ chatId }: { chatId: string }) {
   }
 
   // Wait for the account-owned chat and workbench state without running any actions.
-  if (initialMessages === undefined || !transcript || reloadState === undefined) {
+  if (initialMessages === undefined || !transcript) {
     return <ProjectLoading />;
   }
   return (
@@ -81,7 +76,6 @@ function AuthenticatedExistingChat({ chatId }: { chatId: string }) {
     <PromptPrefillContext.Provider value={false}>
       <Chat
         initialMessages={initialMessages}
-        partCache={reloadState.partCache}
         initializeChat={initializeChat}
         discardEmptyChat={discardEmptyChat}
         onBuilderRequestStart={onBuilderRequestStart}
@@ -99,7 +93,7 @@ function ProjectLoading() {
 }
 
 export function ProjectLoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const message = error instanceof Error ? error.message : 'The project data could not be loaded.';
+  const message = messageOf(error, 'The project data could not be loaded.');
   const retry = () => {
     if (error instanceof UserRuntimeSessionError) {
       void getUserRuntimeSession({ retryProvisioning: true }).then(onRetry, onRetry);

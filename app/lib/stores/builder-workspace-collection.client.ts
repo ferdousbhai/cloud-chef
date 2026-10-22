@@ -1,26 +1,17 @@
 import { createCollection, type SyncConfig } from '@tanstack/db';
 import { z } from 'zod';
-import {
-  BUILDER_WORKSPACE_MAX_FILE_BYTES,
-  BUILDER_WORKSPACE_MAX_FILES,
-  BUILDER_WORKSPACE_MAX_TOTAL_BYTES,
-  BUILDER_WORKSPACE_SYNC_BATCH_BYTES,
-  BUILDER_WORKSPACE_SYNC_BATCH_FILES,
-  type BuilderWorkspaceEncoding,
-  type BuilderWorkspaceSyncEntry,
-  type BuilderWorkspaceSyncPage,
+import type {
+  BuilderWorkspaceEncoding,
+  BuilderWorkspaceSyncEntry,
+  BuilderWorkspaceSyncPage,
 } from '~/agents/builder-workspace-types';
-import { sha256Hex } from '~/lib/hex-digest';
 
 const WORKSPACE_RPC_TIMEOUT_MS = 30_000;
 const WORKSPACE_ROOT = '/home/project';
-const MAX_SYNC_CURSOR_CHARS = 256;
 const MAX_SYNC_RESTARTS = 3;
-const MAX_BASE64_CONTENT_CHARS = Math.ceil(BUILDER_WORKSPACE_MAX_FILE_BYTES / 3) * 4;
-const SHA256_PATTERN = /^[a-f0-9]{64}$/;
-const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
-const revisionSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const revisionSchema = z.number().int().nonnegative();
+const countSchema = z.number().int().nonnegative();
 const workspacePathSchema = z
   .string()
   .min(WORKSPACE_ROOT.length + 2)
@@ -28,10 +19,10 @@ const workspacePathSchema = z
   .refine(isCanonicalWorkspacePath, `Path must be a canonical file path under ${WORKSPACE_ROOT}.`);
 const workspaceFileFields = {
   path: workspacePathSchema,
-  content: z.string().max(MAX_BASE64_CONTENT_CHARS),
+  content: z.string(),
   encoding: z.enum(['utf8', 'base64']),
-  size: z.number().int().nonnegative().max(BUILDER_WORKSPACE_MAX_FILE_BYTES),
-  sha256: z.string().regex(SHA256_PATTERN),
+  size: countSchema,
+  sha256: z.string(),
   revision: revisionSchema,
 };
 
@@ -44,18 +35,15 @@ type BuilderWorkspaceFileRecord = {
   revision: number;
 };
 
-const workspaceFileSchema = z
-  .object(workspaceFileFields)
-  .strict()
-  .superRefine(validateFileContent) satisfies z.ZodType<BuilderWorkspaceFileRecord>;
+const workspaceFileSchema = z.object(workspaceFileFields).strict() satisfies z.ZodType<BuilderWorkspaceFileRecord>;
 
 const workspaceStateSchema = z
   .object({
     initialized: z.boolean(),
     revision: revisionSchema,
     resetRevision: revisionSchema,
-    fileCount: z.number().int().nonnegative().max(BUILDER_WORKSPACE_MAX_FILES),
-    totalBytes: z.number().int().nonnegative().max(BUILDER_WORKSPACE_MAX_TOTAL_BYTES),
+    fileCount: countSchema,
+    totalBytes: countSchema,
     seeding: z.boolean(),
   })
   .strict();
@@ -65,8 +53,7 @@ const workspaceSyncEntrySchema = z.discriminatedUnion('kind', [
       kind: z.literal('write'),
       ...workspaceFileFields,
     })
-    .strict()
-    .superRefine(validateFileContent),
+    .strict(),
   z
     .object({
       kind: z.literal('delete'),
@@ -81,27 +68,11 @@ const workspaceSyncPageSchema = z
     fromRevision: revisionSchema,
     targetRevision: revisionSchema,
     mode: z.enum(['current', 'snapshot', 'delta']),
-    entries: z.array(workspaceSyncEntrySchema).max(BUILDER_WORKSPACE_SYNC_BATCH_FILES),
-    nextCursor: z.string().min(1).max(MAX_SYNC_CURSOR_CHARS).optional(),
+    entries: z.array(workspaceSyncEntrySchema),
+    nextCursor: z.string().min(1).optional(),
     restart: z.boolean().optional(),
   })
-  .strict()
-  .superRefine((page, context) => {
-    const pageBytes = page.entries.reduce((total, entry) => total + (entry.kind === 'write' ? entry.size : 0), 0);
-    if (
-      pageBytes > BUILDER_WORKSPACE_SYNC_BATCH_BYTES &&
-      !(page.entries.length === 1 && pageBytes <= BUILDER_WORKSPACE_MAX_FILE_BYTES)
-    ) {
-      context.addIssue({ code: 'custom', message: 'Workspace sync page exceeds its byte limit.' });
-    }
-  }) satisfies z.ZodType<BuilderWorkspaceSyncPage>;
-
-const syncCursorSchema = z
-  .object({
-    revision: revisionSchema,
-    index: z.number().int().nonnegative().max(BUILDER_WORKSPACE_MAX_FILES),
-  })
-  .strict();
+  .strict() satisfies z.ZodType<BuilderWorkspaceSyncPage>;
 
 /** The `getWorkspaceSyncPage` argument as this client sends it over the untyped agent RPC. */
 type WorkspaceSyncPageRequest = {
@@ -113,6 +84,12 @@ type WorkspaceSyncPageRequest = {
 export type BuilderWorkspaceAgent = {
   call(method: string, args: unknown[], options?: { timeout?: number }): Promise<unknown>;
 };
+
+/** A workspace RPC to the builder agent, which answers within the workspace timeout or fails. */
+export async function callWorkspaceAgent<T>(agent: BuilderWorkspaceAgent, method: string, args: unknown[]): Promise<T> {
+  // SAFETY: the agent's RPC is untyped; each caller names the result its workspace method returns.
+  return (await agent.call(method, args, { timeout: WORKSPACE_RPC_TIMEOUT_MS })) as T;
+}
 
 type WorkspaceSyncParams = Parameters<SyncConfig<BuilderWorkspaceFileRecord, string>['sync']>[0];
 
@@ -175,9 +152,6 @@ class BuilderWorkspaceCollectionSource {
       let expectedState: BuilderWorkspaceSyncPage['state'] | undefined;
       const entries: BuilderWorkspaceSyncEntry[] = [];
       const paths = new Set<string>();
-      const cursors = new Set<string>();
-      let aggregateBytes = 0;
-      let cursorIndex = 0;
       let restart = false;
 
       do {
@@ -188,7 +162,7 @@ class BuilderWorkspaceCollectionSource {
         if (cursor) {
           request.cursor = cursor;
         }
-        const page = await parseSyncPage(await this.#call('getWorkspaceSyncPage', [request]));
+        const page = parseSyncPage(await callWorkspaceAgent(this.agent, 'getWorkspaceSyncPage', [request]));
         if (page.fromRevision !== fromRevision) {
           throw syncProtocolError('the response fromRevision does not match the request');
         }
@@ -243,29 +217,8 @@ class BuilderWorkspaceCollectionSource {
             throw syncProtocolError(`duplicate entry path: ${entry.path}`);
           }
           paths.add(entry.path);
-          if (entry.kind === 'write') {
-            aggregateBytes += entry.size;
-          }
         }
         entries.push(...page.entries);
-        if (entries.length > BUILDER_WORKSPACE_MAX_FILES || aggregateBytes > BUILDER_WORKSPACE_MAX_TOTAL_BYTES) {
-          throw syncProtocolError('the aggregate workspace payload exceeds its limits');
-        }
-        if (page.nextCursor) {
-          if (cursors.has(page.nextCursor)) {
-            throw syncProtocolError('the sync cursor was repeated');
-          }
-          cursors.add(page.nextCursor);
-          const decodedCursor = parseSyncCursor(page.nextCursor);
-          if (
-            decodedCursor.revision !== page.targetRevision ||
-            decodedCursor.index !== entries.length ||
-            decodedCursor.index <= cursorIndex
-          ) {
-            throw syncProtocolError('the sync cursor did not advance to the next entry');
-          }
-          cursorIndex = decodedCursor.index;
-        }
         cursor = page.nextCursor;
       } while (cursor);
 
@@ -274,12 +227,6 @@ class BuilderWorkspaceCollectionSource {
       }
       if (targetRevision === undefined || mode === undefined || expectedState === undefined) {
         throw new Error('The durable workspace sync did not return a target revision.');
-      }
-      if (
-        mode === 'snapshot' &&
-        (entries.length !== expectedState.fileCount || aggregateBytes !== expectedState.totalBytes)
-      ) {
-        throw syncProtocolError('the snapshot totals do not match the workspace state');
       }
       if (requireSnapshot && mode !== 'snapshot' && !(mode === 'current' && targetRevision === 0)) {
         throw syncProtocolError('an authoritative snapshot was required');
@@ -338,10 +285,6 @@ class BuilderWorkspaceCollectionSource {
     }
     params.commit();
   }
-
-  async #call(method: string, args: unknown[]): Promise<unknown> {
-    return this.agent.call(method, args, { timeout: WORKSPACE_RPC_TIMEOUT_MS });
-  }
 }
 
 export type BuilderWorkspaceCollection = ReturnType<typeof createBuilderWorkspaceCollection>['collection'];
@@ -383,48 +326,12 @@ function isCanonicalWorkspacePath(path: string): boolean {
   );
 }
 
-function validateFileContent(
-  file: { content: string; encoding: BuilderWorkspaceEncoding; size: number },
-  context: z.RefinementCtx,
-): void {
-  const contentBytes = encodedContentSize(file.content, file.encoding);
-  if (contentBytes === null) {
-    context.addIssue({ code: 'custom', path: ['content'], message: 'Invalid base64 file content.' });
-  } else if (contentBytes !== file.size) {
-    context.addIssue({ code: 'custom', path: ['size'], message: 'File size does not match its encoded content.' });
-  }
-}
-
-function encodedContentSize(content: string, encoding: BuilderWorkspaceEncoding): number | null {
-  if (encoding === 'utf8') {
-    return new TextEncoder().encode(content).byteLength;
-  }
-  if (!BASE64_PATTERN.test(content)) {
-    return null;
-  }
-  const padding = content.endsWith('==') ? 2 : content.endsWith('=') ? 1 : 0;
-  return (content.length / 4) * 3 - padding;
-}
-
-async function parseSyncPage(value: unknown): Promise<BuilderWorkspaceSyncPage> {
+function parseSyncPage(value: unknown): BuilderWorkspaceSyncPage {
   const parsed = workspaceSyncPageSchema.safeParse(value);
   if (!parsed.success) {
     throw syncProtocolError(parsed.error.issues[0]?.message ?? 'invalid page');
   }
-  for (const entry of parsed.data.entries) {
-    if (entry.kind === 'write' && (await sha256FileContent(entry.content, entry.encoding)) !== entry.sha256) {
-      throw syncProtocolError(`the content hash does not match for ${entry.path}`);
-    }
-  }
   return parsed.data;
-}
-
-function parseSyncCursor(value: string): z.infer<typeof syncCursorSchema> {
-  try {
-    return syncCursorSchema.parse(JSON.parse(atob(value)));
-  } catch {
-    throw syncProtocolError('invalid sync cursor');
-  }
 }
 
 function sameWorkspaceState(
@@ -442,32 +349,13 @@ function sameWorkspaceState(
 }
 
 function workspaceFileTotals(
-  files: readonly unknown[],
+  files: readonly BuilderWorkspaceFileRecord[],
   revision: number,
 ): { fileCount: number; totalBytes: number } | null {
-  if (files.length > BUILDER_WORKSPACE_MAX_FILES || (revision === 0 && files.length > 0)) {
+  if ((revision === 0 && files.length > 0) || files.some((file) => file.revision !== revision)) {
     return null;
   }
-  let totalBytes = 0;
-  for (const file of files) {
-    const parsed = workspaceFileSchema.safeParse(file);
-    if (!parsed.success || parsed.data.revision !== revision) {
-      return null;
-    }
-    totalBytes += parsed.data.size;
-    if (totalBytes > BUILDER_WORKSPACE_MAX_TOTAL_BYTES) {
-      return null;
-    }
-  }
-  return { fileCount: files.length, totalBytes };
-}
-
-async function sha256FileContent(content: string, encoding: BuilderWorkspaceEncoding): Promise<string> {
-  const bytes =
-    encoding === 'utf8'
-      ? new TextEncoder().encode(content)
-      : Uint8Array.from(atob(content), (character) => character.charCodeAt(0));
-  return sha256Hex(bytes);
+  return { fileCount: files.length, totalBytes: files.reduce((total, file) => total + file.size, 0) };
 }
 
 function syncProtocolError(message: string): Error {

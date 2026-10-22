@@ -1,5 +1,5 @@
 {
-  "total": 1103,
+  "total": 1066,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -34,9 +34,6 @@
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 2
     },
-    "app/components/chat/CloudChefAuthWrapper.tsx": {
-      "anti-slop/no-runtime-typeof": 1
-    },
     "app/components/chat/SubchatBar.test.tsx": {
       "anti-slop/no-module-mocking": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 1
@@ -64,11 +61,11 @@
       "anti-slop/no-unknown-returns": 1
     },
     "app/components/chat/useMessageInputController.continue.test.tsx": {
-      "anti-slop/no-module-mocking": 5,
+      "anti-slop/no-module-mocking": 4,
       "anti-slop/require-safety-comment-for-type-assertion": 2
     },
     "app/components/chat/useMessageInputController.lifecycle.test.tsx": {
-      "anti-slop/no-module-mocking": 4,
+      "anti-slop/no-module-mocking": 3,
       "anti-slop/require-safety-comment-for-type-assertion": 1
     },
     "app/components/chat/useMessageInputController.ts": {
@@ -331,12 +328,8 @@
       "anti-slop/no-runtime-typeof": 1
     },
     "app/lib/hooks/useEditChatDescription.test.tsx": {
-      "anti-slop/no-chained-type-assertions": 8,
       "anti-slop/no-module-mocking": 5,
-      "anti-slop/require-safety-comment-for-type-assertion": 26
-    },
-    "app/lib/hooks/useEditChatDescription.ts": {
-      "anti-slop/no-unknown-parameters": 1
+      "anti-slop/require-safety-comment-for-type-assertion": 1
     },
     "app/lib/hooks/useProcessedMessages.test.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 2
@@ -346,7 +339,7 @@
     },
     "app/lib/stores/builder-workspace-collection.client.ts": {
       "anti-slop/no-unknown-parameters": 2,
-      "anti-slop/no-unknown-returns": 2
+      "anti-slop/no-unknown-returns": 1
     },
     "app/lib/stores/builder-workspace-sync.client.test.ts": {
       "anti-slop/no-module-mocking": 1,
@@ -355,8 +348,7 @@
       "anti-slop/require-safety-comment-for-type-assertion": 14
     },
     "app/lib/stores/builder-workspace-sync.client.ts": {
-      "anti-slop/no-unknown-parameters": 2,
-      "anti-slop/require-safety-comment-for-type-assertion": 1
+      "anti-slop/no-unknown-parameters": 2
     },
     "app/lib/stores/startup/useInitialMessages.test.tsx": {
       "anti-slop/no-module-mocking": 2,
@@ -445,7 +437,7 @@
       "anti-slop/no-runtime-typeof": 2
     },
     "cloudchef-agent/ai-compat.ts": {
-      "anti-slop/no-runtime-typeof": 5,
+      "anti-slop/no-runtime-typeof": 4,
       "anti-slop/no-unsafe-dictionary-type": 2
     },
     "cloudchef-agent/cloudflare-computer.test.ts": {
@@ -486,6 +478,9 @@
     "cloudchef-agent/utils/stripIndent.ts": {
       "anti-slop/no-runtime-typeof": 1
     },
+    "playwright.config.ts": {
+      "anti-slop/no-conditional-empty-object-spread": 1
+    },
     "scripts/check-oxlint-baseline.mjs": {
       "anti-slop/no-runtime-typeof": 1
     },
@@ -513,7 +508,7 @@
       "anti-slop/no-shape-in-symbol-names": 2
     },
     "scripts/ops-report.mjs": {
-      "anti-slop/no-runtime-typeof": 7
+      "anti-slop/no-runtime-typeof": 9
     },
     "scripts/record-d1-time-travel-bookmark.mjs": {
       "anti-slop/no-runtime-typeof": 2

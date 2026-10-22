@@ -33,6 +33,7 @@ import type {
   CloudflareExecutionDecisionHandler,
   CloudflareExecutionPublicState,
 } from 'cloudchef-agent/cloudflare-api';
+import { messageOf } from '~/lib/json-request';
 
 const Workbench = lazy(() =>
   import('~/components/workbench/Workbench.client').then((module) => ({ default: module.Workbench })),
@@ -126,7 +127,7 @@ export function BaseChat({
         subchatIndex = await createSubchat({ chatId, sessionId: userId });
       } catch (error) {
         if (isActiveChat()) {
-          toast.error(error instanceof Error ? error.message : 'Unable to create a new chat.');
+          toast.error(messageOf(error, 'Unable to create a new chat.'));
         }
         return false;
       }
@@ -174,7 +175,7 @@ export function BaseChat({
         });
       } catch (error) {
         if (isActiveChat()) {
-          toast.error(error instanceof Error ? error.message : 'Unable to rename this chat.');
+          toast.error(messageOf(error, 'Unable to rename this chat.'));
         }
         return false;
       }

@@ -8,7 +8,7 @@ import { normalizeToolInvocation, statusIcon, toolTitle } from './tool-call-pres
 import { ExpandableToolCard } from './ExpandableToolCard';
 import { useLinkedPublishView } from './useLinkedPublishView';
 import { linkedPublishView } from '~/lib/common/linked-publish';
-import { invocationStatus, toolActivityStore } from '~/lib/stores/tool-activity.client';
+import { partStatus, toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { toolProgressStore } from '~/lib/stores/tool-progress.client';
 import type {
   CloudflareExecutionDecisionHandler,
@@ -34,7 +34,7 @@ export const ToolCall = memo(function ToolCall({
     () => normalizeToolInvocation(activity?.invocation ?? rawInvocation),
     [activity?.invocation, rawInvocation],
   );
-  const status = activity?.status ?? invocationStatus(invocation);
+  const status = partStatus(activities, partId, invocation);
   const publish = useLinkedPublishView((now) => linkedPublishView(invocation, now));
   const cloudflareExecution = cloudflareExecutions?.find((execution) => execution.toolCallId === invocation.toolCallId);
   const expanded =

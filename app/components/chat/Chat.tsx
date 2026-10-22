@@ -13,7 +13,7 @@ import { authClient } from '~/lib/auth-client';
 import type { ChatProps } from './chat-types';
 import { UnauthenticatedChat } from './UnauthenticatedChat';
 import { workspacePresentationId, useBuilderAgentChat, type WorkspacePresentationState } from './useBuilderAgentChat';
-import { useChatHistoryProcessing } from './useChatHistoryProcessing';
+import { useProcessedMessages } from '~/lib/hooks/useProcessedMessages';
 import { useCurrentToolStatus } from './useCurrentToolStatus';
 import { useBuildProgress } from './useBuildProgress';
 import { appendPendingUserMessage, useChatMessageSubmission } from './useChatMessageSubmission';
@@ -35,13 +35,13 @@ import { buttonClassNames } from '~/components/ui/primitives/Button';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { WORKERS_PAID_URL } from '~/lib/workers-paid.client';
 import { loadBuilderModelCatalog, loadBuilderModelPreference } from '~/lib/stores/builder-model.client';
+import { messageOf } from '~/lib/json-request';
 
 const logger = createScopedLogger('Chat');
 
 export const Chat = memo(
   ({
     initialMessages,
-    partCache,
     initializeChat,
     discardEmptyChat,
     onBuilderRequestStart,
@@ -70,7 +70,7 @@ export const Chat = memo(
         if (!canceled) {
           logger.error('Unable to connect to the user-owned runtime', error);
           setRuntimeConnectionError({
-            message: error instanceof Error ? error.message : 'Unable to connect to your Cloudflare workspace.',
+            message: messageOf(error, 'Unable to connect to your Cloudflare workspace.'),
             code: error instanceof UserRuntimeSessionError ? error.code : null,
             upgradeUrl: error instanceof UserRuntimeSessionError ? error.upgradeUrl : null,
           });
@@ -105,7 +105,6 @@ export const Chat = memo(
       <AuthenticatedChat
         accountId={userId}
         initialMessages={initialMessages}
-        partCache={partCache}
         initializeChat={initializeChat}
         discardEmptyChat={discardEmptyChat}
         onBuilderRequestStart={onBuilderRequestStart}
@@ -270,7 +269,6 @@ const AuthenticatedChat = memo(
   ({
     accountId,
     initialMessages,
-    partCache,
     initializeChat,
     discardEmptyChat,
     onBuilderRequestStart,
@@ -340,7 +338,7 @@ const AuthenticatedChat = memo(
       presentationId,
       transcript,
     });
-    const parsedMessages = useChatHistoryProcessing({ messages, partCache });
+    const parsedMessages = useProcessedMessages(messages);
 
     useEffect(() => {
       chatStore.setKey('started', chatStarted);
@@ -354,15 +352,13 @@ const AuthenticatedChat = memo(
       chatStore.setKey('aborted', true);
     };
 
-    const { activeToolNames, activityRevision, progressRevision } = useCurrentToolStatus(messages);
+    const activeToolNames = useCurrentToolStatus(messages);
     const buildProgress = useBuildProgress({
       streamStatus,
       isRecovering,
       isProjectUpdate,
       activeToolNames,
       validationStage,
-      toolActivityRevision: activityRevision,
-      toolProgressRevision: progressRevision,
       messages,
     });
 

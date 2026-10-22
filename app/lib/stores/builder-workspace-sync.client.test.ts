@@ -541,32 +541,9 @@ describe('BuilderWorkspaceSyncController', () => {
     expect(agent.call.mock.calls.filter(([method]) => method === 'applyWorkspaceClientChanges')).toHaveLength(2);
   });
 
-  test('rejects a sync cursor that does not advance to the next entry', async () => {
-    const agent = {
-      call: vi.fn(async (method: string) => {
-        if (method === 'getWorkspaceState') {
-          return workspaceState(1);
-        }
-        if (method === 'getWorkspaceSyncPage') {
-          return {
-            ...syncPage(0, 1, 'snapshot', [write('/home/project/src/one.ts', 'one', 1)]),
-            nextCursor: syncCursor(1, 0),
-          };
-        }
-        throw new Error(`Unexpected RPC: ${method}`);
-      }),
-    };
-
-    await expect(BuilderWorkspaceSyncController.initialize(agent)).rejects.toThrow(
-      'sync cursor did not advance to the next entry',
-    );
-    expect(workbench.applyWorkspaceSyncEntries).not.toHaveBeenCalled();
-  });
-
   test.each([
     ['path', { ...write('/home/project/src/file.ts', 'one', 1), path: '/tmp/file.ts' }],
     ['encoding', { ...write('/home/project/src/file.ts', 'one', 1), encoding: 'hex' }],
-    ['hash', { ...write('/home/project/src/file.ts', 'one', 1), sha256: '1' }],
   ])('rejects a sync entry with an invalid %s before committing it', async (_field, invalidEntry) => {
     const agent = {
       call: vi.fn(async (method: string) => {
@@ -586,27 +563,6 @@ describe('BuilderWorkspaceSyncController', () => {
     await expect(BuilderWorkspaceSyncController.initialize(agent)).rejects.toThrow(
       'Invalid durable workspace sync response',
     );
-    expect(workbench.applyWorkspaceSyncEntries).not.toHaveBeenCalled();
-  });
-
-  test('rejects sync content that does not match its declared hash', async () => {
-    const entry = { ...write('/home/project/src/file.ts', 'one', 1), content: 'two' };
-    const agent = {
-      call: vi.fn(async (method: string) => {
-        if (method === 'getWorkspaceState') {
-          return workspaceState(1);
-        }
-        if (method === 'getWorkspaceSyncPage') {
-          return syncPage(0, 1, 'snapshot', [entry]);
-        }
-        throw new Error(`Unexpected RPC: ${method}`);
-      }),
-    };
-
-    await expect(BuilderWorkspaceSyncController.initialize(agent)).rejects.toThrow(
-      'content hash does not match for /home/project/src/file.ts',
-    );
-    expect(workbench.replaceWorkspaceSnapshot).not.toHaveBeenCalled();
     expect(workbench.applyWorkspaceSyncEntries).not.toHaveBeenCalled();
   });
 

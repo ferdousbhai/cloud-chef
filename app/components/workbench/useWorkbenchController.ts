@@ -11,6 +11,7 @@ import type {
 import useViewport from '~/lib/hooks/useViewport';
 import { workbenchStore, type WorkbenchViewType } from '~/lib/stores/workbench.client';
 import { chatStore, useChatId } from '~/lib/stores/chatId';
+import { messageOf } from '~/lib/json-request';
 
 const logger = createScopedLogger('WorkbenchController');
 
@@ -146,7 +147,7 @@ export function useWorkbenchController(isStreaming?: boolean) {
       }
     } catch (error) {
       if (isCurrentRequest()) {
-        toast.error(error instanceof Error ? error.message : 'Unable to queue a remote preview.');
+        toast.error(messageOf(error, 'Unable to queue a remote preview.'));
       }
     } finally {
       if (manualPreviewRequestRef.current === manualRequest) {

@@ -6,6 +6,7 @@ import { captureProductEvent } from '~/lib/telemetry.client';
 import { TextInput } from '@ui/TextInput';
 import { authClient } from '~/lib/auth-client';
 import { Modal } from '@ui/Modal';
+import { messageOf } from '~/lib/json-request';
 
 /** A new request for the admins, this draft's waiting request replaced with the revision sent, or no change. */
 export type ProductionRequestOutcome = keyof typeof SENT_MESSAGES;
@@ -97,7 +98,7 @@ function RetryDeployment({ onRetry }: { onRetry: () => Promise<BuilderDeployment
     try {
       await onRetry();
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'The deployment could not be started again.');
+      setError(messageOf(failure, 'The deployment could not be started again.'));
     } finally {
       setRetrying(false);
     }
@@ -148,7 +149,7 @@ function RequestProduction({
       setSent(await onRequest({ title, note }));
       setOpen(false);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'The request could not be sent.');
+      setError(messageOf(failure, 'The request could not be sent.'));
     } finally {
       setSending(false);
     }

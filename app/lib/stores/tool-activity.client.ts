@@ -1,5 +1,10 @@
-import { atom, map } from 'nanostores';
-import { getToolInvocation, type CloudChefMessage, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
+import { map } from 'nanostores';
+import {
+  getToolInvocation,
+  toolInvocationPhase,
+  type CloudChefMessage,
+  type CloudChefToolInvocation,
+} from 'cloudchef-agent/ai-compat';
 import { makePartId, type PartId } from 'cloudchef-agent/partId';
 import { isToolActivityStatusActive, type ToolActivityStatus } from '~/lib/common/types';
 
@@ -10,7 +15,6 @@ type ToolActivity = {
 
 export class ToolActivityStore {
   readonly activities = map<Record<PartId, ToolActivity>>({});
-  readonly revision = atom(0);
   #scope: string | null = null;
   #turnActive = false;
   #turnHandoffPending = false;
@@ -26,14 +30,13 @@ export class ToolActivityStore {
     this.#turnHandoffPending = false;
     if (Object.keys(this.activities.get()).length > 0) {
       this.activities.set({});
-      this.#bumpRevision();
     }
   }
 
   record(partId: PartId, invocation: CloudChefToolInvocation): void {
     const activities = this.activities.get();
     const current = activities[partId];
-    const status = invocationStatus(invocation);
+    const status = toolInvocationPhase(invocation);
     const settled = !isToolActivityStatusActive(status);
     const terminal = Object.values(activities).find(
       (activity) =>
@@ -43,19 +46,16 @@ export class ToolActivityStore {
     if (terminal && !settled) {
       if (current !== terminal) {
         this.activities.setKey(partId, terminal);
-        this.#bumpRevision();
       }
       return;
     }
     if (!this.#turnActive) {
       if (!settled) {
         this.activities.setKey(partId, { invocation, status: 'aborted' });
-        this.#bumpRevision();
       } else if (terminal && current?.invocation !== invocation) {
         // A settled result landing after its turn supersedes the one recorded: a publish's build result
         // replaces its pending build, and the server's real result replaces a call shown as stopped.
         this.activities.setKey(partId, { invocation, status });
-        this.#bumpRevision();
       }
       return;
     }
@@ -63,7 +63,6 @@ export class ToolActivityStore {
       return;
     }
     this.activities.setKey(partId, { invocation, status });
-    this.#bumpRevision();
   }
 
   startTurn(): void {
@@ -89,7 +88,7 @@ export class ToolActivityStore {
     }
     for (const part of message.parts) {
       const invocation = getToolInvocation(part);
-      if (invocation && invocationStatus(invocation) === 'complete') {
+      if (invocation && toolInvocationPhase(invocation) === 'complete') {
         resumableIds.add(invocation.toolCallId);
       }
     }
@@ -112,7 +111,6 @@ export class ToolActivityStore {
         }
       }
     });
-    this.#bumpRevision();
   }
 
   handoffActiveTurn(): void {
@@ -132,7 +130,6 @@ export class ToolActivityStore {
   abortActive(): void {
     this.#turnActive = false;
     this.#turnHandoffPending = false;
-    let changed = false;
     // SAFETY: every key in this map was written through `setKey(partId, ...)`, so the entries are
     // PartId-keyed; `Object.entries` only widens the branded key back to `string`.
     for (const [partId, activity] of Object.entries(this.activities.get()) as Array<[PartId, ToolActivity]>) {
@@ -140,29 +137,17 @@ export class ToolActivityStore {
         continue;
       }
       this.activities.setKey(partId, { ...activity, status: 'aborted' });
-      changed = true;
     }
-    if (changed) {
-      this.#bumpRevision();
-    }
-  }
-
-  #bumpRevision(): void {
-    this.revision.set(this.revision.get() + 1);
   }
 }
 
-export function invocationStatus(invocation: CloudChefToolInvocation): ToolActivityStatus {
-  switch (invocation.state) {
-    case 'input-streaming':
-      return 'pending';
-    case 'input-available':
-      return 'running';
-    case 'output-available':
-    case 'output-error':
-      return 'complete';
-  }
-  throw new Error(`Unsupported tool invocation state: ${invocation.state}`);
+/** A part's status: as its activity recorded it, or else as its invocation reads. */
+export function partStatus(
+  activities: Readonly<Record<PartId, ToolActivity>>,
+  partId: PartId,
+  invocation: CloudChefToolInvocation,
+): ToolActivityStatus {
+  return activities[partId]?.status ?? toolInvocationPhase(invocation);
 }
 
 export const toolActivityStore = new ToolActivityStore();

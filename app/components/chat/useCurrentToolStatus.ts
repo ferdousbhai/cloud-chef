@@ -4,22 +4,12 @@ import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { makePartId } from 'cloudchef-agent/partId';
 import { isToolActivityStatusActive } from '~/lib/common/types';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
-import { toolProgressStore } from '~/lib/stores/tool-progress.client';
 
 type ToolActivities = ReturnType<(typeof toolActivityStore.activities)['get']>;
 
-export function useCurrentToolStatus(messages: CloudChefMessage[]): {
-  activeToolNames: string[];
-  activityRevision: number;
-  progressRevision: number;
-} {
+export function useCurrentToolStatus(messages: CloudChefMessage[]): string[] {
   const activities = useStore(toolActivityStore.activities);
-  const activityRevision = useStore(toolActivityStore.revision);
-  const progressRevision = useStore(toolProgressStore.revision);
-  return useMemo(
-    () => ({ activeToolNames: currentToolStatus(messages, activities), activityRevision, progressRevision }),
-    [activities, activityRevision, messages, progressRevision],
-  );
+  return useMemo(() => currentToolStatus(messages, activities), [activities, messages]);
 }
 
 export function currentToolStatus(messages: CloudChefMessage[], activities: ToolActivities) {

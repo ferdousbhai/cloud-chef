@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { useNavigate } from '@tanstack/react-router';
 import { classNames } from '~/utils/classNames';
+import { messageOf } from '~/lib/json-request';
 
 const DownloadButton = lazy(() => import('./DownloadButton').then((module) => ({ default: module.DownloadButton })));
 const MobileProjectMenuItems = lazy(() =>
@@ -39,7 +40,7 @@ export function Header() {
     try {
       await signOutOfCloudChef();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to sign out. Please try again.');
+      toast.error(messageOf(error, 'Unable to sign out. Please try again.'));
     }
   };
 

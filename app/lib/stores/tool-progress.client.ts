@@ -1,4 +1,4 @@
-import { atom, map } from 'nanostores';
+import { map } from 'nanostores';
 
 type ToolProgress = {
   toolCallId: string;
@@ -8,11 +8,9 @@ type ToolProgress = {
 
 class ToolProgressStore {
   readonly progress = map<Record<string, ToolProgress>>({});
-  readonly revision = atom(0);
 
   record(value: ToolProgress): void {
     this.progress.setKey(value.toolCallId, value);
-    this.#bumpRevision();
   }
 
   clear(): void {
@@ -20,11 +18,6 @@ class ToolProgressStore {
       return;
     }
     this.progress.set({});
-    this.#bumpRevision();
-  }
-
-  #bumpRevision(): void {
-    this.revision.set(this.revision.get() + 1);
   }
 }
 
