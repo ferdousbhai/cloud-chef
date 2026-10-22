@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { USER_WORKSPACE_DATA_MIGRATIONS } from '~/generated/user-workspace-runtime.generated';
 import { sha256Hex } from '~/lib/hex-digest';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
@@ -17,8 +17,6 @@ const mocks = {
   findRuntime: vi.fn(),
   claimUpgradeWindow: vi.fn(),
   changeUpgradeWindow: vi.fn(),
-  sleep: vi.fn(),
-  now: vi.fn(),
   accountApi: {
     readWorkspaceContainersEntitlement: vi.fn(),
     getWorkersSubdomain: vi.fn(),
@@ -69,8 +67,6 @@ const dependencies = {
   findRuntime: mocks.findRuntime,
   claimUpgradeWindow: mocks.claimUpgradeWindow,
   changeUpgradeWindow: mocks.changeUpgradeWindow,
-  now: mocks.now,
-  sleep: mocks.sleep,
 } satisfies UserWorkspaceRuntimeProvisioningDependencies;
 
 describe('workspace runtime provisioning Workflow', () => {
@@ -84,10 +80,11 @@ describe('workspace runtime provisioning Workflow', () => {
     mocks.accountApi.deployWorkspaceRuntimeWorker.mockResolvedValue({ namespaceId: 'namespace-1' });
     mocks.upsertRuntime.mockResolvedValue(undefined);
     mocks.findRuntime.mockResolvedValue(null);
-    mocks.now.mockReturnValue(NOW);
+    vi.useFakeTimers({ toFake: ['Date'], now: NOW });
     mocks.changeUpgradeWindow.mockResolvedValue(undefined);
-    // Renewals wait on this; a test that follows them resolves it itself.
-    mocks.sleep.mockReturnValue(new Promise(() => undefined));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('uses one deterministic instance for repeated requests', async () => {
@@ -341,9 +338,10 @@ describe('workspace runtime provisioning Workflow', () => {
     it('gives up without redeploying a workspace that never goes quiet', async () => {
       mocks.claimUpgradeWindow.mockResolvedValue({ status: 'busy', busy: 2 });
       let now = NOW;
-      mocks.now.mockImplementation(() => now);
+      vi.setSystemTime(now);
       const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async (_name, duration) => {
         now += duration;
+        vi.setSystemTime(now);
       });
 
       await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
@@ -414,15 +412,8 @@ describe('workspace runtime provisioning Workflow', () => {
     });
 
     it('keeps renewing the window while the container rollout runs', async () => {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], now: NOW });
       mocks.claimUpgradeWindow.mockResolvedValue({ status: 'granted' });
-      const renewals: Array<() => void> = [];
-      mocks.sleep.mockImplementation(
-        (ms: number) =>
-          new Promise<void>((resolve) => {
-            expect(ms).toBe(UPGRADE_WINDOW_RENEWAL_MS);
-            renewals.push(resolve);
-          }),
-      );
       let rolledOut: () => void = () => undefined;
       mocks.accountApi.ensureWorkspaceRuntimeContainer.mockReturnValue(
         new Promise<void>((resolve) => {
@@ -432,12 +423,11 @@ describe('workspace runtime provisioning Workflow', () => {
       const holds = () => mocks.changeUpgradeWindow.mock.calls.filter(([args]) => args.change === 'hold').length;
 
       const provisioning = runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs());
-      // The configure step held it once, then the rollout holds it and waits to renew it.
+      // The configure step held it once, then the rollout holds it and renews it on schedule.
       await vi.waitFor(() => expect(holds()).toBe(2));
-      await vi.waitFor(() => expect(renewals).toHaveLength(2));
-      renewals.pop()?.();
-      await vi.waitFor(() => expect(renewals).toHaveLength(2));
-      renewals.pop()?.();
+      await vi.advanceTimersByTimeAsync(UPGRADE_WINDOW_RENEWAL_MS);
+      await vi.waitFor(() => expect(holds()).toBe(3));
+      await vi.advanceTimersByTimeAsync(UPGRADE_WINDOW_RENEWAL_MS);
       await vi.waitFor(() => expect(holds()).toBe(4));
 
       rolledOut();
@@ -471,7 +461,7 @@ describe('workspace runtime provisioning Workflow', () => {
     it('never gives up on a redeployed workspace, however long work on it keeps the window from it', async () => {
       mocks.claimUpgradeWindow.mockResolvedValue({ status: 'granted' });
       let now = NOW;
-      mocks.now.mockImplementation(() => now);
+      vi.setSystemTime(now);
       // Work keeps starting on the new Worker for longer than the wait before a redeploy may last.
       mocks.changeUpgradeWindow.mockImplementation(async ({ change }: { change: string }) => {
         if (change === 'hold' && now - NOW < UPGRADE_MAX_WAIT_MS + 60 * 60_000) {
@@ -481,6 +471,7 @@ describe('workspace runtime provisioning Workflow', () => {
       const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async (_name, duration) => {
         expect(duration).toBeLessThanOrEqual(5 * 60_000);
         now += duration;
+        vi.setSystemTime(now);
       });
 
       await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
@@ -628,10 +619,11 @@ describe('workspace runtime provisioning Workflow', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         mocks.claimUpgradeWindow.mockResolvedValue({ status: 'busy', busy: 1 });
         let now = NOW;
-        mocks.now.mockImplementation(() => now);
+        vi.setSystemTime(now);
         const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async (_name, duration) => {
           expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
           now += duration;
+          vi.setSystemTime(now);
         });
 
         await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
@@ -658,10 +650,11 @@ describe('workspace runtime provisioning Workflow', () => {
           .mockResolvedValueOnce({ status: 'busy', busy: 1 })
           .mockResolvedValue({ status: 'granted' });
         let now = NOW;
-        mocks.now.mockImplementation(() => now);
+        vi.setSystemTime(now);
         const sleep = vi.fn<UserWorkspaceRuntimeProvisioningStep['sleep']>(async (_name, duration) => {
           expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
           now += duration;
+          vi.setSystemTime(now);
         });
 
         await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs(sleep))).resolves.toEqual({
@@ -691,7 +684,7 @@ describe('workspace runtime provisioning Workflow', () => {
           recordedSleeps.add(`wait for an idle workspace (attempt ${index + 1})`);
           now += waitMs;
         });
-        mocks.now.mockImplementation(() => now);
+        vi.setSystemTime(now);
         const asked: string[] = [];
         const args = workflowArgs();
         const step = {
@@ -711,6 +704,7 @@ describe('workspace runtime provisioning Workflow', () => {
           async sleep(name: string, duration: number) {
             if (!recordedSleeps.has(name)) {
               now += duration;
+              vi.setSystemTime(now);
             }
           },
         } satisfies UserWorkspaceRuntimeProvisioningStep;
@@ -805,7 +799,7 @@ function liveRuntime(endpoint: string): UserWorkspaceRuntime {
 }
 
 function launchArgs(env: Pick<Env, 'USER_WORKSPACE_RUNTIME_PROVISIONING'>) {
-  return { env, userId: 'user-1', connectionId: 'connection-1', connectionGeneration: 1 };
+  return { env, userId: 'user-1', connectionId: 'connection-1', connectionGeneration: 1, isReady: async () => false };
 }
 
 /** @param attempts how many times each step runs before its failure fails the Workflow, as its retries do */

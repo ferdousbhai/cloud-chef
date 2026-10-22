@@ -1,4 +1,5 @@
 import { canUseConnection } from '~/lib/cloudflare/data/organization-access.server';
+import { abortableSleep } from '~/lib/abortable-sleep';
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import {
   USER_WORKSPACE_DATA_MIGRATIONS,
@@ -131,9 +132,6 @@ export type UserWorkspaceRuntimeProvisioningDependencies = {
   findRuntime: typeof findUserWorkspaceRuntime;
   claimUpgradeWindow: typeof claimUserWorkspaceRuntimeUpgradeWindow;
   changeUpgradeWindow: typeof changeUserWorkspaceRuntimeUpgradeWindow;
-  now: () => number;
-  /** Waits between renewals of the upgrade window. */
-  sleep: (ms: number) => Promise<void>;
 };
 
 const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
@@ -145,8 +143,6 @@ const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
   findRuntime: findUserWorkspaceRuntime,
   claimUpgradeWindow: claimUserWorkspaceRuntimeUpgradeWindow,
   changeUpgradeWindow: changeUserWorkspaceRuntimeUpgradeWindow,
-  now: Date.now,
-  sleep: (ms) => scheduler.wait(ms),
 };
 
 /**
@@ -175,7 +171,7 @@ export async function startUserWorkspaceRuntimeProvisioning(args: {
   connectionGeneration: number;
   retry?: boolean;
   /** Whether the ready workspace is there after all; read again before rebuilding a finished one. */
-  isReady?: () => Promise<boolean>;
+  isReady: () => Promise<boolean>;
 }): Promise<UserWorkspaceRuntimeProvisioningLaunchResult> {
   const instance = await createOrGetProvisioningInstance(args);
   if (instance === 'created') {
@@ -194,7 +190,7 @@ export async function startUserWorkspaceRuntimeProvisioning(args: {
   // owner left an organization and was invited back. Build it again rather than wait forever.
   if (status.status === 'complete') {
     // It may have finished just after the caller looked: then the next poll finds it ready.
-    if (!(await args.isReady?.())) {
+    if (!(await args.isReady())) {
       await instance.restart();
     }
     return { status: 'preparing' };
@@ -365,7 +361,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
     // and waited for only so long, measured from this recorded time so a replay or retry keeps it.
     const upgradeStartedAt = await args.step.do('inspect live workspace', STEP_CONFIG, async () => {
       const live = await dependencies.findRuntime(args.env.DB, params.userId, connection.id);
-      return live && live.endpoint === endpoint ? dependencies.now() : null;
+      return live && live.endpoint === endpoint ? Date.now() : null;
     });
     let namespaceId: string;
     let windowed = upgradeStartedAt !== null;
@@ -393,7 +389,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
             if (waitMs === 'unwindowed') {
               windowedAttempt = false;
             } else if (waitMs !== null) {
-              return { status: 'busy', checkedAt: dependencies.now(), waitMs };
+              return { status: 'busy', checkedAt: Date.now(), waitMs };
             }
           }
           // 'prepare workspace database' is recorded once, by the code that started the instance, but this
@@ -468,7 +464,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
               throw error;
             }
             console.info({ event: 'runtime_upgrade_waiting', reason: 'work_started_after_window', busy: error.busy });
-            return { status: 'busy', checkedAt: dependencies.now(), waitMs: upgradeWaitMs(attempt) };
+            return { status: 'busy', checkedAt: Date.now(), waitMs: upgradeWaitMs(attempt) };
           }
           return { status: 'done' };
         });
@@ -592,7 +588,7 @@ async function waitBeforeUpgrade(args: {
   if (earlierGeneration) {
     // Its member has no session meanwhile, so nothing they can do ends the wait: past the cap the
     // reconnect's redeploy goes ahead, ending whatever still runs, rather than lock them out for hours.
-    const waitedMs = args.dependencies.now() - args.upgradeStartedAt;
+    const waitedMs = Date.now() - args.upgradeStartedAt;
     if (waitedMs >= EARLIER_GENERATION_MAX_WAIT_MS) {
       console.warn({ event: 'runtime_upgrade_unwindowed', reason: 'earlier_generation_wait_capped', waitedMs, busy });
       return 'unwindowed';
@@ -614,18 +610,19 @@ function upgradeWaitMs(attempt: number): number {
  * midway is logged; the window then lapses at worst, never blocking work forever.
  */
 async function whileHoldingUpgradeWindow<T>(
-  dependencies: Pick<UserWorkspaceRuntimeProvisioningDependencies, 'changeUpgradeWindow' | 'sleep'>,
+  dependencies: Pick<UserWorkspaceRuntimeProvisioningDependencies, 'changeUpgradeWindow'>,
   window: { endpoint: string; controlPlaneSecret: string; targetVersion: string; holder: string },
   operation: () => Promise<T>,
 ): Promise<T> {
   // Refused (thrown) when the window lapsed while work started, before anything runs.
   await dependencies.changeUpgradeWindow({ ...window, change: 'hold' });
-  let stop: () => void = () => undefined;
-  const stopped = new Promise<boolean>((resolve) => {
-    stop = () => resolve(false);
-  });
+  const settled = new AbortController();
   const renewals = (async () => {
-    while (await Promise.race([dependencies.sleep(UPGRADE_WINDOW_RENEWAL_MS).then(() => true), stopped])) {
+    for (;;) {
+      await abortableSleep(UPGRADE_WINDOW_RENEWAL_MS, settled.signal);
+      if (settled.signal.aborted) {
+        return;
+      }
       await dependencies.changeUpgradeWindow({ ...window, change: 'hold' }).catch(() => {
         console.warn({ event: 'runtime_upgrade_window_renewal_failed' });
       });
@@ -634,7 +631,7 @@ async function whileHoldingUpgradeWindow<T>(
   try {
     return await operation();
   } finally {
-    stop();
+    settled.abort();
     await renewals;
   }
 }
