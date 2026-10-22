@@ -16,7 +16,6 @@ import { DisabledChatMessageSheet } from './DisabledChatMessageSheet';
 import { HomeIntro } from './HomeIntro.client';
 import { LinkedProjectIntro } from './LinkedProjectIntro.client';
 import StreamingIndicator from './StreamingIndicator';
-import { ReauthorizeInterstitial } from '~/components/cloudflare/ReauthorizeInterstitial.client';
 import { MotionConfig } from 'framer-motion';
 import { useStore } from '@nanostores/react';
 import { toast } from 'sonner';
@@ -355,7 +354,6 @@ export function BaseChat({
                 <Workbench isStreaming={isStreaming} beforeChatStarted={!chatStarted} />
               </Suspense>
             )}
-            {Boolean(userId) && chatStarted && <ReauthorizeInterstitial />}
           </div>
         </div>
       </div>

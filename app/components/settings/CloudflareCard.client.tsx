@@ -11,12 +11,10 @@ import { ReauthenticateButtons } from './ReauthenticateButtons';
 
 const connectionStatusSchema = z.looseObject({
   accountName: z.string().nullish(),
-  oauthScopeGrantStatus: z.enum(['unknown', 'core', 'partial', 'full']).nullish(),
+  oauthScopeGrantStatus: z.enum(['core', 'partial', 'full']).nullish(),
 });
 
 const GRANT_STATUS_SENTENCES = {
-  // A legacy or unverifiable grant: the recorded permissions predate provider-confirmed scopes.
-  unknown: 'Reauthorize to record which Cloudflare permissions this connection holds.',
   core: 'Core build permissions granted.',
   partial: 'Partial Cloudflare permissions granted. Reauthorize to grant full access.',
   full: 'Full Cloudflare permissions granted.',
