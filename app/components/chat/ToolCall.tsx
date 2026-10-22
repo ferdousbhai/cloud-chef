@@ -4,6 +4,7 @@ import { memo, useMemo, useState } from 'react';
 import type { CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 import type { PartId } from 'cloudchef-agent/partId';
 import { ToolUseContents } from './ToolUseContents';
+import { isToolActivityStatusActive } from '~/lib/common/types';
 import { normalizeToolInvocation, statusIcon, toolTitle } from './tool-call-presentation';
 import { ExpandableToolCard } from './ExpandableToolCard';
 import { useLinkedPublishView } from './useLinkedPublishView';
@@ -38,7 +39,7 @@ export const ToolCall = memo(function ToolCall({
   const publish = useLinkedPublishView((now) => linkedPublishView(invocation, now));
   const cloudflareExecution = cloudflareExecutions?.find((execution) => execution.toolCallId === invocation.toolCallId);
   const expanded =
-    showAction || status === 'pending' || status === 'running' || cloudflareExecution?.status === 'awaiting_approval';
+    showAction || isToolActivityStatusActive(status) || cloudflareExecution?.status === 'awaiting_approval';
 
   const toggleAction = () => {
     setShowAction((visible) => !visible);

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { CheckIcon, CircleIcon, Cross2Icon, FileIcon, MagnifyingGlassIcon, Pencil1Icon } from '@radix-ui/react-icons';
 import { Spinner } from '@ui/Spinner';
-import type { ToolActivityStatus } from '~/lib/common/types';
+import { isToolActivityStatusActive, type ToolActivityStatus } from '~/lib/common/types';
 import { classNames } from '~/utils/classNames';
 import { isToolInvocationInProgress, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 import { getRelativePath } from 'cloudchef-agent/utils/workDir';
@@ -61,7 +61,7 @@ export function statusIcon(
   invocation: CloudChefToolInvocation,
   publish: LinkedPublishView | null,
 ): ReactNode {
-  if (publish && status !== 'aborted' && status !== 'running' && status !== 'pending') {
+  if (publish && status === 'complete') {
     if (publish.building) {
       return null;
     }
@@ -116,7 +116,7 @@ export function toolTitle(
       );
     }
     case 'validate':
-      return status === 'running' || status === 'pending'
+      return isToolActivityStatusActive(status)
         ? titleRow('Validating the project')
         : validationFailed(invocation)
           ? titleRow('Validation failed', <Cross2Icon className="text-content-secondary" />)

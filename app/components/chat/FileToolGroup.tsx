@@ -7,6 +7,7 @@ import { ExpandableToolCard } from './ExpandableToolCard';
 import { ToolCall } from './ToolCall';
 import { partStatus, toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { isErrorResult, statusIcon } from './tool-call-presentation';
+import { isToolActivityStatusActive } from '~/lib/common/types';
 
 /** File tools worth folding into one row when they arrive back-to-back, and the verb each is summarised with. */
 const GROUP_VERBS = new Map([
@@ -71,7 +72,7 @@ export const FileToolGroup = memo(function FileToolGroup({
   const statuses = entries.map(({ invocation, partId }) => partStatus(activities, partId, invocation));
   const aggregate = statuses.includes('running') ? 'running' : statuses.includes('pending') ? 'pending' : 'complete';
   const [showAll, setShowAll] = useState(false);
-  const expanded = showAll || aggregate === 'pending' || aggregate === 'running';
+  const expanded = showAll || isToolActivityStatusActive(aggregate);
   const invocations = entries.map((entry) => entry.invocation);
   const errored = invocations.find(isErrorResult);
 

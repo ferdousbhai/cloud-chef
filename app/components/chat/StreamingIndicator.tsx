@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import type { StreamStatus } from '~/lib/common/types';
+import { isStreamStatusActive, type StreamStatus } from '~/lib/common/types';
 import { useStore } from '@nanostores/react';
 import { chatStore } from '~/lib/stores/chatId';
 import { Spinner } from '@ui/Spinner';
@@ -77,7 +77,7 @@ export default function StreamingIndicator(props: StreamingIndicatorProps) {
   }
 
   // While a run is working, its status is a link into the Activity panel's view of that work.
-  const revealable = !aborted && (streamStatus === 'submitted' || streamStatus === 'streaming');
+  const revealable = !aborted && isStreamStatusActive(streamStatus);
 
   const retryLabel =
     streamStatus === 'error' ? 'Resend' : aborted && streamStatus === 'ready' ? 'Try again' : undefined;
