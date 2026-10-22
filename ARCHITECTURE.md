@@ -545,14 +545,14 @@ first newly cleared result. The transcript and `history` keep the original outpu
 The installed AI SDK `ToolLoopAgent` remains useful for generated applications, but it does not expose an equivalent to
 Pi's one-at-a-time, persistence-before-delivery steering queue or a continuation after a nominally final model response
 when steering is pending. Replacing Pi would therefore remove a tested runtime behavior or require another custom loop,
-which would not simplify this architecture. The parity review is recorded in `scripts/evaluations/DECISIONS.md`.
+which would not simplify this architecture. The parity review is recorded in `docs/DECISIONS.md`.
 
 Workers AI prefix caching is automatic for supported models. CloudChef sends an opaque, stable session-affinity value
 per transcript generation through either the REST header or binding `extraHeaders`, keeps system instructions at the
 front of the prompt, and leaves dynamic project context in the latest user turn. Cache availability never changes the model-visible input or correctness path. Finish telemetry aggregates Pi's native
 `usage.cacheRead` across model turns and reports cache hits or misses without logging prompt contents. Small historical samples observed lower affinity
 latency but reported zero cached tokens, so CloudChef claims no verified cached-token cost savings. The retained
-decision record is `scripts/evaluations/DECISIONS.md`.
+decision record is `docs/DECISIONS.md`.
 
 ## Trust Boundaries
 

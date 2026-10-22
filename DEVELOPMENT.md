@@ -253,6 +253,6 @@ so run `pnpm run generate:artifacts` first if the report says it has no build to
 
 ## Historical Evaluations
 
-Experiment conclusions that still constrain the product are summarized in `scripts/evaluations/DECISIONS.md`. The
+Experiment conclusions that still constrain the product are summarized in `docs/DECISIONS.md`. The
 repository does not ship or support one-off remote evaluation Workers. Run launch-capacity measurements against the
 exact release candidate in isolated staging infrastructure and retain provider telemetry with the release evidence.

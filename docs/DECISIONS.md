@@ -1,15 +1,13 @@
 # Architecture experiment decisions
 
-This file preserves conclusions that still affect the product. The one-off remote Workers and speculative benchmark
-drivers were removed because they were not production paths and keeping executable experiments implied support and
-repeatability that the project does not provide.
+Experiment and review conclusions that still constrain the product.
 
 ## Workers AI prefix caching
 
 Two small live samples on 2026-07-16 showed lower latency with stable session affinity, but Workers AI reported zero
-cached input tokens. Production keeps an opaque transcript affinity and privacy-safe hit/miss telemetry because both
-match Cloudflare's supported automatic prefix-caching contract. CloudChef claims no cached-token or cost saving without
-positive provider telemetry.
+cached input tokens. Production keeps an opaque per-transcript affinity (the `x-session-affinity` header, sent through
+the AI binding's `extraHeaders`) and privacy-safe hit/miss telemetry because both match Cloudflare's supported automatic
+prefix-caching contract. CloudChef claims no cached-token or cost saving without positive provider telemetry.
 
 ## Read-only child agents
 
@@ -19,15 +17,18 @@ evidence; reconsider only with a larger held-out end-to-end build benchmark show
 
 ## Repository retrieval
 
-No live repository-retrieval artifact was produced. The supported baseline remains the authoritative Computer
-workspace with bounded `exec` search and paged `read`. A semantic index or second repository copy remains deferred until
-real build tasks demonstrate a material retrieval gap and an isolated, revision-aware design outperforms that baseline.
+The supported baseline is the authoritative Computer workspace: `ls`, `grep`, and paged `read` answered from the
+workspace Durable Object's SQLite VFS without waking the container, and bounded `exec` in the container for anything
+else. A semantic index or second repository copy stays deferred until real build tasks demonstrate a material retrieval
+gap and an isolated, revision-aware design outperforms that baseline.
 
 ## Container provisioning
 
-No CloudChef staging measurements compare Cloudflare container tiers. `basic` and a maximum of 10 instances are
-provisioning defaults, not benchmark conclusions. Any launch capacity or tier claim still requires measured staging
-load against the exact release candidate and retained provider telemetry outside this source tree.
+Workspace containers run on `standard-4` with a maximum of 10 instances
+(`app/lib/.server/cloudflare/project-workspace-container-policy.ts`). The tier is chosen because the slow steps a user
+waits on (`pnpm install`, `tsc`, `eslint`, Vite) are CPU-bound and container CPU is billed on active use, so more cores
+finish the same work for the same CPU cost; the cost is a larger warm container while idle. No measurements compare
+tiers, so capacity is not a benchmark conclusion.
 
 ## Cloudflare Think
 
