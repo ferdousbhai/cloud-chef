@@ -114,8 +114,8 @@ import {
   packDraftSnapshot,
   seedLinkedWorkspace,
 } from './linked-project-workspace';
+import { LINKED_BUILD_WATCH_MS } from '~/lib/common/linked-publish';
 import {
-  LINKED_BUILD_WATCH_MS,
   LINKED_HELD_BACK_LIMIT,
   WORKERS_BUILDS_APPEAR_MS,
   linkedBuildSettledResult,
@@ -2177,7 +2177,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!snapshot || this.automaticPublicationStopped(epoch)) {
       return;
     }
-    if (this.productionServes(snapshot.revision)) {
+    if (snapshot.revision === this.state.productionRevision) {
       if (this.state.publicationPending) {
         this.setState({ ...this.state, publicationPending: false });
       }
@@ -2361,7 +2361,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (this.automaticPublicationStopped(epoch)) {
       return;
     }
-    if (this.productionServes(job.revision)) {
+    if (job.revision === this.state.productionRevision) {
       // Nothing will deploy it again, so nothing else would record the publication done.
       await this.recordProductionRevision(job.revision);
       return;
@@ -2436,7 +2436,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     // Admission can wait out an upgrade: whatever changed meanwhile decides again. A retry also stops
     // for a fiber still deploying the revision, which a failure recorded meanwhile may hide; one started
     // while that is read shows as deploying by the time it answers.
-    if (refused() || (options.retry && (await this.deploymentFiberRunning(job.revision))) || refused()) {
+    if (refused() || (options.retry && (await this.deploymentFibersRunning(job.revision)) > 0) || refused()) {
       return;
     }
     this.setState({
@@ -2583,7 +2583,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     // Admission can wait out an upgrade window, or D1 being unavailable: a deployment of the revision
     // started meanwhile runs on.
     const settled = await this.runtimeActivity
-      .run(async () => ((await this.deploymentFiberRunning(job.revision)) ? null : this.retry(settle)))
+      .run(async () => ((await this.deploymentFibersRunning(job.revision)) > 0 ? null : this.retry(settle)))
       .catch(() => {
         logger.warn('Unable to settle the deployment record');
         return null;
@@ -2644,10 +2644,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /** Interrupted fibers count: their recovery hook, not the readiness check, settles them. */
-  private async deploymentFiberRunning(revision: string): Promise<boolean> {
-    return (await this.deploymentFibersRunning(revision)) > 0;
-  }
-
   private async deploymentFibersRunning(revision: string): Promise<number> {
     const live = await this.listFibers({ name: DEPLOYMENT_FIBER, status: ['pending', 'running', 'interrupted'] });
     return live.filter((fiber) => deploymentJobSchema.safeParse(fiber.metadata).data?.revision === revision).length;
@@ -2733,10 +2729,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Response('Agent authentication is required.', { status: 401 });
     }
     return context;
-  }
-
-  private productionServes(revision: string): boolean {
-    return revision === this.state.productionRevision;
   }
 
   /**
@@ -3071,7 +3063,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           ? { status: 'ready' as const, ...snapshot }
           : null;
     // A deploying record with no fiber working on its revision is orphaned: nothing would ever settle it.
-    if (deployment?.status === 'deploying' && !(await this.deploymentFiberRunning(snapshot.revision))) {
+    if (deployment?.status === 'deploying' && (await this.deploymentFibersRunning(snapshot.revision)) === 0) {
       deployment = { ...deployment, status: 'failed', error: DEPLOYMENT_INTERRUPTED_MESSAGE };
     }
     this.setState({

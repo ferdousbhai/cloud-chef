@@ -4,8 +4,6 @@ import { toolFailure, toolSuccess, type CloudChefToolResult } from 'cloudchef-ag
 import type { LinkedBuildStatus } from '~/lib/.server/cloudflare/linked-project-client';
 import { LINKED_BUILD_WATCH_MS, type LinkedPublishData } from '~/lib/common/linked-publish';
 
-export { LINKED_BUILD_WATCH_MS };
-
 /**
  * A GitHub project's publish returns as soon as its commit is on GitHub; the repository's pipeline
  * (Workers Builds, typically ~2 minutes) is watched in the background, and its result replaces the
