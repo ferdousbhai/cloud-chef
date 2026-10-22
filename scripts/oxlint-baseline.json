@@ -1,5 +1,5 @@
 {
-  "total": 1013,
+  "total": 970,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -74,7 +74,7 @@
       "anti-slop/require-safety-comment-for-type-assertion": 1
     },
     "app/components/settings/AccountDataCard.client.test.tsx": {
-      "anti-slop/no-module-mocking": 5,
+      "anti-slop/no-module-mocking": 4,
       "anti-slop/require-safety-comment-for-type-assertion": 2
     },
     "app/components/ui/primitives/Modal.tsx": {
@@ -90,8 +90,8 @@
       "anti-slop/require-safety-comment-for-type-assertion": 19
     },
     "app/lib/.server/auth.test.ts": {
-      "anti-slop/no-chained-type-assertions": 6,
-      "anti-slop/require-safety-comment-for-type-assertion": 28
+      "anti-slop/no-chained-type-assertions": 3,
+      "anti-slop/require-safety-comment-for-type-assertion": 6
     },
     "app/lib/.server/chat.test.ts": {
       "anti-slop/no-module-mocking": 2,
@@ -281,9 +281,6 @@
       "anti-slop/no-module-mocking": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 1
     },
-    "app/lib/cloudflare/data-page-loader.test.ts": {
-      "anti-slop/no-module-mocking": 1
-    },
     "app/lib/cloudflare/data.server.ts": {
       "anti-slop/no-unknown-parameters": 1
     },
@@ -291,17 +288,14 @@
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 7
     },
-    "app/lib/cloudflare/data/auth.server.ts": {
-      "anti-slop/no-unknown-parameters": 1
-    },
     "app/lib/cloudflare/data/chat-repository.server.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 2
     },
     "app/lib/cloudflare/data/chat-service.server.test.ts": {
-      "anti-slop/no-chained-type-assertions": 6,
+      "anti-slop/no-chained-type-assertions": 5,
       "anti-slop/no-known-value-widening": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 17
+      "anti-slop/require-safety-comment-for-type-assertion": 7
     },
     "app/lib/cloudflare/data/cloudflare-auth-retention.server.test.ts": {
       "anti-slop/no-chained-type-assertions": 2,
@@ -344,9 +338,8 @@
       "anti-slop/no-unknown-parameters": 2
     },
     "app/lib/stores/startup/useInitialMessages.test.tsx": {
-      "anti-slop/no-module-mocking": 2,
-      "anti-slop/no-unknown-parameters": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 2
+      "anti-slop/no-module-mocking": 1,
+      "anti-slop/require-safety-comment-for-type-assertion": 1
     },
     "app/lib/stores/theme.ts": {
       "anti-slop/no-runtime-typeof": 5
@@ -365,7 +358,7 @@
       "anti-slop/no-unknown-parameters": 1
     },
     "app/lib/workers-paid.ts": {
-      "anti-slop/no-unknown-parameters": 3
+      "anti-slop/no-unknown-parameters": 2
     },
     "app/routes/-index.test.tsx": {
       "anti-slop/no-module-mocking": 2,
