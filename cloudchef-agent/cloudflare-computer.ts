@@ -1,5 +1,3 @@
-import type { CreateAIToolsOptions } from '@cloudflare/computer/tools';
-
 // @cloudflare/computer declares itself preview-only. Keep the exact pin below, the local dist patch,
 // and the durable workspace surfaces reviewed together.
 export const CLOUDFLARE_COMPUTER_VERSION = '0.2.1';
@@ -118,13 +116,3 @@ export const COMPUTER_TOOL_LIMITS = {
   mutationReceiptMaxPaths: 100,
   execMaxBytesPerStream: 256 * 1024,
 } as const;
-
-/** The read, write, and edit caps the model's file tools enforce, in Computer's own tool-option shape. */
-export const COMPUTER_AI_TOOL_OPTIONS = {
-  read: {
-    maxBytes: COMPUTER_TOOL_LIMITS.readMaxBytes,
-    maxLines: COMPUTER_TOOL_LIMITS.readMaxLines,
-  },
-  write: { maxBytes: COMPUTER_TOOL_LIMITS.mutationMaxBytes },
-  edit: { maxBytes: COMPUTER_TOOL_LIMITS.mutationMaxBytes },
-} as const satisfies Pick<CreateAIToolsOptions, 'read' | 'write' | 'edit'>;

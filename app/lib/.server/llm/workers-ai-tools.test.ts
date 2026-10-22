@@ -4,6 +4,7 @@ import { lineEditBaseTag } from 'cloudchef-agent/line-edit';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import { createTurnStatefulToolCoordinator, createWorkersAiTools } from './workers-ai-tools';
+import type { BuilderSkillReader } from './builder-skills';
 
 type Tool = {
   description?: string;
@@ -35,7 +36,7 @@ describe('minimal Workers AI tool surface', () => {
   it('fails closed for unknown skill references and prevents skill writes', async () => {
     const workspace = workspaceStub();
     const path = '/__skills__/cloudflare/references/missing.md';
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     await expect(executeTool(tools.read, { path })).resolves.toMatchObject({
       error: expect.stringContaining('Skill reference not found'),
@@ -61,7 +62,7 @@ describe('minimal Workers AI tool surface', () => {
 
   it('returns numbered project lines and the snapshot tag required by edit', async () => {
     const workspace = workspaceStub({ files: { '/home/project/src/app.ts': 'one\ntwo\nthree\n' } });
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     await expect(
       executeTool(tools.read, { path: '/home/project/src/app.ts', offset: 2, limit: 1 }),
@@ -81,7 +82,7 @@ describe('minimal Workers AI tool surface', () => {
     const workspace = workspaceStub();
     const snapshot = deferred<Awaited<ReturnType<BuilderWorkspaceApi['readText']>>>();
     workspace.readText = vi.fn(() => snapshot.promise);
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
     const controller = new AbortController();
     const reason = new DOMException('edit timed out', 'TimeoutError');
 
@@ -118,7 +119,7 @@ describe('minimal Workers AI tool surface', () => {
       controller.abort(new DOMException('edit timed out', 'TimeoutError'));
       await commitWrite(writePath, content, options);
     });
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
     const landed = await executeTool(
       tools.edit,
       {
@@ -151,7 +152,7 @@ describe('minimal Workers AI tool surface', () => {
       controller.abort(new DOMException('write timed out', 'TimeoutError'));
       await commitWrite(writePath, content, options);
     });
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     await expect(executeTool(tools.write, { path, content: 'after\n' }, controller.signal)).resolves.toEqual({
       path,
@@ -166,7 +167,7 @@ describe('minimal Workers AI tool surface', () => {
     const workspace = workspaceStub({ files: { [path]: 'before\n' } });
     const stat = deferred<{ size: number; mtime: number; mode: number; isFile: boolean; isDirectory: boolean }>();
     workspace.computer.fs.stat = vi.fn(() => stat.promise);
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
     const controller = new AbortController();
     const reason = new DOMException('write timed out', 'TimeoutError');
 
@@ -183,7 +184,7 @@ describe('minimal Workers AI tool surface', () => {
   it('rejects stale line edits and applies an exact-snapshot edit without an intermediate validation', async () => {
     const path = '/home/project/src/app.ts';
     const workspace = workspaceStub({ files: { [path]: 'one\ntwo\nthree\n' } });
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
     const read = (await executeTool(tools.read, { path })) as { base: string };
 
     await expect(
@@ -218,7 +219,7 @@ describe('minimal Workers AI tool surface', () => {
     const path = '/home/project/src/app.ts';
     const original = 'one\ntwo\n';
     const workspace = workspaceStub({ files: { [path]: original } });
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
     // SAFETY: a successful read of an existing file returns its snapshot tag as `base`.
     const read = (await executeTool(tools.read, { path })) as { base: string };
 
@@ -238,7 +239,7 @@ describe('minimal Workers AI tool surface', () => {
     const workspace = workspaceStub({
       files: { [source]: 'const a = f(\n  1,\n);\n', [notes]: 'one (\ntwo )\n' },
     });
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
     const sourceRead = { base: lineEditBaseTag((await workspace.readText(source)).sha256) };
     const notesRead = { base: lineEditBaseTag((await workspace.readText(notes)).sha256) };
 
@@ -275,7 +276,7 @@ describe('minimal Workers AI tool surface', () => {
       controller.abort(timeout);
       throw indeterminate;
     });
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     await expect(
       executeTool(tools.write, { path: '/home/project/src/app.ts', content: 'changed' }, controller.signal),
@@ -290,7 +291,7 @@ describe('minimal Workers AI tool surface', () => {
           abortSignal?.addEventListener('abort', () => reject(abortSignal.reason), { once: true });
         }),
     );
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
     const controller = new AbortController();
     const reason = new DOMException('exec timed out', 'TimeoutError');
 
@@ -309,7 +310,7 @@ describe('minimal Workers AI tool surface', () => {
     const command = deferred<{ exitCode: number; stdout: string; stderr: string }>();
     const workspace = workspaceStub();
     workspace.executeCommand = vi.fn(() => command.promise);
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
     const controller = new AbortController();
 
     const execution = executeTool(tools.exec, { command: 'pnpm test' }, controller.signal);
@@ -326,7 +327,7 @@ describe('minimal Workers AI tool surface', () => {
         result: async () => ({ exitCode: 2, stdout: 'tests ran\n', stderr: 'failed\n' }),
       })),
     });
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     await expect(executeTool(tools.exec, { command: 'pnpm test' })).resolves.toMatchObject({
       exitCode: 2,
@@ -339,7 +340,7 @@ describe('minimal Workers AI tool surface', () => {
   it('defers validation while related file mutations are being batched', async () => {
     const workspace = workspaceStub();
     const onValidationStage = vi.fn();
-    const tools = createWorkersAiTools(workspace, operationContext({ onValidationStage }));
+    const tools = createWorkersAiTools(workspace, operationContext({ onValidationStage }), NO_SKILLS);
 
     const result = await executeTool(tools.write, {
       path: '/home/project/src/app.ts',
@@ -356,7 +357,7 @@ describe('minimal Workers AI tool surface', () => {
     workspace.computer.fs.writeFile = vi.fn(async () => {
       throw new Error('write failed');
     });
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     const result = await executeTool(tools.write, { path: '/home/project/src/app.ts', content: 'bad' });
 
@@ -367,7 +368,7 @@ describe('minimal Workers AI tool surface', () => {
 
   it('routes approved dependency commands through the durable installer without an intermediate validation', async () => {
     const workspace = workspaceStub();
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     const result = await executeTool(tools.exec, { command: 'pnpm add date-fns' });
 
@@ -384,7 +385,7 @@ describe('minimal Workers AI tool surface', () => {
 
   it('does not let malformed dependency commands fall through to the shell', async () => {
     const workspace = workspaceStub();
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     await expect(executeTool(tools.exec, { command: 'pnpm install' })).resolves.toMatchObject({
       error: expect.stringContaining('exec accepts only'),
@@ -402,7 +403,7 @@ describe('minimal Workers AI tool surface', () => {
       },
     }));
     const workspace = workspaceStub({ runtimeExec, revision: () => revision });
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     const result = await executeTool(tools.exec, { command: 'custom-command' });
 
@@ -419,7 +420,7 @@ describe('minimal Workers AI tool surface', () => {
     const validation = toolFailure('Typecheck failed', { diagnostics: ['src/app.ts:1'] });
     const workspace = workspaceStub({ validation });
     const onValidationStage = vi.fn();
-    const tools = createWorkersAiTools(workspace, operationContext({ onValidationStage }));
+    const tools = createWorkersAiTools(workspace, operationContext({ onValidationStage }), NO_SKILLS);
 
     await expect(executeTool(tools.exec, { command })).resolves.toMatchObject({ validation });
     expect(workspace.validate).toHaveBeenCalledWith(
@@ -434,7 +435,7 @@ describe('minimal Workers AI tool surface', () => {
 
   it('rejects long-running server commands before they reach the workspace', async () => {
     const workspace = workspaceStub();
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     await expect(executeTool(tools.exec, { command: 'pnpm run dev' })).resolves.toMatchObject({
       error: expect.stringMatching(/long-running servers/),
@@ -445,7 +446,7 @@ describe('minimal Workers AI tool surface', () => {
 
   it('rejects platform process and runtime-state commands with a concise tool error', async () => {
     const workspace = workspaceStub();
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     await expect(executeTool(tools.exec, { command: 'pkill -f workerd' })).resolves.toMatchObject({
       error: expect.stringMatching(/process management/i),
@@ -458,7 +459,7 @@ describe('minimal Workers AI tool surface', () => {
 
   it('rejects a cloudflare.project.json write that removes a required template resource', async () => {
     const workspace = workspaceStub();
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     await expect(
       executeTool(tools.write, {
@@ -483,6 +484,7 @@ describe('minimal Workers AI tool surface', () => {
     const tools = createWorkersAiTools(
       workspace,
       operationContext({ onValidationStage: (_toolCallId, stage) => stages.push(stage) }),
+      NO_SKILLS,
     );
 
     await executeTool(tools.validate, {});
@@ -496,6 +498,7 @@ describe('minimal Workers AI tool surface', () => {
     const tools = createWorkersAiTools(
       workspace,
       operationContext({ onValidationStage: (_toolCallId, stage) => stages.push(stage) }),
+      NO_SKILLS,
     );
 
     const result = await executeTool(tools.validate, {});
@@ -539,7 +542,7 @@ describe('minimal Workers AI tool surface', () => {
 
   it('serves discovery from the workspace index, outside the container and the tool journal', async () => {
     const workspace = workspaceStub();
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     await expect(executeTool(tools.ls, { path: '/home/project/src', recursive: true })).resolves.toMatchObject({
       path: '/home/project/src',
@@ -561,7 +564,7 @@ describe('minimal Workers AI tool surface', () => {
 
   it('keeps the read-only skill overlay out of project discovery', async () => {
     const workspace = workspaceStub();
-    const tools = createWorkersAiTools(workspace, operationContext());
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     await expect(executeTool(tools.ls, { path: '/__skills__/react-start' })).resolves.toMatchObject({
       error: expect.stringContaining('not part of the project workspace'),
@@ -707,3 +710,5 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
+
+const NO_SKILLS: BuilderSkillReader = { read: async () => null };

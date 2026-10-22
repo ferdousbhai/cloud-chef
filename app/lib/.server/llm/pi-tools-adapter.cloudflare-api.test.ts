@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 import { createPiToolBundle } from './pi-tools-adapter';
+import type { BuilderSkillReader } from './builder-skills';
 
 // SAFETY: tool adaptation is under test; no workspace-backed tool is executed in this suite.
 const workspace = {} as BuilderWorkspaceApi;
@@ -25,9 +26,9 @@ function context(): CloudflareApiModelToolContext {
 
 describe('Pi Cloudflare API tool adapter', () => {
   it('adapts the tool only when admitted and preserves the Pi tool-call id in a proposal', async () => {
-    expect(createPiToolBundle(workspace, operationContext).cloudflare_request).toBeUndefined();
+    expect(createPiToolBundle(workspace, operationContext, NO_SKILLS).cloudflare_request).toBeUndefined();
 
-    const tools = createPiToolBundle(workspace, operationContext, undefined, context());
+    const tools = createPiToolBundle(workspace, operationContext, NO_SKILLS, context());
     const request = tools.cloudflare_request;
     if (!request) {
       throw new Error('Expected the admitted Cloudflare request tool.');
@@ -44,3 +45,5 @@ describe('Pi Cloudflare API tool adapter', () => {
     });
   });
 });
+
+const NO_SKILLS: BuilderSkillReader = { read: async () => null };

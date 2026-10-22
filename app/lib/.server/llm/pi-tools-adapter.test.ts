@@ -19,6 +19,7 @@ import {
   BuilderToolUnsettledError,
 } from './builder-turn-limits';
 import { createPiToolBundle } from './pi-tools-adapter';
+import type { BuilderSkillReader } from './builder-skills';
 
 describe('Pi tool adapter', () => {
   beforeEach(() => {
@@ -63,7 +64,7 @@ describe('Pi tool adapter', () => {
             executionSignal?.addEventListener('abort', () => reject(executionSignal?.reason), { once: true });
           }),
       );
-      const tools = createPiToolBundle({} as never, operationContext());
+      const tools = createPiToolBundle({} as never, operationContext(), NO_SKILLS);
       let rejection: unknown;
       const execution = tools[name].execute(`${name}-timeout`, input).catch((error) => {
         rejection = error;
@@ -95,7 +96,7 @@ describe('Pi tool adapter', () => {
             options.abortSignal?.addEventListener('abort', () => reject(indeterminate), { once: true });
           }),
       );
-      const tools = createPiToolBundle({} as never, operationContext());
+      const tools = createPiToolBundle({} as never, operationContext(), NO_SKILLS);
       const execution = tools.write.execute('write-indeterminate', {
         path: '/home/project/src/app.ts',
         content: 'changed',
@@ -120,7 +121,7 @@ describe('Pi tool adapter', () => {
           }),
       );
       // SAFETY: the canonical tools are mocked, so the workspace is never read.
-      const tools = createPiToolBundle({} as never, operationContext());
+      const tools = createPiToolBundle({} as never, operationContext(), NO_SKILLS);
       const execution = tools.write.execute('write-late', { path: '/home/project/src/app.ts', content: 'changed' });
       const outcome = expect(execution).resolves.toMatchObject({ details: landed });
 
@@ -136,7 +137,7 @@ describe('Pi tool adapter', () => {
     try {
       mocks.execute.mockImplementationOnce(async () => new Promise(() => undefined));
       // SAFETY: the canonical tools are mocked, so the workspace is never read.
-      const tools = createPiToolBundle({} as never, operationContext());
+      const tools = createPiToolBundle({} as never, operationContext(), NO_SKILLS);
       let rejection: unknown;
       const execution = tools.exec.execute('exec-hung', { command: 'pnpm test' }).catch((error) => {
         rejection = error;
@@ -153,7 +154,7 @@ describe('Pi tool adapter', () => {
   });
 
   it('rejects invalid Zod input before canonical execution', async () => {
-    const tools = createPiToolBundle({} as never, operationContext());
+    const tools = createPiToolBundle({} as never, operationContext(), NO_SKILLS);
 
     await expect(tools.write.execute('write-invalid', { path: '/home/project/src/app.ts' })).rejects.toThrow(
       'Invalid tool input for "write"',
@@ -167,3 +168,5 @@ function operationContext() {
     runWithKeepAlive: <T>(operation: () => Promise<T>) => operation(),
   };
 }
+
+const NO_SKILLS: BuilderSkillReader = { read: async () => null };

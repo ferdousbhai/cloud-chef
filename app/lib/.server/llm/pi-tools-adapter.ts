@@ -33,7 +33,7 @@ const toolLabels = {
 export function createPiToolBundle(
   workspace: BuilderWorkspaceApi,
   operationContext: BuilderOperationContext,
-  skillReader?: BuilderSkillReader,
+  skillReader: BuilderSkillReader,
   cloudflareApi?: CloudflareApiModelToolContext,
   linkedProject?: LinkedProjectModelToolContext,
 ): Record<string, AgentTool> {

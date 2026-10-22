@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 import { createWorkersAiTools } from './workers-ai-tools';
+import type { BuilderSkillReader } from './builder-skills';
 
 // SAFETY: tool construction is under test; no workspace-backed tool is executed in this suite.
 const workspace = {} as BuilderWorkspaceApi;
@@ -24,7 +25,7 @@ function apiContext(): CloudflareApiModelToolContext {
 describe('canonical Cloudflare API tool', () => {
   it('forwards a dry-run request without the workspace lane', async () => {
     const cloudflareApi = apiContext();
-    const tools = createWorkersAiTools(workspace, operationContext, undefined, cloudflareApi);
+    const tools = createWorkersAiTools(workspace, operationContext, NO_SKILLS, cloudflareApi);
     const request = { method: 'GET', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts' };
 
     await expect(tools.cloudflare_request?.execute?.(request, { toolCallId: 'request-1' })).resolves.toMatchObject({
@@ -35,7 +36,7 @@ describe('canonical Cloudflare API tool', () => {
 
   it('rejects unknown fields and methods before the agent is reached', async () => {
     const cloudflareApi = apiContext();
-    const tools = createWorkersAiTools(workspace, operationContext, undefined, cloudflareApi);
+    const tools = createWorkersAiTools(workspace, operationContext, NO_SKILLS, cloudflareApi);
 
     await expect(
       tools.cloudflare_request?.execute?.(
@@ -52,3 +53,5 @@ describe('canonical Cloudflare API tool', () => {
     expect(cloudflareApi.request).not.toHaveBeenCalled();
   });
 });
+
+const NO_SKILLS: BuilderSkillReader = { read: async () => null };

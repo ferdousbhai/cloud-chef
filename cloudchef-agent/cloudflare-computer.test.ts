@@ -3,9 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CLOUDFLARE_COMPUTER_VERSION,
   GENERATED_PROJECT_PNPM_VERSION,
-  COMPUTER_AI_TOOL_OPTIONS,
   COMPUTER_EXEC_APPLICATION_POLICY,
-  COMPUTER_TOOL_LIMITS,
   computerSyncUnconfirmedToolResult,
   workspaceOperationConflict,
   workspaceOperationConflictMessage,
@@ -104,14 +102,6 @@ describe('Cloudflare Computer preview contract', () => {
   });
 
   it('keeps every tool limit reviewed', () => {
-    expect(COMPUTER_AI_TOOL_OPTIONS).toEqual({
-      read: {
-        maxBytes: COMPUTER_TOOL_LIMITS.readMaxBytes,
-        maxLines: COMPUTER_TOOL_LIMITS.readMaxLines,
-      },
-      write: { maxBytes: COMPUTER_TOOL_LIMITS.mutationMaxBytes },
-      edit: { maxBytes: COMPUTER_TOOL_LIMITS.mutationMaxBytes },
-    });
     expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('development, preview, watch');
     expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('long-running servers are refused');
   });

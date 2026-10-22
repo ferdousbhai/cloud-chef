@@ -1,7 +1,7 @@
 import {
-  COMPUTER_AI_TOOL_OPTIONS,
   COMPUTER_DEFAULT_SHELL_BACKEND,
   COMPUTER_EXEC_APPLICATION_POLICY,
+  COMPUTER_TOOL_LIMITS,
   computerSyncUnconfirmedToolResult,
 } from 'cloudchef-agent/cloudflare-computer';
 import type { CloudChefToolSet } from 'cloudchef-agent/types';
@@ -51,7 +51,7 @@ const CLOUDFLARE_REQUEST_TOOL_DESCRIPTION =
 export function createWorkersAiTools(
   workspace: BuilderWorkspaceApi,
   operationContext: BuilderOperationContext,
-  skillReader?: BuilderSkillReader,
+  skillReader: BuilderSkillReader,
   cloudflareApi?: CloudflareApiModelToolContext,
   linkedProject?: LinkedProjectModelToolContext,
 ): CloudChefToolSet {
@@ -93,7 +93,7 @@ export function createWorkersAiTools(
   return tools;
 }
 
-function lineAnchoredReadTool(workspace: BuilderWorkspaceApi, skillReader?: BuilderSkillReader): Tool {
+function lineAnchoredReadTool(workspace: BuilderWorkspaceApi, skillReader: BuilderSkillReader): Tool {
   return {
     description:
       'Read a UTF-8 project or /__skills__/ reference file as numbered lines. Project reads return a compact base snapshot tag required by edit. Skill files are read-only. Output is bounded; use offset and limit to continue.',
@@ -101,7 +101,7 @@ function lineAnchoredReadTool(workspace: BuilderWorkspaceApi, skillReader?: Buil
     execute: async (input, options) => {
       const parsed = MODEL_TOOL_INPUT_SCHEMAS.read.parse(input);
       options.abortSignal?.throwIfAborted();
-      const skillResult = isBuilderSkillPath(parsed.path) ? await skillReader?.read(parsed.path) : null;
+      const skillResult = isBuilderSkillPath(parsed.path) ? await skillReader.read(parsed.path) : null;
       if (skillResult) {
         return lineAnchoredRead({
           path: parsed.path,
@@ -109,8 +109,8 @@ function lineAnchoredReadTool(workspace: BuilderWorkspaceApi, skillReader?: Buil
           sha256: await sha256Hex(skillResult.content),
           offset: parsed.offset,
           limit: parsed.limit,
-          maxLines: COMPUTER_AI_TOOL_OPTIONS.read.maxLines,
-          maxBytes: COMPUTER_AI_TOOL_OPTIONS.read.maxBytes,
+          maxLines: COMPUTER_TOOL_LIMITS.readMaxLines,
+          maxBytes: COMPUTER_TOOL_LIMITS.readMaxBytes,
         });
       }
       if (isBuilderSkillPath(parsed.path)) {
@@ -124,8 +124,8 @@ function lineAnchoredReadTool(workspace: BuilderWorkspaceApi, skillReader?: Buil
         sha256: file.sha256,
         offset: parsed.offset,
         limit: parsed.limit,
-        maxLines: COMPUTER_AI_TOOL_OPTIONS.read.maxLines,
-        maxBytes: COMPUTER_AI_TOOL_OPTIONS.read.maxBytes,
+        maxLines: COMPUTER_TOOL_LIMITS.readMaxLines,
+        maxBytes: COMPUTER_TOOL_LIMITS.readMaxBytes,
       });
     },
   };
@@ -187,9 +187,9 @@ function abortAwareWriteTool(workspace: BuilderWorkspaceApi): Tool {
         return { path: parsed.path, error: mutationRejection };
       }
       const bytes = new TextEncoder().encode(parsed.content);
-      if (bytes.byteLength > COMPUTER_AI_TOOL_OPTIONS.write.maxBytes) {
+      if (bytes.byteLength > COMPUTER_TOOL_LIMITS.mutationMaxBytes) {
         return {
-          error: `Content too large: ${bytes.byteLength} bytes exceeds the ${COMPUTER_AI_TOOL_OPTIONS.write.maxBytes}-byte write cap. Use the edit tool for incremental changes to existing files, or split the write into smaller pieces.`,
+          error: `Content too large: ${bytes.byteLength} bytes exceeds the ${COMPUTER_TOOL_LIMITS.mutationMaxBytes}-byte write cap. Use the edit tool for incremental changes to existing files, or split the write into smaller pieces.`,
         };
       }
 
@@ -226,10 +226,6 @@ type ExecToolReport = {
 };
 
 /**
- * One exec description for both places that build one, because they drift silently otherwise —
- * the composed Computer tool overrides the streaming tool's description, so guidance added to
- * only one of them never reaches the model.
- *
  * The steer toward `ls`/`grep` is what makes the VFS discovery tools pay for themselves. Left to
  * a bare "runs a shell command", the model falls back on shell habit and every `ls`/`find`/`grep`
  * becomes a container round trip — or a cold container start — for an answer the Durable Object
@@ -240,7 +236,8 @@ const EXEC_TOOL_DESCRIPTION =
   'container and syncing its filesystem costs far more than a workspace read, so do not shell ' +
   'out to discover the project: use ls instead of ls/find, and grep instead of grep/rg. Reach ' +
   'for exec when a command has to actually run — installing, building, testing, or inspecting ' +
-  'anything the durable workspace index does not hold.';
+  'anything the durable workspace index does not hold.\n\n' +
+  COMPUTER_EXEC_APPLICATION_POLICY;
 
 /**
  * The one canonical validation entry point. Deployment and preview recognize exactly this
@@ -319,10 +316,10 @@ function lineAnchoredEditTool(workspace: BuilderWorkspaceApi): Tool {
       }
       // The edited file is bounded like a write: an edit is not a way around the write cap.
       const bytes = new TextEncoder().encode(applied.content);
-      if (bytes.byteLength > COMPUTER_AI_TOOL_OPTIONS.edit.maxBytes) {
+      if (bytes.byteLength > COMPUTER_TOOL_LIMITS.mutationMaxBytes) {
         return {
           path: parsed.path,
-          error: `Edit rejected: the edited file would be ${bytes.byteLength} bytes, over the ${COMPUTER_AI_TOOL_OPTIONS.edit.maxBytes}-byte file cap. Split the file into smaller modules instead.`,
+          error: `Edit rejected: the edited file would be ${bytes.byteLength} bytes, over the ${COMPUTER_TOOL_LIMITS.mutationMaxBytes}-byte file cap. Split the file into smaller modules instead.`,
         };
       }
       options.abortSignal?.throwIfAborted();
@@ -390,8 +387,6 @@ function computerWorkspaceTool(
 ): Tool {
   return {
     ...definition,
-    description:
-      toolName === 'exec' ? `${EXEC_TOOL_DESCRIPTION}\n\n${COMPUTER_EXEC_APPLICATION_POLICY}` : definition.description,
     execute: async (input, options) => {
       options.abortSignal?.throwIfAborted();
       return coordinateStatefulTool(toolName, async () => {
