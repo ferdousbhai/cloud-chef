@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { DatabaseSync, type SQLInputValue, type StatementSync } from 'node:sqlite';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   claimApprovedDeployment,
   createDeployment,
@@ -31,6 +31,8 @@ let sqlite: DatabaseSync;
 let db: D1Database;
 
 beforeEach(() => {
+  // Only the clock is faked: the repository stamps its writes with Date.now().
+  vi.useFakeTimers({ toFake: ['Date'] });
   sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(readFileSync('user-workspace-migrations/0001_user_workspace.sql', 'utf8'));
@@ -42,6 +44,10 @@ beforeEach(() => {
     )
     .run();
   db = d1(sqlite);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('deployment repository', () => {
@@ -73,6 +79,7 @@ describe('deployment repository', () => {
     const approved = await create(1);
     expect(approved).toMatchObject({ status: 'approved', executionGeneration: 1 });
 
+    vi.setSystemTime(30);
     const claimed = await claimApprovedDeployment({
       db,
       deploymentId: approved.id,
@@ -80,7 +87,6 @@ describe('deployment repository', () => {
       connectionId: approved.connectionId,
       connectionGeneration: approved.connectionGeneration,
       executionGeneration: approved.executionGeneration,
-      now: 30,
     });
     expect(claimed.status).toBe('provisioning');
 
@@ -110,21 +116,21 @@ describe('deployment repository', () => {
 
   it('records ordered activity independently for each retry generation', async () => {
     const approved = await approvedDeployment(1);
+    vi.setSystemTime(22);
     await recordDeploymentActivity({
       db,
       deploymentId: approved.id,
       executionGeneration: approved.executionGeneration,
       sequence: 20,
       message: 'Cloudflare resources ready',
-      now: 22,
     });
+    vi.setSystemTime(21);
     await recordDeploymentActivity({
       db,
       deploymentId: approved.id,
       executionGeneration: approved.executionGeneration,
       sequence: 10,
       message: 'Preparing Cloudflare resources',
-      now: 21,
     });
 
     await expect(listDeploymentActivity(db, approved.id, approved.executionGeneration)).resolves.toEqual([
@@ -136,30 +142,30 @@ describe('deployment repository', () => {
 
   it('reads back the step the current execution recorded most recently', async () => {
     const approved = await approvedDeployment(1);
+    vi.setSystemTime(21);
     await recordDeploymentActivity({
       db,
       deploymentId: approved.id,
       executionGeneration: approved.executionGeneration,
       sequence: 10,
       message: 'Preparing Cloudflare resources',
-      now: 21,
     });
+    vi.setSystemTime(30);
     await recordDeploymentActivity({
       db,
       deploymentId: approved.id,
       executionGeneration: approved.executionGeneration,
       sequence: 50,
       message: 'Uploading assets and publishing Worker',
-      now: 30,
     });
     // A step recorded by the attempt before this one must never be shown as this attempt's progress.
+    vi.setSystemTime(40);
     await recordDeploymentActivity({
       db,
       deploymentId: approved.id,
       executionGeneration: approved.executionGeneration + 1,
       sequence: 80,
       message: 'Deployment complete',
-      now: 40,
     });
 
     await expect(latestDeploymentActivity(db, approved.id)).resolves.toEqual({
@@ -208,6 +214,7 @@ describe('deployment repository', () => {
   it('recovers exact deployment writes when D1 commits before losing the acknowledgement', async () => {
     const approved = await create(1);
 
+    vi.setSystemTime(30);
     const claimed = await claimApprovedDeployment({
       db: d1(sqlite, true),
       deploymentId: approved.id,
@@ -215,7 +222,6 @@ describe('deployment repository', () => {
       connectionId: approved.connectionId,
       connectionGeneration: approved.connectionGeneration,
       executionGeneration: approved.executionGeneration,
-      now: 30,
     });
     expect(claimed).toMatchObject({ status: 'provisioning', updatedAt: 30 });
 
@@ -244,6 +250,7 @@ describe('deployment repository', () => {
       errorMessage: 'failed',
       now: 50,
     });
+    vi.setSystemTime(60);
     await expect(
       prepareDeploymentRetry({
         db: d1(sqlite, true),
@@ -252,7 +259,6 @@ describe('deployment repository', () => {
         connectionId: claimed.connectionId,
         connectionGeneration: claimed.connectionGeneration,
         executionGeneration: claimed.executionGeneration,
-        now: 60,
       }),
     ).resolves.toMatchObject({
       status: 'approved',
@@ -268,6 +274,7 @@ describe('deployment repository', () => {
     async (failing) => {
       const approved = await create(1);
 
+      vi.setSystemTime(30);
       await expect(
         claimApprovedDeployment({
           db: d1(sqlite, true, undefined, failing),
@@ -276,7 +283,6 @@ describe('deployment repository', () => {
           connectionId: approved.connectionId,
           connectionGeneration: approved.connectionGeneration,
           executionGeneration: approved.executionGeneration,
-          now: 30,
         }),
       ).resolves.toMatchObject({ status: 'provisioning', updatedAt: 30 });
     },
@@ -284,16 +290,17 @@ describe('deployment repository', () => {
 
   it("finds the project's deployment holding its slot, and when its execution last showed work", async () => {
     const approved = await approvedDeployment(1);
-    const claim = (deployment: Deployment, now: number) =>
-      claimApprovedDeployment({
+    const claim = (deployment: Deployment, now: number) => {
+      vi.setSystemTime(now);
+      return claimApprovedDeployment({
         db,
         deploymentId: deployment.id,
         userId: deployment.userId,
         connectionId: deployment.connectionId,
         connectionGeneration: deployment.connectionGeneration,
         executionGeneration: deployment.executionGeneration,
-        now,
       });
+    };
     const find = (userId = 'user-1') => findActiveProjectDeployment(db, { userId, projectId: 'project' });
     await expect(find()).resolves.toBeNull();
     const earlier = await claim(approved, 10);
@@ -305,6 +312,7 @@ describe('deployment repository', () => {
       nextStatus: 'failed',
       now: 20,
     });
+    vi.setSystemTime(25);
     const holding = await claim(
       await prepareDeploymentRetry({
         db,
@@ -313,7 +321,6 @@ describe('deployment repository', () => {
         connectionId: earlier.connectionId,
         connectionGeneration: earlier.connectionGeneration,
         executionGeneration: earlier.executionGeneration,
-        now: 25,
       }),
       30,
     );
@@ -329,22 +336,22 @@ describe('deployment repository', () => {
     expect(holding.executionGeneration).toBe(earlier.executionGeneration + 1);
     await expect(find('user-2')).resolves.toBeNull();
     // A step the earlier execution recorded late says nothing about this one.
+    vi.setSystemTime(80);
     await recordDeploymentActivity({
       db,
       deploymentId: earlier.id,
       executionGeneration: earlier.executionGeneration,
       sequence: 50,
       message: 'Uploading assets and publishing Worker',
-      now: 80,
     });
     await expect(find()).resolves.toMatchObject({ lastActiveAt: 30 });
+    vi.setSystemTime(45);
     await recordDeploymentActivity({
       db,
       deploymentId: holding.id,
       executionGeneration: holding.executionGeneration,
       sequence: 40,
       message: 'Applying database migrations',
-      now: 45,
     });
     await expect(find()).resolves.toMatchObject({ lastActiveAt: 45 });
 
@@ -361,6 +368,7 @@ describe('deployment repository', () => {
 
   it('lets only one of two claims made in the same millisecond have the deployment', async () => {
     const approved = await create(1);
+    vi.setSystemTime(30);
     const claim = (database: D1Database) =>
       claimApprovedDeployment({
         db: database,
@@ -369,7 +377,6 @@ describe('deployment repository', () => {
         connectionId: approved.connectionId,
         connectionGeneration: approved.connectionGeneration,
         executionGeneration: approved.executionGeneration,
-        now: 30,
       });
 
     // The other claim lands after this one read the approved record, and before its own write.
@@ -387,6 +394,7 @@ describe('deployment repository', () => {
 
   it('returns a failed deployment to the executable state without artifact cleanup', async () => {
     const approved = await approvedDeployment(1);
+    vi.setSystemTime(30);
     await claimApprovedDeployment({
       db,
       deploymentId: approved.id,
@@ -394,7 +402,6 @@ describe('deployment repository', () => {
       connectionId: approved.connectionId,
       connectionGeneration: approved.connectionGeneration,
       executionGeneration: approved.executionGeneration,
-      now: 30,
     });
     await transitionDeployment({
       db,
@@ -407,6 +414,7 @@ describe('deployment repository', () => {
       now: 40,
     });
 
+    vi.setSystemTime(50);
     await expect(
       prepareDeploymentRetry({
         db,
@@ -415,7 +423,6 @@ describe('deployment repository', () => {
         connectionId: approved.connectionId,
         connectionGeneration: approved.connectionGeneration,
         executionGeneration: approved.executionGeneration,
-        now: 50,
       }),
     ).resolves.toMatchObject({
       status: 'approved',
@@ -427,6 +434,7 @@ describe('deployment repository', () => {
 });
 
 async function create(index: number, project = 'project') {
+  vi.setSystemTime(index);
   return createDeployment({
     db,
     id: `deployment-${index}`,
@@ -437,7 +445,6 @@ async function create(index: number, project = 'project') {
     workspaceReference: `workspace-runtime:${project}:${index}:${sourceSha256}`,
     plan: { ...plan, deploymentId: `deployment-${index}` },
     planDigest,
-    now: index,
   });
 }
 

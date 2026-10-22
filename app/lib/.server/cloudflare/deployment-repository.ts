@@ -64,9 +64,8 @@ export async function createDeployment(args: {
   workspaceReference: string;
   plan: DeploymentPlan;
   planDigest: string;
-  now?: number;
 }): Promise<Deployment> {
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   try {
     await args.db
       .prepare(
@@ -135,7 +134,6 @@ export async function recordDeploymentActivity(args: {
   executionGeneration: number;
   sequence: number;
   message: string;
-  now?: number;
 }): Promise<void> {
   await args.db
     .prepare(
@@ -143,7 +141,7 @@ export async function recordDeploymentActivity(args: {
          deployment_id, execution_generation, sequence, message, created_at
        ) VALUES (?, ?, ?, ?, ?)`,
     )
-    .bind(args.deploymentId, args.executionGeneration, args.sequence, args.message, args.now ?? Date.now())
+    .bind(args.deploymentId, args.executionGeneration, args.sequence, args.message, Date.now())
     .run();
 }
 
@@ -194,7 +192,6 @@ export async function claimApprovedDeployment(args: {
   connectionId: string;
   connectionGeneration: number;
   executionGeneration: number;
-  now?: number;
 }): Promise<Deployment> {
   const expected = await requireDeploymentForUser(args.db, args.deploymentId, args.userId);
   requireCurrentConnection(expected, args);
@@ -205,7 +202,7 @@ export async function claimApprovedDeployment(args: {
   if (!reference) {
     throw new Error('The deployment does not belong to a CloudChef project.');
   }
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   // Which claim this is: another one landing in the same millisecond would match a timestamp too.
   const claim = crypto.randomUUID();
   // One project deploys one revision at a time; a person's other projects deploy alongside it.
@@ -330,7 +327,6 @@ export async function prepareDeploymentRetry(args: {
   connectionId: string;
   connectionGeneration: number;
   executionGeneration: number;
-  now?: number;
 }): Promise<Deployment> {
   const expected = await requireDeploymentForUser(args.db, args.deploymentId, args.userId);
   requireCurrentConnection(expected, args);
@@ -341,7 +337,7 @@ export async function prepareDeploymentRetry(args: {
   ) {
     throw new DeploymentStateConflictError(expected.status);
   }
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   let result: D1Result;
   try {
     result = await args.db
@@ -396,7 +392,6 @@ export async function recordDeploymentResource(args: {
   resourceType: string;
   logicalName: string;
   providerResourceId: string;
-  now?: number;
 }): Promise<void> {
   await args.db
     .prepare(
@@ -412,7 +407,7 @@ export async function recordDeploymentResource(args: {
       args.resourceType,
       args.logicalName,
       args.providerResourceId,
-      args.now ?? Date.now(),
+      Date.now(),
     )
     .run();
 }
