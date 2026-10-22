@@ -24,7 +24,7 @@ describe('resolveFreshCloudflareAccessToken', () => {
       expect.objectContaining({
         method: 'POST',
         redirect: 'manual',
-        // Who the runtime is rides in headers too, so the control plane checks it before the body.
+        // Who the runtime is rides in headers, so the control plane checks it before the body.
         headers: expect.objectContaining({
           authorization: 'Bearer runtime-secret-that-is-long-enough',
           'content-type': 'application/json',
@@ -32,12 +32,7 @@ describe('resolveFreshCloudflareAccessToken', () => {
           'X-CloudChef-Connection-Id': 'connection-1',
           'X-CloudChef-Connection-Generation': '3',
         }),
-        body: JSON.stringify({
-          userId: 'user-1',
-          connectionId: 'connection-1',
-          connectionGeneration: 3,
-          forceRefresh: false,
-        }),
+        body: JSON.stringify({ forceRefresh: false }),
         signal: expect.any(AbortSignal),
       }),
     );

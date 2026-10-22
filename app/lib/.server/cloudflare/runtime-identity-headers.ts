@@ -17,17 +17,11 @@ export function runtimeIdentityHeaders(identity: RuntimeIdentity) {
   };
 }
 
-/**
- * The identity a request's headers name: null when it names none (a runtime from before the headers),
- * 'invalid' when they are partial or malformed.
- */
-export function readRuntimeIdentityHeaders(headers: Headers): RuntimeIdentity | null | 'invalid' {
+/** The identity a request's headers name, or null when they are missing, partial, or malformed. */
+export function readRuntimeIdentityHeaders(headers: Headers): RuntimeIdentity | null {
   const userId = headers.get(RUNTIME_USER_HEADER);
   const connectionId = headers.get(RUNTIME_CONNECTION_HEADER);
   const generation = headers.get(RUNTIME_GENERATION_HEADER);
-  if (userId === null && connectionId === null && generation === null) {
-    return null;
-  }
   if (
     !userId ||
     !connectionId ||
@@ -36,7 +30,7 @@ export function readRuntimeIdentityHeaders(headers: Headers): RuntimeIdentity | 
     connectionId.length > 512 ||
     !/^[1-9]\d{0,14}$/.test(generation)
   ) {
-    return 'invalid';
+    return null;
   }
   return { userId, connectionId, connectionGeneration: Number(generation) };
 }

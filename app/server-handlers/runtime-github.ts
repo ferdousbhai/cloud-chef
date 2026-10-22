@@ -13,7 +13,7 @@ import {
   lapsedApprovalClaimBefore,
 } from '~/lib/cloudflare/data/org-projects.server';
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
-import { bodyIdentityFields, readAuthenticatedRuntimeRequest } from './runtime-authentication';
+import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
 
 /**
  * A member's workspace runtime working on an organization's GitHub project. The runtime never holds a
@@ -27,7 +27,7 @@ const MAX_FILES = 10_000;
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 
-const projectFields = { ...bodyIdentityFields, orgProjectId: z.string().uuid() };
+const projectFields = { orgProjectId: z.string().uuid() };
 const snapshotSchema = z.strictObject(projectFields);
 /** Names the workspace's own branch (`cloudchef/<member>-<branchKey>`); without it, the member's one branch. */
 const branchKeySchema = z
@@ -57,7 +57,6 @@ const statusSchema = z.strictObject({ ...projectFields, sha: z.string().regex(/^
 const MAX_SNAPSHOT_BASE64 = 1_500_000;
 const MAX_PENDING_REQUESTS_PER_MEMBER = 5;
 const productionRequestSchema = z.strictObject({
-  ...bodyIdentityFields,
   /** The builder holding the draft, and the validated revision sent: the same draft sent again replaces its request. */
   draftId: z.string().min(1).max(256),
   draftRevision: z.string().min(1).max(256),

@@ -85,7 +85,8 @@ describe('readAccountModelSettings', () => {
     const [url, init] = respond.mock.calls[0] ?? [];
     expect(String(url)).toBe('https://cloudchef.build/api/cloudflare/runtime-models');
     expect(init?.headers).toMatchObject({ authorization: 'Bearer runtime-secret' });
-    expect(JSON.parse(String(init?.body))).toEqual(identity);
+    expect(init?.headers).toMatchObject({ 'X-CloudChef-User-Id': 'user-1', 'X-CloudChef-Connection-Generation': '3' });
+    expect(JSON.parse(String(init?.body))).toEqual({});
 
     // A provider CloudChef does not know, or an alias that cannot be one, is no key at all.
     respond.mockResolvedValueOnce(

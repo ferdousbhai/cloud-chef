@@ -219,13 +219,7 @@ async function setup(
     checkRuns: options.checkRuns,
     failing: options.failing,
   });
-  const call = (path: string, body: Record<string, string | number | boolean | null | object[]>, bearer = secret) =>
-    new Request(`${ORIGIN}${path}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: sara.id, connectionId: 'conn-1', connectionGeneration: 2, ...body }),
-    });
-  /** A call as a current runtime makes it: who it is in headers, the body carrying only the request. */
+  /** A call as a runtime makes it: who it is in headers, the body carrying only the request. */
   const callNamed = (
     path: string,
     body: string,
@@ -241,6 +235,8 @@ async function setup(
     }
     return new Request(`${ORIGIN}${path}`, { method: 'POST', headers, body });
   };
+  const call = (path: string, body: Record<string, string | number | boolean | null | object[]>, bearer = secret) =>
+    callNamed(path, JSON.stringify(body), { bearer });
   return { database, env, sara, secret, call, callNamed, ...github };
 }
 
@@ -704,36 +700,6 @@ describe('a member working on a GitHub project', () => {
       });
       expect(response.status).toBe(200);
       expect(writes.some((write) => write.path === '/git/commits')).toBe(true);
-    });
-
-    it('reads at most 64 KB before authenticating a runtime that names itself only in its body', async () => {
-      const { env, app, call, writes } = await setup();
-      const response = await runtimeGitHubCommitAction({
-        request: call('/api/cloudflare/runtime-github/commit', {
-          orgProjectId: SITE,
-          baseCommit: BASE,
-          message: 'A large change',
-          publish: false,
-          changes: [{ path: 'big.txt', contentBase64: btoa('x'.repeat(96 * 1024)), executable: false }],
-        }),
-        env,
-        app,
-      });
-      expect(response.status).toBe(413);
-      expect(writes).toEqual([]);
-    });
-
-    it('refuses a body naming someone other than the headers', async () => {
-      const { env, app, callNamed } = await setup();
-      const response = await runtimeGitHubStatusAction({
-        request: callNamed(
-          '/api/cloudflare/runtime-github/status',
-          JSON.stringify({ userId: 'someone-else', orgProjectId: SITE, sha: 'c'.repeat(40) }),
-        ),
-        env,
-        app,
-      });
-      expect(response.status).toBe(400);
     });
 
     it('reaches the control plane in headers from the runtime client', async () => {

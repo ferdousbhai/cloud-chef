@@ -797,17 +797,12 @@ export async function resolveFreshCloudflareAccessToken(
   }
   const response = await request(`${CLOUDCHEF_CONTROL_PLANE_ENDPOINT}/api/cloudflare/runtime-credential`, {
     method: 'POST',
-    // Who it is rides in headers too, so the control plane checks the secret before reading the body.
+    // Who it is rides in headers, so the control plane checks the secret before reading the body.
     headers: runtimeRequestHeaders(
       { CLOUDCHEF_CONTROL_PLANE_ENDPOINT, CONTROL_PLANE_SECRET: env.CONTROL_PLANE_SECRET },
       { userId: env.CLOUDCHEF_USER_ID, connectionId: env.CLOUDCHEF_CONNECTION_ID, connectionGeneration },
     ),
-    body: JSON.stringify({
-      userId: env.CLOUDCHEF_USER_ID,
-      connectionId: env.CLOUDCHEF_CONNECTION_ID,
-      connectionGeneration,
-      forceRefresh,
-    }),
+    body: JSON.stringify({ forceRefresh }),
     redirect: 'manual',
     signal: AbortSignal.timeout(30_000),
   });

@@ -8,20 +8,6 @@ import {
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import { readRuntimeIdentityHeaders, type RuntimeIdentity } from '~/lib/.server/cloudflare/runtime-identity-headers';
 
-/**
- * The most a runtime that names itself only in its body (one built before the identity headers) may
- * send: such a body is read before the runtime is authenticated, so it stays small. A runtime naming
- * itself in headers is authenticated first, and only then is its body read.
- */
-const MAX_UNAUTHENTICATED_BODY_BYTES = 64 * 1024;
-
-/** The identity a body may still carry, as runtimes built before the identity headers send it. */
-export const bodyIdentityFields = {
-  userId: z.string().min(1).max(512).optional(),
-  connectionId: z.string().min(1).max(512).optional(),
-  connectionGeneration: z.number().int().positive().optional(),
-};
-
 type AuthenticatedRuntimeRequest<T> = {
   body: T;
   identity: RuntimeIdentity;
@@ -31,55 +17,25 @@ type AuthenticatedRuntimeRequest<T> = {
 
 /**
  * A runtime route's request, once the runtime has proven who it is. A runtime names itself in headers
- * (`runtimeIdentityHeaders`) and is authenticated before its body, up to `maxBytes`, is read; one built
- * before those headers names itself in the body, which is then read only up to 64 KB first. A body
- * naming anyone other than the headers is refused.
+ * (`runtimeIdentityHeaders`) and is authenticated before its body, up to `maxBytes`, is read.
  */
-export async function readAuthenticatedRuntimeRequest<T extends Partial<RuntimeIdentity>>(
+export async function readAuthenticatedRuntimeRequest<T>(
   env: Env,
   request: Request,
   schema: z.ZodType<T>,
   options: { maxBytes: number; label: string; invalid: string },
 ): Promise<AuthenticatedRuntimeRequest<T> | Response> {
-  const named = readRuntimeIdentityHeaders(request.headers);
-  if (named === 'invalid') {
+  const identity = readRuntimeIdentityHeaders(request.headers);
+  if (!identity) {
     return credentialResponse({ error: options.invalid }, 400);
   }
-  if (named) {
-    const authenticated = await authenticateRuntime(env, request, named);
-    if (authenticated instanceof Response) {
-      return authenticated;
-    }
-    const body = await readRuntimeBody(request, schema, options.maxBytes, options);
-    if (body instanceof Response) {
-      return body;
-    }
-    if (
-      (body.userId !== undefined && body.userId !== named.userId) ||
-      (body.connectionId !== undefined && body.connectionId !== named.connectionId) ||
-      (body.connectionGeneration !== undefined && body.connectionGeneration !== named.connectionGeneration)
-    ) {
-      return credentialResponse({ error: options.invalid }, 400);
-    }
-    return { body, identity: named, ...authenticated };
-  }
-  const body = await readRuntimeBody(
-    request,
-    schema,
-    Math.min(options.maxBytes, MAX_UNAUTHENTICATED_BODY_BYTES),
-    options,
-  );
-  if (body instanceof Response) {
-    return body;
-  }
-  const { userId, connectionId, connectionGeneration } = body;
-  if (userId === undefined || connectionId === undefined || connectionGeneration === undefined) {
-    return credentialResponse({ error: options.invalid }, 400);
-  }
-  const identity = { userId, connectionId, connectionGeneration };
   const authenticated = await authenticateRuntime(env, request, identity);
   if (authenticated instanceof Response) {
     return authenticated;
+  }
+  const body = await readRuntimeBody(request, schema, options.maxBytes, options);
+  if (body instanceof Response) {
+    return body;
   }
   return { body, identity, ...authenticated };
 }

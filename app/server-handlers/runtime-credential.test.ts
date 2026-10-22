@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
+import { runtimeIdentityHeaders, type RuntimeIdentity } from '~/lib/.server/cloudflare/runtime-identity-headers';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 
 const mocks = vi.hoisted(() => ({
@@ -66,16 +67,7 @@ describe('runtimeCredentialAction', () => {
     const env = testEnv();
     const response = await runtimeCredentialAction({
       env,
-      request: new Request('https://cloudchef.build/api/cloudflare/runtime-credential', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          userId: 'user-1',
-          connectionId: 'connection-1',
-          connectionGeneration: 3,
-          forceRefresh: true,
-        }),
-      }),
+      request: request(secret, undefined, { forceRefresh: true }),
     });
 
     expect(response.status).toBe(200);
@@ -175,18 +167,11 @@ describe('runtimeUsageAction', () => {
     const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: encryptionKeyBase64 });
     const report = async (secret: string) =>
       runtimeUsageAction({
-        request: new Request('https://cloudchef.build/api/cloudflare/runtime-usage', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId: 'member-1',
-            connectionId: 'connection-1',
-            connectionGeneration: 3,
-            inputTokens: 100,
-            outputTokens: 20,
-            cachedTokens: 40,
-          }),
-        }),
+        request: request(
+          secret,
+          { userId: 'member-1', connectionId: 'connection-1', connectionGeneration: 3 },
+          { inputTokens: 100, outputTokens: 20, cachedTokens: 40 },
+        ),
         env,
         now: Date.UTC(2026, 9, 18),
       });
@@ -252,17 +237,19 @@ describe('runtimeAccessAction', () => {
   });
 });
 
+/** A runtime's call, naming `identity` in its headers as a runtime does, with `body`. */
 function request(
   secret: string,
-  body: { userId: string; connectionId: string; connectionGeneration: number } = {
-    userId: 'user-1',
-    connectionId: 'connection-1',
-    connectionGeneration: 3,
-  },
+  identity: RuntimeIdentity = { userId: 'user-1', connectionId: 'connection-1', connectionGeneration: 3 },
+  body: Record<string, boolean | number> = {},
 ): Request {
   return new Request('https://cloudchef.build/api/cloudflare/runtime-credential', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      'Content-Type': 'application/json',
+      ...runtimeIdentityHeaders(identity),
+    },
     body: JSON.stringify(body),
   });
 }

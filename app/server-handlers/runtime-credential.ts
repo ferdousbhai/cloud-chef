@@ -4,12 +4,10 @@ import { z } from 'zod';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import { linkedGatewayKeys } from '~/lib/.server/cloudflare/ai-gateway-keys';
 import { readDefaultBuilderModel } from '~/lib/cloudflare/data/builder-model-settings.server';
-import { bodyIdentityFields, credentialResponse, readAuthenticatedRuntimeRequest } from './runtime-authentication';
+import { credentialResponse, readAuthenticatedRuntimeRequest } from './runtime-authentication';
 
 const MAX_RUNTIME_CREDENTIAL_REQUEST_BYTES = 4 * 1024;
-const runtimeCredentialRequestSchema = z
-  .object({ ...bodyIdentityFields, forceRefresh: z.boolean().optional().default(false) })
-  .strict();
+const runtimeCredentialRequestSchema = z.object({ forceRefresh: z.boolean().optional().default(false) }).strict();
 
 /** Exchange a runtime-specific secret for a freshly resolved OAuth access token. */
 export async function runtimeCredentialAction(args: { request: Request; env: Env }): Promise<Response> {
@@ -46,7 +44,6 @@ export async function runtimeCredentialAction(args: { request: Request; env: Env
 
 const runtimeUsageRequestSchema = z
   .object({
-    ...bodyIdentityFields,
     inputTokens: z.number().int().min(0).max(100_000_000),
     outputTokens: z.number().int().min(0).max(100_000_000),
     cachedTokens: z.number().int().min(0).max(100_000_000),
@@ -85,7 +82,7 @@ export async function runtimeUsageAction(args: { request: Request; env: Env; now
   return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
 }
 
-const runtimeAccessRequestSchema = z.object(bodyIdentityFields).strict();
+const runtimeAccessRequestSchema = z.strictObject({});
 
 /**
  * Whether a workspace runtime's person may still build, and whether their model requests may be logged

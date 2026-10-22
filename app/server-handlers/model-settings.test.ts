@@ -7,6 +7,7 @@ import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-
 import { linkedGatewayKeys } from '~/lib/.server/cloudflare/ai-gateway-keys';
 import { GATEWAY_PROVIDER_SLUGS, type GatewayKey, type GatewayProviderSlug } from '~/lib/workers-ai-model';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
+import { runtimeIdentityHeaders } from '~/lib/.server/cloudflare/runtime-identity-headers';
 import {
   linkGatewayKeyAction,
   modelSettingsAction,
@@ -924,8 +925,16 @@ describe("the team's default model", () => {
       runtimeModelsAction({
         request: new Request(`${ORIGIN}/api/cloudflare/runtime-models`, {
           method: 'POST',
-          headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ userId: member.userId, connectionId: 'acme-connection', connectionGeneration: 1 }),
+          headers: {
+            authorization: `Bearer ${bearer}`,
+            'content-type': 'application/json',
+            ...runtimeIdentityHeaders({
+              userId: member.userId,
+              connectionId: 'acme-connection',
+              connectionGeneration: 1,
+            }),
+          },
+          body: '{}',
         }),
         env,
         gatewayKeys: async () => keys,

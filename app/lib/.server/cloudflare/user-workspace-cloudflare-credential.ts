@@ -27,18 +27,8 @@ export async function resolveUserWorkspaceCloudflareAccessToken(
   identity: CloudflareConnectionIdentity,
   options: CloudflareAccessTokenResolution = {},
 ): Promise<string> {
-  const endpoint = runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT);
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: runtimeRequestHeaders(env, identity),
-    body: JSON.stringify({
-      userId: identity.userId,
-      connectionId: identity.connectionId,
-      connectionGeneration: identity.connectionGeneration,
-      forceRefresh: options.forceRefresh === true,
-    }),
-    redirect: 'manual',
-    signal: AbortSignal.timeout(RUNTIME_CREDENTIAL_TIMEOUT_MS),
+  const response = await postRuntimeRoute(env, identity, 'runtime-credential', {
+    forceRefresh: options.forceRefresh === true,
   });
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined);
@@ -62,18 +52,7 @@ export async function reportUserWorkspaceModelUsage(
   identity: CloudflareConnectionIdentity,
   usage: ModelTurnUsage,
 ): Promise<void> {
-  const response = await fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, 'runtime-usage'), {
-    method: 'POST',
-    headers: runtimeRequestHeaders(env, identity),
-    body: JSON.stringify({
-      userId: identity.userId,
-      connectionId: identity.connectionId,
-      connectionGeneration: identity.connectionGeneration,
-      ...usage,
-    }),
-    redirect: 'manual',
-    signal: AbortSignal.timeout(RUNTIME_CREDENTIAL_TIMEOUT_MS),
-  });
+  const response = await postRuntimeRoute(env, identity, 'runtime-usage', usage);
   await response.body?.cancel().catch(() => undefined);
 }
 
@@ -96,17 +75,7 @@ export type ConfirmUserWorkspaceAccess = (
  * control plane, are thrown, not read as a refusal.
  */
 export const confirmUserWorkspaceAccess: ConfirmUserWorkspaceAccess = async (env, identity) => {
-  const response = await fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, 'runtime-access'), {
-    method: 'POST',
-    headers: runtimeRequestHeaders(env, identity),
-    body: JSON.stringify({
-      userId: identity.userId,
-      connectionId: identity.connectionId,
-      connectionGeneration: identity.connectionGeneration,
-    }),
-    redirect: 'manual',
-    signal: AbortSignal.timeout(RUNTIME_CREDENTIAL_TIMEOUT_MS),
-  });
+  const response = await postRuntimeRoute(env, identity, 'runtime-access');
   if (response.status === 401) {
     await response.body?.cancel().catch(() => undefined);
     return null;
@@ -186,17 +155,7 @@ export async function readAccountModelSettings(
     return NO_ACCOUNT_MODEL_SETTINGS;
   }
   try {
-    const response = await fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, 'runtime-models'), {
-      method: 'POST',
-      headers: runtimeRequestHeaders(env, identity),
-      body: JSON.stringify({
-        userId: identity.userId,
-        connectionId: identity.connectionId,
-        connectionGeneration: identity.connectionGeneration,
-      }),
-      redirect: 'manual',
-      signal: AbortSignal.timeout(RUNTIME_CREDENTIAL_TIMEOUT_MS),
-    });
+    const response = await postRuntimeRoute(env, identity, 'runtime-models');
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
       return NO_ACCOUNT_MODEL_SETTINGS;
@@ -210,10 +169,25 @@ export async function readAccountModelSettings(
   }
 }
 
+/** A call to one of the control plane's account routes, as this runtime, carrying `body`. */
+function postRuntimeRoute(
+  env: RuntimeCredentialEnv,
+  identity: CloudflareConnectionIdentity,
+  route: 'runtime-credential' | 'runtime-usage' | 'runtime-access' | 'runtime-models',
+  body: ModelTurnUsage | { forceRefresh: boolean } | Record<string, never> = {},
+): Promise<Response> {
+  return fetch(runtimeCredentialEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, route), {
+    method: 'POST',
+    headers: runtimeRequestHeaders(env, identity),
+    body: JSON.stringify(body),
+    redirect: 'manual',
+    signal: AbortSignal.timeout(RUNTIME_CREDENTIAL_TIMEOUT_MS),
+  });
+}
+
 /**
  * What every call to the control plane's runtime routes carries: the runtime's secret, and who it says
- * it is, in headers, so the control plane checks them before reading the body. The body still names
- * the same identity, as control planes from before the headers read it.
+ * it is, in headers, so the control plane checks them before reading the body.
  */
 export function runtimeRequestHeaders(env: RuntimeCredentialEnv, identity: CloudflareConnectionIdentity) {
   return {
