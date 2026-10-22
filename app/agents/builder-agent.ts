@@ -1189,7 +1189,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /** The organization GitHub project this workspace works on, or null for a CloudChef app. */
-  @callable()
   getLinkedProject(): Promise<BuilderWorkspaceLinkedProject | null> {
     return this.workspace.linkedProject();
   }
@@ -1352,8 +1351,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return this.getTranscriptSnapshot(identityValue);
   }
 
-  @callable()
-  async getTranscriptCheckpoint(identityValue: TranscriptIdentity): Promise<TranscriptCheckpoint | null> {
+  private async getTranscriptCheckpoint(identityValue: TranscriptIdentity): Promise<TranscriptCheckpoint | null> {
     const identity = requireBuilderTranscriptIdentity(identityValue, this.transcriptBinding);
     if (this.messages.length > 0) {
       return this.advanceTranscriptCheckpoint(identity);
