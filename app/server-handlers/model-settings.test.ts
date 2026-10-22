@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { createAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
@@ -220,7 +220,10 @@ function fakeCloudflare({
     }
     return refuse('not found', 404);
   };
-  const openAccountApi = async () => new UserCloudflareAccountApi(ACCOUNT_ID, 'oauth-token', request);
+  const openAccountApi = async () => {
+    vi.stubGlobal('fetch', request);
+    return new UserCloudflareAccountApi(ACCOUNT_ID, 'oauth-token');
+  };
   return {
     providers,
     secrets,
@@ -302,6 +305,10 @@ function keysWith(
 function writesOf(cloudflare: ReturnType<typeof fakeCloudflare>) {
   return cloudflare.requests.filter(({ method }) => method !== 'GET');
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('Settings: models', () => {
   it("links a pasted key without keeping it, giving a gateway without a store the account's store", async () => {

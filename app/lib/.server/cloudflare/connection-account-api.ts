@@ -12,7 +12,7 @@ export async function openConnectionAccountApi(
     throw new Error('The Cloudflare connection has no authorization.');
   }
   const vault = D1CloudflareCredentialVault.fromEnv(env);
-  return new UserCloudflareAccountApi(connection.accountId, await vault.resolve(handle), fetch, () =>
+  return new UserCloudflareAccountApi(connection.accountId, await vault.resolve(handle), () =>
     vault.resolve(handle, { forceRefresh: true }),
   );
 }

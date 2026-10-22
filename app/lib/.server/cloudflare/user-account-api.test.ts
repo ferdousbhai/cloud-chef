@@ -1,6 +1,6 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE } from './project-workspace-container-policy';
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { deploymentAssetHash, type DeploymentArtifactFile } from './deployment-artifact';
 import { CloudflareAccountApiError, D1MigrationChangedError, UserCloudflareAccountApi } from './user-account-api';
 import { USER_WORKSPACE_RUNTIME_GC_CRON } from './user-workspace-runtime-policy';
@@ -33,15 +33,25 @@ async function textDigest(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+/** The account API, sending through `request` as the global fetch. */
+function accountApi(accountId: string, token: string, request: typeof fetch, refresh?: () => Promise<string>) {
+  vi.stubGlobal('fetch', request);
+  return new UserCloudflareAccountApi(accountId, token, refresh);
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('UserCloudflareAccountApi', () => {
   test('reads the workspace Containers entitlement from the account capability endpoint', async () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ success: true, result: { limits: { total_vcpu: 1500 }, locations: [] } }));
 
-    await expect(
-      new UserCloudflareAccountApi('account-1', 'user-token', request).readWorkspaceContainersEntitlement(),
-    ).resolves.toEqual({ status: 'entitled' });
+    await expect(accountApi('account-1', 'user-token', request).readWorkspaceContainersEntitlement()).resolves.toEqual({
+      status: 'entitled',
+    });
     expect(request).toHaveBeenCalledWith(
       'https://api.cloudflare.com/client/v4/accounts/account-1/containers/me',
       expect.objectContaining({
@@ -63,9 +73,7 @@ describe('UserCloudflareAccountApi', () => {
       ),
     );
 
-    await expect(
-      new UserCloudflareAccountApi('account-1', 'user-token', request).readWorkspaceContainersEntitlement(),
-    ).resolves.toEqual({
+    await expect(accountApi('account-1', 'user-token', request).readWorkspaceContainersEntitlement()).resolves.toEqual({
       status: 'plan_required',
       message: expect.stringContaining('Workers Paid plan'),
       upgradeUrl: 'https://dash.cloudflare.com/?to=/:account/workers/plans',
@@ -77,9 +85,7 @@ describe('UserCloudflareAccountApi', () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ error: 'Unauthorized: Account is not authorized' }, { status: 401 }));
 
-    await expect(
-      new UserCloudflareAccountApi('account-1', 'user-token', request).readWorkspaceContainersEntitlement(),
-    ).resolves.toEqual({
+    await expect(accountApi('account-1', 'user-token', request).readWorkspaceContainersEntitlement()).resolves.toEqual({
       status: 'undetermined',
       // Nothing here classifies this wording yet, so the verdict carries the evidence to classify
       // it with once a real Workers Free account has produced one.
@@ -100,11 +106,7 @@ describe('UserCloudflareAccountApi', () => {
       ),
     );
 
-    const entitlement = await new UserCloudflareAccountApi(
-      'account-1',
-      'user-token',
-      request,
-    ).readWorkspaceContainersEntitlement();
+    const entitlement = await accountApi('account-1', 'user-token', request).readWorkspaceContainersEntitlement();
 
     expect(entitlement).toEqual({
       status: 'undetermined',
@@ -127,9 +129,7 @@ describe('UserCloudflareAccountApi', () => {
   test('leaves the Containers entitlement undetermined when Cloudflare cannot be reached', async () => {
     const request = vi.fn<typeof fetch>().mockRejectedValueOnce(new Error('The connection was reset.'));
 
-    await expect(
-      new UserCloudflareAccountApi('account-1', 'user-token', request).readWorkspaceContainersEntitlement(),
-    ).resolves.toEqual({
+    await expect(accountApi('account-1', 'user-token', request).readWorkspaceContainersEntitlement()).resolves.toEqual({
       status: 'undetermined',
       reason: 'Cloudflare did not answer the Containers capability check: The connection was reset.',
     });
@@ -138,9 +138,7 @@ describe('UserCloudflareAccountApi', () => {
   test('leaves the Containers entitlement undetermined when the account response is unreadable', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ success: true, result: {} }));
 
-    await expect(
-      new UserCloudflareAccountApi('account-1', 'user-token', request).readWorkspaceContainersEntitlement(),
-    ).resolves.toEqual({
+    await expect(accountApi('account-1', 'user-token', request).readWorkspaceContainersEntitlement()).resolves.toEqual({
       status: 'undetermined',
       reason: 'Cloudflare returned an unreadable Containers account response. status=200 codes=none wording=none',
     });
@@ -154,7 +152,7 @@ describe('UserCloudflareAccountApi', () => {
         Response.json({ success: true, result: { uuid: 'd1-id', name: 'cloudchef-deployment-1' } }),
       )
       .mockResolvedValueOnce(Response.json({ success: true, result: { subdomain: 'user-subdomain' } }));
-    const api = new UserCloudflareAccountApi('account-1', 'user-token', request);
+    const api = accountApi('account-1', 'user-token', request);
 
     await expect(api.ensureD1Database('cloudchef-deployment-1')).resolves.toEqual({
       id: 'd1-id',
@@ -185,7 +183,7 @@ describe('UserCloudflareAccountApi', () => {
     );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'user-token', request).ensureD1Database('cloudchef-deployment-1'),
+      accountApi('account-1', 'user-token', request).ensureD1Database('cloudchef-deployment-1'),
     ).rejects.toThrow('Cloudflare API request redirected unexpectedly.');
     expect(request).toHaveBeenCalledWith(
       'https://api.cloudflare.com/client/v4/accounts/account-1/d1/database?name=cloudchef-deployment-1',
@@ -208,9 +206,7 @@ describe('UserCloudflareAccountApi', () => {
       );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureD1Database(
-        'cloudchef-deployment-1-agent-security',
-      ),
+      accountApi('account-1', 'token', request).ensureD1Database('cloudchef-deployment-1-agent-security'),
     ).resolves.toEqual({
       id: 'agent-security-d1-id',
       name: 'cloudchef-deployment-1-agent-security',
@@ -233,7 +229,7 @@ describe('UserCloudflareAccountApi', () => {
       // Looked for again in case another request created it meanwhile: still none.
       .mockResolvedValueOnce(Response.json({ success: true, result: [] }));
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureD1Database('cloudchef-deployment-1'),
+      accountApi('account-1', 'token', request).ensureD1Database('cloudchef-deployment-1'),
     ).rejects.toBeInstanceOf(CloudflareAccountApiError);
   });
 
@@ -249,7 +245,7 @@ describe('UserCloudflareAccountApi', () => {
         Response.json({ success: true, result: [{ id: kvId, title: 'cloudchef-deployment-1-cache' }] }),
       )
       .mockResolvedValueOnce(new Response(null, { status: 404 }));
-    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+    const api = accountApi('account-1', 'token', request);
 
     await api.deleteManagedWorker('cloudchef-deployment-1');
     await api.deleteD1Database('cloudchef-deployment-1');
@@ -289,7 +285,7 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(Response.json({ success: true, result: {} }))
       .mockResolvedValueOnce(Response.json({ success: true, result: [] }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
-    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+    const api = accountApi('account-1', 'token', request);
 
     await expect(api.deleteR2Bucket(bucket)).resolves.toBe(false);
     await expect(api.deleteR2Bucket(bucket)).resolves.toBe(true);
@@ -321,7 +317,7 @@ describe('UserCloudflareAccountApi', () => {
         Response.json({ success: true, result: [{ uuid: 'existing-d1', name: 'cloudchef-deployment-1' }] }),
       )
       .mockResolvedValueOnce(Response.json({ success: true, result: { name: 'cloudchef-deployment-1-storage' } }));
-    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+    const api = accountApi('account-1', 'token', request);
     await expect(api.ensureD1Database('cloudchef-deployment-1')).resolves.toEqual({
       id: 'existing-d1',
       name: 'cloudchef-deployment-1',
@@ -350,7 +346,7 @@ describe('UserCloudflareAccountApi', () => {
           ],
         }),
       );
-    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+    const api = accountApi('account-1', 'token', request);
 
     await expect(api.ensureR2Bucket('cloudchef-deployment-1-preview-storage')).resolves.toEqual({
       id: 'cloudchef-deployment-1-preview-storage',
@@ -378,7 +374,7 @@ describe('UserCloudflareAccountApi', () => {
       );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureKvNamespace('cloudchef-deployment-1-cache'),
+      accountApi('account-1', 'token', request).ensureKvNamespace('cloudchef-deployment-1-cache'),
     ).resolves.toEqual({
       id: namespaceId,
       name: 'cloudchef-deployment-1-cache',
@@ -403,9 +399,9 @@ describe('UserCloudflareAccountApi', () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ name: 'cloudchef-deployment-1' }] }));
 
-    await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureD1Database('cloudchef-deployment-1'),
-    ).rejects.toThrow('invalid D1 resource');
+    await expect(accountApi('account-1', 'token', request).ensureD1Database('cloudchef-deployment-1')).rejects.toThrow(
+      'invalid D1 resource',
+    );
     expect(request).toHaveBeenCalledOnce();
   });
 
@@ -417,7 +413,7 @@ describe('UserCloudflareAccountApi', () => {
         Response.json({ success: false, errors: [{ message: 'bucket already exists' }] }, { status: 409 }),
       )
       .mockResolvedValueOnce(Response.json({ success: true, result: { name: 'cloudchef-user-data' } }));
-    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+    const api = accountApi('account-1', 'token', request);
 
     await expect(api.ensureR2Bucket('cloudchef-user-data')).resolves.toEqual({
       id: 'cloudchef-user-data',
@@ -430,7 +426,7 @@ describe('UserCloudflareAccountApi', () => {
     const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ success: true, result: {} }));
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureR2Bucket('cloudchef-deployment-1-storage'),
+      accountApi('account-1', 'token', request).ensureR2Bucket('cloudchef-deployment-1-storage'),
     ).rejects.toThrow('invalid R2 resource');
     expect(request).toHaveBeenCalledOnce();
   });
@@ -442,7 +438,7 @@ describe('UserCloudflareAccountApi', () => {
         Response.json({ success: false, errors: [{ message: 'permission denied' }] }, { status: 403 }),
       );
     await expect(
-      new UserCloudflareAccountApi('account-1', 'secret-token', request).ensureD1Database('cloudchef-deployment-1'),
+      accountApi('account-1', 'secret-token', request).ensureD1Database('cloudchef-deployment-1'),
     ).rejects.toThrow('permission denied');
   });
 
@@ -458,10 +454,7 @@ describe('UserCloudflareAccountApi', () => {
     );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).applyD1Migrations(
-        '0123456789abcdef0123456789abcdef',
-        [],
-      ),
+      accountApi('account-1', 'token', request).applyD1Migrations('0123456789abcdef0123456789abcdef', []),
     ).rejects.toThrow('unsuccessful D1 query result');
   });
 
@@ -469,10 +462,7 @@ describe('UserCloudflareAccountApi', () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ success: true, result }));
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).applyD1Migrations(
-        '0123456789abcdef0123456789abcdef',
-        [],
-      ),
+      accountApi('account-1', 'token', request).applyD1Migrations('0123456789abcdef0123456789abcdef', []),
     ).rejects.toThrow('unsuccessful D1 query result');
   });
 
@@ -491,7 +481,7 @@ describe('UserCloudflareAccountApi', () => {
           ],
         }),
       );
-    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+    const api = accountApi('account-1', 'token', request);
 
     await api.applyD1Migrations('0123456789abcdef0123456789abcdef', [
       { name: '0001_users.sql', sql: 'CREATE TABLE users (id TEXT PRIMARY KEY)' },
@@ -535,7 +525,7 @@ describe('UserCloudflareAccountApi', () => {
         }),
       );
 
-    await new UserCloudflareAccountApi('account-1', 'token', request).applyD1Migrations(
+    await accountApi('account-1', 'token', request).applyD1Migrations(
       '0123456789abcdef0123456789abcdef',
       migrations.map(({ name, sql }) => ({ name, sql })),
     );
@@ -560,7 +550,7 @@ describe('UserCloudflareAccountApi', () => {
           result: [{ success: true, results: [{ name: '0001_users.sql', digest }] }],
         }),
       );
-    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+    const api = accountApi('account-1', 'token', request);
 
     await expect(
       api.applyD1Migrations('0123456789abcdef0123456789abcdef', [{ name: '0001_users.sql', sql }]),
@@ -583,10 +573,9 @@ describe('UserCloudflareAccountApi', () => {
       );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).applyD1Migrations(
-        '0123456789abcdef0123456789abcdef',
-        [{ name: '0001_users.sql', sql: 'CREATE TABLE users (id TEXT PRIMARY KEY)' }],
-      ),
+      accountApi('account-1', 'token', request).applyD1Migrations('0123456789abcdef0123456789abcdef', [
+        { name: '0001_users.sql', sql: 'CREATE TABLE users (id TEXT PRIMARY KEY)' },
+      ]),
     ).rejects.toThrow('migration digest mismatch');
   });
 
@@ -603,10 +592,9 @@ describe('UserCloudflareAccountApi', () => {
       );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).applyD1Migrations(
-        '0123456789abcdef0123456789abcdef',
-        [{ name: '0001_users.sql', sql: 'CREATE TABLE users (id TEXT PRIMARY KEY)' }],
-      ),
+      accountApi('account-1', 'token', request).applyD1Migrations('0123456789abcdef0123456789abcdef', [
+        { name: '0001_users.sql', sql: 'CREATE TABLE users (id TEXT PRIMARY KEY)' },
+      ]),
     ).rejects.toMatchObject({ message: expect.stringContaining('migration digest mismatch'), appliedSql: null });
     // Create table, column pragma, receipts, and the applied SQL it failed to read: nothing is applied.
     expect(request).toHaveBeenCalledTimes(4);
@@ -630,9 +618,7 @@ describe('UserCloudflareAccountApi', () => {
     );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).configureWorkspaceRuntimeGcSchedule(
-        'cloudchef-workspace-1',
-      ),
+      accountApi('account-1', 'token', request).configureWorkspaceRuntimeGcSchedule('cloudchef-workspace-1'),
     ).resolves.toBeUndefined();
 
     expect(request).toHaveBeenCalledWith(
@@ -659,9 +645,7 @@ describe('UserCloudflareAccountApi', () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ success: true, result }));
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).configureWorkspaceRuntimeGcSchedule(
-        'cloudchef-workspace-1',
-      ),
+      accountApi('account-1', 'token', request).configureWorkspaceRuntimeGcSchedule('cloudchef-workspace-1'),
     ).rejects.toThrow('invalid Worker schedules');
 
     expect(request).toHaveBeenCalledOnce();
@@ -677,9 +661,7 @@ describe('UserCloudflareAccountApi', () => {
     );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).configureWorkspaceRuntimeGcSchedule(
-        'cloudchef-workspace-1',
-      ),
+      accountApi('account-1', 'token', request).configureWorkspaceRuntimeGcSchedule('cloudchef-workspace-1'),
     ).rejects.toThrow('schedule update rejected');
 
     expect(request).toHaveBeenCalledOnce();
@@ -711,7 +693,7 @@ describe('UserCloudflareAccountApi', () => {
           result: { id: workerVersionId, resources: { script: { etag: 'managed-etag' } } },
         }),
       );
-    const api = new UserCloudflareAccountApi('account-1', 'oauth-token', request);
+    const api = accountApi('account-1', 'oauth-token', request);
 
     await expect(
       api.deployManagedWorker({
@@ -798,7 +780,7 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(Response.json({ success: true, result: { id: providerDeploymentId, versions } }));
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).deployManagedWorker({
+      accountApi('account-1', 'token', request).deployManagedWorker({
         workerName: 'cloudchef-worker',
         projectType: 'worker',
         sourceSha256: 'a'.repeat(64),
@@ -851,7 +833,7 @@ describe('UserCloudflareAccountApi', () => {
       );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).deployManagedWorker({
+      accountApi('account-1', 'token', request).deployManagedWorker({
         workerName: 'cloudchef-worker',
         projectType: 'worker',
         sourceSha256: 'a'.repeat(64),
@@ -876,7 +858,7 @@ describe('UserCloudflareAccountApi', () => {
     const module = await artifactFile('index.js', 'export default {}');
     const asset = await artifactFile('index.html', '<h1>CloudChef</h1>');
     const deploy = (request: typeof fetch) =>
-      new UserCloudflareAccountApi('account-1', 'token', request).deployManagedWorker({
+      accountApi('account-1', 'token', request).deployManagedWorker({
         workerName: 'cloudchef-app',
         projectType: 'web_app',
         sourceSha256: 'a'.repeat(64),
@@ -940,7 +922,7 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(Response.json({ success: false }, { status: 401 }))
       .mockResolvedValueOnce(Response.json({ success: true, result: { subdomain: 'fresh-subdomain' } }));
     const refreshAccessToken = vi.fn(async () => 'fresh-token');
-    const api = new UserCloudflareAccountApi('account-1', 'expired-token', request, refreshAccessToken);
+    const api = accountApi('account-1', 'expired-token', request, refreshAccessToken);
 
     await expect(api.getWorkersSubdomain()).resolves.toBe('fresh-subdomain');
     expect(refreshAccessToken).toHaveBeenCalledOnce();
@@ -951,7 +933,7 @@ describe('UserCloudflareAccountApi', () => {
   test('does not loop when Cloudflare rejects the forced-refresh retry', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ success: false }, { status: 401 }));
     const refreshAccessToken = vi.fn(async () => 'fresh-token');
-    const api = new UserCloudflareAccountApi('account-1', 'expired-token', request, refreshAccessToken);
+    const api = accountApi('account-1', 'expired-token', request, refreshAccessToken);
 
     await expect(api.getWorkersSubdomain()).rejects.toThrow('Cloudflare API request failed (401)');
     expect(refreshAccessToken).toHaveBeenCalledOnce();
@@ -967,7 +949,7 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(Response.json({ success: true, result: schedule }))
       .mockResolvedValueOnce(Response.json({ success: true, result: subdomain }))
       .mockResolvedValueOnce(Response.json({ success: true, result: subdomain }));
-    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+    const api = accountApi('account-1', 'token', request);
 
     await expect(api.configureManagedWorkerSchedule('cloudchef-app', true)).resolves.toBeUndefined();
     await expect(api.enableWorkerSubdomain('cloudchef-app')).resolves.toBeUndefined();
@@ -1001,7 +983,7 @@ describe('UserCloudflareAccountApi', () => {
       );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).managedWorkerDurableObjectClasses('cloudchef-app'),
+      accountApi('account-1', 'token', request).managedWorkerDurableObjectClasses('cloudchef-app'),
     ).resolves.toEqual(['AppAgent', 'Other']);
     expect(request.mock.calls.map(([url]) => String(url))).toEqual([
       'https://api.cloudflare.com/client/v4/accounts/account-1/workers/durable_objects/namespaces?page=1&per_page=1000',
@@ -1015,9 +997,9 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(Response.json({ success: true, result: { enabled: true, previews_enabled: false } }))
       .mockResolvedValueOnce(Response.json({ success: true, result: { enabled: true, previews_enabled: true } }));
 
-    await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).enableWorkerSubdomain('cloudchef-app'),
-    ).rejects.toThrow('invalid managed Worker subdomain state');
+    await expect(accountApi('account-1', 'token', request).enableWorkerSubdomain('cloudchef-app')).rejects.toThrow(
+      'invalid managed Worker subdomain state',
+    );
   });
 
   test('rejects missing schedule readback when the expected schedule set is empty', async () => {
@@ -1027,10 +1009,7 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(Response.json({ success: true, result: {} }));
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).configureManagedWorkerSchedule(
-        'cloudchef-app',
-        false,
-      ),
+      accountApi('account-1', 'token', request).configureManagedWorkerSchedule('cloudchef-app', false),
     ).rejects.toThrow('invalid Worker schedules');
   });
 
@@ -1070,7 +1049,7 @@ describe('UserCloudflareAccountApi', () => {
           ],
         }),
       );
-    const api = new UserCloudflareAccountApi('user-account', 'user-token', request);
+    const api = accountApi('user-account', 'user-token', request);
 
     await expect(
       api.deployWorkspaceRuntimeWorker({
@@ -1148,7 +1127,7 @@ describe('UserCloudflareAccountApi', () => {
           durable_objects: { namespace_id: '0123456789abcdef0123456789abcdef' },
         }),
       );
-    const api = new UserCloudflareAccountApi('user-account', 'user-token', request);
+    const api = accountApi('user-account', 'user-token', request);
     const image = `docker.io/cloudflare/sandbox:0.12.4@sha256:${'b'.repeat(64)}`;
 
     await expect(
@@ -1208,7 +1187,7 @@ describe('UserCloudflareAccountApi', () => {
         }),
       );
 
-    await new UserCloudflareAccountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
+    await accountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
       applicationName: 'cloudchef-workspace-user',
       namespaceId: '0123456789abcdef0123456789abcdef',
       image,
@@ -1271,7 +1250,7 @@ describe('UserCloudflareAccountApi', () => {
         }),
       );
 
-    await new UserCloudflareAccountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
+    await accountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
       applicationName: 'cloudchef-workspace-user',
       namespaceId: '0123456789abcdef0123456789abcdef',
       image,
@@ -1333,7 +1312,7 @@ describe('UserCloudflareAccountApi', () => {
     const wait = vi.fn(async () => undefined);
     vi.stubGlobal('scheduler', { wait });
 
-    await new UserCloudflareAccountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
+    await accountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
       applicationName: 'cloudchef-workspace-user',
       namespaceId: '0123456789abcdef0123456789abcdef',
       image,
@@ -1356,7 +1335,7 @@ describe('UserCloudflareAccountApi', () => {
       );
 
     await expect(
-      new UserCloudflareAccountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
+      accountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
         applicationName: 'cloudchef-workspace-user',
         namespaceId: '0123456789abcdef0123456789abcdef',
         image: `docker.io/cloudflare/sandbox:0.12.4@sha256:${'b'.repeat(64)}`,
@@ -1366,7 +1345,7 @@ describe('UserCloudflareAccountApi', () => {
 
   test('rejects a matching container application without provider identity', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json([{ name: 'cloudchef-workspace-user' }]));
-    const api = new UserCloudflareAccountApi('user-account', 'user-token', request);
+    const api = accountApi('user-account', 'user-token', request);
 
     await expect(
       api.ensureWorkspaceRuntimeContainer({
@@ -1398,7 +1377,7 @@ describe('UserCloudflareAccountApi', () => {
 
     // A namespace on the second page must be reused, not created a second time.
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureKvNamespace('cloudchef-deployment-1-cache'),
+      accountApi('account-1', 'token', request).ensureKvNamespace('cloudchef-deployment-1-cache'),
     ).resolves.toEqual({
       id: namespaceId,
       name: 'cloudchef-deployment-1-cache',
@@ -1419,7 +1398,7 @@ describe('UserCloudflareAccountApi', () => {
     );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).deleteKvNamespace('cloudchef-deployment-1-cache'),
+      accountApi('account-1', 'token', request).deleteKvNamespace('cloudchef-deployment-1-cache'),
     ).rejects.toThrow('ambiguous KV namespaces');
   });
 });
@@ -1431,7 +1410,7 @@ describe('D1 migrations onto a database every revision deploys onto', () => {
 
   test('applies only what the database has not applied yet, keeping its data', async () => {
     const { database, request } = sqliteD1(DATABASE_ID);
-    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+    const api = accountApi('account-1', 'token', request);
 
     await api.applyD1Migrations(DATABASE_ID, [notes]);
     database.exec("INSERT INTO notes (body) VALUES ('written in production')");
@@ -1456,7 +1435,7 @@ describe('D1 migrations onto a database every revision deploys onto', () => {
 
   test('refuses an applied migration that changed before it applies any of the set', async () => {
     const { database, request } = sqliteD1(DATABASE_ID);
-    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+    const api = accountApi('account-1', 'token', request);
     const tags = { name: '0003_tags.sql', sql: 'CREATE TABLE tags (name TEXT PRIMARY KEY)' };
     await api.applyD1Migrations(DATABASE_ID, [notes, tags]);
 
@@ -1487,7 +1466,7 @@ describe('D1 migration receipts recorded before they kept the applied SQL', () =
     database
       .prepare('INSERT INTO cloudchef_runtime_migrations (name, applied_at, digest) VALUES (?, ?, ?)')
       .run(placeholder.name, 1, await textDigest(placeholder.sql));
-    const api = new UserCloudflareAccountApi('account-1', 'token', request);
+    const api = accountApi('account-1', 'token', request);
     const notes = { name: '0002_notes.sql', sql: 'CREATE TABLE notes (id INTEGER PRIMARY KEY)' };
 
     await api.applyD1Migrations(DATABASE_ID, [placeholder, notes]);

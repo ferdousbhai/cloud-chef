@@ -758,14 +758,13 @@ function activity(args: UserOwnedDeploymentArgs, sequence: number, message: stri
  */
 export async function createUserAccountApi(
   env: RuntimeConnectionEnv & Pick<Env, 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT' | 'CONTROL_PLANE_SECRET'>,
-  request: typeof fetch = fetch,
 ): Promise<UserCloudflareAccountApi> {
   const identity = runtimeConnectionIdentity(env);
   if (!identity) {
     throw new Error('Cloudflare connection is unavailable.');
   }
   const accessToken = await resolveUserWorkspaceCloudflareAccessToken(env, identity);
-  return new UserCloudflareAccountApi(identity.accountId, accessToken, request, () =>
+  return new UserCloudflareAccountApi(identity.accountId, accessToken, () =>
     resolveUserWorkspaceCloudflareAccessToken(env, identity, { forceRefresh: true }),
   );
 }

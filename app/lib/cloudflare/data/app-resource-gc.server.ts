@@ -98,7 +98,7 @@ export async function sweepAppResourceGcCandidates(
     return;
   }
 
-  const accountApi = options.accountApi ?? (await createUserAccountApi(env, fetch));
+  const accountApi = options.accountApi ?? (await createUserAccountApi(env));
   const sweep: CleanupSweep = { budget: APP_RESOURCE_GC_DEPLOYMENTS_PER_SWEEP };
   for (const candidate of result.results) {
     if (sweep.budget === 0) {

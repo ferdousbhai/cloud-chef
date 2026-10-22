@@ -262,7 +262,6 @@ export class UserCloudflareAccountApi {
   constructor(
     private readonly accountId: string,
     private accessToken: string,
-    private readonly request: typeof fetch = fetch,
     private readonly refreshAccessToken?: () => Promise<string>,
   ) {
     if (!accountId || !accessToken) {
@@ -1497,8 +1496,7 @@ export class UserCloudflareAccountApi {
     if (!path.startsWith('/') || path.startsWith('//')) {
       throw new CloudflareAccountApiError('Cloudflare API path is invalid.');
     }
-    const execute = this.request;
-    const response = await execute(`${API_ROOT}/accounts/${encodeURIComponent(this.accountId)}${path}`, {
+    const response = await fetch(`${API_ROOT}/accounts/${encodeURIComponent(this.accountId)}${path}`, {
       ...init,
       redirect: 'manual',
       signal: init.signal ?? AbortSignal.timeout(CLOUDFLARE_API_TIMEOUT_MS),
