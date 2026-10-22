@@ -146,10 +146,10 @@ describe('idempotent bootstrap retry', () => {
   });
 
   /** Run `stage` to its end, firing its retry delays as they come due. */
-  async function settle(stage: Promise<void>): Promise<unknown> {
+  async function settle(stage: Promise<void>): Promise<Error | null> {
     const outcome = stage.then(
       () => null,
-      (error: unknown) => error,
+      (error: Error) => error,
     );
     await vi.runAllTimersAsync();
     return outcome;
