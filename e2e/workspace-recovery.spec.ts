@@ -138,7 +138,8 @@ test('recovers a project whose data operations fail', async ({ page }, testInfo)
     }),
   );
   let attempts = 0;
-  await page.route(`${RUNTIME_ORIGIN}/v1/data`, (route) => {
+  // Every workspace request fails: the project's transcript is read before any data operation.
+  await page.route(`${RUNTIME_ORIGIN}/v1/**`, (route) => {
     attempts += 1;
     return route.fulfill({ status: 503, json: { error: 'The workspace runtime is unavailable.' } });
   });
