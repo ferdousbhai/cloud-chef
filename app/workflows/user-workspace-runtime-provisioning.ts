@@ -47,20 +47,15 @@ type ProvisioningParams = {
   connectionGeneration: number;
 };
 
-export type UserWorkspaceRuntimeProvisioningErrorCode =
-  'workspace_plan_required' | 'workspace_eligibility_unknown' | 'workspace_preparation_failed';
-
-type ProvisioningError = {
-  status: 'error';
-  errorCode: UserWorkspaceRuntimeProvisioningErrorCode;
-  upgradeUrl: string | null;
-};
-
 const provisioningErrorSchema = z.object({
   status: z.literal('error'),
   errorCode: z.enum(['workspace_plan_required', 'workspace_eligibility_unknown', 'workspace_preparation_failed']),
   upgradeUrl: z.string().nullable(),
 });
+
+type ProvisioningError = z.infer<typeof provisioningErrorSchema>;
+
+export type UserWorkspaceRuntimeProvisioningErrorCode = ProvisioningError['errorCode'];
 
 /** A failure after the Worker was redeployed, which left it serving without its container image or schedule. */
 const redeployedFailureSchema = z.object({ status: z.literal('error'), redeployed: z.literal(true) });
