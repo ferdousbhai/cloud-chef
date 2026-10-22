@@ -21,7 +21,6 @@ describe('activateCloudflareConnection', () => {
         grantedOAuthScopes: ['workers-scripts.write'],
         oauthScopeProfileVersion: 'core-v1',
         oauthScopeGrantStatus: 'core' as const,
-        aiBillingEnabled: false,
         expectedGeneration: 4,
         now: 100,
       }),
@@ -46,7 +45,6 @@ describe('activateCloudflareConnection', () => {
         grantedOAuthScopes: ['workers-scripts.write', 'ai.read'],
         oauthScopeProfileVersion: 'core-v1',
         oauthScopeGrantStatus: 'core' as const,
-        aiBillingEnabled: true,
         expectedGeneration: 5,
         now: 200,
       }),
@@ -71,7 +69,6 @@ describe('activateCloudflareConnection', () => {
         grantedOAuthScopes: ['workers-scripts.write'],
         oauthScopeProfileVersion: 'core-v1',
         oauthScopeGrantStatus: 'core' as const,
-        aiBillingEnabled: false,
         expectedGeneration: 2,
         now: 300,
       }),
@@ -100,7 +97,6 @@ describe('activateCloudflareConnection', () => {
         grantedOAuthScopes: ['workers-scripts.write', 'ai.read'],
         oauthScopeProfileVersion: 'core-v1',
         oauthScopeGrantStatus: 'core' as const,
-        aiBillingEnabled: true,
         expectedGeneration: 2,
         now: 300,
       }),
@@ -128,7 +124,6 @@ describe('activateCloudflareConnection', () => {
         grantedOAuthScopes: ['workers-scripts.write'],
         oauthScopeProfileVersion: 'core-v1',
         oauthScopeGrantStatus: 'core' as const,
-        aiBillingEnabled: false,
         expectedGeneration: 5,
         now: 300,
       }),
@@ -153,7 +148,6 @@ describe('activateCloudflareConnection', () => {
         grantedOAuthScopes: ['workers-scripts.write'],
         oauthScopeProfileVersion: 'core-v1',
         oauthScopeGrantStatus: 'core' as const,
-        aiBillingEnabled: false,
         expectedGeneration: null,
         now: 400,
       }),
@@ -176,7 +170,6 @@ describe('activateCloudflareConnection', () => {
         grantedOAuthScopes: ['workers-scripts.write'],
         oauthScopeProfileVersion: 'core-v1',
         oauthScopeGrantStatus: 'core' as const,
-        aiBillingEnabled: false,
         expectedGeneration: null,
         now: 400,
       }),
@@ -197,7 +190,6 @@ describe('activateCloudflareConnection', () => {
       oauth_scope_profile_version: null,
       oauth_scope_grant_status: 'unknown',
       oauth_grant_updated_at: null,
-      ai_billing_enabled: 0,
       connected_at: 1,
       updated_at: 1,
       connection_generation: 1,
@@ -223,7 +215,6 @@ type FakeConnectionState = {
   profileVersion: string | null;
   grantStatus: string;
   grantUpdatedAt: number | null;
-  aiBillingEnabled: number;
   connectedAt: number;
   updatedAt: number;
 };
@@ -247,7 +238,6 @@ function connectionDatabase(
     profileVersion: 'core-v1',
     grantStatus: 'core',
     grantUpdatedAt: 1,
-    aiBillingEnabled: 0,
     connectedAt: 1,
     updatedAt: 1,
   };
@@ -265,7 +255,6 @@ function connectionDatabase(
     oauth_scope_profile_version: state.profileVersion,
     oauth_scope_grant_status: state.grantStatus,
     oauth_grant_updated_at: state.grantUpdatedAt,
-    ai_billing_enabled: state.aiBillingEnabled,
     connected_at: state.connectedAt,
     updated_at: state.updatedAt,
     connection_generation: state.generation,
@@ -283,7 +272,6 @@ function connectionDatabase(
       profileVersion,
       grantStatus,
       grantUpdatedAt,
-      aiBillingEnabled,
       connectedAt,
       updatedAt,
       ,
@@ -297,7 +285,6 @@ function connectionDatabase(
       string,
       string,
       string,
-      number,
       number,
       number,
       number,
@@ -316,7 +303,6 @@ function connectionDatabase(
     state.profileVersion = profileVersion;
     state.grantStatus = grantStatus;
     state.grantUpdatedAt = grantUpdatedAt;
-    state.aiBillingEnabled = aiBillingEnabled;
     state.connectedAt = connectedAt;
     state.updatedAt = updatedAt;
     state.generation++;
@@ -413,7 +399,6 @@ function insertedConnectionRow(values: unknown[]) {
     profileVersion,
     grantStatus,
     grantUpdatedAt,
-    aiBillingEnabled,
     connectedAt,
     ,
     updatedAt,
@@ -432,7 +417,6 @@ function insertedConnectionRow(values: unknown[]) {
     number,
     number,
     number,
-    number,
   ];
   return {
     id,
@@ -447,7 +431,6 @@ function insertedConnectionRow(values: unknown[]) {
     oauth_scope_profile_version: profileVersion,
     oauth_scope_grant_status: grantStatus,
     oauth_grant_updated_at: grantUpdatedAt,
-    ai_billing_enabled: aiBillingEnabled,
     connected_at: connectedAt,
     updated_at: updatedAt,
     connection_generation: 1,

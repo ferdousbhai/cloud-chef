@@ -23,7 +23,6 @@ export type CloudflareConnection = {
   grantedOAuthScopes: string[];
   oauthScopeProfileVersion: string | null;
   oauthScopeGrantStatus: CloudflareOAuthScopeGrantStatus;
-  aiBillingEnabled: boolean;
   connectedAt: number | null;
   updatedAt: number;
   generation: number;
@@ -50,7 +49,6 @@ type CloudflareConnectionRow = {
   oauth_scope_profile_version: string | null;
   oauth_scope_grant_status: string;
   oauth_grant_updated_at: number | null;
-  ai_billing_enabled: number;
   connected_at: number | null;
   updated_at: number;
   connection_generation: number;
@@ -59,7 +57,7 @@ type CloudflareConnectionRow = {
 const CONNECTION_COLUMNS = `id, user_id, org_id, account_id, account_name, status, credential_handle,
               granted_capabilities_json, requested_oauth_scopes_json, granted_oauth_scopes_json,
               oauth_scope_profile_version, oauth_scope_grant_status, oauth_grant_updated_at,
-              ai_billing_enabled, connected_at, updated_at, connection_generation`;
+              connected_at, updated_at, connection_generation`;
 
 export async function findCloudflareConnectionForUser(
   db: D1Database,
@@ -145,7 +143,6 @@ export async function activateCloudflareConnection(args: {
   grantedOAuthScopes: string[];
   oauthScopeProfileVersion: string;
   oauthScopeGrantStatus: CloudflareOAuthScopeGrantStatus;
-  aiBillingEnabled: boolean;
   expectedGeneration: number | null;
   now?: number;
 }): Promise<void> {
@@ -173,8 +170,8 @@ export async function activateCloudflareConnection(args: {
         id, ${ownerColumn(args.owner)}, account_id, account_name, status, credential_handle,
         granted_capabilities_json, requested_oauth_scopes_json, granted_oauth_scopes_json,
         oauth_scope_profile_version, oauth_scope_grant_status, oauth_grant_updated_at,
-        ai_billing_enabled, connected_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        connected_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(${ownerColumn(args.owner)}) DO NOTHING
       RETURNING ${CONNECTION_COLUMNS}`,
             )
@@ -190,7 +187,6 @@ export async function activateCloudflareConnection(args: {
               args.oauthScopeProfileVersion,
               args.oauthScopeGrantStatus,
               now,
-              args.aiBillingEnabled ? 1 : 0,
               now,
               now,
               now,
@@ -202,7 +198,7 @@ export async function activateCloudflareConnection(args: {
              SET account_id = ?, account_name = ?, status = 'active', credential_handle = ?,
                  granted_capabilities_json = ?, requested_oauth_scopes_json = ?,
                  granted_oauth_scopes_json = ?, oauth_scope_profile_version = ?, oauth_scope_grant_status = ?,
-                 oauth_grant_updated_at = ?, ai_billing_enabled = ?, connected_at = ?,
+                 oauth_grant_updated_at = ?, connected_at = ?,
                  connection_generation = connection_generation + 1, updated_at = ?
              WHERE ${ownerColumn(args.owner)} = ? AND connection_generation = ?
              RETURNING ${CONNECTION_COLUMNS}`,
@@ -217,7 +213,6 @@ export async function activateCloudflareConnection(args: {
               args.oauthScopeProfileVersion,
               args.oauthScopeGrantStatus,
               now,
-              args.aiBillingEnabled ? 1 : 0,
               now,
               now,
               ownerId(args.owner),
@@ -270,7 +265,6 @@ async function isExactActivatedCloudflareConnection(
     row.oauth_scope_profile_version !== args.oauthScopeProfileVersion ||
     row.oauth_scope_grant_status !== args.oauthScopeGrantStatus ||
     row.oauth_grant_updated_at !== args.now ||
-    row.ai_billing_enabled !== (args.aiBillingEnabled ? 1 : 0) ||
     row.connected_at !== args.now ||
     row.updated_at !== args.now ||
     row.connection_generation !== intendedGeneration
@@ -294,7 +288,6 @@ function connectionFromRow(row: CloudflareConnectionRow): CloudflareConnection {
     grantedOAuthScopes: parseStoredStringArray(row.granted_oauth_scopes_json),
     oauthScopeProfileVersion: row.oauth_scope_profile_version,
     oauthScopeGrantStatus: parseStoredGrantStatus(row.oauth_scope_grant_status),
-    aiBillingEnabled: row.ai_billing_enabled === 1,
     connectedAt: row.connected_at,
     updatedAt: row.updated_at,
     generation: row.connection_generation,

@@ -618,7 +618,6 @@ export async function completeCloudflareConnectionAction(args: {
           grantedOAuthScopes: result.grantedOAuthScopes,
           oauthScopeProfileVersion: result.oauthScopeProfileVersion,
           oauthScopeGrantStatus: result.oauthScopeGrantStatus,
-          aiBillingEnabled: result.grantedCapabilities.includes('workers_ai'),
           expectedGeneration: previous?.generation ?? null,
         });
       } catch (error) {
@@ -784,7 +783,6 @@ function isEquivalentRacedConnection(
     connection.accountId === result.accountId &&
     connection.accountName === result.accountName &&
     connection.generation === (expectedGeneration ?? 0) + 1 &&
-    connection.aiBillingEnabled === result.grantedCapabilities.includes('workers_ai') &&
     sameStringArray(connection.grantedCapabilities, result.grantedCapabilities) &&
     sameStringArray(connection.requestedOAuthScopes, result.requestedOAuthScopes) &&
     sameStringArray(connection.grantedOAuthScopes, result.grantedOAuthScopes) &&

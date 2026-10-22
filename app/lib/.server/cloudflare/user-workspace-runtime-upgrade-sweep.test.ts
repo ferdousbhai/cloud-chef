@@ -35,7 +35,6 @@ function connectionFor(id: string, overrides: Partial<CloudflareConnection> = {}
     grantedOAuthScopes: [],
     oauthScopeProfileVersion: null,
     oauthScopeGrantStatus: 'full',
-    aiBillingEnabled: false,
     connectedAt: 1,
     updatedAt: 1,
     generation: 1,

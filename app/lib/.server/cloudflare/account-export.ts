@@ -80,6 +80,7 @@ type ExportedCloudflareConnection = {
   oauthScopeGrantStatus: string;
   /** The model builders in this account start on, as its owner chose; null for CloudChef's default. */
   defaultBuilderModel: string | null;
+  /** Whether the account's Workers AI is billed for builders: whether its capabilities include workers_ai. */
   aiBillingEnabled: boolean;
   connectedAt: string | null;
   updatedAt: string;
@@ -376,7 +377,7 @@ async function readCloudflareConnection(
       oauthScopeProfileVersion: connection.oauthScopeProfileVersion,
       oauthScopeGrantStatus: connection.oauthScopeGrantStatus,
       defaultBuilderModel: model?.default_builder_model ?? null,
-      aiBillingEnabled: connection.aiBillingEnabled,
+      aiBillingEnabled: connection.grantedCapabilities.includes('workers_ai'),
       connectedAt: optionalIsoTimestamp(connection.connectedAt),
       updatedAt: isoTimestamp(connection.updatedAt),
       generation: connection.generation,

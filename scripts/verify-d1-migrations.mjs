@@ -45,6 +45,7 @@ const migrationPolicies = [
       '0028_workspace_runtime_upgrade_window.sql': '1ab6abb5acb8e4874a450bb4b2590cb39563c8e0f0d98f699dcc363e53692b9c',
       '0029_default_builder_model.sql': '92f8da314979083b5a3139cc5e0a6f7b9cff32409bf1dac5bbb9bdb529a21fc5',
       '0030_organization_quota_events.sql': 'a840b9ffea1d8a68bfc003faa5df6a67ef0738b91b3e099e9eb558172ce62d5a',
+      '0031_drop_ai_billing_enabled.sql': '759babf4f25026871c9b86d77e8a3dae707e0309184dabb81f213dac287b902c',
     },
     contractAllowlist: {
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -71,6 +72,10 @@ const migrationPolicies = [
       // can't relax NOT NULL or change a primary key in place, so both tables are rebuilt with every row
       // copied. The runtime rows step aside first so dropping the connections can't cascade to them.
       '0021_organizations.sql': 'c181f20c983af3a41e36fb9723d9e4987b2e997cef044ae814e22ac1d6421f61',
+      // Whether a connection bills Workers AI is derived from its granted capabilities. The deploy that
+      // ships this no longer names the column, so it is applied after that deploy: until then the
+      // column's default covers the new code's writes, and the previous code still finds it.
+      '0031_drop_ai_billing_enabled.sql': '759babf4f25026871c9b86d77e8a3dae707e0309184dabb81f213dac287b902c',
     },
   },
   {

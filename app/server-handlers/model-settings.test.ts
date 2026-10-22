@@ -970,7 +970,6 @@ function connectionOf(database: ReturnType<typeof controlPlaneDatabase>['databas
     grantedOAuthScopes: [],
     oauthScopeProfileVersion: null,
     oauthScopeGrantStatus: 'core' as const,
-    aiBillingEnabled: true,
     connectedAt: 1,
     updatedAt: 1,
     generation: 1,

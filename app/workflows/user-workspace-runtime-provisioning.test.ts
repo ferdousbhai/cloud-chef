@@ -60,7 +60,6 @@ const connection: CloudflareConnection = {
   grantedOAuthScopes: [],
   oauthScopeProfileVersion: null,
   oauthScopeGrantStatus: 'unknown',
-  aiBillingEnabled: true,
   connectedAt: 1,
   updatedAt: 1,
   generation: 1,
