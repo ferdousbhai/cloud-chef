@@ -1026,11 +1026,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     return new Blob([new Uint8Array(snapshot.value.bytes)]).stream();
   }
 
-  async listWorkspaceFiles() {
-    const snapshot = await this.stableProjectRead(readProjectFiles);
-    return snapshot.value.map((file) => workspaceFileMetadata(file, snapshot.revision));
-  }
-
   async readDirectory(pathValue: unknown) {
     const path = requireProjectPath(pathValue, true);
     const snapshot = await this.stableProjectRead((workspace) => workspace.fs.readdir(path));
@@ -2154,31 +2149,10 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     return linked;
   }
 
-  private async readCloudflareProjectFile(): Promise<{ content: string }> {
-    try {
-      return await this.readText(`${PROJECT_ROOT}/${CLOUDFLARE_PROJECT_FILE}`);
-    } catch (error) {
-      // A project seeded before the cf toolchain has wrangler.jsonc instead; say so rather than
-      // surfacing a bare missing-file error. Any other read failure is reported as it is.
-      const legacy = await this.readText(`${PROJECT_ROOT}/wrangler.jsonc`).then(
-        () => true,
-        () => false,
-      );
-      if (legacy) {
-        throw new Error(
-          'This project was created before CloudChef moved to the cf CLI: it has wrangler.jsonc and no ' +
-            `${CLOUDFLARE_PROJECT_FILE}, so it cannot be validated or deployed. Start a new project.`,
-          { cause: error },
-        );
-      }
-      throw error;
-    }
-  }
-
   private async readDeploymentProjectProfile(): Promise<DeploymentProjectProfile> {
     const [packageFile, projectFile] = await Promise.all([
       this.readText(`${PROJECT_ROOT}/package.json`),
-      this.readCloudflareProjectFile(),
+      this.readText(`${PROJECT_ROOT}/${CLOUDFLARE_PROJECT_FILE}`),
     ]);
     const packageJson: unknown = JSON.parse(packageFile.content);
     const cloudchef = isRecord(packageJson) ? packageJson.cloudchef : undefined;
