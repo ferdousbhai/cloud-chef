@@ -265,8 +265,9 @@ const latestTranscript: ChatTranscriptRow = {
 };
 
 /** A database whose one batch reports `batchChanges` rows changed by each statement. */
-function subchatDatabase(batchChanges = [1, 1]): { db: D1Database; statements: BoundStatement[] } {
+function subchatDatabase(batchChanges = [1, 1]) {
   const statements: BoundStatement[] = [];
+  // SAFETY: createSubchat only prepares, binds, and batches statements, which this stub provides.
   const db = {
     prepare: (query: string) => ({ bind: (...values: unknown[]) => ({ query, values }) }),
     batch: async (batch: BoundStatement[]) => {
