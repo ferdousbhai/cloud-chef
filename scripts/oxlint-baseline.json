@@ -1,5 +1,5 @@
 {
-  "total": 1066,
+  "total": 1063,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -478,9 +478,6 @@
     "cloudchef-agent/utils/stripIndent.ts": {
       "anti-slop/no-runtime-typeof": 1
     },
-    "playwright.config.ts": {
-      "anti-slop/no-conditional-empty-object-spread": 1
-    },
     "scripts/check-oxlint-baseline.mjs": {
       "anti-slop/no-runtime-typeof": 1
     },
@@ -508,7 +505,7 @@
       "anti-slop/no-shape-in-symbol-names": 2
     },
     "scripts/ops-report.mjs": {
-      "anti-slop/no-runtime-typeof": 9
+      "anti-slop/no-runtime-typeof": 7
     },
     "scripts/record-d1-time-travel-bookmark.mjs": {
       "anti-slop/no-runtime-typeof": 2
