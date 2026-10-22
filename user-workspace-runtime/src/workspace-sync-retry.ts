@@ -53,7 +53,6 @@ export class WorkspaceSyncPendingError extends Error {
 export function requireWorkspaceSyncBarrier(
   pendingCommands: readonly PendingWorkspaceSync[],
   state: (backend: string) => WorkspaceSyncRetryState | null,
-  now = Date.now(),
 ): void {
   const continuation = pendingCommands[0];
   if (continuation) {
@@ -61,7 +60,7 @@ export function requireWorkspaceSyncBarrier(
     throw new WorkspaceSyncPendingError(
       continuation.backend,
       retry?.attempt ?? 1,
-      retry?.notBefore ?? now + 1_000,
+      retry?.notBefore ?? Date.now() + 1_000,
       retry?.exhausted ?? false,
       retry?.lastError ?? null,
     );
@@ -82,10 +81,9 @@ export function requireWorkspaceSyncBarrier(
 export function requireDurableCommandResult(
   result: WorkspaceRuntimeResult<'utf8'>,
   backend: string,
-  now = Date.now(),
 ): WorkspaceRuntimeResult<'utf8'> {
   if (result.sync.status === 'pending') {
-    throw new WorkspaceSyncPendingError(backend, 1, now + 1_000, false, result.sync.error, result);
+    throw new WorkspaceSyncPendingError(backend, 1, Date.now() + 1_000, false, result.sync.error, result);
   }
   return result;
 }
@@ -95,7 +93,6 @@ export class DurableWorkspaceSyncRetryScheduler implements SyncRetryScheduler {
   constructor(
     private readonly storage: SyncRetryStorage,
     private readonly wake: (intent: SyncRetryIntent) => Promise<void>,
-    private readonly now: () => number = Date.now,
   ) {}
 
   initialize(): void {
@@ -123,7 +120,7 @@ export class DurableWorkspaceSyncRetryScheduler implements SyncRetryScheduler {
   }
 
   async schedule(intent: SyncRetryIntent): Promise<void> {
-    const now = this.now();
+    const now = Date.now();
     this.storage.sql.exec(
       `INSERT INTO ghostbuild_workspace_sync_retries (
          backend, attempt, not_before, created_at, updated_at, last_error, exhausted, runtime_id
@@ -169,14 +166,14 @@ export class DurableWorkspaceSyncRetryScheduler implements SyncRetryScheduler {
     }
   }
 
-  recordFailure(backend: string, error: string, exhausted: boolean, now = this.now()): void {
+  recordFailure(backend: string, error: string, exhausted: boolean): void {
     this.storage.sql.exec(
       `UPDATE ghostbuild_workspace_sync_retries
        SET last_error = ?, exhausted = ?, updated_at = ?
        WHERE backend = ?`,
       error.slice(-1_000),
       exhausted ? 1 : 0,
-      now,
+      Date.now(),
       backend,
     );
   }

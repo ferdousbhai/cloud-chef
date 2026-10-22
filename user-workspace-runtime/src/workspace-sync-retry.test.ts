@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceRuntimeResult } from '@cloudflare/computer';
 import {
   DurableWorkspaceSyncRetryScheduler,
@@ -7,6 +7,14 @@ import {
 } from './workspace-sync-retry';
 
 describe('DurableWorkspaceSyncRetryScheduler', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ now: 100 });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('never acknowledges a command whose post-command pull is pending', () => {
     const result = {
       status: 'completed',
@@ -19,9 +27,9 @@ describe('DurableWorkspaceSyncRetryScheduler', () => {
       sync: { status: 'pending', applied: 0, skipped: [], error: 'pull interrupted' },
     } satisfies WorkspaceRuntimeResult<'utf8'>;
 
-    expect(() => requireDurableCommandResult(result, 'container-shell', 100)).toThrow(WorkspaceSyncPendingError);
+    expect(() => requireDurableCommandResult(result, 'container-shell')).toThrow(WorkspaceSyncPendingError);
     try {
-      requireDurableCommandResult(result, 'container-shell', 100);
+      requireDurableCommandResult(result, 'container-shell');
     } catch (error) {
       expect(error).toMatchObject({
         code: 'workspace_sync_pending',
@@ -36,12 +44,11 @@ describe('DurableWorkspaceSyncRetryScheduler', () => {
   it('persists one retry intent per backend and preserves its original age', async () => {
     const storage = new TestStorage();
     const wake = vi.fn(async () => undefined);
-    let now = 100;
-    const scheduler = new DurableWorkspaceSyncRetryScheduler(storage as never, wake, () => now);
+    const scheduler = new DurableWorkspaceSyncRetryScheduler(storage as never, wake);
     scheduler.initialize();
 
     await scheduler.schedule({ backend: 'container-shell', attempt: 1, notBefore: 1_100 });
-    now = 200;
+    vi.setSystemTime(200);
     await scheduler.schedule({ backend: 'container-shell', attempt: 2, notBefore: 2_200 });
 
     await expect(scheduler.get('container-shell')).resolves.toEqual({
@@ -56,15 +63,11 @@ describe('DurableWorkspaceSyncRetryScheduler', () => {
 
   it('durably clears completion and retains actionable exhaustion metadata', async () => {
     const storage = new TestStorage();
-    const scheduler = new DurableWorkspaceSyncRetryScheduler(
-      storage as never,
-      async () => undefined,
-      () => 100,
-    );
+    const scheduler = new DurableWorkspaceSyncRetryScheduler(storage as never, async () => undefined);
     scheduler.initialize();
     await scheduler.schedule({ backend: 'container-shell', attempt: 5, notBefore: 1_000 });
 
-    scheduler.recordFailure('container-shell', 'FUSE pull unavailable', true, 200);
+    scheduler.recordFailure('container-shell', 'FUSE pull unavailable', true);
     expect(scheduler.state('container-shell')).toMatchObject({
       attempt: 5,
       lastError: 'FUSE pull unavailable',
@@ -78,12 +81,12 @@ describe('DurableWorkspaceSyncRetryScheduler', () => {
   it('re-arms every persisted retry intent after a Durable Object restart', async () => {
     const storage = new TestStorage();
     const firstWake = vi.fn(async () => undefined);
-    const first = new DurableWorkspaceSyncRetryScheduler(storage as never, firstWake, () => 100);
+    const first = new DurableWorkspaceSyncRetryScheduler(storage as never, firstWake);
     first.initialize();
     await first.schedule({ backend: 'container-shell', attempt: 2, notBefore: 2_000 });
 
     const restartWake = vi.fn(async () => undefined);
-    const restarted = new DurableWorkspaceSyncRetryScheduler(storage as never, restartWake, () => 200);
+    const restarted = new DurableWorkspaceSyncRetryScheduler(storage as never, restartWake);
     restarted.initialize();
     await restarted.reconcile();
 
@@ -98,7 +101,7 @@ describe('DurableWorkspaceSyncRetryScheduler', () => {
     const storage = new TestStorage();
     const wake = vi.fn(async () => undefined);
     // SAFETY: TestStorage stands in for the two Durable Object storage members the scheduler uses.
-    const scheduler = new DurableWorkspaceSyncRetryScheduler(storage as never, wake, () => 100);
+    const scheduler = new DurableWorkspaceSyncRetryScheduler(storage as never, wake);
     scheduler.initialize();
 
     await scheduler.schedule({ backend: 'container-shell', runtimeId: 'runtime-1', attempt: 1, notBefore: 1_100 });
@@ -117,14 +120,14 @@ describe('DurableWorkspaceSyncRetryScheduler', () => {
   it('never re-arms terminal exhaustion after duplicate wakes or Durable Object restarts', async () => {
     const storage = new TestStorage();
     const wake = vi.fn(async () => undefined);
-    const first = new DurableWorkspaceSyncRetryScheduler(storage as never, wake, () => 100);
+    const first = new DurableWorkspaceSyncRetryScheduler(storage as never, wake);
     first.initialize();
     await first.schedule({ backend: 'container-shell', attempt: 5, notBefore: 1_000 });
-    first.recordFailure('container-shell', 'pull unavailable', true, 200);
+    first.recordFailure('container-shell', 'pull unavailable', true);
 
     await first.reconcile();
     const restartedWake = vi.fn(async () => undefined);
-    const restarted = new DurableWorkspaceSyncRetryScheduler(storage as never, restartedWake, () => 300);
+    const restarted = new DurableWorkspaceSyncRetryScheduler(storage as never, restartedWake);
     restarted.initialize();
     await restarted.reconcile();
 

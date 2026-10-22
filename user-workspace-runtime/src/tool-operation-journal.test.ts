@@ -364,11 +364,10 @@ describe('ToolOperationJournal', () => {
 
     const afterRestart = journalOn(storage);
     afterRestart.initialize();
-    expect(() => requireWorkspaceSyncBarrier(afterRestart.pending(), () => null, 1_000)).toThrow(
-      WorkspaceSyncPendingError,
-    );
+    vi.setSystemTime(1_000);
+    expect(() => requireWorkspaceSyncBarrier(afterRestart.pending(), () => null)).toThrow(WorkspaceSyncPendingError);
     try {
-      requireWorkspaceSyncBarrier(afterRestart.pending(), () => null, 1_000);
+      requireWorkspaceSyncBarrier(afterRestart.pending(), () => null);
     } catch (error) {
       expect(error).toMatchObject({
         code: 'workspace_sync_pending',
@@ -379,7 +378,7 @@ describe('ToolOperationJournal', () => {
     }
 
     expect(afterRestart.completePending('container-shell')).toBe(true);
-    expect(() => requireWorkspaceSyncBarrier(afterRestart.pending(), () => null, 1_000)).not.toThrow();
+    expect(() => requireWorkspaceSyncBarrier(afterRestart.pending(), () => null)).not.toThrow();
   });
 
   it('rejects corrupted pending recovery state instead of omitting the operation', () => {
