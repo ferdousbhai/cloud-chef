@@ -1,7 +1,7 @@
 import { useStore } from '@nanostores/react';
 import { useEffect, useMemo, useState } from 'react';
 import { getToolInvocation, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
-import type { StreamStatus } from '~/lib/common/types';
+import { isStreamStatusActive, type StreamStatus } from '~/lib/common/types';
 import { getBuildProgress } from './build-progress';
 import { streamedToolInput } from './streaming-tool-input';
 import { reasoningPartView } from './ReasoningPart';
@@ -66,7 +66,7 @@ export function useBuildProgress(args: {
     });
   }, [reasoningKey]);
 
-  const active = args.isRecovering || args.streamStatus === 'submitted' || args.streamStatus === 'streaming';
+  const active = isStreamStatusActive(args.streamStatus);
   useEffect(() => {
     if (!active) {
       return () => undefined;

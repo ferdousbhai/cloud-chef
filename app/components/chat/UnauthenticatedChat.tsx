@@ -22,7 +22,6 @@ export function UnauthenticatedChat({
       onStop={() => undefined}
       streamStatus="ready"
       buildProgress={null}
-      isRecovering={false}
       currentError={undefined}
       messages={initialMessages}
       disabledReason={authLoading ? 'Loading account...' : null}

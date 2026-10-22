@@ -408,7 +408,6 @@ const AuthenticatedChat = memo(
         onStop={abort}
         onSend={sendMessage}
         streamStatus={streamStatus}
-        isRecovering={isRecovering}
         currentError={error}
         buildProgress={buildProgress}
         messages={visibleMessages}

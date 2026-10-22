@@ -13,7 +13,6 @@ const MAX_ERROR_CHARACTERS = 400;
 
 interface StreamingIndicatorProps {
   streamStatus: StreamStatus;
-  isRecovering?: boolean;
   currentError?: Error;
   buildProgress: BuildProgress | null;
   isProjectUpdate: boolean;
@@ -26,7 +25,6 @@ const LoadingIcon = () => <Spinner />;
 
 export const STATUS_MESSAGES = {
   building: 'Building...',
-  recovering: 'Recovering interrupted response...',
   stopped: 'Generation stopped',
   error: 'The model hit an error. Try sending your message again.',
 } as const;
@@ -49,10 +47,7 @@ function streamErrorMessage(currentError: Error | undefined): string {
 export default function StreamingIndicator(props: StreamingIndicatorProps) {
   const { aborted } = useStore(chatStore);
 
-  let streamStatus = props.streamStatus;
-  if (props.isRecovering) {
-    streamStatus = 'streaming';
-  }
+  const { streamStatus } = props;
 
   if (streamStatus === 'ready' && !props.submissionPending && !aborted) {
     return null;
@@ -72,8 +67,7 @@ export default function StreamingIndicator(props: StreamingIndicatorProps) {
       case 'submitted':
       case 'streaming':
         icon = <LoadingIcon />;
-        message =
-          props.buildProgress?.message ?? (props.isRecovering ? STATUS_MESSAGES.recovering : STATUS_MESSAGES.building);
+        message = props.buildProgress?.message ?? STATUS_MESSAGES.building;
         break;
       case 'error':
         icon = <WarningIcon />;

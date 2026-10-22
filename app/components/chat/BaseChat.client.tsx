@@ -50,7 +50,6 @@ interface BaseChatProps {
   sendMessageInProgress: boolean;
 
   streamStatus: StreamStatus;
-  isRecovering: boolean;
   currentError: Error | undefined;
   buildProgress: BuildProgress | null;
   messages: CloudChefMessage[];
@@ -78,7 +77,6 @@ export function BaseChat({
   onStop,
   sendMessageInProgress,
   messages,
-  isRecovering,
   buildProgress,
   disabledReason,
   runtimeNotice,
@@ -91,7 +89,7 @@ export function BaseChat({
   subchats,
   onSubchatTitleChange,
 }: BaseChatProps) {
-  const isStreaming = isRecovering || isStreamStatusActive(streamStatus);
+  const isStreaming = isStreamStatusActive(streamStatus);
   const currentSubchatIndex = useStore(subchatIndexStore) ?? 0;
   const createSubchat = useMutation(api.subchats.create);
   const setSubchatDescription = useMutation(api.subchats.setDescription);
@@ -322,7 +320,6 @@ export function BaseChat({
                           {(!disabledReason || isStreaming) && (
                             <StreamingIndicator
                               streamStatus={streamStatus}
-                              isRecovering={isRecovering}
                               currentError={currentError}
                               buildProgress={buildProgress}
                               isProjectUpdate={currentSubchatIndex > 0 || linkedProject !== null}

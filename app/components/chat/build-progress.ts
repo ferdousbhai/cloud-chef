@@ -1,4 +1,4 @@
-import type { StreamStatus } from '~/lib/common/types';
+import { isStreamStatusActive, type StreamStatus } from '~/lib/common/types';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 
 type BuildProgressPhase = 'planning' | 'thinking' | 'creating' | 'saving' | 'running' | 'validating' | 'recovering';
@@ -24,7 +24,7 @@ export function getBuildProgress(args: {
   reasoningForMs?: number | null;
   inactiveForMs: number;
 }): BuildProgress | null {
-  if (args.streamStatus !== 'submitted' && args.streamStatus !== 'streaming' && !args.isRecovering) {
+  if (!isStreamStatusActive(args.streamStatus)) {
     return null;
   }
 
