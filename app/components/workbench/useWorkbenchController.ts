@@ -25,7 +25,7 @@ export function useWorkbenchController(isStreaming?: boolean) {
   const selectedView = useStore(workbenchStore.currentView);
   const following = useStore(workbenchStore.followingStreamedCode);
   const linkedProject = useStore(workbenchStore.linkedProject);
-  const isSmallViewport = useViewport(1024);
+  const isSmallViewport = useViewport();
   const workspaceId = workbenchStore.getActiveWorkspaceId();
   const [hasLoadedPreview, setHasLoadedPreview] = useState(false);
   const [previewRequestState, setPreviewRequestState] = useState({ projectId, workspaceId, requesting: false });

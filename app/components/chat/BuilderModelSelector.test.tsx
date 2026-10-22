@@ -86,7 +86,7 @@ describe('BuilderModelSelector', () => {
 
   it('badges an unseen model, dates it, and records the sighting when the picker opens', async () => {
     localStorage.setItem('cloudchef_seen_builder_models_v1', JSON.stringify([CLOUDFLARE_WORKERS_AI_MODEL]));
-    await renderSelector(installDatedCatalog);
+    await renderSelector(datedCatalog);
     expect(builderNewModelsStore.get().map(({ id }) => id)).toEqual([alternativeModel.id]);
 
     const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
@@ -110,7 +110,7 @@ describe('BuilderModelSelector', () => {
 
   it("lists a gateway provider's models apart from Workers AI when the account offers them, and switches to one", async () => {
     const claude: BuilderModel = { ...alternativeModel, id: 'anthropic/claude-opus-5-5', label: 'Claude Opus 5.5' };
-    await renderSelector(() => installBuilderModelCatalog({ ...catalog, models: [...catalog.models, claude] }));
+    await renderSelector({ ...catalog, models: [...catalog.models, claude] });
 
     const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
     await act(async () => {
@@ -143,7 +143,7 @@ describe('BuilderModelSelector', () => {
       label: 'Claude Opus 5.5',
       reasoningLevels: ['low', 'high', 'max'],
     };
-    await renderSelector(() => installBuilderModelCatalog({ ...catalog, models: [...catalog.models, claude] }));
+    await renderSelector({ ...catalog, models: [...catalog.models, claude] });
     const trigger = () => document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
     const open = async () =>
       act(async () => {
@@ -192,9 +192,7 @@ describe('BuilderModelSelector', () => {
       label: `Other ${index}`,
     }));
     localStorage.setItem('cloudchef_builder_model_v2', claude.id);
-    await renderSelector(() =>
-      installBuilderModelCatalog({ ...catalog, models: [...catalog.models, claude, old, ...extras] }),
-    );
+    await renderSelector({ ...catalog, models: [...catalog.models, claude, old, ...extras] });
     const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
     expect(trigger?.textContent).toBe('AClaude Sonnet 4.6');
     await act(async () => trigger?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
@@ -245,7 +243,7 @@ describe('BuilderModelSelector', () => {
     );
     localStorage.setItem('cloudchef_builder_provider_v1', 'anthropic');
     const claude: BuilderModel = { ...alternativeModel, id: 'anthropic/claude-opus-5-5', label: 'Claude Opus 5.5' };
-    await renderSelector(() => installBuilderModelCatalog({ ...catalog, models: [...catalog.models, claude] }));
+    await renderSelector({ ...catalog, models: [...catalog.models, claude] });
     await act(async () =>
       document.querySelector('button')?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })),
     );
@@ -270,7 +268,7 @@ describe('BuilderModelSelector', () => {
     });
     expect(document.querySelector('[role="menu"]')).not.toBeNull();
 
-    await act(async () => root?.render(<BuilderModelSelector disabled catalogLoader={installTestCatalog} />));
+    await act(async () => root?.render(<BuilderModelSelector disabled />));
 
     const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
     expect(trigger?.disabled).toBe(true);
@@ -281,10 +279,8 @@ describe('BuilderModelSelector', () => {
   });
 
   it('keeps listing the installed catalog, and says it is not current, when a refresh fails', async () => {
-    await renderSelector(() => {
-      installTestCatalog();
-      void loadBuilderModelCatalog(async () => new Response(null, { status: 503 }));
-    });
+    installBuilderModelCatalog(catalog);
+    await renderSelector({ status: 503 });
 
     const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
     await act(async () => {
@@ -309,15 +305,15 @@ describe('BuilderModelSelector without a catalog', () => {
     const { BuilderModelSelector: FreshSelector } = await import('./BuilderModelSelector.client');
     const savedModel = 'anthropic/claude-opus-5-5';
     localStorage.setItem('cloudchef_builder_model_v2', savedModel);
-    const failingCatalog = () => fresh.loadBuilderModelCatalog(async () => new Response(null, { status: 503 }));
+    serveCatalog({ status: 503 });
 
     const container = document.createElement('div');
     document.body.appendChild(container);
     const freshRoot = freshCreateRoot(container);
     try {
       await freshAct(async () => {
-        freshRoot.render(createElement(FreshSelector, { catalogLoader: failingCatalog }));
-        await Promise.resolve();
+        freshRoot.render(createElement(FreshSelector));
+        await fresh.loadBuilderModelCatalog();
       });
       expect(fresh.builderModelCatalogStatusStore.get()).toBe('error');
       expect(fresh.builderModelRequestFields()).toEqual({ modelId: savedModel });
@@ -348,26 +344,37 @@ describe('BuilderModelSelector without a catalog', () => {
   });
 });
 
-async function renderSelector(catalogLoader: () => void = installTestCatalog) {
+type CatalogAnswer = BuilderModelCatalogPayload | { status: number };
+
+/** Renders the picker against a workspace that answers its catalog request with `answer`. */
+async function renderSelector(answer: CatalogAnswer = catalog) {
+  serveCatalog(answer);
   const container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
-    root?.render(<BuilderModelSelector catalogLoader={catalogLoader} />);
-    await Promise.resolve();
+    root?.render(<BuilderModelSelector />);
+    await loadBuilderModelCatalog();
   });
 }
 
-function installTestCatalog(): void {
-  installBuilderModelCatalog(catalog);
+/** Grants a runtime session, then answers the workspace's catalog request with `answer`: the catalog, or a failing status. */
+function serveCatalog(answer: CatalogAnswer): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/cloudflare/runtime-session') {
+        return Response.json({ endpoint: 'https://workspace.example', token: 'token', expiresAt: Date.now() + 60_000 });
+      }
+      return 'models' in answer ? Response.json(answer) : new Response(null, { status: answer.status });
+    }),
+  );
 }
 
-function installDatedCatalog(): void {
-  installBuilderModelCatalog({
-    ...catalog,
-    models: [DEFAULT_WORKERS_AI_MODEL, { ...alternativeModel, createdAt: '2026-08-26T00:00:00.000Z' }],
-  });
-}
+const datedCatalog: BuilderModelCatalogPayload = {
+  ...catalog,
+  models: [DEFAULT_WORKERS_AI_MODEL, { ...alternativeModel, createdAt: '2026-08-26T00:00:00.000Z' }],
+};
 
 async function chooseTab(label: string) {
   await act(async () =>

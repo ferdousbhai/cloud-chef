@@ -14,7 +14,7 @@ it('copies the full source and explains clipboard failures', async () => {
   document.body.appendChild(container);
   const root = createRoot(container);
   try {
-    await act(async () => root.render(<CodeBlock code={'const answer = 42;\n'} />));
+    await act(async () => root.render(<CodeBlock code={'const answer = 42;\n'} language="plaintext" />));
     const button = container.querySelector('button')!;
     expect(button.getAttribute('aria-label')).toBe('Copy code');
     await act(async () => button.click());

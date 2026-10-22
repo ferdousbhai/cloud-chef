@@ -11,7 +11,7 @@ import { classNames } from '~/utils/classNames';
 export function HeaderActionButtons() {
   const showWorkbench = useStore(workbenchStore.showWorkbench);
   const { showChat } = useStore(chatStore);
-  const isSmallViewport = useViewport(1024);
+  const isSmallViewport = useViewport();
   const canHideChat = showWorkbench || !showChat;
 
   if (isSmallViewport) {

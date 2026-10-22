@@ -205,7 +205,7 @@ export function BaseChat({
       await onSend(messageText(lastUserMessage));
     }
   }, [lastUserMessage, onSend]);
-  const isSmallViewport = useViewport(1024);
+  const isSmallViewport = useViewport();
   const showWorkbench = useStore(workbenchStore.showWorkbench);
   const linkedProject = useStore(workbenchStore.linkedProject);
   const compactActivity = isSmallViewport || showWorkbench;
@@ -307,7 +307,7 @@ export function BaseChat({
                           {runtimeNotice}
                         </div>
                       )}
-                      {deployment ? (
+                      {deployment && onDeploy && onRequestProduction ? (
                         <div className="mb-2">
                           <DeploymentStatus
                             deployment={deployment}
@@ -333,7 +333,7 @@ export function BaseChat({
                           )}
 
                           <MessageInput
-                            chatStarted={chatStarted}
+                            chatStarted
                             isStreaming={isStreaming}
                             sendMessageInProgress={sendMessageInProgress}
                             disabled={disabledReason !== null}
@@ -352,7 +352,7 @@ export function BaseChat({
             {/* A GitHub project has code before its first message, so its code can be browsed from the start. */}
             {(chatStarted || linkedProject) && (
               <Suspense fallback={null}>
-                <Workbench chatStarted isStreaming={isStreaming} beforeChatStarted={!chatStarted} />
+                <Workbench isStreaming={isStreaming} beforeChatStarted={!chatStarted} />
               </Suspense>
             )}
             {Boolean(userId) && chatStarted && <ReauthorizeInterstitial />}

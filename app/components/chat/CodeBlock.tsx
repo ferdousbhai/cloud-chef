@@ -1,26 +1,12 @@
 import { Fragment, memo, useEffect, useState } from 'react';
-import { classNames } from '~/utils/classNames';
 import { CheckIcon, ClipboardIcon } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';
 import { toast } from 'sonner';
-import type { CodeTheme } from '~/lib/shiki.client';
 import { highlightTokenStyle, useHighlightedCode } from './useHighlightedCode';
 
-interface CodeBlockProps {
-  className?: string;
-  code: string;
-  language?: string;
-  theme?: CodeTheme;
-}
-
-export const CodeBlock = memo(function CodeBlock({
-  className,
-  code,
-  language = 'plaintext',
-  theme = 'dark-plus',
-}: CodeBlockProps) {
+export const CodeBlock = memo(function CodeBlock({ code, language }: { code: string; language: string }) {
   const [copied, setCopied] = useState(false);
-  const highlighted = useHighlightedCode(code, language, theme);
+  const highlighted = useHighlightedCode(code, language, 'dark-plus');
 
   const copyToClipboard = async () => {
     if (copied) {
@@ -43,7 +29,7 @@ export const CodeBlock = memo(function CodeBlock({
   }, [copied]);
 
   return (
-    <div className={classNames('relative group', className)}>
+    <div className="relative group">
       <div className="absolute top-2 right-2 z-10">
         <Button
           variant="neutral"

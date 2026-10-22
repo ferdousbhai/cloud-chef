@@ -30,7 +30,6 @@ const smallViewportWorkbenchStyle: CSSProperties & Record<`--${string}`, string>
 };
 
 interface WorkbenchProps {
-  chatStarted?: boolean;
   isStreaming?: boolean;
   /**
    * Opened before the chat started (a GitHub project's code), when the header has no surface switcher
@@ -69,7 +68,7 @@ const workbenchVariants = {
   },
 } satisfies Variants;
 
-export const Workbench = memo(function Workbench({ chatStarted, isStreaming, beforeChatStarted }: WorkbenchProps) {
+export const Workbench = memo(function Workbench({ isStreaming, beforeChatStarted }: WorkbenchProps) {
   renderLogger.trace('Workbench');
   const showWorkbench = useStore(workbenchStore.showWorkbench);
   const [hasMountedWorkbench, setHasMountedWorkbench] = useState(showWorkbench);
@@ -80,7 +79,7 @@ export const Workbench = memo(function Workbench({ chatStarted, isStreaming, bef
     }
   }, [showWorkbench]);
 
-  if (!chatStarted || !hasMountedWorkbench) {
+  if (!hasMountedWorkbench) {
     return null;
   }
 

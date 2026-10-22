@@ -25,10 +25,9 @@ const markdownComponents = {
     const firstCodeChild = firstChild?.type === 'element' ? firstChild.children[0] : undefined;
 
     if (firstChild?.type === 'element' && firstChild.tagName === 'code' && firstCodeChild?.type === 'text') {
-      const { className, ...codeProps } = firstChild.properties;
-      const [, language = 'plaintext'] = /language-(\w+)/.exec(String(className) || '') ?? [];
+      const [, language = 'plaintext'] = /language-(\w+)/.exec(String(firstChild.properties.className) || '') ?? [];
 
-      return <CodeBlock code={firstCodeChild.value} language={language} {...codeProps} />;
+      return <CodeBlock code={firstCodeChild.value} language={language} />;
     }
 
     return <pre {...preProps}>{children}</pre>;

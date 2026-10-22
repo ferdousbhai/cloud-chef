@@ -24,14 +24,14 @@ const HeaderActionButtons = lazy(() =>
   import('./HeaderActionButtons.client').then((module) => ({ default: module.HeaderActionButtons })),
 );
 
-export function Header({ hideSidebarIcon = false }: { hideSidebarIcon?: boolean }) {
+export function Header() {
   const chat = useStore(chatStore);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const navigate = useNavigate();
 
   const userId = useUserIdOrNullOrLoading();
   const isAuthenticated = userId !== null && userId !== undefined;
-  const showSidebarIcon = !hideSidebarIcon && isAuthenticated;
+  const showSidebarIcon = isAuthenticated;
 
   const user = authClient.useSession().data?.user ?? null;
 

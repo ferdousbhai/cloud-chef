@@ -49,9 +49,7 @@ const getClientExistingChat = createClientOnlyFn(() => LazyExistingChat);
 const getClientSettingsContent = createClientOnlyFn(() => LazySettingsContent);
 const getClientTelemetryPreference = createClientOnlyFn(() => LazyTelemetryPreference);
 
-export const ClientHeader = createClientComponent<{ hideSidebarIcon?: boolean }>(getClientHeader, () => (
-  <HeaderLoadingFallback />
-));
+export const ClientHeader = createClientComponent<EmptyProps>(getClientHeader, () => <HeaderLoadingFallback />);
 
 export const ClientHomepage = createClientComponent<{ initialId: string }>(getClientHomepage, () => (
   <HomepageLoadingFallback />

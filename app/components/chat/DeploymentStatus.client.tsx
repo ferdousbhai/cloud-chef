@@ -34,8 +34,8 @@ export function DeploymentStatus({
 }: {
   deployment: BuilderDeploymentState;
   publication?: BuilderPublicationState | null;
-  onRetry?: () => Promise<BuilderDeploymentState>;
-  onRequestProduction?: (input: { title: string; note: string }) => Promise<ProductionRequestOutcome>;
+  onRetry: () => Promise<BuilderDeploymentState>;
+  onRequestProduction: (input: { title: string; note: string }) => Promise<ProductionRequestOutcome>;
 }) {
   const { data: session } = authClient.useSession();
   // In an organization's account, a deployed draft can be sent to its admins to become a real project.
@@ -69,14 +69,14 @@ export function DeploymentStatus({
         // A step after production went live failed; the next deployment repeats it.
         <p className="text-content-secondary">{deployment.error}</p>
       ) : null}
-      {deployment.status === 'succeeded' && organization && onRequestProduction ? (
+      {deployment.status === 'succeeded' && organization ? (
         <RequestProduction admin={admin} onRequest={onRequestProduction} />
       ) : null}
       {deployment.status === 'succeeded' ? null : deployment.status === 'failed' ? (
         <>
           <h3 className="text-content-primary font-medium">Deployment failed</h3>
           {deployment.error ? <p className="text-bolt-elements-icon-error">{deployment.error}</p> : null}
-          {onRetry ? <RetryDeployment onRetry={onRetry} /> : null}
+          <RetryDeployment onRetry={onRetry} />
         </>
       ) : (
         <p className="text-content-secondary" role="status" aria-live="polite">

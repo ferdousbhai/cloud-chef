@@ -9,7 +9,6 @@ type LinkButtonProps = Omit<ComponentProps<typeof Link>, 'children' | 'className
   tip?: string;
   variant?: ButtonVariant;
   size?: ButtonSize;
-  inline?: boolean;
 };
 
 export function LinkButton({
@@ -19,11 +18,10 @@ export function LinkButton({
   tip,
   variant = 'primary',
   size = 'md',
-  inline,
   ...props
 }: LinkButtonProps) {
   return (
-    <Link {...props} className={buttonClassNames({ className, variant, size, inline })} title={tip}>
+    <Link {...props} className={buttonClassNames({ className, variant, size })} title={tip}>
       {icon}
       {children}
     </Link>

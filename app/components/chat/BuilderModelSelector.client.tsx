@@ -58,13 +58,7 @@ function formatModelAddedDate(model: BuilderModel): string | null {
   return new Date(published).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
-export function BuilderModelSelector({
-  disabled = false,
-  catalogLoader = loadBuilderModelCatalog,
-}: {
-  disabled?: boolean;
-  catalogLoader?: () => void | Promise<void>;
-}) {
+export function BuilderModelSelector({ disabled = false }: { disabled?: boolean }) {
   const rememberedProvider = useStore(builderProviderStore);
   const recents = useStore(builderRecentModelsStore);
   const [provider, selectProvider] = useState<BuilderProvider | null>(null);
@@ -123,10 +117,10 @@ export function BuilderModelSelector({
 
   useEffect(() => {
     loadBuilderModelPreference();
-    void catalogLoader();
+    void loadBuilderModelCatalog();
     window.addEventListener('storage', syncBuilderModelPreference);
     return () => window.removeEventListener('storage', syncBuilderModelPreference);
-  }, [catalogLoader]);
+  }, []);
 
   // Opening the picker is the user seeing the list, so nothing here is new to them any more.
   useEffect(() => {
