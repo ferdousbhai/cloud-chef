@@ -1,5 +1,5 @@
 {
-  "total": 1115,
+  "total": 1106,
   "counts": {
     "app/agents/builder-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
@@ -149,7 +149,7 @@
       "anti-slop/require-safety-comment-for-type-assertion": 8
     },
     "app/lib/.server/cloudflare/user-account-api.ts": {
-      "anti-slop/no-runtime-typeof": 32,
+      "anti-slop/no-runtime-typeof": 25,
       "anti-slop/no-unknown-parameters": 12,
       "anti-slop/no-unsafe-dictionary-type": 4,
       "anti-slop/require-safety-comment-for-type-assertion": 4
@@ -607,9 +607,6 @@
       "anti-slop/no-runtime-typeof": 1,
       "anti-slop/no-unknown-parameters": 1
     },
-    "user-workspace-runtime/src/command-cancellation.ts": {
-      "anti-slop/no-unknown-parameters": 1
-    },
     "user-workspace-runtime/src/command-termination.ts": {
       "anti-slop/no-runtime-typeof": 2,
       "anti-slop/no-unknown-parameters": 3,
@@ -656,7 +653,7 @@
     },
     "user-workspace-runtime/src/tool-operation-journal.ts": {
       "anti-slop/no-runtime-typeof": 2,
-      "anti-slop/no-unknown-parameters": 3,
+      "anti-slop/no-unknown-parameters": 2,
       "anti-slop/no-unknown-returns": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 1
     },
