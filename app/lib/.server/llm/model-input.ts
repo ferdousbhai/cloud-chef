@@ -146,7 +146,7 @@ export async function prepareModelInput(args: {
 function assembleModelInput(
   uiMessages: CloudChefMessage[],
   args: Pick<Parameters<typeof prepareModelInput>[0], 'systemPrompt' | 'tools'>,
-): { messages: ModelMessage[]; estimatedTokens: number } {
+) {
   const messages = cleanupAssistantMessages(uiMessages);
   const estimatedTokens = estimateTextTokens(
     JSON.stringify({
