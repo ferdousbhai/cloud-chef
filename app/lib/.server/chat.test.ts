@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const logger = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn() }));
+const logger = vi.hoisted(() => ({ error: vi.fn() }));
 const piAgentRunner = vi.hoisted(() => vi.fn());
 
 vi.mock('cloudchef-agent/utils/logger', () => ({ createScopedLogger: () => logger }));
 vi.mock('~/lib/.server/llm/pi-agent-runner', () => ({ piAgentRunner }));
 
-import { createChatResponseFromBody } from './chat';
+import { createChatResponse } from './chat';
 import { ModelInputBudgetExceededError } from './llm/model-input';
 import { PiSteeringQueue } from './llm/pi-steering';
 import { DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
@@ -15,7 +15,6 @@ import type { WorkersAiGatewayLogging } from './llm/workers-ai-gateway';
 describe('chat provider error boundary', () => {
   beforeEach(() => {
     logger.error.mockReset();
-    logger.info.mockReset();
     piAgentRunner.mockReset();
   });
 
@@ -52,9 +51,9 @@ describe('chat provider error boundary', () => {
 });
 
 function createResponse(model = DEFAULT_WORKERS_AI_MODEL, gatewayLogging?: WorkersAiGatewayLogging) {
-  return createChatResponseFromBody({
+  return createChatResponse({
     gatewayLogging,
-    body: { messages: [], modelId: model.id },
+    messages: [],
     model,
     firstUserMessage: true,
     compaction: { current: null, pending: false, save: vi.fn() },

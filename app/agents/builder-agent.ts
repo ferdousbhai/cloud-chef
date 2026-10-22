@@ -8,7 +8,7 @@ import {
 } from '@cloudflare/ai-chat';
 import { callable, type Connection, type FiberRecoveryContext, type FiberRecoveryResult } from 'agents';
 import { canApplyConversationCompaction, conversationCompactionKey } from '~/lib/compaction';
-import { createChatResponseFromBody, type ChatRequestBody } from '~/lib/.server/chat';
+import { createChatResponse } from '~/lib/.server/chat';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import {
   completeBuilderTurn,
@@ -378,7 +378,7 @@ export type BuilderLinkedProjectSummary = { repository: string; defaultBranch: s
 /** Durable transcript as the agent currently holds it, returned after a cancel or an explicit reload. */
 type BuilderTranscriptSnapshot = {
   checkpoint: TranscriptCheckpoint | null;
-  messages: NonNullable<ChatRequestBody['messages']>;
+  messages: CloudChefMessage[];
 };
 
 /** Payload the connected client sends to steer a running turn. */
@@ -782,7 +782,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         );
       }
       const compactionPending = await this.hasPendingContextCompaction();
-      return await createChatResponseFromBody({
+      return await createChatResponse({
         abortSignal: options?.abortSignal,
         firstUserMessage,
         turnContext,
@@ -830,7 +830,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
             }
           },
         },
-        body: { messages, modelId },
+        messages,
         model,
         reasoningLevel: chosenReasoningLevel,
       });

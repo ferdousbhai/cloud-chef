@@ -85,7 +85,7 @@ type UIMessageChunk = PiStreamChunk;
 /** Tools whose execution can durably change the project. */
 const DURABLE_MUTATION_TOOL_NAMES: ReadonlySet<string> = new Set(['write', 'edit', 'exec']);
 
-interface PiAgentOptions {
+export interface PiAgentOptions {
   abortSignal?: AbortSignal;
   firstUserMessage: boolean;
   messages: Messages;
