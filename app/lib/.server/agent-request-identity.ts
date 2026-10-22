@@ -1,8 +1,6 @@
 import { routeAgentRequest } from 'agents';
 import { ensureInitialChat } from '~/lib/cloudflare/data/chat-repository.server';
 
-type AgentRequestIdentity = { userId: string };
-
 const MAX_BUILDER_AGENT_NAME_LENGTH = 512;
 const CANONICAL_ROOT_AGENT_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -49,20 +47,15 @@ export async function routeUserRuntimeAgentRequest(
   if (route.kind === 'rejected') {
     return agentNotFoundResponse();
   }
-  const identity = { userId };
-  const denial = await authorizeAgentForIdentity(env, route.canonicalName, identity);
+  const denial = await authorizeAgentForUser(env, route.canonicalName, userId);
   if (denial) {
     return denial;
   }
-  return (await routeAgentRequest(request, env, { props: identity })) ?? agentNotFoundResponse();
+  return (await routeAgentRequest(request, env, { props: { userId } })) ?? agentNotFoundResponse();
 }
 
-// Resolves to the denial response, or null when the identity is authorized for the agent.
-async function authorizeAgentForIdentity(
-  env: Env,
-  agentName: string,
-  identity: AgentRequestIdentity,
-): Promise<Response | null> {
+// Resolves to the denial response, or null when the user is authorized for the agent.
+async function authorizeAgentForUser(env: Env, agentName: string, userId: string): Promise<Response | null> {
   const chat = await env.DB.prepare(
     `SELECT COUNT(*) AS match_count,
             SUM(CASE WHEN chats.is_deleted = 0 THEN 1 ELSE 0 END) AS active_match_count,
@@ -71,7 +64,7 @@ async function authorizeAgentForIdentity(
      LEFT JOIN chat_transcripts ON chat_transcripts.chat_id = chats.id
      WHERE chats.initial_id = ? OR chat_transcripts.agent_name = ?`,
   )
-    .bind(identity.userId, agentName, agentName)
+    .bind(userId, agentName, agentName)
     .first<{ match_count: number; active_match_count: number; has_owner_conflict: number | null }>();
   if (!chat || chat.match_count === 0) {
     if (!CANONICAL_ROOT_AGENT_NAME.test(agentName)) {
@@ -80,7 +73,7 @@ async function authorizeAgentForIdentity(
     try {
       await ensureInitialChat(env.DB, {
         id: crypto.randomUUID(),
-        creatorId: identity.userId,
+        creatorId: userId,
         initialId: agentName,
       });
     } catch (error) {
@@ -96,7 +89,7 @@ async function authorizeAgentForIdentity(
       if (!activeOwner) {
         throw error;
       }
-      if (activeOwner.creator_id !== identity.userId) {
+      if (activeOwner.creator_id !== userId) {
         return Response.json({ error: 'Agent not found.' }, { status: 404 });
       }
     }
