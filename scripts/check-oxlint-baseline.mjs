@@ -1,7 +1,7 @@
 /**
  * Ratchet every Oxlint finding against a recorded baseline.
  *
- * Oxlint reports 1,600+ anti-slop findings against this repository. Nearly all of them are one
+ * Oxlint reports a backlog of anti-slop findings against this repository. Nearly all of them are one
  * architectural pattern: Durable Object RPC entry points that accept `unknown` and validate with
  * hand-rolled `record()`/`requireString()`/`typeof` guards, where the plugin wants a named domain
  * type parsed at the boundary. Converting that is a real migration, not a lint cleanup.

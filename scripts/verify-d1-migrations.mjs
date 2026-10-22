@@ -7,12 +7,12 @@ import { runVerifierIfMain } from './run-verifier.mjs';
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const migrationNamePattern = /^(\d{4})_[a-z0-9]+(?:_[a-z0-9]+)*\.sql$/;
 
-// Pre-launch schemas begin at one immutable migration. Future changes remain
+// Every schema begins at one immutable migration (0001). Later changes remain
 // additive and checksum-tracked so deployed D1 databases can advance safely.
+const legacyCutoff = 1;
 const migrationPolicies = [
   {
     directory: 'migrations',
-    legacyCutoff: 1,
     checksums: {
       '0001_ghostbuild.sql': 'b4ea60ce99e8dafacafc566cdbbf9efdd7668963072b8b5f0860b4cdd8ebdb7a',
       '0002_user_computer_runtimes.sql': 'a9056622b927693b1dbe19669a6442af96388e8ca8b7ca1e55d1e087419ea3ed',
@@ -75,7 +75,6 @@ const migrationPolicies = [
   },
   {
     directory: 'user-workspace-migrations',
-    legacyCutoff: 1,
     checksums: {
       '0001_user_workspace.sql': '6647c65caa6992a4f418813a5682b86e1fb65bc91fe62d1af4d81fc7482f2ed5',
       '0002_remove_chat_url_id.sql': '0f09b6846af83b969db428ee1177d5b17fbf0210cc1c53368167d65dfb4004f1',
@@ -105,7 +104,6 @@ const migrationPolicies = [
   },
   {
     directory: 'template/migrations',
-    legacyCutoff: 1,
     // The starter's placeholder. A project's copy is its own once seeded, so a change here (as to its
     // comment, when each project's databases came to outlive its revisions) reaches only new projects.
     checksums: {
@@ -115,7 +113,6 @@ const migrationPolicies = [
   },
   {
     directory: 'template/agent-security-migrations',
-    legacyCutoff: 1,
     checksums: {
       '0001_agent_security.sql': 'cc62c34bcfb5e176155e371a099d000679ae69877facf252fe3d3c7e1190fbeb',
     },
@@ -257,7 +254,7 @@ export function findUnsafeD1MigrationOperations(sql) {
 }
 
 export function findD1MigrationSafetyErrors(migrations, options) {
-  const { directory, checksums, legacyCutoff, contractAllowlist = {} } = options;
+  const { directory, checksums, contractAllowlist = {} } = options;
   const errors = [];
   const byName = new Map(migrations.map((migration) => [migration.name, migration.content]));
 

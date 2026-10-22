@@ -19,7 +19,6 @@ function errorsFor(sql: string): string[] {
     ],
     {
       directory: 'migrations',
-      legacyCutoff: 1,
       checksums: { '0001_initial.sql': digest(baseline), '0002_change.sql': digest(sql) },
     },
   );
@@ -79,7 +78,6 @@ describe('D1 migration rollout policy', () => {
         ],
         {
           directory: 'migrations',
-          legacyCutoff: 1,
           checksums: { '0001_initial.sql': digest(baseline) },
         },
       ),
@@ -100,7 +98,6 @@ describe('D1 migration rollout policy', () => {
         ],
         {
           directory: 'migrations',
-          legacyCutoff: 1,
           checksums: { '0001_initial.sql': digest(baseline) },
         },
       ),
@@ -119,7 +116,6 @@ describe('D1 migration rollout policy', () => {
         ],
         {
           directory: 'migrations',
-          legacyCutoff: 1,
           checksums: {
             '0001_initial.sql': digest(baseline),
             '0002_add_name.sql': digest(registered),
@@ -142,7 +138,6 @@ describe('D1 migration rollout policy', () => {
         ],
         {
           directory: 'migrations',
-          legacyCutoff: 1,
           checksums: { '0001_initial.sql': digest(baseline), '0002_contract.sql': digest(unsafe) },
         },
       ),
@@ -163,7 +158,6 @@ describe('D1 migration rollout policy', () => {
     expect(
       findD1MigrationSafetyErrors(migrations, {
         directory: 'migrations',
-        legacyCutoff: 1,
         checksums,
         contractAllowlist: { '0002_contract.sql': digest(contract) },
       }),
@@ -171,7 +165,6 @@ describe('D1 migration rollout policy', () => {
     expect(
       findD1MigrationSafetyErrors(migrations, {
         directory: 'migrations',
-        legacyCutoff: 1,
         checksums,
         contractAllowlist: { '0002_contract.sql': digest(`${contract}\n`) },
       }),
@@ -188,7 +181,6 @@ describe('D1 migration rollout policy', () => {
     expect(
       findD1MigrationSafetyErrors([{ name: '0001_legacy.sql', content: legacy }], {
         directory: 'migrations',
-        legacyCutoff: 1,
         checksums: { '0001_legacy.sql': digest(legacy) },
         contractAllowlist: { '0001_legacy.sql': digest(legacy) },
       }),
@@ -205,7 +197,6 @@ describe('D1 migration rollout policy', () => {
         ],
         {
           directory: 'migrations',
-          legacyCutoff: 1,
           checksums: {
             '0001_initial.sql': digest(baseline),
             '0003_skipped.sql': digest('ALTER TABLE example ADD COLUMN name TEXT;'),
