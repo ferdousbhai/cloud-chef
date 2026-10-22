@@ -80,7 +80,9 @@ async function setup() {
   const env = envWith({ DB: db });
   const signIn = async (email: string) => {
     const user = await upsertVerifiedEmailUser(db, { email });
-    const cookie = (await createAuthSession(env, user.id)).cookie.split(';')[0];
+    const cookie = (await createAuthSession(env, user.id, new Request('https://cloudchef.build/'))).cookie.split(
+      ';',
+    )[0];
     return { userId: user.id, cookie };
   };
   const admin = await signIn('ada@acme.com');

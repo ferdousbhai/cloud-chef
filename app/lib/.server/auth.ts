@@ -103,7 +103,7 @@ export async function setSessionContext(env: Env, request: Request, connectionId
 export async function createAuthSession(
   env: Env,
   userId: string,
-  request?: Request,
+  request: Request,
   now = Date.now(),
 ): Promise<{ id: string; cookie: string }> {
   const id = crypto.randomUUID();
@@ -127,7 +127,7 @@ export async function deleteAuthSession(env: Env, request: Request): Promise<voi
     .run();
 }
 
-export function clearAuthSessionCookie(request?: Request): string {
+export function clearAuthSessionCookie(request: Request): string {
   return serializeSessionCookie('', 0, request);
 }
 
@@ -382,7 +382,7 @@ async function updateUser(
   }
 }
 
-function serializeSessionCookie(token: string, maxAge: number, request?: Request): string {
+function serializeSessionCookie(token: string, maxAge: number, request: Request): string {
   return serializeCookie({ name: SESSION_COOKIE, value: token, path: '/', maxAge, request });
 }
 

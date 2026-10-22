@@ -166,7 +166,9 @@ async function setup(options: GitHubOptions = {}) {
   const env = envWith({ DB: db });
   const signIn = async (email: string) => {
     const user = await upsertVerifiedEmailUser(db, { email });
-    const cookie = (await createAuthSession(env, user.id)).cookie.split(';')[0];
+    const cookie = (await createAuthSession(env, user.id, new Request('https://cloudchef.build/'))).cookie.split(
+      ';',
+    )[0];
     return { userId: user.id, cookie };
   };
   const admin = await signIn('ada@example.com');
@@ -644,7 +646,9 @@ describe('production requests', () => {
     database
       .prepare(`INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES (?, ?, 'admin', 1)`)
       .run(ORG, other.id);
-    const otherCookie = (await createAuthSession(env, other.id)).cookie.split(';')[0];
+    const otherCookie = (await createAuthSession(env, other.id, new Request('https://cloudchef.build/'))).cookie.split(
+      ';',
+    )[0];
     expect((await approve(otherCookie)).status).toBe(409);
     const again = await approve(admin.cookie);
     expect(again.status).toBe(201);

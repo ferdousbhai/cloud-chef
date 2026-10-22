@@ -19,7 +19,12 @@ describe('Cloudflare auth sessions', () => {
       },
     } as unknown as Env;
 
-    const { cookie } = await createAuthSession(env, 'user-1', new Request('https://cloudchef.build/connect/return'), 1_000);
+    const { cookie } = await createAuthSession(
+      env,
+      'user-1',
+      new Request('https://cloudchef.build/connect/return'),
+      1_000,
+    );
     const token = cookie.match(/^cloudchef_session=([^;]+)/)?.[1];
     expect(token).toBeTruthy();
     expect(cookie).toContain('HttpOnly');
@@ -37,7 +42,9 @@ describe('Cloudflare auth sessions', () => {
         VALUES ('user-1', 'Person', 'person@example.com', 1, 1, 1);
     `);
     const env = envWith({ DB: db });
-    const cookie = (await createAuthSession(env, 'user-1')).cookie.split(';')[0];
+    const cookie = (await createAuthSession(env, 'user-1', new Request('https://cloudchef.build/'))).cookie.split(
+      ';',
+    )[0];
     const request = () => new Request('https://cloudchef.build/', { headers: { cookie } });
 
     // Signed in by email: a session, but nowhere to build yet.

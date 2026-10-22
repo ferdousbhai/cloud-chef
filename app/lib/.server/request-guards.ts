@@ -44,9 +44,9 @@ export function serializeCookie(args: {
   value: string;
   path: string;
   maxAge: number;
-  request?: Request;
+  request: Request;
 }): string {
-  const secure = !args.request || new URL(args.request.url).protocol === 'https:' ? '; Secure' : '';
+  const secure = new URL(args.request.url).protocol === 'https:' ? '; Secure' : '';
   return `${args.name}=${encodeURIComponent(args.value)}; Path=${args.path}; HttpOnly${secure}; SameSite=Lax; Max-Age=${args.maxAge}`;
 }
 

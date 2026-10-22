@@ -36,7 +36,9 @@ async function setup() {
   /** A signed-in person, by email: their session cookie. */
   const signIn = async (email: string) => {
     const user = await upsertVerifiedEmailUser(db, { email });
-    const cookie = (await createAuthSession(env, user.id)).cookie.split(';')[0];
+    const cookie = (await createAuthSession(env, user.id, new Request('https://cloudchef.build/'))).cookie.split(
+      ';',
+    )[0];
     return { userId: user.id, cookie };
   };
   return { database, env, sent, signIn };
@@ -243,7 +245,9 @@ describe('organizations', () => {
     const { database, env } = await setup();
     const user = await upsertVerifiedEmailUser(env.DB, { email: 'ada@acme.com' });
     // Signed in an hour ago: creating needs no fresh sign-in, and connecting is approved on Cloudflare.
-    const cookie = (await createAuthSession(env, user.id, undefined, Date.now() - 60 * 60_000)).cookie.split(';')[0];
+    const cookie = (
+      await createAuthSession(env, user.id, new Request('https://cloudchef.build/'), Date.now() - 60 * 60_000)
+    ).cookie.split(';')[0];
     const created = await createOrganizationAction({
       request: post(cookie, '/api/organizations/create', { name: 'Acme' }),
       env,
@@ -488,7 +492,9 @@ describe('organizations', () => {
       request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
       env,
     });
-    const staleCookie = (await createAuthSession(env, admin.userId, undefined, Date.now() - 60 * 60_000)).cookie.split(';')[0];
+    const staleCookie = (
+      await createAuthSession(env, admin.userId, new Request('https://cloudchef.build/'), Date.now() - 60 * 60_000)
+    ).cookie.split(';')[0];
     const deleted: string[] = [];
     const remove = (cookie: string, deleteWorkspace: boolean) =>
       updateMemberAction({
@@ -529,7 +535,9 @@ describe('organizations', () => {
       request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
       env,
     });
-    const staleCookie = (await createAuthSession(env, sam.userId, undefined, Date.now() - 60 * 60_000)).cookie.split(';')[0];
+    const staleCookie = (
+      await createAuthSession(env, sam.userId, new Request('https://cloudchef.build/'), Date.now() - 60 * 60_000)
+    ).cookie.split(';')[0];
     const left = await updateMemberAction({
       request: post(staleCookie, '/api/organizations/member', { orgId, userId: sam.userId, action: 'remove' }),
       env,
@@ -930,7 +938,9 @@ describe('a team’s name and deletion', () => {
 
   it('is deleted only from a sign-in within the last few minutes, as an account is erased', async () => {
     const { database, env, admin, orgId } = await team();
-    const staleCookie = (await createAuthSession(env, admin.userId, undefined, Date.now() - 60 * 60_000)).cookie.split(';')[0];
+    const staleCookie = (
+      await createAuthSession(env, admin.userId, new Request('https://cloudchef.build/'), Date.now() - 60 * 60_000)
+    ).cookie.split(';')[0];
 
     const { response, deleted, revoked } = remove(env, staleCookie, orgId);
     const refused = await response;

@@ -548,8 +548,7 @@ export async function completeCloudflareConnectionAction(args: {
             })
           : null;
       const canAdoptRace =
-        racedConnection &&
-        isEquivalentRacedConnection(racedConnection, owner, result, previous?.generation ?? null);
+        racedConnection && isEquivalentRacedConnection(racedConnection, owner, result, previous?.generation ?? null);
       await vault.deleteIfUnreferenced(credentialHandle).catch((cleanupError) => {
         console.warn('Unable to clean up orphaned Cloudflare credential', cleanupError);
       });
