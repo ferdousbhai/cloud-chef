@@ -67,12 +67,7 @@ import {
 } from './workers-ai-telemetry';
 import { createPiToolBundle } from './pi-tools-adapter';
 import { createBuilderSkillContext } from './builder-skills';
-import {
-  cloudflareAiFundingRequiredMessage,
-  isCloudflareAiFundingError,
-  isWorkersAiFreeAllocationError,
-  workersPaidRequiredMessage,
-} from '~/lib/workers-paid';
+import { isWorkersAiFreeAllocationError, workersPaidRequiredMessage } from '~/lib/workers-paid';
 import { logProviderFailure } from './provider-error-logging';
 import { ProviderStopError, providerStopDiagnosticCode } from './provider-stop-error';
 import type { PiSteeringQueue } from './pi-steering';
@@ -689,8 +684,6 @@ export async function piAgentRunner(options: PiAgentOptions): Promise<ReadableSt
         await writer.write({ type: 'error', errorText: error.message });
       } else if (isWorkersAiFreeAllocationError(error)) {
         await writer.write({ type: 'error', errorText: workersPaidRequiredMessage() });
-      } else if (isCloudflareAiFundingError(error)) {
-        await writer.write({ type: 'error', errorText: cloudflareAiFundingRequiredMessage() });
       } else if (!abortSignal?.aborted) {
         await writer.write({
           type: 'error',

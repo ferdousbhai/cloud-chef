@@ -44,7 +44,6 @@ const mocks = vi.hoisted(() => {
     resetChatRetryState: vi.fn(),
     abortToolActivity: vi.fn(),
     clearToolProgress: vi.fn(),
-    showCloudflareAiFundingRequiredToast: vi.fn(),
     showWorkersPaidRequiredToast: vi.fn(),
     controller,
     initializeWorkspace: vi.fn(async () => controller),
@@ -86,7 +85,6 @@ vi.mock('~/lib/cloudflare/client', () => ({ executeDataOperation: mocks.executeD
 vi.mock('~/lib/cloudflare/data-api', () => ({ api: { messages: { get: {} } } }));
 vi.mock('~/lib/cloudflare/data-hooks', () => ({ subchatQueryKey: vi.fn(() => []) }));
 vi.mock('~/lib/workers-paid.client', () => ({
-  showCloudflareAiFundingRequiredToast: mocks.showCloudflareAiFundingRequiredToast,
   showWorkersPaidRequiredToast: mocks.showWorkersPaidRequiredToast,
 }));
 vi.mock('~/lib/stores/tool-activity.client', () => ({
@@ -150,7 +148,6 @@ beforeEach(() => {
   mocks.resetChatRetryState.mockClear();
   mocks.abortToolActivity.mockClear();
   mocks.clearToolProgress.mockClear();
-  mocks.showCloudflareAiFundingRequiredToast.mockClear();
   mocks.showWorkersPaidRequiredToast.mockClear();
   mocks.previewRequests.length = 0;
   mocks.waitForSocket.mockReset();
@@ -407,7 +404,6 @@ describe('useBuilderAgentChat stale presentation operations', () => {
     expect(mocks.finishToolTurn).not.toHaveBeenCalled();
     expect(mocks.recordChatFailure).not.toHaveBeenCalled();
     expect(mocks.resetChatRetryState).not.toHaveBeenCalled();
-    expect(mocks.showCloudflareAiFundingRequiredToast).not.toHaveBeenCalled();
     expect(mocks.showWorkersPaidRequiredToast).not.toHaveBeenCalled();
     expect(mocks.executeDataOperation).not.toHaveBeenCalled();
     expect(mocks.controller.pull).not.toHaveBeenCalled();

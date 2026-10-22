@@ -2,7 +2,6 @@ import { useStore } from '@nanostores/react';
 import { useSearch } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState, type ChangeEventHandler, type KeyboardEventHandler } from 'react';
 import { toast } from 'sonner';
-import { WORKERS_PAID_REQUIRED_MARKER } from '~/lib/workers-paid';
 import { showWorkersPaidRequiredToast } from '~/lib/workers-paid.client';
 import { captureException } from '~/lib/telemetry.client';
 import { fetchUserRuntime } from '~/lib/cloudflare/runtime-session';
@@ -179,7 +178,7 @@ export function useMessageInputController({
       });
       if (!response.ok) {
         const payload = enhanceFailureSchema.safeParse(await response.json().catch(() => null)).data;
-        if (payload?.code === 'workers_paid_required' || payload?.error?.includes(WORKERS_PAID_REQUIRED_MARKER)) {
+        if (payload?.code === 'workers_paid_required') {
           showWorkersPaidRequiredToast();
           return;
         }
