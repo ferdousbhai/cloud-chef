@@ -115,7 +115,7 @@ export async function upsertUserWorkspaceRuntime(args: {
 }
 
 /** A ready runtime the scheduled sweep may upgrade in the background. */
-export type OutdatedUserWorkspaceRuntime = {
+type OutdatedUserWorkspaceRuntime = {
   userId: string;
   connectionId: string;
   connectionGeneration: number;

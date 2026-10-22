@@ -21,22 +21,6 @@ export const UPGRADE_SWEEP_INTERVAL_MS = 15 * 60_000;
 /** A failed upgrade is restarted on one sweep in this many, so at most hourly. */
 export const FAILED_UPGRADE_RESTART_EVERY_SWEEPS = 4;
 
-export type UserWorkspaceRuntimeUpgradeSweepDependencies = {
-  listOutdated: typeof listOutdatedUserWorkspaceRuntimes;
-  findConnection: typeof findActiveCloudflareConnection;
-  canUseConnection: typeof canUseConnection;
-  findRuntime: typeof findUserWorkspaceRuntime;
-  sweepOne: typeof sweepUserWorkspaceRuntimeUpgrade;
-};
-
-const sweepDependencies: UserWorkspaceRuntimeUpgradeSweepDependencies = {
-  listOutdated: listOutdatedUserWorkspaceRuntimes,
-  findConnection: findActiveCloudflareConnection,
-  canUseConnection,
-  findRuntime: findUserWorkspaceRuntime,
-  sweepOne: sweepUserWorkspaceRuntimeUpgrade,
-};
-
 type UserWorkspaceRuntimeUpgradeSweepSummary = Record<UserWorkspaceRuntimeUpgradeSweepOutcome, number> & {
   /** Not eligible to provision (a paused member, a connection missing a capability), or failed to inspect. */
   skipped: number;
@@ -52,9 +36,7 @@ type UserWorkspaceRuntimeUpgradeSweepSummary = Record<UserWorkspaceRuntimeUpgrad
 export async function sweepUserWorkspaceRuntimeUpgrades(args: {
   env: Pick<Env, 'DB' | 'USER_WORKSPACE_RUNTIME_PROVISIONING'>;
   scheduledTime: number;
-  dependencies?: UserWorkspaceRuntimeUpgradeSweepDependencies;
 }): Promise<UserWorkspaceRuntimeUpgradeSweepSummary> {
-  const dependencies = args.dependencies ?? sweepDependencies;
   const summary: UserWorkspaceRuntimeUpgradeSweepSummary = {
     started: 0,
     restarted: 0,
@@ -63,7 +45,7 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
     skipped: 0,
   };
   const sweep = Math.floor(args.scheduledTime / UPGRADE_SWEEP_INTERVAL_MS);
-  const candidates = await dependencies.listOutdated(args.env.DB, {
+  const candidates = await listOutdatedUserWorkspaceRuntimes(args.env.DB, {
     runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
     imageDigest: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
     protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
@@ -74,23 +56,23 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
       break;
     }
     try {
-      const connection = await dependencies.findConnection(args.env.DB, candidate.connectionId);
+      const connection = await findActiveCloudflareConnection(args.env.DB, candidate.connectionId);
       if (
         !connection ||
         !connectionProvisionsWorkspace(connection, candidate.connectionGeneration) ||
-        !(await dependencies.canUseConnection(args.env.DB, candidate.userId, connection))
+        !(await canUseConnection(args.env.DB, candidate.userId, connection))
       ) {
         summary.skipped += 1;
         continue;
       }
-      const outcome = await dependencies.sweepOne({
+      const outcome = await sweepUserWorkspaceRuntimeUpgrade({
         env: args.env,
         userId: candidate.userId,
         connectionId: candidate.connectionId,
         connectionGeneration: candidate.connectionGeneration,
         restartFailed,
         isCurrent: async () => {
-          const runtime = await dependencies.findRuntime(args.env.DB, candidate.userId, candidate.connectionId);
+          const runtime = await findUserWorkspaceRuntime(args.env.DB, candidate.userId, candidate.connectionId);
           return runtime !== null && isCurrentUserWorkspaceRuntime(runtime);
         },
       });
