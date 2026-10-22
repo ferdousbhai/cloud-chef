@@ -65,7 +65,6 @@ import {
 } from '../../cloudchef-agent/tool-result';
 import { rejectedWorkspaceCommand } from '../../cloudchef-agent/workspace-boundary';
 import { applyAtomicWorkspaceChanges, type AtomicWorkspaceChange } from './atomic-workspace-changes';
-import { ComputerAdmissionControl } from './computer-admission';
 import { isComputerContainerCallback } from './container-fetch-routing';
 import { CONTAINER_PNPM_STORE_DIR } from './container-toolchain';
 import { matchDeploymentRoute } from './deployment-route';
@@ -77,7 +76,7 @@ import {
   type ProjectScope,
   workspaceLimitMessage,
 } from './workspace-inventory';
-import { routeUserWorkspaceRuntimeControlPlaneRequest } from './readiness-route';
+import { READINESS_WORKSPACE_NAME, routeUserWorkspaceRuntimeControlPlaneRequest } from './readiness-route';
 import { scheduleUserWorkspaceRuntimeMaintenance } from './scheduled-maintenance';
 import {
   ToolOperationJournal,
@@ -305,7 +304,6 @@ type DeploymentSessionRow = {
   idempotency_key: string;
   expected_workspace_revision: number;
   expected_snapshot_revision: string;
-  deadline: number;
   status: 'active' | 'completed' | 'failed' | 'indeterminate';
 };
 
@@ -314,7 +312,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   readonly #toolOperations: ToolOperationJournal;
   readonly #operationLane: WorkspaceOperationLane;
   readonly #syncRetries: DurableWorkspaceSyncRetryScheduler;
-  readonly #admission: ComputerAdmissionControl;
   readonly #activeOperationOwners = new Set<string>();
   #activeValidation: ActiveValidation | null = null;
   /**
@@ -352,7 +349,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         .reconcile()
         .catch((error) => console.error('Unable to reconcile persisted Computer sync retries', error)),
     );
-    this.#admission = new ComputerAdmissionControl(env.DB);
     this.#workspace = new Workspace(this.createComputerWorkspaceOptions(this.#syncRetries));
     this.#toolOperations = new ToolOperationJournal(ctx.storage);
     this.#toolOperations.initialize();
@@ -522,7 +518,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       this.#syncRetries.recordFailure(backend, result.error, result.status === 'exhausted');
     }
     if (result.status === 'complete' || result.status === 'idle') {
-      this.finishPendingCommand(backend);
+      this.#toolOperations.completePending(backend);
       await this.cleanupReadinessRoot().catch(() => undefined);
     } else if (result.status === 'lost') {
       // The runtime that ran the command is gone, so its output can never be pulled and the durable
@@ -530,7 +526,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       // that did not land as durably synced, so it terminalizes as a failure instead. Computer has
       // already cleared its intent; failing the journal row stops the continuation from being
       // finished by reconcilePendingCommands' "no retry row" pull.
-      this.failPendingCommand(
+      this.#toolOperations.failPending(
         backend,
         `The workspace command cannot be confirmed: the container that ran it is gone (${result.error}).`,
       );
@@ -582,7 +578,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
           // command. An ordinary pull is idempotent and proves remote changes
           // reached the durable VFS before the tool result is exposed.
           await this.#workspace.pull(backend);
-          this.finishPendingCommand(backend);
+          this.#toolOperations.completePending(backend);
           await this.cleanupReadinessRoot().catch(() => undefined);
         }
       } catch {
@@ -595,7 +591,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   async beginToolOperation(value: unknown): Promise<ToolOperationStartResult | { status: 'reattach' }> {
-    await this.#admission.admitNewOperation();
     this.requireCompletedComputerSync();
     const input = record(value);
     const toolCallId = requireString(input.toolCallId, 'toolCallId', 512);
@@ -728,7 +723,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   async beginSeed(seedIdValue: unknown) {
-    await this.#admission.admitNewOperation();
     const seedId = requireString(seedIdValue, 'seedId', 256);
     return this.withStatefulOperation('seed', `seed:begin:${seedId}`, async () => {
       const row = this.workspaceRow();
@@ -1027,11 +1021,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     return new Blob([new Uint8Array(snapshot.value.bytes)]).stream();
   }
 
-  async listWorkspaceFiles() {
-    const snapshot = await this.stableProjectRead(readProjectFiles);
-    return snapshot.value.map((file) => workspaceFileMetadata(file, snapshot.revision));
-  }
-
   async readDirectory(pathValue: unknown) {
     const path = requireProjectPath(pathValue, true);
     const snapshot = await this.stableProjectRead((workspace) => workspace.fs.readdir(path));
@@ -1049,10 +1038,10 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
    * Start this workspace's container and computerd ahead of the work that needs them.
    *
    * Nothing before the model's first `exec` requires a container: seeding writes into the durable
-   * VFS, and `read`/`ls`/`grep` are served from it. So the entire cold start — container boot,
-   * the toolchain and computerd bootstraps, the FUSE mount — used to land in the middle of the
-   * first turn, while the user watched. Opening a chat is the moment we learn a container will be
-   * wanted, and the user is still typing, so that is when to pay for it.
+   * VFS, and `read`/`ls`/`grep` are served from it. Left to that `exec`, the whole cold start —
+   * container boot, the toolchain and computerd bootstraps, the FUSE mount — would land in the
+   * middle of the first turn. Opening a chat is the moment we learn a container will be wanted, and
+   * the user is still typing, so that is when to pay for it.
    *
    * Deliberately outside the stateful operation lane: warming is not a mutation, and taking the
    * lane would make an optimisation block the first write it exists to speed up. Failure is not
@@ -1144,13 +1133,9 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       },
       { resume },
     );
-    this.#activeCommandSettlements.set(request.operationKey, settlement);
     try {
-      return await settlement;
+      return await this.trackCommandSettlement(request.operationKey, settlement);
     } finally {
-      this.#activeCommandKills.delete(request.operationKey);
-      this.#activeCommandSettlements.delete(request.operationKey);
-      this.#pendingCommandCancellations.delete(request.operationKey);
       if (request.toolCallId) {
         this.#activeToolOperations.delete(request.toolCallId);
       }
@@ -1220,8 +1205,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
           },
           { resume },
         );
-        this.#activeCommandSettlements.set(request.operationKey, settlement);
-        void settlement
+        void this.trackCommandSettlement(request.operationKey, settlement)
           .then(
             () => {
               if (!cancelled) {
@@ -1235,10 +1219,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
             },
           )
           .finally(() => {
-            this.#activeCommandKills.delete(request.operationKey);
             this.#activeCommandStreams.delete(request.operationKey);
-            this.#activeCommandSettlements.delete(request.operationKey);
-            this.#pendingCommandCancellations.delete(request.operationKey);
           });
       },
       cancel: async () => {
@@ -1408,7 +1389,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   async installDependenciesTool(value: unknown): Promise<CloudChefToolResult> {
-    await this.#admission.admitNewOperation();
     const input = record(value);
     const toolCallId = requireString(input.toolCallId, 'toolCallId', 512);
     const mode = input.mode === 'sync-lockfile' ? 'sync-lockfile' : input.mode === 'add' ? 'add' : null;
@@ -1507,12 +1487,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
           }
         });
       });
-      this.#activeCommandSettlements.set(operationKey, settlement);
-      return settlement.finally(() => {
-        this.#activeCommandKills.delete(operationKey);
-        this.#activeCommandSettlements.delete(operationKey);
-        this.#pendingCommandCancellations.delete(operationKey);
-      });
+      return this.trackCommandSettlement(operationKey, settlement);
     });
   }
 
@@ -1530,8 +1505,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       }
       throw new Error('ProjectWorkspace validation is already running.');
     }
-    // Joining the validation already running starts nothing; a new one is new Container work.
-    await this.#admission.admitNewOperation();
     const cancellation = new ValidationCancellation();
     const validation = this.runValidationTool(toolCallId, input.input, cancellation, reportStage);
     const activeRecord = { toolCallId, inputJson, cancellation, promise: validation };
@@ -1564,7 +1537,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     toolCallId: string,
     input: unknown,
     cancellation: ValidationCancellation,
-    reportStage: (stage: BuilderValidationStage) => void = () => undefined,
+    reportStage: (stage: BuilderValidationStage) => void,
   ): Promise<CloudChefToolResult> {
     return this.runToolOperation(toolCallId, 'validation', input, () =>
       this.withStatefulOperation('validate', `tool:${toolCallId}`, async (liveness) => {
@@ -1588,92 +1561,31 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
             // own scripts rather than CloudChef's template checks.
             const checks = await this.runLinkedProjectScripts(isolatedRoot, cancellation, reportStage);
             liveness.observed();
-            const after = await this.checkpoint();
-            if (after.revision !== before.revision) {
-              throw new Error('The project changed while validation was running. Validate the new revision.');
-            }
-            this.recordValidation(after);
-            return toolSuccess(`Project validation passed at durable source revision ${after.revision}.`, {
-              level: 'full',
-              revision: after.revision,
-              workspaceRevision: after.workspaceRevision,
-              buildEnvironment: 'cloudflare-computer-container',
-              checks: checks.map((name) => ({ name, status: 'passed' as const })),
-              durationMs: Date.now() - startedAt,
+            return await this.recordPassedValidation({
+              before,
+              startedAt,
+              cancellation,
+              checks,
               nextAction: 'publish',
             });
           }
-          reportStage('installing');
-          await this.runTransientCommand(isolatedRoot, INSTALL_COMMAND, INSTALL_TIMEOUT_MS, cancellation);
-          liveness.observed();
-          reportStage('typecheck');
-          await this.runTransientCommand(
-            isolatedRoot,
-            REVISION_CODEGEN_COMMAND.command,
-            REVISION_CODEGEN_COMMAND.timeoutMs,
-            cancellation,
-          );
-          liveness.observed();
-          reportStage('lint');
-          await this.runTransientCommand(
-            isolatedRoot,
-            parallelValidationStagesCommand(PARALLEL_VALIDATION_STAGES, {
-              logRoot: VALIDATION_STAGE_LOG_ROOT,
-            }),
-            parallelStagesTimeoutMs(PARALLEL_VALIDATION_STAGES),
-            cancellation,
-          );
-          liveness.observed();
-          const project = await this.readDeploymentProjectProfile();
-          const artifact = await this.buildDeploymentArtifact({
+          const { checks, artifactDigest } = await this.validateGeneratedProject({
             revision: before.revision,
             isolatedRoot,
-            artifactRoot: PREPARED_VALIDATION_ARTIFACT_ROOT,
-            project,
-            deploymentConfig: validationDeploymentConfig(project),
             cancellation,
             liveness,
-            // The build reports the same stage ladder the deployment records as activity, so the
-            // wait the user watches is the one the container is actually in.
-            activity: (sequence) => {
-              const stage = BUILD_ARTIFACT_STAGES.get(sequence);
-              if (stage) {
-                reportStage(stage);
-              }
-              return Promise.resolve();
-            },
+            reportStage,
           });
-          const artifactDigest = await preparedDeploymentArtifactDigest(artifact);
-          cancellation.requireActive();
-          const after = await this.checkpoint();
-          cancellation.requireActive();
-          if (after.revision !== before.revision) {
-            throw new Error('The project changed while validation was running. Validate the new revision.');
-          }
-          this.ctx.storage.transactionSync(() => {
-            this.recordValidation(after);
-            this.storePreparedValidationArtifact(after, artifactDigest);
+          const result = await this.recordPassedValidation({
+            before,
+            startedAt,
+            cancellation,
+            checks,
+            nextAction: 'prepare-deployment',
+            artifactDigest,
           });
           artifactPrepared = true;
-          return toolSuccess(`Project validation passed at durable source revision ${after.revision}.`, {
-            level: 'full',
-            revision: after.revision,
-            workspaceRevision: after.workspaceRevision,
-            buildEnvironment: 'cloudflare-computer-container',
-            checks: [
-              'workspace-policy',
-              'dependency-installation',
-              'typecheck',
-              'stack-verification',
-              'lint',
-              'license-verification',
-              'production-build',
-              'worker-dry-run',
-              ...(project.type === 'web_app' ? ['worker-bundle'] : []),
-            ].map((name) => ({ name, status: 'passed' as const })),
-            durationMs: Date.now() - startedAt,
-            nextAction: 'prepare-deployment',
-          });
+          return result;
         } catch (error) {
           cleanupAllowed = !(error instanceof SandboxProcessTerminationUnconfirmedError);
           if (error instanceof WorkspaceSyncPendingError) {
@@ -1696,6 +1608,110 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         }
       }),
     );
+  }
+
+  /**
+   * CloudChef's template checks on a generated app copied to `isolatedRoot`, then its production build:
+   * the checks that passed and the digest of the deployment artifact the build left.
+   */
+  private async validateGeneratedProject(args: {
+    revision: string;
+    isolatedRoot: string;
+    cancellation: ValidationCancellation;
+    liveness: OperationLiveness;
+    reportStage: (stage: BuilderValidationStage) => void;
+  }): Promise<{ checks: string[]; artifactDigest: string }> {
+    const { isolatedRoot, cancellation, liveness, reportStage } = args;
+    reportStage('installing');
+    await this.runTransientCommand(isolatedRoot, INSTALL_COMMAND, INSTALL_TIMEOUT_MS, cancellation);
+    liveness.observed();
+    reportStage('typecheck');
+    await this.runTransientCommand(
+      isolatedRoot,
+      REVISION_CODEGEN_COMMAND.command,
+      REVISION_CODEGEN_COMMAND.timeoutMs,
+      cancellation,
+    );
+    liveness.observed();
+    reportStage('lint');
+    await this.runTransientCommand(
+      isolatedRoot,
+      parallelValidationStagesCommand(PARALLEL_VALIDATION_STAGES, {
+        logRoot: VALIDATION_STAGE_LOG_ROOT,
+      }),
+      parallelStagesTimeoutMs(PARALLEL_VALIDATION_STAGES),
+      cancellation,
+    );
+    liveness.observed();
+    const project = await this.readDeploymentProjectProfile();
+    const artifact = await this.buildDeploymentArtifact({
+      revision: args.revision,
+      isolatedRoot,
+      artifactRoot: PREPARED_VALIDATION_ARTIFACT_ROOT,
+      project,
+      deploymentConfig: validationDeploymentConfig(project),
+      cancellation,
+      liveness,
+      // The build reports the same stage ladder the deployment records as activity, so the
+      // wait the user watches is the one the container is actually in.
+      activity: (sequence) => {
+        const stage = BUILD_ARTIFACT_STAGES.get(sequence);
+        if (stage) {
+          reportStage(stage);
+        }
+        return Promise.resolve();
+      },
+    });
+    return {
+      checks: [
+        'workspace-policy',
+        'dependency-installation',
+        'typecheck',
+        'stack-verification',
+        'lint',
+        'license-verification',
+        'production-build',
+        'worker-dry-run',
+        ...(project.type === 'web_app' ? ['worker-bundle'] : []),
+      ],
+      artifactDigest: await preparedDeploymentArtifactDigest(artifact),
+    };
+  }
+
+  /**
+   * Records a validation that passed, with the artifact it prepared if any, provided the project is still
+   * at the revision it validated.
+   */
+  private async recordPassedValidation(args: {
+    before: { revision: string };
+    startedAt: number;
+    cancellation: ValidationCancellation;
+    checks: string[];
+    nextAction: 'publish' | 'prepare-deployment';
+    artifactDigest?: string;
+  }): Promise<CloudChefToolResult> {
+    args.cancellation.requireActive();
+    const after = await this.checkpoint();
+    args.cancellation.requireActive();
+    if (after.revision !== args.before.revision) {
+      throw new Error('The project changed while validation was running. Validate the new revision.');
+    }
+    const { artifactDigest } = args;
+    this.ctx.storage.transactionSync(() => {
+      this.recordValidation(after);
+      if (artifactDigest !== undefined) {
+        this.storePreparedValidationArtifact(after, artifactDigest);
+      }
+    });
+    return toolSuccess(`Project validation passed at durable source revision ${after.revision}.`, {
+      level: 'full',
+      revision: after.revision,
+      workspaceRevision: after.workspaceRevision,
+      buildEnvironment: 'cloudflare-computer-container',
+      checks: args.checks.map((name) => ({ name, status: 'passed' as const })),
+      durationMs: Date.now() - args.startedAt,
+      nextAction: args.nextAction,
+    });
   }
 
   /**
@@ -1800,8 +1816,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       return;
     }
 
-    // A session already open finishes; the switch stops a new one before its build and upload.
-    await this.#admission.admitNewOperation();
     const lease = this.#operationLane.acquire({
       owner,
       idempotencyKey,
@@ -1839,15 +1853,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     const session = this.requireActiveDeploymentSession(sessionId);
     this.#activeOperationOwners.add(session.owner);
     try {
-      const lease = this.deploymentSessionLease(session);
-      const renewed = this.#operationLane.renew(lease, OPERATION_LEASE_MS.deployment);
-      this.ctx.storage.sql.exec(
-        `UPDATE cloudchef_deployment_sessions SET deadline = ?, updated_at = ?
-         WHERE operation_id = ? AND status = 'active'`,
-        renewed.deadline,
-        Date.now(),
-        sessionId,
-      );
+      // The lease in the operation lane is what expires; the session row's deadline is only its first one.
+      this.#operationLane.renew(this.deploymentSessionLease(session), OPERATION_LEASE_MS.deployment);
       const checkpoint = await this.checkpoint();
       if (checkpoint.revision !== session.expected_snapshot_revision) {
         console.error('ProjectWorkspace deployment checkpoint mismatch', {
@@ -1922,7 +1929,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     this.requireCompletedComputerSync();
     const input = record(value);
     const sessionId = requireString(input.sessionId, 'sessionId', 256);
-    const operationId = requireString(input.operationId, 'operationId', 256);
     const revision = requireString(input.revision, 'revision', 64);
     const deploymentId = requireString(input.deploymentId, 'deploymentId', 128);
     const executionGeneration = requireInteger(
@@ -1931,9 +1937,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       Number.MAX_SAFE_INTEGER,
     );
     const session = this.requireActiveDeploymentSession(sessionId);
-    if (session.operation_id !== operationId || sessionId !== operationId) {
-      throw new Error('The deployment activity identity does not match its active deployment session.');
-    }
     if (revision !== session.expected_snapshot_revision) {
       throw new Error('The deployment artifact revision does not match its active deployment session.');
     }
@@ -2166,31 +2169,10 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     return linked;
   }
 
-  private async readCloudflareProjectFile(): Promise<{ content: string }> {
-    try {
-      return await this.readText(`${PROJECT_ROOT}/${CLOUDFLARE_PROJECT_FILE}`);
-    } catch (error) {
-      // A project seeded before the cf toolchain has wrangler.jsonc instead; say so rather than
-      // surfacing a bare missing-file error. Any other read failure is reported as it is.
-      const legacy = await this.readText(`${PROJECT_ROOT}/wrangler.jsonc`).then(
-        () => true,
-        () => false,
-      );
-      if (legacy) {
-        throw new Error(
-          'This project was created before CloudChef moved to the cf CLI: it has wrangler.jsonc and no ' +
-            `${CLOUDFLARE_PROJECT_FILE}, so it cannot be validated or deployed. Start a new project.`,
-          { cause: error },
-        );
-      }
-      throw error;
-    }
-  }
-
   private async readDeploymentProjectProfile(): Promise<DeploymentProjectProfile> {
     const [packageFile, projectFile] = await Promise.all([
       this.readText(`${PROJECT_ROOT}/package.json`),
-      this.readCloudflareProjectFile(),
+      this.readText(`${PROJECT_ROOT}/${CLOUDFLARE_PROJECT_FILE}`),
     ]);
     const packageJson: unknown = JSON.parse(packageFile.content);
     const cloudchef = isRecord(packageJson) ? packageJson.cloudchef : undefined;
@@ -2561,7 +2543,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       first(
         this.ctx.storage.sql.exec<DeploymentSessionRow>(
           `SELECT operation_id, owner, idempotency_key, expected_workspace_revision,
-                  expected_snapshot_revision, deadline, status
+                  expected_snapshot_revision, status
            FROM cloudchef_deployment_sessions WHERE operation_id = ?`,
           operationId,
         ),
@@ -2827,16 +2809,14 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     }
   }
 
-  private finishPendingCommand(backend: string): void {
-    this.#toolOperations.completePending(backend);
-  }
-
-  private failPendingCommand(backend: string, error: string): void {
-    const continuation = this.#toolOperations.pending().find((operation) => operation.backend === backend);
-    if (!continuation) {
-      return;
-    }
-    this.#toolOperations.fail({ toolCallId: continuation.toolCallId, error });
+  /** Records a command's settlement for a cancellation to await, and forgets the command once it settles. */
+  private trackCommandSettlement<T>(operationKey: string, settlement: Promise<T>): Promise<T> {
+    this.#activeCommandSettlements.set(operationKey, settlement);
+    return settlement.finally(() => {
+      this.#activeCommandKills.delete(operationKey);
+      this.#activeCommandSettlements.delete(operationKey);
+      this.#pendingCommandCancellations.delete(operationKey);
+    });
   }
 
   private async recoverExhaustedComputerSync(backend: string): Promise<boolean> {
@@ -2851,7 +2831,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         // fresh backend handle rather than another attempt on the failed one.
         await this.#workspace.close();
         await this.#workspace.pull(backend);
-        this.finishPendingCommand(backend);
+        this.#toolOperations.completePending(backend);
         await this.#syncRetries.clear(backend);
         await this.cleanupReadinessRoot().catch(() => undefined);
         this.#syncRecoveryFailures.delete(backend);
@@ -2923,7 +2903,14 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     await this.schedule(delaySeconds, callback, payload);
   }
 
+  /**
+   * Clears what the readiness probe wrote, which a command's sync may pull back in after the probe's own
+   * cleanup. Only the readiness workspace runs the probe, so only it has anything to clear.
+   */
   private async cleanupReadinessRoot(): Promise<void> {
+    if (!this.ctx.id.equals(this.env.PROJECT_WORKSPACE.idFromName(READINESS_WORKSPACE_NAME))) {
+      return;
+    }
     await this.withComputer((workspace) => workspace.fs.rm(READINESS_ROOT, { recursive: true, force: true }));
   }
 

@@ -3,7 +3,6 @@ import { builderTranscriptBindingsEqual, type BuilderTranscriptBinding } from '.
 type BuilderIdentityStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
 
 type BuilderIdentityRow = {
-  owner_id: string;
   user_id: string;
   agent_name: string;
   chat_initial_id: string;
@@ -29,7 +28,7 @@ export class BuilderAgentIdentityRepository {
   get(): BuilderAgentDurableIdentity | null {
     const row = [
       ...this.storage.sql.exec<BuilderIdentityRow>(`
-        SELECT owner_id, user_id, agent_name, chat_initial_id, generation,
+        SELECT user_id, agent_name, chat_initial_id, generation,
                subchat_index, parent_agent_name
         FROM builder_identity
         WHERE id = 'active'

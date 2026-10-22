@@ -1,14 +1,6 @@
-export function stripIndents(value: string): string;
-export function stripIndents(strings: TemplateStringsArray, ...values: unknown[]): string;
-export function stripIndents(arg0: string | TemplateStringsArray, ...values: unknown[]) {
-  if (typeof arg0 !== 'string') {
-    return _stripIndents(arg0.map((chunk, index) => `${chunk}${values[index] ?? ''}`).join(''));
-  }
-
-  return _stripIndents(arg0);
-}
-
-function _stripIndents(value: string) {
+/** A template literal with its common indentation, blank lines, and trailing spaces removed. */
+export function stripIndents(strings: TemplateStringsArray, ...values: unknown[]): string {
+  const value = strings.map((chunk, index) => `${chunk}${values[index] ?? ''}`).join('');
   const lines = value.split('\n');
   let minIndent = Infinity;
 

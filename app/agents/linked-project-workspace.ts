@@ -2,14 +2,12 @@ import { WORK_DIR } from 'cloudchef-agent/constants';
 import type { LinkedSnapshotLine } from '~/lib/.server/cloudflare/linked-project-client';
 import { bytesToBase64, sha256Hex } from '~/lib/hex-digest';
 import type { BuilderWorkspaceApi } from './builder-workspace-api';
-import { readWholeSyncFeed } from './builder-workspace-seed';
+import { readWholeSyncFeed, seedBatches } from './builder-workspace-seed';
 import { gitignoreMatcher, isNeverPublished } from './linked-project-ignore';
-import {
-  BUILDER_WORKSPACE_SYNC_BATCH_BYTES,
-  BUILDER_WORKSPACE_SYNC_BATCH_FILES,
-  type BuilderWorkspaceFileInput,
-  type BuilderWorkspaceLinkedProject,
-  type BuilderWorkspaceState,
+import type {
+  BuilderWorkspaceFileInput,
+  BuilderWorkspaceLinkedProject,
+  BuilderWorkspaceState,
 } from './builder-workspace-types';
 
 /** What the workspace keeps out of its own record (user-workspace-runtime/src/index.ts), skipped here too. */
@@ -17,6 +15,13 @@ const EXCLUDED_ROOTS = new Set(['node_modules', 'dist', '.output', '.tanstack', 
 
 /** One file change for GitHub: new or changed content, or `null` to delete it. */
 type LinkedChange = { path: string; contentBase64: string | null; executable: boolean };
+
+/** What a GitHub snapshot download reported, filled in as its files are read. */
+type SnapshotDownload = {
+  head: { commit: string; defaultBranch: string; repository: string } | null;
+  complete: boolean;
+  totalBytes: number;
+};
 
 /** A new key for a workspace's own branch on GitHub (see `BuilderWorkspaceLinkedProject.branchKey`). */
 export function newLinkedBranchKey(): string {
@@ -46,53 +51,42 @@ export async function seedLinkedWorkspace(
     return started.state;
   }
   try {
-    let head: { commit: string; defaultBranch: string; repository: string } | null = null;
+    const download: SnapshotDownload = { head: null, complete: false, totalBytes: 0 };
     const manifest: BuilderWorkspaceLinkedProject['baseManifest'] = [];
-    let batch: BuilderWorkspaceFileInput[] = [];
-    let batchCharacters = 0;
-    let totalBytes = 0;
-    let complete = false;
-    for await (const line of lines) {
-      if ('error' in line) {
-        throw new Error(line.error);
+    async function* files(): AsyncGenerator<BuilderWorkspaceFileInput> {
+      for await (const line of lines) {
+        if ('error' in line) {
+          throw new Error(line.error);
+        }
+        if ('commit' in line) {
+          download.head = line;
+          continue;
+        }
+        if ('done' in line) {
+          download.complete = true;
+          return;
+        }
+        if (EXCLUDED_ROOTS.has(line.path.split('/')[0] ?? '')) {
+          continue;
+        }
+        const bytes = Uint8Array.from(atob(line.contentBase64), (char) => char.charCodeAt(0));
+        manifest.push({ path: line.path, sha256: await sha256Hex(bytes), executable: line.executable });
+        download.totalBytes += bytes.length;
+        // GitHub's mode goes in with the file, so the workspace's own modes are the repository's.
+        yield {
+          path: `${WORK_DIR}/${line.path}`,
+          content: line.contentBase64,
+          encoding: 'base64',
+          mode: line.executable ? 0o755 : 0o644,
+        };
       }
-      if ('commit' in line) {
-        head = line;
-        continue;
-      }
-      if ('done' in line) {
-        complete = true;
-        break;
-      }
-      if (EXCLUDED_ROOTS.has(line.path.split('/')[0] ?? '')) {
-        continue;
-      }
-      const bytes = Uint8Array.from(atob(line.contentBase64), (char) => char.charCodeAt(0));
-      manifest.push({ path: line.path, sha256: await sha256Hex(bytes), executable: line.executable });
-      totalBytes += bytes.length;
-      // GitHub's mode goes in with the file, so the workspace's own modes are the repository's.
-      const entry = {
-        path: `${WORK_DIR}/${line.path}`,
-        content: line.contentBase64,
-        encoding: 'base64' as const,
-        mode: line.executable ? 0o755 : 0o644,
-      };
-      if (
-        batch.length >= BUILDER_WORKSPACE_SYNC_BATCH_FILES ||
-        batchCharacters + entry.content.length > BUILDER_WORKSPACE_SYNC_BATCH_BYTES * 6
-      ) {
-        await workspace.appendSeed(seedId, batch);
-        batch = [];
-        batchCharacters = 0;
-      }
-      batch.push(entry);
-      batchCharacters += entry.path.length + entry.content.length;
     }
+    for await (const batch of seedBatches(files())) {
+      await workspace.appendSeed(seedId, batch);
+    }
+    const { head, complete, totalBytes } = download;
     if (!head || !complete) {
       throw new Error('The project download from GitHub ended early. Open the project again.');
-    }
-    if (batch.length > 0) {
-      await workspace.appendSeed(seedId, batch);
     }
     // Linked before the seed commits, so a workspace is never initialized without its project.
     await workspace.setLinkedProject({

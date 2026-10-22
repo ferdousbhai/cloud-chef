@@ -1,14 +1,51 @@
 import type { BuilderWorkspaceApi, WorkspaceSyncPageRequest } from './builder-workspace-api';
-import type {
-  BuilderWorkspaceFileInput,
-  BuilderWorkspaceState,
-  BuilderWorkspaceSyncEntry,
-  BuilderWorkspaceSyncPage,
+import {
+  BUILDER_WORKSPACE_SYNC_BATCH_BYTES,
+  BUILDER_WORKSPACE_SYNC_BATCH_FILES,
+  type BuilderWorkspaceFileInput,
+  type BuilderWorkspaceState,
+  type BuilderWorkspaceSyncEntry,
+  type BuilderWorkspaceSyncPage,
 } from './builder-workspace-types';
-import { batchBuilderWorkspaceSeed, builderTemplateTotals } from './builder-template';
+import { builderTemplateTotals } from './builder-template';
 
 /** How many times reading a workspace's whole sync feed starts over because the workspace changed. */
 const MAX_SYNC_FEED_RESTARTS = 5;
+
+/**
+ * The most path and content characters one `appendSeed` call carries, which keeps the Durable Object RPC
+ * carrying it well under its 32 MiB message limit. Characters, not decoded bytes: base64 content goes over
+ * the wire as written.
+ */
+const SEED_BATCH_CHARACTERS = BUILDER_WORKSPACE_SYNC_BATCH_BYTES * 6;
+
+/**
+ * Groups seed files into `appendSeed` calls of at most the runtime's file count per call and
+ * `SEED_BATCH_CHARACTERS`; a file larger than that goes alone. It reads `entries` as they come, so a
+ * streamed repository never sits in memory whole.
+ */
+export async function* seedBatches(
+  entries: Iterable<BuilderWorkspaceFileInput> | AsyncIterable<BuilderWorkspaceFileInput>,
+): AsyncGenerator<BuilderWorkspaceFileInput[]> {
+  let batch: BuilderWorkspaceFileInput[] = [];
+  let characters = 0;
+  for await (const entry of entries) {
+    const entryCharacters = entry.path.length + entry.content.length;
+    if (
+      batch.length > 0 &&
+      (batch.length >= BUILDER_WORKSPACE_SYNC_BATCH_FILES || characters + entryCharacters > SEED_BATCH_CHARACTERS)
+    ) {
+      yield batch;
+      batch = [];
+      characters = 0;
+    }
+    batch.push(entry);
+    characters += entryCharacters;
+  }
+  if (batch.length > 0) {
+    yield batch;
+  }
+}
 
 type BuilderWorkspaceSyncWrite = Extract<BuilderWorkspaceSyncEntry, { kind: 'write' }>;
 
@@ -62,7 +99,7 @@ export async function seedBuilderWorkspace(
     return started.state;
   }
   try {
-    for (const batch of batchBuilderWorkspaceSeed(entries)) {
+    for await (const batch of seedBatches(entries)) {
       await workspace.appendSeed(seedId, batch);
     }
     await beforeCommit();

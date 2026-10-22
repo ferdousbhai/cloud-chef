@@ -114,8 +114,8 @@ import {
   packDraftSnapshot,
   seedLinkedWorkspace,
 } from './linked-project-workspace';
+import { LINKED_BUILD_WATCH_MS } from '~/lib/common/linked-publish';
 import {
-  LINKED_BUILD_WATCH_MS,
   LINKED_HELD_BACK_LIMIT,
   WORKERS_BUILDS_APPEAR_MS,
   linkedBuildSettledResult,
@@ -148,7 +148,6 @@ import {
 } from './builder-preview-types';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import { previewWorkerUrl } from '~/lib/common/preview-url';
-import { waitForCancellationBeforeDeadline } from './builder-cancellation';
 import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
@@ -158,6 +157,7 @@ import {
   BuilderCloudflareExecutionRepository,
   CLOUDFLARE_EXECUTION_RISK_NOTE,
   containsCredentialishCloudflareContent,
+  isCloudflareExecutionTerminal,
   publicExecutionState,
   sameCloudflareConnectionIdentity,
   type CloudflareExecutionBinding,
@@ -480,11 +480,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.hydrateDurableIdentity({ required: false, reason: 'agent_start' });
     }
     this.refreshCloudflareExecutionState();
-    const deployment = this.state.deployment;
-    if (deployment?.status === 'succeeded' && deployment.revision && !this.state.productionRevision) {
-      // Stopped between recording the deployment and the revision production serves.
-      this.setState({ ...this.state, productionRevision: deployment.revision });
-    }
     if (this.state.upgradeWaiting) {
       // The turn that waited stopped with the instance before it started.
       this.setState({ ...this.state, upgradeWaiting: false });
@@ -567,9 +562,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       lastTurn?.status === 'aborted' &&
       (lastTurn.requestId === ctx.requestId || lastTurn.requestId === ctx.recoveryRootRequestId)
     ) {
-      logger.info('Skipping recovery for a durably cancelled CloudChef chat turn', {
-        incidentId: ctx.incidentId,
-      });
       return { persist: true, continue: false };
     }
     const nextTurn = createRecoveryTurn(ctx, this.state.activeTurn);
@@ -606,7 +598,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         accountCredentials: credentials,
         gatewayLogging: workersAiGatewayLogging(access?.allowed === true && access.contentLogging),
       });
-      return { status: 'completed', snapshot: ctx.snapshot };
+      return { status: 'completed' };
     }
     if (ctx.name === PREVIEW_PUBLICATION_FIBER) {
       const job = previewPublicationJobSchema.safeParse(ctx.metadata).data;
@@ -614,7 +606,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         return { status: 'error', error: 'missing preview publication recovery data' };
       }
       await this.runPreviewPublication(job);
-      return { status: 'completed', snapshot: ctx.snapshot };
+      return { status: 'completed' };
     }
     if (ctx.name === DEPLOYMENT_FIBER) {
       const job = deploymentJobSchema.safeParse(ctx.metadata).data;
@@ -636,7 +628,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (terminalized.status === 'succeeded') {
         // It finished in the user's account before this instance stopped: production serves it.
         await this.recordDeploymentSucceeded(job, terminalized);
-        return { status: 'completed', snapshot: ctx.snapshot };
+        return { status: 'completed' };
       }
       this.failDeployment(job, error);
       await this.scheduleAutomaticDeploymentRetry(job, run, { message: error.message, retryable: false });
@@ -648,7 +640,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         return { status: 'error', error: 'missing linked build recovery data' };
       }
       await this.runtimeActivity.run(() => this.keepAliveWhile(() => this.runLinkedBuildWatch(watch)));
-      return { status: 'completed', snapshot: ctx.snapshot };
+      return { status: 'completed' };
     }
     if (ctx.name === CLOUDFLARE_EXECUTION_FIBER) {
       const job = cloudflareExecutionFiberSchema.safeParse(ctx.metadata).data;
@@ -671,7 +663,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return { status: 'error', error: 'missing context compaction recovery data' };
     }
     await this.runContextCompaction(compaction.data.throughMessageId);
-    return { status: 'completed', snapshot: ctx.snapshot };
+    return { status: 'completed' };
   }
 
   override async onChatMessage(
@@ -864,8 +856,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     await this.startFiber(
       CONTEXT_COMPACTION_FIBER,
-      async (fiber) => {
-        fiber.stash({ throughMessageId, version: 1 });
+      async () => {
         await this.runContextCompaction(throughMessageId);
       },
       {
@@ -1021,8 +1012,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     await this.runtimeActivity.admit();
     const fiber = await this.startFiber(
       CLOUDFLARE_EXECUTION_FIBER,
-      async (context) => {
-        context.stash(job);
+      async () => {
         await this.runtimeActivity.run(() => this.runApprovedCloudflareExecution(job, binding));
       },
       {
@@ -1069,7 +1059,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         status: 'aborted',
       });
     }
-    await waitForCancellationBeforeDeadline(validationCancellation, deadline);
+    await validationCancellation;
     const remainingSettleTime = Math.max(0, deadline - Date.now());
     const settled = await this.waitUntilStable({
       timeout: remainingSettleTime,
@@ -1197,7 +1187,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /** The organization GitHub project this workspace works on, or null for a CloudChef app. */
-  @callable()
   getLinkedProject(): Promise<BuilderWorkspaceLinkedProject | null> {
     return this.workspace.linkedProject();
   }
@@ -1353,15 +1342,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     identityValue: TranscriptIdentity,
     ownerId: string,
   ): ReturnType<BuilderAgent['getTranscriptSnapshot']> {
-    if (!transcriptOwnerIdSchema.safeParse(ownerId).success) {
-      throw new Response('Invalid transcript owner', { status: 400 });
-    }
     await this.initializeIdentity({ userId: ownerId });
     return this.getTranscriptSnapshot(identityValue);
   }
 
-  @callable()
-  async getTranscriptCheckpoint(identityValue: TranscriptIdentity): Promise<TranscriptCheckpoint | null> {
+  private async getTranscriptCheckpoint(identityValue: TranscriptIdentity): Promise<TranscriptCheckpoint | null> {
     const identity = requireBuilderTranscriptIdentity(identityValue, this.transcriptBinding);
     if (this.messages.length > 0) {
       return this.advanceTranscriptCheckpoint(identity);
@@ -1485,8 +1470,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   ): Promise<void> {
     await this.startFiber(
       TITLE_GENERATION_FIBER,
-      async (fiber) => {
-        fiber.stash({ ...job, version: 1 });
+      async () => {
         await this.generateTitlesForPrompt({ ...job, accountCredentials, gatewayLogging });
       },
       {
@@ -1525,7 +1509,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
     if (provisionalTitle) {
       try {
-        const [savedHeuristicProject, savedHeuristicSubchat] = await Promise.all([
+        const [, savedHeuristicSubchat] = await Promise.all([
           args.subchatIndex === 0
             ? setHeuristicProjectDescriptionIfMissing(this.env.DB, {
                 sessionId: ownerId,
@@ -1548,10 +1532,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
             generatedSubchatTitle: { subchatIndex: args.subchatIndex, title: provisionalTitle, updatedAt },
           });
         }
-        logger.info('Saved heuristic titles for first prompt', {
-          savedHeuristicProject,
-          savedHeuristicSubchat,
-        });
       } catch {
         logger.warn('Heuristic title save failed; continuing generated title work');
       }
@@ -1764,7 +1744,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.startFiber(
         LINKED_BUILD_FIBER,
         async (fiber) => {
-          fiber.stash(watch);
           await this.runtimeActivity.run(() =>
             this.keepAliveWhile(() => this.runLinkedBuildWatch(watch, fiber.signal)),
           );
@@ -2150,13 +2129,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!feed) {
       throw new Error('The workspace kept changing while it was being copied. Open the conversation again.');
     }
-    const entries = feed.files.map((file) => {
-      const input: BuilderWorkspaceFileInput = { path: file.path, content: file.content, encoding: file.encoding };
-      if (file.mode !== undefined) {
-        input.mode = file.mode;
-      }
-      return input;
-    });
+    const entries = feed.files.map(({ path, content, encoding, mode }): BuilderWorkspaceFileInput => ({
+      path,
+      content,
+      encoding,
+      mode,
+    }));
     return { entries, targetRevision: feed.targetRevision };
   }
 
@@ -2192,7 +2170,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!snapshot || this.automaticPublicationStopped(epoch)) {
       return;
     }
-    if (this.productionServes(snapshot.revision)) {
+    if (snapshot.revision === this.state.productionRevision) {
       if (this.state.publicationPending) {
         this.setState({ ...this.state, publicationPending: false });
       }
@@ -2376,7 +2354,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (this.automaticPublicationStopped(epoch)) {
       return;
     }
-    if (this.productionServes(job.revision)) {
+    if (job.revision === this.state.productionRevision) {
       // Nothing will deploy it again, so nothing else would record the publication done.
       await this.recordProductionRevision(job.revision);
       return;
@@ -2451,7 +2429,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     // Admission can wait out an upgrade: whatever changed meanwhile decides again. A retry also stops
     // for a fiber still deploying the revision, which a failure recorded meanwhile may hide; one started
     // while that is read shows as deploying by the time it answers.
-    if (refused() || (options.retry && (await this.deploymentFiberRunning(job.revision))) || refused()) {
+    if (refused() || (options.retry && (await this.deploymentFibersRunning(job.revision)) > 0) || refused()) {
       return;
     }
     this.setState({
@@ -2463,7 +2441,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.startFiber(
         DEPLOYMENT_FIBER,
         async (fiber) => {
-          fiber.stash(job);
           await this.trackPublication(
             run.automatic,
             fiber.signal,
@@ -2599,7 +2576,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     // Admission can wait out an upgrade window, or D1 being unavailable: a deployment of the revision
     // started meanwhile runs on.
     const settled = await this.runtimeActivity
-      .run(async () => ((await this.deploymentFiberRunning(job.revision)) ? null : this.retry(settle)))
+      .run(async () => ((await this.deploymentFibersRunning(job.revision)) > 0 ? null : this.retry(settle)))
       .catch(() => {
         logger.warn('Unable to settle the deployment record');
         return null;
@@ -2660,10 +2637,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /** Interrupted fibers count: their recovery hook, not the readiness check, settles them. */
-  private async deploymentFiberRunning(revision: string): Promise<boolean> {
-    return (await this.deploymentFibersRunning(revision)) > 0;
-  }
-
   private async deploymentFibersRunning(revision: string): Promise<number> {
     const live = await this.listFibers({ name: DEPLOYMENT_FIBER, status: ['pending', 'running', 'interrupted'] });
     return live.filter((fiber) => deploymentJobSchema.safeParse(fiber.metadata).data?.revision === revision).length;
@@ -2733,8 +2706,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   /** The deployment of `job` succeeded, as it ran or as its record in the user's account says. */
   private async recordDeploymentSucceeded(job: DeploymentJob, deployment: BuilderDeploymentState): Promise<void> {
-    this.setDeploymentResult(job, { ...deployment, ...job });
-    await this.recordProductionRevision(job.revision);
+    await this.recordProductionRevision(job.revision, { ...deployment, ...job });
   }
 
   /** Who a publication runs for and the chat it records, once this agent knows its identity. */
@@ -2752,15 +2724,16 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return context;
   }
 
-  private productionServes(revision: string): boolean {
-    return revision === this.state.productionRevision;
-  }
-
-  /** Production serves this revision now; the publication a turn asked for is done once it is the current one. */
-  private async recordProductionRevision(revision: string): Promise<void> {
+  /**
+   * Production serves this revision now; the publication a turn asked for is done once it is the current one.
+   * The deployment that put it there, if given, is recorded in the same write, so no stop falls between them.
+   */
+  private async recordProductionRevision(revision: string, deployment?: BuilderDeploymentState): Promise<void> {
     const current = await this.workspace.checkpoint().catch(() => null);
+    const recordsDeployment = deployment !== undefined && this.state.deployment?.revision === revision;
     this.setState({
       ...this.state,
+      deployment: recordsDeployment ? deployment : this.state.deployment,
       productionRevision: revision,
       publicationPending: current?.revision === revision ? false : this.state.publicationPending,
     });
@@ -2810,17 +2783,16 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       this.setValidationProgress(toolCallId, 'computer validation');
     }
     try {
-      const request: Parameters<typeof buildCheckpointForBuilder>[0] = {
-        workspace: this.workspace,
-        requestedSnapshot: { workspaceRevision: snapshot.workspaceRevision, revision: snapshot.revision },
-        publication,
-        toolCallId,
-        onStage: (stage) => this.setValidationProgress(toolCallId, stage),
-      };
-      if (abortSignal) {
-        request.abortSignal = abortSignal;
-      }
-      return await this.keepAliveWhile(() => buildCheckpointForBuilder(request));
+      return await this.keepAliveWhile(() =>
+        buildCheckpointForBuilder({
+          workspace: this.workspace,
+          requestedSnapshot: { workspaceRevision: snapshot.workspaceRevision, revision: snapshot.revision },
+          publication,
+          toolCallId,
+          onStage: (stage) => this.setValidationProgress(toolCallId, stage),
+          abortSignal,
+        }),
+      );
     } finally {
       if (needsBuild) {
         this.setValidationProgress(toolCallId, null);
@@ -2895,7 +2867,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.startFiber(
         PREVIEW_PUBLICATION_FIBER,
         async (fiber) => {
-          fiber.stash(job);
           await this.runPreviewPublication(job, fiber.signal, options.epoch);
         },
         {
@@ -3085,7 +3056,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           ? { status: 'ready' as const, ...snapshot }
           : null;
     // A deploying record with no fiber working on its revision is orphaned: nothing would ever settle it.
-    if (deployment?.status === 'deploying' && !(await this.deploymentFiberRunning(snapshot.revision))) {
+    if (deployment?.status === 'deploying' && (await this.deploymentFibersRunning(snapshot.revision)) === 0) {
       deployment = { ...deployment, status: 'failed', error: DEPLOYMENT_INTERRUPTED_MESSAGE };
     }
     this.setState({
@@ -3251,18 +3222,6 @@ function cloudflareExecutionStatusForOutcome(
   outcome: CloudflareApiOutcome,
 ): Extract<CloudflareExecutionStatus, 'succeeded' | 'failed' | 'indeterminate'> {
   return outcome.status === 'success' ? 'succeeded' : outcome.status === 'indeterminate' ? 'indeterminate' : 'failed';
-}
-
-function isCloudflareExecutionTerminal(
-  status: CloudflareExecutionStatus,
-): status is Exclude<CloudflareExecutionStatus, 'awaiting_approval' | 'approved' | 'executing'> {
-  return (
-    status === 'rejected' ||
-    status === 'succeeded' ||
-    status === 'failed' ||
-    status === 'indeterminate' ||
-    status === 'expired'
-  );
 }
 
 /** Whether every one of `promises` settled within `timeoutMs`. */

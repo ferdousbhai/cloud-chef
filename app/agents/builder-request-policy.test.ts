@@ -39,18 +39,15 @@ describe('BuilderAgent request policy', () => {
     expect(prepare.mock.calls[0]?.[0]).toContain('chats.is_deleted = 0');
   });
 
-  it('accepts only an exact D1-bound chat, subchat, and generation', () => {
-    expect(
-      requireBuilderRequestScope(
-        {
-          chatInitialId: 'chat',
-          subchatIndex: 2,
-          modelId: '@cf/zai-org/glm-5.3-flash',
-          transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
-        },
-        binding,
-      ),
-    ).toEqual({
+  it('accepts only an exact D1-bound chat, subchat, and generation, naming them from the binding', () => {
+    // What the browser still sends for the chat and subchat is not read.
+    const body = {
+      chatInitialId: 'other-chat',
+      subchatIndex: 0,
+      modelId: '@cf/zai-org/glm-5.3-flash',
+      transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
+    };
+    expect(requireBuilderRequestScope(body, binding)).toEqual({
       chatInitialId: 'chat',
       subchatIndex: 2,
       modelId: '@cf/zai-org/glm-5.3-flash',
@@ -64,8 +61,6 @@ describe('BuilderAgent request policy', () => {
       expect(
         requireBuilderRequestScope(
           {
-            chatInitialId: 'chat',
-            subchatIndex: 2,
             modelId,
             transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
           },
@@ -79,8 +74,6 @@ describe('BuilderAgent request policy', () => {
     const scope = (reasoningLevel: string | null | undefined) =>
       requireBuilderRequestScope(
         {
-          chatInitialId: 'chat',
-          subchatIndex: 2,
           modelId: 'anthropic/claude-opus-5-5',
           transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
           reasoningLevel,
@@ -88,8 +81,8 @@ describe('BuilderAgent request policy', () => {
         binding,
       );
     expect(scope('xhigh').reasoningLevel).toBe('xhigh');
-    expect(scope(undefined)).not.toHaveProperty('reasoningLevel');
-    expect(scope(null)).not.toHaveProperty('reasoningLevel');
+    expect(scope(undefined).reasoningLevel).toBeUndefined();
+    expect(scope(null).reasoningLevel).toBeUndefined();
   });
 
   it.each([
@@ -97,8 +90,6 @@ describe('BuilderAgent request policy', () => {
     [{ reasoningLevel: 'none' }, 400],
     [{ reasoningLevel: 'turbo' }, 400],
     [{ reasoningLevel: 3 }, 400],
-    [{ chatInitialId: 'other-chat' }, 409],
-    [{ subchatIndex: 10_001 }, 400],
     [{ modelId: undefined }, 400],
     [{ modelId: 'deepseek/deepseek-v4-pro' }, 400],
     [{ modelId: 'anthropic/' }, 400],
@@ -110,8 +101,6 @@ describe('BuilderAgent request policy', () => {
     const action = () =>
       requireBuilderRequestScope(
         {
-          chatInitialId: 'chat',
-          subchatIndex: 2,
           modelId: '@cf/zai-org/glm-5.3-flash',
           transcript: { agentName: binding.agentName, generation: 3, subchatIndex: 2 },
           ...override,

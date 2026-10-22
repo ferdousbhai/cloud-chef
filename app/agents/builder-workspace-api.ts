@@ -131,8 +131,8 @@ export type WorkspaceDeploymentSessionRequest = {
 };
 
 export type WorkspaceDeploymentArtifactRequest = {
+  /** The deployment session's id, which is the operation id it began with. */
   sessionId: string;
-  operationId: string;
   revision: string;
   deploymentId: string;
   executionGeneration: number;
@@ -276,7 +276,6 @@ export interface ProjectWorkspaceRpc extends Rpc.DurableObjectBranded {
   readText(path: unknown): Promise<BuilderWorkspaceTextFile>;
   readWorkspaceFile(path: unknown): Promise<BuilderWorkspaceBinaryFile>;
   streamWorkspaceFile(path: string): Promise<ReadableStream<Uint8Array>>;
-  listWorkspaceFiles(): Promise<BuilderWorkspaceFileMetadata[]>;
   readDirectory(path: string): Promise<BuilderWorkspaceDirectoryEntry[]>;
   listProjectEntries(value: WorkspaceListingRequest): Promise<BuilderWorkspaceListing>;
   searchProjectFiles(value: WorkspaceSearchRequest): Promise<BuilderWorkspaceSearchResult>;

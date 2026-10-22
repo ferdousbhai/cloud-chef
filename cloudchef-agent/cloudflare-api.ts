@@ -35,11 +35,6 @@ export type CloudflareApiRequestDisplay = z.infer<typeof cloudflareApiRequestDis
 const queryValueSchema = z.union([z.string(), z.number(), z.boolean()]);
 
 /**
- * The model-facing input: exactly what `cf <command> --dry-run` prints. The model discovers the
- * operation with the `cf` CLI in the credential-free workspace and passes its output through
- * unchanged; the runtime Worker alone holds the credential that sends it.
- */
-/**
  * Models often re-serialize the dry-run's JSON body into a string. Sent as-is it would be encoded
  * twice and Cloudflare would reject it, so a string holding a JSON object or array is parsed back.
  */
@@ -57,6 +52,11 @@ const dryRunBodySchema = z.unknown().transform((body) => {
   }
 });
 
+/**
+ * The model-facing input: exactly what `cf <command> --dry-run` prints. The model discovers the
+ * operation with the `cf` CLI in the credential-free workspace and passes its output through
+ * unchanged; the runtime Worker alone holds the credential that sends it.
+ */
 export const cloudflareApiRequestInputSchema = cloudflareApiRequestSchema.extend({
   body: dryRunBodySchema.optional(),
   command: z.string().max(512).optional(),

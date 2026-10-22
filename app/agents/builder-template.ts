@@ -1,8 +1,4 @@
-import {
-  BUILDER_WORKSPACE_SYNC_BATCH_BYTES,
-  BUILDER_WORKSPACE_SYNC_BATCH_FILES,
-  type BuilderWorkspaceFileInput,
-} from './builder-workspace-types';
+import type { BuilderWorkspaceFileInput } from './builder-workspace-types';
 import { BUILDER_TEMPLATE_GZIP_BASE64, BUILDER_TEMPLATE_SOURCE_SHA256 } from './builder-template.generated';
 import type { WorkspaceSeedExpectation } from './builder-workspace-api';
 import { z } from 'zod';
@@ -16,30 +12,6 @@ export function builderTemplateSeedId(): string {
 export function loadBuilderTemplate(): Promise<BuilderWorkspaceFileInput[]> {
   cachedTemplate ??= decodeBuilderTemplate();
   return cachedTemplate;
-}
-
-export function batchBuilderWorkspaceSeed(entries: BuilderWorkspaceFileInput[]): BuilderWorkspaceFileInput[][] {
-  const batches: BuilderWorkspaceFileInput[][] = [];
-  let batch: BuilderWorkspaceFileInput[] = [];
-  let characters = 0;
-  for (const entry of entries) {
-    const entryCharacters = entry.path.length + entry.content.length;
-    if (
-      batch.length > 0 &&
-      (batch.length >= BUILDER_WORKSPACE_SYNC_BATCH_FILES ||
-        characters + entryCharacters > BUILDER_WORKSPACE_SYNC_BATCH_BYTES * 6)
-    ) {
-      batches.push(batch);
-      batch = [];
-      characters = 0;
-    }
-    batch.push(entry);
-    characters += entryCharacters;
-  }
-  if (batch.length > 0) {
-    batches.push(batch);
-  }
-  return batches;
 }
 
 function decodedBytes(entry: BuilderWorkspaceFileInput): number {

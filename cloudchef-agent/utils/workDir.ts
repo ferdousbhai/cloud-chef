@@ -1,5 +1,5 @@
 import { WORK_DIR } from '../constants.js';
-import { path } from './path.js';
+import path from 'path-browserify';
 
 export type RelativePath = string & { __brand: 'RelativePath' };
 export type AbsolutePath = string & { __brand: 'AbsolutePath' };

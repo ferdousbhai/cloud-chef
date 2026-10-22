@@ -1,14 +1,9 @@
 /**
  * Plan how a project is written into an isolated build root.
  *
- * Builds used to be `tar`-ed out of the container's mounted `/home/project` while every guard
- * around them read the durable VFS — two sources of truth, checked and consumed on opposite sides
- * of each other. When they diverged after a container recycle, validation passed and three
- * deployments shipped stale code while reporting success (#139).
- *
- * Materializing the root from the VFS instead removes the second source rather than detecting
- * disagreement between them. The trade is round trips: one `tar` becomes a read-and-write per
- * file, so they run concurrently to keep the wall clock reasonable.
+ * The root is materialized from the durable VFS, the same source every guard around a build reads,
+ * never copied out of the container's mounted `/home/project`, which can diverge from it after a
+ * container recycle (#139). The cost is a read and a write per file, so they run concurrently.
  */
 
 /**

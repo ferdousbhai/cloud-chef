@@ -475,7 +475,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     ]);
     expect(prepareDeploymentArtifact).toHaveBeenCalledWith(
       expect.objectContaining({
-        operationId: 'preview:deployment-1:4:preview-1',
+        sessionId: 'preview:deployment-1:4:preview-1',
         workerName: 'deployme-cloudchef-deployment-1-preview',
         d1DatabaseId: 'preview-database-id',
         d1DatabaseName: 'cloudchef-deployment-1-preview',

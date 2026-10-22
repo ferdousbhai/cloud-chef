@@ -604,7 +604,6 @@ async function prepareValidatedArtifact(args: {
   return validatePreparedDeploymentArtifact(
     await args.workspace.prepareDeploymentArtifact({
       sessionId: args.sessionId,
-      operationId: args.operationId,
       deploymentId: deployment.id,
       executionGeneration: args.executionGeneration,
       revision: reference.revision,
