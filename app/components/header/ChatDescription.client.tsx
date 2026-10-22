@@ -34,7 +34,16 @@ export function ChatDescription() {
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
           />
-          <Button variant="neutral" onClick={handleSubmit} icon={<CheckIcon />} inline size="xs" tip="Save title" />
+          <Button
+            variant="neutral"
+            onClick={handleSubmit}
+            // Keeps the field focused, so leaving it does not put the name back before this saves it.
+            onMouseDown={(event) => event.preventDefault()}
+            icon={<CheckIcon />}
+            inline
+            size="xs"
+            tip="Save title"
+          />
         </form>
       ) : (
         <button

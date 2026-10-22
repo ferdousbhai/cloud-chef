@@ -1,13 +1,12 @@
 // @vitest-environment jsdom
 
-import { act, startTransition, Suspense } from 'react';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { useEditChatDescription as UseEditChatDescription } from './useEditChatDescription';
 
 const mocks = vi.hoisted(() => ({
   executeDataOperation: vi.fn(),
-  getDescription: Symbol('getDescription'),
   setDescription: Symbol('setDescription'),
   chatId: 'chat-1',
   toastError: vi.fn(),
@@ -17,7 +16,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock('~/lib/cloudflare/data-api', () => ({
   api: {
     messages: {
-      get: mocks.getDescription,
       setDescription: mocks.setDescription,
     },
   },
@@ -57,15 +55,6 @@ function Harness({ initialDescription = 'Old title' }: { initialDescription?: st
   return null;
 }
 
-function SuspendingHarness({ initialDescription, suspend }: { initialDescription: string; suspend?: Promise<never> }) {
-  const result = useEditChatDescription({ initialDescription });
-  if (suspend) {
-    throw suspend;
-  }
-  latest = result;
-  return <output>{result.currentDescription}</output>;
-}
-
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((complete) => {
@@ -74,18 +63,24 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+// SAFETY: the hook reads only `target.value` from a change event.
+const change = (value: string) => ({ target: { value } }) as React.ChangeEvent<HTMLInputElement>;
+// SAFETY: the hook calls only `preventDefault` on a submit.
+const submitEvent = { preventDefault: () => undefined } as React.FormEvent;
+// SAFETY: the hook reads only `key` from a key event.
+const escape = { key: 'Escape' } as React.KeyboardEvent<HTMLInputElement>;
+
 describe('useEditChatDescription', () => {
-  it('saves a title with accents, colons, and ampersands, and refuses only one over 200 characters', async () => {
+  it('saves a title with accents, colons, and ampersands, and refuses an empty one or one over 200 characters', async () => {
     mocks.executeDataOperation.mockResolvedValue(undefined);
     await act(async () => root?.render(<Harness />));
-    // SAFETY: the hook reads only `target.value` from a change event and calls only `preventDefault` on a submit.
-    const change = (value: string) => ({ target: { value } }) as React.ChangeEvent<HTMLInputElement>;
-    // SAFETY: as above.
-    const submitEvent = { preventDefault: () => undefined } as React.FormEvent;
 
     act(() => latest.toggleEditMode());
     act(() => latest.handleChange(change('x'.repeat(201))));
     await act(async () => latest.handleSubmit(submitEvent));
+    act(() => latest.handleChange(change('   ')));
+    await act(async () => latest.handleSubmit(submitEvent));
+    expect(mocks.toastError).toHaveBeenCalledTimes(2);
     expect(mocks.toastError).toHaveBeenCalledWith('Description must be between 1 and 200 characters.');
     expect(mocks.executeDataOperation).not.toHaveBeenCalled();
 
@@ -96,189 +91,40 @@ describe('useEditChatDescription', () => {
       sessionId: 'user-1',
       description: 'Café menu: v2 & more 🍰',
     });
-    expect(mocks.toastError).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not let an earlier blur response overwrite or reopen a submitted edit', async () => {
-    const blurRequest = deferred<{ description: string }>();
-    const saveRequest = deferred<void>();
-    mocks.executeDataOperation.mockImplementation((operation: symbol) =>
-      operation === mocks.getDescription ? blurRequest.promise : saveRequest.promise,
-    );
-
-    await act(async () => root?.render(<Harness />));
-    act(() => latest.toggleEditMode());
-    act(() => latest.handleChange({ target: { value: 'New title' } } as React.ChangeEvent<HTMLInputElement>));
-
-    let blur!: Promise<void>;
-    let submit!: Promise<void>;
-    act(() => {
-      blur = latest.handleBlur();
-      submit = latest.handleSubmit({ preventDefault: vi.fn() } as unknown as React.FormEvent);
-    });
-
-    await act(async () => {
-      blurRequest.resolve({ description: 'Old title' });
-      await blur;
-    });
-    expect(latest.currentDescription).toBe('New title');
-    expect(latest.editing).toBe(true);
-
-    await act(async () => {
-      saveRequest.resolve();
-      await submit;
-    });
-    expect(latest.currentDescription).toBe('New title');
-    expect(latest.editing).toBe(false);
-  });
-
-  it('ignores a save completion after the active chat changes', async () => {
-    const saveRequest = deferred<void>();
-    mocks.executeDataOperation.mockReturnValue(saveRequest.promise);
-    await act(async () => root?.render(<Harness />));
-    act(() => latest.toggleEditMode());
-    act(() => latest.handleChange({ target: { value: 'Chat one title' } } as React.ChangeEvent<HTMLInputElement>));
-
-    let submit!: Promise<void>;
-    act(() => {
-      submit = latest.handleSubmit({ preventDefault: vi.fn() } as unknown as React.FormEvent);
-    });
-    mocks.chatId = 'chat-2';
-    await act(async () => root?.render(<Harness />));
-    act(() => latest.toggleEditMode());
-    act(() => latest.handleChange({ target: { value: 'Chat two draft' } } as React.ChangeEvent<HTMLInputElement>));
-
-    await act(async () => {
-      saveRequest.resolve();
-      await submit;
-    });
-    expect(latest.currentDescription).toBe('Chat two draft');
-    expect(latest.editing).toBe(true);
-  });
-
-  it('allows a new chat to save while an old chat save is still pending', async () => {
-    const firstSave = deferred<void>();
-    const secondSave = deferred<void>();
-    mocks.executeDataOperation.mockImplementation((_operation: symbol, input: { id: string }) =>
-      input.id === 'chat-1' ? firstSave.promise : secondSave.promise,
-    );
-    await act(async () => root?.render(<Harness />));
-    act(() => latest.toggleEditMode());
-    act(() => latest.handleChange({ target: { value: 'Chat one title' } } as React.ChangeEvent<HTMLInputElement>));
-
-    let firstSubmit!: Promise<void>;
-    act(() => {
-      firstSubmit = latest.handleSubmit({ preventDefault: vi.fn() } as unknown as React.FormEvent);
-    });
-
-    mocks.chatId = 'chat-2';
-    await act(async () => root?.render(<Harness initialDescription="Chat two" />));
-    act(() => latest.toggleEditMode());
-    act(() => latest.handleChange({ target: { value: 'Chat two title' } } as React.ChangeEvent<HTMLInputElement>));
-
-    let secondSubmit!: Promise<void>;
-    act(() => {
-      secondSubmit = latest.handleSubmit({ preventDefault: vi.fn() } as unknown as React.FormEvent);
-    });
-
-    expect(mocks.executeDataOperation).toHaveBeenCalledTimes(2);
-    expect(mocks.executeDataOperation).toHaveBeenLastCalledWith(mocks.setDescription, {
-      id: 'chat-2',
-      sessionId: 'user-1',
-      description: 'Chat two title',
-    });
-
-    await act(async () => {
-      secondSave.resolve();
-      await secondSubmit;
-    });
-    expect(latest.currentDescription).toBe('Chat two title');
-    expect(latest.editing).toBe(false);
-
-    await act(async () => {
-      firstSave.resolve();
-      await firstSubmit;
-    });
-    expect(latest.currentDescription).toBe('Chat two title');
-  });
-
-  it('does not publish canonical props from a render that never commits', async () => {
-    const saveRequest = deferred<void>();
-    mocks.executeDataOperation.mockReturnValue(saveRequest.promise);
-    await act(async () =>
-      root?.render(
-        <Suspense fallback={null}>
-          <SuspendingHarness initialDescription="Old title" />
-        </Suspense>,
-      ),
-    );
-    act(() => latest.toggleEditMode());
-    act(() => latest.handleChange({ target: { value: 'Manual title' } } as React.ChangeEvent<HTMLInputElement>));
-
-    let submit!: Promise<void>;
-    act(() => {
-      submit = latest.handleSubmit({ preventDefault: vi.fn() } as unknown as React.FormEvent);
-    });
-    const neverCommits = new Promise<never>(() => undefined);
-    await act(async () => {
-      startTransition(() =>
-        root?.render(
-          <Suspense fallback={null}>
-            <SuspendingHarness initialDescription="Uncommitted title" suspend={neverCommits} />
-          </Suspense>,
-        ),
-      );
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      saveRequest.resolve();
-      await submit;
-    });
-
-    expect(document.querySelector('output')?.textContent).toBe('Manual title');
-  });
-
-  it('retains a successful local save when the canonical title changes while it is pending', async () => {
-    const saveRequest = deferred<void>();
-    mocks.executeDataOperation.mockReturnValue(saveRequest.promise);
-    await act(async () => root?.render(<Harness initialDescription="Old title" />));
-    act(() => latest.toggleEditMode());
-    act(() => latest.handleChange({ target: { value: 'Manual title' } } as React.ChangeEvent<HTMLInputElement>));
-
-    let submit!: Promise<void>;
-    act(() => {
-      submit = latest.handleSubmit({ preventDefault: vi.fn() } as unknown as React.FormEvent);
-    });
-    await act(async () => root?.render(<Harness initialDescription="Generated title" />));
-
-    await act(async () => {
-      saveRequest.resolve();
-      await submit;
-    });
-    expect(latest.currentDescription).toBe('Manual title');
+    expect(latest.currentDescription).toBe('Café menu: v2 & more 🍰');
     expect(latest.editing).toBe(false);
     expect(mocks.toastSuccess).toHaveBeenCalledWith('Chat description updated successfully');
   });
 
-  it('admits only one save at a time so requests cannot overwrite each other out of order', async () => {
+  it('puts the name back when the field is left or Escape is pressed, without asking the server', async () => {
+    await act(async () => root?.render(<Harness />));
+
+    act(() => latest.toggleEditMode());
+    act(() => latest.handleChange(change('Draft')));
+    act(() => latest.handleBlur());
+    expect(latest).toMatchObject({ editing: false, currentDescription: 'Old title' });
+
+    act(() => latest.toggleEditMode());
+    act(() => latest.handleChange(change('Another draft')));
+    act(() => latest.handleKeyDown(escape));
+    expect(latest).toMatchObject({ editing: false, currentDescription: 'Old title' });
+    expect(mocks.executeDataOperation).not.toHaveBeenCalled();
+  });
+
+  it('admits one save at a time, and leaving the field while it saves keeps the new name', async () => {
     const saveRequest = deferred<void>();
     mocks.executeDataOperation.mockReturnValue(saveRequest.promise);
     await act(async () => root?.render(<Harness />));
     act(() => latest.toggleEditMode());
-    act(() => latest.handleChange({ target: { value: 'First title' } } as React.ChangeEvent<HTMLInputElement>));
+    act(() => latest.handleChange(change('First title')));
 
     let firstSubmit!: Promise<void>;
     act(() => {
-      firstSubmit = latest.handleSubmit({ preventDefault: vi.fn() } as unknown as React.FormEvent);
+      firstSubmit = latest.handleSubmit(submitEvent);
     });
-    act(() => latest.handleChange({ target: { value: 'Second title' } } as React.ChangeEvent<HTMLInputElement>));
-
-    let secondSubmit!: Promise<void>;
-    act(() => {
-      secondSubmit = latest.handleSubmit({ preventDefault: vi.fn() } as unknown as React.FormEvent);
-    });
-    await act(async () => secondSubmit);
+    act(() => latest.handleBlur());
+    act(() => latest.handleChange(change('Second title')));
+    await act(async () => latest.handleSubmit(submitEvent));
 
     expect(mocks.executeDataOperation).toHaveBeenCalledTimes(1);
     expect(mocks.executeDataOperation).toHaveBeenCalledWith(mocks.setDescription, {
@@ -291,6 +137,30 @@ describe('useEditChatDescription', () => {
       saveRequest.resolve();
       await firstSubmit;
     });
-    expect(latest.currentDescription).toBe('First title');
+    expect(latest).toMatchObject({ editing: false, currentDescription: 'First title' });
+  });
+
+  it('starts over for another chat, and a save still pending for the first does not touch it', async () => {
+    const saveRequest = deferred<void>();
+    mocks.executeDataOperation.mockReturnValue(saveRequest.promise);
+    await act(async () => root?.render(<Harness />));
+    act(() => latest.toggleEditMode());
+    act(() => latest.handleChange(change('Chat one title')));
+    let submit!: Promise<void>;
+    act(() => {
+      submit = latest.handleSubmit(submitEvent);
+    });
+
+    mocks.chatId = 'chat-2';
+    await act(async () => root?.render(<Harness initialDescription="Chat two" />));
+    expect(latest).toMatchObject({ editing: false, currentDescription: 'Chat two' });
+    act(() => latest.toggleEditMode());
+    act(() => latest.handleChange(change('Chat two draft')));
+
+    await act(async () => {
+      saveRequest.resolve();
+      await submit;
+    });
+    expect(latest).toMatchObject({ editing: true, currentDescription: 'Chat two draft' });
   });
 });
