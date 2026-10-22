@@ -10,18 +10,24 @@
  * The primary reader is a coding agent, so the report leads with what is wrong, says which
  * parts it could not read instead of printing a reassuring zero, and offers `--json`.
  */
-import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { promisify } from 'node:util';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
-import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
-
-const execFileAsync = promisify(execFile);
+import {
+  attempt,
+  bounded,
+  cfReader,
+  DAY,
+  execFileAsync,
+  extractJson,
+  HOUR,
+  MINUTE,
+  resolveControlPlaneDatabaseId,
+  WEEK,
+} from './lib/ops-cf.mjs';
 
 const DATABASE_NAME = 'cloudchef';
-const PLACEHOLDER_D1_ID = '00000000-0000-0000-0000-000000000000';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RUNTIME_BUNDLE_PATH = resolve(ROOT, 'app/generated/user-workspace-runtime.generated.ts');
 const RUNTIME_SHA_PATTERN = /USER_WORKSPACE_RUNTIME_SHA256 = "([a-f0-9]{64})"/;
@@ -45,11 +51,6 @@ export const PI_WORKERS_AI_MODEL_IDS = new Set(
 );
 /** One page covers the Workers AI text-generation catalog with room to spare. */
 const MODEL_CATALOG_PAGE_SIZE = 100;
-
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-const WEEK = 7 * DAY;
 
 /** How many connected accounts one report inspects. */
 const RUNTIME_ROW_LIMIT = 200;
@@ -122,11 +123,6 @@ function formatDuration(ms) {
     return `${hours}h`;
   }
   return `${Math.floor(ms / DAY)}d`;
-}
-
-/** Collapse whitespace and bound a provider string before it reaches a terminal. */
-function bounded(value, limit = 240) {
-  return String(value).replaceAll(/\s+/g, ' ').trim().slice(0, limit);
 }
 
 /** A generation or content hash is unreadable in full and unambiguous at twelve characters. */
@@ -346,49 +342,6 @@ export function coreStatements(now) {
 }
 
 /**
- * Run one read through the operator's `cf` CLI login. `cf` resolves the account itself, from
- * `CLOUDFLARE_ACCOUNT_ID` or the single account the login can see, and asks when that is ambiguous,
- * so the report holds no account or credential of its own.
- *
- * @param {readonly string[]} args the `cf` command and its flags
- * @param {{ run?: typeof execFileAsync; env?: Record<string, string | undefined> }} [options]
- * @returns {Promise<unknown>} the parsed JSON answer
- */
-async function runCf(args, { run = execFileAsync, env = process.env } = {}) {
-  let stdout;
-  try {
-    ({ stdout } = await run('pnpm', ['exec', 'cf', ...args], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      // cf reports usage unless told not to; a read-only status report must not phone home.
-      env: { ...env, CF_SEND_TELEMETRY: 'false' },
-      maxBuffer: 64 * 1024 * 1024,
-      timeout: 120_000,
-    }));
-  } catch (error) {
-    throw new Error(describeCfFailure(error));
-  }
-  const parsed = extractJson(stdout);
-  if (parsed === null) {
-    throw new Error(`\`cf ${args.slice(0, 3).join(' ')}\` did not return JSON: ${bounded(stdout, 200)}`);
-  }
-  return parsed;
-}
-
-/**
- * The control-plane database's id. `cf d1 query` addresses a database by id, so it is read from
- * `cloudflare.config.ts` rather than repeated here.
- */
-async function resolveDatabaseId() {
-  const config = await loadCommittedWranglerConfig();
-  const database = config?.d1_databases?.find((binding) => binding?.binding === 'DB');
-  if (!database?.database_id || database.database_id === PLACEHOLDER_D1_ID) {
-    throw new Error('cloudflare.config.ts binds DB to no provisioned D1 database id, so there is nothing to read.');
-  }
-  return database.database_id;
-}
-
-/**
  * Run read-only SQL against production D1 as the authenticated operator.
  *
  * @param {string} sql one or more `;`-separated SELECT statements
@@ -396,8 +349,8 @@ async function resolveDatabaseId() {
  * @returns {Promise<Array<Array<Record<string, unknown>>>>} rows per statement
  */
 export async function queryProduction(sql, { run = execFileAsync, env = process.env, databaseId } = {}) {
-  const id = databaseId ?? (await resolveDatabaseId());
-  return parseD1Response(await runCf(['d1', 'query', id, '--sql', sql], { run, env }));
+  const id = databaseId ?? (await resolveControlPlaneDatabaseId());
+  return parseD1Response(await cfReader({ run, env })(['d1', 'query', id, '--body', JSON.stringify({ sql })]));
 }
 
 /**
@@ -436,10 +389,13 @@ export function workerInvocationsQuery(now) {
  * @returns {Promise<Array<Record<string, unknown>>>} one aggregate per invocation outcome
  */
 export async function readWorkerInvocations({ now = Date.now(), run = execFileAsync, env = process.env } = {}) {
-  const payload = await runCf(['o11y', 'telemetry', 'query', '--body', JSON.stringify(workerInvocationsQuery(now))], {
-    run,
-    env,
-  });
+  const payload = await cfReader({ run, env })([
+    'o11y',
+    'telemetry',
+    'query',
+    '--body',
+    JSON.stringify(workerInvocationsQuery(now)),
+  ]);
   return readInvocationGroups(payload);
 }
 
@@ -465,24 +421,6 @@ function readInvocationGroups(payload) {
   return aggregates;
 }
 
-/**
- * Turn a failed `cf` command into the sentence an operator can act on. `cf` reports a failure as
- * a boxed block on stderr (`┌ APIError`, `│ [7500] no such table: …`, `└`); the box lines carry
- * the reason and everything else is pnpm's own wrapper noise.
- */
-function describeCfFailure(error) {
-  const stderr = typeof error?.stderr === 'string' ? error.stderr : '';
-  const boxed = stderr
-    .split('\n')
-    .filter((line) => line.startsWith('│'))
-    .map((line) => line.slice(1).trim())
-    .filter(Boolean);
-  if (boxed.length > 0) {
-    return bounded(boxed.join(' '), 400);
-  }
-  return bounded(stderr || error?.message || 'cf produced no output.', 400);
-}
-
 /** `cf d1 query` returns one envelope per statement; this keeps only the rows. */
 export function parseD1Response(answer) {
   const parsed = typeof answer === 'string' ? extractJson(answer) : answer;
@@ -490,22 +428,6 @@ export function parseD1Response(answer) {
     throw new Error('cf did not return a D1 result array.');
   }
   return parsed.map((result) => (Array.isArray(result?.results) ? result.results : []));
-}
-
-/** A CLI may prefix its JSON with a blank line or a banner. */
-function extractJson(text) {
-  if (typeof text !== 'string') {
-    return null;
-  }
-  const start = text.search(/[[{]/);
-  if (start < 0) {
-    return null;
-  }
-  try {
-    return JSON.parse(text.slice(start));
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -546,19 +468,16 @@ export async function readPinnedBuilderModel(readFileImpl = readFile) {
  * @returns {Promise<Array<Record<string, unknown>>>}
  */
 export async function readWorkersAiCatalog({ run = execFileAsync, env = process.env } = {}) {
-  const payload = await runCf(
-    [
-      'ai',
-      'models',
-      'list',
-      '--task',
-      'Text Generation',
-      '--hide-experimental',
-      '--per-page',
-      String(MODEL_CATALOG_PAGE_SIZE),
-    ],
-    { run, env },
-  );
+  const payload = await cfReader({ run, env })([
+    'ai',
+    'models',
+    'list',
+    '--task',
+    'Text Generation',
+    '--hide-experimental',
+    '--per-page',
+    String(MODEL_CATALOG_PAGE_SIZE),
+  ]);
   if (!Array.isArray(payload)) {
     throw new Error('`cf ai models list` did not return a list of models.');
   }
@@ -702,15 +621,6 @@ export async function collectReport({
     headline: headlineFor(checks, core),
     checks,
   };
-}
-
-/** Run one read and record why it failed instead of letting the failure look like emptiness. */
-async function attempt(read) {
-  try {
-    return { ok: true, value: await read() };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
 }
 
 /**

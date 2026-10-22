@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  assertReadOnlyCf,
-  cfReader,
   collectSession,
   conversationFromGateway,
   memberBranch,
@@ -13,6 +11,7 @@ import {
   toolFailure,
   workspaceDatabaseName,
 } from './ops-session.mjs';
+import { assertReadOnlyCf, cfReader } from './lib/ops-cf.mjs';
 
 const CONTROL_PLANE = '04680db0-07a0-468d-9547-e07f5091756c';
 const WORKSPACE_DB = 'b5ff675f-65c6-49c2-b3dc-4c3cbe972381';
@@ -192,15 +191,20 @@ function fakeProduction() {
 }
 
 describe('ops:session reads production without changing it', () => {
-  it('allows only read-only cf commands, single SELECTs, and dry-run log queries', () => {
+  it('allows only read-only cf commands, SELECTs, and dry-run log queries', () => {
     expect(() => assertReadOnlyCf(['d1', 'list'])).not.toThrow();
+    expect(() => assertReadOnlyCf(['ai', 'models', 'list', '--task', 'Text Generation'])).not.toThrow();
     expect(() =>
       assertReadOnlyCf(['d1', 'query', 'db', '--body', JSON.stringify({ sql: 'SELECT 1', params: [] })]),
+    ).not.toThrow();
+    expect(() =>
+      assertReadOnlyCf(['d1', 'query', 'db', '--body', JSON.stringify({ sql: 'SELECT 1;\nSELECT 2' })]),
     ).not.toThrow();
     for (const args of [
       ['d1', 'execute', 'db'],
       ['d1', 'query', 'db', '--body', JSON.stringify({ sql: 'UPDATE chats SET is_deleted = 1' })],
       ['d1', 'query', 'db', '--body', JSON.stringify({ sql: 'SELECT 1; DROP TABLE chats' })],
+      ['d1', 'query', 'db', '--body', JSON.stringify({ sql: 'SELECT 1' }), '--sql', 'DROP TABLE chats'],
       ['d1', 'query', 'db', '--sql', 'SELECT 1'],
       ['ai-gateway', 'logs', 'delete', '--gateway-id', 'default'],
       ['o11y', 'telemetry', 'query', '--body', JSON.stringify({ dry: false })],

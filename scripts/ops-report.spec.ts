@@ -40,11 +40,33 @@ describe('read-only production access', () => {
 
     expect(calls).toEqual([
       {
-        args: ['exec', 'cf', 'd1', 'query', expect.stringMatching(/^[0-9a-f-]{36}$/), '--sql', 'SELECT 1 AS total'],
+        args: [
+          'exec',
+          'cf',
+          'd1',
+          'query',
+          expect.stringMatching(/^[0-9a-f-]{36}$/),
+          '--body',
+          JSON.stringify({ sql: 'SELECT 1 AS total' }),
+        ],
         env: { CF_SEND_TELEMETRY: 'false' },
       },
     ]);
     expect(calls[0]?.args[4]).not.toBe('00000000-0000-0000-0000-000000000000');
+  });
+
+  it('refuses a statement that is not a SELECT before starting cf', async () => {
+    let runs = 0;
+    const run = async () => {
+      runs += 1;
+      return { stdout: '[]' };
+    };
+
+    await expect(
+      // SAFETY: the fake implements the one exec invocation this reader makes; no child process is started.
+      queryProduction('SELECT 1;\nDELETE FROM "user"', { run: run as never, env: {}, databaseId: 'db' }),
+    ).rejects.toThrow('only SELECT statements');
+    expect(runs).toBe(0);
   });
 
   it("reads the named Worker's outcomes from Workers Logs with a dry-run query that saves nothing", async () => {

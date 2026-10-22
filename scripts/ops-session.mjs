@@ -20,18 +20,19 @@
  * `SELECT`, every `cf` command is on a read-only allowlist, and `gh` is only asked for GETs. No secret
  * is read or printed; conversation content appears only where the person kept AI Gateway logging on.
  */
-import { execFile } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { promisify } from 'node:util';
+import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
-import { loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
-
-const execFileAsync = promisify(execFile);
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
+import {
+  attempt,
+  bounded,
+  cfReader,
+  DAY,
+  describeCommandFailure,
+  execFileAsync,
+  extractJson,
+  MINUTE,
+  resolveControlPlaneDatabaseId,
+} from './lib/ops-cf.mjs';
 
 const GATEWAY_ID = 'default';
 const GATEWAY_PAGE_SIZE = 50;
@@ -50,38 +51,10 @@ const COMMITS = 5;
 const BRANCHES_LISTED = 20;
 const BRANCH_READS_AT_ONCE = 8;
 
-/** The only `cf` commands this script runs. Each one reads. */
-const READ_ONLY_CF_COMMANDS = Object.freeze([
-  'd1 query',
-  'd1 list',
-  'o11y telemetry query',
-  'ai-gateway logs list',
-  'ai-gateway logs get-request',
-  'ai-gateway logs get-response',
-]);
-
 /**
- * @typedef {(args: readonly string[], options?: { accountId?: string }) => Promise<any>} CfReader
+ * @typedef {import('./lib/ops-cf.mjs').CfReader} CfReader
  * @typedef {(path: string) => Promise<any>} GhReader
  */
-
-/** Refuse anything but a read: a misuse of this script must never change production. */
-export function assertReadOnlyCf(args) {
-  const command = READ_ONLY_CF_COMMANDS.find((name) => args.slice(0, name.split(' ').length).join(' ') === name);
-  if (!command) {
-    throw new Error(`ops:session runs only read-only cf commands; refused \`cf ${args.slice(0, 3).join(' ')}\`.`);
-  }
-  if (command === 'd1 query') {
-    const body = args[args.indexOf('--body') + 1];
-    const sql = body ? JSON.parse(body).sql : '';
-    if (!/^\s*SELECT\b/i.test(sql) || /;\s*\S/.test(sql)) {
-      throw new Error('ops:session issues only single SELECT statements.');
-    }
-  }
-  if (command === 'o11y telemetry query' && JSON.parse(args[args.indexOf('--body') + 1]).dry !== true) {
-    throw new Error('ops:session issues only dry-run Workers Logs queries, which save nothing.');
-  }
-}
 
 /**
  * Accept only identifier-shaped input: it reaches SQL only as a bound parameter, but is echoed too.
@@ -124,19 +97,8 @@ async function select(cf, databaseId, sql, params, options) {
 }
 
 /** Run a read, keeping its failure as the reason a section is unknown instead of aborting the rest. */
-async function attempt(read) {
-  try {
-    return { ok: true, value: await read() };
-  } catch (error) {
-    return { ok: false, error: bounded(error instanceof Error ? error.message : String(error), 400) };
-  }
-}
-
-function bounded(value, limit = 240) {
-  return String(value ?? '')
-    .replaceAll(/\s+/g, ' ')
-    .trim()
-    .slice(0, limit);
+function attemptRead(read) {
+  return attempt(read, { limit: 400 });
 }
 
 /** The Workers Logs query for one page of a Worker's events, newest first, before `to`. */
@@ -395,16 +357,6 @@ export function conversationFromGateway(request, response, { textLimit = 600 } =
   return { messageCount: messages.length, tools: Array.isArray(request?.tools) ? request.tools.length : 0, entries };
 }
 
-/** The control-plane database's id, as `cloudflare.config.ts` binds it. */
-async function resolveControlPlaneDatabaseId() {
-  const config = await loadCommittedWranglerConfig();
-  const id = config?.d1_databases?.find((binding) => binding?.binding === 'DB')?.database_id;
-  if (!id || id === '00000000-0000-0000-0000-000000000000') {
-    throw new Error('cloudflare.config.ts binds DB to no provisioned D1 database id.');
-  }
-  return id;
-}
-
 const RUNTIME_SQL = `SELECT runtimes.user_id, users.email, runtimes.connection_id, runtimes.connection_generation,
     runtimes.worker_name, runtimes.runtime_version, runtimes.protocol_version, runtimes.status,
     runtimes.last_session_at, runtimes.updated_at, connections.account_id, connections.org_id,
@@ -455,7 +407,7 @@ export async function collectSession(target, { cf, gh, controlPlaneDatabaseId, n
     if (!databasesByAccount.has(runtime.account_id)) {
       databasesByAccount.set(
         runtime.account_id,
-        await attempt(async () => {
+        await attemptRead(async () => {
           const list = await cf(['d1', 'list'], { accountId: runtime.account_id });
           return new Map((Array.isArray(list) ? list : []).map((database) => [database.name, database.uuid]));
         }),
@@ -475,7 +427,7 @@ export async function collectSession(target, { cf, gh, controlPlaneDatabaseId, n
     }
     const chats = note(
       `chats of ${runtime.worker_name}`,
-      await attempt(() =>
+      await attemptRead(() =>
         select(
           cf,
           databaseId,
@@ -525,7 +477,7 @@ export async function collectSession(target, { cf, gh, controlPlaneDatabaseId, n
 
   const usage = note(
     'organization usage',
-    await attempt(() =>
+    await attemptRead(() =>
       select(
         cf,
         controlPlaneDatabaseId,
@@ -537,7 +489,7 @@ export async function collectSession(target, { cf, gh, controlPlaneDatabaseId, n
   );
   const transcripts = note(
     'chat transcripts',
-    await attempt(() =>
+    await attemptRead(() =>
       select(
         cf,
         databaseId,
@@ -550,7 +502,7 @@ export async function collectSession(target, { cf, gh, controlPlaneDatabaseId, n
   );
   const deployments = note(
     'deployments',
-    await attempt(() =>
+    await attemptRead(() =>
       select(
         cf,
         databaseId,
@@ -564,7 +516,7 @@ export async function collectSession(target, { cf, gh, controlPlaneDatabaseId, n
 
   const gateway = note(
     'AI Gateway logs',
-    await attempt(() => readGatewayLogs(cf, { chatKey: chat.initial_id, accountId })),
+    await attemptRead(() => readGatewayLogs(cf, { chatKey: chat.initial_id, accountId })),
   );
   const requests = (gateway?.logs ?? []).map(gatewayLogSummary);
   let conversation = null;
@@ -572,13 +524,13 @@ export async function collectSession(target, { cf, gh, controlPlaneDatabaseId, n
   if (last) {
     const request = note(
       'the latest model request',
-      await attempt(() =>
+      await attemptRead(() =>
         cf(['ai-gateway', 'logs', 'get-request', last.id, '--gateway-id', GATEWAY_ID], { accountId }),
       ),
     );
     const response = note(
       'the latest model response',
-      await attempt(() =>
+      await attemptRead(() =>
         cf(['ai-gateway', 'logs', 'get-response', last.id, '--gateway-id', GATEWAY_ID], { accountId }),
       ),
     );
@@ -603,7 +555,7 @@ export async function collectSession(target, { cf, gh, controlPlaneDatabaseId, n
   };
   const events = note(
     `Workers Logs for ${runtime.worker_name}`,
-    await attempt(() => readWorkspaceEvents(cf, { workerName: runtime.worker_name, ...window, accountId })),
+    await attemptRead(() => readWorkspaceEvents(cf, { workerName: runtime.worker_name, ...window, accountId })),
   );
 
   let github = null;
@@ -652,7 +604,7 @@ async function readGithub({ cf, gh, controlPlaneDatabaseId, projectId, owner, no
   // chat's can't be told from here: all of the member's are listed by their last commit, and the
   // latest one's commits are read. `matching-refs` matches by prefix, so another member whose branch
   // starts with this one's name is filtered out.
-  const matching = await attempt(() => gh(`repos/${project.repo_full_name}/git/matching-refs/heads/${member}`));
+  const matching = await attemptRead(() => gh(`repos/${project.repo_full_name}/git/matching-refs/heads/${member}`));
   const own = new RegExp(`^${member.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:-[a-z0-9]{8,32})?$`);
   const refs = (matching.ok && Array.isArray(matching.value) ? matching.value : [])
     .map((ref) => ({ name: String(ref.ref ?? '').replace(/^refs\/heads\//, ''), sha: ref.object?.sha }))
@@ -662,7 +614,7 @@ async function readGithub({ cf, gh, controlPlaneDatabaseId, projectId, owner, no
     heads.push(
       ...(await Promise.all(
         refs.slice(start, start + BRANCH_READS_AT_ONCE).map(async (ref) => {
-          const commit = await attempt(() => gh(`repos/${project.repo_full_name}/commits/${ref.sha}`));
+          const commit = await attemptRead(() => gh(`repos/${project.repo_full_name}/commits/${ref.sha}`));
           return { name: ref.name, lastCommitAt: commit.ok ? (commit.value?.commit?.committer?.date ?? '') : '' };
         }),
       )),
@@ -673,13 +625,13 @@ async function readGithub({ cf, gh, controlPlaneDatabaseId, projectId, owner, no
   const branches = { total: heads.length, latest: heads.slice(0, BRANCHES_LISTED) };
   const commits = note(
     `GitHub commits on ${branch}`,
-    await attempt(async () => {
+    await attemptRead(async () => {
       const rows = await gh(
         `repos/${project.repo_full_name}/commits?sha=${encodeURIComponent(branch)}&per_page=${COMMITS}`,
       );
       return Promise.all(
         (Array.isArray(rows) ? rows : []).map(async (row) => {
-          const checks = await attempt(() =>
+          const checks = await attemptRead(() =>
             gh(`repos/${project.repo_full_name}/commits/${row.sha}/check-runs?per_page=20`),
           );
           return {
@@ -825,62 +777,6 @@ export function renderSession(session) {
   return lines.join('\n').trimEnd();
 }
 
-function describeFailure(error) {
-  const stderr = textOrEmpty.parse(error?.stderr);
-  const boxed = stderr
-    .split('\n')
-    .filter((line) => line.startsWith('│'))
-    .map((line) => line.slice(1).trim())
-    .filter(Boolean);
-  return bounded(boxed.length ? boxed.join(' ') : stderr || error?.message || 'no output', 400);
-}
-
-function parseJson(output) {
-  const text = textOrEmpty.parse(output);
-  const start = text.search(/[[{]/);
-  if (start < 0) {
-    return null;
-  }
-  try {
-    return JSON.parse(text.slice(start));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The real `cf` reader: the operator's own login, telemetry off, the runtime's account selected.
- * @param {{ run?: typeof execFileAsync; env?: Record<string, string | undefined> }} [options]
- * @returns {CfReader}
- */
-export function cfReader({ run = execFileAsync, env = process.env } = {}) {
-  return async (args, { accountId } = {}) => {
-    assertReadOnlyCf(args);
-    // cf reports usage unless told not to; a read-only report must not phone home.
-    const commandEnv = { ...env, CF_SEND_TELEMETRY: 'false' };
-    if (accountId) {
-      commandEnv.CLOUDFLARE_ACCOUNT_ID = accountId;
-    }
-    let stdout;
-    try {
-      ({ stdout } = await run('pnpm', ['exec', 'cf', ...args], {
-        cwd: ROOT,
-        encoding: 'utf8',
-        env: commandEnv,
-        maxBuffer: 256 * 1024 * 1024,
-        timeout: 120_000,
-      }));
-    } catch (error) {
-      throw new Error(describeFailure(error));
-    }
-    const parsed = parseJson(stdout);
-    if (parsed === null) {
-      throw new Error(`\`cf ${args.slice(0, 3).join(' ')}\` did not return JSON: ${bounded(stdout, 200)}`);
-    }
-    return parsed;
-  };
-}
-
 /**
  * The real `gh` reader: GETs only, through the operator's own GitHub login.
  * @returns {GhReader}
@@ -896,9 +792,9 @@ function ghReader({ run = execFileAsync, env = process.env } = {}) {
         timeout: 60_000,
       }));
     } catch (error) {
-      throw new Error(describeFailure(error));
+      throw new Error(describeCommandFailure(error, 'gh'));
     }
-    return parseJson(stdout);
+    return extractJson(stdout);
   };
 }
 
