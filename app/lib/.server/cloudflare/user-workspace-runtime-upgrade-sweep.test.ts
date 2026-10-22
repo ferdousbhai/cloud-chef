@@ -11,10 +11,8 @@ import type { CloudflareConnection } from './cloudflare-connection-repository';
 import type { OutdatedUserWorkspaceRuntime, UserWorkspaceRuntime } from './user-workspace-runtime-repository';
 import {
   FAILED_UPGRADE_RESTART_EVERY_SWEEPS,
-  sweepSlot,
   sweepUserWorkspaceRuntimeUpgrades,
   UPGRADE_SWEEP_INTERVAL_MS,
-  UPGRADE_SWEEP_MAX_CANDIDATES,
   UPGRADE_SWEEP_MAX_LAUNCHES,
   type UserWorkspaceRuntimeUpgradeSweepDependencies,
 } from './user-workspace-runtime-upgrade-sweep';
@@ -85,22 +83,11 @@ describe('scheduled workspace runtime upgrade sweep', () => {
       runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
       imageDigest: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
       protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
-      limit: UPGRADE_SWEEP_MAX_CANDIDATES,
-      rotation: 0,
     });
     expect(dependencies.sweepOne.mock.calls.map(([args]) => [args.userId, args.connectionId])).toEqual([
       ['owner-of-a', 'a'],
       ['owner-of-b', 'b'],
     ]);
-  });
-
-  it('looks at the next page of outdated runtimes on each sweep', async () => {
-    const dependencies = sweepDependencies({ outdated: [] });
-
-    await sweepUserWorkspaceRuntimeUpgrades({ env, scheduledTime: 0, dependencies });
-    await sweepUserWorkspaceRuntimeUpgrades({ env, scheduledTime: UPGRADE_SWEEP_INTERVAL_MS, dependencies });
-
-    expect(dependencies.listOutdated.mock.calls.map(([, args]) => args.rotation)).toEqual([0, 1]);
   });
 
   it('launches at most a batch per sweep, not counting upgrades already waiting', async () => {
@@ -152,10 +139,7 @@ describe('scheduled workspace runtime upgrade sweep', () => {
       await sweepUserWorkspaceRuntimeUpgrades({ env, scheduledTime: sweep * UPGRADE_SWEEP_INTERVAL_MS, dependencies });
     }
     expect(restartFailed.filter(Boolean)).toHaveLength(2);
-    expect(restartFailed.indexOf(true)).toBe(
-      (FAILED_UPGRADE_RESTART_EVERY_SWEEPS - (sweepSlot(candidate) % FAILED_UPGRADE_RESTART_EVERY_SWEEPS)) %
-        FAILED_UPGRADE_RESTART_EVERY_SWEEPS,
-    );
+    expect(restartFailed.indexOf(true)).toBe(0);
 
     const dependencies = sweepDependencies({
       outdated: [runtime('throws'), runtime('fine')],

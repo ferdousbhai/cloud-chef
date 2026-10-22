@@ -16,12 +16,6 @@ import { findUserWorkspaceRuntime, listOutdatedUserWorkspaceRuntimes } from './u
  * once; this spreads their upgrades over the sweeps that follow instead of starting them all together.
  */
 export const UPGRADE_SWEEP_MAX_LAUNCHES = 10;
-/**
- * How many outdated runtimes one sweep looks at, including those whose upgrade is already waiting. When
- * there are more, each sweep looks at the next page of them, so a page of upgrades all still waiting never
- * keeps the sweep from the rest.
- */
-export const UPGRADE_SWEEP_MAX_CANDIDATES = 50;
 /** The control plane's cron interval (`cloudflare.config.ts`), which the sweep runs on. */
 export const UPGRADE_SWEEP_INTERVAL_MS = 15 * 60_000;
 /** A failed upgrade is restarted on one sweep in this many, so at most hourly. */
@@ -73,9 +67,8 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
     runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
     imageDigest: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
     protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
-    limit: UPGRADE_SWEEP_MAX_CANDIDATES,
-    rotation: sweep,
   });
+  const restartFailed = sweep % FAILED_UPGRADE_RESTART_EVERY_SWEEPS === 0;
   for (const candidate of candidates) {
     if (summary.started + summary.restarted >= UPGRADE_SWEEP_MAX_LAUNCHES) {
       break;
@@ -95,9 +88,7 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
         userId: candidate.userId,
         connectionId: candidate.connectionId,
         connectionGeneration: candidate.connectionGeneration,
-        // Each runtime has its own slot among the sweeps, so a failed upgrade is retried on one sweep in N
-        // and the retries of many are spread over them.
-        restartFailed: (sweep + sweepSlot(candidate)) % FAILED_UPGRADE_RESTART_EVERY_SWEEPS === 0,
+        restartFailed,
         isCurrent: async () => {
           const runtime = await dependencies.findRuntime(args.env.DB, candidate.userId, candidate.connectionId);
           return runtime !== null && isCurrentUserWorkspaceRuntime(runtime);
@@ -116,15 +107,6 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
     console.info({ event: 'runtime_upgrade_sweep', outdated: candidates.length, ...summary });
   }
   return summary;
-}
-
-/** A stable number for a runtime, the same on every sweep. */
-export function sweepSlot(runtime: { userId: string; connectionId: string }): number {
-  let slot = 0;
-  for (const character of `${runtime.userId}:${runtime.connectionId}`) {
-    slot = (slot * 31 + (character.codePointAt(0) ?? 0)) % 1_000_003;
-  }
-  return slot;
 }
 
 /** The scheduled entry point: a sweep that fails is logged and tried again on the next schedule. */
