@@ -6,7 +6,7 @@ import { base64ToBytes, bytesToBase64Url } from '~/lib/hex-digest';
  * key in PKCS#8 (`BEGIN PRIVATE KEY`); GitHub issues PKCS#1, converted once with
  * `openssl pkcs8 -topk8 -nocrypt`.
  */
-export async function createGitHubAppJwt(clientId: string, privateKeyPem: string, now = Date.now()): Promise<string> {
+export async function createGitHubAppJwt(clientId: string, privateKeyPem: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     'pkcs8',
     pemToDer(privateKeyPem),
@@ -14,7 +14,7 @@ export async function createGitHubAppJwt(clientId: string, privateKeyPem: string
     false,
     ['sign'],
   );
-  const issuedAt = Math.floor(now / 1_000) - 60;
+  const issuedAt = Math.floor(Date.now() / 1_000) - 60;
   const header = encodeSegment(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
   const claims = encodeSegment(JSON.stringify({ iat: issuedAt, exp: issuedAt + 9 * 60, iss: clientId }));
   const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(`${header}.${claims}`));

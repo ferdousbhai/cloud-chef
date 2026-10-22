@@ -6,7 +6,7 @@
  * Subtracting the union from the turn's elapsed time is what makes "was this turn slow because of
  * the model or because of the workspace" answerable from telemetry instead of by guessing.
  */
-export function createToolTimeAccounting(now: () => number = Date.now) {
+export function createToolTimeAccounting() {
   const open = new Map<string, { toolName: string; startedAt: number }>();
   const byName: Record<string, number> = {};
   let unionStartedAt: number | null = null;
@@ -21,7 +21,7 @@ export function createToolTimeAccounting(now: () => number = Date.now) {
 
   return {
     start(toolCallId: string, toolName: string): void {
-      const at = now();
+      const at = Date.now();
       if (open.size === 0) {
         unionStartedAt = at;
       }
@@ -32,7 +32,7 @@ export function createToolTimeAccounting(now: () => number = Date.now) {
       if (!entry) {
         return;
       }
-      const at = now();
+      const at = Date.now();
       open.delete(toolCallId);
       byName[entry.toolName] = (byName[entry.toolName] ?? 0) + Math.max(0, at - entry.startedAt);
       if (open.size === 0) {
@@ -41,7 +41,7 @@ export function createToolTimeAccounting(now: () => number = Date.now) {
     },
     /** A turn can end with tools still open — cancellation, an aborted stream. Bank what ran. */
     settle(): void {
-      const at = now();
+      const at = Date.now();
       for (const entry of open.values()) {
         byName[entry.toolName] = (byName[entry.toolName] ?? 0) + Math.max(0, at - entry.startedAt);
       }

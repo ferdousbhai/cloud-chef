@@ -161,7 +161,9 @@ describe('GitHub App', () => {
   it('signs a nine-minute RS256 token GitHub can verify', async () => {
     const { pem, publicKey } = await pkcs8Pem();
     const now = Date.UTC(2026, 9, 19, 12);
-    const [header, claims, signature] = (await createGitHubAppJwt('Iv1.test', pem, now)).split('.');
+    vi.useFakeTimers({ toFake: ['Date'], now });
+    const [header, claims, signature] = (await createGitHubAppJwt('Iv1.test', pem)).split('.');
+    vi.useRealTimers();
     const decode = (segment: string) => atob(segment.replaceAll('-', '+').replaceAll('_', '/'));
     expect(JSON.parse(decode(header))).toEqual({ alg: 'RS256', typ: 'JWT' });
     expect(JSON.parse(decode(claims))).toEqual({ iat: now / 1_000 - 60, exp: now / 1_000 + 480, iss: 'Iv1.test' });
