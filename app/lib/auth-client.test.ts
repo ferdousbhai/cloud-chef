@@ -7,12 +7,14 @@ import { createBrowserHistory, createRootRoute, createRouter, RouterProvider } f
 import {
   authClient,
   createCloudflareReturnURL,
+  refreshSession,
   retrySession,
   signInWithCloudflare,
   signOutOfCloudChef,
   switchWorkspace,
 } from './auth-client';
 import { useUnsavedEditsGuard } from '~/lib/hooks/useUnsavedEditsGuard';
+import { userIdStore } from '~/lib/stores/userId';
 import { PENDING_SUBMIT_STORAGE_KEY } from '~/utils/constants';
 
 afterEach(() => {
@@ -161,9 +163,42 @@ describe('a session that could not be checked', () => {
 
     await act(async () => root.render(createElement(Probe)));
     expect(seen.at(-1)).toEqual({ email: null, error: "Couldn't check your session.", isPending: false });
+    expect(userIdStore.get()).toBeNull();
 
     await act(async () => retrySession());
     expect(seen.at(-1)).toEqual({ email: 'sam@acme.com', error: null, isPending: false });
+    // Signed in without a Cloudflare account to build in is, for building, signed out.
+    expect(userIdStore.get()).toBeNull();
     await act(async () => root.unmount());
+  });
+});
+
+describe('the user a session builds as', () => {
+  test('is loading until the session is known, then the user of a session with an account to build in', async () => {
+    const personal = { kind: 'personal', connectionId: 'c', accountName: null };
+    let answer: (response: Response) => void = () => undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            answer = resolve;
+          }),
+      ),
+    );
+    const checked = refreshSession();
+    await act(async () => retrySession());
+    expect(userIdStore.get()).toBeUndefined();
+
+    answer(
+      Response.json({
+        session: { id: 's', userId: 'u', expiresAt: 2, createdAt: 1 },
+        user: { id: 'u', name: 'Sam', email: 'sam@acme.com', image: null },
+        context: personal,
+        contexts: [personal],
+      }),
+    );
+    await checked;
+    expect(userIdStore.get()).toBe('u');
   });
 });

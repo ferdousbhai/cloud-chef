@@ -9,7 +9,7 @@ import { fetchUserRuntime } from '~/lib/cloudflare/runtime-session';
 import { createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
 import { getMessageInputRevision, messageInputStore, setMessageInput } from '~/lib/stores/messageInput';
 import { takePendingSubmit } from '~/lib/stores/pending-submit';
-import { isAuthenticated } from '~/lib/stores/userId';
+import { isAuthenticated, useCloudChefAuthKind } from '~/lib/stores/userId';
 import { debounce } from '~/utils/debounce';
 import { PENDING_PROMPT_STORAGE_KEY } from '~/utils/constants';
 import {
@@ -21,7 +21,6 @@ import {
   type PromptRefinementAnswer,
   type PromptRefinementQuestion,
 } from '~/lib/prompt-refinement';
-import { useCloudChefAuth } from './CloudChefAuthWrapper';
 import { z } from 'zod';
 
 /** Failure envelope returned by the prompt-enhancement endpoint. */
@@ -56,7 +55,7 @@ export function useMessageInputController({
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [refinement, setRefinement] = useState<PromptRefinementSession | null>(null);
   const enhanceRequestRef = useRef<AbortController | null>(null);
-  const authState = useCloudChefAuth();
+  const authKind = useCloudChefAuthKind();
   const input = useStore(messageInputStore);
   const search = useSearch({ from: '__root__' });
 
@@ -105,7 +104,7 @@ export function useMessageInputController({
   // before the browser leaves for Cloudflare, so a later render must never re-read it.
   const continuationDecidedRef = useRef(false);
   useEffect(() => {
-    if (authState.kind === 'loading' || continuationDecidedRef.current) {
+    if (authKind === 'loading' || continuationDecidedRef.current) {
       return;
     }
     continuationDecidedRef.current = true;
@@ -113,7 +112,7 @@ export function useMessageInputController({
     if (
       pendingSubmit &&
       shouldContinuePendingSubmit({
-        authKind: authState.kind,
+        authKind,
         pendingSubmit,
         prompt: messageInputStore.get(),
         authorizationFailed: hasFailedCloudflareAuthorization(window.location.search),
@@ -121,10 +120,10 @@ export function useMessageInputController({
     ) {
       void send(pendingSubmit);
     }
-  }, [authState.kind, send]);
+  }, [authKind, send]);
 
   const primaryAction = getMessageInputPrimaryAction({
-    authKind: authState.kind,
+    authKind,
     isStreaming,
     hasInput: input.trim().length > 0,
     disabled,
@@ -262,7 +261,7 @@ export function useMessageInputController({
 
   return {
     answerRefinementQuestions,
-    authState,
+    authKind,
     cancelRefinement,
     enhancePrompt,
     handleChange,

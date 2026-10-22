@@ -15,12 +15,10 @@ vi.mock('~/lib/cloudflare/runtime-session', () => ({
   fetchUserRuntime: vi.fn(),
 }));
 
-vi.mock('~/lib/stores/userId', () => ({
+vi.mock('~/lib/stores/userId', async () => ({
   isAuthenticated: () => true,
-}));
-
-vi.mock('./CloudChefAuthWrapper', () => ({
-  useCloudChefAuth: () => ({ kind: 'fullyLoggedIn' }),
+  useCloudChefAuthKind: () => 'fullyLoggedIn',
+  userIdStore: (await import('nanostores')).atom('user'),
 }));
 
 type Controller = ReturnType<typeof useMessageInputController>;

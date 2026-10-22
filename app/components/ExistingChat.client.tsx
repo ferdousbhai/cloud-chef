@@ -1,6 +1,5 @@
 import { useExistingChat } from '~/lib/stores/startup';
 import { Chat } from './chat/Chat';
-import { CloudChefAuthProvider } from './chat/CloudChefAuthWrapper';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { Loading } from './Loading';
 import { Toaster } from '~/components/ui/Toaster';
@@ -20,9 +19,7 @@ import { PromptPrefillContext } from './chat/prompt-prefill';
 export function ExistingChat({ chatId }: { chatId: string }) {
   return (
     <>
-      <CloudChefAuthProvider>
-        <ExistingChatSessionView chatId={chatId} />
-      </CloudChefAuthProvider>
+      <ExistingChatSessionView chatId={chatId} />
       <Toaster />
     </>
   );

@@ -54,10 +54,10 @@ export const MessageInput = memo(function MessageInput({
     prefillEnabled: !chatStarted && prefillAllowed,
     disabled,
   });
-  const { authState, input, primaryAction } = controller;
+  const { authKind, input, primaryAction } = controller;
   const { data: session, error: sessionError } = authClient.useSession();
   const primaryActionLabel = getMessageInputPrimaryActionLabel(primaryAction, isStreaming);
-  const hasActiveSession = authState.kind === 'fullyLoggedIn';
+  const hasActiveSession = authKind === 'fullyLoggedIn';
   // The opening turn writes most of the application, so the model is chosen before it, not only once a chat
   // exists; a signed-out visitor has no model to run.
   const modelSelector = hasActiveSession && (
@@ -73,7 +73,7 @@ export const MessageInput = memo(function MessageInput({
   const inputStatus = input.length > 3 ? <NewLineShortcut /> : null;
   const actions = (
     <>
-      {chatStarted && authState.kind === 'unauthenticated' && (
+      {chatStarted && authKind === 'unauthenticated' && (
         <Button variant="neutral" onClick={() => void controller.signIn()} size="xs" className="text-xs font-normal">
           <span>Connect Cloudflare</span>
         </Button>
@@ -88,11 +88,9 @@ export const MessageInput = memo(function MessageInput({
       <Button
         // A closed composer still stops a running turn: only sending waits for it to open.
         disabled={
-          (!isStreaming && (input.trim().length === 0 || disabled)) ||
-          authState.kind === 'loading' ||
-          sendMessageInProgress
+          (!isStreaming && (input.trim().length === 0 || disabled)) || authKind === 'loading' || sendMessageInProgress
         }
-        tip={authState.kind === 'unauthenticated' ? 'Connect Cloudflare to continue' : undefined}
+        tip={authKind === 'unauthenticated' ? 'Connect Cloudflare to continue' : undefined}
         onClick={controller.runPrimaryAction}
         size="xs"
         className={classNames('ml-1 h-8 min-w-8 rounded', !chatStarted ? 'cloudchef-message-input__send' : '')}
@@ -150,9 +148,9 @@ export const MessageInput = memo(function MessageInput({
           </div>
         </div>
       </div>
-      {authState.kind === 'unauthenticated' && !session && sessionError ? (
+      {authKind === 'unauthenticated' && !session && sessionError ? (
         <SessionCheckError className="mt-4 text-center" />
-      ) : authState.kind === 'unauthenticated' ? (
+      ) : authKind === 'unauthenticated' ? (
         <>
           <CloudflareConnectLegalNotice className="mx-auto mt-2 w-full px-1" />
           {/* Describing an app connects you on the way; this signs in without one. */}

@@ -1,5 +1,6 @@
-import { createClientOnlyFn } from '@tanstack/react-start';
-import { useEffect, useSyncExternalStore } from 'react';
+import { useStore } from '@nanostores/react';
+import { atom, onMount } from 'nanostores';
+import { useEffect } from 'react';
 import { z } from 'zod';
 import type { CloudflareAuthSession } from '~/lib/.server/auth';
 import { disposeClientCollections } from '~/lib/cloudflare/client-collections';
@@ -12,10 +13,7 @@ import {
 import { clearPendingSubmit, recordPendingSubmit } from '~/lib/stores/pending-submit';
 import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
 import { noContentSchema, postJson, RequestError } from '~/lib/json-request';
-
-const captureCloudflareConnectStarted = createClientOnlyFn(() => {
-  void captureProductEvent('cloudflare_connect_started');
-});
+import { userIdStore } from '~/lib/stores/userId';
 
 type AuthState = {
   data: CloudflareAuthSession | null;
@@ -60,22 +58,20 @@ const authorizationStartSchema = z.object({ authorizationUrl: z.string() });
 /** Refused until the person signs in again (Cloudflare, Google or an emailed link): their session is too old. */
 export class ReauthenticationRequiredError extends Error {}
 
-const listeners = new Set<() => void>();
-const serverSnapshot: AuthState = { data: null, isPending: true, error: null };
-let state: AuthState = serverSnapshot;
+const sessionStore = atom<AuthState>({ data: null, isPending: true, error: null });
 let loading: Promise<void> | null = null;
 
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+function setState(next: AuthState) {
+  sessionStore.set(next);
+  // Signed in by email or Google without a Cloudflare account to build in is, for building, not signed in:
+  // the sign-in prompts say who you are and offer to connect one.
+  userIdStore.set(next.isPending ? undefined : next.data?.context ? next.data.user.id : null);
 }
 
-function setState(next: AuthState) {
-  state = next;
-  for (const listener of listeners) {
-    listener();
-  }
-}
+// Whatever waits on the user id waits on the session, so watching it loads the session.
+onMount(userIdStore, () => {
+  void loadSession();
+});
 
 async function loadSession() {
   if (loading) {
@@ -91,7 +87,7 @@ async function loadSession() {
       rememberTabWorkspace(session.success ? (session.data.context?.connectionId ?? null) : null);
     })
     // A failed check keeps what was known (nothing, on a first load) and says so, rather than looking signed out.
-    .catch(() => setState({ data: state.data, isPending: false, error: "Couldn't check your session." }))
+    .catch(() => setState({ data: sessionStore.get().data, isPending: false, error: "Couldn't check your session." }))
     .finally(() => {
       loading = null;
     });
@@ -100,7 +96,7 @@ async function loadSession() {
 
 /** Checks the session again, after a failed check. */
 export function retrySession() {
-  setState({ ...state, isPending: true, error: null });
+  setState({ ...sessionStore.get(), isPending: true, error: null });
   void loadSession();
 }
 
@@ -113,11 +109,7 @@ export async function refreshSession() {
 
 export const authClient = {
   useSession() {
-    const snapshot = useSyncExternalStore(
-      subscribe,
-      () => state,
-      () => serverSnapshot,
-    );
+    const snapshot = useStore(sessionStore);
     useEffect(() => {
       void loadSession();
     }, []);
@@ -144,7 +136,7 @@ async function startCloudflareAuthorization(
   callbackURL: string,
   options: { continuePrompt?: string; organizationId?: string },
 ) {
-  captureCloudflareConnectStarted();
+  void captureProductEvent('cloudflare_connect_started');
   clearPendingSubmit();
   if (options.continuePrompt) {
     recordPendingSubmit(options.continuePrompt);
