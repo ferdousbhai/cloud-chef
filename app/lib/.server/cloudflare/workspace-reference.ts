@@ -8,3 +8,11 @@ export function parseWorkspaceReference(reference: string): WorkspaceReference |
     ? { projectId: decodeURIComponent(match[1]!), workspaceRevision: Number(match[2]), revision: match[3]! }
     : null;
 }
+
+/** The workspace reference naming a project's revision. */
+export function workspaceReference(args: WorkspaceReference): string {
+  if (!/^[a-f0-9]{64}$/.test(args.revision) || !Number.isSafeInteger(args.workspaceRevision)) {
+    throw new Error('The user-owned workspace deployment reference is invalid.');
+  }
+  return `workspace-runtime:${encodeURIComponent(args.projectId)}:${args.workspaceRevision}:${args.revision}`;
+}

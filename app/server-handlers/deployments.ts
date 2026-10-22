@@ -19,6 +19,7 @@ import {
   executeUserOwnedPreview,
   terminalizeInterruptedUserOwnedDeployment,
 } from '~/lib/.server/cloudflare/user-workspace-deployment-executor';
+import { workspaceReference } from '~/lib/.server/cloudflare/workspace-reference';
 
 export type PublicDeployment = ReturnType<typeof publicDeployment>;
 
@@ -220,13 +221,6 @@ export async function userRuntimeDeploymentAction(args: {
   } catch (error) {
     return deploymentErrorResponse(error);
   }
-}
-
-function workspaceReference(args: { projectId: string; revision: string; workspaceRevision: number }): string {
-  if (!/^[a-f0-9]{64}$/.test(args.revision) || !Number.isSafeInteger(args.workspaceRevision)) {
-    throw new Error('The user-owned workspace deployment reference is invalid.');
-  }
-  return `workspace-runtime:${encodeURIComponent(args.projectId)}:${args.workspaceRevision}:${args.revision}`;
 }
 
 async function requireActiveDeploymentChat(db: D1Database, deployment: Deployment): Promise<void> {
