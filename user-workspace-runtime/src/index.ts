@@ -65,7 +65,7 @@ import {
   type CloudChefToolResult,
 } from '../../cloudchef-agent/tool-result';
 import { rejectedWorkspaceCommand } from '../../cloudchef-agent/workspace-boundary';
-import { applyAtomicWorkspaceChanges, type AtomicWorkspaceChange } from './atomic-workspace-changes';
+import { applyAtomicWorkspaceChanges, isMissingPath, type AtomicWorkspaceChange } from './atomic-workspace-changes';
 import { isComputerContainerCallback } from './container-fetch-routing';
 import { CONTAINER_PNPM_STORE_DIR } from './container-toolchain';
 import { matchDeploymentRoute } from './deployment-route';
@@ -3806,16 +3806,6 @@ function assertDeploymentSessionIdentity(
 
 function sandboxShellCommand(command: string): SandboxCommand {
   return ['/bin/bash', '-lc', command];
-}
-
-function isMissingPath(error: unknown): boolean {
-  if (!isRecord(error)) {
-    return false;
-  }
-  if (error.code === 'ENOENT') {
-    return true;
-  }
-  return typeof error.message === 'string' && /ENOENT|no such path/i.test(error.message);
 }
 
 export { BuilderAgent };

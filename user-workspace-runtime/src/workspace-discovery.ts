@@ -1,5 +1,6 @@
 import { COMPUTER_TOOL_LIMITS } from '../../cloudchef-agent/cloudflare-computer';
 import { logicalLines } from '../../cloudchef-agent/line-edit';
+import { isMissingPath } from './atomic-workspace-changes';
 
 /**
  * Project discovery answered from the Durable Object's SQLite VFS.
@@ -414,14 +415,4 @@ function requireBoundedCount(value: unknown, name: string, ceiling: number): num
     throw new SyntaxError(`Invalid ${name}.`);
   }
   return Math.min(value, ceiling);
-}
-
-function isMissingPath(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-  if ('code' in error && error.code === 'ENOENT') {
-    return true;
-  }
-  return 'message' in error && typeof error.message === 'string' && /ENOENT|no such (file|path)/i.test(error.message);
 }

@@ -2,7 +2,17 @@ import type { DurableObjectStorageLike, Workspace } from '@cloudflare/computer';
 import { Workspace as ComputerWorkspace } from '@cloudflare/computer';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
-import { applyAtomicWorkspaceChanges } from './atomic-workspace-changes';
+import { applyAtomicWorkspaceChanges, isMissingPath } from './atomic-workspace-changes';
+
+describe('isMissingPath', () => {
+  it('recognizes a missing path by its code or by its message', () => {
+    expect(isMissingPath(pathError('ENOENT'))).toBe(true);
+    expect(isMissingPath(new Error('ENOENT: no such path: /home/project/a'))).toBe(true);
+    expect(isMissingPath(new Error('no such file or directory'))).toBe(true);
+    expect(isMissingPath(pathError('EACCES'))).toBe(false);
+    expect(isMissingPath('ENOENT')).toBe(false);
+  });
+});
 
 describe('applyAtomicWorkspaceChanges', () => {
   it('commits every write and recursive delete in one transaction', () => {

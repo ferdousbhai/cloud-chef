@@ -1,5 +1,6 @@
 import type { Workspace } from '@cloudflare/computer';
 import { Buffer } from 'node:buffer';
+import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 
 export type AtomicWorkspaceChange =
   { kind: 'delete'; path: string } | { kind: 'write'; path: string; bytes: Uint8Array; mode?: number };
@@ -67,10 +68,13 @@ function existingMode(provider: WorkspaceProvider, path: string): number | undef
   }
 }
 
-function isMissingPath(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    ('code' in error ? error.code === 'ENOENT' : 'message' in error && /ENOENT|no such/i.test(String(error.message)))
-  );
+/** Whether a workspace filesystem error says the path does not exist, by its code or its message. */
+export function isMissingPath(error: unknown): boolean {
+  if (!isRecord(error)) {
+    return false;
+  }
+  if (error.code === 'ENOENT') {
+    return true;
+  }
+  return typeof error.message === 'string' && /ENOENT|no such (?:file|path)/i.test(error.message);
 }
