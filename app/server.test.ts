@@ -292,52 +292,6 @@ describe('server Agent routing boundary', () => {
     expect(response.headers.get('Cache-Control')).toBe('public, max-age=60');
   });
 
-  it('independently enforces the baseline without weakening stricter application CSP or HSTS', async () => {
-    tanstackFetch.mockResolvedValueOnce(
-      new Response('application', {
-        headers: {
-          'Content-Security-Policy': "default-src 'none'; script-src 'self'",
-          'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
-        },
-      }),
-    );
-
-    const response = await server.fetch(new Request('https://cloudchef.build/strict'), testEnv());
-
-    expect(response.headers.get('Content-Security-Policy')).toBe(
-      "default-src 'none'; script-src 'self', base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'",
-    );
-    expect(response.headers.get('Strict-Transport-Security')).toBe('max-age=63072000; includeSubDomains; preload');
-  });
-
-  it('bounds malformed HSTS parsing and preserves non-max-age directives when applying the floor', async () => {
-    tanstackFetch.mockResolvedValueOnce(
-      new Response('application', {
-        headers: {
-          'Strict-Transport-Security': `max-age=${'9'.repeat(1_024)}; includeSubDomains; future=value`,
-        },
-      }),
-    );
-
-    const response = await server.fetch(new Request('https://cloudchef.build/hsts-floor'), testEnv());
-
-    expect(response.headers.get('Strict-Transport-Security')).toBe('max-age=31536000; includeSubDomains; future=value');
-  });
-
-  it('normalizes duplicate HSTS max-age directives', async () => {
-    tanstackFetch.mockResolvedValueOnce(
-      new Response('application', {
-        headers: {
-          'Strict-Transport-Security': 'max-age=63072000; max-age=0; includeSubDomains',
-        },
-      }),
-    );
-
-    const response = await server.fetch(new Request('https://cloudchef.build/duplicate-hsts'), testEnv());
-
-    expect(response.headers.get('Strict-Transport-Security')).toBe('max-age=31536000; includeSubDomains');
-  });
-
   it('runs authentication-metadata retention and the runtime upgrade sweep on schedule', async () => {
     const waitUntil = vi.fn();
     // No outdated runtime in a fresh database, so the sweep reads it and starts no Workflow.

@@ -70,10 +70,10 @@ import { CSP_NONCE_REQUEST_HEADER } from './lib/csp-nonce';
 import { sha256Hex } from './lib/hex-digest';
 
 const APPLICATION_CSP_BASELINE = "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'";
-const HSTS_MIN_AGE_SECONDS = '31536000';
+const HSTS_MAX_AGE_SECONDS = 31_536_000;
 const PRODUCTION_HOSTNAME = 'cloudchef.build';
 
-function applyContentSecurityPolicyBaseline(headers: Headers, nonce?: string) {
+function applyContentSecurityPolicy(headers: Headers, nonce?: string) {
   const applicationPolicy = nonce
     ? [
         "default-src 'self'",
@@ -88,42 +88,15 @@ function applyContentSecurityPolicyBaseline(headers: Headers, nonce?: string) {
         APPLICATION_CSP_BASELINE,
       ].join('; ')
     : APPLICATION_CSP_BASELINE;
-  const current = headers.get('Content-Security-Policy');
-  if (!current) {
-    headers.set('Content-Security-Policy', applicationPolicy);
-  } else if (!current.split(',').some((policy) => policy.trim() === applicationPolicy)) {
-    // A CSP list enforces every policy independently. Appending keeps a
-    // response's stricter resource policy while making this baseline mandatory.
-    headers.append('Content-Security-Policy', applicationPolicy);
-  }
-}
-
-function applyHstsFloor(headers: Headers) {
-  const current = headers.get('Strict-Transport-Security');
-  const directives = current?.split(';').map((directive) => directive.trim()) ?? [];
-  const maxAgeDirectives = directives.filter((directive) => /^max-age(?:\s*=|$)/i.test(directive));
-  const maxAge =
-    maxAgeDirectives.length === 1 && maxAgeDirectives[0].length <= 64
-      ? /^max-age\s*=\s*(\d{1,20})$/i.exec(maxAgeDirectives[0])?.[1]
-      : undefined;
-  const normalizedMaxAge = maxAge?.replace(/^0+(?=\d)/, '');
-  const meetsFloor =
-    normalizedMaxAge !== undefined &&
-    (normalizedMaxAge.length > HSTS_MIN_AGE_SECONDS.length ||
-      (normalizedMaxAge.length === HSTS_MIN_AGE_SECONDS.length && normalizedMaxAge >= HSTS_MIN_AGE_SECONDS));
-  if (current && maxAgeDirectives.length === 1 && meetsFloor) {
-    return;
-  }
-  const retainedDirectives = directives.filter((directive) => directive && !/^max-age(?:\s*=|$)/i.test(directive));
-  headers.set('Strict-Transport-Security', [`max-age=${HSTS_MIN_AGE_SECONDS}`, ...retainedDirectives].join('; '));
+  headers.set('Content-Security-Policy', applicationPolicy);
 }
 
 function withApplicationSecurityHeaders(response: Response, pathname: string, nonce?: string) {
   const headers = new Headers(response.headers);
   const isHtml = headers.get('Content-Type')?.toLowerCase().includes('text/html') ?? false;
-  applyContentSecurityPolicyBaseline(headers, isHtml ? nonce : undefined);
+  applyContentSecurityPolicy(headers, isHtml ? nonce : undefined);
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  applyHstsFloor(headers);
+  headers.set('Strict-Transport-Security', `max-age=${HSTS_MAX_AGE_SECONDS}`);
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
   if (pathname === '/connect/return' || pathname === GOOGLE_RETURN_PATH || pathname === GITHUB_RETURN_PATH) {
