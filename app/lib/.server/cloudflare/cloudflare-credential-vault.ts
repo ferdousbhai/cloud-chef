@@ -43,18 +43,13 @@ export class D1CloudflareCredentialVault {
   }
 
   /** Stores an OAuth grant, the only kind of credential a connection holds, and returns its handle. */
-  async storeOAuthCredential(
-    credential: { accessToken: string; refreshToken: string; expiresAt: number },
-    now = Date.now(),
-  ): Promise<string> {
-    return this.store(JSON.stringify({ version: 1, ...credential }), now);
-  }
-
-  private async store(token: string, now: number): Promise<string> {
-    if (!token) {
-      throw new Error('Cannot store an empty Cloudflare credential.');
-    }
-    const encrypted = await this.encrypt(token);
+  async storeOAuthCredential(credential: {
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number;
+  }): Promise<string> {
+    const now = Date.now();
+    const encrypted = await this.encrypt(JSON.stringify({ version: 1, ...credential }));
     const handle = crypto.randomUUID();
     try {
       await this.db

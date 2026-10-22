@@ -94,7 +94,7 @@ describe('D1CloudflareCredentialVault', () => {
   it('stores only authenticated ciphertext and resolves it by opaque handle', async () => {
     const { db, rows } = createDb();
     const vault = new D1CloudflareCredentialVault(db, encryptionKey(), OAUTH);
-    const handle = await vault.storeOAuthCredential(grant('cloudflare-secret-token'), 123);
+    const handle = await vault.storeOAuthCredential(grant('cloudflare-secret-token'));
 
     expect(handle).not.toContain('cloudflare-secret-token');
     expect(JSON.stringify(rows.get(handle))).not.toContain('cloudflare-secret-token');
@@ -136,10 +136,10 @@ describe('D1CloudflareCredentialVault', () => {
     });
 
     await expect(
-      new D1CloudflareCredentialVault(exact.db, encryptionKey(), OAUTH).storeOAuthCredential(grant('token'), 123),
+      new D1CloudflareCredentialVault(exact.db, encryptionKey(), OAUTH).storeOAuthCredential(grant('token')),
     ).resolves.toEqual(expect.any(String));
     await expect(
-      new D1CloudflareCredentialVault(mismatched.db, encryptionKey(), OAUTH).storeOAuthCredential(grant('token'), 123),
+      new D1CloudflareCredentialVault(mismatched.db, encryptionKey(), OAUTH).storeOAuthCredential(grant('token')),
     ).rejects.toBe(acknowledgementError);
   });
 
