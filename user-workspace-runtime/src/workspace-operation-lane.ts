@@ -4,8 +4,6 @@ import {
 } from '../../cloudchef-agent/cloudflare-computer';
 import { first } from './sql-rows';
 
-const WORKSPACE_OPERATION_LEASE_MS = 15 * 60_000;
-
 type OperationLaneStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
 
 type OperationLaneRow = {
@@ -107,8 +105,7 @@ export class WorkspaceOperationLane {
     owner: string;
     idempotencyKey: string;
     kind: string;
-    now?: number;
-    leaseMs?: number;
+    leaseMs: number;
     /**
      * The caller is adopting the external effect this lane's own key already started, not starting
      * it again. Only that caller may re-enter an occupied lane under its own key, and only while
@@ -125,8 +122,7 @@ export class WorkspaceOperationLane {
     const result = this.storage.transactionSync<
       WorkspaceOperationLease | { error: WorkspaceOperationConflictError | WorkspaceOperationIndeterminateError }
     >(() => {
-      const now = args.now ?? Date.now();
-      const leaseMs = args.leaseMs ?? WORKSPACE_OPERATION_LEASE_MS;
+      const now = Date.now();
       const current = this.read();
       let recoveredOwner: string | null = null;
 
@@ -159,7 +155,7 @@ export class WorkspaceOperationLane {
         recoveredOwner = current.owner;
       }
 
-      const deadline = now + leaseMs;
+      const deadline = now + args.leaseMs;
       this.storage.sql.exec(
         `UPDATE cloudchef_operation_lane
          SET owner = ?, idempotency_key = ?, kind = ?, acquired_at = ?, deadline = ?
@@ -234,8 +230,9 @@ export class WorkspaceOperationLane {
     };
   }
 
-  renew(lease: WorkspaceOperationLease, leaseMs: number, now = Date.now()): WorkspaceOperationLease {
+  renew(lease: WorkspaceOperationLease, leaseMs: number): WorkspaceOperationLease {
     return this.storage.transactionSync(() => {
+      const now = Date.now();
       const current = this.read();
       if (
         current.owner !== lease.owner ||

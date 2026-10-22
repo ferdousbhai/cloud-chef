@@ -15,7 +15,6 @@ type OperationLeaseHeartbeatOptions = {
   leaseMs: number;
   /** Absolute time until which silence alone still counts as being alive. */
   silenceHorizon: number;
-  now?: () => number;
 };
 
 /**
@@ -33,7 +32,6 @@ type OperationLeaseHeartbeatOptions = {
  */
 export class OperationLeaseHeartbeat implements OperationLiveness {
   readonly #options: OperationLeaseHeartbeatOptions;
-  readonly #now: () => number;
   #lease: WorkspaceOperationLease;
   #lastProgressAt: number | null = null;
   #lost: Error | null = null;
@@ -41,13 +39,12 @@ export class OperationLeaseHeartbeat implements OperationLiveness {
 
   constructor(options: OperationLeaseHeartbeatOptions) {
     this.#options = options;
-    this.#now = options.now ?? Date.now;
     this.#lease = options.lease;
     this.#schedule();
   }
 
   observed(): void {
-    this.#lastProgressAt = this.#now();
+    this.#lastProgressAt = Date.now();
   }
 
   /** Fail closed if the lane stopped being this operation's to hold. */
@@ -70,14 +67,14 @@ export class OperationLeaseHeartbeat implements OperationLiveness {
   }
 
   #tick(): void {
-    const now = this.#now();
+    const now = Date.now();
     const progressing = this.#lastProgressAt !== null && now - this.#lastProgressAt < this.#options.leaseMs;
     if (!progressing && now >= this.#options.silenceHorizon) {
       // Nothing here proves the work is still happening, so let the lane age out.
       return;
     }
     try {
-      this.#lease = this.#options.lane.renew(this.#lease, this.#options.leaseMs, now);
+      this.#lease = this.#options.lane.renew(this.#lease, this.#options.leaseMs);
     } catch (error) {
       this.#lost = error instanceof Error ? error : new Error(String(error));
       return;

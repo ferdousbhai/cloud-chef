@@ -14,7 +14,7 @@ const TICK_MS = LEASE_MS / 3;
 
 describe('OperationLeaseHeartbeat', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ now: 0 });
   });
 
   afterEach(() => {
@@ -23,83 +23,69 @@ describe('OperationLeaseHeartbeat', () => {
 
   it('carries a silent command past the lease it would have died at', () => {
     const lane = createLane();
-    const { clock, heartbeat } = start(lane, lane.acquire(acquisition(0)));
+    const heartbeat = start(lane, lane.acquire(acquisition()));
 
     // A freshly generated project typechecks for longer than the exec lease and
     // prints nothing while it does. That must not look like an abandoned lane.
-    advance(clock, 20 * 60_000);
+    advance(20 * 60_000);
 
-    expect(() => lane.acquire(acquisition(clock.now, 'other-operation'))).toThrow(WorkspaceOperationConflictError);
+    expect(() => lane.acquire(acquisition('other-operation'))).toThrow(WorkspaceOperationConflictError);
     expect(() => heartbeat.requireHeld()).not.toThrow();
   });
 
   it('lets a command that ran past its lease finish and keep its result', () => {
     const lane = createLane();
-    const lease = lane.acquire(acquisition(0));
-    const { clock, heartbeat } = start(lane, lease);
+    const lease = lane.acquire(acquisition());
+    const heartbeat = start(lane, lease);
 
-    advance(clock, 25 * 60_000, () => heartbeat.observed());
+    advance(25 * 60_000, () => heartbeat.observed());
     heartbeat.requireHeld();
 
     // The lane was still held on the operation's own terms the whole way, so its
     // release is an ordinary handover rather than a recovery from a stale owner.
-    expect(lane.find('exec', lease.owner)?.deadline).toBeGreaterThan(clock.now);
+    expect(lane.find('exec', lease.owner)?.deadline).toBeGreaterThan(Date.now());
     heartbeat.stop();
     lane.release(lease);
-    expect(lane.acquire(acquisition(clock.now, 'other-operation'))).toMatchObject({ recoveredOwner: null });
+    expect(lane.acquire(acquisition('other-operation'))).toMatchObject({ recoveredOwner: null });
   });
 
   it('keeps renewing past the tool budget while output still proves the command alive', () => {
     const lane = createLane();
-    const { clock, heartbeat } = start(lane, lane.acquire(acquisition(0)));
+    const heartbeat = start(lane, lane.acquire(acquisition()));
 
-    advance(clock, TOOL_BUDGET_MS + 20 * 60_000, () => heartbeat.observed());
+    advance(TOOL_BUDGET_MS + 20 * 60_000, () => heartbeat.observed());
 
-    expect(() => lane.acquire(acquisition(clock.now, 'other-operation'))).toThrow(WorkspaceOperationConflictError);
+    expect(() => lane.acquire(acquisition('other-operation'))).toThrow(WorkspaceOperationConflictError);
   });
 
   it('stops renewing once a quiet command has outlived the budget above its lane', () => {
     const lane = createLane();
-    const { clock } = start(lane, lane.acquire(acquisition(0)));
+    start(lane, lane.acquire(acquisition()));
 
-    advance(clock, TOOL_BUDGET_MS + LEASE_MS + TICK_MS);
+    advance(TOOL_BUDGET_MS + LEASE_MS + TICK_MS);
 
-    expect(lane.acquire(acquisition(clock.now, 'other-operation'))).toMatchObject({
+    expect(lane.acquire(acquisition('other-operation'))).toMatchObject({
       recoveredOwner: 'owner-exec',
     });
   });
 
   it('leaves an abandoned lane reclaimable after a single lease', () => {
     const lane = createLane();
-    const clock = { now: 0 };
-    const heartbeat = new OperationLeaseHeartbeat({
-      lane,
-      lease: lane.acquire(acquisition(0)),
-      leaseMs: LEASE_MS,
-      silenceHorizon: TOOL_BUDGET_MS,
-      now: () => clock.now,
-    });
+    const heartbeat = start(lane, lane.acquire(acquisition()));
     // The owner died: no ticks ever run again, exactly as when a Durable Object
     // is evicted mid-operation.
     heartbeat.stop();
-    clock.now = LEASE_MS + 1;
+    vi.setSystemTime(LEASE_MS + 1);
 
-    expect(lane.acquire(acquisition(clock.now, 'other-operation'))).toMatchObject({ recoveredOwner: 'owner-exec' });
+    expect(lane.acquire(acquisition('other-operation'))).toMatchObject({ recoveredOwner: 'owner-exec' });
   });
 
   it('names a lease that expired under a still-running operation', () => {
     const lane = createLane();
-    const clock = { now: 0 };
-    const heartbeat = new OperationLeaseHeartbeat({
-      lane,
-      lease: lane.acquire(acquisition(0)),
-      leaseMs: LEASE_MS,
-      silenceHorizon: TOOL_BUDGET_MS,
-      now: () => clock.now,
-    });
+    const heartbeat = start(lane, lane.acquire(acquisition()));
 
     // The Durable Object stalled straight through the lease before the tick ran.
-    clock.now = LEASE_MS + 1;
+    vi.setSystemTime(LEASE_MS + 1);
     vi.advanceTimersByTime(TICK_MS);
 
     expect(() => heartbeat.requireHeld()).toThrow(WorkspaceOperationLeaseExpiredError);
@@ -108,17 +94,10 @@ describe('OperationLeaseHeartbeat', () => {
 
   it('reports a lane taken by another owner as indeterminate, not merely expired', () => {
     const lane = createLane();
-    const clock = { now: 0 };
-    const heartbeat = new OperationLeaseHeartbeat({
-      lane,
-      lease: lane.acquire(acquisition(0)),
-      leaseMs: LEASE_MS,
-      silenceHorizon: TOOL_BUDGET_MS,
-      now: () => clock.now,
-    });
+    const heartbeat = start(lane, lane.acquire(acquisition()));
 
-    clock.now = LEASE_MS + 1;
-    lane.acquire(acquisition(clock.now, 'other-operation'));
+    vi.setSystemTime(LEASE_MS + 1);
+    lane.acquire(acquisition('other-operation'));
     vi.advanceTimersByTime(TICK_MS);
 
     expect(() => heartbeat.requireHeld()).toThrow(WorkspaceOperationIndeterminateError);
@@ -126,29 +105,20 @@ describe('OperationLeaseHeartbeat', () => {
 });
 
 function start(lane: WorkspaceOperationLane, lease: WorkspaceOperationLease) {
-  const clock = { now: 0 };
-  const heartbeat = new OperationLeaseHeartbeat({
-    lane,
-    lease,
-    leaseMs: LEASE_MS,
-    silenceHorizon: TOOL_BUDGET_MS,
-    now: () => clock.now,
-  });
-  return { clock, heartbeat };
+  return new OperationLeaseHeartbeat({ lane, lease, leaseMs: LEASE_MS, silenceHorizon: TOOL_BUDGET_MS });
 }
 
-/** Run the fake clock and the heartbeat's timers forward together. */
-function advance(clock: { now: number }, durationMs: number, onTick?: () => void): void {
-  const end = clock.now + durationMs;
-  while (clock.now < end) {
-    clock.now = Math.min(end, clock.now + TICK_MS);
+/** Run the fake clock and the heartbeat's timers forward one tick at a time, calling `onTick` before each. */
+function advance(durationMs: number, onTick?: () => void): void {
+  const end = Date.now() + durationMs;
+  while (Date.now() < end) {
     onTick?.();
-    vi.advanceTimersByTime(TICK_MS);
+    vi.advanceTimersByTime(Math.min(TICK_MS, end - Date.now()));
   }
 }
 
-function acquisition(now: number, idempotencyKey = 'exec') {
-  return { kind: 'exec', idempotencyKey, owner: `owner-${idempotencyKey}`, now, leaseMs: LEASE_MS };
+function acquisition(idempotencyKey = 'exec') {
+  return { kind: 'exec', idempotencyKey, owner: `owner-${idempotencyKey}`, leaseMs: LEASE_MS };
 }
 
 function createLane() {

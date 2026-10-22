@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExecutionObservation } from './execution-reattach';
 import { InterruptedExecSettlement } from './interrupted-exec-settlement';
 import {
@@ -6,7 +6,16 @@ import {
   WorkspaceOperationIndeterminateError,
   WorkspaceOperationLane,
   WorkspaceOperationLeaseExpiredError,
+  type WorkspaceOperationLease,
 } from './workspace-operation-lane';
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('WorkspaceOperationLane', () => {
   it('rejects simultaneous stateful operations with observable retry timing', () => {
@@ -147,7 +156,7 @@ describe('WorkspaceOperationLane', () => {
     const lease = lane.acquire(operation('deployment', 'deploy-a', 100, 1_000));
 
     expect(lane.find('deploy-a', 'owner-deployment-deploy-a')).toEqual(lease);
-    const renewed = lane.renew(lease, 5_000, 500);
+    const renewed = renewAt(lane, lease, 5_000, 500);
     expect(renewed.deadline).toBe(5_500);
     expect(lane.find('deploy-a', lease.owner)).toEqual(renewed);
   });
@@ -156,8 +165,8 @@ describe('WorkspaceOperationLane', () => {
     const lane = createLane();
     const lease = lane.acquire(operation('exec', 'exec-a', 100, 1_000));
 
-    expect(() => lane.renew(lease, 1_000, 1_101)).toThrow(WorkspaceOperationLeaseExpiredError);
-    expect(() => lane.renew(lease, 1_000, 1_101)).toThrow(/still running when its 1s workspace lease expired/);
+    expect(() => renewAt(lane, lease, 1_000, 1_101)).toThrow(WorkspaceOperationLeaseExpiredError);
+    expect(() => renewAt(lane, lease, 1_000, 1_101)).toThrow(/still running when its 1s workspace lease expired/);
   });
 
   it('separates a lapsed lease from a lane another operation has taken', () => {
@@ -165,7 +174,7 @@ describe('WorkspaceOperationLane', () => {
     const lease = lane.acquire(operation('exec', 'exec-a', 100, 1_000));
     lane.acquire(operation('write', 'write-b', 1_101));
 
-    expect(() => lane.renew(lease, 1_000, 1_102)).toThrow(WorkspaceOperationIndeterminateError);
+    expect(() => renewAt(lane, lease, 1_000, 1_102)).toThrow(WorkspaceOperationIndeterminateError);
   });
 });
 
@@ -280,8 +289,15 @@ describe('reclaiming an exec lane whose interrupted command settled (#143)', () 
   });
 });
 
+/** The operation `kind` under `idempotencyKey`, acquiring at `now`. */
 function operation(kind: string, idempotencyKey: string, now: number, leaseMs = 1_000) {
-  return { kind, idempotencyKey, owner: `owner-${kind}-${idempotencyKey}`, now, leaseMs };
+  vi.setSystemTime(now);
+  return { kind, idempotencyKey, owner: `owner-${kind}-${idempotencyKey}`, leaseMs };
+}
+
+function renewAt(lane: WorkspaceOperationLane, lease: WorkspaceOperationLease, leaseMs: number, now: number) {
+  vi.setSystemTime(now);
+  return lane.renew(lease, leaseMs);
 }
 
 function createLane(isOwnerActive?: (owner: string) => boolean) {
