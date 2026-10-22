@@ -63,7 +63,7 @@ describe('Cloudflare documentation search', () => {
 
     const result = (await tool.execute!({ query: 'huge' }, options)) as { ok: boolean; summary: string };
     expect(result.ok).toBe(false);
-    expect(result.summary).toContain('size limit');
+    expect(result.summary).toContain('maximum allowed size');
   });
 
   it('retries a 503 and succeeds', async () => {

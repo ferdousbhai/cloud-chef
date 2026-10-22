@@ -1,6 +1,7 @@
 import { toolFailure, toolSuccess } from 'cloudchef-agent/tool-result';
 import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
 import type { Tool } from 'cloudchef-agent/tool';
+import { readBodyBytesWithLimit } from '~/lib/bounded-body';
 
 /**
  * Cloudflare's own documentation search, the single useful tool exposed by the
@@ -91,35 +92,8 @@ async function callDocsSearch(
   if (!response.ok) {
     throw new DocsSearchHttpError(response.status);
   }
-  return readContentText(await readBoundedText(response));
-}
-
-async function readBoundedText(response: Response): Promise<string> {
-  const body = response.body;
-  if (!body) {
-    throw new Error('the service returned an empty body.');
-  }
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  const chunks: string[] = [];
-  let bytes = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      bytes += value.byteLength;
-      if (bytes > MAX_RESPONSE_BYTES) {
-        throw new Error('the response exceeded its size limit.');
-      }
-      chunks.push(decoder.decode(value, { stream: true }));
-    }
-  } finally {
-    // The body is abandoned on the size guard and on an aborted turn; neither cares why the cancel failed.
-    await reader.cancel().catch(() => undefined);
-  }
-  return `${chunks.join('')}${decoder.decode()}`;
+  const body = await readBodyBytesWithLimit(response, MAX_RESPONSE_BYTES, 'the response');
+  return readContentText(new TextDecoder().decode(body));
 }
 
 /**
