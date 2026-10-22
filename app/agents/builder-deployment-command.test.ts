@@ -179,96 +179,6 @@ describe('builder deployment command', () => {
     ).resolves.toMatchObject({ status: 'failed', error: expect.stringContaining('before execution started') });
   });
 
-  it('settles an interrupted deployment recorded under the identity it had before resources were the project’s', async () => {
-    mocks.terminalizeInterrupted.mockResolvedValueOnce(null).mockResolvedValueOnce({
-      deployment: {
-        id: '33333333-3333-5333-8333-333333333333',
-        status: 'succeeded',
-        productionUrl: 'https://cloudchef-earlier.account.workers.dev',
-        error: null,
-      },
-      settled: true,
-    });
-    const workspace = workspaceStub();
-    workspace.hasSuccessfulValidation.mockResolvedValue(true);
-    const revision = 'a'.repeat(64);
-
-    await expect(
-      terminalizeInterruptedDeploymentForBuilder({
-        context: operationContext(),
-        workspace,
-        toolCallId: `deploy-command:7:${revision}`,
-        validatedRevision: revision,
-      }),
-    ).resolves.toEqual({
-      id: '33333333-3333-5333-8333-333333333333',
-      status: 'succeeded',
-      productionUrl: 'https://cloudchef-earlier.account.workers.dev',
-      error: null,
-    });
-    await deployValidatedRevisionForBuilder({
-      context: operationContext(),
-      workspace,
-      toolCallId: `deploy-command:7:${revision}`,
-      validatedRevision: revision,
-    });
-
-    const [current, previous] = mocks.terminalizeInterrupted.mock.calls.map(([input]) => input.deploymentId);
-    expect(previous).toMatch(/^[0-9a-f-]{36}$/);
-    expect(previous).not.toBe(current);
-    // A publication now is planned under the current identity, so a plan made before is never replayed.
-    expect(mocks.createDeployment).toHaveBeenCalledWith(expect.objectContaining({ deploymentId: current }));
-  });
-
-  it('settles the record under the identity from before even once the revision has a plan under the current one', async () => {
-    // A preview planned the revision under its current identity; the record from before still holds the project.
-    mocks.terminalizeInterrupted
-      .mockReset()
-      .mockResolvedValueOnce(settled('11111111-1111-5111-8111-111111111111', 'approved', false))
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(settled('33333333-3333-5333-8333-333333333333'));
-
-    await expect(
-      terminalizeInterruptedDeploymentForBuilder({
-        context: operationContext(),
-        workspace: workspaceStub(),
-        toolCallId: 'deploy-command:7:revision',
-        validatedRevision: 'a'.repeat(64),
-      }),
-    ).resolves.toMatchObject({ id: '11111111-1111-5111-8111-111111111111', status: 'ready' });
-
-    // Its first plan, the next one it never made, then the identity from before.
-    const terminalized = mocks.terminalizeInterrupted.mock.calls.map(([input]) => input.deploymentId);
-    expect(terminalized).toHaveLength(3);
-    expect(new Set(terminalized).size).toBe(3);
-  });
-
-  it('reports the record it settled as succeeded, even under the identity from before, over a later plan', async () => {
-    // A preview planned the revision under its current identity; the record from before was promoted.
-    mocks.terminalizeInterrupted
-      .mockReset()
-      .mockResolvedValueOnce(settled('11111111-1111-5111-8111-111111111111', 'approved', false))
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(settled('33333333-3333-5333-8333-333333333333', 'succeeded'));
-    const recover = () =>
-      terminalizeInterruptedDeploymentForBuilder({
-        context: operationContext(),
-        workspace: workspaceStub(),
-        toolCallId: 'deploy-command:7:revision',
-        validatedRevision: 'a'.repeat(64),
-      });
-
-    await expect(recover()).resolves.toMatchObject({ id: '33333333-3333-5333-8333-333333333333', status: 'succeeded' });
-
-    // One found succeeded, which a later deployment may have replaced, is not reported over the latest plan.
-    mocks.terminalizeInterrupted
-      .mockReset()
-      .mockResolvedValueOnce(settled('11111111-1111-5111-8111-111111111111', 'approved', false))
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(settled('33333333-3333-5333-8333-333333333333', 'succeeded', false));
-    await expect(recover()).resolves.toMatchObject({ id: '11111111-1111-5111-8111-111111111111', status: 'ready' });
-  });
-
   it('reports an earlier plan it settled as succeeded over the latest plan', async () => {
     mocks.terminalizeInterrupted
       .mockReset()
@@ -379,10 +289,10 @@ describe('builder deployment command', () => {
       }),
     ).resolves.toMatchObject({ id: '22222222-2222-5222-8222-222222222222' });
 
-    // Both plans, the next one it never made, and the identity from before.
+    // Both plans, and the next one it never made.
     const terminalized = mocks.terminalizeInterrupted.mock.calls.map(([input]) => input.deploymentId);
-    expect(terminalized).toHaveLength(4);
-    expect(new Set(terminalized).size).toBe(4);
+    expect(terminalized).toHaveLength(3);
+    expect(new Set(terminalized).size).toBe(3);
   });
 
   it('plans a revision again under its next id when the plan stored under one would no longer be its plan', async () => {

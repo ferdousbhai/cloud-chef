@@ -2783,7 +2783,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         ),
       );
     const deployment = await deploy().catch(async (error) => {
-      // Another record holds the project: another revision's, or this one's under the id it had before.
+      // Another record holds the project: another revision's, or this one's under an earlier plan's id.
       // One nothing runs any more would refuse every deployment for good, since only a deployment of
       // its own revision and id settles it otherwise.
       const settled =
@@ -2793,7 +2793,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (!settled) {
         throw error;
       }
-      // This revision's own record from before was promoted: production already serves it.
+      // This revision's record under an earlier plan was promoted: production already serves it.
       return settled.serves ?? deploy();
     });
     const revisionBoundDeployment = { ...deployment, ...job };

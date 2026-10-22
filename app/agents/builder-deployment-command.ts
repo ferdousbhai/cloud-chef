@@ -27,8 +27,8 @@ type BuilderDeploymentWorkspace = Pick<
 type BuilderBuildWorkspace = Pick<BuilderWorkspaceApi, 'checkpoint' | 'hasSuccessfulValidation' | 'validate'>;
 
 /**
- * How many times one revision may be planned. A plan goes stale only when the project's resources or
- * the Cloudflare connection change under it, which the revision's next plan settles.
+ * How many times one revision may be planned. A plan goes stale only when the Cloudflare connection,
+ * or the plan a release makes, changes under it, which the revision's next plan settles.
  */
 const MAX_PUBLICATION_PLANS = 8;
 
@@ -109,10 +109,8 @@ export async function terminalizeInterruptedDeploymentForBuilder(args: {
   const terminalize = async (deploymentId: string) =>
     terminalizeInterruptedDeploymentForUser({ env: args.context.env, userId: args.context.userId, deploymentId });
   // Each plan of the revision is terminalized, since any one of them left active would hold the
-  // project's deployments forever; the latest is the one that ran. A deployment the runtime was
-  // upgraded under keeps its earlier identity, and is settled too even once the revision has a plan
-  // under the current one: a preview plans the revision without settling it. One this recovery settles
-  // as succeeded is the one that ran, whichever it is, since production serves it.
+  // project's deployments forever; the latest is the one that ran. One this recovery settles as
+  // succeeded is the one that ran, whichever it is, since production serves it.
   let deployment: PublicDeployment | null = null;
   let succeeded: PublicDeployment | null = null;
   for (let generation = 0; generation < MAX_PUBLICATION_PLANS; generation += 1) {
@@ -125,11 +123,7 @@ export async function terminalizeInterruptedDeploymentForBuilder(args: {
       succeeded = planned.deployment;
     }
   }
-  const previous = await terminalize(await previousPublicationDeploymentId(...identity));
-  if (previous?.settled && previous.deployment.status === 'succeeded') {
-    succeeded ??= previous.deployment;
-  }
-  return builderDeploymentState(succeeded ?? deployment ?? previous?.deployment ?? null);
+  return builderDeploymentState(succeeded ?? deployment);
 }
 
 /**
@@ -279,10 +273,8 @@ async function planValidatedRevision(args: {
 
 /**
  * The deployment record of one revision's publication: its identity and idempotency key, never the
- * name of anything in the account, since every revision deploys onto the project's resources. It is
- * derived apart from the identity a publication had when each deployment named its own resources, so
- * a plan made then is never replayed for a revision published now. Each later generation is the same
- * revision planned again, once the plan of the one before went stale.
+ * name of anything in the account, since every revision deploys onto the project's resources. Each
+ * later generation is the same revision planned again, once the plan of the one before went stale.
  */
 function publicationDeploymentId(
   projectId: string,
@@ -292,11 +284,6 @@ function publicationDeploymentId(
 ): Promise<string> {
   const publication = `project-resources:${projectId}:${toolCallId}:${revision}`;
   return deterministicDeploymentId(generation === 0 ? publication : `${publication}:${generation}`);
-}
-
-/** The identity the same publication had before, still the one an interrupted record of it has. */
-function previousPublicationDeploymentId(projectId: string, toolCallId: string, revision: string): Promise<string> {
-  return deterministicDeploymentId(`deployment:${projectId}:${toolCallId}:${revision}`);
 }
 
 function sameCheckpoint(left: BuilderWorkspaceCheckpoint, right: BuilderWorkspaceCheckpoint): boolean {
