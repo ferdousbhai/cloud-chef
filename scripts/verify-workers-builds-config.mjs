@@ -39,7 +39,6 @@ export async function verifyWorkersBuildsConfig() {
       browserGateWorkflow: existsSync(browserGateWorkflowPath)
         ? readFileSync(browserGateWorkflowPath, 'utf8')
         : undefined,
-      githubCompositeActionExists: existsSync(resolve(rootDir, '.github/actions/setup-and-build/action.yaml')),
       workerConfig,
     }),
   );

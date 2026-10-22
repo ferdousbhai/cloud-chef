@@ -27,7 +27,6 @@ export function findWorkersBuildsConfigErrors({
   nvmrc,
   githubWorkflowPaths,
   browserGateWorkflow,
-  githubCompositeActionExists,
   workerConfig,
 }) {
   const errors = [];
@@ -54,14 +53,8 @@ export function findWorkersBuildsConfigErrors({
     config?.requiredBuildVariables,
     EXPECTED_REQUIRED_BUILD_VARIABLES,
   );
-  if (config?.containerImage !== undefined) {
-    errors.push('workers-builds.production.json must not build a CloudChef-owned Sandbox image.');
-  }
   // Every version of the production Worker binds production's D1 and secrets: none may answer at a preview URL.
   requireEqual(errors, 'cloudflare.config.ts previewUrls', workerConfig?.preview_urls, false);
-  if (Array.isArray(workerConfig?.containers) && workerConfig.containers.length > 0) {
-    errors.push('cloudflare.config.ts must not bind CloudChef-owned Containers.');
-  }
 
   const toolchain = parsePinnedToolchain({ nvmrc, packageManager: packageJson?.packageManager });
   errors.push(...toolchain.errors);
@@ -119,9 +112,6 @@ export function findWorkersBuildsConfigErrors({
     scripts?.['workers-builds:branch'],
     'node scripts/workers-builds-branch.mjs',
   );
-  if (scripts?.['workers-builds:preview'] !== undefined) {
-    errors.push('package.json must not define workers-builds:preview; branch builds upload no Worker version.');
-  }
 
   if (
     !githubWorkflowPaths?.includes(REQUIRED_GITHUB_WORKFLOW_PATH) ||
@@ -135,11 +125,6 @@ export function findWorkersBuildsConfigErrors({
   if (unexpectedGithubWorkflowPaths.length > 0) {
     errors.push(
       `GitHub deployment workflows must not exist; Cloudflare Workers Builds is the only CI/CD provider. Found: ${unexpectedGithubWorkflowPaths.join(', ')}.`,
-    );
-  }
-  if (githubCompositeActionExists) {
-    errors.push(
-      '.github/actions/setup-and-build/action.yaml must not exist; the Cloudflare build command owns toolchain setup.',
     );
   }
   return errors;

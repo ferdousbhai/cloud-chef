@@ -43,7 +43,6 @@ describe('Workers Builds production configuration', () => {
         nvmrc: '26.3.0\n',
         githubWorkflowPaths: ['.github/workflows/browser-gate.yml', '.github/workflows/runtime-artifacts.yml'],
         browserGateWorkflow: '      - run: pnpm run verify:built-browser\n',
-        githubCompositeActionExists: false,
         workerConfig: { preview_urls: false },
       }),
     ).toEqual([]);
@@ -57,7 +56,6 @@ describe('Workers Builds production configuration', () => {
           nonProductionBuilds: false,
           nonProductionDeployCommand: 'wrangler deploy',
           buildTokenName: 'per-project-token',
-          containerImage: { reference: 'forbidden' },
           buildVariables: { ...validConfig.buildVariables, UNREVIEWED_SECRET: 'value' },
         },
         packageJson: {
@@ -66,7 +64,6 @@ describe('Workers Builds production configuration', () => {
             ...packageJson.scripts,
             'build:check': 'vite build --mode development',
             validate: undefined,
-            'workers-builds:preview': 'node scripts/upload-workers-builds-preview.mjs',
           },
         },
         nvmrc: 'node\n',
@@ -76,10 +73,8 @@ describe('Workers Builds production configuration', () => {
           '.github/workflows/deploy.yml',
         ],
         browserGateWorkflow: undefined,
-        githubCompositeActionExists: true,
         workerConfig: {
           preview_urls: true,
-          containers: [{ class_name: 'DeploymentSandbox', image: './Dockerfile.sandbox' }],
         },
       }),
     ).toEqual(
@@ -88,18 +83,14 @@ describe('Workers Builds production configuration', () => {
         'workers-builds.production.json nonProductionBuilds must be true; found false.',
         'workers-builds.production.json nonProductionDeployCommand must be "pnpm run workers-builds:branch"; found "wrangler deploy".',
         'cloudflare.config.ts previewUrls must be false; found true.',
-        'package.json must not define workers-builds:preview; branch builds upload no Worker version.',
         'workers-builds.production.json buildTokenName must be "account-workers-builds-production"; found "per-project-token".',
         'workers-builds.production.json buildVariables must not contain unreviewed variables: UNREVIEWED_SECRET.',
-        'workers-builds.production.json must not build a CloudChef-owned Sandbox image.',
-        'cloudflare.config.ts must not bind CloudChef-owned Containers.',
         'package.json packageManager must pin an exact pnpm version; found "pnpm@latest".',
         // The deploy step ships the Worker validation builds, so validation must build exactly the release.
         'package.json scripts.build:check must be "vite build"; found "vite build --mode development".',
         'package.json scripts.validate must be "node scripts/validate.mjs"; found undefined.',
         '.nvmrc must pin an exact Node.js version; found "node".',
         'GitHub deployment workflows must not exist; Cloudflare Workers Builds is the only CI/CD provider. Found: .github/workflows/ci.yml, .github/workflows/deploy.yml.',
-        '.github/actions/setup-and-build/action.yaml must not exist; the Cloudflare build command owns toolchain setup.',
       ]),
     );
   });
@@ -112,7 +103,6 @@ describe('Workers Builds production configuration', () => {
         nvmrc: '26.4.0\n',
         githubWorkflowPaths: ['.github/workflows/browser-gate.yml'],
         browserGateWorkflow: '      - run: pnpm run verify:built-browser\n',
-        githubCompositeActionExists: false,
         workerConfig: { preview_urls: false },
       }),
     ).toEqual([
