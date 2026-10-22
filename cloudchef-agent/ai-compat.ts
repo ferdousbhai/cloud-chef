@@ -9,9 +9,6 @@ export type CloudChefPart = {
   output?: unknown;
   errorText?: string;
   data?: unknown;
-  url?: unknown;
-  mediaType?: unknown;
-  title?: unknown;
 } & Record<string, unknown>;
 
 export type CloudChefToolInvocation = {

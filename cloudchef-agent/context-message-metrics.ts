@@ -41,12 +41,6 @@ function partCharacterCount(part: CloudChefPart): number {
     case 'text':
     case 'reasoning':
       return stringLength(part.text);
-    case 'file':
-      return stringLength(part.url) + stringLength(part.mediaType);
-    case 'source-url':
-      return stringLength(part.title) + stringLength(part.url);
-    case 'source-document':
-      return stringLength(part.title) + stringLength(part.mediaType);
     default: {
       const invocation = getToolInvocation(part);
       if (!invocation) {
