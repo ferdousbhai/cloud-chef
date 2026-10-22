@@ -52,7 +52,7 @@ describe('cloudflare-oauth-scope-manifest', () => {
   test('every manifest scope exists in the checked-in provider catalog', () => {
     // The catalog is the reviewed capture of GET /oauth/scopes. A digest change means the
     // provider catalog was re-fetched; review the diff, then update the recorded digest here.
-    const catalogPath = 'docs/cloudflare-oauth-scope-catalog-2026-08-30.tsv';
+    const catalogPath = 'app/lib/.server/cloudflare/cloudflare-oauth-scope-catalog-2026-08-30.tsv';
     const catalogBytes = readFileSync(catalogPath);
     expect(createHash('sha256').update(catalogBytes).digest('hex')).toBe(
       '63843689e99c1ac765e8ecc28c7054f1d7a4aa47a3dae8f01dae7370bcad2ee5',

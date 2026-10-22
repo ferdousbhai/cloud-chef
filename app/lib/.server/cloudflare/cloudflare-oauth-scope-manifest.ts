@@ -1,11 +1,10 @@
 /**
- * The checked-in Cloudflare OAuth scope manifest (docs/cloudflare-broad-oauth-mcp-plan.md).
+ * The checked-in Cloudflare OAuth scope manifest.
  *
  * Production requests exactly this reviewed profile; nothing composes a scope string from a live
- * catalog during login. The broad optional profile stays empty until the Phase 0 provider
- * preflight (catalog fetch via GET /oauth/scopes, consent-mode checks, granted-scope reporting)
- * lands a reviewed catalog. While it is empty, every scope the Cloudflare OAuth client is
- * configured with is required, so a completed authorization proves the whole core grant.
+ * catalog during login. The broad optional profile is empty, so every scope the Cloudflare OAuth
+ * client is configured with is required, and a completed authorization proves the whole core grant.
+ * Every scope here is checked against the reviewed capture of GET /oauth/scopes beside this file.
  */
 export const CLOUDFLARE_OAUTH_SCOPE_PROFILE_VERSION = 'core-v1';
 
@@ -24,7 +23,7 @@ export const CORE_CLOUDFLARE_OAUTH_SCOPES = [
   'secrets-store.write',
 ] as const;
 
-/** Reviewed broad optional scope IDs. Populated only by the Phase 0 preflight, never by hand. */
+/** Reviewed broad optional scope IDs; empty, so every requested scope is core. */
 export const BROAD_CLOUDFLARE_OAUTH_SCOPES = [] satisfies readonly string[];
 
 export type CloudflareOAuthScopeGrantStatus = 'unknown' | 'core' | 'partial' | 'full';
