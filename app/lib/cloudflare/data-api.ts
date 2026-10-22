@@ -2,11 +2,9 @@ import type { z } from 'zod';
 import type { dataOperationArgSchemas } from './data-operation-schemas';
 import type { TranscriptIdentity } from 'cloudchef-agent/transcript';
 
+/** What the chat page reads back about its chat: the title it was given. */
 type ChatSummary = {
-  initialId: string;
   description?: string;
-  timestamp: string;
-  subchatIndex: number;
 };
 
 export type ChatHistorySummary = {

@@ -40,12 +40,7 @@ export async function getChat(db: D1Database, args: { id: string; sessionId: str
   if (!chat) {
     return null;
   }
-  return {
-    initialId: chat.initial_id,
-    description: chat.description ?? undefined,
-    timestamp: chat.timestamp,
-    subchatIndex: chat.last_subchat_index,
-  };
+  return { description: chat.description ?? undefined };
 }
 
 export async function getAllChats(db: D1Database, args: { sessionId: string }) {
