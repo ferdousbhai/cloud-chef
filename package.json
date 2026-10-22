@@ -104,7 +104,6 @@
     "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-router": "^1.170.45",
     "@tanstack/react-start": "^1.169.3",
-    "@uidotdev/usehooks": "^2.4.1",
     "@uiw/codemirror-theme-vscode": "^4.25.11",
     "agents": "^0.29.0",
     "ai": "7.0.148",

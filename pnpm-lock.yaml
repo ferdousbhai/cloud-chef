@@ -144,9 +144,6 @@ importers:
       '@tanstack/react-start':
         specifier: ^1.169.3
         version: 1.169.3(esbuild@0.28.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(rolldown@1.2.14)(rollup@4.62.2)(vite@8.3.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@1.21.7)(sass-embedded@1.83.4)(yaml@2.9.0))
-      '@uidotdev/usehooks':
-        specifier: ^2.4.1
-        version: 2.4.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@uiw/codemirror-theme-vscode':
         specifier: ^4.25.11
         version: 4.25.11(@codemirror/language@6.12.4)(@codemirror/state@6.7.1)(@codemirror/view@6.43.7)
@@ -3007,13 +3004,6 @@ packages:
   '@typescript-eslint/visitor-keys@8.65.0':
     resolution: {integrity: sha512-8C71BQkGjiMmXtop7pHVJu1l2NNShFdkCyD6a2ezzs5vU/L3LRtb69EtcteFwz0mYMPzIgOw0n6OV4VBUWZd7A==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
-
-  '@uidotdev/usehooks@2.4.1':
-    resolution: {integrity: sha512-1I+RwWyS+kdv3Mv0Vmc+p0dPYH0DTRAo04HLyXReYBL9AeseDWUJyi4THuksBJcu9F0Pih69Ak150VDnqbVnXg==}
-    engines: {node: '>=16'}
-    peerDependencies:
-      react: '>=18.0.0'
-      react-dom: '>=18.0.0'
 
   '@uiw/codemirror-theme-vscode@4.25.11':
     resolution: {integrity: sha512-fTQ5676L9iV3Y6UyDBDd8Wt9Gewh55aC5rqnCtIpwyVFb6zJEHJScI4g43lzAD2IKhY7HlozB1ucrS3UqBFNEQ==}
@@ -9232,11 +9222,6 @@ snapshots:
     dependencies:
       '@typescript-eslint/types': 8.65.0
       eslint-visitor-keys: 5.0.1
-
-  '@uidotdev/usehooks@2.4.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
-    dependencies:
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
 
   '@uiw/codemirror-theme-vscode@4.25.11(@codemirror/language@6.12.4)(@codemirror/state@6.7.1)(@codemirror/view@6.43.7)':
     dependencies:

@@ -7,7 +7,6 @@ import { cubicEasingFn } from '~/utils/easings';
 import { logger } from 'cloudchef-agent/utils/logger';
 import { HistoryItem } from './HistoryItem';
 import { binDates } from './date-binning';
-import { useSearchFilter } from '~/lib/hooks/useSearchFilter';
 import { classNames } from '~/utils/classNames';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { useChatId } from '~/lib/stores/chatId';
@@ -86,8 +85,9 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
   const list = history.projects;
   const [deleteTarget, setDeleteTarget] = useState<ChatHistorySummary | null>(null);
 
-  const { filteredItems: filteredList, handleSearchChange } = useSearchFilter({ items: list });
   const [searchQuery, setSearchQuery] = useState('');
+  const search = searchQuery.trim().toLowerCase();
+  const filteredList = search ? list.filter((item) => item.description?.toLowerCase().includes(search) ?? false) : list;
 
   const deleteItem = async (item: ChatHistorySummary) => {
     if (!accountUserId) {
@@ -187,10 +187,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
               className="w-full min-w-0 max-w-full"
               type="search"
               placeholder="Search projects..."
-              onChange={(event) => {
-                handleSearchChange(event);
-                setSearchQuery(event.target.value);
-              }}
+              onChange={(event) => setSearchQuery(event.target.value)}
               aria-label="Search projects"
             />
           </div>
