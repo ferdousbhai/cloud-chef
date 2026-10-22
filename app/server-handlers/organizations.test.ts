@@ -14,7 +14,7 @@ import {
   switchContextAction,
   updateMemberAction,
 } from './organizations';
-import { findPendingProductionRequest, listPendingProductionRequests } from '~/lib/cloudflare/data/org-projects.server';
+import { listPendingProductionRequests } from '~/lib/cloudflare/data/org-projects.server';
 import { updateMember } from '~/lib/cloudflare/data/organizations.server';
 import { sha256Hex } from '~/lib/hex-digest';
 
@@ -738,10 +738,9 @@ describe('organizations', () => {
       },
     ]);
     // A request left open from someone no longer in the team (from before removal declined them) is
-    // neither listed nor approvable.
+    // not listed.
     request('33333333-3333-4333-8333-333333333333', 'pending');
     expect(await listPendingProductionRequests(env.DB, orgId)).toEqual([]);
-    expect(await findPendingProductionRequest(env.DB, orgId, '33333333-3333-4333-8333-333333333333')).toBeNull();
   });
 
   it("removes a member together with their grants or not at all, so none come back if they're invited again", async () => {

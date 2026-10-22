@@ -278,7 +278,7 @@ export async function listPendingProductionRequests(db: D1Database, orgId: strin
        JOIN organization_members AS requester
          ON requester.org_id = requests.org_id AND requester.user_id = requests.requested_by
        WHERE requests.org_id = ?
-         AND (requests.status = 'pending' OR (requests.status = 'approving' AND requests.claimed_at < ?))
+         AND ${OPEN_REQUEST}
        ORDER BY requests.created_at`,
     )
     .bind(orgId, Date.now() - APPROVAL_CLAIM_MS)
@@ -321,20 +321,6 @@ export async function listOwnProductionRequests(
     .bind(orgId, userId)
     .all<{ id: string; title: string; status: 'pending' | 'approved' | 'declined'; decision_note: string | null }>();
   return results.map((row) => ({ id: row.id, title: row.title, status: row.status, decisionNote: row.decision_note }));
-}
-
-/** A request still waiting for a decision, with the draft's files, or null. */
-export async function findPendingProductionRequest(db: D1Database, orgId: string, requestId: string) {
-  const row = await db
-    .prepare(
-      `SELECT id, requested_by, title, snapshot_gzip_base64 FROM production_requests
-       WHERE id = ? AND org_id = ? AND ${OPEN_REQUEST} AND ${REQUESTER_IS_MEMBER}`,
-    )
-    .bind(requestId, orgId, Date.now() - APPROVAL_CLAIM_MS)
-    .first<{ id: string; requested_by: string; title: string; snapshot_gzip_base64: string }>();
-  return row
-    ? { id: row.id, requestedBy: row.requested_by, title: row.title, snapshot: row.snapshot_gzip_base64 }
-    : null;
 }
 
 export async function declineProductionRequest(
