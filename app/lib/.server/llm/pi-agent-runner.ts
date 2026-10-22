@@ -543,6 +543,7 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
 
   void (async () => {
     try {
+      await writer.write({ type: 'start' });
       recordPiStage('loop_start', modelId);
       const loopConfig: AgentLoopConfig & { toolChoice: 'auto' } = {
         model: handle.model,
@@ -709,36 +710,17 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
       };
       recordPiTurnReport(modelId, report);
       onSettled(report);
+      await writer
+        .write({
+          type: 'finish',
+          finishReason: assistantMessageValue(terminalAssistant)?.stopReason === 'length' ? 'length' : 'stop',
+        })
+        .catch(() => undefined);
       await writer.close().catch(() => undefined);
     }
   })();
 
-  const framedStream = new ReadableStream<UIMessageChunk>({
-    async start(controller) {
-      const reader = readable.getReader();
-      controller.enqueue({ type: 'start' });
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            break;
-          }
-          controller.enqueue(value);
-        }
-        controller.enqueue({
-          type: 'finish',
-          finishReason: terminalAssistant?.stopReason === 'length' ? 'length' : 'stop',
-        });
-        controller.close();
-      } catch (error) {
-        controller.error(error);
-      } finally {
-        reader.releaseLock();
-      }
-    },
-  });
-
-  return normalizeTextPartBoundaries(framedStream);
+  return normalizeTextPartBoundaries(readable);
 }
 
 /** A provider rejection body is unbounded; the chat line only needs the head of it. */
