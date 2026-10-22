@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('~/lib/.server/cloudflare/deployment-repository', async (importOriginal) => ({
   ...(await importOriginal()),
   createDeployment: mocks.createDeployment,
-  requireDeploymentForUser: mocks.requireDeployment,
+  requireDeployment: mocks.requireDeployment,
 }));
 vi.mock('~/lib/.server/cloudflare/user-workspace-deployment-executor', () => ({
   executeUserOwnedDeployment: mocks.executeUserOwnedDeployment,

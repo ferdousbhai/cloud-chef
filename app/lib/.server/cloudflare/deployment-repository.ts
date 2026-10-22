@@ -66,61 +66,44 @@ export async function createDeployment(args: {
   planDigest: string;
 }): Promise<Deployment> {
   const now = Date.now();
-  try {
-    await args.db
-      .prepare(
-        `INSERT INTO deployments (
+  const committed = await verifiedWrite({
+    write: () =>
+      args.db
+        .prepare(
+          `INSERT INTO deployments (
            id, chat_id, user_id, connection_id, connection_generation, execution_generation,
            workspace_reference, status, plan_json, plan_digest, created_at, updated_at
          ) VALUES (?, ?, ?, ?, ?, 1, ?, 'approved', ?, ?, ?, ?)`,
-      )
-      .bind(
-        args.id,
-        args.chatId,
-        args.userId,
-        args.connectionId,
-        args.connectionGeneration,
-        args.workspaceReference,
-        JSON.stringify(args.plan),
-        args.planDigest,
-        now,
-        now,
-      )
-      .run();
-  } catch (error) {
-    const committed = await requireDeploymentForUser(args.db, args.id, args.userId).catch(() => null);
-    if (
-      committed?.workspaceReference === args.workspaceReference &&
+        )
+        .bind(
+          args.id,
+          args.chatId,
+          args.userId,
+          args.connectionId,
+          args.connectionGeneration,
+          args.workspaceReference,
+          JSON.stringify(args.plan),
+          args.planDigest,
+          now,
+          now,
+        )
+        .run(),
+    read: () => requireDeployment(args.db, args.id, args.userId),
+    landed: (committed) =>
+      committed.workspaceReference === args.workspaceReference &&
       committed.planDigest === args.planDigest &&
       committed.connectionId === args.connectionId &&
-      committed.connectionGeneration === args.connectionGeneration
-    ) {
-      return committed;
-    }
-    throw error;
-  }
-  return requireDeploymentForUser(args.db, args.id, args.userId);
+      committed.connectionGeneration === args.connectionGeneration,
+    refuse: () => new Error('The deployment was not created.'),
+  });
+  return committed ?? requireDeployment(args.db, args.id, args.userId);
 }
 
-export async function requireDeploymentForUser(
-  db: D1Database,
-  deploymentId: string,
-  userId: string,
-): Promise<Deployment> {
+/** The deployment, and with `userId` only when it is that person's. */
+export async function requireDeployment(db: D1Database, deploymentId: string, userId?: string): Promise<Deployment> {
   const row = await db
-    .prepare(`SELECT ${DEPLOYMENT_COLUMNS} FROM deployments WHERE id = ? AND user_id = ?`)
-    .bind(deploymentId, userId)
-    .first<DeploymentRow>();
-  if (!row) {
-    throw new DeploymentNotFoundError();
-  }
-  return deploymentFromRow(row);
-}
-
-export async function requireDeployment(db: D1Database, deploymentId: string): Promise<Deployment> {
-  const row = await db
-    .prepare(`SELECT ${DEPLOYMENT_COLUMNS} FROM deployments WHERE id = ?`)
-    .bind(deploymentId)
+    .prepare(`SELECT ${DEPLOYMENT_COLUMNS} FROM deployments WHERE id = ?1 AND (?2 IS NULL OR user_id = ?2)`)
+    .bind(deploymentId, userId ?? null)
     .first<DeploymentRow>();
   if (!row) {
     throw new DeploymentNotFoundError();
@@ -193,7 +176,7 @@ export async function claimApprovedDeployment(args: {
   connectionGeneration: number;
   executionGeneration: number;
 }): Promise<Deployment> {
-  const expected = await requireDeploymentForUser(args.db, args.deploymentId, args.userId);
+  const expected = await requireDeployment(args.db, args.deploymentId, args.userId);
   requireCurrentConnection(expected, args);
   if (expected.executionGeneration !== args.executionGeneration || expected.status !== 'approved') {
     throw new DeploymentStateConflictError(expected.status);
@@ -207,11 +190,11 @@ export async function claimApprovedDeployment(args: {
   const claim = crypto.randomUUID();
   // One project deploys one revision at a time; a person's other projects deploy alongside it.
   const project = projectReferencePrefix(reference.projectId);
-  let result: D1Result;
-  try {
-    result = await args.db
-      .prepare(
-        `UPDATE deployments
+  const committed = await verifiedWrite({
+    write: () =>
+      args.db
+        .prepare(
+          `UPDATE deployments
          SET status = 'provisioning', updated_at = ?, claim_id = ?
          WHERE id = ? AND user_id = ? AND connection_id = ? AND connection_generation = ?
            AND execution_generation = ? AND status = 'approved' AND updated_at = ?
@@ -227,49 +210,37 @@ export async function claimApprovedDeployment(args: {
                AND substr(active.workspace_reference, 1, ?) = ?
                AND active.status IN ('provisioning', 'deploying')
            )`,
-      )
-      .bind(
-        now,
-        claim,
-        expected.id,
-        expected.userId,
-        expected.connectionId,
-        expected.connectionGeneration,
-        expected.executionGeneration,
-        expected.updatedAt,
-        expected.userId,
-        expected.id,
-        project.length,
-        project,
-      )
-      .run();
-  } catch (error) {
-    // The write may have landed with its acknowledgement lost: the record and the claim id on it are
-    // read in one statement, so a committed claim is never reported lost by a second read failing.
-    const read = () => readClaimedDeployment(args.db, expected.id, expected.userId);
-    const committed = await read()
-      .catch(read)
-      .catch(() => null);
-    if (committed && isExactDeploymentClaim(committed, expected, claim)) {
-      return committed.deployment;
-    }
-    throw error;
-  }
-  if (result.meta.changes !== 1) {
-    const active = await findActiveProjectDeployment(args.db, {
-      userId: expected.userId,
-      projectId: reference.projectId,
-    });
-    if (active && active.id !== expected.id) {
-      throw new DeploymentConcurrencyLimitError();
-    }
-    const committed = await readClaimedDeployment(args.db, expected.id, expected.userId);
-    if (isExactDeploymentClaim(committed, expected, claim)) {
-      return committed.deployment;
-    }
-    throw new DeploymentStateConflictError(committed.deployment.status);
-  }
-  return { ...expected, status: 'provisioning', updatedAt: now };
+        )
+        .bind(
+          now,
+          claim,
+          expected.id,
+          expected.userId,
+          expected.connectionId,
+          expected.connectionGeneration,
+          expected.executionGeneration,
+          expected.updatedAt,
+          expected.userId,
+          expected.id,
+          project.length,
+          project,
+        )
+        .run(),
+    // The record and the claim id on it are read in one statement, so a committed claim is never
+    // reported lost by a second read failing.
+    read: () => readClaimedDeployment(args.db, expected.id, expected.userId),
+    landed: (committed) => isExactDeploymentClaim(committed, expected, claim),
+    refuse: async (committed) => {
+      const active = await findActiveProjectDeployment(args.db, {
+        userId: expected.userId,
+        projectId: reference.projectId,
+      });
+      return active && active.id !== expected.id
+        ? new DeploymentConcurrencyLimitError()
+        : new DeploymentStateConflictError(committed.deployment.status);
+    },
+  });
+  return committed?.deployment ?? { ...expected, status: 'provisioning', updatedAt: now };
 }
 
 /** A deployment holding its project's one deployment slot, and the revision it publishes. */
@@ -328,7 +299,7 @@ export async function prepareDeploymentRetry(args: {
   connectionGeneration: number;
   executionGeneration: number;
 }): Promise<Deployment> {
-  const expected = await requireDeploymentForUser(args.db, args.deploymentId, args.userId);
+  const expected = await requireDeployment(args.db, args.deploymentId, args.userId);
   requireCurrentConnection(expected, args);
   if (
     expected.executionGeneration !== args.executionGeneration ||
@@ -338,52 +309,44 @@ export async function prepareDeploymentRetry(args: {
     throw new DeploymentStateConflictError(expected.status);
   }
   const now = Date.now();
-  let result: D1Result;
-  try {
-    result = await args.db
-      .prepare(
-        `UPDATE deployments
+  const committed = await verifiedWrite({
+    write: () =>
+      args.db
+        .prepare(
+          `UPDATE deployments
          SET status = 'approved', execution_generation = execution_generation + 1,
              production_url = NULL, error_code = NULL, error_message = NULL, updated_at = ?
          WHERE id = ? AND user_id = ? AND connection_id = ? AND connection_generation = ?
            AND execution_generation = ? AND status = 'failed' AND updated_at = ?
            AND plan_digest = ? AND workspace_reference = ?`,
-      )
-      .bind(
-        now,
-        expected.id,
-        expected.userId,
-        expected.connectionId,
-        expected.connectionGeneration,
-        expected.executionGeneration,
-        expected.updatedAt,
-        expected.planDigest,
-        expected.workspaceReference,
-      )
-      .run();
-  } catch (error) {
-    const committed = await requireDeploymentForUser(args.db, expected.id, expected.userId).catch(() => null);
-    if (committed && isExactDeploymentRetry(committed, expected, now)) {
-      return committed;
+        )
+        .bind(
+          now,
+          expected.id,
+          expected.userId,
+          expected.connectionId,
+          expected.connectionGeneration,
+          expected.executionGeneration,
+          expected.updatedAt,
+          expected.planDigest,
+          expected.workspaceReference,
+        )
+        .run(),
+    read: () => requireDeployment(args.db, expected.id, expected.userId),
+    landed: (committed) => isExactDeploymentRetry(committed, expected, now),
+    refuse: (committed) => new DeploymentStateConflictError(committed.status),
+  });
+  return (
+    committed ?? {
+      ...expected,
+      executionGeneration: expected.executionGeneration + 1,
+      status: 'approved',
+      productionUrl: null,
+      errorCode: null,
+      errorMessage: null,
+      updatedAt: now,
     }
-    throw error;
-  }
-  if (result.meta.changes !== 1) {
-    const committed = await requireDeploymentForUser(args.db, expected.id, expected.userId);
-    if (isExactDeploymentRetry(committed, expected, now)) {
-      return committed;
-    }
-    throw new DeploymentStateConflictError(committed.status);
-  }
-  return {
-    ...expected,
-    executionGeneration: expected.executionGeneration + 1,
-    status: 'approved',
-    productionUrl: null,
-    errorCode: null,
-    errorMessage: null,
-    updatedAt: now,
-  };
+  );
 }
 
 export async function recordDeploymentResource(args: {
@@ -441,40 +404,65 @@ export async function transitionDeployment(args: {
   now?: number;
 }): Promise<void> {
   const now = args.now ?? Date.now();
-  let result: D1Result;
-  try {
-    result = await args.db
-      .prepare(
-        `UPDATE deployments
+  await verifiedWrite({
+    write: () =>
+      args.db
+        .prepare(
+          `UPDATE deployments
          SET status = ?, production_url = ?, error_code = ?, error_message = ?, updated_at = ?
          WHERE id = ? AND execution_generation = ? AND status = ?`,
-      )
-      .bind(
-        args.nextStatus,
-        args.productionUrl ?? null,
-        args.errorCode ?? null,
-        args.errorMessage ?? null,
-        now,
-        args.deploymentId,
-        args.executionGeneration,
-        args.expectedStatus,
-      )
-      .run();
+        )
+        .bind(
+          args.nextStatus,
+          args.productionUrl ?? null,
+          args.errorCode ?? null,
+          args.errorMessage ?? null,
+          now,
+          args.deploymentId,
+          args.executionGeneration,
+          args.expectedStatus,
+        )
+        .run(),
+    read: () => requireDeployment(args.db, args.deploymentId),
+    landed: (committed) => isExactDeploymentTransition(committed, args, now),
+    refuse: (committed) => new DeploymentStateConflictError(committed.status),
+  });
+}
+
+/**
+ * Runs a conditional write and settles what it did: null when it changed the record, or the record read
+ * back when the write is known to have landed (`landed`) though D1 lost its acknowledgement or it changed
+ * nothing because an earlier attempt already had. A write that failed is rethrown, and one that changed
+ * nothing and did not land is refused with `refuse`'s error.
+ */
+async function verifiedWrite<T>(args: {
+  write: () => Promise<D1Result>;
+  read: () => Promise<T>;
+  landed: (committed: T) => boolean;
+  refuse: (committed: T) => Error | Promise<Error>;
+}): Promise<T | null> {
+  let result: D1Result;
+  try {
+    result = await args.write();
   } catch (error) {
-    const committed = await requireDeployment(args.db, args.deploymentId).catch(() => null);
-    if (committed && isExactDeploymentTransition(committed, args, now)) {
-      return;
+    // The write may have landed with its acknowledgement lost: read it back, twice, before reporting it failed.
+    const committed = await args
+      .read()
+      .catch(args.read)
+      .catch(() => null);
+    if (committed !== null && args.landed(committed)) {
+      return committed;
     }
     throw error;
   }
   if (result.meta.changes === 1) {
-    return;
+    return null;
   }
-  const committed = await requireDeployment(args.db, args.deploymentId);
-  if (isExactDeploymentTransition(committed, args, now)) {
-    return;
+  const committed = await args.read();
+  if (args.landed(committed)) {
+    return committed;
   }
-  throw new DeploymentStateConflictError(committed.status);
+  throw await args.refuse(committed);
 }
 
 function isExactDeploymentTransition(

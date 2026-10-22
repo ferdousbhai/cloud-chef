@@ -9,7 +9,7 @@ import {
   DeploymentStateConflictError,
   listDeploymentActivity,
   prepareDeploymentRetry,
-  requireDeploymentForUser,
+  requireDeployment,
   type Deployment,
 } from '~/lib/.server/cloudflare/deployment-repository';
 import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
@@ -45,7 +45,7 @@ export async function createOrReplayDeploymentPlanForUser(args: {
   project: DeploymentProjectProfile;
 }): Promise<PublicDeployment | null> {
   const reference = workspaceReference(args);
-  const stored = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId).catch((error) => {
+  const stored = await requireDeployment(args.env.DB, args.deploymentId, args.userId).catch((error) => {
     if (error instanceof DeploymentNotFoundError) {
       return null;
     }
@@ -100,7 +100,7 @@ export async function terminalizeInterruptedDeploymentForUser(args: {
   executionGeneration?: number;
 }): Promise<DeploymentSettle | null> {
   const connection = runtimeCloudflareIdentity(args.env, args.userId);
-  const deployment = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId).catch((error) => {
+  const deployment = await requireDeployment(args.env.DB, args.deploymentId, args.userId).catch((error) => {
     if (error instanceof DeploymentNotFoundError) {
       return null;
     }
@@ -136,7 +136,7 @@ export async function deployForUser(args: {
   onExecution?: (execution: DeploymentExecution) => void;
 }): Promise<PublicDeployment> {
   const connection = runtimeCloudflareIdentity(args.env, args.userId);
-  let deployment = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId);
+  let deployment = await requireDeployment(args.env.DB, args.deploymentId, args.userId);
   await requireActiveDeploymentChat(args.env.DB, deployment);
   if (!isCurrentDeploymentPlan(deployment.plan)) {
     throw new DeploymentStateConflictError(deployment.status);
@@ -182,7 +182,7 @@ export async function previewForUser(args: {
   abortSignal?: AbortSignal;
 }) {
   const connection = runtimeCloudflareIdentity(args.env, args.userId);
-  const deployment = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId);
+  const deployment = await requireDeployment(args.env.DB, args.deploymentId, args.userId);
   await requireActiveDeploymentChat(args.env.DB, deployment);
   if (!isCurrentDeploymentPlan(deployment.plan)) {
     throw new DeploymentStateConflictError(deployment.status);
@@ -212,7 +212,7 @@ export async function userRuntimeDeploymentAction(args: {
 }): Promise<Response> {
   try {
     if (args.operation === 'get') {
-      const deployment = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId);
+      const deployment = await requireDeployment(args.env.DB, args.deploymentId, args.userId);
       const activity = await listDeploymentActivity(args.env.DB, deployment.id, deployment.executionGeneration);
       return Response.json({ deployment: { ...publicDeployment(deployment), activity } });
     }

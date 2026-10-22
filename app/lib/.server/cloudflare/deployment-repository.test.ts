@@ -11,7 +11,7 @@ import {
   listDeploymentActivity,
   prepareDeploymentRetry,
   recordDeploymentActivity,
-  requireDeploymentForUser,
+  requireDeployment,
   transitionDeployment,
   type Deployment,
 } from './deployment-repository';
@@ -72,7 +72,7 @@ describe('deployment repository', () => {
       .prepare(`UPDATE deployments SET plan_json = ? WHERE id = 'deployment-1'`)
       .run(JSON.stringify(missingProject));
 
-    await expect(requireDeploymentForUser(db, 'deployment-1', 'user-1')).rejects.toThrow();
+    await expect(requireDeployment(db, 'deployment-1', 'user-1')).rejects.toThrow();
   });
 
   it('claims and completes the exact connection-bound execution', async () => {
@@ -108,7 +108,7 @@ describe('deployment repository', () => {
       now: 50,
     });
 
-    await expect(requireDeploymentForUser(db, claimed.id, claimed.userId)).resolves.toMatchObject({
+    await expect(requireDeployment(db, claimed.id, claimed.userId)).resolves.toMatchObject({
       status: 'succeeded',
       productionUrl: 'https://app.example.workers.dev',
     });
@@ -235,7 +235,7 @@ describe('deployment repository', () => {
         now: 40,
       }),
     ).resolves.toBeUndefined();
-    await expect(requireDeploymentForUser(db, claimed.id, claimed.userId)).resolves.toMatchObject({
+    await expect(requireDeployment(db, claimed.id, claimed.userId)).resolves.toMatchObject({
       status: 'deploying',
       updatedAt: 40,
     });
@@ -386,7 +386,7 @@ describe('deployment repository', () => {
     await expect(claim(d1(sqlite, false, otherClaim))).rejects.toEqual(
       new DeploymentStateConflictError('provisioning'),
     );
-    await expect(requireDeploymentForUser(db, approved.id, approved.userId)).resolves.toMatchObject({
+    await expect(requireDeployment(db, approved.id, approved.userId)).resolves.toMatchObject({
       status: 'provisioning',
       updatedAt: 30,
     });
