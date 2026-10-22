@@ -527,7 +527,14 @@ export async function completeCloudflareConnectionAction(args: {
       throw new ConnectReturnError('expired');
     }
     if (providerRejectedAuthorization) {
-      await failOAuthState({ db: args.env.DB, stateId: state, expected: oauthState });
+      await transitionOAuthState({
+        db: args.env.DB,
+        stateId: state,
+        expected: oauthState,
+        fromUserId: oauthState.authenticated_user_id,
+        status: 'error',
+        userId: oauthState.authenticated_user_id,
+      });
       return cloudflareAuthorizationRecoveryResponse(args.request, oauthState.return_to);
     }
     if (!args.env.CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY) {
@@ -634,10 +641,12 @@ export async function completeCloudflareConnectionAction(args: {
           console.warn('Unable to clean up previous Cloudflare credential', cleanupError);
         });
       }
-      await checkpointAuthenticatedOAuthUser({
+      await transitionOAuthState({
         db: args.env.DB,
         stateId: state,
         expected: oauthState,
+        fromUserId: null,
+        status: 'pending',
         userId,
       });
     }
@@ -674,7 +683,14 @@ export async function completeCloudflareConnectionAction(args: {
     )
       .bind(owner.kind === 'user' ? owner.userId : owner.orgId, sessionId)
       .run();
-    await completeOAuthState({ db: args.env.DB, stateId: state, expected: oauthState, userId });
+    await transitionOAuthState({
+      db: args.env.DB,
+      stateId: state,
+      expected: oauthState,
+      fromUserId: userId,
+      status: 'completed',
+      userId,
+    });
     const headers = new Headers({
       Location: new URL(
         safeReturnTo(oauthState.return_to, new URL(args.request.url).origin),
@@ -778,112 +794,38 @@ function sameStringArray(left: readonly string[], right: readonly string[]): boo
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-async function checkpointAuthenticatedOAuthUser(args: {
+/**
+ * Moves a pending authorization state, still as `expected` read it and held by `fromUserId`, to `status`
+ * held by `userId`: recording who authenticated (still pending), completing it, or recording the
+ * provider's refusal. A write that throws or changes nothing still counts when the row reads back exactly
+ * as this write would have left it.
+ */
+async function transitionOAuthState(args: {
   db: D1Database;
   stateId: string;
   expected: PendingOAuthState;
-  userId: string;
+  fromUserId: string | null;
+  status: 'pending' | 'completed' | 'error';
+  userId: string | null;
 }): Promise<void> {
   const updatedAt = Date.now();
+  const landed = () => isExactOAuthState(args.db, args.stateId, args.expected, args.status, args.userId, updatedAt);
   try {
     const result = await args.db
       .prepare(
-        `UPDATE cloudflare_oauth_states SET authenticated_user_id = ?, updated_at = ?
-         WHERE id = ? AND status = 'pending' AND authenticated_user_id IS NULL
-           AND provider_session_id = ? AND return_to = ? AND expires_at = ?`,
-      )
-      .bind(
-        args.userId,
-        updatedAt,
-        args.stateId,
-        args.expected.provider_session_id,
-        args.expected.return_to,
-        args.expected.expires_at,
-      )
-      .run();
-    if (result.meta.changes === 1) {
-      return;
-    }
-  } catch (error) {
-    if (
-      await isExactOAuthState(args.db, args.stateId, args.expected, 'pending', args.userId, updatedAt).catch(
-        (readError) => {
-          console.warn('Unable to verify OAuth checkpoint state', readError);
-          return false;
-        },
-      )
-    ) {
-      return;
-    }
-    throw error;
-  }
-  if (await isExactOAuthState(args.db, args.stateId, args.expected, 'pending', args.userId, updatedAt)) {
-    return;
-  }
-  throw new Error('Cloudflare authorization state changed while authentication was being checkpointed.');
-}
-
-async function completeOAuthState(args: {
-  db: D1Database;
-  stateId: string;
-  expected: PendingOAuthState;
-  userId: string;
-}): Promise<void> {
-  const updatedAt = Date.now();
-  try {
-    const result = await args.db
-      .prepare(
-        `UPDATE cloudflare_oauth_states SET status = 'completed', updated_at = ?
-         WHERE id = ? AND status = 'pending' AND provider_session_id = ? AND return_to = ?
-           AND expires_at = ? AND authenticated_user_id = ?`,
-      )
-      .bind(
-        updatedAt,
-        args.stateId,
-        args.expected.provider_session_id,
-        args.expected.return_to,
-        args.expected.expires_at,
-        args.userId,
-      )
-      .run();
-    if (result.meta.changes === 1) {
-      return;
-    }
-  } catch (error) {
-    if (
-      await isExactOAuthState(args.db, args.stateId, args.expected, 'completed', args.userId, updatedAt).catch(
-        (readError) => {
-          console.warn('Unable to verify OAuth completion state', readError);
-          return false;
-        },
-      )
-    ) {
-      return;
-    }
-    throw error;
-  }
-  if (await isExactOAuthState(args.db, args.stateId, args.expected, 'completed', args.userId, updatedAt)) {
-    return;
-  }
-  throw new Error('Cloudflare authorization state changed while completion was being persisted.');
-}
-
-async function failOAuthState(args: { db: D1Database; stateId: string; expected: PendingOAuthState }): Promise<void> {
-  const updatedAt = Date.now();
-  try {
-    const result = await args.db
-      .prepare(
-        `UPDATE cloudflare_oauth_states SET status = 'error', updated_at = ?
+        `UPDATE cloudflare_oauth_states SET status = ?, authenticated_user_id = ?, updated_at = ?
          WHERE id = ? AND status = 'pending' AND provider_session_id = ? AND return_to = ?
            AND expires_at = ? AND authenticated_user_id IS ?`,
       )
       .bind(
+        args.status,
+        args.userId,
         updatedAt,
         args.stateId,
         args.expected.provider_session_id,
         args.expected.return_to,
         args.expected.expires_at,
-        args.expected.authenticated_user_id,
+        args.fromUserId,
       )
       .run();
     if (result.meta.changes === 1) {
@@ -891,15 +833,8 @@ async function failOAuthState(args: { db: D1Database; stateId: string; expected:
     }
   } catch (error) {
     if (
-      await isExactOAuthState(
-        args.db,
-        args.stateId,
-        args.expected,
-        'error',
-        args.expected.authenticated_user_id,
-        updatedAt,
-      ).catch((readError) => {
-        console.warn('Unable to verify OAuth error state', readError);
+      await landed().catch((readError) => {
+        console.warn('Unable to verify OAuth state', args.status, readError);
         return false;
       })
     ) {
@@ -907,19 +842,10 @@ async function failOAuthState(args: { db: D1Database; stateId: string; expected:
     }
     throw error;
   }
-  if (
-    await isExactOAuthState(
-      args.db,
-      args.stateId,
-      args.expected,
-      'error',
-      args.expected.authenticated_user_id,
-      updatedAt,
-    )
-  ) {
+  if (await landed()) {
     return;
   }
-  throw new Error('Cloudflare authorization state changed while the provider error was being persisted.');
+  throw new Error(`Cloudflare authorization state changed before it could be recorded as ${args.status}.`);
 }
 
 async function isExactOAuthState(

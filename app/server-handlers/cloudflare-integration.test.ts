@@ -1265,61 +1265,38 @@ function oauthDatabase(
                   authenticatedUserId: null,
                   updatedAt: values[5] as number,
                 };
-              } else if (sql.includes('SET authenticated_user_id') && state) {
-                const matches =
-                  state.status === 'pending' &&
-                  state.authenticatedUserId === null &&
-                  values[2] === state.id &&
-                  values[3] === state.providerSessionId &&
-                  values[4] === state.returnTo &&
-                  values[5] === state.expiresAt;
-                if (!matches) {
-                  return { success: true, meta: { changes: 0 } };
-                }
-                state = {
-                  ...state,
-                  authenticatedUserId: values[0] as string,
-                  updatedAt: (values[1] as number) + (options.checkpointMismatchAfterCommit ? 1 : 0),
-                };
-                if (options.checkpointErrorAfterCommit) {
-                  throw options.checkpointErrorAfterCommit;
-                }
-              } else if (sql.includes("status = 'completed'") && state) {
-                completeStateWrite(...values);
-                const matches =
-                  state.status === 'pending' &&
-                  values[1] === state.id &&
-                  values[2] === state.providerSessionId &&
-                  values[3] === state.returnTo &&
-                  values[4] === state.expiresAt &&
-                  values[5] === state.authenticatedUserId;
-                if (!matches) {
-                  return { success: true, meta: { changes: 0 } };
-                }
-                state = {
-                  ...state,
-                  status: 'completed',
-                  updatedAt: (values[0] as number) + (options.completionMismatchAfterCommit ? 1 : 0),
-                };
-                if (options.completionErrorAfterCommit) {
-                  throw options.completionErrorAfterCommit;
-                }
               } else if (sql.includes("status = 'expired'") && state) {
                 state = { ...state, status: 'expired', updatedAt: values[0] as number };
-              } else if (sql.includes("status = 'error'") && state) {
+              } else if (sql.includes('SET status = ?, authenticated_user_id = ?') && state) {
+                const [status, userId, updatedAt, id, providerSessionId, returnTo, expiresAt, fromUserId] = values;
+                if (status === 'completed') {
+                  completeStateWrite(...values);
+                }
                 const matches =
                   state.status === 'pending' &&
-                  values[1] === state.id &&
-                  values[2] === state.providerSessionId &&
-                  values[3] === state.returnTo &&
-                  values[4] === state.expiresAt &&
-                  values[5] === state.authenticatedUserId;
+                  id === state.id &&
+                  providerSessionId === state.providerSessionId &&
+                  returnTo === state.returnTo &&
+                  expiresAt === state.expiresAt &&
+                  fromUserId === state.authenticatedUserId;
                 if (!matches) {
                   return { success: true, meta: { changes: 0 } };
                 }
-                state = { ...state, status: 'error', updatedAt: values[0] as number };
-                if (options.providerErrorAfterCommit) {
-                  throw options.providerErrorAfterCommit;
+                const [mismatchAfterCommit, errorAfterCommit] =
+                  status === 'pending'
+                    ? [options.checkpointMismatchAfterCommit, options.checkpointErrorAfterCommit]
+                    : status === 'completed'
+                      ? [options.completionMismatchAfterCommit, options.completionErrorAfterCommit]
+                      : [false, options.providerErrorAfterCommit];
+                state = {
+                  ...state,
+                  // SAFETY: the transition binds its status, user, and time first, in that order.
+                  status: status as State['status'],
+                  authenticatedUserId: userId as string | null,
+                  updatedAt: (updatedAt as number) + (mismatchAfterCommit ? 1 : 0),
+                };
+                if (errorAfterCommit) {
+                  throw errorAfterCommit;
                 }
               }
               return { success: true, meta: { changes: 1 } };
