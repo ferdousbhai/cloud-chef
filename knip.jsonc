@@ -19,6 +19,8 @@
         // Child processes invoked by the canonical generated-artifact command.
         "make-bootstrap-snapshot.js",
         "scripts/build-user-workspace-runtime.mjs",
+        // Child process spawned by `pnpm run validate` (scripts/validate.mjs) for each template profile.
+        "scripts/verify-template.mjs",
       ],
       "project": ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!", "!.cloudchef-runtime-security-*/**"],
       "ignore": [

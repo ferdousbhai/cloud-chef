@@ -10,6 +10,7 @@
         "cloudflare.config.ts",
         "make-bootstrap-snapshot.js",
         "scripts/build-user-workspace-runtime.mjs",
+        "scripts/verify-template.mjs",
       ],
       "project": [
         "**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!",
