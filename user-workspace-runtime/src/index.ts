@@ -30,7 +30,9 @@ import {
 import { routeUserRuntimeAgentRequest } from '../../app/lib/.server/agent-request-identity';
 import {
   createTrustedDeploymentConfig,
+  requireString,
   type DeploymentConfigInput,
+  type TrustedDeploymentConfig,
 } from '../../app/lib/.server/cloudflare/deployment-config';
 import { recordDeploymentActivity } from '../../app/lib/.server/cloudflare/deployment-repository';
 import type { BuilderValidationStage } from '../../app/lib/common/builder-validation-progress';
@@ -1650,7 +1652,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       isolatedRoot,
       artifactRoot: PREPARED_VALIDATION_ARTIFACT_ROOT,
       project,
-      deploymentConfig: validationDeploymentConfig(project),
+      deploymentConfig: createTrustedDeploymentConfig(validationDeploymentConfig(project)),
       cancellation,
       liveness,
       // The build reports the same stage ladder the deployment records as activity, so the
@@ -1970,29 +1972,22 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     if (project.bindings.appAgent !== (agentSecurityD1DatabaseId !== undefined)) {
       throw new Error('The deployment artifact bindings do not match the AppAgent security profile.');
     }
-    const deploymentConfig: DeploymentConfigInput = {
-      workerName: requireCloudflareName(input.workerName, 'workerName'),
+    const deploymentConfig = createTrustedDeploymentConfig({
+      workerName: requireString(input.workerName, 'workerName', 64),
       workersAi: project.bindings.ai,
       appAgent: project.bindings.appAgent,
       assets: project.bindings.assets,
-    };
-    if (d1DatabaseId !== undefined) {
-      deploymentConfig.d1DatabaseId = d1DatabaseId;
-      deploymentConfig.d1DatabaseName = requireCloudflareName(input.d1DatabaseName, 'd1DatabaseName');
-    }
-    if (agentSecurityD1DatabaseId !== undefined) {
-      deploymentConfig.agentSecurityD1DatabaseId = agentSecurityD1DatabaseId;
-      deploymentConfig.agentSecurityD1DatabaseName = requireCloudflareName(
-        input.agentSecurityD1DatabaseName,
-        'agentSecurityD1DatabaseName',
-      );
-    }
-    if (r2BucketName !== undefined) {
-      deploymentConfig.r2BucketName = requireCloudflareName(r2BucketName, 'r2BucketName');
-    }
-    if (kvNamespaceId !== undefined) {
-      deploymentConfig.kvNamespaceId = kvNamespaceId;
-    }
+      d1DatabaseId,
+      d1DatabaseName:
+        d1DatabaseId === undefined ? undefined : requireString(input.d1DatabaseName, 'd1DatabaseName', 64),
+      agentSecurityD1DatabaseId,
+      agentSecurityD1DatabaseName:
+        agentSecurityD1DatabaseId === undefined
+          ? undefined
+          : requireString(input.agentSecurityD1DatabaseName, 'agentSecurityD1DatabaseName', 64),
+      r2BucketName,
+      kvNamespaceId,
+    });
     const activity = (sequence: number, message: string) =>
       recordDeploymentActivity({
         db: this.env.DB,
@@ -2193,7 +2188,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     isolatedRoot: string;
     artifactRoot: string;
     project: DeploymentProjectProfile;
-    deploymentConfig: DeploymentConfigInput;
+    deploymentConfig: TrustedDeploymentConfig;
     cancellation?: ValidationCancellation;
     liveness?: OperationLiveness;
     activity?: (sequence: number, message: string) => Promise<void>;
@@ -2206,7 +2201,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     // configuration so the dry run checks exactly what CloudChef will publish.
     const configWrite = await this.writeFile(
       `${args.isolatedRoot}/${CF_BUILD_OUTPUT_WORKER_CONFIG}`,
-      JSON.stringify(createTrustedDeploymentConfig(args.deploymentConfig)),
+      JSON.stringify(args.deploymentConfig),
       { encoding: 'utf-8' },
     );
     if (!configWrite.success) {
@@ -3746,13 +3741,6 @@ function validationStageReporter(onStage?: WorkspaceValidationStageReporter): (s
   };
 }
 
-function requireString(value: unknown, name: string, maxLength: number): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > maxLength) {
-    throw new SyntaxError(`Invalid ${name}.`);
-  }
-  return value;
-}
-
 function requireOptionalString(value: unknown, name: string, maxLength: number): string | undefined {
   return value === undefined ? undefined : requireString(value, name, maxLength);
 }
@@ -3773,14 +3761,6 @@ function requireInteger(value: unknown, name: string, max: number): number {
     throw new SyntaxError(`Invalid ${name}.`);
   }
   return value;
-}
-
-function requireCloudflareName(value: unknown, name: string): string {
-  const result = requireString(value, name, 64);
-  if (!/^[a-z0-9][a-z0-9-]{2,63}$/.test(result)) {
-    throw new SyntaxError(`Invalid ${name}.`);
-  }
-  return result;
 }
 
 function requireSnapshotRevision(value: unknown): string {

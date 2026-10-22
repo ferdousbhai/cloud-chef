@@ -29,7 +29,7 @@ type TrustedBinding =
   | { type: 'assets' }
   | { type: 'durable-object'; worker: string; exportName: 'AppAgent' };
 
-type TrustedDeploymentConfig = {
+export type TrustedDeploymentConfig = {
   name: string;
   compatibilityDate: string;
   compatibilityFlags: readonly string[];
@@ -116,7 +116,8 @@ function requireHexId(value: unknown, name: string): string {
   return result;
 }
 
-function requireString(value: unknown, name: string, maxLength: number): string {
+/** A non-empty string of at most `maxLength` characters, or a SyntaxError naming the field. */
+export function requireString(value: unknown, name: string, maxLength: number): string {
   if (typeof value !== 'string' || value.length === 0 || value.length > maxLength) {
     throw new SyntaxError(`Invalid ${name}.`);
   }
