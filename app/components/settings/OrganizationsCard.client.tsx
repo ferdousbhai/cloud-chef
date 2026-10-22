@@ -111,20 +111,16 @@ export function OrganizationsCard() {
     }
   }, []);
 
-  const load = useCallback(async () => {
-    const { organizations } = await getJson('/api/organizations', organizationsSchema, 'Unable to load your teams.');
-    setOrganizations(organizations);
-    setError(null);
+  /** Loads the teams, and again after a change; a failure says so instead of leaving stale controls unexplained. */
+  const reload = useCallback(async () => {
+    try {
+      const { organizations } = await getJson('/api/organizations', organizationsSchema, 'Unable to load your teams.');
+      setOrganizations(organizations);
+      setError(null);
+    } catch (loadError) {
+      setError(messageOf(loadError, 'Unable to load your teams.'));
+    }
   }, []);
-
-  /** Loads again after a change; a failure says so instead of leaving stale controls unexplained. */
-  const reload = useCallback(
-    () =>
-      load().catch((loadError) => {
-        setError(messageOf(loadError, 'Unable to load your teams.'));
-      }),
-    [load],
-  );
 
   useEffect(() => {
     void reload();
