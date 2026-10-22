@@ -47,6 +47,11 @@ export function normalizeToolInvocation(invocation: CloudChefToolInvocation): Cl
     : invocation;
 }
 
+/** A publish that did not reach GitHub, or whose pipeline failed or hit a conflict. */
+function publishFailed(publish: LinkedPublishView): boolean {
+  return publish.kind === 'not_sent' || publish.kind === 'failed' || publish.kind === 'conflict';
+}
+
 /**
  * `publish` is the view of a GitHub publish as of now (see useLinkedPublishView), or null for any other
  * call. A publish whose pipeline is still building shows its spinner in the title, never a check beside it.
@@ -60,7 +65,7 @@ export function statusIcon(
     if (publish.building) {
       return null;
     }
-    return publish.kind === 'not_sent' || publish.kind === 'failed' || publish.kind === 'conflict'
+    return publishFailed(publish)
       ? icon(<Cross2Icon />, 'text-bolt-elements-icon-error')
       : icon(<CheckIcon />, 'text-bolt-elements-icon-success');
   }
@@ -140,7 +145,7 @@ export function toolTitle(
           publish.title,
           publish.building ? (
             <Spinner />
-          ) : publish.kind === 'not_sent' || publish.kind === 'failed' || publish.kind === 'conflict' ? (
+          ) : publishFailed(publish) ? (
             <Cross2Icon className="text-content-secondary" />
           ) : (
             <CheckIcon className="text-content-secondary" />
