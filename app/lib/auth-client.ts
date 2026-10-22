@@ -12,7 +12,7 @@ import {
 } from '~/lib/cloudflare/authorization-recovery';
 import { clearPendingSubmit, recordPendingSubmit } from '~/lib/stores/pending-submit';
 import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
-import { noContentSchema, postJson, RequestError } from '~/lib/json-request';
+import { getJson, noContentSchema, postJson, RequestError } from '~/lib/json-request';
 import { userIdStore } from '~/lib/stores/userId';
 
 type AuthState = {
@@ -77,14 +77,11 @@ async function loadSession() {
   if (loading) {
     return loading;
   }
-  loading = fetch('/api/auth/session', { credentials: 'same-origin' })
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error('Unable to load the Cloudflare session.');
-      }
-      const session = cloudflareAuthSessionSchema.safeParse(await response.json());
-      setState({ data: session.success ? session.data : null, isPending: false, error: null });
-      rememberTabWorkspace(session.success ? (session.data.context?.connectionId ?? null) : null);
+  // An answer that isn't a session is no session: signed out.
+  loading = getJson('/api/auth/session', cloudflareAuthSessionSchema.nullable().catch(null))
+    .then((session) => {
+      setState({ data: session, isPending: false, error: null });
+      rememberTabWorkspace(session?.context?.connectionId ?? null);
     })
     // A failed check keeps what was known (nothing, on a first load) and says so, rather than looking signed out.
     .catch(() => setState({ data: sessionStore.get().data, isPending: false, error: "Couldn't check your session." }))

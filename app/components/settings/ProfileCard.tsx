@@ -2,6 +2,7 @@ import { ExitIcon, PersonIcon } from '@radix-ui/react-icons';
 import { authClient, signOutOfCloudChef } from '~/lib/auth-client';
 import { Button } from '@ui/Button';
 import { toast } from 'sonner';
+import { messageOf } from '~/lib/json-request';
 
 export function ProfileCard() {
   const user = authClient.useSession().data?.user ?? null;
@@ -9,7 +10,7 @@ export function ProfileCard() {
     try {
       await signOutOfCloudChef();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to sign out. Please try again.');
+      toast.error(messageOf(error, 'Unable to sign out. Please try again.'));
     }
   };
 

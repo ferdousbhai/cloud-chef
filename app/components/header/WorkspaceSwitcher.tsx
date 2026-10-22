@@ -4,6 +4,7 @@ import { Menu, MenuItem } from '@ui/Menu';
 import { authClient, switchWorkspace } from '~/lib/auth-client';
 import { toast } from 'sonner';
 import type { WorkspaceContext } from '~/lib/.server/auth';
+import { messageOf } from '~/lib/json-request';
 
 /**
  * Which Cloudflare account the builder works in: the person's own, or an organization's they belong
@@ -76,7 +77,7 @@ async function switchTo(connectionId: string) {
   try {
     await switchWorkspace(connectionId);
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : 'Unable to switch accounts.');
+    toast.error(messageOf(error, 'Unable to switch accounts.'));
   }
 }
 

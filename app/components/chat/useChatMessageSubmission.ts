@@ -15,6 +15,7 @@ import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { builderModelStore } from '~/lib/stores/builder-model.client';
 import type { BuilderModelId } from '~/lib/workers-ai-model';
+import { messageOf } from '~/lib/json-request';
 
 /**
  * Sends one builder turn. The resolved value is the AI SDK's internal send result, which no caller
@@ -111,7 +112,7 @@ export function useChatMessageSubmission(args: {
       return true;
     } catch (error) {
       logger.error('Failed to submit chat message', error);
-      const message = error instanceof Error ? error.message : 'CloudChef could not start building. Please try again.';
+      const message = messageOf(error, 'CloudChef could not start building. Please try again.');
       toast.error(message);
       captureMessage('Failed to submit chat message', { level: 'error' });
       return false;

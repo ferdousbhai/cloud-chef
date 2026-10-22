@@ -22,6 +22,7 @@ import {
   type PromptRefinementQuestion,
 } from '~/lib/prompt-refinement';
 import { z } from 'zod';
+import { messageOf } from '~/lib/json-request';
 
 /** Failure envelope returned by the prompt-enhancement endpoint. */
 const enhanceFailureSchema = z.looseObject({
@@ -94,7 +95,7 @@ export function useMessageInputController({
         );
       } catch (error) {
         captureException('Failed to start Cloudflare authorization', error, { level: 'error' });
-        toast.error(error instanceof Error ? error.message : 'Unable to connect Cloudflare. Please try again.');
+        toast.error(messageOf(error, 'Unable to connect Cloudflare. Please try again.'));
       }
     },
     [input],
@@ -217,7 +218,7 @@ export function useMessageInputController({
         return;
       }
       captureException('Failed to enhance prompt', error, { level: 'error' });
-      toast.error(error instanceof Error ? error.message : 'Failed to refine the build plan. Please try again.');
+      toast.error(messageOf(error, 'Failed to refine the build plan. Please try again.'));
     } finally {
       if (enhanceRequestRef.current === controller) {
         enhanceRequestRef.current = null;

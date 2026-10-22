@@ -6,6 +6,7 @@ import { BrandLink } from '~/components/BrandLink';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { completeEmailSignIn, describeEmailSignIn } from '~/lib/auth-client';
 import { createPrivatePageHead } from '~/lib/social-meta';
+import { messageOf } from '~/lib/json-request';
 
 const emailSignInSearchSchema = z.object({ token: z.string().optional().catch(undefined) });
 
@@ -38,7 +39,7 @@ function EmailSignIn() {
           }
         } catch (failure) {
           if (!canceled) {
-            setError(failure instanceof Error ? failure.message : 'This sign-in link is not valid.');
+            setError(messageOf(failure, 'This sign-in link is not valid.'));
           }
         }
       })();
@@ -57,7 +58,7 @@ function EmailSignIn() {
     try {
       window.location.assign(await completeEmailSignIn(token));
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Unable to sign in with this link.');
+      setError(messageOf(failure, 'Unable to sign in with this link.'));
       setBusy(false);
     }
   };

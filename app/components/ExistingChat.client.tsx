@@ -15,6 +15,7 @@ import {
 import { isWorkspacePreparingError } from '~/lib/cloudflare/client';
 import { WorkspacePreparingLoading, WorkspacePreparingPanel } from '~/components/WorkspacePreparing';
 import { PromptPrefillContext } from './chat/prompt-prefill';
+import { messageOf } from '~/lib/json-request';
 
 export function ExistingChat({ chatId }: { chatId: string }) {
   return (
@@ -92,7 +93,7 @@ function ProjectLoading() {
 }
 
 export function ProjectLoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const message = error instanceof Error ? error.message : 'The project data could not be loaded.';
+  const message = messageOf(error, 'The project data could not be loaded.');
   const retry = () => {
     if (error instanceof UserRuntimeSessionError) {
       void getUserRuntimeSession({ retryProvisioning: true }).then(onRetry, onRetry);

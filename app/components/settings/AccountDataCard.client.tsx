@@ -9,11 +9,10 @@ import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { takeReauthenticationSwitchedAccount } from '~/lib/stores/reauthentication';
 import { ReauthenticateButtons } from './ReauthenticateButtons';
 import { z } from 'zod';
+import { postJson, RequestError } from '~/lib/json-request';
 
-/** Failure envelopes returned by the account deletion and export endpoints. */
-const accountDeletionPayloadSchema = z.looseObject({
-  code: z.string().optional().catch(undefined),
-  error: z.string().optional().catch(undefined),
+/** What erasing the account reports about what it could not do itself. */
+const accountDeletionSchema = z.looseObject({
   cloudflareAuthorizationRevoked: z.boolean().optional().catch(undefined),
   workspacesLeftIn: z.array(z.string()).optional().catch(undefined),
 });
@@ -72,30 +71,28 @@ export function AccountDataCard() {
     setPhase('deleting');
     setError(null);
     try {
-      const response = await fetch('/api/account/delete', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          confirmation: confirmation.trim(),
-          acknowledgeCloudflareResourcesRetained: acknowledged,
-        }),
-      });
-      const payload = accountDeletionPayloadSchema.safeParse(await response.json().catch(() => null)).data ?? null;
-      if (!response.ok) {
-        setPhase(payload?.code === 'reauthentication_required' ? 'reauthenticate' : 'confirming');
-        setError(payload?.code === 'reauthentication_required' ? null : (payload?.error ?? 'Unable to delete.'));
-        return;
-      }
+      const deleted = await postJson(
+        '/api/account/delete',
+        { confirmation: confirmation.trim(), acknowledgeCloudflareResourcesRetained: acknowledged },
+        accountDeletionSchema,
+        'Unable to delete.',
+      );
       await disposeClientCollections();
       resetUserRuntimeSession();
       setHadOwnAccount(session?.contexts.some((option) => option.kind === 'personal') ?? false);
-      setRevoked(payload?.cloudflareAuthorizationRevoked === true);
-      setWorkspacesLeftIn(payload?.workspacesLeftIn ?? []);
+      setRevoked(deleted.cloudflareAuthorizationRevoked === true);
+      setWorkspacesLeftIn(deleted.workspacesLeftIn ?? []);
       setPhase('deleted');
-    } catch {
-      setPhase('confirming');
-      setError('Unable to reach CloudChef. Check your connection and try again.');
+    } catch (failure) {
+      const reauthenticate = failure instanceof RequestError && failure.code === 'reauthentication_required';
+      setPhase(reauthenticate ? 'reauthenticate' : 'confirming');
+      setError(
+        reauthenticate
+          ? null
+          : failure instanceof RequestError
+            ? failure.message
+            : 'Unable to reach CloudChef. Check your connection and try again.',
+      );
     }
   };
 

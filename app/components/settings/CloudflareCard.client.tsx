@@ -7,6 +7,7 @@ import {
   signInWithCloudflare,
 } from '~/lib/auth-client';
 import { z } from 'zod';
+import { getJson, messageOf, RequestError } from '~/lib/json-request';
 import { ReauthenticateButtons } from './ReauthenticateButtons';
 
 const connectionStatusSchema = z.looseObject({
@@ -39,29 +40,16 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
 
   useEffect(() => {
     let canceled = false;
-    void fetch('/api/cloudflare/connection')
-      .then(async (response) => {
-        // Signed in without an account to build in yet: nothing connected, which isn't an error.
-        if (response.status === 401) {
-          return null;
-        }
-        if (!response.ok) {
-          throw new Error('Unable to load Cloudflare connection status.');
-        }
-        const status = connectionStatusSchema.safeParse(await response.json());
-        if (!status.success) {
-          throw new Error('Unable to load Cloudflare connection status.');
-        }
-        return status.data;
-      })
+    void getJson('/api/cloudflare/connection', connectionStatusSchema, 'Unable to load Cloudflare connection status.')
       .then((status) => {
         if (!canceled) {
           setConnection(status);
         }
       })
       .catch((statusError) => {
-        if (!canceled) {
-          setError(statusError instanceof Error ? statusError.message : 'Unable to load Cloudflare.');
+        // Signed in without an account to build in yet: nothing connected, which isn't an error.
+        if (!canceled && !(statusError instanceof RequestError && statusError.status === 401)) {
+          setError(messageOf(statusError, 'Unable to load Cloudflare.'));
         }
       })
       .finally(() => {
@@ -83,7 +71,7 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
       if (connectionError instanceof ReauthenticationRequiredError) {
         setReauthenticateReason(connectionError.message);
       } else {
-        setError(connectionError instanceof Error ? connectionError.message : 'Unable to connect Cloudflare.');
+        setError(messageOf(connectionError, 'Unable to connect Cloudflare.'));
       }
       setConnecting(false);
     }

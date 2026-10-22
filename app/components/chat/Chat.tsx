@@ -35,6 +35,7 @@ import { buttonClassNames } from '~/components/ui/primitives/Button';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { WORKERS_PAID_URL } from '~/lib/workers-paid.client';
 import { loadBuilderModelCatalog, loadBuilderModelPreference } from '~/lib/stores/builder-model.client';
+import { messageOf } from '~/lib/json-request';
 
 const logger = createScopedLogger('Chat');
 
@@ -69,7 +70,7 @@ export const Chat = memo(
         if (!canceled) {
           logger.error('Unable to connect to the user-owned runtime', error);
           setRuntimeConnectionError({
-            message: error instanceof Error ? error.message : 'Unable to connect to your Cloudflare workspace.',
+            message: messageOf(error, 'Unable to connect to your Cloudflare workspace.'),
             code: error instanceof UserRuntimeSessionError ? error.code : null,
             upgradeUrl: error instanceof UserRuntimeSessionError ? error.upgradeUrl : null,
           });

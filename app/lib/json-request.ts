@@ -30,9 +30,17 @@ export async function postJson<T>(
   return parseResponse(response, schema, fallback);
 }
 
-/** Reads one of CloudChef's routes and parses its answer with `schema`; `fallback` as for `postJson`. */
-export async function getJson<T>(path: string, schema: z.ZodType<T>, fallback?: string): Promise<T> {
-  return parseResponse(await fetch(path, { credentials: 'same-origin' }), schema, fallback);
+/**
+ * Reads one of CloudChef's routes and parses its answer with `schema`; `fallback` as for `postJson`, and
+ * `signal` abandons the read.
+ */
+export async function getJson<T>(
+  path: string,
+  schema: z.ZodType<T>,
+  fallback?: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  return parseResponse(await fetch(path, { credentials: 'same-origin', signal }), schema, fallback);
 }
 
 /** A refusal from one of CloudChef's routes, with its HTTP status. */
@@ -68,4 +76,19 @@ async function parseResponse<T>(response: Response, schema: z.ZodType<T>, fallba
 /** What a caught failure says, or `fallback` when it is not an Error. */
 export function messageOf(cause: unknown, fallback: string): string {
   return cause instanceof Error ? cause.message : fallback;
+}
+
+/** Runs one request, then `then` (a refresh), or reports why it failed to `onError`. */
+export async function runRequest(
+  action: () => Promise<void>,
+  then: () => void | Promise<void>,
+  onError: (message: string | null) => void,
+): Promise<void> {
+  onError(null);
+  try {
+    await action();
+    await then();
+  } catch (failure) {
+    onError(messageOf(failure, 'That did not work. Try again.'));
+  }
 }

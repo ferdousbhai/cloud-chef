@@ -19,8 +19,7 @@ import {
   ownRequestSchema,
   productionRequestSchema,
 } from './OrgProjectsSection.client';
-import { getJson, messageOf, noContentSchema, postJson, RequestError } from '~/lib/json-request';
-import { run } from './organization-requests.client';
+import { getJson, messageOf, noContentSchema, postJson, RequestError, runRequest } from '~/lib/json-request';
 import { ReauthenticateButtons } from './ReauthenticateButtons';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 
@@ -350,7 +349,7 @@ function OrganizationRow({
   };
 
   const revoke = (inviteId: string) =>
-    void run(
+    void runRequest(
       async () => {
         await postJson('/api/organizations/invite/revoke', { orgId: organization.orgId, inviteId }, noContentSchema);
       },
@@ -411,7 +410,7 @@ function OrganizationRow({
             size="xs"
             variant={connection?.active ? 'neutral' : 'primary'}
             onClick={() =>
-              void run(
+              void runRequest(
                 async () => {
                   await signInWithCloudflare(createCloudflareReturnURL(window.location.href), {
                     organizationId: organization.orgId,
