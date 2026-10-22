@@ -114,7 +114,7 @@ import {
 } from './isolated-materialization';
 import { shellQuote } from './shell-quote';
 import { addMissingColumn, first } from './sql-rows';
-import { bytesToBase64, sha256Hex } from '../../app/lib/hex-digest';
+import { base64ToBytes, bytesToBase64, sha256Hex } from '../../app/lib/hex-digest';
 import { stableWorkspaceRead } from './stable-workspace-read';
 import {
   isolatedContentDigestCommand,
@@ -3650,7 +3650,7 @@ function requireRemoteToolName(value: unknown): 'write' | 'edit' | 'exec' {
 }
 
 function decodeFileContent(content: string, encoding: 'utf8' | 'base64'): Uint8Array {
-  return encoding === 'base64' ? decodeBase64(content) : new TextEncoder().encode(content);
+  return encoding === 'base64' ? base64ToBytes(content) : new TextEncoder().encode(content);
 }
 
 function totalFileBytes(files: WorkspaceFile[]): number {
@@ -3714,11 +3714,6 @@ function canDecodeUtf8(bytes: Uint8Array): boolean {
 
 function decodeUtf8(bytes: Uint8Array): string {
   return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-}
-
-function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
 function bearerToken(request: Request): string | null {
