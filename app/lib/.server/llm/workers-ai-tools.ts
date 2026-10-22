@@ -19,7 +19,7 @@ import {
   WORKSPACE_TOOL_NAMES,
   type WorkspaceToolName,
 } from 'cloudchef-agent/model-tool-inputs';
-import { parseNpmInstallCommand } from 'cloudchef-agent/tools/npmInstall';
+import { parseDependencyCommand } from 'cloudchef-agent/tools/dependency-command';
 import { rejectedWorkspaceCommand, rejectedWorkspaceFileMutation } from 'cloudchef-agent/workspace-boundary';
 import { toolFailure } from 'cloudchef-agent/tool-result';
 import { isWorkspaceToolOperationIndeterminateError, type BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
@@ -422,7 +422,7 @@ function computerWorkspaceTool(
           }
 
           const dependencyCommand =
-            toolName === 'exec' && isExecInput(input) ? parseNpmInstallCommand(input.command) : null;
+            toolName === 'exec' && isExecInput(input) ? parseDependencyCommand(input.command) : null;
           if (dependencyCommand) {
             options.abortSignal?.throwIfAborted();
             const installRequest: Parameters<BuilderWorkspaceApi['installDependencies']>[0] = {
