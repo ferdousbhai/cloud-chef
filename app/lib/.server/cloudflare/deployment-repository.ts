@@ -1,11 +1,5 @@
 import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
-import {
-  APP_ACCOUNT_RESOURCES,
-  parseDeploymentPlanJson,
-  type AdoptedDeploymentResource,
-  type DeploymentPlan,
-  type DeploymentResourceNaming,
-} from './deployment-plan';
+import { parseDeploymentPlanJson, type DeploymentPlan, type DeploymentResourceNaming } from './deployment-plan';
 
 export type DeploymentStatus = 'approved' | 'provisioning' | 'deploying' | 'succeeded' | 'failed';
 
@@ -277,50 +271,18 @@ export async function claimApprovedDeployment(args: {
 }
 
 /**
- * How the project's plans name its account resources. Each one its succeeded deployments named keeps
- * the name the latest of them gave it, which is what production uses: an app first deployed when each
- * deployment named its own resources keeps that one's data and address. Every other is named after the
- * project. Only a succeeded deployment names one, and each executes only once its plan names what this
- * returns, so later deployments never change it.
+ * How the project's plans name its account resources: after the project's own identity, so every
+ * revision deploys onto the same ones.
  */
 export async function projectResourceNaming(
-  db: D1Database,
+  _db: D1Database,
   deployment: Pick<Deployment, 'userId' | 'chatId' | 'workspaceReference'>,
 ): Promise<DeploymentResourceNaming> {
   const match = /^workspace-runtime:([^:]+):/.exec(deployment.workspaceReference);
   if (!match) {
     throw new Error('The deployment does not belong to a CloudChef project.');
   }
-  const project = match[0];
-  const rows = await db
-    .prepare(
-      `SELECT type, logical_name, name FROM (
-         SELECT json_extract(resource.value, '$.type') AS type,
-                json_extract(resource.value, '$.logicalName') AS logical_name,
-                json_extract(resource.value, '$.proposedName') AS name,
-                ROW_NUMBER() OVER (
-                  PARTITION BY json_extract(resource.value, '$.type'), json_extract(resource.value, '$.logicalName')
-                  ORDER BY deployments.updated_at DESC, deployments.id DESC
-                ) AS position
-         FROM deployments, json_each(deployments.plan_json, '$.resources') AS resource
-         WHERE deployments.user_id = ? AND deployments.chat_id = ?
-           AND substr(deployments.workspace_reference, 1, ?) = ?
-           AND deployments.status = 'succeeded'
-       )
-       WHERE position = 1`,
-    )
-    .bind(deployment.userId, deployment.chatId, project.length, project)
-    .all<{ type: string | null; logical_name: string | null; name: string | null }>();
-  const adopted: AdoptedDeploymentResource[] = [];
-  for (const row of rows.results) {
-    const resource = APP_ACCOUNT_RESOURCES.find(
-      ([type, logicalName]) => type === row.type && logicalName === row.logical_name,
-    );
-    if (resource && row.name) {
-      adopted.push({ type: resource[0], logicalName: resource[1], name: row.name });
-    }
-  }
-  return { identity: await appResourceIdentity(decodeURIComponent(match[1]!)), adopted };
+  return { identity: await appResourceIdentity(decodeURIComponent(match[1]!)) };
 }
 
 /** A deployment holding its project's one deployment slot, and the revision it publishes. */

@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   claimApprovedDeployment: vi.fn(),
   findDeploymentResource: vi.fn(),
-  projectResourceNaming: vi.fn(),
   recordDeploymentActivity: vi.fn(),
   recordDeploymentResource: vi.fn(),
   requireDeployment: vi.fn(),
@@ -41,7 +40,6 @@ vi.mock('./deployment-repository', () => ({
   },
   claimApprovedDeployment: mocks.claimApprovedDeployment,
   findDeploymentResource: mocks.findDeploymentResource,
-  projectResourceNaming: mocks.projectResourceNaming,
   recordDeploymentActivity: mocks.recordDeploymentActivity,
   recordDeploymentResource: mocks.recordDeploymentResource,
   requireDeployment: mocks.requireDeployment,
@@ -76,7 +74,6 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     mocks.findDeploymentResource.mockResolvedValue(null);
     mocks.accountApi.managedWorkerDurableObjectClasses.mockResolvedValue([]);
     // The project's resources are named as these plans name them.
-    mocks.projectResourceNaming.mockResolvedValue({ identity: 'deployment-1', adopted: [] });
     mocks.accountApi.configureManagedWorkerSchedule.mockResolvedValue(undefined);
     mocks.accountApi.enableWorkerSubdomain.mockResolvedValue(undefined);
     mocks.accountApi.getWorkersSubdomain.mockResolvedValue('user-subdomain');
@@ -842,51 +839,6 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
       sessionId: 'preview:deployment-1:4:preview-1',
       status: 'failed',
     });
-  });
-
-  it('refuses, while it holds the project, a deployment planned for other resources than the project’s', async () => {
-    const { execution, deployment, workspace } = await workerDeployment({ d1: true });
-    // An earlier deployment of the project, from when each named its own, holds production's data.
-    mocks.projectResourceNaming.mockResolvedValue({
-      identity: 'project-1',
-      adopted: [{ type: 'd1', logicalName: 'DB', name: 'cloudchef-earlier' }],
-    });
-
-    await expect(executeUserOwnedDeployment(execution)).rejects.toThrow(
-      'planned for Cloudflare resources the project no longer uses',
-    );
-
-    expect(mocks.projectResourceNaming).toHaveBeenCalledWith(
-      execution.env.DB,
-      expect.objectContaining({ id: deployment.id, status: 'provisioning' }),
-    );
-    expect(mocks.claimApprovedDeployment.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.projectResourceNaming.mock.invocationCallOrder[0]!,
-    );
-    expect(mocks.accountApi.ensureD1ForPlan).not.toHaveBeenCalled();
-    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
-    expect(workspace.beginDeploymentSession).not.toHaveBeenCalled();
-    expect(mocks.transitionDeployment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        expectedStatus: 'provisioning',
-        nextStatus: 'failed',
-        errorCode: 'deployment_provisioning_failed',
-      }),
-    );
-  });
-
-  it('refuses a preview planned for other resources than the project’s before it creates any', async () => {
-    const { execution, deployment, workspace } = await workerDeployment({ d1: true });
-    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
-    mocks.projectResourceNaming.mockResolvedValue({ identity: 'project-1', adopted: [] });
-
-    await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).rejects.toThrow(
-      'planned for Cloudflare resources the project no longer uses',
-    );
-
-    expect(mocks.accountApi.ensureD1ForPlan).not.toHaveBeenCalled();
-    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
-    expect(workspace.beginDeploymentSession).not.toHaveBeenCalled();
   });
 
   it('deploys onto the database the project already has, applying its migrations there', async () => {

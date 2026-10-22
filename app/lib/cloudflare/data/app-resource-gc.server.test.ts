@@ -129,92 +129,6 @@ describe('app resource garbage collection', () => {
     expect(workspace.candidates()).toEqual([]);
   });
 
-  it('releases an earlier deployment without deleting what a later one still deploys onto', async () => {
-    const workspace = new AppResourceGcWorkspace();
-    // Two deployments from when each named its own resources, then one that adopted the latest's.
-    const first = await deploymentPlan({ identity: 'first', adopted: [] });
-    const second = await deploymentPlan({ identity: 'second', adopted: [] });
-    const adopting = await deploymentPlan({
-      identity: 'project',
-      adopted: second.resources.flatMap(({ type, logicalName, proposedName }) =>
-        type === 'worker' || type === 'd1' || type === 'r2' || type === 'kv'
-          ? [{ type, logicalName, name: proposedName }]
-          : [],
-      ),
-    });
-    workspace.deployment('deployment-1', JSON.stringify(first), [
-      ['worker', 'app', 'cloudchef-first'],
-      ['d1', 'DB', 'db-first'],
-    ]);
-    workspace.deployment('deployment-2', JSON.stringify(second), [
-      ['d1', 'DB', 'db-second'],
-      ['kv', 'APP_CACHE', 'kv-second'],
-    ]);
-    // Its own record of the database never landed: only its plan names it.
-    workspace.deployment('deployment-3', JSON.stringify(adopting), [['kv', 'APP_CACHE', 'kv-second']]);
-    const accountApi = cleanupApi(true);
-    accountApi.deleteManagedWorker.mockImplementation(async (name: string) => {
-      if (name === 'cloudchef-second') {
-        throw new Error('temporary provider failure');
-      }
-    });
-
-    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi });
-
-    // The first deployment's own resources went; the second's are the third's too, so they wait for it,
-    // all but its preview Worker, which the third names after the project instead.
-    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
-      ['cloudchef-first'],
-      [appResourceName('first', 'app_preview')],
-      [appResourceName('second', 'app_preview')],
-      ['cloudchef-second'],
-    ]);
-    expect(accountApi.deleteD1DatabaseById.mock.calls).toEqual([['db-first']]);
-    expect(accountApi.deleteD1Database.mock.calls.map(([name]) => name).sort()).toEqual([
-      'cloudchef-first-agent-security',
-      'cloudchef-first-preview',
-      'cloudchef-first-preview-agent',
-    ]);
-    expect(accountApi.deleteKvNamespaceById).not.toHaveBeenCalled();
-    expect(accountApi.deleteKvNamespace.mock.calls).toEqual([
-      ['cloudchef-first-cache'],
-      ['cloudchef-first-preview-cache'],
-    ]);
-    expect(accountApi.deleteR2Bucket.mock.calls).toEqual([
-      ['cloudchef-first-storage'],
-      ['cloudchef-first-preview-storage'],
-    ]);
-    expect(workspace.deploymentIds()).toEqual(['deployment-3']);
-
-    accountApi.deleteManagedWorker.mockReset();
-    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000 + AGENT_GC_RETRY_BASE_MS * 2, accountApi });
-
-    // The last deployment deletes them, by its record where it has one and by name where it has not.
-    expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
-      ['cloudchef-second'],
-      [appResourceName('project', 'app_preview')],
-    ]);
-    expect(accountApi.deleteKvNamespaceById.mock.calls).toEqual([['kv-second']]);
-    expect(accountApi.deleteKvNamespace.mock.calls.slice(2)).toEqual([['cloudchef-second-preview-cache']]);
-    expect(
-      accountApi.deleteD1Database.mock.calls
-        .map(([name]) => name)
-        .slice(3)
-        .sort(),
-    ).toEqual([
-      'cloudchef-second',
-      'cloudchef-second-agent-security',
-      'cloudchef-second-preview',
-      'cloudchef-second-preview-agent',
-    ]);
-    expect(accountApi.deleteR2Bucket.mock.calls.slice(2)).toEqual([
-      ['cloudchef-second-storage'],
-      ['cloudchef-second-preview-storage'],
-    ]);
-    expect(workspace.deploymentIds()).toEqual([]);
-    expect(workspace.candidates()).toEqual([]);
-  });
-
   it('leaves a Worker it recorded, under a plan it cannot read, to the later deployment naming it', async () => {
     const workspace = new AppResourceGcWorkspace();
     const plan = await deploymentPlan();
@@ -299,7 +213,7 @@ describe('app resource garbage collection', () => {
   });
 });
 
-async function deploymentPlan(naming: DeploymentResourceNaming = { identity: 'deployment-1', adopted: [] }) {
+async function deploymentPlan(naming: DeploymentResourceNaming = { identity: 'deployment-1' }) {
   return (
     await buildDeploymentPlanFromSource({
       deploymentId: 'deployment-1',

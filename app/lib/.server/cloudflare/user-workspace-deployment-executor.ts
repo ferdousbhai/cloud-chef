@@ -1,11 +1,10 @@
 import { z } from 'zod';
-import { deploymentPlanResourceName, isCurrentDeploymentPlan, planNamesProjectResources } from './deployment-plan';
+import { deploymentPlanResourceName, isCurrentDeploymentPlan } from './deployment-plan';
 import {
   claimApprovedDeployment,
   DeploymentConcurrencyLimitError,
   DeploymentStateConflictError,
   findDeploymentResource,
-  projectResourceNaming,
   recordDeploymentActivity,
   recordDeploymentResource,
   requireDeployment,
@@ -151,8 +150,6 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
       executionGeneration: args.executionGeneration,
     });
     phase = 'provisioning';
-    // Decided while this deployment holds the project, so no other one can change the answer.
-    await requireProjectResources(args.env.DB, deployment);
     await activity(args, 10, 'Preparing Cloudflare resources');
     const accountApi = await createUserAccountApi(runtimeEnv, request);
     const reference = requireApprovedWorkspaceReference(deployment, 'deployment');
@@ -355,7 +352,6 @@ export async function executeUserOwnedPreview(
       readyAt: new Date(versionReceipt.createdAt).toISOString(),
     };
   }
-  await requireProjectResources(args.env.DB, deployment);
   const operationId = `preview:${deployment.id}:${args.executionGeneration}:${args.previewId}`;
   abortSignal?.throwIfAborted();
   const session = await beginPublicationSession(workspace, operationId, reference);
@@ -556,18 +552,6 @@ function hasAppAgentObjects(accountApi: UserCloudflareAccountApi, workerName: st
   return accountApi
     .managedWorkerDurableObjectClasses(workerName)
     .then((classes) => classes.includes(APP_AGENT_CLASS_NAME));
-}
-
-/**
- * Refuses a plan that names other account resources than the project's before it touches any: one
- * made when each deployment named its own would publish to an empty database at a new address.
- */
-async function requireProjectResources(db: D1Database, deployment: Deployment): Promise<void> {
-  if (!planNamesProjectResources(deployment.plan, await projectResourceNaming(db, deployment))) {
-    throw new Error(
-      'This publication was planned for Cloudflare resources the project no longer uses. Publish the project again.',
-    );
-  }
 }
 
 function publicationResourcePlan(plan: Deployment['plan'], bindings: PublicationBindings): PublicationResourcePlan {

@@ -19,7 +19,7 @@ vi.mock('~/lib/.server/cloudflare/user-workspace-deployment-executor', () => ({
   terminalizeInterruptedUserOwnedDeployment: mocks.terminalizeInterrupted,
 }));
 
-import { appResourceIdentity, appResourceName } from '~/lib/cloudflare/app-resource-names';
+import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
 import { DeploymentNotFoundError } from '~/lib/.server/cloudflare/deployment-repository';
 import { buildDeploymentPlanFromSource } from '~/lib/.server/cloudflare/deployment-plan';
 import {
@@ -47,7 +47,10 @@ function deployment(status: 'approved' | 'succeeded' = 'approved') {
       deploymentId: 'deployment-1',
       sourceSha256: revision,
       project,
-      resources: [],
+      resources: [
+        { type: 'worker' as const, logicalName: 'app', proposedName: 'cloudchef-app' },
+        { type: 'worker' as const, logicalName: 'app_preview', proposedName: 'cloudchef-app-preview' },
+      ],
     },
     planDigest: 'b'.repeat(64),
     productionUrl: status === 'succeeded' ? 'https://app.example.workers.dev' : null,
@@ -104,37 +107,12 @@ describe('deployment handlers', () => {
     ]);
   });
 
-  it('plans a revision onto the resources the project’s earlier deployments already use', async () => {
-    mocks.requireDeployment.mockRejectedValueOnce(new DeploymentNotFoundError());
-
-    await createOrReplayDeploymentPlanForUser({
-      env: runtimeEnv(activeChatDb([{ type: 'worker', logical_name: 'app', name: 'cloudchef-earlier' }])),
-      userId: 'user-1',
-      chatId: 'chat-1',
-      deploymentId: 'deployment-2',
-      projectId: 'agent-1',
-      revision,
-      workspaceRevision: 8,
-      project,
-    });
-
-    // The preview Worker no earlier deployment had is named after the project.
-    expect(mocks.createDeployment.mock.calls[0]?.[0].plan.resources).toEqual([
-      { type: 'worker', logicalName: 'app', proposedName: 'cloudchef-earlier' },
-      {
-        type: 'worker',
-        logicalName: 'app_preview',
-        proposedName: appResourceName(await appResourceIdentity('agent-1'), 'app_preview'),
-      },
-    ]);
-  });
-
   it('replays the plan stored under the id while it is still the plan the revision gets', async () => {
     const { plan, digest } = await buildDeploymentPlanFromSource({
       deploymentId: 'deployment-1',
       sourceSha256: revision,
       project,
-      naming: { identity: await appResourceIdentity('agent-1'), adopted: [] },
+      naming: { identity: await appResourceIdentity('agent-1') },
     });
     mocks.requireDeployment.mockResolvedValue({ ...deployment(), plan, planDigest: digest });
     const publication = {
@@ -239,13 +217,12 @@ describe('deployment handlers', () => {
   });
 });
 
-/** An active chat, whose project's succeeded deployments named the given account resources. */
-function activeChatDb(adopted: { type: string; logical_name: string; name: string }[] = []): D1Database {
+/** An active chat. */
+function activeChatDb(): D1Database {
   return {
     prepare: vi.fn(() => ({
       bind: vi.fn(() => ({
         first: vi.fn(async () => ({ found: 1, id: 'chat-row-1' })),
-        all: vi.fn(async () => ({ results: adopted })),
       })),
     })),
   } as unknown as D1Database;

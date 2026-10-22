@@ -22,8 +22,7 @@ export type AppResourceLogicalName = keyof typeof APP_RESOURCE_SUFFIXES | 'app_p
 
 /**
  * The identity a CloudChef app's account resources are named after: one per project, so every
- * revision deploys onto the same Worker, databases, bucket and namespace. Before this, each deployment
- * named its own after its id, which is the same shape, so an app that adopted those keeps them.
+ * revision deploys onto the same Worker, databases, bucket and namespace.
  */
 export async function appResourceIdentity(projectId: string): Promise<string> {
   const hex = await sha256Hex(`cloudchef-app:${projectId}`);

@@ -54,29 +54,11 @@ export const APP_ACCOUNT_RESOURCES = [
 
 type AppAccountResource = (typeof APP_ACCOUNT_RESOURCES)[number];
 
-/** An account resource the project's deployments already use, by the name one of them gave it. */
-export type AdoptedDeploymentResource = { type: AppAccountResource[0]; logicalName: string; name: string };
-
 /**
- * How a project's plans name its account resources: as its earlier deployments already do, and
- * otherwise after the project's own identity, so every revision of it names the same ones.
+ * How a project's plans name its account resources: after the project's own identity, so every
+ * revision of it names the same ones.
  */
-export type DeploymentResourceNaming = {
-  identity: string;
-  adopted: readonly AdoptedDeploymentResource[];
-};
-
-function projectResourceName(naming: DeploymentResourceNaming, [type, logicalName]: AppAccountResource): string {
-  // No deployment named a preview Worker before projects did, so it is always the project's: a plan's
-  // earlier name for it (one cloudchef.build may not frame) is never adopted.
-  if (logicalName === 'app_preview') {
-    return appResourceName(naming.identity, logicalName);
-  }
-  return (
-    naming.adopted.find((resource) => resource.type === type && resource.logicalName === logicalName)?.name ??
-    appResourceName(naming.identity, logicalName)
-  );
-}
+export type DeploymentResourceNaming = { identity: string };
 
 export async function buildDeploymentPlanFromSource(args: {
   deploymentId: string;
@@ -91,7 +73,7 @@ export async function buildDeploymentPlanFromSource(args: {
   const account = (resource: AppAccountResource) => ({
     type: resource[0],
     logicalName: resource[1],
-    proposedName: projectResourceName(args.naming, resource),
+    proposedName: appResourceName(args.naming.identity, resource[1]),
   });
   const plan: DeploymentPlan = {
     version: DEPLOYMENT_PLAN_VERSION,
@@ -117,19 +99,6 @@ export async function buildDeploymentPlanFromSource(args: {
   return { plan, digest };
 }
 
-/**
- * Whether every account resource the plan names is the one the project's resources are named now. A
- * plan made before the project settled on them, when each deployment named its own, would publish to
- * an empty database at a new address.
- */
-export function planNamesProjectResources(plan: DeploymentPlan, naming: DeploymentResourceNaming): boolean {
-  return APP_ACCOUNT_RESOURCES.every((resource) =>
-    plan.resources
-      .filter((planned) => planned.type === resource[0] && planned.logicalName === resource[1])
-      .every((planned) => planned.proposedName === projectResourceName(naming, resource)),
-  );
-}
-
 export function parseDeploymentPlanJson(value: string): DeploymentPlan {
   return deploymentPlanSchema.parse(JSON.parse(value));
 }
@@ -140,19 +109,23 @@ export function isCurrentDeploymentPlan(plan: unknown): plan is DeploymentPlan {
     return false;
   }
   const current = parsed.data;
-  // Every database the plan requires must be named, and no two account resources of one type may
-  // share a name: a preview that resolved to production's database, bucket or Worker would write to
-  // it. A plan made before previews had a Worker of their own names none, and only deploys.
-  const databaseNames = [
-    ...(current.project.bindings.d1 ? ['DB', 'DB_PREVIEW'] : []),
-    ...(current.project.bindings.appAgent ? ['AGENT_SECURITY_DB', 'AGENT_SECURITY_DB_PREVIEW'] : []),
-  ].map((logicalName) => deploymentPlanResourceName(current, 'd1', logicalName));
+  // Both Workers and every database the plan requires must be named, and no two account resources of
+  // one type may share a name: a preview that resolved to production's database, bucket or Worker
+  // would write to it.
+  const requiredNames = [
+    deploymentPlanResourceName(current, 'worker', 'app'),
+    deploymentPlanResourceName(current, 'worker', 'app_preview'),
+    ...[
+      ...(current.project.bindings.d1 ? ['DB', 'DB_PREVIEW'] : []),
+      ...(current.project.bindings.appAgent ? ['AGENT_SECURITY_DB', 'AGENT_SECURITY_DB_PREVIEW'] : []),
+    ].map((logicalName) => deploymentPlanResourceName(current, 'd1', logicalName)),
+  ];
   const accountNames = APP_ACCOUNT_RESOURCES.flatMap(([type, logicalName]) =>
     current.resources
       .filter((resource) => resource.type === type && resource.logicalName === logicalName)
       .map((resource) => `${type}:${resource.proposedName}`),
   );
-  return databaseNames.every(Boolean) && new Set(accountNames).size === accountNames.length;
+  return requiredNames.every(Boolean) && new Set(accountNames).size === accountNames.length;
 }
 
 export function deploymentPlanResourceName(
