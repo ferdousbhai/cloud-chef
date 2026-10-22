@@ -39,13 +39,12 @@ export async function createOrReplayDeploymentPlanForUser(args: {
   userId: string;
   chatId: string;
   deploymentId: string;
-  projectId?: string;
-  revision?: string;
-  workspaceRevision?: number;
-  project?: DeploymentProjectProfile;
+  projectId: string;
+  revision: string;
+  workspaceRevision: number;
+  project: DeploymentProjectProfile;
 }): Promise<PublicDeployment | null> {
-  const workspaceArgs = requireWorkspaceDeploymentArgs(args);
-  const reference = workspaceReference(workspaceArgs);
+  const reference = workspaceReference(args);
   const stored = await requireDeploymentForUser(args.env.DB, args.deploymentId, args.userId).catch((error) => {
     if (error instanceof DeploymentNotFoundError) {
       return null;
@@ -53,18 +52,18 @@ export async function createOrReplayDeploymentPlanForUser(args: {
     throw error;
   });
   const existing = stored?.workspaceReference === reference ? stored : null;
-  const connection = runtimeCloudflareIdentity(workspaceArgs.env, workspaceArgs.userId);
-  const chat = await findChat(workspaceArgs.env.DB, { id: workspaceArgs.chatId, sessionId: workspaceArgs.userId });
+  const connection = runtimeCloudflareIdentity(args.env, args.userId);
+  const chat = await findChat(args.env.DB, { id: args.chatId, sessionId: args.userId });
   if (!chat) {
     throw new DeploymentChatNotFoundError();
   }
   const { plan, digest } = await buildDeploymentPlanFromSource({
-    deploymentId: workspaceArgs.deploymentId,
-    sourceSha256: workspaceArgs.revision,
-    project: workspaceArgs.project,
+    deploymentId: args.deploymentId,
+    sourceSha256: args.revision,
+    project: args.project,
     // The revision deploys onto the project's resources, not resources of its own.
-    naming: await projectResourceNaming(workspaceArgs.env.DB, {
-      userId: workspaceArgs.userId,
+    naming: await projectResourceNaming(args.env.DB, {
+      userId: args.userId,
       chatId: chat.id,
       workspaceReference: reference,
     }),
@@ -78,10 +77,10 @@ export async function createOrReplayDeploymentPlanForUser(args: {
   }
   return publicDeployment(
     await createDeployment({
-      db: workspaceArgs.env.DB,
-      id: workspaceArgs.deploymentId,
+      db: args.env.DB,
+      id: args.deploymentId,
       chatId: chat.id,
-      userId: workspaceArgs.userId,
+      userId: args.userId,
       connectionId: connection.id,
       connectionGeneration: connection.generation,
       workspaceReference: reference,
@@ -225,23 +224,6 @@ export async function userRuntimeDeploymentAction(args: {
   } catch (error) {
     return deploymentErrorResponse(error);
   }
-}
-
-function requireWorkspaceDeploymentArgs(args: {
-  env: Env;
-  userId: string;
-  chatId: string;
-  deploymentId: string;
-  projectId?: string;
-  revision?: string;
-  workspaceRevision?: number;
-  project?: DeploymentProjectProfile;
-}) {
-  const { projectId, revision, workspaceRevision, project } = args;
-  if (projectId === undefined || revision === undefined || workspaceRevision === undefined || !project) {
-    throw new Error('The user-owned workspace deployment reference is incomplete.');
-  }
-  return { ...args, projectId, revision, workspaceRevision, project };
 }
 
 function workspaceReference(args: { projectId: string; revision: string; workspaceRevision: number }): string {
