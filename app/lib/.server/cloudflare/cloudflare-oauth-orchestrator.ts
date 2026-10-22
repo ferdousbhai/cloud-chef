@@ -13,7 +13,7 @@ const ACCOUNTS_URL = 'https://api.cloudflare.com/client/v4/accounts?per_page=2';
 const SESSION_LIFETIME_MS = 10 * 60 * 1000;
 const OAUTH_REQUEST_TIMEOUT_MS = 30_000;
 
-export type CloudflareConnectionChallenge = {
+type CloudflareConnectionChallenge = {
   sessionId: string;
   authorizationUrl: string;
   expiresAt: number;
