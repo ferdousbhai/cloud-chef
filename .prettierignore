@@ -1,17 +1,9 @@
 pnpm-lock.yaml
 app/routeTree.gen.ts
-app/generated/user-workspace-runtime.generated.ts
-template/src/routeTree.gen.ts
-template/.cloudflare/
 # Rendered from cloudflare.project.json; verify:stack compares it byte for byte with the renderer's output.
 template/cloudflare.config.ts
-worker-configuration.d.ts
-vite.config.ts.timestamp-*.mjs
 app/lib/.server/llm/skills/cloudflare-skills.vendored.ts
 
 # Vendored verbatim from the install-anti-slop skill. Reformatting it would make every
 # future re-copy show as a diff against a source this repository does not own.
 tools/oxlint/anti-slop/
-
-# Agent worktrees are whole checkouts of this repository, checked in their own runs.
-.claude/worktrees/

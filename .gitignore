@@ -14,7 +14,6 @@ dist-ssr
 playwright-report/
 test-results/
 .tanstack
-cloudchef-system-prompts.txt
 *.local
 
 .vscode/*
@@ -45,9 +44,6 @@ cloudchef-system-prompts.txt
 app/agents/builder-template.generated.ts
 app/generated/*.generated.ts
 
-# Owner-controlled upstream Agent Skills are published to R2 and never bundled from Git.
-.cloudchef/docs/
-
 package-lock.json
 vite.config.ts.timestamp-*.mjs
 
@@ -55,9 +51,6 @@ vite.config.ts.timestamp-*.mjs
 
 # The platform-status skill ships with the repository, overriding a global .claude/ ignore.
 !.claude/
-
-# Generated container image build context
-user-workspace-container/.build/
 
 # Temporary project trees the production-build security tests create in the repository root.
 .cloudchef-runtime-security-*
