@@ -1,15 +1,11 @@
 logs
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
 
 node_modules
 .pnpm-store/
 dist
-dist-ssr
 *.tsbuildinfo
 playwright-report/
 test-results/
@@ -22,13 +18,9 @@ test-results/
 .idea
 .DS_Store
 *.suo
-*.ntvs*
-*.njsproj
-*.sln
 *.sw?
 
 /.cache
-/build
 .env.local
 .env
 .envrc
