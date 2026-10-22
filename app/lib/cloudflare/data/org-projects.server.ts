@@ -131,15 +131,18 @@ export async function findAccessibleProject(
   projectId: string,
   userId: string,
 ): Promise<OrgProject | null> {
+  // As `listAccessibleProjects` decides it: an active admin's, or an active member's granted one.
   const row = await db
-    .prepare(`SELECT ${PROJECT_COLUMNS} FROM org_projects AS projects WHERE projects.id = ?`)
-    .bind(projectId)
+    .prepare(
+      `SELECT ${PROJECT_COLUMNS} FROM org_projects AS projects
+       JOIN organization_members AS members
+         ON members.org_id = projects.org_id AND members.user_id = ?2 AND members.paused_at IS NULL
+       WHERE projects.id = ?1 AND (members.role = 'admin' OR EXISTS (
+         SELECT 1 FROM org_project_access AS access WHERE access.project_id = projects.id AND access.user_id = ?2))`,
+    )
+    .bind(projectId, userId)
     .first<ProjectRow>();
-  if (!row) {
-    return null;
-  }
-  const accessible = await listAccessibleProjects(db, row.org_id, userId);
-  return accessible.find((project) => project.id === projectId) ?? null;
+  return row ? { ...toProject(row), memberIds: [] } : null;
 }
 
 export async function linkProject(
@@ -238,7 +241,7 @@ const OPEN_REQUEST = `(status = 'pending' OR (status = 'approving' AND claimed_a
 
 /**
  * A request whose requester is still in its organization: one from someone who left or was removed
- * is never offered for approval (leaving declines it; this also covers one left over from before).
+ * is never offered for approval (leaving declines it).
  */
 const REQUESTER_IS_MEMBER = `EXISTS (
   SELECT 1 FROM organization_members AS requester

@@ -238,17 +238,12 @@ export async function createInvite(
 ): Promise<{ token: string; expiresAt: number }> {
   const now = args.now ?? Date.now();
   const limitValues = [args.orgId, now, now - 24 * 60 * 60_000, args.email, args.invitedBy] as const;
-  const limits = await db
-    .prepare(`SELECT * FROM (${INVITE_LIMITS_SQL})`)
-    .bind(...limitValues)
-    .first<InviteLimits>();
-  refuseInviteOverLimits(args.email, limits);
   const projectIds = await orgProjectIds(db, args.orgId, args.projectIds ?? []);
   const token = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
   const expiresAt = now + ORGANIZATION_INVITE_TTL_MS;
   const inviteId = crypto.randomUUID();
-  // The limits are checked again as the invite is written, in the same statement, so two invites sent
-  // at once can't both pass the last free place; what it sent is counted only if it was written.
+  // The limits are checked as the invite is written, in the same statement, so two invites sent at once
+  // can't both pass the last free place; what it sent is counted only if it was written.
   const [inserted] = await db.batch([
     db
       .prepare(
@@ -283,7 +278,7 @@ export async function createInvite(
       .bind(args.invitedBy, args.orgId, now, inviteId),
   ]);
   if (!inserted?.meta.changes) {
-    // Another invite took the last place meanwhile: say which limit it reached.
+    // Refused: say which limit it reached.
     refuseInviteOverLimits(
       args.email,
       await db
