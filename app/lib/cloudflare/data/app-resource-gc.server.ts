@@ -7,6 +7,7 @@ import {
 import { createUserAccountApi } from '~/lib/.server/cloudflare/user-workspace-deployment-executor';
 import type { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { AGENT_GC_GRACE_PERIOD_MS, retryDelay } from './agent-gc.server';
+import { EMPTY_CHAT_DISCARD_PREDICATE } from './empty-chat.server';
 
 const APP_RESOURCE_GC_SWEEP_LIMIT = 2;
 /**
@@ -53,14 +54,13 @@ export function prepareAppResourceGcCandidateStatement(
   args: { initialId: string; ownerId: string; now?: number; requireEmpty?: boolean },
 ): D1PreparedStatement {
   const now = args.now ?? Date.now();
-  const emptyClause = args.requireEmpty ? 'AND chats.has_messages = 0' : '';
   return db
     .prepare(
       `INSERT INTO app_resource_gc_candidates (chat_id, not_before, created_at, attempts)
        SELECT chats.id, ?, ?, 0
        FROM chats
-       WHERE chats.initial_id = ? AND chats.creator_id = ? AND chats.is_deleted = 0
-         ${emptyClause}
+       WHERE chats.initial_id = ? AND chats.creator_id = ?
+         AND ${args.requireEmpty ? EMPTY_CHAT_DISCARD_PREDICATE : 'chats.is_deleted = 0'}
        ON CONFLICT(chat_id) DO UPDATE SET
          not_before = MIN(app_resource_gc_candidates.not_before, excluded.not_before)`,
     )
