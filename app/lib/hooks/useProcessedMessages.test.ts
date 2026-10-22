@@ -10,7 +10,7 @@ import { processMessage, useProcessedMessages, type PartCache } from './useProce
 
 describe('useProcessedMessages', () => {
   it("records a reloaded chat's interrupted calls as stopped once its scope is active, and reads stored ones it does not know", () => {
-    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
     const stored: CloudChefMessage = {
       id: 'assistant-1',
       role: 'assistant',

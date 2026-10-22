@@ -12,7 +12,7 @@ export function useGoogleOrEmailSignIn(args: {
   failure: string;
 }) {
   const [busy, setBusy] = useState<'google' | 'email' | null>(null);
-  const run = async (method: 'google' | 'email', action: () => Promise<unknown>) => {
+  const run = async (method: 'google' | 'email', action: () => Promise<boolean | void>) => {
     setBusy(method);
     args.onError(null);
     try {
