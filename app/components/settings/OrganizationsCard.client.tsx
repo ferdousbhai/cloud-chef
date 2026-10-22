@@ -247,7 +247,8 @@ export function OrganizationsCard() {
           onChange={(event) => setName(event.target.value)}
           className="min-w-0 flex-1"
         />
-        <Button type="submit" size="sm" variant="neutral" loading={busy}>
+        {/* No wider than the card: on a phone the label wraps rather than pushing the card past the screen. */}
+        <Button type="submit" size="sm" variant="neutral" loading={busy} className="max-w-full">
           Create and connect Cloudflare
         </Button>
       </form>
