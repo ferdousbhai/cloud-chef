@@ -177,7 +177,7 @@ describe('UserCloudflareAccountApi', () => {
     const authorizeRequest = vi.fn(async () => undefined);
     const api = new UserCloudflareAccountApi('account-1', 'user-token', request, authorizeRequest);
 
-    await expect(api.ensureD1ForPlan(plan)).resolves.toEqual({ id: 'd1-id', name: 'cloudchef-deployment-1' });
+    await expect(api.ensureD1ForPlan(plan, 'DB')).resolves.toEqual({ id: 'd1-id', name: 'cloudchef-deployment-1' });
     await expect(api.getWorkersSubdomain()).resolves.toBe('user-subdomain');
 
     expect(request).toHaveBeenNthCalledWith(
@@ -207,7 +207,7 @@ describe('UserCloudflareAccountApi', () => {
     );
 
     await expect(
-      new UserCloudflareAccountApi('account-1', 'user-token', request).ensureD1ForPlan(plan),
+      new UserCloudflareAccountApi('account-1', 'user-token', request).ensureD1ForPlan(plan, 'DB'),
     ).rejects.toThrow('Cloudflare API request redirected unexpectedly.');
     expect(request).toHaveBeenCalledWith(
       'https://api.cloudflare.com/client/v4/accounts/account-1/d1/database?name=cloudchef-deployment-1',
@@ -251,10 +251,13 @@ describe('UserCloudflareAccountApi', () => {
       .mockResolvedValueOnce(Response.json({ success: true, result: [] }))
       .mockResolvedValueOnce(Response.json({ success: true, result: { uuid: 'd1-id', name: 'some-other-database' } }));
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureD1ForPlan(plan),
+      new UserCloudflareAccountApi('account-1', 'token', request).ensureD1ForPlan(plan, 'DB'),
     ).rejects.toBeInstanceOf(CloudflareAccountApiError);
     await expect(
-      new UserCloudflareAccountApi('account-1', 'token', request).ensureR2ForPlan({ ...plan, resources: [] }),
+      new UserCloudflareAccountApi('account-1', 'token', request).ensureR2ForPlan(
+        { ...plan, resources: [] },
+        'APP_STORAGE',
+      ),
     ).rejects.toBeInstanceOf(CloudflareAccountApiError);
   });
 
@@ -343,11 +346,11 @@ describe('UserCloudflareAccountApi', () => {
       )
       .mockResolvedValueOnce(Response.json({ success: true, result: { name: 'cloudchef-deployment-1-storage' } }));
     const api = new UserCloudflareAccountApi('account-1', 'token', request);
-    await expect(api.ensureD1ForPlan(plan)).resolves.toEqual({
+    await expect(api.ensureD1ForPlan(plan, 'DB')).resolves.toEqual({
       id: 'existing-d1',
       name: 'cloudchef-deployment-1',
     });
-    await expect(api.ensureR2ForPlan(plan)).resolves.toEqual({
+    await expect(api.ensureR2ForPlan(plan, 'APP_STORAGE')).resolves.toEqual({
       id: 'cloudchef-deployment-1-storage',
       name: 'cloudchef-deployment-1-storage',
     });
@@ -398,7 +401,9 @@ describe('UserCloudflareAccountApi', () => {
         }),
       );
 
-    await expect(new UserCloudflareAccountApi('account-1', 'token', request).ensureKvForPlan(plan)).resolves.toEqual({
+    await expect(
+      new UserCloudflareAccountApi('account-1', 'token', request).ensureKvForPlan(plan, 'APP_CACHE'),
+    ).resolves.toEqual({
       id: namespaceId,
       name: 'cloudchef-deployment-1-cache',
     });
@@ -422,9 +427,9 @@ describe('UserCloudflareAccountApi', () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ name: 'cloudchef-deployment-1' }] }));
 
-    await expect(new UserCloudflareAccountApi('account-1', 'token', request).ensureD1ForPlan(plan)).rejects.toThrow(
-      'invalid D1 resource',
-    );
+    await expect(
+      new UserCloudflareAccountApi('account-1', 'token', request).ensureD1ForPlan(plan, 'DB'),
+    ).rejects.toThrow('invalid D1 resource');
     expect(request).toHaveBeenCalledOnce();
   });
 
@@ -447,7 +452,7 @@ describe('UserCloudflareAccountApi', () => {
     });
     const api = new UserCloudflareAccountApi('account-1', 'token', request, authorizeRequest);
 
-    await expect(api.ensureD1ForPlan(plan)).rejects.toThrow('Cloudflare connection is unavailable.');
+    await expect(api.ensureD1ForPlan(plan, 'DB')).rejects.toThrow('Cloudflare connection is unavailable.');
 
     expect(authorizeRequest).toHaveBeenCalledTimes(2);
     expect(request).toHaveBeenCalledOnce();
@@ -473,7 +478,7 @@ describe('UserCloudflareAccountApi', () => {
     });
     const api = new UserCloudflareAccountApi('account-1', 'token', request, authorizeRequest);
 
-    await expect(api.ensureR2ForPlan(plan)).rejects.toThrow('Cloudflare connection is unavailable.');
+    await expect(api.ensureR2ForPlan(plan, 'APP_STORAGE')).rejects.toThrow('Cloudflare connection is unavailable.');
 
     expect(authorizeRequest).toHaveBeenCalledTimes(2);
     expect(request).toHaveBeenCalledOnce();
@@ -503,9 +508,9 @@ describe('UserCloudflareAccountApi', () => {
   test('rejects malformed R2 readback instead of creating a replacement bucket', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ success: true, result: {} }));
 
-    await expect(new UserCloudflareAccountApi('account-1', 'token', request).ensureR2ForPlan(plan)).rejects.toThrow(
-      'invalid R2 resource',
-    );
+    await expect(
+      new UserCloudflareAccountApi('account-1', 'token', request).ensureR2ForPlan(plan, 'APP_STORAGE'),
+    ).rejects.toThrow('invalid R2 resource');
     expect(request).toHaveBeenCalledOnce();
   });
 
@@ -516,7 +521,7 @@ describe('UserCloudflareAccountApi', () => {
         Response.json({ success: false, errors: [{ message: 'permission denied' }] }, { status: 403 }),
       );
     await expect(
-      new UserCloudflareAccountApi('account-1', 'secret-token', request).ensureD1ForPlan(plan),
+      new UserCloudflareAccountApi('account-1', 'secret-token', request).ensureD1ForPlan(plan, 'DB'),
     ).rejects.toThrow('permission denied');
   });
 
@@ -1473,7 +1478,9 @@ describe('UserCloudflareAccountApi', () => {
       );
 
     // A namespace on the second page must be reused, not created a second time.
-    await expect(new UserCloudflareAccountApi('account-1', 'token', request).ensureKvForPlan(plan)).resolves.toEqual({
+    await expect(
+      new UserCloudflareAccountApi('account-1', 'token', request).ensureKvForPlan(plan, 'APP_CACHE'),
+    ).resolves.toEqual({
       id: namespaceId,
       name: 'cloudchef-deployment-1-cache',
     });

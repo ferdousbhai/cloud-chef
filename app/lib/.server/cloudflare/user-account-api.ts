@@ -399,7 +399,7 @@ export class UserCloudflareAccountApi {
 
   async ensureD1ForPlan(
     plan: DeploymentPlan,
-    logicalName: 'DB' | 'DB_PREVIEW' | 'AGENT_SECURITY_DB' | 'AGENT_SECURITY_DB_PREVIEW' = 'DB',
+    logicalName: 'DB' | 'DB_PREVIEW' | 'AGENT_SECURITY_DB' | 'AGENT_SECURITY_DB_PREVIEW',
   ): Promise<{ id: string; name: string }> {
     return this.ensureD1Database(requirePlanResourceName(plan, 'd1', logicalName));
   }
@@ -418,7 +418,7 @@ export class UserCloudflareAccountApi {
 
   async ensureR2ForPlan(
     plan: DeploymentPlan,
-    logicalName: 'APP_STORAGE' | 'APP_STORAGE_PREVIEW' = 'APP_STORAGE',
+    logicalName: 'APP_STORAGE' | 'APP_STORAGE_PREVIEW',
   ): Promise<{ id: string; name: string }> {
     const resourceName = requirePlanResourceName(plan, 'r2', logicalName);
     return this.ensureR2Bucket(resourceName);
@@ -459,7 +459,7 @@ export class UserCloudflareAccountApi {
 
   async ensureKvForPlan(
     plan: DeploymentPlan,
-    logicalName: 'APP_CACHE' | 'APP_CACHE_PREVIEW' = 'APP_CACHE',
+    logicalName: 'APP_CACHE' | 'APP_CACHE_PREVIEW',
   ): Promise<{ id: string; name: string }> {
     const resourceName = requirePlanResourceName(plan, 'kv', logicalName);
     const existing = await this.findKvNamespace(resourceName);
@@ -1280,7 +1280,6 @@ export class UserCloudflareAccountApi {
     applicationName: string;
     namespaceId: string;
     image: string;
-    maxInstances?: number;
     sleep?: (milliseconds: number) => Promise<void>;
   }): Promise<void> {
     requireWorkerName(args.applicationName);
@@ -1307,7 +1306,7 @@ export class UserCloudflareAccountApi {
         observability: { logs: { enabled: true } },
         wrangler_ssh: { enabled: false },
       },
-      max_instances: args.maxInstances ?? PROJECT_WORKSPACE_CONTAINER_MAX_INSTANCES,
+      max_instances: PROJECT_WORKSPACE_CONTAINER_MAX_INSTANCES,
       constraints: { tiers: [1, 2] },
       scheduling_policy: 'default',
       rollout_active_grace_period: 0,
