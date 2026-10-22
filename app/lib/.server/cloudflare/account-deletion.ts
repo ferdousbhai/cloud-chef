@@ -159,6 +159,17 @@ async function deleteTeamWorkspaces(
 }
 
 /**
+ * A membership (`mine`) of the person bound as `?1` that is the sole active admin of an organization
+ * others still belong to.
+ */
+const SOLE_ACTIVE_ADMIN_WITH_OTHERS = `mine.user_id = ?1 AND mine.role = 'admin' AND mine.paused_at IS NULL
+  AND EXISTS (SELECT 1 FROM organization_members AS other WHERE other.org_id = mine.org_id AND other.user_id <> ?1)
+  AND NOT EXISTS (
+    SELECT 1 FROM organization_members AS other
+    WHERE other.org_id = mine.org_id AND other.user_id <> ?1 AND other.role = 'admin' AND other.paused_at IS NULL
+  )`;
+
+/**
  * Organizations where this person is the only one left that would be blocked from their own admin
  * pages: the names of those they are the sole active admin of while others still belong. Erasure is
  * refused until they appoint another admin.
@@ -169,12 +180,7 @@ export async function organizationsNeedingAnotherAdmin(db: D1Database, userId: s
       `SELECT organizations.name
        FROM organization_members AS mine
        JOIN organizations ON organizations.id = mine.org_id
-       WHERE mine.user_id = ?1 AND mine.role = 'admin' AND mine.paused_at IS NULL
-         AND EXISTS (SELECT 1 FROM organization_members AS other WHERE other.org_id = mine.org_id AND other.user_id <> ?1)
-         AND NOT EXISTS (
-           SELECT 1 FROM organization_members AS other
-           WHERE other.org_id = mine.org_id AND other.user_id <> ?1 AND other.role = 'admin' AND other.paused_at IS NULL
-         )
+       WHERE ${SOLE_ACTIVE_ADMIN_WITH_OTHERS}
        ORDER BY organizations.name`,
     )
     .bind(userId)
@@ -195,7 +201,7 @@ export class OrganizationAdminRequiredError extends Error {}
 export async function leaveOrganizations(
   db: D1Database,
   userId: string,
-  sole: { soleOrgIds: string[]; soleHandles: string[] } = { soleOrgIds: [], soleHandles: [] },
+  sole: { soleOrgIds: string[]; soleHandles: string[] },
 ): Promise<void> {
   const leftEverything = 'NOT EXISTS (SELECT 1 FROM organization_members WHERE user_id = ?2)';
   await db.batch([
@@ -204,16 +210,7 @@ export async function leaveOrganizations(
       .prepare(
         `DELETE FROM organization_members
          WHERE user_id = ?1 AND NOT EXISTS (
-           SELECT 1 FROM organization_members AS mine
-           WHERE mine.user_id = ?1 AND mine.role = 'admin' AND mine.paused_at IS NULL
-             AND EXISTS (
-               SELECT 1 FROM organization_members AS other WHERE other.org_id = mine.org_id AND other.user_id <> ?1
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM organization_members AS other
-               WHERE other.org_id = mine.org_id AND other.user_id <> ?1
-                 AND other.role = 'admin' AND other.paused_at IS NULL
-             )
+           SELECT 1 FROM organization_members AS mine WHERE ${SOLE_ACTIVE_ADMIN_WITH_OTHERS}
          )`,
       )
       .bind(userId),

@@ -148,7 +148,9 @@ describe('control-plane account erasure', () => {
         ('alpha', 'admin', 'member', 1), ('beta', 'admin', 'admin', 1), ('beta', 'member', 'member', 1);
     `);
 
-    await expect(leaveOrganizations(db, 'admin')).rejects.toBeInstanceOf(OrganizationAdminRequiredError);
+    await expect(leaveOrganizations(db, 'admin', { soleOrgIds: [], soleHandles: [] })).rejects.toBeInstanceOf(
+      OrganizationAdminRequiredError,
+    );
 
     expect(database.prepare("SELECT org_id FROM organization_members WHERE user_id = 'admin'").all()).toEqual([
       { org_id: 'alpha' },
@@ -173,7 +175,7 @@ describe('control-plane account erasure', () => {
     // A paused admin is no team's active admin: once Alpha has another, nothing holds them back.
     database.exec(`UPDATE organization_members SET role = 'admin' WHERE org_id = 'alpha' AND user_id = 'member'`);
     expect(await organizationsNeedingAnotherAdmin(db, 'admin')).toEqual([]);
-    await leaveOrganizations(db, 'admin');
+    await leaveOrganizations(db, 'admin', { soleOrgIds: [], soleHandles: [] });
     expect(database.prepare("SELECT org_id FROM organization_members WHERE user_id = 'admin'").all()).toEqual([]);
   });
 
