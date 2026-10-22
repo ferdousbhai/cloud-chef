@@ -24,7 +24,7 @@ export class D1CloudflareCredentialVault {
   constructor(
     private readonly db: D1Database,
     private readonly encryptionKeyBase64: string,
-    private readonly oauth: { clientId: string; clientSecret: string; request?: typeof fetch },
+    private readonly oauth: { clientId: string; clientSecret: string },
   ) {}
 
   static fromEnv(env: Env): D1CloudflareCredentialVault {
@@ -107,8 +107,7 @@ export class D1CloudflareCredentialVault {
       return false;
     }
     const credential = parseStoredOAuthCredential(await this.decryptCredentialRow(row));
-    const execute = this.oauth.request ?? fetch;
-    const response = await execute(OAUTH_REVOKE_URL, {
+    const response = await fetch(OAUTH_REVOKE_URL, {
       method: 'POST',
       headers: {
         authorization: `Basic ${btoa(`${this.oauth.clientId}:${this.oauth.clientSecret}`)}`,
@@ -144,10 +143,9 @@ export class D1CloudflareCredentialVault {
     credential: OAuthCredential,
     stored: CredentialRow,
   ): Promise<string> {
-    const execute = this.oauth.request ?? fetch;
     let response: Response;
     try {
-      response = await execute(OAUTH_TOKEN_URL, {
+      response = await fetch(OAUTH_TOKEN_URL, {
         method: 'POST',
         headers: {
           authorization: `Basic ${btoa(`${this.oauth.clientId}:${this.oauth.clientSecret}`)}`,

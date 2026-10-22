@@ -1,5 +1,5 @@
 import type { DatabaseSync as DatabaseSyncInstance } from 'node:sqlite';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   eraseControlPlaneAccount,
   OrganizationAdminRequiredError,
@@ -10,15 +10,16 @@ import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control
 
 const ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('control-plane account erasure', () => {
   it('erases the account and revokes its Cloudflare grant', async () => {
     const { database, db } = controlPlaneDatabase();
     const revoke = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
-    const vault = new D1CloudflareCredentialVault(db, ENCRYPTION_KEY, {
-      clientId: 'client',
-      clientSecret: 'secret',
-      request: revoke,
-    });
+    vi.stubGlobal('fetch', revoke);
+    const vault = new D1CloudflareCredentialVault(db, ENCRYPTION_KEY, { clientId: 'client', clientSecret: 'secret' });
     const handle = await vault.storeOAuthCredential({
       accessToken: 'access',
       refreshToken: 'refresh',
@@ -69,11 +70,8 @@ describe('control-plane account erasure', () => {
   it("never revokes an organization's grant while others still build in it, but takes a sole member's organization along", async () => {
     const { database, db } = controlPlaneDatabase();
     const revoke = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
-    const vault = new D1CloudflareCredentialVault(db, ENCRYPTION_KEY, {
-      clientId: 'client',
-      clientSecret: 'secret',
-      request: revoke,
-    });
+    vi.stubGlobal('fetch', revoke);
+    const vault = new D1CloudflareCredentialVault(db, ENCRYPTION_KEY, { clientId: 'client', clientSecret: 'secret' });
     const shared = await vault.storeOAuthCredential({
       accessToken: 'a',
       refreshToken: 'r',
@@ -337,11 +335,8 @@ describe('control-plane account erasure', () => {
     it('is finished by a retry, which reports truthfully', async () => {
       const { database, db } = controlPlaneDatabase();
       const revoke = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
-      const vault = new D1CloudflareCredentialVault(db, ENCRYPTION_KEY, {
-        clientId: 'client',
-        clientSecret: 'secret',
-        request: revoke,
-      });
+      vi.stubGlobal('fetch', revoke);
+      const vault = new D1CloudflareCredentialVault(db, ENCRYPTION_KEY, { clientId: 'client', clientSecret: 'secret' });
       const store = (refreshToken: string) =>
         vault.storeOAuthCredential({ accessToken: 'a', refreshToken, expiresAt: Date.now() + 3_600_000 });
       const [own, acme, solo] = [await store('own'), await store('acme'), await store('solo')];

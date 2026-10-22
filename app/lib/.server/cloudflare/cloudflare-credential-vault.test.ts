@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { D1CloudflareCredentialVault, parseStoredOAuthCredential } from './cloudflare-credential-vault';
 
 function createDb(
@@ -86,6 +86,10 @@ function encryptionKey(): string {
   return btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
 }
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('D1CloudflareCredentialVault', () => {
   it('stores only authenticated ciphertext and resolves it by opaque handle', async () => {
     const { db, rows } = createDb();
@@ -146,11 +150,8 @@ describe('D1CloudflareCredentialVault', () => {
       .mockResolvedValue(
         Response.json({ access_token: 'fresh-access', refresh_token: 'fresh-refresh', expires_in: 3600 }),
       );
-    const vault = new D1CloudflareCredentialVault(db, encryptionKey(), {
-      clientId: 'client-1',
-      clientSecret: 'client-secret',
-      request,
-    });
+    vi.stubGlobal('fetch', request);
+    const vault = new D1CloudflareCredentialVault(db, encryptionKey(), OAUTH);
     const handle = await vault.storeOAuthCredential({
       accessToken: 'expired-access',
       refreshToken: 'old-refresh',
@@ -166,7 +167,6 @@ describe('D1CloudflareCredentialVault', () => {
         headers: expect.objectContaining({ authorization: `Basic ${btoa('client-1:client-secret')}` }),
       }),
     );
-    expect(request.mock.contexts).toEqual([undefined]);
     expect(JSON.stringify(rows.get(handle))).not.toBe(before);
     expect(JSON.stringify(rows.get(handle))).not.toContain('fresh-access');
   });
@@ -176,11 +176,8 @@ describe('D1CloudflareCredentialVault', () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValue(Response.json({ access_token: 'forced-fresh-access', expires_in: 3600 }));
-    const vault = new D1CloudflareCredentialVault(db, encryptionKey(), {
-      clientId: 'client-1',
-      clientSecret: 'client-secret',
-      request,
-    });
+    vi.stubGlobal('fetch', request);
+    const vault = new D1CloudflareCredentialVault(db, encryptionKey(), OAUTH);
     const handle = await vault.storeOAuthCredential({
       accessToken: 'still-valid-access',
       refreshToken: 'refresh-token',
@@ -198,11 +195,8 @@ describe('D1CloudflareCredentialVault', () => {
       issued += 1;
       return Response.json({ access_token: `forced-${issued}`, expires_in: 3600 });
     });
-    const vault = new D1CloudflareCredentialVault(db, encryptionKey(), {
-      clientId: 'client-1',
-      clientSecret: 'client-secret',
-      request,
-    });
+    vi.stubGlobal('fetch', request);
+    const vault = new D1CloudflareCredentialVault(db, encryptionKey(), OAUTH);
     const handle = await vault.storeOAuthCredential({
       accessToken: 'still-valid-access',
       refreshToken: 'refresh-token',
@@ -232,16 +226,9 @@ describe('D1CloudflareCredentialVault', () => {
     const request = vi
       .fn<typeof fetch>()
       .mockImplementation(async () => Response.json({ access_token: 'fresh-access', refresh_token: 'fresh-refresh' }));
-    const exactVault = new D1CloudflareCredentialVault(exact.db, encryptionKey(), {
-      clientId: 'client-1',
-      clientSecret: 'client-secret',
-      request,
-    });
-    const mismatchedVault = new D1CloudflareCredentialVault(mismatched.db, encryptionKey(), {
-      clientId: 'client-1',
-      clientSecret: 'client-secret',
-      request,
-    });
+    vi.stubGlobal('fetch', request);
+    const exactVault = new D1CloudflareCredentialVault(exact.db, encryptionKey(), OAUTH);
+    const mismatchedVault = new D1CloudflareCredentialVault(mismatched.db, encryptionKey(), OAUTH);
     const exactHandle = await exactVault.storeOAuthCredential({
       accessToken: 'expired-access',
       refreshToken: 'old-refresh',
@@ -260,26 +247,20 @@ describe('D1CloudflareCredentialVault', () => {
   it('adopts a valid credential concurrently rotated before a single-use refresh token is rejected', async () => {
     const { db } = createDb();
     const key = encryptionKey();
-    const winnerRequest = vi
+    const winnerVault = new D1CloudflareCredentialVault(db, key, OAUTH);
+    const loserVault = new D1CloudflareCredentialVault(db, key, OAUTH);
+    let handle = '';
+    // The loser's refresh reaches Cloudflare first; the winner's refresh, while it waits, rotates the grant.
+    const request = vi
       .fn<typeof fetch>()
-      .mockImplementation(async () =>
+      .mockImplementationOnce(async () => {
+        await winnerVault.resolve(handle);
+        return Response.json({ error: 'invalid_grant' }, { status: 400 });
+      })
+      .mockImplementationOnce(async () =>
         Response.json({ access_token: 'winner-access', refresh_token: 'winner-refresh', expires_in: 3600 }),
       );
-    const winnerVault = new D1CloudflareCredentialVault(db, key, {
-      clientId: 'client-1',
-      clientSecret: 'client-secret',
-      request: winnerRequest,
-    });
-    let handle = '';
-    const loserRequest = vi.fn<typeof fetch>().mockImplementation(async () => {
-      await winnerVault.resolve(handle);
-      return Response.json({ error: 'invalid_grant' }, { status: 400 });
-    });
-    const loserVault = new D1CloudflareCredentialVault(db, key, {
-      clientId: 'client-1',
-      clientSecret: 'client-secret',
-      request: loserRequest,
-    });
+    vi.stubGlobal('fetch', request);
     handle = await loserVault.storeOAuthCredential({
       accessToken: 'expired-access',
       refreshToken: 'single-use-refresh',
@@ -287,8 +268,7 @@ describe('D1CloudflareCredentialVault', () => {
     });
 
     await expect(loserVault.resolve(handle)).resolves.toBe('winner-access');
-    expect(winnerRequest).toHaveBeenCalledOnce();
-    expect(loserRequest).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledTimes(2);
   });
 
   it.each(['unchanged', 'invalid'] as const)(
@@ -306,11 +286,8 @@ describe('D1CloudflareCredentialVault', () => {
         }
         return Response.json({ error: 'invalid_grant' }, { status: 400 });
       });
-      const vault = new D1CloudflareCredentialVault(db, key, {
-        clientId: 'client-1',
-        clientSecret: 'client-secret',
-        request,
-      });
+      vi.stubGlobal('fetch', request);
+      const vault = new D1CloudflareCredentialVault(db, key, OAUTH);
       handle = await vault.storeOAuthCredential({
         accessToken: 'expired-access',
         refreshToken: 'single-use-refresh',
