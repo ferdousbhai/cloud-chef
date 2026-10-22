@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { envWith, userWorkspaceDatabase } from '~/test/control-plane-d1';
 import {
   AGENT_GC_GRACE_PERIOD_MS,
@@ -8,10 +8,17 @@ import {
 } from './agent-gc.server';
 
 describe('BuilderAgent garbage collection', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'], now: 100 });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("durably schedules each subchat's Agent destroy before removing its receipt", async () => {
     const database = new AgentGcDatabase([candidate(), candidate({ subchat_index: 1 })]);
 
-    await expect(sweepAgentGcCandidates(database.env, { now: 100 })).resolves.toBeUndefined();
+    await expect(sweepAgentGcCandidates(database.env)).resolves.toBeUndefined();
     expect(database.scheduleDestroy.mock.calls).toEqual([
       ['chat', 'owner'],
       ['chat--transcript-1-0', 'owner'],
@@ -24,7 +31,8 @@ describe('BuilderAgent garbage collection', () => {
     const database = new AgentGcDatabase([candidate({ attempts: 2 })]);
     database.scheduleDestroy.mockRejectedValueOnce(new Error('transient RPC failure'));
 
-    await expect(sweepAgentGcCandidates(database.env, { now: 1_000 })).resolves.toBeUndefined();
+    vi.setSystemTime(1_000);
+    await expect(sweepAgentGcCandidates(database.env)).resolves.toBeUndefined();
 
     expect(database.candidates[0]).toMatchObject({
       attempts: 3,
@@ -42,7 +50,7 @@ describe('BuilderAgent garbage collection', () => {
         }),
     );
 
-    const sweep = sweepAgentGcCandidates(database.env, { now: 100 });
+    const sweep = sweepAgentGcCandidates(database.env);
     await vi.waitFor(() => expect(database.scheduleDestroy).toHaveBeenCalledOnce());
     expect(database.candidates).toHaveLength(1);
 
@@ -54,7 +62,7 @@ describe('BuilderAgent garbage collection', () => {
   it('does not sweep a freshly deleted chat during its in-flight request grace period', async () => {
     const database = new AgentGcDatabase([candidate({ not_before: 100 + AGENT_GC_GRACE_PERIOD_MS })]);
 
-    await expect(sweepAgentGcCandidates(database.env, { now: 100 })).resolves.toBeUndefined();
+    await expect(sweepAgentGcCandidates(database.env)).resolves.toBeUndefined();
     expect(database.scheduleDestroy).not.toHaveBeenCalled();
     expect(database.candidates).toHaveLength(1);
   });
@@ -81,7 +89,7 @@ describe('BuilderAgent garbage collection', () => {
       } as never,
     });
 
-    await sweepAgentGcCandidates(env, { now: 100 });
+    await sweepAgentGcCandidates(env);
     expect(scheduled).toEqual(['deleted']);
   });
 
@@ -92,7 +100,7 @@ describe('BuilderAgent garbage collection', () => {
       ),
     );
 
-    await expect(sweepAgentGcCandidates(database.env, { now: 100 })).resolves.toBeUndefined();
+    await expect(sweepAgentGcCandidates(database.env)).resolves.toBeUndefined();
     expect(database.scheduleDestroy).toHaveBeenCalledTimes(AGENT_GC_SWEEP_LIMIT);
     expect(database.candidates).toHaveLength(3);
   });

@@ -1,10 +1,32 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDeploymentPlanFromSource, type DeploymentResourceNaming } from '~/lib/.server/cloudflare/deployment-plan';
+import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { appResourceName } from '~/lib/cloudflare/app-resource-names';
 import { userWorkspaceDatabase } from '~/test/control-plane-d1';
 import { AGENT_GC_GRACE_PERIOD_MS, AGENT_GC_RETRY_BASE_MS } from './agent-gc.server';
 import { sweepAppResourceGcCandidates } from './app-resource-gc.server';
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  // The control plane's credential broker, which the sweep asks for the account's token.
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ accessToken: 'user-oauth-token' }, { headers: { 'Cache-Control': 'no-store' } })),
+  );
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+/** Sweeps with the clock at `now`. */
+function sweepAt(now: number, env: AppResourceGcWorkspace['env'], options?: { requeueRemovedChats: boolean }) {
+  vi.setSystemTime(now);
+  return sweepAppResourceGcCandidates(env, options);
+}
 
 describe('app resource garbage collection', () => {
   it('removes every resource derived from every deployment before completing the receipt', async () => {
@@ -12,7 +34,7 @@ describe('app resource garbage collection', () => {
     workspace.deployment('deployment-1', JSON.stringify(await deploymentPlan()));
     const accountApi = cleanupApi(true);
 
-    await expect(sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi })).resolves.toBeUndefined();
+    await expect(sweepAt(100, workspace.env)).resolves.toBeUndefined();
 
     // Production's Worker, bucket and namespace, and the preview's own.
     expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
@@ -35,9 +57,9 @@ describe('app resource garbage collection', () => {
   it('retains the receipt without increasing failures while R2 cleanup makes bounded progress', async () => {
     const workspace = new AppResourceGcWorkspace();
     workspace.deployment('deployment-1', JSON.stringify(await deploymentPlan()));
-    const accountApi = cleanupApi(false);
+    cleanupApi(false);
 
-    await expect(sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi })).resolves.toBeUndefined();
+    await expect(sweepAt(1_000, workspace.env)).resolves.toBeUndefined();
 
     expect(workspace.candidates()).toEqual([
       { chat_id: 'chat-row', not_before: 1_000 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
@@ -55,7 +77,7 @@ describe('app resource garbage collection', () => {
     ]);
     const accountApi = cleanupApi(true);
 
-    await expect(sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi })).resolves.toBeUndefined();
+    await expect(sweepAt(100, workspace.env)).resolves.toBeUndefined();
 
     expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-app-1');
     expect(accountApi.deleteD1DatabaseById).toHaveBeenCalledWith('db-id-1');
@@ -78,7 +100,7 @@ describe('app resource garbage collection', () => {
     workspace.deployment('deployment-1', JSON.stringify(await deploymentPlan()), [['d1', 'DB', 'db-id-1']]);
     const accountApi = cleanupApi(true);
 
-    await expect(sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi })).resolves.toBeUndefined();
+    await expect(sweepAt(100, workspace.env)).resolves.toBeUndefined();
 
     expect(accountApi.deleteManagedWorker).toHaveBeenCalledWith('cloudchef-deployment-1');
     expect(accountApi.deleteManagedWorker.mock.invocationCallOrder[0]).toBeLessThan(
@@ -105,7 +127,7 @@ describe('app resource garbage collection', () => {
     }
     const accountApi = cleanupApi(true);
 
-    await sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi });
+    await sweepAt(100, workspace.env);
 
     // The resources every deployment names alike stay while a later deployment names them.
     expect(accountApi.deleteManagedWorker).not.toHaveBeenCalled();
@@ -115,7 +137,7 @@ describe('app resource garbage collection', () => {
       { chat_id: 'chat-row', not_before: 100 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
     ]);
 
-    await sweepAppResourceGcCandidates(workspace.env, { now: 100 + AGENT_GC_RETRY_BASE_MS, accountApi });
+    await sweepAt(100 + AGENT_GC_RETRY_BASE_MS, workspace.env);
 
     // The last deployment deletes them, once.
     expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
@@ -138,7 +160,7 @@ describe('app resource garbage collection', () => {
     workspace.deployment('deployment-2', JSON.stringify(plan));
     const accountApi = cleanupApi(true);
 
-    await sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi });
+    await sweepAt(100, workspace.env);
 
     // Released by the second deployment only, by the name its plan gives it.
     expect(accountApi.deleteManagedWorker.mock.calls).toEqual([
@@ -155,7 +177,7 @@ describe('app resource garbage collection', () => {
     workspace.deployment('deployment-2', JSON.stringify({ version: 999 }), [['kv', 'APP_CACHE', 'kv-id-1']]);
     const accountApi = cleanupApi(true);
 
-    await sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi });
+    await sweepAt(100, workspace.env);
 
     // Deleted once, by the later deployment's record.
     expect(accountApi.deleteKvNamespaceById.mock.calls).toEqual([['kv-id-1']]);
@@ -174,7 +196,7 @@ describe('app resource garbage collection', () => {
       }
     });
 
-    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi });
+    await sweepAt(1_000, workspace.env);
 
     expect(workspace.deploymentIds()).toEqual(['deployment-2']);
     expect(workspace.candidates()).toEqual([
@@ -189,7 +211,7 @@ describe('app resource garbage collection', () => {
     workspace.deployment('deployment-2', JSON.stringify(plan));
     const accountApi = cleanupApi(true);
 
-    await expect(sweepAppResourceGcCandidates(workspace.env, { now: 100, accountApi })).resolves.toBeUndefined();
+    await expect(sweepAt(100, workspace.env)).resolves.toBeUndefined();
 
     expect(accountApi.deleteManagedWorker).toHaveBeenCalledTimes(2);
     expect(workspace.deploymentIds()).toEqual(['deployment-1']);
@@ -209,20 +231,16 @@ describe('app resource garbage collection', () => {
     const accountApi = cleanupApi(true);
 
     // A request's sweep adds no write.
-    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi });
+    await sweepAt(1_000, workspace.env);
     expect(workspace.candidates()).toEqual([]);
 
-    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi, requeueRemovedChats: true });
+    await sweepAt(1_000, workspace.env, { requeueRemovedChats: true });
     expect(workspace.candidates()).toEqual([
       { chat_id: 'chat-row', not_before: 1_000 + AGENT_GC_GRACE_PERIOD_MS, attempts: 0 },
     ]);
     expect(accountApi.deleteManagedWorker).not.toHaveBeenCalled();
 
-    await sweepAppResourceGcCandidates(workspace.env, {
-      now: 1_000 + AGENT_GC_GRACE_PERIOD_MS,
-      accountApi,
-      requeueRemovedChats: true,
-    });
+    await sweepAt(1_000 + AGENT_GC_GRACE_PERIOD_MS, workspace.env, { requeueRemovedChats: true });
 
     // What is left is deleted, by id where it was recorded and by name otherwise; a name already gone is
     // the account API's to skip.
@@ -242,12 +260,12 @@ describe('app resource garbage collection', () => {
       workspace.chat(chatId, { removed: true });
       workspace.deployment(`deployment-${chatId}`, plan, [], chatId);
     }
-    const accountApi = cleanupApi(true);
+    cleanupApi(true);
 
-    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi, requeueRemovedChats: true });
+    await sweepAt(1_000, workspace.env, { requeueRemovedChats: true });
     expect(workspace.candidates()).toHaveLength(20);
 
-    await sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi, requeueRemovedChats: true });
+    await sweepAt(1_000, workspace.env, { requeueRemovedChats: true });
     // The rest, without queueing any twice; `chat-row` has no deployment records, so it is never queued.
     expect(workspace.candidates().map(({ chat_id }) => chat_id)).toEqual(
       Array.from({ length: 25 }, (_, index) => `chat-${String(index).padStart(2, '0')}`),
@@ -260,7 +278,7 @@ describe('app resource garbage collection', () => {
     const accountApi = cleanupApi(true);
     accountApi.deleteManagedWorker.mockRejectedValueOnce(new Error('temporary provider failure'));
 
-    await expect(sweepAppResourceGcCandidates(workspace.env, { now: 1_000, accountApi })).resolves.toBeUndefined();
+    await expect(sweepAt(1_000, workspace.env)).resolves.toBeUndefined();
 
     expect(workspace.candidates()).toEqual([
       { chat_id: 'chat-row', not_before: 1_000 + AGENT_GC_RETRY_BASE_MS * 4, attempts: 3 },
@@ -283,14 +301,16 @@ async function deploymentPlan(naming: DeploymentResourceNaming = { identity: 'de
   ).plan;
 }
 
+/** The account API's deletions, answered without Cloudflare; R2 reports whether the bucket is gone. */
 function cleanupApi(r2Complete: boolean) {
+  const api = UserCloudflareAccountApi.prototype;
   return {
-    deleteManagedWorker: vi.fn(async (_name: string) => undefined),
-    deleteD1Database: vi.fn(async (_name: string) => undefined),
-    deleteKvNamespace: vi.fn(async (_name: string) => undefined),
-    deleteD1DatabaseById: vi.fn(async (_id: string) => undefined),
-    deleteKvNamespaceById: vi.fn(async (_id: string) => undefined),
-    deleteR2Bucket: vi.fn(async (_name: string) => r2Complete),
+    deleteManagedWorker: vi.spyOn(api, 'deleteManagedWorker').mockResolvedValue(undefined),
+    deleteD1Database: vi.spyOn(api, 'deleteD1Database').mockResolvedValue(undefined),
+    deleteKvNamespace: vi.spyOn(api, 'deleteKvNamespace').mockResolvedValue(undefined),
+    deleteD1DatabaseById: vi.spyOn(api, 'deleteD1DatabaseById').mockResolvedValue(undefined),
+    deleteKvNamespaceById: vi.spyOn(api, 'deleteKvNamespaceById').mockResolvedValue(undefined),
+    deleteR2Bucket: vi.spyOn(api, 'deleteR2Bucket').mockResolvedValue(r2Complete),
   };
 }
 
@@ -304,8 +324,16 @@ class AppResourceGcWorkspace {
   constructor(attempts = 0, { queued = true }: { queued?: boolean } = {}) {
     const { database, db } = userWorkspaceDatabase();
     this.#database = database;
-    // SAFETY: the sweep reads only `DB` once it is handed an account API.
-    this.env = { DB: db } as Parameters<typeof sweepAppResourceGcCandidates>[0];
+    this.env = {
+      DB: db,
+      CLOUDCHEF_USER_RUNTIME: '1',
+      CLOUDCHEF_CONTROL_PLANE_ENDPOINT: 'https://cloudchef.build',
+      CONTROL_PLANE_SECRET: 'runtime-secret-that-is-long-enough',
+      CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
+      CLOUDCHEF_USER_ID: 'user-1',
+      CLOUDCHEF_CONNECTION_ID: 'connection-1',
+      CLOUDCHEF_CONNECTION_GENERATION: '3',
+    };
     this.chat('chat-row', { removed: true });
     if (queued) {
       database

@@ -20,9 +20,9 @@ type AgentGcCandidateRow = {
 
 export function prepareAgentGcCandidatesStatement(
   db: D1Database,
-  args: { initialId: string; ownerId: string; now?: number; requireEmpty?: boolean },
+  args: { initialId: string; ownerId: string; requireEmpty?: boolean },
 ): D1PreparedStatement {
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   const notBefore = now + AGENT_GC_GRACE_PERIOD_MS;
   return db
     .prepare(
@@ -40,11 +40,8 @@ export function prepareAgentGcCandidatesStatement(
     .bind(notBefore, now, args.ownerId, args.initialId);
 }
 
-export async function sweepAgentGcCandidates(
-  env: Pick<Env, 'BuilderAgent' | 'DB'>,
-  options: { now?: number } = {},
-): Promise<void> {
-  const now = options.now ?? Date.now();
+export async function sweepAgentGcCandidates(env: Pick<Env, 'BuilderAgent' | 'DB'>): Promise<void> {
+  const now = Date.now();
   const result = await env.DB.prepare(
     `SELECT candidates.chat_id, candidates.initial_id, chats.creator_id AS owner_id,
             candidates.subchat_index, candidates.not_before, candidates.attempts

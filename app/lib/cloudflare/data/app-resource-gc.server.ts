@@ -51,9 +51,9 @@ type CleanupTarget = { type: 'worker' | 'd1' | 'kv' | 'r2'; by: 'id' | 'name'; v
 
 export function prepareAppResourceGcCandidateStatement(
   db: D1Database,
-  args: { initialId: string; ownerId: string; now?: number; requireEmpty?: boolean },
+  args: { initialId: string; ownerId: string; requireEmpty?: boolean },
 ): D1PreparedStatement {
-  const now = args.now ?? Date.now();
+  const now = Date.now();
   return db
     .prepare(
       `INSERT INTO app_resource_gc_candidates (chat_id, not_before, created_at, attempts)
@@ -71,6 +71,7 @@ export async function sweepAppResourceGcCandidates(
   env: Pick<
     Env,
     | 'DB'
+    | 'CLOUDCHEF_USER_RUNTIME'
     | 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT'
     | 'CONTROL_PLANE_SECRET'
     | 'CLOUDCHEF_USER_ID'
@@ -78,9 +79,9 @@ export async function sweepAppResourceGcCandidates(
     | 'CLOUDCHEF_CONNECTION_GENERATION'
     | 'CLOUDFLARE_ACCOUNT_ID'
   >,
-  options: AppResourceGcSweepOptions & { now?: number; accountApi?: AppResourceCleanupApi } = {},
+  options: AppResourceGcSweepOptions = {},
 ): Promise<void> {
-  const now = options.now ?? Date.now();
+  const now = Date.now();
   if (options.requeueRemovedChats) {
     await requeueRemovedChatsWithDeployments(env.DB, now);
   }
@@ -98,7 +99,7 @@ export async function sweepAppResourceGcCandidates(
     return;
   }
 
-  const accountApi = options.accountApi ?? (await createUserAccountApi(env));
+  const accountApi = await createUserAccountApi(env);
   const sweep: CleanupSweep = { budget: APP_RESOURCE_GC_DEPLOYMENTS_PER_SWEEP };
   for (const candidate of result.results) {
     if (sweep.budget === 0) {
