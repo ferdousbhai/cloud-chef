@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BuilderCloudflareExecutionRepository,
   CloudflareExecutionDecisionError,
@@ -178,34 +178,32 @@ function executionRepository(storage = new TestExecutionStorage()) {
 }
 
 describe('durable Cloudflare execution approval repository', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('admits duplicate approvals but claims execution exactly once', async () => {
     const { repository } = executionRepository();
     const proposal = await repository.createProposal({
       toolCallId: 'tool-1',
       binding,
       request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/old' },
-      now: 100,
     });
 
     const approvals = await Promise.all([
-      repository.approve(proposal.executionId, binding, 200),
-      repository.approve(proposal.executionId, binding, 200),
+      repository.approve(proposal.executionId, binding),
+      repository.approve(proposal.executionId, binding),
     ]);
     expect(approvals.filter((approval) => approval.transitioned)).toHaveLength(1);
 
     const claims = await Promise.all([
-      repository.beginExecution(proposal.executionId, binding, 300),
-      repository.beginExecution(proposal.executionId, binding, 300),
+      repository.beginExecution(proposal.executionId, binding),
+      repository.beginExecution(proposal.executionId, binding),
     ]);
     expect(claims.filter(Boolean)).toHaveLength(1);
-    const completed = repository.complete(
-      proposal.executionId,
-      'succeeded',
-      { status: 'success', summary: 'done' },
-      400,
-    );
+    const completed = repository.complete(proposal.executionId, 'succeeded', { status: 'success', summary: 'done' });
     expect(completed.status).toBe('succeeded');
-    await expect(repository.beginExecution(proposal.executionId, binding, 500)).resolves.toBeNull();
+    await expect(repository.beginExecution(proposal.executionId, binding)).resolves.toBeNull();
   });
 
   it.each([
@@ -220,9 +218,8 @@ describe('durable Cloudflare execution approval repository', () => {
       toolCallId: 'tool-2',
       binding,
       request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/old' },
-      now: 100,
     });
-    await expect(repository.approve(proposal.executionId, { ...binding, ...changed }, 200)).rejects.toBeInstanceOf(
+    await expect(repository.approve(proposal.executionId, { ...binding, ...changed })).rejects.toBeInstanceOf(
       CloudflareExecutionDecisionError,
     );
   });
@@ -233,7 +230,6 @@ describe('durable Cloudflare execution approval repository', () => {
       toolCallId: 'tool-3',
       binding,
       request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/old' },
-      now: 100,
     });
     const row = storage.rows.get(proposal.executionId);
     if (!row) {
@@ -241,7 +237,7 @@ describe('durable Cloudflare execution approval repository', () => {
     }
     row.proposal_sha256 = 'b'.repeat(64);
 
-    await expect(repository.approve(proposal.executionId, binding, 200)).rejects.toThrow(
+    await expect(repository.approve(proposal.executionId, binding)).rejects.toThrow(
       'stored Cloudflare execution digest',
     );
   });
@@ -252,12 +248,10 @@ describe('durable Cloudflare execution approval repository', () => {
       toolCallId: 'tool-4',
       binding,
       request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/old' },
-      now: 100,
     });
 
-    await expect(repository.approve(proposal.executionId, binding, proposal.expiresAt)).rejects.toThrow(
-      'can no longer be approved',
-    );
+    vi.useFakeTimers({ toFake: ['Date'], now: proposal.expiresAt });
+    await expect(repository.approve(proposal.executionId, binding)).rejects.toThrow('can no longer be approved');
     expect(repository.get(proposal.executionId)?.status).toBe('expired');
   });
 
@@ -267,15 +261,14 @@ describe('durable Cloudflare execution approval repository', () => {
       toolCallId: 'tool-5',
       binding,
       request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/old' },
-      now: 100,
     });
-    await repository.approve(proposal.executionId, binding, 200);
-    await repository.beginExecution(proposal.executionId, binding, 300);
+    await repository.approve(proposal.executionId, binding);
+    await repository.beginExecution(proposal.executionId, binding);
 
-    const recovered = repository.recoverIndeterminate(proposal.executionId, proposal.proposalSha256, 400);
+    const recovered = repository.recoverIndeterminate(proposal.executionId, proposal.proposalSha256);
     expect(recovered.status).toBe('indeterminate');
     expect(recovered.outcome?.status).toBe('indeterminate');
-    await expect(repository.beginExecution(proposal.executionId, binding, 500)).resolves.toBeNull();
+    await expect(repository.beginExecution(proposal.executionId, binding)).resolves.toBeNull();
   });
 });
 

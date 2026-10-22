@@ -93,9 +93,8 @@ export class BuilderCloudflareExecutionRepository {
     toolCallId: string;
     binding: CloudflareExecutionBinding;
     request: CloudflareApiRequest;
-    now?: number;
   }): Promise<CloudflareExecutionRecord> {
-    const now = args.now ?? Date.now();
+    const now = Date.now();
     const inputJson = JSON.stringify(args.request);
     const proposalSha256 = await proposalDigest(args.toolCallId, args.binding, inputJson);
     return this.storage.transactionSync(() => {
@@ -163,9 +162,9 @@ export class BuilderCloudflareExecutionRepository {
   async approve(
     executionId: string,
     binding: CloudflareExecutionBinding,
-    now = Date.now(),
   ): Promise<{ record: CloudflareExecutionRecord; transitioned: boolean }> {
-    await this.verify(executionId, binding, now);
+    const now = Date.now();
+    await this.verify(executionId, binding);
     let transitioned = false;
     const record = this.storage.transactionSync(() => {
       const current = this.require(executionId);
@@ -190,9 +189,9 @@ export class BuilderCloudflareExecutionRepository {
   async reject(
     executionId: string,
     binding: CloudflareExecutionBinding,
-    now = Date.now(),
   ): Promise<{ record: CloudflareExecutionRecord; transitioned: boolean }> {
-    await this.verify(executionId, binding, now);
+    const now = Date.now();
+    await this.verify(executionId, binding);
     const denied: CloudflareExecutionSafeOutcome = {
       status: 'denied',
       summary: 'The user rejected this Cloudflare execution.',
@@ -223,9 +222,9 @@ export class BuilderCloudflareExecutionRepository {
   async beginExecution(
     executionId: string,
     binding: CloudflareExecutionBinding,
-    now = Date.now(),
   ): Promise<CloudflareExecutionRecord | null> {
-    await this.verify(executionId, binding, now);
+    const now = Date.now();
+    await this.verify(executionId, binding);
     return this.storage.transactionSync(() => {
       const current = this.require(executionId);
       if (current.status !== 'approved') {
@@ -244,8 +243,8 @@ export class BuilderCloudflareExecutionRepository {
     executionId: string,
     status: Extract<CloudflareExecutionStatus, 'succeeded' | 'failed' | 'indeterminate'>,
     outcome: CloudflareExecutionSafeOutcome,
-    now = Date.now(),
   ): CloudflareExecutionRecord {
+    const now = Date.now();
     return this.storage.transactionSync(() => {
       this.storage.sql.exec(
         `UPDATE builder_cloudflare_executions
@@ -260,11 +259,8 @@ export class BuilderCloudflareExecutionRepository {
     });
   }
 
-  failApproved(
-    executionId: string,
-    outcome: CloudflareExecutionSafeOutcome,
-    now = Date.now(),
-  ): CloudflareExecutionRecord {
+  failApproved(executionId: string, outcome: CloudflareExecutionSafeOutcome): CloudflareExecutionRecord {
+    const now = Date.now();
     return this.storage.transactionSync(() => {
       this.storage.sql.exec(
         `UPDATE builder_cloudflare_executions
@@ -278,11 +274,8 @@ export class BuilderCloudflareExecutionRepository {
     });
   }
 
-  recoverIndeterminate(
-    executionId: string,
-    expectedProposalSha256: string,
-    now = Date.now(),
-  ): CloudflareExecutionRecord {
+  recoverIndeterminate(executionId: string, expectedProposalSha256: string): CloudflareExecutionRecord {
+    const now = Date.now();
     const outcome: CloudflareExecutionSafeOutcome = {
       status: 'indeterminate',
       summary:
@@ -303,7 +296,8 @@ export class BuilderCloudflareExecutionRepository {
     });
   }
 
-  expireAwaiting(now = Date.now()): void {
+  expireAwaiting(): void {
+    const now = Date.now();
     this.storage.sql.exec(
       `UPDATE builder_cloudflare_executions
        SET status = 'expired', completed_at = ?, outcome_json = ?
@@ -315,12 +309,9 @@ export class BuilderCloudflareExecutionRepository {
   }
 
   /** The execution, provided it is still this binding's and still the proposal it was approved as. */
-  async verify(
-    executionId: string,
-    binding: CloudflareExecutionBinding,
-    now = Date.now(),
-  ): Promise<CloudflareExecutionRecord> {
-    this.expireAwaiting(now);
+  async verify(executionId: string, binding: CloudflareExecutionBinding): Promise<CloudflareExecutionRecord> {
+    const now = Date.now();
+    this.expireAwaiting();
     const record = this.require(executionId);
     if (!executionBindingsEqual(record.binding, binding)) {
       throw new CloudflareExecutionDecisionError('The Cloudflare execution identity or connection changed.');
