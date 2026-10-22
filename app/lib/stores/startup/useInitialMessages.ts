@@ -38,7 +38,7 @@ type TranscriptSelection = {
 
 type InitialMessagesState = {
   initialMessages: InitialMessages | null | undefined;
-  error: unknown;
+  error: Error | null | undefined;
   retry: () => void;
 };
 

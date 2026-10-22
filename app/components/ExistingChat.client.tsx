@@ -7,15 +7,10 @@ import { CloudflareSignInPrompt } from '~/components/CloudflareSignInPrompt';
 import { Button } from '@ui/Button';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { useStore } from '@nanostores/react';
-import {
-  getUserRuntimeSession,
-  UserRuntimeSessionError,
-  userWorkspacePreparingStore,
-} from '~/lib/cloudflare/runtime-session';
+import { retryAfterRuntimeError, userWorkspacePreparingStore } from '~/lib/cloudflare/runtime-session';
 import { isWorkspacePreparingError } from '~/lib/cloudflare/client';
 import { WorkspacePreparingLoading, WorkspacePreparingPanel } from '~/components/WorkspacePreparing';
 import { PromptPrefillContext } from './chat/prompt-prefill';
-import { messageOf } from '~/lib/json-request';
 
 export function ExistingChat({ chatId }: { chatId: string }) {
   return (
@@ -92,15 +87,9 @@ function ProjectLoading() {
   return preparing ? <WorkspacePreparingLoading /> : <Loading message="Loading project…" />;
 }
 
-export function ProjectLoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const message = messageOf(error, 'The project data could not be loaded.');
-  const retry = () => {
-    if (error instanceof UserRuntimeSessionError) {
-      void getUserRuntimeSession({ retryProvisioning: true }).then(onRetry, onRetry);
-      return;
-    }
-    onRetry();
-  };
+export function ProjectLoadError({ error, onRetry }: { error: Error; onRetry: () => void }) {
+  const message = error.message;
+  const retry = () => retryAfterRuntimeError(error, onRetry);
   if (isWorkspacePreparingError(error)) {
     return (
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto p-5">

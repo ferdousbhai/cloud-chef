@@ -1,15 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { toast } from 'sonner';
 import { z } from 'zod';
 import { Button } from '@ui/Button';
 import { TextInput } from '@ui/TextInput';
-import {
-  authClient,
-  createCloudflareReturnURL,
-  refreshSession,
-  signInWithCloudflare,
-  switchWorkspace,
-} from '~/lib/auth-client';
+import { authClient, createCloudflareReturnURL, refreshSession, signInWithCloudflare } from '~/lib/auth-client';
+import { switchAccount } from '~/lib/account-actions.client';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
 import {
   MyOrgProjects,
@@ -261,10 +255,7 @@ function OpenButton({ connectionId }: { connectionId: string }) {
   const [opening, setOpening] = useState(false);
   const open = async () => {
     setOpening(true);
-    try {
-      await switchWorkspace(connectionId);
-    } catch (switchError) {
-      toast.error(messageOf(switchError, 'Unable to switch accounts.'));
+    if (await switchAccount(connectionId)) {
       setOpening(false);
     }
   };

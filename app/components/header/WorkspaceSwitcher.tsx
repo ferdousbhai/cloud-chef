@@ -1,10 +1,9 @@
 import { CheckIcon, PlusIcon } from '@radix-ui/react-icons';
 import { useNavigate } from '@tanstack/react-router';
 import { Menu, MenuItem } from '@ui/Menu';
-import { authClient, switchWorkspace } from '~/lib/auth-client';
-import { toast } from 'sonner';
+import { authClient } from '~/lib/auth-client';
+import { switchAccount } from '~/lib/account-actions.client';
 import type { WorkspaceContext } from '~/lib/.server/auth';
-import { messageOf } from '~/lib/json-request';
 
 /**
  * Which Cloudflare account the builder works in: the person's own, or an organization's they belong
@@ -51,7 +50,7 @@ export function WorkspaceMenuItems() {
           key={option.connectionId}
           action={() => {
             if (option.connectionId !== current?.connectionId) {
-              void switchTo(option.connectionId);
+              void switchAccount(option.connectionId);
             }
           }}
         >
@@ -71,14 +70,6 @@ export function WorkspaceMenuItems() {
       </MenuItem>
     </>
   );
-}
-
-async function switchTo(connectionId: string) {
-  try {
-    await switchWorkspace(connectionId);
-  } catch (error) {
-    toast.error(messageOf(error, 'Unable to switch accounts.'));
-  }
 }
 
 function shortLabel(option: WorkspaceContext) {

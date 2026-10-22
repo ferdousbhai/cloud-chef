@@ -78,6 +78,18 @@ export const telemetryCorrelationIdStore = atom<string | null>(null);
 let current: UserRuntimeSession | null = null;
 let generation = 0;
 
+/**
+ * Retries what failed with `error`. A runtime session that could not be had is asked for again first,
+ * with its workspace's provisioning retried.
+ */
+export function retryAfterRuntimeError(error: Error | null, retry: () => void): void {
+  if (error instanceof UserRuntimeSessionError) {
+    void getUserRuntimeSession({ retryProvisioning: true }).then(retry, retry);
+    return;
+  }
+  retry();
+}
+
 export async function getUserRuntimeSession(
   options: { signal?: AbortSignal; retryProvisioning?: boolean } = {},
 ): Promise<UserRuntimeSession> {

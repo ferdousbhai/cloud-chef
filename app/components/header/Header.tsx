@@ -5,16 +5,15 @@ import { ChatDescription } from '~/components/header/ChatDescription.client';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { HamburgerMenuIcon, PersonIcon, GearIcon, ExitIcon } from '@radix-ui/react-icons';
 import { Menu as MenuComponent, MenuItem as MenuItemComponent } from '@ui/Menu';
-import { authClient, signOutOfCloudChef } from '~/lib/auth-client';
+import { authClient } from '~/lib/auth-client';
+import { logOut } from '~/lib/account-actions.client';
 import { WorkspaceMenuItems, WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { BrandLink } from '~/components/BrandLink';
 import { Button } from '@ui/Button';
 import { ThemeSwitch } from '~/components/ui/ThemeSwitch';
-import { toast } from 'sonner';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { useNavigate } from '@tanstack/react-router';
 import { classNames } from '~/utils/classNames';
-import { messageOf } from '~/lib/json-request';
 
 const DownloadButton = lazy(() => import('./DownloadButton').then((module) => ({ default: module.DownloadButton })));
 const MobileProjectMenuItems = lazy(() =>
@@ -35,14 +34,6 @@ export function Header() {
   const showSidebarIcon = isAuthenticated;
 
   const user = authClient.useSession().data?.user ?? null;
-
-  const handleLogout = async () => {
-    try {
-      await signOutOfCloudChef();
-    } catch (error) {
-      toast.error(messageOf(error, 'Unable to sign out. Please try again.'));
-    }
-  };
 
   const handleSettingsClick = () => void navigate({ to: '/settings' });
 
@@ -108,7 +99,7 @@ export function Header() {
                 <LinkButton variant="subtle" size="xs" to="/settings" icon={<GearIcon />}>
                   Settings
                 </LinkButton>
-                <Button variant="subtle" size="xs" onClick={() => void handleLogout()} icon={<ExitIcon />}>
+                <Button variant="subtle" size="xs" onClick={() => void logOut()} icon={<ExitIcon />}>
                   Log out
                 </Button>
               </div>
@@ -134,7 +125,7 @@ export function Header() {
                     <GearIcon className="text-content-secondary" />
                     Settings
                   </MenuItemComponent>
-                  <MenuItemComponent action={() => void handleLogout()}>
+                  <MenuItemComponent action={() => void logOut()}>
                     <ExitIcon className="text-content-secondary" />
                     Log out
                   </MenuItemComponent>
