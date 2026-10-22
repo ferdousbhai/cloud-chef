@@ -21,7 +21,7 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
 
   const { editing, handleChange, handleBlur, handleSubmit, handleKeyDown, currentDescription, toggleEditMode } =
     useEditChatDescription({
-      initialDescription: item.description,
+      initialDescription: item.description ?? '',
       customChatId: item.id,
       syncWithGlobalStore: isActiveChat,
     });

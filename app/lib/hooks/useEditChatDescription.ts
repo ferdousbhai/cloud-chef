@@ -11,7 +11,7 @@ import { messageOf } from '~/lib/json-request';
 const MAX_DESCRIPTION_LENGTH = 200;
 
 interface EditChatDescriptionOptions {
-  initialDescription?: string;
+  initialDescription: string;
   customChatId?: string;
   syncWithGlobalStore?: boolean;
 }
@@ -21,7 +21,7 @@ type EditState = { chatId: string | undefined; initialDescription: string; editi
 
 /** Editing a chat's name: a valid change is saved, and leaving the field or Escape puts the name back. */
 export function useEditChatDescription({
-  initialDescription = descriptionStore.get() ?? '',
+  initialDescription,
   customChatId,
   syncWithGlobalStore,
 }: EditChatDescriptionOptions) {
