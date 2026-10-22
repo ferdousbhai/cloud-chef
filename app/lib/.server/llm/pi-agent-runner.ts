@@ -47,7 +47,6 @@ import {
 import { createContextWindowTools } from './context-window-tools';
 import { ModelInputBudgetExceededError, modelCompactionPolicy, prepareModelInput } from './model-input';
 import { modelMessagesToPi } from './pi-message-conversion';
-import { recordPiStage, recordPiTurnReport } from './pi-telemetry';
 import { createToolTimeAccounting } from './tool-time-accounting';
 import {
   clearOldToolResults,
@@ -60,6 +59,8 @@ import {
   recordFirstBuilderMutation,
   recordFirstMeaningfulWorkersAiProgress,
   recordFirstWorkersAiResponse,
+  recordPiStage,
+  recordPiTurnReport,
   recordWorkersAiFinish,
   turnUsage,
   type ModelTurnUsage,

@@ -104,6 +104,8 @@ vi.mock('./workers-ai-telemetry', () => ({
   recordFirstWorkersAiResponse: vi.fn(),
   recordFirstMeaningfulWorkersAiProgress: vi.fn(),
   recordFirstBuilderMutation: vi.fn(),
+  recordPiStage: vi.fn(),
+  recordPiTurnReport: vi.fn(),
   recordWorkersAiFinish: mocks.recordFinish,
   turnUsage: () => ({ inputTokens: 0, outputTokens: 0, cachedTokens: 0 }),
 }));

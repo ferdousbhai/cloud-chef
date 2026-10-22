@@ -32,7 +32,7 @@ import {
   type GatewayProviderSlug,
 } from '~/lib/workers-ai-model';
 import { GATEWAY_BINDING_ORIGIN, piGatewayModel, piWorkersAiModel, type GatewayApi } from './pi-model-catalog';
-import { recordPiStage } from './pi-telemetry';
+import { recordPiStage } from './workers-ai-telemetry';
 import {
   providerRequestBodySchema,
   withProviderDefaultReasoning,

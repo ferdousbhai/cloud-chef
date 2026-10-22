@@ -1,5 +1,6 @@
 import type { PromptCharacterCounts } from 'cloudchef-agent/context-message-metrics';
 import type { Usage } from '@earendil-works/pi-ai';
+import type { BuilderTurnReport } from './builder-turn-limits';
 
 interface FinishTelemetryOptions {
   usage: Usage;
@@ -21,50 +22,42 @@ export function turnUsage(usage: Usage): ModelTurnUsage {
   return {
     inputTokens,
     outputTokens: normalizeUsage(usage.output),
-    cachedTokens: workersAiPromptCacheTelemetry(usage, inputTokens).cachedInputTokens,
+    cachedTokens: Math.min(inputTokens, normalizeUsage(usage.cacheRead)),
   };
 }
 
 /** Logs a finished model turn and returns its token counts. */
 export function recordWorkersAiFinish(options: FinishTelemetryOptions): ModelTurnUsage {
-  const usage = {
-    inputTokens: normalizeUsage(options.usage.input),
-    outputTokens: normalizeUsage(options.usage.output),
-    totalTokens: normalizeUsage(options.usage.totalTokens),
-  };
-  const promptCache = workersAiPromptCacheTelemetry(options.usage, usage.inputTokens);
+  const tokens = turnUsage(options.usage);
   console.info({
     event: 'workers_ai_finished',
     firstUserMessage: options.firstUserMessage,
     model: options.providerModel,
     finishReason: options.finishReason,
-    usage,
+    usage: {
+      inputTokens: tokens.inputTokens,
+      outputTokens: tokens.outputTokens,
+      totalTokens: normalizeUsage(options.usage.totalTokens),
+    },
     contextReduced: options.contextReduced,
     estimatedContextTokens: options.estimatedContextTokens,
     promptCharacterCounts: options.promptCharacterCounts,
     durationMs: Date.now() - options.startedAt,
-    promptCache,
+    promptCache: {
+      attempted: true,
+      status: tokens.cachedTokens > 0 ? 'hit' : 'miss',
+      cachedInputTokens: tokens.cachedTokens,
+    },
   });
-  return {
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    cachedTokens: promptCache.cachedInputTokens,
-  };
+  return tokens;
 }
 
-type WorkersAiPromptCacheTelemetry = {
-  attempted: true;
-  status: 'hit' | 'miss';
-  cachedInputTokens: number;
-};
+export function recordPiStage(stage: string, modelId: string, status?: number): void {
+  console.info({ event: 'cloudchef_pi_stage', stage, modelId, ...(status === undefined ? {} : { status }) });
+}
 
-function workersAiPromptCacheTelemetry(usage: Usage, inputTokens: number): WorkersAiPromptCacheTelemetry {
-  const cachedInputTokens = Math.min(normalizeUsage(inputTokens), normalizeUsage(usage.cacheRead));
-  return {
-    attempted: true,
-    status: cachedInputTokens > 0 ? 'hit' : 'miss',
-    cachedInputTokens,
-  };
+export function recordPiTurnReport(modelId: string, report: BuilderTurnReport): void {
+  console.info({ event: 'cloudchef_pi_turn_budget', modelId, ...report });
 }
 
 export function recordFirstWorkersAiResponse(startedAt: number): void {
