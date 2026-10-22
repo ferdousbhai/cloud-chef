@@ -1,4 +1,5 @@
 import { getAuthSession, type CloudflareAuthSession } from '~/lib/.server/auth';
+import { hasSameOrigin } from '~/lib/.server/request-guards';
 
 /**
  * Account-wide operations are accepted only from a session created by a fresh sign-in:
@@ -21,7 +22,7 @@ export async function requireRecentlyAuthenticatedSession(
   request: Request,
   reauthenticationMessage: string,
 ): Promise<CloudflareAuthSession | Response> {
-  if (request.headers.get('origin') !== new URL(request.url).origin) {
+  if (!hasSameOrigin(request)) {
     return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
   }
   const session = await getAuthSession(env, request);

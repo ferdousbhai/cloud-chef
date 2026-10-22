@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { publicOrigin } from '~/lib/.server/public-origin';
-import { getAuthSession, normalizeEmail, setSessionContext, type CloudflareAuthSession } from '~/lib/.server/auth';
+import { normalizeEmail, setSessionContext } from '~/lib/.server/auth';
 import { hasSameOrigin, readJsonRequest } from '~/lib/.server/request-guards';
+import { answeringOrganizationErrors, signedIn } from './signed-in';
 import { isRecentSignIn, reauthenticationRequired } from '~/lib/.server/account-reauthentication';
 import { findCloudflareConnectionForOrganization } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import {
@@ -12,7 +13,6 @@ import {
   describeInvite,
   listOrganizations,
   organizationWorkspaceOwners,
-  OrganizationError,
   prepareOrganizationDeletion,
   renameOrganization,
   requireAdmin,
@@ -71,29 +71,6 @@ const renameSchema = z.strictObject({ orgId: z.string().uuid(), name: teamNameSc
 const deleteSchema = z.strictObject({ orgId: z.string().uuid() });
 /** How many members' workspaces a team's deletion deletes at once. */
 const WORKSPACE_DELETION_CONCURRENCY = 4;
-
-type Handler = (args: { request: Request; env: Env; session: CloudflareAuthSession }) => Promise<Response>;
-
-/** Runs `handler` for a signed-in, same-origin request, turning organization errors into responses. */
-export async function signedIn(request: Request, env: Env, handler: Handler): Promise<Response> {
-  if (request.method !== 'GET' && !hasSameOrigin(request)) {
-    return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
-  }
-  const session = await getAuthSession(env, request);
-  if (!session) {
-    return Response.json({ error: 'Sign in first.' }, { status: 401 });
-  }
-  try {
-    return await handler({ request, env, session });
-  } catch (error) {
-    if (error instanceof OrganizationError) {
-      return Response.json(error.code ? { error: error.message, code: error.code } : { error: error.message }, {
-        status: error.status,
-      });
-    }
-    throw error;
-  }
-}
 
 export function listOrganizationsAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
@@ -193,17 +170,12 @@ export async function describeInviteAction({ request, env }: { request: Request;
   if ('response' in body) {
     return body.response;
   }
-  try {
+  return answeringOrganizationErrors(async () => {
     const invite = await describeInvite(env.DB, body.data.token);
     return invite
       ? Response.json(invite, { headers: { 'Cache-Control': 'no-store' } })
       : Response.json({ error: 'This invite has been used or has expired. Ask for a new one.' }, { status: 410 });
-  } catch (error) {
-    if (error instanceof OrganizationError) {
-      return Response.json({ error: error.message, code: error.code }, { status: error.status });
-    }
-    throw error;
-  }
+  });
 }
 
 export function acceptInviteAction({ request, env }: { request: Request; env: Env }): Promise<Response> {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { getAuthSession, type CloudflareAuthSession } from '~/lib/.server/auth';
-import { hasSameOrigin, readJsonRequest } from '~/lib/.server/request-guards';
+import type { CloudflareAuthSession } from '~/lib/.server/auth';
+import { readJsonRequest } from '~/lib/.server/request-guards';
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import {
   AI_GATEWAY_ID,
@@ -26,6 +26,7 @@ import {
   type GatewayProviderSlug,
 } from '~/lib/workers-ai-model';
 import { sessionConnection } from './cloudflare-integration';
+import { signedIn } from './signed-in';
 
 /**
  * Settings, under Models: the model an account's builders start on, and the account's own keys for
@@ -63,28 +64,30 @@ type Context = {
 
 type Deps = { openAccountApi?: OpenGatewayKeyAccountApi };
 
-async function withContext(
+/**
+ * Runs `handler` for a signed-in request in a connected account. `manage` requires the person to be able
+ * to change the account's models, and `'keys'` also the connection to be authorized for its gateway keys.
+ */
+function withContext(
   request: Request,
   env: Env,
   handler: (context: Context) => Promise<Response>,
-  { manage = false }: { manage?: boolean } = {},
+  { manage = false }: { manage?: boolean | 'keys' } = {},
 ): Promise<Response> {
-  if (request.method !== 'GET' && !hasSameOrigin(request)) {
-    return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
-  }
-  const session = await getAuthSession(env, request);
-  if (!session) {
-    return Response.json({ error: 'Sign in first.' }, { status: 401 });
-  }
-  const connection = await sessionConnection(env.DB, session);
-  if (!connection) {
-    return Response.json({ error: 'Connect a Cloudflare account first.' }, { status: 409 });
-  }
-  const canManage = await canManageModels(env.DB, session.user.id, connection);
-  if (manage && !canManage) {
-    return Response.json({ error: "Only the team's admins can change its models." }, { status: 403 });
-  }
-  return handler({ session, connection, canManage });
+  return signedIn(request, env, async ({ session }) => {
+    const connection = await sessionConnection(env.DB, session);
+    if (!connection) {
+      return Response.json({ error: 'Connect a Cloudflare account first.' }, { status: 409 });
+    }
+    const canManage = await canManageModels(env.DB, session.user.id, connection);
+    if (manage && !canManage) {
+      return Response.json({ error: "Only the team's admins can change its models." }, { status: 403 });
+    }
+    if (manage === 'keys' && !canManageAiGatewayKeys(connection)) {
+      return reauthorizationRequired();
+    }
+    return handler({ session, connection, canManage });
+  });
 }
 
 /** The account's models as Settings shows them. */
@@ -128,9 +131,6 @@ export function linkGatewayKeyAction({ request, env, openAccountApi = openGatewa
     request,
     env,
     async ({ connection }) => {
-      if (!canManageAiGatewayKeys(connection)) {
-        return reauthorizationRequired();
-      }
       const body = await readJsonRequest(request, linkSchema, 'Choose a provider and paste its API key.');
       if ('response' in body) {
         return body.response;
@@ -167,7 +167,7 @@ export function linkGatewayKeyAction({ request, env, openAccountApi = openGatewa
         return keysResponse(await gatewayKeysStatus(api), { authenticationTurnedOn, previousKeysRemain });
       });
     },
-    { manage: true },
+    { manage: 'keys' },
   );
 }
 
@@ -185,9 +185,6 @@ export function unlinkGatewayKeyAction({
     request,
     env,
     async ({ connection }) => {
-      if (!canManageAiGatewayKeys(connection)) {
-        return reauthorizationRequired();
-      }
       const body = await readJsonRequest(request, unlinkSchema, 'Choose a provider.');
       if ('response' in body) {
         return body.response;
@@ -197,7 +194,7 @@ export function unlinkGatewayKeyAction({
         return keysResponse(await gatewayKeysStatus(api));
       });
     },
-    { manage: true },
+    { manage: 'keys' },
   );
 }
 

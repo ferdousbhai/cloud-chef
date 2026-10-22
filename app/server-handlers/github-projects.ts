@@ -24,7 +24,7 @@ import {
   unlinkProject,
 } from '~/lib/cloudflare/data/org-projects.server';
 import { OrganizationError, requireAdmin } from '~/lib/cloudflare/data/organizations.server';
-import { signedIn } from './organizations';
+import { signedIn } from './signed-in';
 
 /**
  * GitHub for organizations: an admin installs CloudChef's GitHub App on the account holding the

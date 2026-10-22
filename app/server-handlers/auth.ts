@@ -1,4 +1,5 @@
 import { clearAuthSessionCookie, deleteAuthSession, getAuthSession } from '~/lib/.server/auth';
+import { hasSameOrigin } from '~/lib/.server/request-guards';
 
 export async function authSessionAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   const session = await getAuthSession(env, request);
@@ -6,7 +7,7 @@ export async function authSessionAction({ request, env }: { request: Request; en
 }
 
 export async function signOutAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
-  if (request.headers.get('origin') !== new URL(request.url).origin) {
+  if (!hasSameOrigin(request)) {
     return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
   }
   await deleteAuthSession(env, request);
