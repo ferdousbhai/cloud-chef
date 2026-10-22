@@ -10,7 +10,13 @@ import {
 } from '~/lib/.server/auth';
 import { isRecentSignIn, reauthenticationRequired } from '~/lib/.server/account-reauthentication';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
-import { hasSameOrigin, readCookie, safeReturnTo, serializeCookie } from '~/lib/.server/request-guards';
+import {
+  hasSameOrigin,
+  readCookie,
+  safeReturnTo,
+  serializeCookie,
+  withinAddressRateLimit,
+} from '~/lib/.server/request-guards';
 import { WORKSPACE_HEADER } from '~/lib/cloudflare/workspace-header';
 import { canUseConnection, findMembership } from '~/lib/cloudflare/data/organization-access.server';
 import {
@@ -409,10 +415,7 @@ export async function startCloudflareConnectionAction(args: {
     if (!hasSameOrigin(args.request)) {
       return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
     }
-    const { success } = await args.env.CLOUDFLARE_OAUTH_START_RATE_LIMITER.limit({
-      key: args.request.headers.get('CF-Connecting-IP') ?? 'unknown',
-    });
-    if (!success) {
+    if (!(await withinAddressRateLimit(args.env.CLOUDFLARE_OAUTH_START_RATE_LIMITER, args.request))) {
       return Response.json(
         { error: 'Too many Cloudflare authorization attempts. Try again shortly.' },
         {

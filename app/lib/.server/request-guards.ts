@@ -29,6 +29,12 @@ export function safeReturnTo(callbackURL: string | undefined, origin: string): s
   return returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/';
 }
 
+/** Whether `limiter` still allows a request from this client's address. */
+export async function withinAddressRateLimit(limiter: RateLimit, request: Request): Promise<boolean> {
+  const { success } = await limiter.limit({ key: request.headers.get('CF-Connecting-IP') ?? 'unknown' });
+  return success;
+}
+
 /**
  * A `Set-Cookie` value for an HttpOnly, SameSite=Lax cookie sent only to `path`, Secure unless `request`
  * came over plain HTTP. A `maxAge` of 0 clears it.

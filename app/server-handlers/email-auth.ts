@@ -8,7 +8,7 @@ import {
   upsertVerifiedEmailUser,
 } from '~/lib/.server/auth';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
-import { hasSameOrigin, readJsonRequest, safeReturnTo } from '~/lib/.server/request-guards';
+import { hasSameOrigin, readJsonRequest, safeReturnTo, withinAddressRateLimit } from '~/lib/.server/request-guards';
 import { bytesToBase64Url, sha256Hex } from '~/lib/hex-digest';
 
 /**
@@ -20,7 +20,8 @@ const EMAIL_SIGN_IN_LINK_TTL_MS = 15 * 60_000;
 /** Links sent to one address per hour, so the form can't be used to flood someone's inbox. */
 export const EMAIL_SIGN_IN_LINKS_PER_HOUR = 5;
 const EMAIL_SIGN_IN_PATH = '/sign-in/email';
-const SENDER = { email: 'noreply@cloudchef.build', name: 'CloudChef' };
+/** Who CloudChef's emails (sign-in links, invites) come from. */
+export const SENDER = { email: 'noreply@cloudchef.build', name: 'CloudChef' };
 
 const startSchema = z.strictObject({
   email: z.email().max(254),
@@ -32,10 +33,7 @@ export async function startEmailSignInAction({ request, env }: { request: Reques
   if (!hasSameOrigin(request)) {
     return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
   }
-  const { success } = await env.SIGN_IN_RATE_LIMITER.limit({
-    key: request.headers.get('CF-Connecting-IP') ?? 'unknown',
-  });
-  if (!success) {
+  if (!(await withinAddressRateLimit(env.SIGN_IN_RATE_LIMITER, request))) {
     return Response.json({ error: 'Too many sign-in attempts. Try again shortly.' }, { status: 429 });
   }
   const body = await readJsonRequest(request, startSchema, 'Enter a valid email address.');

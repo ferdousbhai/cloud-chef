@@ -8,6 +8,7 @@ import {
   readJsonRequest,
   safeReturnTo,
   serializeCookie,
+  withinAddressRateLimit,
 } from '~/lib/.server/request-guards';
 import { bytesToBase64Url } from '~/lib/hex-digest';
 
@@ -41,10 +42,7 @@ export async function startGoogleSignInAction({ request, env }: { request: Reque
   if (!hasSameOrigin(request)) {
     return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
   }
-  const { success } = await env.SIGN_IN_RATE_LIMITER.limit({
-    key: request.headers.get('CF-Connecting-IP') ?? 'unknown',
-  });
-  if (!success) {
+  if (!(await withinAddressRateLimit(env.SIGN_IN_RATE_LIMITER, request))) {
     return Response.json({ error: 'Too many sign-in attempts. Try again shortly.' }, { status: 429 });
   }
   if (!env.GOOGLE_OAUTH_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET) {

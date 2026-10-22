@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { publicOrigin } from '~/lib/.server/public-origin';
 import { normalizeEmail, setSessionContext } from '~/lib/.server/auth';
-import { hasSameOrigin, readJsonRequest } from '~/lib/.server/request-guards';
+import { hasSameOrigin, readJsonRequest, withinAddressRateLimit } from '~/lib/.server/request-guards';
+import { SENDER } from './email-auth';
 import { answeringOrganizationErrors, signedIn } from './signed-in';
 import { isRecentSignIn, reauthenticationRequired } from '~/lib/.server/account-reauthentication';
 import { findCloudflareConnectionForOrganization } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
@@ -40,7 +41,6 @@ const ORGANIZATION_INVITE_PATH = '/join';
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\u2028\u2029]/gu;
 /** A web address, or anything an email client may turn into a link, inside a name. */
 const LINK_LIKE = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S*|\S*@\S+|\S*\w\.[a-z]{2,}\S*/gi;
-const SENDER = { email: 'noreply@cloudchef.build', name: 'CloudChef' };
 
 /** A team's name: one line, without control characters. */
 const teamNameSchema = z
@@ -160,10 +160,7 @@ export async function describeInviteAction({ request, env }: { request: Request;
   if (!hasSameOrigin(request)) {
     return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
   }
-  const { success } = await env.SIGN_IN_RATE_LIMITER.limit({
-    key: request.headers.get('CF-Connecting-IP') ?? 'unknown',
-  });
-  if (!success) {
+  if (!(await withinAddressRateLimit(env.SIGN_IN_RATE_LIMITER, request))) {
     return Response.json({ error: 'Too many requests. Try again shortly.' }, { status: 429 });
   }
   const body = await readJsonRequest(request, acceptSchema, 'This invite link is not valid.');
