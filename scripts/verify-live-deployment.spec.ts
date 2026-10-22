@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { validateExpectedSha, verifyLocalDeployment, versionResponseErrors } from './verify-live-deployment.mjs';
+import { validateExpectedSha, verifyProductionVersion, versionResponseErrors } from './verify-live-deployment.mjs';
 
 const expectedSha = 'b'.repeat(40);
 const versionId = '11111111-2222-3333-4444-555555555555';
@@ -53,7 +53,7 @@ describe('deployment version verification', () => {
     );
 
     await expect(
-      verifyLocalDeployment({
+      verifyProductionVersion({
         expectedSha,
         fetchImplementation,
         checkIntervalMs: 0,
@@ -74,7 +74,7 @@ describe('deployment version verification', () => {
       Response.json(responses.shift(), { headers: { 'Cache-Control': 'no-store' } }),
     );
 
-    await verifyLocalDeployment({
+    await verifyProductionVersion({
       expectedSha,
       fetchImplementation,
       waitImplementation: async (delay?: number) => {
@@ -98,7 +98,7 @@ describe('deployment version verification', () => {
     );
 
     await expect(
-      verifyLocalDeployment({
+      verifyProductionVersion({
         expectedSha,
         fetchImplementation,
         waitImplementation: async (delay?: number) => {

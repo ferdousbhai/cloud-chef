@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { D1_RESTORE_RECEIPT_MARKER } from './record-d1-time-travel-bookmark.mjs';
-import { verifyLocalDeployment } from './verify-live-deployment.mjs';
+import { verifyProductionVersion } from './verify-live-deployment.mjs';
 
 const CLIENT_ID_ENV = 'CLOUDFLARE_OAUTH_CLIENT_ID';
 const MAX_CLIENT_ID_LENGTH = 512;
@@ -389,7 +389,7 @@ function spawnBuffered(command, args, options) {
  *   spawn?: DeploySpawn;
  *   spawnValidation?: BufferedSpawn;
  *   readBuiltConfig?: (path: string) => string;
- *   verifyLocal?: typeof verifyLocalDeployment;
+ *   verifyProduction?: typeof verifyProductionVersion;
  *   log?: (text: string) => void;
  *   latestMigration?: () => string | null;
  * }} [options]
@@ -400,7 +400,7 @@ export async function deployFromWorkersBuilds({
   spawn = spawnSync,
   spawnValidation = spawnBuffered,
   readBuiltConfig,
-  verifyLocal = verifyLocalDeployment,
+  verifyProduction = verifyProductionVersion,
   log = (text) => process.stdout.write(text),
   latestMigration = () => latestControlPlaneMigration(),
 } = {}) {
@@ -453,7 +453,7 @@ export async function deployFromWorkersBuilds({
       'cf deploy',
       ' Live verification was not run.',
     );
-    await verifyLocal({ expectedSha: commitSha });
+    await verifyProduction({ expectedSha: commitSha });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`${message}${migratedD1Note(latestMigration())}`, { cause: error });

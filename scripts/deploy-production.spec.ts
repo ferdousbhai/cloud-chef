@@ -324,7 +324,7 @@ describe('production deploy wrapper', () => {
     it('validates while the account checks run, migrates only after validation, and deploys its build', async () => {
       const events: string[] = [];
       const { spawnValidation, validation } = deferredValidation(events);
-      const verifyLocal = vi.fn(async () => undefined);
+      const verifyProduction = vi.fn(async () => undefined);
       const log = vi.fn();
       const spawn = workersBuildSpawn(events, {
         onStep: (step) => {
@@ -341,7 +341,7 @@ describe('production deploy wrapper', () => {
           spawn,
           spawnValidation,
           readBuiltConfig,
-          verifyLocal,
+          verifyProduction,
           log,
         }),
       ).resolves.toBe(commitSha);
@@ -362,7 +362,7 @@ describe('production deploy wrapper', () => {
         env: { ...workersBuildEnv, COMMIT_SHA: commitSha, CLOUDFLARE_OAUTH_CLIENT_ID: 'oauth-client-id' },
       });
       expect(log).toHaveBeenCalledWith('validate output\n');
-      expect(verifyLocal).toHaveBeenCalledWith({ expectedSha: commitSha });
+      expect(verifyProduction).toHaveBeenCalledWith({ expectedSha: commitSha });
     });
 
     it('migrates and deploys nothing when validation fails', async () => {
@@ -375,7 +375,7 @@ describe('production deploy wrapper', () => {
         spawn: workersBuildSpawn(events),
         spawnValidation,
         readBuiltConfig,
-        verifyLocal: vi.fn(async () => undefined),
+        verifyProduction: vi.fn(async () => undefined),
         log,
       });
       validation.finish();
@@ -397,7 +397,7 @@ describe('production deploy wrapper', () => {
           throw new Error('spawn pnpm ENOENT');
         }),
         readBuiltConfig,
-        verifyLocal: vi.fn(async () => undefined),
+        verifyProduction: vi.fn(async () => undefined),
         log: vi.fn(),
       });
 
@@ -408,7 +408,7 @@ describe('production deploy wrapper', () => {
     it('deploys nothing when a check or migration fails, and waits for validation first', async () => {
       const events: string[] = [];
       const { spawnValidation, validation } = deferredValidation(events);
-      const verifyLocal = vi.fn(async () => undefined);
+      const verifyProduction = vi.fn(async () => undefined);
       const log = vi.fn();
       const deploy = deployFromWorkersBuilds({
         clientId: 'oauth-client-id',
@@ -416,7 +416,7 @@ describe('production deploy wrapper', () => {
         spawn: workersBuildSpawn(events, { failStep: 'd1:migrations:apply:production' }),
         spawnValidation,
         readBuiltConfig,
-        verifyLocal,
+        verifyProduction,
         log,
       });
       validation.finish();
@@ -427,7 +427,7 @@ describe('production deploy wrapper', () => {
       expect(PARTIALLY_MIGRATED_D1_NOTE).toContain('may be partially migrated');
       expect(PARTIALLY_MIGRATED_D1_NOTE).toContain('Pre-migration D1 restore point');
       expect(events).not.toContain('cf deploy --prebuilt');
-      expect(verifyLocal).not.toHaveBeenCalled();
+      expect(verifyProduction).not.toHaveBeenCalled();
 
       const failedCheckEvents: string[] = [];
       const failedCheck = deferredValidation(failedCheckEvents);
@@ -437,7 +437,7 @@ describe('production deploy wrapper', () => {
         spawn: workersBuildSpawn(failedCheckEvents, { failStep: 'provision:production:check' }),
         spawnValidation: failedCheck.spawnValidation,
         readBuiltConfig,
-        verifyLocal,
+        verifyProduction,
         log,
       });
       setTimeout(() => failedCheck.validation.finish(), 0);
@@ -456,7 +456,7 @@ describe('production deploy wrapper', () => {
         spawn: workersBuildSpawn(events),
         spawnValidation,
         readBuiltConfig: builtConfig({ COMMIT_SHA: 'b'.repeat(40), CLOUDFLARE_OAUTH_CLIENT_ID: 'oauth-client-id' }),
-        verifyLocal: vi.fn(async () => undefined),
+        verifyProduction: vi.fn(async () => undefined),
         log: vi.fn(),
         latestMigration: () => '0042_example.sql',
       });
@@ -471,14 +471,14 @@ describe('production deploy wrapper', () => {
     it('says D1 was already migrated, and through which migration, when cf deploy fails', async () => {
       const events: string[] = [];
       const { spawnValidation, validation } = deferredValidation(events);
-      const verifyLocal = vi.fn(async () => undefined);
+      const verifyProduction = vi.fn(async () => undefined);
       const deploy = deployFromWorkersBuilds({
         clientId: 'oauth-client-id',
         env: workersBuildEnv,
         spawn: workersBuildSpawn(events, { failStep: 'cf deploy --prebuilt' }),
         spawnValidation,
         readBuiltConfig,
-        verifyLocal,
+        verifyProduction,
         log: vi.fn(),
         latestMigration: () => '0042_example.sql',
       });
@@ -488,7 +488,7 @@ describe('production deploy wrapper', () => {
         'cf deploy failed with exit status 1. Live verification was not run. Control-plane D1 was already migrated through 0042_example.sql;',
       );
       await expect(deploy).rejects.toThrow('Pre-migration D1 restore point');
-      expect(verifyLocal).not.toHaveBeenCalled();
+      expect(verifyProduction).not.toHaveBeenCalled();
     });
 
     it('says D1 was already migrated when the live probe fails after the deploy', async () => {
@@ -500,7 +500,7 @@ describe('production deploy wrapper', () => {
         spawn: workersBuildSpawn(events),
         spawnValidation,
         readBuiltConfig,
-        verifyLocal: vi.fn(async () => {
+        verifyProduction: vi.fn(async () => {
           throw new Error('https://cloudchef.build/api/version never reported the release.');
         }),
         log: vi.fn(),

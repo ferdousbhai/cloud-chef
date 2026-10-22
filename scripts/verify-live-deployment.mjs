@@ -1,5 +1,4 @@
 import { setTimeout as wait } from 'node:timers/promises';
-import { pathToFileURL } from 'node:url';
 
 const VERSION_URL = 'https://cloudchef.build/api/version';
 /**
@@ -8,7 +7,7 @@ const VERSION_URL = 'https://cloudchef.build/api/version';
  */
 const DEFAULT_CHECK_INTERVAL_MS = 5_000;
 const DEFAULT_CONSECUTIVE_CHECKS = 5;
-const DEFAULT_MAX_LOCAL_ATTEMPTS = 27;
+const DEFAULT_MAX_PRODUCTION_PROBES = 27;
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
 
 function headerValue(headers, name) {
@@ -30,7 +29,7 @@ function parseJson(value) {
 
 export function validateExpectedSha(value) {
   if (typeof value !== 'string' || !COMMIT_SHA_PATTERN.test(value)) {
-    throw new Error('EXPECTED_SHA must be the exact lowercase 40-hex Git commit ID.');
+    throw new Error('The expected SHA must be the exact lowercase 40-hex Git commit ID.');
   }
   return value;
 }
@@ -96,12 +95,12 @@ async function fetchVersion(expectedSha, attempt, fetchImplementation) {
  *   log?: (message: string) => void;
  * }} [options]
  */
-export async function verifyLocalDeployment({
+export async function verifyProductionVersion({
   expectedSha,
   fetchImplementation = fetch,
   checkIntervalMs = DEFAULT_CHECK_INTERVAL_MS,
   consecutiveChecks = DEFAULT_CONSECUTIVE_CHECKS,
-  maxAttempts = DEFAULT_MAX_LOCAL_ATTEMPTS,
+  maxAttempts = DEFAULT_MAX_PRODUCTION_PROBES,
   waitImplementation = wait,
   log = console.log,
 } = {}) {
@@ -131,15 +130,4 @@ export async function verifyLocalDeployment({
   throw new Error(
     `Production did not return the expected version for ${consecutiveChecks} consecutive checks: ${lastErrors.join('; ')}`,
   );
-}
-
-async function main() {
-  await verifyLocalDeployment({ expectedSha: process.env.EXPECTED_SHA });
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  });
 }
