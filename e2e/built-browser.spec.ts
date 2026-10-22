@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { HOME_HEADING, TRUST_PAGE_HEADINGS } from '~/lib/trust';
 import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
+import { DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import { authSession } from './auth-session';
 import { collectBrowserDiagnostics } from './browser-diagnostics';
 
@@ -123,6 +124,21 @@ test('keeps account details discoverable and clears a cancelled deletion', async
       },
     }),
   );
+  // Every card a signed-in member's settings load, answered as for a member with no teams and no keys yet.
+  await page.route('**/api/settings/models', (route) =>
+    route.fulfill({ json: { canManage: true, defaultModelId: null, keys: { status: 'ready', providers: [] } } }),
+  );
+  await page.route('**/api/settings/ai-gateway-logging', (route) => route.fulfill({ json: { contentLogging: true } }));
+  await page.route('**/api/organizations', (route) => route.fulfill({ json: { organizations: [] } }));
+  // The Models card lists the account's catalog, which its workspace runtime serves. The Worker's
+  // connect-src policy only allows workers.dev origins, so the double looks like a user-owned runtime.
+  const runtimeOrigin = 'https://e2e-settings-fixture.workers.dev';
+  await page.route('**/api/cloudflare/runtime-session', (route) =>
+    route.fulfill({ json: { endpoint: runtimeOrigin, token: 'e2e-capability', expiresAt: Date.now() + 600_000 } }),
+  );
+  await page.route(`${runtimeOrigin}/v1/models`, (route) =>
+    route.fulfill({ json: { defaultModelId: DEFAULT_WORKERS_AI_MODEL.id, models: [DEFAULT_WORKERS_AI_MODEL] } }),
+  );
   let deletionRequests = 0;
   await page.route('**/api/account/delete', (route) => {
     deletionRequests += 1;
@@ -130,6 +146,12 @@ test('keeps account details discoverable and clears a cancelled deletion', async
   });
   await page.goto('/settings');
   await expect(page.getByRole('heading', { name: 'Your data' })).toBeVisible();
+  // The member's own cards loaded as theirs, not as a signed-out visitor's.
+  await expect(page.getByRole('checkbox', { name: 'Log my model requests in AI Gateway' })).toBeChecked();
+  await expect(page.getByText('Sign in first.')).toHaveCount(0);
+  await expect(
+    page.getByRole('region').filter({ has: page.getByRole('heading', { name: 'Models', exact: true }) }),
+  ).toContainText(DEFAULT_WORKERS_AI_MODEL.label);
   await expect(page.getByText('Your Cloudflare resources remain live and billable.')).toBeVisible();
   const exportDetails = page.locator('details').filter({ hasText: 'What’s included?' });
   await expect(exportDetails).not.toHaveAttribute('open', '');
@@ -140,17 +162,19 @@ test('keeps account details discoverable and clears a cancelled deletion', async
   await openDeletion.click();
   const confirm = page.getByRole('button', { name: 'Permanently delete', exact: true });
   await expect(confirm).toBeDisabled();
-  await page.getByRole('checkbox').check();
+  const acknowledgement = page.getByRole('checkbox', { name: /I understand this is irreversible/ });
+  await acknowledgement.check();
   await page.getByLabel('Deletion confirmation phrase').fill(ACCOUNT_DELETION_CONFIRMATION);
   await expect(confirm).toBeEnabled();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await openDeletion.click();
   await expect(confirm).toBeDisabled();
-  await expect(page.getByRole('checkbox')).not.toBeChecked();
+  await expect(acknowledgement).not.toBeChecked();
   await expect(page.getByLabel('Deletion confirmation phrase')).toHaveValue('');
   expect(deletionRequests).toBe(0);
   const cards = page.locator('section.app-card');
-  await expect(cards).toHaveCount(3);
+  // Account, Cloudflare account, Models, AI request logs, Teams and Your data: every card is measured below.
+  await expect(cards).toHaveCount(6);
   // Classic scrollbars can leave only 310 CSS pixels inside a 320px window.
   for (const width of [1280, 320, 310]) {
     await page.setViewportSize({ width, height: 800 });
