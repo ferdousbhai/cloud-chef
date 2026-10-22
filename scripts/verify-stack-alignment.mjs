@@ -73,7 +73,6 @@ const blockedRootBuildEntries = new Map([
   ['protobufjs', '  protobufjs: false'],
 ]);
 const requiredPaths = [
-  '.github/workflows/runtime-artifacts.yml',
   'CODE_OF_CONDUCT.md',
   'CONTRIBUTING.md',
   'LICENSE',
@@ -275,11 +274,6 @@ export function verifyStackAlignment() {
   if (rootPackage.license !== 'Apache-2.0') {
     errors.push('package.json must declare Apache-2.0 licensing.');
   }
-  errors.push(
-    ...findMissingCommandSteps(rootPackage.scripts?.validate, 'package.json scripts.validate', [
-      'scripts/validate.mjs',
-    ]),
-  );
 
   verifyWorkspace(errors);
   verifyRootMigrations(errors);

@@ -144,8 +144,8 @@ function verifyScripts(errors, pkg, label) {
     errors.push(`${label} scripts must be configured.`);
     return;
   }
-  // What Workers Builds (workers-builds.production.json and the steps it runs) and the GitHub Actions
-  // browser gate (.github/workflows) invoke by name.
+  // What the Workers Builds steps and the GitHub Actions browser gate (.github/workflows) invoke by name.
+  // workers-builds-config.mjs pins the workers-builds:* scripts and validate exactly.
   const requiredNames = [
     'build',
     'd1:bookmark:production',
@@ -153,11 +153,7 @@ function verifyScripts(errors, pkg, label) {
     'generate',
     'provision:production:check',
     'test:e2e:install',
-    'validate',
     'verify:built-browser',
-    'workers-builds:branch',
-    'workers-builds:build',
-    'workers-builds:deploy',
   ];
   for (const name of requiredNames) {
     if (typeof scripts[name] !== 'string') {
@@ -172,10 +168,7 @@ function verifyScripts(errors, pkg, label) {
     ]),
   );
   errors.push(
-    ...findMissingCommandSteps(scripts['workers-builds:deploy'], `${label} Workers Builds deploy script`, [
-      'scripts/deploy-production.mjs --workers-builds',
-    ]),
-    // That mode runs these before `cf deploy`, beside the Worker build.
+    // `deploy-production.mjs --workers-builds` runs these before `cf deploy`, beside the Worker build.
     ...findMissingCommandSteps(
       WORKERS_BUILDS_PRE_DEPLOY_STEPS.join(' && '),
       `${label} Workers Builds pre-deploy steps`,
@@ -191,14 +184,6 @@ function verifyScripts(errors, pkg, label) {
   errors.push(
     ...findMissingCommandSteps(scripts['d1:migrations:apply:production'], `${label} D1 migration script`, [
       'scripts/apply-d1-migrations.mjs --remote',
-    ]),
-  );
-  errors.push(
-    ...findMissingCommandSteps(scripts['workers-builds:build'], `${label} Workers Builds build script`, [
-      'pnpm install --frozen-lockfile',
-      'scripts/check-workers-builds-environment.mjs',
-      'scripts/workers-builds-checks.mjs',
-      'scripts/deploy-production.mjs --check-workers-builds',
     ]),
   );
 
