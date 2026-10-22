@@ -1,12 +1,22 @@
 import { createRequire } from 'node:module';
 import type { DatabaseSync as DatabaseSyncInstance, SQLInputValue } from 'node:sqlite';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   pruneCloudflareAuthData,
   pruneCloudflareAuthDataBestEffort,
   UNREFERENCED_CREDENTIAL_RETENTION_MS,
 } from './cloudflare-auth-retention.server';
 import { ORGANIZATION_QUOTA_WINDOW_MS } from './organizations.server';
+
+/** Prunes with the clock at `now`. */
+function pruneAt(db: D1Database, now: number) {
+  vi.useFakeTimers({ toFake: ['Date'], now });
+  return pruneCloudflareAuthData(db);
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('Cloudflare authorization retention', () => {
   it('prunes each expired class and preserves live credential references', async () => {
@@ -57,7 +67,7 @@ describe('Cloudflare authorization retention', () => {
     insertInvite.run('invite-accepted-live', now + 1, now - 2);
     insertInvite.run('invite-live', now + 1, null);
 
-    await expect(pruneCloudflareAuthData({ db, now })).resolves.toBeUndefined();
+    await expect(pruneAt(db, now)).resolves.toBeUndefined();
     expect(values(database, 'cloudflare_oauth_states', 'id')).toEqual(['state-live']);
     expect(values(database, 'cloudflare_auth_sessions', 'id')).toEqual(['session-live']);
     expect(values(database, 'email_sign_in_tokens', 'token_hash')).toEqual(['link-live']);
@@ -70,7 +80,7 @@ describe('Cloudflare authorization retention', () => {
       'credential-referenced',
     ]);
 
-    await expect(pruneCloudflareAuthData({ db, now })).resolves.toBeUndefined();
+    await expect(pruneAt(db, now)).resolves.toBeUndefined();
     expect(values(database, 'cloudflare_credentials', 'handle')).toContain('credential-referenced');
   });
 
@@ -89,7 +99,7 @@ describe('Cloudflare authorization retention', () => {
       insertSession.run(`session-${index}`, now - 1);
     }
 
-    await pruneCloudflareAuthData({ db, now });
+    await pruneAt(db, now);
     expect(values(database, 'cloudflare_oauth_states', 'id')).toEqual(['state-live']);
     expect(values(database, 'cloudflare_auth_sessions', 'id')).toEqual([]);
 
@@ -97,7 +107,7 @@ describe('Cloudflare authorization retention', () => {
     for (let index = 0; index < 2_510; index += 1) {
       insertState.run(`again-${index}`, 'pending', now - 1);
     }
-    await pruneCloudflareAuthData({ db, now });
+    await pruneAt(db, now);
     expect(values(database, 'cloudflare_oauth_states', 'id')).toHaveLength(11);
   });
 
@@ -111,7 +121,7 @@ describe('Cloudflare authorization retention', () => {
     insert.run('team', now - ORGANIZATION_QUOTA_WINDOW_MS + 1);
     insert.run('invite', now - 60_000);
 
-    await pruneCloudflareAuthData({ db, now });
+    await pruneAt(db, now);
 
     expect(values(database, 'organization_quota_events', 'kind')).toEqual(['invite', 'team']);
     expect(database.prepare('SELECT MIN(created_at) AS oldest FROM organization_quota_events').get()?.oldest).toBe(

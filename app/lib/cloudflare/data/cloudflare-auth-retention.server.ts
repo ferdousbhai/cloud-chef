@@ -11,11 +11,11 @@ export const UNREFERENCED_CREDENTIAL_RETENTION_MS = 24 * 60 * 60 * 1000;
 /** The window of the per-address limit on sign-in emails (`EMAIL_SIGN_IN_LINKS_PER_HOUR`). */
 const EMAIL_SIGN_IN_TOKEN_RETENTION_MS = 60 * 60 * 1000;
 
-export async function pruneCloudflareAuthData(args: { db: D1Database; now?: number }): Promise<void> {
-  const now = args.now ?? Date.now();
+export async function pruneCloudflareAuthData(db: D1Database): Promise<void> {
+  const now = Date.now();
   const limit = CLOUDFLARE_AUTH_RETENTION_SWEEP_LIMIT;
   for (let round = 0; round < CLOUDFLARE_AUTH_RETENTION_SWEEP_ROUNDS; round += 1) {
-    const results = await pruneBatch(args.db, now, limit);
+    const results = await pruneBatch(db, now, limit);
     if (!results.some((result) => result.meta.changes >= limit)) {
       return;
     }
@@ -117,7 +117,7 @@ function pruneBatch(db: D1Database, now: number, limit: number): Promise<D1Resul
 
 export async function pruneCloudflareAuthDataBestEffort(db: D1Database): Promise<void> {
   try {
-    await pruneCloudflareAuthData({ db });
+    await pruneCloudflareAuthData(db);
   } catch {
     console.error('Unable to prune expired Cloudflare authorization data');
   }
