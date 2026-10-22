@@ -13,11 +13,6 @@ import {
 import { cleanupAssistantMessages } from './message-conversion';
 import { injectTurnContext } from './turn-context';
 
-type ModelInputLogger = {
-  info(message: string, data?: Record<string, unknown>): void;
-  warn(message: string, data?: Record<string, unknown>): void;
-};
-
 type PreparedModelInput = {
   messages: ModelMessage[];
   promptMessages: CloudChefMessage[];
@@ -78,7 +73,6 @@ export async function prepareModelInput(args: {
   contextWindow: number;
   systemPrompt: string;
   tools: AgentTool[];
-  logger?: ModelInputLogger;
 }): Promise<PreparedModelInput> {
   let assembled = assembleCompactedContext(args.messages, args.currentCompaction);
   let promptMessages = injectTurnContext(assembled.messages, args.turnContext);
@@ -96,11 +90,6 @@ export async function prepareModelInput(args: {
     };
   }
 
-  args.logger?.info('Starting automatic CloudChef context rollover', {
-    estimatedTokens: modelInput.estimatedTokens,
-    messageCount: assembled.messages.length,
-  });
-
   const nextCompaction = compactContext({
     messages: args.messages,
     current: args.currentCompaction,
@@ -111,21 +100,12 @@ export async function prepareModelInput(args: {
     throw new ModelInputBudgetExceededError(modelInput.estimatedTokens, policy.hardLimitTokens);
   }
 
-  const tokensBefore = modelInput.estimatedTokens;
-  const messagesBefore = assembled.messages.length;
   assembled = assembleCompactedContext(args.messages, nextCompaction);
   promptMessages = injectTurnContext(assembled.messages, args.turnContext);
   modelInput = assembleModelInput(promptMessages, args);
   if (modelInput.estimatedTokens >= policy.hardLimitTokens) {
     throw new ModelInputBudgetExceededError(modelInput.estimatedTokens, policy.hardLimitTokens);
   }
-
-  args.logger?.info('Started a fresh CloudChef context window', {
-    tokensBefore,
-    tokensAfter: modelInput.estimatedTokens,
-    messagesBefore,
-    messagesAfter: assembled.messages.length,
-  });
 
   return {
     ...modelInput,

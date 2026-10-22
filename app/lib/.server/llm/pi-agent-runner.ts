@@ -273,7 +273,6 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
       contextWindow: handle.model.contextWindow,
       systemPrompt: instructions,
       tools: Object.values(piTools),
-      logger,
     }),
   );
   if (modelInput.nextCompaction) {

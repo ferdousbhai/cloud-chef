@@ -233,7 +233,6 @@ export function useBuilderAgentChat(args: {
       if (finishReason === 'stop') {
         resetChatRetryState();
       }
-      logger.debug('Finished streaming');
       void workspaceControllerRef.current?.pull().catch((workspaceError) => {
         logger.error('Failed to refresh the durable workspace presentation after a builder response', workspaceError);
       });
@@ -644,7 +643,7 @@ async function refreshProjectMetadata(
         (attempt + 1) * 1_000,
       );
     }
-  } catch (error) {
-    logger.debug('Unable to refresh generated project title', error);
+  } catch {
+    // The title stays as it is until the project is next opened.
   }
 }
