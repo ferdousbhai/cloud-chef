@@ -27,13 +27,14 @@ export type AuthoritativeTranscriptSnapshot = {
   messages: CloudChefMessage[];
 };
 
+/** How many times a read is tried before an inconsistent snapshot is an error. */
+const SNAPSHOT_READ_ATTEMPTS = 2;
+
 export async function loadAuthoritativeTranscriptSnapshot(args: {
   read: () => Promise<unknown>;
   expectedIdentity: TranscriptIdentity;
-  attempts?: number;
 }): Promise<AuthoritativeTranscriptSnapshot> {
-  const attempts = args.attempts ?? 2;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
+  for (let attempt = 0; attempt < SNAPSHOT_READ_ATTEMPTS; attempt += 1) {
     const parsed = transcriptSnapshotSchema.safeParse(await args.read());
     if (!parsed.success) {
       continue;

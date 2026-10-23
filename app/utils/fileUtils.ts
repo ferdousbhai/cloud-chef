@@ -1,16 +1,13 @@
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS } from 'cloudchef-agent/context-limits';
 
-export function workspaceHintsToTurnContext(
-  {
-    currentFile,
-    changedFiles,
-  }: {
-    currentFile?: string;
-    changedFiles?: readonly string[];
-  },
-  maximumCharacters = MAX_EPHEMERAL_CONTEXT_CHARACTERS,
-): string {
-  const limit = Math.max(0, Math.trunc(maximumCharacters));
+export function workspaceHintsToTurnContext({
+  currentFile,
+  changedFiles,
+}: {
+  currentFile?: string;
+  changedFiles?: readonly string[];
+}): string {
+  const limit = MAX_EPHEMERAL_CONTEXT_CHARACTERS;
   const changed = [...new Set(changedFiles ?? [])].sort();
   const lines: string[] = [];
 

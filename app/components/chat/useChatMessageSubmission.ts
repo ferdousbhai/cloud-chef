@@ -38,7 +38,7 @@ export function useChatMessageSubmission(args: {
   sendChatMessage: SendChatMessage;
   steerChatMessage: (input: { text: string; turnContext: ChatTurnContext }) => Promise<void>;
   enableAutoScroll: () => void;
-  onStartChat: () => void | Promise<void>;
+  onStartChat: () => void;
   onFirstPrompt: (prompt: string) => void;
   onBuilderRequestStart: () => void;
   pendingMessage: string | null;
@@ -210,17 +210,13 @@ export function appendPendingUserMessage(
 export async function runChatSubmissionLifecycle(args: {
   initializeChat: () => Promise<{ created: boolean }>;
   discardEmptyChat: () => Promise<void>;
-  onStartChat: () => void | Promise<void>;
+  onStartChat: () => void;
   onBuilderRequestStart: () => void;
   submit: (onRequestStart: () => void) => Promise<void>;
 }): Promise<void> {
   const initializedChat = await args.initializeChat();
   let builderRequestStarted = false;
-  try {
-    void Promise.resolve(args.onStartChat()).catch((error) => logger.warn('Chat transition failed', error));
-  } catch (error) {
-    logger.warn('Chat transition failed', error);
-  }
+  args.onStartChat();
   try {
     await args.submit(() => {
       builderRequestStarted = true;

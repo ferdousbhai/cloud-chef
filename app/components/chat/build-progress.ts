@@ -17,11 +17,11 @@ const RECOVERY_PROGRESS_DELAY_MS = 5 * 60_000;
 export function getBuildProgress(args: {
   streamStatus: StreamStatus;
   isRecovering: boolean;
-  isProjectUpdate?: boolean;
+  isProjectUpdate: boolean;
   activeToolNames: string[];
-  validationStage?: BuilderValidationStage | null;
+  validationStage: BuilderValidationStage | null;
   /** Milliseconds the model has been reasoning in the part it is streaming now, if it is. */
-  reasoningForMs?: number | null;
+  reasoningForMs: number | null;
   inactiveForMs: number;
 }): BuildProgress | null {
   if (!isStreamStatusActive(args.streamStatus)) {
@@ -36,13 +36,8 @@ export function getBuildProgress(args: {
         ? RECOVERY_PROGRESS_DELAY_MS
         : BUILD_PROGRESS_DELAY_MS;
   const delayed = args.inactiveForMs >= delayMs;
-  const normalMessage = phaseMessage(
-    phase,
-    args.isProjectUpdate === true,
-    args.validationStage,
-    args.reasoningForMs ?? null,
-  );
-  const activity = activityLabel(phase, args.isProjectUpdate === true, args.validationStage);
+  const normalMessage = phaseMessage(phase, args.isProjectUpdate, args.validationStage, args.reasoningForMs);
+  const activity = activityLabel(phase, args.isProjectUpdate, args.validationStage);
 
   return {
     phase,
@@ -55,8 +50,8 @@ function buildPhase(args: {
   streamStatus: StreamStatus;
   isRecovering: boolean;
   activeToolNames: string[];
-  validationStage?: BuilderValidationStage | null;
-  reasoningForMs?: number | null;
+  validationStage: BuilderValidationStage | null;
+  reasoningForMs: number | null;
 }): BuildProgressPhase {
   if (args.validationStage) {
     return 'validating';
@@ -71,7 +66,7 @@ function buildPhase(args: {
     return 'recovering';
   }
   // Reasoning is real work with no tool behind it, so name it rather than calling the wait planning.
-  if (args.reasoningForMs !== null && args.reasoningForMs !== undefined) {
+  if (args.reasoningForMs !== null) {
     return 'thinking';
   }
   return args.streamStatus === 'submitted' ? 'planning' : 'creating';
@@ -80,14 +75,14 @@ function buildPhase(args: {
 function phaseMessage(
   phase: BuildProgressPhase,
   isProjectUpdate: boolean,
-  validationStage?: BuilderValidationStage | null,
-  reasoningForMs?: number | null,
+  validationStage: BuilderValidationStage | null,
+  reasoningForMs: number | null,
 ): string {
   switch (phase) {
     case 'planning':
       return isProjectUpdate ? 'Planning your changes…' : 'Planning your project…';
     case 'thinking':
-      return reasoningForMs !== null && reasoningForMs !== undefined && reasoningForMs >= 1_000
+      return reasoningForMs !== null && reasoningForMs >= 1_000
         ? `Thinking… ${formatDuration(reasoningForMs)}`
         : 'Thinking…';
     case 'creating':
@@ -107,7 +102,7 @@ function phaseMessage(
 function activityLabel(
   phase: BuildProgressPhase,
   isProjectUpdate: boolean,
-  validationStage?: BuilderValidationStage | null,
+  validationStage: BuilderValidationStage | null,
 ): string {
   switch (phase) {
     case 'planning':
@@ -129,7 +124,7 @@ function activityLabel(
 }
 
 /** Each message names the step the workspace runtime reported entering, not a guess from a clock. */
-function validationStageMessage(stage?: BuilderValidationStage | null): string {
+function validationStageMessage(stage: BuilderValidationStage | null): string {
   switch (stage) {
     case 'computer validation':
       return 'Validating your project with Cloudflare Computer…';
@@ -151,7 +146,7 @@ function validationStageMessage(stage?: BuilderValidationStage | null): string {
   return 'Validating your project…';
 }
 
-function validationStageActivity(stage?: BuilderValidationStage | null): string {
+function validationStageActivity(stage: BuilderValidationStage | null): string {
   return validationStageMessage(stage).replace(/…$/, '').toLowerCase();
 }
 

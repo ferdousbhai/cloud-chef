@@ -1,4 +1,3 @@
-const AGENT_SOCKET_OPEN_TIMEOUT_MS = 30_000;
 const AGENT_CONNECT_ERROR_MESSAGE = 'CloudChef could not connect to the builder. Please try again.';
 const AGENT_CONNECTION_LOST_MESSAGE = 'CloudChef lost its builder connection. Please try again.';
 
@@ -10,10 +9,7 @@ export type AgentSocketLike = {
   removeEventListener(type: 'open' | 'close' | 'error', listener: EventListener): void;
 };
 
-export async function waitForAgentSocketOpen(
-  agent: AgentSocketLike,
-  timeoutMs = AGENT_SOCKET_OPEN_TIMEOUT_MS,
-): Promise<void> {
+export async function waitForAgentSocketOpen(agent: AgentSocketLike, timeoutMs: number): Promise<void> {
   if (agent.connectionError) {
     throw agent.connectionError;
   }
