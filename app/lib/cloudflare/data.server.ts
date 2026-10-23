@@ -156,6 +156,12 @@ function runKnownDataOperation(
       return createSubchatFromAgent(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'subchats.setDescription':
       return setSubchatDescription(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
+    case 'projects.history':
+    case 'projects.cloneAccess':
+    case 'projects.fork':
+    case 'projects.import':
+      // Answered from the project's repository by the workspace runtime (Workstream 1), not from this database.
+      throw new Error(`Unsupported data operation: ${path}`);
     default:
       path satisfies never;
       throw new Error(`Unsupported data operation: ${path}`);

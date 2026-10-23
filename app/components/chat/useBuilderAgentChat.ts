@@ -28,6 +28,7 @@ import { BuilderWorkspaceSyncController } from '~/lib/stores/builder-workspace-s
 import type { BuilderWorkspaceAgent } from '~/lib/stores/builder-workspace-collection.client';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { toolProgressStore } from '~/lib/stores/tool-progress.client';
+import { projectRevertStore } from '~/lib/stores/project-actions.client';
 import { useQueryClient } from '@tanstack/react-query';
 import { subchatQueryKey } from '~/lib/cloudflare/data-hooks';
 import { settleBuilderStop } from './builder-stop';
@@ -466,6 +467,17 @@ export function useBuilderAgentChat(args: {
     },
     [builderAgent],
   );
+
+  // History reverts through this connection: the agent applies the commit's files as one change set, and
+  // refuses while a turn runs.
+  useEffect(() => {
+    const agentRpc: BuilderWorkspaceAgent = builderAgent;
+    projectRevertStore.set(async (commit) => {
+      await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
+      await agentRpc.call('revertToCommit', [commit], { timeout: 2 * 60_000 });
+    });
+    return () => projectRevertStore.set(null);
+  }, [builderAgent]);
 
   const decideCloudflareExecution = useCallback<CloudflareExecutionDecisionHandler>(
     async (executionId, decision) => {

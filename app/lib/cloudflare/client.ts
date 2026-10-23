@@ -63,14 +63,17 @@ export function isWorkspacePreparingError(error: unknown): boolean {
 export async function executeDataOperation<Path extends DataOperationPath>(
   path: Path,
   args: DataOperationArgs<Path>,
-  options: { signal?: AbortSignal } = {},
+  options: {
+    signal?: AbortSignal;
+    /** Longer than the default for an operation that does real work, such as an import. */ timeoutMs?: number;
+  } = {},
 ): Promise<DataOperationResult<Path>> {
   options.signal?.throwIfAborted();
   // Acquired before the operation clock starts: the session request waits for durable background
   // provisioning, while this operation's timeout covers only the operation itself.
   const session = await getUserRuntimeSession({ signal: options.signal });
   const timeout = new AbortController();
-  const timeoutId = setTimeout(() => timeout.abort(), DATA_OPERATION_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => timeout.abort(), options.timeoutMs ?? DATA_OPERATION_TIMEOUT_MS);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout.signal]) : timeout.signal;
 
   try {
