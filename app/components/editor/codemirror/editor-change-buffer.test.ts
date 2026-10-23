@@ -3,7 +3,7 @@ import { createEditorChangeBuffer } from './editor-change-buffer';
 import type { EditorUpdate } from './editor-types';
 
 function update(projectId: string, filePath: string, content: string): EditorUpdate {
-  return { projectId, filePath, content, selection: null as never };
+  return { projectId, filePath, content };
 }
 
 describe('editor change buffer', () => {

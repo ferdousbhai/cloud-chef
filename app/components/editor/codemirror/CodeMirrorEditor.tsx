@@ -114,7 +114,6 @@ export const CodeMirrorEditor = memo(
             changeBuffer.queue({
               callback: onChangeRef.current,
               update: {
-                selection: nextSelection,
                 content: view.state.doc.toString(),
                 filePath: docRef.current.filePath,
                 projectId: projectIdRef.current,

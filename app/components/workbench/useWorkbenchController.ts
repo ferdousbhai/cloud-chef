@@ -163,7 +163,6 @@ export function useWorkbenchController(isStreaming?: boolean) {
     },
     currentDocument,
     files,
-    following,
     hasLoadedPreview,
     linkedProject,
     isSmallViewport,
