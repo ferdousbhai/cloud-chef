@@ -24,6 +24,13 @@
       ],
       "ignore": ["template/**", "app/test/cloudflare-workers-shim.ts"],
     },
+    // A library the control plane and runtime import: an export only its tests read is flagged.
+    "cloudchef-agent": {
+      "project": ["**/*.{ts,mts}!", "!**/*.test.ts", "!vitest.config.mts"],
+      "includeEntryExports": true,
+      // Declared for the stack, which scripts/verify-stack-alignment.mjs requires, though no source imports it.
+      "ignoreDependencies": ["ai"],
+    },
     "user-workspace-runtime": {
       "entry": ["src/index.ts"],
       "project": ["src/**/*.ts!", "!src/**/*.test.ts"],

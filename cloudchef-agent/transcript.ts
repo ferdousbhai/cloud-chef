@@ -46,7 +46,7 @@ export function transcriptAgentName(initialId: string, subchatIndex: number): st
   return subchatIndex === 0 ? initialId : `${initialId}--transcript-${subchatIndex}-0`;
 }
 
-export async function digestTranscriptMessages(messages: TranscriptMessage[]): Promise<string> {
+async function digestTranscriptMessages(messages: TranscriptMessage[]): Promise<string> {
   const canonical = messages.map(canonicalTranscriptMessage);
   const bytes = new TextEncoder().encode(JSON.stringify(canonical));
   const digest = await crypto.subtle.digest('SHA-256', bytes);

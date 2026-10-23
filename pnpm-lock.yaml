@@ -322,9 +322,6 @@ importers:
 
   cloudchef-agent:
     dependencies:
-      '@cloudflare/computer':
-        specifier: 0.2.1
-        version: 0.2.1(patch_hash=e73486e6c0e2e1b3b988f08261c6c4443c4936f615e7228bbb38b2bbd506fee8)(ai@7.0.148(zod@4.4.3))(zod@4.4.3)
       ai:
         specifier: 7.0.148
         version: 7.0.148(zod@4.4.3)

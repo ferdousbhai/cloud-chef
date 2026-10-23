@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { WORKSPACE_READ_ONLY_TOOL_NAMES } from 'cloudchef-agent/model-tool-inputs';
+import { isWorkspaceReadOnlyToolName, WORKSPACE_TOOL_NAMES } from 'cloudchef-agent/model-tool-inputs';
+
+const WORKSPACE_READ_ONLY_TOOL_NAMES = WORKSPACE_TOOL_NAMES.filter(isWorkspaceReadOnlyToolName);
 import {
   BUILDER_MUTATION_TOOL_TIMEOUT_MS,
   BUILDER_TOOL_DEADLINES_MS,

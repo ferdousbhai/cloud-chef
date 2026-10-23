@@ -9,7 +9,7 @@ export const COMPUTER_SYNC_PENDING_ERROR_CODE = 'workspace_sync_pending';
 export const COMPUTER_SYNC_EXHAUSTED_ERROR_CODE = 'workspace_sync_exhausted';
 export const WORKSPACE_OPERATION_CONFLICT_ERROR_CODE = 'workspace_operation_conflict';
 
-export type WorkspaceOperationConflict = { activeKind: string; retryAfterMs: number };
+type WorkspaceOperationConflict = { activeKind: string; retryAfterMs: number };
 
 const WORKSPACE_OPERATION_CONFLICT_PATTERN = new RegExp(
   `^\\[${WORKSPACE_OPERATION_CONFLICT_ERROR_CODE}\\] (.+) is running; retry after (\\d+)ms\\.$`,
@@ -25,10 +25,9 @@ export function workspaceOperationConflict(error: unknown): WorkspaceOperationCo
   return match ? { activeKind: match[1]!, retryAfterMs: Number(match[2]) } : null;
 }
 
-export type ComputerSyncUnconfirmedCode =
-  typeof COMPUTER_SYNC_PENDING_ERROR_CODE | typeof COMPUTER_SYNC_EXHAUSTED_ERROR_CODE;
+type ComputerSyncUnconfirmedCode = typeof COMPUTER_SYNC_PENDING_ERROR_CODE | typeof COMPUTER_SYNC_EXHAUSTED_ERROR_CODE;
 
-export type ComputerSyncUnconfirmedToolResult = {
+type ComputerSyncUnconfirmedToolResult = {
   kind: 'workspace-sync-unconfirmed';
   version: 1;
   acknowledgement: 'pending';

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceTranscriptCheckpoint,
-  digestTranscriptMessages,
   stripTranscriptBaseMetadata,
   transcriptAgentName,
   transcriptCheckpointMatchesMessages,
@@ -28,14 +27,17 @@ describe('transcript identity', () => {
   });
 });
 
-describe('digestTranscriptMessages', () => {
+describe('transcript checkpoints', () => {
   it('ignores browser-only metadata while detecting transcript changes', async () => {
+    const identity = { agentName: 'chat', subchatIndex: 0 };
+    const digest = async (messages: Parameters<typeof advanceTranscriptCheckpoint>[2]) =>
+      (await advanceTranscriptCheckpoint(null, identity, messages)).digest;
     const base = [{ id: 'message-1', role: 'user', parts: [{ type: 'text', text: 'Hello' }] }];
     const withMetadata = [{ ...base[0], content: 'Hello', createdAt: new Date('2026-01-01T00:00:00Z') }];
     const changed = [{ ...base[0], parts: [{ type: 'text', text: 'Goodbye' }] }];
 
-    await expect(digestTranscriptMessages(withMetadata)).resolves.toBe(await digestTranscriptMessages(base));
-    await expect(digestTranscriptMessages(changed)).resolves.not.toBe(await digestTranscriptMessages(base));
+    await expect(digest(withMetadata)).resolves.toBe(await digest(base));
+    await expect(digest(changed)).resolves.not.toBe(await digest(base));
   });
 
   it('advances once for recovered partial output and is idempotent after replay', async () => {

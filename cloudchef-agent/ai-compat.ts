@@ -11,7 +11,7 @@ export type CloudChefPart = {
   data?: unknown;
 } & Record<string, unknown>;
 
-export type ToolInvocationState = 'input-streaming' | 'input-available' | 'output-available' | 'output-error';
+type ToolInvocationState = 'input-streaming' | 'input-available' | 'output-available' | 'output-error';
 
 export type CloudChefToolInvocation = {
   type: 'dynamic-tool';

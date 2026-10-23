@@ -37,6 +37,8 @@
     "cloudchef-agent": {
       "entry": ["**/*.test.ts"],
       "project": ["**/*.{ts,mts}"],
+      // Declared for the stack, which scripts/verify-stack-alignment.mjs requires, though no source imports it.
+      "ignoreDependencies": ["ai"],
     },
     "user-workspace-runtime": {
       "entry": ["src/index.ts", "src/**/*.test.ts"],

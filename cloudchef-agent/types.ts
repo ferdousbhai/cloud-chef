@@ -31,6 +31,6 @@ interface Folder {
 export type CloudChefToolSet = Record<AlwaysAvailableModelToolName, Tool> &
   Partial<Record<CloudflareApiModelToolName | LinkedProjectModelToolName, Tool>>;
 
-export type Dirent = File | Folder;
+type Dirent = File | Folder;
 
 export type FileMap = Record<AbsolutePath, Dirent | undefined>;

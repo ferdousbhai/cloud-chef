@@ -10,7 +10,7 @@ const pathSchema = z.object({ path: z.string() });
  * They take no exclusive operation lane and never wake the Container, so discovery stays
  * available while a build command holds the lane and answers before the container is warm.
  */
-export const WORKSPACE_READ_ONLY_TOOL_NAMES = ['read', 'ls', 'grep'] as const;
+const WORKSPACE_READ_ONLY_TOOL_NAMES = ['read', 'ls', 'grep'] as const;
 
 /** Workspace tools that mutate the project or run in its Container, under the exclusive operation lane. */
 const WORKSPACE_MUTATING_TOOL_NAMES = ['write', 'edit', 'exec', 'validate'] as const;
@@ -18,14 +18,14 @@ const WORKSPACE_MUTATING_TOOL_NAMES = ['write', 'edit', 'exec', 'validate'] as c
 /** Tools executed against the durable project workspace. */
 export const WORKSPACE_TOOL_NAMES = [...WORKSPACE_READ_ONLY_TOOL_NAMES, ...WORKSPACE_MUTATING_TOOL_NAMES] as const;
 export type WorkspaceToolName = (typeof WORKSPACE_TOOL_NAMES)[number];
-export type WorkspaceReadOnlyToolName = (typeof WORKSPACE_READ_ONLY_TOOL_NAMES)[number];
+type WorkspaceReadOnlyToolName = (typeof WORKSPACE_READ_ONLY_TOOL_NAMES)[number];
 
 /** Cloudflare API tools, offered when the turn has the account's runtime identity behind it. They never enter the workspace operation lane. */
-export const CLOUDFLARE_API_MODEL_TOOL_NAMES = ['cloudflare_request'] as const;
+const CLOUDFLARE_API_MODEL_TOOL_NAMES = ['cloudflare_request'] as const;
 export type CloudflareApiModelToolName = (typeof CLOUDFLARE_API_MODEL_TOOL_NAMES)[number];
 
 /** Tools for a workspace opened from an organization's GitHub project: changes go back to GitHub. */
-export const LINKED_PROJECT_MODEL_TOOL_NAMES = ['publish_preview', 'publish', 'fetch_site'] as const;
+const LINKED_PROJECT_MODEL_TOOL_NAMES = ['publish_preview', 'publish', 'fetch_site'] as const;
 export type LinkedProjectModelToolName = (typeof LINKED_PROJECT_MODEL_TOOL_NAMES)[number];
 
 export const MODEL_TOOL_NAMES = [
