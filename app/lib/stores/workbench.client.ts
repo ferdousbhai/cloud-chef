@@ -2,27 +2,18 @@ import { atom, type ReadableAtom, type WritableAtom } from 'nanostores';
 import type { EditorDocument, File, FileMap, ScrollPosition } from 'cloudchef-agent/types';
 import type { AbsolutePath } from 'cloudchef-agent/utils/workDir';
 import { getAbsolutePath } from 'cloudchef-agent/utils/workDir';
-import type {
-  BuilderWorkspaceApplyResult,
-  BuilderWorkspaceClientChange,
-  BuilderWorkspaceSyncEntry,
-} from '@cloudchef/user-workspace-runtime/protocol';
+import type { BuilderWorkspaceSyncEntry } from '@cloudchef/user-workspace-runtime/protocol';
 import type { BuilderLinkedProjectSummary } from '~/agents/builder-agent';
 import { downloadProject } from '~/lib/download/download-project';
 import { description } from './description';
 import { EditorStore } from './editor';
-import { FilesStore } from './files';
+import { FilesStore, type WorkspaceChangeListener } from './files';
 import { PreviewsStore } from './previews';
 
 /** Editor buffers that differ from what is on disk and are renderable as text. */
 type UnsavedTextFiles = Record<AbsolutePath, File>;
 
 export type WorkbenchViewType = 'code' | 'preview';
-
-type WorkspaceChangeListener = (
-  changes: BuilderWorkspaceClientChange[],
-  isCurrentChange: () => boolean,
-) => Promise<BuilderWorkspaceApplyResult>;
 
 export class WorkbenchStore {
   #previewsStore = new PreviewsStore();

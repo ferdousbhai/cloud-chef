@@ -17,7 +17,8 @@ class WorkspaceRevisionConflictError extends Error {
   }
 }
 
-type WorkspaceChangeListener = (
+/** Sends the browser's changes to the durable workspace; `isCurrentChange` says whether they are still the latest. */
+export type WorkspaceChangeListener = (
   changes: BuilderWorkspaceClientChange[],
   isCurrentChange: () => boolean,
 ) => Promise<BuilderWorkspaceApplyResult>;
