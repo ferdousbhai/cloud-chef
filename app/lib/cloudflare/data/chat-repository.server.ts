@@ -75,11 +75,10 @@ export async function ensureInitialChat(
     db
       .prepare(
         `INSERT INTO chat_transcripts (
-          chat_id, subchat_index, generation, agent_name,
-          parent_subchat_index, parent_generation, parent_revision, transition_token,
-          created_at, updated_at
+          chat_id, subchat_index, agent_name,
+          parent_subchat_index, parent_revision, transition_token, created_at, updated_at
         )
-        SELECT chats.id, 0, 0, chats.initial_id, NULL, NULL, NULL, ?, ?, ?
+        SELECT chats.id, 0, chats.initial_id, NULL, NULL, ?, ?, ?
         FROM chats
         WHERE chats.id = ? AND chats.creator_id = ? AND chats.initial_id = ? AND chats.is_deleted = 0
         ON CONFLICT(chat_id, subchat_index) DO NOTHING`,
@@ -191,10 +190,9 @@ export async function startLinkedChat(
       db
         .prepare(
           `INSERT INTO chat_transcripts (
-            chat_id, subchat_index, generation, agent_name,
-            parent_subchat_index, parent_generation, parent_revision, transition_token,
-            created_at, updated_at
-          ) VALUES (?, 0, 0, ?, NULL, NULL, NULL, ?, ?, ?)`,
+            chat_id, subchat_index, agent_name,
+            parent_subchat_index, parent_revision, transition_token, created_at, updated_at
+          ) VALUES (?, 0, ?, NULL, NULL, ?, ?, ?)`,
         )
         .bind(id, args.id, crypto.randomUUID(), now, now),
     ]);

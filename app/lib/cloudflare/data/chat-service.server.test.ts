@@ -196,8 +196,6 @@ function emptyChatDatabase(): { sqlite: DatabaseSync; db: D1Database } {
       chat_id TEXT NOT NULL,
       initial_id TEXT NOT NULL,
       subchat_index INTEGER NOT NULL,
-      next_generation INTEGER NOT NULL,
-      max_generation INTEGER NOT NULL,
       not_before INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
       attempts INTEGER NOT NULL,

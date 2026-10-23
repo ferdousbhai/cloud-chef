@@ -27,9 +27,9 @@ export function prepareAgentGcCandidatesStatement(
   return db
     .prepare(
       `INSERT INTO agent_gc_candidates (
-         chat_id, initial_id, subchat_index, next_generation, max_generation, not_before, created_at, attempts
+         chat_id, initial_id, subchat_index, not_before, created_at, attempts
        )
-       SELECT chats.id, chats.initial_id, transcripts.subchat_index, 0, 0, ?, ?, 0
+       SELECT chats.id, chats.initial_id, transcripts.subchat_index, ?, ?, 0
        FROM chats
        JOIN chat_transcripts AS transcripts ON transcripts.chat_id = chats.id
        WHERE chats.creator_id = ? AND chats.initial_id = ?

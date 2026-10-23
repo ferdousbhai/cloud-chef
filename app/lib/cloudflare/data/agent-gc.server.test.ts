@@ -73,8 +73,8 @@ describe('BuilderAgent garbage collection', () => {
       INSERT INTO chats (id, creator_id, initial_id, description, timestamp, is_deleted) VALUES
         ('chat-deleted', 'owner', 'deleted', 'Deleted', '2026-10-20T00:00:00.000Z', 1),
         ('chat-revived', 'owner', 'revived', 'Revived', '2026-10-20T00:00:00.000Z', 0);
-      INSERT INTO agent_gc_candidates (chat_id, initial_id, subchat_index, max_generation, not_before, created_at)
-      VALUES ('chat-deleted', 'deleted', 0, 0, 50, 0), ('chat-revived', 'revived', 0, 0, 50, 0);
+      INSERT INTO agent_gc_candidates (chat_id, initial_id, subchat_index, not_before, created_at)
+      VALUES ('chat-deleted', 'deleted', 0, 50, 0), ('chat-revived', 'revived', 0, 50, 0);
     `);
     const scheduled: string[] = [];
     const env = envWith({

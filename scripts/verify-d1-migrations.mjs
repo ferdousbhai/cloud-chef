@@ -95,6 +95,7 @@ const migrationPolicies = [
       '0012_runtime_activity.sql': 'e8d8983002c40833631722252c30dab9eca7688264efbb9afa16400ae19c8339',
       '0013_runtime_upgrade_window_holder.sql': '09abd121f50b951d6b8ab162d12f7eeb61471ef5cf72a24188d6a3dee24eeb58',
       '0014_deployment_claim_id.sql': 'f446823bdb02790ecd961c375d3d0c9d89a922cee636f70676bffce8c384d9e5',
+      '0015_agent_gc_generation_defaults.sql': '3dbfe2491866d454319d875caa466a1099671ca6d74edbb2379a5f594d91eb7c',
     },
     contractAllowlist: [
       // Chat identity has one immutable key; remove the unused alternate URL column and index.
@@ -105,6 +106,9 @@ const migrationPolicies = [
       // One conversation per GitHub project becomes one current conversation: the narrower index is
       // created first, so the rule is never unenforced, and the old one can only go.
       '0011_linked_chat_history.sql',
+      // Every row is copied into a table whose two unused generation columns have defaults, so the runtime
+      // that ships with it can stop naming them before a later migration drops them.
+      '0015_agent_gc_generation_defaults.sql',
     ],
   },
   {

@@ -35,10 +35,10 @@ export function prepareInsertChatTranscript(
   return db
     .prepare(
       `INSERT INTO chat_transcripts (
-        chat_id, subchat_index, generation, agent_name,
-        parent_subchat_index, parent_generation, parent_revision, transition_token, created_at, updated_at
+        chat_id, subchat_index, agent_name,
+        parent_subchat_index, parent_revision, transition_token, created_at, updated_at
       )
-      SELECT ?, ?, 0, ?, ?, 0, ?, ?, ?, ?
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?
       FROM chat_transcripts
       WHERE chat_id = ? AND subchat_index = ?
         AND EXISTS (
