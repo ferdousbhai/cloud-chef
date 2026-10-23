@@ -20,7 +20,7 @@ function recordingContext() {
   return { context, published, fetched };
 }
 
-describe("a GitHub project's tools", () => {
+describe("a team project's tools", () => {
   it('publishes with the call it came from, so the build result can find its way back to it', async () => {
     const { context, published } = recordingContext();
     const tools = linkedProjectModelTools(context);

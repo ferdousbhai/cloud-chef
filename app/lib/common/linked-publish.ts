@@ -3,7 +3,7 @@ import { getToolInvocation, type CloudChefMessage, type CloudChefToolInvocation 
 import { isCloudChefToolResult } from 'cloudchef-agent/tool-result';
 
 /**
- * What a GitHub project's `publish_preview` / `publish` tool output carries, and how the chat shows it.
+ * What a team project's `publish_preview` / `publish` tool output carries, and how the chat shows it.
  * The output's `summary` is written for the model; everything a person reads comes from `data` here.
  */
 
@@ -21,11 +21,11 @@ const linkedBuildStateSchema = z.enum([
   'failure',
   'none',
   'timed_out',
-  /** CloudChef could not follow the pipeline (its watch could not start or read GitHub). */
+  /** CloudChef could not follow the pipeline (its watch could not start or read the build's status). */
   'unfollowed',
 ]);
 
-/** A publish whose commit is on GitHub. Fields after `detailsUrl` are absent from outputs saved before them. */
+/** A publish whose commit is in the project's repository. Fields after `detailsUrl` are absent from outputs saved before them. */
 export const linkedPublishDataSchema = z.looseObject({
   branch: z.string(),
   commit: z.string(),
@@ -50,7 +50,7 @@ const linkedPublishConflictDataSchema = z.looseObject({
 });
 
 export type LinkedPublishView = {
-  /** `not_sent`: nothing reached GitHub. Every other kind has a commit on GitHub. */
+  /** `not_sent`: nothing reached the repository. Every other kind has a commit there. */
   kind: 'not_sent' | 'building' | 'built' | 'failed' | 'conflict' | 'unknown';
   title: string;
   /** A sentence for the person, never the model's instructions. */
@@ -79,7 +79,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
   }
   const live = invocation.toolName === 'publish';
   if (invocation.state === 'output-error') {
-    return notSent(live, invocation.errorText ?? 'The call stopped before anything reached GitHub.');
+    return notSent(live, invocation.errorText ?? 'The call stopped before anything reached the repository.');
   }
   if (invocation.state !== 'output-available' || !isCloudChefToolResult(invocation.output)) {
     return null;
@@ -105,7 +105,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
     return output.ok
       ? {
           kind: 'unknown',
-          title: live ? 'Published to GitHub' : 'Sent a preview to GitHub',
+          title: live ? 'Published' : 'Sent a preview',
           detail: output.summary,
           building: false,
           followDeadline: null,
@@ -135,7 +135,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
       }
       return unknown(
         committed,
-        "CloudChef stopped following the repository's pipeline. Its result is on GitHub.",
+        "CloudChef stopped following the repository's pipeline. Its result is in Workers Builds.",
         links,
       );
     case 'success':
@@ -154,7 +154,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
         kind: 'failed',
         title: data.live ? `Merged into ${target}; deploy failed` : `Committed to ${data.branch}; build failed`,
         detail:
-          `The commit is on GitHub, but the repository's pipeline ${failedVerb(data.conclusion)}` +
+          `The commit is in the repository, but the repository's pipeline ${failedVerb(data.conclusion)}` +
           `${data.live ? ', so the change is not live yet' : ''}.`,
         building: false,
         followDeadline: null,
@@ -165,20 +165,20 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
     case 'timed_out':
       return unknown(
         committed,
-        "The repository's pipeline was still building after 15 minutes. Its result is on GitHub.",
+        "The repository's pipeline was still building after 15 minutes. Its result is in Workers Builds.",
         links,
       );
     case 'unfollowed':
     default:
       return unknown(
         committed,
-        "CloudChef could not follow the repository's pipeline. Its result is on GitHub.",
+        "CloudChef could not follow the repository's pipeline. Its result is in Workers Builds.",
         links,
       );
   }
 }
 
-/** The conversation's latest publish that reached GitHub, for the composer's dock; null before there is one. */
+/** The conversation's latest publish that reached the repository, for the composer's dock; null before there is one. */
 export function latestLinkedPublishView(messages: readonly CloudChefMessage[], now: number): LinkedPublishView | null {
   for (const message of messages.toReversed()) {
     if (message.role !== 'assistant') {
@@ -222,7 +222,7 @@ function failedVerb(conclusion: string | null | undefined): string {
     case 'timed_out':
       return 'build timed out';
     case 'action_required':
-      return 'build is waiting for an action on GitHub';
+      return 'build is waiting for an action';
     case 'startup_failure':
       return 'build could not start';
     default:

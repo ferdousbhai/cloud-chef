@@ -4,15 +4,16 @@ import type { Tool } from 'cloudchef-agent/tool';
 import type { LinkedSiteFetchInput } from './linked-site-fetch';
 
 /**
- * A turn working on an organization's GitHub project. Its changes go back to GitHub, and the
- * repository's own pipeline (Workers Builds, typically) previews and deploys them.
+ * A turn working on a team project. Its changes are committed to the project's repository, and Workers
+ * Builds, connected to that repository, previews and deploys them.
  */
 export type LinkedProjectModelToolContext = {
+  /** The project's name. */
   repository: string;
   defaultBranch: string;
   /**
    * Commits the workspace to the conversation's own branch; `live` also merges it into the default branch.
-   * It returns once the commit is on GitHub; the pipeline's result replaces the output when it reports.
+   * It returns once the commit is in the repository; the build's result replaces the output when it reports.
    */
   publish(
     input: { message: string; live: boolean },
@@ -22,13 +23,13 @@ export type LinkedProjectModelToolContext = {
   fetchSite(input: LinkedSiteFetchInput, options: { abortSignal?: AbortSignal }): Promise<CloudChefToolResult>;
 };
 
-/** The tools a GitHub project's turn adds. */
+/** The tools a team project's turn adds. */
 export function linkedProjectModelTools(context: LinkedProjectModelToolContext) {
   return {
     publish_preview: {
       description:
-        `Commit the workspace's changes to a CloudChef branch of ${context.repository} on GitHub. It ` +
-        "returns as soon as the commit is there; the repository's pipeline then builds the branch (about two " +
+        `Commit the workspace's changes to a CloudChef branch of the project's repository (${context.repository}). It ` +
+        'returns as soon as the commit is there; Workers Builds then builds a preview of the branch (about two ' +
         "minutes). The user sees the build status and preview link above the chat composer and on this tool's card " +
         "as soon as it reports, and you read it in this tool's output next turn. Do not wait or poll for it.",
       inputSchema: MODEL_TOOL_INPUT_SCHEMAS.publish_preview,
@@ -40,8 +41,8 @@ export function linkedProjectModelTools(context: LinkedProjectModelToolContext) 
     },
     publish: {
       description:
-        `Put the workspace's changes live: commit them and merge them into ${context.defaultBranch} of ` +
-        `${context.repository}, which the repository's pipeline deploys to production. It returns once merged; the ` +
+        `Put the workspace's changes live: commit them and merge them into ${context.defaultBranch} of the project's ` +
+        `repository (${context.repository}), which Workers Builds deploys to production. It returns once merged; the ` +
         "user sees the deploy's status above the chat composer and on this tool's card when it reports. Do not " +
         'wait or poll for it. Use it only when the user wants the change live.',
       inputSchema: MODEL_TOOL_INPUT_SCHEMAS.publish,
@@ -50,8 +51,8 @@ export function linkedProjectModelTools(context: LinkedProjectModelToolContext) 
     },
     fetch_site: {
       description:
-        `Read a page or API response from ${context.repository}'s own live site: its production address (the ` +
-        "repository's homepage on GitHub) or a preview link its pipeline reported. Use it to see the site's " +
+        `Read a page or API response from ${context.repository}'s own live site: its production address or a ` +
+        "preview link Workers Builds reported. Use it to see the site's " +
         'current content, including copy kept in its database or CMS and served by its pages or JSON endpoints, ' +
         'instead of fetching it with exec. Read-only GET; text formats only; long responses come in pages.',
       inputSchema: MODEL_TOOL_INPUT_SCHEMAS.fetch_site,

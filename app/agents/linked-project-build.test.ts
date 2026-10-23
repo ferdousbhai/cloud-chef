@@ -1,16 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
-import type { LinkedBuildStatus } from '~/lib/.server/cloudflare/linked-project-client';
 import {
   LINKED_BUILD_POLL_MS,
   linkedBuildSettledResult,
+  linkedBuildStatus,
   linkedBuildStartedResult,
   linkedBuildUnfollowedResult,
   linkedBuildWatchSchema,
   linkedHeldBackNote,
   watchLinkedBuild,
   withLinkedBuildResult,
+  type LinkedBuildStatus,
   type LinkedBuildWatch,
 } from './linked-project-build';
 
@@ -29,15 +30,11 @@ const pending: LinkedBuildStatus = {
   state: 'pending',
   previewUrl: null,
   detailsUrl: null,
-  conclusion: null,
-  workersBuilds: true,
 };
 const built: LinkedBuildStatus = {
   state: 'success',
   previewUrl: 'https://abc-site.ada.workers.dev',
   detailsUrl: 'https://dash.cloudflare.com/builds/1',
-  conclusion: null,
-  workersBuilds: true,
 };
 
 /** Runs a watch to its end on the fake clock. */
@@ -73,7 +70,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("a GitHub project's publish", () => {
+describe("a team project's publish", () => {
   it('returns as soon as the commit is in, saying the pipeline is building and not to wait', () => {
     const result = linkedBuildStartedResult(watch);
     expect(result).toMatchObject({
@@ -103,8 +100,6 @@ describe("a GitHub project's publish", () => {
       state: 'failure',
       previewUrl: null,
       detailsUrl: 'https://d/1',
-      conclusion: null,
-      workersBuilds: true,
     });
     expect(failed).toMatchObject({ ok: false, data: { build: 'failure' } });
     expect(failed.summary).toContain('Details: https://d/1');
@@ -115,10 +110,8 @@ describe("a GitHub project's publish", () => {
         state: 'none',
         previewUrl: null,
         detailsUrl: null,
-        conclusion: null,
-        workersBuilds: true,
       }).summary,
-    ).toContain('reported no pipeline');
+    ).toContain('reported no build');
   });
 
   it('names the local secrets it left out in every result, so the model can tell the person', () => {
@@ -132,16 +125,12 @@ describe("a GitHub project's publish", () => {
         state: 'failure',
         previewUrl: null,
         detailsUrl: null,
-        conclusion: null,
-        workersBuilds: true,
       }),
       linkedBuildSettledResult(withSecrets, pending),
       linkedBuildSettledResult(withSecrets, {
         state: 'none',
         previewUrl: null,
         detailsUrl: null,
-        conclusion: null,
-        workersBuilds: true,
       }),
       linkedBuildUnfollowedResult(withSecrets),
     ]) {
@@ -154,7 +143,13 @@ describe("a GitHub project's publish", () => {
   });
 
   it('reads the status until the build finishes, riding out an unreadable read', async () => {
-    const answers: (LinkedBuildStatus | Error)[] = [pending, new Error('GitHub is down'), pending, built, pending];
+    const answers: (LinkedBuildStatus | Error)[] = [
+      pending,
+      new Error('The control plane is down'),
+      pending,
+      built,
+      pending,
+    ];
     let polls = 0;
     const status = await watched({
       poll: async () => {
@@ -165,7 +160,6 @@ describe("a GitHub project's publish", () => {
         return answer;
       },
       deadline: 60 * 60_000,
-      workersBuildsGraceUntil: 0,
     });
     expect(status).toEqual(built);
     expect(polls).toBe(4);
@@ -178,8 +172,6 @@ describe("a GitHub project's publish", () => {
       state: 'failure',
       previewUrl: null,
       detailsUrl: 'https://d/1',
-      conclusion: null,
-      workersBuilds: true,
     };
     let polls = 0;
     const status = await watched({
@@ -188,7 +180,6 @@ describe("a GitHub project's publish", () => {
         return polls === 1 ? failure : built;
       },
       deadline: 60 * 60_000,
-      workersBuildsGraceUntil: 0,
     });
     expect(status).toEqual(failure);
     expect(polls).toBe(1);
@@ -202,7 +193,6 @@ describe("a GitHub project's publish", () => {
         return pending;
       },
       deadline: 3 * LINKED_BUILD_POLL_MS,
-      workersBuildsGraceUntil: 0,
     });
     expect(late).toEqual(pending);
     expect(polls).toBe(3);
@@ -216,7 +206,6 @@ describe("a GitHub project's publish", () => {
         return built;
       },
       deadline: 60_000,
-      workersBuildsGraceUntil: 0,
     });
     expect(afterRestart).toEqual(built);
     expect(recoveredPolls).toBe(1);
@@ -231,7 +220,6 @@ describe("a GitHub project's publish", () => {
         return built;
       },
       deadline: Number.MAX_SAFE_INTEGER,
-      workersBuildsGraceUntil: 0,
       signal: stopped.signal,
     });
     expect(result).toBeNull();
@@ -241,10 +229,9 @@ describe("a GitHub project's publish", () => {
   it('has no status when not one read succeeded, rather than a pipeline that reported none', async () => {
     const status = await watched({
       poll: async () => {
-        throw new Error('GitHub is down');
+        throw new Error('The control plane is down');
       },
       deadline: 3 * LINKED_BUILD_POLL_MS,
-      workersBuildsGraceUntil: 0,
     });
     expect(status).toBeNull();
   });
@@ -303,38 +290,32 @@ describe("a GitHub project's publish", () => {
       state: 'failure',
       previewUrl: null,
       detailsUrl: 'https://d/2',
-      conclusion: 'cancelled',
-      workersBuilds: true,
     });
-    expect(cancelled).toMatchObject({ ok: false, data: { build: 'failure', conclusion: 'cancelled' } });
-    expect(cancelled.summary).toContain('did not succeed (cancelled), so the change is not live');
+    expect(cancelled).toMatchObject({ ok: false, data: { build: 'failure', conclusion: 'failure' } });
+    expect(cancelled.summary).toContain('did not succeed, so the change is not live');
     expect(linkedBuildUnfollowedResult(watch)).toMatchObject({ ok: true, data: { build: 'unfollowed' } });
   });
 
-  it("waits for Workers Builds' own check before taking other checks finishing as the build", async () => {
-    const ciPassed: LinkedBuildStatus = { ...built, previewUrl: null, workersBuilds: false };
-    const answers: LinkedBuildStatus[] = [ciPassed, ciPassed, { ...built, workersBuilds: true }];
-    let polls = 0;
-    const status = await watched({
-      poll: async () => answers[polls++] ?? pending,
-      deadline: 60 * 60_000,
-      workersBuildsGraceUntil: 5 * LINKED_BUILD_POLL_MS,
+  it("reads Workers Builds' states, linking production for a live publish and the preview otherwise", () => {
+    const status = {
+      state: 'succeeded' as const,
+      url: 'https://site.example.com',
+      previewUrl: 'https://abc-site.ada.workers.dev',
+      logUrl: 'https://dash.cloudflare.com/builds/1',
+    };
+    expect(linkedBuildStatus(status, true)).toEqual({
+      state: 'success',
+      previewUrl: 'https://site.example.com',
+      detailsUrl: 'https://dash.cloudflare.com/builds/1',
     });
-    expect(status).toEqual({ ...built, workersBuilds: true });
-    expect(polls).toBe(3);
-
-    // A repository without Workers Builds is judged by its own checks once the grace has passed.
-    vi.setSystemTime(0);
-    let otherPolls = 0;
-    const settled = await watched({
-      poll: async () => {
-        otherPolls += 1;
-        return ciPassed;
-      },
-      deadline: 60 * 60_000,
-      workersBuildsGraceUntil: 2 * LINKED_BUILD_POLL_MS,
+    expect(linkedBuildStatus(status, false).previewUrl).toBe('https://abc-site.ada.workers.dev');
+    expect(linkedBuildStatus({ state: 'queued' }, false)).toEqual({
+      state: 'pending',
+      previewUrl: null,
+      detailsUrl: null,
     });
-    expect(settled).toEqual(ciPassed);
-    expect(otherPolls).toBe(2);
+    expect(linkedBuildStatus({ state: 'building' }, false).state).toBe('pending');
+    expect(linkedBuildStatus({ state: 'failed' }, false).state).toBe('failure');
+    expect(linkedBuildStatus({ state: 'none' }, false).state).toBe('none');
   });
 });

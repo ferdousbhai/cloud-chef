@@ -42,6 +42,7 @@ import {
   DeploymentConcurrencyLimitError,
   findActiveProjectDeployment,
   latestDeploymentActivity,
+  recordDeploymentCommit,
 } from '~/lib/.server/cloudflare/deployment-repository';
 import {
   automaticDeploymentRetrySchema,
@@ -110,17 +111,21 @@ import type {
 import { builderTemplateSeedId, loadBuilderTemplate } from './builder-template';
 import { parentBuilderWorkspaceSeedId, readWholeSyncFeed, seedBuilderWorkspace } from './builder-workspace-seed';
 import {
+  isExcludedProjectPath,
+  linkedCommitTree,
   linkedWorkspaceChanges,
+  memberBranch,
   newLinkedBranchKey,
-  packDraftSnapshot,
+  revertChanges,
   seedLinkedWorkspace,
+  workspaceCommitFiles,
 } from './linked-project-workspace';
 import { LINKED_BUILD_WATCH_MS } from '~/lib/common/linked-publish';
 import {
   LINKED_HELD_BACK_LIMIT,
-  WORKERS_BUILDS_APPEAR_MS,
   linkedBuildSettledResult,
   linkedBuildStartedResult,
+  linkedBuildStatus,
   linkedBuildUnfollowedResult,
   linkedBuildWatchSchema,
   linkedHeldBackNote,
@@ -129,14 +134,24 @@ import {
   type LinkedBuildWatch,
 } from './linked-project-build';
 import {
-  commitLinkedProject,
-  linkedBuildStatus,
-  linkedSiteOrigins,
+  ensureProjectRepository,
+  openProject,
+  projectBuildStatus,
+  projectSiteOrigins,
+  readMemberIdentity,
   requestProductionReview,
+  type OpenedProject,
   type ProductionRequestOutcome,
-  streamLinkedProjectSnapshot,
-  type LinkedSnapshotLine,
 } from '~/lib/.server/cloudflare/linked-project-client';
+import {
+  MAIN_BRANCH,
+  nativeProjectRepo,
+  ProjectRepositories,
+  workspaceFileMode,
+  type RepositoryAuthor,
+} from '~/lib/.server/cloudflare/project-repository';
+import { WORK_DIR } from 'cloudchef-agent/constants';
+import { bytesToBase64 } from '~/lib/hex-digest';
 import type { LinkedProjectModelToolContext } from '~/lib/.server/llm/linked-project-model-tools';
 import { fetchLinkedSitePage, type LinkedSiteFetchInput } from '~/lib/.server/llm/linked-site-fetch';
 import { BUILDER_TURN_WALL_CLOCK_MS } from '~/lib/.server/llm/builder-turn-limits';
@@ -232,6 +247,10 @@ const PUBLICATION_STOP_WAIT_MS = 30_000;
 const TITLE_GENERATION_FIBER = 'background:title_generation';
 const CLOUDFLARE_EXECUTION_FIBER = 'background:cloudflare_execution';
 const LINKED_BUILD_FIBER = 'background:linked_build';
+/** Commits a production publish's revision to main of the app's repository, after the publish. */
+const HISTORY_COMMIT_FIBER = 'background:history_commit';
+/** A commit's first line, from the conversation's title: git's convention keeps it short. */
+const HISTORY_TITLE_CHARACTERS = 72;
 /** A cancelled turn settles its transcript a moment after it stops: a watched publish missing that long is gone. */
 const LINKED_BUILD_MISSING_GRACE_MS = 30_000;
 const LINKED_BUILD_LANDING_POLL_MS = 2_000;
@@ -249,7 +268,7 @@ const CHAT_CANCELLATION_SETTLE_TIMEOUT_MS = 4.5 * 60 * 1000;
  */
 const TURN_UPGRADE_WAIT_MS = 3 * 60_000;
 /**
- * How long an archived conversation waits for a publish to GitHub already under way before it reports
+ * How long an archived conversation waits for a publish to the repository already under way before it reports
  * that it has not settled: the commit call's own timeout (two minutes), and a little for what follows it.
  */
 const LINKED_PUBLISH_SETTLE_MS = 2.5 * 60_000;
@@ -287,6 +306,10 @@ const deploymentRunSchema = z.object({
   attempt: z.number().int().min(0),
 });
 type DeploymentRun = z.infer<typeof deploymentRunSchema>;
+/** A published revision to commit to the app's history, and the deployment that published it. */
+const historyCommitJobSchema = deploymentJobSchema.extend({ deploymentId: z.string().min(1).nullable() });
+type HistoryCommitJob = z.infer<typeof historyCommitJobSchema>;
+const revertRequestSchema = z.string().regex(/^[0-9a-f]{40}$/);
 
 /**
  * The publication commands, the agent's boundary with the deployment executor and the user's
@@ -348,6 +371,10 @@ export type BuilderAgentState = {
   deployment?: BuilderDeploymentState | null;
   /** The revision production last promoted, kept so a publication that never finished is redone. */
   productionRevision?: string | null;
+  /** The commit on main of this app's repository that a production publish last became. */
+  productionCommit?: string | null;
+  /** A revert not published yet: the commit its publication makes says which commit it went back to. */
+  revertedTo?: { commit: string; revision: string } | null;
   /**
    * A turn changed this CloudChef app and production has not caught up yet. Set as the turn settles
    * and cleared only once production serves the current revision, so a cancelled, failed, or
@@ -368,13 +395,21 @@ export type BuilderAgentState = {
   upgradeWaiting?: boolean;
   contextCompactionRequestedTurnId?: string | null;
   cloudflareExecutions?: CloudflareExecutionPublicState[];
-  /** The organization GitHub project this workspace works on, once it's prepared; null for a CloudChef app. */
+  /** The team project this workspace works on, once it's prepared; null for a CloudChef app. */
   linkedProject?: BuilderLinkedProjectSummary | null;
 };
 
-/** What the browser shows of a GitHub project: which repository, and the branch its pipeline deploys. */
-/** `archived`: a newer conversation on the project took over from this one, which is kept only to read. */
-export type BuilderLinkedProjectSummary = { repository: string; defaultBranch: string; archived?: boolean };
+/**
+ * What the browser shows of a team project: its name (`repository`), its repository (`repo`), and the
+ * branch Workers Builds deploys. `archived`: a newer conversation on the project took over from this one,
+ * which is kept only to read.
+ */
+export type BuilderLinkedProjectSummary = {
+  repository: string;
+  repo?: string;
+  defaultBranch: string;
+  archived?: boolean;
+};
 
 /** Durable transcript as the agent currently holds it, returned after a cancel or an explicit reload. */
 type BuilderTranscriptSnapshot = {
@@ -405,6 +440,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     validationProgress: null,
     deployment: null,
     productionRevision: null,
+    productionCommit: null,
+    revertedTo: null,
     publicationPending: false,
     failedPublicationRevision: null,
     publication: null,
@@ -436,6 +473,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private transcriptBinding: BuilderTranscriptBinding | null = null;
   private activeSteering: { turnId: string; queue: PiSteeringQueue } | null = null;
   private readonly publisher = builderPublisher;
+  /** The account's project repositories (Artifacts); the BuilderAgent harness replaces it with a fake. */
+  private readonly repositories = (): ProjectRepositories => new ProjectRepositories(this.env.ARTIFACTS);
   private readonly runningPublications = new Set<RunningPublication>();
   /**
    * Advanced each time a new turn stops the automatic publications. Automatic publication work notes
@@ -445,7 +484,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private publicationEpoch = 0;
   /** Chat requests between stopping the automatic publications and recording their turn as active. */
   private startingTurns = 0;
-  /** Publishes to GitHub under way: an archived conversation waits for them before its successor copies it. */
+  /** Publishes to the project's repository under way: an archived conversation waits for them before its successor copies it. */
   private readonly runningLinkedPublishes = new Set<Promise<CloudChefToolResult>>();
   /** Editor saves under way, from before their archive check: an archived conversation waits for them too. */
   private readonly runningSaves = new Set<Promise<BuilderWorkspaceApplyResult>>();
@@ -518,7 +557,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (
         fiber.name === PREVIEW_PUBLICATION_FIBER ||
         fiber.name === DEPLOYMENT_FIBER ||
-        fiber.name === LINKED_BUILD_FIBER
+        fiber.name === LINKED_BUILD_FIBER ||
+        fiber.name === HISTORY_COMMIT_FIBER
       ) {
         await this.cancelFiber(fiber.fiberId, 'Project deletion').catch(() => undefined);
       }
@@ -635,6 +675,14 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         return { status: 'error', error: 'missing linked build recovery data' };
       }
       await this.runtimeActivity.run(() => this.keepAliveWhile(() => this.runLinkedBuildWatch(watch)));
+      return { status: 'completed' };
+    }
+    if (ctx.name === HISTORY_COMMIT_FIBER) {
+      const job = historyCommitJobSchema.safeParse(ctx.metadata).data;
+      if (!job) {
+        return { status: 'error', error: 'missing history commit recovery data' };
+      }
+      await this.runtimeActivity.run(() => this.commitPublishedRevision(job));
       return { status: 'completed' };
     }
     if (ctx.name === CLOUDFLARE_EXECUTION_FIBER) {
@@ -791,7 +839,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         steering,
         onSettled: (report) => {
           settleSteering();
-          // A GitHub project publishes through its own pipeline, when the agent publishes to it.
+          // A team project publishes through Workers Builds, when the agent publishes to it.
           if (report.changedProject && !linkedProject && !this.state.publicationPending) {
             this.setState({ ...this.state, publicationPending: true });
           }
@@ -917,8 +965,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const validatedSnapshot = await this.refreshDeploymentReadiness();
     // A turn that changed a CloudChef app, or one before it whose publication never reached production,
     // publishes it however the turn ended: the preview builds the exact revision (unless the model
-    // already validated it) and production follows. A GitHub project previews and deploys through its
-    // own pipeline, when the agent publishes to it.
+    // already validated it) and production follows. A team project previews and deploys through Workers
+    // Builds, when the agent publishes to it.
     if (this.state.publicationPending || (status === 'completed' && validatedSnapshot)) {
       await this.publishLatestRevision(validatedSnapshot);
     }
@@ -1056,10 +1104,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /**
-   * A newer conversation on this GitHub project has taken over (this chat is archived): stop the turn
+   * A newer conversation on this team project has taken over (this chat is archived): stop the turn
    * running here and return once nothing more can change this workspace, so the copy the newer one takes
    * next is final. Saves, steering, approvals and publishing are already refused here. Its build watch
-   * keeps running: it only reads GitHub and fills in this transcript's publish result.
+   * keeps running: it only reads the build's status and fills in this transcript's publish result.
    *
    * An internal Durable Object RPC, not `@callable`: the data API calls it when the new conversation
    * starts, and the new conversation's agent before it copies this workspace.
@@ -1099,7 +1147,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
   }
 
-  /** Whether every publish to GitHub and editor save under way settled within `timeoutMs`. */
+  /** Whether every publish to the repository and editor save under way settled within `timeoutMs`. */
   private async waitForWorkspaceWrites(timeoutMs: number): Promise<boolean> {
     return settledWithin([...this.runningLinkedPublishes, ...this.runningSaves], timeoutMs);
   }
@@ -1126,8 +1174,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /**
-   * Asks the organization's admins to make this draft a real project: approved, it becomes a GitHub
-   * repository that deploys through its own pipeline.
+   * Asks the team's admins to make this draft a real project: the draft is committed to main of its own
+   * repository first, and approved, that repository becomes the project, which Workers Builds deploys.
    */
   @callable()
   async requestProduction(input: { title: string; note: string }): Promise<{ outcome: ProductionRequestOutcome }> {
@@ -1137,14 +1185,20 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Error("Production requests are for drafts in a team's account.");
     }
     if (await this.workspace.linkedProject()) {
-      throw new Error('This project is already on GitHub: ask the agent to publish it.');
+      throw new Error("This is already one of the team's projects: ask the agent to publish it.");
     }
     const checkpoint = await this.workspace.checkpoint();
     const title = input.title.trim().slice(0, 80);
     if (!title) {
       throw new Error('Name the app for your admin.');
     }
-    const { snapshot, files } = await packDraftSnapshot(this.workspace);
+    const commit = await this.commitWorkspaceToHistory({
+      revision: checkpoint.revision,
+      message: `${title}\n\nCloudChef-Revision: ${checkpoint.revision}`,
+    });
+    if (!commit) {
+      throw new Error('The draft kept changing while it was being saved. Try again.');
+    }
     // The chat is the draft: sent again from it, the request is replaced rather than repeated.
     const { outcome } = await requestProductionReview(this.env, identity, {
       draftId: durableIdentity.transcript.chatInitialId,
@@ -1152,18 +1206,66 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       title,
       note: input.note.trim().slice(0, 1_000),
       previewUrl: this.state.deployment?.productionUrl ?? this.currentPreviewState().published?.url ?? null,
-      snapshot,
-      files,
+      repo: nativeProjectRepo(durableIdentity.transcript.chatInitialId, durableIdentity.transcript.subchatIndex),
+      commit,
     });
     return { outcome };
   }
 
-  /** The organization GitHub project this workspace works on, or null for a CloudChef app. */
+  /**
+   * Makes the workspace hold exactly the files of `commit` in the project's history, as one change set
+   * through the same compare-and-swap path as an editor save: files the commit lacks are deleted, except
+   * what no commit holds (installed and built output, local secrets, ignored files). Refused while a turn
+   * runs. A CloudChef app then publishes the result as after any turn, its commit saying it is a revert;
+   * a team project's revert is published by the agent like any other change.
+   */
+  @callable()
+  async revertToCommit(commit: string): Promise<BuilderWorkspaceApplyResult> {
+    const durableIdentity = await this.requireDurableIdentity('revert_to_commit');
+    const parsed = revertRequestSchema.safeParse(commit);
+    if (!parsed.success) {
+      throw new Response('Invalid commit.', { status: 400 });
+    }
+    if (this.state.activeTurn || this.startingTurns > 0) {
+      throw new Response('Stop the builder before reverting.', { status: 409 });
+    }
+    await this.refuseIfClosed();
+    const linked = await this.workspace.linkedProject();
+    let repo = nativeProjectRepo(durableIdentity.transcript.chatInitialId, durableIdentity.transcript.subchatIndex);
+    if (linked) {
+      const identity = runtimeConnectionIdentity(this.env);
+      const project = identity ? await openProject(this.env, identity, linked.orgProjectId) : null;
+      if (!project?.repo || project.role !== 'edit') {
+        throw new Response('You can view this project but not change it.', { status: 403 });
+      }
+      repo = project.repo;
+    }
+    const { files } = await this.repositories().readFilesAt(repo, parsed.data, (path) => !isExcludedProjectPath(path));
+    const { baseRevision, changes } = await revertChanges(this.workspace, files);
+    const result = await this.applyWorkspaceClientChanges({ baseRevision, changes });
+    if (!result.ok) {
+      throw new Response('The project changed while it was being reverted. Try again.', { status: 409 });
+    }
+    if (!linked && result.changedPaths.length > 0) {
+      const checkpoint = await this.workspace.checkpoint();
+      this.setState({
+        ...this.state,
+        publicationPending: true,
+        revertedTo: { commit: parsed.data, revision: checkpoint.revision },
+      });
+      this.ctx.waitUntil(
+        this.publishLatestRevision(null).catch(() => logger.warn('Unable to publish the reverted revision')),
+      );
+    }
+    return result;
+  }
+
+  /** The team project this workspace works on, or null for a CloudChef app. */
   getLinkedProject(): Promise<BuilderWorkspaceLinkedProject | null> {
     return this.workspace.linkedProject();
   }
 
-  /** Tells the browser whether this is a GitHub project, so it never offers what only a CloudChef app has. */
+  /** Tells the browser whether this is a team project, so it never offers what only a CloudChef app has. */
   private async publishLinkedProjectState(): Promise<void> {
     const linked = await this.workspace.linkedProject();
     const archived =
@@ -1171,7 +1273,14 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       this.userId !== null &&
       (await loadChatOrgProject(this.env.DB, { agentName: this.name, ownerId: this.userId })).archived;
     this.showLinkedProject(
-      linked ? { repository: linked.repository, defaultBranch: linked.defaultBranch, archived } : null,
+      linked
+        ? {
+            repository: linked.name ?? linked.repository,
+            repo: linked.repository,
+            defaultBranch: linked.defaultBranch,
+            archived,
+          }
+        : null,
     );
   }
 
@@ -1179,22 +1288,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const current = this.state.linkedProject ?? null;
     if (
       current?.repository === next?.repository &&
+      current?.repo === next?.repo &&
       current?.defaultBranch === next?.defaultBranch &&
       (current?.archived ?? false) === (next?.archived ?? false)
     ) {
       return;
     }
     this.setState({ ...this.state, linkedProject: next });
-  }
-
-  /** Names the repository to the browser as soon as its download starts, not minutes later when it's seeded. */
-  private async *announceLinkedProject(lines: AsyncIterable<LinkedSnapshotLine>): AsyncGenerator<LinkedSnapshotLine> {
-    for await (const line of lines) {
-      if ('commit' in line) {
-        this.showLinkedProject({ repository: line.repository, defaultBranch: line.defaultBranch });
-      }
-      yield line;
-    }
   }
 
   @callable()
@@ -1256,7 +1356,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   async deployValidatedRevision(): Promise<BuilderDeploymentState> {
     await this.requireDurableIdentity('deploy_validated_revision');
     if (await this.workspace.linkedProject()) {
-      throw new Error('This project deploys through GitHub: ask the agent to publish it.');
+      throw new Error('This project deploys through Workers Builds: ask the agent to publish it.');
     }
     // The deployment builds the revision first when nothing has validated it yet.
     const snapshot = await this.workspace.checkpoint();
@@ -1574,7 +1674,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   private async seedNewWorkspace(binding: BuilderTranscriptBinding): Promise<BuilderWorkspaceState> {
     if (binding.parentAgentName) {
-      // A subchat of a GitHub project keeps working on it, relative to the same commit: linked before its
+      // A subchat of a team project keeps working on it, relative to the same commit: linked before its
       // seed commits, so it never exists as an ordinary draft holding the repository's code. The parent can
       // go on working too, so the subchat gets its own branch.
       const parent = await this.loadLinkedWorkspaceCopy(binding.parentAgentName);
@@ -1619,24 +1719,48 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (!identity) {
         throw new Error('This workspace is not connected to CloudChef, so it cannot open the project.');
       }
-      return seedLinkedWorkspace(
+      const project = await openProject(this.env, identity, orgProjectId);
+      if (project.role !== 'edit') {
+        throw new Error('You can view this project but not edit it.');
+      }
+      // Named to the browser at once, not minutes later when the workspace is seeded.
+      this.showLinkedProject({ repository: project.name, defaultBranch: MAIN_BRANCH });
+      const repositories = this.repositories();
+      const repo = await ensureProjectRepository(this.env, identity, repositories, project);
+      return seedLinkedWorkspace(this.workspace, repositories, { orgProjectId, name: project.name, repo });
+    }
+    // A fork starts from its own repository, which the fork made before the chat existed.
+    const repositories = this.repositories();
+    const own = nativeProjectRepo(binding.chatInitialId, binding.subchatIndex);
+    if (await repositories.head(own)) {
+      const { commit, files } = await repositories.readFilesAt(
+        own,
+        MAIN_BRANCH,
+        (path) => !isExcludedProjectPath(path),
+      );
+      return seedBuilderWorkspace(
         this.workspace,
-        orgProjectId,
-        this.announceLinkedProject(streamLinkedProjectSnapshot(this.env, identity, orgProjectId)),
+        `repository_${commit.hash}`,
+        files.map((file): BuilderWorkspaceFileInput => ({
+          path: `${WORK_DIR}/${file.path}`,
+          content: bytesToBase64(file.bytes),
+          encoding: 'base64',
+          mode: workspaceFileMode(file.mode),
+        })),
       );
     }
     const template = await loadBuilderTemplate();
     return seedBuilderWorkspace(this.workspace, builderTemplateSeedId(), template);
   }
 
-  /** The publish tools for a workspace opened from an organization's GitHub project; none otherwise. */
+  /** The publish tools for a workspace opened from a team project; none otherwise. */
   private async createLinkedProjectToolContext(): Promise<LinkedProjectModelToolContext | undefined> {
     const linked = await this.workspace.linkedProject();
     if (!linked) {
       return undefined;
     }
     return {
-      repository: linked.repository,
+      repository: linked.name ?? linked.repository,
       defaultBranch: linked.defaultBranch,
       publish: (input, options) =>
         this.trackLinkedPublish(this.keepAliveWhile(() => this.publishLinkedProject(input, options))),
@@ -1654,9 +1778,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /**
-   * Sends the workspace to GitHub: a commit on the member's branch, merged into the default
-   * branch when it should go live. It returns once the commit is there; the repository's pipeline is
-   * watched in the background, and its result and preview link replace this output when it reports.
+   * Commits the workspace to the project's repository: a commit on the conversation's own branch, merged
+   * into main when it should go live. It returns once the commit is there; Workers Builds is watched in the
+   * background, and its result and preview link replace this output when it reports.
    */
   private async publishLinkedProject(
     input: { message: string; live: boolean },
@@ -1664,49 +1788,91 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   ): Promise<CloudChefToolResult> {
     const linked = await this.workspace.linkedProject();
     const identity = runtimeConnectionIdentity(this.env);
-    if (!linked || !identity) {
-      return toolFailure("This workspace is not one of the team's GitHub projects.");
+    if (!linked || !identity || !this.userId) {
+      return toolFailure("This workspace is not one of the team's projects.");
     }
     const closed = await this.closedConversationMessage();
     if (closed) {
-      return toolFailure(`${closed} Nothing was sent to GitHub.`);
+      return toolFailure(`${closed} Nothing was committed.`);
     }
+    const name = linked.name ?? linked.repository;
+    // Asked each time: access can be taken away, and the control plane names the project's repository.
+    let project: OpenedProject;
+    try {
+      project = await openProject(this.env, identity, linked.orgProjectId);
+    } catch (error) {
+      return toolFailure(error instanceof Error ? error.message : 'CloudChef could not open the project.');
+    }
+    if (project.role !== 'edit' || !project.repo) {
+      return toolFailure(
+        project.role !== 'edit'
+          ? 'This person can view the project but not change it, so nothing was committed.'
+          : "The project's repository isn't ready yet. Open the project again.",
+      );
+    }
+    const repo = project.repo;
     const { changes, manifest, heldBack } = await linkedWorkspaceChanges(this.workspace, linked);
     if (changes.length === 0) {
       return toolFailure(
-        `Nothing has changed since this workspace was opened from ${linked.repository}.` + linkedHeldBackNote(heldBack),
+        `Nothing has changed since this workspace was opened from ${name}.` + linkedHeldBackNote(heldBack),
       );
     }
-    // The last moment a Stop or the tool's deadline can call it off. Once GitHub has the commit (and the
-    // merge), there's no taking it back: everything below runs to the end, and its result is the real one
+    const repositories = this.repositories();
+    const author = project.member ?? (await this.commitAuthor());
+    const branch = memberBranch(project.member?.email ?? null, this.userId, linked.branchKey);
+    const [{ files: base }, head] = await Promise.all([
+      repositories.readTreeAt(repo, linked.baseCommit),
+      repositories.head(repo, branch),
+    ]);
+    // The last moment a Stop or the tool's deadline can call it off. Once the repository has the commit (and
+    // the merge), there's no taking it back: everything below runs to the end, and its result is the real one
     // even if the turn ended meanwhile; the build watch then puts it in place of the stopped call's error.
     options.abortSignal?.throwIfAborted();
-    const result = await commitLinkedProject(this.env, identity, {
-      orgProjectId: linked.orgProjectId,
-      branchKey: linked.branchKey,
-      baseCommit: linked.baseCommit,
+    // One commit on top of the base, replacing the branch's last one, so the branch always shows exactly the
+    // workspace.
+    const committed = await repositories.commitFiles({
+      repo,
+      branch,
+      parent: linked.baseCommit,
+      replaces: head,
+      files: linkedCommitTree(base, changes),
       message: input.message,
-      publish: input.live,
-      changes,
+      author,
     });
-    if (result.code === 'merge_conflict') {
-      return toolFailure(
-        `${result.error ?? 'The changes overlap with newer work.'} Nothing went live. The work is saved on the ` +
-          `branch ${result.branch} of ${linked.repository}; an admin can merge it there.`,
-        { branch: result.branch, commit: result.commit, conflict: true, defaultBranch: linked.defaultBranch },
-      );
+    if ('conflict' in committed) {
+      return toolFailure(`The branch ${branch} changed while this was being committed. Publish again.`);
     }
-    if (input.live && result.published) {
-      // The commit that went live becomes the base: its tree is exactly this workspace, so later changes
-      // are measured from it, and merging them keeps whatever else the default branch gained meanwhile.
-      await this.workspace.setLinkedProject({ ...linked, baseCommit: result.commit, baseManifest: manifest });
+    let published = committed.commit;
+    if (input.live) {
+      const merged = await repositories.mergeIntoMain({
+        repo,
+        branch,
+        author,
+        message: `Publish from CloudChef: ${input.message.split('\n')[0]}`,
+      });
+      if ('conflict' in merged) {
+        return toolFailure(
+          `${linked.defaultBranch} changed since this workspace was opened, and the changes overlap. Nothing went ` +
+            `live. The work is saved on the branch ${branch} of ${name}; an admin can merge it there.`,
+          { branch, commit: committed.commit, conflict: true, defaultBranch: linked.defaultBranch },
+        );
+      }
+      published = merged.commit;
+      // The branch's commit becomes the base: its tree is exactly this workspace, so later changes are
+      // measured from it, and merging them keeps whatever else main gained meanwhile.
+      await this.workspace.setLinkedProject({
+        ...linked,
+        repository: repo,
+        baseCommit: committed.commit,
+        baseManifest: manifest,
+      });
     }
     const watch: LinkedBuildWatch = {
       toolCallId: options.toolCallId,
       orgProjectId: linked.orgProjectId,
-      sha: input.live ? (result.published ?? result.commit) : result.commit,
-      branch: result.branch,
-      where: input.live ? `merged into ${linked.defaultBranch}` : `on the branch ${result.branch}`,
+      sha: published,
+      branch,
+      where: input.live ? `merged into ${linked.defaultBranch}` : `on the branch ${branch}`,
       live: input.live,
       startedAt: Date.now(),
       defaultBranch: linked.defaultBranch,
@@ -1731,6 +1897,14 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return linkedBuildStartedResult(watch);
   }
 
+  /** Who this person's commits name: the control plane's answer, or their user id when it has none. */
+  private async commitAuthor(): Promise<RepositoryAuthor> {
+    const identity = runtimeConnectionIdentity(this.env);
+    const member = identity ? await readMemberIdentity(this.env, identity) : null;
+    const userId = this.userId ?? this.env.CLOUDCHEF_USER_ID;
+    return member ?? { name: 'CloudChef member', email: `${userId}@users.noreply.cloudchef.build` };
+  }
+
   /**
    * Follows the pipeline's build of a publish's commit, then puts its result in place of that publish's
    * output. The output is saved with its turn's message when the turn ends, so the result waits for that.
@@ -1741,12 +1915,14 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       ? await watchLinkedBuild({
           poll: async () => {
             // A call stopped after its commit shows as failed until its result lands: while the pipeline
-            // builds, it at least says what is on GitHub.
+            // builds, it at least says what is in the repository.
             await this.landLinkedBuildOutput(watch, linkedBuildStartedResult(watch), { onlyFailed: true });
-            return linkedBuildStatus(this.env, identity, watch.orgProjectId, watch.sha);
+            return linkedBuildStatus(
+              await projectBuildStatus(this.env, identity, watch.orgProjectId, watch.sha),
+              watch.live,
+            );
           },
           deadline: watch.startedAt + LINKED_BUILD_WATCH_MS,
-          workersBuildsGraceUntil: watch.startedAt + WORKERS_BUILDS_APPEAR_MS,
           signal,
         })
       : null;
@@ -1805,7 +1981,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
   }
 
-  /** Reads a page of the project's own live site: only addresses GitHub reports for this repository. */
+  /** Reads a page of the project's own live site: only addresses the control plane reports for it. */
   private async fetchLinkedSite(
     input: LinkedSiteFetchInput,
     options: { abortSignal?: AbortSignal },
@@ -1813,10 +1989,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const linked = await this.workspace.linkedProject();
     const identity = runtimeConnectionIdentity(this.env);
     if (!linked || !identity) {
-      return toolFailure("This workspace is not one of the team's GitHub projects.");
+      return toolFailure("This workspace is not one of the team's projects.");
     }
     return fetchLinkedSitePage(input, {
-      origins: () => linkedSiteOrigins(this.env, identity, linked.orgProjectId, linked.branchKey),
+      origins: () => projectSiteOrigins(this.env, identity, linked.orgProjectId),
       signal: options.abortSignal,
     });
   }
@@ -2062,7 +2238,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /**
-   * Another workspace's files with the GitHub project it is linked to, read so they belong together: the
+   * Another workspace's files with the team project it is linked to, read so they belong together: the
    * link (and its base commit) is the same before and after the files are copied, or the copy starts over.
    */
   private async loadLinkedWorkspaceCopy(agentName: string): Promise<{
@@ -2126,7 +2302,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return;
     }
     if (await this.workspace.linkedProject().catch(() => null)) {
-      // A GitHub project publishes through its own pipeline: nothing here is waiting for production.
+      // A team project publishes through Workers Builds: nothing here is waiting for production.
       if (this.state.publicationPending) {
         this.setState({ ...this.state, publicationPending: false });
       }
@@ -2670,9 +2846,119 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return revisionBoundDeployment;
   }
 
-  /** The deployment of `job` succeeded, as it ran or as its record in the user's account says. */
+  /**
+   * The deployment of `job` succeeded, as it ran or as its record in the user's account says. Its revision
+   * then becomes a commit on main of the app's repository, in the background: a commit that fails never
+   * fails the publish, and the next publish's commit carries the tree anyway.
+   */
   private async recordDeploymentSucceeded(job: DeploymentJob, deployment: BuilderDeploymentState): Promise<void> {
     await this.recordProductionRevision(job.revision, { ...deployment, ...job });
+    await this.scheduleHistoryCommit({ ...job, deploymentId: deployment.id ?? null });
+  }
+
+  private async scheduleHistoryCommit(job: HistoryCommitJob): Promise<void> {
+    if (this.destroying) {
+      return;
+    }
+    await this.startFiber(
+      HISTORY_COMMIT_FIBER,
+      async () => {
+        await this.runtimeActivity.run(() => this.commitPublishedRevision(job));
+      },
+      { idempotencyKey: `${HISTORY_COMMIT_FIBER}:${this.name}:${job.revision}`, metadata: job },
+    ).catch(() => logger.warn('Unable to start committing the published revision'));
+  }
+
+  /**
+   * Commits the revision production now serves to main of the app's repository, while the workspace still
+   * holds it (one changed since is committed by its own publish), and records the commit on the deployment.
+   * Its message is the conversation's title, then `CloudChef-Revision: <revision>`.
+   */
+  private async commitPublishedRevision(job: HistoryCommitJob): Promise<void> {
+    try {
+      if (this.destroying || (await this.workspace.linkedProject())) {
+        return;
+      }
+      const reverted = this.state.revertedTo?.revision === job.revision ? this.state.revertedTo : null;
+      const title = reverted ? `Revert to ${reverted.commit.slice(0, 7)}` : await this.historyTitle();
+      const commit = await this.commitWorkspaceToHistory({
+        revision: job.revision,
+        message: `${title}\n\nCloudChef-Revision: ${job.revision}`,
+      });
+      if (!commit) {
+        return;
+      }
+      this.setState({
+        ...this.state,
+        productionCommit: commit,
+        revertedTo: reverted ? null : (this.state.revertedTo ?? null),
+      });
+      if (job.deploymentId && this.userId) {
+        await recordDeploymentCommit(this.env.DB, {
+          deploymentId: job.deploymentId,
+          userId: this.userId,
+          commitSha: commit,
+        });
+      }
+      console.info({ event: 'builder_history_committed' });
+    } catch {
+      logger.warn('Unable to commit the published revision to the project history');
+    }
+  }
+
+  /**
+   * Commits the workspace to main of this app's own repository, while it holds `revision`: the commit, or
+   * null when the workspace has moved on (or moved while it was read). A tree main already has is not
+   * committed again.
+   */
+  private async commitWorkspaceToHistory(args: { revision: string; message: string }): Promise<string | null> {
+    const transcript = this.transcriptBinding;
+    if (!transcript) {
+      throw new Response('Agent authentication is required.', { status: 401 });
+    }
+    const checkpoint = await this.workspace.checkpoint();
+    if (checkpoint.revision !== args.revision) {
+      return null;
+    }
+    const read = await workspaceCommitFiles(this.workspace);
+    if (!read || read.targetRevision !== checkpoint.workspaceRevision) {
+      return null;
+    }
+    const repositories = this.repositories();
+    const repo = nativeProjectRepo(transcript.chatInitialId, transcript.subchatIndex);
+    const author = await this.commitAuthor();
+    // Two commits can race for main (a publish's and a production request's): the loser goes again on top.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const parent = await repositories.head(repo);
+      const result = await repositories.commitFiles({
+        repo,
+        branch: MAIN_BRANCH,
+        parent,
+        files: read.files,
+        message: args.message,
+        author,
+      });
+      if ('commit' in result) {
+        return result.commit;
+      }
+    }
+    throw new Error('main of the project repository kept moving.');
+  }
+
+  /** The first line of a published revision's commit: the conversation's title, kept short. */
+  private async historyTitle(): Promise<string> {
+    const row = await this.env.DB.prepare(
+      `SELECT COALESCE(NULLIF(TRIM(transcripts.description), ''), NULLIF(TRIM(chats.description), '')) AS title
+       FROM chat_transcripts AS transcripts
+       INNER JOIN chats ON chats.id = transcripts.chat_id
+       WHERE transcripts.agent_name = ?
+       LIMIT 1`,
+    )
+      .bind(this.name)
+      .first<{ title: string | null }>()
+      .catch(() => null);
+    const title = (row?.title ?? '').replace(/\s+/g, ' ').trim();
+    return title ? title.slice(0, HISTORY_TITLE_CHARACTERS) : 'Publish from CloudChef';
   }
 
   /** Who a publication runs for and the chat it records, once this agent knows its identity. */
@@ -2778,7 +3064,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     this.refuseIfDestroying();
     const workspace = await this.initializeWorkspace(this.transcriptBinding);
     if (await this.workspace.linkedProject()) {
-      throw new Error('This project previews through GitHub: ask the agent for a preview of your branch.');
+      throw new Error('This project previews through Workers Builds: ask the agent for a preview of your branch.');
     }
     const current = this.currentPreviewState();
     const snapshot = options.snapshot ?? (await this.workspace.checkpoint());
@@ -2996,7 +3282,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   private async refreshDeploymentReadiness(): Promise<BuilderWorkspaceCheckpoint | null> {
-    // A GitHub project deploys through its repository's pipeline: CloudChef's deployment record stays empty.
+    // A team project deploys through Workers Builds: CloudChef's deployment record stays empty.
     if (await this.workspace.linkedProject().catch(() => null)) {
       if (this.state.deployment) {
         this.setState({ ...this.state, deployment: null });

@@ -37,11 +37,11 @@ type BundledSkillSource = { name: string; files: ReadonlyMap<string, string> };
 
 type BundledSkill = { name: string; description: string; files: ReadonlyMap<string, string> };
 
-/** CloudChef's own skill, which describes its starter app and so means nothing in a GitHub project. */
+/** CloudChef's own skill, which describes its starter app and so means nothing in a team project. */
 const STARTER_APP_SKILL = 'project-stack';
 
 /**
- * Load the references bundled into this Worker. No network, no storage, no generation. A GitHub
+ * Load the references bundled into this Worker. No network, no storage, no generation. A team
  * project is not a CloudChef starter app, so its catalog leaves out the starter app's skill.
  */
 export function createBuilderSkillContext(options: { linkedProject?: boolean } = {}): BuilderSkillContext {

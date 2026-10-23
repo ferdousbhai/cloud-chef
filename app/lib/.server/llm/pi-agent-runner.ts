@@ -104,7 +104,7 @@ export interface PiAgentOptions {
   gatewayKeyRevision?: string;
   workspace: BuilderWorkspaceApi;
   cloudflareApi?: CloudflareApiModelToolContext;
-  /** Set when the workspace is one of an organization's GitHub projects. */
+  /** Set when the workspace is one of a team's projects. */
   linkedProject?: LinkedProjectModelToolContext;
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;

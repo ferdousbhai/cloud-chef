@@ -13,12 +13,7 @@ import {
   runtimeRequestProductionAction,
 } from './runtime-github';
 import { runtimeCredentialAction } from './runtime-credential';
-import {
-  RUNTIME_GENERATION_HEADER,
-  RUNTIME_USER_HEADER,
-  runtimeIdentityHeaders,
-} from '~/lib/.server/cloudflare/runtime-identity-headers';
-import { linkedBuildStatus } from '~/lib/.server/cloudflare/linked-project-client';
+import { RUNTIME_GENERATION_HEADER, runtimeIdentityHeaders } from '~/lib/.server/cloudflare/runtime-identity-headers';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -707,28 +702,6 @@ describe('a member working on a GitHub project', () => {
       });
       expect(response.status).toBe(200);
       expect(writes.some((write) => write.path === '/git/commits')).toBe(true);
-    });
-
-    it('reaches the control plane in headers from the runtime client', async () => {
-      const { env, app, gitHub, sara, secret } = await setup();
-      const seen: Headers[] = [];
-      vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
-        const request = new Request(input, init);
-        if (!request.url.startsWith(ORIGIN)) {
-          return gitHub(input, init);
-        }
-        seen.push(request.headers);
-        return runtimeGitHubStatusAction({ request, env, app });
-      });
-      const status = await linkedBuildStatus(
-        { CLOUDCHEF_CONTROL_PLANE_ENDPOINT: ORIGIN, CONTROL_PLANE_SECRET: secret },
-        { userId: sara.id, connectionId: 'conn-1', connectionGeneration: 2 },
-        SITE,
-        'c'.repeat(40),
-      );
-      expect(status.state).toBe('success');
-      expect(seen[0]?.get(RUNTIME_USER_HEADER)).toBe(sara.id);
-      expect(seen[0]?.get(RUNTIME_GENERATION_HEADER)).toBe('2');
     });
   });
 

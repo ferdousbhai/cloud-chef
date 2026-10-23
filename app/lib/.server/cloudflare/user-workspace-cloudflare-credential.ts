@@ -195,11 +195,8 @@ export async function readAccountModelSettings(
   }
 }
 
-/** A file a linked project's commit writes (with its content) or deletes (without). */
-export type RuntimeFileChange = { path: string; contentBase64: string | null; executable: boolean };
-
 /** The fields a runtime route is sent. */
-type RuntimeRouteBody = Record<string, string | number | boolean | null | undefined | RuntimeFileChange[]>;
+type RuntimeRouteBody = Record<string, string | number | boolean | null | undefined>;
 
 /**
  * A call to one of the control plane's runtime routes, as this runtime, carrying `body` as JSON (a field
@@ -239,11 +236,12 @@ type RuntimeRoute =
   | 'runtime-usage'
   | 'runtime-access'
   | 'runtime-models'
-  | 'runtime-github/snapshot'
-  | 'runtime-github/commit'
-  | 'runtime-github/status'
-  | 'runtime-github/site'
-  | 'runtime-github/request-production';
+  | 'runtime-projects/open'
+  | 'runtime-projects/imported'
+  | 'runtime-projects/register-import'
+  | 'runtime-projects/status'
+  | 'runtime-projects/site'
+  | 'runtime-projects/request-production';
 
 function runtimeRouteEndpoint(value: string, route: RuntimeRoute): URL {
   let endpoint: URL;

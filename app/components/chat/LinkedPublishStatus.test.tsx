@@ -62,7 +62,7 @@ describe('LinkedPublishStatus', () => {
     expect(container.querySelector('a')?.getAttribute('href')).toBe('https://abc.ada.workers.dev');
   });
 
-  it('shows nothing before a publish reaches GitHub', async () => {
+  it('shows nothing before a publish reaches the repository', async () => {
     await act(async () => root.render(<LinkedPublishStatus messages={[]} />));
     expect(container.textContent).toBe('');
   });

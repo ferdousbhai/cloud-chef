@@ -29,14 +29,15 @@ describe('builder system prompt', () => {
     );
   });
 
-  it("describes a GitHub project's pipeline and keeps production behind the person's say-so", () => {
-    const prompt = systemPrompt('', { repository: 'ada/site', defaultBranch: 'main' });
+  it("describes a team project's pipeline and keeps production behind the person's say-so", () => {
+    const prompt = systemPrompt('', { repository: 'Ada site', defaultBranch: 'main' });
 
-    expect(prompt).toContain('A copy of ada/site');
+    expect(prompt).toContain('A copy of Ada site');
     expect(prompt).toContain('publish_preview commits them to your branch');
     expect(prompt).toContain('publish merges them into main');
     expect(prompt).toContain('only when the person wants the change live');
-    expect(prompt).toContain("can't commit changes to GitHub Actions workflows");
+    expect(prompt).toContain('Workers Builds deploys to production');
+    expect(prompt).not.toContain('GitHub');
     expect(prompt).not.toContain('CloudChef app');
   });
 

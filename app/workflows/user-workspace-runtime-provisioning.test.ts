@@ -358,7 +358,9 @@ describe('workspace runtime provisioning Workflow', () => {
 
       await runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs());
 
-      expect(mocks.upsertRuntime).toHaveBeenCalledWith(expect.objectContaining({ protocolVersion: 1 }));
+      expect(mocks.upsertRuntime).toHaveBeenCalledWith(
+        expect.objectContaining({ protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION }),
+      );
     });
 
     it('configures the Worker, rolls out the container image and waits for readiness inside the window, then releases it', async () => {

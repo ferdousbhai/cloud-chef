@@ -32,7 +32,7 @@ describe('builder skills', () => {
     await expect(reader.read('/__skills__/../home/project/package.json')).resolves.toBeNull();
   });
 
-  it("leaves CloudChef's starter-app skill out of a GitHub project's catalog", async () => {
+  it("leaves CloudChef's starter-app skill out of a team project's catalog", async () => {
     const app = createBuilderSkillContext();
     const linked = createBuilderSkillContext({ linkedProject: true });
 

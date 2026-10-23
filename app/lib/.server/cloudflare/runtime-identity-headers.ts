@@ -3,7 +3,7 @@
  * routes, beside the bearer secret that proves it. Headers, so the control plane can check the secret
  * before reading a body that may be megabytes long.
  */
-export const RUNTIME_USER_HEADER = 'X-CloudChef-User-Id';
+const RUNTIME_USER_HEADER = 'X-CloudChef-User-Id';
 const RUNTIME_CONNECTION_HEADER = 'X-CloudChef-Connection-Id';
 export const RUNTIME_GENERATION_HEADER = 'X-CloudChef-Connection-Generation';
 
