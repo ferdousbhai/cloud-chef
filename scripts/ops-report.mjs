@@ -152,7 +152,8 @@ function describeValue(value) {
  * @param {{ now: number; desiredRuntimeVersion: string | null }} context
  */
 function describeWorkspaceRuntime(row, { now, desiredRuntimeVersion }) {
-  const who = typeof row.email === 'string' && row.email ? row.email : 'an unidentified account';
+  const person = typeof row.email === 'string' && row.email ? row.email : 'an unidentified account';
+  const who = row.organization ? `${person} in ${row.organization}` : person;
   const at = Number.isFinite(row.updated_at) ? Number(row.updated_at) : null;
   const when = formatRelativeTime(at, now, { missing: 'at an unrecorded time' });
   const version = typeof row.runtime_version === 'string' ? row.runtime_version : null;
@@ -315,8 +316,8 @@ function describeWorkerInvocations(rows, { windowMs = WORKER_INVOCATION_WINDOW_M
 }
 
 /**
- * The statements read in one batch. They target tables that have existed since the first
- * migration, so a failure here means the cf CLI, its login, or the network, not a schema gap.
+ * The statements read in one batch. They target tables every applied schema has, so a failure
+ * here means the cf CLI, its login, or the network, not a schema gap.
  * @param {number} now
  */
 export function coreStatements(now) {
@@ -329,14 +330,18 @@ export function coreStatements(now) {
         SUM(CASE WHEN credential_handle IS NULL THEN 1 ELSE 0 END) AS missing_credential
       FROM cloudflare_connections GROUP BY status`,
     `SELECT COUNT(*) AS unexpired FROM cloudflare_auth_sessions WHERE expires_at > ${now}`,
-    `SELECT users.email AS email, runtimes.status AS status, runtimes.runtime_version AS runtime_version,
-        runtimes.updated_at AS updated_at
-      FROM "user" AS users
-      JOIN cloudflare_connections AS connections ON connections.user_id = users.id
+    // A runtime is one person's in one connection: their own, or that of each organization they belong to.
+    `SELECT users.email AS email, organizations.name AS organization, runtimes.status AS status,
+        runtimes.runtime_version AS runtime_version, runtimes.updated_at AS updated_at
+      FROM cloudflare_connections AS connections
+      LEFT JOIN organizations ON organizations.id = connections.org_id
+      JOIN "user" AS users
+        ON users.id = connections.user_id
+        OR users.id IN (SELECT user_id FROM organization_members WHERE org_id = connections.org_id)
       LEFT JOIN user_computer_runtimes AS runtimes
         ON runtimes.user_id = users.id AND runtimes.connection_id = connections.id
       WHERE connections.status = 'active'
-      ORDER BY users.createdAt
+      ORDER BY users.createdAt, organizations.name
       LIMIT ${RUNTIME_ROW_LIMIT}`,
   ];
 }

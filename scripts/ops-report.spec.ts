@@ -177,6 +177,7 @@ describe('production report', () => {
       { status: 'error', count: 1, missing_credential: 0 },
     ];
     rows[3]![0]!.runtime_version = OLD_RUNTIME;
+    rows[3]![0]!.organization = 'Retreat Team';
 
     const report = await collectReport({
       query: fixtureQuery(rows),
@@ -191,7 +192,9 @@ describe('production report', () => {
     expect(report.status).toBe('error');
     expect(report.headline).toBe('1 check is broken, 1 check needs attention.');
     expect(rendered.indexOf('BROKEN')).toBeLessThan(rendered.indexOf('NEEDS ATTENTION'));
-    expect(rendered).toContain("runtime bbbbbbbbbbbb, not this checkout's aaaaaaaaaaaa");
+    expect(rendered).toContain(
+      "a@example.com in Retreat Team is on runtime bbbbbbbbbbbb, not this checkout's aaaaaaaaaaaa",
+    );
   });
 
   it('marks control-plane checks unknown when cf cannot read D1', async () => {
