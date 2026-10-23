@@ -179,7 +179,7 @@ overrides:
   'browserslist@<=4.28.6': '4.28.8'
   'fast-uri@>=3.0.0 <3.1.8': '3.1.8'
   'hono@<4.13.11': '4.13.11'
-  'ip-address@<=10.7.0': '10.7.1'
+  'ip-address@<=10.7.3': '10.7.4'
   'js-yaml@>=4.0.0 <4.3.2': '4.3.2'
   'nanoid@<3.3.18': '3.3.18'
   'postcss@<=8.5.22': '8.5.25'
@@ -211,7 +211,7 @@ overrides:
         'pnpm-workspace.yaml overrides must pin browserslist@<=4.28.6 to 4.28.8.',
         'pnpm-workspace.yaml overrides must pin fast-uri@>=3.0.0 <3.1.8 to 3.1.8.',
         'pnpm-workspace.yaml overrides must pin hono@<4.13.11 to 4.13.11.',
-        'pnpm-workspace.yaml overrides must pin ip-address@<=10.7.0 to 10.7.1.',
+        'pnpm-workspace.yaml overrides must pin ip-address@<=10.7.3 to 10.7.4.',
         'pnpm-workspace.yaml overrides must pin js-yaml@>=4.0.0 <4.3.2 to 4.3.2.',
         'pnpm-workspace.yaml overrides must pin nanoid@<3.3.18 to 3.3.18.',
         'pnpm-workspace.yaml overrides must pin postcss@<=8.5.22 to 8.5.25.',
