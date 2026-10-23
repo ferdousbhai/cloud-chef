@@ -13,6 +13,7 @@ import {
 } from '~/lib/.server/cloudflare/project-repository';
 import type { DataOperationResult, ProjectCloneAccess, ProjectCommit } from '~/lib/cloudflare/data-api';
 import { ensureInitialChat, findChat, openLinkedChat } from './chat-repository.server';
+import { cloneToken } from './clone-tokens.server';
 import { DataNotFoundError, ProjectForbiddenError } from './errors';
 
 /**
@@ -25,7 +26,13 @@ import { DataNotFoundError, ProjectForbiddenError } from './errors';
 /** Which project: a chat (a CloudChef app, or the team project it works on) or a team project by id. */
 type ProjectTarget = { chatInitialId?: string; orgProjectId?: string };
 
-type ResolvedProject = { repo: string | null; name: string; role: 'owner' | 'view' | 'edit' };
+type ResolvedProject = {
+  repo: string | null;
+  name: string;
+  role: 'owner' | 'view' | 'edit';
+  /** The team project it is; null for a CloudChef app. */
+  orgProjectId: string | null;
+};
 
 const REVISION_TRAILER = /^CloudChef-Revision: ([0-9a-f]{64})$/m;
 
@@ -51,6 +58,7 @@ async function resolveProject(env: Env, sessionId: string, target: ProjectTarget
         repo: nativeProjectRepo(chat.initial_id, chat.last_subchat_index),
         name: chat.description?.trim() || 'project',
         role: 'owner',
+        orgProjectId: null,
       };
     }
   }
@@ -63,7 +71,7 @@ async function resolveProject(env: Env, sessionId: string, target: ProjectTarget
   }
   try {
     const project = await openProject(env, identity, orgProjectId);
-    return { repo: project.repo, name: project.name, role: project.role };
+    return { repo: project.repo, name: project.name, role: project.role, orgProjectId };
   } catch (error) {
     if (error instanceof ProjectAccessError) {
       throw error.status === 404 ? new DataNotFoundError(error.message) : new ProjectForbiddenError(error.message);
@@ -98,7 +106,7 @@ export async function projectHistory(
   });
 }
 
-/** A `git clone` command for the project, with a read-only token good for an hour. */
+/** A `git clone` command for the project, with the person's read-only token, good for a year. */
 export async function projectCloneAccess(
   env: Env,
   args: ProjectTarget & { sessionId: string },
@@ -109,14 +117,18 @@ export async function projectCloneAccess(
   if (!project.repo || !(await store.head(project.repo))) {
     throw new DataNotFoundError('This project has no commits yet.');
   }
-  const access = await store.readAccess(project.repo);
+  const access = await cloneToken(env.DB, store, {
+    repo: project.repo,
+    userId: args.sessionId,
+    orgProjectId: project.orgProjectId,
+  });
   const url = new URL(access.remote);
   url.username = 'x';
   url.password = access.token;
   return {
     remote: access.remote,
     token: access.token,
-    expiresAt: Date.parse(access.expiresAt),
+    expiresAt: access.expiresAt,
     command: `git clone ${url.toString()} ${folderName(project.name)}`,
   };
 }

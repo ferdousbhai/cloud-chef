@@ -257,6 +257,7 @@ describe('ProjectRepositories', () => {
     const access = await repositories.readAccess('p-1');
     expect(access).toEqual({
       remote: 'https://artifacts.test/git/cloudchef/p-1.git',
+      tokenId: 'token',
       token: 'art_v2_x_0123456789abcdef',
       expiresAt: '2030-01-01T00:00:00.000Z',
     });

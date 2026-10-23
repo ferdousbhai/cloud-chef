@@ -6,7 +6,9 @@ import {
 } from '~/lib/.server/cloudflare/deployment-plan';
 import { createUserAccountApi } from '~/lib/.server/cloudflare/user-workspace-deployment-executor';
 import type { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
+import { nativeProjectRepo, ProjectRepositories } from '~/lib/.server/cloudflare/project-repository';
 import { AGENT_GC_GRACE_PERIOD_MS, retryDelay } from './agent-gc.server';
+import { forgetCloneTokens } from './clone-tokens.server';
 import { EMPTY_CHAT_DISCARD_PREDICATE } from './empty-chat.server';
 
 const APP_RESOURCE_GC_SWEEP_LIMIT = 2;
@@ -78,7 +80,9 @@ export async function sweepAppResourceGcCandidates(
     | 'CLOUDCHEF_CONNECTION_ID'
     | 'CLOUDCHEF_CONNECTION_GENERATION'
     | 'CLOUDFLARE_ACCOUNT_ID'
-  >,
+    | 'CLOUDCHEF_SHARED_ACCOUNT'
+  > &
+    Partial<Pick<Env, 'ARTIFACTS'>>,
   options: AppResourceGcSweepOptions = {},
 ): Promise<void> {
   const now = Date.now();
@@ -100,7 +104,15 @@ export async function sweepAppResourceGcCandidates(
   }
 
   const accountApi = await createUserAccountApi(env);
-  const sweep: CleanupSweep = { budget: APP_RESOURCE_GC_DEPLOYMENTS_PER_SWEEP };
+  const sweep: CleanupSweep = {
+    budget: APP_RESOURCE_GC_DEPLOYMENTS_PER_SWEEP,
+    // A team's draft can become one of its projects, keeping its repository, so only a person's own
+    // account deletes a removed chat's repositories.
+    repositories:
+      env.CLOUDCHEF_USER_RUNTIME === '1' && env.CLOUDCHEF_SHARED_ACCOUNT !== '1' && env.ARTIFACTS
+        ? new ProjectRepositories(env.ARTIFACTS)
+        : null,
+  };
   for (const candidate of result.results) {
     if (sweep.budget === 0) {
       // Still due, so the next sweep starts with it.
@@ -142,8 +154,11 @@ function requeueRemovedChatsWithDeployments(db: D1Database, now: number): Promis
     .run();
 }
 
-/** What is left of one sweep's work: the deployments it may still release. */
-type CleanupSweep = { budget: number };
+/**
+ * What is left of one sweep's work: the deployments it may still release, and the account's repositories
+ * when a removed chat's own go with it.
+ */
+type CleanupSweep = { budget: number; repositories: ProjectRepositories | null };
 
 export async function sweepAppResourceGcCandidatesBestEffort(
   env: Parameters<typeof sweepAppResourceGcCandidates>[0],
@@ -228,6 +243,9 @@ async function cleanupCandidate(
       await rescheduleCandidate(db, candidate, now, false);
       return;
     }
+    if (sweep.repositories) {
+      await deleteChatRepositories(db, sweep.repositories, candidate.chat_id);
+    }
     await db
       .prepare(
         `DELETE FROM app_resource_gc_candidates
@@ -238,6 +256,26 @@ async function cleanupCandidate(
   } catch {
     await rescheduleCandidate(db, candidate, now, true);
     logger.warn('Unable to remove deferred app Cloudflare resources');
+  }
+}
+
+/** The repositories of a removed chat's own app, one per subchat; a team project it worked on keeps its own. */
+async function deleteChatRepositories(
+  db: D1Database,
+  repositories: ProjectRepositories,
+  chatId: string,
+): Promise<void> {
+  const chat = await db
+    .prepare('SELECT initial_id, last_subchat_index, org_project_id FROM chats WHERE id = ?')
+    .bind(chatId)
+    .first<{ initial_id: string; last_subchat_index: number; org_project_id: string | null }>();
+  if (!chat || chat.org_project_id !== null) {
+    return;
+  }
+  for (let index = 0; index <= chat.last_subchat_index; index += 1) {
+    const repo = nativeProjectRepo(chat.initial_id, index);
+    await repositories.deleteRepo(repo);
+    await forgetCloneTokens(db, repo);
   }
 }
 

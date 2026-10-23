@@ -32,8 +32,8 @@ import { zipStream, type ZipEntry } from './zip-archive';
 export const MAIN_BRANCH = 'main';
 const MAIN_REF = `refs/heads/${MAIN_BRANCH}`;
 const PUSH_TOKEN_TTL_SECONDS = 10 * 60;
-/** A clone command's token: long enough to start a clone, short enough that a pasted one goes stale. */
-const CLONE_TOKEN_TTL_SECONDS = 60 * 60;
+/** A person's clone token lasts as long as Artifacts allows, a year, so their clone keeps pulling. */
+const CLONE_TOKEN_TTL_SECONDS = 365 * 24 * 60 * 60;
 /** A fork or import is ready within seconds to minutes; it is followed this long. */
 const READY_WAIT_MS = 5 * 60_000;
 const READY_POLL_MS = 1_000;
@@ -64,7 +64,7 @@ type RepositoryCommit = {
   parents: string[];
 };
 
-type RepositoryReadAccess = { remote: string; token: string; expiresAt: string };
+type RepositoryReadAccess = { remote: string; tokenId: string; token: string; expiresAt: string };
 
 export class ProjectRepositoryError extends Error {
   constructor(
@@ -449,12 +449,39 @@ export class ProjectRepositories {
     return { commit, stream: zipStream(entries, new Date(commit.committedAt * 1000)) };
   }
 
-  /** A read-only token for git over HTTPS, good for an hour, and the repository's remote. */
+  /** A read-only token for git over HTTPS, good for a year, and the repository's remote. */
   async readAccess(repo: string): Promise<RepositoryReadAccess> {
     return this.#withRepo(repo, async (handle) => {
       const [info, token] = await Promise.all([handle.info(), handle.createToken('read', CLONE_TOKEN_TTL_SECONDS)]);
-      return { remote: info.remote, token: tokenSecret(token.plaintext), expiresAt: token.expiresAt };
+      return {
+        remote: info.remote,
+        tokenId: token.id,
+        token: tokenSecret(token.plaintext),
+        expiresAt: token.expiresAt,
+      };
     });
+  }
+
+  /** Revokes one of the repository's tokens; one already gone, with its repository or not, is done. */
+  async revokeToken(repo: string, tokenId: string): Promise<void> {
+    try {
+      await this.#withRepo(repo, (handle) => handle.revokeToken(tokenId));
+    } catch (error) {
+      if (artifactsErrorCode(artifactsErrorSchema.parse(error)) !== 'NOT_FOUND') {
+        throw error;
+      }
+    }
+  }
+
+  /** Deletes the repository with its history and tokens; one already gone is done. */
+  async deleteRepo(name: string): Promise<void> {
+    try {
+      await this.#artifacts.delete(name);
+    } catch (error) {
+      if (artifactsErrorCode(artifactsErrorSchema.parse(error)) !== 'NOT_FOUND') {
+        throw error;
+      }
+    }
   }
 
   /**

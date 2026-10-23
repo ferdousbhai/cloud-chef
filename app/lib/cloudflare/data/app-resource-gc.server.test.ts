@@ -4,6 +4,7 @@ import { buildDeploymentPlanFromSource, type DeploymentResourceNaming } from '~/
 import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { appResourceName } from '~/lib/cloudflare/app-resource-names';
 import { userWorkspaceDatabase } from '~/test/control-plane-d1';
+import { fakeArtifacts } from '~/test/fake-artifacts';
 import { AGENT_GC_GRACE_PERIOD_MS, AGENT_GC_RETRY_BASE_MS } from './agent-gc.server';
 import { sweepAppResourceGcCandidates } from './app-resource-gc.server';
 
@@ -52,6 +53,35 @@ describe('app resource garbage collection', () => {
     ]);
     expect(workspace.candidates()).toEqual([]);
     expect(workspace.deploymentIds()).toEqual([]);
+  });
+
+  it("deletes a removed chat's own repositories, one per subchat, with their clone tokens", async () => {
+    const workspace = new AppResourceGcWorkspace();
+    const artifacts = fakeArtifacts();
+    for (const repo of ['p-initial-chat-row', 'p-initial-chat-row-1', 'p-other']) {
+      await artifacts.create(repo);
+    }
+    workspace.subchats('chat-row', 1);
+    workspace.cloneToken('p-initial-chat-row');
+    cleanupApi(true);
+
+    await sweepAt(100, { ...workspace.env, ARTIFACTS: artifacts });
+
+    expect([...artifacts.repos.keys()]).toEqual(['p-other']);
+    expect(workspace.cloneTokenRepos()).toEqual([]);
+    expect(workspace.candidates()).toEqual([]);
+  });
+
+  it("keeps a team account's draft repositories, which can become the team's projects", async () => {
+    const workspace = new AppResourceGcWorkspace();
+    const artifacts = fakeArtifacts();
+    await artifacts.create('p-initial-chat-row');
+    cleanupApi(true);
+
+    await sweepAt(100, { ...workspace.env, ARTIFACTS: artifacts, CLOUDCHEF_SHARED_ACCOUNT: '1' });
+
+    expect([...artifacts.repos.keys()]).toEqual(['p-initial-chat-row']);
+    expect(workspace.candidates()).toEqual([]);
   });
 
   it('retains the receipt without increasing failures while R2 cleanup makes bounded progress', async () => {
@@ -343,6 +373,23 @@ class AppResourceGcWorkspace {
         )
         .run(attempts);
     }
+  }
+
+  subchats(id: string, lastIndex: number) {
+    this.#database.prepare('UPDATE chats SET last_subchat_index = ? WHERE id = ?').run(lastIndex, id);
+  }
+
+  cloneToken(repo: string) {
+    this.#database
+      .prepare(
+        `INSERT INTO clone_tokens (repo, user_id, token_id, secret, remote, expires_at)
+         VALUES (?, 'user-1', 'token-1', 'secret', 'https://example.com/r.git', 9999999999999)`,
+      )
+      .run(repo);
+  }
+
+  cloneTokenRepos() {
+    return this.#database.prepare('SELECT repo FROM clone_tokens').all();
   }
 
   chat(id: string, { removed }: { removed: boolean }) {

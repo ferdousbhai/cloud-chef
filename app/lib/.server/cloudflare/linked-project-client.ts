@@ -77,7 +77,8 @@ export class ProjectAccessError extends Error {
  */
 export async function openProject(env: RuntimeEnv, identity: Identity, orgProjectId: string): Promise<OpenedProject> {
   const response = await postRuntimeRoute(env, identity, 'runtime-projects/open', { orgProjectId }, OPEN_TIMEOUT_MS);
-  if (response.status === 403 || response.status === 404) {
+  // 401: the person was removed from the team or paused, which stops their runtime's every call.
+  if (response.status === 401 || response.status === 403 || response.status === 404) {
     throw new ProjectAccessError(
       await failureMessage(response, 'You no longer have access to this project.'),
       response.status,

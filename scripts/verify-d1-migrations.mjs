@@ -108,6 +108,7 @@ const migrationPolicies = [
       '0015_agent_gc_generation_defaults.sql': '3dbfe2491866d454319d875caa466a1099671ca6d74edbb2379a5f594d91eb7c',
       '0016_remove_runtime_controls.sql': '2215380e3ec544cdf283ea068b67995e8887c9b1cea48a11a3da24597902d5c5',
       '0017_drop_generation_columns.sql': 'c8d690f93662c0db7363b2b280b05d9529289426843c341732735bb5129f0ef9',
+      '0018_clone_tokens.sql': '069a24c5d65f112fe1fe7f10d90019daea73b14b870e4ecb7a47cde381f1831d',
     },
     contractAllowlist: [
       // Chat identity has one immutable key; remove the unused alternate URL column and index.
