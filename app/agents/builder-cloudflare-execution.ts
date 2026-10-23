@@ -310,7 +310,6 @@ export class BuilderCloudflareExecutionRepository {
 
   /** The execution, provided it is still this binding's and still the proposal it was approved as. */
   async verify(executionId: string, binding: CloudflareExecutionBinding): Promise<CloudflareExecutionRecord> {
-    const now = Date.now();
     this.expireAwaiting();
     const record = this.require(executionId);
     if (!executionBindingsEqual(record.binding, binding)) {
