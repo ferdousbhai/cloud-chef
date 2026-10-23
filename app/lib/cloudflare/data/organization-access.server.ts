@@ -14,7 +14,7 @@ export type Membership = {
   orgName: string;
   role: OrganizationRole;
   pausedAt: number | null;
-  /** Whether they may build new apps of their own here, or only work on GitHub projects they're given. */
+  /** Whether they may build new apps of their own here, or only work on the team projects they're given. */
   draftsAllowed: boolean;
 };
 

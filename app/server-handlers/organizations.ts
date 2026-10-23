@@ -22,9 +22,9 @@ import {
 import {
   findGitHubInstallation,
   listAccessibleProjects,
-  listOrgProjects,
   listOwnProductionRequests,
   listPendingProductionRequests,
+  listScopeProjects,
 } from '~/lib/cloudflare/data/org-projects.server';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import { deleteTeamWorkspace } from '~/lib/.server/cloudflare/team-workspace';
@@ -74,29 +74,35 @@ const WORKSPACE_DELETION_CONCURRENCY = 4;
 export function listOrganizationsAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const organizations = await listOrganizations(env.DB, session.user.id);
-    // With each, its GitHub account and projects: all of them, with who may work on each, for an admin;
-    // the ones they may work on for a member.
+    // With each, its GitHub installation and projects: all of them, with who may view or edit each, for an
+    // admin; the ones they may view or edit, with their role, for a member.
     const withProjects = await Promise.all(
       organizations.map(async (organization) => {
         const admin = organization.members !== null;
+        const connection = await findCloudflareConnectionForOrganization(env.DB, organization.orgId);
+        const scope = connection ? { connectionId: connection.id, orgId: organization.orgId } : null;
         const [github, projects, productionRequests, ownRequests] = await Promise.all([
-          findGitHubInstallation(env.DB, organization.orgId),
-          admin
-            ? listOrgProjects(env.DB, organization.orgId)
-            : listAccessibleProjects(env.DB, organization.orgId, session.user.id),
+          scope ? findGitHubInstallation(env.DB, scope.connectionId) : null,
+          !scope
+            ? []
+            : admin
+              ? listScopeProjects(env.DB, scope)
+              : listAccessibleProjects(env.DB, scope.connectionId, session.user.id).then((accessible) =>
+                  accessible.map((project) => ({ ...project, access: [] })),
+                ),
           admin ? listPendingProductionRequests(env.DB, organization.orgId) : null,
           listOwnProductionRequests(env.DB, organization.orgId, session.user.id),
         ]);
         return {
           ...organization,
           github: github ? { accountLogin: github.accountLogin, accountType: github.accountType } : null,
-          projects: projects.map(({ id, name, repoFullName, defaultBranch, origin, memberIds }) => ({
+          projects: projects.map(({ id, name, repo, origin, importSource, access }) => ({
             id,
             name,
-            repoFullName,
-            defaultBranch,
+            repo,
             origin,
-            memberIds,
+            importRepoFullName: importSource?.fullName ?? null,
+            access,
           })),
           productionRequests,
           ownRequests,
