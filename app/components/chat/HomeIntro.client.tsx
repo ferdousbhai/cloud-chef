@@ -2,6 +2,7 @@ import { lazy, Suspense, type ReactNode } from 'react';
 import { HomeHeroCopy } from '~/components/HomeHeroCopy';
 import { authClient } from '~/lib/auth-client';
 import { MessageInput } from './MessageInput';
+import { classNames } from '~/utils/classNames';
 
 const DisabledChatMessageSheet = lazy(() =>
   import('./DisabledChatMessageSheet').then((module) => ({ default: module.DisabledChatMessageSheet })),
@@ -15,6 +16,8 @@ interface HomeIntroProps {
   sendMessageInProgress: boolean;
   /** The home page, where a new app starts; not a project's own empty chat. */
   homepage?: boolean;
+  /** What the signed-in home shows below the prompt: the person's projects. */
+  children?: ReactNode;
 }
 
 export function HomeIntro({
@@ -24,15 +27,21 @@ export function HomeIntro({
   onStop,
   sendMessageInProgress,
   homepage = false,
+  children,
 }: HomeIntroProps) {
   const { data: session } = authClient.useSession();
-  // A member whose organization limits them to its GitHub projects can't start a new app here.
+  // A member whose organization limits them to its team projects can't start a new app here.
   const projectsOnly =
     homepage && session?.context?.kind === 'organization' && !session.context.draftsAllowed
       ? session.context.orgName
       : null;
   return (
-    <div className="cloudchef-home-shell grow p-4 sm:px-6 lg:px-8">
+    <div
+      className={classNames(
+        'cloudchef-home-shell grow p-4 sm:px-6 lg:px-8',
+        children ? 'cloudchef-home-shell--projects flex-col' : undefined,
+      )}
+    >
       <section className="cloudchef-home-copy min-w-0" aria-labelledby="intro">
         <div className="cloudchef-home-hero">
           <div className="min-w-0">
@@ -41,8 +50,7 @@ export function HomeIntro({
             {projectsOnly !== null ? (
               <div className="cloudchef-home-composer-stack" role="status">
                 <p className="app-page-lede mx-auto break-words text-center">
-                  {projectsOnly} lets you work on its GitHub projects. Open the project menu (top left) and choose one
-                  to start.
+                  {projectsOnly} lets you work on its team projects. Choose one below to start.
                 </p>
               </div>
             ) : (
@@ -68,6 +76,7 @@ export function HomeIntro({
           </div>
         </div>
       </section>
+      {children}
     </div>
   );
 }

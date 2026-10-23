@@ -25,7 +25,7 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-/** The sidebar's GitHub projects in a chat whose editor holds edits not yet saved. */
+/** The sidebar's team projects in a chat whose editor holds edits not yet saved. */
 async function renderInChatWithUnsavedEdits() {
   const rootRoute = createRootRoute({
     component: function ChatWithUnsavedEdits() {
@@ -41,9 +41,7 @@ async function renderInChatWithUnsavedEdits() {
 }
 
 function projectButton() {
-  const button = [...document.querySelectorAll('button')].find((candidate) =>
-    candidate.textContent?.includes('acme/site'),
-  );
+  const button = [...document.querySelectorAll('button')].find((candidate) => candidate.textContent?.includes('Site'));
   if (!button) {
     throw new Error('The project is not listed.');
   }
@@ -53,7 +51,7 @@ function projectButton() {
 describe('OrgProjectsList', () => {
   it('asks before opening a project over unsaved edits, and leaves every project usable when the person stays', async () => {
     const fetchImpl = vi.fn(async () =>
-      Response.json({ projects: [{ id: 'project-a', name: 'Site', repoFullName: 'acme/site' }] }),
+      Response.json({ projects: [{ id: 'project-a', name: 'Site', role: 'edit', repo: 't-project-a' }] }),
     );
     vi.stubGlobal('fetch', fetchImpl);
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);

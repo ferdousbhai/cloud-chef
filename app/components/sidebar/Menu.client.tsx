@@ -192,7 +192,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
             />
           </div>
         </div>
-        {/* One scroller for both lists, so GitHub projects never squeeze the user's own off a phone screen. */}
+        {/* One scroller for both lists, so team projects never squeeze the user's own off a phone screen. */}
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-5">
           <OrgProjectsList userId={accountUserId} query={searchQuery} onNavigate={onClose} />
           <div className="flex items-baseline justify-between gap-3 px-1 pb-2 pt-1">

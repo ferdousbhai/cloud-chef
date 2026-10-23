@@ -57,6 +57,16 @@ html.light {
   margin: auto;
 }
 
+/* The signed-in home: the prompt at the top, the person's projects below it. */
+.cloudchef-home-shell--projects {
+  align-items: stretch;
+  overflow-y: auto;
+}
+
+.cloudchef-home-shell--projects .cloudchef-home-copy {
+  margin: 4vh auto 0;
+}
+
 .cloudchef-home-hero {
   display: grid;
   gap: 20px;

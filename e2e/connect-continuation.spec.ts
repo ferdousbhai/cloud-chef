@@ -64,6 +64,9 @@ test('never starts a build for someone who connected from settings', async ({ pa
   await page.getByRole('button', { name: 'Connect Cloudflare' }).click();
 
   await expect(page.getByPlaceholder(/Describe your app/i)).toHaveValue(PROMPT);
-  await expect(page.getByText('Preparing your Cloudflare workspace')).toHaveCount(0);
+  // The home's project list waits for the workspace to list what's in it; that's the only wait, and
+  // no build's progress is shown.
+  await expect(page.getByRole('region', { name: 'My projects' })).toContainText('Preparing your Cloudflare workspace');
+  await expect(page.getByText('Preparing your Cloudflare workspace')).toHaveCount(1);
   await assertClean();
 });
