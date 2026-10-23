@@ -18,16 +18,17 @@ It takes a few seconds: one combined read-only D1 statement against production, 
 
 ## The checks
 
-Six checks, in this order in `--json`:
+Seven checks, in this order in `--json`:
 
-| Check (`id`)                                  | What it answers                                                                                       |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Control-plane Worker (`control-plane-worker`) | Invocation outcomes of the `cloudchef` Worker over the last 24 hours, from Workers Logs.              |
-| Builder model (`builder-model`)               | Whether the pinned default builder model is still served, and whether anything newer is worth a look. |
-| Cloudflare accounts (`cloudflare-accounts`)   | Connected accounts by status, and any connection missing its stored credential.                       |
-| Workspace runtimes (`workspace-runtimes`)     | Each connected account's workspace runtime: status, and whether it is on this checkout's build.       |
-| Users (`users`)                               | Total users and sign-ups this week against last week.                                                 |
-| Sign-in sessions (`sessions`)                 | Unexpired sign-in sessions.                                                                           |
+| Check (`id`)                                  | What it answers                                                                                            |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Control-plane Worker (`control-plane-worker`) | Invocation outcomes of the `cloudchef` Worker over the last 24 hours, from Workers Logs.                   |
+| Builder model (`builder-model`)               | Whether the pinned default builder model is still served, and whether anything newer is worth a look.      |
+| Cloudflare accounts (`cloudflare-accounts`)   | Connected accounts by status, and any connection missing its stored credential.                            |
+| Workspace runtimes (`workspace-runtimes`)     | Each connected account's workspace runtime: status, and whether it is on this checkout's build.            |
+| Users (`users`)                               | Total users and sign-ups this week against last week.                                                      |
+| Sign-in sessions (`sessions`)                 | Unexpired sign-in sessions.                                                                                |
+| Projects (`projects`)                         | Each project, whose it is, and its Artifacts repository or the GitHub one it is still to be imported from. |
 
 ## Reading the output
 

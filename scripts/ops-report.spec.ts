@@ -11,6 +11,7 @@ import {
   readWorkersAiCatalog,
   renderReport,
   workerInvocationsQuery,
+  PROJECTS_STATEMENT,
 } from './ops-report.mjs';
 
 const NOW = Date.UTC(2026, 7, 18, 12, 0, 0);
@@ -158,7 +159,7 @@ describe('production report', () => {
     expect(report).toMatchObject({
       controlPlaneReadable: true,
       status: 'ok',
-      headline: 'Everything is healthy: all 6 checks passed.',
+      headline: 'Everything is healthy: all 7 checks passed.',
     });
     expect(report.checks.map((item: { id: string }) => item.id)).toEqual([
       'control-plane-worker',
@@ -167,7 +168,17 @@ describe('production report', () => {
       'workspace-runtimes',
       'users',
       'sessions',
+      'projects',
     ]);
+    expect(report.checks.at(-1)).toMatchObject({
+      sentence: '2 projects: 1 in Artifacts, 1 still to be imported from GitHub on first open.',
+      detail: {
+        entries: [
+          { name: 'ff', owner: 'Sites', repository: null, importFrom: 'ada/forbidden-feminine' },
+          { name: 'mine', owner: 'ada@example.com', repository: 't-mine', importFrom: null },
+        ],
+      },
+    });
   });
 
   it('surfaces broken connections and stale runtimes ahead of healthy checks', async () => {
@@ -382,8 +393,31 @@ function healthyRows(): Rows {
   ];
 }
 
+/** The core rows for the core statements, and two projects (a team's to import, a person's in Artifacts). */
 function fixtureQuery(rows: Rows) {
-  return async () => rows;
+  return async (sql: string) =>
+    sql === PROJECTS_STATEMENT
+      ? [
+          [
+            {
+              name: 'ff',
+              organization: 'Sites',
+              owner: null,
+              origin: 'imported',
+              artifact_repo: null,
+              import_repo_full_name: 'ada/forbidden-feminine',
+            },
+            {
+              name: 'mine',
+              organization: null,
+              owner: 'ada@example.com',
+              origin: 'imported',
+              artifact_repo: 't-mine',
+              import_repo_full_name: 'ada/mine',
+            },
+          ],
+        ]
+      : rows;
 }
 
 function invocationRow(outcome: string, count: number) {

@@ -25,6 +25,7 @@ const READ_ONLY_CF_COMMANDS = Object.freeze([
   'ai-gateway logs list',
   'ai-gateway logs get-request',
   'ai-gateway logs get-response',
+  'builds list',
 ]);
 
 /**
@@ -95,7 +96,7 @@ export async function attempt(read, { limit } = {}) {
  * else is pnpm's own wrapper noise.
  * @param {string} command the program that failed, named when it left no reason
  */
-export function describeCommandFailure(error, command) {
+function describeCommandFailure(error, command) {
   const stderr = String(error?.stderr ?? '');
   const boxed = stderr
     .split('\n')

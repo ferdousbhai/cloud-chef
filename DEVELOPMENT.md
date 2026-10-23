@@ -66,7 +66,9 @@ Vite plugin and deployed with the `cf` CLI. It contains one D1 binding (`DB`, sc
   credential, beside the requested and granted scopes) and default builder model (`default_builder_model`);
 - teams (organizations), their members and invites, daily per-member model usage (`organization_usage_daily`), and
   the invites sent and teams created that count toward their limits (`organization_quota_events`);
-- GitHub projects: App installations, linked repositories, member access, and production requests;
+- projects (each a connection's, personal or a team's): their Artifacts repository or the GitHub repository they
+  are imported from, the Worker Workers Builds builds them into, members' roles, production requests, and GitHub
+  App installations;
 - per-person settings such as AI Gateway content logging;
 - user workspace runtime discovery and upgrade state.
 
@@ -78,7 +80,8 @@ It declares these secrets, which are configured in Cloudflare and never stored i
 - `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — Sign in with Google; unset, that option reports itself
   unavailable.
 - `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY` (PKCS#8), `GITHUB_APP_SLUG` — CloudChef's
-  GitHub App for team projects kept in GitHub; unset, those projects report themselves unavailable.
+  GitHub App, for importing private repositories as projects; unset, importing those reports itself unavailable
+  (public repositories import without it).
 
 The checked-in D1 ID belongs to CloudChef production. Before provisioning a fork in another account, replace it with
 `00000000-0000-0000-0000-000000000000`. `pnpm run provision:production` bootstraps the control-plane D1 or reconciles
@@ -177,15 +180,16 @@ pnpm exec cf d1 time-travel restore '<database-id>' --bookmark='<bookmark from t
 The operational state of production is reported from a terminal:
 
 ```bash
-pnpm run ops        # Worker health, builder model, users, sessions, connected accounts, and runtime staleness
+pnpm run ops        # Worker health, builder model, users, sessions, connected accounts, runtime staleness, projects
 pnpm run ops:json   # the same report, structured for a coding agent
 pnpm run ops:session -- <chat id | user email | user id>   # one member's recent session, reconstructed
 ```
 
-`scripts/ops-session.mjs` reads, with `cf` and `gh` only, what an operator otherwise gathers by hand when someone
+`scripts/ops-session.mjs` reads, with `cf` only, what an operator otherwise gathers by hand when someone
 reports a problem: control-plane D1, the workspace's own D1 (found with `cf d1 list` in the runtime's account), dry-run
-Workers Logs queries for the workspace Worker, AI Gateway logs filed under the chat, and, for a GitHub project, the
-commits and check runs on the conversation's branch (the latest of the member's: which one is the chat's isn't recorded). It refuses any `cf` command outside a read-only allowlist, and a source it cannot
+Workers Logs queries for the workspace Worker, AI Gateway logs filed under the chat, and, for a project, its Artifacts
+repository (or the GitHub repository it is still to be imported from) and its Worker's latest Workers Builds builds of
+`main` and the member's branches (which one is the chat's isn't recorded). It refuses any `cf` command outside a read-only allowlist, and a source it cannot
 read is reported as unknown with the reason. Conversation content exists only for people who kept AI Gateway logging on.
 
 `.claude/skills/platform-status/SKILL.md` describes `pnpm run ops`: its checks, its read-only allowlist, and how to
