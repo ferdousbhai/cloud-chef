@@ -251,6 +251,13 @@ describe('ProjectRepositories', () => {
     ).toEqual({ commit: head });
   });
 
+  it('revokes the write token Artifacts makes with a new or forked repository', async () => {
+    const { artifacts, repositories } = setup();
+    await repositories.ensureRepo('p-1');
+    await repositories.fork('p-1', 'p-2');
+    expect(artifacts.revoked).toHaveLength(2);
+  });
+
   it('revokes the write token of each push once it is done', async () => {
     const { artifacts, repositories } = setup();
     await repositories.commitFiles({
@@ -263,7 +270,8 @@ describe('ProjectRepositories', () => {
     });
     const writes = artifacts.tokens.filter((token) => token.scope === 'write').map((token) => token.id);
     expect(writes).toHaveLength(1);
-    expect(artifacts.revoked).toEqual(writes);
+    // After the new repository's own token.
+    expect(artifacts.revoked.slice(1)).toEqual(writes);
   });
 
   it('hands out a read token without its expiry suffix', async () => {

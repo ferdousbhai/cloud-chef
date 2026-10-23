@@ -162,6 +162,7 @@ export class ProjectRepositories {
     }
     try {
       const created = await this.#artifacts.create(name, { setDefaultBranch: MAIN_BRANCH });
+      await this.#revokeInitialToken(name, created.token);
       return { remote: created.remote, created: true };
     } catch (error) {
       if (artifactsErrorCode(artifactsErrorSchema.parse(error)) !== 'ALREADY_EXISTS') {
@@ -479,10 +480,10 @@ export class ProjectRepositories {
     });
   }
 
-  /** Revokes one of the repository's tokens; one already gone, with its repository or not, is done. */
-  async revokeToken(repo: string, tokenId: string): Promise<void> {
+  /** Revokes one of the repository's tokens, by id or plaintext; one already gone, with its repository or not, is done. */
+  async revokeToken(repo: string, tokenOrId: string): Promise<void> {
     try {
-      await this.#withRepo(repo, (handle) => handle.revokeToken(tokenId));
+      await this.#withRepo(repo, (handle) => handle.revokeToken(tokenOrId));
     } catch (error) {
       if (artifactsErrorCode(artifactsErrorSchema.parse(error)) !== 'NOT_FOUND') {
         throw error;
@@ -507,7 +508,8 @@ export class ProjectRepositories {
    */
   async fork(repo: string, name: string, options: { commit?: string } = {}): Promise<void> {
     try {
-      await this.#withRepo(repo, (handle) => handle.fork(name, { defaultBranchOnly: true }));
+      const forked = await this.#withRepo(repo, (handle) => handle.fork(name, { defaultBranchOnly: true }));
+      await this.#revokeInitialToken(name, forked.token);
     } catch (error) {
       if (artifactsErrorCode(artifactsErrorSchema.parse(error)) !== 'ALREADY_EXISTS') {
         throw error;
@@ -540,10 +542,11 @@ export class ProjectRepositories {
           source.branch = args.branch;
         }
         try {
-          await this.#artifacts.import({
+          const imported = await this.#artifacts.import({
             source,
             target: { name: args.repo },
           });
+          await this.#revokeInitialToken(args.repo, imported.token);
         } catch (error) {
           const code = artifactsErrorCode(artifactsErrorSchema.parse(error));
           if (code === 'REMOTE_AUTH_REQUIRED') {
@@ -563,9 +566,14 @@ export class ProjectRepositories {
     if (main) {
       return { commit: main.hash };
     }
-    // Artifacts imported the source's own default branch (`master`, say): main starts there.
-    const info = await this.#withRepo(args.repo, (handle) => handle.info());
-    const head = await this.resolve(args.repo, args.branch || info.defaultBranch);
+    // Artifacts imported the source's own branch (`master`, say), which HEAD names, though the repository's
+    // info still says `main`: main starts there.
+    const head = args.branch
+      ? await this.resolve(args.repo, args.branch)
+      : await this.#withRepo(args.repo, async (handle) => {
+          const [commit] = await handle.log({ limit: 1 });
+          return commit ? toCommit(commit) : null;
+        });
     if (!head) {
       throw new ProjectRepositoryError('The imported repository has no commits.', 'not_found');
     }
@@ -623,6 +631,11 @@ export class ProjectRepositories {
     const { remote } = await this.ensureRepo(repo);
     const token = await this.#withRepo(repo, (handle) => handle.createToken('write', PUSH_TOKEN_TTL_SECONDS));
     return { url: remote.replace(/\/$/, ''), secret: tokenSecret(token.plaintext), tokenId: token.id };
+  }
+
+  /** Ends the write token Artifacts makes with a new repository, which CloudChef never uses (it lasts a day). */
+  async #revokeInitialToken(repo: string, token: string): Promise<void> {
+    await this.revokeToken(repo, token).catch(() => undefined);
   }
 
   /** Ends a push's write token; one left behind still expires within minutes. */
