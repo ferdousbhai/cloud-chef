@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { z } from 'zod';
 import { toast } from 'sonner';
 import { useStore } from '@nanostores/react';
 import { Link } from '@tanstack/react-router';
@@ -10,32 +9,14 @@ import { executeDataOperation } from '~/lib/cloudflare/client';
 import { api, type DataOperationResult } from '~/lib/cloudflare/data-api';
 import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
-import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
-import { getJson } from '~/lib/json-request';
+import { loadTeamProjects, openTeamProject, type TeamProject } from '~/lib/cloudflare/org-projects.client';
 
-const projectsSchema = z.object({
-  projects: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      repo: z.string().nullable(),
-      role: z.enum(['view', 'edit']),
-      importRepoFullName: z.string().nullable(),
-    }),
-  ),
-});
-
-type OrgProject = z.infer<typeof projectsSchema>['projects'][number];
-
-/** What a project is shown with: the GitHub repository it came from, or its own repository. */
-function source(project: OrgProject): string {
-  return project.importRepoFullName ?? project.repo ?? '';
-}
+type OrgProject = TeamProject;
 
 /**
- * The organization's GitHub projects this person may work on, above their own apps. Opening one starts
- * (or returns to) the project's current conversation, whose workspace is that repository; a new
- * conversation takes the workspace along, and the earlier ones stay to read.
+ * The team projects this person may edit, above their own apps (the ones they may only view are on the
+ * projects home). Opening one starts (or returns to) the project's current conversation, whose workspace is
+ * the project's repository; a new conversation takes the workspace along, and the earlier ones stay to read.
  */
 export function OrgProjectsList({
   userId,
@@ -62,9 +43,8 @@ export function OrgProjectsList({
     }
     const controller = new AbortController();
     setLoadFailed(false);
-    void getJson('/api/org-projects', projectsSchema, undefined, controller.signal)
-      // A workspace is for changing a project: ones this person may only view aren't opened here.
-      .then((parsed) => setProjects(parsed.projects.filter((project) => project.role === 'edit')))
+    void loadTeamProjects(controller.signal)
+      .then((listed) => setProjects(listed.filter((project) => project.role === 'edit')))
       .catch(() => {
         if (!controller.signal.aborted) {
           setLoadFailed(true);
@@ -78,12 +58,12 @@ export function OrgProjectsList({
   }
   if (loadFailed) {
     return (
-      <section aria-label="GitHub projects" className="pb-3">
+      <section aria-label="Team projects" className="pb-3">
         <div
           className="rounded-lg border border-[var(--cc-content-warning)]/40 bg-[var(--cc-background-secondary)] p-3 text-xs text-content-secondary"
           role="alert"
         >
-          <p>GitHub projects could not be loaded.</p>
+          <p>Team projects could not be loaded.</p>
           <Button className="mt-2" size="xs" variant="neutral" onClick={() => setAttempt((count) => count + 1)}>
             Try again
           </Button>
@@ -92,11 +72,7 @@ export function OrgProjectsList({
     );
   }
   const search = query.trim().toLowerCase();
-  const shown = search
-    ? projects.filter(
-        (project) => project.name.toLowerCase().includes(search) || source(project).toLowerCase().includes(search),
-      )
-    : projects;
+  const shown = search ? projects.filter((project) => project.name.toLowerCase().includes(search)) : projects;
   if (shown.length === 0) {
     return null;
   }
@@ -104,15 +80,7 @@ export function OrgProjectsList({
   const open = async (project: OrgProject, fresh: boolean) => {
     setOpening(project.id);
     try {
-      // A new conversation archives the current one, so staying for edits not yet saved must come first.
-      const left = await leavePage(async () => {
-        const args = { id: crypto.randomUUID(), orgProjectId: project.id };
-        const { initialId } = fresh
-          ? await executeDataOperation(api.messages.startLinkedChat, args)
-          : await executeDataOperation(api.messages.openLinkedChat, args);
-        onNavigate();
-        window.location.assign(`/chat/${encodeURIComponent(initialId)}`);
-      });
+      const left = await openTeamProject(project, fresh, onNavigate);
       if (!left) {
         setOpening(null);
       }
@@ -123,8 +91,8 @@ export function OrgProjectsList({
   };
 
   return (
-    <section aria-label="GitHub projects" className="pb-3">
-      <h2 className="px-1 pb-2 text-xs font-black tracking-widest text-content-secondary uppercase">GitHub projects</h2>
+    <section aria-label="Team projects" className="pb-3">
+      <h2 className="px-1 pb-2 text-xs font-black tracking-widest text-content-secondary uppercase">Team projects</h2>
       <div className="space-y-1.5">
         {shown.map((project) => (
           <div key={project.id} className="min-w-0">
@@ -138,7 +106,6 @@ export function OrgProjectsList({
                 <span className="truncate font-medium text-content-primary">
                   {opening === project.id ? `Opening ${project.name}…` : project.name}
                 </span>
-                <span className="truncate text-xs text-content-tertiary">{source(project)}</span>
                 {opening === project.id && workspacePreparing ? (
                   <span className="mt-1 text-xs text-content-secondary" role="status">
                     {workspacePreparingMessage(workspaceUpgrading)}

@@ -13,6 +13,8 @@ const chatHistorySummarySchema = z.object({
   initialId: z.string().min(1),
   description: z.string().optional(),
   timestamp: z.iso.datetime(),
+  productionUrl: z.url({ protocol: /^https$/ }).nullish(),
+  lastCommitAt: z.iso.datetime().nullish(),
 }) satisfies z.ZodType<ChatHistorySummary>;
 
 function chatHistoryQueryKey(sessionId: string) {

@@ -12,6 +12,36 @@ export type ChatHistorySummary = {
   initialId: string;
   description?: string;
   timestamp: string;
+  /** The live site's address once the project has been published. */
+  productionUrl?: string | null;
+  /** When the project's newest commit was made (ISO 8601), once it has one. */
+  lastCommitAt?: string | null;
+};
+
+/** One commit of a project's history, newest first. `committedAt` is in unix seconds, as Artifacts gives it. */
+export type ProjectCommit = {
+  hash: string;
+  message: string;
+  author: { name: string; email: string };
+  committedAt: number;
+  /** The CloudChef revision a production publish recorded with this commit. */
+  revision?: string;
+};
+
+/** A short-lived read token for cloning; `expiresAt` is in milliseconds since the epoch. */
+export type ProjectCloneAccess = {
+  remote: string;
+  token: string;
+  expiresAt: number;
+  command: string;
+};
+
+export type ProjectImportResult = {
+  /** The imported project: a team project's id in a team, the new chat's initial id otherwise. */
+  projectId: string;
+  initialId: string;
+  /** Workers Builds already deploys this repository from GitHub, so it can switch to building from Artifacts. */
+  workersBuildsFromGitHub?: boolean;
 };
 
 export type SubchatSummary = {
@@ -31,6 +61,10 @@ type DataOperationResults = {
   'messages.discardEmptyChat': null;
   'messages.remove': { kind: 'success' };
   'messages.setDescription': null;
+  'projects.history': ProjectCommit[];
+  'projects.cloneAccess': ProjectCloneAccess;
+  'projects.fork': { initialId: string };
+  'projects.import': ProjectImportResult;
   'subchats.create': number;
   'subchats.get': SubchatSummary[];
   'subchats.setDescription': null;
@@ -52,6 +86,12 @@ export const api = {
     discardEmptyChat: 'messages.discardEmptyChat',
     remove: 'messages.remove',
     setDescription: 'messages.setDescription',
+  },
+  projects: {
+    history: 'projects.history',
+    cloneAccess: 'projects.cloneAccess',
+    fork: 'projects.fork',
+    import: 'projects.import',
   },
   subchats: {
     create: 'subchats.create',

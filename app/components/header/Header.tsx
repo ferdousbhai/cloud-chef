@@ -19,6 +19,9 @@ const DownloadButton = lazy(() => import('./DownloadButton').then((module) => ({
 const MobileProjectMenuItems = lazy(() =>
   import('./DownloadButton').then((module) => ({ default: module.MobileProjectMenuItems })),
 );
+const ProjectDialogs = lazy(() =>
+  import('./ProjectDialogs.client').then((module) => ({ default: module.ProjectDialogs })),
+);
 const SidebarMenu = lazy(() => import('~/components/sidebar/Menu.client').then((module) => ({ default: module.Menu })));
 const HeaderActionButtons = lazy(() =>
   import('./HeaderActionButtons.client').then((module) => ({ default: module.HeaderActionButtons })),
@@ -135,6 +138,11 @@ export function Header() {
           )}
         </div>
       </header>
+      {chat.started && (
+        <Suspense fallback={null}>
+          <ProjectDialogs />
+        </Suspense>
+      )}
       {isMenuOpen && (
         <Suspense fallback={null}>
           <SidebarMenu isOpen onClose={() => setIsMenuOpen(false)} />
