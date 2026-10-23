@@ -239,6 +239,12 @@ type RuntimeRoute =
   | 'runtime-usage'
   | 'runtime-access'
   | 'runtime-models'
+  | 'runtime-projects/open'
+  | 'runtime-projects/imported'
+  | 'runtime-projects/status'
+  | 'runtime-projects/site'
+  | 'runtime-projects/request-production'
+  // The control plane no longer serves these: the runtime's project client moves to runtime-projects.
   | 'runtime-github/snapshot'
   | 'runtime-github/commit'
   | 'runtime-github/status'
