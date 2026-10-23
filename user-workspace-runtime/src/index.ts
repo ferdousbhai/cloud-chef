@@ -52,6 +52,7 @@ import {
 import { addRequestedDependencies } from '../../app/lib/runtime/action-runner/dependency-manifest';
 import { stableJson } from '../../app/lib/stable-json';
 import { userRuntimeDataAction, userRuntimeInitialMessagesAction } from '../../app/lib/cloudflare/data.server';
+import { userRuntimeProjectArchiveAction } from '../../app/lib/cloudflare/data/projects.server';
 import { verifyRuntimeCapability } from '../../app/lib/cloudflare/runtime-capability';
 import { userRuntimeDeploymentAction } from '../../app/server-handlers/deployments';
 import { userRuntimeEnhancePromptAction } from '../../app/server-handlers/enhance-prompt';
@@ -164,6 +165,7 @@ interface RuntimeEnv {
   BuilderAgent: DurableObjectNamespace<BuilderAgent>;
   DB: D1Database;
   AI: Ai;
+  ARTIFACTS: Artifacts;
   CONTROL_PLANE_SECRET: string;
   CLOUDFLARE_ACCOUNT_ID: string;
   CLOUDCHEF_USER_ID: string;
@@ -180,7 +182,7 @@ interface ScheduledRetryPayload {
 }
 
 const PROJECT_ROOT = WORK_DIR;
-/** The scripts a GitHub project's validation runs, when its package.json has them. */
+/** The scripts a team project's validation runs, when its package.json has them. */
 const LINKED_PROJECT_SCRIPTS = ['typecheck', 'lint', 'test', 'build'] as const;
 const LINKED_PROJECT_SCRIPT_TIMEOUT_MS = 10 * 60_000;
 const linkedPackageSchema = z.looseObject({ scripts: z.record(z.string(), z.string()).optional() });
@@ -419,7 +421,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
          updated_at INTEGER NOT NULL
        )`,
     );
-    // A workspace opened from an organization's GitHub project: its project and base commit.
+    // A workspace opened from a team project: its project, repository and base commit.
     this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS cloudchef_linked_project (
          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -432,6 +434,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     );
     addMissingColumn(this.ctx.storage.sql, 'cloudchef_linked_project', 'branch_key', 'TEXT');
     addMissingColumn(this.ctx.storage.sql, 'cloudchef_linked_project', 'workspace_modes', 'INTEGER NOT NULL DEFAULT 0');
+    addMissingColumn(this.ctx.storage.sql, 'cloudchef_linked_project', 'project_name', 'TEXT');
     // Its files at the base commit, a row each: a repository's whole list is too large for one value.
     this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS cloudchef_linked_manifest (
@@ -1560,7 +1563,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
             throw new Error('The project changed while validation was being isolated. Validate the new revision.');
           }
           if (this.linkedProject()) {
-            // A GitHub project builds and deploys through its own pipeline, so it is validated with its
+            // A team project builds and deploys through its own pipeline, so it is validated with its
             // own scripts rather than CloudChef's template checks.
             const checks = await this.runLinkedProjectScripts(isolatedRoot, cancellation, reportStage);
             liveness.observed();
@@ -1718,7 +1721,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   /**
-   * The GitHub project's own checks: install with the package manager its lockfile names, then whichever of
+   * The team project's own checks: install with the package manager its lockfile names, then whichever of
    * `typecheck`, `lint`, `test` and `build` its package.json defines, in that order. A repository without
    * a package.json has nothing to run. Returns the checks that ran.
    */
@@ -2101,18 +2104,20 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       this.ctx.storage.sql.exec(
         `INSERT INTO cloudchef_linked_project
            (singleton, org_project_id, repository, default_branch, base_commit, branch_key, workspace_modes,
-            updated_at)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+            project_name, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(singleton) DO UPDATE SET org_project_id = excluded.org_project_id,
            repository = excluded.repository, default_branch = excluded.default_branch,
            base_commit = excluded.base_commit, branch_key = excluded.branch_key,
-           workspace_modes = excluded.workspace_modes, updated_at = excluded.updated_at`,
+           workspace_modes = excluded.workspace_modes, project_name = excluded.project_name,
+           updated_at = excluded.updated_at`,
         value.orgProjectId,
         value.repository,
         value.defaultBranch,
         value.baseCommit,
         value.branchKey ?? null,
         value.workspaceModes ? 1 : 0,
+        value.name ?? null,
         Date.now(),
       );
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_linked_manifest');
@@ -2136,8 +2141,9 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         base_commit: string;
         branch_key: string | null;
         workspace_modes: number;
+        project_name: string | null;
       }>(
-        `SELECT org_project_id, repository, default_branch, base_commit, branch_key, workspace_modes
+        `SELECT org_project_id, repository, default_branch, base_commit, branch_key, workspace_modes, project_name
          FROM cloudchef_linked_project WHERE singleton = 1`,
       ),
     );
@@ -2161,6 +2167,9 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     }
     if (row.workspace_modes === 1) {
       linked.workspaceModes = true;
+    }
+    if (row.project_name !== null) {
+      linked.name = row.project_name;
     }
     return linked;
   }
@@ -2988,6 +2997,8 @@ async function handleUserRequest(
       userId: capability.subject,
       executionCtx: ctx,
     });
+  } else if (request.method === 'GET' && url.pathname === '/v1/projects/archive') {
+    response = await userRuntimeProjectArchiveAction({ url, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/chats/messages') {
     response = await userRuntimeInitialMessagesAction({
       request,

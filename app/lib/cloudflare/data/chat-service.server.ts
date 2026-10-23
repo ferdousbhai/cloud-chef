@@ -1,4 +1,5 @@
 import { ensureInitialChat, findChat, requireChat } from './chat-repository.server';
+import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
 import { prepareInsertChatTranscript } from './transcript-repository.server';
 import type { ChatRow, ChatTranscriptRow } from './types';
 import { prepareAgentGcCandidatesStatement } from './agent-gc.server';
@@ -60,11 +61,22 @@ export async function getAllChats(db: D1Database, args: { sessionId: string }) {
              LIMIT 1
            )
          ) AS description,
-         chats.timestamp
+         chats.timestamp,
+         (
+           SELECT deployments.production_url FROM deployments
+           WHERE deployments.chat_id = chats.id AND deployments.status = 'succeeded'
+             AND deployments.production_url IS NOT NULL
+           ORDER BY deployments.updated_at DESC LIMIT 1
+         ) AS production_url,
+         -- A production deployment becomes a commit on main as it finishes: its time is the commit's.
+         (
+           SELECT MAX(deployments.updated_at) FROM deployments
+           WHERE deployments.chat_id = chats.id AND deployments.commit_sha IS NOT NULL
+         ) AS last_commit_at
        FROM chats
        WHERE chats.creator_id = ? AND chats.is_deleted = 0
          AND chats.has_messages = 1
-         -- A GitHub project's chat is listed with the GitHub projects, not as an app of one's own.
+         -- A team project's chat is listed with the team's projects, not as an app of one's own.
          AND chats.org_project_id IS NULL
        ORDER BY chats.timestamp DESC, chats.id DESC`,
     )
@@ -73,13 +85,24 @@ export async function getAllChats(db: D1Database, args: { sessionId: string }) {
       initial_id: string;
       description: string | null;
       timestamp: string;
+      production_url: string | null;
+      last_commit_at: number | null;
     }>();
-  return results.map((row) => ({
-    id: row.initial_id,
-    initialId: row.initial_id,
-    description: row.description ?? undefined,
-    timestamp: row.timestamp,
-  }));
+  return results.map((row) => {
+    const summary: ChatHistorySummary = {
+      id: row.initial_id,
+      initialId: row.initial_id,
+      description: row.description ?? undefined,
+      timestamp: row.timestamp,
+    };
+    if (row.production_url?.startsWith('https://')) {
+      summary.productionUrl = row.production_url;
+    }
+    if (row.last_commit_at) {
+      summary.lastCommitAt = new Date(row.last_commit_at).toISOString();
+    }
+    return summary;
+  });
 }
 
 export async function setDescription(
