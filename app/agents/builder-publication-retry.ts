@@ -9,7 +9,7 @@ export class PublicationSupersededError extends Error {
 }
 
 /** How long after each failed attempt an automatic deployment tries again; past the last, it waits for the next turn. */
-export const AUTOMATIC_DEPLOYMENT_RETRY_DELAYS_SECONDS = [30, 120, 480] as const;
+const AUTOMATIC_DEPLOYMENT_RETRY_DELAYS_SECONDS = [30, 120, 480] as const;
 
 /** A scheduled retry names the exact checkpoint that failed and how many retries came before it. */
 export const automaticDeploymentRetrySchema = z.object({

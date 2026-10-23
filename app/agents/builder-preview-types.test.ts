@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   failedBuilderPreviewState,
   idleBuilderPreviewState,
-  isPreviewStale,
   previewStateForWorkspace,
   type BuilderPreviewSuccess,
 } from './builder-preview-types';
@@ -50,7 +49,8 @@ describe('Builder preview state', () => {
   });
 
   it('uses the exact validated workspace revision to determine staleness', () => {
-    expect(isPreviewStale(successful, 4)).toBe(false);
-    expect(isPreviewStale(successful, 5)).toBe(true);
+    const published = { ...idleBuilderPreviewState(), status: 'ready' as const, published: successful };
+    expect(previewStateForWorkspace(published, 4).stale).toBe(false);
+    expect(previewStateForWorkspace(published, 5).stale).toBe(true);
   });
 });

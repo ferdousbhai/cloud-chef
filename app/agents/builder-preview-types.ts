@@ -39,7 +39,7 @@ export function previewStateForWorkspace(
   };
 }
 
-export function isPreviewStale(published: BuilderPreviewSuccess | null, currentWorkspaceRevision: number): boolean {
+function isPreviewStale(published: BuilderPreviewSuccess | null, currentWorkspaceRevision: number): boolean {
   return published !== null && published.workspaceRevision !== currentWorkspaceRevision;
 }
 
