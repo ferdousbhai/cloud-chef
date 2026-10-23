@@ -251,6 +251,21 @@ describe('ProjectRepositories', () => {
     ).toEqual({ commit: head });
   });
 
+  it('revokes the write token of each push once it is done', async () => {
+    const { artifacts, repositories } = setup();
+    await repositories.commitFiles({
+      repo: 'p-1',
+      branch: 'main',
+      parent: null,
+      files: [{ path: 'a.txt', mode: 0o644, bytes: new TextEncoder().encode('a') }],
+      message: 'First',
+      author: { name: 'Sara', email: 'sara@example.com' },
+    });
+    const writes = artifacts.tokens.filter((token) => token.scope === 'write').map((token) => token.id);
+    expect(writes).toHaveLength(1);
+    expect(artifacts.revoked).toEqual(writes);
+  });
+
   it('hands out a read token without its expiry suffix', async () => {
     const { artifacts, repositories } = setup();
     await artifacts.create('p-1');

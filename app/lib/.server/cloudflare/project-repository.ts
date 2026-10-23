@@ -296,58 +296,67 @@ export class ProjectRepositories {
     const ref = `refs/heads/${args.branch}`;
     const expected = args.replaces === undefined ? args.parent : args.replaces;
     const remote = await this.#pushRemote(args.repo);
-    const head = (await readRemoteRefs(this.#fetch, remote)).get(ref) ?? null;
-    if (head !== expected) {
-      return { conflict: true, head };
-    }
-    const known = args.parent
-      ? await this.#withRepo(args.repo, async (handle) => {
-          const parent = await handle.readCommit(args.parent!);
-          if (!parent) {
-            throw new ProjectRepositoryError(
-              'The commit this work started from is not in the repository.',
-              'not_found',
-            );
-          }
-          return flattenTree(handle, parent.treeHash);
-        })
-      : null;
-    const store = await objectStore();
-    const sent: string[] = [];
-    const tree = new Map<string, { mode: string; oid: string }>();
-    for (const file of args.files) {
-      const mode = gitFileMode(file.mode);
-      if ('oid' in file) {
-        tree.set(file.path, { mode, oid: file.oid });
-        continue;
+    try {
+      const head = (await readRemoteRefs(this.#fetch, remote)).get(ref) ?? null;
+      if (head !== expected) {
+        return { conflict: true, head };
       }
-      const oid = await gitBlobOid(file.bytes);
-      if (!known?.blobs.has(oid)) {
-        await isogit.writeBlob({ ...store, blob: file.bytes });
-        sent.push(oid);
+      const known = args.parent
+        ? await this.#withRepo(args.repo, async (handle) => {
+            const parent = await handle.readCommit(args.parent!);
+            if (!parent) {
+              throw new ProjectRepositoryError(
+                'The commit this work started from is not in the repository.',
+                'not_found',
+              );
+            }
+            return flattenTree(handle, parent.treeHash);
+          })
+        : null;
+      const store = await objectStore();
+      const sent: string[] = [];
+      const tree = new Map<string, { mode: string; oid: string }>();
+      for (const file of args.files) {
+        const mode = gitFileMode(file.mode);
+        if ('oid' in file) {
+          tree.set(file.path, { mode, oid: file.oid });
+          continue;
+        }
+        const oid = await gitBlobOid(file.bytes);
+        if (!known?.blobs.has(oid)) {
+          await isogit.writeBlob({ ...store, blob: file.bytes });
+          sent.push(oid);
+        }
+        tree.set(file.path, { mode, oid });
       }
-      tree.set(file.path, { mode, oid });
-    }
-    const written = await writeTrees(store, tree, known?.trees ?? new Set());
-    if (args.parent && written.root === known?.root && head === args.parent) {
-      return { commit: args.parent, unchanged: true };
-    }
-    const commit = await writeCommit(store, {
-      tree: written.root,
-      parents: args.parent ? [args.parent] : [],
-      message: args.message,
-      author: args.author,
-    });
-    const pack = await packObjects(store, [...sent, ...written.written, commit]);
-    const result = await updateRemoteRef(this.#fetch, remote, { ref, oldOid: head ?? ZERO_OID, newOid: commit }, pack);
-    if (!result.ok) {
-      const now = (await readRemoteRefs(this.#fetch, remote)).get(ref) ?? null;
-      if (now !== head) {
-        return { conflict: true, head: now };
+      const written = await writeTrees(store, tree, known?.trees ?? new Set());
+      if (args.parent && written.root === known?.root && head === args.parent) {
+        return { commit: args.parent, unchanged: true };
       }
-      throw new Error(`The repository refused the commit (${result.reason}).`);
+      const commit = await writeCommit(store, {
+        tree: written.root,
+        parents: args.parent ? [args.parent] : [],
+        message: args.message,
+        author: args.author,
+      });
+      const pack = await packObjects(store, [...sent, ...written.written, commit]);
+      const result = await updateRemoteRef(
+        this.#fetch,
+        remote,
+        { ref, oldOid: head ?? ZERO_OID, newOid: commit },
+        pack,
+      );
+      if (!result.ok) {
+        const now = (await readRemoteRefs(this.#fetch, remote)).get(ref) ?? null;
+        if (now !== head) {
+          return { conflict: true, head: now };
+        }
+        throw new Error(`The repository refused the commit (${result.reason}).`);
+      }
+      return { commit };
+    } finally {
+      await this.#revokePushToken(args.repo, remote);
     }
-    return { commit };
   }
 
   /**
@@ -363,72 +372,80 @@ export class ProjectRepositories {
   }): Promise<{ commit: string } | { conflict: true }> {
     const branchRef = `refs/heads/${args.branch}`;
     const remote = await this.#pushRemote(args.repo);
-    for (let attempt = 0; attempt < MERGE_ATTEMPTS; attempt += 1) {
-      const refs = await readRemoteRefs(this.#fetch, remote);
-      const theirs = refs.get(branchRef);
-      if (!theirs) {
-        throw new ProjectRepositoryError(`The branch ${args.branch} is not in the repository.`, 'not_found');
-      }
-      const ours = refs.get(MAIN_REF) ?? null;
-      if (ours === theirs) {
-        return { commit: ours };
-      }
-      const base = ours ? await this.#withRepo(args.repo, (handle) => mergeBase(handle, ours, theirs)) : null;
-      if (ours && base === theirs) {
-        // Main already holds everything on the branch.
-        return { commit: ours };
-      }
-      let target: string;
-      let pack: Uint8Array;
-      const store = await objectStore();
-      if (!ours || base === ours) {
-        target = theirs;
-        pack = await packObjects(store, []);
-      } else if (!base) {
-        return { conflict: true };
-      } else {
-        const merged = await this.#withRepo(args.repo, (handle) => mergeTrees(handle, store, base, ours, theirs));
-        if (!merged) {
-          return { conflict: true };
+    try {
+      for (let attempt = 0; attempt < MERGE_ATTEMPTS; attempt += 1) {
+        const refs = await readRemoteRefs(this.#fetch, remote);
+        const theirs = refs.get(branchRef);
+        if (!theirs) {
+          throw new ProjectRepositoryError(`The branch ${args.branch} is not in the repository.`, 'not_found');
         }
-        target = await writeCommit(store, {
-          tree: merged.root,
-          parents: [ours, theirs],
-          message: args.message ?? `Merge ${args.branch}`,
-          author: args.author,
-        });
-        pack = await packObjects(store, [...merged.written, target]);
+        const ours = refs.get(MAIN_REF) ?? null;
+        if (ours === theirs) {
+          return { commit: ours };
+        }
+        const base = ours ? await this.#withRepo(args.repo, (handle) => mergeBase(handle, ours, theirs)) : null;
+        if (ours && base === theirs) {
+          // Main already holds everything on the branch.
+          return { commit: ours };
+        }
+        let target: string;
+        let pack: Uint8Array;
+        const store = await objectStore();
+        if (!ours || base === ours) {
+          target = theirs;
+          pack = await packObjects(store, []);
+        } else if (!base) {
+          return { conflict: true };
+        } else {
+          const merged = await this.#withRepo(args.repo, (handle) => mergeTrees(handle, store, base, ours, theirs));
+          if (!merged) {
+            return { conflict: true };
+          }
+          target = await writeCommit(store, {
+            tree: merged.root,
+            parents: [ours, theirs],
+            message: args.message ?? `Merge ${args.branch}`,
+            author: args.author,
+          });
+          pack = await packObjects(store, [...merged.written, target]);
+        }
+        const result = await updateRemoteRef(
+          this.#fetch,
+          remote,
+          { ref: MAIN_REF, oldOid: ours ?? ZERO_OID, newOid: target },
+          pack,
+        );
+        if (result.ok) {
+          return { commit: target };
+        }
+        // Main moved while this merge was written: merge again onto where it is now.
       }
-      const result = await updateRemoteRef(
-        this.#fetch,
-        remote,
-        { ref: MAIN_REF, oldOid: ours ?? ZERO_OID, newOid: target },
-        pack,
-      );
-      if (result.ok) {
-        return { commit: target };
-      }
-      // Main moved while this merge was written: merge again onto where it is now.
+      return { conflict: true };
+    } finally {
+      await this.#revokePushToken(args.repo, remote);
     }
-    return { conflict: true };
   }
 
   /** Points main at `commit`, which the repository already holds (a fork's reset to an older commit). */
   async resetMain(repo: string, commit: string): Promise<void> {
     const remote = await this.#pushRemote(repo);
-    const head = (await readRemoteRefs(this.#fetch, remote)).get(MAIN_REF) ?? null;
-    if (head === commit) {
-      return;
-    }
-    const pack = await packObjects(await objectStore(), []);
-    const result = await updateRemoteRef(
-      this.#fetch,
-      remote,
-      { ref: MAIN_REF, oldOid: head ?? ZERO_OID, newOid: commit },
-      pack,
-    );
-    if (!result.ok) {
-      throw new Error(`The repository refused to move main (${result.reason}).`);
+    try {
+      const head = (await readRemoteRefs(this.#fetch, remote)).get(MAIN_REF) ?? null;
+      if (head === commit) {
+        return;
+      }
+      const pack = await packObjects(await objectStore(), []);
+      const result = await updateRemoteRef(
+        this.#fetch,
+        remote,
+        { ref: MAIN_REF, oldOid: head ?? ZERO_OID, newOid: commit },
+        pack,
+      );
+      if (!result.ok) {
+        throw new Error(`The repository refused to move main (${result.reason}).`);
+      }
+    } finally {
+      await this.#revokePushToken(repo, remote);
     }
   }
 
@@ -582,31 +599,35 @@ export class ProjectRepositories {
     if (!branch) {
       throw new ProjectRepositoryError('The repository to import has no branch.', 'not_found');
     }
-    const { remote } = await this.ensureRepo(args.repo);
-    const secret = await this.#writeSecret(args.repo);
-    const result = await isogit.push({
-      fs,
-      http,
-      dir: '/source',
-      url: remote,
-      ref: branch,
-      remoteRef: MAIN_REF,
-      onAuth: () => ({ username: 'x', password: secret }),
-    });
-    if (!result.ok) {
-      throw new Error(`The imported history could not be stored (${result.error ?? 'refused'}).`);
+    const remote = await this.#pushRemote(args.repo);
+    try {
+      const result = await isogit.push({
+        fs,
+        http,
+        dir: '/source',
+        url: remote.url,
+        ref: branch,
+        remoteRef: MAIN_REF,
+        onAuth: () => ({ username: 'x', password: remote.secret }),
+      });
+      if (!result.ok) {
+        throw new Error(`The imported history could not be stored (${result.error ?? 'refused'}).`);
+      }
+    } finally {
+      await this.#revokePushToken(args.repo, remote);
     }
   }
 
-  async #pushRemote(repo: string): Promise<GitRemote> {
+  /** The repository's remote with a write token for one push, which `#revokePushToken` ends once it is done. */
+  async #pushRemote(repo: string): Promise<GitRemote & { tokenId: string }> {
     const { remote } = await this.ensureRepo(repo);
-    return { url: remote.replace(/\/$/, ''), secret: await this.#writeSecret(repo) };
+    const token = await this.#withRepo(repo, (handle) => handle.createToken('write', PUSH_TOKEN_TTL_SECONDS));
+    return { url: remote.replace(/\/$/, ''), secret: tokenSecret(token.plaintext), tokenId: token.id };
   }
 
-  async #writeSecret(repo: string): Promise<string> {
-    return this.#withRepo(repo, async (handle) =>
-      tokenSecret((await handle.createToken('write', PUSH_TOKEN_TTL_SECONDS)).plaintext),
-    );
+  /** Ends a push's write token; one left behind still expires within minutes. */
+  async #revokePushToken(repo: string, remote: { tokenId: string }): Promise<void> {
+    await this.revokeToken(repo, remote.tokenId).catch(() => undefined);
   }
 
   /** The repository's info, or null when there is none; one still being made is waited for. */

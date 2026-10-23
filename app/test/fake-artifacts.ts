@@ -41,12 +41,17 @@ export type FakeArtifacts = Artifacts & {
   pushes: { repo: string; ref: string; oldOid: string; newOid: string }[];
   /** Forks and imports stay in progress for this many reads. */
   setPending(count: number): void;
+  /** Tokens made, by scope and id, and the ids revoked since. */
+  tokens: { repo: string; id: string; scope: 'read' | 'write' }[];
+  revoked: string[];
 };
 
 export function fakeArtifacts(): FakeArtifacts {
   const repos = new Map<string, FakeRepo>();
   const sources = new Map<string, FakeRepo>();
   const pushes: FakeArtifacts['pushes'] = [];
+  const tokens: FakeArtifacts['tokens'] = [];
+  const revoked: string[] = [];
   let pending = 0;
 
   async function newRepo(): Promise<FakeRepo> {
@@ -167,12 +172,16 @@ export function fakeArtifacts(): FakeArtifacts {
         return null;
       },
       async createToken(scope = 'write') {
-        return { id: 'token', plaintext: `${SECRET}?expires=1893456000`, scope, expiresAt: '2030-01-01T00:00:00.000Z' };
+        // The first token is `token`, as a test that takes one reads it.
+        const id = tokens.length === 0 ? 'token' : `token-${tokens.length + 1}`;
+        tokens.push({ repo: name, id, scope });
+        return { id, plaintext: `${SECRET}?expires=1893456000`, scope, expiresAt: '2030-01-01T00:00:00.000Z' };
       },
       async listTokens() {
         return { tokens: [], total: 0 };
       },
-      async revokeToken() {
+      async revokeToken(id) {
+        revoked.push(id);
         return true;
       },
       async fork(target) {
@@ -288,6 +297,8 @@ export function fakeArtifacts(): FakeArtifacts {
   const artifacts: FakeArtifacts = {
     repos,
     pushes,
+    tokens,
+    revoked,
     setPending(count) {
       pending = count;
     },
