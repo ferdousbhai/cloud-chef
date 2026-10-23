@@ -31,6 +31,7 @@ import { completeGoogleSignInAction, GOOGLE_RETURN_PATH, startGoogleSignInAction
 import {
   runtimeOpenProjectAction,
   runtimeProjectImportedAction,
+  runtimeRegisterImportAction,
   runtimeProjectSiteAction,
   runtimeProjectStatusAction,
   runtimeRequestProductionAction,
@@ -45,7 +46,6 @@ import {
 import {
   approveProductionRequestAction,
   declineProductionRequestAction,
-  importProjectAction,
   listMyProjectsAction,
   PROJECT_WORKERS_BUILDS_SWITCH_ROUTE,
   projectRoute,
@@ -143,10 +143,10 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/organizations/production-requests/decline': ['POST', declineProductionRequestAction],
     '/api/organizations/projects/access': ['POST', setProjectAccessAction],
     '/api/organizations/projects/unlink': ['POST', removeProjectAction],
-    '/api/projects/import': ['POST', importProjectAction],
     [PROJECT_WORKERS_BUILDS_SWITCH_ROUTE]: ['POST', switchProjectWorkersBuildsAction],
     '/api/cloudflare/runtime-projects/open': ['POST', runtimeOpenProjectAction],
     '/api/cloudflare/runtime-projects/imported': ['POST', runtimeProjectImportedAction],
+    '/api/cloudflare/runtime-projects/register-import': ['POST', runtimeRegisterImportAction],
     '/api/cloudflare/runtime-projects/status': ['POST', runtimeProjectStatusAction],
     '/api/cloudflare/runtime-projects/site': ['POST', runtimeProjectSiteAction],
     '/api/cloudflare/runtime-projects/request-production': ['POST', runtimeRequestProductionAction],

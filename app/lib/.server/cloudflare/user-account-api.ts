@@ -1284,6 +1284,8 @@ export class UserCloudflareAccountApi {
         { type: 'durable_object_namespace', name: 'BuilderAgent', class_name: 'BuilderAgent' },
         { type: 'd1', name: 'DB', id: args.databaseId },
         { type: 'ai', name: 'AI' },
+        // Every project's code and history, in this account's `cloudchef` namespace (created on first use).
+        { type: 'artifacts', name: 'ARTIFACTS', namespace: 'cloudchef' },
         { type: 'secret_text', name: 'CONTROL_PLANE_SECRET', text: args.controlPlaneSecret },
         { type: 'plain_text', name: 'CLOUDFLARE_ACCOUNT_ID', text: this.accountId },
         { type: 'plain_text', name: 'CLOUDCHEF_USER_ID', text: args.userId },

@@ -217,6 +217,34 @@ as it is; an admin then connects it to Workers Builds. An admin can also limit a
 that member's runtime is refused the team's Cloudflare token by the credential broker, so their work reaches
 production only through Workers Builds.
 
+## Project Repositories
+
+Every project's code and history live in Cloudflare Artifacts in the account the project belongs to, through the
+runtime's `ARTIFACTS` binding (namespace `cloudchef`, created on first use). A CloudChef app's repository is
+`p-<chat initial id>`; a team project's is the one the control plane records for it (`t-<project id>` once
+imported). Artifacts reads trees, blobs and history and makes repositories, forks, imports and tokens, but has no
+server-side commit or merge, so `app/lib/.server/cloudflare/project-repository.ts` writes those with isomorphic-git
+into an in-memory object store (never the workspace, which holds no `.git`) and pushes them over git's smart HTTP
+with a short-lived write token. Every ref update names the value it read, so a branch someone else moved is a
+conflict, never an overwrite. A commit writes the whole tree (a file left out is deleted), sending only blobs its
+parent lacks; installed and built output, local secrets (`.env*`, `.dev.vars*`) and what the project's
+`.gitignore` files ignore never go in.
+
+A CloudChef app keeps its exact-revision deployment. Once a production deployment succeeds, a background fiber
+commits that exact checkpoint to main (the conversation's title, then `CloudChef-Revision: <revision>`, authored as
+the member) and records the commit on the deployment row; a workspace that moved on first is left to its own
+publish, and a failed commit never fails the publish, since the next one carries the whole tree. `revertToCommit`
+applies an earlier commit's files as one compare-and-swap change set (refused while a turn runs) and the ordinary
+publication follows, its commit starting `Revert to <short commit>`. A fork copies the repository to the new chat's
+own `p-<id>` (main moved back to the chosen commit) and the new chat's workspace seeds from it. A team project's
+workspace seeds from its main (importing it first, when the control plane gives an import source); `publish_preview`
+replaces the conversation's branch with one commit on top of the workspace's base, `publish` then merges it into
+main (fast-forward, or a three-way merge by file and by line, where overlapping changes are a conflict), and the
+watch reads Workers Builds' status for the commit from the control plane (`runtime-projects/status`). The browser
+reads history, a clone command, a fork and a ZIP of any commit through the runtime (`projects.*` data operations and
+`GET /v1/projects/archive`), with a chat's creator alone for a CloudChef app and the control plane's role (view or
+edit) for a team project.
+
 ## State Ownership
 
 | State                                                                                             | Authoritative owner                                  |

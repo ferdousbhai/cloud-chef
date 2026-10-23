@@ -1,8 +1,9 @@
 /**
  * A BuilderAgent in Node: the real class, on an in-memory Durable Object state whose SQL storage is
  * SQLite, with the runtime's own D1 (`user-workspace-migrations/`) as `env.DB`. What lies outside the
- * agent is faked at its boundary: the ProjectWorkspace (`BuilderWorkspaceApi`), Workers AI, and the
- * publication commands that reach the deployment executor and the user's account.
+ * agent is faked at its boundary: the ProjectWorkspace (`BuilderWorkspaceApi`), Workers AI, the
+ * publication commands that reach the deployment executor and the user's account, and the account's
+ * Artifacts (`app/test/fake-artifacts.ts`), which holds each project's repository.
  */
 import { createRequire } from 'node:module';
 import type * as NodeSqlite from 'node:sqlite';
@@ -22,6 +23,8 @@ import {
   type CloudflareExecutionBinding,
 } from '~/agents/builder-cloudflare-execution';
 import { envWith, userWorkspaceDatabase } from '~/test/control-plane-d1';
+import { fakeArtifacts, type FakeArtifacts } from '~/test/fake-artifacts';
+import { ProjectRepositories } from '~/lib/.server/cloudflare/project-repository';
 
 const require = createRequire(import.meta.url);
 const sqlite: typeof NodeSqlite = require('node:sqlite');
@@ -229,8 +232,10 @@ export async function builderAgentHarness(
     ai?: Partial<Ai>;
     cloudflareIdentity?: boolean;
     publisher?: Partial<BuilderPublisher>;
+    artifacts?: FakeArtifacts;
   } = {},
 ) {
+  const artifacts = options.artifacts ?? fakeArtifacts();
   const { database, db } = userWorkspaceDatabase();
   database.exec(`
     INSERT INTO chats (id, creator_id, initial_id, description, timestamp)
@@ -257,6 +262,8 @@ export async function builderAgentHarness(
   Reflect.set(agent, 'workspace', fakeWorkspace(options.workspace));
   // SAFETY: as above, for the publication commands; the fake implements every one the agent calls.
   Reflect.set(agent, 'publisher', fakePublisher(options.publisher));
+  // SAFETY: as above, for the account's repositories: the real client, over a fake Artifacts.
+  Reflect.set(agent, 'repositories', () => new ProjectRepositories(artifacts, { fetch: artifacts.fetch }));
   await agent.onStart({ userId: OWNER_ID });
   // The agent's own table: a proposal filed here is the one the Cloudflare request tool files mid-turn.
   // SAFETY: the repository uses only `sql.exec` and `transactionSync`, which the fake storage implements.
@@ -265,6 +272,8 @@ export async function builderAgentHarness(
     agent,
     database,
     ctx,
+    env,
+    artifacts,
     /** Each agent's recorded activity, as the control plane's upgrade window reads it. */
     activity: () =>
       // SAFETY: the statement selects exactly these two columns of runtime_activity.

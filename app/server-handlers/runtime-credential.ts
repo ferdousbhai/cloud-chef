@@ -5,6 +5,7 @@ import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare
 import { linkedGatewayKeys } from '~/lib/.server/cloudflare/ai-gateway-keys';
 import { readDefaultBuilderModel } from '~/lib/cloudflare/data/builder-model-settings.server';
 import { credentialResponse, readAuthenticatedRuntimeRequest } from './runtime-authentication';
+import { memberIdentity } from './runtime-projects';
 
 const MAX_RUNTIME_CREDENTIAL_REQUEST_BYTES = 4 * 1024;
 const runtimeCredentialRequestSchema = z.object({ forceRefresh: z.boolean().optional().default(false) }).strict();
@@ -108,6 +109,8 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
       organizationAdmin: isActiveAdmin(membership),
       // The person's own choice, wherever they build: a team's admins can't turn it back on for them.
       aiGatewayContentLogging: await readAiGatewayContentLogging(args.env.DB, identity.userId),
+      // Who the person is, as the commits made in their name say.
+      member: await memberIdentity(args.env.DB, identity.userId),
     },
     { headers: { 'Cache-Control': 'no-store' } },
   );

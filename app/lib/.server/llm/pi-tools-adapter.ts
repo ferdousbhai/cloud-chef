@@ -24,7 +24,7 @@ const toolLabels = {
   validate: 'Validate project',
   search_cloudflare_docs: 'Search Cloudflare docs',
   cloudflare_request: 'Cloudflare API request',
-  publish_preview: 'Preview on GitHub',
+  publish_preview: 'Preview a branch',
   fetch_site: 'Read the live site',
   publish: 'Publish',
 } satisfies Record<ModelToolName, string>;

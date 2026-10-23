@@ -7,6 +7,8 @@ import { CloudflareAccountApiError, type WorkersBuild } from '~/lib/.server/clou
 import {
   runtimeOpenProjectAction,
   runtimeProjectImportedAction,
+  runtimeRegisterImportAction,
+  runtimeRequestProductionAction,
   runtimeProjectSiteAction,
   runtimeProjectStatusAction,
 } from './runtime-projects';
@@ -89,6 +91,7 @@ describe('a runtime opening a project', () => {
       repo: null,
       defaultBranch: 'main',
       role: 'edit',
+      member: { name: 'sara.a', email: 'sara.a@example.com' },
       importSource: {
         url: 'https://github.com/ada/site.git',
         branch: 'master',
@@ -113,6 +116,7 @@ describe('a runtime opening a project', () => {
       repo: `t-${BLOG}`,
       defaultBranch: 'main',
       role: 'view',
+      member: { name: 'sara.a', email: 'sara.a@example.com' },
     });
     // Admins own every team project.
     const owned = await runtimeOpenProjectAction({
@@ -329,5 +333,82 @@ describe("a runtime asking about a project's builds and site", () => {
       openAccount: workersBuilds({ failing: true }).openAccount,
     });
     expect(refused.status).toBe(502);
+  });
+});
+
+describe('a runtime importing a GitHub repository as a new project', () => {
+  /** github.com answering git's ref advertisement for one public repository only. */
+  const gitRequest: typeof fetch = async (input) =>
+    String(input) === 'https://github.com/ada/public.git/info/refs?service=git-upload-pack'
+      ? new Response(
+          `001e# service=git-upload-pack\n00000155${'a'.repeat(40)} HEAD\0multi_ack ` +
+            'symref=HEAD:refs/heads/trunk object-format=sha1 agent=git/github\n0000',
+        )
+      : new Response('Repository not found.', { status: 401 });
+
+  it("registers a public repository in the person's own account and says where to import it from", async () => {
+    const { env, runtime, database } = await setup();
+    const registered = await runtimeRegisterImportAction({
+      request: await runtime('/api/cloudflare/runtime-projects/register-import', { url: 'https://github.com/ada/public' }, {
+        connection: 'own',
+      }),
+      env,
+      app: null,
+      gitRequest,
+    });
+    expect(registered.status).toBe(201);
+    const answer = (await registered.json()) as { projectId: string };
+    expect(answer).toEqual({
+      projectId: expect.any(String),
+      importSource: { url: 'https://github.com/ada/public.git', branch: 'trunk', authorization: null },
+      workersBuildsFromGitHub: false,
+    });
+    expect(
+      database.prepare('SELECT connection_id, name, artifact_repo FROM org_projects WHERE id = ?').get(answer.projectId),
+    ).toEqual({ connection_id: 'sara-own', name: 'public', artifact_repo: null });
+  });
+
+  it("takes a team's admin in a team, and refuses a private repository the App doesn't reach", async () => {
+    const { env, runtime } = await setup();
+    const asMember = await runtimeRegisterImportAction({
+      request: await runtime('/api/cloudflare/runtime-projects/register-import', { url: 'https://github.com/ada/public' }),
+      env,
+      app: null,
+      gitRequest,
+    });
+    expect(asMember.status).toBe(403);
+    const privateOne = await runtimeRegisterImportAction({
+      request: await runtime('/api/cloudflare/runtime-projects/register-import', { url: 'https://github.com/ada/hidden' }, {
+        connection: 'own',
+      }),
+      env,
+      app: null,
+      gitRequest,
+    });
+    expect(privateOne.status).toBe(404);
+    expect(await privateOne.json()).toMatchObject({ code: 'not_public' });
+  });
+});
+
+describe('a runtime asking for a draft to become a team project', () => {
+  const ask = async (runtime: Awaited<ReturnType<typeof setup>>['runtime'], repo: string, env: Env) =>
+    runtimeRequestProductionAction({
+      request: await runtime('/api/cloudflare/runtime-projects/request-production', {
+        draftId: 'draft-chat',
+        draftRevision: 'r1',
+        title: 'Recipes',
+        repo,
+        commit: COMMIT,
+      }),
+      env,
+    });
+
+  it("names only the draft's own repository, or one of its subchats'", async () => {
+    const { env, runtime, database, sara } = await setup();
+    database.prepare('UPDATE organization_members SET drafts_allowed = 1 WHERE user_id = ?').run(sara.userId);
+    expect((await ask(runtime, 'p-another-app', env)).status).toBe(400);
+    expect((await ask(runtime, 'p-draft-chat-x', env)).status).toBe(400);
+    expect((await ask(runtime, 'p-draft-chat-2', env)).status).toBe(201);
+    expect((await ask(runtime, 'p-draft-chat', env)).status).toBe(200);
   });
 });

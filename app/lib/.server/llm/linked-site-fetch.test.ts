@@ -21,7 +21,7 @@ afterEach(() => {
 const html = (body: string, status = 200) =>
   new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
 
-describe("reading a GitHub project's live site", () => {
+describe("reading a team project's live site", () => {
   it("reads a page of the project's own site as text, by GET without following redirects blindly", async () => {
     const { requests } = site({
       'https://example.com/about': () =>
@@ -63,7 +63,7 @@ describe("reading a GitHub project's live site", () => {
     expect(api.data).toMatchObject({ contentType: 'application/json', content: '{"intro":"Fresh bread"}' });
   });
 
-  it('reads nothing outside the sites GitHub reports, over plain http, or with credentials', async () => {
+  it('reads nothing outside the sites the control plane reports, over plain http, or with credentials', async () => {
     const { requests } = site({});
     const elsewhere = await fetchLinkedSitePage(
       { url: 'https://evil.example.net/?q=secret' },
@@ -87,7 +87,7 @@ describe("reading a GitHub project's live site", () => {
     site({});
     const none = await fetchLinkedSitePage({ url: 'https://example.com/' }, { origins: async () => [] });
     expect(none).toMatchObject({ ok: false });
-    expect(none.summary).toContain("set the repository's website on GitHub");
+    expect(none.summary).toContain('connect its repository to Workers Builds');
     const failed = await fetchLinkedSitePage(
       { url: 'https://example.com/' },
       {

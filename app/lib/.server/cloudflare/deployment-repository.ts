@@ -111,6 +111,17 @@ export async function requireDeployment(db: D1Database, deploymentId: string, us
   return deploymentFromRow(row);
 }
 
+/** The commit on main a succeeded deployment's revision became. */
+export async function recordDeploymentCommit(
+  db: D1Database,
+  args: { deploymentId: string; userId: string; commitSha: string },
+): Promise<void> {
+  await db
+    .prepare(`UPDATE deployments SET commit_sha = ? WHERE id = ? AND user_id = ? AND status = 'succeeded'`)
+    .bind(args.commitSha, args.deploymentId, args.userId)
+    .run();
+}
+
 export async function recordDeploymentActivity(args: {
   db: D1Database;
   deploymentId: string;

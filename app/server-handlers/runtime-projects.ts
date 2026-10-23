@@ -17,10 +17,14 @@ import {
   findGitHubInstallation,
   recordImportedRepo,
   recordWorkersBuildsScriptTag,
+  requireProjectScope,
   type Project,
   type ProjectRole,
 } from '~/lib/cloudflare/data/org-projects.server';
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
+import { nativeProjectRepo } from '~/lib/.server/cloudflare/project-repository';
+import { registerGitHubImport } from './projects';
+import { answeringOrganizationErrors } from './signed-in';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
 
 /**
@@ -39,6 +43,10 @@ const projectFields = { orgProjectId: z.string().uuid() };
 const projectSchema = z.strictObject(projectFields);
 const importedSchema = z.strictObject({ ...projectFields, repo: REPO, commit: COMMIT });
 const statusSchema = z.strictObject({ ...projectFields, commit: COMMIT });
+const registerImportSchema = z.strictObject({
+  url: z.string().min(1).max(2_048),
+  name: z.string().trim().max(80).optional(),
+});
 const MAX_PENDING_REQUESTS_PER_MEMBER = 5;
 const productionRequestSchema = z.strictObject({
   /** The builder holding the draft, and the validated revision sent: the same draft sent again replaces its request. */
@@ -72,39 +80,49 @@ export async function runtimeOpenProjectAction(args: {
   if (opened instanceof Response) {
     return opened;
   }
-  const { project } = opened;
+  const { project, identity } = opened;
   const answer = {
     orgProjectId: project.id,
     name: project.name,
     repo: project.repo,
     defaultBranch: project.defaultBranch,
     role: project.role,
+    member: await memberIdentity(args.env.DB, identity.userId),
   };
-  const source = project.importSource;
-  if (project.repo !== null || !source || project.role !== 'edit') {
+  if (project.repo !== null || project.role !== 'edit') {
     return json(answer, 200);
+  }
+  const importSource = await importSourceFor(args, project);
+  if (importSource instanceof Response) {
+    return importSource;
+  }
+  return json(importSource ? { ...answer, importSource } : answer, 200);
+}
+
+/**
+ * Where a project still to be imported comes from: its GitHub address, and for a private repository a fresh
+ * GitHub App token limited to it, read-only, as git's Basic authorization. Null when it has no source.
+ */
+async function importSourceFor(
+  args: { env: Env; app?: GitHubApp | null },
+  project: Project,
+): Promise<{ url: string; branch: string; authorization: string | null } | null | Response> {
+  const source = project.importSource;
+  if (!source) {
+    return null;
   }
   const url = `https://github.com/${source.fullName}.git`;
   if (source.repoId === null) {
-    return json({ ...answer, importSource: { url, branch: source.branch, authorization: null } }, 200);
+    return { url, branch: source.branch, authorization: null };
   }
   const app = args.app === undefined ? gitHubAppFromEnv(args.env) : args.app;
   const installation = await findGitHubInstallation(args.env.DB, project.connectionId);
   if (!app || !installation) {
-    return json(
-      { code: 'github_disconnected', error: 'Connect GitHub again in Settings to import this project.' },
-      409,
-    );
+    return json({ code: 'github_disconnected', error: 'Connect GitHub again in Settings to import this project.' }, 409);
   }
   try {
     const token = await app.installationToken(installation.installationId, { contents: 'read' }, [source.repoId]);
-    return json(
-      {
-        ...answer,
-        importSource: { url, branch: source.branch, authorization: `Basic ${btoa(`x-access-token:${token}`)}` },
-      },
-      200,
-    );
+    return { url, branch: source.branch, authorization: `Basic ${btoa(`x-access-token:${token}`)}` };
   } catch (error) {
     if (error instanceof GitHubError) {
       return json(
@@ -120,6 +138,83 @@ export async function runtimeOpenProjectAction(args: {
     }
     throw error;
   }
+}
+
+/**
+ * The runtime importing a GitHub repository as a new project of its account, which it then imports at once:
+ * the project's id and where to import it from. In a team it takes one of the team's admins.
+ */
+export async function runtimeRegisterImportAction(args: {
+  request: Request;
+  env: Env;
+  app?: GitHubApp | null;
+  gitRequest?: typeof fetch;
+}): Promise<Response> {
+  const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, registerImportSchema, {
+    maxBytes: MAX_REQUEST_BYTES,
+    label: 'Workspace runtime project import',
+    invalid: INVALID_REQUEST,
+  });
+  if (authenticated instanceof Response) {
+    return authenticated;
+  }
+  const { body, identity, connection } = authenticated;
+  return answeringOrganizationErrors(async () => {
+    const scope = await requireProjectScope(args.env.DB, identity.userId, connection.orgId ?? undefined);
+    if (scope.connectionId !== connection.id) {
+      return json({ error: 'This runtime does not work in that account.' }, 403);
+    }
+    const app = args.app === undefined ? gitHubAppFromEnv(args.env) : args.app;
+    const registered = await registerGitHubImport(args.env, {
+      scope,
+      actorId: identity.userId,
+      request: body.name ? { url: body.url, name: body.name } : { url: body.url },
+      app,
+      gitRequest: args.gitRequest,
+    });
+    if (registered instanceof Response) {
+      return registered;
+    }
+    const project = await findAccessibleProject(args.env.DB, registered.projectId, identity.userId);
+    if (!project) {
+      return json({ error: 'This project is not available to you.' }, 403);
+    }
+    const importSource = await importSourceFor({ env: args.env, app }, project);
+    if (importSource instanceof Response) {
+      return importSource;
+    }
+    return json(
+      {
+        projectId: project.id,
+        ...(importSource ? { importSource } : {}),
+        workersBuildsFromGitHub: await buildsFromGitHub(args.env, connection, project),
+      },
+      201,
+    );
+  });
+}
+
+/** Whether Workers Builds already deploys a Worker from this project's GitHub repository. */
+async function buildsFromGitHub(env: Env, connection: CloudflareConnection, project: Project): Promise<boolean> {
+  try {
+    const opened = await openWorkersBuildsAccountApi(env, connection);
+    return (await findProjectWorker(opened, project)) !== null;
+  } catch {
+    // Unknown is shown as no: the switch can still be offered from the project later.
+    return false;
+  }
+}
+
+/** Who a member is, as the commits made in their name and their branch name them. */
+export async function memberIdentity(db: D1Database, userId: string): Promise<{ name: string; email: string } | null> {
+  const row = await db
+    .prepare('SELECT name, email FROM "user" WHERE id = ?')
+    .bind(userId)
+    .first<{ name: string | null; email: string | null }>();
+  if (!row?.email) {
+    return null;
+  }
+  return { name: row.name?.trim() || row.email.split('@')[0], email: row.email };
 }
 
 /** The runtime has imported the project into its Artifacts repository: record it, once. */
@@ -232,6 +327,12 @@ export async function runtimeRequestProductionAction(args: { request: Request; e
   const membership = await findMembership(args.env.DB, orgId, authenticated.identity.userId);
   if (!membership?.draftsAllowed) {
     return json({ code: 'drafts_not_allowed', error: 'Your team lets you work on its team projects only.' }, 403);
+  }
+  // The repository named is the draft's own (its chat's, or one of its subchats'), never another app's.
+  const { draftId, repo } = authenticated.body;
+  const draftRepo = nativeProjectRepo(draftId);
+  if (repo !== draftRepo && !new RegExp(`^${draftRepo}-[1-9][0-9]{0,5}$`).test(repo)) {
+    return json({ error: "That is not this draft's repository." }, 400);
   }
   return sendProductionRequest(
     args.env.DB,
@@ -364,7 +465,10 @@ async function sendProductionRequest(
 async function openProject<T extends z.infer<typeof projectSchema>>(
   args: { request: Request; env: Env },
   schema: z.ZodType<T>,
-): Promise<{ project: Project & { role: ProjectRole }; body: T; connection: CloudflareConnection } | Response> {
+): Promise<
+  | { project: Project & { role: ProjectRole }; body: T; connection: CloudflareConnection; identity: { userId: string } }
+  | Response
+> {
   const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, schema, {
     maxBytes: MAX_REQUEST_BYTES,
     label: 'Workspace runtime project request',
@@ -378,7 +482,7 @@ async function openProject<T extends z.infer<typeof projectSchema>>(
   if (!project || project.connectionId !== connection.id) {
     return json({ error: 'This project is not available to you.' }, 403);
   }
-  return { project, body, connection };
+  return { project, body, connection, identity };
 }
 
 const INVALID_REQUEST = 'Invalid workspace runtime project request.';

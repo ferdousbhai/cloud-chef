@@ -7,9 +7,9 @@ import {
 } from 'cloudchef-agent/tool-result';
 
 /**
- * The model reading a GitHub project's own live site: its pages, and the JSON its pages load, which is
+ * The model reading a team project's own live site: its pages, and the JSON its pages load, which is
  * where a site keeps the copy it serves from its database or CMS. Only the addresses the control plane
- * reports for the repository are reachable (its GitHub homepage and the links its pipeline posted), only
+ * reports for the project are reachable (its production address and the preview links Workers Builds reports), only
  * by GET, and only so much of a response is read.
  */
 export type LinkedSiteFetchInput = { url: string; format?: 'text' | 'html'; offset?: number };
@@ -45,8 +45,8 @@ export async function fetchLinkedSitePage(
   }
   if (origins.length === 0) {
     return toolFailure(
-      "No address is known for this project's site yet: set the repository's website on GitHub (its About " +
-        'settings), or publish a preview so its pipeline reports a link.',
+      "No address is known for this project's site yet: connect its repository to Workers Builds, " +
+        'or publish a preview so Workers Builds reports a link.',
     );
   }
   const allowed = new Set(origins);

@@ -24,6 +24,7 @@ import {
   requireManagedProject,
   setProjectAccess,
   type Project,
+  type ProjectScope,
 } from '~/lib/cloudflare/data/org-projects.server';
 import { OrganizationError } from '~/lib/cloudflare/data/organizations.server';
 import { installedRepositories } from './github-projects';
@@ -35,10 +36,6 @@ import { signedIn } from './signed-in';
  * first person to open an imported project imports it, in their workspace runtime.
  */
 const scopeFields = { orgId: z.string().uuid().optional() };
-const importSchema = z.union([
-  z.strictObject({ ...scopeFields, repoId: z.number().int().positive(), name: z.string().trim().min(1).max(80) }),
-  z.strictObject({ ...scopeFields, url: z.string().max(2_048), name: z.string().trim().max(80).optional() }),
-]);
 const projectSchema = z.strictObject({ ...scopeFields, projectId: z.string().uuid() });
 const accessSchema = z.strictObject({
   orgId: z.string().uuid(),
@@ -75,51 +72,55 @@ export function listMyProjectsAction({ request, env }: { request: Request; env: 
   });
 }
 
+/** What an import names: a repository CloudChef's GitHub App reaches (`repoId`), or one by its address. */
+export type GitHubImportRequest = { repoId: number; name: string } | { url: string; name?: string };
+
 /**
- * Imports a GitHub repository as a project: one CloudChef's GitHub App reaches (`repoId`), or a public one
- * by its address (`url`). It becomes a project at once; its code comes into Artifacts when it is first
- * opened.
+ * Registers a GitHub repository as a project of `scope`: one CloudChef's GitHub App reaches, or one by its
+ * address, which is public or, failing that, one the App reaches. It becomes a project at once; its code
+ * comes into Artifacts when the runtime asking imports it.
  */
-export function importProjectAction({
-  request,
-  env,
-  app = gitHubAppFromEnv(env),
-  gitRequest = fetch,
-}: {
-  request: Request;
-  env: Env;
-  app?: GitHubApp | null;
-  /** How github.com is asked whether a repository is public. */
-  gitRequest?: typeof fetch;
-}): Promise<Response> {
-  return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, importSchema, 'Choose a repository and name the project.');
-    if ('response' in body) {
-      return body.response;
+export async function registerGitHubImport(
+  env: Env,
+  args: {
+    scope: ProjectScope;
+    actorId: string;
+    request: GitHubImportRequest;
+    app: GitHubApp | null;
+    /** How github.com is asked whether a repository is public. */
+    gitRequest?: typeof fetch;
+  },
+): Promise<{ projectId: string } | Response> {
+  const { scope, request } = args;
+  let source: NonNullable<Project['importSource']>;
+  let name: string;
+  if ('repoId' in request) {
+    // Only a repository the installation actually reaches can become a project.
+    const repositories = await installedRepositories(env.DB, scope, args.app);
+    if (repositories instanceof Response) {
+      return repositories;
     }
-    const scope = await requireProjectScope(env.DB, session.user.id, body.data.orgId);
-    let source: NonNullable<Project['importSource']>;
-    let name: string;
-    if ('repoId' in body.data) {
-      // Only a repository the installation actually reaches can become a project.
-      const repositories = await installedRepositories(env.DB, scope, app);
-      if (repositories instanceof Response) {
-        return repositories;
-      }
-      const repoId = body.data.repoId;
-      const repository = repositories.find((candidate) => candidate.id === repoId);
-      if (!repository) {
-        throw new OrganizationError("CloudChef's GitHub App can't reach that repository.", 404);
-      }
-      source = { repoId: repository.id, fullName: repository.full_name, branch: repository.default_branch };
-      name = body.data.name;
+    const repository = repositories.find((candidate) => candidate.id === request.repoId);
+    if (!repository) {
+      throw new OrganizationError("CloudChef's GitHub App can't reach that repository.", 404);
+    }
+    source = { repoId: repository.id, fullName: repository.full_name, branch: repository.default_branch };
+    name = request.name;
+  } else {
+    const fullName = gitHubRepositoryFromUrl(request.url);
+    if (!fullName) {
+      return Response.json({ error: 'Paste the address of a repository on github.com.' }, { status: 400 });
+    }
+    const branch = await publicRepositoryDefaultBranch(fullName, args.gitRequest ?? fetch).catch(() => null);
+    if (branch) {
+      source = { repoId: null, fullName, branch };
     } else {
-      const fullName = gitHubRepositoryFromUrl(body.data.url);
-      if (!fullName) {
-        return Response.json({ error: 'Paste the address of a repository on github.com.' }, { status: 400 });
-      }
-      const branch = await publicRepositoryDefaultBranch(fullName, gitRequest).catch(() => null);
-      if (!branch) {
+      // A private repository by its address: one the App reaches, whatever case GitHub's name is given in.
+      const repositories = args.app ? await installedRepositories(env.DB, scope, args.app) : null;
+      const repository = Array.isArray(repositories)
+        ? repositories.find((candidate) => candidate.full_name.toLowerCase() === fullName.toLowerCase())
+        : undefined;
+      if (!repository) {
         return Response.json(
           {
             code: 'not_public',
@@ -128,12 +129,12 @@ export function importProjectAction({
           { status: 404 },
         );
       }
-      source = { repoId: null, fullName, branch };
-      name = body.data.name || fullName.split('/')[1];
+      source = { repoId: repository.id, fullName: repository.full_name, branch: repository.default_branch };
     }
-    const projectId = await importProject(env.DB, { scope, actorId: session.user.id, name, source });
-    return Response.json({ projectId }, { status: 201 });
-  });
+    name = request.name || source.fullName.split('/')[1];
+  }
+  const projectId = await importProject(env.DB, { scope, actorId: args.actorId, name, source });
+  return { projectId };
 }
 
 /** Removes a project from CloudChef; its Artifacts repository and Worker stay in the account. */

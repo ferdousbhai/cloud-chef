@@ -6,8 +6,16 @@ import type {
   BuilderWorkspaceState,
   BuilderWorkspaceSyncEntry,
 } from '@cloudchef/user-workspace-runtime/protocol';
-import { linkedWorkspaceChanges, packDraftSnapshot, seedLinkedWorkspace } from './linked-project-workspace';
-import type { LinkedSnapshotLine } from '~/lib/.server/cloudflare/linked-project-client';
+import {
+  linkedCommitTree,
+  linkedWorkspaceChanges,
+  memberBranch,
+  revertChanges,
+  seedLinkedWorkspace,
+  workspaceCommitFiles,
+} from './linked-project-workspace';
+import { ProjectRepositories } from '~/lib/.server/cloudflare/project-repository';
+import { fakeArtifacts } from '~/test/fake-artifacts';
 import { sha256Hex } from '~/lib/hex-digest';
 
 const COMMIT = 'a'.repeat(40);
@@ -52,45 +60,52 @@ function seedingWorkspace(begin: 'started' | 'initialized' = 'started') {
   return { workspace, appended, committed, linked, aborted };
 }
 
-async function* lines(values: LinkedSnapshotLine[]): AsyncGenerator<LinkedSnapshotLine> {
-  yield* values;
+/** A project repository holding `files` on main, written as another member's push would. */
+async function repository(files: Record<string, string>, executable: string[] = []) {
+  const artifacts = fakeArtifacts();
+  const repositories = new ProjectRepositories(artifacts, { fetch: artifacts.fetch });
+  const result = await repositories.commitFiles({
+    repo: 't-project-1',
+    branch: 'main',
+    parent: null,
+    files: Object.entries(files).map(([path, content]) => ({
+      path,
+      mode: executable.includes(path) ? 0o755 : 0o644,
+      bytes: new TextEncoder().encode(content),
+    })),
+    message: 'Initial commit',
+    author: { name: 'Ada', email: 'ada@example.com' },
+  });
+  return { artifacts, repositories, commit: 'commit' in result ? result.commit : '' };
 }
 
-const file = (path: string, content: string): LinkedSnapshotLine => ({
-  path,
-  contentBase64: btoa(content),
-  executable: false,
-  blobSha: 'unused',
-});
+const project = { orgProjectId: 'project-1', name: 'Ada site', repo: 't-project-1' };
+const text = (bytes: Uint8Array | null) => (bytes === null ? null : new TextDecoder().decode(bytes));
 
 describe('seedLinkedWorkspace', () => {
-  it('seeds the repository and records its commit and file hashes', async () => {
+  it("seeds main of the project's repository and records its commit and file hashes", async () => {
+    const { repositories, commit } = await repository({
+      'README.md': 'hello',
+      // Build output a repository might commit stays out, as the workspace's own record does.
+      'dist/bundle.js': 'built',
+      'src/app.ts': 'export {}',
+    });
     const { workspace, appended, committed, linked } = seedingWorkspace();
-    await seedLinkedWorkspace(
-      workspace,
-      'project-1',
-      lines([
-        { commit: COMMIT, defaultBranch: 'main', repository: 'ada/site' },
-        file('README.md', 'hello'),
-        // Build output a repository might commit stays out, as the workspace's own record does.
-        file('dist/bundle.js', 'built'),
-        file('src/app.ts', 'export {}'),
-        { done: true, files: 3 },
-      ]),
-    );
+    await seedLinkedWorkspace(workspace, repositories, project);
     expect(appended.flat().map((entry) => entry.path)).toEqual(['/home/project/README.md', '/home/project/src/app.ts']);
     expect(committed).toEqual([{ fileCount: 2, totalBytes: 14 }]);
     expect(linked).toEqual([
       {
         orgProjectId: 'project-1',
-        repository: 'ada/site',
+        repository: 't-project-1',
+        name: 'Ada site',
         defaultBranch: 'main',
-        baseCommit: COMMIT,
+        baseCommit: commit,
         baseManifest: [
           { path: 'README.md', sha256: await sha256Hex('hello'), executable: false },
           { path: 'src/app.ts', sha256: await sha256Hex('export {}'), executable: false },
         ],
-        // Its own branch, and modes the workspace now holds as GitHub's.
+        // Its own branch, and modes the workspace now holds as the repository's.
         branchKey: expect.stringMatching(/^[a-z0-9]{12}$/),
         workspaceModes: true,
       },
@@ -98,55 +113,68 @@ describe('seedLinkedWorkspace', () => {
     expect(appended.flat().map((entry) => entry.mode)).toEqual([0o644, 0o644]);
   });
 
-  it("writes each file with GitHub's mode, so an executable stays one in the workspace", async () => {
+  it("writes each file with the repository's mode, so an executable stays one in the workspace", async () => {
+    const { repositories } = await repository({ 'scripts/build.sh': '#!/bin/sh' }, ['scripts/build.sh']);
     const { workspace, appended } = seedingWorkspace();
-    await seedLinkedWorkspace(
-      workspace,
-      'project-1',
-      lines([
-        { commit: COMMIT, defaultBranch: 'main', repository: 'ada/site' },
-        { ...file('scripts/build.sh', '#!/bin/sh'), executable: true },
-        { done: true, files: 1 },
-      ]),
-    );
+    await seedLinkedWorkspace(workspace, repositories, project);
     expect(appended.flat()).toEqual([expect.objectContaining({ path: '/home/project/scripts/build.sh', mode: 0o755 })]);
   });
 
-  it('abandons a download that failed or ended early, so the next open starts over', async () => {
+  it('abandons a seed whose repository could not be read, so the next open starts over', async () => {
+    const { repositories } = await repository({ 'a.txt': 'a' });
     const failed = seedingWorkspace();
     await expect(
-      seedLinkedWorkspace(failed.workspace, 'project-1', lines([{ error: 'This repository is too large.' }])),
-    ).rejects.toThrow('too large');
+      seedLinkedWorkspace(failed.workspace, repositories, { ...project, repo: 't-missing' }),
+    ).rejects.toThrow();
     expect(failed.aborted).toEqual(['linked_project-1']);
-
-    const truncated = seedingWorkspace();
-    await expect(
-      seedLinkedWorkspace(
-        truncated.workspace,
-        'project-1',
-        lines([{ commit: COMMIT, defaultBranch: 'main', repository: 'ada/site' }, file('a.txt', 'a')]),
-      ),
-    ).rejects.toThrow('ended early');
-    expect(truncated.linked).toEqual([]);
+    expect(failed.linked).toEqual([]);
   });
 
   it('leaves an already seeded workspace alone, and refuses one that lost its link', async () => {
+    const { repositories } = await repository({ 'a.txt': 'a' });
     const seeded = seedingWorkspace('initialized');
-    await expect(seedLinkedWorkspace(seeded.workspace, 'project-1', lines([]))).rejects.toThrow('lost track');
+    await expect(seedLinkedWorkspace(seeded.workspace, repositories, project)).rejects.toThrow('lost track');
     seeded.linked.push({
       orgProjectId: 'project-1',
-      repository: 'ada/site',
+      repository: 't-project-1',
       defaultBranch: 'main',
       baseCommit: COMMIT,
       baseManifest: [],
     });
-    await seedLinkedWorkspace(seeded.workspace, 'project-1', lines([]));
+    await seedLinkedWorkspace(seeded.workspace, repositories, project);
     expect(seeded.appended).toEqual([]);
   });
 });
 
+describe('linkedCommitTree', () => {
+  it("is the base commit's tree with the changes applied, naming unchanged files by their blob", async () => {
+    const { repositories, commit } = await repository({ 'README.md': 'hello', 'old.txt': 'gone', 'run.sh': '#!' }, [
+      'run.sh',
+    ]);
+    const { files } = await repositories.readTreeAt('t-project-1', commit);
+    const tree = linkedCommitTree(files, [
+      { path: 'src/new.ts', bytes: new TextEncoder().encode('new'), executable: false },
+      { path: 'old.txt', bytes: null, executable: false },
+    ]);
+    expect(tree.map((file) => [file.path, file.mode, 'oid' in file ? 'kept' : 'sent'])).toEqual([
+      ['README.md', 0o644, 'kept'],
+      ['run.sh', 0o755, 'kept'],
+      ['src/new.ts', 0o644, 'sent'],
+    ]);
+  });
+});
+
+describe('memberBranch', () => {
+  it("names the conversation's branch after the member and its key", () => {
+    expect(memberBranch('Sara.Ng@example.com', 'User_12345', 'k3y4chat0001')).toBe(
+      'cloudchef/sara-ng-user01-k3y4chat0001',
+    );
+    expect(memberBranch(null, 'abcdef99', undefined)).toBe('cloudchef/member-abcdef');
+  });
+});
+
 describe('linkedWorkspaceChanges', () => {
-  it('sends changed, new and deleted files, and nothing GitHub already has', async () => {
+  it('sends changed, new and deleted files, and nothing the repository already has', async () => {
     const contents = new Map([
       ['/home/project/README.md', 'hello'],
       ['/home/project/src/app.ts', 'export const changed = 1;'],
@@ -183,17 +211,17 @@ describe('linkedWorkspaceChanges', () => {
         { path: 'old.txt', sha256: await sha256Hex('gone') },
       ],
     });
-    // GitHub's executable bit carries over, since the workspace keeps no modes of its own.
+    // The repository's executable bit carries over, since the workspace keeps no modes of its own.
     expect(manifest.find((file) => file.path === 'README.md')).toMatchObject({ executable: true });
     expect(manifest.map((file) => file.path)).toEqual(['README.md', 'src/app.ts', 'src/new.ts']);
-    expect(changes).toEqual([
-      { path: 'src/app.ts', contentBase64: btoa('export const changed = 1;'), executable: false },
-      { path: 'src/new.ts', contentBase64: btoa('new'), executable: true },
-      { path: 'old.txt', contentBase64: null, executable: false },
+    expect(changes.map((change) => ({ ...change, bytes: text(change.bytes) }))).toEqual([
+      { path: 'src/app.ts', bytes: 'export const changed = 1;', executable: false },
+      { path: 'src/new.ts', bytes: 'new', executable: true },
+      { path: 'old.txt', bytes: null, executable: false },
     ]);
   });
 
-  it("sends a change of executable bit alone, either way, once the workspace holds GitHub's modes", async () => {
+  it("sends a change of executable bit alone, either way, once the workspace holds the repository's modes", async () => {
     const files: BuilderWorkspaceFileMetadata[] = [
       {
         path: '/home/project/run.sh',
@@ -246,13 +274,15 @@ describe('linkedWorkspaceChanges', () => {
       workspaceModes: true,
     };
     const { changes } = await linkedWorkspaceChanges(workspace, linked);
-    expect(changes).toEqual([
-      { path: 'run.sh', contentBase64: btoa('#!'), executable: false },
-      { path: 'tool.sh', contentBase64: btoa('#?'), executable: true },
+    expect(changes.map((change) => ({ ...change, bytes: text(change.bytes) }))).toEqual([
+      { path: 'run.sh', bytes: '#!', executable: false },
+      { path: 'tool.sh', bytes: '#?', executable: true },
     ]);
     // A workspace seeded before it kept modes can't tell a removed bit from one it never had.
     const legacy = await linkedWorkspaceChanges(workspace, { ...linked, workspaceModes: undefined });
-    expect(legacy.changes).toEqual([{ path: 'tool.sh', contentBase64: btoa('#?'), executable: true }]);
+    expect(legacy.changes.map((change) => ({ ...change, bytes: text(change.bytes) }))).toEqual([
+      { path: 'tool.sh', bytes: '#?', executable: true },
+    ]);
   });
 });
 
@@ -323,7 +353,7 @@ describe('what a publish leaves out', () => {
 
     const { changes, manifest, heldBack } = await linkedWorkspaceChanges(workspace, linked);
 
-    expect(changes.map((change) => [change.path, change.contentBase64 === null ? 'delete' : 'write'])).toEqual([
+    expect(changes.map((change) => [change.path, change.bytes === null ? 'delete' : 'write'])).toEqual([
       ['packages/api/.gitignore', 'write'],
       ['src/app.ts', 'write'],
       ['packages/api/src/index.ts', 'write'],
@@ -356,7 +386,7 @@ describe('what a publish leaves out', () => {
     expect(manifest.find((file) => file.path === 'config/.env.production')).toEqual(linked.baseManifest[3]);
   });
 
-  it("leaves what a draft's .gitignore ignores, and local secrets, out of the repository it becomes", async () => {
+  it("leaves what a CloudChef app's .gitignore ignores, and local secrets, out of its commits", async () => {
     const entries: BuilderWorkspaceSyncEntry[] = Object.entries({
       '.gitignore': '*.local\ncoverage\n',
       'src/app.ts': 'export {};',
@@ -377,13 +407,36 @@ describe('what a publish leaves out', () => {
       getSyncPage: async () => ({ state, fromRevision: 0, targetRevision: 6, mode: 'snapshot', entries }),
     };
 
-    const { snapshot, files } = await packDraftSnapshot(workspace);
+    const read = await workspaceCommitFiles(workspace);
 
-    const unzipped = new Blob([Uint8Array.from(atob(snapshot), (char) => char.charCodeAt(0))])
-      .stream()
-      .pipeThrough(new DecompressionStream('gzip'));
-    const packed: { path: string }[] = JSON.parse(await new Response(unzipped).text());
-    expect(packed.map((file) => file.path)).toEqual(['.gitignore', 'src/app.ts']);
-    expect(files).toBe(2);
+    expect(read?.files.map((file) => file.path)).toEqual(['.gitignore', 'src/app.ts']);
+    expect(read?.targetRevision).toBe(6);
+  });
+});
+
+describe('revertChanges', () => {
+  it('writes what differs, deletes what the commit lacks, and keeps what no commit holds', async () => {
+    const workspace = await publishingWorkspace({
+      '.gitignore': 'notes.local\n',
+      'README.md': 'hello',
+      'src/app.ts': 'export const changed = 1;',
+      'src/added.ts': 'added since',
+      'notes.local': 'mine',
+      '.dev.vars': 'TOKEN=1',
+      'node_modules/x/index.js': 'installed',
+    });
+    const commitFiles = [
+      { path: '.gitignore', mode: '100644', bytes: new TextEncoder().encode('notes.local\n') },
+      { path: 'README.md', mode: '100644', bytes: new TextEncoder().encode('hello') },
+      { path: 'src/app.ts', mode: '100644', bytes: new TextEncoder().encode('export {}') },
+      { path: 'run.sh', mode: '100755', bytes: new TextEncoder().encode('#!') },
+    ];
+    const { baseRevision, changes } = await revertChanges(workspace, commitFiles);
+    expect(baseRevision).toBe(2);
+    expect(changes).toEqual([
+      { kind: 'write', path: '/home/project/src/app.ts', content: btoa('export {}'), encoding: 'base64', mode: 0o644 },
+      { kind: 'write', path: '/home/project/run.sh', content: btoa('#!'), encoding: 'base64', mode: 0o755 },
+      { kind: 'delete', path: '/home/project/src/added.ts' },
+    ]);
   });
 });

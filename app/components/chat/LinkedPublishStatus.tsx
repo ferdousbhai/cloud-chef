@@ -5,7 +5,7 @@ import { PublishLinks } from './ToolUseContents';
 import { useLinkedPublishView } from './useLinkedPublishView';
 
 /**
- * A GitHub project's latest publish, above the composer: its pipeline result lands after the turn that
+ * A team project's latest publish, above the composer: its pipeline result lands after the turn that
  * published has ended, and the person should see it and its preview link without opening the activity.
  */
 export function LinkedPublishStatus({ messages }: { messages: readonly CloudChefMessage[] }) {

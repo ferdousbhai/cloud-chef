@@ -24,7 +24,7 @@ type WorkspaceReadOnlyToolName = (typeof WORKSPACE_READ_ONLY_TOOL_NAMES)[number]
 const CLOUDFLARE_API_MODEL_TOOL_NAMES = ['cloudflare_request'] as const;
 export type CloudflareApiModelToolName = (typeof CLOUDFLARE_API_MODEL_TOOL_NAMES)[number];
 
-/** Tools for a workspace opened from an organization's GitHub project: changes go back to GitHub. */
+/** Tools for a workspace opened from a team project: changes are committed to its repository. */
 const LINKED_PROJECT_MODEL_TOOL_NAMES = ['publish_preview', 'publish', 'fetch_site'] as const;
 export type LinkedProjectModelToolName = (typeof LINKED_PROJECT_MODEL_TOOL_NAMES)[number];
 

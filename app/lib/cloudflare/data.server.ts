@@ -28,6 +28,13 @@ import {
   setSubchatDescription,
 } from './data/chat-service.server';
 import { sweepAgentGcCandidatesBestEffort } from './data/agent-gc.server';
+import {
+  forkProject,
+  importProject,
+  projectCloneAccess,
+  projectHistory,
+  withRepositoryErrors,
+} from './data/projects.server';
 import { sweepAppResourceGcCandidatesBestEffort } from './data/app-resource-gc.server';
 import { ensureDataBindings, internalErrorResponse } from './data/http.server';
 import { ChatArchivedError } from './data/errors';
@@ -157,11 +164,15 @@ function runKnownDataOperation(
     case 'subchats.setDescription':
       return setSubchatDescription(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'projects.history':
+      return withRepositoryErrors(projectHistory(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId }));
     case 'projects.cloneAccess':
+      return withRepositoryErrors(
+        projectCloneAccess(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId }),
+      );
     case 'projects.fork':
+      return withRepositoryErrors(forkProject(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId }));
     case 'projects.import':
-      // Answered from the project's repository by the workspace runtime (Workstream 1), not from this database.
-      throw new Error(`Unsupported data operation: ${path}`);
+      return withRepositoryErrors(importProject(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId }));
     default:
       path satisfies never;
       throw new Error(`Unsupported data operation: ${path}`);
@@ -169,7 +180,7 @@ function runKnownDataOperation(
 }
 
 /**
- * Starts a new conversation on a GitHub project and tells the one it archived to stop now, rather than at
+ * Starts a new conversation on a team project and tells the one it archived to stop now, rather than at
  * whatever it does next. The new conversation's agent also waits for that before it copies the workspace,
  * so this is only the early start: the answer doesn't wait for it.
  */
@@ -192,7 +203,7 @@ async function startLinkedChatAndStopArchived(
 
 async function createSubchatFromAgent(env: Env, args: { sessionId: string; chatId: string }): Promise<number> {
   const chat = await requireChat(env.DB, { id: args.chatId, sessionId: args.sessionId });
-  // An earlier conversation on a GitHub project is kept to read: a subchat would work on its old copy.
+  // An earlier conversation on a team project is kept to read: a subchat would work on its old copy.
   if (await isChatArchived(env.DB, { id: args.chatId, sessionId: args.sessionId })) {
     throw new ChatArchivedError();
   }

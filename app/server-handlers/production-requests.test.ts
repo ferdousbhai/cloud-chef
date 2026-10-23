@@ -8,7 +8,7 @@ import { runtimeRequestProductionAction } from './runtime-projects';
 
 const COMMIT = 'c'.repeat(40);
 const DRAFT = {
-  draftId: 'builder-recipe',
+  draftId: 'recipe-chat',
   draftRevision: 'rev-1',
   title: 'Recipe box',
   repo: 'p-recipe-chat',
@@ -191,7 +191,7 @@ describe('production requests', () => {
       decision_note: 'Not now',
     });
 
-    const waiting = sentSchema.parse(await (await send({ ...DRAFT, draftId: 'other', title: 'Other' })).json());
+    const waiting = sentSchema.parse(await (await send({ ...DRAFT, draftId: 'other', repo: 'p-other', title: 'Other' })).json());
     await updateMember(env.DB, { orgId: ORG, actorId: admin.userId, userId: sara.userId, action: 'remove' });
     expect((await approve(admin.cookie, waiting.requestId)).status).toBe(409);
     expect(

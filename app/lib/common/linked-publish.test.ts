@@ -24,7 +24,7 @@ function data(overrides: Record<string, string | number | boolean | null>) {
 }
 
 describe('linkedPublishView', () => {
-  it('names a failed build by what already landed on GitHub, not as an unsent publish', () => {
+  it('names a failed build by what already landed in the repository, not as an unsent publish', () => {
     const live = linkedPublishView(
       publish(toolFailure('model text', data({ live: true, build: 'failure', conclusion: 'cancelled' })), 'publish'),
       NOW,
@@ -36,7 +36,7 @@ describe('linkedPublishView', () => {
     );
   });
 
-  it('builds only while the pipeline is still followed, then says the result is on GitHub', () => {
+  it('builds only while the pipeline is still followed, then says the result is in Workers Builds', () => {
     const building = linkedPublishView(publish(toolSuccess("Don't wait or poll", data({}))), NOW);
     expect(building).toMatchObject({
       kind: 'building',
@@ -54,11 +54,11 @@ describe('linkedPublishView', () => {
       kind: 'unknown',
       building: false,
       followDeadline: null,
-      detail: "CloudChef stopped following the repository's pipeline. Its result is on GitHub.",
+      detail: "CloudChef stopped following the repository's pipeline. Its result is in Workers Builds.",
     });
   });
 
-  it('tells a merge conflict and a call that never reached GitHub apart', () => {
+  it('tells a merge conflict and a call that never reached the repository apart', () => {
     expect(
       linkedPublishView(
         publish(toolFailure('x', { branch: 'cloudchef/sara', commit: 'c'.repeat(40), conflict: true }), 'publish'),
@@ -84,7 +84,7 @@ describe('linkedPublishView', () => {
 });
 
 describe('latestLinkedPublishView', () => {
-  it('is the newest publish that reached GitHub', () => {
+  it('is the newest publish that reached the repository', () => {
     const messages: CloudChefMessage[] = [
       {
         id: 'a1',

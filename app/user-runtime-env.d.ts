@@ -6,6 +6,8 @@ declare global {
   interface Env {
     BuilderAgent: DurableObjectNamespace<BuilderAgent>;
     PROJECT_WORKSPACE: DurableObjectNamespace<ProjectWorkspaceRpc>;
+    /** Every project's git repository, in this account's `cloudchef` namespace. */
+    ARTIFACTS: Artifacts;
     CLOUDCHEF_USER_RUNTIME: string;
     CLOUDCHEF_USER_ID: string;
     /** The SHA-256 of the runtime bundle this Worker runs. */

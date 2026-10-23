@@ -8,7 +8,9 @@ import { GitHubApp } from '~/lib/.server/github/github-app';
 import { bytesToBase64 } from '~/lib/hex-digest';
 import { createOrganizationAction, listOrganizationsAction, updateMemberAction } from './organizations';
 import { completeGitHubInstallAction, startGitHubInstallAction } from './github-projects';
-import { importProjectAction, listMyProjectsAction, removeProjectAction, setProjectAccessAction } from './projects';
+import { listMyProjectsAction, registerGitHubImport, removeProjectAction, setProjectAccessAction } from './projects';
+import { answeringOrganizationErrors } from './signed-in';
+import { requireProjectScope } from '~/lib/cloudflare/data/org-projects.server';
 
 const ORIGIN = 'https://cloudchef.build';
 const INSTALLATION_ID = 4242;
@@ -424,20 +426,32 @@ describe('GitHub projects', () => {
   });
 });
 
+/** A GitHub import as the runtime registers one: in a team (`orgId`) or the person's own account. */
+const register = (
+  env: Env,
+  userId: string,
+  { orgId, ...request }: { orgId?: string } & ({ repoId: number; name: string } | { url: string; name?: string }),
+  app: GitHubApp | null,
+  gitRequest?: typeof fetch,
+) =>
+  answeringOrganizationErrors(async () => {
+    const scope = await requireProjectScope(env.DB, userId, orgId);
+    const registered = await registerGitHubImport(env, { scope, actorId: userId, request, app, gitRequest });
+    return registered instanceof Response ? registered : Response.json(registered, { status: 201 });
+  });
+
 describe('projects', () => {
-  const importRepository = (env: Env, app: GitHubApp, cookie: string, body: Record<string, string | number>) =>
-    importProjectAction({ request: post(cookie, '/api/projects/import', body), env, app });
   const giveRole = (env: Env, cookie: string, body: Record<string, string | null>) =>
     setProjectAccessAction({ request: post(cookie, '/api/organizations/projects/access', body), env });
 
   it('imports repositories the installation reaches, and gives members the projects and roles admins choose', async () => {
     const { database, env, orgId, admin, member, app } = await setup();
     await install(env, app, admin.cookie, orgId);
-    const imported = (repoId: number, cookie = admin.cookie) =>
-      importRepository(env, app, cookie, { orgId, repoId, name: `Repo ${repoId}` });
+    const imported = (repoId: number, user = admin) =>
+      register(env, user.userId, { orgId, repoId, name: `Repo ${repoId}` }, app);
 
     expect((await imported(99)).status).toBe(404);
-    expect((await imported(11, member.cookie)).status).toBe(403);
+    expect((await imported(11, member)).status).toBe(403);
     const site = await imported(11);
     expect(site.status).toBe(201);
     expect((await imported(11)).status).toBe(409);
@@ -499,7 +513,7 @@ describe('projects', () => {
   it('takes projects away from a member who is paused or removed', async () => {
     const { database, env, orgId, admin, member, app } = await setup();
     await install(env, app, admin.cookie, orgId);
-    const imported = await importRepository(env, app, admin.cookie, { orgId, repoId: 11, name: 'Site' });
+    const imported = await register(env, admin.userId, { orgId, repoId: 11, name: 'Site' }, app);
     const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
     await giveRole(env, admin.cookie, { orgId, projectId, userId: member.userId, role: 'edit' });
 
@@ -524,7 +538,7 @@ describe('projects', () => {
   it('grants no project to a member removed while the grant was being made', async () => {
     const { database, env, orgId, admin, member, app } = await setup();
     await install(env, app, admin.cookie, orgId);
-    const imported = await importRepository(env, app, admin.cookie, { orgId, repoId: 11, name: 'Site' });
+    const imported = await register(env, admin.userId, { orgId, repoId: 11, name: 'Site' }, app);
     const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
     // Another admin's removal lands just before the grant is written.
     const racing = withStatementHook(env.DB, (query) => {
@@ -545,7 +559,7 @@ describe('projects', () => {
   it('keeps when a grant was first given when its role changes', async () => {
     const { database, env, orgId, admin, member, app } = await setup();
     await install(env, app, admin.cookie, orgId);
-    const imported = await importRepository(env, app, admin.cookie, { orgId, repoId: 11, name: 'Site' });
+    const imported = await register(env, admin.userId, { orgId, repoId: 11, name: 'Site' }, app);
     const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
     const role = (value: 'view' | 'edit') =>
       giveRole(env, admin.cookie, { orgId, projectId, userId: member.userId, role: value });
@@ -578,13 +592,8 @@ describe('projects', () => {
       }
       return new Response('Repository not found.', { status: 401 });
     };
-    const importUrl = (url: string, cookie = member.cookie, extra: Record<string, string> = {}) =>
-      importProjectAction({
-        request: post(cookie, '/api/projects/import', { url, ...extra }),
-        env,
-        app: null,
-        gitRequest,
-      });
+    const importUrl = (url: string, user = member, extra: { orgId?: string } = {}) =>
+      register(env, user.userId, { url, ...extra }, null, gitRequest);
 
     expect((await importUrl('https://gitlab.com/ada/blog')).status).toBe(400);
     const privateOne = await importUrl('https://github.com/ada/private');
@@ -601,7 +610,7 @@ describe('projects', () => {
     expect(await myProjects(env, member.cookie)).toEqual(['ada/blog: edit']);
     expect(await myProjects(env, admin.cookie)).toEqual([]);
     // A team import needs one of its admins.
-    expect((await importUrl('https://github.com/ada/blog', member.cookie, { orgId })).status).toBe(403);
+    expect((await importUrl('https://github.com/ada/blog', member, { orgId })).status).toBe(403);
 
     const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
     const removed = await removeProjectAction({
