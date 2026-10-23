@@ -8,6 +8,7 @@ import {
 } from '@cloudflare/ai-chat';
 import { callable, type Connection, type FiberRecoveryContext, type FiberRecoveryResult } from 'agents';
 import { conversationCompactionKey } from '~/lib/compaction';
+import { abortableSleep } from '~/lib/abortable-sleep';
 import { piAgentRunner } from '~/lib/.server/llm/pi-agent-runner';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import {
@@ -1736,7 +1737,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    */
   private async runLinkedBuildWatch(watch: LinkedBuildWatch, signal?: AbortSignal): Promise<void> {
     const identity = runtimeConnectionIdentity(this.env);
-    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
     const build = identity
       ? await watchLinkedBuild({
           poll: async () => {
@@ -1745,8 +1745,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
             await this.landLinkedBuildOutput(watch, linkedBuildStartedResult(watch), { onlyFailed: true });
             return linkedBuildStatus(this.env, identity, watch.orgProjectId, watch.sha);
           },
-          sleep,
-          now: Date.now,
           deadline: watch.startedAt + LINKED_BUILD_WATCH_MS,
           workersBuildsGraceUntil: watch.startedAt + WORKERS_BUILDS_APPEAR_MS,
           signal,
@@ -1776,7 +1774,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       } else {
         missingSince = null;
       }
-      await sleep(LINKED_BUILD_LANDING_POLL_MS);
+      await abortableSleep(LINKED_BUILD_LANDING_POLL_MS, signal);
     }
   }
 

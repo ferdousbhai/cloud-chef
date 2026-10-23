@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { abortableSleep } from '~/lib/abortable-sleep';
 import { replaceToolCallPart, type CloudChefMessage, type CloudChefPart } from 'cloudchef-agent/ai-compat';
 import { toolFailure, toolSuccess, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import type { LinkedBuildStatus } from '~/lib/.server/cloudflare/linked-project-client';
@@ -141,21 +142,19 @@ export function linkedBuildUnfollowedResult(watch: LinkedBuildWatch): CloudChefT
  */
 export async function watchLinkedBuild(args: {
   poll: () => Promise<LinkedBuildStatus>;
-  sleep: (ms: number) => Promise<void>;
-  now: () => number;
   deadline: number;
   workersBuildsGraceUntil: number;
   signal?: AbortSignal;
 }): Promise<LinkedBuildStatus | null> {
   let status: LinkedBuildStatus | null = null;
   let polled = false;
-  while (args.now() < args.deadline && !args.signal?.aborted) {
-    await args.sleep(LINKED_BUILD_POLL_MS);
+  while (Date.now() < args.deadline && !args.signal?.aborted) {
+    await abortableSleep(LINKED_BUILD_POLL_MS, args.signal);
     // One unreadable status says nothing about the build: the last one known stands until the next read.
     status = await args.poll().catch(() => status);
     polled = true;
     const finished = status?.state === 'success' || status?.state === 'failure';
-    if (finished && (status?.workersBuilds || args.now() >= args.workersBuildsGraceUntil)) {
+    if (finished && (status?.workersBuilds || Date.now() >= args.workersBuildsGraceUntil)) {
       return status;
     }
   }

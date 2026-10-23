@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import type { LinkedBuildStatus } from '~/lib/.server/cloudflare/linked-project-client';
@@ -40,18 +40,11 @@ const built: LinkedBuildStatus = {
   workersBuilds: true,
 };
 
-/** A clock that moves only when the watch sleeps, recording each sleep. */
-function clock() {
-  let now = 0;
-  const sleeps: number[] = [];
-  return {
-    now: () => now,
-    sleep: async (ms: number) => {
-      sleeps.push(ms);
-      now += ms;
-    },
-    sleeps,
-  };
+/** Runs a watch to its end on the fake clock. */
+async function watched(args: Parameters<typeof watchLinkedBuild>[0]) {
+  const status = watchLinkedBuild(args);
+  await vi.runAllTimersAsync();
+  return status;
 }
 
 function transcript(
@@ -71,6 +64,14 @@ function transcript(
     },
   ];
 }
+
+beforeEach(() => {
+  vi.useFakeTimers({ now: 0 });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("a GitHub project's publish", () => {
   it('returns as soon as the commit is in, saying the pipeline is building and not to wait', () => {
@@ -153,10 +154,9 @@ describe("a GitHub project's publish", () => {
   });
 
   it('reads the status until the build finishes, riding out an unreadable read', async () => {
-    const time = clock();
     const answers: (LinkedBuildStatus | Error)[] = [pending, new Error('GitHub is down'), pending, built, pending];
     let polls = 0;
-    const status = await watchLinkedBuild({
+    const status = await watched({
       poll: async () => {
         const answer = answers[polls++] ?? pending;
         if (answer instanceof Error) {
@@ -164,23 +164,16 @@ describe("a GitHub project's publish", () => {
         }
         return answer;
       },
-      sleep: time.sleep,
-      now: time.now,
       deadline: 60 * 60_000,
       workersBuildsGraceUntil: 0,
     });
     expect(status).toEqual(built);
     expect(polls).toBe(4);
-    expect(time.sleeps).toEqual([
-      LINKED_BUILD_POLL_MS,
-      LINKED_BUILD_POLL_MS,
-      LINKED_BUILD_POLL_MS,
-      LINKED_BUILD_POLL_MS,
-    ]);
+    // A poll's wait before each read.
+    expect(Date.now()).toBe(4 * LINKED_BUILD_POLL_MS);
   });
 
   it('stops at the first failed build too', async () => {
-    const time = clock();
     const failure: LinkedBuildStatus = {
       state: 'failure',
       previewUrl: null,
@@ -189,13 +182,11 @@ describe("a GitHub project's publish", () => {
       workersBuilds: true,
     };
     let polls = 0;
-    const status = await watchLinkedBuild({
+    const status = await watched({
       poll: async () => {
         polls += 1;
         return polls === 1 ? failure : built;
       },
-      sleep: time.sleep,
-      now: time.now,
       deadline: 60 * 60_000,
       workersBuildsGraceUntil: 0,
     });
@@ -204,15 +195,12 @@ describe("a GitHub project's publish", () => {
   });
 
   it('stops at its deadline with the last status, and at once when it is stopped', async () => {
-    const time = clock();
     let polls = 0;
-    const late = await watchLinkedBuild({
+    const late = await watched({
       poll: async () => {
         polls += 1;
         return pending;
       },
-      sleep: time.sleep,
-      now: time.now,
       deadline: 3 * LINKED_BUILD_POLL_MS,
       workersBuildsGraceUntil: 0,
     });
@@ -220,32 +208,28 @@ describe("a GitHub project's publish", () => {
     expect(polls).toBe(3);
 
     // Recovered after its deadline had passed, it still reads the build once, without waiting.
-    const recovered = clock();
+    vi.setSystemTime(10 * 60 * 60_000);
     let recoveredPolls = 0;
-    const afterRestart = await watchLinkedBuild({
+    const afterRestart = await watched({
       poll: async () => {
         recoveredPolls += 1;
         return built;
       },
-      sleep: recovered.sleep,
-      now: () => 10 * 60 * 60_000,
       deadline: 60_000,
       workersBuildsGraceUntil: 0,
     });
     expect(afterRestart).toEqual(built);
     expect(recoveredPolls).toBe(1);
-    expect(recovered.sleeps).toEqual([]);
+    expect(Date.now()).toBe(10 * 60 * 60_000);
 
     const stopped = new AbortController();
     stopped.abort();
     let stoppedPolls = 0;
-    const result = await watchLinkedBuild({
+    const result = await watched({
       poll: async () => {
         stoppedPolls += 1;
         return built;
       },
-      sleep: time.sleep,
-      now: time.now,
       deadline: Number.MAX_SAFE_INTEGER,
       workersBuildsGraceUntil: 0,
       signal: stopped.signal,
@@ -255,13 +239,10 @@ describe("a GitHub project's publish", () => {
   });
 
   it('has no status when not one read succeeded, rather than a pipeline that reported none', async () => {
-    const time = clock();
-    const status = await watchLinkedBuild({
+    const status = await watched({
       poll: async () => {
         throw new Error('GitHub is down');
       },
-      sleep: time.sleep,
-      now: time.now,
       deadline: 3 * LINKED_BUILD_POLL_MS,
       workersBuildsGraceUntil: 0,
     });
@@ -331,14 +312,11 @@ describe("a GitHub project's publish", () => {
   });
 
   it("waits for Workers Builds' own check before taking other checks finishing as the build", async () => {
-    const time = clock();
     const ciPassed: LinkedBuildStatus = { ...built, previewUrl: null, workersBuilds: false };
     const answers: LinkedBuildStatus[] = [ciPassed, ciPassed, { ...built, workersBuilds: true }];
     let polls = 0;
-    const status = await watchLinkedBuild({
+    const status = await watched({
       poll: async () => answers[polls++] ?? pending,
-      sleep: time.sleep,
-      now: time.now,
       deadline: 60 * 60_000,
       workersBuildsGraceUntil: 5 * LINKED_BUILD_POLL_MS,
     });
@@ -346,15 +324,13 @@ describe("a GitHub project's publish", () => {
     expect(polls).toBe(3);
 
     // A repository without Workers Builds is judged by its own checks once the grace has passed.
-    const other = clock();
+    vi.setSystemTime(0);
     let otherPolls = 0;
-    const settled = await watchLinkedBuild({
+    const settled = await watched({
       poll: async () => {
         otherPolls += 1;
         return ciPassed;
       },
-      sleep: other.sleep,
-      now: other.now,
       deadline: 60 * 60_000,
       workersBuildsGraceUntil: 2 * LINKED_BUILD_POLL_MS,
     });
