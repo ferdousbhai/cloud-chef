@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isRecord } from './utils/isRecord';
+import { isRecord } from './utils/isRecord.js';
 
 export const TRANSCRIPT_HISTORY_FORMAT_VERSION = 2 as const;
 export const TRANSCRIPT_BASE_METADATA_KEY = 'cloudchefTranscriptBase' as const;
