@@ -1,26 +1,31 @@
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import { z } from 'zod';
 import { Button } from '@ui/Button';
 import { TextInput } from '@ui/TextInput';
-import { createCloudflareReturnURL } from '~/lib/auth-client';
+import { authClient, createCloudflareReturnURL } from '~/lib/auth-client';
+import { projectRoleSchema } from '~/lib/cloudflare/org-projects.client';
+import { ImportFromGitHubDialog } from '~/components/projects/ImportFromGitHubDialog.client';
+import { ProjectAccessList, type ProjectMember } from '~/components/projects/ProjectAccessList.client';
+import { openProjectChat } from '~/lib/cloudflare/projects.client';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
-import { getJson, noContentSchema, postJson, runRequest } from '~/lib/json-request';
+import { noContentSchema, postJson, runRequest } from '~/lib/json-request';
 
 export const orgGitHubSchema = z.object({ accountLogin: z.string(), accountType: z.string() }).nullable();
 export const orgProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
-  repoFullName: z.string(),
-  defaultBranch: z.string(),
-  origin: z.enum(['linked', 'promoted']),
-  memberIds: z.array(z.string()),
+  origin: z.enum(['imported', 'promoted']),
+  /** The project's Artifacts repository; null until the first person to open it has imported it. */
+  repo: z.string().nullable(),
+  /** The GitHub repository it was imported from, for an imported project. */
+  importRepoFullName: z.string().nullable(),
+  access: z.array(z.object({ userId: z.string(), role: projectRoleSchema })),
 });
 export const productionRequestSchema = z.object({
   id: z.string(),
   title: z.string(),
   note: z.string().nullable(),
   previewUrl: z.string().nullable(),
-  files: z.number(),
   requesterName: z.string(),
   requesterEmail: z.string(),
   updatedAt: z.number().nullable(),
@@ -33,30 +38,18 @@ export const ownRequestSchema = z.object({
 });
 
 type ProductionRequest = z.infer<typeof productionRequestSchema>;
-const approvalStartedSchema = z.object({ authorizeUrl: z.string() });
+const approvedSchema = z.object({ projectId: z.string() });
 
-/** Where an admin connects a promoted app's repository to Workers Builds, which then deploys it. */
-const WORKERS_BUILDS_IMPORT_URL = 'https://dash.cloudflare.com/?to=/:account/workers-and-pages/create';
+/** Where an admin connects a team project's repository to Workers Builds, which then deploys it. */
+const WORKERS_BUILDS_CREATE_URL = 'https://dash.cloudflare.com/?to=/:account/workers-and-pages/create';
 
 type OrgProject = z.infer<typeof orgProjectSchema>;
-type ProjectMember = { userId: string; name: string; email: string; role: 'admin' | 'member' };
 
 const installStartedSchema = z.object({ installUrl: z.string() });
-const repositoriesSchema = z.object({
-  repositories: z.array(
-    z.object({ id: z.number(), fullName: z.string(), defaultBranch: z.string(), private: z.boolean() }),
-  ),
-});
-const linkedSchema = z.object({ projectId: z.string() });
-
-type Repository = z.infer<typeof repositoriesSchema>['repositories'][number];
-
-/** The repository names GitHub (and the approval route) accept. */
-const REPOSITORY_NAME = /^[A-Za-z0-9._-]{1,100}$/;
 
 /**
- * An admin's view of an organization's GitHub projects: the GitHub account CloudChef's App is installed
- * on, the repositories linked as projects, and which members may work on each. Admins work on all of them.
+ * An admin's view of a team's projects: each one's repository and who may view or edit it, the members'
+ * requests to make a draft a project, and the GitHub account CloudChef's App reads when importing.
  */
 export function OrgProjectsSection({
   orgId,
@@ -73,17 +66,13 @@ export function OrgProjectsSection({
   productionRequests: ProductionRequest[];
   onChanged: () => Promise<void>;
 }) {
-  const [repositories, setRepositories] = useState<Repository[] | null>(null);
-  const [listing, setListing] = useState(false);
-  const [repoId, setRepoId] = useState('');
-  const [name, setName] = useState('');
-  const [busy, setBusy] = useState(false);
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const onError = (message: string | null) => setFeedback(errorFeedback(message));
-  const linkedIds = new Set(projects.map((project) => project.repoFullName));
-  const contributors = members.filter((member) => member.role === 'member');
-  const unlinked = repositories?.filter((repository) => !linkedIds.has(repository.fullName)) ?? [];
+  // Importing acts in the account the person is working in now, so it's offered for that team only.
+  const { data: session } = authClient.useSession();
+  const workingHere = session?.context?.kind === 'organization' && session.context.orgId === orgId;
 
   const connect = () =>
     void runRequest(async () => {
@@ -95,40 +84,6 @@ export function OrgProjectsSection({
       window.location.assign(installUrl);
     }, onError);
 
-  const chooseRepository = async () => {
-    setListing(true);
-    await runRequest(async () => {
-      const listed = await getJson(
-        `/api/organizations/github/repositories?orgId=${encodeURIComponent(orgId)}`,
-        repositoriesSchema,
-      );
-      setRepositories(listed.repositories);
-    }, onError);
-    setListing(false);
-  };
-
-  const link = async (event: FormEvent) => {
-    event.preventDefault();
-    const repository = repositories?.find((candidate) => String(candidate.id) === repoId);
-    if (!repository) {
-      return;
-    }
-    setBusy(true);
-    await runRequest(async () => {
-      await postJson(
-        '/api/organizations/projects/link',
-        { orgId, repoId: repository.id, name: name.trim() || repository.fullName.split('/')[1] },
-        linkedSchema,
-      );
-      setRepositories(null);
-      setRepoId('');
-      setName('');
-      setFeedback(noteFeedback(`Linked ${repository.fullName}.`));
-      await onChanged();
-    }, onError);
-    setBusy(false);
-  };
-
   const disconnect = () =>
     void runRequest(async () => {
       await postJson('/api/organizations/github/disconnect', { orgId }, noContentSchema);
@@ -139,25 +94,59 @@ export function OrgProjectsSection({
   return (
     <div className="mt-3 grid min-w-0 gap-2 text-sm">
       <h4 className="font-medium">Projects</h4>
+      {productionRequests.length > 0 ? (
+        <ul className="grid gap-2" aria-label="Production requests">
+          {productionRequests.map((pending) => (
+            <ProductionRequestRow
+              key={pending.id}
+              orgId={orgId}
+              pending={pending}
+              onChanged={onChanged}
+              onFeedback={setFeedback}
+            />
+          ))}
+        </ul>
+      ) : null}
+      <ul className="grid gap-2">
+        {projects.map((project) => (
+          <ProjectRow
+            key={project.id}
+            orgId={orgId}
+            project={project}
+            members={members}
+            onChanged={onChanged}
+            onError={onError}
+          />
+        ))}
+      </ul>
+      <div className="flex flex-wrap items-center gap-2">
+        {workingHere ? (
+          <Button size="xs" variant="neutral" onClick={() => setImporting(true)}>
+            Import from GitHub
+          </Button>
+        ) : (
+          <span className="min-w-0 text-content-secondary">Switch to this team to import a project from GitHub.</span>
+        )}
+      </div>
       {github === null ? (
         <div className="flex flex-wrap items-center gap-2">
           <span className="min-w-0 text-content-secondary">
-            Connect GitHub to let people work on repositories here; each one deploys through its own pipeline.
+            Public repositories import from their address. Connect GitHub to import private ones too.
           </span>
-          <Button size="xs" variant="neutral" onClick={connect}>
+          <Button size="xs" variant="subtle" onClick={connect}>
             Connect GitHub
           </Button>
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="min-w-0 flex-1 text-content-secondary [overflow-wrap:anywhere]">
-            Repositories from github.com/{github.accountLogin}
+          <span className="min-w-48 flex-1 text-content-secondary [overflow-wrap:anywhere]">
+            Imports can read repositories from github.com/{github.accountLogin}
           </span>
           {confirmingDisconnect ? (
             <>
               <span className="min-w-0 basis-full text-xs text-content-secondary">
-                Disconnect GitHub? Linked projects stay listed, but nobody can open them until it&apos;s connected
-                again.
+                Disconnect GitHub? Projects already imported stay as they are; only private repositories can&apos;t be
+                imported until it&apos;s connected again.
               </span>
               <Button size="xs" variant="danger" onClick={disconnect}>
                 Disconnect GitHub
@@ -178,87 +167,10 @@ export function OrgProjectsSection({
           )}
         </div>
       )}
-      {productionRequests.length > 0 ? (
-        <ul className="grid gap-2" aria-label="Production requests">
-          {productionRequests.map((pending) => (
-            <ProductionRequestRow
-              key={pending.id}
-              orgId={orgId}
-              pending={pending}
-              githubConnected={github !== null}
-              onChanged={onChanged}
-              onFeedback={setFeedback}
-            />
-          ))}
-        </ul>
-      ) : null}
-      <ul className="grid gap-2">
-        {projects.map((project) => (
-          <ProjectRow
-            key={project.id}
-            orgId={orgId}
-            project={project}
-            contributors={contributors}
-            onChanged={onChanged}
-            onError={onError}
-          />
-        ))}
-      </ul>
-      {github !== null && repositories === null ? (
-        <Button
-          className="justify-self-start"
-          size="xs"
-          variant="neutral"
-          loading={listing}
-          onClick={() => void chooseRepository()}
-        >
-          Link a repository
-        </Button>
-      ) : null}
-      {repositories !== null && unlinked.length === 0 ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="min-w-0 flex-1 text-content-secondary">
-            Every repository CloudChef&apos;s GitHub App reaches is linked already. Use Change repositories to give it
-            more.
-          </span>
-          <Button size="xs" variant="subtle" onClick={() => setRepositories(null)}>
-            Close
-          </Button>
-        </div>
-      ) : null}
-      {repositories !== null && unlinked.length > 0 ? (
-        <form className="flex flex-wrap gap-2" onSubmit={(event) => void link(event)}>
-          <select
-            required
-            aria-label="Repository"
-            value={repoId}
-            onChange={(event) => setRepoId(event.target.value)}
-            className="min-w-0 max-w-full flex-1 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 text-sm"
-          >
-            <option value="">Choose a repository</option>
-            {unlinked.map((repository) => (
-              <option key={repository.id} value={String(repository.id)}>
-                {repository.fullName}
-              </option>
-            ))}
-          </select>
-          <TextInput
-            maxLength={80}
-            placeholder="Project name"
-            aria-label="Project name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            className="min-w-0 flex-1"
-          />
-          <Button type="submit" size="xs" variant="neutral" loading={busy} disabled={!repoId}>
-            Link
-          </Button>
-          <Button size="xs" variant="subtle" onClick={() => setRepositories(null)}>
-            Cancel
-          </Button>
-        </form>
-      ) : null}
       <FeedbackLine feedback={feedback} className="" />
+      {importing ? (
+        <ImportFromGitHubDialog orgId={orgId} onOpenProject={openProjectChat} onClose={() => setImporting(false)} />
+      ) : null}
     </div>
   );
 }
@@ -266,67 +178,39 @@ export function OrgProjectsSection({
 function ProjectRow({
   orgId,
   project,
-  contributors,
+  members,
   onChanged,
   onError,
 }: {
   orgId: string;
   project: OrgProject;
-  contributors: ProjectMember[];
+  members: ProjectMember[];
   onChanged: () => Promise<void>;
   onError: (message: string | null) => void;
 }) {
-  const [confirmingUnlink, setConfirmingUnlink] = useState(false);
-  // Access being saved, shown as asked until the refreshed list arrives.
-  const [saving, setSaving] = useState<ReadonlyMap<string, boolean>>(new Map());
-  const allowed = new Set(project.memberIds);
-  const setAccess = async (userId: string, granted: boolean) => {
-    setSaving((current) => new Map(current).set(userId, granted));
-    await runRequest(async () => {
-      await postJson(
-        '/api/organizations/projects/access',
-        { orgId, projectId: project.id, userId, allowed: granted },
-        noContentSchema,
-      );
-      await onChanged();
-    }, onError);
-    setSaving((current) => {
-      const next = new Map(current);
-      next.delete(userId);
-      return next;
-    });
-  };
-  const unlink = () =>
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const remove = () =>
     void runRequest(async () => {
       await postJson('/api/organizations/projects/unlink', { orgId, projectId: project.id }, noContentSchema);
       await onChanged();
     }, onError);
   return (
-    <li className="grid min-w-0 gap-1 rounded-md border border-bolt-elements-borderColor p-2">
+    <li className="grid min-w-0 gap-2 rounded-md border border-bolt-elements-borderColor p-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="min-w-0 flex-1 truncate" title={`${project.name} (${project.repoFullName})`}>
-          {project.name}{' '}
-          <a
-            className="text-content-secondary underline"
-            href={`https://github.com/${project.repoFullName}`}
-            title={project.repoFullName}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {project.repoFullName}
-          </a>
+        <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+          {project.name} <span className="text-xs text-content-secondary">{projectSource(project)}</span>
         </span>
-        {confirmingUnlink ? (
+        {confirmingRemove ? (
           <>
             <Button
               size="xs"
               variant="danger"
-              aria-label={`Unlink (the repository stays on GitHub): ${project.name}`}
-              onClick={unlink}
+              aria-label={`Remove from the team (its site stays): ${project.name}`}
+              onClick={remove}
             >
-              Unlink (the repository stays on GitHub)
+              Remove from the team (its site stays)
             </Button>
-            <Button size="xs" variant="subtle" onClick={() => setConfirmingUnlink(false)}>
+            <Button size="xs" variant="subtle" onClick={() => setConfirmingRemove(false)}>
               Cancel
             </Button>
           </>
@@ -334,99 +218,79 @@ function ProjectRow({
           <Button
             size="xs"
             variant="subtle"
-            aria-label={`Unlink ${project.name}`}
-            onClick={() => setConfirmingUnlink(true)}
+            aria-label={`Remove ${project.name}`}
+            onClick={() => setConfirmingRemove(true)}
           >
-            Unlink
+            Remove
           </Button>
         )}
       </div>
-      {project.origin === 'promoted' ? (
-        <p className="text-xs text-content-secondary">
-          New from an approved draft. To deploy it, connect the repository in{' '}
-          <a className="underline" href={WORKERS_BUILDS_IMPORT_URL} target="_blank" rel="noopener noreferrer">
-            Workers Builds
-          </a>{' '}
-          (Import a repository, deploy command <code>pnpm run deploy</code>), and turn on preview builds.
-        </p>
-      ) : null}
-      {contributors.length > 0 ? (
-        <div
-          className="flex flex-wrap gap-3 text-xs text-content-secondary"
-          role="group"
-          aria-label={`Who may work on ${project.name}`}
-        >
-          {contributors.map((member) => (
-            <label key={member.userId} className="flex min-w-0 items-center gap-1 [overflow-wrap:anywhere]">
-              <input
-                type="checkbox"
-                aria-label={`${member.name || member.email} may work on ${project.name}`}
-                checked={saving.get(member.userId) ?? allowed.has(member.userId)}
-                disabled={saving.has(member.userId)}
-                onChange={(event) => void setAccess(member.userId, event.target.checked)}
-              />
-              {member.name || member.email}
-            </label>
-          ))}
-        </div>
-      ) : (
-        <span className="text-xs text-content-tertiary">Invite members to give them this project.</span>
-      )}
+      {project.origin === 'promoted' ? <WorkersBuildsInstruction /> : null}
+      <ProjectAccessList
+        orgId={orgId}
+        project={project}
+        members={members}
+        access={project.access}
+        onChanged={onChanged}
+        onError={onError}
+      />
     </li>
   );
 }
 
-/** A repository name from a draft's title, or a placeholder when the title has none of GitHub's characters. */
-function repositoryNameFor(pending: ProductionRequest): string {
-  const slug = pending.title
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 100);
-  return slug || `app-${pending.id.slice(0, 8)}`;
+/** Where a project's code came from, while that still matters: an import not yet made. */
+function projectSource(project: OrgProject): string | null {
+  if (!project.importRepoFullName) {
+    return null;
+  }
+  return project.repo === null
+    ? `imports from github.com/${project.importRepoFullName} when someone first opens it`
+    : `imported from github.com/${project.importRepoFullName}`;
 }
 
-/** A member's request to make a draft a real project, as an admin decides it. */
+/** How an admin has Workers Builds deploy a project approved from a draft: the dashboard does it, once. */
+function WorkersBuildsInstruction() {
+  return (
+    <p className="text-xs text-content-secondary">
+      To deploy it, connect its repository in{' '}
+      <a className="underline" href={WORKERS_BUILDS_CREATE_URL} target="_blank" rel="noopener noreferrer">
+        Workers Builds
+      </a>
+      : Workers &amp; Pages, Create, Continue with Artifacts, then the <code>cloudchef</code> namespace.
+    </p>
+  );
+}
+
+/** A member's request to make a draft a team project, as an admin decides it. */
 function ProductionRequestRow({
   orgId,
   pending,
-  githubConnected,
   onChanged,
   onFeedback,
 }: {
   orgId: string;
   pending: ProductionRequest;
-  githubConnected: boolean;
   onChanged: () => Promise<void>;
   onFeedback: (feedback: Feedback) => void;
 }) {
-  const [repoName, setRepoName] = useState(() => repositoryNameFor(pending));
-  const [privateRepo, setPrivateRepo] = useState(true);
   const [approving, setApproving] = useState(false);
   const [declining, setDeclining] = useState(false);
   const [decisionNote, setDecisionNote] = useState('');
   const onError = (message: string | null) => onFeedback(errorFeedback(message));
-  const validName = REPOSITORY_NAME.test(repoName);
-  const hintId = `repository-name-hint-${pending.id}`;
-  // On the way to GitHub, the button stays busy until the page goes; a refusal frees it.
-  const approve = () => {
+  const approve = async () => {
     setApproving(true);
-    void runRequest(
-      async () => {
-        const { authorizeUrl } = await postJson(
-          '/api/organizations/production-requests/approve',
-          { orgId, requestId: pending.id, repoName, private: privateRepo },
-          approvalStartedSchema,
-        );
-        window.location.assign(authorizeUrl);
-      },
-      (message) => {
-        if (message !== null) {
-          setApproving(false);
-        }
-        onError(message);
-      },
-    );
+    await runRequest(async () => {
+      await postJson(
+        '/api/organizations/production-requests/approve',
+        { orgId, requestId: pending.id },
+        approvedSchema,
+      );
+      onFeedback(
+        noteFeedback(`Approved ${pending.title}. It's a team project now; connect it to Workers Builds to deploy it.`),
+      );
+      await onChanged();
+    }, onError);
+    setApproving(false);
   };
   const decline = () =>
     void runRequest(async () => {
@@ -473,59 +337,26 @@ function ProductionRequestRow({
           </Button>
         </div>
       ) : (
-        <>
-          {/* Approving needs GitHub to create the repository; declining never does. */}
-          {githubConnected ? null : (
-            <span className="text-xs text-content-tertiary">Connect GitHub to approve it into a repository.</span>
-          )}
-          <div className="flex flex-wrap items-center gap-2">
-            {githubConnected ? (
-              <>
-                <TextInput
-                  aria-label={`Repository name for ${pending.title}`}
-                  aria-invalid={!validName}
-                  aria-describedby={validName ? undefined : hintId}
-                  value={repoName}
-                  onChange={(event) => setRepoName(event.target.value)}
-                  className="min-w-0 flex-1"
-                />
-                <label className="flex items-center gap-1 text-xs">
-                  <input
-                    type="checkbox"
-                    aria-label={`Private repository for ${pending.title}`}
-                    checked={privateRepo}
-                    onChange={(event) => setPrivateRepo(event.target.checked)}
-                  />
-                  Private
-                </label>
-                <Button
-                  size="xs"
-                  variant="primary"
-                  disabled={!validName}
-                  loading={approving}
-                  aria-label={`Approve and create repository: ${pending.title}`}
-                  onClick={approve}
-                >
-                  Approve and create repository
-                </Button>
-              </>
-            ) : null}
-            <Button
-              size="xs"
-              variant="subtle"
-              disabled={approving}
-              aria-label={`Decline ${pending.title}`}
-              onClick={() => setDeclining(true)}
-            >
-              Decline
-            </Button>
-          </div>
-          {!githubConnected || validName ? null : (
-            <span id={hintId} className="text-xs text-bolt-elements-icon-error">
-              Use up to 100 letters, digits, dots, dashes or underscores.
-            </span>
-          )}
-        </>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="xs"
+            variant="primary"
+            loading={approving}
+            aria-label={`Approve: ${pending.title}`}
+            onClick={() => void approve()}
+          >
+            Approve
+          </Button>
+          <Button
+            size="xs"
+            variant="subtle"
+            disabled={approving}
+            aria-label={`Decline ${pending.title}`}
+            onClick={() => setDeclining(true)}
+          >
+            Decline
+          </Button>
+        </div>
       )}
     </li>
   );

@@ -489,7 +489,7 @@ function OrganizationRow({
               <fieldset className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-xs text-content-secondary">
                 <legend className="mb-1">Projects they get</legend>
                 {projects.map((project) => (
-                  <label key={project.id} className="flex min-w-0 items-center gap-1" title={project.repoFullName}>
+                  <label key={project.id} className="flex min-w-0 items-center gap-1">
                     <input
                       type="checkbox"
                       checked={projectIds.has(project.id)}
@@ -815,7 +815,7 @@ function MemberRow({
     setBusy(false);
   };
   const tokens = member.usage.inputTokens + member.usage.outputTokens;
-  const theirProjects = projects.filter((project) => project.memberIds.includes(member.userId));
+  const theirProjects = projects.filter((project) => project.access.some((grant) => grant.userId === member.userId));
   const projectsLine =
     member.role === 'admin'
       ? 'All projects'

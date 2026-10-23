@@ -2,7 +2,7 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrgProjectsSection } from './OrgProjectsSection.client';
 
 let root: Root | undefined;
@@ -16,6 +16,7 @@ afterEach(async () => {
     await act(async () => root?.unmount());
     root = undefined;
   }
+  vi.unstubAllGlobals();
   document.body.replaceChildren();
 });
 
@@ -50,20 +51,22 @@ describe('OrgProjectsSection', () => {
             {
               id: 'project-1',
               name: 'Storefront',
-              repoFullName: 'acme/storefront',
-              defaultBranch: 'main',
-              origin: 'linked',
-              memberIds: [],
+              origin: 'imported',
+              repo: 't-project-1',
+              importRepoFullName: 'acme/storefront',
+              access: [{ userId: 'user-2', role: 'view' }],
             },
           ]}
-          members={[]}
+          members={[
+            { userId: 'user-1', name: 'Grace', email: 'grace@example.com', role: 'admin' },
+            { userId: 'user-2', name: 'Ada', email: 'ada@example.com', role: 'member' },
+          ]}
           productionRequests={[
             {
               id: 'request-1',
               title: 'Todo app',
               note: null,
               previewUrl: null,
-              files: 3,
               requesterName: 'Ada',
               requesterEmail: 'ada@example.com',
               updatedAt: null,
@@ -75,9 +78,64 @@ describe('OrgProjectsSection', () => {
     );
 
     expect(mislabelledButtons()).toEqual([]);
-    await click('Unlink');
+    await click('Remove');
     await click('Decline');
     expect(document.querySelector('button[aria-label="Decline request: Todo app"]')).not.toBeNull();
     expect(mislabelledButtons()).toEqual([]);
+  });
+
+  it("sets each member's access with one choice, and lists admins as owners", async () => {
+    const posted: unknown[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/organizations/projects/access') {
+        posted.push(JSON.parse(String(init?.body)));
+      }
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal('fetch', fetchImpl);
+    const onChanged = vi.fn(async () => undefined);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () =>
+      root?.render(
+        <OrgProjectsSection
+          orgId="org-1"
+          github={null}
+          projects={[
+            {
+              id: 'project-1',
+              name: 'Storefront',
+              origin: 'promoted',
+              repo: 'p-draft',
+              importRepoFullName: null,
+              access: [{ userId: 'user-2', role: 'view' }],
+            },
+          ]}
+          members={[
+            { userId: 'user-1', name: 'Grace', email: 'grace@example.com', role: 'admin' },
+            { userId: 'user-2', name: 'Ada', email: 'ada@example.com', role: 'member' },
+          ]}
+          productionRequests={[]}
+          onChanged={onChanged}
+        />,
+      ),
+    );
+
+    const found = document.querySelector('select[aria-label="Ada\'s access to Storefront"]');
+    const select = found instanceof HTMLSelectElement ? found : null;
+    expect(select?.value).toBe('view');
+    expect(document.body.textContent).toContain('Owner');
+    expect(document.body.textContent).toContain('Continue with Artifacts');
+
+    await act(async () => {
+      if (select) {
+        select.value = 'edit';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+
+    expect(posted).toEqual([{ orgId: 'org-1', projectId: 'project-1', userId: 'user-2', role: 'edit' }]);
+    expect(onChanged).toHaveBeenCalled();
   });
 });
