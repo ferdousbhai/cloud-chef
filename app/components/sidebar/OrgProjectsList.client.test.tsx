@@ -53,7 +53,9 @@ function projectButton() {
 describe('OrgProjectsList', () => {
   it('asks before opening a project over unsaved edits, and leaves every project usable when the person stays', async () => {
     const fetchImpl = vi.fn(async () =>
-      Response.json({ projects: [{ id: 'project-a', name: 'Site', repoFullName: 'acme/site' }] }),
+      Response.json({
+        projects: [{ id: 'project-a', name: 'Site', repo: null, role: 'edit', importRepoFullName: 'acme/site' }],
+      }),
     );
     vi.stubGlobal('fetch', fetchImpl);
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);

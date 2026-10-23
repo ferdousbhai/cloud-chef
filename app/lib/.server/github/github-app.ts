@@ -1,15 +1,13 @@
 import { z } from 'zod';
 import { createGitHubAppJwt } from './app-jwt';
 import { callGitHub, callGitHubOrNull, fetchGitHub, GitHubError, type GitHubRequestInit } from './github-api';
-import { RepositoryClient } from './repository-client';
 
 const OAUTH_TOKEN_URL = 'https://github.com/login/oauth/access_token';
 
 /** The permissions CloudChef asks for when it mints a token: never more than one operation needs. */
 type GitHubTokenPermissions = {
   metadata?: 'read';
-  contents?: 'read' | 'write';
-  checks?: 'read';
+  contents?: 'read';
 };
 
 const accountSchema = z.looseObject({ login: z.string(), type: z.enum(['User', 'Organization']) });
@@ -26,10 +24,6 @@ const gitHubRepositorySchema = z.looseObject({
   full_name: z.string(),
   default_branch: z.string(),
   private: z.boolean(),
-  /** When GitHub created it (ISO 8601); every repository response names it. */
-  created_at: z.string().optional(),
-  /** What the user may do with it, in a response to a user's token: an App's token has none. */
-  permissions: z.looseObject({ admin: z.boolean() }).optional(),
 });
 const repositoriesPageSchema = z.looseObject({
   total_count: z.number().int(),
@@ -47,8 +41,8 @@ type GitHubAppConfig = {
 };
 
 /**
- * CloudChef's GitHub App. It never stores a token: every operation mints an installation token scoped
- * to the one repository and the permissions it needs, which expires within the hour.
+ * CloudChef's GitHub App, for importing repositories. It never stores a token: an import mints an
+ * installation token limited to the one repository, read-only, which expires within the hour.
  */
 export class GitHubApp {
   constructor(private readonly config: GitHubAppConfig) {}
@@ -58,42 +52,9 @@ export class GitHubApp {
     return `https://github.com/apps/${encodeURIComponent(this.config.slug)}/installations/new`;
   }
 
-  /** Where an admin authorizes CloudChef to act as them on GitHub once (to create a repository). */
-  authorizeUrl(state: string, redirectUri: string): string {
-    const url = new URL('https://github.com/login/oauth/authorize');
-    url.searchParams.set('client_id', this.config.clientId);
-    url.searchParams.set('redirect_uri', redirectUri);
-    url.searchParams.set('state', state);
-    return url.toString();
-  }
-
   /** The login of the GitHub user behind `userToken`. */
   async userLogin(userToken: string): Promise<string> {
     return (await this.call('/user', userToken, z.looseObject({ login: z.string() }))).login;
-  }
-
-  /**
-   * Creates a repository as the GitHub user behind `userToken`: in the organization `owner` when it is
-   * one, else in their own account. It starts with a README, so its default branch exists.
-   */
-  async createRepository(
-    userToken: string,
-    args: { owner: string | null; name: string; private: boolean; description: string },
-  ): Promise<GitHubRepository> {
-    return this.call(
-      args.owner ? `/orgs/${encodeURIComponent(args.owner)}/repos` : '/user/repos',
-      userToken,
-      gitHubRepositorySchema,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          name: args.name,
-          private: args.private,
-          description: args.description,
-          auto_init: true,
-        }),
-      },
-    );
   }
 
   /** Whether the GitHub user behind `userToken` is an active owner of the GitHub organization `org`. */
@@ -105,39 +66,6 @@ export class GitHubApp {
     }
     const membership = z.looseObject({ role: z.string(), state: z.string() }).safeParse(await response.json());
     return membership.success && membership.data.role === 'admin' && membership.data.state === 'active';
-  }
-
-  /** A repository the GitHub user behind `userToken` can see, by `owner/name`, or null. */
-  async findRepository(userToken: string, fullName: string): Promise<GitHubRepository | null> {
-    const response = await fetchGitHub(`/repos/${fullName}`, userToken);
-    if (!response.ok) {
-      await response.body?.cancel();
-      return null;
-    }
-    return gitHubRepositorySchema.parse(await response.json());
-  }
-
-  /** A client for a repository acting as the GitHub user behind `userToken`, before the App may reach it. */
-  userRepository(userToken: string, fullName: string): RepositoryClient {
-    return new RepositoryClient(userToken, fullName);
-  }
-
-  /**
-   * Adds a repository to an installation limited to selected repositories. An installation covering all
-   * of the account's repositories already includes it, and GitHub refuses the call then: not an error.
-   * Any other refusal throws, so a repository the admin couldn't give the App is never written to.
-   */
-  async addRepositoryToInstallation(userToken: string, installationId: number, repositoryId: number): Promise<void> {
-    const response = await fetchGitHub(
-      `/user/installations/${installationId}/repositories/${repositoryId}`,
-      userToken,
-      { method: 'PUT' },
-    );
-    await response.body?.cancel();
-    if (response.ok || (await this.installation(installationId))?.repository_selection === 'all') {
-      return;
-    }
-    throw new GitHubError(`GitHub refused the request (${response.status}).`, response.status);
   }
 
   /** Exchanges the code GitHub returns after installing (user authorization during installation). */
@@ -200,16 +128,6 @@ export class GitHubApp {
       }
     }
     return repositories;
-  }
-
-  /** A client for one repository, holding a token limited to it and `permissions`. */
-  async repository(
-    installationId: number,
-    repository: { id: number; fullName: string },
-    permissions: GitHubTokenPermissions,
-  ): Promise<RepositoryClient> {
-    const token = await this.installationToken(installationId, permissions, [repository.id]);
-    return new RepositoryClient(token, repository.fullName);
   }
 
   private call<T>(path: string, token: string, schema: z.ZodType<T>, init: GitHubRequestInit = {}): Promise<T> {

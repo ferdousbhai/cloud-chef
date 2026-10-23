@@ -7,13 +7,8 @@ import { createGitHubAppJwt } from '~/lib/.server/github/app-jwt';
 import { GitHubApp } from '~/lib/.server/github/github-app';
 import { bytesToBase64 } from '~/lib/hex-digest';
 import { createOrganizationAction, listOrganizationsAction, updateMemberAction } from './organizations';
-import {
-  completeGitHubInstallAction,
-  linkGitHubProjectAction,
-  listMyProjectsAction,
-  setProjectAccessAction,
-  startGitHubInstallAction,
-} from './github-projects';
+import { completeGitHubInstallAction, startGitHubInstallAction } from './github-projects';
+import { importProjectAction, listMyProjectsAction, removeProjectAction, setProjectAccessAction } from './projects';
 
 const ORIGIN = 'https://cloudchef.build';
 const INSTALLATION_ID = 4242;
@@ -107,7 +102,7 @@ async function setup() {
   return { database, env, orgId, admin, member, ...fakeGitHub(pem) };
 }
 
-function post(cookie: string, path: string, body: Record<string, string | number | boolean>): Request {
+function post(cookie: string, path: string, body: Record<string, string | number | boolean | null>): Request {
   return new Request(`${ORIGIN}${path}`, {
     method: 'POST',
     headers: { Origin: ORIGIN, 'Content-Type': 'application/json', cookie },
@@ -116,9 +111,15 @@ function post(cookie: string, path: string, body: Record<string, string | number
 }
 
 /** Installs the App for the organization the way a browser would: start here, return from GitHub. */
-async function install(env: Env, app: GitHubApp, cookie: string, orgId: string, installationId = INSTALLATION_ID) {
+async function install(
+  env: Env,
+  app: GitHubApp,
+  cookie: string,
+  orgId: string | undefined,
+  installationId = INSTALLATION_ID,
+) {
   const started = await startGitHubInstallAction({
-    request: post(cookie, '/api/organizations/github/start', { orgId }),
+    request: post(cookie, '/api/organizations/github/start', orgId ? { orgId } : {}),
     env: envWith({
       ...env,
       GITHUB_APP_CLIENT_ID: 'Iv1.test',
@@ -147,14 +148,28 @@ function githubMessage(response: Response): string | null {
   return code === null ? null : gitHubReturnMessageText(code);
 }
 
-const myProjectsSchema = z.object({ projects: z.array(z.object({ id: z.string(), repoFullName: z.string() })) });
+const myProjectsSchema = z.object({
+  projects: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      repo: z.string().nullable(),
+      role: z.enum(['view', 'edit']),
+      origin: z.enum(['imported', 'promoted']),
+      importRepoFullName: z.string().nullable(),
+    }),
+  ),
+});
 
+/** The projects this person sees where they work now, as `imported from: role`. */
 async function myProjects(env: Env, cookie: string) {
   const response = await listMyProjectsAction({
     request: new Request(`${ORIGIN}/api/org-projects`, { headers: { cookie } }),
     env,
   });
-  return myProjectsSchema.parse(await response.json()).projects.map((project) => project.repoFullName);
+  return myProjectsSchema
+    .parse(await response.json())
+    .projects.map((project) => `${project.importRepoFullName}: ${project.role}`);
 }
 
 describe('GitHub App', () => {
@@ -393,40 +408,63 @@ describe('GitHub projects', () => {
     expect(started.status).toBe(403);
   });
 
-  it('links repositories the installation reaches, and shows members only the projects they were given', async () => {
-    const { env, orgId, admin, member, app } = await setup();
+  it('lets a person with Cloudflare connected install the App for their own projects', async () => {
+    const { database, env, admin, app } = await setup();
+    database
+      .prepare(
+        `INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+         VALUES ('ada-own', ?, 'account-ada', 'active', 1, 1)`,
+      )
+      .run(admin.userId);
+    const installed = await install(env, app, admin.cookie, undefined);
+    expect(githubMessage(installed)).toBe('Connected GitHub.');
+    expect(database.prepare('SELECT connection_id, org_id FROM github_installations').all()).toEqual([
+      { connection_id: 'ada-own', org_id: null },
+    ]);
+  });
+});
+
+describe('projects', () => {
+  const importRepository = (env: Env, app: GitHubApp, cookie: string, body: Record<string, string | number>) =>
+    importProjectAction({ request: post(cookie, '/api/projects/import', body), env, app });
+  const giveRole = (env: Env, cookie: string, body: Record<string, string | null>) =>
+    setProjectAccessAction({ request: post(cookie, '/api/organizations/projects/access', body), env });
+
+  it('imports repositories the installation reaches, and gives members the projects and roles admins choose', async () => {
+    const { database, env, orgId, admin, member, app } = await setup();
     await install(env, app, admin.cookie, orgId);
-    const link = (repoId: number, cookie = admin.cookie) =>
-      linkGitHubProjectAction({
-        request: post(cookie, '/api/organizations/projects/link', { orgId, repoId, name: `Repo ${repoId}` }),
-        env,
-        app,
-      });
+    const imported = (repoId: number, cookie = admin.cookie) =>
+      importRepository(env, app, cookie, { orgId, repoId, name: `Repo ${repoId}` });
 
-    expect((await link(99)).status).toBe(404);
-    expect((await link(11, member.cookie)).status).toBe(403);
-    const linked = await link(11);
-    expect(linked.status).toBe(201);
-    expect((await link(11)).status).toBe(409);
-    expect((await link(12)).status).toBe(201);
-    const { projectId } = z.object({ projectId: z.string() }).parse(await linked.json());
+    expect((await imported(99)).status).toBe(404);
+    expect((await imported(11, member.cookie)).status).toBe(403);
+    const site = await imported(11);
+    expect(site.status).toBe(201);
+    expect((await imported(11)).status).toBe(409);
+    expect((await imported(12)).status).toBe(201);
+    const { projectId } = z.object({ projectId: z.string() }).parse(await site.json());
+    // Imported on first open: no Artifacts repository yet, and the branch that is GitHub's default.
+    expect(
+      database
+        .prepare('SELECT import_repo_full_name, import_branch, artifact_repo, origin FROM org_projects ORDER BY name')
+        .all(),
+    ).toEqual([
+      { import_repo_full_name: 'ada/site', import_branch: 'main', artifact_repo: null, origin: 'imported' },
+      { import_repo_full_name: 'ada/blog', import_branch: 'trunk', artifact_repo: null, origin: 'imported' },
+    ]);
 
-    // The admin works on every project; the member on none until given one.
-    expect(await myProjects(env, admin.cookie)).toEqual(['ada/site', 'ada/blog']);
+    // Admins own every project; a member has none until given one.
+    expect(await myProjects(env, admin.cookie)).toEqual(['ada/site: edit', 'ada/blog: edit']);
     expect(await myProjects(env, member.cookie)).toEqual([]);
-    const grant = await setProjectAccessAction({
-      request: post(admin.cookie, '/api/organizations/projects/access', {
-        orgId,
-        projectId,
-        userId: member.userId,
-        allowed: true,
-      }),
-      env,
-    });
-    expect(grant.status).toBe(204);
-    expect(await myProjects(env, member.cookie)).toEqual(['ada/site']);
+    const role = (cookie: string, value: 'view' | 'edit' | null) =>
+      giveRole(env, cookie, { orgId, projectId, userId: member.userId, role: value });
+    expect((await role(admin.cookie, 'view')).status).toBe(204);
+    expect(await myProjects(env, member.cookie)).toEqual(['ada/site: view']);
+    expect((await role(member.cookie, 'edit')).status).toBe(403);
+    expect((await role(admin.cookie, 'edit')).status).toBe(204);
+    expect(await myProjects(env, member.cookie)).toEqual(['ada/site: edit']);
 
-    // The admin's organization view lists who may work on each project.
+    // The admin's team view lists who may view or edit each project.
     const listed = await listOrganizationsAction({
       request: new Request(`${ORIGIN}/api/organizations`, { headers: { cookie: admin.cookie } }),
       env,
@@ -436,40 +474,39 @@ describe('GitHub projects', () => {
         organizations: z.array(
           z.object({
             github: z.object({ accountLogin: z.string() }).nullable(),
-            projects: z.array(z.object({ repoFullName: z.string(), memberIds: z.array(z.string()) })),
+            projects: z.array(
+              z.object({
+                importRepoFullName: z.string().nullable(),
+                repo: z.string().nullable(),
+                access: z.array(z.object({ userId: z.string(), role: z.string() })),
+              }),
+            ),
           }),
         ),
       })
       .parse(await listed.json());
     expect(view.organizations[0].github?.accountLogin).toBe('ada');
-    expect(view.organizations[0].projects.find((project) => project.repoFullName === 'ada/site')?.memberIds).toEqual([
-      member.userId,
-    ]);
+    expect(view.organizations[0].projects.find((project) => project.importRepoFullName === 'ada/site')).toEqual({
+      importRepoFullName: 'ada/site',
+      repo: null,
+      access: [{ userId: member.userId, role: 'edit' }],
+    });
+
+    expect((await role(admin.cookie, null)).status).toBe(204);
+    expect(await myProjects(env, member.cookie)).toEqual([]);
   });
 
   it('takes projects away from a member who is paused or removed', async () => {
     const { database, env, orgId, admin, member, app } = await setup();
     await install(env, app, admin.cookie, orgId);
-    const linked = await linkGitHubProjectAction({
-      request: post(admin.cookie, '/api/organizations/projects/link', { orgId, repoId: 11, name: 'Site' }),
-      env,
-      app,
-    });
-    const { projectId } = z.object({ projectId: z.string() }).parse(await linked.json());
-    await setProjectAccessAction({
-      request: post(admin.cookie, '/api/organizations/projects/access', {
-        orgId,
-        projectId,
-        userId: member.userId,
-        allowed: true,
-      }),
-      env,
-    });
+    const imported = await importRepository(env, app, admin.cookie, { orgId, repoId: 11, name: 'Site' });
+    const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
+    await giveRole(env, admin.cookie, { orgId, projectId, userId: member.userId, role: 'edit' });
 
     database.prepare('UPDATE organization_members SET paused_at = 1 WHERE user_id = ?').run(member.userId);
     expect(await myProjects(env, member.cookie)).toEqual([]);
     database.prepare('UPDATE organization_members SET paused_at = NULL WHERE user_id = ?').run(member.userId);
-    expect(await myProjects(env, member.cookie)).toEqual(['ada/site']);
+    expect(await myProjects(env, member.cookie)).toEqual(['ada/site: edit']);
 
     const removed = await updateMemberAction({
       request: post(admin.cookie, '/api/organizations/member', {
@@ -487,55 +524,91 @@ describe('GitHub projects', () => {
   it('grants no project to a member removed while the grant was being made', async () => {
     const { database, env, orgId, admin, member, app } = await setup();
     await install(env, app, admin.cookie, orgId);
-    const linked = await linkGitHubProjectAction({
-      request: post(admin.cookie, '/api/organizations/projects/link', { orgId, repoId: 11, name: 'Site' }),
-      env,
-      app,
-    });
-    const { projectId } = z.object({ projectId: z.string() }).parse(await linked.json());
+    const imported = await importRepository(env, app, admin.cookie, { orgId, repoId: 11, name: 'Site' });
+    const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
     // Another admin's removal lands just before the grant is written.
     const racing = withStatementHook(env.DB, (query) => {
       if (query.includes('INSERT INTO org_project_access')) {
         database.prepare('DELETE FROM organization_members WHERE user_id = ?').run(member.userId);
       }
     });
-    const grant = await setProjectAccessAction({
-      request: post(admin.cookie, '/api/organizations/projects/access', {
-        orgId,
-        projectId,
-        userId: member.userId,
-        allowed: true,
-      }),
-      env: envWith({ ...env, DB: racing }),
+    const grant = await giveRole(envWith({ ...env, DB: racing }), admin.cookie, {
+      orgId,
+      projectId,
+      userId: member.userId,
+      role: 'edit',
     });
     expect(grant.status).toBe(404);
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM org_project_access').first()).toEqual({ n: 0 });
   });
 
-  it('keeps an existing grant as it was when it is given again', async () => {
+  it('keeps when a grant was first given when its role changes', async () => {
     const { database, env, orgId, admin, member, app } = await setup();
     await install(env, app, admin.cookie, orgId);
-    const linked = await linkGitHubProjectAction({
-      request: post(admin.cookie, '/api/organizations/projects/link', { orgId, repoId: 11, name: 'Site' }),
-      env,
-      app,
-    });
-    const { projectId } = z.object({ projectId: z.string() }).parse(await linked.json());
-    const grant = () =>
-      setProjectAccessAction({
-        request: post(admin.cookie, '/api/organizations/projects/access', {
-          orgId,
-          projectId,
-          userId: member.userId,
-          allowed: true,
-        }),
-        env,
-      });
-    expect((await grant()).status).toBe(204);
+    const imported = await importRepository(env, app, admin.cookie, { orgId, repoId: 11, name: 'Site' });
+    const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
+    const role = (value: 'view' | 'edit') =>
+      giveRole(env, admin.cookie, { orgId, projectId, userId: member.userId, role: value });
+    expect((await role('edit')).status).toBe(204);
     database.prepare('UPDATE org_project_access SET granted_at = 1').run();
-    expect((await grant()).status).toBe(204);
-    expect(database.prepare('SELECT user_id, granted_at FROM org_project_access').all()).toEqual([
-      { user_id: member.userId, granted_at: 1 },
+    expect((await role('view')).status).toBe(204);
+    expect(database.prepare('SELECT user_id, role, granted_at FROM org_project_access').all()).toEqual([
+      { user_id: member.userId, role: 'view', granted_at: 1 },
     ]);
+  });
+
+  it("imports a public repository by its address, for a person's own projects, with no GitHub App", async () => {
+    const { database, env, orgId, admin, member } = await setup();
+    database
+      .prepare(
+        `INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+         VALUES ('sam-own', ?, 'account-sam', 'active', 1, 1)`,
+      )
+      .run(member.userId);
+    const asked: string[] = [];
+    const gitRequest: typeof fetch = async (input) => {
+      const url = String(input);
+      asked.push(url);
+      // GitHub's names are case-insensitive.
+      if (url.toLowerCase() === 'https://github.com/ada/blog.git/info/refs?service=git-upload-pack') {
+        return new Response(
+          `001e# service=git-upload-pack\n00000155${'a'.repeat(40)} HEAD\0multi_ack thin-pack ` +
+            'symref=HEAD:refs/heads/trunk object-format=sha1 agent=git/github\n0000',
+        );
+      }
+      return new Response('Repository not found.', { status: 401 });
+    };
+    const importUrl = (url: string, cookie = member.cookie, extra: Record<string, string> = {}) =>
+      importProjectAction({
+        request: post(cookie, '/api/projects/import', { url, ...extra }),
+        env,
+        app: null,
+        gitRequest,
+      });
+
+    expect((await importUrl('https://gitlab.com/ada/blog')).status).toBe(400);
+    const privateOne = await importUrl('https://github.com/ada/private');
+    expect(privateOne.status).toBe(404);
+    expect(await privateOne.json()).toMatchObject({ code: 'not_public' });
+    const imported = await importUrl('https://github.com/ada/blog.git');
+    expect(imported.status).toBe(201);
+    expect((await importUrl('https://github.com/Ada/Blog')).status).toBe(409);
+    expect(asked).toContain('https://github.com/ada/blog.git/info/refs?service=git-upload-pack');
+    expect(
+      database.prepare('SELECT connection_id, org_id, name, import_repo_id, import_branch FROM org_projects').all(),
+    ).toEqual([{ connection_id: 'sam-own', org_id: null, name: 'blog', import_repo_id: null, import_branch: 'trunk' }]);
+    // Their own projects, in their own account; nobody else's, not even a team admin's.
+    expect(await myProjects(env, member.cookie)).toEqual(['ada/blog: edit']);
+    expect(await myProjects(env, admin.cookie)).toEqual([]);
+    // A team import needs one of its admins.
+    expect((await importUrl('https://github.com/ada/blog', member.cookie, { orgId })).status).toBe(403);
+
+    const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
+    const removed = await removeProjectAction({
+      request: post(member.cookie, '/api/organizations/projects/unlink', { projectId }),
+      env,
+    });
+    expect(removed.status).toBe(204);
+    expect(await myProjects(env, member.cookie)).toEqual([]);
   });
 });

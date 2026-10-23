@@ -14,10 +14,23 @@ import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
 import { getJson } from '~/lib/json-request';
 
 const projectsSchema = z.object({
-  projects: z.array(z.object({ id: z.string(), name: z.string(), repoFullName: z.string() })),
+  projects: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      repo: z.string().nullable(),
+      role: z.enum(['view', 'edit']),
+      importRepoFullName: z.string().nullable(),
+    }),
+  ),
 });
 
 type OrgProject = z.infer<typeof projectsSchema>['projects'][number];
+
+/** What a project is shown with: the GitHub repository it came from, or its own repository. */
+function source(project: OrgProject): string {
+  return project.importRepoFullName ?? project.repo ?? '';
+}
 
 /**
  * The organization's GitHub projects this person may work on, above their own apps. Opening one starts
@@ -50,7 +63,8 @@ export function OrgProjectsList({
     const controller = new AbortController();
     setLoadFailed(false);
     void getJson('/api/org-projects', projectsSchema, undefined, controller.signal)
-      .then((parsed) => setProjects(parsed.projects))
+      // A workspace is for changing a project: ones this person may only view aren't opened here.
+      .then((parsed) => setProjects(parsed.projects.filter((project) => project.role === 'edit')))
       .catch(() => {
         if (!controller.signal.aborted) {
           setLoadFailed(true);
@@ -80,7 +94,7 @@ export function OrgProjectsList({
   const search = query.trim().toLowerCase();
   const shown = search
     ? projects.filter(
-        (project) => project.name.toLowerCase().includes(search) || project.repoFullName.toLowerCase().includes(search),
+        (project) => project.name.toLowerCase().includes(search) || source(project).toLowerCase().includes(search),
       )
     : projects;
   if (shown.length === 0) {
@@ -124,7 +138,7 @@ export function OrgProjectsList({
                 <span className="truncate font-medium text-content-primary">
                   {opening === project.id ? `Opening ${project.name}…` : project.name}
                 </span>
-                <span className="truncate text-xs text-content-tertiary">{project.repoFullName}</span>
+                <span className="truncate text-xs text-content-tertiary">{source(project)}</span>
                 {opening === project.id && workspacePreparing ? (
                   <span className="mt-1 text-xs text-content-secondary" role="status">
                     {workspacePreparingMessage(workspaceUpgrading)}

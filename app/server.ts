@@ -29,25 +29,30 @@ import {
 } from './server-handlers/organizations';
 import { completeGoogleSignInAction, GOOGLE_RETURN_PATH, startGoogleSignInAction } from './server-handlers/google-auth';
 import {
-  runtimeGitHubCommitAction,
-  runtimeGitHubSiteAction,
-  runtimeGitHubSnapshotAction,
-  runtimeGitHubStatusAction,
+  runtimeOpenProjectAction,
+  runtimeProjectImportedAction,
+  runtimeProjectSiteAction,
+  runtimeProjectStatusAction,
   runtimeRequestProductionAction,
-} from './server-handlers/runtime-github';
+} from './server-handlers/runtime-projects';
 import {
-  approveProductionRequestAction,
   completeGitHubInstallAction,
-  declineProductionRequestAction,
   disconnectGitHubAction,
   GITHUB_RETURN_PATH,
-  linkGitHubProjectAction,
   listGitHubRepositoriesAction,
-  listMyProjectsAction,
-  setProjectAccessAction,
   startGitHubInstallAction,
-  unlinkGitHubProjectAction,
 } from './server-handlers/github-projects';
+import {
+  approveProductionRequestAction,
+  declineProductionRequestAction,
+  importProjectAction,
+  listMyProjectsAction,
+  PROJECT_WORKERS_BUILDS_SWITCH_ROUTE,
+  projectRoute,
+  removeProjectAction,
+  setProjectAccessAction,
+  switchProjectWorkersBuildsAction,
+} from './server-handlers/projects';
 import { deleteAccountAction } from './server-handlers/account-deletion';
 import { exportAccountAction } from './server-handlers/account-export';
 import { aiGatewayLoggingAction, updateAiGatewayLoggingAction } from './server-handlers/ai-gateway-logging';
@@ -136,14 +141,15 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/organizations/github/repositories': ['GET', listGitHubRepositoriesAction],
     '/api/organizations/production-requests/approve': ['POST', approveProductionRequestAction],
     '/api/organizations/production-requests/decline': ['POST', declineProductionRequestAction],
-    '/api/organizations/projects/link': ['POST', linkGitHubProjectAction],
-    '/api/organizations/projects/unlink': ['POST', unlinkGitHubProjectAction],
     '/api/organizations/projects/access': ['POST', setProjectAccessAction],
-    '/api/cloudflare/runtime-github/snapshot': ['POST', runtimeGitHubSnapshotAction],
-    '/api/cloudflare/runtime-github/commit': ['POST', runtimeGitHubCommitAction],
-    '/api/cloudflare/runtime-github/request-production': ['POST', runtimeRequestProductionAction],
-    '/api/cloudflare/runtime-github/status': ['POST', runtimeGitHubStatusAction],
-    '/api/cloudflare/runtime-github/site': ['POST', runtimeGitHubSiteAction],
+    '/api/organizations/projects/unlink': ['POST', removeProjectAction],
+    '/api/projects/import': ['POST', importProjectAction],
+    [PROJECT_WORKERS_BUILDS_SWITCH_ROUTE]: ['POST', switchProjectWorkersBuildsAction],
+    '/api/cloudflare/runtime-projects/open': ['POST', runtimeOpenProjectAction],
+    '/api/cloudflare/runtime-projects/imported': ['POST', runtimeProjectImportedAction],
+    '/api/cloudflare/runtime-projects/status': ['POST', runtimeProjectStatusAction],
+    '/api/cloudflare/runtime-projects/site': ['POST', runtimeProjectSiteAction],
+    '/api/cloudflare/runtime-projects/request-production': ['POST', runtimeRequestProductionAction],
     '/api/org-projects': ['GET', listMyProjectsAction],
     [GITHUB_RETURN_PATH]: ['GET', completeGitHubInstallAction],
     '/api/organizations': ['GET', listOrganizationsAction],
@@ -221,7 +227,8 @@ async function runtimeRateLimited(request: Request, env: Env): Promise<boolean> 
 }
 
 async function routeApplicationRequest(request: Request, env: Env, nonce: string, pathname: string): Promise<Response> {
-  const route = exactRoutes.get(pathname);
+  // A path naming one project is routed by its pattern; the handler reads the project from the path.
+  const route = exactRoutes.get(projectRoute(pathname) ?? pathname);
   if (route) {
     const [method, routeHandler] = route;
     if (request.method !== method) {

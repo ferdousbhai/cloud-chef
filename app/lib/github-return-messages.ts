@@ -1,10 +1,10 @@
 /**
- * What a return from GitHub (connecting it, or approving a production request) tells Settings. The
+ * What a return from GitHub (connecting it) tells Settings. The
  * URL carries only a code, and Settings shows its fixed text: a link can't put words of its own on
  * CloudChef's page.
  */
 const GITHUB_RETURN_MESSAGES = {
-  returned: 'Back from GitHub. Repository access you changed there applies to your linked projects.',
+  returned: 'Back from GitHub. Repository access you changed there applies to what you can import.',
   install_expired: 'That GitHub connection expired or was already finished. Connect GitHub again.',
   install_cancelled: 'GitHub was not connected: the installation was cancelled. Connect GitHub again.',
   install_other_admin: 'Only the admin who started connecting GitHub can finish it.',
@@ -12,35 +12,6 @@ const GITHUB_RETURN_MESSAGES = {
   install_failed: 'GitHub refused the connection. Connect GitHub again.',
   connected: 'Connected GitHub.',
   repositories_updated: 'Updated which repositories CloudChef can reach on GitHub.',
-  github_unavailable: 'GitHub is not configured for this environment.',
-  approval_expired: 'That approval expired. Approve again.',
-  approval_cancelled: 'GitHub authorization was cancelled.',
-  approval_other_admin: 'Only the admin who started the approval can finish it.',
-  github_disconnected: 'GitHub is no longer connected.',
-  approval_changed:
-    'That request was decided or changed, or its requester left the team, while you were on GitHub. ' +
-    'Review it and approve again.',
-  approval_wrong_account:
-    "Sign in to GitHub as the account CloudChef's GitHub App is installed on to create the repository there.",
-  repository_name_refused: 'GitHub refused that repository name. Approve again with another.',
-  repository_unreachable:
-    "The repository is on GitHub, but CloudChef's GitHub App can't reach it. On GitHub, add it to the App's " +
-    'repository access (your settings, Applications, Configure), then approve again with the same name.',
-  repository_not_ready: 'GitHub created the repository but not its first branch yet. Approve again in a minute.',
-  repository_name_taken: 'A repository with that name already exists. Approve again with another name.',
-  draft_too_large: 'This draft is larger than CloudChef can commit. Ask the member to slim it down and send it again.',
-  draft_unreadable:
-    "CloudChef can't read this draft's files, so nothing was created on GitHub. Decline the request, and ask the " +
-    'member to send it again.',
-  draft_refused:
-    "This draft holds files CloudChef can't commit to GitHub (GitHub Actions workflows, paths GitHub doesn't " +
-    'accept, or too many files that are not text), so nothing was created on GitHub. Decline the request, and ' +
-    'ask the member to remove them and send it again.',
-  approval_failed: 'GitHub refused part of the approval. Approve again.',
-  approval_withdrawn:
-    'The repository was created on GitHub, but its requester left the team while it was being made, so the ' +
-    'request was withdrawn and the repository is not a project. Delete it on GitHub, or link it as a project to keep it.',
-  approved: 'The app is now a GitHub repository, and a project its requester can work on.',
 } as const;
 
 export type GitHubReturnMessage = keyof typeof GITHUB_RETURN_MESSAGES;
