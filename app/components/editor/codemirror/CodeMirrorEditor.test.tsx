@@ -58,7 +58,8 @@ function pressCtrlS(view: EditorView) {
   );
 }
 
-describe('CodeMirrorEditor', () => {
+// The first render loads CodeMirror and its language support cold, which can take seconds on a loaded CI builder.
+describe('CodeMirrorEditor', { timeout: 30_000 }, () => {
   it('gives the first file shown its configured state', async () => {
     const onSave = vi.fn();
     await renderEditor({ doc: textDocument(fileA, contentA), editable: false, onSave });

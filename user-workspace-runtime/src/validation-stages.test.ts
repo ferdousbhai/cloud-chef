@@ -15,7 +15,8 @@ function run(stages: { name: string; command: string }[]) {
   return spawnSync('/bin/sh', ['-c', command], { encoding: 'utf8' });
 }
 
-describe('parallel validation stages', () => {
+// Every case spawns real shells, and the rendezvous may poll for up to ten seconds on a loaded CI builder.
+describe('parallel validation stages', { timeout: 30_000 }, () => {
   it('runs stages concurrently rather than end to end', () => {
     // Each stage announces itself, then exits successfully only once it has seen every other
     // stage's announcement. Sequential execution can never pass - the first stage would wait

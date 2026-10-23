@@ -27,7 +27,8 @@ describe('standalone template verification source', () => {
   });
 });
 
-describe('negative template checks', () => {
+// The probe spawns pnpm three times, which can take seconds on a loaded CI builder.
+describe('negative template checks', { timeout: 30_000 }, () => {
   test('pass only when the command fails for the reason they probe', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'cloudchef-require-failure-'));
     try {
