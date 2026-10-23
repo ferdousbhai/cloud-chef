@@ -2,10 +2,9 @@ import { createFileRoute } from '@tanstack/react-router';
 import { ClientHeader, ClientHomepage } from '~/components/ClientRouteComponents';
 import { createSocialPageHead } from '~/lib/social-meta';
 import { TrustFooter } from '~/components/trust/TrustLinks';
-import { ChatIdProvider } from '~/lib/stores/chatId';
+import { ChatIdProvider, chatStore } from '~/lib/stores/chatId';
 import { useState } from 'react';
 import { useStore } from '@nanostores/react';
-import { chatStore } from '~/lib/stores/chatId';
 
 export const Route = createFileRoute('/')({
   loader: () => ({ initialId: crypto.randomUUID() }),
