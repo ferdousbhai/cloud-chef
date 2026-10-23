@@ -5,6 +5,7 @@ import { isToolActivityStatusActive, type ToolActivityStatus } from '~/lib/commo
 import { classNames } from '~/utils/classNames';
 import { isToolInvocationInProgress, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 import { getRelativePath } from 'cloudchef-agent/utils/workDir';
+import { WORK_DIR } from 'cloudchef-agent/constants';
 import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
 import { formatStreamedSize, streamedToolInput } from './streaming-tool-input';
 import { z, type ZodType } from 'zod';
@@ -249,7 +250,7 @@ function readTitle(invocation: CloudChefToolInvocation, status: ToolActivityStat
     );
   }
   const args = MODEL_TOOL_INPUT_SCHEMAS.read.safeParse(invocation.input);
-  const renderedPath = args.success ? compactToolLabel(getRelativePath(args.data.path) || '/home/project') : 'a file';
+  const renderedPath = args.success ? compactToolLabel(getRelativePath(args.data.path) || WORK_DIR) : 'a file';
   const extra = args.success && args.data.offset ? ` (from line ${args.data.offset})` : '';
   return titleRow(
     `${status === 'running' ? 'Reading' : 'Read'} ${renderedPath}${extra}`,

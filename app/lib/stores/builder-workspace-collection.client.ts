@@ -1,5 +1,6 @@
 import { createCollection, type SyncConfig } from '@tanstack/db';
 import { z } from 'zod';
+import { WORK_DIR } from 'cloudchef-agent/constants';
 import type {
   BuilderWorkspaceEncoding,
   BuilderWorkspaceSyncEntry,
@@ -7,16 +8,15 @@ import type {
 } from '@cloudchef/user-workspace-runtime/protocol';
 
 const WORKSPACE_RPC_TIMEOUT_MS = 30_000;
-const WORKSPACE_ROOT = '/home/project';
 const MAX_SYNC_RESTARTS = 3;
 
 const revisionSchema = z.number().int().nonnegative();
 const countSchema = z.number().int().nonnegative();
 const workspacePathSchema = z
   .string()
-  .min(WORKSPACE_ROOT.length + 2)
+  .min(WORK_DIR.length + 2)
   .max(1_024)
-  .refine(isCanonicalWorkspacePath, `Path must be a canonical file path under ${WORKSPACE_ROOT}.`);
+  .refine(isCanonicalWorkspacePath, `Path must be a canonical file path under ${WORK_DIR}.`);
 const workspaceFileFields = {
   path: workspacePathSchema,
   content: z.string(),
@@ -317,7 +317,7 @@ export function workspaceCollectionSnapshot(collection: BuilderWorkspaceCollecti
 
 function isCanonicalWorkspacePath(path: string): boolean {
   return (
-    path.startsWith(`${WORKSPACE_ROOT}/`) &&
+    path.startsWith(`${WORK_DIR}/`) &&
     !path.includes('\\') &&
     !path.includes('\0') &&
     !path.includes('//') &&
