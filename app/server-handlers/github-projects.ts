@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { abortableSleep } from '~/lib/abortable-sleep';
 import type { GitHubReturnMessage } from '~/lib/github-return-messages';
 import { publicOrigin } from '~/lib/.server/public-origin';
 import { getAuthSession } from '~/lib/.server/auth';
@@ -448,7 +449,7 @@ async function finishProductionApproval(args: {
   for (let attempt = 0; attempt < 5 && !head; attempt += 1) {
     head = await client.branchHead(repository.default_branch);
     if (!head) {
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await abortableSleep(1_000);
     }
   }
   if (!head) {

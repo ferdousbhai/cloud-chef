@@ -1,4 +1,5 @@
 import { deploymentPlanResourceName, isCurrentDeploymentPlan } from './deployment-plan';
+import { abortableSleep } from '~/lib/abortable-sleep';
 import {
   claimApprovedDeployment,
   DeploymentConcurrencyLimitError,
@@ -465,7 +466,7 @@ async function recordSucceeded(
       if (attempt >= SUCCESS_WRITE_ATTEMPTS) {
         throw error;
       }
-      await new Promise((resolve) => setTimeout(resolve, SUCCESS_WRITE_RETRY_DELAY_MS * attempt));
+      await abortableSleep(SUCCESS_WRITE_RETRY_DELAY_MS * attempt);
     }
   }
 }

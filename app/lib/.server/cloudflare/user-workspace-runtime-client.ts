@@ -1,4 +1,5 @@
 import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
+import { abortableSleep } from '~/lib/abortable-sleep';
 import {
   computerSyncUnconfirmedError,
   isComputerSyncUnconfirmedError,
@@ -596,7 +597,10 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
       if (Date.now() >= deadline) {
         break;
       }
-      await raceAgainstAbort(delay(Math.min(SETTLEMENT_RETRY_DELAY_MS, deadline - Date.now())), abortSignal);
+      await raceAgainstAbort(
+        abortableSleep(Math.min(SETTLEMENT_RETRY_DELAY_MS, deadline - Date.now()), abortSignal),
+        abortSignal,
+      );
     }
     throw indeterminateSettlementError(description, new SettlementDeadlineError());
   }
@@ -917,7 +921,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
               if (!wait || Date.now() + backoff >= startedAt + wait.windowMs) {
                 throw error;
               }
-              await raceAgainstAbort(delay(backoff), abortSignal);
+              await raceAgainstAbort(abortableSleep(backoff, abortSignal), abortSignal);
               backoff = Math.min(backoff * 2, wait.maxDelayMs);
             }
           }
@@ -1107,10 +1111,6 @@ function errorMessage(error: unknown): string {
   return typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
     ? error.message
     : '';
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function raceAgainstAbort<T>(promise: Promise<T>, abortSignal?: AbortSignal): Promise<T> {
