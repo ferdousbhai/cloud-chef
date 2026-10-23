@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  BuilderCloudflareExecutionRepository,
-  CloudflareExecutionDecisionError,
-  type CloudflareExecutionBinding,
-} from './builder-cloudflare-execution';
+import { BuilderCloudflareExecutionRepository, type CloudflareExecutionBinding } from './builder-cloudflare-execution';
 
 type TestRow = {
   execution_id: string;
@@ -219,9 +215,9 @@ describe('durable Cloudflare execution approval repository', () => {
       binding,
       request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/old' },
     });
-    await expect(repository.approve(proposal.executionId, { ...binding, ...changed })).rejects.toBeInstanceOf(
-      CloudflareExecutionDecisionError,
-    );
+    await expect(repository.approve(proposal.executionId, { ...binding, ...changed })).rejects.toMatchObject({
+      name: 'CloudflareExecutionDecisionError',
+    });
   });
 
   it('rejects a stored proposal digest mismatch', async () => {

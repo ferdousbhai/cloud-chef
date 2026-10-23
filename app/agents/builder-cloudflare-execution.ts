@@ -79,7 +79,7 @@ const storedExecutionOutcomeSchema = z
     sensitiveContentWithheld: z.boolean().optional(),
   })
   .strict() satisfies z.ZodType<CloudflareExecutionSafeOutcome>;
-export class CloudflareExecutionDecisionError extends Error {
+class CloudflareExecutionDecisionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'CloudflareExecutionDecisionError';
