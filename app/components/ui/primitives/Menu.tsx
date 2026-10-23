@@ -4,32 +4,29 @@ import { buttonClassNames, type ButtonVisualProps } from './Button';
 
 type MenuProps = {
   children: ReactNode;
-  buttonProps?: Pick<ButtonVisualProps, 'children' | 'className' | 'icon' | 'inline' | 'size' | 'tip' | 'variant'> & {
-    'aria-label'?: string;
-    title?: string;
+  /** The trigger's look; its title also names it and the menu it opens. */
+  buttonProps: Pick<ButtonVisualProps, 'children' | 'className' | 'icon' | 'inline' | 'size' | 'variant'> & {
+    title: string;
   };
 };
 
 export function Menu({ children, buttonProps }: MenuProps) {
-  const triggerLabel = buttonProps?.['aria-label'];
-  const triggerTitle = buttonProps?.tip ?? buttonProps?.title;
-
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label={triggerLabel ?? triggerTitle}
-          title={triggerTitle}
+          aria-label={buttonProps.title}
+          title={buttonProps.title}
           className={buttonClassNames({
-            className: buttonProps?.className,
-            variant: buttonProps?.variant,
-            size: buttonProps?.size,
-            inline: buttonProps?.inline,
+            className: buttonProps.className,
+            variant: buttonProps.variant,
+            size: buttonProps.size,
+            inline: buttonProps.inline,
           })}
         >
-          {buttonProps?.icon}
-          {buttonProps?.children}
+          {buttonProps.icon}
+          {buttonProps.children}
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -37,7 +34,7 @@ export function Menu({ children, buttonProps }: MenuProps) {
           align="end"
           sideOffset={8}
           collisionPadding={8}
-          aria-label={triggerLabel ?? triggerTitle}
+          aria-label={buttonProps.title}
           className="z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-52 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-none backdrop-blur-xl"
         >
           {children}

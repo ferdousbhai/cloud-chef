@@ -7,13 +7,10 @@ import { Loading } from '~/components/Loading';
 
 type EmptyProps = Record<string, never>;
 
-function createClientComponent<TProps extends object>(
-  getComponent: () => ComponentType<TProps>,
-  renderFallback: (props: TProps) => ReactNode = () => null,
-) {
+/** A client-only component, showing `fallback` on the server and while its code loads. */
+function createClientComponent<TProps extends object>(getComponent: () => ComponentType<TProps>, fallback: ReactNode) {
   function HydratedClientComponent(props: TProps) {
     const Component = getComponent();
-    const fallback = renderFallback(props);
     return (
       <Suspense fallback={fallback}>
         <Component {...props} />
@@ -22,7 +19,6 @@ function createClientComponent<TProps extends object>(
   }
 
   return function ClientComponent(props: TProps) {
-    const fallback = renderFallback(props);
     return (
       <ClientOnly fallback={fallback}>
         <HydratedClientComponent {...props} />
@@ -49,21 +45,23 @@ const getClientExistingChat = createClientOnlyFn(() => LazyExistingChat);
 const getClientSettingsContent = createClientOnlyFn(() => LazySettingsContent);
 const getClientTelemetryPreference = createClientOnlyFn(() => LazyTelemetryPreference);
 
-export const ClientHeader = createClientComponent<EmptyProps>(getClientHeader, () => <HeaderLoadingFallback />);
+export const ClientHeader = createClientComponent<EmptyProps>(getClientHeader, <HeaderLoadingFallback />);
 
-export const ClientHomepage = createClientComponent<{ initialId: string }>(getClientHomepage, () => (
-  <HomepageLoadingFallback />
-));
+export const ClientHomepage = createClientComponent<{ initialId: string }>(
+  getClientHomepage,
+  <HomepageLoadingFallback />,
+);
 
-export const ClientExistingChat = createClientComponent<{ chatId: string }>(getClientExistingChat, () => (
-  <Loading message="Loading project…" />
-));
+export const ClientExistingChat = createClientComponent<{ chatId: string }>(
+  getClientExistingChat,
+  <Loading message="Loading project…" />,
+);
 
 export const ClientSettingsContent = createClientComponent<{ authorizationError?: string | null }>(
   getClientSettingsContent,
-  () => <Loading message="Loading settings…" />,
+  <Loading message="Loading settings…" />,
 );
-export const ClientTelemetryPreference = createClientComponent<EmptyProps>(getClientTelemetryPreference);
+export const ClientTelemetryPreference = createClientComponent<EmptyProps>(getClientTelemetryPreference, null);
 
 function HeaderLoadingFallback() {
   return (
