@@ -6,7 +6,7 @@ import { ErrorDisplay } from '~/components/ErrorComponent';
 import { BrandLink } from '~/components/BrandLink';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { queryClient } from '~/lib/stores/reactQueryClient';
-import { themeStore } from '~/lib/stores/theme';
+import { THEME_KEY, themeStore } from '~/lib/stores/theme';
 import { stripIndents } from 'cloudchef-agent/utils/stripIndent';
 import globalStyles from '~/styles/index.css?url';
 import latinMonoFont from '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url';
@@ -23,7 +23,7 @@ const inlineBootstrapCode = stripIndents`
     let theme = null;
 
     try {
-      theme = localStorage.getItem('cloudchef_theme');
+      theme = localStorage.getItem('${THEME_KEY}');
     } catch (storageUnavailable) {
       // Storage can be unavailable in privacy-restricted browser contexts; fall back to the media query.
     }
