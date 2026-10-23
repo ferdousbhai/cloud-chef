@@ -37,6 +37,8 @@ export type Project = {
   /** The GitHub repository it was (or is still to be) imported from. */
   importSource: { repoId: number | null; fullName: string; branch: string } | null;
   workersBuildsScriptTag: string | null;
+  /** The live site's address, once its Worker has been found. */
+  siteUrl: string | null;
 };
 
 /** A team project as its admins manage it: who else may view or edit it. */
@@ -117,13 +119,14 @@ type ProjectRow = {
   import_branch: string | null;
   artifact_repo: string | null;
   workers_builds_script_tag: string | null;
+  site_url: string | null;
   default_branch: string;
   origin: 'imported' | 'promoted';
 };
 
 const PROJECT_COLUMNS = `projects.id, projects.connection_id, projects.org_id, projects.name, projects.import_repo_id,
   projects.import_repo_full_name, projects.import_branch, projects.artifact_repo, projects.workers_builds_script_tag,
-  projects.default_branch, projects.origin`;
+  projects.site_url, projects.default_branch, projects.origin`;
 
 /** Every project of a scope, with who else may view or edit it: an admin's or owner's view. */
 export async function listScopeProjects(db: D1Database, scope: ProjectScope): Promise<ManagedProject[]> {
@@ -329,6 +332,10 @@ export async function recordImportedRepo(db: D1Database, projectId: string, repo
 }
 
 /** Remembers which Worker Workers Builds builds a project into, once found. */
+export async function recordProjectSiteUrl(db: D1Database, projectId: string, siteUrl: string): Promise<void> {
+  await db.prepare('UPDATE org_projects SET site_url = ? WHERE id = ?').bind(siteUrl, projectId).run();
+}
+
 export async function recordWorkersBuildsScriptTag(db: D1Database, projectId: string, tag: string): Promise<void> {
   await db.prepare('UPDATE org_projects SET workers_builds_script_tag = ? WHERE id = ?').bind(tag, projectId).run();
 }
@@ -347,6 +354,7 @@ function toProject(row: ProjectRow): Project {
         ? { repoId: row.import_repo_id, fullName: row.import_repo_full_name, branch: row.import_branch }
         : null,
     workersBuildsScriptTag: row.workers_builds_script_tag,
+    siteUrl: row.site_url,
   };
 }
 

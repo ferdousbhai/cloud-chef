@@ -271,9 +271,10 @@ describe("a runtime asking about a project's builds and site", () => {
       logUrl: `https://dash.cloudflare.com/account-team/workers/services/view/blog/production/builds/build-1`,
     });
     expect(first.calls).toEqual(['scripts', 'latest:2', `builds:${TAG}`]);
-    expect(database.prepare('SELECT workers_builds_script_tag FROM org_projects WHERE id = ?').get(BLOG)).toEqual({
-      workers_builds_script_tag: TAG,
-    });
+    // The Worker and its live site, which the projects home shows, are remembered.
+    expect(
+      database.prepare('SELECT workers_builds_script_tag, site_url FROM org_projects WHERE id = ?').get(BLOG),
+    ).toEqual({ workers_builds_script_tag: TAG, site_url: 'https://blog.example.com' });
     // Found once, the Worker is asked about directly.
     expect((await status(COMMIT, [build({ status: 'running', outcome: null })])).calls).toEqual([
       'scripts',

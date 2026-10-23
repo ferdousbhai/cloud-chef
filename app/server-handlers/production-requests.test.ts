@@ -159,6 +159,7 @@ describe('production requests', () => {
           role: 'edit',
           origin: 'promoted',
           importRepoFullName: null,
+          siteUrl: null,
         },
       ],
     });

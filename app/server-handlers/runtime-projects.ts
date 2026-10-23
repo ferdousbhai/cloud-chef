@@ -16,6 +16,7 @@ import {
   findAccessibleProject,
   findGitHubInstallation,
   recordImportedRepo,
+  recordProjectSiteUrl,
   recordWorkersBuildsScriptTag,
   requireProjectScope,
   type Project,
@@ -306,6 +307,13 @@ async function withWorkersBuilds(
     const worker = await findProjectWorker(api, project);
     if (worker && worker.tag !== project.workersBuildsScriptTag) {
       await recordWorkersBuildsScriptTag(args.env.DB, project.id, worker.tag);
+    }
+    if (worker && (!project.siteUrl || worker.tag !== project.workersBuildsScriptTag)) {
+      // The projects home shows the site; a site that can't be read now is looked for on the next call.
+      const [siteUrl] = await productionOrigins(api, worker).catch(() => []);
+      if (siteUrl) {
+        await recordProjectSiteUrl(args.env.DB, project.id, siteUrl);
+      }
     }
     return await answer(api, worker);
   } catch (error) {

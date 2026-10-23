@@ -58,13 +58,14 @@ export function listMyProjectsAction({ request, env }: { request: Request; env: 
       : [];
     return Response.json(
       {
-        projects: projects.map(({ id, name, repo, role, origin, importSource }) => ({
+        projects: projects.map(({ id, name, repo, role, origin, importSource, siteUrl }) => ({
           id,
           name,
           repo,
           role,
           origin,
           importRepoFullName: importSource?.fullName ?? null,
+          siteUrl,
         })),
       },
       { headers: { 'Cache-Control': 'private, no-store' } },

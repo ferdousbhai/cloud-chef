@@ -48,7 +48,7 @@ const migrationPolicies = [
       '0030_organization_quota_events.sql': 'a840b9ffea1d8a68bfc003faa5df6a67ef0738b91b3e099e9eb558172ce62d5a',
       '0031_drop_ai_billing_enabled.sql': '759babf4f25026871c9b86d77e8a3dae707e0309184dabb81f213dac287b902c',
       '0032_drop_oauth_grant_columns.sql': '4a5d586765bae8eb120962aaed96ef487a74f4cb69cb7d9b6a6a5fe69bb3824a',
-      '0033_artifact_projects.sql': 'ab1af2aa1f6cc26a7c1f063207ad72ebc53f004560015b3fda4e87b041920e80',
+      '0033_artifact_projects.sql': '90c7a266c7e4b92d045c1072eaa32c7bf7cdb6323423f497abff3fd64ce5866f',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this

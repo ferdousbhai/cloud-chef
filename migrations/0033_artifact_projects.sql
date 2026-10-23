@@ -37,6 +37,8 @@ CREATE TABLE org_projects_next (
   artifact_repo TEXT,
   -- The tag of the Worker that Workers Builds builds the repository into, once found.
   workers_builds_script_tag TEXT,
+  -- That Worker's production address (a custom domain first), once found: the projects home shows it.
+  site_url TEXT,
   -- Artifacts' only production branch.
   default_branch TEXT NOT NULL DEFAULT 'main',
   -- 'imported': from GitHub; 'promoted': a member's approved draft, adopting the draft's own repository.
