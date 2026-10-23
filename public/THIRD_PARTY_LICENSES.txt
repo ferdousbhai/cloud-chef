@@ -8,7 +8,7 @@ This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
 Production packages: 670
-Inventory SHA-256: fb75187e0dc8e610e1e4987ea5f1ca626615f1547a1ad85c60a0d2af8bf109ee
+Inventory SHA-256: c620ff54a061b53a0aade6e60ce3f7c31cdc7f254703cf91569ca07f02ab9bb8
 
 PACKAGE INVENTORY
 =================
@@ -3566,7 +3566,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 395c95f20598da653ff1eb1cb9d74947c7fac689697147f1d192fd0242a0e635)
 
-ip-address@10.7.1
+ip-address@10.7.4
 Declared license: MIT
 Author: Beau Gunderson <beau@beaugunderson.com> (https://beaugunderson.com/)
 Repository: {"type":"git","url":"https://github.com/beaugunderson/ip-address.git"}
@@ -22251,7 +22251,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 SHA-256 f8d791359a50cbcac82c29cb7b0b1b889b28be76fdd35b8ee33f0f7c8704702a
 Used by:
-- ip-address@10.7.1:LICENSE
+- ip-address@10.7.4:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (C) 2011 by Beau Gunderson
 
