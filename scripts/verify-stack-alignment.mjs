@@ -45,7 +45,7 @@ export {
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const runtimeEnvAccessAllowlist = [{ pathSuffix: 'app/components/ErrorComponent.tsx', snippet: 'import.meta.env.DEV' }];
-const agentRequiredPackages = ['ai', 'zod'];
+const agentRequiredPackages = ['zod'];
 /**
  * The control plane's own stack. `app/routeTree.gen.ts` here is written by the TanStack Start vite
  * plugin and nothing else — `scripts/generate-route-tree.mjs` resolves this repository's own vite

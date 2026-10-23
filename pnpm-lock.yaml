@@ -322,9 +322,6 @@ importers:
 
   cloudchef-agent:
     dependencies:
-      ai:
-        specifier: 7.0.148
-        version: 7.0.148(zod@4.4.3)
       path-browserify:
         specifier: ^1.0.1
         version: 1.0.1
