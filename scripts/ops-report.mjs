@@ -347,6 +347,22 @@ export function coreStatements(now) {
 }
 
 /**
+ * Every project: whose it is, and its Artifacts repository or the GitHub repository its first open imports
+ * it from. Asked apart from the core statements, so a schema the deployed release hasn't migrated yet marks
+ * only this check unknown.
+ */
+export const PROJECTS_STATEMENT = `SELECT projects.name AS name, organizations.name AS organization, owners.email AS owner,
+    projects.origin AS origin, projects.artifact_repo AS artifact_repo,
+    projects.import_repo_full_name AS import_repo_full_name,
+    projects.workers_builds_script_tag AS workers_builds_script_tag
+  FROM org_projects AS projects
+  LEFT JOIN organizations ON organizations.id = projects.org_id
+  LEFT JOIN cloudflare_connections AS connections ON connections.id = projects.connection_id
+  LEFT JOIN "user" AS owners ON owners.id = connections.user_id
+  ORDER BY organizations.name, projects.name
+  LIMIT ${RUNTIME_ROW_LIMIT}`;
+
+/**
  * Run read-only SQL against production D1 as the authenticated operator.
  *
  * @param {string} sql one or more `;`-separated SELECT statements
@@ -597,8 +613,9 @@ export async function collectReport({
   pinnedBuilderModel = null,
 }) {
   const statements = coreStatements(now);
-  const [core, invocations, catalog] = await Promise.all([
+  const [core, projects, invocations, catalog] = await Promise.all([
     attempt(() => query(statements.join(';\n'))),
+    attempt(() => query(PROJECTS_STATEMENT)),
     attempt(() => readInvocations({ now })),
     attempt(() => readModelCatalog()),
   ]);
@@ -609,6 +626,7 @@ export async function collectReport({
     buildRuntimesCheck(core, { now, desiredRuntimeVersion }),
     buildUsersCheck(core),
     buildSessionsCheck(core),
+    buildProjectsCheck(projects),
   ];
 
   const status = checks.reduce(
@@ -725,6 +743,27 @@ function buildSessionsCheck(core) {
     `${unexpired} unexpired sign-in ${plural(unexpired, 'session')}.`,
     { detail: { unexpired } },
   );
+}
+
+function buildProjectsCheck(projects) {
+  if (!projects.ok) {
+    return unknownCheck('projects', 'Projects', projects);
+  }
+  const rows = projects.value[0] ?? [];
+  const entries = rows.map((row) => ({
+    name: String(row.name ?? ''),
+    owner: row.organization ? String(row.organization) : row.owner ? String(row.owner) : null,
+    origin: String(row.origin ?? ''),
+    repository: row.artifact_repo ? String(row.artifact_repo) : null,
+    importFrom: row.artifact_repo ? null : (row.import_repo_full_name ?? null),
+    workersBuildsScriptTag: row.workers_builds_script_tag ?? null,
+  }));
+  const waiting = entries.filter((entry) => entry.repository === null).length;
+  const sentence =
+    entries.length === 0
+      ? 'No projects.'
+      : `${entries.length} ${plural(entries.length, 'project')}: ${entries.length - waiting} in Artifacts, ${waiting} still to be imported from GitHub on first open.`;
+  return check('projects', 'Projects', 'ok', sentence, { detail: { entries } });
 }
 
 function buildRuntimesCheck(core, { now, desiredRuntimeVersion }) {

@@ -71,12 +71,6 @@ function pruneBatch(db: D1Database, now: number, limit: number): Promise<D1Resul
       .bind(now, limit),
     db
       .prepare(
-        `DELETE FROM github_approval_states
-         WHERE id IN (SELECT id FROM github_approval_states WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`,
-      )
-      .bind(now, limit),
-    db
-      .prepare(
         // Accepted or not, an invite is read only until it expires; the limits count organization_quota_events.
         `DELETE FROM organization_invites
          WHERE id IN (SELECT id FROM organization_invites WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`,

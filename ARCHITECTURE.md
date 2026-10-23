@@ -168,67 +168,54 @@ admins; everyone can still switch, and a saved choice the account no longer offe
 
 An organization's authorization reaches every workspace in its account, which is why only its admins get the
 direct `cloudflare_request` tool in a shared account (above). A member's changes go through the deployment pipeline
-or GitHub, which touch only their own resources.
+or Workers Builds, which touch only their own resources.
 
 An organization keeps at least one active admin. Erasing a member's account never revokes the organization's
 authorization; erasing its last member removes the organization and revokes it.
 
-## GitHub Projects
+## Projects
 
-An organization can work on existing apps kept in GitHub, which stays their source of truth. An admin installs
-CloudChef's GitHub App on the account holding them, choosing its repositories, and links repositories as projects,
-choosing which members may work on each (`app/server-handlers/github-projects.ts`,
-`app/lib/cloudflare/data/org-projects.server.ts`). The installation is recorded only after the returning admin's own
-GitHub authorization shows they control it: their own account, or a GitHub organization they own (the App needs the
-Members read permission to check that). No GitHub token is stored: each operation mints an installation token
-limited to one repository and the permissions it needs (`app/lib/.server/github/`).
+A project's code and history live in Cloudflare Artifacts, in the account the project belongs to: an Artifacts
+repository in the account's `cloudchef` namespace. A project belongs to a Cloudflare connection
+(`org_projects.connection_id`): a team's, whose admins own every project and give each member a role on the ones
+they choose (view or edit, `org_project_access.role`; invites grant edit), or a person's own, whose only member is
+its owner (`app/server-handlers/projects.ts`, `app/lib/cloudflare/data/org-projects.server.ts`). Who may do what
+is decided in one query (`findAccessibleProject`): a paused or removed member has no role at their next call.
 
-Opening a project creates a chat bound to it (`chats.org_project_id`) before its agent starts, and the agent seeds the
-workspace from the default branch, streamed through the control plane (`/api/cloudflare/runtime-github/snapshot`),
-recording the commit and each file's hash. The runtime never holds a GitHub token: snapshot, commit, and build-status
-calls are authenticated like the credential broker and re-check the member's access to the project, and that the
-project belongs to the organization the runtime runs for (`app/server-handlers/runtime-github.ts`). Validation runs the
-repository's own `typecheck`, `lint`, `test`, and `build` scripts. The agent's `publish_preview` commits the workspace's
-changes (as git would, leaving out new files the repository's `.gitignore` files ignore, and never sending a local
-`.env*` other than `.env.example`, `.env.sample`, and `.env.template`, or any `.dev.vars*`), one commit on top of the commit it was opened from, to the conversation's own branch
-(`cloudchef/<member>-<key>`, the key kept with the workspace's link), and `publish` also merges that branch into the
-default branch; the repository's own pipeline (Workers Builds) previews and deploys, and its check runs report the build
-and the preview link. A subchat gets its own key, since its parent can go on working; a new conversation keeps the
-one it continues, which no longer writes. A workspace keeps GitHub's file modes, so an executable bit changed alone is
-committed. Once the commit is on GitHub there's no taking it back: a Stop or the tool's deadline calls a publish off
-only before it, and after it the real result lands in place of the stopped call's error. The template's automatic
-hosted preview and deployment don't run for these workspaces.
+GitHub is only where a project may be imported from, once; nothing is read back from it afterwards. A public
+repository is imported by its address (its default branch read from the ref advertisement GitHub serves without
+credentials, so no GitHub token is needed); a private one through CloudChef's GitHub App, which a team's admin, or a
+person for their own projects, installs on the GitHub account holding it (`app/server-handlers/github-projects.ts`).
+The installation is recorded for the connection only after the returning person's own GitHub authorization shows
+they control it: their own account, or a GitHub organization they own. No GitHub token is stored. Importing makes
+the project at once, with its source (`import_repo_full_name`, `import_branch`) and no repository; the first member
+who may edit it and opens it imports it: their workspace runtime asks the control plane
+(`/api/cloudflare/runtime-projects/open`), which answers with the source and, for a private repository, a fresh App
+token limited to it and read-only, then clones it into `t-<project id>` with full history, its default branch
+becoming `main`, and reports the repository (`/runtime-projects/imported`, recorded once).
 
-A project has one current conversation per member. Starting a new one archives the current one (kept to read): its
-agent refuses new turns, steering, saves, approvals and publishing, its running turn is stopped, and the new
-conversation copies its workspace and link only once it has settled. Removing the current conversation makes the
-latest archived one current again.
+The runtime reads and writes the repository itself, through its Artifacts binding in the same account. Its calls
+to the control plane (`app/server-handlers/runtime-projects.ts`) are authenticated like the credential broker, and
+each re-checks the member's role and that the project belongs to the connection the runtime runs for. A member's
+changes go to their own branch (`cloudchef/<member>-<key>`, `app/lib/member-branch.ts`), and publishing merges it
+into `main`.
 
-A publish returns as soon as its commit is on GitHub. The pipeline takes minutes, so a durable fiber watches its check
-runs (`app/agents/linked-project-build.ts`) and, once the turn that published has ended, puts the result and preview
-link in place of that publish's output, as an approved Cloudflare request's result lands: the person sees the card and
-the status above the composer update (`app/lib/common/linked-publish.ts` reads them from the output's data, never from
-the summary written for the model), and the next turn reads it. Workers Builds' own check runs decide once it has
-posted one; until then, for a few minutes, other checks finishing don't count as the build. Any finished run that did
-not pass (cancelled, timed out, waiting for an action) fails it. CloudChef does not serve its own instant preview of these workspaces: their builds,
-Worker names, and bindings (D1, R2, and more, under any names) are the repository's own, and CloudChef's hosted preview
-deploys only its starter apps' configuration, rebuilt from trusted inputs.
+CloudChef never builds or deploys a project kept in Artifacts. Workers Builds, connected to the repository,
+deploys `main` (the only production branch Artifacts supports) and builds other branches into Previews. The
+control plane reads what it reports with the connection's own authorization (`workers-ci.read`), never handing
+a team's token to a member (`app/lib/.server/cloudflare/workers-builds.ts`): the project's Worker is found by the
+repository its latest build came from (its Artifacts repository, or the GitHub one it was imported from, until
+its builds are switched) and remembered (`workers_builds_script_tag`); `/runtime-projects/status` matches a
+commit to its build, and `/runtime-projects/site` reports the Worker's production and Preview origins, the only
+addresses the agent's `fetch_site` reaches. Workers Builds' API names no Artifacts provider for a repository
+connection, so moving an imported project's builds from GitHub to Artifacts is done in Cloudflare's dashboard;
+`/api/projects/<id>/workers-builds/switch` says when it is done, and otherwise how.
 
-The agent's `fetch_site` reads the project's live site, its pages and the JSON they load, which is where a site's copy
-from its database or CMS shows. It reaches only the https origins the control plane reports for the repository
-(`/api/cloudflare/runtime-github/site`): the website set on GitHub and the links its pipeline posted for the default
-branch and the conversation's branch, never an address the workspace names. It sends only GETs, follows redirects only
-within those origins, and reads at most 2 MB of a text response. There is no database tool: a database's identity
-would come from the workspace's own configuration, D1 has no read-only query mode, and a member limited to GitHub
-projects (below) could not use one.
-
-A member's new app (a draft) can be sent for review: the request carries the draft's files. Approving it, an admin
-authorizes CloudChef once on GitHub to create a repository as them, the draft becomes its first commit with its
-Cloudflare resources named after it, and it becomes a project its requester may work on; the admin connects the
-repository to Workers Builds. Clicking Approve claims the request for that admin, so the draft they reviewed is
-the one committed: until they return from GitHub, or the claim lapses after 10 minutes, the member can't replace it
-and no other admin can decide it, and a replacement after the claim lapsed makes the return refuse. An admin can also limit a member to GitHub projects: that member's runtime is refused the
-organization's Cloudflare token by the credential broker, so their work reaches production only through GitHub.
+A member's new app (a draft) can be sent for review: the request names the draft's own repository (`p-<chat>`) and
+the commit sent. Approving it, in one step, makes that repository a team project its requester may edit, adopted
+as it is; an admin then connects it to Workers Builds. An admin can also limit a member to the team's projects:
+that member's runtime is refused the team's Cloudflare token by the credential broker, so their work reaches
+production only through Workers Builds.
 
 ## State Ownership
 
@@ -236,7 +223,7 @@ organization's Cloudflare token by the credential broker, so their work reaches 
 | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | Identity, OAuth credentials, sessions, connection metadata, runtime locators                      | CloudChef control-plane D1                           |
 | Organizations, memberships, invites, per-member daily usage counts                                | CloudChef control-plane D1                           |
-| GitHub installations, linked projects and access, production requests                             | CloudChef control-plane D1                           |
+| Projects, members' roles, GitHub installations, production requests                               | CloudChef control-plane D1                           |
 | Chat catalog, transcript identity, deployment plans and resources, Agent garbage-collection queue | User workspace D1                                    |
 | Agent messages, turn state, compaction, and resumable execution                                   | User-owned `BuilderAgent` DO SQLite                  |
 | Project bytes, numeric revision, change index, tool journal, and validation receipts              | User-owned `ProjectWorkspace` Computer VFS/DO SQLite |

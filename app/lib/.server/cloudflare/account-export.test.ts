@@ -16,7 +16,6 @@ const PROVIDER_SESSION_ID = 'provider-session-must-never-be-exported';
 const CREDENTIAL_HANDLE = 'credential-handle-must-never-be-exported';
 const INVITE_TOKEN_HASH = 'invite-token-hash-must-never-be-exported';
 const GITHUB_STATE = 'github-state-must-never-be-exported';
-const APPROVAL_STATE = 'approval-state-must-never-be-exported';
 const OAUTH_STATE = 'oauth-state-must-never-be-exported';
 const EMAIL_TOKEN_HASH = 'email-token-hash-must-never-be-exported';
 
@@ -105,12 +104,6 @@ describe('control-plane account export', () => {
       total: 0,
       truncated: false,
       connections: [],
-    });
-    expect(exported.sections.githubApprovals).toEqual({
-      status: 'exported',
-      total: 0,
-      truncated: false,
-      approvals: [],
     });
     expect(exported.sections.emailSignInLinks).toEqual({ status: 'exported', total: 0, truncated: false, links: [] });
     expect(exported.sections.authSessions).toEqual({
@@ -241,7 +234,6 @@ describe('control-plane account export', () => {
       'organizationProjects',
       'productionRequests',
       'githubConnections',
-      'githubApprovals',
       'emailSignInLinks',
       'authSessions',
       'oauthStates',
@@ -262,17 +254,21 @@ describe('control-plane account export', () => {
         (id, org_id, email, role, token_hash, invited_by, expires_at, created_at, project_ids, drafts_allowed)
         VALUES ('invite-1', 'acme', 'USER-1@example.test', 'member', '${INVITE_TOKEN_HASH}', 'user-1', 10, 1,
                 '["project-1"]', 0);
-      INSERT INTO production_requests (id, org_id, requested_by, title, note, preview_url, snapshot_gzip_base64,
-        snapshot_files, status, created_at, draft_id, draft_revision, updated_at)
-        VALUES ('request-1', 'acme', 'user-1', 'Site', 'Please', 'https://preview.example', 'H4sIdraft', 3,
+      INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at)
+        VALUES ('acme-connection', 'acme', 'account-acme', 'active', 1, 1);
+      INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, origin, created_at)
+        VALUES ('project-1', 'acme-connection', 'acme', 'Shop', 'p-shop', 'promoted', 1);
+      INSERT INTO org_project_access (project_id, user_id, role, granted_at) VALUES ('project-1', 'user-1', 'view', 7);
+      INSERT INTO org_projects (id, connection_id, name, import_repo_full_name, import_branch, origin, created_at)
+        VALUES ('project-2', 'connection-user-1', 'Mine', 'me/mine', 'main', 'imported', 8);
+      INSERT INTO production_requests (id, org_id, requested_by, title, note, preview_url, repo, commit_sha, status,
+        created_at, draft_id, draft_revision, updated_at)
+        VALUES ('request-1', 'acme', 'user-1', 'Site', 'Please', 'https://preview.example', 'p-site', 'abc',
                 'pending', 3, 'draft-1', 'rev-2', 4);
-      INSERT INTO production_requests (id, org_id, requested_by, title, snapshot_gzip_base64, snapshot_files,
-        status, decision_note, decided_at, created_at)
-        VALUES ('request-0', 'acme', 'user-1', 'Old', '', 2, 'declined', 'Not now', 3, 1);
-      INSERT INTO github_install_states (id, org_id, user_id, return_to, expires_at, created_at)
-        VALUES ('${GITHUB_STATE}', 'acme', 'user-1', '/settings', 20, 2);
-      INSERT INTO github_approval_states (id, request_id, user_id, repo_name, private, expires_at, created_at)
-        VALUES ('${APPROVAL_STATE}', 'request-1', 'user-1', 'site', 1, 21, 3);
+      INSERT INTO production_requests (id, org_id, requested_by, title, status, decision_note, decided_at, created_at)
+        VALUES ('request-0', 'acme', 'user-1', 'Old', 'declined', 'Not now', 3, 1);
+      INSERT INTO github_install_states (id, connection_id, org_id, user_id, return_to, expires_at, created_at)
+        VALUES ('${GITHUB_STATE}', 'connection-user-1', NULL, 'user-1', '/settings', 20, 2);
       INSERT INTO email_sign_in_tokens (token_hash, email, return_to, expires_at, created_at)
         VALUES ('${EMAIL_TOKEN_HASH}', 'user-1@example.test', '/join', 30, 4);
       INSERT INTO organization_quota_events (kind, user_id, org_id, created_at)
@@ -314,24 +310,45 @@ describe('control-plane account export', () => {
           draftId: 'draft-1',
           draftRevision: 'rev-2',
           updatedAt: '1970-01-01T00:00:00.004Z',
-          draftFiles: 3,
-          draftSourceGzipBase64: 'H4sIdraft',
+          repository: 'p-site',
+          commit: 'abc',
         },
-        { id: 'request-0', status: 'declined', decisionNote: 'Not now', draftSourceGzipBase64: null },
+        { id: 'request-0', status: 'declined', decisionNote: 'Not now', repository: null },
+      ],
+    });
+    // Their own projects and the team's they were given, with their role.
+    expect(exported.sections.organizationProjects).toEqual({
+      status: 'exported',
+      total: 2,
+      truncated: false,
+      projects: [
+        {
+          organizationId: null,
+          projectName: 'Mine',
+          repository: null,
+          importRepoFullName: 'me/mine',
+          role: 'edit',
+          grantedAt: '1970-01-01T00:00:00.008Z',
+        },
+        {
+          organizationId: 'acme',
+          projectName: 'Shop',
+          repository: 'p-shop',
+          importRepoFullName: null,
+          role: 'view',
+          grantedAt: '1970-01-01T00:00:00.007Z',
+        },
       ],
     });
     expect(exported.sections.githubConnections).toMatchObject({
-      connections: [{ organizationId: 'acme', returnTo: '/settings', usedAt: null }],
-    });
-    expect(exported.sections.githubApprovals).toMatchObject({
-      approvals: [{ requestId: 'request-1', repositoryName: 'site', private: true }],
+      connections: [{ cloudflareConnectionId: 'connection-user-1', returnTo: '/settings', usedAt: null }],
     });
     expect(exported.sections.emailSignInLinks).toMatchObject({
       links: [{ email: 'user-1@example.test', returnTo: '/join' }],
     });
     // What these records are checked against stays in the control plane.
     const serialized = JSON.stringify(exported);
-    for (const secret of [INVITE_TOKEN_HASH, GITHUB_STATE, APPROVAL_STATE, OAUTH_STATE, EMAIL_TOKEN_HASH]) {
+    for (const secret of [INVITE_TOKEN_HASH, GITHUB_STATE, OAUTH_STATE, EMAIL_TOKEN_HASH]) {
       expect({ secret, present: serialized.includes(secret) }).toEqual({ secret, present: false });
     }
   });

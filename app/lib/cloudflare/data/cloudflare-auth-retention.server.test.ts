@@ -182,10 +182,6 @@ function retentionDatabase(): { database: DatabaseSyncInstance; db: D1Database }
       id TEXT PRIMARY KEY,
       expires_at INTEGER NOT NULL
     );
-    CREATE TABLE github_approval_states (
-      id TEXT PRIMARY KEY,
-      expires_at INTEGER NOT NULL
-    );
     CREATE TABLE organization_invites (
       id TEXT PRIMARY KEY,
       expires_at INTEGER NOT NULL,

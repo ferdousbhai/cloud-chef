@@ -181,7 +181,7 @@ const MAX_INVITES_PER_INVITER_PER_DAY = 100;
 
 /**
  * A one-time invite for `email`; the link carries the token, and only its hash is stored. `projectIds`
- * are the organization's GitHub projects the person gets on joining (others are ignored); a member may
+ * are the organization's projects the person gets on joining, to edit (others are ignored); a member may
  * build new apps of their own unless `draftsAllowed` is false. It replaces any invite still waiting for
  * the same email, whose link stops working: one person has one way in, the one sent last.
  */
@@ -427,7 +427,7 @@ export async function acceptInvite(
     db
       .prepare(
         // A member builds new apps of their own if the inviting admin allowed it; otherwise they work on the
-        // GitHub projects they're given until an admin does. (Admins may always.)
+        // team projects they're given until an admin does. (Admins may always.)
         `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(org_id, user_id) DO NOTHING`,
       )
@@ -656,9 +656,8 @@ export async function updateMember(
           db
             .prepare(
               `UPDATE production_requests
-               SET status = 'declined', decided_by = ?, decided_at = ?, decision_note = ?, snapshot_gzip_base64 = '',
-                   note = NULL, preview_url = NULL, claimed_at = NULL
-               WHERE org_id = ? AND requested_by = ? AND status IN ('pending', 'approving') ${gone}`,
+               SET status = 'declined', decided_by = ?, decided_at = ?, decision_note = ?, note = NULL, preview_url = NULL
+               WHERE org_id = ? AND requested_by = ? AND status = 'pending' ${gone}`,
             )
             .bind(
               args.actorId,

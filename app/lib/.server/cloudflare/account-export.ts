@@ -31,7 +31,6 @@ const SECTION_NAMES = [
   'organizationProjects',
   'productionRequests',
   'githubConnections',
-  'githubApprovals',
   'emailSignInLinks',
   'authSessions',
   'oauthStates',
@@ -147,17 +146,23 @@ type ExportedUsageDay = {
   cachedTokens: number;
 };
 
-/** A GitHub-backed project this person was given access to. Its repository's contents live in GitHub. */
+/**
+ * A project of this person's own, or a team's they were given a role on. Its code and history live in its
+ * Artifacts repository, in the account it belongs to, where they can clone it.
+ */
 type ExportedProjectAccess = {
-  organizationId: string;
+  organizationId: string | null;
   projectName: string;
-  repository: string;
+  /** The Artifacts repository, in the account's `cloudchef` namespace; null until imported. */
+  repository: string | null;
+  importRepoFullName: string | null;
+  role: 'view' | 'edit';
   grantedAt: string;
 };
 
 /**
- * A draft this person asked to make a real project. Its files travel with the request until it is
- * decided, and are exported as the gzipped JSON CloudChef holds; after a decision only the record is kept.
+ * A draft this person asked to make a real project: its own Artifacts repository and the commit sent.
+ * After a decision only the record is kept.
  */
 type ExportedProductionRequest = {
   id: string;
@@ -167,30 +172,20 @@ type ExportedProductionRequest = {
   previewUrl: string | null;
   draftId: string | null;
   draftRevision: string | null;
+  repository: string | null;
+  commit: string | null;
   status: string;
   decisionNote: string | null;
   projectId: string | null;
   createdAt: string;
   updatedAt: string | null;
   decidedAt: string | null;
-  draftFiles: number;
-  draftSourceGzipBase64: string | null;
 };
 
-/** A GitHub connection this person started for a team: who for, and where it returned. */
+/** A GitHub connection this person started, for a team or for themselves: who for, and where it returned. */
 type ExportedGitHubConnection = {
-  organizationId: string;
+  cloudflareConnectionId: string;
   returnTo: string;
-  createdAt: string;
-  expiresAt: string;
-  usedAt: string | null;
-};
-
-/** An approval of a production request this person started, while GitHub authorized it. */
-type ExportedGitHubApproval = {
-  requestId: string;
-  repositoryName: string;
-  private: boolean;
   createdAt: string;
   expiresAt: string;
   usedAt: string | null;
@@ -250,7 +245,6 @@ type ControlPlaneExport = {
     organizationProjects: ExportedSection<BoundedList<{ projects: ExportedProjectAccess[] }>>;
     productionRequests: ExportedSection<BoundedList<{ requests: ExportedProductionRequest[] }>>;
     githubConnections: ExportedSection<BoundedList<{ connections: ExportedGitHubConnection[] }>>;
-    githubApprovals: ExportedSection<BoundedList<{ approvals: ExportedGitHubApproval[] }>>;
     emailSignInLinks: ExportedSection<BoundedList<{ links: ExportedEmailSignInLink[] }>>;
     authSessions: ExportedSection<BoundedList<{ sessions: ExportedAuthSession[] }>>;
     oauthStates: ExportedSection<BoundedList<{ states: ExportedOAuthState[] }>>;
@@ -277,7 +271,6 @@ export async function exportControlPlaneAccount(args: { env: Env; userId: string
     organizationProjects: await exportSection('organizationProjects', () => readProjectAccess(db, args.userId)),
     productionRequests: await exportSection('productionRequests', () => readProductionRequests(db, args.userId)),
     githubConnections: await exportSection('githubConnections', () => readGitHubConnections(db, args.userId)),
-    githubApprovals: await exportSection('githubApprovals', () => readGitHubApprovals(db, args.userId)),
     emailSignInLinks: await exportSection('emailSignInLinks', () => readEmailSignInLinks(db, args.userId)),
     authSessions: await exportSection('authSessions', () => readAuthSessions(db, args.userId)),
     oauthStates: await exportSection('oauthStates', () => readOAuthStates(db, args.userId)),
@@ -650,18 +643,38 @@ async function readProjectAccess(
   db: D1Database,
   userId: string,
 ): Promise<BoundedList<{ projects: ExportedProjectAccess[] }>> {
+  // Their own projects (their personal connection's), and the team projects they were given a role on.
   const { items: projects, ...bounds } = await readBoundedList(
     db,
     userId,
-    `SELECT projects.org_id, projects.name, projects.repo_full_name, access.granted_at, COUNT(*) OVER () AS total_rows
-       FROM org_project_access AS access
-       JOIN org_projects AS projects ON projects.id = access.project_id
-       WHERE access.user_id = ?
-       ORDER BY access.granted_at DESC LIMIT ?`,
-    (row: { org_id: string; name: string; repo_full_name: string; granted_at: number }) => ({
+    `SELECT org_id, name, artifact_repo, import_repo_full_name, role, granted_at, COUNT(*) OVER () AS total_rows
+       FROM (
+         SELECT projects.org_id, projects.name, projects.artifact_repo, projects.import_repo_full_name,
+                access.role, access.granted_at
+         FROM org_project_access AS access
+         JOIN org_projects AS projects ON projects.id = access.project_id
+         WHERE access.user_id = ?1
+         UNION ALL
+         SELECT projects.org_id, projects.name, projects.artifact_repo, projects.import_repo_full_name,
+                'edit', projects.created_at
+         FROM org_projects AS projects
+         JOIN cloudflare_connections AS connections ON connections.id = projects.connection_id
+         WHERE connections.user_id = ?1
+       )
+       ORDER BY granted_at DESC LIMIT ?2`,
+    (row: {
+      org_id: string | null;
+      name: string;
+      artifact_repo: string | null;
+      import_repo_full_name: string | null;
+      role: 'view' | 'edit';
+      granted_at: number;
+    }) => ({
       organizationId: row.org_id,
       projectName: row.name,
-      repository: row.repo_full_name,
+      repository: row.artifact_repo,
+      importRepoFullName: row.import_repo_full_name,
+      role: row.role,
       grantedAt: new Date(row.granted_at).toISOString(),
     }),
   );
@@ -675,8 +688,8 @@ async function readProductionRequests(
   const { items: requests, ...bounds } = await readBoundedList(
     db,
     userId,
-    `SELECT id, org_id, title, note, preview_url, draft_id, draft_revision, status, decision_note, project_id,
-              created_at, updated_at, decided_at, snapshot_files, snapshot_gzip_base64, COUNT(*) OVER () AS total_rows
+    `SELECT id, org_id, title, note, preview_url, draft_id, draft_revision, repo, commit_sha, status, decision_note,
+              project_id, created_at, updated_at, decided_at, COUNT(*) OVER () AS total_rows
        FROM production_requests WHERE requested_by = ?
        ORDER BY created_at DESC LIMIT ?`,
     (row: {
@@ -687,14 +700,14 @@ async function readProductionRequests(
       preview_url: string | null;
       draft_id: string | null;
       draft_revision: string | null;
+      repo: string | null;
+      commit_sha: string | null;
       status: string;
       decision_note: string | null;
       project_id: string | null;
       created_at: number;
       updated_at: number | null;
       decided_at: number | null;
-      snapshot_files: number;
-      snapshot_gzip_base64: string;
     }) => ({
       id: row.id,
       organizationId: row.org_id,
@@ -703,15 +716,14 @@ async function readProductionRequests(
       previewUrl: row.preview_url,
       draftId: row.draft_id,
       draftRevision: row.draft_revision,
+      repository: row.repo,
+      commit: row.commit_sha,
       status: row.status,
       decisionNote: row.decision_note,
       projectId: row.project_id,
       createdAt: isoTimestamp(row.created_at),
       updatedAt: optionalIsoTimestamp(row.updated_at),
       decidedAt: optionalIsoTimestamp(row.decided_at),
-      draftFiles: row.snapshot_files,
-      // The member's own source; a decided request keeps none (an empty string).
-      draftSourceGzipBase64: row.snapshot_gzip_base64 || null,
     }),
   );
   return { requests, ...bounds };
@@ -725,11 +737,17 @@ async function readGitHubConnections(
   const { items: connections, ...bounds } = await readBoundedList(
     db,
     userId,
-    `SELECT org_id, return_to, created_at, expires_at, used_at, COUNT(*) OVER () AS total_rows
+    `SELECT connection_id, return_to, created_at, expires_at, used_at, COUNT(*) OVER () AS total_rows
        FROM github_install_states WHERE user_id = ?
        ORDER BY created_at DESC LIMIT ?`,
-    (row: { org_id: string; return_to: string; created_at: number; expires_at: number; used_at: number | null }) => ({
-      organizationId: row.org_id,
+    (row: {
+      connection_id: string;
+      return_to: string;
+      created_at: number;
+      expires_at: number;
+      used_at: number | null;
+    }) => ({
+      cloudflareConnectionId: row.connection_id,
       returnTo: row.return_to,
       createdAt: isoTimestamp(row.created_at),
       expiresAt: isoTimestamp(row.expires_at),
@@ -737,35 +755,6 @@ async function readGitHubConnections(
     }),
   );
   return { connections, ...bounds };
-}
-
-async function readGitHubApprovals(
-  db: D1Database,
-  userId: string,
-): Promise<BoundedList<{ approvals: ExportedGitHubApproval[] }>> {
-  const { items: approvals, ...bounds } = await readBoundedList(
-    db,
-    userId,
-    `SELECT request_id, repo_name, private, created_at, expires_at, used_at, COUNT(*) OVER () AS total_rows
-       FROM github_approval_states WHERE user_id = ?
-       ORDER BY created_at DESC LIMIT ?`,
-    (row: {
-      request_id: string;
-      repo_name: string;
-      private: number;
-      created_at: number;
-      expires_at: number;
-      used_at: number | null;
-    }) => ({
-      requestId: row.request_id,
-      repositoryName: row.repo_name,
-      private: row.private === 1,
-      createdAt: isoTimestamp(row.created_at),
-      expiresAt: isoTimestamp(row.expires_at),
-      usedAt: optionalIsoTimestamp(row.used_at),
-    }),
-  );
-  return { approvals, ...bounds };
 }
 
 async function readEmailSignInLinks(

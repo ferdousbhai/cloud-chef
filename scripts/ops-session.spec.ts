@@ -96,8 +96,31 @@ function fakeProduction() {
         return d1Rows([]);
       }
       if (sql.includes('FROM org_projects')) {
-        return d1Rows([{ id: 'project-1', repo_full_name: 'acme/site', default_branch: 'main' }]);
+        return d1Rows([
+          {
+            id: 'project-1',
+            name: 'Site',
+            origin: 'imported',
+            artifact_repo: 't-project-1',
+            import_repo_full_name: 'acme/site',
+            import_branch: 'master',
+            workers_builds_script_tag: 'f'.repeat(32),
+          },
+        ]);
       }
+    }
+    if (args.slice(0, 2).join(' ') === 'builds list') {
+      const build = (branch: string, commit: string, outcome: string) => ({
+        status: 'stopped',
+        build_outcome: outcome,
+        created_on: '2026-10-20T13:40:15Z',
+        build_trigger_metadata: { branch, commit_hash: commit, commit_message: 'Bold the intro\n\nbody' },
+      });
+      return [
+        build('cloudchef/sara-b86c65-k3y4chat0001', 'da130d3aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'success'),
+        build('cloudchef/someone-else-1a2b3c', 'eeeeeee', 'fail'),
+        build('main', 'b0b0b0baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'success'),
+      ];
     }
     if (command === 'ai-gateway logs list') {
       return [
@@ -158,36 +181,7 @@ function fakeProduction() {
     }
     throw new Error(`unexpected cf ${args.join(' ')}`);
   };
-  const ghPaths: string[] = [];
-  const gh = async (path: string) => {
-    ghPaths.push(path);
-    // The member's legacy branch and a conversation's own branch, pushed later.
-    if (path.includes('/git/matching-refs/')) {
-      return [
-        { ref: 'refs/heads/cloudchef/sara-b86c65', object: { sha: 'old' } },
-        { ref: 'refs/heads/cloudchef/sara-b86c65-k3y4chat0001', object: { sha: 'new' } },
-      ];
-    }
-    if (path.endsWith('/commits/old') || path.endsWith('/commits/new')) {
-      return {
-        commit: { committer: { date: path.endsWith('new') ? '2026-10-20T13:40:15Z' : '2026-10-01T00:00:00Z' } },
-      };
-    }
-    if (path.includes('/check-runs')) {
-      return {
-        check_runs: [
-          { name: 'Workers Builds: site', status: 'completed', conclusion: 'success', output: { title: 'Deployed' } },
-        ],
-      };
-    }
-    return [
-      {
-        sha: 'da130d3aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-        commit: { message: 'Bold the intro\n\nbody', committer: { date: '2026-10-20T13:40:15Z' } },
-      },
-    ];
-  };
-  return { cf, calls, gh, ghPaths };
+  return { cf, calls };
 }
 
 describe('ops:session reads production without changing it', () => {
@@ -248,12 +242,11 @@ describe('ops:session reads production without changing it', () => {
 });
 
 describe('ops:session reconstruction', () => {
-  it("puts a member's chat together from D1, Workers Logs, AI Gateway, and GitHub", async () => {
+  it("puts a member's chat together from D1, Workers Logs, AI Gateway, and Workers Builds", async () => {
     const production = fakeProduction();
 
     const session = await collectSession(parseTarget('sara@example.com'), {
       cf: production.cf,
-      gh: production.gh,
       controlPlaneDatabaseId: CONTROL_PLANE,
       now: AT + 86_400_000,
     });
@@ -263,7 +256,7 @@ describe('ops:session reconstruction', () => {
       user: { id: USER },
       chat: { id: CHAT, workerName: WORKER, accountId: ACCOUNT, orgName: "Sara's sites" },
       gateway: { requests: [{ id: 'log-1', tokensIn: 100 }] },
-      github: { branch: 'cloudchef/sara-b86c65-k3y4chat0001', project: { repo_full_name: 'acme/site' } },
+      project: { branch: 'cloudchef/sara-b86c65', project: { artifact_repo: 't-project-1' } },
       unknown: [],
     });
     // Only its own request: the other matched the chat id under another key.
@@ -285,12 +278,12 @@ describe('ops:session reconstruction', () => {
     expect(body).toMatchObject({ dry: true, view: 'events' });
     expect(body.timeframe.from).toBeLessThan(Date.parse('2026-10-20T12:59:00.000Z'));
     expect(body.timeframe.to).toBeGreaterThan(AT);
-    expect(production.ghPaths).toEqual([
-      'repos/acme/site/git/matching-refs/heads/cloudchef/sara-b86c65',
-      'repos/acme/site/commits/old',
-      'repos/acme/site/commits/new',
-      'repos/acme/site/commits?sha=cloudchef%2Fsara-b86c65-k3y4chat0001&per_page=5',
-      'repos/acme/site/commits/da130d3aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/check-runs?per_page=20',
+    // The project's Worker's builds, read in the runtime's account: main and only this member's branches.
+    const builds = production.calls.find((call) => call.args.slice(0, 2).join(' ') === 'builds list');
+    expect(builds).toMatchObject({ accountId: ACCOUNT });
+    expect(session.project?.builds?.map((build: { branch: string }) => build.branch)).toEqual([
+      'cloudchef/sara-b86c65-k3y4chat0001',
+      'main',
     ]);
 
     const text = renderSession(session);
@@ -300,8 +293,10 @@ describe('ops:session reconstruction', () => {
     expect(text).toContain('[tool error] grep: not a directory: src/x.ts');
     expect(text).toContain('[assistant] Done now.');
     expect(text).toContain('WARN log [BuilderAgent] Recovering interrupted CloudChef chat turn');
-    expect(text).toContain('da130d3 2026-10-20T13:40:15Z Bold the intro');
-    expect(text).toContain('Workers Builds: site: success Deployed');
+    expect(text).toContain(
+      'Project Site (imported): Artifacts repository t-project-1; member branch cloudchef/sara-b86c65',
+    );
+    expect(text).toContain('da130d3 2026-10-20T13:40:15Z cloudchef/sara-b86c65-k3y4chat0001: success Bold the intro');
     expect(text).not.toContain('system prompt');
   });
 
@@ -328,52 +323,7 @@ describe('ops:session reconstruction', () => {
       { source: `Workers Logs for ${WORKER}`, reason: 'Authentication error [code: 10000]' },
     ]);
     expect(renderSession(session)).toContain(`Unknown: Workers Logs for ${WORKER}: Authentication error`);
-    // Without a gh login there is no GitHub read, only the project and branch.
-    expect(session.github).toMatchObject({ commits: null, branch: 'cloudchef/sara-b86c65' });
-  });
-
-  it("reads the latest of only this member's branches, all of them by last commit, and lists the rest", async () => {
-    const production = fakeProduction();
-    const member = 'cloudchef/sara-b86c65';
-    // Alphabetical, as GitHub lists them: 25 older branches before the newest, and branches of others
-    // whose names merely start with this member's.
-    const refs = [
-      ...Array.from({ length: 25 }, (_, index) => ({
-        ref: `refs/heads/${member}-a${String(index).padStart(7, '0')}`,
-        object: { sha: `old${index}` },
-      })),
-      { ref: `refs/heads/${member}-zz0newest`, object: { sha: 'newest' } },
-      { ref: `refs/heads/${member}x-k3y4chat0001`, object: { sha: 'impostor' } },
-      { ref: `refs/heads/${member}-k3y4chat0001-extra`, object: { sha: 'impostor' } },
-    ];
-    const gh = async (path: string) => {
-      if (path.includes('/git/matching-refs/')) {
-        return refs;
-      }
-      const sha = /\/commits\/([a-z0-9]+)$/.exec(path)?.[1];
-      if (sha !== undefined) {
-        const day = sha === 'newest' || sha === 'impostor' ? 30 : (Number(sha.slice(3)) % 28) + 1;
-        return { commit: { committer: { date: `2026-10-${String(day).padStart(2, '0')}T00:00:00Z` } } };
-      }
-      return production.gh(path);
-    };
-
-    const session = await collectSession(parseTarget('sara@example.com'), {
-      cf: production.cf,
-      gh,
-      controlPlaneDatabaseId: CONTROL_PLANE,
-      now: AT + 86_400_000,
-    });
-
-    expect(session.github?.branch).toBe(`${member}-zz0newest`);
-    expect(session.github?.branches?.total).toBe(26);
-    expect(session.github?.branches?.latest).toHaveLength(20);
-    const dates = session.github?.branches?.latest.map(({ lastCommitAt }) => lastCommitAt) ?? [];
-    expect(dates).toEqual(dates.toSorted().reverse());
-    const text = renderSession(session);
-    expect(text).toContain(`branch ${member}-zz0newest (latest of 26 by last commit; the chat's own isn't recorded)`);
-    expect(text).toContain('  and 6 older');
-    expect(text).not.toContain(`${member}x-`);
+    expect(session.project).toMatchObject({ branch: 'cloudchef/sara-b86c65', project: { name: 'Site' } });
   });
 
   it('reports a person it cannot find', async () => {

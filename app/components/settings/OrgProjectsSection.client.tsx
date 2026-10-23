@@ -10,17 +10,20 @@ export const orgGitHubSchema = z.object({ accountLogin: z.string(), accountType:
 export const orgProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
-  repoFullName: z.string(),
-  defaultBranch: z.string(),
-  origin: z.enum(['linked', 'promoted']),
-  memberIds: z.array(z.string()),
+  /** The project's Artifacts repository; null until it is first opened, which imports it. */
+  repo: z.string().nullable(),
+  origin: z.enum(['imported', 'promoted']),
+  /** The GitHub repository it was imported from. */
+  importRepoFullName: z.string().nullable(),
+  access: z.array(z.object({ userId: z.string(), role: z.enum(['view', 'edit']) })),
 });
 export const productionRequestSchema = z.object({
   id: z.string(),
   title: z.string(),
   note: z.string().nullable(),
   previewUrl: z.string().nullable(),
-  files: z.number(),
+  repo: z.string().nullable(),
+  commit: z.string().nullable(),
   requesterName: z.string(),
   requesterEmail: z.string(),
   updatedAt: z.number().nullable(),
@@ -33,10 +36,14 @@ export const ownRequestSchema = z.object({
 });
 
 type ProductionRequest = z.infer<typeof productionRequestSchema>;
-const approvalStartedSchema = z.object({ authorizeUrl: z.string() });
+const approvedSchema = z.object({
+  projectId: z.string(),
+  repo: z.string(),
+  workersBuilds: z.object({ namespace: z.string(), repo: z.string(), connectUrl: z.string() }),
+});
 
-/** Where an admin connects a promoted app's repository to Workers Builds, which then deploys it. */
-const WORKERS_BUILDS_IMPORT_URL = 'https://dash.cloudflare.com/?to=/:account/workers-and-pages/create';
+/** Where an admin connects a project's repository to Workers Builds, which then deploys it. */
+const WORKERS_BUILDS_CONNECT_URL = 'https://dash.cloudflare.com/?to=/:account/workers-and-pages';
 
 type OrgProject = z.infer<typeof orgProjectSchema>;
 type ProjectMember = { userId: string; name: string; email: string; role: 'admin' | 'member' };
@@ -50,9 +57,6 @@ const repositoriesSchema = z.object({
 const linkedSchema = z.object({ projectId: z.string() });
 
 type Repository = z.infer<typeof repositoriesSchema>['repositories'][number];
-
-/** The repository names GitHub (and the approval route) accept. */
-const REPOSITORY_NAME = /^[A-Za-z0-9._-]{1,100}$/;
 
 /**
  * An admin's view of an organization's GitHub projects: the GitHub account CloudChef's App is installed
@@ -81,7 +85,7 @@ export function OrgProjectsSection({
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const onError = (message: string | null) => setFeedback(errorFeedback(message));
-  const linkedIds = new Set(projects.map((project) => project.repoFullName));
+  const linkedIds = new Set(projects.map((project) => project.importRepoFullName));
   const contributors = members.filter((member) => member.role === 'member');
   const unlinked = repositories?.filter((repository) => !linkedIds.has(repository.fullName)) ?? [];
 
@@ -116,14 +120,14 @@ export function OrgProjectsSection({
     setBusy(true);
     await runRequest(async () => {
       await postJson(
-        '/api/organizations/projects/link',
+        '/api/projects/import',
         { orgId, repoId: repository.id, name: name.trim() || repository.fullName.split('/')[1] },
         linkedSchema,
       );
       setRepositories(null);
       setRepoId('');
       setName('');
-      setFeedback(noteFeedback(`Linked ${repository.fullName}.`));
+      setFeedback(noteFeedback(`Imported ${repository.fullName}. Its code comes over when it is first opened.`));
       await onChanged();
     }, onError);
     setBusy(false);
@@ -185,7 +189,6 @@ export function OrgProjectsSection({
               key={pending.id}
               orgId={orgId}
               pending={pending}
-              githubConnected={github !== null}
               onChanged={onChanged}
               onFeedback={setFeedback}
             />
@@ -279,13 +282,13 @@ function ProjectRow({
   const [confirmingUnlink, setConfirmingUnlink] = useState(false);
   // Access being saved, shown as asked until the refreshed list arrives.
   const [saving, setSaving] = useState<ReadonlyMap<string, boolean>>(new Map());
-  const allowed = new Set(project.memberIds);
+  const allowed = new Set(project.access.map((grant) => grant.userId));
   const setAccess = async (userId: string, granted: boolean) => {
     setSaving((current) => new Map(current).set(userId, granted));
     await runRequest(async () => {
       await postJson(
         '/api/organizations/projects/access',
-        { orgId, projectId: project.id, userId, allowed: granted },
+        { orgId, projectId: project.id, userId, role: granted ? 'edit' : null },
         noContentSchema,
       );
       await onChanged();
@@ -304,17 +307,21 @@ function ProjectRow({
   return (
     <li className="grid min-w-0 gap-1 rounded-md border border-bolt-elements-borderColor p-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="min-w-0 flex-1 truncate" title={`${project.name} (${project.repoFullName})`}>
+        <span className="min-w-0 flex-1 truncate" title={project.importRepoFullName ?? project.repo ?? project.name}>
           {project.name}{' '}
-          <a
-            className="text-content-secondary underline"
-            href={`https://github.com/${project.repoFullName}`}
-            title={project.repoFullName}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {project.repoFullName}
-          </a>
+          {project.importRepoFullName ? (
+            <a
+              className="text-content-secondary underline"
+              href={`https://github.com/${project.importRepoFullName}`}
+              title={project.importRepoFullName}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {project.importRepoFullName}
+            </a>
+          ) : (
+            <span className="text-content-secondary">{project.repo}</span>
+          )}
         </span>
         {confirmingUnlink ? (
           <>
@@ -341,15 +348,7 @@ function ProjectRow({
           </Button>
         )}
       </div>
-      {project.origin === 'promoted' ? (
-        <p className="text-xs text-content-secondary">
-          New from an approved draft. To deploy it, connect the repository in{' '}
-          <a className="underline" href={WORKERS_BUILDS_IMPORT_URL} target="_blank" rel="noopener noreferrer">
-            Workers Builds
-          </a>{' '}
-          (Import a repository, deploy command <code>pnpm run deploy</code>), and turn on preview builds.
-        </p>
-      ) : null}
+      {project.origin === 'promoted' ? <WorkersBuildsConnect repo={project.repo ?? ''} /> : null}
       {contributors.length > 0 ? (
         <div
           className="flex flex-wrap gap-3 text-xs text-content-secondary"
@@ -376,57 +375,53 @@ function ProjectRow({
   );
 }
 
-/** A repository name from a draft's title, or a placeholder when the title has none of GitHub's characters. */
-function repositoryNameFor(pending: ProductionRequest): string {
-  const slug = pending.title
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 100);
-  return slug || `app-${pending.id.slice(0, 8)}`;
+/** How an admin connects a project's repository to Workers Builds, which then deploys its main branch. */
+function WorkersBuildsConnect({ repo }: { repo: string }) {
+  return (
+    <p className="text-xs text-content-secondary [overflow-wrap:anywhere]">
+      To deploy it, open{' '}
+      <a className="underline" href={WORKERS_BUILDS_CONNECT_URL} target="_blank" rel="noopener noreferrer">
+        Workers &amp; Pages
+      </a>
+      , choose Create, then Continue with Artifacts, and pick the namespace <code>cloudchef</code> and the repository{' '}
+      <code>{repo}</code>. It deploys from <code>main</code>; turn on builds for Preview branches.
+    </p>
+  );
 }
 
 /** A member's request to make a draft a real project, as an admin decides it. */
 function ProductionRequestRow({
   orgId,
   pending,
-  githubConnected,
   onChanged,
   onFeedback,
 }: {
   orgId: string;
   pending: ProductionRequest;
-  githubConnected: boolean;
   onChanged: () => Promise<void>;
   onFeedback: (feedback: Feedback) => void;
 }) {
-  const [repoName, setRepoName] = useState(() => repositoryNameFor(pending));
-  const [privateRepo, setPrivateRepo] = useState(true);
   const [approving, setApproving] = useState(false);
   const [declining, setDeclining] = useState(false);
   const [decisionNote, setDecisionNote] = useState('');
   const onError = (message: string | null) => onFeedback(errorFeedback(message));
-  const validName = REPOSITORY_NAME.test(repoName);
-  const hintId = `repository-name-hint-${pending.id}`;
-  // On the way to GitHub, the button stays busy until the page goes; a refusal frees it.
-  const approve = () => {
+  const approve = async () => {
     setApproving(true);
-    void runRequest(
-      async () => {
-        const { authorizeUrl } = await postJson(
-          '/api/organizations/production-requests/approve',
-          { orgId, requestId: pending.id, repoName, private: privateRepo },
-          approvalStartedSchema,
-        );
-        window.location.assign(authorizeUrl);
-      },
-      (message) => {
-        if (message !== null) {
-          setApproving(false);
-        }
-        onError(message);
-      },
-    );
+    await runRequest(async () => {
+      const approved = await postJson(
+        '/api/organizations/production-requests/approve',
+        { orgId, requestId: pending.id },
+        approvedSchema,
+      );
+      onFeedback(
+        noteFeedback(
+          `${pending.title} is now a team project. To deploy it, connect the repository ${approved.workersBuilds.repo} ` +
+            `(namespace ${approved.workersBuilds.namespace}) to Workers Builds.`,
+        ),
+      );
+      await onChanged();
+    }, onError);
+    setApproving(false);
   };
   const decline = () =>
     void runRequest(async () => {
@@ -473,59 +468,26 @@ function ProductionRequestRow({
           </Button>
         </div>
       ) : (
-        <>
-          {/* Approving needs GitHub to create the repository; declining never does. */}
-          {githubConnected ? null : (
-            <span className="text-xs text-content-tertiary">Connect GitHub to approve it into a repository.</span>
-          )}
-          <div className="flex flex-wrap items-center gap-2">
-            {githubConnected ? (
-              <>
-                <TextInput
-                  aria-label={`Repository name for ${pending.title}`}
-                  aria-invalid={!validName}
-                  aria-describedby={validName ? undefined : hintId}
-                  value={repoName}
-                  onChange={(event) => setRepoName(event.target.value)}
-                  className="min-w-0 flex-1"
-                />
-                <label className="flex items-center gap-1 text-xs">
-                  <input
-                    type="checkbox"
-                    aria-label={`Private repository for ${pending.title}`}
-                    checked={privateRepo}
-                    onChange={(event) => setPrivateRepo(event.target.checked)}
-                  />
-                  Private
-                </label>
-                <Button
-                  size="xs"
-                  variant="primary"
-                  disabled={!validName}
-                  loading={approving}
-                  aria-label={`Approve and create repository: ${pending.title}`}
-                  onClick={approve}
-                >
-                  Approve and create repository
-                </Button>
-              </>
-            ) : null}
-            <Button
-              size="xs"
-              variant="subtle"
-              disabled={approving}
-              aria-label={`Decline ${pending.title}`}
-              onClick={() => setDeclining(true)}
-            >
-              Decline
-            </Button>
-          </div>
-          {!githubConnected || validName ? null : (
-            <span id={hintId} className="text-xs text-bolt-elements-icon-error">
-              Use up to 100 letters, digits, dots, dashes or underscores.
-            </span>
-          )}
-        </>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="xs"
+            variant="primary"
+            loading={approving}
+            aria-label={`Approve: ${pending.title}`}
+            onClick={() => void approve()}
+          >
+            Approve
+          </Button>
+          <Button
+            size="xs"
+            variant="subtle"
+            disabled={approving}
+            aria-label={`Decline ${pending.title}`}
+            onClick={() => setDeclining(true)}
+          >
+            Decline
+          </Button>
+        </div>
       )}
     </li>
   );

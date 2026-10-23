@@ -585,8 +585,9 @@ describe('organizations', () => {
     const orgId = await createOrg(env, admin.cookie);
     const addProject = async (id: string, repoId: number) => {
       await env.DB.prepare(
-        `INSERT INTO org_projects (id, org_id, name, repo_id, repo_full_name, default_branch, origin, created_at)
-         VALUES (?, ?, ?, ?, ?, 'main', 'linked', 1)`,
+        `INSERT INTO org_projects (id, connection_id, org_id, name, import_repo_id, import_repo_full_name, import_branch,
+           origin, created_at)
+         VALUES (?1, (SELECT id FROM cloudflare_connections WHERE org_id = ?2), ?2, ?3, ?4, ?5, 'main', 'imported', 1)`,
       )
         .bind(id, orgId, `project-${repoId}`, repoId, `acme/project-${repoId}`)
         .run();
@@ -700,9 +701,8 @@ describe('organizations', () => {
     const request = (id: string, status: string) =>
       database
         .prepare(
-          `INSERT INTO production_requests (id, org_id, requested_by, title, snapshot_gzip_base64, snapshot_files,
-             status, created_at)
-           VALUES (?, ?, ?, 'Site', 'H4sI', 1, ?, 1)`,
+          `INSERT INTO production_requests (id, org_id, requested_by, title, repo, commit_sha, status, created_at)
+           VALUES (?, ?, ?, 'Site', 'p-site', '${'c'.repeat(40)}', ?, 1)`,
         )
         .run(id, orgId, sam.userId, status);
     request('11111111-1111-4111-8111-111111111111', 'pending');
@@ -717,23 +717,21 @@ describe('organizations', () => {
     expect(removed.status).toBe(200);
 
     expect(
-      database
-        .prepare('SELECT id, status, decided_by, decision_note, snapshot_gzip_base64 FROM production_requests')
-        .all(),
+      database.prepare('SELECT id, status, decided_by, decision_note, repo FROM production_requests').all(),
     ).toEqual([
       {
         id: '11111111-1111-4111-8111-111111111111',
         status: 'declined',
         decided_by: admin.userId,
         decision_note: 'They were removed from the team.',
-        snapshot_gzip_base64: '',
+        repo: 'p-site',
       },
       {
         id: '22222222-2222-4222-8222-222222222222',
         status: 'approved',
         decided_by: null,
         decision_note: null,
-        snapshot_gzip_base64: 'H4sI',
+        repo: 'p-site',
       },
     ]);
     // A request left open from someone no longer in the team (from before removal declined them) is
@@ -753,8 +751,8 @@ describe('organizations', () => {
       env,
     });
     database.exec(`
-      INSERT INTO org_projects (id, org_id, name, repo_id, repo_full_name, default_branch, origin, created_at)
-        VALUES ('site', '${orgId}', 'Site', 1, 'acme/site', 'main', 'linked', 1);
+      INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, origin, created_at)
+        VALUES ('site', 'acme-connection', '${orgId}', 'Site', 'p-site', 'promoted', 1);
       INSERT INTO org_project_access (project_id, user_id, granted_at) VALUES ('site', '${sam.userId}', 1);
       INSERT INTO user_computer_runtimes
         (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
@@ -951,14 +949,14 @@ describe('a team’s name and deletion', () => {
     const { database, env, admin, sam, orgId } = await team();
     database
       .prepare(
-        `INSERT INTO github_installations (org_id, installation_id, account_login, account_type, created_at, updated_at)
-         VALUES (?, 7, 'acme', 'Organization', 1, 1)`,
+        `INSERT INTO github_installations (connection_id, installation_id, account_login, account_type, created_at, updated_at)
+         VALUES ('acme-connection', 7, 'acme', 'Organization', 1, 1)`,
       )
-      .run(orgId);
+      .run();
     database
       .prepare(
-        `INSERT INTO org_projects (id, org_id, name, repo_id, repo_full_name, default_branch, origin, created_at)
-         VALUES ('44444444-4444-4444-8444-444444444444', ?, 'Site', 1, 'acme/site', 'main', 'linked', 1)`,
+        `INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, origin, created_at)
+         VALUES ('44444444-4444-4444-8444-444444444444', 'acme-connection', ?, 'Site', 'p-site', 'promoted', 1)`,
       )
       .run(orgId);
     database
@@ -969,9 +967,8 @@ describe('a team’s name and deletion', () => {
       .run(sam.userId);
     database
       .prepare(
-        `INSERT INTO production_requests (id, org_id, requested_by, title, snapshot_gzip_base64, snapshot_files,
-           status, created_at)
-         VALUES ('55555555-5555-4555-8555-555555555555', ?, ?, 'Draft', 'H4sI', 1, 'pending', 1)`,
+        `INSERT INTO production_requests (id, org_id, requested_by, title, repo, status, created_at)
+         VALUES ('55555555-5555-4555-8555-555555555555', ?, ?, 'Draft', 'p-draft', 'pending', 1)`,
       )
       .run(orgId, sam.userId);
     database

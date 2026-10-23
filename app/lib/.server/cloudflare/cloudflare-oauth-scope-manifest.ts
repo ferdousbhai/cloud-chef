@@ -19,6 +19,9 @@ export const CORE_CLOUDFLARE_OAUTH_SCOPES = [
   // provider keys, and the Secrets Store secrets they are kept in.
   'aig.write',
   'secrets-store.write',
+  // What Workers Builds reports for a project: which Worker builds its repository, each commit's build,
+  // and its Previews. Read only: CloudChef never changes a project's builds.
+  'workers-ci.read',
 ] as const;
 
 /**

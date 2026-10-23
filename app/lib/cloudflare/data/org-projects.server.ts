@@ -1,31 +1,78 @@
-import { findMembership } from './organization-access.server';
+import {
+  findCloudflareConnectionForOrganization,
+  findCloudflareConnectionForUser,
+} from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import { OrganizationError, requireAdmin } from './organizations.server';
 
-/** Where an organization's GitHub App is installed: the account whose repositories it may reach. */
+/** Where a connection's GitHub App is installed: the account whose repositories it may import. */
 type GitHubInstallationSummary = {
   installationId: number;
   accountLogin: string;
   accountType: 'User' | 'Organization';
 };
 
-/** A GitHub repository an organization works on, and (for admins) who may work on it. */
-type OrgProject = {
+/** What a person may do with a project: read its history and code, or also change it. */
+export type ProjectRole = 'view' | 'edit';
+
+/**
+ * Whose projects: a team's, run by its admins, or a person's own, run by them. A project lives in the
+ * scope's Cloudflare account, its code in that account's Artifacts.
+ */
+export type ProjectScope = { connectionId: string; orgId: string | null };
+
+/**
+ * A project: an Artifacts repository in the account of the connection it belongs to, and where it was
+ * imported from on GitHub, if it was.
+ */
+export type Project = {
   id: string;
-  orgId: string;
+  connectionId: string;
+  /** The team whose project it is; null for a person's own. */
+  orgId: string | null;
   name: string;
-  repoId: number;
-  repoFullName: string;
+  /** The Artifacts repository in the `cloudchef` namespace; null until it has been imported. */
+  repo: string | null;
   defaultBranch: string;
-  /** 'promoted': created from a member's approved draft, and still to be connected to a pipeline. */
-  origin: 'linked' | 'promoted';
-  /** Members granted access. Admins work on every project, so they aren't listed. */
-  memberIds: string[];
+  origin: 'imported' | 'promoted';
+  /** The GitHub repository it was (or is still to be) imported from. */
+  importSource: { repoId: number | null; fullName: string; branch: string } | null;
+  workersBuildsScriptTag: string | null;
 };
 
-export async function findGitHubInstallation(db: D1Database, orgId: string): Promise<GitHubInstallationSummary | null> {
+/** A team project as its admins manage it: who else may view or edit it. */
+type ManagedProject = Project & { access: { userId: string; role: ProjectRole }[] };
+
+/**
+ * The scope `userId` manages: the team `orgId` when they are one of its active admins, else their own
+ * account. Either needs its Cloudflare connection, where the projects live. Throws otherwise.
+ */
+export async function requireProjectScope(
+  db: D1Database,
+  userId: string,
+  orgId: string | undefined,
+): Promise<ProjectScope> {
+  if (orgId) {
+    await requireAdmin(db, orgId, userId);
+  }
+  const connection = orgId
+    ? await findCloudflareConnectionForOrganization(db, orgId)
+    : await findCloudflareConnectionForUser(db, userId);
+  if (connection?.status !== 'active') {
+    throw new OrganizationError(
+      orgId ? "Connect the team's Cloudflare account first." : 'Connect your Cloudflare account first.',
+      409,
+    );
+  }
+  return { connectionId: connection.id, orgId: orgId ?? null };
+}
+
+export async function findGitHubInstallation(
+  db: D1Database,
+  connectionId: string,
+): Promise<GitHubInstallationSummary | null> {
   const row = await db
-    .prepare('SELECT installation_id, account_login, account_type FROM github_installations WHERE org_id = ?')
-    .bind(orgId)
+    .prepare('SELECT installation_id, account_login, account_type FROM github_installations WHERE connection_id = ?')
+    .bind(connectionId)
     .first<{ installation_id: number; account_login: string; account_type: 'User' | 'Organization' }>();
   return row
     ? { installationId: row.installation_id, accountLogin: row.account_login, accountType: row.account_type }
@@ -34,18 +81,18 @@ export async function findGitHubInstallation(db: D1Database, orgId: string): Pro
 
 export async function saveGitHubInstallation(
   db: D1Database,
-  args: { orgId: string; userId: string; installation: GitHubInstallationSummary },
+  args: { scope: ProjectScope; userId: string; installation: GitHubInstallationSummary },
 ): Promise<void> {
   const now = Date.now();
   await db
     .prepare(
-      `INSERT INTO github_installations (org_id, installation_id, account_login, account_type, connected_by, created_at, updated_at)
+      `INSERT INTO github_installations (connection_id, installation_id, account_login, account_type, connected_by, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
-       ON CONFLICT(org_id) DO UPDATE SET installation_id = ?2, account_login = ?3, account_type = ?4,
+       ON CONFLICT(connection_id) DO UPDATE SET installation_id = ?2, account_login = ?3, account_type = ?4,
          connected_by = ?5, updated_at = ?6`,
     )
     .bind(
-      args.orgId,
+      args.scope.connectionId,
       args.installation.installationId,
       args.installation.accountLogin,
       args.installation.accountType,
@@ -55,139 +102,184 @@ export async function saveGitHubInstallation(
     .run();
 }
 
-/** Disconnects GitHub. Linked projects stay listed but can't be opened until it's connected again. */
-export async function removeGitHubInstallation(db: D1Database, orgId: string, actorId: string): Promise<void> {
-  await requireAdmin(db, orgId, actorId);
-  await db.prepare('DELETE FROM github_installations WHERE org_id = ?').bind(orgId).run();
+/** Disconnects GitHub. Projects already imported are unaffected; ones still to be imported wait for it. */
+export async function removeGitHubInstallation(db: D1Database, scope: ProjectScope): Promise<void> {
+  await db.prepare('DELETE FROM github_installations WHERE connection_id = ?').bind(scope.connectionId).run();
 }
 
 type ProjectRow = {
   id: string;
-  org_id: string;
+  connection_id: string;
+  org_id: string | null;
   name: string;
-  repo_id: number;
-  repo_full_name: string;
+  import_repo_id: number | null;
+  import_repo_full_name: string | null;
+  import_branch: string | null;
+  artifact_repo: string | null;
+  workers_builds_script_tag: string | null;
   default_branch: string;
-  origin: 'linked' | 'promoted';
+  origin: 'imported' | 'promoted';
 };
 
-const PROJECT_COLUMNS =
-  'projects.id, projects.org_id, projects.name, projects.repo_id, projects.repo_full_name, projects.default_branch, projects.origin';
+const PROJECT_COLUMNS = `projects.id, projects.connection_id, projects.org_id, projects.name, projects.import_repo_id,
+  projects.import_repo_full_name, projects.import_branch, projects.artifact_repo, projects.workers_builds_script_tag,
+  projects.default_branch, projects.origin`;
 
-/** Every project of an organization with who may work on it: an admin's view. */
-export async function listOrgProjects(db: D1Database, orgId: string): Promise<OrgProject[]> {
+/** Every project of a scope, with who else may view or edit it: an admin's or owner's view. */
+export async function listScopeProjects(db: D1Database, scope: ProjectScope): Promise<ManagedProject[]> {
   const [{ results: projects }, { results: access }] = await Promise.all([
     db
       .prepare(
-        `SELECT ${PROJECT_COLUMNS} FROM org_projects AS projects WHERE projects.org_id = ? ORDER BY projects.name`,
+        `SELECT ${PROJECT_COLUMNS} FROM org_projects AS projects WHERE projects.connection_id = ? ORDER BY projects.name`,
       )
-      .bind(orgId)
+      .bind(scope.connectionId)
       .all<ProjectRow>(),
     db
       .prepare(
-        `SELECT access.project_id, access.user_id FROM org_project_access AS access
+        `SELECT access.project_id, access.user_id, access.role FROM org_project_access AS access
          JOIN org_projects AS projects ON projects.id = access.project_id
-         WHERE projects.org_id = ?`,
+         WHERE projects.connection_id = ?`,
       )
-      .bind(orgId)
-      .all<{ project_id: string; user_id: string }>(),
+      .bind(scope.connectionId)
+      .all<{ project_id: string; user_id: string; role: ProjectRole }>(),
   ]);
   return projects.map((row) => ({
     ...toProject(row),
-    memberIds: access.filter((grant) => grant.project_id === row.id).map((grant) => grant.user_id),
+    access: access
+      .filter((grant) => grant.project_id === row.id)
+      .map((grant) => ({ userId: grant.user_id, role: grant.role })),
   }));
 }
 
 /**
- * The projects `userId` may work on in `orgId` right now: all of them for an active admin, the granted
- * ones for an active member, none while paused or outside the organization.
+ * A role for `userId` on the project in `projects`, as `findAccessibleProject` decides it: edit for a
+ * person's own project and for an active admin of the team's, the granted role for an active member, and
+ * none (NULL) while paused or outside the team. `?2` is the user.
  */
-export async function listAccessibleProjects(db: D1Database, orgId: string, userId: string): Promise<OrgProject[]> {
-  const membership = await findMembership(db, orgId, userId);
-  if (!membership || membership.pausedAt !== null) {
-    return [];
-  }
-  const { results } = await (
-    membership.role === 'admin'
-      ? db
-          .prepare(
-            `SELECT ${PROJECT_COLUMNS} FROM org_projects AS projects WHERE projects.org_id = ? ORDER BY projects.name`,
-          )
-          .bind(orgId)
-      : db
-          .prepare(
-            `SELECT ${PROJECT_COLUMNS} FROM org_projects AS projects
-           JOIN org_project_access AS access ON access.project_id = projects.id AND access.user_id = ?
-           WHERE projects.org_id = ? ORDER BY projects.name`,
-          )
-          .bind(userId, orgId)
-  ).all<ProjectRow>();
-  return results.map((row) => ({ ...toProject(row), memberIds: [] }));
+const ROLE = `CASE
+  WHEN projects.org_id IS NULL THEN
+    CASE WHEN EXISTS (
+      SELECT 1 FROM cloudflare_connections AS owner WHERE owner.id = projects.connection_id AND owner.user_id = ?2
+    ) THEN 'edit' END
+  ELSE (
+    SELECT CASE WHEN members.role = 'admin' THEN 'edit' ELSE (
+      SELECT access.role FROM org_project_access AS access
+      WHERE access.project_id = projects.id AND access.user_id = ?2
+    ) END
+    FROM organization_members AS members
+    WHERE members.org_id = projects.org_id AND members.user_id = ?2 AND members.paused_at IS NULL
+  )
+END`;
+
+/** The projects of the connection `connectionId` that `userId` may view or edit now, with their role. */
+export async function listAccessibleProjects(
+  db: D1Database,
+  connectionId: string,
+  userId: string,
+): Promise<(Project & { role: ProjectRole })[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT * FROM (
+         SELECT ${PROJECT_COLUMNS}, ${ROLE} AS role FROM org_projects AS projects WHERE projects.connection_id = ?1
+       ) WHERE role IS NOT NULL ORDER BY name`,
+    )
+    .bind(connectionId, userId)
+    .all<ProjectRow & { role: ProjectRole }>();
+  return results.map((row) => ({ ...toProject(row), role: row.role }));
 }
 
-/** One project, if `userId` may work on it now. Every runtime request for project files goes through this. */
+/** One project with `userId`'s role on it, if they may view or edit it now. Every runtime project call asks this. */
 export async function findAccessibleProject(
   db: D1Database,
   projectId: string,
   userId: string,
-): Promise<OrgProject | null> {
-  // As `listAccessibleProjects` decides it: an active admin's, or an active member's granted one.
+): Promise<(Project & { role: ProjectRole }) | null> {
   const row = await db
     .prepare(
-      `SELECT ${PROJECT_COLUMNS} FROM org_projects AS projects
-       JOIN organization_members AS members
-         ON members.org_id = projects.org_id AND members.user_id = ?2 AND members.paused_at IS NULL
-       WHERE projects.id = ?1 AND (members.role = 'admin' OR EXISTS (
-         SELECT 1 FROM org_project_access AS access WHERE access.project_id = projects.id AND access.user_id = ?2))`,
+      `SELECT * FROM (
+         SELECT ${PROJECT_COLUMNS}, ${ROLE} AS role FROM org_projects AS projects WHERE projects.id = ?1
+       ) WHERE role IS NOT NULL`,
     )
     .bind(projectId, userId)
-    .first<ProjectRow>();
-  return row ? { ...toProject(row), memberIds: [] } : null;
+    .first<ProjectRow & { role: ProjectRole }>();
+  return row ? { ...toProject(row), role: row.role } : null;
 }
 
-export async function linkProject(
+/**
+ * A project imported from GitHub, to be imported into Artifacts by the first member who opens it.
+ * Returns its id; refused when the repository is a project of the scope already.
+ */
+export async function importProject(
   db: D1Database,
   args: {
-    orgId: string;
+    scope: ProjectScope;
     actorId: string;
     name: string;
-    repository: { id: number; fullName: string; defaultBranch: string };
+    source: { repoId: number | null; fullName: string; branch: string };
   },
 ): Promise<string> {
-  await requireAdmin(db, args.orgId, args.actorId);
   const id = crypto.randomUUID();
   const inserted = await db
     .prepare(
-      `INSERT INTO org_projects (id, org_id, name, repo_id, repo_full_name, default_branch, origin, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'linked', ?, ?)
-       ON CONFLICT(org_id, repo_id) DO NOTHING`,
+      `INSERT INTO org_projects (id, connection_id, org_id, name, import_repo_id, import_repo_full_name, import_branch,
+         origin, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'imported', ?, ?)
+       ON CONFLICT DO NOTHING`,
     )
     .bind(
       id,
-      args.orgId,
+      args.scope.connectionId,
+      args.scope.orgId,
       args.name,
-      args.repository.id,
-      args.repository.fullName,
-      args.repository.defaultBranch,
+      args.source.repoId,
+      args.source.fullName,
+      args.source.branch,
       args.actorId,
       Date.now(),
     )
     .run();
   if (inserted.meta.changes !== 1) {
-    throw new OrganizationError(`${args.repository.fullName} is already a project here.`, 409);
+    throw new OrganizationError(`${args.source.fullName} is already a project here.`, 409);
   }
   return id;
 }
 
-export async function unlinkProject(db: D1Database, args: { orgId: string; actorId: string; projectId: string }) {
-  await requireAdmin(db, args.orgId, args.actorId);
-  await db.prepare('DELETE FROM org_projects WHERE id = ? AND org_id = ?').bind(args.projectId, args.orgId).run();
+/** Removes a project from CloudChef. Its Artifacts repository and its Worker stay in the account. */
+export async function removeProject(db: D1Database, args: { scope: ProjectScope; projectId: string }) {
+  await db
+    .prepare('DELETE FROM org_projects WHERE id = ? AND connection_id = ?')
+    .bind(args.projectId, args.scope.connectionId)
+    .run();
 }
 
-/** Grants or withdraws a member's access to one project. */
+/**
+ * The project `projectId`, for the person who runs it: its owner for a person's own, an active admin of its
+ * team for a team's. Throws otherwise.
+ */
+export async function requireManagedProject(db: D1Database, userId: string, projectId: string): Promise<Project> {
+  const row = await db
+    .prepare(
+      `SELECT ${PROJECT_COLUMNS} FROM org_projects AS projects
+       WHERE projects.id = ?1 AND (
+         (projects.org_id IS NULL AND EXISTS (
+           SELECT 1 FROM cloudflare_connections AS owner WHERE owner.id = projects.connection_id AND owner.user_id = ?2))
+         OR EXISTS (
+           SELECT 1 FROM organization_members AS members
+           WHERE members.org_id = projects.org_id AND members.user_id = ?2 AND members.role = 'admin'
+             AND members.paused_at IS NULL))`,
+    )
+    .bind(projectId, userId)
+    .first<ProjectRow>();
+  if (!row) {
+    throw new OrganizationError("That project isn't yours to change.", 404);
+  }
+  return toProject(row);
+}
+
+/** Gives a team member a role on one project, changes it, or (null) withdraws it. */
 export async function setProjectAccess(
   db: D1Database,
-  args: { orgId: string; actorId: string; projectId: string; userId: string; allowed: boolean },
+  args: { orgId: string; actorId: string; projectId: string; userId: string; role: ProjectRole | null },
 ): Promise<void> {
   await requireAdmin(db, args.orgId, args.actorId);
   const project = await db
@@ -197,7 +289,7 @@ export async function setProjectAccess(
   if (!project) {
     throw new OrganizationError('That project is not in this team.', 404);
   }
-  if (!args.allowed) {
+  if (args.role === null) {
     await db
       .prepare('DELETE FROM org_project_access WHERE project_id = ? AND user_id = ?')
       .bind(args.projectId, args.userId)
@@ -205,38 +297,58 @@ export async function setProjectAccess(
     return;
   }
   // Granted only while they are a member, in the one statement, so a removal racing it leaves no grant
-  // behind. An existing grant is kept as it was, and still counts as a change.
+  // behind. A grant they had keeps when it was first given.
   const granted = await db
     .prepare(
-      `INSERT INTO org_project_access (project_id, user_id, granted_by, granted_at)
-       SELECT ?, ?, ?, ?
-       WHERE EXISTS (SELECT 1 FROM organization_members WHERE org_id = ? AND user_id = ?)
-       ON CONFLICT(project_id, user_id) DO UPDATE SET granted_at = org_project_access.granted_at`,
+      `INSERT INTO org_project_access (project_id, user_id, role, granted_by, granted_at)
+       SELECT ?1, ?2, ?3, ?4, ?5
+       WHERE EXISTS (SELECT 1 FROM organization_members WHERE org_id = ?6 AND user_id = ?2)
+       ON CONFLICT(project_id, user_id) DO UPDATE SET role = excluded.role, granted_by = excluded.granted_by`,
     )
-    .bind(args.projectId, args.userId, args.actorId, Date.now(), args.orgId, args.userId)
+    .bind(args.projectId, args.userId, args.role, args.actorId, Date.now(), args.orgId)
     .run();
   if (granted.meta.changes === 0) {
     throw new OrganizationError('That person is not in this team.', 404);
   }
 }
 
-function toProject(row: ProjectRow): Omit<OrgProject, 'memberIds'> {
-  return {
-    id: row.id,
-    orgId: row.org_id,
-    name: row.name,
-    repoId: row.repo_id,
-    repoFullName: row.repo_full_name,
-    defaultBranch: row.default_branch,
-    origin: row.origin,
-  };
+/**
+ * Records the Artifacts repository an imported project now lives in. The same repository again is a
+ * no-op; a different one than already recorded is refused (false).
+ */
+export async function recordImportedRepo(db: D1Database, projectId: string, repo: string): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `UPDATE org_projects SET artifact_repo = COALESCE(artifact_repo, ?2)
+       WHERE id = ?1
+       RETURNING artifact_repo`,
+    )
+    .bind(projectId, repo)
+    .first<{ artifact_repo: string }>();
+  return row?.artifact_repo === repo;
 }
 
-/** How long an approval may hold a request before another admin can take it over. */
-const APPROVAL_CLAIM_MS = 10 * 60_000;
+/** Remembers which Worker Workers Builds builds a project into, once found. */
+export async function recordWorkersBuildsScriptTag(db: D1Database, projectId: string, tag: string): Promise<void> {
+  await db.prepare('UPDATE org_projects SET workers_builds_script_tag = ? WHERE id = ?').bind(tag, projectId).run();
+}
 
-/** A request still open for a decision: waiting, or claimed by an approval that never finished. */
-const OPEN_REQUEST = `(status = 'pending' OR (status = 'approving' AND claimed_at < ?))`;
+function toProject(row: ProjectRow): Project {
+  return {
+    id: row.id,
+    connectionId: row.connection_id,
+    orgId: row.org_id,
+    name: row.name,
+    repo: row.artifact_repo,
+    defaultBranch: row.default_branch,
+    origin: row.origin,
+    importSource:
+      row.import_repo_full_name !== null && row.import_branch !== null
+        ? { repoId: row.import_repo_id, fullName: row.import_repo_full_name, branch: row.import_branch }
+        : null,
+    workersBuildsScriptTag: row.workers_builds_script_tag,
+  };
+}
 
 /**
  * A request whose requester is still in its organization: one from someone who left or was removed
@@ -253,11 +365,13 @@ type ProductionRequest = {
   title: string;
   note: string | null;
   previewUrl: string | null;
-  files: number;
+  /** The draft's own Artifacts repository, and the commit of it the member sent. */
+  repo: string | null;
+  commit: string | null;
   requesterName: string;
   requesterEmail: string;
   createdAt: number;
-  /** When the member last sent a newer version of the draft, or null. */
+  /** When the member last sent a newer commit of the draft, or null. */
   updatedAt: number | null;
 };
 
@@ -273,23 +387,23 @@ type OwnProductionRequest = {
 export async function listPendingProductionRequests(db: D1Database, orgId: string): Promise<ProductionRequest[]> {
   const { results } = await db
     .prepare(
-      `SELECT requests.id, requests.title, requests.note, requests.preview_url, requests.snapshot_files,
+      `SELECT requests.id, requests.title, requests.note, requests.preview_url, requests.repo, requests.commit_sha,
               requests.created_at, requests.updated_at, users.name, users.email
        FROM production_requests AS requests
        JOIN "user" AS users ON users.id = requests.requested_by
        JOIN organization_members AS requester
          ON requester.org_id = requests.org_id AND requester.user_id = requests.requested_by
-       WHERE requests.org_id = ?
-         AND ${OPEN_REQUEST}
+       WHERE requests.org_id = ? AND requests.status = 'pending'
        ORDER BY requests.created_at`,
     )
-    .bind(orgId, Date.now() - APPROVAL_CLAIM_MS)
+    .bind(orgId)
     .all<{
       id: string;
       title: string;
       note: string | null;
       preview_url: string | null;
-      snapshot_files: number;
+      repo: string | null;
+      commit_sha: string | null;
       created_at: number;
       updated_at: number | null;
       name: string;
@@ -300,7 +414,8 @@ export async function listPendingProductionRequests(db: D1Database, orgId: strin
     title: row.title,
     note: row.note,
     previewUrl: row.preview_url,
-    files: row.snapshot_files,
+    repo: row.repo,
+    commit: row.commit_sha,
     requesterName: row.name,
     requesterEmail: row.email,
     createdAt: row.created_at,
@@ -316,8 +431,7 @@ export async function listOwnProductionRequests(
 ): Promise<OwnProductionRequest[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, title, CASE status WHEN 'approving' THEN 'pending' ELSE status END AS status, decision_note
-       FROM production_requests
+      `SELECT id, title, status, decision_note FROM production_requests
        WHERE org_id = ? AND requested_by = ? ORDER BY created_at DESC LIMIT 10`,
     )
     .bind(orgId, userId)
@@ -330,197 +444,82 @@ export async function declineProductionRequest(
   args: { orgId: string; actorId: string; requestId: string; note: string },
 ): Promise<void> {
   await requireAdmin(db, args.orgId, args.actorId);
-  const now = Date.now();
   const declined = await db
     .prepare(
-      // The decision keeps only the request's title and file count: the draft, its note and its preview
-      // link go.
+      // The decision keeps only the request's title: its note and preview link go. The draft stays the
+      // member's own, in its repository.
       `UPDATE production_requests SET status = 'declined', decided_by = ?, decided_at = ?, decision_note = ?,
-         snapshot_gzip_base64 = '', note = NULL, preview_url = NULL
-       WHERE id = ? AND org_id = ? AND ${OPEN_REQUEST}`,
+         note = NULL, preview_url = NULL
+       WHERE id = ? AND org_id = ? AND status = 'pending'`,
     )
-    .bind(args.actorId, now, args.note || null, args.requestId, args.orgId, lapsedApprovalClaimBefore(now))
+    .bind(args.actorId, Date.now(), args.note || null, args.requestId, args.orgId)
     .run();
   if (declined.meta.changes !== 1) {
     throw new OrganizationError('That request was already decided.', 409);
   }
 }
 
-/** Before this time, an approval's claim on a request has lapsed: the request is open again. */
-export function lapsedApprovalClaimBefore(now: number): number {
-  return now - APPROVAL_CLAIM_MS;
-}
-
 /**
- * Claims a request for an admin who is about to authorize CloudChef on GitHub, so that what they
- * reviewed is what becomes the repository: while claimed, the member can't replace the draft, and no
- * other admin can approve or decline it. The same admin approving again (a tab closed on GitHub) takes
- * over their own claim. The claim and the approval's state (`approval`, created at the claim's time)
- * are written together, so a claim never exists without the state that finishes or releases it.
- * Returns the claim's time, or null when the request is decided, another admin holds it, or its
- * requester is no longer in the team.
+ * Approves a request: the draft's own Artifacts repository becomes a team project, adopted as it is, that
+ * its requester may edit. Returns the project and its repository; null when the request was decided
+ * already or its requester is no longer in the team.
  */
-export async function claimProductionRequestForApproval(
+export async function approveProductionRequest(
   db: D1Database,
-  args: {
-    orgId: string;
-    requestId: string;
-    adminId: string;
-    approval: { state: string; repoName: string; private: boolean; ttlMs: number };
-  },
-): Promise<number | null> {
-  const now = Date.now();
-  const [claimed] = await db.batch([
-    db
-      .prepare(
-        `UPDATE production_requests SET status = 'approving', claimed_at = ?
-         WHERE id = ? AND org_id = ? AND ${REQUESTER_IS_MEMBER} AND (
-           ${OPEN_REQUEST}
-           OR (status = 'approving' AND EXISTS (
-             SELECT 1 FROM github_approval_states AS states
-             WHERE states.request_id = production_requests.id AND states.user_id = ? AND states.used_at IS NULL
-               AND states.created_at = production_requests.claimed_at)))`,
-      )
-      .bind(now, args.requestId, args.orgId, lapsedApprovalClaimBefore(now), args.adminId),
-    // Only with the claim just made: the request is now this admin's, claimed at this moment. A claim's
-    // holder is the admin whose state carries its time, so another admin's claim made in the same
-    // millisecond (which the update above refused) writes no state that would let them take it over.
-    db
-      .prepare(
-        `INSERT INTO github_approval_states (id, request_id, user_id, repo_name, private, expires_at, created_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (
-           SELECT 1 FROM production_requests WHERE id = ?2 AND status = 'approving' AND claimed_at = ?7
-         ) AND NOT EXISTS (
-           SELECT 1 FROM github_approval_states WHERE request_id = ?2 AND created_at = ?7 AND user_id <> ?3
-         )`,
-      )
-      .bind(
-        args.approval.state,
-        args.requestId,
-        args.adminId,
-        args.approval.repoName,
-        args.approval.private ? 1 : 0,
-        now + args.approval.ttlMs,
-        now,
-      ),
-  ]);
-  return claimed?.meta.changes === 1 ? now : null;
-}
-
-/**
- * Back from GitHub: the request, with the draft's files, if the claim made when the admin clicked
- * Approve (`claimedAt`) still holds, renewed for the time creating the repository takes. Null when it
- * was decided, or lapsed and was taken over or replaced by the member since.
- */
-export async function holdApprovalClaim(db: D1Database, args: { orgId: string; requestId: string; claimedAt: number }) {
-  const now = Date.now();
-  const row = await db
-    .prepare(
-      `UPDATE production_requests SET claimed_at = ?
-       WHERE id = ? AND org_id = ? AND status = 'approving' AND claimed_at = ? AND ${REQUESTER_IS_MEMBER}
-       RETURNING id, requested_by, title, snapshot_gzip_base64`,
-    )
-    .bind(now, args.requestId, args.orgId, args.claimedAt)
-    .first<{ id: string; requested_by: string; title: string; snapshot_gzip_base64: string }>();
-  return row
-    ? {
-        id: row.id,
-        requestedBy: row.requested_by,
-        title: row.title,
-        snapshot: row.snapshot_gzip_base64,
-        claimedAt: now,
-      }
-    : null;
-}
-
-/** Hands a request back to pending after an approval that didn't finish, if its claim is still this one. */
-export async function releaseApprovalClaim(db: D1Database, requestId: string, claimedAt: number): Promise<void> {
-  await db
-    .prepare(
-      `UPDATE production_requests SET status = 'pending', claimed_at = NULL
-       WHERE id = ? AND status = 'approving' AND claimed_at = ?`,
-    )
-    .bind(requestId, claimedAt)
-    .run();
-}
-
-/**
- * Records an approved request: its new repository becomes an organization project its requester may work
- * on, and the request keeps only its title, file count and the decision (the draft's files now live in
- * GitHub). Only while this approval's claim (`claimedAt`) still holds and its requester is still in the
- * team: a request withdrawn meanwhile (its requester left or was removed, which declines it) records
- * nothing, and null is returned.
- */
-export async function recordApprovedRequest(
-  db: D1Database,
-  args: {
-    orgId: string;
-    actorId: string;
-    requestId: string;
-    requestedBy: string;
-    name: string;
-    claimedAt: number;
-    repository: { id: number; fullName: string; defaultBranch: string };
-  },
-): Promise<string | null> {
+  args: { orgId: string; actorId: string; requestId: string },
+): Promise<{ projectId: string; repo: string } | null> {
+  await requireAdmin(db, args.orgId, args.actorId);
   const now = Date.now();
   const newProjectId = crypto.randomUUID();
   // The decision is written first, and the project and its access only behind it, all in one batch: the
-  // request approved by this claim, with no project yet, is what the later statements look for.
-  const approvedByThisClaim = `EXISTS (
+  // request approved by this decision, with no project yet, is what the later statements look for.
+  const approvedNow = `EXISTS (
     SELECT 1 FROM production_requests
-    WHERE id = ?1 AND status = 'approved' AND claimed_at = ?2 AND project_id IS NULL
+    WHERE id = ?1 AND status = 'approved' AND decided_at = ?2 AND project_id IS NULL
   )`;
-  // A retried approval's repository (made by the first try, which couldn't reach it) may have been
-  // linked as a project meanwhile: then that project is the one the request approves into.
-  const repositoryProject = `(SELECT id FROM org_projects WHERE org_id = ?3 AND repo_id = ?4)`;
+  const request = `(SELECT repo FROM production_requests WHERE id = ?1)`;
+  const connection = `(SELECT id FROM cloudflare_connections WHERE org_id = ?3)`;
+  // The repository may be a project already (its draft was approved before and sent again): then that
+  // project is the one the request approves into.
+  const repositoryProject = `(SELECT id FROM org_projects WHERE connection_id = ${connection} AND artifact_repo = ${request})`;
   const [approved] = await db.batch([
     db
       .prepare(
-        `UPDATE production_requests SET status = 'approved', decided_by = ?, decided_at = ?,
-           snapshot_gzip_base64 = '', note = NULL, preview_url = NULL
-         WHERE id = ? AND org_id = ? AND status = 'approving' AND claimed_at = ? AND ${REQUESTER_IS_MEMBER}`,
+        `UPDATE production_requests SET status = 'approved', decided_by = ?2, decided_at = ?3, note = NULL,
+           preview_url = NULL
+         WHERE id = ?1 AND org_id = ?4 AND status = 'pending' AND repo IS NOT NULL AND ${REQUESTER_IS_MEMBER}
+           AND EXISTS (SELECT 1 FROM cloudflare_connections WHERE org_id = ?4)`,
       )
-      .bind(args.actorId, now, args.requestId, args.orgId, args.claimedAt),
+      .bind(args.requestId, args.actorId, now, args.orgId),
     db
       .prepare(
-        `INSERT INTO org_projects (id, org_id, name, repo_id, repo_full_name, default_branch, origin, created_by, created_at)
-         SELECT ?5, ?3, ?6, ?4, ?7, ?8, 'promoted', ?9, ?10 WHERE ${approvedByThisClaim}
-         ON CONFLICT(org_id, repo_id) DO NOTHING`,
+        `INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, origin, created_by, created_at)
+         SELECT ?4, ${connection}, ?3, title, repo, 'promoted', ?5, ?2 FROM production_requests
+         WHERE id = ?1 AND ${approvedNow}
+         ON CONFLICT DO NOTHING`,
       )
-      .bind(
-        args.requestId,
-        args.claimedAt,
-        args.orgId,
-        args.repository.id,
-        newProjectId,
-        args.name,
-        args.repository.fullName,
-        args.repository.defaultBranch,
-        args.actorId,
-        now,
-      ),
+      .bind(args.requestId, now, args.orgId, newProjectId, args.actorId),
     db
       .prepare(
-        `INSERT INTO org_project_access (project_id, user_id, granted_by, granted_at)
-         SELECT ${repositoryProject}, ?5, ?6, ?7 WHERE ${approvedByThisClaim} AND ${repositoryProject} IS NOT NULL
-         ON CONFLICT(project_id, user_id) DO NOTHING`,
+        `INSERT INTO org_project_access (project_id, user_id, role, granted_by, granted_at)
+         SELECT ${repositoryProject}, requested_by, 'edit', ?4, ?2 FROM production_requests
+         WHERE id = ?1 AND ${approvedNow} AND ${repositoryProject} IS NOT NULL
+         ON CONFLICT(project_id, user_id) DO UPDATE SET role = 'edit'`,
       )
-      .bind(args.requestId, args.claimedAt, args.orgId, args.repository.id, args.requestedBy, args.actorId, now),
+      .bind(args.requestId, now, args.orgId, args.actorId),
     db
       .prepare(
         `UPDATE production_requests SET project_id = ${repositoryProject}
-         WHERE id = ?1 AND status = 'approved' AND claimed_at = ?2 AND project_id IS NULL
-           AND ${repositoryProject} IS NOT NULL`,
+         WHERE id = ?1 AND ${approvedNow} AND ${repositoryProject} IS NOT NULL`,
       )
-      .bind(args.requestId, args.claimedAt, args.orgId, args.repository.id),
+      .bind(args.requestId, now, args.orgId),
   ]);
   if (approved?.meta.changes !== 1) {
     return null;
   }
   const project = await db
-    .prepare('SELECT project_id FROM production_requests WHERE id = ?')
+    .prepare('SELECT project_id, repo FROM production_requests WHERE id = ?')
     .bind(args.requestId)
-    .first<{ project_id: string | null }>();
-  return project?.project_id ?? newProjectId;
+    .first<{ project_id: string | null; repo: string }>();
+  return project?.project_id ? { projectId: project.project_id, repo: project.repo } : null;
 }

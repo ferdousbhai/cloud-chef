@@ -24,6 +24,15 @@ describe('cloudflare-oauth-scope-manifest', () => {
     expect(missingCoreOAuthScopes([...CORE_CLOUDFLARE_OAUTH_SCOPES])).toEqual([]);
   });
 
+  test('reads Workers Builds, and never changes it', () => {
+    // A connection authorized before this scope was added reauthorizes before it is used again.
+    expect(CORE_CLOUDFLARE_OAUTH_SCOPES).toContain('workers-ci.read');
+    expect(CORE_CLOUDFLARE_OAUTH_SCOPES).not.toContain('workers-ci.write');
+    expect(missingCoreOAuthScopes(CORE_CLOUDFLARE_OAUTH_SCOPES.filter((scope) => scope !== 'workers-ci.read'))).toEqual(
+      ['workers-ci.read'],
+    );
+  });
+
   test('every manifest scope exists in the checked-in provider catalog', () => {
     // The catalog is the reviewed capture of GET /oauth/scopes. A digest change means the
     // provider catalog was re-fetched; review the diff, then update the recorded digest here.

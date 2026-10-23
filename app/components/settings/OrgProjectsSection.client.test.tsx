@@ -50,10 +50,10 @@ describe('OrgProjectsSection', () => {
             {
               id: 'project-1',
               name: 'Storefront',
-              repoFullName: 'acme/storefront',
-              defaultBranch: 'main',
-              origin: 'linked',
-              memberIds: [],
+              repo: null,
+              origin: 'imported',
+              importRepoFullName: 'acme/storefront',
+              access: [],
             },
           ]}
           members={[]}
@@ -63,7 +63,8 @@ describe('OrgProjectsSection', () => {
               title: 'Todo app',
               note: null,
               previewUrl: null,
-              files: 3,
+              repo: 'p-todo',
+              commit: 'c'.repeat(40),
               requesterName: 'Ada',
               requesterEmail: 'ada@example.com',
               updatedAt: null,

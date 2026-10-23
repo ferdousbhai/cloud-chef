@@ -258,6 +258,145 @@ function aiGatewayProviderKey(value: z.infer<typeof aiGatewayProviderKeySchema>)
   };
 }
 
+/** A Worker's tag: what Workers Builds calls its external script id. */
+const SCRIPT_TAG_PATTERN = /^[0-9a-f]{32}$/;
+
+function requireScriptTag(tag: string): void {
+  if (!SCRIPT_TAG_PATTERN.test(tag)) {
+    throw new CloudflareAccountApiError('Worker tag is invalid.');
+  }
+}
+
+const workerScriptSchema = z.looseObject({ id: z.string().regex(SCRIPT_TAG_PATTERN), script_name: z.string().min(1) });
+
+export type WorkerScriptSummary = { tag: string; name: string };
+
+const repoConnectionSchema = z.looseObject({
+  repo_id: z.string().nullish(),
+  repo_name: z.string().nullish(),
+  provider_type: z.string().nullish(),
+  provider_account_id: z.string().nullish(),
+  provider_account_name: z.string().nullish(),
+});
+
+const workersBuildTriggerSchema = z.looseObject({
+  trigger_uuid: z.string(),
+  trigger_name: z.string().nullish(),
+  external_script_id: z.string().nullish(),
+  build_command: z.string().nullish(),
+  deploy_command: z.string().nullish(),
+  root_directory: z.string().nullish(),
+  branch_includes: z.array(z.string()).nullish(),
+  branch_excludes: z.array(z.string()).nullish(),
+  repo_connection: repoConnectionSchema.nullish(),
+});
+
+const workersBuildSchema = z.looseObject({
+  build_uuid: z.string(),
+  status: z.string().nullish(),
+  build_outcome: z.string().nullish(),
+  created_on: z.string().nullish(),
+  trigger: workersBuildTriggerSchema.partial().nullish(),
+  build_trigger_metadata: z.looseObject({ branch: z.string().nullish(), commit_hash: z.string().nullish() }).nullish(),
+});
+
+/** The repository a Workers Builds trigger builds from, as Workers Builds names it. */
+export type WorkersBuildRepository = {
+  provider: string | null;
+  repoId: string | null;
+  repoName: string | null;
+  accountId: string | null;
+  accountName: string | null;
+};
+
+export type WorkersBuildTrigger = {
+  id: string;
+  name: string | null;
+  buildCommand: string | null;
+  deployCommand: string | null;
+  rootDirectory: string | null;
+  branchIncludes: string[];
+  branchExcludes: string[];
+  repository: WorkersBuildRepository | null;
+};
+
+export type WorkersBuild = {
+  id: string;
+  /** `queued`, `initializing`, `running` or `stopped`. */
+  status: string | null;
+  /** Once stopped: `success`, `fail`, `skipped`, `cancelled` or `terminated`. */
+  outcome: string | null;
+  branch: string | null;
+  commit: string | null;
+  createdOn: string | null;
+  repository: WorkersBuildRepository | null;
+};
+
+function workersBuildRepository(
+  connection: z.infer<typeof repoConnectionSchema> | null | undefined,
+): WorkersBuildRepository | null {
+  return connection
+    ? {
+        provider: connection.provider_type ?? null,
+        repoId: connection.repo_id ?? null,
+        repoName: connection.repo_name ?? null,
+        accountId: connection.provider_account_id ?? null,
+        accountName: connection.provider_account_name ?? null,
+      }
+    : null;
+}
+
+function workersBuildTrigger(value: z.infer<typeof workersBuildTriggerSchema>): WorkersBuildTrigger {
+  return {
+    id: value.trigger_uuid,
+    name: value.trigger_name ?? null,
+    buildCommand: value.build_command ?? null,
+    deployCommand: value.deploy_command ?? null,
+    rootDirectory: value.root_directory ?? null,
+    branchIncludes: value.branch_includes ?? [],
+    branchExcludes: value.branch_excludes ?? [],
+    repository: workersBuildRepository(value.repo_connection),
+  };
+}
+
+function workersBuild(value: z.infer<typeof workersBuildSchema>): WorkersBuild {
+  return {
+    id: value.build_uuid,
+    status: value.status ?? null,
+    outcome: value.build_outcome ?? null,
+    branch: value.build_trigger_metadata?.branch ?? null,
+    commit: value.build_trigger_metadata?.commit_hash ?? null,
+    createdOn: value.created_on ?? null,
+    repository: workersBuildRepository(value.trigger?.repo_connection),
+  };
+}
+
+/**
+ * A Worker's Preview as Workers Builds lists it. It documents no shape for these yet, so every field that
+ * could name the Preview or carry its URL is read, and none is required.
+ */
+/** A Preview: the names it goes by (its name, its branch) and its https URLs. */
+type WorkerPreview = { names: string[]; urls: string[] };
+
+const workerPreviewSchema = z.looseObject({
+  name: z.string().nullish().catch(null),
+  preview_name: z.string().nullish().catch(null),
+  branch: z.string().nullish().catch(null),
+  slug: z.string().nullish().catch(null),
+  url: z.string().nullish().catch(null),
+  preview_url: z.string().nullish().catch(null),
+  urls: z.array(z.string()).nullish().catch(null),
+});
+
+function workerPreview(value: z.infer<typeof workerPreviewSchema>): WorkerPreview {
+  return {
+    names: [value.name, value.preview_name, value.branch, value.slug].flatMap((name) => (name ? [name] : [])),
+    urls: [value.url, value.preview_url, ...(value.urls ?? [])].flatMap((url) =>
+      url?.startsWith('https://') ? [url] : [],
+    ),
+  };
+}
+
 export class UserCloudflareAccountApi {
   constructor(
     private readonly accountId: string,
@@ -1376,6 +1515,99 @@ export class UserCloudflareAccountApi {
   }
 
   /** Serve the Worker's active version at its workers.dev address, and no earlier version anywhere. */
+  /** Every Worker of the account, by tag and name (the scripts search, which pages by 100). */
+  async listWorkerScripts(): Promise<WorkerScriptSummary[]> {
+    const listed = z
+      .array(workerScriptSchema)
+      .safeParse(await this.listAllPages('/workers/scripts-search', 'Cloudflare returned invalid Workers.', 100));
+    if (!listed.success) {
+      throw new CloudflareAccountApiError('Cloudflare returned invalid Workers.');
+    }
+    return listed.data.map((script) => ({ tag: script.id, name: script.script_name }));
+  }
+
+  /** The latest Workers Builds build of each of up to 20 Workers, by tag; Workers never built are left out. */
+  async latestWorkersBuilds(tags: readonly string[]): Promise<Map<string, WorkersBuild>> {
+    if (tags.length === 0 || tags.length > 20 || !tags.every((tag) => SCRIPT_TAG_PATTERN.test(tag))) {
+      throw new CloudflareAccountApiError('Workers Builds is asked about 1 to 20 Workers at a time.');
+    }
+    const result = z
+      .looseObject({ builds: z.record(z.string(), workersBuildSchema.nullable().catch(null)).nullish() })
+      .safeParse(
+        await this.call<unknown>(`/builds/builds/latest?external_script_ids=${tags.join(',')}`, { method: 'GET' }),
+      );
+    if (!result.success) {
+      throw new CloudflareAccountApiError('Workers Builds returned invalid builds.');
+    }
+    const builds = new Map<string, WorkersBuild>();
+    for (const [tag, build] of Object.entries(result.data.builds ?? {})) {
+      if (build) {
+        builds.set(tag, workersBuild(build));
+      }
+    }
+    return builds;
+  }
+
+  /** A Worker's most recent Workers Builds builds, newest first. */
+  async listWorkersBuilds(tag: string, perPage = 25): Promise<WorkersBuild[]> {
+    requireScriptTag(tag);
+    const listed = z
+      .array(workersBuildSchema)
+      .safeParse(await this.call<unknown>(`/builds/workers/${tag}/builds?per_page=${perPage}`, { method: 'GET' }));
+    if (!listed.success) {
+      throw new CloudflareAccountApiError('Workers Builds returned invalid builds.');
+    }
+    return listed.data.map(workersBuild);
+  }
+
+  /** A Worker's Workers Builds triggers: which repository and branches build it, and how. */
+  async listWorkersBuildTriggers(tag: string): Promise<WorkersBuildTrigger[]> {
+    requireScriptTag(tag);
+    const listed = z
+      .array(workersBuildTriggerSchema)
+      .safeParse(await this.call<unknown>(`/builds/workers/${tag}/triggers`, { method: 'GET' }));
+    if (!listed.success) {
+      throw new CloudflareAccountApiError('Workers Builds returned invalid triggers.');
+    }
+    return listed.data.map(workersBuildTrigger);
+  }
+
+  /**
+   * The https URLs of a Worker's Previews, by the Preview's name and branch where Workers Builds gives them.
+   * Workers Builds documents no shape for these yet, so each item is read for whatever URL it carries.
+   */
+  async listWorkerPreviews(tag: string): Promise<WorkerPreview[]> {
+    requireScriptTag(tag);
+    const listed = z
+      .array(workerPreviewSchema.nullable().catch(null))
+      .safeParse(await this.callOptional<unknown>(`/builds/workers/${tag}/previews?per_page=50`, { method: 'GET' }));
+    return listed.success ? listed.data.flatMap((preview) => (preview ? [workerPreview(preview)] : [])) : [];
+  }
+
+  /** Whether a Worker is served on the account's workers.dev subdomain. */
+  async workerServedOnWorkersDev(workerName: string): Promise<boolean> {
+    requireWorkerName(workerName);
+    const state = await this.callOptional<WorkerSubdomainState>(
+      `/workers/scripts/${encodeURIComponent(workerName)}/subdomain`,
+      { method: 'GET' },
+    );
+    return state?.enabled === true;
+  }
+
+  /** The custom domains a Worker serves. */
+  async listWorkerCustomDomains(workerName: string): Promise<string[]> {
+    requireWorkerName(workerName);
+    const listed = z
+      .array(z.looseObject({ hostname: z.string().min(1).max(253) }))
+      .safeParse(
+        await this.call<unknown>(`/workers/domains?service=${encodeURIComponent(workerName)}`, { method: 'GET' }),
+      );
+    if (!listed.success) {
+      throw new CloudflareAccountApiError('Cloudflare returned invalid Worker domains.');
+    }
+    return listed.data.map((domain) => domain.hostname);
+  }
+
   async enableWorkerSubdomain(workerName: string): Promise<void> {
     requireWorkerName(workerName);
     const path = `/workers/scripts/${encodeURIComponent(workerName)}/subdomain`;
