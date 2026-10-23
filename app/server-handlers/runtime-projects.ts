@@ -99,6 +99,12 @@ export async function runtimeOpenProjectAction(args: {
   return json(importSource ? { ...answer, importSource } : answer, 200);
 }
 
+/** Where git imports a project from: its address, and git's authorization for a private one. */
+type ImportSource = { url: string; branch: string; authorization: string | null };
+
+/** A GitHub import the runtime registered: the new project, and where to import it from when it has a source. */
+type RegisteredImport = { projectId: string; importSource?: ImportSource; workersBuildsFromGitHub: boolean };
+
 /**
  * Where a project still to be imported comes from: its GitHub address, and for a private repository a fresh
  * GitHub App token limited to it, read-only, as git's Basic authorization. Null when it has no source.
@@ -106,7 +112,7 @@ export async function runtimeOpenProjectAction(args: {
 async function importSourceFor(
   args: { env: Env; app?: GitHubApp | null },
   project: Project,
-): Promise<{ url: string; branch: string; authorization: string | null } | null | Response> {
+): Promise<ImportSource | null | Response> {
   const source = project.importSource;
   if (!source) {
     return null;
@@ -118,7 +124,10 @@ async function importSourceFor(
   const app = args.app === undefined ? gitHubAppFromEnv(args.env) : args.app;
   const installation = await findGitHubInstallation(args.env.DB, project.connectionId);
   if (!app || !installation) {
-    return json({ code: 'github_disconnected', error: 'Connect GitHub again in Settings to import this project.' }, 409);
+    return json(
+      { code: 'github_disconnected', error: 'Connect GitHub again in Settings to import this project.' },
+      409,
+    );
   }
   try {
     const token = await app.installationToken(installation.installationId, { contents: 'read' }, [source.repoId]);
@@ -183,14 +192,15 @@ export async function runtimeRegisterImportAction(args: {
     if (importSource instanceof Response) {
       return importSource;
     }
-    return json(
-      {
-        projectId: project.id,
-        ...(importSource ? { importSource } : {}),
-        workersBuildsFromGitHub: await buildsFromGitHub(args.env, connection, project),
-      },
-      201,
-    );
+    // A project with no source (none yet) is imported from nowhere: the runtime is told only its id.
+    const answer: RegisteredImport = {
+      projectId: project.id,
+      workersBuildsFromGitHub: await buildsFromGitHub(args.env, connection, project),
+    };
+    if (importSource) {
+      answer.importSource = importSource;
+    }
+    return json(answer, 201);
   });
 }
 
@@ -466,7 +476,12 @@ async function openProject<T extends z.infer<typeof projectSchema>>(
   args: { request: Request; env: Env },
   schema: z.ZodType<T>,
 ): Promise<
-  | { project: Project & { role: ProjectRole }; body: T; connection: CloudflareConnection; identity: { userId: string } }
+  | {
+      project: Project & { role: ProjectRole };
+      body: T;
+      connection: CloudflareConnection;
+      identity: { userId: string };
+    }
   | Response
 > {
   const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, schema, {

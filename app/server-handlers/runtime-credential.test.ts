@@ -225,12 +225,21 @@ describe('runtimeAccessAction', () => {
 
     // A member may build, but isn't an admin: the agent's direct Cloudflare tool stays off for them.
     // Their model requests are logged in the account's AI Gateway until they turn that off.
-    expect(await ask()).toEqual({ status: 200, body: { organizationAdmin: false, aiGatewayContentLogging: true, member: { name: 'Sam', email: 'sam@acme.com' } } });
+    expect(await ask()).toEqual({
+      status: 200,
+      body: { organizationAdmin: false, aiGatewayContentLogging: true, member: { name: 'Sam', email: 'sam@acme.com' } },
+    });
     database.exec(`UPDATE organization_members SET role = 'admin'`);
-    expect(await ask()).toEqual({ status: 200, body: { organizationAdmin: true, aiGatewayContentLogging: true, member: { name: 'Sam', email: 'sam@acme.com' } } });
+    expect(await ask()).toEqual({
+      status: 200,
+      body: { organizationAdmin: true, aiGatewayContentLogging: true, member: { name: 'Sam', email: 'sam@acme.com' } },
+    });
     // Their own opt-out holds in the team's account too.
     database.exec(`UPDATE "user" SET ai_gateway_content_logging = 0 WHERE id = 'member-1'`);
-    expect(await ask()).toEqual({ status: 200, body: { organizationAdmin: true, aiGatewayContentLogging: false, member: { name: 'Sam', email: 'sam@acme.com' } } });
+    expect(await ask()).toEqual({
+      status: 200,
+      body: { organizationAdmin: true, aiGatewayContentLogging: false, member: { name: 'Sam', email: 'sam@acme.com' } },
+    });
     database.exec(`UPDATE organization_members SET paused_at = 2`);
     expect((await ask()).status).toBe(401);
   });

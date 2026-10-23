@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { teamFixture } from '~/test/project-fixture';
 import { GitHubApp } from '~/lib/.server/github/github-app';
 import { bytesToBase64 } from '~/lib/hex-digest';
@@ -349,38 +350,53 @@ describe('a runtime importing a GitHub repository as a new project', () => {
   it("registers a public repository in the person's own account and says where to import it from", async () => {
     const { env, runtime, database } = await setup();
     const registered = await runtimeRegisterImportAction({
-      request: await runtime('/api/cloudflare/runtime-projects/register-import', { url: 'https://github.com/ada/public' }, {
-        connection: 'own',
-      }),
+      request: await runtime(
+        '/api/cloudflare/runtime-projects/register-import',
+        { url: 'https://github.com/ada/public' },
+        {
+          connection: 'own',
+        },
+      ),
       env,
       app: null,
       gitRequest,
     });
     expect(registered.status).toBe(201);
-    const answer = (await registered.json()) as { projectId: string };
+    const answer = z
+      .object({ projectId: z.string() })
+      .passthrough()
+      .parse(await registered.json());
     expect(answer).toEqual({
       projectId: expect.any(String),
       importSource: { url: 'https://github.com/ada/public.git', branch: 'trunk', authorization: null },
       workersBuildsFromGitHub: false,
     });
     expect(
-      database.prepare('SELECT connection_id, name, artifact_repo FROM org_projects WHERE id = ?').get(answer.projectId),
+      database
+        .prepare('SELECT connection_id, name, artifact_repo FROM org_projects WHERE id = ?')
+        .get(answer.projectId),
     ).toEqual({ connection_id: 'sara-own', name: 'public', artifact_repo: null });
   });
 
   it("takes a team's admin in a team, and refuses a private repository the App doesn't reach", async () => {
     const { env, runtime } = await setup();
     const asMember = await runtimeRegisterImportAction({
-      request: await runtime('/api/cloudflare/runtime-projects/register-import', { url: 'https://github.com/ada/public' }),
+      request: await runtime('/api/cloudflare/runtime-projects/register-import', {
+        url: 'https://github.com/ada/public',
+      }),
       env,
       app: null,
       gitRequest,
     });
     expect(asMember.status).toBe(403);
     const privateOne = await runtimeRegisterImportAction({
-      request: await runtime('/api/cloudflare/runtime-projects/register-import', { url: 'https://github.com/ada/hidden' }, {
-        connection: 'own',
-      }),
+      request: await runtime(
+        '/api/cloudflare/runtime-projects/register-import',
+        { url: 'https://github.com/ada/hidden' },
+        {
+          connection: 'own',
+        },
+      ),
       env,
       app: null,
       gitRequest,

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
+import type { GitHubApp } from '~/lib/.server/github/github-app';
 import { gitHubRepositoryFromUrl, publicRepositoryDefaultBranch } from '~/lib/.server/github/public-repository';
 import { findActiveCloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import { CloudflareAccountApiError } from '~/lib/.server/cloudflare/user-account-api';
@@ -73,7 +73,7 @@ export function listMyProjectsAction({ request, env }: { request: Request; env: 
 }
 
 /** What an import names: a repository CloudChef's GitHub App reaches (`repoId`), or one by its address. */
-export type GitHubImportRequest = { repoId: number; name: string } | { url: string; name?: string };
+type GitHubImportRequest = { repoId: number; name: string } | { url: string; name?: string };
 
 /**
  * Registers a GitHub repository as a project of `scope`: one CloudChef's GitHub App reaches, or one by its
