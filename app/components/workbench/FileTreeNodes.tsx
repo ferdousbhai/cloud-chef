@@ -1,7 +1,7 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { CaretDownIcon, CaretRightIcon, FileIcon } from '@radix-ui/react-icons';
-import { useCallback, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { classNames } from '~/utils/classNames';
 import type { FileNode, FolderNode } from './file-tree-model';
@@ -15,9 +15,9 @@ interface FileTreeNodeProps {
   selectedFile?: string;
   unsavedFiles?: Set<string>;
   onFileSelect?: (filePath: string) => void;
-  allowFolderSelection?: boolean;
+  /** A row of the breadcrumb's dropdown, where the selected folder is highlighted too. */
+  inMenu: boolean;
   collapsedFolders: Set<string>;
-  menuItems?: boolean;
   toggleCollapseState: (fullPath: string) => void;
 }
 
@@ -27,20 +27,16 @@ export function FileTreeNode({
   selectedFile,
   unsavedFiles,
   onFileSelect,
-  allowFolderSelection,
+  inMenu,
   collapsedFolders,
   toggleCollapseState,
-  menuItems = false,
 }: FileTreeNodeProps) {
-  const copyPath = useCallback(() => copyToClipboard(node.fullPath), [node.fullPath]);
-  const copyRelativePath = useCallback(
-    () => copyToClipboard(node.fullPath.substring((rootFolder || '').length)),
-    [node.fullPath, rootFolder],
-  );
+  const copyPath = () => copyToClipboard(node.fullPath);
+  const copyRelativePath = () => copyToClipboard(node.fullPath.substring((rootFolder || '').length));
   if (node.kind === 'file') {
     return (
       <File
-        menuItem={menuItems}
+        menuItem={inMenu}
         selected={selectedFile === node.fullPath}
         file={node}
         unsavedChanges={unsavedFiles?.has(node.fullPath)}
@@ -52,9 +48,9 @@ export function FileTreeNode({
   }
   return (
     <Folder
-      menuItem={menuItems}
+      menuItem={inMenu}
       folder={node}
-      selected={allowFolderSelection && selectedFile === node.fullPath}
+      selected={inMenu && selectedFile === node.fullPath}
       collapsed={collapsedFolders.has(node.fullPath)}
       onCopyPath={copyPath}
       onCopyRelativePath={copyRelativePath}

@@ -10,11 +10,13 @@ interface Props {
   selectedFile?: string;
   onFileSelect?: (filePath: string) => void;
   rootFolder?: string;
-  collapsed?: boolean;
-  allowFolderSelection?: boolean;
+  /**
+   * The tree inside the breadcrumb's dropdown: its rows are menu items, its folders start collapsed,
+   * and the selected folder is highlighted.
+   */
+  inMenu?: boolean;
   unsavedFiles?: Set<string>;
   className?: string;
-  menuItems?: boolean;
 }
 
 export const FileTree = memo(function FileTree({
@@ -22,24 +24,22 @@ export const FileTree = memo(function FileTree({
   onFileSelect,
   selectedFile,
   rootFolder,
-  collapsed = false,
-  allowFolderSelection = false,
+  inMenu = false,
   className,
   unsavedFiles,
-  menuItems = false,
 }: Props) {
   const fileList = useMemo(() => buildFileList(files, rootFolder), [files, rootFolder]);
-  const [collapsedFolders, setCollapsedFolders] = useState(() => initialCollapsedFolders(fileList, collapsed));
+  const [collapsedFolders, setCollapsedFolders] = useState(() => initialCollapsedFolders(fileList, inMenu));
 
   useEffect(() => {
-    if (collapsed) {
+    if (inMenu) {
       setCollapsedFolders(new Set(folderPathsFromFileList(fileList)));
       return;
     }
     setCollapsedFolders(
       (previous) => new Set(folderPathsFromFileList(fileList).filter((folder) => previous.has(folder))),
     );
-  }, [fileList, collapsed]);
+  }, [fileList, inMenu]);
 
   const visibleNodes = useMemo(() => visibleFileList(fileList, collapsedFolders), [fileList, collapsedFolders]);
   const toggleCollapseState = (fullPath: string) => {
@@ -60,12 +60,11 @@ export const FileTree = memo(function FileTree({
         <FileTreeNode
           key={node.fullPath}
           node={node}
-          menuItems={menuItems}
+          inMenu={inMenu}
           rootFolder={rootFolder}
           selectedFile={selectedFile}
           unsavedFiles={unsavedFiles}
           onFileSelect={onFileSelect}
-          allowFolderSelection={allowFolderSelection}
           collapsedFolders={collapsedFolders}
           toggleCollapseState={toggleCollapseState}
         />
