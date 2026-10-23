@@ -14,8 +14,6 @@ export type ChatHistorySummary = {
   timestamp: string;
   /** The live site's address once the project has been published. */
   productionUrl?: string | null;
-  /** When the project's newest commit was made (ISO 8601), once it has one. */
-  lastCommitAt?: string | null;
 };
 
 /** One commit of a project's history, newest first. `committedAt` is in unix seconds, as Artifacts gives it. */

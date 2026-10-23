@@ -135,7 +135,7 @@ function OwnProjects({ userId, onDialog }: { userId: string; onDialog: (dialog: 
       {projects.length > 0 ? (
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[...projects]
-            .sort((a, b) => updatedAt(b).localeCompare(updatedAt(a)))
+            .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
             .map((project) => (
               <OwnProjectCard key={project.initialId} project={project} onDialog={onDialog} />
             ))}
@@ -143,10 +143,6 @@ function OwnProjects({ userId, onDialog }: { userId: string; onDialog: (dialog: 
       ) : null}
     </section>
   );
-}
-
-function updatedAt(project: ChatHistorySummary): string {
-  return project.lastCommitAt && project.lastCommitAt > project.timestamp ? project.lastCommitAt : project.timestamp;
 }
 
 function OwnProjectCard({
@@ -161,7 +157,7 @@ function OwnProjectCard({
   return (
     <ProjectCard
       title={name}
-      updatedAt={updatedAt(project)}
+      updatedAt={project.timestamp}
       siteUrl={project.productionUrl ?? null}
       primary={
         <Link

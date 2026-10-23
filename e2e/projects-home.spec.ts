@@ -20,7 +20,6 @@ const ownProjects: ChatHistorySummary[] = [
     description: 'Booking site',
     timestamp: new Date(Date.now() - 3_600_000).toISOString(),
     productionUrl: `${SITE_ORIGIN}/`,
-    lastCommitAt: new Date(Date.now() - 1_800_000).toISOString(),
   },
   {
     id: 'chat-draft',

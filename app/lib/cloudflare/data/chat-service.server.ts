@@ -67,12 +67,7 @@ export async function getAllChats(db: D1Database, args: { sessionId: string }) {
            WHERE deployments.chat_id = chats.id AND deployments.status = 'succeeded'
              AND deployments.production_url IS NOT NULL
            ORDER BY deployments.updated_at DESC LIMIT 1
-         ) AS production_url,
-         -- A production deployment becomes a commit on main as it finishes: its time is the commit's.
-         (
-           SELECT MAX(deployments.updated_at) FROM deployments
-           WHERE deployments.chat_id = chats.id AND deployments.commit_sha IS NOT NULL
-         ) AS last_commit_at
+         ) AS production_url
        FROM chats
        WHERE chats.creator_id = ? AND chats.is_deleted = 0
          AND chats.has_messages = 1
@@ -86,7 +81,6 @@ export async function getAllChats(db: D1Database, args: { sessionId: string }) {
       description: string | null;
       timestamp: string;
       production_url: string | null;
-      last_commit_at: number | null;
     }>();
   return results.map((row) => {
     const summary: ChatHistorySummary = {
@@ -97,9 +91,6 @@ export async function getAllChats(db: D1Database, args: { sessionId: string }) {
     };
     if (row.production_url?.startsWith('https://')) {
       summary.productionUrl = row.production_url;
-    }
-    if (row.last_commit_at) {
-      summary.lastCommitAt = new Date(row.last_commit_at).toISOString();
     }
     return summary;
   });

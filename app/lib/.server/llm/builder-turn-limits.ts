@@ -50,6 +50,8 @@ export const BUILDER_TOOL_DEADLINES_MS = {
   publish: 4 * 60_000,
   // A control-plane lookup of the site's addresses, then one bounded GET (with a few redirects).
   fetch_site: 60_000,
+  // Reads the workspace's files and pushes one commit to the app's repository.
+  commit: 2 * 60_000,
 } as const satisfies Record<ModelToolName, number>;
 
 export class BuilderToolDeadlineError extends Error {

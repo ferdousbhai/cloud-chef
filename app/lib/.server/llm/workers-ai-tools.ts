@@ -30,6 +30,7 @@ import { cloudflareDocsSearchTool } from './cloudflare-docs-search';
 import { sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 import { linkedProjectModelTools, type LinkedProjectModelToolContext } from './linked-project-model-tools';
+import { appProjectModelTools, type AppProjectModelToolContext } from './app-project-model-tools';
 import { isRecord } from 'cloudchef-agent/utils/isRecord';
 
 /** What a builder turn lends its workspace tools: validation progress, and keeping the turn alive while one runs. */
@@ -54,6 +55,7 @@ export function createWorkersAiTools(
   skillReader: BuilderSkillReader,
   cloudflareApi?: CloudflareApiModelToolContext,
   linkedProject?: LinkedProjectModelToolContext,
+  appProject?: AppProjectModelToolContext,
 ): CloudChefToolSet {
   const coordinateStatefulTool = createTurnStatefulToolCoordinator(operationContext.runWithKeepAlive);
   const tools: CloudChefToolSet = {
@@ -79,6 +81,10 @@ export function createWorkersAiTools(
 
   if (linkedProject) {
     Object.assign(tools, linkedProjectModelTools(linkedProject));
+  }
+
+  if (appProject) {
+    Object.assign(tools, appProjectModelTools(appProject));
   }
 
   for (const toolName of WORKSPACE_TOOL_NAMES) {

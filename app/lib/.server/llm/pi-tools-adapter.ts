@@ -13,6 +13,7 @@ import {
 import { createWorkersAiTools, type BuilderOperationContext } from './workers-ai-tools';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 import type { LinkedProjectModelToolContext } from './linked-project-model-tools';
+import type { AppProjectModelToolContext } from './app-project-model-tools';
 
 const toolLabels = {
   read: 'Read file',
@@ -27,6 +28,7 @@ const toolLabels = {
   publish_preview: 'Preview a branch',
   fetch_site: 'Read the live site',
   publish: 'Publish',
+  commit: 'Commit',
 } satisfies Record<ModelToolName, string>;
 
 /** Adapt the canonical model tools to Pi's validated tool contract. */
@@ -36,8 +38,16 @@ export function createPiToolBundle(
   skillReader: BuilderSkillReader,
   cloudflareApi?: CloudflareApiModelToolContext,
   linkedProject?: LinkedProjectModelToolContext,
+  appProject?: AppProjectModelToolContext,
 ): Record<string, AgentTool> {
-  const canonicalTools = createWorkersAiTools(workspace, operationContext, skillReader, cloudflareApi, linkedProject);
+  const canonicalTools = createWorkersAiTools(
+    workspace,
+    operationContext,
+    skillReader,
+    cloudflareApi,
+    linkedProject,
+    appProject,
+  );
   const tools: Record<string, AgentTool> = Object.fromEntries(
     MODEL_TOOL_NAMES.flatMap((name) => {
       const definition = canonicalTools[name];

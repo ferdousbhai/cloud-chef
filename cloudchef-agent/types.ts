@@ -4,6 +4,7 @@ import type {
   AlwaysAvailableModelToolName,
   CloudflareApiModelToolName,
   LinkedProjectModelToolName,
+  AppProjectModelToolName,
 } from './model-tool-inputs.js';
 
 export interface EditorDocument {
@@ -29,7 +30,7 @@ interface Folder {
 }
 
 export type CloudChefToolSet = Record<AlwaysAvailableModelToolName, Tool> &
-  Partial<Record<CloudflareApiModelToolName | LinkedProjectModelToolName, Tool>>;
+  Partial<Record<CloudflareApiModelToolName | LinkedProjectModelToolName | AppProjectModelToolName, Tool>>;
 
 type Dirent = File | Folder;
 

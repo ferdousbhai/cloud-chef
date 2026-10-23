@@ -42,7 +42,6 @@ import {
   DeploymentConcurrencyLimitError,
   findActiveProjectDeployment,
   latestDeploymentActivity,
-  recordDeploymentCommit,
 } from '~/lib/.server/cloudflare/deployment-repository';
 import {
   automaticDeploymentRetrySchema,
@@ -153,6 +152,7 @@ import {
 import { WORK_DIR } from 'cloudchef-agent/constants';
 import { bytesToBase64 } from '~/lib/hex-digest';
 import type { LinkedProjectModelToolContext } from '~/lib/.server/llm/linked-project-model-tools';
+import type { AppProjectModelToolContext } from '~/lib/.server/llm/app-project-model-tools';
 import { fetchLinkedSitePage, type LinkedSiteFetchInput } from '~/lib/.server/llm/linked-site-fetch';
 import { BUILDER_TURN_WALL_CLOCK_MS } from '~/lib/.server/llm/builder-turn-limits';
 import { deriveProvisionalTitle, shouldGenerateConversationTitle, type TitleSubject } from '~/lib/title-generation';
@@ -168,7 +168,7 @@ import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
 import type { DeploymentExecution } from '~/server-handlers/deployments';
-import { toolFailure, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
+import { toolFailure, toolSuccess, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import {
   BuilderCloudflareExecutionRepository,
   CLOUDFLARE_EXECUTION_RISK_NOTE,
@@ -247,10 +247,6 @@ const PUBLICATION_STOP_WAIT_MS = 30_000;
 const TITLE_GENERATION_FIBER = 'background:title_generation';
 const CLOUDFLARE_EXECUTION_FIBER = 'background:cloudflare_execution';
 const LINKED_BUILD_FIBER = 'background:linked_build';
-/** Commits a production publish's revision to main of the app's repository, after the publish. */
-const HISTORY_COMMIT_FIBER = 'background:history_commit';
-/** A commit's first line, from the conversation's title: git's convention keeps it short. */
-const HISTORY_TITLE_CHARACTERS = 72;
 /** A cancelled turn settles its transcript a moment after it stops: a watched publish missing that long is gone. */
 const LINKED_BUILD_MISSING_GRACE_MS = 30_000;
 const LINKED_BUILD_LANDING_POLL_MS = 2_000;
@@ -306,9 +302,6 @@ const deploymentRunSchema = z.object({
   attempt: z.number().int().min(0),
 });
 type DeploymentRun = z.infer<typeof deploymentRunSchema>;
-/** A published revision to commit to the app's history, and the deployment that published it. */
-const historyCommitJobSchema = deploymentJobSchema.extend({ deploymentId: z.string().min(1).nullable() });
-type HistoryCommitJob = z.infer<typeof historyCommitJobSchema>;
 const revertRequestSchema = z.string().regex(/^[0-9a-f]{40}$/);
 
 /**
@@ -371,10 +364,6 @@ export type BuilderAgentState = {
   deployment?: BuilderDeploymentState | null;
   /** The revision production last promoted, kept so a publication that never finished is redone. */
   productionRevision?: string | null;
-  /** The commit on main of this app's repository that a production publish last became. */
-  productionCommit?: string | null;
-  /** A revert not published yet: the commit its publication makes says which commit it went back to. */
-  revertedTo?: { commit: string; revision: string } | null;
   /**
    * A turn changed this CloudChef app and production has not caught up yet. Set as the turn settles
    * and cleared only once production serves the current revision, so a cancelled, failed, or
@@ -440,8 +429,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     validationProgress: null,
     deployment: null,
     productionRevision: null,
-    productionCommit: null,
-    revertedTo: null,
     publicationPending: false,
     failedPublicationRevision: null,
     publication: null,
@@ -557,8 +544,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if (
         fiber.name === PREVIEW_PUBLICATION_FIBER ||
         fiber.name === DEPLOYMENT_FIBER ||
-        fiber.name === LINKED_BUILD_FIBER ||
-        fiber.name === HISTORY_COMMIT_FIBER
+        fiber.name === LINKED_BUILD_FIBER
       ) {
         await this.cancelFiber(fiber.fiberId, 'Project deletion').catch(() => undefined);
       }
@@ -675,14 +661,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         return { status: 'error', error: 'missing linked build recovery data' };
       }
       await this.runtimeActivity.run(() => this.keepAliveWhile(() => this.runLinkedBuildWatch(watch)));
-      return { status: 'completed' };
-    }
-    if (ctx.name === HISTORY_COMMIT_FIBER) {
-      const job = historyCommitJobSchema.safeParse(ctx.metadata).data;
-      if (!job) {
-        return { status: 'error', error: 'missing history commit recovery data' };
-      }
-      await this.runtimeActivity.run(() => this.commitPublishedRevision(job));
       return { status: 'completed' };
     }
     if (ctx.name === CLOUDFLARE_EXECUTION_FIBER) {
@@ -834,6 +812,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         workspace: this.workspace,
         cloudflareApi,
         linkedProject,
+        appProject: linkedProject ? undefined : this.appProjectToolContext(),
         onValidationStage: (toolCallId, stage) => this.setValidationProgress(toolCallId, stage),
         runWithKeepAlive: (operation) => this.keepAliveWhile(operation),
         steering,
@@ -1207,7 +1186,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       note: input.note.trim().slice(0, 1_000),
       previewUrl: this.state.deployment?.productionUrl ?? this.currentPreviewState().published?.url ?? null,
       repo: nativeProjectRepo(durableIdentity.transcript.chatInitialId, durableIdentity.transcript.subchatIndex),
-      commit,
+      commit: commit.hash,
     });
     return { outcome };
   }
@@ -1216,8 +1195,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    * Makes the workspace hold exactly the files of `commit` in the project's history, as one change set
    * through the same compare-and-swap path as an editor save: files the commit lacks are deleted, except
    * what no commit holds (installed and built output, local secrets, ignored files). Refused while a turn
-   * runs. A CloudChef app then publishes the result as after any turn, its commit saying it is a revert;
-   * a team project's revert is published by the agent like any other change.
+   * runs. A CloudChef app commits the result to main as a revert, then publishes it as after any turn; a
+   * team project's revert is published by the agent like any other change.
    */
   @callable()
   async revertToCommit(commit: string): Promise<BuilderWorkspaceApplyResult> {
@@ -1248,11 +1227,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     if (!linked && result.changedPaths.length > 0) {
       const checkpoint = await this.workspace.checkpoint();
-      this.setState({
-        ...this.state,
-        publicationPending: true,
-        revertedTo: { commit: parsed.data, revision: checkpoint.revision },
-      });
+      await this.commitWorkspaceToHistory({
+        revision: checkpoint.revision,
+        message: `Revert to ${parsed.data.slice(0, 7)}\n\nCloudChef-Revision: ${checkpoint.revision}`,
+      }).catch(() => logger.warn('Unable to commit the revert to the project history'));
+      this.setState({ ...this.state, publicationPending: true });
       this.ctx.waitUntil(
         this.publishLatestRevision(null).catch(() => logger.warn('Unable to publish the reverted revision')),
       );
@@ -1751,6 +1730,25 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const template = await loadBuilderTemplate();
     return seedBuilderWorkspace(this.workspace, builderTemplateSeedId(), template);
+  }
+
+  /** The commit tool for a CloudChef app; a team project's publish tools commit instead. */
+  private appProjectToolContext(): AppProjectModelToolContext {
+    return {
+      commit: async ({ message }) => {
+        const checkpoint = await this.workspace.checkpoint();
+        const commit = await this.commitWorkspaceToHistory({
+          revision: checkpoint.revision,
+          message: `${message}\n\nCloudChef-Revision: ${checkpoint.revision}`,
+        });
+        if (!commit) {
+          return toolFailure('The project changed while it was being committed. Commit again.');
+        }
+        return commit.unchanged
+          ? toolSuccess(`Nothing to commit: main (${commit.hash.slice(0, 7)}) already has these files.`, commit)
+          : toolSuccess(`Committed ${commit.hash.slice(0, 7)} to main.`, commit);
+      },
+    };
   }
 
   /** The publish tools for a workspace opened from a team project; none otherwise. */
@@ -2846,72 +2844,20 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return revisionBoundDeployment;
   }
 
-  /**
-   * The deployment of `job` succeeded, as it ran or as its record in the user's account says. Its revision
-   * then becomes a commit on main of the app's repository, in the background: a commit that fails never
-   * fails the publish, and the next publish's commit carries the tree anyway.
-   */
+  /** The deployment of `job` succeeded, as it ran or as its record in the user's account says. */
   private async recordDeploymentSucceeded(job: DeploymentJob, deployment: BuilderDeploymentState): Promise<void> {
     await this.recordProductionRevision(job.revision, { ...deployment, ...job });
-    await this.scheduleHistoryCommit({ ...job, deploymentId: deployment.id ?? null });
-  }
-
-  private async scheduleHistoryCommit(job: HistoryCommitJob): Promise<void> {
-    if (this.destroying) {
-      return;
-    }
-    await this.startFiber(
-      HISTORY_COMMIT_FIBER,
-      async () => {
-        await this.runtimeActivity.run(() => this.commitPublishedRevision(job));
-      },
-      { idempotencyKey: `${HISTORY_COMMIT_FIBER}:${this.name}:${job.revision}`, metadata: job },
-    ).catch(() => logger.warn('Unable to start committing the published revision'));
-  }
-
-  /**
-   * Commits the revision production now serves to main of the app's repository, while the workspace still
-   * holds it (one changed since is committed by its own publish), and records the commit on the deployment.
-   * Its message is the conversation's title, then `CloudChef-Revision: <revision>`.
-   */
-  private async commitPublishedRevision(job: HistoryCommitJob): Promise<void> {
-    try {
-      if (this.destroying || (await this.workspace.linkedProject())) {
-        return;
-      }
-      const reverted = this.state.revertedTo?.revision === job.revision ? this.state.revertedTo : null;
-      const title = reverted ? `Revert to ${reverted.commit.slice(0, 7)}` : await this.historyTitle();
-      const commit = await this.commitWorkspaceToHistory({
-        revision: job.revision,
-        message: `${title}\n\nCloudChef-Revision: ${job.revision}`,
-      });
-      if (!commit) {
-        return;
-      }
-      this.setState({
-        ...this.state,
-        productionCommit: commit,
-        revertedTo: reverted ? null : (this.state.revertedTo ?? null),
-      });
-      if (job.deploymentId && this.userId) {
-        await recordDeploymentCommit(this.env.DB, {
-          deploymentId: job.deploymentId,
-          userId: this.userId,
-          commitSha: commit,
-        });
-      }
-      console.info({ event: 'builder_history_committed' });
-    } catch {
-      logger.warn('Unable to commit the published revision to the project history');
-    }
   }
 
   /**
    * Commits the workspace to main of this app's own repository, while it holds `revision`: the commit, or
    * null when the workspace has moved on (or moved while it was read). A tree main already has is not
-   * committed again.
+   * committed again: main's head is the answer, `unchanged`.
    */
-  private async commitWorkspaceToHistory(args: { revision: string; message: string }): Promise<string | null> {
+  private async commitWorkspaceToHistory(args: {
+    revision: string;
+    message: string;
+  }): Promise<{ hash: string; unchanged: boolean } | null> {
     const transcript = this.transcriptBinding;
     if (!transcript) {
       throw new Response('Agent authentication is required.', { status: 401 });
@@ -2939,26 +2885,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         author,
       });
       if ('commit' in result) {
-        return result.commit;
+        return { hash: result.commit, unchanged: result.unchanged === true };
       }
     }
     throw new Error('main of the project repository kept moving.');
-  }
-
-  /** The first line of a published revision's commit: the conversation's title, kept short. */
-  private async historyTitle(): Promise<string> {
-    const row = await this.env.DB.prepare(
-      `SELECT COALESCE(NULLIF(TRIM(transcripts.description), ''), NULLIF(TRIM(chats.description), '')) AS title
-       FROM chat_transcripts AS transcripts
-       INNER JOIN chats ON chats.id = transcripts.chat_id
-       WHERE transcripts.agent_name = ?
-       LIMIT 1`,
-    )
-      .bind(this.name)
-      .first<{ title: string | null }>()
-      .catch(() => null);
-    const title = (row?.title ?? '').replace(/\s+/g, ' ').trim();
-    return title ? title.slice(0, HISTORY_TITLE_CHARACTERS) : 'Publish from CloudChef';
   }
 
   /** Who a publication runs for and the chat it records, once this agent knows its identity. */

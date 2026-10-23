@@ -15,8 +15,8 @@ import { fakeArtifacts, type FakeArtifacts } from '~/test/fake-artifacts';
 import { builderAgentHarness, CHAT_INITIAL_ID, eventually, type BuilderAgentHarness } from './harness';
 
 /**
- * A CloudChef app's history: each production publish becomes a commit on main of its own repository
- * (`p-<chat>`), a revert brings an earlier commit's files back and publishes them, and a fork's chat
+ * A CloudChef app's history: the commits on main of its own repository (`p-<chat>`), made when the agent
+ * commits; a revert brings an earlier commit's files back, commits and publishes them; and a fork's chat
  * starts from its repository.
  */
 const REPO = `p-${CHAT_INITIAL_ID}`;
@@ -87,22 +87,33 @@ function repositories(artifacts: FakeArtifacts) {
   return new ProjectRepositories(artifacts, { fetch: artifacts.fetch });
 }
 
+/** The agent's commit tool, as a CloudChef app's turn gets it. */
+function commitTool(harness: BuilderAgentHarness) {
+  // eslint-disable-next-line dot-notation
+  return harness.agent['appProjectToolContext']();
+}
+
 describe("a CloudChef app's history", () => {
-  it('commits the revision production serves to main, titled from the conversation', async () => {
+  it("commits the workspace to main when the agent commits, with the agent's message", async () => {
     noControlPlane();
     const harness = await publishedHarness(holding({ 'index.html': '<h1>Hi</h1>', '.dev.vars': 'TOKEN=1' }));
 
-    await finishChangingTurn(harness);
+    const result = await commitTool(harness).commit({ message: 'Add a greeting' });
 
-    await eventually(() => Boolean(harness.agent.state.productionCommit));
-    const commit = harness.agent.state.productionCommit ?? '';
-    expect(await harness.artifacts.head(REPO)).toBe(commit);
+    expect(result).toMatchObject({ ok: true });
+    const head = await harness.artifacts.head(REPO);
+    expect(result.data).toEqual({ hash: head, unchanged: false });
     // Local secrets never go into a commit.
     expect(await harness.artifacts.filesAt(REPO, 'main')).toEqual({ 'index.html': '<h1>Hi</h1>' });
     const [entry] = await repositories(harness.artifacts).log(REPO, { limit: 5 });
-    expect(entry?.message).toBe(`A chat\n\nCloudChef-Revision: ${CHECKPOINT.revision}`);
+    expect(entry?.message).toBe(`Add a greeting\n\nCloudChef-Revision: ${CHECKPOINT.revision}`);
     expect(entry?.author).toEqual({ name: 'CloudChef member', email: 'owner-1@users.noreply.cloudchef.build' });
-    expect(harness.database.prepare('SELECT commit_sha FROM deployments').get()).toEqual({ commit_sha: commit });
+
+    await expect(commitTool(harness).commit({ message: 'Again' })).resolves.toMatchObject({
+      ok: true,
+      data: { hash: head, unchanged: true },
+    });
+    expect(await repositories(harness.artifacts).log(REPO, { limit: 5 })).toHaveLength(1);
   });
 
   it('names the member as the control plane knows them', async () => {
@@ -112,36 +123,30 @@ describe("a CloudChef app's history", () => {
         : new Response('unavailable', { status: 503 }),
     );
     const harness = await publishedHarness(holding({ 'index.html': 'hi' }));
-    await finishChangingTurn(harness);
-    await eventually(() => Boolean(harness.agent.state.productionCommit));
+    await commitTool(harness).commit({ message: 'Hi' });
     const [entry] = await repositories(harness.artifacts).log(REPO, { limit: 1 });
     expect(entry?.author).toEqual({ name: 'Sara', email: 'sara@example.com' });
   });
 
-  it('never fails the publish when the commit fails, and commits nothing for a revision moved past', async () => {
+  it('commits nothing by itself when production is published', async () => {
     noControlPlane();
-    const broken = fakeArtifacts();
-    broken.fetch = async () => new Response('unavailable', { status: 503 });
-    const failing = await publishedHarness(holding({ 'index.html': 'hi' }), broken);
-    await finishChangingTurn(failing);
-    await eventually(() => failing.agent.state.productionRevision === CHECKPOINT.revision);
+    const harness = await publishedHarness(holding({ 'index.html': 'hi' }));
+    await finishChangingTurn(harness);
+    await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(failing.agent.state.publicationPending).toBe(false);
-    expect(failing.agent.state.productionCommit ?? null).toBeNull();
+    expect(harness.artifacts.repos.has(REPO)).toBe(false);
+  });
 
-    let edited = false;
-    const moved = await publishedHarness(
-      // An edit moved the workspace on as the deployment finished, before the commit read it.
-      holding({ 'index.html': 'hi' }, () => (edited ? { workspaceRevision: 4, revision: 'b'.repeat(64) } : CHECKPOINT)),
-      fakeArtifacts(),
-      () => {
-        edited = true;
-      },
+  it('commits nothing when the workspace moves while it is read', async () => {
+    noControlPlane();
+    let reads = 0;
+    const harness = await publishedHarness(
+      holding({ 'index.html': 'hi' }, () =>
+        (reads += 1) > 1 ? { workspaceRevision: 4, revision: 'b'.repeat(64) } : CHECKPOINT,
+      ),
     );
-    await finishChangingTurn(moved);
-    await eventually(() => moved.agent.state.productionRevision === CHECKPOINT.revision);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(moved.artifacts.repos.has(REPO)).toBe(false);
+    await expect(commitTool(harness).commit({ message: 'Hi' })).resolves.toMatchObject({ ok: false });
+    expect(harness.artifacts.repos.has(REPO)).toBe(false);
   });
 
   it("starts a fork's chat from its repository", async () => {
@@ -227,6 +232,7 @@ describe('reverting to a commit', () => {
       artifacts,
       cloudflareIdentity: true,
       workspace: {
+        ...holding({ 'index.html': 'old' }),
         listFiles: () => current,
         readFile: async (path) => ({
           path,
@@ -247,7 +253,7 @@ describe('reverting to a commit', () => {
     return { harness, old, applied };
   }
 
-  it("applies the commit's files as one change set and publishes them as a revert", async () => {
+  it("applies the commit's files as one change set, commits them as a revert and publishes them", async () => {
     const { harness, old, applied } = await revertHarness();
     await harness.agent.revertToCommit(old);
     expect(applied).toEqual([
@@ -259,28 +265,9 @@ describe('reverting to a commit', () => {
         ],
       },
     ]);
-    expect(harness.agent.state.revertedTo).toEqual({ commit: old, revision: 'rev-3' });
     expect(harness.agent.state.publicationPending).toBe(true);
-  });
-
-  it("names the commit it went back to in its publish's commit", async () => {
-    const { harness, old } = await revertHarness();
-    // SAFETY: the published revision's workspace replaces the harness's fake, with every member this path reads.
-    Reflect.set(
-      harness.agent,
-      'workspace',
-      holding({ 'index.html': 'old' }, () => ({ workspaceRevision: 3, revision: 'r'.repeat(64) })),
-    );
-    harness.agent.setState({ ...harness.agent.state, revertedTo: { commit: old, revision: 'r'.repeat(64) } });
-    // eslint-disable-next-line dot-notation
-    await harness.agent['commitPublishedRevision']({
-      workspaceRevision: 3,
-      revision: 'r'.repeat(64),
-      deploymentId: null,
-    });
     const [entry] = await repositories(harness.artifacts).log(REPO, { limit: 1 });
-    expect(entry?.message).toBe(`Revert to ${old.slice(0, 7)}\n\nCloudChef-Revision: ${'r'.repeat(64)}`);
-    expect(harness.agent.state.revertedTo).toBeNull();
+    expect(entry?.message).toBe(`Revert to ${old.slice(0, 7)}\n\nCloudChef-Revision: ${CHECKPOINT.revision}`);
   });
 
   it('is refused while a turn runs, and for a commit that is not one', async () => {
