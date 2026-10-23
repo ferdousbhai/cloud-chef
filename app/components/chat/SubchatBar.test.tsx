@@ -4,7 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FileSaveStatus } from '~/lib/stores/fileUpdateCounter';
+import type { FileSaveStatus } from '~/lib/stores/file-save-status';
 import { SubchatBar } from './SubchatBar';
 
 interface FileSaveState {
@@ -14,7 +14,7 @@ interface FileSaveState {
 const fileSaveState = vi.hoisted((): FileSaveState => ({ value: null }));
 let root: Root | undefined;
 
-vi.mock('~/lib/stores/fileUpdateCounter', () => ({
+vi.mock('~/lib/stores/file-save-status', () => ({
   useFileSaveStatus: () => fileSaveState.value,
 }));
 

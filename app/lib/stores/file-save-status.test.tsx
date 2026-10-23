@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getAbsolutePath } from 'cloudchef-agent/utils/workDir';
-import { useFileSaveStatus } from './fileUpdateCounter';
+import { useFileSaveStatus } from './file-save-status';
 import { workbenchStore } from './workbench.client';
 
 function SaveStatus() {

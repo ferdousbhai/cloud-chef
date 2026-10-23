@@ -12,7 +12,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useState, type Dispatch, type SetStateAction } from 'react';
 import { subchatIndexStore } from '~/lib/stores/subchats';
 import { Spinner } from '@ui/Spinner';
-import { useFileSaveStatus } from '~/lib/stores/fileUpdateCounter';
+import { useFileSaveStatus } from '~/lib/stores/file-save-status';
 import { SubchatDialogs } from './SubchatDialogs';
 import { createSubchatOptions, getSubchatLabel, getSubchatNavigation, type SubchatSummary } from './subchat-model';
 

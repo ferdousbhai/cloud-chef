@@ -2,7 +2,7 @@ import { useStore } from '@nanostores/react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSnapScroll } from '~/lib/hooks/useSnapScroll';
 import { useUnsavedEditsGuard } from '~/lib/hooks/useUnsavedEditsGuard';
-import { useFileSaveStatus } from '~/lib/stores/fileUpdateCounter';
+import { useFileSaveStatus } from '~/lib/stores/file-save-status';
 import { chatStore } from '~/lib/stores/chatId';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
