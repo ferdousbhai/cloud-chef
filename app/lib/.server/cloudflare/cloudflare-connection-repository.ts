@@ -41,10 +41,6 @@ type CloudflareConnectionRow = {
   connection_generation: number;
 };
 
-// granted_capabilities_json, requested_oauth_scopes_json, oauth_scope_profile_version, oauth_scope_grant_status
-// and oauth_grant_updated_at are no longer read or written; their defaults cover new rows. They are dropped by a
-// migration in the release after this one: migrations apply before a deploy goes live, and the previous Worker
-// still selects them on every connection read.
 const CONNECTION_COLUMNS = `id, user_id, org_id, account_id, account_name, status, credential_handle,
               granted_oauth_scopes_json, connected_at, updated_at, connection_generation`;
 

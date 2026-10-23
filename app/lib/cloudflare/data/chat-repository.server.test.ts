@@ -138,8 +138,8 @@ describe('startLinkedChat', () => {
     await openLinkedChat(db, { ...project, id: 'first-id' });
     sqlite
       .prepare(
-        `INSERT INTO chat_transcripts (chat_id, subchat_index, generation, agent_name, transition_token, created_at, updated_at)
-         SELECT id, 1, 0, 'first-id--transcript-1-0', 'token', 1, 1 FROM chats`,
+        `INSERT INTO chat_transcripts (chat_id, subchat_index, agent_name, transition_token, created_at, updated_at)
+         SELECT id, 1, 'first-id--transcript-1-0', 'token', 1, 1 FROM chats`,
       )
       .run();
     sqlite.prepare('UPDATE chats SET has_messages = 1, last_subchat_index = 1').run();

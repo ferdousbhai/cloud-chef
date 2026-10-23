@@ -47,6 +47,7 @@ const migrationPolicies = [
       '0029_default_builder_model.sql': '92f8da314979083b5a3139cc5e0a6f7b9cff32409bf1dac5bbb9bdb529a21fc5',
       '0030_organization_quota_events.sql': 'a840b9ffea1d8a68bfc003faa5df6a67ef0738b91b3e099e9eb558172ce62d5a',
       '0031_drop_ai_billing_enabled.sql': '759babf4f25026871c9b86d77e8a3dae707e0309184dabb81f213dac287b902c',
+      '0032_drop_oauth_grant_columns.sql': '4a5d586765bae8eb120962aaed96ef487a74f4cb69cb7d9b6a6a5fe69bb3824a',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -76,6 +77,9 @@ const migrationPolicies = [
       // ships this no longer names the column, so it is applied after that deploy: until then the
       // column's default covers the new code's writes, and the previous code still finds it.
       '0031_drop_ai_billing_enabled.sql',
+      // A connection's grant is its confirmed scope IDs alone; the release before this one stopped naming the
+      // capability, requested-scope, profile, status and grant-time columns.
+      '0032_drop_oauth_grant_columns.sql',
     ],
   },
   {
@@ -96,6 +100,8 @@ const migrationPolicies = [
       '0013_runtime_upgrade_window_holder.sql': '09abd121f50b951d6b8ab162d12f7eeb61471ef5cf72a24188d6a3dee24eeb58',
       '0014_deployment_claim_id.sql': 'f446823bdb02790ecd961c375d3d0c9d89a922cee636f70676bffce8c384d9e5',
       '0015_agent_gc_generation_defaults.sql': '3dbfe2491866d454319d875caa466a1099671ca6d74edbb2379a5f594d91eb7c',
+      '0016_remove_runtime_controls.sql': '2215380e3ec544cdf283ea068b67995e8887c9b1cea48a11a3da24597902d5c5',
+      '0017_drop_generation_columns.sql': 'c8d690f93662c0db7363b2b280b05d9529289426843c341732735bb5129f0ef9',
     },
     contractAllowlist: [
       // Chat identity has one immutable key; remove the unused alternate URL column and index.
@@ -109,6 +115,10 @@ const migrationPolicies = [
       // Every row is copied into a table whose two unused generation columns have defaults, so the runtime
       // that ships with it can stop naming them before a later migration drops them.
       '0015_agent_gc_generation_defaults.sql',
+      // The kill switches it held were removed, and no runtime reads it.
+      '0016_remove_runtime_controls.sql',
+      // The transcript and cleanup-candidate generation columns, unnamed since the release before.
+      '0017_drop_generation_columns.sql',
     ],
   },
   {

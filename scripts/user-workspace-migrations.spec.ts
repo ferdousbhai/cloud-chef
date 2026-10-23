@@ -11,7 +11,6 @@ const workloadTables = [
   'deployment_resources',
   'deployments',
   'runtime_activity',
-  'runtime_controls',
   'runtime_upgrade_window',
 ];
 

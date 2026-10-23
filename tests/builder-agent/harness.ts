@@ -235,8 +235,8 @@ export async function builderAgentHarness(
   database.exec(`
     INSERT INTO chats (id, creator_id, initial_id, description, timestamp)
       VALUES ('chat-1', '${OWNER_ID}', '${CHAT_INITIAL_ID}', 'A chat', '2026-10-20T00:00:00.000Z');
-    INSERT INTO chat_transcripts (chat_id, subchat_index, generation, agent_name, transition_token, created_at, updated_at)
-      VALUES ('chat-1', 0, 0, '${AGENT_NAME}', 'token-1', 1, 1);
+    INSERT INTO chat_transcripts (chat_id, subchat_index, agent_name, transition_token, created_at, updated_at)
+      VALUES ('chat-1', 0, '${AGENT_NAME}', 'token-1', 1, 1);
   `);
   const ctx = durableObjectState(AGENT_NAME);
   const runtimeBindings: UserRuntimeBindings = { CLOUDCHEF_USER_RUNTIME: '1', AI: options.ai };
