@@ -314,6 +314,20 @@ describe("a runtime asking about a project's builds and site", () => {
     expect(fake.calls).toContain(`builds:${TAG}`);
   });
 
+  it("remembers an imported project's live site when it is opened", async () => {
+    const { database, env, runtime } = await setup();
+    database.prepare('UPDATE org_projects SET workers_builds_script_tag = ? WHERE id = ?').run(TAG, BLOG);
+    const opened = await runtimeOpenProjectAction({
+      request: await runtime('/api/cloudflare/runtime-projects/open', { orgProjectId: BLOG }),
+      env,
+      openAccount: workersBuilds().openAccount,
+    });
+    expect(opened.status).toBe(200);
+    expect(database.prepare('SELECT site_url FROM org_projects WHERE id = ?').get(BLOG)).toEqual({
+      site_url: 'https://blog.example.com',
+    });
+  });
+
   it('reports the production and Preview origins as the site, and what Cloudflare refused', async () => {
     const { database, env, runtime } = await setup();
     database.prepare('UPDATE org_projects SET workers_builds_script_tag = ? WHERE id = ?').run(TAG, BLOG);

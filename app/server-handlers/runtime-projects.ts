@@ -76,12 +76,17 @@ export async function runtimeOpenProjectAction(args: {
   request: Request;
   env: Env;
   app?: GitHubApp | null;
+  openAccount?: OpenWorkersBuildsAccountApi;
 }): Promise<Response> {
   const opened = await openProject(args, projectSchema);
   if (opened instanceof Response) {
     return opened;
   }
-  const { project, identity } = opened;
+  const { project, identity, connection } = opened;
+  if (project.repo !== null && !project.siteUrl) {
+    // The projects home shows the live site from the first open, not only once the agent asks about a build.
+    await withWorkersBuilds(args, connection, project, async () => json(null, 200)).catch(() => undefined);
+  }
   const answer = {
     orgProjectId: project.id,
     name: project.name,
