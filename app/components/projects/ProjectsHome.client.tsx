@@ -222,7 +222,7 @@ function TeamProjects({
   const open = async (project: TeamProject) => {
     setOpening(project.id);
     try {
-      if (!(await openTeamProject(project, false))) {
+      if (!(await openTeamProject(project))) {
         setOpening(null);
       }
     } catch {

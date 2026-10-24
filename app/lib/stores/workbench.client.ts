@@ -38,6 +38,8 @@ export class WorkbenchStore {
    * says). A GitHub project previews and deploys through its repository's pipeline, not CloudChef's.
    */
   linkedProject: WritableAtom<BuilderLinkedProjectSummary | null> = atom(null);
+  /** A newer conversation in the chat continues the project: this one's files are shown to read only. */
+  conversationClosed: WritableAtom<boolean> = atom(false);
 
   constructor() {
     if (import.meta.hot) {
@@ -122,6 +124,7 @@ export class WorkbenchStore {
     this.#editorStore.followingStreamedCode.set(true);
     this.#previewsStore.reset();
     this.linkedProject.set(null);
+    this.conversationClosed.set(false);
     this.currentView.set('code');
     this.showWorkbench.set(false);
   }

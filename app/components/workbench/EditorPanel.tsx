@@ -26,7 +26,7 @@ interface EditorPanelProps {
   editorDocument?: EditorDocument;
   selectedFile?: string;
   isStreaming?: boolean;
-  /** Shown to read only: an archived GitHub project conversation's files. */
+  /** Shown to read only: the files of a conversation a newer one continues. */
   readOnly?: boolean;
   scrollToDocAppend?: boolean;
   onEditorChange?: OnEditorChange;

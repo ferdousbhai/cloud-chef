@@ -11,7 +11,8 @@ vi.mock('~/lib/stores/workbench.client', async () => {
   let workspaceId: string | null = null;
   let previewRequest: (() => Promise<BuilderPreviewState>) | null = null;
   const previewState = atom(idleState());
-  const linkedProject = atom<{ repository: string; defaultBranch: string; archived?: boolean } | null>(null);
+  const linkedProject = atom<{ repository: string; defaultBranch: string } | null>(null);
+  const conversationClosed = atom(false);
 
   return {
     workbenchStore: {
@@ -24,11 +25,13 @@ vi.mock('~/lib/stores/workbench.client', async () => {
       currentView: atom<'code' | 'preview'>('code'),
       followingStreamedCode: atom(true),
       linkedProject,
+      conversationClosed,
       activateWorkspace(nextWorkspaceId: string) {
         workspaceId = nextWorkspaceId;
         previewRequest = null;
         previewState.set(idleState());
         linkedProject.set(null);
+        conversationClosed.set(false);
       },
       getActiveWorkspaceId: () => workspaceId,
       isWorkspaceActive: (candidate: string) => workspaceId === candidate,
@@ -162,9 +165,9 @@ describe('useWorkbenchController preview requests', () => {
     expect(controller()!.linkedProject).toEqual({ repository: 'ada/site', defaultBranch: 'main' });
   });
 
-  it('never saves a file of a GitHub project conversation a newer one took over', async () => {
+  it('never saves a file in a conversation a newer one continues', async () => {
     workbenchStore.activateWorkspace('account:chat--transcript-0-0');
-    workbenchStore.linkedProject.set({ repository: 'ada/site', defaultBranch: 'main', archived: true });
+    workbenchStore.conversationClosed.set(true);
 
     const controller = await mountController();
 

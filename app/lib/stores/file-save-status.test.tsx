@@ -10,16 +10,15 @@ function SaveStatus() {
 
 afterEach(() => {
   workbenchStore.unsavedFiles.set(new Set());
-  workbenchStore.linkedProject.set(null);
+  workbenchStore.conversationClosed.set(false);
 });
 
 describe('useFileSaveStatus', () => {
-  it('stops holding navigation for unsaved edits once their conversation is archived', () => {
+  it('stops holding navigation for unsaved edits once a newer conversation continues the project', () => {
     workbenchStore.unsavedFiles.set(new Set([getAbsolutePath('/home/project/a.ts')]));
-    workbenchStore.linkedProject.set({ repository: 'acme/site', defaultBranch: 'main', archived: false });
     expect(renderToStaticMarkup(<SaveStatus />)).toBe('unsaved');
 
-    workbenchStore.linkedProject.set({ repository: 'acme/site', defaultBranch: 'main', archived: true });
+    workbenchStore.conversationClosed.set(true);
 
     expect(renderToStaticMarkup(<SaveStatus />)).toBe('clean');
   });

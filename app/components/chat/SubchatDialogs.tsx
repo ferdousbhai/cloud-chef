@@ -24,7 +24,8 @@ export function SubchatDialogs(props: SubchatDialogsProps) {
         <Modal onClose={props.closeCreate} title="Create new chat">
           <div className="flex flex-col gap-2">
             <p className="text-content-primary text-sm">
-              New chats start with fresh context. Previous chats remain readable.
+              A new chat starts with fresh context and keeps working on the same project: its files, history and live
+              app. Earlier chats stay to read.
             </p>
             <DialogActions
               cancel={props.closeCreate}

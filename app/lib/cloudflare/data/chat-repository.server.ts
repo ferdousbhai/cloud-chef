@@ -102,8 +102,9 @@ export async function ensureInitialChat(
 }
 
 /**
- * The current chat working on an organization's GitHub project, created the first time it's opened. The
- * project is set before the chat is ever opened, because its workspace is seeded the moment its agent starts.
+ * The chat working on a team project, created the first time it's opened; a new conversation on the project
+ * is a subchat of it. The project is set before the chat is ever opened, because its workspace is seeded the
+ * moment its agent starts.
  */
 export async function openLinkedChat(
   db: D1Database,
@@ -135,112 +136,11 @@ async function findLinkedChat(db: D1Database, args: { sessionId: string; orgProj
   const row = await db
     .prepare(
       `SELECT initial_id FROM chats
-       WHERE creator_id = ? AND org_project_id = ? AND is_deleted = 0 AND archived_at IS NULL LIMIT 1`,
+       WHERE creator_id = ? AND org_project_id = ? AND is_deleted = 0 LIMIT 1`,
     )
     .bind(args.sessionId, args.orgProjectId)
     .first<{ initial_id: string }>();
   return row?.initial_id ?? null;
-}
-
-/**
- * A new conversation on a GitHub project. The current one is archived (kept to read, closed to new
- * messages) and the new one continues its workspace, so changes not yet published carry over. A current
- * conversation that is still empty is already new, and is returned as it is.
- *
- * `archivedAgentNames` are the agents of the conversation just archived, which the caller tells to stop:
- * archived, they refuse new work, and the new conversation copies the workspace only once they have settled.
- */
-export async function startLinkedChat(
-  db: D1Database,
-  args: { sessionId: string; id: string; orgProjectId: string },
-): Promise<{ initialId: string; archivedAgentNames: string[] }> {
-  const current = await db
-    .prepare(
-      `SELECT chats.id, chats.initial_id, chats.has_messages, transcripts.agent_name
-       FROM chats
-       INNER JOIN chat_transcripts AS transcripts
-         ON transcripts.chat_id = chats.id AND transcripts.subchat_index = chats.last_subchat_index
-       WHERE chats.creator_id = ? AND chats.org_project_id = ? AND chats.is_deleted = 0
-         AND chats.archived_at IS NULL
-       LIMIT 1`,
-    )
-    .bind(args.sessionId, args.orgProjectId)
-    .first<{ id: string; initial_id: string; has_messages: number; agent_name: string }>();
-  if (!current) {
-    return { initialId: (await openLinkedChat(db, args)).initialId, archivedAgentNames: [] };
-  }
-  if (current.has_messages === 0) {
-    return { initialId: current.initial_id, archivedAgentNames: [] };
-  }
-  const id = crypto.randomUUID();
-  const now = Date.now();
-  try {
-    // One transaction: the project is never left without a current conversation, and of two tabs
-    // starting one at once, the second's new chat breaks the one-current-chat index and changes nothing.
-    await db.batch([
-      db.prepare('UPDATE chats SET archived_at = ? WHERE id = ? AND archived_at IS NULL').bind(now, current.id),
-      db
-        .prepare(
-          `INSERT INTO chats (
-            id, creator_id, initial_id, description, timestamp, last_subchat_index, has_messages, is_deleted,
-            org_project_id, continues_agent_name
-          ) VALUES (?, ?, ?, NULL, ?, 0, 0, 0, ?, ?)`,
-        )
-        .bind(id, args.sessionId, args.id, new Date(now).toISOString(), args.orgProjectId, current.agent_name),
-      db
-        .prepare(
-          `INSERT INTO chat_transcripts (
-            chat_id, subchat_index, agent_name,
-            parent_subchat_index, parent_revision, transition_token, created_at, updated_at
-          ) VALUES (?, 0, ?, NULL, NULL, ?, ?, ?)`,
-        )
-        .bind(id, args.id, crypto.randomUUID(), now, now),
-    ]);
-  } catch (error) {
-    const raced = await findLinkedChat(db, args);
-    if (raced && raced !== current.initial_id) {
-      return { initialId: raced, archivedAgentNames: [] };
-    }
-    throw error;
-  }
-  const { results } = await db
-    .prepare('SELECT agent_name FROM chat_transcripts WHERE chat_id = ? ORDER BY subchat_index')
-    .bind(current.id)
-    .all<{ agent_name: string }>();
-  return { initialId: args.id, archivedAgentNames: results.map((row) => row.agent_name) };
-}
-
-/** Whether a chat is an earlier conversation on a GitHub project, kept only to read. */
-export async function isChatArchived(db: D1Database, args: { id: string; sessionId: string }): Promise<boolean> {
-  const row = await db
-    .prepare(
-      `SELECT archived_at FROM chats
-       WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
-       LIMIT 1`,
-    )
-    .bind(args.sessionId, args.id)
-    .first<{ archived_at: number | null }>();
-  return row !== null && row.archived_at !== null;
-}
-
-/** The project's earlier conversations, newest first. */
-export async function listLinkedChatHistory(
-  db: D1Database,
-  args: { sessionId: string; orgProjectId: string },
-): Promise<{ initialId: string; description: string | null; archivedAt: number }[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT initial_id, description, archived_at FROM chats
-       WHERE creator_id = ? AND org_project_id = ? AND is_deleted = 0 AND archived_at IS NOT NULL
-       ORDER BY archived_at DESC LIMIT 20`,
-    )
-    .bind(args.sessionId, args.orgProjectId)
-    .all<{ initial_id: string; description: string | null; archived_at: number }>();
-  return results.map((row) => ({
-    initialId: row.initial_id,
-    description: row.description,
-    archivedAt: row.archived_at,
-  }));
 }
 
 export function findChat(db: D1Database, args: { id: string; sessionId: string }): Promise<ChatRow | null> {

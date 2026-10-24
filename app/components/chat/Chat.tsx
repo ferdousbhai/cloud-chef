@@ -234,23 +234,22 @@ function workspaceSyncNotice(state: WorkspacePresentationState, workspacePrepari
   return state === 'reconnecting' ? 'Reconnecting to your workspace…' : 'Loading project files…';
 }
 
-const ARCHIVED_LINKED_CHAT_REASON =
-  'This conversation continues in a newer one. Open the project from GitHub projects in the sidebar to keep working.';
+const CLOSED_CONVERSATION_REASON = 'A newer chat continues this project. Open the newest chat to keep working.';
 
 /**
  * Why the composer is closed, or null while it sends. A workspace the browser gave up reaching closes it
  * too: a message sent then would only fail, so the composer says it's paused and offers the retry.
  */
 function chatDisabledReason(
-  archivedLinkedChat: boolean,
+  conversationClosed: boolean,
   hasUnsavedFiles: boolean,
   state: WorkspacePresentationState,
   onRetry: () => void,
 ): ReactNode | null {
-  if (archivedLinkedChat) {
+  if (conversationClosed) {
     return hasUnsavedFiles
-      ? `${ARCHIVED_LINKED_CHAT_REASON} Editor changes you had not saved can't be saved here.`
-      : ARCHIVED_LINKED_CHAT_REASON;
+      ? `${CLOSED_CONVERSATION_REASON} Editor changes you had not saved can't be saved here.`
+      : CLOSED_CONVERSATION_REASON;
   }
   if (state === 'unavailable') {
     return (
@@ -303,9 +302,9 @@ const AuthenticatedChat = memo(
       initialMessages.length > 0 || hasMultipleSubchats || pendingInitialMessage !== null,
     );
     const { showChat } = useStore(chatStore);
-    // A newer conversation on this GitHub project took over: this one stays to read, not to work in.
     const linkedProject = useStore(workbenchStore.linkedProject);
-    const archivedLinkedChat = linkedProject?.archived === true;
+    // A newer conversation in this chat continues the project: this one stays to read, not to work in.
+    const conversationClosed = useStore(workbenchStore.conversationClosed);
     const hasUnsavedFiles = useStore(workbenchStore.unsavedFiles).size > 0;
     // Switching project resets the workbench and drops its buffers, so leaving asks first.
     useUnsavedEditsGuard(useFileSaveStatus() !== null);
@@ -412,7 +411,7 @@ const AuthenticatedChat = memo(
         buildProgress={buildProgress}
         messages={visibleMessages}
         disabledReason={chatDisabledReason(
-          archivedLinkedChat,
+          conversationClosed,
           hasUnsavedFiles,
           workspacePresentationState,
           retryWorkspacePresentation,
