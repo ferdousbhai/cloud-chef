@@ -30,7 +30,7 @@ export function NewModelsNotice() {
       <button
         type="button"
         onClick={() => markBuilderModelsSeen()}
-        className="shrink-0 rounded px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-tertiary transition-colors hover:text-content-primary"
+        className="shrink-0 rounded px-1 text-[11px] font-semibold text-content-tertiary transition-colors hover:text-content-primary"
       >
         Dismiss
       </button>

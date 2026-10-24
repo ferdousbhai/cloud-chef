@@ -239,7 +239,7 @@ export function SubchatBar({
                 <DropdownMenu.Trigger asChild disabled={interactionsDisabled}>
                   <button
                     type="button"
-                    className="group flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-content-secondary outline-none transition-colors hover:bg-bolt-elements-background-depth-2 focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="group flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold text-content-secondary outline-none transition-colors hover:bg-bolt-elements-background-depth-2 focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label={`Switch chat. ${chatPositionLabel}: ${currentSubchatLabel}`}
                   >
                     <span>

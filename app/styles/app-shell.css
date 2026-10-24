@@ -39,12 +39,10 @@ button,
   outline-offset: 2px;
 }
 
-/* Terminal buttons: flat accent fill, dark ink, uppercase, stacked shadow. */
+/* Terminal buttons: flat accent fill, dark ink, sentence-case labels, stacked shadow. */
 .cc-button {
   border-radius: var(--cc-radius);
-  font-weight: 700;
-  letter-spacing: var(--cc-tracking-label);
-  text-transform: uppercase;
+  font-weight: 600;
   transition:
     transform 120ms ease,
     background-color 120ms ease,
@@ -92,9 +90,7 @@ button,
   color: var(--cc-content-primary);
   padding: 10px 14px;
   font-size: 13px;
-  font-weight: 700;
-  letter-spacing: var(--cc-tracking-label);
-  text-transform: uppercase;
+  font-weight: 600;
   text-decoration: none;
   transform: translateY(calc(-100% - 24px));
   transition: transform 120ms ease;

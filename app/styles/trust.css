@@ -140,9 +140,7 @@
   border-radius: var(--cc-radius);
   background: var(--cc-accent);
   color: var(--cc-accent-ink) !important;
-  font-weight: 700;
-  letter-spacing: var(--cc-tracking-label);
-  text-transform: uppercase;
+  font-weight: 600;
   text-decoration: none !important;
   box-shadow: var(--cc-shadow-raised);
 }
