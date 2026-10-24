@@ -9,7 +9,9 @@
 export const CORE_CLOUDFLARE_OAUTH_SCOPES = [
   'account-settings.read',
   'user-details.read',
-  'workers-scripts.write',
+  // Workers Admin: deploy, configure and delete the account's Workers (Workers Editor cannot delete them, and
+  // new OAuth clients can no longer request the older Workers Scripts Write).
+  'workers-scripts.admin',
   'containers.write',
   'd1.write',
   'workers-r2.write',

@@ -36,14 +36,14 @@ describe('cloudflare-oauth-scope-manifest', () => {
   test('every manifest scope exists in the checked-in provider catalog', () => {
     // The catalog is the reviewed capture of GET /oauth/scopes. A digest change means the
     // provider catalog was re-fetched; review the diff, then update the recorded digest here.
-    const catalogPath = 'app/lib/.server/cloudflare/cloudflare-oauth-scope-catalog-2026-08-30.tsv';
+    const catalogPath = 'app/lib/.server/cloudflare/cloudflare-oauth-scope-catalog-2026-10-24.tsv';
     const catalogBytes = readFileSync(catalogPath);
     expect(createHash('sha256').update(catalogBytes).digest('hex')).toBe(
-      '63843689e99c1ac765e8ecc28c7054f1d7a4aa47a3dae8f01dae7370bcad2ee5',
+      '685d78fe31359ffd104f2adeccc7613c6cf20e9a22316d4bf6c8f9760ab37c59',
     );
     const rows = catalogBytes.toString('utf8').trimEnd().split('\n');
     const ids = new Set(rows.map((row) => row.split('\t')[0]));
-    expect(rows).toHaveLength(383);
+    expect(rows).toHaveLength(400);
     expect(ids.size).toBe(rows.length);
     for (const scope of CORE_CLOUDFLARE_OAUTH_SCOPES) {
       expect(ids.has(scope), scope).toBe(true);

@@ -24,8 +24,8 @@ access-policy-test.read	cloudflare_one_and_zero_trust	Access: Policy Test Read
 access-policy-test.write	cloudflare_one_and_zero_trust	Access: Policy Test Write
 access-policy.read	cloudflare_one_and_zero_trust	Access: Policies Read
 access-policy.write	cloudflare_one_and_zero_trust	Access: Policies Write
-access-population.read	cloudflare_one_and_zero_trust	Access: Population Read
-access-population.write	cloudflare_one_and_zero_trust	Access: Population Write
+access-population.read	cloudflare_one_and_zero_trust	Access: SCIM Population Read
+access-population.write	cloudflare_one_and_zero_trust	Access: SCIM Population Write
 access-saml-certificate.read	cloudflare_one_and_zero_trust	Access: SAML Certificates Read
 access-saml-certificate.write	cloudflare_one_and_zero_trust	Access: SAML Certificates Write
 access-scim-log.read	cloudflare_one_and_zero_trust	Access: SCIM Logs Read
@@ -44,6 +44,7 @@ access.write	cloudflare_one_and_zero_trust	Access: Apps and Policies Write
 account-analytics.read	analytics_and_logs	Account Analytics Read
 account-api-gateway.read	account_and_billing	Account API Gateway Read
 account-api-gateway.write	account_and_billing	Account API Gateway
+account-api-tokens.write	account_and_billing	Account API Tokens Write
 account-custom-asset.read	account_and_billing	Account Custom Asset Read
 account-custom-asset.write	account_and_billing	Account Custom Asset Write
 account-custom-error-rules.read	rules_and_configuration	Account Custom Error Rules Read
@@ -64,6 +65,8 @@ account-rulesets.read	rules_and_configuration	Account Rulesets Read
 account-rulesets.write	rules_and_configuration	Account Rulesets Write
 account-security-center-insights.read	app_security	Account Security Center Insights Read
 account-security-center-insights.write	app_security	Account Security Center Insights Write
+account-security-center-partner-integrations.read	app_security	Account Security Insights Partner Integrations Read
+account-security-center-partner-integrations.write	app_security	Account Security Insights Partner Integrations Write
 account-settings.read	account_and_billing	Account Settings Read
 account-settings.write	account_and_billing	Account Settings Write
 account-ssl-and-certificates.read	cache_and_performance	Account: SSL and Certificates Read
@@ -77,6 +80,8 @@ agent-memory.write	developer_platform	Agent Memory Write
 agw.read	ai_and_machine_learning	Agents Gateway Read
 agw.run	ai_and_machine_learning	Agents Gateway Run
 agw.write	ai_and_machine_learning	Agents Gateway Write
+ai-model.read	ai_and_machine_learning	Workers AI Custom Models Read
+ai-model.write	ai_and_machine_learning	Workers AI Custom Models Write
 ai-search.index	ai_and_machine_learning	AI Search Index Engine
 ai-search.metadata_read	ai_and_machine_learning	AI Search Metadata Read
 ai-search.read	ai_and_machine_learning	AI Search Read
@@ -113,6 +118,8 @@ casb.read	cloudflare_one_and_zero_trust	CASB Read
 casb.write	cloudflare_one_and_zero_trust	CASB Write
 cf-agents.read	developer_platform	CF Agents Read
 cf-agents.write	developer_platform	CF Agents Write
+cfspeed.read	developer_platform	Network Quality Read
+cfspeed.write	developer_platform	Network Quality Write
 challenge-widgets.read	app_security	Turnstile Sites Read
 challenge-widgets.write	app_security	Turnstile Sites Write
 chinanetwork-steering.read	network_services	China Network Steering Read
@@ -138,6 +145,8 @@ custom-errors.read	rules_and_configuration	Custom Errors Read
 custom-errors.write	rules_and_configuration	Custom Errors Write
 custom-pages.read	rules_and_configuration	Custom Pages Read
 custom-pages.write	rules_and_configuration	Custom Pages Write
+cws.read	cloudflare_one_and_zero_trust	Cloud Workload Security Read
+cws.write	cloudflare_one_and_zero_trust	Cloud Workload Security Write
 d1.metadata_read	developer_platform	D1 Metadata Read
 d1.read	developer_platform	D1 Read
 d1.write	developer_platform	D1 Write
@@ -204,6 +213,10 @@ ip-prefix-bgp-on-demand.read	network_services	IP Prefixes: BGP On Demand Read
 ip-prefix-bgp-on-demand.write	network_services	IP Prefixes: BGP On Demand Write
 ip-prefix.read	network_services	IP Prefixes: Read
 ip-prefix.write	network_services	IP Prefixes: Write
+k2.consume	developer_platform	K2 Consume
+k2.produce	developer_platform	K2 Produce
+k2.read	developer_platform	K2 Config Read
+k2.write	developer_platform	K2 Config Write
 l4-ddos-managed-ruleset.read	app_security	L4 DDoS Managed Ruleset Read
 l4-ddos-managed-ruleset.write	app_security	L4 DDoS Managed Ruleset Write
 load-balancers-account.read	network_services	Load Balancers Account Read
@@ -276,8 +289,8 @@ registrar-sandbox-domains.admin	dns_and_zones	Registrar Sandbox Domains Admin
 registrar-sandbox-domains.read	dns_and_zones	Registrar Sandbox Domains Read
 reports-application-security-report.read	app_security	Application Security Reports Read
 request-tracer.read	app_security	Allow Request Tracer Read
-resource-library.read	other	Resource Library Read
-resource-library.write	other	Resource Library Write
+resource-library.read	cloudflare_one_and_zero_trust	Resource Library Read
+resource-library.write	cloudflare_one_and_zero_trust	Resource Library Write
 resource-sharing.read	other	Resource Sharing Read
 response-compression.read	rules_and_configuration	Response Compression Read
 response-compression.write	rules_and_configuration	Response Compression Write
@@ -350,7 +363,8 @@ workers-r2.read	developer_platform	Workers R2 Storage Read
 workers-r2.write	developer_platform	Workers R2 Storage Write
 workers-routes.read	developer_platform	Workers Routes Read
 workers-routes.write	developer_platform	Workers Routes Write
-workers-scripts.bind	developer_platform	Workers Scripts Bind
+workers-scripts.admin	developer_platform	Workers Admin
+workers-scripts.content_read	developer_platform	Workers Content Read-Only
 workers-scripts.edit	developer_platform	Workers Editor
 workers-scripts.metadata_read	developer_platform	Workers Metadata Read-Only
 workers-scripts.read	developer_platform	Workers Scripts Read
@@ -369,8 +383,11 @@ zone-disable-esc.read	cache_and_performance	Disable ESC Read
 zone-disable-esc.write	cache_and_performance	Disable ESC Write
 zone-dns-settings.read	dns_and_zones	Zone DNS Settings Read
 zone-dns-settings.write	dns_and_zones	Zone DNS Settings Write
+zone-observability.read	analytics_and_logs	Zone Observability Read
+zone-observability.write	analytics_and_logs	Zone Observability Write
 zone-security-center-insights.read	app_security	Zone Security Center Insights Read
 zone-security-center-insights.write	app_security	Zone Security Center Insights Write
+zone-security-center-partner-assets.read	app_security	Zone Security Insights Partner Assets Read
 zone-settings.read	dns_and_zones	Zone Settings Read
 zone-settings.write	dns_and_zones	Zone Settings Write
 zone-transform-rules.read	rules_and_configuration	Zone Transform Rules Read
