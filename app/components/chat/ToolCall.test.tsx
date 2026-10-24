@@ -459,19 +459,5 @@ describe('ToolCall', () => {
     await vi.waitFor(() => expect(container.textContent).toContain('Searched the conversation for pricing page'));
     expect(container.textContent).toContain('1 earlier message matched.');
     expect(container.textContent).not.toContain('"totalMatches"');
-
-    const handoff: CloudChefToolInvocation = {
-      type: 'dynamic-tool',
-      state: 'output-available',
-      toolCallId: 'new-context-1',
-      toolName: 'new_context',
-      input: { handoff: 'Goal: ship pricing.' },
-      output: { success: true, message: 'Fresh context requested after this tool batch.' },
-    };
-    await act(async () =>
-      root.render(<ToolCall partId={makePartId('message-19', 0)} invocation={handoff} key={handoff.toolCallId} />),
-    );
-    await vi.waitFor(() => expect(container.textContent).toContain('Handed off to a fresh context'));
-    expect(container.textContent).not.toContain('new_context');
   });
 });

@@ -80,8 +80,6 @@ export const ToolUseContents = memo(function ToolUseContents({
       return <SearchContents invocation={invocation} />;
     case 'history':
       return <HistoryContents invocation={invocation} />;
-    case 'new_context':
-      return <ToolResultFrame>CloudChef carries a summary of the work so far into a fresh context.</ToolResultFrame>;
     default:
       return <pre className="overflow-x-auto whitespace-pre-wrap">{JSON.stringify(invocation, null, 2)}</pre>;
   }
@@ -109,9 +107,8 @@ function RunningToolContents({ invocation, progress }: { invocation: CloudChefTo
     const content = input?.content ?? '';
     preview = content ? tailLines(content, 12) : path ? `Preparing ${path}` : 'Preparing file content…';
   } else if (invocation.toolName === 'edit') {
-    const edits = input?.edits ?? [];
-    preview =
-      edits.length > 0 ? JSON.stringify(edits, null, 2) : path ? `Preparing edits for ${path}` : 'Preparing edits…';
+    const replacement = input?.new_string ?? '';
+    preview = replacement ? tailLines(replacement, 12) : path ? `Preparing an edit to ${path}` : 'Preparing an edit…';
   } else if (invocation.toolName === 'read') {
     preview = path ? `Reading ${path}` : 'Resolving file path…';
   } else {
@@ -397,7 +394,7 @@ const runningToolInputSchema = z.looseObject({
   path: optionalText,
   command: optionalText,
   content: optionalText,
-  edits: z.array(z.unknown()).optional().catch(undefined),
+  new_string: optionalText,
 });
 
 const runningToolProgressSchema = z.looseObject({

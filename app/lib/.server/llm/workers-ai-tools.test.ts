@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { toolFailure, toolSuccess } from 'cloudchef-agent/tool-result';
-import { lineEditBaseTag } from 'cloudchef-agent/line-edit';
+import { toolSuccess } from 'cloudchef-agent/tool-result';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import { createTurnStatefulToolCoordinator, createWorkersAiTools } from './workers-ai-tools';
@@ -24,7 +23,7 @@ describe('minimal Workers AI tool surface', () => {
 
     await expect(executeTool(tools.read, { path, offset: 2, limit: 1 })).resolves.toMatchObject({
       path,
-      content: '2:two',
+      content: 'two',
       startLine: 2,
       endLine: 2,
       totalLines: 3,
@@ -60,24 +59,22 @@ describe('minimal Workers AI tool surface', () => {
     expect(workspace.computer.fs.writeFile).not.toHaveBeenCalled();
   });
 
-  it('returns numbered project lines and the snapshot tag required by edit', async () => {
+  it('returns plain project text and where to continue', async () => {
     const workspace = workspaceStub({ files: { '/home/project/src/app.ts': 'one\ntwo\nthree\n' } });
     const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
-    await expect(
-      executeTool(tools.read, { path: '/home/project/src/app.ts', offset: 2, limit: 1 }),
-    ).resolves.toMatchObject({
+    await expect(executeTool(tools.read, { path: '/home/project/src/app.ts', offset: 2, limit: 1 })).resolves.toEqual({
       path: '/home/project/src/app.ts',
-      base: expect.stringMatching(/^[A-F0-9]{24}$/),
-      content: '2:two',
+      content: 'two',
       startLine: 2,
       endLine: 2,
       totalLines: 3,
+      truncated: true,
       nextOffset: 3,
     });
   });
 
-  it('does not let an edit resume to write after cancellation while its snapshot read is pending', async () => {
+  it('does not let an edit resume to write after cancellation while its read is pending', async () => {
     const path = '/home/project/src/app.ts';
     const workspace = workspaceStub();
     const snapshot = deferred<Awaited<ReturnType<BuilderWorkspaceApi['readText']>>>();
@@ -86,15 +83,7 @@ describe('minimal Workers AI tool surface', () => {
     const controller = new AbortController();
     const reason = new DOMException('edit timed out', 'TimeoutError');
 
-    const execution = executeTool(
-      tools.edit,
-      {
-        path,
-        base: 'A'.repeat(24),
-        edits: [{ startLine: 1, endLine: 1, content: 'after' }],
-      },
-      controller.signal,
-    );
+    const execution = executeTool(tools.edit, { path, old_string: 'before', new_string: 'after' }, controller.signal);
     await vi.waitFor(() => expect(workspace.readText).toHaveBeenCalledWith(path, controller.signal));
     controller.abort(reason);
     snapshot.resolve({
@@ -110,7 +99,7 @@ describe('minimal Workers AI tool surface', () => {
     expect(workspace.computer.fs.writeFile).not.toHaveBeenCalled();
   });
 
-  it('reports an edit that landed as its stop arrived as applied, with the base of the file it wrote', async () => {
+  it('reports an edit that landed as its stop arrived as applied', async () => {
     const path = '/home/project/src/app.ts';
     const workspace = workspaceStub({ files: { [path]: 'before\n' } });
     const controller = new AbortController();
@@ -122,25 +111,12 @@ describe('minimal Workers AI tool surface', () => {
     const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
     const landed = await executeTool(
       tools.edit,
-      {
-        path,
-        base: lineEditBaseTag(await sha256('before\n')),
-        edits: [{ startLine: 1, endLine: 1, content: 'after' }],
-      },
+      { path, old_string: 'before', new_string: 'after' },
       controller.signal,
     );
 
-    // The stopped edit skips its read-back, and its base is the one the next read returns.
-    const base = lineEditBaseTag(await sha256('after\n'));
-    expect(landed).toMatchObject({
-      path,
-      base,
-      editsApplied: 1,
-      totalLines: 1,
-      diff: expect.stringContaining('+1:after'),
-    });
-    expect(workspace.readText).toHaveBeenCalledOnce();
-    await expect(executeTool(tools.read, { path })).resolves.toMatchObject({ base });
+    expect(landed).toEqual({ path, replacements: 1 });
+    await expect(workspace.readText(path)).resolves.toMatchObject({ content: 'after\n' });
   });
 
   it('reports a write that landed as its stop arrived as written', async () => {
@@ -181,38 +157,26 @@ describe('minimal Workers AI tool surface', () => {
     await expect(workspace.readText(path)).resolves.toMatchObject({ content: 'before\n' });
   });
 
-  it('rejects stale line edits and applies an exact-snapshot edit without an intermediate validation', async () => {
+  it('replaces exact text, refusing missing or ambiguous text, without an intermediate validation', async () => {
     const path = '/home/project/src/app.ts';
-    const workspace = workspaceStub({ files: { [path]: 'one\ntwo\nthree\n' } });
+    const workspace = workspaceStub({ files: { [path]: 'one\ntwo\ntwo\n' } });
     const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
-    const read = (await executeTool(tools.read, { path })) as { base: string };
 
-    await expect(
-      executeTool(tools.edit, {
-        path,
-        base: 'F'.repeat(24),
-        edits: [{ startLine: 2, endLine: 2, content: 'stale' }],
-      }),
-    ).resolves.toMatchObject({ error: expect.stringContaining('changed after it was read') });
-    expect(workspace.validate).not.toHaveBeenCalled();
-
-    await expect(
-      executeTool(tools.edit, {
-        path,
-        base: read.base,
-        edits: [
-          { startLine: 2, endLine: 2, content: 'TWO' },
-          { afterLine: 3, content: 'four' },
-        ],
-      }),
-    ).resolves.toMatchObject({
-      base: expect.stringMatching(/^[A-F0-9]{24}$/),
-      editsApplied: 2,
-      firstChangedLine: 2,
-      totalLines: 4,
+    await expect(executeTool(tools.edit, { path, old_string: 'three', new_string: '3' })).resolves.toMatchObject({
+      error: expect.stringContaining('not found'),
     });
+    await expect(executeTool(tools.edit, { path, old_string: 'two', new_string: '2' })).resolves.toMatchObject({
+      error: expect.stringContaining('occurs 2 times'),
+    });
+    await expect(executeTool(tools.edit, { path, old_string: 'one', new_string: 'ONE' })).resolves.toEqual({
+      path,
+      replacements: 1,
+    });
+    await expect(
+      executeTool(tools.edit, { path, old_string: 'two', new_string: 'TWO', replace_all: true }),
+    ).resolves.toEqual({ path, replacements: 2 });
     expect(workspace.validate).not.toHaveBeenCalled();
-    await expect(workspace.readText(path)).resolves.toMatchObject({ content: 'one\nTWO\nthree\nfour\n' });
+    await expect(workspace.readText(path)).resolves.toMatchObject({ content: 'ONE\nTWO\nTWO\n' });
   });
 
   it('refuses an edit that would grow the file past the write cap, writing nothing', async () => {
@@ -220,49 +184,11 @@ describe('minimal Workers AI tool surface', () => {
     const original = 'one\ntwo\n';
     const workspace = workspaceStub({ files: { [path]: original } });
     const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
-    // SAFETY: a successful read of an existing file returns its snapshot tag as `base`.
-    const read = (await executeTool(tools.read, { path })) as { base: string };
 
     await expect(
-      executeTool(tools.edit, {
-        path,
-        base: read.base,
-        edits: [{ oldText: 'two', newText: 'x'.repeat(2 * 1024 * 1024) }],
-      }),
+      executeTool(tools.edit, { path, old_string: 'two', new_string: 'x'.repeat(2 * 1024 * 1024) }),
     ).resolves.toMatchObject({ path, error: expect.stringContaining('byte file cap') });
     await expect(workspace.readText(path)).resolves.toMatchObject({ content: original });
-  });
-
-  it('returns the diff of an edit and warns when it changes the bracket balance of source', async () => {
-    const source = '/home/project/src/list.tsx';
-    const notes = '/home/project/NOTES.md';
-    const workspace = workspaceStub({
-      files: { [source]: 'const a = f(\n  1,\n);\n', [notes]: 'one (\ntwo )\n' },
-    });
-    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
-    const sourceRead = { base: lineEditBaseTag((await workspace.readText(source)).sha256) };
-    const notesRead = { base: lineEditBaseTag((await workspace.readText(notes)).sha256) };
-
-    const edited = await executeTool(tools.edit, {
-      path: source,
-      base: sourceRead.base,
-      edits: [{ startLine: 2, endLine: 3, content: '  2,' }],
-    });
-
-    expect(edited).toMatchObject({
-      diff: '@@ original lines 2-3 -> new line 2 @@\n 1:const a = f(\n-2:  1,\n-3:);\n+2:  2,',
-      warning:
-        'The edit was applied, but the file now has 1 more "(" than ")" than before (a dropped ")"?). Check the diff and fix it if that was not intended.',
-    });
-    await expect(workspace.readText(source)).resolves.toMatchObject({ content: 'const a = f(\n  2,\n' });
-
-    const prose = await executeTool(tools.edit, {
-      path: notes,
-      base: notesRead.base,
-      edits: [{ oldText: 'two )', newText: 'two' }],
-    });
-    expect(prose).toMatchObject({ diff: expect.stringContaining('+2:two') });
-    expect(prose).not.toHaveProperty('warning');
   });
 
   it('does not mask an indeterminate workspace settlement as an ordinary tool error or timeout', async () => {
@@ -383,14 +309,16 @@ describe('minimal Workers AI tool surface', () => {
     expect(workspace.computer.runtime!.exec).not.toHaveBeenCalled();
   });
 
-  it('does not let malformed dependency commands fall through to the shell', async () => {
+  it('refuses an install from outside the npm registry, and runs any other install as a command', async () => {
     const workspace = workspaceStub();
     const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
-    await expect(executeTool(tools.exec, { command: 'pnpm install' })).resolves.toMatchObject({
-      error: expect.stringContaining('exec accepts only'),
+    await expect(executeTool(tools.exec, { command: 'npm install github:a/b' })).resolves.toMatchObject({
+      error: expect.stringContaining('Only npm registry'),
     });
-    expect(workspace.computer.runtime!.exec).not.toHaveBeenCalled();
+    expect(workspace.executeCommand).not.toHaveBeenCalled();
+    await executeTool(tools.exec, { command: 'pnpm install' });
+    expect(workspace.executeCommand).toHaveBeenCalledWith(expect.objectContaining({ command: 'pnpm install' }));
     expect(workspace.installDependencies).not.toHaveBeenCalled();
   });
 
@@ -411,37 +339,13 @@ describe('minimal Workers AI tool surface', () => {
     expect(workspace.validate).not.toHaveBeenCalled();
   });
 
-  it.each([
-    'pnpm run validate',
-    'pnpm run validate 2>&1',
-    'cd /home/project && pnpm run validate',
-    'cd /home/project && pnpm run validate 2>&1',
-  ])('routes %s through one durable validation and reports failures for model repair', async (command) => {
-    const validation = toolFailure('Typecheck failed', { diagnostics: ['src/app.ts:1'] });
-    const workspace = workspaceStub({ validation });
-    const onValidationStage = vi.fn();
-    const tools = createWorkersAiTools(workspace, operationContext({ onValidationStage }), NO_SKILLS);
-
-    await expect(executeTool(tools.exec, { command })).resolves.toMatchObject({ validation });
-    expect(workspace.validate).toHaveBeenCalledWith(
-      expect.objectContaining({ toolCallId: 'tool-call:validation', input: {}, abortSignal: undefined }),
-    );
-    expect(onValidationStage.mock.calls).toEqual([
-      ['tool-call', 'computer validation'],
-      ['tool-call', null],
-    ]);
-    expect(workspace.computer.runtime!.exec).not.toHaveBeenCalled();
-  });
-
-  it('rejects long-running server commands before they reach the workspace', async () => {
+  it.each(['pnpm run validate', 'pnpm run dev'])('runs %s as the command it is', async (command) => {
     const workspace = workspaceStub();
     const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
-    await expect(executeTool(tools.exec, { command: 'pnpm run dev' })).resolves.toMatchObject({
-      error: expect.stringMatching(/long-running servers/),
-    });
-    expect(workspace.executeCommand).not.toHaveBeenCalled();
-    expect(workspace.executeToolOnce).not.toHaveBeenCalled();
+    await executeTool(tools.exec, { command });
+    expect(workspace.executeCommand).toHaveBeenCalledWith(expect.objectContaining({ command }));
+    expect(workspace.validate).not.toHaveBeenCalled();
   });
 
   it('rejects platform process and runtime-state commands with a concise tool error', async () => {
@@ -449,27 +353,12 @@ describe('minimal Workers AI tool surface', () => {
     const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
 
     await expect(executeTool(tools.exec, { command: 'pkill -f workerd' })).resolves.toMatchObject({
-      error: expect.stringMatching(/process management/i),
+      error: expect.stringMatching(/platform runtime state/i),
     });
     await expect(executeTool(tools.exec, { command: 'rm -rf .wrangler' })).resolves.toMatchObject({
       error: expect.stringMatching(/platform runtime state/i),
     });
     expect(workspace.executeCommand).not.toHaveBeenCalled();
-  });
-
-  it('rejects a cloudflare.project.json write that removes a required template resource', async () => {
-    const workspace = workspaceStub();
-    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
-
-    await expect(
-      executeTool(tools.write, {
-        path: '/home/project/cloudflare.project.json',
-        content: '{ "name": "app", "d1": { "name": "app", "id": "x" } }',
-      }),
-    ).resolves.toMatchObject({
-      error: expect.stringMatching(/required d1 \(DB\), r2 \(APP_STORAGE\), and kv \(APP_CACHE\)/),
-    });
-    expect(workspace.computer.fs.writeFile).not.toHaveBeenCalled();
   });
 
   it('publishes every stage the workspace reports while the validation runs', async () => {

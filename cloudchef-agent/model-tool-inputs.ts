@@ -1,6 +1,6 @@
 import { z, type ZodType } from 'zod';
 import { cloudflareApiRequestInputSchema } from './cloudflare-api.js';
-import { lineEditToolParameters } from './line-edit.js';
+import { editToolParameters } from './file-edit.js';
 
 const pathSchema = z.object({ path: z.string() });
 
@@ -73,7 +73,7 @@ export const MODEL_TOOL_INPUT_SCHEMAS = {
     limit: z.number().int().min(1).optional().describe('Maximum matches to return.'),
   }),
   write: pathSchema.extend({ content: z.string() }),
-  edit: lineEditToolParameters,
+  edit: editToolParameters,
   exec: z.object({
     command: z.string(),
     cwd: z.string().optional(),

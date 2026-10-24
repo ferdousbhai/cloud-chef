@@ -26,15 +26,12 @@ describe('streamedToolInput', () => {
     expect(streamedToolInput({ input: undefined })).toEqual({ path: null, characters: 0 });
   });
 
-  it('counts every edit operation written so far', () => {
+  it("counts an edit's replacement text written so far", () => {
     expect(
       streamedToolInput({
-        input: {
-          path: '/home/project/a.ts',
-          edits: [{ content: 'one' }, { content: 'three' }, { afterLine: 2 }, { oldText: 'x', newText: 'four' }],
-        },
+        input: { path: '/home/project/a.ts', old_string: 'x', new_string: 'four' },
       }).characters,
-    ).toBe(12);
+    ).toBe(4);
   });
 
   it('counts the raw prefix while nothing has been decoded yet', () => {

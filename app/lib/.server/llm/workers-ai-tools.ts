@@ -5,14 +5,7 @@ import {
   computerSyncUnconfirmedToolResult,
 } from 'cloudchef-agent/cloudflare-computer';
 import type { CloudChefToolSet } from 'cloudchef-agent/types';
-import {
-  applyLineEdits,
-  lineAnchoredRead,
-  lineEditBaseTag,
-  lineEditToolParameters,
-  logicalLines,
-  type LineEditToolInput,
-} from 'cloudchef-agent/line-edit';
+import { readFileLines, replaceText } from 'cloudchef-agent/file-edit';
 import {
   isWorkspaceReadOnlyToolName,
   MODEL_TOOL_INPUT_SCHEMAS,
@@ -20,7 +13,7 @@ import {
   type WorkspaceToolName,
 } from 'cloudchef-agent/model-tool-inputs';
 import { parseDependencyCommand } from 'cloudchef-agent/tools/dependency-command';
-import { rejectedWorkspaceCommand, rejectedWorkspaceFileMutation } from 'cloudchef-agent/workspace-boundary';
+import { rejectedWorkspaceCommand } from 'cloudchef-agent/workspace-boundary';
 import { toolFailure } from 'cloudchef-agent/tool-result';
 import { isWorkspaceToolOperationIndeterminateError, type BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
@@ -42,12 +35,11 @@ export type BuilderOperationContext = {
 type TurnStatefulToolCoordinator = <T>(toolName: string, operation: () => Promise<T>) => Promise<T>;
 
 const CLOUDFLARE_REQUEST_TOOL_DESCRIPTION =
-  'Send one Cloudflare API request for the connected account; the account is fixed by the server, so never choose another. ' +
-  'In the workspace, find the operation with `cf cli search "<task>"` (describe the action only, never names or IDs), ' +
-  'check it with `cf schema <command>`, run `cf <command> --dry-run`, and pass that JSON unchanged here: cf has no ' +
-  'credential in the workspace, so only this tool sends requests. Report insufficient scopes honestly, and deploy ' +
-  'generated apps through the workspace deployment path, not this tool. GET runs immediately; any other method is ' +
-  'stored for fresh user approval and pauses the turn.';
+  'Send one Cloudflare API request for the connected account; the account is fixed by the server, and a URL naming ' +
+  'another account is rejected. It takes the JSON `cf <command> --dry-run` prints in the workspace, unchanged ' +
+  '(`cf cli search "<task>"` finds a command and `cf schema <command>` describes it): cf has no credential in the ' +
+  'workspace, so only this tool sends requests. GET runs immediately; any other method is stored for the ' +
+  "person's approval and ends the turn until they decide.";
 
 export function createWorkersAiTools(
   workspace: BuilderWorkspaceApi,
@@ -59,11 +51,11 @@ export function createWorkersAiTools(
 ): CloudChefToolSet {
   const coordinateStatefulTool = createTurnStatefulToolCoordinator(operationContext.runWithKeepAlive);
   const tools: CloudChefToolSet = {
-    read: lineAnchoredReadTool(workspace, skillReader),
+    read: fileReadTool(workspace, skillReader),
     ls: projectListingTool(workspace),
     grep: projectSearchTool(workspace),
     write: abortAwareWriteTool(workspace),
-    edit: lineAnchoredEditTool(workspace),
+    edit: fileEditTool(workspace),
     exec: streamingExecTool(workspace),
     validate: canonicalValidationTool(linkedProject !== undefined),
     // Stateless and remote: it must not take the workspace operation lane.
@@ -99,35 +91,25 @@ export function createWorkersAiTools(
   return tools;
 }
 
-function lineAnchoredReadTool(workspace: BuilderWorkspaceApi, skillReader: BuilderSkillReader): Tool {
+function fileReadTool(workspace: BuilderWorkspaceApi, skillReader: BuilderSkillReader): Tool {
   return {
     description:
-      'Read a UTF-8 project or /__skills__/ reference file as numbered lines. Project reads return a compact base snapshot tag required by edit. Skill files are read-only. Output is bounded; use offset and limit to continue.',
+      'Read a UTF-8 project file, or a read-only /__skills__/ reference file, as text from line offset (1-based). Output is bounded; when truncated is true, continue from nextOffset.',
     inputSchema: MODEL_TOOL_INPUT_SCHEMAS.read,
     execute: async (input, options) => {
       const parsed = MODEL_TOOL_INPUT_SCHEMAS.read.parse(input);
       options.abortSignal?.throwIfAborted();
       const skillResult = isBuilderSkillPath(parsed.path) ? await skillReader.read(parsed.path) : null;
-      if (skillResult) {
-        return lineAnchoredRead({
-          path: parsed.path,
-          content: skillResult.content,
-          sha256: await sha256Hex(skillResult.content),
-          offset: parsed.offset,
-          limit: parsed.limit,
-          maxLines: COMPUTER_TOOL_LIMITS.readMaxLines,
-          maxBytes: COMPUTER_TOOL_LIMITS.readMaxBytes,
-        });
-      }
-      if (isBuilderSkillPath(parsed.path)) {
+      if (isBuilderSkillPath(parsed.path) && !skillResult) {
         throw new Error(`Skill reference not found: ${parsed.path}`);
       }
-      const file = await workspace.readText(parsed.path, options.abortSignal);
+      const file = skillResult
+        ? { path: parsed.path, content: skillResult.content }
+        : await workspace.readText(parsed.path, options.abortSignal);
       options.abortSignal?.throwIfAborted();
-      return lineAnchoredRead({
+      return readFileLines({
         path: file.path,
         content: file.content,
-        sha256: file.sha256,
         offset: parsed.offset,
         limit: parsed.limit,
         maxLines: COMPUTER_TOOL_LIMITS.readMaxLines,
@@ -140,7 +122,7 @@ function lineAnchoredReadTool(workspace: BuilderWorkspaceApi, skillReader: Build
 function projectListingTool(workspace: BuilderWorkspaceApi): Tool {
   return {
     description:
-      'List project files and directories from the durable workspace index. It answers from storage without starting the container, so use it instead of exec to discover what exists. Omit path for the project root; set recursive for the whole tree beneath a directory. A recursive walk shows node_modules and build output as directories but does not descend into them; list one of those directories directly to look inside it. Output is bounded: when truncated is true, narrow path or lower limit.',
+      'List project files and directories from the durable workspace index, without starting the container. Omit path for the project root; set recursive for the whole tree beneath a directory. A recursive walk shows node_modules and build output as directories but does not descend into them; listing one of those directories directly shows inside it. Output is bounded: truncated is true when entries were left out.',
     inputSchema: MODEL_TOOL_INPUT_SCHEMAS.ls,
     execute: async (input, options) => {
       const parsed = MODEL_TOOL_INPUT_SCHEMAS.ls.parse(input);
@@ -154,7 +136,7 @@ function projectListingTool(workspace: BuilderWorkspaceApi): Tool {
 function projectSearchTool(workspace: BuilderWorkspaceApi): Tool {
   return {
     description:
-      'Find lines containing literal text across project files, from the durable workspace index and without starting the container. pattern is matched as plain single-line text: it is not a regular expression and not a glob. Each match returns its file path, 1-based line number, and the matching line, so a hit can be read or edited directly. A search does not descend into node_modules or build output unless path names one of them. Output is bounded: when truncated is true, use a more specific pattern or a narrower path.',
+      'Find lines containing literal text across project files, from the durable workspace index and without starting the container. pattern is matched as plain single-line text: it is not a regular expression and not a glob. Each match returns its file path, 1-based line number, and the matching line. A search does not descend into node_modules or build output unless path names one of them. Output is bounded: truncated is true when matches were left out.',
     inputSchema: MODEL_TOOL_INPUT_SCHEMAS.grep,
     execute: async (input, options) => {
       const parsed = MODEL_TOOL_INPUT_SCHEMAS.grep.parse(input);
@@ -188,14 +170,10 @@ function abortAwareWriteTool(workspace: BuilderWorkspaceApi): Tool {
       if (isBuilderSkillPath(parsed.path)) {
         throw new Error(`Skill files are read-only: ${parsed.path}`);
       }
-      const mutationRejection = rejectedWorkspaceFileMutation(parsed.path, parsed.content);
-      if (mutationRejection) {
-        return { path: parsed.path, error: mutationRejection };
-      }
       const bytes = new TextEncoder().encode(parsed.content);
       if (bytes.byteLength > COMPUTER_TOOL_LIMITS.mutationMaxBytes) {
         return {
-          error: `Content too large: ${bytes.byteLength} bytes exceeds the ${COMPUTER_TOOL_LIMITS.mutationMaxBytes}-byte write cap. Use the edit tool for incremental changes to existing files, or split the write into smaller pieces.`,
+          error: `Content too large: ${bytes.byteLength} bytes exceeds the ${COMPUTER_TOOL_LIMITS.mutationMaxBytes}-byte file cap.`,
         };
       }
 
@@ -232,17 +210,14 @@ type ExecToolReport = {
 };
 
 /**
- * The steer toward `ls`/`grep` is what makes the VFS discovery tools pay for themselves. Left to
- * a bare "runs a shell command", the model falls back on shell habit and every `ls`/`find`/`grep`
- * becomes a container round trip — or a cold container start — for an answer the Durable Object
- * already holds.
+ * The cost is stated because it is what makes the VFS discovery tools worth choosing: every
+ * `ls`/`find`/`grep` through exec is a container round trip, or a cold start, for an answer the
+ * Durable Object already holds.
  */
 const EXEC_TOOL_DESCRIPTION =
   'Run a shell command in the project workspace using its Cloudflare Container. Starting the ' +
-  'container and syncing its filesystem costs far more than a workspace read, so do not shell ' +
-  'out to discover the project: use ls instead of ls/find, and grep instead of grep/rg. Reach ' +
-  'for exec when a command has to actually run — installing, building, testing, or inspecting ' +
-  'anything the durable workspace index does not hold.\n\n' +
+  'container and syncing its filesystem costs far more than a workspace read, which ls and grep ' +
+  'answer from storage.\n\n' +
   COMPUTER_EXEC_APPLICATION_POLICY;
 
 /**
@@ -293,96 +268,34 @@ function streamingExecTool(workspace: BuilderWorkspaceApi): Tool {
   };
 }
 
-function lineAnchoredEditTool(workspace: BuilderWorkspaceApi): Tool {
+function fileEditTool(workspace: BuilderWorkspaceApi): Tool {
   return {
     description:
-      'Edit one existing file. The base tag must come from the latest read or successful edit; every operation addresses that same original snapshot, and operations must not overlap. ' +
-      'Prefer {oldText,newText} for small changes: oldText is copied exactly from the file, without the "N:" line-number prefixes, and must occur exactly once. ' +
-      '{startLine,endLine,content} replaces original lines startLine through endLine inclusive, so content must restate every line in that range you mean to keep; {afterLine,content} inserts without removing anything. ' +
-      'The result diff shows each changed region (removed lines under their original numbers, added lines and context under the new ones). Check it for a line removed by accident, and fix any reported bracket imbalance before moving on.',
-    inputSchema: lineEditToolParameters,
+      'Replace exact text in one existing file. old_string must occur exactly once unless replace_all is set, which replaces every occurrence.',
+    inputSchema: MODEL_TOOL_INPUT_SCHEMAS.edit,
     execute: async (input, options) => {
-      const parsed: LineEditToolInput = lineEditToolParameters.parse(input);
+      const parsed = MODEL_TOOL_INPUT_SCHEMAS.edit.parse(input);
       if (isBuilderSkillPath(parsed.path)) {
         throw new Error(`Skill files are read-only: ${parsed.path}`);
       }
       options.abortSignal?.throwIfAborted();
       const before = await workspace.readText(parsed.path, options.abortSignal);
       options.abortSignal?.throwIfAborted();
-      const liveBase = lineEditBaseTag(before.sha256);
-      if (parsed.base !== liveBase) {
-        throw new Error(
-          `Edit rejected because ${parsed.path} changed after it was read. Read the file again and use its current base tag.`,
-        );
-      }
-      const applied = applyLineEdits(before.content, parsed.edits);
-      const mutationRejection = rejectedWorkspaceFileMutation(parsed.path, applied.content);
-      if (mutationRejection) {
-        return { path: parsed.path, error: mutationRejection };
-      }
+      const edited = replaceText(before.content, parsed.old_string, parsed.new_string, parsed.replace_all);
       // The edited file is bounded like a write: an edit is not a way around the write cap.
-      const bytes = new TextEncoder().encode(applied.content);
+      const bytes = new TextEncoder().encode(edited.content);
       if (bytes.byteLength > COMPUTER_TOOL_LIMITS.mutationMaxBytes) {
         return {
           path: parsed.path,
-          error: `Edit rejected: the edited file would be ${bytes.byteLength} bytes, over the ${COMPUTER_TOOL_LIMITS.mutationMaxBytes}-byte file cap. Split the file into smaller modules instead.`,
+          error: `Edit rejected: the edited file would be ${bytes.byteLength} bytes, over the ${COMPUTER_TOOL_LIMITS.mutationMaxBytes}-byte file cap.`,
         };
       }
       options.abortSignal?.throwIfAborted();
       await workspace.computer.fs.writeFile(parsed.path, bytes);
-      const after = await editedFile(workspace, parsed.path, applied.content, options.abortSignal);
-      const result: LineEditToolResult = {
-        path: after.path,
-        base: lineEditBaseTag(after.sha256),
-        editsApplied: applied.editsApplied,
-        firstChangedLine: applied.firstChangedLine,
-        // Numbered exactly as the next read will number them.
-        totalLines: logicalLines(after.content).length,
-        diff: applied.diff,
-      };
-      if (applied.bracketImbalance.length > 0 && BRACKETED_SOURCE_PATH.test(parsed.path)) {
-        result.warning = `The edit was applied, but the file now has ${applied.bracketImbalance.join('; ')}. Check the diff and fix it if that was not intended.`;
-      }
-      return result;
+      return { path: before.path, replacements: edited.replacements };
     },
   };
 }
-
-/**
- * The file an edit left, read back so the next base tag is the workspace's own. Once the write has
- * landed a stop must not turn the edit into a failure, so a stopped edit is described from the
- * content it wrote instead of the read.
- */
-async function editedFile(
-  workspace: BuilderWorkspaceApi,
-  path: string,
-  content: string,
-  abortSignal: AbortSignal | undefined,
-): Promise<{ path: string; content: string; sha256: string }> {
-  if (!abortSignal?.aborted) {
-    try {
-      return await workspace.readText(path, abortSignal);
-    } catch (error) {
-      if (!abortSignal?.aborted) {
-        throw error;
-      }
-    }
-  }
-  return { path, content, sha256: await sha256Hex(content) };
-}
-
-type LineEditToolResult = {
-  path: string;
-  base: string;
-  editsApplied: number;
-  firstChangedLine: number;
-  totalLines: number;
-  diff: string;
-  warning?: string;
-};
-
-/** Files whose brackets must balance, where an edit that changes the balance is worth flagging. */
-const BRACKETED_SOURCE_PATH = /\.(?:[cm]?[jt]sx?|json|jsonc|css|scss|vue|svelte|astro)$/i;
 
 function computerWorkspaceTool(
   toolName: WorkspaceToolName,
@@ -404,10 +317,6 @@ function computerWorkspaceTool(
         }
 
         if (toolName === 'exec' && isExecInput(input)) {
-          if (isFullValidationCommand(input.command)) {
-            const validation = await validateWorkspace(workspace, context, options.toolCallId, options.abortSignal);
-            return { command: input.command, validation };
-          }
           const rejection = rejectedWorkspaceCommand(input.command);
           if (rejection) {
             return { command: input.command, error: rejection };
@@ -515,10 +424,6 @@ async function derivedValidationToolCallId(toolCallId: string): Promise<string> 
 
 function isExecInput(input: unknown): input is { command: string } {
   return isRecord(input) && typeof input.command === 'string';
-}
-
-function isFullValidationCommand(command: string): boolean {
-  return /^(?:cd\s+\/home\/project\s*&&\s*)?pnpm\s+run\s+validate(?:\s+2>&1)?$/.test(command.trim());
 }
 
 function isMissingFileError(error: unknown): boolean {

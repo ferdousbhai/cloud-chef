@@ -102,7 +102,9 @@ function syncUnconfirmedMessage(value: unknown, code: ComputerSyncUnconfirmedCod
 }
 
 export const COMPUTER_EXEC_APPLICATION_POLICY =
-  'Run finite commands only; development, preview, watch, and other long-running servers are refused. Dependency changes support pnpm add <packages> and pnpm install --lockfile-only.';
+  'Nothing outside the container can reach a server started there. `pnpm add <packages>` and ' +
+  '`pnpm install --lockfile-only` resolve npm registry packages with install scripts off and write only ' +
+  'package.json and the lockfile back to the project.';
 
 export const COMPUTER_TOOL_LIMITS = {
   readMaxBytes: 1024 * 1024,

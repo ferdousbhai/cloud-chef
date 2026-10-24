@@ -8,9 +8,9 @@ import { getRelativePath } from 'cloudchef-agent/utils/workDir';
 import { WORK_DIR } from 'cloudchef-agent/constants';
 import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
 import { formatStreamedSize, streamedToolInput } from './streaming-tool-input';
-import { z, type ZodType } from 'zod';
+import { z } from 'zod';
 import { cloudflareApiRequestDisplaySchema, cloudflareApiRequestIsRead } from 'cloudchef-agent/cloudflare-api';
-import { toolFailure, toolResultSucceeded } from 'cloudchef-agent/tool-result';
+import { toolResultSucceeded } from 'cloudchef-agent/tool-result';
 import type { LinkedPublishView } from '~/lib/common/linked-publish';
 import { validationFailed } from './validation-verdict';
 
@@ -30,23 +30,9 @@ const STOPPED_TOOL_TITLES = new Map<string, string>([
   ['publish', 'Publishing stopped'],
   ['fetch_site', 'Site read stopped'],
   ['history', 'History search stopped'],
-  ['new_context', 'Context handoff stopped'],
 ]);
 
 const cloudflareRequestMethodSchema = cloudflareApiRequestDisplaySchema.pick({ method: true });
-
-const MODEL_TOOL_INPUT_SCHEMA_BY_NAME = new Map<string, ZodType>(Object.entries(MODEL_TOOL_INPUT_SCHEMAS));
-
-export function normalizeToolInvocation(invocation: CloudChefToolInvocation): CloudChefToolInvocation {
-  if (invocation.state !== 'output-available' || isErrorResult(invocation)) {
-    return invocation;
-  }
-  const schema = MODEL_TOOL_INPUT_SCHEMA_BY_NAME.get(invocation.toolName);
-  const parsed = schema?.safeParse(invocation.input);
-  return parsed?.success === false
-    ? { ...invocation, output: toolFailure(`Could not parse arguments: ${parsed.error.message}`) }
-    : invocation;
-}
 
 /** A publish that did not reach GitHub, or whose pipeline failed or hit a conflict. */
 function publishFailed(publish: LinkedPublishView): boolean {
@@ -159,11 +145,6 @@ export function toolTitle(
       );
     case 'history':
       return historyTitle(invocation, status);
-    case 'new_context':
-      return titleRow(
-        status === 'running' ? 'Handing off to a fresh context' : 'Handed off to a fresh context',
-        <Pencil1Icon className="text-content-secondary" />,
-      );
     case 'fetch_site': {
       const args = MODEL_TOOL_INPUT_SCHEMAS.fetch_site.safeParse(invocation.input);
       const address = args.success ? siteAddressLabel(args.data.url) : 'the live site';
@@ -177,6 +158,7 @@ export function toolTitle(
   }
 }
 
+const editedPathSchema = z.looseObject({ path: z.string() });
 const historyInputSchema = z.looseObject({ op: z.string(), query: z.string().optional() });
 
 function historyTitle(invocation: CloudChefToolInvocation, status: ToolActivityStatus): ReactNode {
@@ -284,7 +266,8 @@ function editTitle(invocation: CloudChefToolInvocation, status: ToolActivityStat
       <Pencil1Icon className="text-content-secondary" />,
     );
   }
-  const args = MODEL_TOOL_INPUT_SCHEMAS.edit.safeParse(invocation.input);
+  // Only the path: an edit stored by an earlier release has other fields beside it.
+  const args = editedPathSchema.safeParse(invocation.input);
   return titleRow(
     `${status === 'running' ? 'Editing' : 'Edited'} ${args.success ? compactToolLabel(getRelativePath(args.data.path) || args.data.path) : 'a file'}`,
     <Pencil1Icon className="text-content-secondary" />,

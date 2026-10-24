@@ -102,8 +102,8 @@ describe('Cloudflare Computer preview contract', () => {
   });
 
   it('keeps every tool limit reviewed', () => {
-    expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('development, preview, watch');
-    expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('long-running servers are refused');
+    expect(COMPUTER_EXEC_APPLICATION_POLICY).toContain('pnpm add <packages>');
+    expect(COMPUTER_EXEC_APPLICATION_POLICY).not.toContain('refused');
   });
 });
 
