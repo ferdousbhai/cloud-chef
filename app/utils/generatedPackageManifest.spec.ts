@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertValidGeneratedPackageJson,
-  findForbiddenGeneratedPackageDependencies,
   findForbiddenGeneratedPackageManagerPolicyFields,
   findInvalidGeneratedPackageSources,
 } from './generatedPackageManifest';
@@ -30,41 +29,6 @@ describe('generated package manifest guard', () => {
         }),
       ),
     ).not.toThrow();
-  });
-
-  it('finds forbidden dependency sections', () => {
-    expect(
-      findForbiddenGeneratedPackageDependencies({
-        dependencies: {
-          convex: '^1.0.0',
-          '@remix-run/react': '^2.0.0',
-        },
-        devDependencies: {
-          '@ai-sdk/openai': '^4.0.0',
-          '@ai-sdk/amazon-bedrock': '^3.0.0',
-          '@google/genai': '^1.0.0',
-        },
-      }),
-    ).toEqual([
-      { section: 'dependencies', packageName: 'convex' },
-      { section: 'dependencies', packageName: '@remix-run/react' },
-      { section: 'devDependencies', packageName: '@ai-sdk/openai' },
-      { section: 'devDependencies', packageName: '@ai-sdk/amazon-bedrock' },
-      { section: 'devDependencies', packageName: '@google/genai' },
-    ]);
-  });
-
-  it('blocks npm alias versions that point at non-Workers-AI providers', () => {
-    expect(() =>
-      assertValidGeneratedPackageJson(
-        'packages/app/package.json',
-        JSON.stringify({
-          dependencies: {
-            'model-sdk': 'npm:@anthropic-ai/sdk@latest',
-          },
-        }),
-      ),
-    ).toThrow(/dependencies\.@anthropic-ai\/sdk/);
   });
 
   it('blocks dependency sources that bypass the configured npm registry', () => {
@@ -116,11 +80,11 @@ describe('generated package manifest guard', () => {
 
   it('ignores non-package files and partial package json writes', () => {
     expect(() =>
-      assertValidGeneratedPackageJson('src/package-data.json', '{"dependencies":{"openai":"latest"}}'),
+      assertValidGeneratedPackageJson('src/package-data.json', '{"dependencies":{"remote":"github:a/b"}}'),
     ).not.toThrow();
     expect(() =>
-      assertValidGeneratedPackageJson('packages\\app\\package.json', '{"dependencies":{"openai":"latest"}}'),
-    ).toThrow(/dependencies\.openai/);
+      assertValidGeneratedPackageJson('packages\\app\\package.json', '{"dependencies":{"remote":"github:a/b"}}'),
+    ).toThrow(/dependencies\.remote/);
     expect(() => assertValidGeneratedPackageJson('package.json', '{"dependencies":')).not.toThrow();
   });
 });

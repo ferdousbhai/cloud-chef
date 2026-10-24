@@ -1,5 +1,5 @@
 import { COMPUTER_TOOL_LIMITS } from '../../cloudchef-agent/cloudflare-computer';
-import { logicalLines } from '../../cloudchef-agent/line-edit';
+import { logicalLines } from '../../cloudchef-agent/file-edit';
 import { isMissingPath } from './atomic-workspace-changes';
 
 /**
@@ -227,8 +227,8 @@ export async function scanProjectFiles(
     filesScanned += 1;
     scannedBytes += size;
 
-    // Line numbers come from the same splitter `read` and `edit` use, so a hit here names the
-    // line an edit would change.
+    // Line numbers come from the same splitter `read` uses, so a hit here names the line a read
+    // prints.
     const lines = logicalLines(content);
     for (const [index, line] of lines.entries()) {
       if (matches.length >= options.limit) {

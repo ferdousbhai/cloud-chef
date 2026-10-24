@@ -28,15 +28,7 @@ const rawJsonPrefixSchema = z.string();
 const decodedInputSchema = z.looseObject({
   path: z.string().optional().catch(undefined),
   content: z.string().optional().catch(undefined),
-  edits: z
-    .array(
-      z.looseObject({
-        content: z.string().optional().catch(undefined),
-        newText: z.string().optional().catch(undefined),
-      }),
-    )
-    .optional()
-    .catch(undefined),
+  new_string: z.string().optional().catch(undefined),
 });
 
 export function streamedToolInput(invocation: Pick<CloudChefToolInvocation, 'input'>): StreamedToolInput {
@@ -48,11 +40,9 @@ export function streamedToolInput(invocation: Pick<CloudChefToolInvocation, 'inp
   if (!decoded) {
     return NOTHING_STREAMED;
   }
-  const editCharacters =
-    decoded.edits?.reduce((total, edit) => total + (edit.content ?? edit.newText ?? '').length, 0) ?? 0;
   return {
     path: decoded.path && decoded.path.length > 0 ? decoded.path : null,
-    characters: decoded.content?.length ?? editCharacters,
+    characters: decoded.content?.length ?? decoded.new_string?.length ?? 0,
   };
 }
 

@@ -44,14 +44,7 @@ describe('Pi tool adapter', () => {
     ['ls', { recursive: true }],
     ['grep', { pattern: 'createRouter' }],
     ['write', { path: '/home/project/src/app.ts', content: 'export {};' }],
-    [
-      'edit',
-      {
-        path: '/home/project/src/app.ts',
-        base: 'A'.repeat(24),
-        edits: [{ startLine: 1, endLine: 1, content: 'changed' }],
-      },
-    ],
+    ['edit', { path: '/home/project/src/app.ts', old_string: 'export {};', new_string: 'changed' }],
     ['exec', { command: 'pnpm test' }],
   ] as const)('enforces the %s deadline with the typed builder timeout error', async (name, input) => {
     vi.useFakeTimers();

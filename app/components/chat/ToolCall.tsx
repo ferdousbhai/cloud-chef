@@ -1,11 +1,11 @@
 import { useStore } from '@nanostores/react';
 import { motion } from 'framer-motion';
-import { memo, useMemo, useState } from 'react';
+import { memo, useState } from 'react';
 import type { CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 import type { PartId } from 'cloudchef-agent/partId';
 import { ToolUseContents } from './ToolUseContents';
 import { isToolActivityStatusActive } from '~/lib/common/types';
-import { normalizeToolInvocation, statusIcon, toolTitle } from './tool-call-presentation';
+import { statusIcon, toolTitle } from './tool-call-presentation';
 import { ExpandableToolCard } from './ExpandableToolCard';
 import { useLinkedPublishView } from './useLinkedPublishView';
 import { linkedPublishView } from '~/lib/common/linked-publish';
@@ -31,10 +31,7 @@ export const ToolCall = memo(function ToolCall({
   const progress = useStore(toolProgressStore.progress)[rawInvocation.toolCallId]?.result;
   const [showAction, setShowAction] = useState(false);
   const activity = activities[partId];
-  const invocation = useMemo(
-    () => normalizeToolInvocation(activity?.invocation ?? rawInvocation),
-    [activity?.invocation, rawInvocation],
-  );
+  const invocation = activity?.invocation ?? rawInvocation;
   const status = partStatus(activities, partId, invocation);
   const publish = useLinkedPublishView((now) => linkedPublishView(invocation, now));
   const cloudflareExecution = cloudflareExecutions?.find((execution) => execution.toolCallId === invocation.toolCallId);

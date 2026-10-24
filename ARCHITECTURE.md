@@ -296,14 +296,15 @@ The model receives seven workspace primitives (`cloudchef-agent/model-tool-input
 Durable Object's SQLite VFS alone — no container, no sync barrier, and never the exclusive workspace operation lane, so
 discovery answers before the container is warm and stays available while a build command holds the lane. `write`,
 `edit`, `exec`, and `validate` change the project or run in its Container under that lane. All seven are CloudChef's
-own: `read` returns numbered lines with a compact tag bound to the full file SHA-256, `edit` applies non-overlapping
-line operations only when that exact snapshot is still current, `write` honours the turn's abort signal, `exec`
-streams its output, and `validate` runs the project's full validation. `@cloudflare/computer/tools` contributes only
+own: `read` returns a file's text from a line offset, `edit` replaces exact text that occurs once (or every occurrence
+when asked), `write` honours the turn's abort signal, `exec` streams its output and runs what it is asked except a
+command that touches CloudChef's platform processes and state or asks `cf` for a credential
+(`cloudchef-agent/workspace-boundary.ts`), and `validate` runs the project's full validation. `@cloudflare/computer/tools` contributes only
 types.
 
 `ls` enumerates a directory or the tree beneath it and `grep` returns path, 1-based line, and matching line for a
-literal pattern. Line numbers come from the same splitter `read` and `edit` use, so a search hit names the
-line an edit would change. `grep` matches literal single-line text and never compiles the model's pattern into a
+literal pattern. Line numbers come from the same splitter `read` uses, so a search hit names the line a read
+prints. `grep` matches literal single-line text and never compiles the model's pattern into a
 regular expression or a shell command: an untrusted pattern must not be able to backtrack the Durable Object into a
 stall or inject into the container. Both tools are bounded in the spirit of Computer's reviewed read and exec limits —
 `user-workspace-runtime/src/workspace-discovery.ts` names every ceiling and the failure it prevents — and both report
@@ -360,8 +361,9 @@ deadline against a hung provider stream; there is no model-step ceiling. Each to
 operation, and a tool stopped by it is an ordinary failed result the model acts on, not the end of the turn. A tool that
 completes as its deadline passes reports what it did; one that has not settled a minute after being stopped ends its
 call with an outcome reported as unknown, since the turn's inactivity watchdog is paused while a tool runs. A cancellation requested before a Container process handle exists is retained and applied
-as soon as that handle becomes available. Approved `pnpm add <packages>` and `pnpm install --lockfile-only` commands route to
-the reviewed dependency installer rather than an unrestricted package-manager shell. The model decides when to run the full
+as soon as that handle becomes available. `pnpm add <packages>` and `pnpm install --lockfile-only` route to the reviewed
+dependency installer, which resolves npm registry packages with install scripts off and writes back only package.json
+and the lockfile; any other install that names a package must name one from the npm registry. The model decides when to run the full
 validation and what to tell the user; the runtime neither validates on its behalf nor writes its final message.
 Production deployment is not a model capability: when a turn that changed a CloudChef app finishes, `BuilderAgent`
 publishes the hosted preview and then admits a durable deployment fiber that runs one authenticated, idempotent server
@@ -522,14 +524,11 @@ nested transaction.
 
 The browser sends open, recently used, and locally modified file context as a bounded turn attachment. The server adds
 that attachment only to the current model view; it never persists the generated context as a transcript message.
-CloudChef starts fresh context windows using builder-authored handoffs.
-The `new_context` tool accepts concise continuation state; `history` searches and pages the current authenticated
-conversation, including earlier windows. Before the rollover threshold, the builder gets a best-effort reminder to
-save notes and hand off. If it reaches the threshold or a provider context overflow first, a bounded deterministic
-recovery record retains user inputs, the latest tool batch, and the last authored handoff. No separate summarizer
-model is called. The record is not a verified progress summary: the builder must recover details through history and
-check current workspace state before continuing. Repeated rollovers preserve the authored checkpoint without nesting
-automatic records. The complete transcript remains in the owning Agent; live history ids are turn-local, so after a
+`history` searches and pages the current authenticated conversation, including earlier context windows. When the
+context reaches the rollover threshold, or a provider reports a context overflow, CloudChef starts a fresh window from
+a bounded deterministic recovery record of the user inputs and the latest tool batch. No separate summarizer model is
+called, and the model is not asked to hand off. The record is not a verified progress summary, and says so; history
+holds the details. Repeated rollovers do not nest records. The complete transcript remains in the owning Agent; live history ids are turn-local, so after a
 restart the builder searches again for durable message ids. Existing summary checkpoints remain readable, and anchor
 validation prevents applying a checkpoint after a rewind removed its source. Thresholds follow the selected model's
 window, including a smaller limit learned from the provider, with output and estimation headroom reserved.

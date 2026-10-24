@@ -1,98 +1,36 @@
 /**
- * Programmatic builder/platform boundary for the generated-project workspace.
- *
- * Tool descriptions already tell the model not to run servers or repair platform
- * state, but description text is advisory: a confused model still burns many
- * minutes "fixing" infrastructure it does not own. These classifiers reject the
- * command or file mutation before it executes, with a concise error that points
- * the model back at productive work.
+ * The two things a workspace shell command must never do: touch CloudChef's own platform processes
+ * and state, or handle a Cloudflare credential. Everything else runs as asked; per-tool time limits
+ * stop a command that does not finish.
  */
 
-import { WORK_DIR } from './constants.js';
-import path from 'path-browserify';
-import { getAbsolutePath } from './utils/workDir.js';
-
-const SERVER_REJECTION =
-  'Rejected: long-running servers are not available in this workspace, and nothing could reach one. Use validate ' +
-  'to build and check the project.';
-
-const PROCESS_REJECTION =
-  'Rejected: process management is handled by the CloudChef platform. Do not kill or signal processes; if a ' +
-  'command appears stuck, stop and report the failure instead.';
+const PLATFORM_PROCESS_NAMES = new Set(['workerd', 'computerd']);
 
 /** Build-tool state directories the model's file commands must not touch. */
 const PLATFORM_STATE_DIRECTORIES = ['.wrangler', '.cloudflare'];
 
+const FILE_MUTATION_COMMANDS = new Set(['rm', 'rmdir', 'mv', 'chmod', 'chown', 'truncate', 'shred', 'ln']);
+
 const PLATFORM_STATE_REJECTION =
   `Rejected: platform runtime state (${PLATFORM_STATE_DIRECTORIES.join(', ')}, workerd, computerd) is managed by ` +
-  'CloudChef and must not be modified. Work only on project source files.';
-
-const REQUIRED_RESOURCE_REJECTION =
-  'Rejected: cloudflare.project.json must keep the required d1 (DB), r2 (APP_STORAGE), and kv (APP_CACHE) resources. ' +
-  'CloudChef provisions these Cloudflare resources for every generated app; removing one breaks validation and deployment.';
+  'CloudChef and must not be modified.';
 
 const CF_CREDENTIAL_REJECTION =
   'Rejected: cf has no Cloudflare credential in this workspace, by design. Find the operation with ' +
   '`cf cli search`, check it with `cf schema`, print the request with `--dry-run`, then send that output ' +
   'with the cloudflare_request tool.';
 
-/** Every resource CloudChef provisions, as it appears in cloudflare.project.json. */
-const REQUIRED_RESOURCE_PATTERNS = ['d1', 'r2', 'kv'].map((resource) => new RegExp(`"${resource}"\\s*:\\s*\\{`));
-
-/** Script names that start a dev, preview, or watch server when run through a package runner. */
-const SERVER_SCRIPT_NAMES = new Set(['dev', 'develop', 'preview', 'serve', 'start', 'watch']);
-
-/** Commands that exist to run a long-lived server. */
-const SERVER_COMMANDS = new Set([
-  'browser-sync',
-  'http-server',
-  'json-server',
-  'live-server',
-  'nodemon',
-  'serve',
-  'webpack-dev-server',
-]);
-
-/** Subcommands that turn an otherwise finite CLI into a long-lived server or stream. */
-const SERVER_SUBCOMMANDS = new Map<string, ReadonlySet<string>>([
-  ['astro', new Set(['dev', 'preview'])],
-  ['next', new Set(['dev', 'start'])],
-  ['nuxt', new Set(['dev', 'preview', 'start'])],
-  ['remix', new Set(['dev'])],
-  ['vite', new Set(['dev', 'preview', 'serve'])],
-  ['webpack', new Set(['serve', 'watch'])],
-  ['cf', new Set(['dev'])],
-  ['wrangler', new Set(['dev', 'tail'])],
-]);
-
-const PROCESS_COMMANDS = new Set(['kill', 'pkill', 'killall', 'fuser']);
-
-const PLATFORM_PROCESS_NAMES = new Set(['workerd', 'computerd']);
-
-const FILE_MUTATION_COMMANDS = new Set(['rm', 'rmdir', 'mv', 'chmod', 'chown', 'truncate', 'shred', 'ln']);
-
-const DETACH_COMMANDS = new Set(['nohup', 'setsid', 'disown']);
-
 const RUNNER_COMMANDS = new Set(['pnpm', 'npm', 'yarn', 'bun']);
 
 const RUNNER_PASSTHROUGH_COMMANDS = new Set(['npx', 'pnpx', 'bunx']);
 
 /** Wrapper words that defer to the command that follows them. */
-const TRANSPARENT_WRAPPERS = new Set(['command', 'exec', 'env', 'time', 'sudo']);
+const TRANSPARENT_WRAPPERS = new Set(['command', 'exec', 'env', 'time', 'sudo', 'nohup', 'setsid']);
 
-/** Operators that end a command segment; `&` additionally backgrounds the segment it ends. */
-const SEGMENT_SEPARATORS = new Set(['&&', '||', ';', '|', '\n', '&']);
-
-type CommandSegment = { words: string[]; background: boolean };
-
-/**
- * Why a workspace shell command must not run, or null when it may. The check is a heuristic over
- * shell syntax, not a sandbox: validation and deployment still enforce correctness afterwards. It
- * exists so the model gets an immediate, explanatory refusal instead of a broken workspace.
- */
+/** Why a workspace shell command must not run, or null when it may. A heuristic over shell syntax, not a sandbox. */
 export function rejectedWorkspaceCommand(command: string): string | null {
-  for (const segment of shellSegments(command)) {
-    const rejection = rejectedSegment(segment);
+  for (const words of shellSegments(command)) {
+    const rejection = rejectedSegment(words);
     if (rejection) {
       return rejection;
     }
@@ -100,35 +38,14 @@ export function rejectedWorkspaceCommand(command: string): string | null {
   return null;
 }
 
-/**
- * Why a model write/edit of this project file must not apply, or null when it may.
- *
- * The path is canonicalized first because every layer below this one canonicalizes too: the
- * workspace runtime folds `\` to `/` and collapses repeated slashes, and Computer drops `.`
- * segments before the write lands. A raw string compare would let `/home/project/./cloudflare.project.json`
- * past the guard and onto the real config, dropping the resources this exists to protect.
- */
-export function rejectedWorkspaceFileMutation(pathString: string, content: string): string | null {
-  if (path.normalize(getAbsolutePath(pathString.replaceAll('\\', '/'))) !== `${WORK_DIR}/cloudflare.project.json`) {
-    return null;
-  }
-  return REQUIRED_RESOURCE_PATTERNS.every((pattern) => pattern.test(content)) ? null : REQUIRED_RESOURCE_REJECTION;
-}
-
-function rejectedSegment(segment: CommandSegment): string | null {
-  const words = effectiveWords(segment.words);
+function rejectedSegment(segment: string[]): string | null {
+  const words = effectiveWords(segment);
   if (words.length === 0) {
     return null;
   }
   const base = baseName(words[0]!);
   const args = words.slice(1);
 
-  if (DETACH_COMMANDS.has(base)) {
-    return SERVER_REJECTION;
-  }
-  if (PROCESS_COMMANDS.has(base)) {
-    return PROCESS_REJECTION;
-  }
   if (words.some((word) => PLATFORM_PROCESS_NAMES.has(baseName(word)))) {
     return PLATFORM_STATE_REJECTION;
   }
@@ -138,64 +55,14 @@ function rejectedSegment(segment: CommandSegment): string | null {
   ) {
     return PLATFORM_STATE_REJECTION;
   }
-
   if (base === 'cf' && args.includes('auth')) {
     return CF_CREDENTIAL_REJECTION;
   }
-
-  if (segment.background) {
-    return SERVER_REJECTION;
-  }
-  if (SERVER_COMMANDS.has(base)) {
-    return SERVER_REJECTION;
-  }
-  const subcommands = SERVER_SUBCOMMANDS.get(base);
-  if (subcommands) {
-    const subcommand = args.find((argument) => !argument.startsWith('-'));
-    // A bare `vite` starts the dev server; every other listed CLI is finite without a subcommand.
-    if (subcommand === undefined ? base === 'vite' : subcommands.has(subcommand)) {
-      return SERVER_REJECTION;
-    }
-  }
-  if (args.includes('--watch') || (base === 'tsc' && args.includes('-w'))) {
-    return SERVER_REJECTION;
-  }
-  if (base === 'tail' && args.some((argument) => argument === '-f' || argument === '-F')) {
-    return SERVER_REJECTION;
-  }
-
-  const runnerScript = runnerScriptName(base, args);
-  if (
-    runnerScript !== null &&
-    (SERVER_SCRIPT_NAMES.has(runnerScript) || runnerScript.includes('watch') || runnerScript.startsWith('dev:'))
-  ) {
-    return SERVER_REJECTION;
-  }
   const delegated = delegatedCommand(base, args);
-  if (delegated.length > 0) {
-    return rejectedSegment({ words: delegated, background: false });
-  }
-  return null;
+  return delegated.length > 0 ? rejectedSegment(delegated) : null;
 }
 
-/** The package script a runner invocation names, or null when it is not a script invocation. */
-function runnerScriptName(base: string, args: string[]): string | null {
-  if (!RUNNER_COMMANDS.has(base)) {
-    return null;
-  }
-  const positional = args.filter((argument) => !argument.startsWith('-'));
-  const first = positional[0];
-  if (first === undefined) {
-    return null;
-  }
-  if (first === 'run' || first === 'run-script') {
-    return positional[1] ?? null;
-  }
-  // `pnpm dev` and friends run the script directly, without `run`.
-  return first;
-}
-
-/** Words a runner hands to another executable (`pnpm exec vite`, `npx serve`), for re-classification. */
+/** Words a runner hands to another executable (`pnpm exec cf`, `npx cf`), for re-classification. */
 function delegatedCommand(base: string, args: string[]): string[] {
   if (RUNNER_PASSTHROUGH_COMMANDS.has(base)) {
     return args.filter((argument) => !argument.startsWith('-'));
@@ -211,11 +78,7 @@ function effectiveWords(words: string[]): string[] {
   let index = 0;
   while (index < words.length) {
     const word = words[index]!;
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) {
-      index += 1;
-      continue;
-    }
-    if (TRANSPARENT_WRAPPERS.has(baseName(word))) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word) || TRANSPARENT_WRAPPERS.has(baseName(word))) {
       index += 1;
       continue;
     }
@@ -238,27 +101,16 @@ function baseName(word: string): string {
   return unquoted.slice(unquoted.lastIndexOf('/') + 1).toLowerCase();
 }
 
-function shellSegments(command: string): CommandSegment[] {
-  const segments: CommandSegment[] = [];
-  let current = '';
-  const push = (background: boolean) => {
-    const words = current
-      .trim()
-      .split(/\s+/)
-      .filter((word) => word.length > 0);
-    segments.push({ words, background });
-    current = '';
-  };
-  // Redirection operators such as `2>&1` and `&>log` carry no control flow; without this they
-  // would read as background `&` separators.
-  const parts = command.replace(/\d*>&\d*|&>>?/g, ' ').split(/(\|\||&&|[;|\n&])/);
-  for (const part of parts) {
-    if (SEGMENT_SEPARATORS.has(part)) {
-      push(part === '&');
-    } else {
-      current += part;
-    }
-  }
-  push(false);
-  return segments;
+/** The words of each command a shell line runs, split on `&&`, `||`, `;`, `|`, `&`, and newlines. */
+function shellSegments(command: string): string[][] {
+  // Redirection operators such as `2>&1` and `&>log` carry no control flow.
+  return command
+    .replace(/\d*>&\d*|&>>?/g, ' ')
+    .split(/\|\||&&|[;|\n&]/)
+    .map((segment) =>
+      segment
+        .trim()
+        .split(/\s+/)
+        .filter((word) => word.length > 0),
+    );
 }
