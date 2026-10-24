@@ -8,7 +8,7 @@ This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
 Production packages: 726
-Inventory SHA-256: 97966bb225543afca0d9e4c9590de22d0aed8aee79eba2aeda7ad0c57913105e
+Inventory SHA-256: bfe523a015c56bc7f5dc8409c0a39f13fa24f9d9afb01eb6b797c52f5c48dbe2
 
 PACKAGE INVENTORY
 =================
@@ -2584,7 +2584,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE.md (SHA-256 9377db95383c8befacf05c6e465d969d756edf178487ca1344fdf3ba147c596f)
 
-body-parser@2.3.0
+body-parser@2.4.0
 Declared license: MIT
 Author: <not published>
 Repository: expressjs/body-parser
@@ -2835,7 +2835,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 257aed98914108e91a337912727b6a802eef218248507f74b76faffaff517a38)
 
-content-type@2.0.0
+content-type@2.1.0
 Declared license: MIT
 Author: Douglas Christopher Wilson <doug@somethingdoug.com>
 Repository: jshttp/content-type
@@ -3347,7 +3347,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd)
 
-fast-uri@3.1.8
+fast-uri@3.1.9
 Declared license: BSD-3-Clause
 Author: Vincent Le Goff <vince.legoff@gmail.com> (https://github.com/zekth)
 Repository: {"type":"git","url":"git+https://github.com/fastify/fast-uri.git"}
@@ -3796,7 +3796,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 2c0952d51ad31ec4361c73ef6f217fe65d09d46dd9d0eb8ad1e125098c63d496)
 
-iconv-lite@0.7.2
+iconv-lite@0.7.3
 Declared license: MIT
 Author: Alexander Shtuchkin <ashtuchkin@gmail.com>
 Repository: {"type":"git","url":"https://github.com/pillarjs/iconv-lite.git"}
@@ -5284,6 +5284,15 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE.md (SHA-256 e7dc37bf662d7f786efcb46c545615e70c1daf458a38385521c63cf6607cdfe1)
 
+qs@6.16.1
+Declared license: BSD-3-Clause
+Author: <not published>
+Repository: {"type":"git","url":"https://github.com/ljharb/qs.git"}
+Homepage: https://github.com/ljharb/qs
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE.md (SHA-256 e7dc37bf662d7f786efcb46c545615e70c1daf458a38385521c63cf6607cdfe1)
+
 quickjs-emscripten@0.32.0
 Declared license: MIT
 Author: {"name":"Jake Teton-Landis","url":"https://jake.tl"}
@@ -6193,7 +6202,7 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3)
 
-undici@7.29.1
+undici@7.30.1
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/nodejs/undici.git"}
@@ -6498,15 +6507,6 @@ Homepage: https://eemeli.org/yaml/
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 5bba27375d93e9119f76c1015f7672cf9ad5f70952296e0842fb2243d6376869)
-
-zod@4.4.3
-Declared license: MIT
-Author: Colin McDonnell <zod@colinhacks.com>
-Repository: {"type":"git","url":"git+https://github.com/colinhacks/zod.git"}
-Homepage: https://zod.dev
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8)
 
 zod@4.6.7
 Declared license: MIT
@@ -8645,7 +8645,7 @@ THE SOFTWARE.
 
 SHA-256 23d466b1b134b415b66fa50c6526b4cf3e7b9258554da88d3abb371721e7ce68
 Used by:
-- body-parser@2.3.0:LICENSE
+- body-parser@2.4.0:LICENSE
 - type-is@2.1.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 (The MIT License)
@@ -8740,7 +8740,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 SHA-256 257aed98914108e91a337912727b6a802eef218248507f74b76faffaff517a38
 Used by:
 - content-type@1.0.5:LICENSE
-- content-type@2.0.0:LICENSE
+- content-type@2.1.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 (The MIT License)
 
@@ -9722,7 +9722,6 @@ SOFTWARE.
 
 SHA-256 3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8
 Used by:
-- zod@4.4.3:LICENSE
 - zod@4.6.7:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
@@ -16635,7 +16634,7 @@ express Statement of Purpose.
 
 SHA-256 a21d6c8d3fc631198b97e57584697f7f9c37805c71c6cf9a12e4442b40394b88
 Used by:
-- undici@7.29.1:lib/web/fetch/LICENSE
+- undici@7.30.1:lib/web/fetch/LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -19160,7 +19159,7 @@ SOFTWARE.
 SHA-256 a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27
 Used by:
 - undici-types@8.3.0:LICENSE
-- undici@7.29.1:LICENSE
+- undici@7.30.1:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -19511,7 +19510,7 @@ THE SOFTWARE.
 
 SHA-256 ac779f7314c74f232ef847ea86e714abe25cf6eeb5cc97b69451b74e2af6492d
 Used by:
-- iconv-lite@0.7.2:LICENSE
+- iconv-lite@0.7.3:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (c) 2011 Alexander Shtuchkin
 
@@ -19609,7 +19608,7 @@ SOFTWARE.
 
 SHA-256 b010b0dfdfdb23d7396e03b82cd4621fc9bb8f95d6b0aea70b9c24e12074c786
 Used by:
-- fast-uri@3.1.8:LICENSE
+- fast-uri@3.1.9:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (c) 2011-2021, Gary Court until https://github.com/garycourt/uri-js/commit/a1acf730b4bba3f1097c9f52e7d9d3aba8cdcaae
 Copyright (c) 2021-present The Fastify team <https://github.com/fastify/fastify#team>
@@ -23441,6 +23440,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 SHA-256 e7dc37bf662d7f786efcb46c545615e70c1daf458a38385521c63cf6607cdfe1
 Used by:
 - qs@6.16.0:LICENSE.md
+- qs@6.16.1:LICENSE.md
 ----- BEGIN VERBATIM CONTENT -----
 BSD 3-Clause License
 

@@ -177,7 +177,7 @@ overrides:
   'brace-expansion@>=4.0.0 <5.0.12': '5.0.12'
   '@hono/node-server@<2.0.10': '2.0.10'
   'browserslist@<=4.28.6': '4.28.8'
-  'fast-uri@>=3.0.0 <3.1.8': '3.1.8'
+  'fast-uri@>=3.0.0 <3.1.9': '3.1.9'
   'hono@<4.13.11': '4.13.11'
   'ip-address@<=10.7.3': '10.7.4'
   'js-yaml@>=4.0.0 <4.3.2': '4.3.2'
@@ -191,7 +191,9 @@ overrides:
   'source-map-js@>=1.0.0 <1.2.2': '1.2.2'
   'smol-toml@<1.8.1': '1.9.1'
   'sharp@<0.35.5': '0.35.5'
-  'undici@>=7.0.0 <7.29.1': '7.29.1'
+  'undici@>=7.0.0 <7.30.1': '7.30.1'
+  'zod@>=4.0.0 <4.6.6': '4.6.7'
+  'body-parser@>=2.0.0 <2.4.0': '2.4.0'
 `;
     expect(findBuildApprovalErrors(reviewed, 'pnpm-workspace.yaml')).toEqual([]);
 
@@ -209,7 +211,7 @@ overrides:
         'pnpm-workspace.yaml overrides must pin brace-expansion@>=4.0.0 <5.0.12 to 5.0.12.',
         'pnpm-workspace.yaml overrides must pin @hono/node-server@<2.0.10 to 2.0.10.',
         'pnpm-workspace.yaml overrides must pin browserslist@<=4.28.6 to 4.28.8.',
-        'pnpm-workspace.yaml overrides must pin fast-uri@>=3.0.0 <3.1.8 to 3.1.8.',
+        'pnpm-workspace.yaml overrides must pin fast-uri@>=3.0.0 <3.1.9 to 3.1.9.',
         'pnpm-workspace.yaml overrides must pin hono@<4.13.11 to 4.13.11.',
         'pnpm-workspace.yaml overrides must pin ip-address@<=10.7.3 to 10.7.4.',
         'pnpm-workspace.yaml overrides must pin js-yaml@>=4.0.0 <4.3.2 to 4.3.2.',
@@ -218,7 +220,9 @@ overrides:
         'pnpm-workspace.yaml overrides must pin qs@<6.16.0 to 6.16.0.',
         'pnpm-workspace.yaml overrides must pin smol-toml@<1.8.1 to 1.9.1.',
         'pnpm-workspace.yaml overrides must pin sharp@<0.35.5 to 0.35.5.',
-        'pnpm-workspace.yaml overrides must pin undici@>=7.0.0 <7.29.1 to 7.29.1.',
+        'pnpm-workspace.yaml overrides must pin undici@>=7.0.0 <7.30.1 to 7.30.1.',
+        'pnpm-workspace.yaml overrides must pin zod@>=4.0.0 <4.6.6 to 4.6.7.',
+        'pnpm-workspace.yaml overrides must pin body-parser@>=2.0.0 <2.4.0 to 2.4.0.',
       ]),
     );
   });
