@@ -346,10 +346,9 @@ export async function runtimeRequestProductionAction(args: { request: Request; e
   if (!membership?.draftsAllowed) {
     return json({ code: 'drafts_not_allowed', error: 'Your team lets you work on its team projects only.' }, 403);
   }
-  // The repository named is the draft's own (its chat's, or one of its subchats'), never another app's.
+  // The repository named is the draft's own (its chat's), never another app's.
   const { draftId, repo } = authenticated.body;
-  const draftRepo = nativeProjectRepo(draftId);
-  if (repo !== draftRepo && !new RegExp(`^${draftRepo}-[1-9][0-9]{0,5}$`).test(repo)) {
+  if (repo !== nativeProjectRepo(draftId)) {
     return json({ error: "That is not this draft's repository." }, 400);
   }
   return sendProductionRequest(

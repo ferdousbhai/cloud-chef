@@ -8,9 +8,9 @@ import { ProjectRepositories } from '~/lib/.server/cloudflare/project-repository
 import { builderAgentHarness, type BuilderAgentHarness } from './harness';
 
 /**
- * A team project's conversation that a newer one took over is kept to read: nothing changes its
- * workspace or reaches its repository from it, and it stops when the newer one starts, before that one
- * copies it.
+ * A team project's conversation that a newer one in its chat took over is kept to read: nothing changes the
+ * workspace or reaches the repository from it, and it stops when the newer one starts, before that one works
+ * on the workspace.
  */
 
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111';
@@ -61,13 +61,15 @@ async function linkedWorkspace(
     },
     cancelActiveValidation: async () => undefined,
     applyClientChanges: async () => {
-      throw new Error('An archived conversation must not reach the workspace.');
+      throw new Error('A closed conversation must not reach the workspace.');
     },
   };
 }
 
-function archive(harness: BuilderAgentHarness) {
-  harness.database.prepare(`UPDATE chats SET org_project_id = ?, archived_at = 1`).run(PROJECT_ID);
+/** The person started a newer conversation in the project's chat, which closes this one. */
+async function close(harness: BuilderAgentHarness) {
+  harness.database.prepare(`UPDATE chats SET org_project_id = ?`).run(PROJECT_ID);
+  await harness.startConversation();
 }
 
 type Publish = (
@@ -122,7 +124,7 @@ describe('an earlier conversation on a team project', () => {
     const harness = await harnessWith(await linkedWorkspace());
     const proposal = await harness.proposeCloudflareRequest();
     const commits = controlPlane();
-    archive(harness);
+    await close(harness);
 
     const save = harness.agent.applyWorkspaceClientChanges({ baseRevision: 3, changes: [] });
     await expect(save).rejects.toMatchObject({ status: 409 });
@@ -135,15 +137,14 @@ describe('an earlier conversation on a team project', () => {
 
     const published = await publishTool(harness)({ message: 'Ship it', live: true }, { toolCallId: 'call-1' });
     expect(published).toMatchObject({ ok: false });
-    expect(published.summary).toContain('continues in a newer one');
+    expect(published.summary).toContain('A newer chat continues this project.');
     expect(commits).toEqual([]);
   });
 
   it('refuses saves and publishing once the member deleted it, though its agent and turn live on', async () => {
     const harness = await harnessWith(await linkedWorkspace());
     const commits = controlPlane();
-    // Deleting a continued conversation hands the project back to the one before it, so this one's
-    // branch is no longer its own: a publish from its running turn would replace that one's work.
+    // A deleted chat's project is going away: a publish from its running turn must not reach the repository.
     harness.database.prepare(`UPDATE chats SET org_project_id = ?, is_deleted = 1`).run(PROJECT_ID);
 
     await expect(harness.agent.applyWorkspaceClientChanges({ baseRevision: 3, changes: [] })).rejects.toMatchObject({
@@ -176,7 +177,7 @@ describe('an earlier conversation on a team project', () => {
     const save = harness.agent.applyWorkspaceClientChanges({ baseRevision: 3, changes: [] });
     await vi.waitFor(() => expect(saving).toBe(true));
 
-    archive(harness);
+    await close(harness);
     let settled = false;
     const settling = harness.agent.settleForSuccessor('owner-1').then(() => {
       settled = true;
@@ -189,7 +190,7 @@ describe('an earlier conversation on a team project', () => {
     await settling;
   });
 
-  it('stops its running turn when the newer conversation asks, and says it is archived', async () => {
+  it('stops its running turn when the newer conversation asks, and says it is closed', async () => {
     // Workers' scheduler, which a cancellation waits on, is not Node's.
     vi.stubGlobal('scheduler', { wait: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)) });
     const harness = await harnessWith(await linkedWorkspace());
@@ -202,12 +203,12 @@ describe('an earlier conversation on a team project', () => {
     await expect(harness.agent.settleForSuccessor('owner-1')).rejects.toMatchObject({ status: 409 });
     expect(harness.agent.state.activeTurn).not.toBeNull();
 
-    archive(harness);
+    await close(harness);
     await expect(harness.agent.settleForSuccessor('someone-else')).rejects.toMatchObject({ status: 404 });
     await harness.agent.settleForSuccessor('owner-1');
     expect(harness.agent.state.activeTurn).toBeNull();
     expect(harness.agent.state.lastCompletedTurn).toMatchObject({ id: 'turn-1', status: 'aborted' });
-    expect(harness.agent.state.linkedProject).toMatchObject({ archived: true });
+    expect(harness.agent.state.conversationClosed).toBe(true);
   });
 });
 
@@ -232,7 +233,7 @@ describe("a team project's publish", () => {
     const publishing = tools?.publish({ message: 'Ship it', live: true }, { toolCallId: 'call-1' });
     await vi.waitFor(() => expect(committing).toBe(true));
 
-    archive(harness);
+    await close(harness);
     let settled = false;
     const settling = harness.agent.settleForSuccessor('owner-1').then(() => {
       settled = true;
@@ -243,7 +244,7 @@ describe("a team project's publish", () => {
     answer();
     await settling;
     await publishing;
-    // The base the newer conversation copies is the commit made from this workspace.
+    // The base the newer conversation works from is the commit made from this workspace.
     const branchCommit = await artifacts.head(REPO, 'cloudchef/sara-owner0-k3y4chat0001');
     expect(bases).toEqual([branchCommit]);
   });

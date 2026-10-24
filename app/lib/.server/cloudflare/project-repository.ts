@@ -76,13 +76,9 @@ export class ProjectRepositoryError extends Error {
   }
 }
 
-/**
- * A CloudChef app's own repository, named after the chat that made it. A subchat publishes as an app of
- * its own, so it has a repository of its own too.
- */
-export function nativeProjectRepo(chatInitialId: string, subchatIndex = 0): string {
-  const name = `p-${repoNamePart(chatInitialId)}`;
-  return subchatIndex === 0 ? name : `${name}-${subchatIndex}`;
+/** A CloudChef app's own repository, named after the chat that made it, whose conversations all work on it. */
+export function nativeProjectRepo(chatInitialId: string): string {
+  return `p-${repoNamePart(chatInitialId)}`;
 }
 
 /** The repository a project imported from elsewhere (GitHub) is given. */

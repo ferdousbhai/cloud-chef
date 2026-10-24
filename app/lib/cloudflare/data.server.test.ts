@@ -3,20 +3,54 @@ import { userRuntimeDataAction, userRuntimeInitialMessagesAction } from './data.
 import { ensureInitialChat } from './data/chat-repository.server';
 import { envWith, userWorkspaceDatabase } from '~/test/control-plane-d1';
 
-describe('user runtime data refusals', () => {
-  it('says an earlier conversation on a GitHub project takes no new subchat, as a conflict', async () => {
+describe('a new conversation in a chat', () => {
+  it('closes the one before, then has it stop and hand its publication over to the new one', async () => {
     const { database, db } = userWorkspaceDatabase();
     await ensureInitialChat(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
-    database.exec("UPDATE chats SET archived_at = 1 WHERE id = 'chat-row'");
+    const handover = { productionRevision: 'a'.repeat(64), publicationPending: true };
+    const calls: unknown[] = [];
+    const lastIndex = () => database.prepare('SELECT last_subchat_index AS last FROM chats').get()?.last;
+    const BuilderAgent = {
+      getByName: (name: string) => ({
+        getTranscriptSnapshotForOwner: async () => ({ checkpoint: null, messages: [] }),
+        settleForSuccessor: async (ownerId: string) => {
+          calls.push(['settle', name, ownerId, lastIndex()]);
+          return handover;
+        },
+        continuePublication: async (ownerId: string, value: typeof handover) =>
+          calls.push(['continue', name, ownerId, value]),
+      }),
+    };
 
-    const response = await dataAction(db, 'subchats.create', { chatId: 'chat' });
+    const response = await dataAction(db, 'subchats.create', { chatId: 'chat' }, { BuilderAgent });
 
-    expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({
-      error: 'This conversation continues in a newer one. Open the project to keep working.',
-    });
+    expect(await response.json()).toEqual({ result: 1 });
+    // Already closed when it is asked to stop, so it refuses new work whatever happens next.
+    expect(calls).toEqual([
+      ['settle', 'chat', 'session', 1],
+      ['continue', 'chat--transcript-1-0', 'session', handover],
+    ]);
   });
 
+  it('is started even when the one before cannot hand over, and the new one publishes again', async () => {
+    const { db } = userWorkspaceDatabase();
+    await ensureInitialChat(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
+    const BuilderAgent = {
+      getByName: () => ({
+        getTranscriptSnapshotForOwner: async () => ({ checkpoint: null, messages: [] }),
+        settleForSuccessor: async () => {
+          throw new Error('The earlier conversation did not settle in time.');
+        },
+      }),
+    };
+
+    const response = await dataAction(db, 'subchats.create', { chatId: 'chat' }, { BuilderAgent });
+
+    expect(await response.json()).toEqual({ result: 1 });
+  });
+});
+
+describe('user runtime data refusals', () => {
   it('says a subchat of a chat that is not there cannot be renamed, as not found', async () => {
     const { db } = userWorkspaceDatabase();
 
@@ -49,14 +83,20 @@ describe('user runtime transcript reads', () => {
   });
 });
 
-function dataAction(db: D1Database, path: string, args: Record<string, string | number>): Promise<Response> {
+function dataAction(
+  db: D1Database,
+  path: string,
+  args: Record<string, string | number>,
+  bindings: { BuilderAgent?: object } = {},
+): Promise<Response> {
   return userRuntimeDataAction({
     request: new Request('https://runtime.example/v1/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path, args }),
     }),
-    env: envWith({ DB: db }),
+    // SAFETY: the data operation reaches the agents only through the methods each fake implements.
+    env: envWith({ DB: db, ...(bindings as Partial<Env>) }),
     userId: 'session',
   });
 }

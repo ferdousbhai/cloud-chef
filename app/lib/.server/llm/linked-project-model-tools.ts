@@ -12,7 +12,7 @@ export type LinkedProjectModelToolContext = {
   repository: string;
   defaultBranch: string;
   /**
-   * Commits the workspace to the conversation's own branch; `live` also merges it into the default branch.
+   * Commits the workspace to the chat's own branch; `live` also merges it into the default branch.
    * It returns once the commit is in the repository; the build's result replaces the output when it reports.
    */
   publish(

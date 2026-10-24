@@ -146,11 +146,19 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     },
   };
 
+  /**
+   * @param getProjectId the workspace's project, read when it is first needed: its agent learns which
+   *   chat it belongs to only after it is constructed.
+   */
   constructor(
     private readonly env: Env,
-    readonly projectId: string,
+    private readonly getProjectId: () => string,
     private readonly getUserId: () => string | null,
   ) {}
+
+  get projectId(): string {
+    return this.getProjectId();
+  }
 
   /** Attribute a mutation to the running tool call so a retry of that call reuses its journal row. */
   #attributeToActiveTool(request: WorkspaceApplyChangesRequest): WorkspaceApplyChangesRequest {

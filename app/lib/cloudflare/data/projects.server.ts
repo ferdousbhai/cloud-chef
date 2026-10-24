@@ -53,9 +53,8 @@ async function resolveProject(env: Env, sessionId: string, target: ProjectTarget
       .first<{ org_project_id: string | null }>();
     orgProjectId = row?.org_project_id ?? null;
     if (!orgProjectId) {
-      // The chat's current subchat is the app it shows.
       return {
-        repo: nativeProjectRepo(chat.initial_id, chat.last_subchat_index),
+        repo: nativeProjectRepo(chat.initial_id),
         name: chat.description?.trim() || 'project',
         role: 'owner',
         orgProjectId: null,

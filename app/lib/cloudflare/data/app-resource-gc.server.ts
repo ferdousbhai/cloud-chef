@@ -244,7 +244,7 @@ async function cleanupCandidate(
       return;
     }
     if (sweep.repositories) {
-      await deleteChatRepositories(db, sweep.repositories, candidate.chat_id);
+      await deleteChatRepository(db, sweep.repositories, candidate.chat_id);
     }
     await db
       .prepare(
@@ -259,24 +259,18 @@ async function cleanupCandidate(
   }
 }
 
-/** The repositories of a removed chat's own app, one per subchat; a team project it worked on keeps its own. */
-async function deleteChatRepositories(
-  db: D1Database,
-  repositories: ProjectRepositories,
-  chatId: string,
-): Promise<void> {
+/** The repository of a removed chat's own app; a team project it worked on keeps its own. */
+async function deleteChatRepository(db: D1Database, repositories: ProjectRepositories, chatId: string): Promise<void> {
   const chat = await db
-    .prepare('SELECT initial_id, last_subchat_index, org_project_id FROM chats WHERE id = ?')
+    .prepare('SELECT initial_id, org_project_id FROM chats WHERE id = ?')
     .bind(chatId)
-    .first<{ initial_id: string; last_subchat_index: number; org_project_id: string | null }>();
+    .first<{ initial_id: string; org_project_id: string | null }>();
   if (!chat || chat.org_project_id !== null) {
     return;
   }
-  for (let index = 0; index <= chat.last_subchat_index; index += 1) {
-    const repo = nativeProjectRepo(chat.initial_id, index);
-    await repositories.deleteRepo(repo);
-    await forgetCloneTokens(db, repo);
-  }
+  const repo = nativeProjectRepo(chat.initial_id);
+  await repositories.deleteRepo(repo);
+  await forgetCloneTokens(db, repo);
 }
 
 async function recordedResources(
