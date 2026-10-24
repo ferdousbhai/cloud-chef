@@ -30,16 +30,15 @@ export async function loadTeamProjects(signal?: AbortSignal): Promise<TeamProjec
 }
 
 /**
- * Opens a team project's workspace: its current conversation, or a new one when `fresh`, which archives the
- * current one. Returns false when the person chose to stay for edits not yet saved.
+ * Opens a team project's workspace, in the project's chat (made the first time it's opened). Returns false
+ * when the person chose to stay for edits not yet saved.
  */
-export function openTeamProject(project: Pick<TeamProject, 'id'>, fresh: boolean, onNavigate?: () => void) {
-  // A new conversation archives the current one, so staying for edits not yet saved must come first.
+export function openTeamProject(project: Pick<TeamProject, 'id'>, onNavigate?: () => void) {
   return leavePage(async () => {
-    const args = { id: crypto.randomUUID(), orgProjectId: project.id };
-    const { initialId } = fresh
-      ? await executeDataOperation(api.messages.startLinkedChat, args)
-      : await executeDataOperation(api.messages.openLinkedChat, args);
+    const { initialId } = await executeDataOperation(api.messages.openLinkedChat, {
+      id: crypto.randomUUID(),
+      orgProjectId: project.id,
+    });
     onNavigate?.();
     window.location.assign(`/chat/${encodeURIComponent(initialId)}`);
   });

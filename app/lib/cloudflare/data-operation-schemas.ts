@@ -22,8 +22,6 @@ const ONE_PROJECT = { message: 'Name either a chat or a project.' };
 export const dataOperationArgSchemas = {
   'messages.initializeChat': chatIdentityArgsSchema,
   'messages.openLinkedChat': chatIdentityArgsSchema.extend({ orgProjectId: z.string().uuid() }),
-  'messages.startLinkedChat': chatIdentityArgsSchema.extend({ orgProjectId: z.string().uuid() }),
-  'messages.linkedChatHistory': z.object({ orgProjectId: z.string().uuid() }),
   'messages.discardEmptyChat': chatIdentityArgsSchema,
   'messages.get': chatIdentityArgsSchema,
   'messages.getAll': z.object({}),

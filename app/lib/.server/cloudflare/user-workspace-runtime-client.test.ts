@@ -1384,7 +1384,7 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
         CLOUDCHEF_USER_ID: 'user-1',
         PROJECT_WORKSPACE: namespace,
       } as unknown as Env,
-      'project-1',
+      () => 'project-1',
       () => 'user-1',
     );
 
@@ -1630,7 +1630,7 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
         CLOUDCHEF_USER_ID: 'user-1',
         PROJECT_WORKSPACE: namespace,
       } as unknown as Env,
-      'project-1',
+      () => 'project-1',
       () => 'different-user',
     );
 
@@ -1666,7 +1666,7 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
           CLOUDCHEF_USER_ID: 'user-1',
           PROJECT_WORKSPACE: namespace,
         } as unknown as Env,
-        'project-1',
+        () => 'project-1',
         () => 'user-1',
       );
 
@@ -1718,7 +1718,11 @@ function harness(respond: (operation: string, value: unknown) => unknown, userId
     PROJECT_WORKSPACE: namespace,
   } as unknown as Env;
   return {
-    client: new UserWorkspaceRuntimeClient(env, 'project-1', () => userId),
+    client: new UserWorkspaceRuntimeClient(
+      env,
+      () => 'project-1',
+      () => userId,
+    ),
     calls,
     stub,
     namespace,

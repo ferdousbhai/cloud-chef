@@ -55,13 +55,12 @@ describe('app resource garbage collection', () => {
     expect(workspace.deploymentIds()).toEqual([]);
   });
 
-  it("deletes a removed chat's own repositories, one per subchat, with their clone tokens", async () => {
+  it("deletes a removed chat's own repository, which all its conversations share, with its clone tokens", async () => {
     const workspace = new AppResourceGcWorkspace();
     const artifacts = fakeArtifacts();
-    for (const repo of ['p-initial-chat-row', 'p-initial-chat-row-1', 'p-other']) {
+    for (const repo of ['p-initial-chat-row', 'p-other']) {
       await artifacts.create(repo);
     }
-    workspace.subchats('chat-row', 1);
     workspace.cloneToken('p-initial-chat-row');
     cleanupApi(true);
 
@@ -373,10 +372,6 @@ class AppResourceGcWorkspace {
         )
         .run(attempts);
     }
-  }
-
-  subchats(id: string, lastIndex: number) {
-    this.#database.prepare('UPDATE chats SET last_subchat_index = ? WHERE id = ?').run(lastIndex, id);
   }
 
   cloneToken(repo: string) {

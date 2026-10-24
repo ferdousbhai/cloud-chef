@@ -3,6 +3,7 @@ import {
   advanceTranscriptCheckpoint,
   stripTranscriptBaseMetadata,
   transcriptAgentName,
+  transcriptChatInitialId,
   transcriptCheckpointMatchesMessages,
   transcriptCheckpointsEqual,
   transcriptIdentitiesEqual,
@@ -12,6 +13,8 @@ describe('transcript identity', () => {
   it('names the first subchat by the chat and every other by its index', () => {
     expect(transcriptAgentName('chat', 0)).toBe('chat');
     expect(transcriptAgentName('chat', 1)).toBe('chat--transcript-1-0');
+    expect(transcriptChatInitialId(transcriptAgentName('chat', 0))).toBe('chat');
+    expect(transcriptChatInitialId(transcriptAgentName('chat', 12))).toBe('chat');
   });
 
   it('compares every identity field and removes only transport metadata', () => {

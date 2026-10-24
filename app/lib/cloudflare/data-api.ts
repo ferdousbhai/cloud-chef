@@ -54,8 +54,6 @@ type DataOperationResults = {
   'messages.getAll': ChatHistorySummary[];
   'messages.initializeChat': { created: boolean };
   'messages.openLinkedChat': { initialId: string; created: boolean };
-  'messages.startLinkedChat': { initialId: string };
-  'messages.linkedChatHistory': { initialId: string; description: string | null; archivedAt: number }[];
   'messages.discardEmptyChat': null;
   'messages.remove': { kind: 'success' };
   'messages.setDescription': null;
@@ -79,8 +77,6 @@ export const api = {
     getAll: 'messages.getAll',
     initializeChat: 'messages.initializeChat',
     openLinkedChat: 'messages.openLinkedChat',
-    startLinkedChat: 'messages.startLinkedChat',
-    linkedChatHistory: 'messages.linkedChatHistory',
     discardEmptyChat: 'messages.discardEmptyChat',
     remove: 'messages.remove',
     setDescription: 'messages.setDescription',

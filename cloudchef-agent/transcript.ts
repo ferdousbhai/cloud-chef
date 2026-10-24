@@ -46,6 +46,11 @@ export function transcriptAgentName(initialId: string, subchatIndex: number): st
   return subchatIndex === 0 ? initialId : `${initialId}--transcript-${subchatIndex}-0`;
 }
 
+/** The chat a transcript's BuilderAgent belongs to, read back from its name (`transcriptAgentName`). */
+export function transcriptChatInitialId(agentName: string): string {
+  return agentName.replace(/--transcript-[1-9][0-9]*-0$/, '');
+}
+
 async function digestTranscriptMessages(messages: TranscriptMessage[]): Promise<string> {
   const canonical = messages.map(canonicalTranscriptMessage);
   const bytes = new TextEncoder().encode(JSON.stringify(canonical));

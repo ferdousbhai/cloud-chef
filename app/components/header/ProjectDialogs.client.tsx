@@ -15,6 +15,7 @@ export function ProjectDialogs() {
   const title = useStore(description);
   // A team project's conversation reverts in its workspace too, but a fork is made from one's own projects.
   const linkedProject = useStore(workbenchStore.linkedProject);
+  const conversationClosed = useStore(workbenchStore.conversationClosed);
   const name = title?.trim() || 'Untitled project';
   const project = { chatInitialId: chatId };
   const close = () => projectDialogStore.set(null);
@@ -26,7 +27,7 @@ export function ProjectDialogs() {
       <ProjectHistoryDialog
         project={project}
         name={name}
-        canRevert={linkedProject?.archived !== true}
+        canRevert={!conversationClosed}
         canFork={linkedProject === null}
         onOpenProject={openProjectChat}
         onClose={close}

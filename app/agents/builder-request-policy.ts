@@ -69,38 +69,29 @@ export async function loadBuilderTranscriptBinding(
 }
 
 /**
- * The organization GitHub project a transcript's chat works on (null for a CloudChef app), the agent whose
- * workspace it continues when it's a new conversation on the project, whether a newer one archived it, and
- * whether the member deleted it (its agent lives on for a while, and nothing of it may reach GitHub).
+ * The team project a transcript's chat works on (null for a CloudChef app), whether a newer conversation
+ * in the chat has closed this one (it stays to read, and only the newest changes the project), and whether
+ * the member deleted the chat (its agent lives on for a while, and nothing of it may change the project).
  */
-export async function loadChatOrgProject(
+export async function loadConversationScope(
   db: D1Database,
   args: { agentName: string; ownerId: string },
-): Promise<{ orgProjectId: string | null; continuesAgentName: string | null; archived: boolean; deleted: boolean }> {
+): Promise<{ orgProjectId: string | null; closed: boolean; deleted: boolean }> {
   const row = await db
     .prepare(
-      `SELECT chats.org_project_id, chats.continues_agent_name, chats.archived_at, chats.is_deleted
+      `SELECT chats.org_project_id, chats.is_deleted,
+              transcripts.subchat_index < chats.last_subchat_index AS closed
        FROM chat_transcripts AS transcripts
        INNER JOIN chats ON chats.id = transcripts.chat_id
        WHERE transcripts.agent_name = ? AND chats.creator_id = ?
        LIMIT 1`,
     )
     .bind(args.agentName, args.ownerId)
-    .first<{
-      org_project_id: string | null;
-      continues_agent_name: string | null;
-      archived_at: number | null;
-      is_deleted: number;
-    }>();
+    .first<{ org_project_id: string | null; is_deleted: number; closed: number }>();
   if (!row || row.is_deleted !== 0) {
-    return { orgProjectId: null, continuesAgentName: null, archived: false, deleted: row !== null };
+    return { orgProjectId: null, closed: false, deleted: row !== null };
   }
-  return {
-    orgProjectId: row.org_project_id,
-    continuesAgentName: row.continues_agent_name,
-    archived: row.archived_at !== null,
-    deleted: false,
-  };
+  return { orgProjectId: row.org_project_id, closed: row.closed === 1, deleted: false };
 }
 
 /**

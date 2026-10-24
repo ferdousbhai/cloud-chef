@@ -420,12 +420,12 @@ describe('a runtime asking for a draft to become a team project', () => {
       env,
     });
 
-  it("names only the draft's own repository, or one of its subchats'", async () => {
+  it("names only the draft's own repository", async () => {
     const { env, runtime, database, sara } = await setup();
     database.prepare('UPDATE organization_members SET drafts_allowed = 1 WHERE user_id = ?').run(sara.userId);
     expect((await ask(runtime, 'p-another-app', env)).status).toBe(400);
-    expect((await ask(runtime, 'p-draft-chat-x', env)).status).toBe(400);
-    expect((await ask(runtime, 'p-draft-chat-2', env)).status).toBe(201);
+    expect((await ask(runtime, 'p-draft-chat-2', env)).status).toBe(400);
+    expect((await ask(runtime, 'p-draft-chat', env)).status).toBe(201);
     expect((await ask(runtime, 'p-draft-chat', env)).status).toBe(200);
   });
 });

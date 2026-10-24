@@ -1,11 +1,13 @@
 /**
  * A BuilderAgent in Node: the real class, on an in-memory Durable Object state whose SQL storage is
  * SQLite, with the runtime's own D1 (`user-workspace-migrations/`) as `env.DB`. What lies outside the
- * agent is faked at its boundary: the ProjectWorkspace (`BuilderWorkspaceApi`), Workers AI, the
- * publication commands that reach the deployment executor and the user's account, and the account's
- * Artifacts (`app/test/fake-artifacts.ts`), which holds each project's repository.
+ * agent is faked at its boundary: the ProjectWorkspace (`BuilderWorkspaceApi`, one per project id, as
+ * the namespace gives it), Workers AI, the publication commands that reach the deployment executor and
+ * the user's account, and the account's Artifacts (`app/test/fake-artifacts.ts`), which holds each
+ * project's repository.
  */
 import { createRequire } from 'node:module';
+import { transcriptAgentName } from 'cloudchef-agent/transcript';
 import type * as NodeSqlite from 'node:sqlite';
 import type { SQLInputValue } from 'node:sqlite';
 import type { ChatResponseResult } from '@cloudflare/ai-chat';
@@ -224,11 +226,15 @@ export type BuilderAgentHarness = Awaited<ReturnType<typeof builderAgentHarness>
 
 /**
  * A started BuilderAgent for `OWNER_ID`'s chat, bound to its transcript in the runtime's D1.
+ * @param options.workspace what the project's workspace does
+ * @param options.newWorkspace makes the workspace of each project the namespace is asked for, in place of
+ *   `workspace`, so that different projects hold different files
  * @param options.ai the Workers AI binding a turn would use (`env.AI`)
  */
 export async function builderAgentHarness(
   options: {
     workspace?: Partial<BuilderWorkspaceApi>;
+    newWorkspace?: () => Partial<BuilderWorkspaceApi>;
     ai?: Partial<Ai>;
     cloudflareIdentity?: boolean;
     publisher?: Partial<BuilderPublisher>;
@@ -243,7 +249,6 @@ export async function builderAgentHarness(
     INSERT INTO chat_transcripts (chat_id, subchat_index, agent_name, transition_token, created_at, updated_at)
       VALUES ('chat-1', 0, '${AGENT_NAME}', 'token-1', 1, 1);
   `);
-  const ctx = durableObjectState(AGENT_NAME);
   const runtimeBindings: UserRuntimeBindings = { CLOUDCHEF_USER_RUNTIME: '1', AI: options.ai };
   if (options.cloudflareIdentity) {
     Object.assign(runtimeBindings, RUNTIME_IDENTITY);
@@ -251,20 +256,37 @@ export async function builderAgentHarness(
   const env = envWith({
     DB: db,
     CLOUDCHEF_RUNTIME_VERSION: RUNTIME_VERSION,
+    // SAFETY: the agent names its workspace with `idFromName` alone, which this implements.
+    BuilderAgent: { idFromName: (name: string) => ({ toString: () => `id-${name}` }) } as never,
     // SAFETY: the user runtime's own bindings (`app/user-runtime-env.d.ts`) are not on the control
     // plane's Env; the agent reads them through the same guarded casts.
     ...(runtimeBindings as Partial<Env>),
   });
-  // SAFETY: the agent and the Agents SDK read only the members `durableObjectState` implements.
-  const agent = new HarnessBuilderAgent(ctx as never, env);
-  // SAFETY: the ProjectWorkspace is the agent's one collaborator outside this process. It is replaced
-  // before any call reaches it, with a fake of every member the exercised path calls.
-  Reflect.set(agent, 'workspace', fakeWorkspace(options.workspace));
-  // SAFETY: as above, for the publication commands; the fake implements every one the agent calls.
-  Reflect.set(agent, 'publisher', fakePublisher(options.publisher));
-  // SAFETY: as above, for the account's repositories: the real client, over a fake Artifacts.
-  Reflect.set(agent, 'repositories', () => new ProjectRepositories(artifacts, { fetch: artifacts.fetch }));
-  await agent.onStart({ userId: OWNER_ID });
+  /** The ProjectWorkspace of each project id, as the namespace holds them. */
+  const workspaces = new Map<string, Partial<BuilderWorkspaceApi>>();
+  const startAgent = async (name: string) => {
+    const ctx = durableObjectState(name);
+    // SAFETY: the agent and the Agents SDK read only the members `durableObjectState` implements.
+    const agent = new HarnessBuilderAgent(ctx as never, env);
+    // SAFETY: the ProjectWorkspace is the agent's one collaborator outside this process. It is replaced
+    // before any call reaches it, with a fake of every member the exercised path calls.
+    const ownWorkspace = fakeWorkspace(options.newWorkspace?.() ?? options.workspace);
+    Reflect.set(agent, 'workspace', ownWorkspace);
+    // SAFETY: as above, for the publication commands; the fake implements every one the agent calls.
+    Reflect.set(agent, 'publisher', fakePublisher(options.publisher));
+    // SAFETY: as above, for the account's repositories: the real client, over a fake Artifacts.
+    Reflect.set(agent, 'repositories', () => new ProjectRepositories(artifacts, { fetch: artifacts.fetch }));
+    await agent.onStart({ userId: OWNER_ID });
+    // Known once the agent knows its chat: the workspace the namespace gives that project, shared by every
+    // agent working on it.
+    // eslint-disable-next-line dot-notation
+    const projectId = agent['workspaceProjectId']();
+    const workspace = workspaces.get(projectId) ?? ownWorkspace;
+    workspaces.set(projectId, workspace);
+    Reflect.set(agent, 'workspace', workspace);
+    return { agent, ctx, projectId };
+  };
+  const { agent, ctx, projectId } = await startAgent(AGENT_NAME);
   // The agent's own table: a proposal filed here is the one the Cloudflare request tool files mid-turn.
   // SAFETY: the repository uses only `sql.exec` and `transactionSync`, which the fake storage implements.
   const executions = new BuilderCloudflareExecutionRepository(ctx.storage as never);
@@ -274,6 +296,27 @@ export async function builderAgentHarness(
     ctx,
     env,
     artifacts,
+    /** The project id this agent's workspace is named by. */
+    projectId,
+    /**
+     * The person started the chat's next conversation (a subchat): the latest one until another starts,
+     * with an agent of its own.
+     */
+    startConversation: async () => {
+      // SAFETY: the statement selects exactly this column of chats.
+      const { last } = database.prepare('SELECT last_subchat_index AS last FROM chats').get() as { last: number };
+      const index = last + 1;
+      const name = transcriptAgentName(CHAT_INITIAL_ID, index);
+      database
+        .prepare(
+          `INSERT INTO chat_transcripts (
+             chat_id, subchat_index, agent_name, parent_subchat_index, transition_token, created_at, updated_at
+           ) VALUES ('chat-1', ?, ?, ?, ?, 1, 1)`,
+        )
+        .run(index, name, last, `token-${index}`);
+      database.prepare('UPDATE chats SET last_subchat_index = ?').run(index);
+      return startAgent(name);
+    },
     /** Each agent's recorded activity, as the control plane's upgrade window reads it. */
     activity: () =>
       // SAFETY: the statement selects exactly these two columns of runtime_activity.

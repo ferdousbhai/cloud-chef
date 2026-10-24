@@ -2,14 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  ensureInitialChat,
-  isChatArchived,
-  listLinkedChatHistory,
-  openLinkedChat,
-  startLinkedChat,
-} from './chat-repository.server';
-import { removeChat } from './chat-service.server';
+import { ensureInitialChat, openLinkedChat } from './chat-repository.server';
 import { discardEmptyChat } from './chat-service.server';
 
 describe('ensureInitialChat', () => {
@@ -52,7 +45,7 @@ function count(sqlite: DatabaseSync, table: string): number {
 
 /** The real user-workspace schema, so the partial unique index and agent_name uniqueness apply. */
 describe('openLinkedChat', () => {
-  it('opens one chat per GitHub project, already bound to it, and returns to it after', async () => {
+  it('opens one chat per team project, already bound to it, and returns to it after', async () => {
     const { sqlite, db } = workspaceDatabase();
     const first = await openLinkedChat(db, { sessionId: 'session', id: 'first-id', orgProjectId: 'project-1' });
     expect(first).toEqual({ initialId: 'first-id', created: true });
@@ -68,114 +61,6 @@ describe('openLinkedChat', () => {
     await expect(
       openLinkedChat(db, { sessionId: 'session', id: 'other-id', orgProjectId: 'project-2' }),
     ).resolves.toEqual({ initialId: 'other-id', created: true });
-  });
-});
-
-describe('startLinkedChat', () => {
-  const project = { sessionId: 'session', orgProjectId: 'project-1' };
-
-  it('keeps an empty current conversation, since it is already new', async () => {
-    const { db } = workspaceDatabase();
-    await openLinkedChat(db, { ...project, id: 'first-id' });
-    await expect(startLinkedChat(db, { ...project, id: 'second-id' })).resolves.toEqual({
-      initialId: 'first-id',
-      archivedAgentNames: [],
-    });
-  });
-
-  it('archives the current conversation and starts one that continues its workspace', async () => {
-    const { sqlite, db } = workspaceDatabase();
-    await openLinkedChat(db, { ...project, id: 'first-id' });
-    sqlite.prepare("UPDATE chats SET has_messages = 1, description = 'Fix the footer'").run();
-
-    // The archived conversation's agents are named, for the caller to stop.
-    await expect(startLinkedChat(db, { ...project, id: 'second-id' })).resolves.toEqual({
-      initialId: 'second-id',
-      archivedAgentNames: ['first-id'],
-    });
-    await expect(isChatArchived(db, { sessionId: 'session', id: 'first-id' })).resolves.toBe(true);
-    await expect(isChatArchived(db, { sessionId: 'session', id: 'second-id' })).resolves.toBe(false);
-    expect(
-      sqlite
-        .prepare(
-          'SELECT initial_id, archived_at IS NOT NULL AS archived, continues_agent_name FROM chats ORDER BY archived_at IS NULL',
-        )
-        .all(),
-    ).toEqual([
-      { initial_id: 'first-id', archived: 1, continues_agent_name: null },
-      { initial_id: 'second-id', archived: 0, continues_agent_name: 'first-id' },
-    ]);
-    expect(sqlite.prepare("SELECT agent_name FROM chat_transcripts WHERE agent_name = 'second-id'").get()).toEqual({
-      agent_name: 'second-id',
-    });
-    // Opening the project now returns to the new conversation; the old one is listed as earlier.
-    await expect(openLinkedChat(db, { ...project, id: 'third-id' })).resolves.toEqual({
-      initialId: 'second-id',
-      created: false,
-    });
-    await expect(listLinkedChatHistory(db, project)).resolves.toEqual([
-      { initialId: 'first-id', description: 'Fix the footer', archivedAt: expect.any(Number) },
-    ]);
-  });
-
-  it('starts one conversation when two tabs start one at once', async () => {
-    const { sqlite, db } = workspaceDatabase();
-    await openLinkedChat(db, { ...project, id: 'first-id' });
-    sqlite.prepare('UPDATE chats SET has_messages = 1').run();
-
-    const [one, other] = await Promise.all([
-      startLinkedChat(db, { ...project, id: 'tab-a' }),
-      startLinkedChat(db, { ...project, id: 'tab-b' }),
-    ]);
-    expect(other.initialId).toEqual(one.initialId);
-    expect(
-      sqlite.prepare('SELECT COUNT(*) AS current FROM chats WHERE archived_at IS NULL AND is_deleted = 0').get(),
-    ).toEqual({ current: 1 });
-  });
-
-  it('continues the agent holding the current workspace when the conversation has a later subchat', async () => {
-    const { sqlite, db } = workspaceDatabase();
-    await openLinkedChat(db, { ...project, id: 'first-id' });
-    sqlite
-      .prepare(
-        `INSERT INTO chat_transcripts (chat_id, subchat_index, agent_name, transition_token, created_at, updated_at)
-         SELECT id, 1, 'first-id--transcript-1-0', 'token', 1, 1 FROM chats`,
-      )
-      .run();
-    sqlite.prepare('UPDATE chats SET has_messages = 1, last_subchat_index = 1').run();
-
-    await expect(startLinkedChat(db, { ...project, id: 'second-id' })).resolves.toMatchObject({
-      archivedAgentNames: ['first-id', 'first-id--transcript-1-0'],
-    });
-    expect(sqlite.prepare("SELECT continues_agent_name FROM chats WHERE initial_id = 'second-id'").get()).toEqual({
-      continues_agent_name: 'first-id--transcript-1-0',
-    });
-  });
-
-  it('hands the project back to the latest earlier conversation when the current one is removed', async () => {
-    const { sqlite, db } = workspaceDatabase();
-    const current = () =>
-      sqlite
-        .prepare('SELECT initial_id FROM chats WHERE archived_at IS NULL AND is_deleted = 0 ORDER BY initial_id')
-        .all();
-    await openLinkedChat(db, { ...project, id: 'first-id' });
-    sqlite.prepare('UPDATE chats SET has_messages = 1').run();
-    await startLinkedChat(db, { ...project, id: 'second-id' });
-    sqlite.prepare('UPDATE chats SET has_messages = 1').run();
-    await startLinkedChat(db, { ...project, id: 'third-id' });
-    // Another project's conversation is not touched.
-    await openLinkedChat(db, { sessionId: 'session', id: 'other-id', orgProjectId: 'project-2' });
-
-    // Removing an earlier one changes nothing about which is current.
-    await removeChat(db, { sessionId: 'session', id: 'first-id' });
-    expect(current()).toEqual([{ initial_id: 'other-id' }, { initial_id: 'third-id' }]);
-
-    await removeChat(db, { sessionId: 'session', id: 'third-id' });
-    expect(current()).toEqual([{ initial_id: 'other-id' }, { initial_id: 'second-id' }]);
-    await expect(openLinkedChat(db, { ...project, id: 'fourth-id' })).resolves.toEqual({
-      initialId: 'second-id',
-      created: false,
-    });
   });
 });
 

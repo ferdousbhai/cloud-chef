@@ -31,9 +31,10 @@ export type BuilderWorkspaceLinkedProject = {
    */
   baseManifest: { path: string; sha256: string; executable?: boolean }[];
   /**
-   * Names this workspace's own branch (`cloudchef/<member>-<branchKey>`), so two conversations never
-   * overwrite each other's branch; a conversation that continues another keeps its key. Absent on
-   * workspaces opened before branches were per conversation, which use the member's one branch.
+   * Names this workspace's own branch (`cloudchef/<member>-<branchKey>`), so two of a member's chats on
+   * a project never overwrite each other's branch; every conversation in a chat shares its workspace, and
+   * so its branch. Absent on workspaces opened before each had its own branch, which use the member's one
+   * branch.
    */
   branchKey?: string;
   /**

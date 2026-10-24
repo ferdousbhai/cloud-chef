@@ -313,7 +313,10 @@ export function SubchatBar({
               disabled={chatDisabled || interactionsDisabled}
               inline
               aria-label="Start a new chat"
-              tip={busyTip ?? (chatDisabled ? 'New chat unavailable' : 'Start a new chat with fresh context')}
+              tip={
+                busyTip ??
+                (chatDisabled ? 'New chat unavailable' : 'Start a new chat on this project with fresh context')
+              }
               onClick={() => {
                 setCreateDialog({ context: interactionContext, token: Symbol('create-dialog') });
               }}

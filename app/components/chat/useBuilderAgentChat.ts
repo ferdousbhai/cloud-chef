@@ -151,13 +151,10 @@ export function useBuilderAgentChat(args: {
       setUpgradeWaiting(state.upgradeWaiting === true);
       const linked = state.linkedProject ?? null;
       const shownLinked = workbenchStore.linkedProject.get();
-      if (
-        linked?.repository !== shownLinked?.repository ||
-        linked?.defaultBranch !== shownLinked?.defaultBranch ||
-        (linked?.archived ?? false) !== (shownLinked?.archived ?? false)
-      ) {
+      if (linked?.repository !== shownLinked?.repository || linked?.defaultBranch !== shownLinked?.defaultBranch) {
         workbenchStore.linkedProject.set(linked);
       }
+      workbenchStore.conversationClosed.set(state.conversationClosed === true);
       const generatedTitle = state.generatedSubchatTitle;
       if (!generatedTitle || generatedSubchatTitleUpdatedAtRef.current === generatedTitle.updatedAt) {
         return;

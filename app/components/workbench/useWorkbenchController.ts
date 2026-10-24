@@ -26,6 +26,7 @@ export function useWorkbenchController(isStreaming?: boolean) {
   const selectedView = useStore(workbenchStore.currentView);
   const following = useStore(workbenchStore.followingStreamedCode);
   const linkedProject = useStore(workbenchStore.linkedProject);
+  const conversationClosed = useStore(workbenchStore.conversationClosed);
   const isSmallViewport = useViewport();
   const workspaceId = workbenchStore.getActiveWorkspaceId();
   const [hasLoadedPreview, setHasLoadedPreview] = useState(false);
@@ -100,8 +101,8 @@ export function useWorkbenchController(isStreaming?: boolean) {
     workbenchStore.setSelectedFile(filePath ? getAbsolutePath(filePath) : undefined);
   }, []);
   const onFileSave = useCallback(() => {
-    // A conversation a newer one took over is kept to read: its copy of the project is no longer saved to.
-    if (workbenchStore.linkedProject.get()?.archived) {
+    // A conversation a newer one took over is kept to read: only the newest one changes the project.
+    if (workbenchStore.conversationClosed.get()) {
       return;
     }
     workbenchStore.flushPendingEditorChange();
@@ -165,6 +166,7 @@ export function useWorkbenchController(isStreaming?: boolean) {
     files,
     hasLoadedPreview,
     linkedProject,
+    conversationClosed,
     isSmallViewport,
     onEditorChange,
     onEditorScroll,

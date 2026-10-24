@@ -60,7 +60,7 @@ describe('OrgProjectsList', () => {
     await act(async () => projectButton().click());
 
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('not saved'));
-    // Nothing reached the workspace: the current conversation is neither archived nor left.
+    // Nothing reached the workspace: the chat open now is not left.
     expect(fetchImpl).toHaveBeenCalledOnce();
     expect(projectButton().disabled).toBe(false);
     expect(projectButton().textContent).not.toContain('Opening');

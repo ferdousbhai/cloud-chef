@@ -238,7 +238,7 @@ applies an earlier commit's files as one compare-and-swap change set (refused wh
 publication follows, its commit starting `Revert to <short commit>`. A fork copies the repository to the new chat's
 own `p-<id>` (main moved back to the chosen commit) and the new chat's workspace seeds from it. A team project's
 workspace seeds from its main (importing it first, when the control plane gives an import source); `publish_preview`
-replaces the conversation's branch with one commit on top of the workspace's base, `publish` then merges it into
+replaces the chat's branch with one commit on top of the workspace's base, `publish` then merges it into
 main (fast-forward, or a three-way merge by file and by line, where overlapping changes are a conflict), and the
 watch reads Workers Builds' status for the commit from the control plane (`runtime-projects/status`). The browser
 reads history, a clone command, a fork and a ZIP of any commit through the runtime (`projects.*` data operations and
@@ -441,10 +441,12 @@ its revision; a record it finds already succeeded was settled by a later executi
 replaced.
 
 A CloudChef app's account resources (its Worker and so its `workers.dev` address, `DB`, `AGENT_SECURITY_DB`,
-`APP_STORAGE`, `APP_CACHE`, and the preview Worker and preview counterpart of each) belong to the project, the `ProjectWorkspace` a chat (or subchat)
-builds in, not to a revision: every deployment replaces the Worker's version in place and keeps the data. A subchat
-starts from its parent's files in a workspace of its own, so it publishes as an app of its own, with its own address
-and empty data; it never adopts its parent's resources, which the parent may still be deploying onto. A deployment
+`APP_STORAGE`, `APP_CACHE`, and the preview Worker and preview counterpart of each) belong to the project, the `ProjectWorkspace` a chat
+builds in, not to a revision: every deployment replaces the Worker's version in place and keeps the data. A chat is one
+project: its workspace is keyed on the chat (by the id of its first conversation's agent), and a new conversation (a
+subchat) is a new agent with a fresh context working in that same workspace, publishing onto the same Worker and
+resources and committing to the same repository. Only the newest conversation may change the project; the earlier ones
+are kept to read, and the one before stops and hands its publication state to the new one when it starts. A deployment
 id is only the record and idempotency key of one revision's publication. A plan names every resource after the project's own
 identity (`appResourceIdentity`), and must name both the production and the preview Worker. A stored plan is not
 replayed once the revision would get another (the Cloudflare connection, or the plan a release makes, changed since

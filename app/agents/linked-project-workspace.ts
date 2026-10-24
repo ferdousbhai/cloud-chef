@@ -28,13 +28,13 @@ export function isExcludedProjectPath(path: string): boolean {
 type LinkedChange = { path: string; bytes: Uint8Array | null; executable: boolean };
 
 /** A new key for a workspace's own branch (see `BuilderWorkspaceLinkedProject.branchKey`). */
-export function newLinkedBranchKey(): string {
+function newLinkedBranchKey(): string {
   return crypto.randomUUID().replaceAll('-', '').slice(0, 12);
 }
 
 /**
  * The workspace's own branch: the member's email's name part, made safe for git, then the workspace's key.
- * Without a key (a workspace opened before branches were per conversation), the member's one branch.
+ * Without a key (a workspace opened before each had its own branch), the member's one branch.
  */
 export function memberBranch(email: string | null, userId: string, branchKey: string | undefined): string {
   const name = (email?.split('@')[0] ?? 'member')

@@ -1,5 +1,6 @@
 import {
   TRANSCRIPT_HISTORY_FORMAT_VERSION,
+  transcriptAgentName,
   transcriptIdentitiesEqual,
   type TranscriptIdentity,
 } from 'cloudchef-agent/transcript';
@@ -8,14 +9,7 @@ import type { BuilderAgent } from '~/agents/builder-agent';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import type { DataOperationPath, DataOperationResult } from './data-api';
 import { dataOperationArgSchemas, MAX_SUBCHAT_INDEX } from './data-operation-schemas';
-import {
-  findChat,
-  isChatArchived,
-  listLinkedChatHistory,
-  openLinkedChat,
-  requireChat,
-  startLinkedChat,
-} from './data/chat-repository.server';
+import { findChat, openLinkedChat, requireChat } from './data/chat-repository.server';
 import {
   createSubchat,
   discardEmptyChat,
@@ -37,7 +31,6 @@ import {
 } from './data/projects.server';
 import { sweepAppResourceGcCandidatesBestEffort } from './data/app-resource-gc.server';
 import { ensureDataBindings, internalErrorResponse } from './data/http.server';
-import { ChatArchivedError } from './data/errors';
 import { requireChatTranscript, transcriptIdentity } from './data/transcript-repository.server';
 import { retryDurableObjectRpc } from './durable-object-rpc.server';
 
@@ -61,7 +54,7 @@ export async function userRuntimeDataAction(args: {
       await readJsonBodyWithLimit(args.request, MAX_DATA_REQUEST_BYTES, 'Data request'),
     );
     ensureDataBindings(args.env);
-    const result = runKnownDataOperation(args.env, body.path, body.args, args.userId, args.executionCtx);
+    const result = runKnownDataOperation(args.env, body.path, body.args, args.userId);
     args.executionCtx?.waitUntil(sweepAgentGcCandidatesBestEffort(args.env));
     args.executionCtx?.waitUntil(sweepAppResourceGcCandidatesBestEffort(args.env));
     return Response.json({ result: await result });
@@ -131,7 +124,6 @@ function runKnownDataOperation(
   path: DataOperationPath,
   rawArgs: unknown,
   sessionId: string,
-  executionCtx: Pick<ExecutionContext, 'waitUntil'> | undefined,
 ): Promise<DataOperationResult<DataOperationPath>> {
   // Every operation acts for the signed-in user the runtime session belongs to, never one the request names.
   switch (path) {
@@ -139,14 +131,6 @@ function runKnownDataOperation(
       return initializeChat(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.openLinkedChat':
       return openLinkedChat(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
-    case 'messages.startLinkedChat':
-      return startLinkedChatAndStopArchived(
-        env,
-        { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId },
-        executionCtx,
-      );
-    case 'messages.linkedChatHistory':
-      return listLinkedChatHistory(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.discardEmptyChat':
       return discardEmptyChat(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.get':
@@ -180,33 +164,11 @@ function runKnownDataOperation(
 }
 
 /**
- * Starts a new conversation on a team project and tells the one it archived to stop now, rather than at
- * whatever it does next. The new conversation's agent also waits for that before it copies the workspace,
- * so this is only the early start: the answer doesn't wait for it.
+ * Starts the chat's next conversation, which continues the same project with a fresh context. The one it
+ * follows is closed from then on: it stops, and hands over its publication state to the new one.
  */
-async function startLinkedChatAndStopArchived(
-  env: Env,
-  args: { sessionId: string; id: string; orgProjectId: string },
-  executionCtx: Pick<ExecutionContext, 'waitUntil'> | undefined,
-): Promise<{ initialId: string }> {
-  const { initialId, archivedAgentNames } = await startLinkedChat(env.DB, args);
-  const stopping = Promise.all(
-    archivedAgentNames.map((agentName) =>
-      env.BuilderAgent.getByName(agentName)
-        .settleForSuccessor(args.sessionId)
-        .catch(() => console.warn('An archived conversation could not be stopped yet; it stops before it is copied')),
-    ),
-  );
-  executionCtx?.waitUntil(stopping);
-  return { initialId };
-}
-
 async function createSubchatFromAgent(env: Env, args: { sessionId: string; chatId: string }): Promise<number> {
   const chat = await requireChat(env.DB, { id: args.chatId, sessionId: args.sessionId });
-  // An earlier conversation on a team project is kept to read: a subchat would work on its old copy.
-  if (await isChatArchived(env.DB, { id: args.chatId, sessionId: args.sessionId })) {
-    throw new ChatArchivedError();
-  }
   const parent = await requireChatTranscript(env.DB, {
     chatId: chat.id,
     subchatIndex: chat.last_subchat_index,
@@ -216,10 +178,25 @@ async function createSubchatFromAgent(env: Env, args: { sessionId: string; chatI
   if (durable.checkpoint && !transcriptIdentitiesEqual(durable.checkpoint, identity)) {
     throw new Error('Parent transcript identity changed while creating a subchat.');
   }
-  return createSubchat(env.DB, {
+  const subchatIndex = await createSubchat(env.DB, {
     sessionId: args.sessionId,
     chat,
     parent,
     parentRevision: durable.checkpoint?.revision ?? 0,
   });
+  // The earlier conversation is closed now, so it refuses new work whatever happens below; this stops what it
+  // has under way, so that nothing but the new conversation changes the project from here.
+  try {
+    const handover = await env.BuilderAgent.getByName(identity.agentName).settleForSuccessor(args.sessionId);
+    if (handover) {
+      await env.BuilderAgent.getByName(transcriptAgentName(chat.initial_id, subchatIndex)).continuePublication(
+        args.sessionId,
+        handover,
+      );
+    }
+  } catch {
+    // The new conversation exists either way; without the handover, its first turn publishes the project again.
+    console.warn('The earlier conversation did not hand the project over; the new one publishes it again');
+  }
+  return subchatIndex;
 }

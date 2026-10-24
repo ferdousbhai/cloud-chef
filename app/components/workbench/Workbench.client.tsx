@@ -105,7 +105,7 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
       lockedMessage={isStreaming ? 'Build in progress. Code and preview unlock when this step finishes.' : null}
       headerActions={
         controller.selectedView === 'code' ? (
-          controller.linkedProject?.archived ? null : (
+          controller.conversationClosed ? null : (
             <PanelHeaderButton
               className="mr-1 text-sm"
               title="Save current file"
@@ -147,7 +147,7 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
             projectId={controller.projectId}
             editorDocument={controller.currentDocument}
             isStreaming={isStreaming}
-            readOnly={controller.linkedProject?.archived === true}
+            readOnly={controller.conversationClosed}
             scrollToDocAppend={controller.scrollToDocAppend}
             selectedFile={controller.selectedFile}
             files={controller.files}
