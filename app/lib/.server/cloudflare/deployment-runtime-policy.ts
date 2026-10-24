@@ -19,6 +19,6 @@ export const DEPLOYMENT_ASSETS_RUN_WORKER_FIRST = ['/*', '!/assets/*'] as const;
 /**
  * A Worker CloudChef publishes serves only its active version, at its workers.dev address. Versioned
  * preview URLs would keep every earlier version reachable, each bound to the data it was published
- * with, so they stay off: a preview is the active version of the project's preview Worker instead.
+ * with, so they stay off.
  */
 export const DEPLOYMENT_PREVIEW_URLS_ENABLED = false as const;

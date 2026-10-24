@@ -1,7 +1,6 @@
 import {
   createOrReplayDeploymentPlanForUser,
   deployForUser,
-  previewForUser,
   terminalizeInterruptedDeploymentForUser,
   type DeploymentExecution,
   type PublicDeployment,
@@ -45,14 +44,13 @@ export type BuilderDeploymentState = {
 type BuilderDeploymentSettle = { settled: boolean; deployment: BuilderDeploymentState };
 
 /**
- * Build the exact checkpoint a preview or deployment was asked for, unless a validation of that
- * revision already produced its deployable artifact. The full validation is the build: it leaves the
- * artifact that preview and production publish. Nothing is published from a different revision.
+ * Build the exact checkpoint a deployment was asked for, unless a validation of that revision already
+ * produced its deployable artifact. The full validation is the build: it leaves the artifact that
+ * production publishes. Nothing is published from a different revision.
  */
 export async function buildCheckpointForBuilder(args: {
   workspace: BuilderBuildWorkspace;
   requestedSnapshot: BuilderWorkspaceCheckpoint;
-  publication: 'preview' | 'deployment';
   toolCallId: string;
   abortSignal?: AbortSignal;
   onStage?: WorkspaceValidationStageReporter;
@@ -60,15 +58,13 @@ export async function buildCheckpointForBuilder(args: {
   args.abortSignal?.throwIfAborted();
   const current = await args.workspace.checkpoint();
   if (!sameCheckpoint(current, args.requestedSnapshot)) {
-    throw new Error(
-      `The project changed after the ${args.publication} was requested. Build the current revision instead.`,
-    );
+    throw new Error('The project changed after the deployment was requested. Build the current revision instead.');
   }
 
   if (!(await args.workspace.hasSuccessfulValidation(current.revision))) {
     const validation = await args.workspace.validate({
       toolCallId: args.toolCallId,
-      input: { source: args.publication },
+      input: { source: 'deployment' },
       onStage: args.onStage,
       abortSignal: args.abortSignal,
     });
@@ -83,9 +79,7 @@ export async function buildCheckpointForBuilder(args: {
     !sameCheckpoint(built, args.requestedSnapshot) ||
     !(await args.workspace.hasSuccessfulValidation(built.revision))
   ) {
-    throw new Error(
-      `The project changed while the ${args.publication} was being built. Build the current revision instead.`,
-    );
+    throw new Error('The project changed while the deployment was being built. Build the current revision instead.');
   }
   return built;
 }
@@ -150,8 +144,8 @@ function builderDeploymentState(deployment: PublicDeployment | null): BuilderDep
 }
 
 /**
- * Only a deployment that was claimed is still running. One a preview planned and nothing claimed
- * (`approved`) is ready to run, so whoever asked runs it rather than waiting for it to settle.
+ * Only a deployment that was claimed is still running. One planned that nothing claimed (`approved`)
+ * is ready to run, so whoever asked runs it rather than waiting for it to settle.
  */
 function builderDeploymentStatus(status: DeploymentStatus): BuilderDeploymentState['status'] {
   if (status === 'approved') {
@@ -174,7 +168,7 @@ export async function deployValidatedRevisionForBuilder(args: {
   abortSignal?: AbortSignal;
 }): Promise<BuilderDeploymentState> {
   args.abortSignal?.throwIfAborted();
-  const deploymentId = await planValidatedRevision({ ...args, publication: 'Deployment' });
+  const deploymentId = await planValidatedRevision(args);
   args.onPlanned?.(deploymentId);
   const deployment = await deployForUser({
     env: args.context.env,
@@ -191,47 +185,19 @@ export async function deployValidatedRevisionForBuilder(args: {
   };
 }
 
-/**
- * Preview the same validated revision under the same deployment plan. Passing the deployment's own
- * tool-call identity is what publishes the preview to the preview resources that exact deployment's
- * plan names, the project's, rather than as a second publication with a plan of its own.
- */
-export async function previewValidatedRevisionForBuilder(args: {
-  context: BuilderDeploymentContext;
-  workspace: BuilderDeploymentWorkspace;
-  toolCallId: string;
-  previewId: string;
-  validatedRevision: string;
-  /** Called once the plan exists, so the caller can follow the stages it is about to record. */
-  onPlanned?: (deploymentId: string) => void;
-  abortSignal?: AbortSignal;
-}) {
-  args.abortSignal?.throwIfAborted();
-  const deploymentId = await planValidatedRevision({ ...args, publication: 'Preview' });
-  args.onPlanned?.(deploymentId);
-  return previewForUser({
-    env: args.context.env,
-    userId: args.context.userId,
-    deploymentId,
-    previewId: args.previewId,
-    abortSignal: args.abortSignal,
-  });
-}
-
 /** Create or replay the one deployment plan for this exact revision and return its identity. */
 async function planValidatedRevision(args: {
   context: BuilderDeploymentContext;
   workspace: BuilderDeploymentWorkspace;
   toolCallId: string;
   validatedRevision: string;
-  publication: 'Deployment' | 'Preview';
 }): Promise<string> {
   const snapshot = await args.workspace.checkpoint();
   if (snapshot.revision !== args.validatedRevision) {
     throw new Error('The project changed after it was built. Build the current revision instead.');
   }
   if (!(await args.workspace.hasSuccessfulValidation(snapshot.revision))) {
-    throw new Error(`${args.publication} has no build of this exact revision.`);
+    throw new Error('Deployment has no build of this exact revision.');
   }
   const source = await args.workspace.prepareDeployment(snapshot.revision);
   // A plan stored under one id that the revision would no longer get is never replayed: the revision is
@@ -257,9 +223,7 @@ async function planValidatedRevision(args: {
       return deploymentId;
     }
   }
-  throw new Error(
-    `${args.publication} of this revision was planned too many times. Change the project and publish again.`,
-  );
+  throw new Error('Deployment of this revision was planned too many times. Change the project and publish again.');
 }
 
 /**

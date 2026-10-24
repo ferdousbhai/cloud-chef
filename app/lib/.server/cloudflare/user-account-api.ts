@@ -119,7 +119,7 @@ type WorkerUploadMetadata = {
   annotations: { 'workers/message': string; 'workers/tag': string };
 };
 
-/** One immutable Worker version's bytes and bindings, whether it is promoted or only previewed. */
+/** One immutable Worker version's bytes and bindings. */
 export type ManagedWorkerVersionArgs = {
   workerName: string;
   projectType: 'web_app' | 'worker';
@@ -807,10 +807,7 @@ export class UserCloudflareAccountApi {
     throw new CloudflareAccountApiError(ACCOUNT_LIST_TOO_LONG);
   }
 
-  /**
-   * Upload an immutable version, then promote exactly that version, and return it. A preview is
-   * published the same way, to the project's preview Worker.
-   */
+  /** Upload an immutable version, then promote exactly that version, and return it. */
   async deployManagedWorker(args: ManagedWorkerVersionArgs): Promise<{ workerVersionId: string }> {
     const form = await this.managedWorkerUploadForm(args);
     // Cloudflare rejects a version upload for a Worker that has never been deployed, and applies

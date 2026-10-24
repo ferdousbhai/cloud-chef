@@ -22,13 +22,8 @@ const mocks = vi.hoisted(() => {
     sendMessage: vi.fn(),
     stop: vi.fn(),
   };
-  const previewRequests: Array<() => Promise<unknown>> = [];
   const workbench = {
-    connectPreview: vi.fn((actions: { request: () => Promise<unknown> }) => {
-      previewRequests.push(actions.request);
-      return vi.fn();
-    }),
-    updatePreview: vi.fn(),
+    connectSite: vi.fn(() => vi.fn()),
   };
   return {
     agent: { state: {} as { transcript?: unknown }, call: vi.fn() },
@@ -47,7 +42,6 @@ const mocks = vi.hoisted(() => {
     showWorkersPaidRequiredToast: vi.fn(),
     controller,
     initializeWorkspace: vi.fn(async () => controller),
-    previewRequests,
     waitForSocket: vi.fn(async () => undefined),
     workbench,
     workspacePreparing: { value: false },
@@ -149,11 +143,9 @@ beforeEach(() => {
   mocks.abortToolActivity.mockClear();
   mocks.clearToolProgress.mockClear();
   mocks.showWorkersPaidRequiredToast.mockClear();
-  mocks.previewRequests.length = 0;
   mocks.waitForSocket.mockReset();
   mocks.waitForSocket.mockResolvedValue(undefined);
-  mocks.workbench.connectPreview.mockClear();
-  mocks.workbench.updatePreview.mockClear();
+  mocks.workbench.connectSite.mockClear();
   mocks.refreshRuntimeSession.mockClear();
 });
 
@@ -189,9 +181,6 @@ describe('useBuilderAgentChat workspace preparation', () => {
     // unresumable chat (observed in production during the first end-to-end build).
     expect(WORKSPACE_PREPARE_TIMEOUT_MS).toBeGreaterThanOrEqual(CONTAINER_CONNECT_TIMEOUT_MS);
     mocks.agent.call.mockImplementation(async (method: string) => {
-      if (method === 'getPreviewState') {
-        return {};
-      }
       if (method === 'prepareWorkspace') {
         return { initialized: true };
       }
@@ -221,9 +210,6 @@ describe('useBuilderAgentChat workspace preparation', () => {
     try {
       let preparation = 0;
       mocks.agent.call.mockImplementation(async (method: string) => {
-        if (method === 'getPreviewState') {
-          return {};
-        }
         if (method === 'prepareWorkspace') {
           preparation += 1;
           if (preparation === 1) {
@@ -273,9 +259,6 @@ describe('useBuilderAgentChat workspace preparation', () => {
     vi.useFakeTimers();
     try {
       mocks.agent.call.mockImplementation(async (method: string) => {
-        if (method === 'getPreviewState') {
-          return {};
-        }
         if (method === 'prepareWorkspace') {
           throw new Error('workspace_preparing');
         }
@@ -308,9 +291,6 @@ describe('useBuilderAgentChat workspace preparation', () => {
     const newPreparation = deferred<{ initialized: boolean }>();
     const preparations = [oldPreparation.promise, newPreparation.promise];
     mocks.agent.call.mockImplementation(async (method: string) => {
-      if (method === 'getPreviewState') {
-        return {};
-      }
       if (method === 'prepareWorkspace') {
         const preparation = preparations.shift();
         if (!preparation) {
@@ -362,9 +342,6 @@ describe('useBuilderAgentChat workspace preparation', () => {
 describe('useBuilderAgentChat stale presentation operations', () => {
   it('ignores stream callbacks retained by a superseded presentation', async () => {
     mocks.agent.call.mockImplementation(async (method: string) => {
-      if (method === 'getPreviewState') {
-        return {};
-      }
       if (method === 'prepareWorkspace') {
         return { initialized: true };
       }
@@ -428,9 +405,6 @@ describe('useBuilderAgentChat stale presentation operations', () => {
     mocks.agent.state = { transcript: checkpoint };
     mocks.reconcileMessages.mockImplementationOnce(async () => reconciliation.promise);
     mocks.agent.call.mockImplementation(async (method: string) => {
-      if (method === 'getPreviewState') {
-        return {};
-      }
       if (method === 'prepareWorkspace') {
         return { initialized: true };
       }
@@ -461,9 +435,6 @@ describe('useBuilderAgentChat stale presentation operations', () => {
   it('does not send after the presentation switches during transcript reconciliation', async () => {
     const oldSnapshot = deferred<{ checkpoint: null; messages: CloudChefMessage[] }>();
     mocks.agent.call.mockImplementation(async (method: string) => {
-      if (method === 'getPreviewState') {
-        return {};
-      }
       if (method === 'prepareWorkspace') {
         return { initialized: true };
       }
@@ -507,9 +478,6 @@ describe('useBuilderAgentChat stale presentation operations', () => {
       }
     });
     mocks.agent.call.mockImplementation(async (method: string) => {
-      if (method === 'getPreviewState') {
-        return {};
-      }
       if (method === 'prepareWorkspace') {
         return { initialized: true };
       }
@@ -541,49 +509,6 @@ describe('useBuilderAgentChat stale presentation operations', () => {
       expect.objectContaining({ message: 'The durable workspace initialization was superseded.' }),
     );
     expect(mocks.agent.call.mock.calls.filter(([method]) => method === 'steerActiveTurn')).toHaveLength(0);
-  });
-
-  it('ignores preview get and request responses from a superseded presentation', async () => {
-    const oldGet = deferred<{ presentation: string }>();
-    const oldRequest = deferred<{ presentation: string }>();
-    let getCall = 0;
-    mocks.agent.call.mockImplementation(async (method: string) => {
-      if (method === 'getPreviewState') {
-        getCall += 1;
-        return getCall === 1 ? oldGet.promise : { presentation: 'new' };
-      }
-      if (method === 'requestPreview') {
-        return oldRequest.promise;
-      }
-      if (method === 'prepareWorkspace') {
-        return { initialized: true };
-      }
-      throw new Error(`Unexpected agent call: ${method}`);
-    });
-
-    function Harness({ presentationId }: { presentationId: string }) {
-      useBuilderAgentChat(chatArgs(presentationId));
-      return null;
-    }
-
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-    await act(async () => root?.render(<Harness presentationId="workspace-old" />));
-    await vi.waitFor(() => expect(mocks.previewRequests).toHaveLength(1));
-    const staleRequest = mocks.previewRequests[0]();
-
-    await act(async () => root?.render(<Harness presentationId="workspace-new" />));
-    await vi.waitFor(() => expect(mocks.previewRequests).toHaveLength(2));
-    await act(async () => {
-      oldGet.resolve({ presentation: 'old-get' });
-      oldRequest.resolve({ presentation: 'old-request' });
-      await Promise.all([oldGet.promise, staleRequest]);
-    });
-
-    expect(mocks.workbench.updatePreview).toHaveBeenCalledWith({ presentation: 'new' });
-    expect(mocks.workbench.updatePreview).not.toHaveBeenCalledWith({ presentation: 'old-get' });
-    expect(mocks.workbench.updatePreview).not.toHaveBeenCalledWith({ presentation: 'old-request' });
   });
 });
 

@@ -56,7 +56,6 @@ import { DeploymentConcurrencyLimitError, DeploymentStateConflictError } from '.
 import { D1MigrationChangedError } from './user-account-api';
 import {
   executeUserOwnedDeployment,
-  executeUserOwnedPreview,
   terminalizeInterruptedUserOwnedDeployment,
 } from './user-workspace-deployment-executor';
 
@@ -351,176 +350,6 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     );
   });
 
-  it('publishes a preview to the project’s preview Worker, binding and migrating only the preview databases', async () => {
-    const revision = 'd'.repeat(64);
-    const plan = {
-      version: 5,
-      deploymentId: 'deployment-1',
-      sourceSha256: revision,
-      project: {
-        type: 'worker',
-        bindings: { ai: false, d1: true, r2: false, kv: false, appAgent: true },
-      },
-      resources: [
-        { type: 'worker', logicalName: 'app', proposedName: 'cloudchef-deployment-1' },
-        { type: 'worker', logicalName: 'app_preview', proposedName: 'deployme-cloudchef-deployment-1-preview' },
-        { type: 'd1', logicalName: 'DB', proposedName: 'cloudchef-deployment-1' },
-        { type: 'd1', logicalName: 'DB_PREVIEW', proposedName: 'cloudchef-deployment-1-preview' },
-        {
-          type: 'd1',
-          logicalName: 'AGENT_SECURITY_DB',
-          proposedName: 'cloudchef-deployment-1-agent-security',
-        },
-        {
-          type: 'd1',
-          logicalName: 'AGENT_SECURITY_DB_PREVIEW',
-          proposedName: 'cloudchef-deployment-1-preview-agent',
-        },
-        { type: 'durable_object', logicalName: 'AppAgent', proposedName: 'AppAgent' },
-      ],
-    };
-    const deployment = {
-      id: 'deployment-1',
-      chatId: 'chat-1',
-      userId: 'user-1',
-      connectionId: 'connection-1',
-      connectionGeneration: 3,
-      executionGeneration: 4,
-      workspaceReference: `workspace-runtime:project-1:7:${revision}`,
-      status: 'approved',
-      plan,
-      planDigest: 'digest-1',
-      productionUrl: null,
-      errorCode: null,
-      errorMessage: null,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-    const moduleBytes = new TextEncoder().encode('export default {}');
-    const moduleDigest = await crypto.subtle.digest('SHA-256', moduleBytes);
-    const prepareDeploymentArtifact = vi.fn(async () => ({
-      revision,
-      mainModule: 'index.js',
-      modules: [
-        {
-          path: 'index.js',
-          bytes: moduleBytes,
-          size: moduleBytes.byteLength,
-          sha256: [...new Uint8Array(moduleDigest)].map((byte) => byte.toString(16).padStart(2, '0')).join(''),
-        },
-      ],
-      assets: [],
-      migrations: {
-        DB: [{ name: '0001_app_data.sql', sql: 'CREATE TABLE app_data (id TEXT);' }],
-        AGENT_SECURITY_DB: [{ name: '0001_agent.sql', sql: 'CREATE TABLE agent_data (id TEXT);' }],
-      },
-    }));
-    const beginDeploymentSession = vi.fn().mockResolvedValue(undefined);
-    const assertDeploymentSession = vi.fn().mockResolvedValue({ workspaceRevision: 7, revision });
-    const finishDeploymentSession = vi.fn().mockResolvedValue(undefined);
-    const projectNamespace = {
-      idFromName: vi.fn((name: string) => `id:${name}`),
-      get: vi.fn(() => ({
-        beginDeploymentSession,
-        assertDeploymentSession,
-        prepareDeploymentArtifact,
-        finishDeploymentSession,
-      })),
-    };
-    mocks.requireDeployment.mockResolvedValue(deployment);
-    mocks.accountApi.ensureD1Database.mockImplementation(async (name: string) => ({
-      id: name === 'cloudchef-deployment-1-preview-agent' ? 'preview-agent-database-id' : 'preview-database-id',
-      name,
-    }));
-    // SAFETY: this test double supplies every user-runtime binding read by the preview executor.
-    const previewEnv = Object.assign({} as Env, {
-      DB: {},
-      CLOUDCHEF_USER_RUNTIME: '1',
-      CLOUDCHEF_CONTROL_PLANE_ENDPOINT: 'https://cloudchef.build',
-      CONTROL_PLANE_SECRET: 'runtime-secret-that-is-long-enough',
-      CLOUDFLARE_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
-      CLOUDCHEF_USER_ID: 'user-1',
-      CLOUDCHEF_CONNECTION_ID: 'connection-1',
-      CLOUDCHEF_CONNECTION_GENERATION: '3',
-      PROJECT_WORKSPACE: projectNamespace,
-    });
-
-    await expect(
-      executeUserOwnedPreview({
-        env: previewEnv,
-        deploymentId: 'deployment-1',
-        previewId: 'preview-1',
-        userId: 'user-1',
-        connectionId: 'connection-1',
-        executionGeneration: 4,
-      }),
-    ).resolves.toMatchObject({
-      id: '11111111-1111-4111-8111-111111111111',
-      // The preview Worker's own address, serving the revision as its active version.
-      url: 'https://deployme-cloudchef-deployment-1-preview.user-subdomain.workers.dev',
-      workspaceRevision: 7,
-      snapshotRevision: revision,
-    });
-
-    expect(mocks.accountApi.ensureD1Database.mock.calls).toEqual([
-      ['cloudchef-deployment-1-preview'],
-      ['cloudchef-deployment-1-preview-agent'],
-    ]);
-    expect(prepareDeploymentArtifact).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: 'preview:deployment-1:4:preview-1',
-        workerName: 'deployme-cloudchef-deployment-1-preview',
-        d1DatabaseId: 'preview-database-id',
-        d1DatabaseName: 'cloudchef-deployment-1-preview',
-        agentSecurityD1DatabaseId: 'preview-agent-database-id',
-        agentSecurityD1DatabaseName: 'cloudchef-deployment-1-preview-agent',
-      }),
-    );
-    expect(mocks.accountApi.applyD1Migrations).toHaveBeenCalledWith('preview-database-id', [
-      { name: '0001_app_data.sql', sql: 'CREATE TABLE app_data (id TEXT);' },
-    ]);
-    expect(mocks.accountApi.applyD1Migrations).toHaveBeenCalledWith('preview-agent-database-id', [
-      { name: '0001_agent.sql', sql: 'CREATE TABLE agent_data (id TEXT);' },
-    ]);
-    expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledOnce();
-    expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workerName: 'deployme-cloudchef-deployment-1-preview',
-        d1DatabaseId: 'preview-database-id',
-        agentSecurityD1DatabaseId: 'preview-agent-database-id',
-        appAgent: true,
-        sourceSha256: revision,
-      }),
-    );
-    expect(mocks.accountApi.configureManagedWorkerSchedule).toHaveBeenCalledWith(
-      'deployme-cloudchef-deployment-1-preview',
-      true,
-    );
-    expect(mocks.accountApi.enableWorkerSubdomain).toHaveBeenCalledWith('deployme-cloudchef-deployment-1-preview');
-    expect(mocks.accountApi.enableWorkerSubdomain).not.toHaveBeenCalledWith('cloudchef-deployment-1');
-    expect(mocks.recordDeploymentResource).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resourceType: 'worker',
-        logicalName: 'app_preview',
-        providerResourceId: 'deployme-cloudchef-deployment-1-preview',
-      }),
-    );
-    expect(mocks.recordDeploymentResource).not.toHaveBeenCalledWith(
-      expect.objectContaining({ resourceType: 'worker', logicalName: 'app' }),
-    );
-    expect(mocks.recordDeploymentResource).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resourceType: 'worker_version',
-        logicalName: 'preview:preview-1',
-        providerResourceId: '11111111-1111-4111-8111-111111111111',
-      }),
-    );
-    expect(finishDeploymentSession).toHaveBeenCalledWith({
-      sessionId: 'preview:deployment-1:4:preview-1',
-      status: 'completed',
-    });
-  });
-
   it('records a promoted deployment as succeeded, with a warning, when a step after it keeps failing', async () => {
     const { execution } = await workerDeployment();
     mocks.accountApi.configureManagedWorkerSchedule.mockRejectedValue(new Error('schedules unavailable'));
@@ -674,44 +503,14 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledOnce();
   });
 
-  it('deploys and previews an app that keeps its Agent onto the Workers holding its Agent data', async () => {
+  it('deploys an app that keeps its Agent onto the Worker holding its Agent data', async () => {
     const { execution, deployment } = await workerDeployment();
     deployment.plan.project.bindings.appAgent = true;
     mocks.accountApi.managedWorkerDurableObjectClasses.mockResolvedValue(['AppAgent']);
 
     await expect(executeUserOwnedDeployment(execution)).resolves.toMatchObject({ status: 'succeeded' });
-    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
-    await executeUserOwnedPreview({ ...execution, previewId: 'preview-1' });
 
-    expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledTimes(2);
-    expect(mocks.accountApi.deleteManagedWorker).not.toHaveBeenCalled();
-  });
-
-  it('starts the preview Worker over when a preview drops the Agent it had', async () => {
-    const { execution, deployment } = await workerDeployment();
-    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
-    mocks.accountApi.managedWorkerDurableObjectClasses.mockResolvedValue(['AppAgent']);
-
-    await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).resolves.toMatchObject({
-      url: 'https://deployme-cloudchef-deployment-1-preview.user-subdomain.workers.dev',
-    });
-
-    expect(mocks.accountApi.managedWorkerDurableObjectClasses).toHaveBeenCalledWith(
-      'deployme-cloudchef-deployment-1-preview',
-    );
-    expect(mocks.accountApi.deleteManagedWorker).toHaveBeenCalledWith('deployme-cloudchef-deployment-1-preview');
-    expect(mocks.accountApi.deleteManagedWorker.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.accountApi.deployManagedWorker.mock.invocationCallOrder[0]!,
-    );
-    expect(mocks.accountApi.deleteManagedWorker).not.toHaveBeenCalledWith('cloudchef-deployment-1');
-  });
-
-  it('keeps the preview Worker of a preview that keeps the Agent, or never had it', async () => {
-    const { execution, deployment } = await workerDeployment();
-    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
-
-    await executeUserOwnedPreview({ ...execution, previewId: 'preview-1' });
-
+    expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledOnce();
     expect(mocks.accountApi.deleteManagedWorker).not.toHaveBeenCalled();
   });
 
@@ -814,26 +613,6 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     expect(mocks.transitionDeployment).not.toHaveBeenCalled();
   });
 
-  it('stops a cancelled preview at its next step and releases the workspace', async () => {
-    const { execution, deployment, workspace } = await workerDeployment();
-    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
-    const controller = new AbortController();
-    workspace.prepareDeploymentArtifact.mockImplementationOnce(async () => {
-      controller.abort(new Error('A newer turn superseded this publication.'));
-      return workspace.artifact;
-    });
-
-    await expect(
-      executeUserOwnedPreview({ ...execution, previewId: 'preview-1', abortSignal: controller.signal }),
-    ).rejects.toThrow('A newer turn superseded this publication.');
-
-    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
-    expect(workspace.finishDeploymentSession).toHaveBeenCalledWith({
-      sessionId: 'preview:deployment-1:4:preview-1',
-      status: 'failed',
-    });
-  });
-
   it('deploys onto the database the project already has, applying its migrations there', async () => {
     const { execution } = await workerDeployment({ d1: true });
 
@@ -896,42 +675,6 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     expect(recorded?.length).toBeLessThanOrEqual(4_000);
   });
 
-  it('starts the preview database over when it refuses a changed migration, and previews on the new one', async () => {
-    const { execution, deployment, workspace } = await workerDeployment({ d1: true });
-    workspace.artifact.migrations.DB = [{ name: '0002_notes.sql', sql: 'CREATE TABLE notes (id TEXT, body TEXT);' }];
-    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
-    // The preview applied 0002 before it was edited; production never ran it.
-    mocks.accountApi.applyD1Migrations.mockRejectedValueOnce(new D1MigrationChangedError('0002_notes.sql'));
-    startPreviewDatabaseOverAs('fresh-preview-database-id');
-
-    await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).resolves.toMatchObject({
-      url: 'https://deployme-cloudchef-deployment-1-preview.user-subdomain.workers.dev',
-    });
-
-    expect(mocks.accountApi.deleteD1DatabaseById).toHaveBeenCalledWith('DB_PREVIEW-database-id');
-    expect(mocks.accountApi.ensureD1Database).toHaveBeenCalledWith('cloudchef-deployment-1-preview');
-    expect(mocks.accountApi.deleteD1DatabaseById.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.accountApi.ensureD1Database.mock.invocationCallOrder[1]!,
-    );
-    expect(mocks.accountApi.applyD1Migrations.mock.calls).toEqual([
-      ['DB_PREVIEW-database-id', workspace.artifact.migrations.DB],
-      ['fresh-preview-database-id', workspace.artifact.migrations.DB],
-    ]);
-    expect(mocks.recordDeploymentResource).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resourceType: 'd1',
-        logicalName: 'DB_PREVIEW',
-        providerResourceId: 'fresh-preview-database-id',
-      }),
-    );
-    expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workerName: 'deployme-cloudchef-deployment-1-preview',
-        d1DatabaseId: 'fresh-preview-database-id',
-      }),
-    );
-  });
-
   it('never starts production’s database over for a changed migration', async () => {
     const { execution } = await workerDeployment({ d1: true });
     mocks.accountApi.applyD1Migrations.mockRejectedValueOnce(new D1MigrationChangedError('0002_notes.sql'));
@@ -941,62 +684,6 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     expect(mocks.accountApi.deleteD1DatabaseById).not.toHaveBeenCalled();
     // Only provisioning asked for it.
     expect(mocks.accountApi.ensureD1Database).toHaveBeenCalledOnce();
-  });
-
-  it('keeps a preview database whose migrations fail for any other reason', async () => {
-    const { execution, deployment } = await workerDeployment({ d1: true });
-    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
-    mocks.accountApi.applyD1Migrations.mockRejectedValueOnce(new Error('near "CREAT": syntax error'));
-
-    await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).rejects.toThrow('syntax error');
-
-    expect(mocks.accountApi.deleteD1DatabaseById).not.toHaveBeenCalled();
-    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
-  });
-
-  it('stops a preview whose started-over database Cloudflare still answers with the deleted one', async () => {
-    const { execution, deployment } = await workerDeployment({ d1: true });
-    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
-    mocks.accountApi.applyD1Migrations.mockRejectedValueOnce(new D1MigrationChangedError('0002_notes.sql'));
-    startPreviewDatabaseOverAs('DB_PREVIEW-database-id');
-
-    await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).rejects.toThrow(
-      'is still being replaced',
-    );
-    expect(mocks.accountApi.applyD1Migrations).toHaveBeenCalledOnce();
-    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
-  });
-
-  it('gives a preview a bucket and namespace of its own, never production’s', async () => {
-    const { execution, deployment, workspace } = await workerDeployment({ storage: true });
-    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
-
-    await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).resolves.toMatchObject({
-      url: 'https://deployme-cloudchef-deployment-1-preview.user-subdomain.workers.dev',
-    });
-
-    expect(mocks.accountApi.ensureR2Bucket.mock.calls).toEqual([['cloudchef-deployment-1-preview-storage']]);
-    expect(mocks.accountApi.ensureKvNamespace.mock.calls).toEqual([['cloudchef-deployment-1-preview-cache']]);
-    expect(workspace.prepareDeploymentArtifact).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workerName: 'deployme-cloudchef-deployment-1-preview',
-        r2BucketName: 'cloudchef-deployment-1-preview-storage',
-        kvNamespaceId: 'b'.repeat(32),
-      }),
-    );
-    expect(mocks.accountApi.deployManagedWorker).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workerName: 'deployme-cloudchef-deployment-1-preview',
-        r2BucketName: 'cloudchef-deployment-1-preview-storage',
-        kvNamespaceId: 'b'.repeat(32),
-      }),
-    );
-    expect(mocks.recordDeploymentResource.mock.calls.map(([record]) => record.logicalName)).toEqual([
-      'APP_STORAGE_PREVIEW',
-      'APP_CACHE_PREVIEW',
-      'app_preview',
-      'preview:preview-1',
-    ]);
   });
 
   it('deploys production onto production’s bucket and namespace', async () => {
@@ -1013,22 +700,6 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
         kvNamespaceId: 'a'.repeat(32),
       }),
     );
-  });
-
-  it('answers a preview it already published with the preview Worker’s address', async () => {
-    const { execution, deployment, workspace } = await workerDeployment();
-    mocks.requireDeployment.mockReset().mockResolvedValue(deployment);
-    mocks.findDeploymentResource.mockResolvedValueOnce({
-      providerResourceId: '33333333-3333-4333-8333-333333333333',
-      createdAt: 1,
-    });
-
-    await expect(executeUserOwnedPreview({ ...execution, previewId: 'preview-1' })).resolves.toMatchObject({
-      id: '33333333-3333-4333-8333-333333333333',
-      url: 'https://deployme-cloudchef-deployment-1-preview.user-subdomain.workers.dev',
-    });
-    expect(workspace.beginDeploymentSession).not.toHaveBeenCalled();
-    expect(mocks.accountApi.deployManagedWorker).not.toHaveBeenCalled();
   });
 });
 
@@ -1053,25 +724,13 @@ async function workerDeployment(options: { d1?: boolean; storage?: boolean } = {
       project: { type: 'worker', bindings: { ai: false, d1, r2: storage, kv: storage, appAgent: false } },
       resources: [
         { type: 'worker', logicalName: 'app', proposedName: 'cloudchef-deployment-1' },
-        { type: 'worker', logicalName: 'app_preview', proposedName: 'deployme-cloudchef-deployment-1-preview' },
         ...(storage
           ? [
               { type: 'r2', logicalName: 'APP_STORAGE', proposedName: 'cloudchef-deployment-1-storage' },
-              {
-                type: 'r2',
-                logicalName: 'APP_STORAGE_PREVIEW',
-                proposedName: 'cloudchef-deployment-1-preview-storage',
-              },
               { type: 'kv', logicalName: 'APP_CACHE', proposedName: 'cloudchef-deployment-1-cache' },
-              { type: 'kv', logicalName: 'APP_CACHE_PREVIEW', proposedName: 'cloudchef-deployment-1-preview-cache' },
             ]
           : []),
-        ...(d1
-          ? [
-              { type: 'd1', logicalName: 'DB', proposedName: 'cloudchef-deployment-1' },
-              { type: 'd1', logicalName: 'DB_PREVIEW', proposedName: 'cloudchef-deployment-1-preview' },
-            ]
-          : []),
+        ...(d1 ? [{ type: 'd1', logicalName: 'DB', proposedName: 'cloudchef-deployment-1' }] : []),
       ],
     },
     planDigest: 'digest-1',
@@ -1083,16 +742,10 @@ async function workerDeployment(options: { d1?: boolean; storage?: boolean } = {
   };
   if (storage) {
     mocks.accountApi.ensureR2Bucket.mockImplementation(async (name: string) => ({ id: name, name }));
-    mocks.accountApi.ensureKvNamespace.mockImplementation(async (name: string) => ({
-      id: (name === 'cloudchef-deployment-1-cache' ? 'a' : 'b').repeat(32),
-      name,
-    }));
+    mocks.accountApi.ensureKvNamespace.mockImplementation(async (name: string) => ({ id: 'a'.repeat(32), name }));
   }
   if (d1) {
-    mocks.accountApi.ensureD1Database.mockImplementation(async (name: string) => ({
-      id: name === 'cloudchef-deployment-1' ? 'DB-database-id' : 'DB_PREVIEW-database-id',
-      name,
-    }));
+    mocks.accountApi.ensureD1Database.mockImplementation(async (name: string) => ({ id: 'DB-database-id', name }));
   }
   const moduleBytes = new TextEncoder().encode('export default {}');
   const moduleDigest = await crypto.subtle.digest('SHA-256', moduleBytes);
@@ -1143,14 +796,6 @@ async function workerDeployment(options: { d1?: boolean; storage?: boolean } = {
     executionGeneration: 4,
   };
   return { execution, deployment, workspace };
-}
-
-/** The preview database provisions as usual, and Cloudflare answers starting it over with `id`. */
-function startPreviewDatabaseOverAs(id: string): void {
-  const provision = mocks.accountApi.ensureD1Database.getMockImplementation();
-  mocks.accountApi.ensureD1Database
-    .mockImplementationOnce(async (name: string) => provision?.(name))
-    .mockResolvedValueOnce({ id, name: 'cloudchef-deployment-1-preview' });
 }
 
 function noMigrations(): { name: string; sql: string }[] {

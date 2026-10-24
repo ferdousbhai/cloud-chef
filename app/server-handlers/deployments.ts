@@ -19,7 +19,6 @@ import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
 import { findChat } from '~/lib/cloudflare/data/chat-repository.server';
 import {
   executeUserOwnedDeployment,
-  executeUserOwnedPreview,
   terminalizeInterruptedUserOwnedDeployment,
 } from '~/lib/.server/cloudflare/user-workspace-deployment-executor';
 import { workspaceReference } from '~/lib/.server/cloudflare/workspace-reference';
@@ -178,40 +177,6 @@ export async function deployForUser(args: {
       abortSignal: args.abortSignal,
     }),
   );
-}
-
-/** Publish the project's preview Worker under the same plan and credential boundary as deployment. */
-export async function previewForUser(args: {
-  env: Env;
-  deploymentId: string;
-  previewId: string;
-  userId: string;
-  abortSignal?: AbortSignal;
-}) {
-  const connection = runtimeCloudflareIdentity(args.env, args.userId);
-  const deployment = await requireDeployment(args.env.DB, args.deploymentId, args.userId);
-  await requireActiveDeploymentChat(args.env.DB, deployment);
-  if (!isCurrentDeploymentPlan(deployment.plan)) {
-    throw new DeploymentStateConflictError(deployment.status);
-  }
-  if (
-    deployment.connectionId !== connection.connectionId ||
-    deployment.connectionGeneration !== connection.connectionGeneration
-  ) {
-    throw new DeploymentConnectionChangedError();
-  }
-  if (deployment.status === 'provisioning' || deployment.status === 'deploying') {
-    throw new DeploymentStateConflictError(deployment.status);
-  }
-  return executeUserOwnedPreview({
-    env: args.env,
-    deploymentId: deployment.id,
-    previewId: args.previewId,
-    userId: args.userId,
-    connectionId: connection.connectionId,
-    executionGeneration: deployment.executionGeneration,
-    abortSignal: args.abortSignal,
-  });
 }
 
 export async function userRuntimeDeploymentAction(args: {

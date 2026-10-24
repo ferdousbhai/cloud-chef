@@ -51,7 +51,7 @@ const EXPORT_COVERS =
 
 const EXPORT_OMITS = [
   'Chats, transcripts, project files, and deployment records. These live in the connected Cloudflare account, not in the control plane. Download individual project source with Download code in the project header.',
-  'Production and preview Workers, production and preview D1 databases, R2 buckets, KV namespaces, Containers, Durable Objects, and Agents that CloudChef deployed, and the logs and traces they produce. These live in the connected Cloudflare account and are readable with that account’s own tools.',
+  'Workers, D1 databases, R2 buckets, KV namespaces, Containers, Durable Objects, and Agents that CloudChef deployed, and the logs and traces they produce. These live in the connected Cloudflare account and are readable with that account’s own tools.',
   'Copies held by the browser. No server request can reach them; clear CloudChef site data in every browser and profile you have used.',
   'Encrypted credential material, initialisation vectors, credential handles, session tokens, and the hashes and state values that sign-in links, invites, and authorizations in progress are checked against. These are never exported.',
 ];

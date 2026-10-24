@@ -428,6 +428,6 @@ describe('WorkbenchStore editor flush boundaries', () => {
     expect(store.selectedFile.get()).toBe(fileB);
     expect(store.currentView.get()).toBe('code');
     expect(store.showWorkbench.get()).toBe(false);
-    expect(store.previewState.get().published).toBeNull();
+    expect(store.siteState.get().url).toBeNull();
   });
 });

@@ -125,8 +125,7 @@ describe('control-plane account export', () => {
       truncated: false,
       states: [{ status: 'completed', returnTo: '/' }],
     });
-    expect(exported.omits.join('\n')).toContain('Production and preview Workers');
-    expect(exported.omits.join('\n')).toContain('production and preview D1 databases');
+    expect(exported.omits.join('\n')).toContain('Workers, D1 databases, R2 buckets');
   });
 
   it('never exports encrypted credential material, credential handles, or session tokens', async () => {

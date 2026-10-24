@@ -8,7 +8,7 @@ import { downloadProject } from '~/lib/download/download-project';
 import { description } from './description';
 import { EditorStore } from './editor';
 import { FilesStore, type WorkspaceChangeListener } from './files';
-import { PreviewsStore } from './previews';
+import { AppSiteStore } from './app-site';
 
 /** Editor buffers that differ from what is on disk and are renderable as text. */
 type UnsavedTextFiles = Record<AbsolutePath, File>;
@@ -16,7 +16,7 @@ type UnsavedTextFiles = Record<AbsolutePath, File>;
 export type WorkbenchViewType = 'code' | 'preview';
 
 export class WorkbenchStore {
-  #previewsStore = new PreviewsStore();
+  #appSiteStore = new AppSiteStore();
   #filesStore = new FilesStore();
   #editorStore = new EditorStore();
   #flushPendingEditorChange: (() => void) | null = null;
@@ -53,28 +53,28 @@ export class WorkbenchStore {
     return this.#editorStore.followingStreamedCode;
   }
 
-  get previewState() {
-    return this.#previewsStore.state;
+  get siteState() {
+    return this.#appSiteStore.state;
   }
 
-  connectPreview(...args: Parameters<PreviewsStore['connect']>) {
-    return this.#previewsStore.connect(...args);
+  connectSite(...args: Parameters<AppSiteStore['connect']>) {
+    return this.#appSiteStore.connect(...args);
   }
 
-  updatePreview(...args: Parameters<PreviewsStore['update']>) {
-    return this.#previewsStore.update(...args);
+  updateSite(...args: Parameters<AppSiteStore['update']>) {
+    return this.#appSiteStore.update(...args);
   }
 
   get publicationState() {
-    return this.#previewsStore.publication;
+    return this.#appSiteStore.publication;
   }
 
-  updatePublication(...args: Parameters<PreviewsStore['updatePublication']>) {
-    return this.#previewsStore.updatePublication(...args);
+  updatePublication(...args: Parameters<AppSiteStore['updatePublication']>) {
+    return this.#appSiteStore.updatePublication(...args);
   }
 
-  requestPreview(...args: Parameters<PreviewsStore['request']>) {
-    return this.#previewsStore.request(...args);
+  publishSite(...args: Parameters<AppSiteStore['publish']>) {
+    return this.#appSiteStore.publish(...args);
   }
 
   get files() {
@@ -122,7 +122,7 @@ export class WorkbenchStore {
     this.#editorStore.setDocuments({});
     this.#editorStore.setSelectedFile(undefined);
     this.#editorStore.followingStreamedCode.set(true);
-    this.#previewsStore.reset();
+    this.#appSiteStore.reset();
     this.linkedProject.set(null);
     this.conversationClosed.set(false);
     this.currentView.set('code');

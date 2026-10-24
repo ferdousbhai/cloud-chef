@@ -106,7 +106,7 @@ describe('generated app agent security', () => {
     );
     expect(response.status).toBe(204);
     expect(response.headers.get('Set-Cookie')).toMatch(
-      /^__Host-cloudchef_agent_session=[A-Za-z0-9_-]+; Path=\/; HttpOnly; Secure; SameSite=Strict;/,
+      /^__Host-cloudchef_agent_session=[A-Za-z0-9_-]+; Path=\/; HttpOnly; Secure; SameSite=None; Partitioned;/,
     );
     expect(db.insertedSession).toMatchObject({
       expiresAt: 604_801_000,
@@ -115,11 +115,11 @@ describe('generated app agent security', () => {
     expect(db.insertedSession?.agentName).toMatch(/^session-[0-9a-f-]{36}$/);
   });
 
-  test('sends the preview’s session inside the cloudchef.build frame, still only to its own origin', async () => {
-    const preview = 'https://d6738251-cloudchef-d6738251-57e1-4d83-9589-1b6c6d982417-preview.account.workers.dev';
+  test('refuses a session asked for by cloudchef.build, the one site that frames the app', async () => {
+    const site = 'https://cloudchef-d6738251-57e1-4d83-9589-1b6c6d982417.account.workers.dev';
     const db = new MemoryD1();
     const crossOrigin = await handleAgentSessionBootstrap(
-      new Request(`${preview}/api/agent/session`, {
+      new Request(`${site}/api/agent/session`, {
         method: 'POST',
         headers: { Origin: 'https://cloudchef.build' },
       }),
@@ -128,32 +128,6 @@ describe('generated app agent security', () => {
     );
     expect(crossOrigin.status).toBe(403);
     expect(db.insertedSession).toBeNull();
-
-    const response = await handleAgentSessionBootstrap(
-      new Request(`${preview}/api/agent/session`, {
-        method: 'POST',
-        headers: { Origin: preview, 'CF-Connecting-IP': '192.0.2.1' },
-      }),
-      db.database,
-      1_000,
-    );
-    expect(response.headers.get('Set-Cookie')).toMatch(
-      /^__Host-cloudchef_agent_session=[A-Za-z0-9_-]+; Path=\/; HttpOnly; Secure; SameSite=None; Partitioned;/,
-    );
-
-    // Production's address, under the same project, keeps it to its own site.
-    const production = await handleAgentSessionBootstrap(
-      new Request('https://cloudchef-d6738251-57e1-4d83-9589-1b6c6d982417.account.workers.dev/api/agent/session', {
-        method: 'POST',
-        headers: {
-          Origin: 'https://cloudchef-d6738251-57e1-4d83-9589-1b6c6d982417.account.workers.dev',
-          'CF-Connecting-IP': '192.0.2.2',
-        },
-      }),
-      new MemoryD1().database,
-      1_000,
-    );
-    expect(production.headers.get('Set-Cookie')).toContain('; SameSite=Strict;');
   });
 
   test('resolves the private server-side instance name from the session cookie', async () => {

@@ -8,7 +8,6 @@ import {
   RUNTIME_BUSY_RENEWAL_MS,
   RUNTIME_UPGRADE_WINDOW_MS,
 } from '~/lib/.server/cloudflare/user-workspace-runtime-activity';
-import { idleBuilderPreviewState } from './builder-preview-types';
 import {
   BuilderRuntimeActivity,
   isBuilderAgentBusy,
@@ -36,15 +35,12 @@ describe('builder agent runtime activity', () => {
 
   it("counts only the agent's own turn from its state", () => {
     expect(isBuilderAgentBusy(undefined)).toBe(false);
-    expect(isBuilderAgentBusy({ activeTurn: null, preview: idleBuilderPreviewState(), deployment: null })).toBe(false);
+    expect(isBuilderAgentBusy({ activeTurn: null, deployment: null })).toBe(false);
     expect(isBuilderAgentBusy({ activeTurn: createBuilderTurn('request-1') })).toBe(true);
     expect(isBuilderAgentBusy({ validationProgress: { toolCallId: 'tool-1', stage: 'installing' } })).toBe(true);
     // Records other paths rewrite while the work behind them continues are not what counts: that work is
     // counted while it runs.
-    expect(
-      isBuilderAgentBusy({ publication: { lane: 'preview', message: 'Uploading', percent: 40, updatedAt: 1 } }),
-    ).toBe(false);
-    expect(isBuilderAgentBusy({ preview: { ...idleBuilderPreviewState(), status: 'building' } })).toBe(false);
+    expect(isBuilderAgentBusy({ publication: { message: 'Uploading', percent: 40, updatedAt: 1 } })).toBe(false);
     expect(isBuilderAgentBusy({ deployment: { status: 'deploying' } })).toBe(false);
     expect(isBuilderAgentBusy({ cloudflareExecutions: [execution('executing')] })).toBe(false);
   });
@@ -84,7 +80,7 @@ describe('builder agent runtime activity', () => {
         }),
     );
     await vi.waitFor(() => expect(busy()).toBe(1));
-    // An editor save clears the deployment record; a cancelled preview reads cancelled. The work runs on.
+    // An editor save clears the deployment record. The work runs on.
     await activity.observe(false);
     expect(busy()).toBe(1);
 

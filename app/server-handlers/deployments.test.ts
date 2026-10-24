@@ -4,7 +4,6 @@ const mocks = vi.hoisted(() => ({
   createDeployment: vi.fn(),
   requireDeployment: vi.fn(),
   executeUserOwnedDeployment: vi.fn(),
-  executeUserOwnedPreview: vi.fn(),
   terminalizeInterrupted: vi.fn(),
 }));
 
@@ -15,7 +14,6 @@ vi.mock('~/lib/.server/cloudflare/deployment-repository', async (importOriginal)
 }));
 vi.mock('~/lib/.server/cloudflare/user-workspace-deployment-executor', () => ({
   executeUserOwnedDeployment: mocks.executeUserOwnedDeployment,
-  executeUserOwnedPreview: mocks.executeUserOwnedPreview,
   terminalizeInterruptedUserOwnedDeployment: mocks.terminalizeInterrupted,
 }));
 
@@ -24,7 +22,6 @@ import { buildDeploymentPlanFromSource } from '~/lib/.server/cloudflare/deployme
 import {
   createOrReplayDeploymentPlanForUser,
   deployForUser,
-  previewForUser,
   terminalizeInterruptedDeploymentForUser,
 } from './deployments';
 
@@ -46,10 +43,7 @@ function deployment(status: 'approved' | 'succeeded' = 'approved') {
       deploymentId: 'deployment-1',
       sourceSha256: revision,
       project,
-      resources: [
-        { type: 'worker' as const, logicalName: 'app', proposedName: 'cloudchef-app' },
-        { type: 'worker' as const, logicalName: 'app_preview', proposedName: 'cloudchef-app-preview' },
-      ],
+      resources: [{ type: 'worker' as const, logicalName: 'app', proposedName: 'cloudchef-app' }],
     },
     planDigest: 'b'.repeat(64),
     productionUrl: status === 'succeeded' ? 'https://app.example.workers.dev' : null,
@@ -66,13 +60,6 @@ describe('deployment handlers', () => {
     mocks.requireDeployment.mockRejectedValue(new Error('not configured'));
     mocks.createDeployment.mockResolvedValue(deployment());
     mocks.executeUserOwnedDeployment.mockResolvedValue(deployment('succeeded'));
-    mocks.executeUserOwnedPreview.mockResolvedValue({
-      id: 'version-1',
-      url: 'https://cloudchef-app-preview.account.workers.dev',
-      workspaceRevision: 7,
-      snapshotRevision: revision,
-      readyAt: '2026-08-30T00:00:00.000Z',
-    });
   });
 
   it('stores only an opaque reference to the exact user-owned workspace revision', async () => {
@@ -94,15 +81,10 @@ describe('deployment handlers', () => {
     expect(mocks.createDeployment).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceReference: `workspace-runtime:agent-1:7:${revision}` }),
     );
-    // Its Worker, and its preview's, are the project's, whatever revision this is.
+    // Its Worker is the project's, whatever revision this is.
     const identity = await appResourceIdentity('agent-1');
     expect(mocks.createDeployment.mock.calls[0]?.[0].plan.resources).toEqual([
       { type: 'worker', logicalName: 'app', proposedName: `cloudchef-${identity}` },
-      {
-        type: 'worker',
-        logicalName: 'app_preview',
-        proposedName: `${identity.slice(0, 8)}-cloudchef-${identity}-preview`,
-      },
     ]);
   });
 
@@ -196,23 +178,6 @@ describe('deployment handlers', () => {
       [expect.objectContaining({ deploymentId: 'deployment-1', executionGeneration: 2 })],
       [expect.objectContaining({ deploymentId: 'deployment-1', executionGeneration: 2 })],
     ]);
-  });
-
-  it('executes preview as a sibling of the authenticated deployment', async () => {
-    mocks.requireDeployment.mockResolvedValue(deployment());
-    const env = runtimeEnv(activeChatDb());
-
-    await expect(
-      previewForUser({ env, deploymentId: 'deployment-1', previewId: 'preview-1', userId: 'user-1' }),
-    ).resolves.toMatchObject({ id: 'version-1', workspaceRevision: 7 });
-    expect(mocks.executeUserOwnedPreview).toHaveBeenCalledWith({
-      env,
-      deploymentId: 'deployment-1',
-      previewId: 'preview-1',
-      userId: 'user-1',
-      connectionId: 'connection-1',
-      executionGeneration: 1,
-    });
   });
 });
 

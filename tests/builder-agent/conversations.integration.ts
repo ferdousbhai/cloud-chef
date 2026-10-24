@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderWorkspaceState } from '@cloudchef/user-workspace-runtime/protocol';
-import { builderAgentHarness, CHAT_INITIAL_ID, PREVIEW_URL, type BuilderPublisher } from './harness';
+import { builderAgentHarness, CHAT_INITIAL_ID, type BuilderPublisher } from './harness';
 
 /**
  * A chat is one project. A new conversation in it (a subchat) has an agent and a context of its own, and
@@ -75,14 +75,12 @@ describe('a new conversation in a chat', () => {
   });
 
   it('takes over where production stands from the one before, which publishes nothing more', async () => {
-    const preview = vi.fn<BuilderPublisher['preview']>(async (request) => ({
-      id: `version-${request.previewId}`,
-      url: PREVIEW_URL,
-      workspaceRevision: 3,
-      snapshotRevision: request.validatedRevision,
-      readyAt: '2026-10-21T00:00:00.000Z',
+    const deploy = vi.fn<BuilderPublisher['deploy']>(async () => ({
+      status: 'succeeded',
+      id: 'deployment-2',
+      productionUrl: 'https://app.example.workers.dev',
     }));
-    const harness = await builderAgentHarness({ newWorkspace: memoryWorkspace, publisher: { preview } });
+    const harness = await builderAgentHarness({ newWorkspace: memoryWorkspace, publisher: { deploy } });
     const deployment = {
       status: 'succeeded',
       revision: 'b'.repeat(64),
@@ -92,6 +90,7 @@ describe('a new conversation in a chat', () => {
       ...harness.agent.state,
       deployment,
       productionRevision: 'b'.repeat(64),
+      productionUrl: 'https://app.example.workers.dev',
       publicationPending: true,
     });
 
@@ -102,12 +101,16 @@ describe('a new conversation in a chat', () => {
     }
     await second.agent.continuePublication('owner-1', handover);
 
-    expect(second.agent.state).toMatchObject({ deployment, productionRevision: 'b'.repeat(64) });
+    expect(second.agent.state).toMatchObject({
+      deployment,
+      productionRevision: 'b'.repeat(64),
+      productionUrl: 'https://app.example.workers.dev',
+    });
     // What it still owed is the newer conversation's to publish now, not its own.
     expect(harness.agent.state.publicationPending).toBe(false);
-    preview.mockClear();
+    deploy.mockClear();
     // eslint-disable-next-line dot-notation
     await harness.agent['publishLatestRevision'](null);
-    expect(preview).not.toHaveBeenCalled();
+    expect(deploy).not.toHaveBeenCalled();
   });
 });

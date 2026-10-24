@@ -58,7 +58,7 @@ const productionRequestSchema = z.strictObject({
   repo: z.string().regex(/^p-[A-Za-z0-9_-]{1,120}$/),
   commit: COMMIT,
   note: z.string().trim().max(1_000).default(''),
-  /** The draft's hosted preview or deployment, which admins open: only a workers.dev address over https. */
+  /** The draft's deployment, which admins open: only a workers.dev address over https. */
   previewUrl: z.url().max(2_048).refine(isWorkersDevUrl).nullable().default(null),
 });
 
@@ -359,7 +359,7 @@ export async function runtimeRequestProductionAction(args: { request: Request; e
   );
 }
 
-/** A hosted preview or deployment of a draft: https on workers.dev, with no credentials or port. */
+/** A draft's deployment: https on workers.dev, with no credentials or port. */
 function isWorkersDevUrl(value: string): boolean {
   let url: URL;
   try {

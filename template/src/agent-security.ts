@@ -1,5 +1,3 @@
-import { isVersionedWorkersPreviewRequest } from "./application-response";
-
 const AGENT_SESSION_COOKIE = "__Host-cloudchef_agent_session";
 const AGENT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
@@ -89,10 +87,7 @@ export async function handleAgentSessionBootstrap(
   return new Response(null, {
     status: 204,
     headers: {
-      "Set-Cookie": agentSessionCookie(
-        token,
-        isVersionedWorkersPreviewRequest(request),
-      ),
+      "Set-Cookie": agentSessionCookie(token),
       "Cache-Control": "no-store",
     },
   });
@@ -231,13 +226,13 @@ function readCookie(header: string | null, name: string): string | null {
 }
 
 /**
- * The preview runs framed by cloudchef.build, a different site, where a SameSite=Strict cookie is
- * never sent, so there it is SameSite=None and Partitioned (kept to that frame). Every request that
- * reads it still has to come from the app's own origin, so other sites gain nothing by its being sent.
+ * The app also runs framed by cloudchef.build's preview pane, a different site, where a
+ * SameSite=Strict cookie is never sent, so it is SameSite=None and Partitioned: kept to the site it
+ * was set under, the app's own or that frame. Every request that reads it still has to come from the
+ * app's own origin, so other sites gain nothing by its being sent.
  */
-function agentSessionCookie(token: string, framed: boolean): string {
-  const sameSite = framed ? "SameSite=None; Partitioned" : "SameSite=Strict";
-  return `${AGENT_SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; ${sameSite}; Max-Age=${Math.floor(AGENT_SESSION_TTL_MS / 1000)}`;
+function agentSessionCookie(token: string): string {
+  return `${AGENT_SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=None; Partitioned; Max-Age=${Math.floor(AGENT_SESSION_TTL_MS / 1000)}`;
 }
 
 function randomToken(): string {

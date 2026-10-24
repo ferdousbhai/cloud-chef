@@ -20,7 +20,7 @@ import { Cross2Icon, ReloadIcon } from '@radix-ui/react-icons';
 import { useWorkbenchController } from './useWorkbenchController';
 import { useStore } from '@nanostores/react';
 import { workbenchStore } from '~/lib/stores/workbench.client';
-import { previewPresentation } from '~/lib/common/preview-presentation';
+import { appSitePresentation } from '~/lib/common/app-site';
 import { useWorkspaceSwipe } from '~/lib/hooks/useWorkspaceSwipe';
 
 /** `--workbench-width` is a CSS custom property, which `CSSProperties` alone cannot express. */
@@ -91,7 +91,7 @@ export const Workbench = memo(function Workbench({ isStreaming, beforeChatStarte
 function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps, 'isStreaming' | 'beforeChatStarted'>) {
   const controller = useWorkbenchController(isStreaming);
   const [previewReloadKey, setPreviewReloadKey] = useState(0);
-  const presentation = previewPresentation(controller.previewState);
+  const presentation = appSitePresentation(controller.siteState);
   const publication = useStore(workbenchStore.publicationState);
 
   return (
@@ -117,24 +117,15 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
           )
         ) : (
           <>
-            {presentation.isUpdatingVisible && (
+            {presentation.url && presentation.status === 'publishing' && (
               <span className="mr-2 text-xs text-content-secondary" aria-live="polite">
                 Updating…
               </span>
             )}
-            {presentation.canUpdate && !controller.linkedProject && (
-              <PanelHeaderButton
-                className="mr-1 text-sm"
-                disabled={controller.previewRequesting}
-                onClick={() => void controller.onPreviewRequest()}
-              >
-                Update
-              </PanelHeaderButton>
-            )}
             <IconButton
               icon={<ReloadIcon />}
               title="Reload preview frame"
-              disabled={!presentation.canReload}
+              disabled={!presentation.url}
               onClick={() => setPreviewReloadKey((value) => value + 1)}
             />
           </>
@@ -167,9 +158,8 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
                 presentation={presentation}
                 publication={publication}
                 reloadKey={previewReloadKey}
-                requesting={controller.previewRequesting}
-                onRequest={() => void controller.onPreviewRequest()}
-                error={controller.previewState.error}
+                requesting={controller.publishRequesting}
+                onPublish={() => void controller.onPublishRequest()}
                 linkedRepository={controller.linkedProject?.repository ?? null}
               />
             </Suspense>

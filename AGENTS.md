@@ -23,7 +23,7 @@ Cloudflare control plane, builder agent, user-owned workspace runtime, and gener
 - `app/lib/.server/cloudflare/user-workspace-deployment-executor.ts` — user-owned deployment execution
 - `app/lib/.server/cloudflare/deployment-config.ts` — trusted generated-app deployment configuration
 - `cloudchef-agent/` — shared prompts, protocol types, parsers, and tool schemas
-- `user-workspace-runtime/src/index.ts` and `user-workspace-runtime/src/protocol.ts` — project storage, previews, validation, deployment, and browser protocol
+- `user-workspace-runtime/src/index.ts` and `user-workspace-runtime/src/protocol.ts` — project storage, validation, deployment, and browser protocol
 - `template/` — generated application source and security migrations
 - `make-bootstrap-snapshot.js` and `scripts/verify-template.mjs` — template artifact generation and verification
 - `scripts/ops-report.mjs` — read-only production status report

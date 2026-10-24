@@ -42,7 +42,7 @@ export function DeploymentStatus({
   // In an organization's account, a deployed draft can be sent to its admins to become a real project.
   const organization = session?.context?.kind === 'organization' ? session.context : null;
   const admin = organization?.role === 'admin';
-  const stage = publication?.lane === 'deployment' ? publicationStageLabel(publication) : null;
+  const stage = publicationStageLabel(publication ?? null);
   useEffect(() => {
     if (deployment.status === 'succeeded') {
       void captureProductEvent('deployment_succeeded', { outcome: 'success' });

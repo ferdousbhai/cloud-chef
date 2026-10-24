@@ -51,12 +51,7 @@ const SUCCESS_WRITE_ATTEMPTS = 3;
 const SUCCESS_WRITE_RETRY_DELAY_MS = 200;
 type PublicationSession = { sessionId: string; finish(status: 'completed' | 'failed'): Promise<void> };
 
-/**
- * Deployment publishes to the project's Worker with its production databases, bucket and namespace;
- * preview publishes to the project's preview Worker with resources of its own, so a preview never
- * reads or writes production's data. Everything between — resource provisioning, artifact
- * preparation, migrations, upload and promotion — is the same path.
- */
+/** The logical names a deployment records the project's Worker, databases, bucket and namespace under. */
 const PRODUCTION_BINDINGS = {
   worker: 'app',
   app: 'DB',
@@ -64,14 +59,7 @@ const PRODUCTION_BINDINGS = {
   storage: 'APP_STORAGE',
   cache: 'APP_CACHE',
 } as const;
-const PREVIEW_BINDINGS = {
-  worker: 'app_preview',
-  app: 'DB_PREVIEW',
-  agentSecurity: 'AGENT_SECURITY_DB_PREVIEW',
-  storage: 'APP_STORAGE_PREVIEW',
-  cache: 'APP_CACHE_PREVIEW',
-} as const;
-type PublicationBindings = typeof PRODUCTION_BINDINGS | typeof PREVIEW_BINDINGS;
+type PublicationBindings = typeof PRODUCTION_BINDINGS;
 
 /** One of the plan's provider resources: the binding it is recorded under, and the name the plan gives it. */
 type PlannedResource<Binding extends string> = { binding: Binding; name: string } | null;
@@ -154,7 +142,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     phase = 'provisioning';
     await activity(args, 10, 'Preparing Cloudflare resources');
     const accountApi = await createUserAccountApi(args.env);
-    const reference = requireApprovedWorkspaceReference(deployment, 'deployment');
+    const reference = requireApprovedWorkspaceReference(deployment);
     const workspace = args.env.PROJECT_WORKSPACE.get(args.env.PROJECT_WORKSPACE.idFromName(reference.projectId));
     const operationId = `${deployment.id}:${args.executionGeneration}`;
     await requireAgentCapabilityKept(
@@ -304,127 +292,6 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     await session
       ?.finish('failed')
       .catch(() => console.error('Unable to finalize ProjectWorkspace deployment session'));
-  }
-}
-
-export type UserOwnedPreviewResult = {
-  id: string;
-  url: string;
-  workspaceRevision: number;
-  snapshotRevision: string;
-  readyAt: string;
-};
-
-/**
- * Publish one validated artifact as the active version of the project's preview Worker, with the
- * preview's own databases, bucket and namespace, and return its workers.dev address.
- */
-export async function executeUserOwnedPreview(
-  args: UserOwnedDeploymentArgs & { previewId: string },
-): Promise<UserOwnedPreviewResult> {
-  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(args.previewId)) {
-    throw new Error('Preview identity is invalid.');
-  }
-  const abortSignal = args.abortSignal;
-  abortSignal?.throwIfAborted();
-  const { connectionGeneration } = requireUserOwnedRuntimeContext(args);
-  const deployment = await requireDeployment(args.env.DB, args.deploymentId);
-  requireExecutionIdentity(deployment, args, 'preview', connectionGeneration);
-  const reference = requireApprovedWorkspaceReference(deployment, 'preview');
-  const workspace = args.env.PROJECT_WORKSPACE.get(args.env.PROJECT_WORKSPACE.idFromName(reference.projectId));
-  const workerName = requireResourceName(deployment, PREVIEW_BINDINGS.worker);
-  const versionReceipt = await findDeploymentResource(
-    args.env.DB,
-    deployment.id,
-    'worker_version',
-    `preview:${args.previewId}`,
-  );
-  const accountApi = await createUserAccountApi(args.env);
-  if (versionReceipt) {
-    return {
-      id: versionReceipt.providerResourceId,
-      url: workersDevUrl(workerName, await accountApi.getWorkersSubdomain()),
-      workspaceRevision: reference.workspaceRevision,
-      snapshotRevision: reference.revision,
-      readyAt: new Date(versionReceipt.createdAt).toISOString(),
-    };
-  }
-  const operationId = `preview:${deployment.id}:${args.executionGeneration}:${args.previewId}`;
-  abortSignal?.throwIfAborted();
-  const session = await beginPublicationSession(workspace, operationId, reference);
-  try {
-    // A preview reaches nothing production serves, so it stops at any step; each check releases the
-    // workspace sooner.
-    abortSignal?.throwIfAborted();
-    await activity(args, 1, 'Preparing Cloudflare preview resources');
-    const resourcePlan = publicationResourcePlan(deployment.plan, PREVIEW_BINDINGS);
-    const provisioned = await ensurePublicationResources({
-      db: args.env.DB,
-      deployment,
-      accountApi,
-      resourcePlan,
-    });
-    abortSignal?.throwIfAborted();
-    await activity(args, 2, 'Cloudflare preview resources ready');
-
-    const profile = deployment.plan.project;
-    const artifact = await prepareValidatedArtifact({
-      workspace,
-      sessionId: session.sessionId,
-      executionGeneration: args.executionGeneration,
-      deployment,
-      reference,
-      workerName,
-      profile,
-      resources: provisioned,
-    });
-    await workspace.assertDeploymentSession({ sessionId: session.sessionId });
-    abortSignal?.throwIfAborted();
-
-    await activity(args, 3, 'Applying preview database migrations');
-    // The artifact's bytes do not depend on which database it binds, so one started over binds as well.
-    const resources = await applyPreviewMigrations({
-      db: args.env.DB,
-      deploymentId: deployment.id,
-      accountApi,
-      resources: provisioned,
-      resourcePlan,
-      artifact,
-    });
-    abortSignal?.throwIfAborted();
-    await activity(args, 4, 'Uploading assets and publishing the preview Worker');
-    if (!profile.bindings.appAgent && (await hasAppAgentObjects(accountApi, workerName))) {
-      // Unlike production's, the preview's Agent data is only what previews wrote, and deleting the
-      // Worker deletes its Durable Objects with it, so the preview Worker starts over without them.
-      await accountApi.deleteManagedWorker(workerName);
-    }
-    const published = await accountApi.deployManagedWorker(
-      managedWorkerVersionArgs({ workerName, profile, reference, artifact, resources }),
-    );
-    await accountApi.configureManagedWorkerSchedule(workerName, profile.bindings.appAgent);
-    await accountApi.enableWorkerSubdomain(workerName);
-    await recordResource(args.env.DB, deployment.id, 'worker', PREVIEW_BINDINGS.worker, workerName);
-    await recordResource(
-      args.env.DB,
-      deployment.id,
-      'worker_version',
-      `preview:${args.previewId}`,
-      published.workerVersionId,
-    );
-    const url = workersDevUrl(workerName, await accountApi.getWorkersSubdomain());
-    const checkpoint = await workspace.assertDeploymentSession({ sessionId: session.sessionId });
-    const readyAt = new Date().toISOString();
-    await activity(args, 5, 'Workers preview ready');
-    await session.finish('completed');
-    return {
-      id: published.workerVersionId,
-      url,
-      workspaceRevision: checkpoint.workspaceRevision,
-      snapshotRevision: checkpoint.revision,
-      readyAt,
-    };
-  } finally {
-    await session.finish('failed').catch(() => console.error('Unable to finalize ProjectWorkspace preview session'));
   }
 }
 
@@ -647,58 +514,6 @@ async function applyProductionMigrations(
 }
 
 /**
- * Applies the migrations each preview database has not applied yet, and starts over one that refuses a
- * changed migration: a preview can apply a migration production never ran, and edited before it
- * deployed, every later preview would be refused with nothing to reset the database but this. Its data
- * is only what previews wrote. Returns the resources with each database started over in its place.
- */
-async function applyPreviewMigrations(args: {
-  db: D1Database;
-  deploymentId: string;
-  accountApi: UserCloudflareAccountApi;
-  resources: PublicationResources;
-  resourcePlan: PublicationResourcePlan;
-  artifact: PreparedDeploymentArtifact;
-}): Promise<PublicationResources> {
-  const { resources, resourcePlan, artifact } = args;
-  const apply = async (
-    database: { id: string; name: string },
-    logicalName: PublicationBindings['app'] | PublicationBindings['agentSecurity'],
-    migrations: PreparedDeploymentArtifact['migrations']['DB'],
-  ): Promise<{ id: string; name: string }> => {
-    try {
-      await args.accountApi.applyD1Migrations(database.id, migrations);
-      return database;
-    } catch (error) {
-      if (!(error instanceof D1MigrationChangedError)) {
-        throw error;
-      }
-    }
-    await args.accountApi.deleteD1DatabaseById(database.id);
-    const fresh = await args.accountApi.ensureD1Database(database.name);
-    if (fresh.id === database.id) {
-      throw new Error(
-        `The preview database ${database.name} is still being replaced after a migration it applied changed. Publish the preview again.`,
-      );
-    }
-    await recordResource(args.db, args.deploymentId, 'd1', logicalName, fresh.id);
-    await args.accountApi.applyD1Migrations(fresh.id, migrations);
-    return fresh;
-  };
-  return {
-    ...resources,
-    d1:
-      resources.d1 && resourcePlan.d1
-        ? await apply(resources.d1, resourcePlan.d1.binding, artifact.migrations.DB)
-        : null,
-    agentD1:
-      resources.agentD1 && resourcePlan.agentD1
-        ? await apply(resources.agentD1, resourcePlan.agentD1.binding, artifact.migrations.AGENT_SECURITY_DB)
-        : null,
-  };
-}
-
-/**
  * The way out of a changed migration: put the change in a new one, and give the applied one back its
  * applied contents, quoted when the database recorded them. Deleting the file is the other way back,
  * fit only for one that holds nothing a new database needs, like the starter's placeholder.
@@ -772,8 +587,7 @@ export async function createUserAccountApi(
 
 /**
  * The statuses a record may be in for each execution of it, and what a record that no longer matches
- * is refused as: recovery settles an interrupted one, a deployment claims an approved one, and a
- * preview publishes any that is not running.
+ * is refused as: recovery settles an interrupted one, and a deployment claims an approved one.
  */
 const EXECUTIONS = {
   recovery: {
@@ -781,10 +595,6 @@ const EXECUTIONS = {
     refusal: 'Deployment no longer matches the interrupted user-owned execution.',
   },
   deployment: { statuses: ['approved'], refusal: 'Deployment no longer matches the approved user-owned execution.' },
-  preview: {
-    statuses: ['approved', 'succeeded', 'failed'],
-    refusal: 'Preview no longer matches the approved user-owned execution.',
-  },
 } as const satisfies Record<string, { statuses: readonly DeploymentStatus[]; refusal: string }>;
 
 /** The record is this execution's, in a status it runs from, with a plan this release makes. */
@@ -792,14 +602,11 @@ function requireExecutionIdentity(
   deployment: Deployment,
   args: UserOwnedDeploymentArgs,
   execution: keyof typeof EXECUTIONS,
-  /** The connection generation the record must be planned under, when the execution checks it itself. */
-  connectionGeneration?: number,
 ): void {
   const { statuses, refusal }: { statuses: readonly DeploymentStatus[]; refusal: string } = EXECUTIONS[execution];
   if (
     deployment.userId !== args.userId ||
     deployment.connectionId !== args.connectionId ||
-    (connectionGeneration !== undefined && deployment.connectionGeneration !== connectionGeneration) ||
     deployment.executionGeneration !== args.executionGeneration ||
     !statuses.includes(deployment.status) ||
     !isCurrentDeploymentPlan(deployment.plan)
@@ -831,10 +638,10 @@ function requireWorkspaceReference(deployment: Deployment): WorkspaceReference {
   return reference;
 }
 
-function requireApprovedWorkspaceReference(deployment: Deployment, publication: 'deployment' | 'preview') {
+function requireApprovedWorkspaceReference(deployment: Deployment) {
   const reference = requireWorkspaceReference(deployment);
   if (reference.revision !== deployment.plan.sourceSha256) {
-    throw new Error(`The approved ${publication} revision no longer matches its workspace reference.`);
+    throw new Error('The approved deployment revision no longer matches its workspace reference.');
   }
   return reference;
 }

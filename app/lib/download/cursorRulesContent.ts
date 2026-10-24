@@ -7,7 +7,7 @@ const stackSelectionRules = projectStackSkill.replace(/^---\n[\s\S]*?\n---\n+/, 
 export const cursorRulesContent = `# CloudChef Cloudflare App Rules
 
 ${stackSelectionRules}
-- Keep pnpm run dev and pnpm run preview available for local and isolated remote preview.
+- Keep pnpm run dev and pnpm run preview available for local development.
 - After changing production dependencies, run pnpm run licenses:generate before build or deploy so the shipped third-party notices match the lockfile.
 - Keep the default Worker entrypoint in src/plain-server.ts. Run pnpm run agent:enable only when the application actually needs durable Agent sessions or Workers AI; that command switches to the protected src/server.ts entrypoint and enables the capability atomically.
 - In application code and framework server functions, call getAppBindings() from @/app-bindings for application DB/R2 access.
