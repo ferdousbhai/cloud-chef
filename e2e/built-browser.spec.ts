@@ -175,6 +175,16 @@ test('keeps account details discoverable and clears a cancelled deletion', async
   await expect(acknowledgement).not.toBeChecked();
   await expect(page.getByLabel('Deletion confirmation phrase')).toHaveValue('');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  // Escape closes it too, and no dialog follows a switch to another tab.
+  await openDeletion.click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Teams' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Privacy & data' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(deletionRequests).toBe(0);
   const cards = page.locator('section.app-card');
   // Account, Cloudflare account, Models, AI request logs, Teams and Your data: every card is measured below.
