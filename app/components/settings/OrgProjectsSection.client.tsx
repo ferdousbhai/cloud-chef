@@ -357,7 +357,7 @@ function ProductionRequestRow({
           </Button>
           <Button
             size="xs"
-            variant="subtle"
+            variant="neutral"
             disabled={approving}
             aria-label={`Decline ${pending.title}`}
             onClick={() => setDeclining(true)}

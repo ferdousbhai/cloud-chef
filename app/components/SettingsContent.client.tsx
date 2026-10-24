@@ -110,9 +110,8 @@ export function SettingsContent({ authorizationError }: { authorizationError?: s
         <nav className="app-page-nav !mb-6" aria-label="Settings navigation">
           <BrandLink />
           <LinkButton to="/" variant="neutral" size="sm" icon={<ArrowLeftIcon aria-hidden />}>
-            <span>
-              <span className="hidden sm:inline">Back to </span>builder
-            </span>
+            <span className="sm:hidden">Builder</span>
+            <span className="hidden sm:inline">Back to builder</span>
           </LinkButton>
         </nav>
 

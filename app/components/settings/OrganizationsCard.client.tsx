@@ -427,7 +427,7 @@ function OrganizationRow({
                   <StatusBadge>Invited</StatusBadge>
                   <Button
                     size="xs"
-                    variant="subtle"
+                    variant="neutral"
                     aria-label={`Revoke the invite to ${pending.email}`}
                     onClick={() => revoke(pending.id)}
                   >
