@@ -251,6 +251,16 @@ describe('ProjectRepositories', () => {
     ).toEqual({ commit: head });
   });
 
+  it('imports again into a repository an earlier import left empty', async () => {
+    const { artifacts, repositories } = setup();
+    const head = await artifacts.addSource('https://github.com/acme/site.git', { 'index.html': 'hi' }, 'master');
+    await artifacts.create('t-9');
+    expect(
+      await repositories.importFromUrl({ url: 'https://github.com/acme/site.git', branch: 'master', repo: 't-9' }),
+    ).toEqual({ commit: head });
+    expect(await artifacts.filesAt('t-9', 'main')).toEqual({ 'index.html': 'hi' });
+  });
+
   it('revokes the write token Artifacts makes with a new or forked repository', async () => {
     const { artifacts, repositories } = setup();
     await repositories.ensureRepo('p-1');

@@ -108,6 +108,30 @@ describe('BuilderWorkspaceSyncController', () => {
     expect(workbench.setWorkspaceChangeListener).not.toHaveBeenCalled();
   });
 
+  test("presents a snapshot that carries the repository's file modes", async () => {
+    const script = { ...write('/home/project/bin/run.sh', 'echo run', 1), mode: 0o755 };
+    const agent = {
+      call: vi.fn(async (method: string, args: unknown[]) => {
+        if (method === 'getWorkspaceState') {
+          return workspaceState(1, 1, script.size);
+        }
+        if (method === 'getWorkspaceSyncPage') {
+          const [request] = z.tuple([z.object({ fromRevision: z.number() })]).parse(args);
+          return syncPage(request.fromRevision, 1, 'snapshot', [script]);
+        }
+        throw new Error(`Unexpected RPC: ${method}`);
+      }),
+    };
+
+    await BuilderWorkspaceSyncController.initialize(agent, ACTIVE);
+
+    // The mode stays in the workspace, which commits it; the browser presents only the content.
+    expect(workbench.replaceWorkspaceSnapshot).toHaveBeenCalledWith(
+      [expect.objectContaining({ path: script.path, content: script.content })],
+      undefined,
+    );
+  });
+
   test('never promotes browser files when the durable workspace is unavailable', async () => {
     const agent = {
       call: vi.fn(async (method: string) => {

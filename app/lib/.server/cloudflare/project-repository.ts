@@ -521,7 +521,8 @@ export class ProjectRepositories {
    * Imports a repository from elsewhere with its history, its `branch` becoming main of `repo`. A public
    * one is fetched by Artifacts itself; one that needs `authorization` (the control plane's short-lived,
    * read-only credential) is cloned here and pushed. An import already made (another member's, or a
-   * retry) is reused. Returns main's head.
+   * retry) is reused; one cut off before any history arrived, which leaves the repository empty, is made
+   * again. Returns main's head.
    */
   async importFromUrl(args: {
     url: string;
@@ -529,10 +530,12 @@ export class ProjectRepositories {
     branch?: string | null;
     repo: string;
   }): Promise<{ commit: string }> {
-    if (!(await this.exists(args.repo))) {
+    if (!(await this.#holdsHistory(args.repo))) {
       if (args.authorization) {
         await this.#cloneAndPush({ ...args, authorization: args.authorization });
       } else {
+        // Artifacts imports only into a new repository.
+        await this.deleteRepo(args.repo);
         const source: Parameters<Artifacts['import']>[0]['source'] = { url: args.url };
         if (args.branch) {
           source.branch = args.branch;
@@ -637,6 +640,14 @@ export class ProjectRepositories {
   /** Ends a push's write token; one left behind still expires within minutes. */
   async #revokePushToken(repo: string, remote: { tokenId: string }): Promise<void> {
     await this.revokeToken(repo, remote.tokenId).catch(() => undefined);
+  }
+
+  /** Whether the repository exists and has at least one commit. */
+  async #holdsHistory(name: string): Promise<boolean> {
+    if (!(await this.exists(name))) {
+      return false;
+    }
+    return this.#withRepo(name, async (handle) => (await handle.log({ limit: 1 })).length > 0);
   }
 
   /** The repository's info, or null when there is none; one still being made is waited for. */
