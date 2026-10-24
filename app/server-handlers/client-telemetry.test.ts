@@ -3,7 +3,7 @@ import { clientTelemetryAction } from './client-telemetry';
 
 const validTelemetry = {
   schemaVersion: 1,
-  event: 'preview_ready',
+  event: 'deployment_succeeded',
   level: 'info',
   journeyId: '00000000-0000-4000-8000-000000000001',
   occurredAt: '2026-08-04T12:00:00.000Z',

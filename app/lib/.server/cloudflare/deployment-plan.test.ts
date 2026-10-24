@@ -31,14 +31,9 @@ describe('buildDeploymentPlanFromSource', () => {
     });
     expect(result.plan.resources.map(({ type }) => type)).toEqual([
       'worker',
-      'worker',
-      'd1',
-      'd1',
       'd1',
       'd1',
       'r2',
-      'r2',
-      'kv',
       'kv',
       'durable_object',
       'workers_ai',
@@ -69,8 +64,7 @@ describe('buildDeploymentPlanFromSource', () => {
       naming: NAMING,
       project: { type: 'worker', bindings: { ai: false, d1: false, r2: false, kv: false, appAgent: false } },
     });
-    // Even a plain Worker previews on a Worker of its own.
-    expect(result.plan.resources.map(({ logicalName }) => logicalName)).toEqual(['app', 'app_preview']);
+    expect(result.plan.resources.map(({ logicalName }) => logicalName)).toEqual(['app']);
   });
 
   it('returns only one valid resource name for trusted provisioning', async () => {
@@ -81,12 +75,10 @@ describe('buildDeploymentPlanFromSource', () => {
       project: { type: 'web_app', bindings: { ai: true, d1: true, r2: true, kv: true, appAgent: true } },
     });
     expect(deploymentPlanResourceName(plan, 'worker', 'app')).toBe('cloudchef-app-1');
-    expect(deploymentPlanResourceName(plan, 'worker', 'app_preview')).toBe('app-1-cloudchef-app-1-preview');
-    expect(deploymentPlanResourceName(plan, 'd1', 'DB_PREVIEW')).toBe('cloudchef-app-1-preview');
-    expect(deploymentPlanResourceName(plan, 'r2', 'APP_STORAGE_PREVIEW')).toBe('cloudchef-app-1-preview-storage');
-    expect(deploymentPlanResourceName(plan, 'kv', 'APP_CACHE_PREVIEW')).toBe('cloudchef-app-1-preview-cache');
+    expect(deploymentPlanResourceName(plan, 'd1', 'DB')).toBe('cloudchef-app-1');
+    expect(deploymentPlanResourceName(plan, 'r2', 'APP_STORAGE')).toBe('cloudchef-app-1-storage');
+    expect(deploymentPlanResourceName(plan, 'kv', 'APP_CACHE')).toBe('cloudchef-app-1-cache');
     expect(deploymentPlanResourceName(plan, 'd1', 'AGENT_SECURITY_DB')).toBe('cloudchef-app-1-agent-security');
-    expect(deploymentPlanResourceName(plan, 'd1', 'AGENT_SECURITY_DB_PREVIEW')).toBe('cloudchef-app-1-preview-agent');
     expect(deploymentPlanResourceName(plan, 'workers_ai', 'AI')).toBe('AI');
     expect(deploymentPlanResourceName(plan, 'durable_object', 'AppAgent')).toBe('AppAgent');
     expect(
@@ -121,43 +113,50 @@ describe('buildDeploymentPlanFromSource', () => {
     expect(parseDeploymentPlanJson(JSON.stringify(plan))).toEqual(plan);
     expect(isCurrentDeploymentPlan(plan)).toBe(true);
     expect(isCurrentDeploymentPlan(missingProject)).toBe(false);
-    // A plan that names no preview Worker is not one this release makes.
-    expect(
-      isCurrentDeploymentPlan({
-        ...plan,
-        resources: plan.resources.filter((resource) => resource.logicalName !== 'app_preview'),
-      }),
-    ).toBe(false);
+    // A plan that names no Worker is not one this release makes.
+    expect(isCurrentDeploymentPlan({ ...plan, resources: [] })).toBe(false);
     expect(() => parseDeploymentPlanJson(JSON.stringify(missingProject))).toThrow();
     expect(() =>
       parseDeploymentPlanJson(JSON.stringify({ ...plan, project: { type: 'worker', bindings: { ai: false } } })),
     ).toThrow();
   });
 
-  it('refuses a plan whose preview would publish to one of production’s resources', async () => {
+  it('still reads a plan an earlier release stored, which also named a preview Worker and its resources', async () => {
     const { plan } = await buildDeploymentPlanFromSource({
       deploymentId: 'deployment-1',
       sourceSha256: SOURCE_ONE,
       naming: NAMING,
       project: EVERY_BINDING,
     });
-    const production = (logicalName: string) =>
-      plan.resources.find((resource) => resource.logicalName === logicalName)?.proposedName ?? '';
-    const sharing = (previewName: string, productionName: string) => ({
+    const earlier = {
       ...plan,
-      resources: plan.resources.map((resource) =>
-        resource.logicalName === previewName ? { ...resource, proposedName: production(productionName) } : resource,
-      ),
-    });
+      resources: [
+        ...plan.resources,
+        { type: 'worker', logicalName: 'app_preview', proposedName: 'app-1-cloudchef-app-1-preview' },
+        { type: 'd1', logicalName: 'DB_PREVIEW', proposedName: 'cloudchef-app-1-preview' },
+        { type: 'r2', logicalName: 'APP_STORAGE_PREVIEW', proposedName: 'cloudchef-app-1-preview-storage' },
+      ],
+    };
 
-    expect(isCurrentDeploymentPlan(plan)).toBe(true);
-    expect(isCurrentDeploymentPlan(sharing('app_preview', 'app'))).toBe(false);
-    expect(isCurrentDeploymentPlan(sharing('DB_PREVIEW', 'DB'))).toBe(false);
-    expect(isCurrentDeploymentPlan(sharing('AGENT_SECURITY_DB_PREVIEW', 'AGENT_SECURITY_DB'))).toBe(false);
-    expect(isCurrentDeploymentPlan(sharing('APP_STORAGE_PREVIEW', 'APP_STORAGE'))).toBe(false);
-    expect(isCurrentDeploymentPlan(sharing('APP_CACHE_PREVIEW', 'APP_CACHE'))).toBe(false);
+    expect(parseDeploymentPlanJson(JSON.stringify(earlier))).toEqual(earlier);
+    expect(isCurrentDeploymentPlan(earlier)).toBe(true);
+    expect(deploymentPlanResourceName(parseDeploymentPlanJson(JSON.stringify(earlier)), 'worker', 'app')).toBe(
+      'cloudchef-app-1',
+    );
+  });
+
+  it('refuses a plan naming one account resource twice', async () => {
+    const { plan } = await buildDeploymentPlanFromSource({
+      deploymentId: 'deployment-1',
+      sourceSha256: SOURCE_ONE,
+      naming: NAMING,
+      project: EVERY_BINDING,
+    });
+    const storage = plan.resources.find((resource) => resource.logicalName === 'APP_STORAGE')!;
+
+    expect(isCurrentDeploymentPlan({ ...plan, resources: [...plan.resources, { ...storage }] })).toBe(false);
     // The Worker and the database share a name, being resources of different types.
-    expect(production('app')).toBe(production('DB'));
+    expect(deploymentPlanResourceName(plan, 'worker', 'app')).toBe(deploymentPlanResourceName(plan, 'd1', 'DB'));
   });
 
   it('names every revision’s account resources after the project, not the deployment', async () => {
@@ -177,15 +176,10 @@ describe('buildDeploymentPlanFromSource', () => {
     expect(second.plan.resources).toEqual(first.plan.resources);
     expect(first.plan.resources.map(({ proposedName }) => proposedName)).toEqual([
       'cloudchef-app-1',
-      'app-1-cloudchef-app-1-preview',
       'cloudchef-app-1',
-      'cloudchef-app-1-preview',
       'cloudchef-app-1-agent-security',
-      'cloudchef-app-1-preview-agent',
       'cloudchef-app-1-storage',
-      'cloudchef-app-1-preview-storage',
       'cloudchef-app-1-cache',
-      'cloudchef-app-1-preview-cache',
       'AppAgent',
       'AI',
     ]);

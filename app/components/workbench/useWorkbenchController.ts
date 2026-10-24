@@ -17,7 +17,7 @@ const logger = createScopedLogger('WorkbenchController');
 
 export function useWorkbenchController(isStreaming?: boolean) {
   const projectId = useChatId();
-  const previewState = useStore(workbenchStore.previewState);
+  const siteState = useStore(workbenchStore.siteState);
   const showWorkbench = useStore(workbenchStore.showWorkbench);
   const selectedFile = useStore(workbenchStore.selectedFile);
   const currentDocument = useStore(workbenchStore.currentDocument);
@@ -29,44 +29,44 @@ export function useWorkbenchController(isStreaming?: boolean) {
   const isSmallViewport = useViewport();
   const workspaceId = workbenchStore.getActiveWorkspaceId();
   const [hasLoadedPreview, setHasLoadedPreview] = useState(false);
-  const [previewRequestState, setPreviewRequestState] = useState({ projectId, workspaceId, requesting: false });
-  const previewRequestVersionRef = useRef(0);
-  const manualPreviewRequestRef = useRef<symbol | null>(null);
-  const previewRequesting =
-    previewRequestState.projectId === projectId &&
-    previewRequestState.workspaceId === workspaceId &&
-    previewRequestState.requesting;
-  const hasPreview = previewState.published !== null;
-  const invalidatePreviewRequests = useCallback(() => {
-    previewRequestVersionRef.current++;
-    manualPreviewRequestRef.current = null;
+  const [publishRequestState, setPublishRequestState] = useState({ projectId, workspaceId, requesting: false });
+  const publishRequestVersionRef = useRef(0);
+  const manualPublishRequestRef = useRef<symbol | null>(null);
+  const publishRequesting =
+    publishRequestState.projectId === projectId &&
+    publishRequestState.workspaceId === workspaceId &&
+    publishRequestState.requesting;
+  const hasSite = siteState.url !== null;
+  const invalidatePublishRequests = useCallback(() => {
+    publishRequestVersionRef.current++;
+    manualPublishRequestRef.current = null;
   }, []);
   /**
-   * Claim the preview lane for one request. Its result is applied only while the workspace it was
+   * Claim the publish lane for one request. Its failure is reported only while the workspace it was
    * issued against is still the active one and no later request has superseded it.
    */
-  const beginPreviewRequest = useCallback(() => {
+  const beginPublishRequest = useCallback(() => {
     const workspaceId = workbenchStore.getActiveWorkspaceId();
-    const requestVersion = ++previewRequestVersionRef.current;
+    const requestVersion = ++publishRequestVersionRef.current;
     return {
       workspaceId,
       isCurrentRequest: () =>
         workspaceId !== null &&
         workbenchStore.isWorkspaceActive(workspaceId) &&
-        previewRequestVersionRef.current === requestVersion,
+        publishRequestVersionRef.current === requestVersion,
     };
   }, []);
 
   useEffect(() => {
-    invalidatePreviewRequests();
-    return invalidatePreviewRequests;
-  }, [invalidatePreviewRequests, projectId, workspaceId]);
+    invalidatePublishRequests();
+    return invalidatePublishRequests;
+  }, [invalidatePublishRequests, projectId, workspaceId]);
 
   useEffect(() => {
-    if (hasPreview) {
+    if (hasSite) {
       workbenchStore.currentView.set('preview');
     }
-  }, [hasPreview]);
+  }, [hasSite]);
 
   useEffect(() => {
     if (selectedView === 'preview') {
@@ -105,7 +105,7 @@ export function useWorkbenchController(isStreaming?: boolean) {
       return;
     }
     workbenchStore.flushPendingEditorChange();
-    const { isCurrentRequest } = beginPreviewRequest();
+    const { isCurrentRequest } = beginPublishRequest();
     void (async () => {
       try {
         await workbenchStore.saveCurrentDocument();
@@ -116,45 +116,39 @@ export function useWorkbenchController(isStreaming?: boolean) {
         }
         return;
       }
-      // A GitHub project previews through its repository's pipeline, so a save has no preview to update.
+      // A GitHub project publishes through its repository's pipeline, so a save publishes nothing here.
       if (!isCurrentRequest() || workbenchStore.linkedProject.get()) {
         return;
       }
       try {
-        const preview = await workbenchStore.requestPreview();
-        if (isCurrentRequest()) {
-          workbenchStore.updatePreview(preview);
-        }
+        await workbenchStore.publishSite();
       } catch (error) {
-        logger.warn('Failed to update the preview after a file save', error);
+        logger.warn('Failed to publish the app after a file save', error);
         if (isCurrentRequest()) {
-          toast.error('Preview update failed');
+          toast.error('Publishing the app failed');
         }
       }
     })();
-  }, [beginPreviewRequest]);
+  }, [beginPublishRequest]);
 
-  const onPreviewRequest = useCallback(async () => {
-    const { workspaceId, isCurrentRequest } = beginPreviewRequest();
-    const manualRequest = Symbol('manual-preview-request');
-    manualPreviewRequestRef.current = manualRequest;
-    setPreviewRequestState({ projectId, workspaceId, requesting: true });
+  const onPublishRequest = useCallback(async () => {
+    const { workspaceId, isCurrentRequest } = beginPublishRequest();
+    const manualRequest = Symbol('manual-publish-request');
+    manualPublishRequestRef.current = manualRequest;
+    setPublishRequestState({ projectId, workspaceId, requesting: true });
     try {
-      const preview = await workbenchStore.requestPreview();
-      if (isCurrentRequest()) {
-        workbenchStore.updatePreview(preview);
-      }
+      await workbenchStore.publishSite();
     } catch (error) {
       if (isCurrentRequest()) {
-        toast.error(messageOf(error, 'Unable to queue a remote preview.'));
+        toast.error(messageOf(error, 'Unable to publish the app.'));
       }
     } finally {
-      if (manualPreviewRequestRef.current === manualRequest) {
-        manualPreviewRequestRef.current = null;
-        setPreviewRequestState({ projectId, workspaceId, requesting: false });
+      if (manualPublishRequestRef.current === manualRequest) {
+        manualPublishRequestRef.current = null;
+        setPublishRequestState({ projectId, workspaceId, requesting: false });
       }
     }
-  }, [beginPreviewRequest, projectId]);
+  }, [beginPublishRequest, projectId]);
 
   return {
     close: () => {
@@ -172,9 +166,9 @@ export function useWorkbenchController(isStreaming?: boolean) {
     onFileReset: () => workbenchStore.resetCurrentDocument(),
     onFileSave,
     onFileSelect,
-    onPreviewRequest,
-    previewRequesting,
-    previewState,
+    onPublishRequest,
+    publishRequesting,
+    siteState,
     projectId,
     selectedFile,
     selectedView,

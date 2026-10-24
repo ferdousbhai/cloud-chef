@@ -5,21 +5,18 @@ import type { BuilderWorkspaceDeploymentPlan } from './builder-workspace-api';
 const mocks = vi.hoisted(() => ({
   createDeployment: vi.fn(),
   deployForUser: vi.fn(),
-  previewForUser: vi.fn(),
   terminalizeInterrupted: vi.fn(),
 }));
 
 vi.mock('~/server-handlers/deployments', () => ({
   createOrReplayDeploymentPlanForUser: mocks.createDeployment,
   deployForUser: mocks.deployForUser,
-  previewForUser: mocks.previewForUser,
   terminalizeInterruptedDeploymentForUser: mocks.terminalizeInterrupted,
 }));
 
 import {
   buildCheckpointForBuilder,
   deployValidatedRevisionForBuilder,
-  previewValidatedRevisionForBuilder,
   settleDeploymentForBuilder,
   terminalizeInterruptedDeploymentForBuilder,
 } from './builder-deployment-command';
@@ -43,16 +40,9 @@ describe('builder deployment command', () => {
       },
       settled: true,
     });
-    mocks.previewForUser.mockResolvedValue({
-      id: '22222222-2222-4222-8222-222222222222',
-      url: 'https://cloudchef-app-preview.account.workers.dev',
-      workspaceRevision: 7,
-      snapshotRevision: 'a'.repeat(64),
-      readyAt: '2026-08-30T00:00:00.000Z',
-    });
   });
 
-  it('builds the exact checkpoint a preview was asked for', async () => {
+  it('builds the exact checkpoint a deployment was asked for', async () => {
     const workspace = workspaceStub();
     workspace.validate.mockImplementationOnce(async () => {
       workspace.hasSuccessfulValidation.mockResolvedValue(true);
@@ -64,13 +54,12 @@ describe('builder deployment command', () => {
       buildCheckpointForBuilder({
         workspace,
         requestedSnapshot,
-        publication: 'preview',
-        toolCallId: 'preview:preview-1:validation',
+        toolCallId: 'deployment:7:validation',
       }),
     ).resolves.toEqual(requestedSnapshot);
     expect(workspace.validate).toHaveBeenCalledWith({
-      toolCallId: 'preview:preview-1:validation',
-      input: { source: 'preview' },
+      toolCallId: 'deployment:7:validation',
+      input: { source: 'deployment' },
     });
   });
 
@@ -81,8 +70,7 @@ describe('builder deployment command', () => {
     await buildCheckpointForBuilder({
       workspace,
       requestedSnapshot: { workspaceRevision: 7, revision: 'a'.repeat(64) },
-      publication: 'preview',
-      toolCallId: 'preview:preview-1:validation',
+      toolCallId: 'deployment:7:validation',
     });
 
     expect(workspace.validate).not.toHaveBeenCalled();
@@ -96,31 +84,10 @@ describe('builder deployment command', () => {
       buildCheckpointForBuilder({
         workspace,
         requestedSnapshot: { workspaceRevision: 7, revision: 'a'.repeat(64) },
-        publication: 'preview',
-        toolCallId: 'preview:preview-1:validation',
+        toolCallId: 'deployment:7:validation',
       }),
     ).rejects.toThrow('The build failed: Typecheck failed in src/routes/index.tsx.');
-    expect(mocks.previewForUser).not.toHaveBeenCalled();
-  });
-
-  it('builds a deployment of a revision nobody validated', async () => {
-    const workspace = workspaceStub();
-    workspace.validate.mockImplementationOnce(async () => {
-      workspace.hasSuccessfulValidation.mockResolvedValue(true);
-      return toolSuccess('Project validation passed.');
-    });
-
-    await buildCheckpointForBuilder({
-      workspace,
-      requestedSnapshot: { workspaceRevision: 7, revision: 'a'.repeat(64) },
-      publication: 'deployment',
-      toolCallId: 'deployment:7:validation',
-    });
-
-    expect(workspace.validate).toHaveBeenCalledWith({
-      toolCallId: 'deployment:7:validation',
-      input: { source: 'deployment' },
-    });
+    expect(mocks.deployForUser).not.toHaveBeenCalled();
   });
 
   it('never builds a newer checkpoint than the one that was asked for', async () => {
@@ -130,10 +97,9 @@ describe('builder deployment command', () => {
       buildCheckpointForBuilder({
         workspace,
         requestedSnapshot: { workspaceRevision: 6, revision: 'b'.repeat(64) },
-        publication: 'preview',
-        toolCallId: 'preview:preview-1:validation',
+        toolCallId: 'deployment:6:validation',
       }),
-    ).rejects.toThrow('project changed after the preview was requested');
+    ).rejects.toThrow('project changed after the deployment was requested');
     expect(workspace.validate).not.toHaveBeenCalled();
   });
 
@@ -358,16 +324,15 @@ describe('builder deployment command', () => {
     mocks.createDeployment.mockResolvedValue(null);
 
     await expect(
-      previewValidatedRevisionForBuilder({
+      deployValidatedRevisionForBuilder({
         context: operationContext(),
         workspace,
         toolCallId: 'deploy-command:7:revision',
-        previewId: 'preview-1',
         validatedRevision: 'a'.repeat(64),
       }),
-    ).rejects.toThrow('Preview of this revision was planned too many times');
+    ).rejects.toThrow('Deployment of this revision was planned too many times');
     expect(mocks.createDeployment).toHaveBeenCalledTimes(8);
-    expect(mocks.previewForUser).not.toHaveBeenCalled();
+    expect(mocks.deployForUser).not.toHaveBeenCalled();
   });
 
   it('creates and executes one idempotent exact-revision deployment', async () => {
@@ -398,33 +363,6 @@ describe('builder deployment command', () => {
     );
     expect(mocks.deployForUser).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'user-1', deploymentId: expect.stringMatching(/^[0-9a-f-]{36}$/) }),
-    );
-  });
-
-  it('uses the same deterministic plan for preview and production of one validated revision', async () => {
-    const workspace = workspaceStub();
-    workspace.hasSuccessfulValidation.mockResolvedValue(true);
-    const revision = 'a'.repeat(64);
-
-    await previewValidatedRevisionForBuilder({
-      context: operationContext(),
-      workspace,
-      toolCallId: `deploy-command:7:${revision}`,
-      previewId: 'preview-1',
-      validatedRevision: revision,
-    });
-    await deployValidatedRevisionForBuilder({
-      context: operationContext(),
-      workspace,
-      toolCallId: `deploy-command:7:${revision}`,
-      validatedRevision: revision,
-    });
-
-    const previewPlan = mocks.createDeployment.mock.calls[0]?.[0];
-    const productionPlan = mocks.createDeployment.mock.calls[1]?.[0];
-    expect(previewPlan.deploymentId).toBe(productionPlan.deploymentId);
-    expect(mocks.previewForUser).toHaveBeenCalledWith(
-      expect.objectContaining({ deploymentId: previewPlan.deploymentId, previewId: 'preview-1' }),
     );
   });
 });

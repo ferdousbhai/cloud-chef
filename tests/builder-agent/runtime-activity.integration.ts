@@ -76,21 +76,6 @@ describe('BuilderAgent runtime activity', () => {
     await eventually(() => harness.activity()[0]?.busy === 0);
   });
 
-  it('a cancelled preview stays busy until the build it aborted stops', async () => {
-    const plan = deferred<Awaited<ReturnType<BuilderPublisher['preview']>>>();
-    // A build that ignores the cancel and keeps running until it ends on its own.
-    const harness = await builderAgentHarness({ publisher: { preview: () => plan.promise } });
-
-    await harness.agent.requestPreview();
-    await eventually(() => harness.activity()[0]?.busy === 1);
-    await expect(harness.agent.cancelPreview()).resolves.toMatchObject({ status: 'cancelled' });
-    await settle();
-    expect(harness.activity()).toEqual([{ agent_name: AGENT_NAME, busy: 1 }]);
-
-    plan.reject(new Error('aborted'));
-    await eventually(() => harness.activity()[0]?.busy === 0);
-  });
-
   it('seeding a new workspace is busy, and waits out an upgrade window before it starts', async () => {
     const seed = deferred<{ status: 'initialized'; state: typeof READY_STATE }>();
     const beginSeed = vi.fn(() => seed.promise);
@@ -129,19 +114,6 @@ describe('BuilderAgent runtime activity', () => {
 
     harness.closeUpgradeWindow();
     await expect(deployment).resolves.toMatchObject({ status: 'deploying', ...VALIDATED_CHECKPOINT });
-  });
-
-  it('a preview publication waits out an upgrade window before it is queued', async () => {
-    const harness = await builderAgentHarness();
-    harness.openUpgradeWindow();
-
-    const preview = harness.agent.requestPreview();
-    await settle();
-    expectHeldByUpgradeWindow(harness);
-    expect(harness.agent.state.preview?.status).not.toBe('queued');
-
-    harness.closeUpgradeWindow();
-    await expect(preview).resolves.toMatchObject({ status: 'queued', workspaceRevision: 3 });
   });
 
   it('an approved Cloudflare request waits out an upgrade window before it runs', async () => {

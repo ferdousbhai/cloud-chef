@@ -27,17 +27,12 @@ import { createUIMessageStreamResponse, type UIMessage } from 'ai';
 import {
   buildCheckpointForBuilder,
   deployValidatedRevisionForBuilder,
-  previewValidatedRevisionForBuilder,
   settleDeploymentForBuilder,
   terminalizeInterruptedDeploymentForBuilder,
   type BuilderDeploymentContext,
   type BuilderDeploymentState,
 } from './builder-deployment-command';
-import {
-  publicationProgress,
-  type BuilderPublicationLane,
-  type BuilderPublicationState,
-} from './builder-publication-progress';
+import { publicationProgress, type BuilderPublicationState } from './builder-publication-progress';
 import {
   DeploymentConcurrencyLimitError,
   findActiveProjectDeployment,
@@ -156,14 +151,7 @@ import type { AppProjectModelToolContext } from '~/lib/.server/llm/app-project-m
 import { fetchLinkedSitePage, type LinkedSiteFetchInput } from '~/lib/.server/llm/linked-site-fetch';
 import { BUILDER_TURN_WALL_CLOCK_MS } from '~/lib/.server/llm/builder-turn-limits';
 import { deriveProvisionalTitle, shouldGenerateConversationTitle, type TitleSubject } from '~/lib/title-generation';
-import {
-  failedBuilderPreviewState,
-  idleBuilderPreviewState,
-  previewStateForWorkspace,
-  type BuilderPreviewState,
-} from './builder-preview-types';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
-import { previewWorkerUrl } from '~/lib/common/preview-url';
 import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
@@ -218,16 +206,14 @@ import type {
 const logger = createScopedLogger('BuilderAgent');
 
 /**
- * The tool-call identity every publication of one validated revision shares. Deployment, its
- * recovery, and its previews resolve to the same deterministic deployment plan because they name
- * the same checkpoint here.
+ * The tool-call identity every publication of one validated revision shares. Deployment and its
+ * recovery resolve to the same deterministic deployment plan because they name the same checkpoint here.
  */
 function deploymentToolCallId(workspaceRevision: number, revision: string): string {
   return `deploy-command:${workspaceRevision}:${revision}`;
 }
 
 const CONTEXT_COMPACTION_FIBER = 'background:context_compaction';
-const PREVIEW_PUBLICATION_FIBER = 'background:builder_preview';
 const DEPLOYMENT_FIBER = 'background:builder_deployment';
 const DEPLOYMENT_INTERRUPTED_MESSAGE = 'Deployment was interrupted. Retry to reconcile the exact revision.';
 /**
@@ -274,17 +260,6 @@ const ARCHIVED_CONVERSATION_MESSAGE = 'This conversation continues in a newer on
 const DELETED_CONVERSATION_MESSAGE = 'This conversation was deleted.';
 
 /** Fiber metadata survives a Durable Object restart, so every job is re-parsed before it is resumed. */
-const previewPublicationJobSchema = z.object({
-  previewId: z.string().min(1),
-  workspaceRevision: z.number().int().min(0),
-  snapshotRevision: z.string().min(1),
-  requestedAt: z.number().int().positive(),
-  // Manual "Build preview" requests must not promote to the public production URL. Only the
-  // end-of-turn pipeline (publishRevision) opts into the deployment behind the preview.
-  autoDeploy: z.boolean(),
-});
-type PreviewPublicationJob = z.infer<typeof previewPublicationJobSchema>;
-
 const deploymentJobSchema = z.object({
   workspaceRevision: z.number().int().min(0),
   revision: z.string().regex(/^[a-f0-9]{64}$/),
@@ -309,7 +284,6 @@ const revertRequestSchema = z.string().regex(/^[0-9a-f]{40}$/);
  * account. The BuilderAgent harness replaces them, as it replaces the ProjectWorkspace.
  */
 const builderPublisher = {
-  preview: previewValidatedRevisionForBuilder,
   deploy: deployValidatedRevisionForBuilder,
   terminalize: terminalizeInterruptedDeploymentForBuilder,
   settle: settleDeploymentForBuilder,
@@ -356,7 +330,6 @@ export type BuilderAgentState = {
   } | null;
   lastCompletedTurn?: BuilderTurnState | null;
   transcript?: TranscriptCheckpoint | null;
-  preview?: BuilderPreviewState | null;
   validationProgress?: {
     toolCallId: string;
     stage: BuilderValidationStage;
@@ -364,6 +337,8 @@ export type BuilderAgentState = {
   deployment?: BuilderDeploymentState | null;
   /** The revision production last promoted, kept so a publication that never finished is redone. */
   productionRevision?: string | null;
+  /** The address production serves at, as its last deployment recorded it: the app's one site. */
+  productionUrl?: string | null;
   /**
    * A turn changed this CloudChef app and production has not caught up yet. Set as the turn settles
    * and cleared only once production serves the current revision, so a cancelled, failed, or
@@ -371,11 +346,11 @@ export type BuilderAgentState = {
    */
   publicationPending?: boolean;
   /**
-   * The revision whose automatic publication last failed (its preview or its deployment). Waking the
+   * The revision whose automatic publication last failed. Waking the
    * agent does not publish it again, since it would only fail the same way; the next turn's end does.
    */
   failedPublicationRevision?: string | null;
-  /** The step the running preview or deployment publication last recorded, while it is running. */
+  /** The step the running deployment last recorded, while it is running. */
   publication?: BuilderPublicationState | null;
   /**
    * A turn is waiting for an upgrade of the workspace runtime to finish before it starts, for at most
@@ -425,10 +400,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     generatedSubchatTitle: null,
     lastCompletedTurn: null,
     transcript: null,
-    preview: idleBuilderPreviewState(),
     validationProgress: null,
     deployment: null,
     productionRevision: null,
+    productionUrl: null,
     publicationPending: false,
     failedPublicationRevision: null,
     publication: null,
@@ -541,11 +516,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     // Every background job that would publish or watch this project stops with it.
     const live = await this.listFibers({ status: ['pending', 'running', 'interrupted'] }).catch(() => []);
     for (const fiber of live) {
-      if (
-        fiber.name === PREVIEW_PUBLICATION_FIBER ||
-        fiber.name === DEPLOYMENT_FIBER ||
-        fiber.name === LINKED_BUILD_FIBER
-      ) {
+      if (fiber.name === DEPLOYMENT_FIBER || fiber.name === LINKED_BUILD_FIBER) {
         await this.cancelFiber(fiber.fiberId, 'Project deletion').catch(() => undefined);
       }
     }
@@ -619,14 +590,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         accountCredentials: credentials,
         gatewayLogging: workersAiGatewayLogging(access?.allowed === true && access.contentLogging),
       });
-      return { status: 'completed' };
-    }
-    if (ctx.name === PREVIEW_PUBLICATION_FIBER) {
-      const job = previewPublicationJobSchema.safeParse(ctx.metadata).data;
-      if (!job) {
-        return { status: 'error', error: 'missing preview publication recovery data' };
-      }
-      await this.runPreviewPublication(job);
       return { status: 'completed' };
     }
     if (ctx.name === DEPLOYMENT_FIBER) {
@@ -943,9 +906,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const validatedSnapshot = await this.refreshDeploymentReadiness();
     // A turn that changed a CloudChef app, or one before it whose publication never reached production,
-    // publishes it however the turn ended: the preview builds the exact revision (unless the model
-    // already validated it) and production follows. A team project previews and deploys through Workers
-    // Builds, when the agent publishes to it.
+    // publishes it however the turn ended: the deployment builds the exact revision (unless the model
+    // already validated it) and publishes it to production. A team project previews and deploys through
+    // Workers Builds, when the agent publishes to it.
     if (this.state.publicationPending || (status === 'completed' && validatedSnapshot)) {
       await this.publishLatestRevision(validatedSnapshot);
     }
@@ -1184,7 +1147,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       draftRevision: checkpoint.revision,
       title,
       note: input.note.trim().slice(0, 1_000),
-      previewUrl: this.state.deployment?.productionUrl ?? this.currentPreviewState().published?.url ?? null,
+      previewUrl: this.state.productionUrl ?? this.state.deployment?.productionUrl ?? null,
       repo: nativeProjectRepo(durableIdentity.transcript.chatInitialId, durableIdentity.transcript.subchatIndex),
       commit: commit.hash,
     });
@@ -1287,7 +1250,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Response('Agent authentication is required.', { status: 401 });
     }
     const state = await this.initializeWorkspace(this.transcriptBinding);
-    this.updatePreviewForWorkspace(state.revision);
     await this.publishLinkedProjectState();
     // Not awaited. The browser blocks its send gate on this call, and the point of warming is to
     // overlap the container's cold start with the user composing their first message — awaiting it
@@ -1322,13 +1284,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         deployment: null,
       });
     }
-    this.updatePreviewForWorkspace(result.state.revision);
     return result;
-  }
-
-  @callable()
-  getPreviewState(): BuilderPreviewState {
-    return this.currentPreviewState();
   }
 
   @callable()
@@ -1351,28 +1307,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     await this.scheduleDeployment(snapshot, { retry, run: { automatic: false, attempt: 0 } });
     return this.state.deployment ?? { status: 'deploying', ...snapshot };
-  }
-
-  @callable()
-  requestPreview(): Promise<BuilderPreviewState> {
-    return this.requestPreviewInternal({ autoDeploy: false });
-  }
-
-  @callable()
-  async cancelPreview(): Promise<BuilderPreviewState> {
-    const preview = this.currentPreviewState();
-    if (!preview.pendingId || (preview.status !== 'queued' && preview.status !== 'building')) {
-      return preview;
-    }
-    const next: BuilderPreviewState = {
-      ...preview,
-      status: 'cancelled',
-      pendingId: null,
-      error: null,
-    };
-    this.setPreviewState(next);
-    await this.cancelFiberByKey(this.previewFiberKey(preview.pendingId), 'Cancelled by the project owner');
-    return next;
   }
 
   @callable()
@@ -2324,7 +2258,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!this.state.publicationPending || failedBefore) {
       this.setState({ ...this.state, publicationPending: true, failedPublicationRevision: null });
     }
-    await this.publishRevision(snapshot, epoch);
+    await this.scheduleAutomaticDeployment(snapshot, 0, epoch);
   }
 
   /**
@@ -2358,16 +2292,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const live = await this.listFibers({
       status: ['pending', 'running', 'interrupted'],
     });
-    if (
-      this.automaticPublicationStopped(epoch) ||
-      live.some((fiber) => fiber.name === PREVIEW_PUBLICATION_FIBER || fiber.name === DEPLOYMENT_FIBER)
-    ) {
+    if (this.automaticPublicationStopped(epoch) || live.some((fiber) => fiber.name === DEPLOYMENT_FIBER)) {
       return;
-    }
-    const preview = this.currentPreviewState();
-    if (preview.pendingId && (preview.status === 'queued' || preview.status === 'building')) {
-      // Its fiber is gone: nothing will ever settle it, and it would hold back its replacement.
-      this.setPreviewState({ ...preview, status: 'cancelled', pendingId: null, error: null });
     }
     await this.refreshDeploymentReadiness();
     await this.publishLatestRevision(null, { resume: true, epoch });
@@ -2393,7 +2319,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   /** Stop the automatic publications this instance is running, and give them a moment to let go of the workspace. */
   private async stopAutomaticPublications(): Promise<void> {
     this.publicationEpoch += 1;
-    await this.cancelPreview();
     const stopping = [...this.runningPublications].filter((publication) => publication.automatic);
     if (stopping.length === 0) {
       return;
@@ -2439,46 +2364,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       this.runningPublications.delete(publication);
       settle();
     }
-  }
-
-  /**
-   * The user-visible critical path after a turn changed the app: publish the hosted preview first, then run
-   * the production deployment behind it. The preview fiber schedules the deployment when it
-   * settles; when no publication is pending (the preview is already serving this revision, or it
-   * could not even be queued), the deployment starts directly instead of waiting on anything.
-   */
-  private async publishRevision(snapshot: BuilderWorkspaceCheckpoint, epoch: number): Promise<void> {
-    const preview = await this.requestPreviewInternal({ snapshot, autoDeploy: true, epoch }).catch(() => {
-      logger.warn('Unable to queue the preview publication');
-      return null;
-    });
-    if (!preview?.pendingId) {
-      await this.scheduleAutomaticDeployment(snapshot, 0, epoch);
-    }
-  }
-
-  /**
-   * Deployment follows a settled pipeline preview, or any preview of a revision a turn asked to publish
-   * — never a manual "Build preview" alone, which must not promote to the public production URL. A
-   * failed preview still deploys behind the pipeline so one broken preview never costs the user the
-   * production deployment. It never blocks the preview, and never skips it.
-   */
-  private async schedulePipelineDeploymentAfterPreview(job: PreviewPublicationJob, epoch?: number): Promise<void> {
-    if (!job.autoDeploy && !this.state.publicationPending) {
-      return;
-    }
-    const checkpoint = deploymentJobSchema.safeParse({
-      workspaceRevision: job.workspaceRevision,
-      revision: job.snapshotRevision,
-    }).data;
-    if (!checkpoint) {
-      return;
-    }
-    const validated = await this.workspace.hasSuccessfulValidation(checkpoint.revision).catch(() => false);
-    if (!validated) {
-      return;
-    }
-    await this.scheduleAutomaticDeployment(checkpoint, 0, epoch);
   }
 
   /**
@@ -2792,7 +2677,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     // Validation changes nothing in production: however a stop cuts it short, it is a stop.
     await this.buildCheckpoint(
       job,
-      'deployment',
       `${deploymentToolCallId(job.workspaceRevision, job.revision)}:validation`,
       abortSignal,
     ).catch((error) => {
@@ -2800,7 +2684,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     });
     let planned: string | null = null;
     const deploy = () =>
-      this.withPublicationActivity('deployment', (onPlanned) =>
+      this.withPublicationActivity((onPlanned) =>
         this.keepAliveWhile(() =>
           this.publisher.deploy({
             context,
@@ -2917,6 +2801,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       ...this.state,
       deployment: recordsDeployment ? deployment : this.state.deployment,
       productionRevision: revision,
+      productionUrl: deployment?.productionUrl ?? this.state.productionUrl ?? null,
       publicationPending: current?.revision === revision ? false : this.state.publicationPending,
     });
   }
@@ -2933,14 +2818,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /**
-   * The last automatic preview or deployment failure of a CloudChef app, or the warning a succeeded
-   * deployment carries for a step after it went live, for the model to act on.
+   * The last automatic deployment failure of a CloudChef app, or the warning a succeeded deployment
+   * carries for a step after it went live, for the model to act on.
    */
   private publicationFailure(): string | null {
-    const preview = this.state.preview;
-    if (preview?.status === 'failed' && preview.error) {
-      return `the hosted preview of the latest changes failed. ${preview.error}`;
-    }
     const deployment = this.state.deployment;
     if (deployment?.status === 'failed' && deployment.error) {
       return `the production deployment of the latest changes failed. ${deployment.error}`;
@@ -2951,10 +2832,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return null;
   }
 
-  /** Builds the exact checkpoint a publication was asked for, showing the build's stages while it runs. */
+  /** Builds the exact checkpoint a deployment was asked for, showing the build's stages while it runs. */
   private async buildCheckpoint(
     snapshot: BuilderWorkspaceCheckpoint,
-    publication: 'preview' | 'deployment',
     toolCallId: string,
     abortSignal?: AbortSignal,
   ): Promise<BuilderWorkspaceCheckpoint> {
@@ -2967,7 +2847,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         buildCheckpointForBuilder({
           workspace: this.workspace,
           requestedSnapshot: { workspaceRevision: snapshot.workspaceRevision, revision: snapshot.revision },
-          publication,
           toolCallId,
           onStage: (stage) => this.setValidationProgress(toolCallId, stage),
           abortSignal,
@@ -2978,237 +2857,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         this.setValidationProgress(toolCallId, null);
       }
     }
-  }
-
-  /**
-   * Queue a preview publication. An automatic one (`epoch` set) gives up, leaving the preview as it is,
-   * when a new turn stopped the automatic publications meanwhile; none starts once the project is being
-   * deleted.
-   */
-  private async requestPreviewInternal(
-    options: { snapshot?: BuilderWorkspaceCheckpoint; autoDeploy?: boolean; epoch?: number } = {},
-  ): Promise<BuilderPreviewState> {
-    if (!this.userId || !this.transcriptBinding) {
-      throw new Response('Agent authentication is required.', { status: 401 });
-    }
-    this.refuseIfDestroying();
-    const workspace = await this.initializeWorkspace(this.transcriptBinding);
-    if (await this.workspace.linkedProject()) {
-      throw new Error('This project previews through Workers Builds: ask the agent for a preview of your branch.');
-    }
-    const current = this.currentPreviewState();
-    const snapshot = options.snapshot ?? (await this.workspace.checkpoint());
-    const publishing = current.status === 'queued' || current.status === 'building';
-    if (publishing && current.workspaceRevision === workspace.revision) {
-      return current;
-    }
-    // A preview published under an address the pane no longer frames is published again, not shown as failed.
-    if (
-      current.status === 'ready' &&
-      current.published?.snapshotRevision === snapshot.revision &&
-      previewWorkerUrl(current.published.url) !== null
-    ) {
-      return current;
-    }
-    const stopped = () => options.epoch !== undefined && this.automaticPublicationStopped(options.epoch);
-    if (stopped()) {
-      // A stale automatic publication never cancels the preview that replaced it.
-      return current;
-    }
-
-    await this.runtimeActivity.admit();
-    // Admission can wait out an upgrade: whatever changed meanwhile decides again.
-    this.refuseIfDestroying();
-    if (stopped()) {
-      return this.currentPreviewState();
-    }
-    const replaced = this.currentPreviewState();
-    if (replaced.pendingId && (replaced.status === 'queued' || replaced.status === 'building')) {
-      await this.cancelPreview();
-    }
-    const previewId = crypto.randomUUID();
-    const job: PreviewPublicationJob = {
-      previewId,
-      workspaceRevision: snapshot.workspaceRevision,
-      snapshotRevision: snapshot.revision,
-      requestedAt: Date.now(),
-      autoDeploy: options.autoDeploy ?? false,
-    };
-    this.setPreviewState({
-      status: 'queued',
-      pendingId: previewId,
-      workspaceRevision: snapshot.workspaceRevision,
-      stale: snapshot.workspaceRevision !== workspace.revision,
-      error: null,
-      // The version already serving stays visible until its replacement publishes.
-      published: this.currentPreviewState().published,
-    });
-    try {
-      await this.startFiber(
-        PREVIEW_PUBLICATION_FIBER,
-        async (fiber) => {
-          await this.runPreviewPublication(job, fiber.signal, options.epoch);
-        },
-        {
-          idempotencyKey: this.previewFiberKey(previewId),
-          metadata: job,
-        },
-      );
-    } catch (error) {
-      await this.failPreviewPublication(
-        job,
-        error instanceof Error ? error.message : 'The durable preview job could not be started.',
-      );
-      throw error;
-    }
-    return this.currentPreviewState();
-  }
-
-  private refuseIfDestroying(): void {
-    if (this.destroying) {
-      throw new Response('This project is being deleted.', { status: 409 });
-    }
-  }
-
-  private runPreviewPublication(job: PreviewPublicationJob, fiberSignal?: AbortSignal, epoch?: number): Promise<void> {
-    // A new turn stops every preview, a manual one included, as it always has.
-    return this.trackPublication(
-      true,
-      fiberSignal,
-      async (abortSignal) => {
-        try {
-          // Counted busy while it runs: cancelling marks the preview cancelled at once, while the build
-          // it aborts can still be finishing. A stop while it still waits for an upgrade window calls it
-          // off before it starts.
-          await this.runtimeActivity.run(() => this.publishPreview(job, abortSignal, epoch), { signal: abortSignal });
-        } catch (error) {
-          if (!abortSignal.aborted) {
-            throw error;
-          }
-          if (this.isCurrentPreviewJob(job.previewId)) {
-            this.setPreviewState({ ...this.currentPreviewState(), status: 'cancelled', pendingId: null, error: null });
-          }
-        }
-      },
-      epoch,
-    );
-  }
-
-  private async publishPreview(job: PreviewPublicationJob, abortSignal: AbortSignal, epoch?: number): Promise<void> {
-    if (!this.isCurrentPreviewJob(job.previewId)) {
-      // Recovered after it published but before production was scheduled behind it.
-      const preview = this.currentPreviewState();
-      if (
-        !abortSignal.aborted &&
-        preview.status === 'ready' &&
-        preview.published?.snapshotRevision === job.snapshotRevision
-      ) {
-        await this.schedulePipelineDeploymentAfterPreview(job, epoch);
-      }
-      return;
-    }
-    try {
-      this.setPreviewState({
-        ...this.currentPreviewState(),
-        status: 'building',
-      });
-      const context = this.requireDeploymentContext();
-      const validatedSnapshot = await this.buildCheckpoint(
-        { workspaceRevision: job.workspaceRevision, revision: job.snapshotRevision },
-        'preview',
-        `preview:${job.previewId}:validation`,
-        abortSignal,
-      );
-      abortSignal.throwIfAborted();
-      if (!this.isCurrentPreviewJob(job.previewId)) {
-        return;
-      }
-      const success = await this.withPublicationActivity('preview', (onPlanned) =>
-        this.keepAliveWhile(() =>
-          this.publisher.preview({
-            context,
-            workspace: this.workspace,
-            toolCallId: deploymentToolCallId(job.workspaceRevision, job.snapshotRevision),
-            previewId: job.previewId,
-            validatedRevision: validatedSnapshot.revision,
-            onPlanned,
-            abortSignal,
-          }),
-        ),
-      );
-      if (abortSignal.aborted || !this.isCurrentPreviewJob(job.previewId)) {
-        return;
-      }
-      const currentSnapshot = await this.workspace.checkpoint();
-      this.setPreviewState({
-        status: 'ready',
-        pendingId: null,
-        workspaceRevision: job.workspaceRevision,
-        stale: currentSnapshot.revision !== job.snapshotRevision,
-        error: null,
-        published: success,
-      });
-      console.info({
-        event: 'builder_preview_published',
-        publicationMs: Date.now() - job.requestedAt,
-      });
-      await this.schedulePipelineDeploymentAfterPreview(job, epoch);
-    } catch (error) {
-      // A cancelled or superseded preview is not a failure, and never deploys production.
-      if (abortSignal.aborted || !this.isCurrentPreviewJob(job.previewId)) {
-        return;
-      }
-      await this.failPreviewPublication(
-        job,
-        (error instanceof Error ? error.message : 'The Workers preview publication failed.').slice(-4_000),
-      );
-      if (job.autoDeploy || this.state.publicationPending) {
-        this.recordFailedPublication(job.snapshotRevision);
-      }
-      await this.schedulePipelineDeploymentAfterPreview(job, epoch);
-    }
-  }
-
-  private async failPreviewPublication(job: PreviewPublicationJob, error: string): Promise<void> {
-    if (!this.isCurrentPreviewJob(job.previewId)) {
-      return;
-    }
-    const refreshed = await this.workspace.refresh().catch(() => {
-      logger.warn('Unable to refresh workspace revision for preview failure');
-      return null;
-    });
-    // A restarted agent's client may hold no state at all, and the refresh just failed; the job's
-    // revision is then the last one known, and the failure is still recorded.
-    const revision = refreshed?.revision ?? this.cachedWorkspaceRevision() ?? job.workspaceRevision;
-    this.setPreviewState(failedBuilderPreviewState(this.currentPreviewState(), revision, error));
-  }
-
-  private cachedWorkspaceRevision(): number | null {
-    try {
-      return this.workspace.getState().revision;
-    } catch {
-      return null;
-    }
-  }
-
-  private previewFiberKey(previewId: string): string {
-    return `builder-preview:${this.name}:${previewId}`;
-  }
-
-  private isCurrentPreviewJob(previewId: string): boolean {
-    return this.currentPreviewState().pendingId === previewId;
-  }
-
-  private currentPreviewState(): BuilderPreviewState {
-    return this.state.preview ?? idleBuilderPreviewState();
-  }
-
-  private updatePreviewForWorkspace(revision: number): void {
-    this.setPreviewState(previewStateForWorkspace(this.currentPreviewState(), revision));
-  }
-
-  private setPreviewState(preview: BuilderPreviewState): void {
-    this.setState({ ...this.state, preview });
   }
 
   private async refreshDeploymentReadiness(): Promise<BuilderWorkspaceCheckpoint | null> {
@@ -3253,10 +2901,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    * The read is one indexed row per interval — a heartbeat, not a busy loop — and it always stops
    * with the publication that started it.
    */
-  private async withPublicationActivity<T>(
-    lane: BuilderPublicationLane,
-    run: (onPlanned: (deploymentId: string) => void) => Promise<T>,
-  ): Promise<T> {
+  private async withPublicationActivity<T>(run: (onPlanned: (deploymentId: string) => void) => Promise<T>): Promise<T> {
     let deploymentId: string | null = null;
     let running = true;
     let stopFollowing: () => void = () => undefined;
@@ -3271,7 +2916,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           continue;
         }
         const latest = await latestDeploymentActivity(this.env.DB, id).catch(() => null);
-        const progress = latest ? publicationProgress(lane, latest) : null;
+        const progress = latest ? publicationProgress(latest) : null;
         if (running && progress && progress.updatedAt !== this.state.publication?.updatedAt) {
           this.setState({ ...this.state, publication: progress });
         }
@@ -3286,7 +2931,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       running = false;
       stopFollowing();
       await followed.catch(() => undefined);
-      if (this.state.publication?.lane === lane) {
+      if (this.state.publication) {
         this.setState({ ...this.state, publication: null });
       }
     }

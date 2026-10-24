@@ -106,7 +106,7 @@ export function createEditorState(
           key: 'Mod-s',
           preventDefault: true,
           run: (view) => {
-            // Saving publishes a preview, which the UI disables while the agent streams. Read-only
+            // Saving publishes the app, which the UI disables while the agent streams. Read-only
             // is how that state reaches the editor, so the binding stays inert rather than firing.
             if (view.state.readOnly) {
               return true;

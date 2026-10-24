@@ -34,22 +34,13 @@ const deploymentPlanSchema = z.strictObject({
 
 export type DeploymentPlan = z.infer<typeof deploymentPlanSchema>;
 
-/**
- * The account resources a plan may name, as (type, logical name): the ones a deployment or a preview
- * creates. A preview publishes to a Worker, databases, bucket and namespace of its own, so nothing it
- * runs reaches production's.
- */
+/** The account resources a plan may name, as (type, logical name): the ones a deployment creates. */
 export const APP_ACCOUNT_RESOURCES = [
   ['worker', 'app'],
-  ['worker', 'app_preview'],
   ['d1', 'DB'],
-  ['d1', 'DB_PREVIEW'],
   ['d1', 'AGENT_SECURITY_DB'],
-  ['d1', 'AGENT_SECURITY_DB_PREVIEW'],
   ['kv', 'APP_CACHE'],
-  ['kv', 'APP_CACHE_PREVIEW'],
   ['r2', 'APP_STORAGE'],
-  ['r2', 'APP_STORAGE_PREVIEW'],
 ] as const satisfies readonly (readonly [DeploymentResourceType, AppResourceLogicalName])[];
 
 type AppAccountResource = (typeof APP_ACCOUNT_RESOURCES)[number];
@@ -82,13 +73,10 @@ export async function buildDeploymentPlanFromSource(args: {
     project,
     resources: [
       account(['worker', 'app']),
-      account(['worker', 'app_preview']),
-      ...(project.bindings.d1 ? [account(['d1', 'DB']), account(['d1', 'DB_PREVIEW'])] : []),
-      ...(project.bindings.appAgent
-        ? [account(['d1', 'AGENT_SECURITY_DB']), account(['d1', 'AGENT_SECURITY_DB_PREVIEW'])]
-        : []),
-      ...(project.bindings.r2 ? [account(['r2', 'APP_STORAGE']), account(['r2', 'APP_STORAGE_PREVIEW'])] : []),
-      ...(project.bindings.kv ? [account(['kv', 'APP_CACHE']), account(['kv', 'APP_CACHE_PREVIEW'])] : []),
+      ...(project.bindings.d1 ? [account(['d1', 'DB'])] : []),
+      ...(project.bindings.appAgent ? [account(['d1', 'AGENT_SECURITY_DB'])] : []),
+      ...(project.bindings.r2 ? [account(['r2', 'APP_STORAGE'])] : []),
+      ...(project.bindings.kv ? [account(['kv', 'APP_CACHE'])] : []),
       ...(project.bindings.appAgent
         ? [{ type: 'durable_object' as const, logicalName: 'AppAgent', proposedName: 'AppAgent' }]
         : []),
@@ -109,15 +97,13 @@ export function isCurrentDeploymentPlan(plan: unknown): plan is DeploymentPlan {
     return false;
   }
   const current = parsed.data;
-  // Both Workers and every database the plan requires must be named, and no two account resources of
-  // one type may share a name: a preview that resolved to production's database, bucket or Worker
-  // would write to it.
+  // The Worker and every database the plan requires must be named, and no two account resources of
+  // one type may share a name.
   const requiredNames = [
     deploymentPlanResourceName(current, 'worker', 'app'),
-    deploymentPlanResourceName(current, 'worker', 'app_preview'),
     ...[
-      ...(current.project.bindings.d1 ? ['DB', 'DB_PREVIEW'] : []),
-      ...(current.project.bindings.appAgent ? ['AGENT_SECURITY_DB', 'AGENT_SECURITY_DB_PREVIEW'] : []),
+      ...(current.project.bindings.d1 ? ['DB'] : []),
+      ...(current.project.bindings.appAgent ? ['AGENT_SECURITY_DB'] : []),
     ].map((logicalName) => deploymentPlanResourceName(current, 'd1', logicalName)),
   ];
   const accountNames = APP_ACCOUNT_RESOURCES.flatMap(([type, logicalName]) =>

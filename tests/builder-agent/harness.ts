@@ -12,7 +12,6 @@ import type { ChatResponseResult } from '@cloudflare/ai-chat';
 import { BuilderAgent } from '~/agents/builder-agent';
 import type {
   deployValidatedRevisionForBuilder,
-  previewValidatedRevisionForBuilder,
   settleDeploymentForBuilder,
   terminalizeInterruptedDeploymentForBuilder,
 } from '~/agents/builder-deployment-command';
@@ -40,9 +39,6 @@ const OWNER_ID = 'owner-1';
 export const AGENT_NAME = 'agent-chat-1';
 export const CHAT_INITIAL_ID = 'chat-initial-1';
 export const RUNTIME_VERSION = 'runtime-current';
-/** A preview Worker's address, in the shape the preview pane frames. */
-export const PREVIEW_URL =
-  'https://d6738251-cloudchef-d6738251-57e1-4d83-9589-1b6c6d982417-preview.account.workers.dev';
 const ACCOUNT_ID = 'account-1';
 
 /** The runtime's own identity, as its provisioning binds it: what the Cloudflare request tools act as. */
@@ -184,7 +180,6 @@ function fakeWorkspace(overrides: Partial<BuilderWorkspaceApi> = {}): Partial<Bu
 
 /** The agent's publication commands (`builderPublisher`), which run the deployment executor in the user's account. */
 export type BuilderPublisher = {
-  preview: typeof previewValidatedRevisionForBuilder;
   deploy: typeof deployValidatedRevisionForBuilder;
   terminalize: typeof terminalizeInterruptedDeploymentForBuilder;
   settle: typeof settleDeploymentForBuilder;
@@ -193,13 +188,6 @@ export type BuilderPublisher = {
 /** Publications that succeed at once; each test overrides what its path needs. */
 function fakePublisher(overrides: Partial<BuilderPublisher> = {}): BuilderPublisher {
   return {
-    preview: async (request) => ({
-      id: `version-${request.previewId}`,
-      url: PREVIEW_URL,
-      workspaceRevision: 3,
-      snapshotRevision: request.validatedRevision,
-      readyAt: '2026-10-21T00:00:00.000Z',
-    }),
     deploy: async () => ({ status: 'succeeded', id: 'deployment-1', productionUrl: 'https://app.example.workers.dev' }),
     terminalize: async () => ({ status: 'failed', error: 'Deployment was interrupted before execution started.' }),
     settle: async () => ({

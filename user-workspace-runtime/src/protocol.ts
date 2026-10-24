@@ -118,15 +118,6 @@ export type BuilderWorkspaceApplyResult =
       state: BuilderWorkspaceState;
     };
 
-/** One preview publication: the preview Worker's version, bound to the exact checkpoint validation built it from. */
-export type BuilderPreviewSuccess = {
-  id: string;
-  url: string;
-  workspaceRevision: number;
-  snapshotRevision: string;
-  readyAt: string;
-};
-
 export const USER_WORKSPACE_RUNTIME_SERVICE = 'cloudchef-user-workspace-runtime';
 
 /**

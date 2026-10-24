@@ -144,9 +144,11 @@ export function useBuilderAgentChat(args: {
       if (activePresentationRef.current !== args.presentationId) {
         return;
       }
-      if (state.preview) {
-        workbenchStore.updatePreview(state.preview);
-      }
+      workbenchStore.updateSite({
+        url: state.productionUrl ?? state.deployment?.productionUrl ?? null,
+        revision: state.productionRevision ?? null,
+        deployment: state.deployment ?? null,
+      });
       workbenchStore.updatePublication(state.publication ?? null);
       setUpgradeWaiting(state.upgradeWaiting === true);
       const linked = state.linkedProject ?? null;
@@ -273,27 +275,6 @@ export function useBuilderAgentChat(args: {
       read: () => agentRpc.call('getTranscriptSnapshot', [transcript], { timeout: AGENT_SEND_READY_TIMEOUT_MS }),
     });
   }, [builderAgent, transcript]);
-
-  useEffect(() => {
-    let disposed = false;
-    const callPreview = async (method: 'getPreviewState' | 'requestPreview') => {
-      const state = await builderAgent.call(method, [], {
-        timeout: method === 'getPreviewState' ? 10_000 : 30_000,
-      });
-      if (!disposed && activePresentationRef.current === args.presentationId) {
-        workbenchStore.updatePreview(state);
-      }
-      return state;
-    };
-    const disconnect = workbenchStore.connectPreview({
-      request: () => callPreview('requestPreview'),
-    });
-    void callPreview('getPreviewState').catch((error) => logger.warn('Unable to load remote preview state', error));
-    return () => {
-      disposed = true;
-      disconnect();
-    };
-  }, [args.presentationId, builderAgent]);
 
   useEffect(() => {
     const previousGate = workspaceGateRef.current;
@@ -458,6 +439,8 @@ export function useBuilderAgentChat(args: {
     await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
     return builderAgent.call('deployValidatedRevision', [], { timeout: 30 * 60_000 });
   }, [builderAgent]);
+
+  useEffect(() => workbenchStore.connectSite({ publish: deployValidatedRevision }), [deployValidatedRevision]);
 
   const requestProduction = useCallback(
     async (input: { title: string; note: string }) => {

@@ -3,19 +3,19 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { idleBuilderPreviewState, type BuilderPreviewState } from '~/agents/builder-preview-types';
+import type { BuilderDeploymentState } from '~/agents/builder-deployment-command';
 
 vi.mock('~/lib/stores/workbench.client', async () => {
   const { atom, map } = await import('nanostores');
-  const { idleBuilderPreviewState: idleState } = await import('~/agents/builder-preview-types');
+  const { emptyAppSiteState } = await import('~/lib/common/app-site');
   let workspaceId: string | null = null;
-  let previewRequest: (() => Promise<BuilderPreviewState>) | null = null;
-  const previewState = atom(idleState());
+  let publish: (() => Promise<BuilderDeploymentState>) | null = null;
+  const siteState = atom(emptyAppSiteState());
   const linkedProject = atom<{ repository: string; defaultBranch: string; archived?: boolean } | null>(null);
 
   return {
     workbenchStore: {
-      previewState,
+      siteState,
       showWorkbench: atom(false),
       selectedFile: atom<string | undefined>(undefined),
       currentDocument: atom(undefined),
@@ -26,27 +26,26 @@ vi.mock('~/lib/stores/workbench.client', async () => {
       linkedProject,
       activateWorkspace(nextWorkspaceId: string) {
         workspaceId = nextWorkspaceId;
-        previewRequest = null;
-        previewState.set(idleState());
+        publish = null;
+        siteState.set(emptyAppSiteState());
         linkedProject.set(null);
       },
       getActiveWorkspaceId: () => workspaceId,
       isWorkspaceActive: (candidate: string) => workspaceId === candidate,
-      connectPreview(actions: { request: () => Promise<BuilderPreviewState> }) {
-        previewRequest = actions.request;
+      connectSite(actions: { publish: () => Promise<BuilderDeploymentState> }) {
+        publish = actions.publish;
         return () => {
-          if (previewRequest === actions.request) {
-            previewRequest = null;
+          if (publish === actions.publish) {
+            publish = null;
           }
         };
       },
-      requestPreview: () => {
-        if (!previewRequest) {
-          throw new Error('The remote preview connection is not ready.');
+      publishSite: () => {
+        if (!publish) {
+          throw new Error('The connection to the builder is not ready.');
         }
-        return previewRequest();
+        return publish();
       },
-      updatePreview: vi.fn((state: BuilderPreviewState) => previewState.set(state)),
       flushPendingEditorChange: vi.fn(),
       saveCurrentDocument: vi.fn(),
       setDocuments: vi.fn(),
@@ -77,59 +76,39 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-describe('useWorkbenchController preview requests', () => {
+const deploying: BuilderDeploymentState = { status: 'deploying', workspaceRevision: 1, revision: 'a'.repeat(64) };
+
+describe('useWorkbenchController publish requests', () => {
   it('does not expose a pending request from another workspace in the same chat', async () => {
-    const oldPreview = deferred<BuilderPreviewState>();
+    const oldPublish = deferred<BuilderDeploymentState>();
     workbenchStore.activateWorkspace('account:chat--transcript-0-0');
-    workbenchStore.connectPreview({ request: () => oldPreview.promise });
+    workbenchStore.connectSite({ publish: () => oldPublish.promise });
 
     const controller = await mountController();
 
     let request: Promise<void> | undefined;
     await act(async () => {
-      request = controller()!.onPreviewRequest();
+      request = controller()!.onPublishRequest();
       await Promise.resolve();
     });
-    expect(controller()?.previewRequesting).toBe(true);
+    expect(controller()?.publishRequesting).toBe(true);
 
     await act(async () => workbenchStore.activateWorkspace('account:chat--transcript-1-0'));
 
     expect(controller()?.projectId).toBe('chat');
-    expect(controller()?.previewRequesting).toBe(false);
+    expect(controller()?.publishRequesting).toBe(false);
 
     await act(async () => {
-      oldPreview.resolve(idleBuilderPreviewState());
+      oldPublish.resolve(deploying);
       await request;
     });
-    expect(controller()?.previewRequesting).toBe(false);
+    expect(controller()?.publishRequesting).toBe(false);
   });
 
-  it('invalidates a pending manual preview request on unmount', async () => {
-    const pendingPreview = deferred<BuilderPreviewState>();
+  it('publishes the app after a saved workspace change', async () => {
+    const publish = vi.fn(() => Promise.resolve(deploying));
     workbenchStore.activateWorkspace('account:chat--transcript-0-0');
-    workbenchStore.connectPreview({ request: () => pendingPreview.promise });
-
-    const controller = await mountController();
-
-    let request!: Promise<void>;
-    act(() => {
-      request = controller()!.onPreviewRequest();
-    });
-    await act(async () => root?.unmount());
-    root = undefined;
-
-    await act(async () => {
-      pendingPreview.resolve(idleBuilderPreviewState());
-      await request;
-    });
-
-    expect(workbenchStore.updatePreview).not.toHaveBeenCalled();
-  });
-
-  it('requests a new immutable preview after a saved workspace change', async () => {
-    const requestPreview = vi.fn(() => Promise.resolve(idleBuilderPreviewState()));
-    workbenchStore.activateWorkspace('account:chat--transcript-0-0');
-    workbenchStore.connectPreview({ request: requestPreview });
+    workbenchStore.connectSite({ publish });
 
     const controller = await mountController();
 
@@ -140,13 +119,13 @@ describe('useWorkbenchController preview requests', () => {
     });
 
     expect(workbenchStore.saveCurrentDocument).toHaveBeenCalled();
-    expect(requestPreview).toHaveBeenCalledOnce();
+    expect(publish).toHaveBeenCalledOnce();
   });
 
-  it("saves a GitHub project's file without asking CloudChef for a preview its pipeline builds", async () => {
-    const requestPreview = vi.fn(() => Promise.resolve(idleBuilderPreviewState()));
+  it("saves a GitHub project's file without asking CloudChef to publish what its pipeline builds", async () => {
+    const publish = vi.fn(() => Promise.resolve(deploying));
     workbenchStore.activateWorkspace('account:chat--transcript-0-0');
-    workbenchStore.connectPreview({ request: requestPreview });
+    workbenchStore.connectSite({ publish });
     workbenchStore.linkedProject.set({ repository: 'ada/site', defaultBranch: 'main' });
 
     const controller = await mountController();
@@ -158,7 +137,7 @@ describe('useWorkbenchController preview requests', () => {
     });
 
     expect(workbenchStore.saveCurrentDocument).toHaveBeenCalled();
-    expect(requestPreview).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
     expect(controller()!.linkedProject).toEqual({ repository: 'ada/site', defaultBranch: 'main' });
   });
 
@@ -176,11 +155,11 @@ describe('useWorkbenchController preview requests', () => {
     expect(workbenchStore.saveCurrentDocument).not.toHaveBeenCalled();
   });
 
-  it('does not continue a pending save into preview after unmount', async () => {
+  it('does not continue a pending save into publishing after unmount', async () => {
     const pendingSave = deferred<void>();
-    const requestPreview = vi.fn(() => Promise.resolve(idleBuilderPreviewState()));
+    const publish = vi.fn(() => Promise.resolve(deploying));
     workbenchStore.activateWorkspace('account:chat--transcript-0-0');
-    workbenchStore.connectPreview({ request: requestPreview });
+    workbenchStore.connectSite({ publish });
     vi.mocked(workbenchStore.saveCurrentDocument).mockReturnValueOnce(pendingSave.promise);
 
     const controller = await mountController();
@@ -194,8 +173,7 @@ describe('useWorkbenchController preview requests', () => {
       await Promise.resolve();
     });
 
-    expect(requestPreview).not.toHaveBeenCalled();
-    expect(workbenchStore.updatePreview).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
   });
 });
 

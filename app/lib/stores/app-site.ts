@@ -1,18 +1,19 @@
 import { atom } from 'nanostores';
-import { idleBuilderPreviewState, type BuilderPreviewState } from '~/agents/builder-preview-types';
+import type { BuilderDeploymentState } from '~/agents/builder-deployment-command';
 import type { BuilderPublicationState } from '~/agents/builder-publication-progress';
+import { emptyAppSiteState, type AppSiteState } from '~/lib/common/app-site';
 
-type PreviewActions = {
-  request(): Promise<BuilderPreviewState>;
+type AppSiteActions = {
+  publish(): Promise<BuilderDeploymentState>;
 };
 
-export class PreviewsStore {
-  state = atom<BuilderPreviewState>(idleBuilderPreviewState());
-  /** The step the running publication last recorded, for the wait the preview panel narrates. */
+export class AppSiteStore {
+  state = atom<AppSiteState>(emptyAppSiteState());
+  /** The step the running deployment last recorded, for the wait the preview pane narrates. */
   publication = atom<BuilderPublicationState | null>(null);
-  #actions: PreviewActions | null = null;
+  #actions: AppSiteActions | null = null;
 
-  connect(actions: PreviewActions): () => void {
+  connect(actions: AppSiteActions): () => void {
     this.#actions = actions;
     return () => {
       if (this.#actions === actions) {
@@ -21,7 +22,7 @@ export class PreviewsStore {
     };
   }
 
-  update(state: BuilderPreviewState): void {
+  update(state: AppSiteState): void {
     this.state.set(state);
   }
 
@@ -31,17 +32,17 @@ export class PreviewsStore {
 
   reset(): void {
     this.#actions = null;
-    this.state.set(idleBuilderPreviewState());
+    this.state.set(emptyAppSiteState());
     this.publication.set(null);
   }
 
-  request(): Promise<BuilderPreviewState> {
-    return this.#requireActions().request();
+  publish(): Promise<BuilderDeploymentState> {
+    return this.#requireActions().publish();
   }
 
-  #requireActions(): PreviewActions {
+  #requireActions(): AppSiteActions {
     if (!this.#actions) {
-      throw new Error('The remote preview connection is not ready.');
+      throw new Error('The connection to the builder is not ready.');
     }
     return this.#actions;
   }
