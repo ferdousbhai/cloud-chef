@@ -109,11 +109,12 @@ describe('BuilderWorkspaceSyncController', () => {
   });
 
   test("presents a snapshot that carries the repository's file modes", async () => {
-    const script = { ...write('/home/project/bin/run.sh', 'echo run', 1), mode: 0o755 };
+    const content = 'echo run';
+    const script = { ...write('/home/project/bin/run.sh', content, 1), mode: 0o755 };
     const agent = {
       call: vi.fn(async (method: string, args: unknown[]) => {
         if (method === 'getWorkspaceState') {
-          return workspaceState(1, 1, script.size);
+          return workspaceState(1, 1, content.length);
         }
         if (method === 'getWorkspaceSyncPage') {
           const [request] = z.tuple([z.object({ fromRevision: z.number() })]).parse(args);
@@ -127,7 +128,7 @@ describe('BuilderWorkspaceSyncController', () => {
 
     // The mode stays in the workspace, which commits it; the browser presents only the content.
     expect(workbench.replaceWorkspaceSnapshot).toHaveBeenCalledWith(
-      [expect.objectContaining({ path: script.path, content: script.content })],
+      [expect.objectContaining({ path: script.path, content })],
       undefined,
     );
   });
