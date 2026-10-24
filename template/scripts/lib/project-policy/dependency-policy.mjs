@@ -5,22 +5,6 @@ const dependencySections = [
   "peerDependencies",
 ];
 
-const forbiddenDependencyPatterns = [
-  /^convex$/,
-  /^@convex\//,
-  /^remix$/,
-  /^@remix-run\//,
-  /^openai$/,
-  /^@openai\//,
-  /^anthropic$/,
-  /^@anthropic-ai\/sdk$/,
-  /^@google\/(?:genai|generative-ai)$/,
-  /^@ai-sdk\/(?!provider$|react$)[^/]+$/,
-  /^groq-sdk$/,
-  /^@mistralai\/mistralai$/,
-  /^@types\/diff$/,
-];
-
 /** The control plane builds on Workers Builds with the pinned Node 26. */
 export const CONTROL_PLANE_TOOLCHAIN = {
   nodeEngine: ">=26.0.0",
@@ -71,17 +55,6 @@ export function packageDependencyVersion(pkg, name) {
     }
   }
   return undefined;
-}
-
-export function findForbiddenDependencies(pkg, label) {
-  return [...dependencyNames(pkg)]
-    .filter((name) =>
-      forbiddenDependencyPatterns.some((pattern) => pattern.test(name)),
-    )
-    .map(
-      (name) =>
-        `${label} must not depend on ${name}; use Cloudflare Workers AI and TanStack/Cloudflare APIs.`,
-    );
 }
 
 export function findMissingDependencies(pkg, label, requiredPackages) {

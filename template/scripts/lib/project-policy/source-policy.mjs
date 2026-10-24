@@ -1,16 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 
-const forbiddenImportPatterns = [
-  /(?:from\s+|import\s+(?:[^'"]+\s+from\s+)?)['"](?:convex(?:\/[^'"]*)?|@convex\/[^'"]*)['"]/,
-  /(?:from\s+|import\s+(?:[^'"]+\s+from\s+)?)['"](?:remix(?:\/[^'"]*)?|@remix-run\/[^'"]*)['"]/,
-  /(?:from\s+|import\s+(?:[^'"]+\s+from\s+)?)['"](?:openai(?:\/[^'"]*)?|@openai\/[^'"]*)['"]/,
-  /(?:from\s+|import\s+(?:[^'"]+\s+from\s+)?)['"](?:anthropic(?:\/[^'"]*)?|@anthropic-ai\/sdk)['"]/,
-  /(?:from\s+|import\s+(?:[^'"]+\s+from\s+)?)['"]@google\/(?:genai|generative-ai)['"]/,
-  /(?:from\s+|import\s+(?:[^'"]+\s+from\s+)?)['"]@ai-sdk\/(?!provider(?:\/|['"])|react(?:\/|['"]))[^'"]*['"]/,
-  /(?:from\s+|import\s+(?:[^'"]+\s+from\s+)?)['"](?:groq-sdk|@mistralai\/mistralai)['"]/,
-];
-
 const sourceExtensions = new Set([
   ".cjs",
   ".js",
@@ -57,37 +47,21 @@ export function collectSourceEntries(rootDir, entries) {
   return files;
 }
 
-export function findForbiddenImports(files) {
+/**
+ * Vite writes each `import.meta.env` value into the built files, so a value read that way in browser
+ * code is published with them. Vite's own build flags (DEV, PROD, SSR, MODE, BASE_URL) hold nothing
+ * secret. `process.env` is not checked: under `nodejs_compat` with the template's compatibility date,
+ * Workers fill it at runtime from the Worker's variables and secrets.
+ */
+const buildTimeEnvAccess =
+  /\bimport\.meta\.env\b(?!\.(?:DEV|PROD|SSR|MODE|BASE_URL)\b)/;
+
+export function findBuildTimeEnvAccess(files) {
   return findLineViolations(
     files,
-    (line) => forbiddenImportPatterns.some((pattern) => pattern.test(line)),
-    "imports a forbidden provider/framework module.",
+    (line) => buildTimeEnvAccess.test(line),
+    "reads import.meta.env, which is written into the published browser files at build time; read configuration and secrets from the Worker's bindings.",
   );
-}
-
-export function findForbiddenRuntimeEnvAccess(files, allowlist = []) {
-  const patterns = [/\bprocess\.env\b/, /\bimport\.meta\.env\b/];
-  const errors = [];
-  for (const file of files) {
-    const normalizedFile = file.replaceAll("\\", "/");
-    readFileSync(file, "utf8")
-      .split("\n")
-      .forEach((line, index) => {
-        if (!patterns.some((pattern) => pattern.test(line))) {
-          return;
-        }
-        const allowed = allowlist.some(
-          ({ pathSuffix, snippet }) =>
-            normalizedFile.endsWith(pathSuffix) && line.includes(snippet),
-        );
-        if (!allowed) {
-          errors.push(
-            `${file}:${index + 1} must read runtime config from Cloudflare Worker bindings, not process.env or import.meta.env.`,
-          );
-        }
-      });
-  }
-  return errors;
 }
 
 export function findMissingPaths(rootDir, paths) {

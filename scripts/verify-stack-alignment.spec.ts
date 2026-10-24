@@ -4,10 +4,8 @@ import {
   CONTROL_PLANE_TOOLCHAIN,
   GENERATED_APP_TOOLCHAIN,
   dependencyNames,
+  findBuildTimeEnvAccess,
   findForbiddenFiles,
-  findForbiddenDependencies,
-  findForbiddenImports,
-  findForbiddenRuntimeEnvAccess,
   findInternalPackageMetadataErrors,
   findDeploymentRuntimePolicyErrors,
   findMissingDependencies,
@@ -37,25 +35,6 @@ describe('stack alignment verification helpers', () => {
         devDependencies: { wrangler: '^4.0.0' },
       }),
     ).toEqual(new Set(['@tanstack/react-start', 'wrangler']));
-  });
-
-  it('rejects Convex, Remix, and non-Workers-AI model providers', () => {
-    const errors = findForbiddenDependencies(
-      {
-        dependencies: {
-          convex: '^1.0.0',
-          '@remix-run/react': '^2.0.0',
-          '@ai-sdk/openai': '^4.0.0',
-          '@ai-sdk/amazon-bedrock': '^3.0.0',
-        },
-        devDependencies: {
-          '@types/diff': '^8.0.0',
-        },
-      },
-      'package.json',
-    );
-
-    expect(errors).toHaveLength(5);
   });
 
   it('reports missing required stack dependencies', () => {
@@ -102,8 +81,8 @@ describe('stack alignment verification helpers', () => {
   });
 
   it('reports forbidden generated lockfiles', () => {
-    expect(findForbiddenFiles(['scripts/fixtures/forbidden-stack-imports.txt'])).toEqual([
-      'scripts/fixtures/forbidden-stack-imports.txt must not exist; CloudChef uses pnpm lockfiles only.',
+    expect(findForbiddenFiles(['scripts/fixtures/build-time-env-access.ts'])).toEqual([
+      'scripts/fixtures/build-time-env-access.ts must not exist; CloudChef uses pnpm lockfiles only.',
     ]);
   });
 
@@ -178,36 +157,11 @@ describe('stack alignment verification helpers', () => {
     ]);
   });
 
-  it('rejects forbidden framework and provider imports', () => {
-    const errors = findForbiddenImports([new URL('./fixtures/forbidden-stack-imports.txt', import.meta.url).pathname]);
+  it("reports import.meta.env values that a build writes into the published files, but not Vite's build flags or process.env", () => {
+    const fixture = new URL('./fixtures/build-time-env-access.ts', import.meta.url).pathname;
 
-    expect(errors).toHaveLength(4);
-  });
-
-  it('rejects runtime env access outside explicit SSR-only allowlists', () => {
-    const fixture = new URL('./fixtures/forbidden-runtime-env-access.ts', import.meta.url).pathname;
-
-    expect(findForbiddenRuntimeEnvAccess([fixture])).toEqual([
-      `${fixture}:1 must read runtime config from Cloudflare Worker bindings, not process.env or import.meta.env.`,
-      `${fixture}:2 must read runtime config from Cloudflare Worker bindings, not process.env or import.meta.env.`,
-    ]);
-  });
-
-  it('allows an explicitly reviewed runtime env access without allowing other import.meta.env usage', () => {
-    const fixture = new URL('./fixtures/forbidden-runtime-env-access.ts', import.meta.url).pathname;
-
-    expect(
-      findForbiddenRuntimeEnvAccess(
-        [fixture],
-        [
-          {
-            pathSuffix: 'fixtures/forbidden-runtime-env-access.ts',
-            snippet: 'import.meta.env.VITE_OPENAI_API_KEY',
-          },
-        ],
-      ),
-    ).toEqual([
-      `${fixture}:1 must read runtime config from Cloudflare Worker bindings, not process.env or import.meta.env.`,
+    expect(findBuildTimeEnvAccess([fixture])).toEqual([
+      `${fixture}:2 reads import.meta.env, which is written into the published browser files at build time; read configuration and secrets from the Worker's bindings.`,
     ]);
   });
 

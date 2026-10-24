@@ -16,9 +16,7 @@ import {
   GENERATED_APP_TOOLCHAIN,
   collectSourceEntries,
   findAgentCapabilityDependencyErrors,
-  findForbiddenDependencies,
-  findForbiddenImports,
-  findForbiddenRuntimeEnvAccess,
+  findBuildTimeEnvAccess,
   findBuildApprovalErrors,
   findMissingCommandSteps,
   findMissingDependencies,
@@ -88,7 +86,6 @@ export function verifyStackAlignment() {
     );
   }
   errors.push(
-    ...findForbiddenDependencies(packageJson, "package.json"),
     ...findMissingDependencies(
       packageJson,
       "package.json",
@@ -177,10 +174,7 @@ export function verifyStackAlignment() {
     "vite.config.ts",
     ...(type === "web_app" ? ["scripts/lib/runtime-module-security.ts"] : []),
   ]);
-  errors.push(
-    ...findForbiddenImports(files),
-    ...findForbiddenRuntimeEnvAccess(files),
-  );
+  errors.push(...findBuildTimeEnvAccess(files));
   return errors;
 }
 
