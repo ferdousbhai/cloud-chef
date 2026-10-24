@@ -1,9 +1,5 @@
 import { z } from 'zod';
-import {
-  isForbiddenStackDependencyPackageName,
-  isRegistryPackageSpec,
-  packageNameFromInstallSpec,
-} from 'cloudchef-agent/utils/stackPolicy';
+import { isRegistryPackageSpec } from 'cloudchef-agent/utils/stackPolicy';
 import { slashPath } from './pathNames';
 
 const packageDependencySections = [
@@ -34,11 +30,6 @@ const packageManifestSchema = z.looseObject({
 
 type PackageManifest = z.infer<typeof packageManifestSchema>;
 
-type ForbiddenGeneratedPackageDependency = {
-  section: PackageDependencySection;
-  packageName: string;
-};
-
 type InvalidGeneratedPackageSource = {
   section: PackageDependencySection;
   packageName: string;
@@ -47,30 +38,6 @@ type InvalidGeneratedPackageSource = {
 
 function packageJsonPath(filePath: string) {
   return slashPath(filePath).endsWith('/package.json') || filePath === 'package.json';
-}
-
-export function findForbiddenGeneratedPackageDependencies(manifest: PackageManifest) {
-  const forbiddenDependencies: ForbiddenGeneratedPackageDependency[] = [];
-
-  for (const section of packageDependencySections) {
-    for (const [packageName, versionSpec] of Object.entries(manifest[section] ?? {})) {
-      if (isForbiddenStackDependencyPackageName(packageName)) {
-        forbiddenDependencies.push({ section, packageName });
-        continue;
-      }
-
-      if (versionSpec === null || !versionSpec.includes('npm:')) {
-        continue;
-      }
-
-      const aliasedPackageName = packageNameFromInstallSpec(versionSpec);
-      if (isForbiddenStackDependencyPackageName(aliasedPackageName)) {
-        forbiddenDependencies.push({ section, packageName: aliasedPackageName });
-      }
-    }
-  }
-
-  return forbiddenDependencies;
 }
 
 export function findInvalidGeneratedPackageSources(manifest: PackageManifest) {
@@ -106,16 +73,6 @@ export function assertValidGeneratedPackageJson(filePath: string, content: strin
     return;
   }
   const manifest = parsed.data;
-
-  const forbiddenDependencies = findForbiddenGeneratedPackageDependencies(manifest);
-  if (forbiddenDependencies.length > 0) {
-    const formattedDependencies = forbiddenDependencies
-      .map(({ section, packageName }) => `${section}.${packageName}`)
-      .join(', ');
-    throw new Error(
-      `Generated package.json must not depend on ${formattedDependencies}. Use Cloudflare Workers AI and TanStack/Cloudflare APIs instead.`,
-    );
-  }
 
   const invalidSources = findInvalidGeneratedPackageSources(manifest);
   if (invalidSources.length > 0) {
