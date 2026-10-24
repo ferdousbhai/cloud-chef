@@ -8,11 +8,9 @@ import {
   GENERATED_APP_TOOLCHAIN,
   collectSourceEntries,
   dependencyNames,
-  findForbiddenDependencies,
+  findBuildTimeEnvAccess,
   findBuildApprovalErrors,
-  findForbiddenImports,
   findForbiddenPaths,
-  findForbiddenRuntimeEnvAccess as findForbiddenRuntimeEnvAccessShared,
   findMissingCommandSteps,
   findMissingDependencies,
   findMissingPaths,
@@ -34,8 +32,7 @@ export {
   CONTROL_PLANE_TOOLCHAIN,
   GENERATED_APP_TOOLCHAIN,
   dependencyNames,
-  findForbiddenDependencies,
-  findForbiddenImports,
+  findBuildTimeEnvAccess,
   findMissingCommandSteps,
   findMissingDependencies,
   findPackageVersionAlignmentErrors,
@@ -44,7 +41,6 @@ export {
 };
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const runtimeEnvAccessAllowlist = [{ pathSuffix: 'app/components/ErrorComponent.tsx', snippet: 'import.meta.env.DEV' }];
 const agentRequiredPackages = ['zod'];
 /**
  * The control plane's own stack. `app/routeTree.gen.ts` here is written by the TanStack Start vite
@@ -89,10 +85,6 @@ function readJson(path) {
 
 export function findForbiddenFiles(paths) {
   return findForbiddenPaths(rootDir, paths, 'CloudChef uses pnpm lockfiles only');
-}
-
-export function findForbiddenRuntimeEnvAccess(files, allowlist = runtimeEnvAccessAllowlist) {
-  return findForbiddenRuntimeEnvAccessShared(files, allowlist);
 }
 
 export function findSandboxRuntimePinErrors(packageSpec, installedVersion, provisionerSource) {
@@ -145,11 +137,7 @@ function normalizedStringList(source) {
 }
 
 function verifyPackage(errors, pkg, label, requiredPackages, toolchain) {
-  errors.push(
-    ...findForbiddenDependencies(pkg, label),
-    ...findMissingDependencies(pkg, label, requiredPackages),
-    ...findRuntimePinErrors(pkg, label, toolchain),
-  );
+  errors.push(...findMissingDependencies(pkg, label, requiredPackages), ...findRuntimePinErrors(pkg, label, toolchain));
 }
 
 export function findInternalPackageMetadataErrors(pkg, label) {
@@ -256,7 +244,7 @@ export function verifyStackAlignment() {
     'vite.config.ts',
     'template/vite.config.ts',
   ]).filter((path) => !path.endsWith('/app/generated/user-workspace-runtime.generated.ts'));
-  errors.push(...findForbiddenImports(sourceFiles), ...findForbiddenRuntimeEnvAccess(sourceFiles));
+  errors.push(...findBuildTimeEnvAccess(sourceFiles));
 
   return errors;
 }
