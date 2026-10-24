@@ -142,14 +142,18 @@ test('keeps account details discoverable and clears a cancelled deletion', async
     return route.fulfill({ status: 400, json: { error: 'Fixture: deletion is disabled.' } });
   });
   await page.goto('/settings');
+  // Settings opens on Account; each tab shows its own cards.
+  await expect(page.getByRole('heading', { name: 'Cloudflare account' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Models' }).click();
+  await expect(
+    page.getByRole('region').filter({ has: page.getByRole('heading', { name: 'Models', exact: true }) }),
+  ).toContainText(DEFAULT_WORKERS_AI_MODEL.label);
+  await page.getByRole('tab', { name: 'Privacy & data' }).click();
+  await expect(page).toHaveURL(/#data$/);
   await expect(page.getByRole('heading', { name: 'Your data' })).toBeVisible();
   // The member's own cards loaded as theirs, not as a signed-out visitor's.
   await expect(page.getByRole('checkbox', { name: 'Log my model requests in AI Gateway' })).toBeChecked();
   await expect(page.getByText('Sign in first.')).toHaveCount(0);
-  await expect(
-    page.getByRole('region').filter({ has: page.getByRole('heading', { name: 'Models', exact: true }) }),
-  ).toContainText(DEFAULT_WORKERS_AI_MODEL.label);
-  await expect(page.getByText('Your Cloudflare resources remain live and billable.')).toBeVisible();
   const exportDetails = page.locator('details').filter({ hasText: 'What’s included?' });
   await expect(exportDetails).not.toHaveAttribute('open', '');
   await exportDetails.locator('summary').click();
@@ -157,6 +161,8 @@ test('keeps account details discoverable and clears a cancelled deletion', async
 
   const openDeletion = page.getByRole('button', { name: 'Delete account data' });
   await openDeletion.click();
+  // What deletion leaves behind is said where it is confirmed.
+  await expect(page.getByRole('dialog').getByText('Your Cloudflare resources remain live and billable.')).toBeVisible();
   const confirm = page.getByRole('button', { name: 'Permanently delete', exact: true });
   await expect(confirm).toBeDisabled();
   const acknowledgement = page.getByRole('checkbox', { name: /I understand this is irreversible/ });
@@ -168,6 +174,7 @@ test('keeps account details discoverable and clears a cancelled deletion', async
   await expect(confirm).toBeDisabled();
   await expect(acknowledgement).not.toBeChecked();
   await expect(page.getByLabel('Deletion confirmation phrase')).toHaveValue('');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(deletionRequests).toBe(0);
   const cards = page.locator('section.app-card');
   // Account, Cloudflare account, Models, AI request logs, Teams and Your data: every card is measured below.
@@ -175,12 +182,15 @@ test('keeps account details discoverable and clears a cancelled deletion', async
   // Classic scrollbars can leave only 310 CSS pixels inside a 320px window.
   for (const width of [1280, 320, 310]) {
     await page.setViewportSize({ width, height: 800 });
-    expect(
-      await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
-    ).toBe(true);
-    expect(
-      await cards.evaluateAll((sections) => sections.every((section) => section.scrollWidth <= section.clientWidth)),
-    ).toBe(true);
+    for (const tab of ['Account', 'Teams', 'Models', 'Privacy & data']) {
+      await page.getByRole('tab', { name: tab }).click();
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+      ).toBe(true);
+      expect(
+        await cards.evaluateAll((sections) => sections.every((section) => section.scrollWidth <= section.clientWidth)),
+      ).toBe(true);
+    }
   }
   await assertClean();
 });

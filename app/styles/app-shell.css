@@ -320,20 +320,92 @@ button,
   }
 }
 
-/* Settings use a compact summary column beside the account controls on desktop. */
+/* Settings: a short list of tabs beside one panel on desktop, a row of tabs above it on a phone. */
 .settings-container {
-  width: min(100% - 32px, 1120px);
+  width: min(100% - 32px, 1040px);
+  min-height: calc(100svh - 72px);
   padding: 16px 0 24px;
 }
 
-.settings-grid {
+.settings-layout {
   display: grid;
-  gap: 12px;
+  gap: 16px;
   align-items: start;
 }
 
-@media (min-width: 1024px) {
-  .settings-grid {
-    grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+.settings-sidebar {
+  min-width: 0;
+}
+
+.settings-title {
+  margin: 0 0 10px;
+  color: var(--cc-content-primary);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.settings-tab {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--cc-radius);
+  background: transparent;
+  color: var(--cc-content-secondary);
+  padding: 7px 10px;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.settings-tab:hover {
+  color: var(--cc-content-primary);
+}
+
+.settings-tab--active {
+  border-color: var(--cc-border-transparent);
+  background: var(--cc-background-secondary);
+  color: var(--cc-content-primary);
+}
+
+.settings-tab--active svg {
+  color: var(--cc-content-accent);
+}
+
+@media (max-width: 899px) {
+  .settings-tab {
+    padding: 7px 8px;
+  }
+
+  .settings-tab svg {
+    display: none;
+  }
+}
+
+@media (min-width: 900px) {
+  .settings-layout {
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 28px;
+  }
+
+  .settings-sidebar {
+    position: sticky;
+    top: 16px;
+  }
+
+  .settings-tabs {
+    flex-direction: column;
   }
 }

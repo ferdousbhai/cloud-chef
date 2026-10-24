@@ -1,6 +1,9 @@
 import { useState } from 'react';
+import { ChevronDownIcon } from '@radix-ui/react-icons';
 import { z } from 'zod';
 import { Button } from '@ui/Button';
+import { ConfirmationDialog } from '@ui/ConfirmationDialog';
+import { MenuItem } from '@ui/Menu';
 import { TextInput } from '@ui/TextInput';
 import { authClient, createCloudflareReturnURL } from '~/lib/auth-client';
 import { projectRoleSchema } from '~/lib/cloudflare/org-projects.client';
@@ -9,6 +12,7 @@ import { ProjectAccessList, type ProjectMember } from '~/components/projects/Pro
 import { openProjectChat } from '~/lib/cloudflare/projects.client';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
 import { noContentSchema, postJson, runRequest } from '~/lib/json-request';
+import { MoreMenu, StatusBadge } from './SettingsLayout';
 
 export const orgGitHubSchema = z.object({ accountLogin: z.string(), accountType: z.string() }).nullable();
 export const orgProjectSchema = z.object({
@@ -92,8 +96,37 @@ export function OrgProjectsSection({
     }, onError);
 
   return (
-    <div className="mt-3 grid min-w-0 gap-2 text-sm">
-      <h4 className="font-medium">Projects</h4>
+    <div className="mt-5 grid min-w-0 gap-2 text-sm">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <h4 className="mr-auto font-medium">
+          Projects <span className="font-normal text-content-tertiary">{projects.length}</span>
+        </h4>
+        <span className="flex items-center gap-1">
+          {workingHere ? (
+            <Button size="xs" variant="neutral" onClick={() => setImporting(true)}>
+              Import from GitHub
+            </Button>
+          ) : null}
+          <MoreMenu title="GitHub for this team">
+            {github === null ? (
+              <MenuItem action={connect}>Connect GitHub</MenuItem>
+            ) : (
+              <>
+                <MenuItem action={connect}>Change GitHub repositories</MenuItem>
+                <MenuItem danger action={() => setConfirmingDisconnect(true)}>
+                  Disconnect GitHub
+                </MenuItem>
+              </>
+            )}
+          </MoreMenu>
+        </span>
+      </div>
+      <p className="text-xs text-content-tertiary [overflow-wrap:anywhere]">
+        {github === null
+          ? 'Public repositories import from their address. Connect GitHub to import private ones.'
+          : `Imports can read repositories from github.com/${github.accountLogin}.`}
+        {workingHere ? null : ' Open this team to import.'}
+      </p>
       {productionRequests.length > 0 ? (
         <ul className="grid gap-2" aria-label="Production requests">
           {productionRequests.map((pending) => (
@@ -107,69 +140,32 @@ export function OrgProjectsSection({
           ))}
         </ul>
       ) : null}
-      <ul className="grid gap-2">
-        {projects.map((project) => (
-          <ProjectRow
-            key={project.id}
-            orgId={orgId}
-            project={project}
-            members={members}
-            onChanged={onChanged}
-            onError={onError}
-          />
-        ))}
-      </ul>
-      <div className="flex flex-wrap items-center gap-2">
-        {workingHere ? (
-          <Button size="xs" variant="neutral" onClick={() => setImporting(true)}>
-            Import from GitHub
-          </Button>
-        ) : (
-          <span className="min-w-0 text-content-secondary">Switch to this team to import a project from GitHub.</span>
-        )}
-      </div>
-      {github === null ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="min-w-0 text-content-secondary">
-            Public repositories import from their address. Connect GitHub to import private ones too.
-          </span>
-          <Button size="xs" variant="subtle" onClick={connect}>
-            Connect GitHub
-          </Button>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="min-w-48 flex-1 text-content-secondary [overflow-wrap:anywhere]">
-            Imports can read repositories from github.com/{github.accountLogin}
-          </span>
-          {confirmingDisconnect ? (
-            <>
-              <span className="min-w-0 basis-full text-xs text-content-secondary">
-                Disconnect GitHub? Projects already imported stay as they are; only private repositories can&apos;t be
-                imported until it&apos;s connected again.
-              </span>
-              <Button size="xs" variant="danger" onClick={disconnect}>
-                Disconnect GitHub
-              </Button>
-              <Button size="xs" variant="subtle" onClick={() => setConfirmingDisconnect(false)}>
-                Cancel
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button size="xs" variant="subtle" onClick={connect}>
-                Change repositories
-              </Button>
-              <Button size="xs" variant="subtle" onClick={() => setConfirmingDisconnect(true)}>
-                Disconnect
-              </Button>
-            </>
-          )}
-        </div>
-      )}
+      {projects.length > 0 ? (
+        <ul className="grid divide-y divide-bolt-elements-borderColor rounded-md border border-bolt-elements-borderColor">
+          {projects.map((project) => (
+            <ProjectRow
+              key={project.id}
+              orgId={orgId}
+              project={project}
+              members={members}
+              onChanged={onChanged}
+              onError={onError}
+            />
+          ))}
+        </ul>
+      ) : null}
       <FeedbackLine feedback={feedback} className="" />
       {importing ? (
         <ImportFromGitHubDialog orgId={orgId} onOpenProject={openProjectChat} onClose={() => setImporting(false)} />
+      ) : null}
+      {confirmingDisconnect ? (
+        <ConfirmationDialog
+          dialogTitle="Disconnect GitHub?"
+          dialogBody="Projects already imported stay as they are. Private repositories can't be imported until it's connected again."
+          confirmText="Disconnect GitHub"
+          onClose={() => setConfirmingDisconnect(false)}
+          onConfirm={disconnect}
+        />
       ) : null}
     </div>
   );
@@ -194,46 +190,59 @@ function ProjectRow({
       await postJson('/api/organizations/projects/unlink', { orgId, projectId: project.id }, noContentSchema);
       await onChanged();
     }, onError);
+  const source = projectSource(project);
   return (
-    <li className="grid min-w-0 gap-2 rounded-md border border-bolt-elements-borderColor p-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-          {project.name} <span className="text-xs text-content-secondary">{projectSource(project)}</span>
-        </span>
-        {confirmingRemove ? (
-          <>
-            <Button
-              size="xs"
-              variant="danger"
-              aria-label={`Remove from the team (its site stays): ${project.name}`}
-              onClick={remove}
-            >
-              Remove from the team (its site stays)
-            </Button>
-            <Button size="xs" variant="subtle" onClick={() => setConfirmingRemove(false)}>
-              Cancel
-            </Button>
-          </>
-        ) : (
-          <Button
-            size="xs"
-            variant="subtle"
-            aria-label={`Remove ${project.name}`}
-            onClick={() => setConfirmingRemove(true)}
-          >
-            Remove
-          </Button>
-        )}
-      </div>
-      {project.origin === 'promoted' ? <WorkersBuildsInstruction /> : null}
-      <ProjectAccessList
-        orgId={orgId}
-        project={project}
-        members={members}
-        access={project.access}
-        onChanged={onChanged}
-        onError={onError}
-      />
+    <li className="min-w-0 px-3 py-2">
+      <details className="group min-w-0">
+        <summary className="flex min-w-0 cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 [&::-webkit-details-marker]:hidden">
+          <span className="min-w-0 flex-1 basis-40">
+            <span className="block truncate text-content-primary">{project.name}</span>
+            {source ? <span className="block truncate text-xs text-content-tertiary">{source}</span> : null}
+          </span>
+          <span className="text-xs text-content-secondary">
+            {project.access.length === 0
+              ? 'Admins only'
+              : `${project.access.length} ${project.access.length === 1 ? 'member' : 'members'}`}
+          </span>
+          <ChevronDownIcon aria-hidden className="text-content-tertiary transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="mt-3 grid min-w-0 gap-3 border-t border-bolt-elements-borderColor pt-3">
+          <ProjectAccessList
+            orgId={orgId}
+            project={project}
+            members={members}
+            access={project.access}
+            onChanged={onChanged}
+            onError={onError}
+          />
+          {project.origin === 'promoted' ? <WorkersBuildsInstruction /> : null}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {confirmingRemove ? (
+              <>
+                <span className="mr-auto text-xs text-content-secondary">
+                  Its site and code stay in the Cloudflare account.
+                </span>
+                <Button size="xs" variant="subtle" onClick={() => setConfirmingRemove(false)}>
+                  Cancel
+                </Button>
+                <Button size="xs" variant="danger" aria-label={`Remove from team: ${project.name}`} onClick={remove}>
+                  Remove from team
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="xs"
+                variant="subtle"
+                className="!text-content-error"
+                aria-label={`Remove ${project.name}`}
+                onClick={() => setConfirmingRemove(true)}
+              >
+                Remove
+              </Button>
+            )}
+          </div>
+        </div>
+      </details>
     </li>
   );
 }
@@ -244,7 +253,7 @@ function projectSource(project: OrgProject): string | null {
     return null;
   }
   return project.repo === null
-    ? `imports from github.com/${project.importRepoFullName} when someone first opens it`
+    ? `imports from github.com/${project.importRepoFullName} when first opened`
     : `imported from github.com/${project.importRepoFullName}`;
 }
 
@@ -303,15 +312,14 @@ function ProductionRequestRow({
       await onChanged();
     }, onError);
   return (
-    <li className="grid min-w-0 gap-1 rounded-md border border-bolt-elements-borderColor p-2 [overflow-wrap:anywhere]">
-      <span>
-        <strong>{pending.title}</strong>{' '}
-        <span className="text-content-secondary">
-          from {pending.requesterName || pending.requesterEmail} wants to go to production
+    <li className="grid min-w-0 gap-1.5 rounded-md border border-accent-500/40 bg-bolt-elements-background-depth-2 p-3 [overflow-wrap:anywhere]">
+      <span className="flex min-w-0 flex-wrap items-center gap-2">
+        <StatusBadge tone="warning">Production request</StatusBadge>
+        <strong className="min-w-0">{pending.title}</strong>
+        <span className="text-xs text-content-tertiary">
+          from {pending.requesterName || pending.requesterEmail}
+          {pending.updatedAt ? ` · updated ${timeAgo(pending.updatedAt)}` : ''}
         </span>
-        {pending.updatedAt ? (
-          <span className="text-xs text-content-tertiary"> · updated {timeAgo(pending.updatedAt)}</span>
-        ) : null}
       </span>
       {pending.note ? <span className="text-xs text-content-secondary">{pending.note}</span> : null}
       {pending.previewUrl ? (
@@ -378,18 +386,22 @@ export function MyOrgProjects({
         </p>
       ) : null}
       {requests.length > 0 ? (
-        <ul
-          className="mt-2 grid gap-1 text-sm text-content-secondary [overflow-wrap:anywhere]"
-          aria-label="Your production requests"
-        >
+        <ul className="mt-2 grid gap-1.5 text-sm [overflow-wrap:anywhere]" aria-label="Your production requests">
           {requests.map((request) => (
-            <li key={request.id}>
-              {request.title}:{' '}
-              {request.status === 'pending'
-                ? 'waiting for an admin'
-                : request.status === 'approved'
-                  ? 'approved, now a project'
-                  : `declined${request.decisionNote ? ` (${request.decisionNote})` : ''}`}
+            <li key={request.id} className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="min-w-0">{request.title}</span>
+              {request.status === 'pending' ? (
+                <StatusBadge tone="warning">Waiting for an admin</StatusBadge>
+              ) : request.status === 'approved' ? (
+                <StatusBadge tone="success">Approved, now a project</StatusBadge>
+              ) : (
+                <>
+                  <StatusBadge tone="error">Declined</StatusBadge>
+                  {request.decisionNote ? (
+                    <span className="text-xs text-content-tertiary">{request.decisionNote}</span>
+                  ) : null}
+                </>
+              )}
             </li>
           ))}
         </ul>

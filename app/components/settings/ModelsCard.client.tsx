@@ -2,7 +2,6 @@ import { useStore } from '@nanostores/react';
 import { useCallback, useEffect, useState } from 'react';
 import { z } from 'zod';
 import { Button } from '~/components/ui/primitives/Button';
-import { classNames } from '~/utils/classNames';
 import type { CloudflareAuthSession } from '~/lib/.server/auth';
 import { authClient, createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
 import {
@@ -20,6 +19,7 @@ import {
   type GatewayProviderSlug,
 } from '~/lib/workers-ai-model';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
+import { SettingsCard, StatusBadge } from './SettingsLayout';
 import { getJson, messageOf, postJson } from '~/lib/json-request';
 
 const providerKeySchema = z.object({
@@ -164,15 +164,7 @@ export function ModelsCard() {
       ];
 
   return (
-    <section
-      id="models"
-      className="app-card w-full min-w-0 p-4 [overflow-wrap:anywhere]"
-      aria-labelledby="models-heading"
-    >
-      <h2 id="models-heading" className="app-card-title">
-        Models
-      </h2>
-      {accountLabel ? <p className="mt-1 text-sm text-content-secondary">For {accountLabel}.</p> : null}
+    <SettingsCard id="models" title="Models" description={accountLabel ? `For ${accountLabel}.` : undefined}>
       {settings === null ? (
         feedback ? (
           <div className="mt-2">
@@ -181,54 +173,51 @@ export function ModelsCard() {
             </Button>
           </div>
         ) : (
-          <p className="mt-1 text-sm text-content-secondary" role="status">
+          <p className="mt-3 text-sm text-content-secondary" role="status">
             Loading…
           </p>
         )
       ) : (
         <>
-          <label className="mt-3 block text-sm font-medium text-content-primary" htmlFor="default-model">
-            Default model
-          </label>
-          <p className="mt-1 max-w-2xl text-sm text-content-secondary">
-            {settings.canManage
-              ? 'Everyone building in this account starts new chats on this model, and can switch in the builder.'
-              : 'Chosen by this team’s admins. You can switch models in the builder.'}
-          </p>
-          <select
-            id="default-model"
-            className="mt-2 w-full max-w-md rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-sm text-content-primary"
-            value={settings.defaultModelId ?? CLOUDCHEF_DEFAULT}
-            disabled={!settings.canManage || busy}
-            onChange={(event) => void chooseDefault(event.target.value)}
-          >
-            <option value={CLOUDCHEF_DEFAULT}>CloudChef’s default ({CLOUDFLARE_WORKERS_AI_MODEL})</option>
-            {choices.map((model) => {
-              const provider = isBuilderModelId(model.id) ? gatewayModelProvider(model.id) : null;
-              return (
-                <option key={model.id} value={model.id}>
-                  {model.label}
-                  {provider ? ` (${GATEWAY_PROVIDERS[provider].label})` : ''}
-                </option>
-              );
-            })}
-          </select>
-          {catalogStatus === 'error' ? (
-            <p className="mt-1 text-xs text-content-tertiary">The account’s model list could not be loaded just now.</p>
-          ) : catalogStatus === 'stale' ? (
-            <p className="mt-1 text-xs text-content-tertiary">
-              The account’s model list could not be refreshed just now, so these are the models it last listed.
+          <div className="mt-4 grid min-w-0 gap-1.5">
+            <label className="text-sm font-medium text-content-primary" htmlFor="default-model">
+              Default model
+            </label>
+            <select
+              id="default-model"
+              className="w-full max-w-md rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-sm text-content-primary"
+              value={settings.defaultModelId ?? CLOUDCHEF_DEFAULT}
+              disabled={!settings.canManage || busy}
+              onChange={(event) => void chooseDefault(event.target.value)}
+            >
+              <option value={CLOUDCHEF_DEFAULT}>CloudChef’s default ({CLOUDFLARE_WORKERS_AI_MODEL})</option>
+              {choices.map((model) => {
+                const provider = isBuilderModelId(model.id) ? gatewayModelProvider(model.id) : null;
+                return (
+                  <option key={model.id} value={model.id}>
+                    {model.label}
+                    {provider ? ` (${GATEWAY_PROVIDERS[provider].label})` : ''}
+                  </option>
+                );
+              })}
+            </select>
+            <p className="text-xs text-content-tertiary">
+              {catalogStatus === 'error'
+                ? 'The account’s model list could not be loaded just now.'
+                : catalogStatus === 'stale'
+                  ? 'The account’s model list could not be refreshed just now, so these are the models it last listed.'
+                  : settings.canManage
+                    ? 'New chats start on this model. Anyone can switch in the builder.'
+                    : 'Chosen by this team’s admins. You can switch in the builder.'}
             </p>
-          ) : null}
+          </div>
 
-          <h3 className="mt-5 text-sm font-medium text-content-primary">Provider keys</h3>
-          <p className="mt-1 max-w-2xl text-sm text-content-secondary">
-            Each provider’s models run through this account’s AI Gateway with the account’s own key for that provider,
-            kept in its Cloudflare Secrets Store. A key added in the Cloudflare dashboard, under any alias, is used as
-            it is. The provider bills its key; CloudChef never keeps it.
+          <h3 className="mt-6 text-sm font-medium text-content-primary">Provider keys</h3>
+          <p className="mt-1 text-xs text-content-tertiary">
+            Kept in this account’s Cloudflare Secrets Store and used through its AI Gateway. The provider bills its key.
           </p>
           {settings.keys.status === 'ready' ? (
-            <ul className="mt-3 grid gap-3">
+            <ul className="mt-3 grid divide-y divide-bolt-elements-borderColor rounded-md border border-bolt-elements-borderColor">
               {settings.keys.providers.map((providerKey) => (
                 <ProviderKeyRow
                   key={providerKey.provider}
@@ -252,20 +241,19 @@ export function ModelsCard() {
           ) : settings.canManage ? (
             <ReauthorizeForKeys />
           ) : (
-            <p className="mt-2 max-w-2xl text-sm text-content-secondary">
-              This account’s admins need to reauthorize Cloudflare before provider keys can be linked.
+            <p className="mt-2 text-sm text-content-secondary">
+              This account’s admins need to reauthorize Cloudflare before keys can be added.
             </p>
           )}
           {settings.canManage && settings.keys.status === 'ready' ? (
-            <p className="mt-3 max-w-2xl text-xs text-content-tertiary">
-              Cloudflare keeps AI Gateway keys only on a gateway with authentication on and a Secrets Store linked, so
-              linking turns those on for the default gateway if they’re off and keeps its other settings.
+            <p className="mt-2 text-xs text-content-tertiary">
+              Adding a key turns on authentication and a Secrets Store for the default AI Gateway if they’re off.
             </p>
           ) : null}
         </>
       )}
       <FeedbackLine feedback={feedback} />
-    </section>
+    </SettingsCard>
   );
 }
 
@@ -292,97 +280,89 @@ function ProviderKeyRow({
         key.alias === 'default' ? 'default alias' : `alias ${key.alias}`,
         key.addedByCloudChef ? 'added in CloudChef' : 'added in Cloudflare',
       ].join(' · ')
-    : `${label} models aren’t offered until a key is added.`;
-  return (
-    <li className="rounded-md border border-bolt-elements-borderColor p-3">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-medium text-content-primary">{label}</p>
-        <span
-          className={classNames(
-            'inline-flex shrink-0 items-center gap-1.5 text-xs',
-            key ? 'text-content-success' : 'text-content-tertiary',
-          )}
+    : null;
+  const form = (
+    <form
+      className="flex min-w-0 flex-1 basis-64 flex-wrap items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void onLink(apiKey).then((linked) => {
+          // A refused key stays in the field, to correct or try again.
+          if (linked) {
+            setApiKey('');
+            setReplacing(false);
+          }
+        });
+      }}
+    >
+      <input
+        type="password"
+        autoComplete="off"
+        aria-label={`${label} API key`}
+        placeholder={`Paste ${/^(?:[aeiou]|xai)/i.test(label) ? 'an' : 'a'} ${label} API key`}
+        className="min-w-0 grow basis-40 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1.5 text-sm text-content-primary outline-none placeholder:text-content-tertiary focus-visible:border-accent-500"
+        value={apiKey}
+        disabled={busy}
+        // Opened by "Replace key", so the field is where the person is about to type.
+        autoFocus={replacing}
+        onChange={(event) => setApiKey(event.target.value)}
+      />
+      <Button size="sm" variant="neutral" type="submit" disabled={busy || apiKey.trim().length === 0}>
+        {key ? 'Replace' : 'Save'}
+      </Button>
+      {key && replacing ? (
+        <Button
+          size="sm"
+          variant="subtle"
+          disabled={busy}
+          onClick={() => {
+            setReplacing(false);
+            setApiKey('');
+          }}
         >
-          <span
-            aria-hidden="true"
-            className={classNames('size-1.5 rounded-full', key ? 'bg-current' : 'border border-current')}
-          />
-          {key ? 'Linked' : 'Not linked'}
-        </span>
-      </div>
-      <p className="mt-1 text-xs leading-5 text-content-secondary">
-        {details}
-        {key ? <span className="text-content-tertiary"> · stored in your Cloudflare account</span> : null}
-      </p>
-      {canManage ? (
-        <>
-          {key && !replacing ? (
-            <div className="mt-2.5 flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="neutral" disabled={busy} onClick={() => setReplacing(true)}>
-                Replace key
-              </Button>
-              {key.addedByCloudChef ? (
-                <Button
-                  size="sm"
-                  variant="subtle"
-                  className="!text-content-error"
-                  disabled={busy}
-                  onClick={() => void onUnlink()}
-                >
-                  Remove {label} key
-                </Button>
-              ) : null}
-            </div>
-          ) : (
-            <form
-              className="mt-2.5 flex flex-wrap items-center gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void onLink(apiKey).then((linked) => {
-                  // A refused key stays in the field, to correct or try again.
-                  if (linked) {
-                    setApiKey('');
-                    setReplacing(false);
-                  }
-                });
-              }}
-            >
-              <input
-                type="password"
-                autoComplete="off"
-                aria-label={`${label} API key`}
-                placeholder={`Paste ${/^(?:[aeiou]|xai)/i.test(label) ? 'an' : 'a'} ${label} API key`}
-                className="min-w-0 grow basis-48 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1.5 text-sm text-content-primary outline-none placeholder:text-content-tertiary focus-visible:border-accent-500"
-                value={apiKey}
+          Cancel
+        </Button>
+      ) : null}
+    </form>
+  );
+  return (
+    <li className="grid min-w-0 gap-2 px-3 py-2.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex min-w-32 items-center gap-2 sm:w-48">
+          <p className="text-sm font-medium text-content-primary">{label}</p>
+          {key ? <StatusBadge tone="success">Linked</StatusBadge> : <StatusBadge>Not linked</StatusBadge>}
+        </div>
+        {canManage && (!key || replacing) ? (
+          form
+        ) : canManage && key ? (
+          <div className="ml-auto flex flex-wrap items-center gap-1">
+            <Button size="xs" variant="neutral" disabled={busy} onClick={() => setReplacing(true)}>
+              Replace key
+            </Button>
+            {key.addedByCloudChef ? (
+              <Button
+                size="xs"
+                variant="subtle"
+                className="!text-content-error"
                 disabled={busy}
-                // Opened by "Replace key", so the field is where the person is about to type.
-                autoFocus={replacing}
-                onChange={(event) => setApiKey(event.target.value)}
-              />
-              <Button size="sm" variant="neutral" type="submit" disabled={busy || apiKey.trim().length === 0}>
-                {key ? 'Replace' : 'Save to Secrets Store'}
+                onClick={() => void onUnlink()}
+              >
+                Remove {label} key
               </Button>
-              {key && replacing ? (
-                <Button
-                  size="sm"
-                  variant="subtle"
-                  disabled={busy}
-                  onClick={() => {
-                    setReplacing(false);
-                    setApiKey('');
-                  }}
-                >
-                  Cancel
-                </Button>
-              ) : null}
-            </form>
-          )}
-          {key && replacing && !key.addedByCloudChef ? (
-            <p className="mt-1.5 text-xs text-content-tertiary">
-              Saving a key here replaces the one added in Cloudflare (alias {key.alias}) on the gateway.
-            </p>
-          ) : null}
-        </>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      {details ? (
+        <p className="text-xs leading-5 text-content-tertiary">
+          {details}
+          <span> · stored in your Cloudflare account</span>
+        </p>
+      ) : null}
+      {key && replacing && !key.addedByCloudChef ? (
+        <p className="text-xs text-content-tertiary">
+          Saving a key here replaces the one added in Cloudflare (alias {key.alias}) on the gateway.
+        </p>
       ) : null}
     </li>
   );
@@ -422,11 +402,10 @@ function ReauthorizeForKeys() {
     }
   };
   return (
-    <div className="mt-2 grid max-w-2xl justify-items-start gap-2 text-sm text-content-secondary">
-      <p>
-        {team
-          ? `${team.orgName} connected its Cloudflare account before CloudChef could manage AI Gateway keys. Reauthorize it once to give CloudChef that permission.`
-          : 'This Cloudflare account was connected before CloudChef could manage AI Gateway keys. Reauthorize it once to give CloudChef that permission.'}
+    <div className="mt-3 grid justify-items-start gap-2 text-sm text-content-secondary">
+      <p className="flex flex-wrap items-center gap-2">
+        <StatusBadge tone="warning">Needs permission</StatusBadge>
+        Reauthorize {team ? `${team.orgName}'s Cloudflare account` : 'Cloudflare'} once to manage AI Gateway keys.
       </p>
       <Button size="sm" variant="primary" loading={reauthorizing} onClick={() => void reauthorize()}>
         Reauthorize Cloudflare
