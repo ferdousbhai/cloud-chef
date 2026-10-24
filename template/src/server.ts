@@ -13,7 +13,7 @@ export default {
       env,
       getAgentByName as unknown as AppAgentResolver,
     );
-    return finalizeApplicationResponse(request, agentResponse, () =>
+    return finalizeApplicationResponse(agentResponse, () =>
       application.fetch(request, env),
     );
   },
