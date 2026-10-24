@@ -19,11 +19,11 @@ export const BUILDER_TURN_WALL_CLOCK_MS = 4 * 60 * 60_000;
 export const BUILDER_TURN_INACTIVITY_MS = 5 * 60_000;
 
 /**
- * A model that has produced no visible text, tool call, or tool execution this
- * soon after the request started is stalled, not thinking: the benchmark model
- * burned eight silent minutes before ending with nothing. Transport noise does
- * not count as progress; the first meaningful event disarms this deadline for
- * the rest of the turn.
+ * A model that has streamed no text, reasoning, tool call, or tool execution
+ * this soon after the request started is stalled: the benchmark model burned
+ * eight silent minutes before ending with nothing. Streamed reasoning counts, so
+ * a model that thinks at length is not cut off. Transport noise does not count;
+ * the first meaningful event disarms this deadline for the rest of the turn.
  */
 export const BUILDER_TURN_FIRST_PROGRESS_MS = 60_000;
 

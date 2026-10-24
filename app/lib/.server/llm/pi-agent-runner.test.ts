@@ -455,59 +455,6 @@ describe('piAgentRunner', () => {
     expect(chunks).toContainEqual({ type: 'error', errorText: payload });
   });
 
-  it('switches context only after the requested handoff tool batch and retains searchable results', async () => {
-    mocks.piMessages = [{ role: 'user', content: 'Build todo', timestamp: 1 }];
-    const requestDurableCompaction = vi.fn();
-    mocks.piRun.mockImplementation(async (context: AgentContext, config: AgentLoopConfig, emit: RunnerEventSink) => {
-      const nextTool = context.tools?.find((tool) => tool.name === 'new_context');
-      const history = context.tools?.find((tool) => tool.name === 'history');
-      expect(nextTool).toBeDefined();
-      const before = [...context.messages];
-      await nextTool?.execute('handoff', { handoff: 'Revision 42 written. Next: validate.' });
-      expect(context.messages).toEqual(before);
-      const call: AssistantMessage = {
-        ...assistantMessage([]),
-        role: 'assistant',
-        api: 'openai-completions',
-        stopReason: 'toolUse',
-        content: [
-          {
-            type: 'toolCall',
-            id: 'handoff',
-            name: 'new_context',
-            arguments: { handoff: 'Revision 42 written. Next: validate.' },
-          },
-        ],
-      };
-      const result: ToolResultMessage = {
-        role: 'toolResult',
-        toolCallId: 'handoff',
-        toolName: 'new_context',
-        content: [{ type: 'text', text: 'Handoff accepted' }],
-        isError: false,
-        timestamp: 2,
-      };
-      context.messages.push(call, result);
-      const next = await config.prepareNextTurn?.({
-        message: call,
-        context,
-        newMessages: [call, result],
-        toolResults: [result],
-      });
-      expect(next?.context?.messages).toHaveLength(2);
-      expect(next?.context?.messages[0]).toMatchObject({ role: 'system' });
-      expect(JSON.stringify(next?.context?.messages[1])).toContain('Revision 42 written. Next: validate.');
-      const recovered = await history?.execute('lookup', { op: 'search', query: 'Handoff accepted' });
-      expect(JSON.stringify(recovered)).toContain('live-');
-      await emit({ type: 'turn_end', message: assistantMessage([{ type: 'text', text: 'Done' }]), toolResults: [] });
-    });
-    const chunks = await collectChunks(
-      await createAgentStream(CLOUDFLARE_WORKERS_AI_MODEL, { requestDurableCompaction }),
-    );
-    expect(chunks.some((chunk) => chunk.type === 'error')).toBe(false);
-    expect(requestDurableCompaction).toHaveBeenCalled();
-  });
-
   it("lists only this turn's own inputs as current-turn inputs after a live rollover", async () => {
     mocks.piMessages = [
       { role: 'user', content: 'Earlier request: add a login page', timestamp: 1 },
@@ -523,21 +470,20 @@ describe('piAgentRunner', () => {
       },
     ];
     mocks.piRun.mockImplementation(async (context: AgentContext, config: AgentLoopConfig, emit: RunnerEventSink) => {
-      await context.tools
-        ?.find((tool) => tool.name === 'new_context')
-        ?.execute('handoff', { handoff: 'Next: deploy.' });
+      // A context this full rolls over before the next model step.
       const call: AssistantMessage = {
         ...assistantMessage([]),
         role: 'assistant',
         api: 'openai-completions',
         stopReason: 'toolUse',
-        content: [{ type: 'toolCall', id: 'handoff', name: 'new_context', arguments: { handoff: 'Next: deploy.' } }],
+        usage: piUsage({ totalTokens: 10_000_000 }),
+        content: [{ type: 'toolCall', id: 'read-1', name: 'read', arguments: { path: '/home/project/src/app.tsx' } }],
       };
       const result: ToolResultMessage = {
         role: 'toolResult',
-        toolCallId: 'handoff',
-        toolName: 'new_context',
-        content: [{ type: 'text', text: 'Handoff accepted' }],
+        toolCallId: 'read-1',
+        toolName: 'read',
+        content: [{ type: 'text', text: 'export {}' }],
         isError: false,
         timestamp: 4,
       };

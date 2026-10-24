@@ -6,7 +6,7 @@ import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import {
   assembleCompactedContext,
   compactContext,
-  CONTEXT_HANDOFF_REMINDER_TOKENS,
+  PROACTIVE_COMPACTION_MARGIN_TOKENS,
   estimateTextTokens,
   type ContextCompaction,
 } from './context-compaction';
@@ -45,7 +45,7 @@ export function modelCompactionPolicy(contextWindow: number) {
     contextWindow - outputReserveTokens - modelTokenEstimateSafetyTokens(contextWindow),
   );
   return {
-    proactiveTokens: Math.max(1, hardLimitTokens - CONTEXT_HANDOFF_REMINDER_TOKENS),
+    proactiveTokens: Math.max(1, hardLimitTokens - PROACTIVE_COMPACTION_MARGIN_TOKENS),
     hardLimitTokens,
   };
 }

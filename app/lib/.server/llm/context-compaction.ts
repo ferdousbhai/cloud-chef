@@ -2,11 +2,9 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { getCurrentSystemMessage, type Message } from '@earendil-works/pi-ai';
 import { getToolInvocation, messageText, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 
-/** Best-effort checkpoint reminder distance from the automatic rollover line. */
-export const CONTEXT_HANDOFF_REMINDER_TOKENS = 20_000;
+/** How far below the automatic rollover line a durable compaction is scheduled ahead of time. */
+export const PROACTIVE_COMPACTION_MARGIN_TOKENS = 20_000;
 export const MAX_HANDOFF_CHARACTERS = 20_000;
-/** The longest handoff the model may author for `new_context`, and how much of one a rollover carries. */
-export const MAX_AUTHORED_HANDOFF_CHARACTERS = 6_000;
 const AUTOMATIC_HANDOFF = 'Automatic context rollover recovery record.';
 const HANDOFF_PREFIX = 'Earlier conversation is preserved in history. Continue from this checkpoint:\n\n<summary>\n';
 const HANDOFF_SUFFIX = '\n</summary>';
@@ -72,25 +70,16 @@ export function compactContext(args: {
   }
   const completed = args.messages.slice(0, end + 1);
   const fresh = completed.slice(currentEnd + 1);
-  const manual = fresh
-    .flatMap((message) => message.parts)
-    .map(getToolInvocation)
-    .findLast(
-      (tool) =>
-        tool?.toolName === 'new_context' && tool.state === 'output-available' && readHandoff(tool.input) !== undefined,
-    );
-  const handoff = manual ? readHandoff(manual.input) : undefined;
   const users = completed
     .filter((message) => message.role === 'user')
     .map((message) => ({ id: message.id, text: messageText(message) }));
   const recentTools = fresh
     .flatMap((message) => message.parts.map((part) => ({ id: message.id, tool: getToolInvocation(part) })))
-    .filter(({ tool }) => tool && tool.toolName !== 'history' && tool.toolName !== 'new_context')
+    .filter(({ tool }) => tool && tool.toolName !== 'history')
     .slice(-8);
   return {
     summary: recoveryRecord(
       users,
-      handoff ?? (currentEnd >= 0 ? args.current?.summary : undefined),
       recentTools.map(({ id, tool }) => `[history ${id}] ${JSON.stringify(tool)}`),
     ),
     fromMessageId: args.messages[0].id,
@@ -105,7 +94,6 @@ export function compactPiContext(args: {
   previousInputs?: AgentMessage[];
   /** This turn's workspace context, which only the live prompt carried: the durable copy lacks it. */
   turnContext?: string;
-  handoff?: string;
 }): AgentMessage[] | null {
   // An initial prompt alone has no completed work to hand off. Keep the real provider error.
   const conversation = args.messages.filter((message) => message.role !== 'system');
@@ -123,7 +111,6 @@ export function compactPiContext(args: {
       users.push({ id: 'current turn; search history', text: contentText(message.content) });
     }
   }
-  const previous = args.messages.map(readCheckpoint).find((value) => value !== undefined);
   const batch: string[] = [];
   for (let index = args.messages.length - 1; index >= 0; index -= 1) {
     const message = args.messages[index];
@@ -138,7 +125,7 @@ export function compactPiContext(args: {
   }
   const checkpoint: Message = {
     role: 'user',
-    content: formatHandoff(recoveryRecord(users, args.handoff ?? previous, batch, args.turnContext)),
+    content: formatHandoff(recoveryRecord(users, batch, args.turnContext)),
     timestamp: Date.now(),
   };
   // The fresh window keeps the current prompt and tool declarations, folded into one system message.
@@ -146,12 +133,7 @@ export function compactPiContext(args: {
   return systemMessage ? [systemMessage, checkpoint] : [checkpoint];
 }
 
-function recoveryRecord(
-  users: Array<{ id: string; text: string }>,
-  checkpoint: string | undefined,
-  batch: string[],
-  turnContext?: string,
-): string {
+function recoveryRecord(users: Array<{ id: string; text: string }>, batch: string[], turnContext?: string): string {
   const selected = users.length > 1 ? [users[0], ...users.slice(-3).filter((user) => user !== users[0])] : users;
   const keptBatch = batch.slice(-16);
   const perResult = Math.floor(MAX_HANDOFF_CHARACTERS / 5 / Math.max(1, keptBatch.length));
@@ -160,7 +142,6 @@ function recoveryRecord(
       'This record preserves inputs and recent tool results, not a verified summary of progress. Use history search/read to recover omitted details. Read project files and verify live state before continuing; do not repeat a mutation merely because its result is absent here.',
     inputs: selected.map(({ id, text }) => ({ id: id.slice(0, 120), text: boundedText(text, 1_500) })),
     omittedInputs: users.length - selected.length,
-    handoff: carryHandoff(checkpoint),
     untrustedTurnContext: turnContext ? boundedText(turnContext, 4_000) : undefined,
     toolActivity: keptBatch.map((item) => boundedText(item, perResult)),
     omittedToolRecords: batch.length - keptBatch.length,
@@ -168,35 +149,13 @@ function recoveryRecord(
   return `${AUTOMATIC_HANDOFF}\n${JSON.stringify(record, null, 2)}`;
 }
 
-/** Bound serialized size too, so escaped tool output cannot crowd out the authored handoff. */
+/** Bound serialized size too, so escaped tool output cannot crowd out the rest of the record. */
 function boundedText(text: string, limit: number): string {
   let bounded = excerpt(text, limit);
   while (JSON.stringify(bounded).length > limit + 2) {
     bounded = excerpt(bounded, Math.floor(bounded.length * 0.8));
   }
   return bounded;
-}
-
-function carryHandoff(checkpoint?: string): string | undefined {
-  if (!checkpoint) {
-    return undefined;
-  }
-  if (!checkpoint.startsWith(`${AUTOMATIC_HANDOFF}\n`)) {
-    return boundedText(checkpoint, MAX_AUTHORED_HANDOFF_CHARACTERS);
-  }
-  try {
-    const record: unknown = JSON.parse(checkpoint.slice(AUTOMATIC_HANDOFF.length + 1));
-    return readHandoff(record);
-  } catch {
-    return undefined;
-  }
-}
-
-function readHandoff(input: unknown): string | undefined {
-  if (typeof input !== 'object' || input === null || !('handoff' in input) || typeof input.handoff !== 'string') {
-    return undefined;
-  }
-  return input.handoff.trim() || undefined;
 }
 
 function formatHandoff(handoff: string): string {

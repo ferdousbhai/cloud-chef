@@ -930,7 +930,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (compactAfterTurn) {
       this.setState({ ...this.state, contextCompactionRequestedTurnId: null });
     }
-    // A handoff accepted before an abort/error still belongs to the persisted transcript.
+    // A rollover requested before an abort/error still belongs to the persisted transcript.
     if (compactAfterTurn && this.userId) {
       const throughMessageId = this.messages.at(-1)?.id;
       if (throughMessageId) {

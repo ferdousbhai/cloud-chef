@@ -16,7 +16,7 @@ const assistant = (id: string, text: string): CloudChefMessage => ({
   role: 'assistant',
   parts: [{ type: 'text', text }],
 });
-const handoff = (id: string, text: string): CloudChefMessage => ({
+const oldHandoff = (id: string, text: string): CloudChefMessage => ({
   id,
   role: 'assistant',
   parts: [
@@ -51,7 +51,7 @@ function toolCall(): AssistantMessage {
   };
 }
 
-describe('handoff context windows', () => {
+describe('context rollover', () => {
   it('keeps a newly submitted request verbatim and never mutates stored history', () => {
     const messages = [
       user('u1', 'Build a todo app'),
@@ -74,14 +74,14 @@ describe('handoff context windows', () => {
     expect(checkpoint?.summary.length).toBeLessThanOrEqual(MAX_HANDOFF_CHARACTERS);
   });
 
-  it('preserves an authored handoff through repeated automatic rollovers without nesting recovery records', () => {
-    const messages = [user('u1', 'todo'), handoff('a1', 'Database ready. Next: wire the form.')];
+  it('rolls over again without nesting recovery records, keeping an old handoff call as plain tool activity', () => {
+    const messages = [user('u1', 'todo'), oldHandoff('a1', 'Database ready. Next: wire the form.')];
     const first = compactContext({ messages });
+    expect(first?.summary).toContain('new_context');
     const second = compactContext({
       messages: [...messages, user('u2', 'also filter'), assistant('a2', 'work')],
       current: first,
     });
-    expect(second?.summary).toContain('Database ready. Next: wire the form.');
     expect(second?.summary.match(/Automatic context rollover recovery record/g)).toHaveLength(1);
     expect(second?.summary).toContain('also filter');
   });
@@ -118,10 +118,9 @@ describe('handoff context windows', () => {
       },
     ];
     const original = structuredClone(messages);
-    const next = compactPiContext({ messages, handoff: 'Next: validate revision 42' });
+    const next = compactPiContext({ messages });
     expect(next).toHaveLength(1);
     expect(JSON.stringify(next)).toContain('Revision 42 saved');
-    expect(JSON.stringify(next)).toContain('Next: validate revision 42');
     expect(estimatePiContextTokens(next ?? [])).toBeLessThan(6000);
     expect(estimatePiContextTokens(messages)).toBeGreaterThan(100000);
     expect(messages).toEqual(original);

@@ -1,9 +1,8 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { z } from 'zod';
-import { MAX_AUTHORED_HANDOFF_CHARACTERS, type HistoryEntry } from './context-compaction';
+import type { HistoryEntry } from './context-compaction';
 
 const PAGE_CHARS = 8_000;
-const newContextInput = z.object({ handoff: z.string().trim().max(MAX_AUTHORED_HANDOFF_CHARACTERS).optional() });
 const historyInput = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('search'),
@@ -15,32 +14,8 @@ const historyInput = z.discriminatedUnion('op', [
 ]);
 
 /** Only the current authenticated conversation is exposed, including archived live tool steps. */
-export function createContextWindowTools(args: {
-  history: () => HistoryEntry[];
-  requestRollover: (handoff?: string) => void;
-}) {
+export function createContextWindowTools(args: { history: () => HistoryEntry[] }) {
   return {
-    new_context: {
-      name: 'new_context',
-      label: 'Hand off context',
-      description:
-        'Start a fresh context after this complete tool batch. Supply concise goal, decisions, completed work, failures, and next steps. Save longer notes to a project file. Earlier conversation remains searchable with history.',
-      parameters: z.toJSONSchema(newContextInput),
-      execute: async (_id, input, signal?: AbortSignal) => {
-        signal?.throwIfAborted();
-        const { handoff } = newContextInput.parse(input);
-        if (handoff && JSON.stringify(handoff).length > MAX_AUTHORED_HANDOFF_CHARACTERS + 2) {
-          throw new Error(
-            'Handoff is too large after encoding. Save longer notes to a project file and pass a shorter handoff.',
-          );
-        }
-        args.requestRollover(handoff || undefined);
-        return result({
-          success: true,
-          message: 'Fresh context requested after this tool batch. Use history to recover earlier details.',
-        });
-      },
-    },
     history: {
       name: 'history',
       label: 'Read conversation history',

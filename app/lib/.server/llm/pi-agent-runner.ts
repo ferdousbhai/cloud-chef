@@ -242,7 +242,6 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
   const archivedMessages = new Set<AgentMessage>();
   /** Copies whose output was cleared from the model's view; history keeps the originals instead. */
   const clearedCopies = new WeakSet<AgentMessage>();
-  const checkpointReminders = new Set<AgentMessage>();
   const archive = (entries: AgentMessage[]) => {
     for (const entry of entries) {
       // The system prompt and tool declarations are configuration, not conversation history.
@@ -252,19 +251,9 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
       }
     }
   };
-  let rolloverRequested = false;
-  let manualHandoff: string | undefined;
-  let checkpointReminderSent = false;
   Object.assign(
     piTools,
-    createContextWindowTools({
-      history: () => [...durableHistoryEntries(messages), ...archivedHistory],
-      requestRollover: (handoff) => {
-        manualHandoff = handoff;
-        rolloverRequested = true;
-        compaction.requestDurableCompaction();
-      },
-    }),
+    createContextWindowTools({ history: () => [...durableHistoryEntries(messages), ...archivedHistory] }),
   );
 
   const instructions = systemPrompt(skillContext.prompt, linkedProject);
@@ -529,18 +518,14 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
       durableMessages: messages,
       // Replayed requests are already listed under their real ids from the durable transcript.
       previousInputs: [...archivedMessages].filter(
-        (message) => message.role === 'user' && !checkpointReminders.has(message) && !replayedMessages.has(message),
+        (message) => message.role === 'user' && !replayedMessages.has(message),
       ),
       // The current prompt is listed from the durable transcript, without the context injected into it.
       turnContext: turnContext?.content,
-      handoff: manualHandoff,
     });
     if (!compacted) {
       return undefined;
     }
-    manualHandoff = undefined;
-    rolloverRequested = false;
-    checkpointReminderSent = false;
     runtimeContextCompacted = true;
     compaction.requestDurableCompaction();
     return { ...source, messages: compacted };
@@ -562,25 +547,11 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
           if (!wouldContinue) {
             return undefined;
           }
-          const policy = compactionPolicy;
           const visible = withOldToolResultsCleared(
             turnContext.messages,
             estimatePiContextTokens(turnContext.messages),
           );
-          const tokens = visible.tokens;
-          if (!rolloverRequested && tokens < policy.hardLimitTokens) {
-            if (!checkpointReminderSent && tokens >= policy.proactiveTokens) {
-              checkpointReminderSent = true;
-              const reminder: AgentMessage = {
-                role: 'user',
-                content:
-                  'Context checkpoint: save longer working notes in the project, then call new_context with concise goal, progress, decisions, failures, and next steps. Earlier conversation remains available through history.',
-                timestamp: Date.now(),
-              };
-              checkpointReminders.add(reminder);
-              context = { ...turnContext, messages: [...visible.messages, reminder] };
-              return { context };
-            }
+          if (visible.tokens < compactionPolicy.hardLimitTokens) {
             if (visible.messages !== turnContext.messages) {
               context = { ...turnContext, messages: visible.messages };
               return { context };

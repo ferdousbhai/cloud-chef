@@ -1,21 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { createContextWindowTools } from './context-window-tools';
 import type { HistoryEntry } from './context-compaction';
 
 function setup(entries: HistoryEntry[] = []) {
-  const requestRollover = vi.fn();
-  return { requestRollover, tools: createContextWindowTools({ history: () => entries, requestRollover }) };
+  return { tools: createContextWindowTools({ history: () => entries }) };
 }
 
 describe('context window tools', () => {
-  it('queues an authored handoff and rejects an oversized handoff without changing context', async () => {
-    const { tools, requestRollover } = setup();
-    await tools.new_context.execute('call', { handoff: 'Next: validate revision 42.' });
-    expect(requestRollover).toHaveBeenCalledWith('Next: validate revision 42.');
-    await expect(tools.new_context.execute('call2', { handoff: 'x'.repeat(6001) })).rejects.toThrow();
-    expect(requestRollover).toHaveBeenCalledOnce();
-  });
-
   it('recovers an old entry page by page without losing long tool output', async () => {
     const text = `BUILD_FAILURE ${'x'.repeat(20000)} last diagnostic`;
     const { tools } = setup([{ id: 'old-build', role: 'assistant', text }]);
@@ -48,13 +39,5 @@ describe('context window tools', () => {
     expect(data).toMatchObject({ totalMatches: 25, nextOffset: null });
     expect(JSON.stringify(data)).toContain('entry-0');
     expect(JSON.stringify(data)).not.toContain('entry-24');
-  });
-
-  it('honors cancellation before queuing a context switch', async () => {
-    const { tools, requestRollover } = setup();
-    const controller = new AbortController();
-    controller.abort();
-    await expect(tools.new_context.execute('n', {}, controller.signal)).rejects.toThrow();
-    expect(requestRollover).not.toHaveBeenCalled();
   });
 });
