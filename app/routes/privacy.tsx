@@ -223,9 +223,9 @@ function PrivacyPage() {
 
       <TrustSection title="Where data is held and disclosed">
         <p>
-          Workspace metadata, Agent transcripts, project files, Computer state, previews, and generated infrastructure
-          remain in the connected Cloudflare account. Data is disclosed only as needed to operate the service, follow
-          your instructions, protect the service, or comply with law.
+          Workspace metadata, Agent transcripts, project files, Computer state, and generated infrastructure remain in
+          the connected Cloudflare account. Data is disclosed only as needed to operate the service, follow your
+          instructions, protect the service, or comply with law.
         </p>
         <p>
           Cloudflare provides authentication integration, Workers, D1, R2, Durable Objects, Containers, Computer,
@@ -341,9 +341,8 @@ function PrivacyPage() {
           That control deliberately deletes nothing inside your own Cloudflare account, and nothing in a team&apos;s but
           your workspace there.{' '}
           <strong>
-            Production and preview Workers, production and preview D1 databases, R2 buckets, KV namespaces, Containers,
-            Durable Objects, and Agents that CloudChef deployed are retained, keep running, keep billing to your
-            account, and are yours to remove.
+            Workers, D1 databases, R2 buckets, KV namespaces, Containers, Durable Objects, and Agents that CloudChef
+            deployed are retained, keep running, keep billing to your account, and are yours to remove.
           </strong>{' '}
           Chats, transcripts, project files, and deployment records also stay there under that account’s controls, and
           the account export does not contain them: download individual project source with Download code in the project
@@ -362,14 +361,14 @@ function PrivacyPage() {
         <p>
           Removing a project hides it from the active project list and makes its Agent and workspace eligible for
           teardown no earlier than 30 minutes later. CloudChef also schedules deletion of the project’s generated Worker
-          and all of its versions and Durable Objects, production and preview D1 databases, KV namespaces, and R2
-          buckets from your connected Cloudflare account. R2 objects are emptied in bounded batches before the bucket is
-          deleted; provider failures or revoked authorization can delay cleanup and are retried while access remains
-          available. It is not complete erasure: catalog, transcript, deployment, provider-retained observability, and
-          browser records remain under their applicable retention boundaries. Browser data remains until you clear it.
-          Delete projects and allow this cleanup to finish before deleting your CloudChef account data: account deletion
-          revokes the authorization cleanup needs, so a project deleted inside this window keeps running and billing
-          until you remove its resources in your Cloudflare account.
+          and all of its versions and Durable Objects, D1 databases, KV namespaces, and R2 buckets from your connected
+          Cloudflare account. R2 objects are emptied in bounded batches before the bucket is deleted; provider failures
+          or revoked authorization can delay cleanup and are retried while access remains available. It is not complete
+          erasure: catalog, transcript, deployment, provider-retained observability, and browser records remain under
+          their applicable retention boundaries. Browser data remains until you clear it. Delete projects and allow this
+          cleanup to finish before deleting your CloudChef account data: account deletion revokes the authorization
+          cleanup needs, so a project deleted inside this window keeps running and billing until you remove its
+          resources in your Cloudflare account.
         </p>
         <p>
           GitHub retains public support issues and private security reports according to its policies and repository

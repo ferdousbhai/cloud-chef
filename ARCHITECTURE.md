@@ -27,7 +27,7 @@ Opening a project after Cloudflare is connected queues a durable control-plane W
 `BuilderAgent` Durable Objects, and a `ProjectWorkspace` Durable Object backed by a Cloudflare Container in that user's
 account. Runtime-session requests return `workspace_preparing` while that Workflow runs, and the browser polls with
 bounded backoff instead of holding the provisioning request open. Once ready, the browser receives a short-lived,
-origin-bound capability and communicates directly with that Worker for chat, project, preview, and deployment
+origin-bound capability and communicates directly with that Worker for chat, project, and deployment
 operations. Generated-application D1 and R2 resources are created later only when the validated deployment plan
 requires them. Cloudflare meters those resources to the user's account.
 
@@ -55,10 +55,10 @@ runtime of the same generation is not capped, since its member keeps a session m
 
 The runtime is the source of truth for whether it is busy, since a turn keeps running with no tab open. Every
 `BuilderAgent` records in the runtime's D1 (`runtime_activity`) whether it is working, and for two minutes after it
-stops. Its turn (and the validation it runs) counts from its state; a preview or production publication, an
+stops. Its turn (and the validation it runs) counts from its state; a production publication, an
 approved Cloudflare request, a GitHub build watch, and seeding a new workspace count while their work actually runs
-(`BuilderRuntimeActivity.run` in `app/agents/builder-runtime-activity.ts`), never from the preview or deployment
-records in state, which an editor save or a cancellation rewrites while that work continues. Before redeploying,
+(`BuilderRuntimeActivity.run` in `app/agents/builder-runtime-activity.ts`), never from the deployment
+record in state, which an editor save rewrites while that work continues. Before redeploying,
 the Workflow asks the runtime, with its secret, for the upgrade window (`POST /v1/upgrade-window`): one statement
 grants it only when no row is active. It then redeploys the Worker, configures it, rolls out the container image,
 and waits for the new runtime to be ready, renewing the window on the new runtime (`PUT`) throughout, and releases
@@ -256,7 +256,7 @@ edit) for a team project.
 | Agent messages, turn state, compaction, and resumable execution                                   | User-owned `BuilderAgent` DO SQLite                  |
 | Project bytes, numeric revision, change index, tool journal, and validation receipts              | User-owned `ProjectWorkspace` Computer VFS/DO SQLite |
 | Dependency installation, validation, and deployable artifact preparation                          | User-owned `ProjectWorkspace` Container backend      |
-| Preview-version upload and production-version promotion                                           | User's Cloudflare account APIs                       |
+| Production-version upload and promotion                                                           | User's Cloudflare account APIs                       |
 | Query collections and editor files                                                                | Rebuildable in-memory browser presentation cache     |
 | Generated application's Worker, D1, R2, Agent, and related resources                              | User's Cloudflare account                            |
 
@@ -344,7 +344,7 @@ overwrites newer state. TanStack DB collections are in-memory presentation cache
 browser has no second SQLite or OPFS copy of chats, transcripts, or workspace files.
 
 The user workspace is a separate workspace package, `@cloudchef/user-workspace-runtime`. Its `./protocol` export is
-the only shared source for sync limits, request/result types, preview results, and readiness contracts. The runtime owns
+the only shared source for sync limits, request/result types, and readiness contracts. The runtime owns
 the `ProjectWorkspace` implementation; `computer-sandbox.ts` contains the Cloudflare Computer/Sandbox adapter and
 container-process lifecycle. Browser, control-plane, and Agent code import the protocol instead of reaching into that
 implementation.
@@ -366,8 +366,7 @@ dependency installer, which resolves npm registry packages with install scripts 
 and the lockfile; any other install that names a package must name one from the npm registry. The model decides when to run the full
 validation and what to tell the user; the runtime neither validates on its behalf nor writes its final message.
 Production deployment is not a model capability: when a turn that changed a CloudChef app finishes, `BuilderAgent`
-publishes the hosted preview and then admits a durable deployment fiber that runs one authenticated, idempotent server
-operation. Each builds the exact revision it was asked for (reusing a validation of that revision when the model
+admits a durable deployment fiber that runs one authenticated, idempotent server operation. It builds the exact revision it was asked for (reusing a validation of that revision when the model
 already ran one), prepares the exact-revision plan, and executes it in the user's account. A failed build or
 deployment is shown to the user and told to the model at the start of its next turn. The browser can request a retry but is not responsible for starting deployment.
 A turn that changes the app, however it ends, durably records that production must catch up (`publicationPending`),
@@ -375,38 +374,27 @@ and only production serving the current revision (`productionRevision`) clears i
 redone: at the next turn's end, even one that changed nothing, when that turn is stopped or fails before it
 streams, and when a restarted agent starts. A message refused before its turn begins stops nothing. No automatic
 publication starts while a turn runs, since it holds the workspace's operation lane. The person's next message stops
-the one in flight: a preview at its next step, a deployment until just before its migrations and upload (past that it
-finishes, since stopping would leave production half changed), and a stopped preview never deploys. A deployment that
+the deployment in flight until just before its migrations and upload (past that it finishes, since stopping would
+leave production half changed). A deployment that
 failed for a reason that passes (a busy workspace, another deployment of the project, an interruption, an unreachable
 credential broker) is retried after 30 seconds, 2 minutes, and 8 minutes, and so is one whose failed record in the
 user's account cannot be settled yet before it is redone; a failed build waits for the next turn. A
-project deploys one revision at a time; a person's projects deploy independently. Preview and deployment use
+project deploys one revision at a time; a person's projects deploy independently. Validation and deployment use
 checkpoints from the same VFS, so a publication never ships a revision other than the one it was asked for.
 
-## Preview Boundary
+## Site Boundary
 
-A preview is one checkpoint-bound revision published as a separate app in the user's account: the project's preview
-Worker, with its own `workers.dev` address, preview D1 databases, R2 bucket, and KV namespace, none of them
-production's. Full validation copies the project
-to an isolated root, installs dependencies, runs typecheck/lint/stack verification, performs the production build and
-`cf deploy --prebuilt` dry run against a trusted `worker.config.json`, and retains the deployable module/asset/migration artifact under the content revision. The exact
-revision is asserted before and after validation and again before publication.
+A CloudChef app has one site: its production Worker at its `workers.dev` address, with the project's D1 databases, R2
+bucket, and KV namespace. There is no separate preview deployment; the chat's preview pane frames that production
+site, which every project's `application-response.ts` lets cloudchef.build (and only it) frame. Full validation
+copies the project to an isolated root, installs dependencies, runs typecheck/lint/stack verification, performs the
+production build and `cf deploy --prebuilt` dry run against a trusted `worker.config.json`, and retains the
+deployable module/asset/migration artifact under the content revision. The exact revision is asserted before and
+after validation and again before publication. The Worker serves no versioned preview URLs (`previews_enabled` is
+off), so no earlier version stays reachable against the data it was published with.
 
-Preview publication performs no container work. Through the same generation-checked credential broker used by
-production deployment, it provisions the project's preview resources (created on a project's first preview, and like
-production's kept from one revision to the next), applies the artifact's migrations the preview databases have not
-applied, uploads static assets, and publishes the revision as the preview Worker's active version, exactly as a
-deployment publishes production's. A preview database that refuses a changed migration (one a preview applied before
-the model edited it, which production may never have run) is started over instead: deleted, created again under its
-name, and migrated from the first migration, since it holds only what previews wrote. Production's databases are never
-started over. The browser receives the preview Worker's `workers.dev` address, which serves that
-revision until the next preview replaces it. The preview Worker is named `<first 8 of identity>-cloudchef-<identity>-preview`,
-so its host has the shape every project's `application-response.ts` lets cloudchef.build frame (once a versioned
-preview URL's); production's `cloudchef-<identity>` never has it, so production is never framed. Neither Worker serves versioned preview URLs (`previews_enabled` is off),
-so no earlier version stays reachable against the data it was published with.
-
-Production consumes the same retained artifact for the same source digest, substitutes production bindings, uploads a
-second immutable version, and promotes that exact version. If Computer recycled after validation, artifact preparation
+Production consumes the retained artifact for the same source digest, substitutes production bindings, uploads an
+immutable version, and promotes that exact version. If Computer recycled after validation, artifact preparation
 may rebuild from the retained source checkpoint, but its byte inventory must match the durable validation digest.
 
 ## Deployment Boundary
@@ -441,12 +429,12 @@ its revision; a record it finds already succeeded was settled by a later executi
 replaced.
 
 A CloudChef app's account resources (its Worker and so its `workers.dev` address, `DB`, `AGENT_SECURITY_DB`,
-`APP_STORAGE`, `APP_CACHE`, and the preview Worker and preview counterpart of each) belong to the project, the `ProjectWorkspace` a chat (or subchat)
+`APP_STORAGE`, and `APP_CACHE`) belong to the project, the `ProjectWorkspace` a chat (or subchat)
 builds in, not to a revision: every deployment replaces the Worker's version in place and keeps the data. A subchat
 starts from its parent's files in a workspace of its own, so it publishes as an app of its own, with its own address
 and empty data; it never adopts its parent's resources, which the parent may still be deploying onto. A deployment
 id is only the record and idempotency key of one revision's publication. A plan names every resource after the project's own
-identity (`appResourceIdentity`), and must name both the production and the preview Worker. A stored plan is not
+identity (`appResourceIdentity`), and must name the Worker. A stored plan is not
 replayed once the revision would get another (the Cloudflare connection, or the plan a release makes, changed since
 it was made): the revision is planned again under the next of its deterministic ids, and recovery terminalizes each
 of them, reporting the one it settled as succeeded, since production serves it. Each database keeps a receipt (name,
@@ -483,8 +471,7 @@ dependencies cannot widen the capability boundary. Once published, the capabilit
 Durable Object class only by deleting it with every object and its data (an export in the `deleted` state, or a
 `deleted_classes` migration, as wrangler's own export schema and migrations model it), and CloudChef never sends
 either. A deployment without the capability to a Worker for which Cloudflare holds an `AppAgent` namespace is
-therefore refused before it changes anything, telling the model to restore it; a preview instead deletes and recreates
-the preview Worker, whose Agent data only previews wrote. What Cloudflare does with a version that merely omits a
+therefore refused before it changes anything, telling the model to restore it. What Cloudflare does with a version that merely omits a
 class it holds was not confirmed (no local documentation says), so CloudChef does not rely on it either way. The policy is structural rather than pinned to package versions:
 only the Agent packages (and capnweb, their RPC layer) may import `cloudflare:workers`, only the protected
 entrypoints and those packages may import the Agent runtime, and project code may reach `globalThis`, `self`, or

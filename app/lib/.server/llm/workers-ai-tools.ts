@@ -221,7 +221,7 @@ const EXEC_TOOL_DESCRIPTION =
   COMPUTER_EXEC_APPLICATION_POLICY;
 
 /**
- * The one canonical validation entry point. Deployment and preview recognize exactly this
+ * The one canonical validation entry point. Deployment recognizes exactly this
  * validation, so a dedicated tool keeps the model from approximating it with separate typecheck,
  * lint, and build commands that leave the revision green but unrecognized.
  *
@@ -234,7 +234,7 @@ function canonicalValidationTool(linked: boolean): Tool {
       ? "Install dependencies and run the repository's own checks (its typecheck, lint, test, and build scripts, " +
         'whichever it has), reporting each failure.'
       : 'Install dependencies and run the full project validation: typecheck, lint, stack verification, and the ' +
-        'production build, reporting each failure. It is the same build the hosted preview and deployment use, so a ' +
+        'production build, reporting each failure. It is the same build deployment uses, so a ' +
         'passing run of the current revision is reused when it publishes.',
     inputSchema: MODEL_TOOL_INPUT_SCHEMAS.validate,
   };

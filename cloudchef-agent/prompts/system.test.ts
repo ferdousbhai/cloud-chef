@@ -12,12 +12,12 @@ describe('builder system prompt', () => {
     expect(app.endsWith('<builder_skills/>')).toBe(true);
   });
 
-  it("describes how a CloudChef app's changes reach a preview and production", () => {
+  it("describes how a CloudChef app's changes reach production, its one site", () => {
     const prompt = systemPrompt('');
 
     expect(prompt).toContain('/home/project');
-    expect(prompt).toContain('hosted preview');
-    expect(prompt).toContain('a separate app with its own address, databases, bucket and namespace');
+    expect(prompt).toContain('deploys it to production in their account, the one site the person sees beside the chat');
+    expect(prompt).not.toContain('hosted preview');
     expect(prompt).toContain('You do not deploy it yourself.');
     expect(prompt).toContain('onto the same address and the resources cloudflare.project.json declares each time');
     expect(prompt).not.toContain('publish_preview');
