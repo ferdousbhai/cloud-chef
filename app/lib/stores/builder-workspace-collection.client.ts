@@ -52,6 +52,7 @@ const workspaceSyncEntrySchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('write'),
       ...workspaceFileFields,
+      mode: z.number().int().nonnegative().optional(),
     })
     .strict(),
   z
