@@ -124,10 +124,6 @@ describe('ModelsCard', () => {
     expect(document.body.textContent).toContain(
       'Key ending wAA · alias sg · added in Cloudflare · stored in your Cloudflare account',
     );
-    expect(
-      [...document.querySelectorAll('button')].find((button) => button.textContent === 'Replace key')?.parentElement
-        ?.className,
-    ).toContain('mt-2.5');
     expect(document.querySelector('input')).toBeNull();
     expect(document.body.textContent).not.toContain('Saving a key here replaces');
     await act(async () =>

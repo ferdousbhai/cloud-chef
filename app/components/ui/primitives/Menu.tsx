@@ -44,13 +44,26 @@ export function Menu({ children, buttonProps }: MenuProps) {
   );
 }
 
-export function MenuItem({ children, action }: { children: ReactNode; action?: () => void }) {
+export function MenuItem({
+  children,
+  action,
+  danger = false,
+}: {
+  children: ReactNode;
+  action?: () => void;
+  /** A destructive item, in the error color. */
+  danger?: boolean;
+}) {
   return (
     <DropdownMenu.Item
-      className="flex min-h-10 w-full items-center gap-2.5 rounded-lg border-0 bg-transparent px-3 py-2 text-left text-sm font-medium text-content-primary outline-none transition-colors hover:bg-bolt-elements-background-depth-2 focus-visible:bg-bolt-elements-background-depth-2"
+      className={`flex min-h-10 w-full items-center gap-2.5 rounded-lg border-0 bg-transparent px-3 py-2 text-left text-sm font-medium outline-none transition-colors hover:bg-bolt-elements-background-depth-2 focus-visible:bg-bolt-elements-background-depth-2 ${danger ? 'text-content-error' : 'text-content-primary'}`}
       onSelect={action}
     >
       {children}
     </DropdownMenu.Item>
   );
+}
+
+export function MenuSeparator() {
+  return <DropdownMenu.Separator className="my-1 h-px bg-bolt-elements-borderColor" />;
 }

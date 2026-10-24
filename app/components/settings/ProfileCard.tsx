@@ -11,14 +11,14 @@ export function ProfileCard() {
   }
 
   return (
-    <section className="app-card w-full p-4" aria-labelledby="profile-heading">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="size-12 min-w-12 overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-sm">
+    <section className="app-card w-full p-4 sm:p-5" aria-labelledby="profile-heading">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="size-11 min-w-11 overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
           {user.image ? (
             <img src={user.image} alt={user.name || 'User'} className="size-full object-cover" />
           ) : (
             <div className="flex size-full items-center justify-center">
-              <PersonIcon className="size-8 text-content-tertiary" aria-hidden />
+              <PersonIcon className="size-6 text-content-tertiary" aria-hidden />
             </div>
           )}
         </div>
@@ -26,13 +26,11 @@ export function ProfileCard() {
           <h2 id="profile-heading" className="app-card-title truncate">
             {user.name || 'CloudChef user'}
           </h2>
-          {user.email && <p className="mt-1 truncate text-sm text-content-secondary">{user.email}</p>}
+          {user.email && <p className="truncate text-sm text-content-secondary">{user.email}</p>}
         </div>
-        <div className="w-full">
-          <Button variant="neutral" size="sm" onClick={() => void logOut()} icon={<ExitIcon aria-hidden />}>
-            Log out
-          </Button>
-        </div>
+        <Button variant="neutral" size="sm" onClick={() => void logOut()} icon={<ExitIcon aria-hidden />}>
+          Log out
+        </Button>
       </div>
     </section>
   );

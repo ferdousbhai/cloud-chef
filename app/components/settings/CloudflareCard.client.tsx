@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button } from '~/components/ui/primitives/Button';
+import { Button, buttonClassNames } from '~/components/ui/primitives/Button';
 import {
   authClient,
   createCloudflareReturnURL,
@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { getJson, messageOf, RequestError } from '~/lib/json-request';
 import { ReauthenticatePrompt } from './ReauthenticatePrompt';
 import { errorFeedback, FeedbackLine } from './Feedback';
+import { SettingsCard, StatusBadge } from './SettingsLayout';
 
 const connectionStatusSchema = z.looseObject({
   accountName: z.string().nullish(),
@@ -17,9 +18,10 @@ const connectionStatusSchema = z.looseObject({
 
 type ConnectionStatus = z.infer<typeof connectionStatusSchema>;
 
+/** The Cloudflare account this session builds in, whether it is connected, and connecting it. */
 export function CloudflareCard({ initialError = null }: { initialError?: string | null }) {
   const { data: session } = authClient.useSession();
-  // In an organization's account, its admins connect and reauthorize it (in Organizations below).
+  // In a team's account, its admins connect and reauthorize it (under Teams).
   const organization = session?.context?.kind === 'organization' ? session.context : null;
   const [connection, setConnection] = useState<ConnectionStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,7 +30,7 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
   // Attaching a Cloudflare login to a Google or emailed-link account asks for a recent sign-in first.
   const [reauthenticateReason, setReauthenticateReason] = useState<string | null>(null);
   const admin = organization?.role === 'admin';
-  // An organization member can't change its connection; they may connect an account of their own.
+  // A team member can't change its connection; they may connect an account of their own.
   const offersOwnAccount = organization !== null && !session?.contexts.some((option) => option.kind === 'personal');
 
   useEffect(() => {
@@ -70,53 +72,42 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
     }
   };
 
+  const accountName = connection?.accountName ?? organization?.accountName ?? null;
+
+  const action = organization ? (
+    admin ? (
+      <a href="#teams" className={buttonClassNames({ variant: 'neutral', size: 'sm' })}>
+        Manage in Teams
+      </a>
+    ) : offersOwnAccount ? (
+      <Button size="sm" variant="neutral" loading={connecting} onClick={() => void connect()}>
+        Connect your own account
+      </Button>
+    ) : null
+  ) : loading ? null : (
+    <Button size="sm" variant={connection ? 'neutral' : 'primary'} loading={connecting} onClick={() => void connect()}>
+      {connection ? 'Reauthorize Cloudflare' : 'Connect Cloudflare'}
+    </Button>
+  );
+
   return (
-    <section
+    <SettingsCard
       id="cloudflare"
-      className="app-card w-full min-w-0 p-4 [overflow-wrap:anywhere]"
-      aria-labelledby="cloudflare-heading"
+      title="Cloudflare account"
+      description="Where your projects build and run. Cloudflare bills this account."
+      action={action}
     >
-      <div className="flex flex-col items-start gap-3">
-        <div className="min-w-0 w-full break-words">
-          <h2 id="cloudflare-heading" className="app-card-title">
-            Cloudflare account
-          </h2>
-          {loading ? (
-            <p className="mt-1 text-sm text-content-secondary" role="status">
-              Checking connection…
-            </p>
-          ) : connection ? (
-            <p className="mt-1 text-sm text-content-secondary">
-              Connected{connection.accountName ? ` to ${connection.accountName}` : ''}.
-            </p>
-          ) : organization ? null : (
-            <p className="mt-1 max-w-2xl text-sm text-content-secondary">
-              Connect Cloudflare to build and deploy. Cloudflare bills this account directly.
-            </p>
-          )}
-        </div>
-        {organization ? (
-          <>
-            <p className="text-sm text-content-secondary">
-              This Cloudflare account belongs to the team {organization.orgName}; its admins manage the connection
-              {admin ? ' (as one, you reconnect it under Teams).' : '.'}
-            </p>
-            {offersOwnAccount ? (
-              <Button size="sm" variant="neutral" loading={connecting} onClick={() => void connect()}>
-                Connect your own Cloudflare account
-              </Button>
-            ) : null}
-          </>
-        ) : !loading ? (
-          <Button
-            size="sm"
-            variant={connection ? 'neutral' : 'primary'}
-            loading={connecting}
-            onClick={() => void connect()}
-          >
-            {connection ? 'Reauthorize Cloudflare' : 'Connect Cloudflare'}
-          </Button>
-        ) : null}
+      <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-bolt-elements-borderColor px-3 py-2.5">
+        <span className="min-w-0 flex-1 truncate text-sm text-content-primary" title={accountName ?? undefined}>
+          {loading ? 'Checking…' : connection || organization ? (accountName ?? 'Cloudflare account') : 'None yet'}
+        </span>
+        {loading ? null : connection ? (
+          <StatusBadge tone="success">{organization ? `Managed by ${organization.orgName}` : 'Connected'}</StatusBadge>
+        ) : organization ? (
+          <StatusBadge>Managed by {organization.orgName}</StatusBadge>
+        ) : (
+          <StatusBadge tone="warning">Not connected</StatusBadge>
+        )}
       </div>
       {reauthenticateReason ? (
         <ReauthenticatePrompt
@@ -128,8 +119,8 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
       ) : null}
       <FeedbackLine feedback={errorFeedback(error)} className="mt-3" />
       {organization && !admin && !offersOwnAccount ? null : (
-        <p className="mt-3 text-xs text-content-tertiary">Requires Cloudflare Workers Paid and Containers.</p>
+        <p className="mt-2 text-xs text-content-tertiary">Needs Workers Paid and Containers.</p>
       )}
-    </section>
+    </SettingsCard>
   );
 }
