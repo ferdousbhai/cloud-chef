@@ -41,7 +41,12 @@ describe('builder system prompt', () => {
     expect(prompt).not.toContain('CloudChef app');
   });
 
-  it('asks before building when the request is ambiguous in a way that matters', () => {
-    expect(systemPrompt('')).toContain('ask one short question before building');
+  it('describes the environment without coaching behaviour', () => {
+    const prompt = systemPrompt('');
+
+    expect(prompt).not.toContain('new_context');
+    expect(prompt).not.toContain('ask one short question');
+    expect(prompt).not.toContain('Say only what');
+    expect(prompt).not.toContain('refused');
   });
 });

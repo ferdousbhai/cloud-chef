@@ -30,7 +30,7 @@ describe("a team project's tools", () => {
       { input: { message: 'Hero copy', live: false }, toolCallId: 'call-preview' },
       { input: { message: 'Ship it', live: true }, toolCallId: 'call-live' },
     ]);
-    expect(tools.publish_preview.description).toContain('Do not wait or poll');
+    expect(tools.publish_preview.description).toContain('nothing needs waiting or polling for');
     expect(tools.publish.description).toContain('above the chat composer');
   });
 

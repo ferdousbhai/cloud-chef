@@ -28,7 +28,7 @@ const RETRY_BASE_DELAY_MS = 150;
 export function cloudflareDocsSearchTool(): Tool {
   return {
     description:
-      "Search Cloudflare's documentation. Returns ranked excerpts with their source URLs; prefer it to recall for Workers, Wrangler, D1, R2, KV, Durable Objects, Workers AI, and any other Cloudflare question.",
+      "Search Cloudflare's current documentation (Workers, Wrangler, D1, R2, KV, Durable Objects, Workers AI, and the rest of Cloudflare). Returns ranked excerpts with their source URLs.",
     inputSchema: MODEL_TOOL_INPUT_SCHEMAS.search_cloudflare_docs,
     execute: async (input, options) => {
       const { query } = MODEL_TOOL_INPUT_SCHEMAS.search_cloudflare_docs.parse(input);

@@ -31,7 +31,7 @@ export function linkedProjectModelTools(context: LinkedProjectModelToolContext) 
         `Commit the workspace's changes to a CloudChef branch of the project's repository (${context.repository}). It ` +
         'returns as soon as the commit is there; Workers Builds then builds a preview of the branch (about two ' +
         "minutes). The user sees the build status and preview link above the chat composer and on this tool's card " +
-        "as soon as it reports, and you read it in this tool's output next turn. Do not wait or poll for it.",
+        "as soon as it reports, and you read it in this tool's output next turn, so nothing needs waiting or polling for.",
       inputSchema: MODEL_TOOL_INPUT_SCHEMAS.publish_preview,
       execute: (input, options) =>
         context.publish(
@@ -43,8 +43,8 @@ export function linkedProjectModelTools(context: LinkedProjectModelToolContext) 
       description:
         `Put the workspace's changes live: commit them and merge them into ${context.defaultBranch} of the project's ` +
         `repository (${context.repository}), which Workers Builds deploys to production. It returns once merged; the ` +
-        "user sees the deploy's status above the chat composer and on this tool's card when it reports. Do not " +
-        'wait or poll for it. Use it only when the user wants the change live.',
+        "user sees the deploy's status above the chat composer and on this tool's card when it reports, so nothing " +
+        'needs waiting or polling for. Use it only when the user wants the change live.',
       inputSchema: MODEL_TOOL_INPUT_SCHEMAS.publish,
       execute: (input, options) =>
         context.publish({ message: MODEL_TOOL_INPUT_SCHEMAS.publish.parse(input).message, live: true }, options),
@@ -52,9 +52,9 @@ export function linkedProjectModelTools(context: LinkedProjectModelToolContext) 
     fetch_site: {
       description:
         `Read a page or API response from ${context.repository}'s own live site: its production address or a ` +
-        "preview link Workers Builds reported. Use it to see the site's " +
-        'current content, including copy kept in its database or CMS and served by its pages or JSON endpoints, ' +
-        'instead of fetching it with exec. Read-only GET; text formats only; long responses come in pages.',
+        "preview link Workers Builds reported, with the site's current content, including copy kept in its " +
+        'database or CMS and served by its pages or JSON endpoints. Read-only GET; text formats only; long ' +
+        'responses come in pages.',
       inputSchema: MODEL_TOOL_INPUT_SCHEMAS.fetch_site,
       execute: (input, options) => context.fetchSite(MODEL_TOOL_INPUT_SCHEMAS.fetch_site.parse(input), options),
     },
