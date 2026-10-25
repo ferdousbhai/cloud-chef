@@ -118,13 +118,14 @@ export async function upsertUserWorkspaceRuntime(args: {
 type OutdatedUserWorkspaceRuntime = {
   userId: string;
   connectionId: string;
+  /** The connection's current generation: the one the upgrade prepares the runtime for. */
   connectionGeneration: number;
 };
 
 /**
- * Ready runtimes from an earlier release that still serve their connection's current generation and
- * speak this release's protocol: a session can be issued for each, and its upgrade can wait for a quiet
- * moment. Ordered most recently used first.
+ * Ready runtimes the sweep upgrades: ones from an earlier release that speak this release's protocol, whose
+ * upgrade can wait for a quiet moment, and ones for a connection generation since replaced (a reconnect),
+ * whose secret no longer authenticates, so nothing is running in them. Ordered most recently used first.
  */
 export async function listOutdatedUserWorkspaceRuntimes(
   db: D1Database,
@@ -132,15 +133,19 @@ export async function listOutdatedUserWorkspaceRuntimes(
 ): Promise<OutdatedUserWorkspaceRuntime[]> {
   const { results } = await db
     .prepare(
-      `SELECT runtimes.user_id, runtimes.connection_id, runtimes.connection_generation
+      `SELECT runtimes.user_id, runtimes.connection_id, connections.connection_generation
        FROM user_computer_runtimes AS runtimes
        JOIN cloudflare_connections AS connections
          ON connections.id = runtimes.connection_id
         AND connections.status = 'active'
-        AND connections.connection_generation = runtimes.connection_generation
        WHERE runtimes.status = 'ready'
-         AND (runtimes.runtime_version <> ? OR runtimes.image_digest <> ?)
-         AND runtimes.protocol_version = ?
+         AND (
+           runtimes.connection_generation <> connections.connection_generation
+           OR (
+             (runtimes.runtime_version <> ? OR runtimes.image_digest <> ?)
+             AND runtimes.protocol_version = ?
+           )
+         )
        ORDER BY runtimes.last_session_at IS NULL, runtimes.last_session_at DESC, runtimes.user_id, runtimes.connection_id`,
     )
     .bind(args.runtimeVersion, args.imageDigest, args.protocolVersion)

@@ -79,7 +79,7 @@ describe('workspace runtime locator', () => {
     await expect(lastSessionAt(db)).resolves.toBe(61_001);
   });
 
-  it('lists the outdated runtimes a session could still be issued for, most recently used first', async () => {
+  it('lists outdated runtimes and ones a reconnect left behind, most recently used first', async () => {
     const db = runtimeDatabase();
     const current = { runtimeVersion: 'c'.repeat(64), imageDigest: 'image@sha256:current', protocolVersion: 2 };
     const ready = (overrides: Partial<Parameters<typeof upsertUserWorkspaceRuntime>[0]>, now = 1) => {
@@ -98,7 +98,7 @@ describe('workspace runtime locator', () => {
       { userId: 'user-1', connectionId: 'connection-1', connectionGeneration: 1 },
     ]);
 
-    // Current; on another image; speaking another protocol; for a connection generation since replaced.
+    // Current; on another image; speaking another protocol.
     await ready({ connectionId: 'connection-1', runtimeVersion: current.runtimeVersion });
     await ready({ connectionId: 'org-connection', runtimeVersion: current.runtimeVersion, imageDigest: 'old-image' });
     await expect(listOutdatedUserWorkspaceRuntimes(db, current)).resolves.toEqual([
@@ -107,8 +107,12 @@ describe('workspace runtime locator', () => {
     await ready({ connectionId: 'org-connection', protocolVersion: 1 });
     await expect(listOutdatedUserWorkspaceRuntimes(db, current)).resolves.toEqual([]);
     await ready({ connectionId: 'org-connection' });
+    // A reconnect replaced the generation it serves: upgraded onto the new one, whatever its build or protocol.
+    await ready({ connectionId: 'org-connection', runtimeVersion: current.runtimeVersion, protocolVersion: 1 });
     await db.prepare(`UPDATE cloudflare_connections SET connection_generation = 2 WHERE id = 'org-connection'`).run();
-    await expect(listOutdatedUserWorkspaceRuntimes(db, current)).resolves.toEqual([]);
+    await expect(listOutdatedUserWorkspaceRuntimes(db, current)).resolves.toEqual([
+      { userId: 'user-1', connectionId: 'org-connection', connectionGeneration: 2 },
+    ]);
     await db.prepare(`UPDATE cloudflare_connections SET connection_generation = 1, status = 'revoked'`).run();
     await expect(listOutdatedUserWorkspaceRuntimes(db, current)).resolves.toEqual([]);
   });

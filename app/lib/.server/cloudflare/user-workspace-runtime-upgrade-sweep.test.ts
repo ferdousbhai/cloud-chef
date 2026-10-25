@@ -114,9 +114,14 @@ function controlPlane() {
     database
       .prepare('UPDATE user_computer_runtimes SET runtime_version = ? WHERE connection_id = ?')
       .run(USER_WORKSPACE_RUNTIME_SHA256, id);
+  /** A reconnect: the connection moves to a new generation, and its runtime's secret stops authenticating. */
+  const reconnect = (id: string) =>
+    database
+      .prepare('UPDATE cloudflare_connections SET connection_generation = connection_generation + 2 WHERE id = ?')
+      .run(id);
   const env = (binding: Env['USER_WORKSPACE_RUNTIME_PROVISIONING']) =>
     envWith({ DB: db, USER_WORKSPACE_RUNTIME_PROVISIONING: binding });
-  return { add, makeCurrent, env };
+  return { add, makeCurrent, reconnect, env };
 }
 
 describe('scheduled workspace runtime upgrade sweep', () => {
@@ -132,6 +137,22 @@ describe('scheduled workspace runtime upgrade sweep', () => {
       sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0 }),
     ).resolves.toMatchObject({ started: 2, skipped: 0 });
     expect(workflow.created).toEqual(['owner-of-a', 'owner-of-b']);
+  });
+
+  it("prepares a runtime a reconnect left behind for the connection's new generation, even on this build", async () => {
+    const plane = controlPlane();
+    plane.add('reconnected');
+    plane.makeCurrent('reconnected');
+    plane.reconnect('reconnected');
+    const workflow = workflows(() => null);
+
+    await expect(
+      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0 }),
+    ).resolves.toMatchObject({ started: 1, skipped: 0 });
+    expect(workflow.createBatch.mock.calls[0][0].instances?.[0]?.params).toMatchObject({
+      userId: 'owner-of-reconnected',
+      connectionGeneration: 3,
+    });
   });
 
   it('launches at most a batch per sweep, not counting upgrades already waiting', async () => {
