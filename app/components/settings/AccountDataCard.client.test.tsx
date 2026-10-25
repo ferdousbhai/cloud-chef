@@ -238,10 +238,10 @@ describe('AccountDataCard', () => {
       workspacesLeftIn: [],
     });
 
-    expect(text).toContain("because someone else's own space still builds there with it");
+    expect(text).toContain("because someone else's own account still builds there with it");
     expect(text).not.toContain('encrypted credentials');
     expect(text).not.toContain('Cloudflare did not confirm');
-    expect(text).not.toContain('Remove it yourself');
+    expect(text).not.toContain('did not confirm');
   });
 
   it('says both when access was kept in one account and removing it from another went unconfirmed', async () => {
@@ -252,7 +252,7 @@ describe('AccountDataCard', () => {
     });
 
     expect(text).toContain(
-      "because the team Acme, the team Sara's sites and someone else's own space still build there with it",
+      "because the team Acme, the team Sara's sites and someone else's own account still build there with it",
     );
     expect(text).toContain('Cloudflare did not confirm that CloudChef’s access was removed');
   });

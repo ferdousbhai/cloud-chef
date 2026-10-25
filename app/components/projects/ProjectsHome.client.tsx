@@ -43,6 +43,8 @@ export function ProjectsHome({ userId }: { userId: string }) {
   const team = context?.kind === 'organization' ? context : null;
   // A member limited to the team's projects can't start or import projects of their own.
   const draftsAllowed = team === null || team.draftsAllowed;
+  // In a team only its admins import, since a team's projects are theirs to add.
+  const canImport = team === null || team.role === 'admin';
   const [dialog, setDialog] = useState<OpenDialog | null>(null);
 
   // Back from installing the GitHub App: the import dialog opens again, and the address forgets the visit.
@@ -57,7 +59,7 @@ export function ProjectsHome({ userId }: { userId: string }) {
 
   return (
     <div className="mx-auto mt-8 grid w-full max-w-6xl gap-8 pb-10">
-      {draftsAllowed ? (
+      {canImport ? (
         <div className="flex justify-center">
           <Button variant="neutral" size="sm" icon={<GitHubLogoIcon />} onClick={() => setDialog({ kind: 'import' })}>
             Import from GitHub

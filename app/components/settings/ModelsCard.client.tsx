@@ -150,7 +150,7 @@ export function ModelsCard() {
         return [
           settings?.allowedModelIds === null || settings === null
             ? `${GATEWAY_PROVIDERS[provider].label} is linked. Its models appear in the model picker within a minute.`
-            : `${GATEWAY_PROVIDERS[provider].label} is linked. Its models are listed under Models in the picker: tick the ones to offer.`,
+            : `${GATEWAY_PROVIDERS[provider].label} is linked. Its models are now listed above, under "Models in the picker": tick the ones to offer.`,
           ...(previousKeysRemain ? [PREVIOUS_KEYS_REMAIN_NOTE] : []),
           ...(authenticationTurnedOn ? [AUTHENTICATION_TURNED_ON_NOTE] : []),
         ].join(' ');
@@ -261,8 +261,8 @@ export function ModelsCard() {
                   : catalogStatus === 'stale'
                     ? 'The account’s model list could not be refreshed just now, so these are the models it last listed.'
                     : settings.canManage
-                      ? 'New chats start on this model. Anyone can switch in the builder.'
-                      : 'Chosen by this team’s admins. You can switch in the builder.'}
+                      ? "New chats start on this model. Anyone can switch in the chat's model picker."
+                      : "Chosen by this team’s admins. You can switch in the chat's model picker."}
             </p>
           </div>
 

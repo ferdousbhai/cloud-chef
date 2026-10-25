@@ -86,7 +86,7 @@ export function AllowedModelsSection({
       <p className="mt-1 text-xs text-content-tertiary">
         {canManage
           ? 'Leave out models people shouldn’t pick, such as ones that use up credits quickly or don’t do well enough at building.'
-          : 'Chosen by this team’s admins. You can pick any of the allowed models in the builder.'}
+          : "Chosen by this team’s admins. You can pick any of the allowed models in the chat's model picker."}
       </p>
       <fieldset className="mt-3 grid gap-1.5">
         <legend className="sr-only">Which models the picker offers</legend>

@@ -110,12 +110,15 @@ type ImportSource = { url: string; branch: string; authorization: string | null 
 /** A GitHub import the runtime registered: the new project, and where to import it from. */
 type RegisteredImport = { projectId: string; importSource: ImportSource; workersBuildsFromGitHub: boolean };
 
+const GITHUB_UNREACHABLE = 'GitHub could not be reached just now. Try again in a moment.';
+
 /**
  * Where a project still to be imported comes from: its GitHub address, and for a private repository a fresh
  * GitHub App token limited to it, read-only, as git's Basic authorization. Null when it has no source.
+ * `confirmedPublic` is a source GitHub has just shown is public, read as it is.
  */
 async function importSourceFor(
-  args: { env: Env; app?: GitHubApp | null },
+  args: { env: Env; app?: GitHubApp | null; confirmedPublic?: boolean },
   project: Project,
 ): Promise<ImportSource | null | Response> {
   const source = project.importSource;
@@ -123,32 +126,46 @@ async function importSourceFor(
     return null;
   }
   const url = `https://github.com/${source.fullName}.git`;
+  const publicSource = { url, branch: source.branch, authorization: null };
+  if (source.repoId === null && args.confirmedPublic) {
+    return publicSource;
+  }
   const app = args.app === undefined ? gitHubAppFromEnv(args.env) : args.app;
-  // The App's installation on the account that owns the repository is the one that reaches it.
+  const installations = app ? await listGitHubInstallations(args.env.DB, project.connectionId) : [];
+  // The installation on the account that owns the repository first; the others after, for one moved since.
   const owner = source.fullName.split('/')[0].toLowerCase();
-  const installation = (await listGitHubInstallations(args.env.DB, project.connectionId)).find(
-    (candidate) => candidate.accountLogin.toLowerCase() === owner,
-  );
+  const ordered = [
+    ...installations.filter((candidate) => candidate.accountLogin.toLowerCase() === owner),
+    ...installations.filter((candidate) => candidate.accountLogin.toLowerCase() !== owner),
+  ];
   let repoId = source.repoId;
   if (repoId === null) {
     // Added by its address as a public repository. It may have gone private since: then it is read through the
     // App if the App reaches it now, so giving the App access and opening the project again works.
-    repoId =
-      app && installation
-        ? await app
-            .installationRepositories(installation.installationId)
-            .then(
-              (repositories) =>
-                repositories.find((candidate) => candidate.full_name.toLowerCase() === source.fullName.toLowerCase())
-                  ?.id ?? null,
-            )
-            .catch(() => null)
-        : null;
+    const [ownerInstallation] = ordered;
+    if (!app || ownerInstallation?.accountLogin.toLowerCase() !== owner) {
+      return publicSource;
+    }
+    try {
+      const repositories = await app.installationRepositories(ownerInstallation.installationId);
+      repoId =
+        repositories.find((candidate) => candidate.full_name.toLowerCase() === source.fullName.toLowerCase())?.id ??
+        null;
+    } catch (error) {
+      if (error instanceof GitHubError && error.status === 404) {
+        return publicSource;
+      }
+      if (error instanceof GitHubError) {
+        // Not knowing whether the App reaches it now is not the same as its not doing so: try again.
+        return json({ error: GITHUB_UNREACHABLE }, 503);
+      }
+      throw error;
+    }
     if (repoId === null) {
-      return { url, branch: source.branch, authorization: null };
+      return publicSource;
     }
   }
-  if (!app || !installation) {
+  if (!app || ordered.length === 0) {
     return json(
       {
         code: 'github_disconnected',
@@ -159,30 +176,34 @@ async function importSourceFor(
       409,
     );
   }
-  try {
-    const token = await app.installationToken(installation.installationId, { contents: 'read' }, [repoId]);
-    return { url, branch: source.branch, authorization: `Basic ${btoa(`x-access-token:${token}`)}` };
-  } catch (error) {
-    // GitHub saying no about this repository. A 401 is CloudChef's own App failing to sign in, which the
-    // person can't fix, so it is treated as an outage below.
-    if (error instanceof GitHubError && !error.rateLimited && [403, 404, 422].includes(error.status)) {
-      return json(
-        {
-          code: 'github_refused',
-          error:
-            error.status === 403
-              ? `GitHub refused CloudChef's GitHub App access to this repository. To fix it, ${GITHUB_ACCESS_FIX}, then try again.`
-              : `CloudChef's GitHub App can no longer reach this repository. To fix it, ${GITHUB_ACCESS_FIX}, then try again.`,
-        },
-        502,
-      );
+  let refusal: GitHubError | null = null;
+  for (const installation of ordered) {
+    try {
+      const token = await app.installationToken(installation.installationId, { contents: 'read' }, [repoId]);
+      return { url, branch: source.branch, authorization: `Basic ${btoa(`x-access-token:${token}`)}` };
+    } catch (error) {
+      // GitHub saying no about this repository from this account: another may reach it. A 401 is CloudChef's
+      // own App failing to sign in, which the person can't fix, so it is an outage, as is a rate limit.
+      if (error instanceof GitHubError && !error.rateLimited && [403, 404, 422].includes(error.status)) {
+        refusal ??= error;
+        continue;
+      }
+      if (error instanceof GitHubError) {
+        return json({ error: GITHUB_UNREACHABLE }, 503);
+      }
+      throw error;
     }
-    if (error instanceof GitHubError) {
-      // An outage or a rate limit, not a refusal: answered without a code, so the workspace tries again.
-      return json({ error: 'GitHub could not be reached just now. Try again in a moment.' }, 503);
-    }
-    throw error;
   }
+  return json(
+    {
+      code: 'github_refused',
+      error:
+        refusal?.status === 403
+          ? `GitHub refused CloudChef's GitHub App access to this repository. To fix it, ${GITHUB_ACCESS_FIX}, then try again.`
+          : `CloudChef's GitHub App can no longer reach this repository. To fix it, ${GITHUB_ACCESS_FIX}, then try again.`,
+    },
+    502,
+  );
 }
 
 /**
@@ -226,7 +247,7 @@ export async function runtimeRegisterImportAction(args: {
     }
     let importSource: Awaited<ReturnType<typeof importSourceFor>>;
     try {
-      importSource = await importSourceFor({ env: args.env, app }, project);
+      importSource = await importSourceFor({ env: args.env, app, confirmedPublic: true }, project);
     } catch (error) {
       await removeProject(args.env.DB, { scope, projectId: project.id });
       throw error;

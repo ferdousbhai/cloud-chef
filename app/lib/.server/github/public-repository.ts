@@ -27,6 +27,11 @@ export async function publicRepositoryDefaultBranch(
     redirect: 'manual',
     signal: AbortSignal.timeout(10_000),
   });
+  if (response.status === 429 || response.status >= 500) {
+    // github.com busy or failing says nothing about whether the repository is public.
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error(`github.com answered ${response.status}`);
+  }
   if (response.status !== 200 || !response.body) {
     await response.body?.cancel().catch(() => undefined);
     return null;

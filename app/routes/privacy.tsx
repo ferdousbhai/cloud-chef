@@ -308,13 +308,13 @@ function PrivacyPage() {
           It also deletes your workspace in each team&apos;s Cloudflare account, as leaving the team would, and says
           which it could not reach. If you connected a Cloudflare account of your own, it asks Cloudflare to revoke
           CloudChef’s authorization unless someone else still builds in that account with it, in a team or on their own
-          (it then says which teams, or that someone else&apos;s own space, keep it), and tells you when Cloudflare did
-          not confirm a revocation so you can remove it yourself. Because erasure is irreversible it requires a sign-in
-          completed in the last ten minutes, an exact typed confirmation, and an explicit acknowledgement of what is
-          retained. Erasure leaves a team&apos;s Cloudflare authorization alone while others still build in it; if you
-          are its only remaining member, the team is removed, and its authorization is revoked unless another space
-          still builds in that account. If you are the only admin of a team others belong to, make someone else an admin
-          first. Repeating it is harmless. If you sign in with Cloudflare and have already revoked CloudChef’s
+          (it then says which teams, or that someone else&apos;s own account, keep it), and tells you when Cloudflare
+          did not confirm a revocation so you can remove it yourself. Because erasure is irreversible it requires a
+          sign-in completed in the last ten minutes, an exact typed confirmation, and an explicit acknowledgement of
+          what is retained. Erasure leaves a team&apos;s Cloudflare authorization alone while others still build in it;
+          if you are its only remaining member, the team is removed, and its authorization is revoked unless another
+          space still builds in that account. If you are the only admin of a team others belong to, make someone else an
+          admin first. Repeating it is harmless. If you sign in with Cloudflare and have already revoked CloudChef’s
           authorization, you can no longer sign in that way, so use the request path below instead.
         </p>
         <p>

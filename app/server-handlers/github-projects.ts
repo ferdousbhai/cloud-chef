@@ -1,8 +1,9 @@
+import { GITHUB_ACCESS_FIX } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import type { GitHubReturnMessage } from '~/lib/github-return-messages';
 import { getAuthSession } from '~/lib/.server/auth';
 import { findActiveCloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
-import { GitHubError, withGitHubFailure } from '~/lib/.server/github/github-api';
+import { GitHubError } from '~/lib/.server/github/github-api';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
 import { readCookie, readJsonRequest, safeReturnTo, serializeCookie } from '~/lib/.server/request-guards';
 import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
@@ -94,8 +95,10 @@ export async function completeGitHubInstallAction({
   app?: GitHubApp | null;
 }): Promise<Response> {
   const url = new URL(request.url);
-  // This is a browser coming back from GitHub: every outcome returns to Settings, which says what happened.
-  const back = (message: GitHubReturnMessage) => redirect(settingsWithMessage(url.origin, message), request);
+  // This is a browser coming back from GitHub: every outcome returns to where it started (the import dialog, or
+  // Settings), or to Settings when that isn't known, saying what happened.
+  const back = (message: GitHubReturnMessage, returnTo: string | null = null) =>
+    redirect(returnLocation(url.origin, returnTo, message), request);
   try {
     return await completeInstallation({ request, env, app, back });
   } catch (error) {
@@ -112,9 +115,11 @@ async function completeInstallation(args: {
   request: Request;
   env: Env;
   app: GitHubApp | null;
-  back: (message: GitHubReturnMessage) => Response;
+  back: (message: GitHubReturnMessage, returnTo?: string | null) => Response;
 }): Promise<Response> {
-  const { request, env, app, back } = args;
+  const { request, env, app } = args;
+  let returnTo: string | null = null;
+  const back = (message: GitHubReturnMessage) => args.back(message, returnTo);
   const url = new URL(request.url);
   const state = readCookie(request, STATE_COOKIE);
   // The state GitHub carries back must be the one this browser started with: a link carrying someone
@@ -127,10 +132,11 @@ async function completeInstallation(args: {
   const pending = await env.DB.prepare(
     `UPDATE github_install_states SET used_at = ?
      WHERE id = ? AND used_at IS NULL AND expires_at > ?
-     RETURNING connection_id, user_id`,
+     RETURNING connection_id, user_id, return_to`,
   )
     .bind(now, state, now)
-    .first<{ connection_id: string; user_id: string }>();
+    .first<{ connection_id: string; user_id: string; return_to: string }>();
+  returnTo = pending?.return_to ?? null;
   const installationId = Number(url.searchParams.get('installation_id'));
   const code = url.searchParams.get('code');
   if (!pending || !app) {
@@ -261,33 +267,49 @@ export async function installedRepositories(db: D1Database, scope: ProjectScope,
   if (!app || installations.length === 0) {
     return Response.json({ error: app ? 'Connect GitHub first.' : UNAVAILABLE }, { status: 409 });
   }
-  return withGitHubFailure(
-    async () => {
-      const reached = await Promise.all(
-        installations.map(async (installation) => {
-          try {
-            return await app.installationRepositories(installation.installationId);
-          } catch (error) {
-            if (error instanceof GitHubError && error.status === 404) {
-              return null;
-            }
-            throw error;
-          }
-        }),
-      );
-      if (reached.every((repositories) => repositories === null)) {
-        throw new GitHubError('GitHub no longer has those installations.', 404);
+  // An account whose listing fails (uninstalled since, suspended, rate-limited) is passed over, so one account
+  // can't block the others; only when every one fails is that the answer.
+  const reached = await Promise.all(
+    installations.map(async (installation) => {
+      try {
+        return await app.installationRepositories(installation.installationId);
+      } catch (error) {
+        if (error instanceof GitHubError) {
+          return error;
+        }
+        throw error;
       }
-      return reached.flatMap((repositories) => repositories ?? []);
-    },
-    (error) =>
-      Response.json(
-        {
-          error: error.status === 404 ? 'GitHub no longer has that installation. Connect GitHub again.' : error.message,
-        },
-        { status: 502 },
-      ),
+    }),
   );
+  const listed = reached.flatMap((result) => (result instanceof GitHubError ? [] : [result]));
+  if (listed.length > 0) {
+    return listed.flat();
+  }
+  return reached.every((result) => result instanceof GitHubError && result.status === 404)
+    ? Response.json(
+        { error: `GitHub no longer has CloudChef's GitHub App installed there. To fix it, ${GITHUB_ACCESS_FIX}.` },
+        { status: 502 },
+      )
+    : Response.json({ error: 'GitHub could not be reached just now. Try again in a moment.' }, { status: 503 });
+}
+
+/** Where a return from GitHub goes: the page it started from on this origin, else Settings, with what it did. */
+function returnLocation(origin: string, returnTo: string | null, message: GitHubReturnMessage | null): URL {
+  if (returnTo) {
+    try {
+      const location = new URL(returnTo, origin);
+      // A bare "/" is the default when nothing was asked for: Settings says what happened, the builder wouldn't.
+      if (location.origin === origin && !(location.pathname === '/' && location.search === '')) {
+        if (message) {
+          location.searchParams.set('github_message', message);
+        }
+        return location;
+      }
+    } catch {
+      // Not an address: Settings, below.
+    }
+  }
+  return settingsWithMessage(origin, message);
 }
 
 /** Settings, saying what a return from GitHub did (as a code: Settings has the text). */

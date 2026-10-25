@@ -137,9 +137,17 @@ async function install(
   cookie: string,
   orgId: string | undefined,
   installationId = INSTALLATION_ID,
+  callbackURL?: string,
 ) {
+  const body: Record<string, string> = {};
+  if (orgId) {
+    body.orgId = orgId;
+  }
+  if (callbackURL) {
+    body.callbackURL = callbackURL;
+  }
   const started = await startGitHubInstallAction({
-    request: post(cookie, '/api/organizations/github/start', orgId ? { orgId } : {}),
+    request: post(cookie, '/api/organizations/github/start', body),
     env: envWith({
       ...env,
       GITHUB_APP_CLIENT_ID: 'Iv1.test',
@@ -411,6 +419,15 @@ describe('GitHub projects', () => {
       'Error: D1_ERROR: storage operation exceeded timeout',
     );
     logged.mockRestore();
+  });
+
+  it('returns to the page the installation started from, saying what happened', async () => {
+    const { env, orgId, admin, app } = await setup();
+    const installed = await install(env, app, admin.cookie, orgId, INSTALLATION_ID, `${ORIGIN}/?import=github`);
+    const location = new URL(installed.headers.get('location') ?? '/', ORIGIN);
+    expect(location.pathname).toBe('/');
+    expect(location.searchParams.get('import')).toBe('github');
+    expect(githubMessage(installed)).toBe('Connected GitHub.');
   });
 
   it("doesn't let a member connect GitHub", async () => {

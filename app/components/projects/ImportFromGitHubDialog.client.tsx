@@ -13,7 +13,7 @@ import {
   startGitHubAppInstall,
   type GitHubRepository,
 } from '~/lib/github-app.client';
-import { messageOf, postJson, RequestError } from '~/lib/json-request';
+import { messageOf, postJson } from '~/lib/json-request';
 
 /** What switching a project's Workers Builds to its Artifacts repository answered. */
 const switchedSchema = z.union([
@@ -49,17 +49,14 @@ export function ImportFromGitHubDialog({
   // Null until known; an empty list once the App is known not to reach anything here.
   const [installed, setInstalled] = useState<GitHubRepository[] | null>(null);
   const [installing, setInstalling] = useState(false);
-  // A team member: only the team's admins give CloudChef's GitHub App access.
-  const [adminOnly, setAdminOnly] = useState(false);
   const repository = gitHubRepositoryName(address);
 
   useEffect(() => {
     const controller = new AbortController();
     listGitHubRepositories(orgId, controller.signal)
       .then(setInstalled)
-      .catch((cause: Error) => {
+      .catch(() => {
         if (!controller.signal.aborted) {
-          setAdminOnly(cause instanceof RequestError && cause.status === 403);
           setInstalled([]);
         }
       });
@@ -174,11 +171,6 @@ export function ImportFromGitHubDialog({
         <div className="rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 text-xs text-content-secondary">
           {installed === null ? (
             <p role="status">Checking which repositories CloudChef can read…</p>
-          ) : adminOnly ? (
-            <p>
-              Public repositories import from their address. For a private repository, ask a team admin to give
-              CloudChef&apos;s GitHub App access to it in Settings, from the menu beside the team&apos;s projects.
-            </p>
           ) : (
             <div className="grid gap-2">
               <p>

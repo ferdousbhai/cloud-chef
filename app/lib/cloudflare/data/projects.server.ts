@@ -198,7 +198,7 @@ export async function importProject(
     }
     // The answer never arrived, and the project may have been added before it broke off.
     throw new ProjectRepositoryFailureError(
-      "CloudChef couldn't tell whether the project was added. If it's in the menu's list of projects, open it to finish copying " +
+      "CloudChef couldn't tell whether the project was added. If it's under Imported projects in the menu (Team projects, in a team), open it to finish copying " +
         'its code; if not, import it again.',
       503,
     );
@@ -222,7 +222,7 @@ export async function importProject(
         : "Copying the project's code stopped partway.";
     if (!permanent) {
       throw new ProjectRepositoryFailureError(
-        `${reason} The project was added: open it from the menu's list of projects to finish copying it.`,
+        `${reason} The project was added: open it under Imported projects in the menu (Team projects, in a team) to finish copying it.`,
         503,
       );
     }
@@ -231,10 +231,10 @@ export async function importProject(
         .deleteRepo(importedProjectRepo(registered.projectId))
         .catch(() => undefined);
       // A repository no longer public is imported again through GitHub; nothing is left to remove first.
-      const noLongerPublic =
-        registered.importSource.authorization === null &&
-        error instanceof ProjectRepositoryError &&
-        (error.code === 'auth_required' || error.code === 'not_found');
+      const noLongerPublic = noLongerPublicFailure(
+        registered,
+        error instanceof ProjectRepositoryError ? error.code : null,
+      );
       throw new ProjectRepositoryFailureError(
         noLongerPublic
           ? "That repository wasn't found: it was removed, or it isn't public. To import a private repository, " +
@@ -243,7 +243,13 @@ export async function importProject(
         409,
       );
     }
-    throw new ProjectRepositoryFailureError(`${reason} The project was added, but its code can't be copied.`, 409);
+    // Not taken back: a repository that is no longer public can still be read once the App reaches it.
+    throw new ProjectRepositoryFailureError(
+      noLongerPublicFailure(registered, error instanceof ProjectRepositoryError ? error.code : null)
+        ? `${reason} The project was added: once the App can read it, open it under Imported projects in the menu (Team projects, in a team).`
+        : `${reason} The project was added, but its code can't be copied.`,
+      409,
+    );
   }
   const { initialId } = await openLinkedChat(env.DB, {
     sessionId: args.sessionId,
@@ -307,6 +313,14 @@ export async function userRuntimeProjectArchiveAction(
     console.warn('The project archive could not be made');
     return Response.json({ error: 'The project could not be downloaded. Try again.' }, { status: 500 });
   }
+}
+
+/** A copy refused because a repository imported as public isn't any more (or is gone). */
+function noLongerPublicFailure(
+  registered: { importSource: { authorization?: string | null } },
+  code: ProjectRepositoryError['code'] | null,
+): boolean {
+  return !registered.importSource.authorization && (code === 'auth_required' || code === 'not_found');
 }
 
 /**
