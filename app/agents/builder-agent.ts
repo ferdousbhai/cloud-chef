@@ -132,6 +132,7 @@ import {
   openProject,
   ProjectAccessError,
   ProjectRefusalError,
+  ProjectUnavailableError,
   projectBuildStatus,
   projectSiteOrigins,
   readMemberIdentity,
@@ -1259,7 +1260,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const { baseRevision, changes } = await revertChanges(this.workspace, files);
     const result = await this.applyWorkspaceClientChanges({ baseRevision, changes });
     if (!result.ok) {
-      throw new Response('The project changed while it was being reverted. Try again.', { status: 409 });
+      throw new Response('The project changed while this version was being restored. Try again.', { status: 409 });
     }
     if (!linked && result.changedPaths.length > 0) {
       const checkpoint = await this.workspace.checkpoint();
@@ -3001,17 +3002,19 @@ function parseTurnContext(value: unknown): ChatTurnContext | undefined {
 }
 
 /**
- * Whether a seed failed in a way the person has to act on, so reconnecting would only repeat it: the
- * control plane refused (no access, an import GitHub refused), the import itself was refused or impossible,
- * or the project's answer could not be read. An outage (network, a server error, Artifacts unavailable) is
- * thrown on, and the browser's reconnect tries again.
+ * Whether a seed failed with words for the person, shown with Try again rather than retried behind a
+ * reconnect: the control plane refused (no access, an import GitHub refused) or said GitHub can't be reached,
+ * the copy was refused, impossible or broke off, or the project's answer could not be read. Only an error
+ * without such words (the network, a crash in the workspace) is thrown on, and the browser reconnects; a
+ * repeated import of a large project behind ten silent reconnects would only take longer to say the same.
  */
 function isSeedRefusal(error: Error): boolean {
   return (
     error instanceof ProjectRefusalError ||
+    error instanceof ProjectUnavailableError ||
     error instanceof ProjectAccessError ||
     error instanceof z.ZodError ||
-    (error instanceof ProjectRepositoryError && error.code !== 'unavailable')
+    error instanceof ProjectRepositoryError
   );
 }
 

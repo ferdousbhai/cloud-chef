@@ -1,4 +1,4 @@
-import { GITHUB_ACCESS_FIX } from '~/lib/github-return-messages';
+import { GITHUB_ACCESS_FIX, GITHUB_UNREACHABLE } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import type { GitHubApp } from '~/lib/.server/github/github-app';
 import { gitHubRepositoryFromUrl, publicRepositoryDefaultBranch } from '~/lib/.server/github/public-repository';
@@ -74,13 +74,13 @@ export function listMyProjectsAction({ request, env }: { request: Request; env: 
   });
 }
 
-/** What an import names: a repository CloudChef's GitHub App reaches (`repoId`), or one by its address. */
-type GitHubImportRequest = { repoId: number; name: string } | { url: string; name?: string };
+/** What an import names: a repository by its address, and optionally the project's name. */
+type GitHubImportRequest = { url: string; name?: string };
 
 /**
- * Registers a GitHub repository as a project of `scope`: one CloudChef's GitHub App reaches, or one by its
- * address, which is public or, failing that, one the App reaches. It becomes a project at once; its code
- * comes into Artifacts when the runtime asking imports it.
+ * Registers a GitHub repository as a project of `scope`, by its address: a public one, or failing that one
+ * CloudChef's GitHub App reaches. It becomes a project at once; its code comes into Artifacts when the runtime
+ * asking imports it.
  */
 export async function registerGitHubImport(
   env: Env,
@@ -94,57 +94,48 @@ export async function registerGitHubImport(
   },
 ): Promise<{ projectId: string } | Response> {
   const { scope, request } = args;
+  const fullName = gitHubRepositoryFromUrl(request.url);
+  if (!fullName) {
+    return Response.json({ error: 'Paste the address of a repository on github.com.' }, { status: 400 });
+  }
+  let branch: string | null;
+  try {
+    branch = await publicRepositoryDefaultBranch(fullName, args.gitRequest ?? fetch);
+  } catch {
+    // github.com not answering says nothing about whether the repository is public: try again later.
+    return Response.json({ error: GITHUB_UNREACHABLE }, { status: 503 });
+  }
   let source: NonNullable<Project['importSource']>;
-  let name: string;
-  if ('repoId' in request) {
-    // Only a repository the installation actually reaches can become a project.
-    const repositories = await installedRepositories(env.DB, scope, args.app);
-    if (repositories instanceof Response) {
-      return repositories;
+  if (branch) {
+    source = { repoId: null, fullName, branch };
+  } else {
+    // A private repository by its address: one the App reaches, whatever case GitHub's name is given in.
+    const installed = args.app ? await installedRepositories(env.DB, scope, args.app) : null;
+    // GitHub failing to list them (an outage, a rate limit) is said as such; only "not connected" (409) isn't.
+    if (installed instanceof Response && installed.status !== 409) {
+      return installed;
     }
-    const repository = repositories.find((candidate) => candidate.id === request.repoId);
+    const listed = installed instanceof Response ? null : installed;
+    const repository = listed?.repositories.find(
+      (candidate) => candidate.full_name.toLowerCase() === fullName.toLowerCase(),
+    );
     if (!repository) {
-      throw new OrganizationError("CloudChef's GitHub App can't reach that repository.", 404);
+      // The account that owns it couldn't be listed just now: it may be there, so this is no answer yet.
+      const owner = fullName.split('/')[0].toLowerCase();
+      if (listed?.unreachable.some((login) => login.toLowerCase() === owner)) {
+        return Response.json({ error: GITHUB_UNREACHABLE }, { status: 503 });
+      }
+      return Response.json(
+        {
+          code: 'not_public',
+          error: `${fullName} isn't a public repository with code in it. For a private one, ${GITHUB_ACCESS_FIX} first.`,
+        },
+        { status: 404 },
+      );
     }
     source = { repoId: repository.id, fullName: repository.full_name, branch: repository.default_branch };
-    name = request.name;
-  } else {
-    const fullName = gitHubRepositoryFromUrl(request.url);
-    if (!fullName) {
-      return Response.json({ error: 'Paste the address of a repository on github.com.' }, { status: 400 });
-    }
-    let branch: string | null;
-    try {
-      branch = await publicRepositoryDefaultBranch(fullName, args.gitRequest ?? fetch);
-    } catch {
-      // github.com not answering says nothing about whether the repository is public: try again later.
-      return Response.json({ error: 'GitHub could not be reached just now. Try again in a moment.' }, { status: 503 });
-    }
-    if (branch) {
-      source = { repoId: null, fullName, branch };
-    } else {
-      // A private repository by its address: one the App reaches, whatever case GitHub's name is given in.
-      const repositories = args.app ? await installedRepositories(env.DB, scope, args.app) : null;
-      // GitHub failing to list them (an outage, a rate limit) is said as such; only "not connected" (409) isn't.
-      if (repositories instanceof Response && repositories.status !== 409) {
-        return repositories;
-      }
-      const repository = Array.isArray(repositories)
-        ? repositories.find((candidate) => candidate.full_name.toLowerCase() === fullName.toLowerCase())
-        : undefined;
-      if (!repository) {
-        return Response.json(
-          {
-            code: 'not_public',
-            error: `${fullName} isn't a public repository with code in it. For a private one, ${GITHUB_ACCESS_FIX} first.`,
-          },
-          { status: 404 },
-        );
-      }
-      source = { repoId: repository.id, fullName: repository.full_name, branch: repository.default_branch };
-    }
-    name = request.name || source.fullName.split('/')[1];
   }
+  const name = request.name || source.fullName.split('/')[1];
   const projectId = await importProject(env.DB, { scope, actorId: args.actorId, name, source });
   return { projectId };
 }

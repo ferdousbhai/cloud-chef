@@ -26,3 +26,6 @@ export function gitHubReturnMessageText(code: string): string | null {
 /** Where a person gives CloudChef's GitHub App another account or repository, said in errors that need it. */
 export const GITHUB_ACCESS_FIX =
   "give CloudChef's GitHub App access from Import from GitHub on the home page (in a team, only an admin can do this)";
+
+/** GitHub not answering, or limiting how often it is asked: a passing failure, worth trying again. */
+export const GITHUB_UNREACHABLE = 'GitHub could not be reached just now. Try again in a moment.';

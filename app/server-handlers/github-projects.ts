@@ -1,4 +1,4 @@
-import { GITHUB_ACCESS_FIX } from '~/lib/github-return-messages';
+import { GITHUB_ACCESS_FIX, GITHUB_UNREACHABLE } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import type { GitHubReturnMessage } from '~/lib/github-return-messages';
 import { getAuthSession } from '~/lib/.server/auth';
@@ -224,13 +224,13 @@ export function listGitHubRepositoriesAction({
       return Response.json({ error: 'Choose a team.' }, { status: 400 });
     }
     const scope = await requireProjectScope(env.DB, session.user.id, parsed.data.orgId);
-    const repositories = await installedRepositories(env.DB, scope, app);
-    if (repositories instanceof Response) {
-      return repositories;
+    const installed = await installedRepositories(env.DB, scope, app);
+    if (installed instanceof Response) {
+      return installed;
     }
     return Response.json(
       {
-        repositories: repositories.map((repository) => ({
+        repositories: installed.repositories.map((repository) => ({
           id: repository.id,
           fullName: repository.full_name,
           defaultBranch: repository.default_branch,
@@ -283,14 +283,21 @@ export async function installedRepositories(db: D1Database, scope: ProjectScope,
   );
   const listed = reached.flatMap((result) => (result instanceof GitHubError ? [] : [result]));
   if (listed.length > 0) {
-    return listed.flat();
+    return {
+      repositories: listed.flat(),
+      // Accounts that failed for a passing reason, not because the App was uninstalled there (404).
+      unreachable: installations.flatMap((installation, index) => {
+        const result = reached[index];
+        return result instanceof GitHubError && result.status !== 404 ? [installation.accountLogin] : [];
+      }),
+    };
   }
   return reached.every((result) => result instanceof GitHubError && result.status === 404)
     ? Response.json(
         { error: `GitHub no longer has CloudChef's GitHub App installed there. To fix it, ${GITHUB_ACCESS_FIX}.` },
         { status: 502 },
       )
-    : Response.json({ error: 'GitHub could not be reached just now. Try again in a moment.' }, { status: 503 });
+    : Response.json({ error: GITHUB_UNREACHABLE }, { status: 503 });
 }
 
 /**

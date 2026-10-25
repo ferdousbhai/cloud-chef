@@ -1,4 +1,4 @@
-import { GITHUB_ACCESS_FIX } from '~/lib/github-return-messages';
+import { GITHUB_ACCESS_FIX, GITHUB_UNREACHABLE } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import { GitHubError } from '~/lib/.server/github/github-api';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
@@ -110,8 +110,6 @@ type ImportSource = { url: string; branch: string; authorization: string | null 
 /** A GitHub import the runtime registered: the new project, and where to import it from. */
 type RegisteredImport = { projectId: string; importSource: ImportSource; workersBuildsFromGitHub: boolean };
 
-const GITHUB_UNREACHABLE = 'GitHub could not be reached just now. Try again in a moment.';
-
 /**
  * Where a project still to be imported comes from: its GitHub address, and for a private repository a fresh
  * GitHub App token limited to it, read-only, as git's Basic authorization. Null when it has no source.
@@ -152,7 +150,9 @@ async function importSourceFor(
         repositories.find((candidate) => candidate.full_name.toLowerCase() === source.fullName.toLowerCase())?.id ??
         null;
     } catch (error) {
-      if (error instanceof GitHubError && error.status === 404) {
+      // Uninstalled there (404), or suspended (a 403 that isn't a rate limit): the App won't reach it, so the
+      // repository is read as the public one it was.
+      if (error instanceof GitHubError && (error.status === 404 || (error.status === 403 && !error.rateLimited))) {
         return publicSource;
       }
       if (error instanceof GitHubError) {

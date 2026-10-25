@@ -257,11 +257,15 @@ async function failureMessage(response: Response, fallback: string): Promise<str
   return parsed.success ? parsed.data.error : fallback;
 }
 
-/** A refused answer as a refusal; a server error with no reason of its own as an outage, worth retrying. */
+/**
+ * A refused answer as a refusal; a server error that says what passed (GitHub unreachable) as unavailable, with its
+ * words; one with nothing to say as a plain outage, worth retrying.
+ */
 async function failure(response: Response, fallback: string): Promise<Error> {
   const parsed = refusalSchema.safeParse(await response.json().catch(() => null));
   if (parsed.success && (response.status < 500 || parsed.data.code !== undefined)) {
     return new ProjectRefusalError(parsed.data.error);
   }
-  return new ProjectUnavailableError(parsed.success ? parsed.data.error : fallback);
+  // Words of its own (GitHub can't be reached) are said to the person; a bare server error is an outage to retry.
+  return parsed.success ? new ProjectUnavailableError(parsed.data.error) : new Error(fallback);
 }

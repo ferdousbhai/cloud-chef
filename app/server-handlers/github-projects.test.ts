@@ -465,11 +465,15 @@ describe('GitHub projects', () => {
   });
 });
 
+/** The address of one of the fake GitHub's repositories, by its id (99 is one no installation reaches). */
+const repositoryUrl = (repoId: number) =>
+  `https://github.com/${[...REPOSITORIES, ...LABS_REPOSITORIES].find(({ id }) => id === repoId)?.full_name ?? 'ada/missing'}`;
+
 /** A GitHub import as the runtime registers one: in a team (`orgId`) or the person's own account. */
 const register = (
   env: Env,
   userId: string,
-  { orgId, ...request }: { orgId?: string } & ({ repoId: number; name: string } | { url: string; name?: string }),
+  { orgId, ...request }: { orgId?: string } & { url: string; name?: string },
   app: GitHubApp | null,
   gitRequest?: typeof fetch,
 ) =>
@@ -487,7 +491,7 @@ describe('projects', () => {
     const { database, env, orgId, admin, member, app } = await setup();
     await install(env, app, admin.cookie, orgId);
     const imported = (repoId: number, user = admin) =>
-      register(env, user.userId, { orgId, repoId, name: `Repo ${repoId}` }, app);
+      register(env, user.userId, { orgId, url: repositoryUrl(repoId), name: `Repo ${repoId}` }, app);
 
     expect((await imported(99)).status).toBe(404);
     expect((await imported(11, member)).status).toBe(403);
@@ -558,7 +562,8 @@ describe('projects', () => {
       { account_login: 'ada' },
       { account_login: 'ada-labs' },
     ]);
-    const imported = (repoId: number) => register(env, admin.userId, { orgId, repoId, name: `Repo ${repoId}` }, app);
+    const imported = (repoId: number) =>
+      register(env, admin.userId, { orgId, url: repositoryUrl(repoId), name: `Repo ${repoId}` }, app);
     expect((await imported(21)).status).toBe(201);
     expect((await imported(11)).status).toBe(201);
 
@@ -580,7 +585,7 @@ describe('projects', () => {
   it('takes projects away from a member who is paused or removed', async () => {
     const { database, env, orgId, admin, member, app } = await setup();
     await install(env, app, admin.cookie, orgId);
-    const imported = await register(env, admin.userId, { orgId, repoId: 11, name: 'Site' }, app);
+    const imported = await register(env, admin.userId, { orgId, url: repositoryUrl(11), name: 'Site' }, app);
     const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
     await giveRole(env, admin.cookie, { orgId, projectId, userId: member.userId, role: 'edit' });
 
@@ -605,7 +610,7 @@ describe('projects', () => {
   it('grants no project to a member removed while the grant was being made', async () => {
     const { database, env, orgId, admin, member, app } = await setup();
     await install(env, app, admin.cookie, orgId);
-    const imported = await register(env, admin.userId, { orgId, repoId: 11, name: 'Site' }, app);
+    const imported = await register(env, admin.userId, { orgId, url: repositoryUrl(11), name: 'Site' }, app);
     const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
     // Another admin's removal lands just before the grant is written.
     const racing = withStatementHook(env.DB, (query) => {
@@ -626,7 +631,7 @@ describe('projects', () => {
   it('keeps when a grant was first given when its role changes', async () => {
     const { database, env, orgId, admin, member, app } = await setup();
     await install(env, app, admin.cookie, orgId);
-    const imported = await register(env, admin.userId, { orgId, repoId: 11, name: 'Site' }, app);
+    const imported = await register(env, admin.userId, { orgId, url: repositoryUrl(11), name: 'Site' }, app);
     const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
     const role = (value: 'view' | 'edit') =>
       giveRole(env, admin.cookie, { orgId, projectId, userId: member.userId, role: value });
