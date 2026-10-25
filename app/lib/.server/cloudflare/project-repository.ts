@@ -914,9 +914,9 @@ function importError(error: GitSourceError, authorized: boolean): ProjectReposit
       return new ProjectRepositoryError(
         authorized
           ? `GitHub refused CloudChef access to that repository. To fix it, ${GITHUB_ACCESS_FIX}, then try again.`
-          : // Imported as a public repository, so it isn't read through GitHub's App: it went private since.
-            "That repository isn't public any more. To import it while it's private, remove this project and import " +
-              'it again after connecting GitHub.',
+          : // Imported as a public repository the App doesn't reach: it went private since.
+            "That repository isn't public any more, so CloudChef can't copy its code. To keep working on it, " +
+              `${GITHUB_ACCESS_FIX}, then open the project again.`,
         'auth_required',
       );
     case 'no_repository':
@@ -924,8 +924,8 @@ function importError(error: GitSourceError, authorized: boolean): ProjectReposit
       return new ProjectRepositoryError(
         authorized
           ? `The repository could not be imported: ${error.message}.`
-          : "That repository wasn't found: it was removed, or it isn't public any more. To import it while it's " +
-              'private, remove this project and import it again after connecting GitHub.',
+          : "That repository wasn't found: it was removed, or it isn't public any more. If it's private now, " +
+              `${GITHUB_ACCESS_FIX}, then open the project again.`,
         'not_found',
       );
     case 'not_found':

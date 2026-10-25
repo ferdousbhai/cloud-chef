@@ -123,15 +123,31 @@ async function importSourceFor(
     return null;
   }
   const url = `https://github.com/${source.fullName}.git`;
-  if (source.repoId === null) {
-    return { url, branch: source.branch, authorization: null };
-  }
   const app = args.app === undefined ? gitHubAppFromEnv(args.env) : args.app;
   // The App's installation on the account that owns the repository is the one that reaches it.
   const owner = source.fullName.split('/')[0].toLowerCase();
   const installation = (await listGitHubInstallations(args.env.DB, project.connectionId)).find(
     (candidate) => candidate.accountLogin.toLowerCase() === owner,
   );
+  let repoId = source.repoId;
+  if (repoId === null) {
+    // Added by its address as a public repository. It may have gone private since: then it is read through the
+    // App if the App reaches it now, so giving the App access and opening the project again works.
+    repoId =
+      app && installation
+        ? await app
+            .installationRepositories(installation.installationId)
+            .then(
+              (repositories) =>
+                repositories.find((candidate) => candidate.full_name.toLowerCase() === source.fullName.toLowerCase())
+                  ?.id ?? null,
+            )
+            .catch(() => null)
+        : null;
+    if (repoId === null) {
+      return { url, branch: source.branch, authorization: null };
+    }
+  }
   if (!app || !installation) {
     return json(
       {
@@ -144,7 +160,7 @@ async function importSourceFor(
     );
   }
   try {
-    const token = await app.installationToken(installation.installationId, { contents: 'read' }, [source.repoId]);
+    const token = await app.installationToken(installation.installationId, { contents: 'read' }, [repoId]);
     return { url, branch: source.branch, authorization: `Basic ${btoa(`x-access-token:${token}`)}` };
   } catch (error) {
     // GitHub saying no about this repository. A 401 is CloudChef's own App failing to sign in, which the

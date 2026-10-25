@@ -295,7 +295,7 @@ describe('ProjectRepositories', () => {
     await artifacts.addSource(url, { 'a.txt': 'one' }, 'main', { authorization: 'Basic right' });
     await expect(repositories.importFromUrl({ url, branch: 'main', repo: 't-9' })).rejects.toMatchObject({
       code: 'auth_required',
-      message: expect.stringContaining("That repository isn't public any more."),
+      message: expect.stringContaining("That repository isn't public any more, so CloudChef can't copy its code."),
     });
     await expect(
       repositories.importFromUrl({ url, authorization: 'Basic wrong', branch: 'main', repo: 't-9' }),

@@ -264,8 +264,9 @@ function ModelRow({
   onChange: (allowed: boolean) => void;
 }) {
   const facts = [
-    `${formatTokens(model.contextTokens)}-token context`,
-    ...(model.reasoning ? ['Reasoning'] : []),
+    // About three words to four tokens: how much text the model can work with at once.
+    `Works with about ${formatTokens(Math.round(model.contextTokens * 0.75))} words at once`,
+    ...(model.reasoning ? ['Thinks before answering'] : []),
     ...(model.vision ? ['Reads images'] : []),
   ];
   return (

@@ -286,9 +286,9 @@ describe('ModelsCard', () => {
       expect(groupOf('Workers AI').textContent).toContain('2 of 2 allowed');
       expect(groupOf('Anthropic').textContent).toContain('2 of 2 allowed');
       expect(rowFor('GLM 5.3 Flash').textContent).toBe(
-        'GLM 5.3 FlashDefaultNeeds Workers Paid1.3M-token context · Reasoning · Reads images',
+        'GLM 5.3 FlashDefaultNeeds Workers PaidWorks with about 983K words at once · Thinks before answering · Reads images',
       );
-      expect(rowFor('DeepSeek V4 Pro').textContent).toBe('DeepSeek V4 Pro131K-token context');
+      expect(rowFor('DeepSeek V4 Pro').textContent).toBe('DeepSeek V4 ProWorks with about 98K words at once');
       // The default can't be left out; another default is chosen first.
       expect(checkboxOf('GLM 5.3 Flash')).toMatchObject({ checked: true, disabled: true });
       expect(checkboxOf('Claude Fable 5')).toMatchObject({ checked: true, disabled: false });

@@ -15,10 +15,13 @@ type OrgProject = TeamProject;
  */
 export function OrgProjectsList({
   userId,
+  inTeam = false,
   query,
   onNavigate,
 }: {
   userId: string | null;
+  /** Whether the person works in a team now; in their own space these are the projects they imported. */
+  inTeam?: boolean;
   /** The sidebar's search, matched against the project's name and repository. */
   query: string;
   onNavigate: () => void;
@@ -50,14 +53,16 @@ export function OrgProjectsList({
   if (!userId) {
     return null;
   }
+  // In a person's own space these are the projects they imported, not a team's.
+  const heading = inTeam ? 'Team projects' : 'Imported projects';
   if (loadFailed) {
     return (
-      <section aria-label="Team projects" className="pb-3">
+      <section aria-label={heading} className="pb-3">
         <div
           className="rounded-lg border border-[var(--cc-content-warning)]/40 bg-[var(--cc-background-secondary)] p-3 text-xs text-content-secondary"
           role="alert"
         >
-          <p>Team projects could not be loaded.</p>
+          <p>{heading} could not be loaded.</p>
           <Button className="mt-2" size="xs" variant="neutral" onClick={() => setAttempt((count) => count + 1)}>
             Try again
           </Button>
@@ -85,8 +90,8 @@ export function OrgProjectsList({
   };
 
   return (
-    <section aria-label="Team projects" className="pb-3">
-      <h2 className="px-1 pb-2 text-xs font-black tracking-widest text-content-secondary uppercase">Team projects</h2>
+    <section aria-label={heading} className="pb-3">
+      <h2 className="px-1 pb-2 text-xs font-black tracking-widest text-content-secondary uppercase">{heading}</h2>
       <div className="space-y-1.5">
         {shown.map((project) => (
           <button

@@ -95,8 +95,9 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
       kind: 'conflict',
       title: 'Not published',
       detail:
-        'Someone changed the same part of the live project since this chat opened it, so your change was not put ' +
-        "live. It's saved, but this chat can't take in their change yet, so publishing it again won't work.",
+        'Someone else changed the same part of the live project after you started, so your change was not put ' +
+        "live. The live site keeps their change. Yours is saved, but CloudChef can't combine the two yet, so " +
+        "publishing again, from this chat or a new one, won't work.",
       building: false,
       followDeadline: null,
       previewUrl: null,

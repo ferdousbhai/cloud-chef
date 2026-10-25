@@ -198,7 +198,7 @@ describe('an import that breaks off', () => {
     await expect(attempt).rejects.toBeInstanceOf(ProjectRepositoryFailureError);
     await expect(attempt).rejects.toMatchObject({
       status: 503,
-      message: expect.stringContaining('The project was added: open it from your projects to finish copying it.'),
+      message: expect.stringContaining("The project was added: open it from the menu's list of projects to finish"),
     });
     expect(calls.map((call) => call.route)).toEqual(['runtime-projects/register-import']);
     expect(await store().head(`t-${TEAM_PROJECT}`)).toBeNull();

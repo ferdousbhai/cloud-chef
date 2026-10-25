@@ -198,7 +198,7 @@ export async function importProject(
     }
     // The answer never arrived, and the project may have been added before it broke off.
     throw new ProjectRepositoryFailureError(
-      "CloudChef couldn't tell whether the project was added. If it's in your projects, open it to finish copying " +
+      "CloudChef couldn't tell whether the project was added. If it's in the menu's list of projects, open it to finish copying " +
         'its code; if not, import it again.',
       503,
     );
@@ -222,7 +222,7 @@ export async function importProject(
         : "Copying the project's code stopped partway.";
     if (!permanent) {
       throw new ProjectRepositoryFailureError(
-        `${reason} The project was added: open it from your projects to finish copying it.`,
+        `${reason} The project was added: open it from the menu's list of projects to finish copying it.`,
         503,
       );
     }
