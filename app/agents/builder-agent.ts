@@ -130,6 +130,8 @@ import {
 import {
   ensureProjectRepository,
   openProject,
+  ProjectAccessError,
+  ProjectRefusalError,
   projectBuildStatus,
   projectSiteOrigins,
   readMemberIdentity,
@@ -141,6 +143,7 @@ import {
   MAIN_BRANCH,
   nativeProjectRepo,
   ProjectRepositories,
+  ProjectRepositoryError,
   workspaceFileMode,
   type RepositoryAuthor,
 } from '~/lib/.server/cloudflare/project-repository';
@@ -1664,7 +1667,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     this.workspaceSeed ??= this.runtimeActivity
       .run(() =>
         this.seedNewWorkspace(binding).catch((error: Error) => {
-          throw new WorkspaceSeedError(error);
+          throw isSeedRefusal(error) ? new WorkspaceSeedError(error) : error;
         }),
       )
       .finally(() => {
@@ -2996,6 +2999,21 @@ function parseTurnContext(value: unknown): ChatTurnContext | undefined {
     throw new Response('Invalid turn context', { status: 400 });
   }
   return result.data;
+}
+
+/**
+ * Whether a seed failed in a way the person has to act on, so reconnecting would only repeat it: the
+ * control plane refused (no access, an import GitHub refused), the import itself was refused or impossible,
+ * or the project's answer could not be read. An outage (network, a server error, Artifacts unavailable) is
+ * thrown on, and the browser's reconnect tries again.
+ */
+function isSeedRefusal(error: Error): boolean {
+  return (
+    error instanceof ProjectRefusalError ||
+    error instanceof ProjectAccessError ||
+    error instanceof z.ZodError ||
+    (error instanceof ProjectRepositoryError && error.code !== 'unavailable')
+  );
 }
 
 function deploymentErrorMessage(error: unknown): string {

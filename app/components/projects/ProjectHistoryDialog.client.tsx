@@ -143,7 +143,9 @@ export function ProjectHistoryDialog({
           </p>
         ) : commits.length === 0 ? (
           <p className="text-sm text-content-secondary">
-            No saved versions yet. When you&apos;re happy with a change, ask the agent to save a version.
+            {'chatInitialId' in project
+              ? "No saved versions yet. When you're happy with a change, ask the agent to save a version."
+              : 'No saved versions yet. A version is saved each time a change is published.'}
           </p>
         ) : (
           <>

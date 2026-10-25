@@ -127,23 +127,23 @@ function activityLabel(
 function validationStageMessage(stage: BuilderValidationStage | null): string {
   switch (stage) {
     case 'computer validation':
-      return 'Validating your project with Cloudflare Computer…';
+      return 'Checking your project…';
     case 'preparing':
-      return 'Preparing a clean copy of your project…';
+      return 'Making a clean copy of your project to check…';
     case 'installing':
-      return 'Installing dependencies…';
+      return 'Installing what your app needs…';
     case 'typecheck':
-      return 'Checking types…';
+      return 'Checking the code for mistakes…';
     case 'lint':
-      return 'Linting and verifying the stack…';
+      return 'Checking the code follows the rules…';
     case 'build':
-      return 'Building your project…';
+      return 'Building your app…';
     case 'packaging':
-      return 'Packaging the Cloudflare Worker…';
+      return 'Packing up your app…';
     case 'finalizing':
-      return 'Finishing validation…';
+      return 'Finishing the checks…';
   }
-  return 'Validating your project…';
+  return 'Checking your project…';
 }
 
 function validationStageActivity(stage: BuilderValidationStage | null): string {

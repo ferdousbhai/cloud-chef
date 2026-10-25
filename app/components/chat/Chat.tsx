@@ -13,6 +13,7 @@ import { authClient } from '~/lib/auth-client';
 import type { ChatProps } from './chat-types';
 import { UnauthenticatedChat } from './UnauthenticatedChat';
 import { workspacePresentationId, useBuilderAgentChat, type WorkspacePresentationState } from './useBuilderAgentChat';
+import { WORKSPACE_MESSAGES } from '~/lib/workspace-messages';
 import { useProcessedMessages } from '~/lib/hooks/useProcessedMessages';
 import { useCurrentToolStatus } from './useCurrentToolStatus';
 import { useBuildProgress } from './useBuildProgress';
@@ -209,9 +210,6 @@ function WorkspaceRuntimeConnectionError({
   );
 }
 
-/** Said wherever a workspace's project could not be put in it, before the agent's own reason. */
-const WORKSPACE_FAILED_HEADING = 'CloudChef could not open this project.';
-
 /** Said when a release is re-provisioning the runtime a chat is already sitting in. */
 const WORKSPACE_RELEASE_NOTICE = 'Preparing your workspace — a new release is rolling out.';
 
@@ -225,7 +223,7 @@ function workspaceSyncNotice(state: WorkspacePresentationState, workspacePrepari
     return null;
   }
   if (state === 'presentation-error') {
-    return 'Editor unavailable. Chat, builds, and previews still work.';
+    return `Editor unavailable. ${WORKSPACE_MESSAGES.editorFailedDetail}`;
   }
   if (state === 'unavailable' || state === 'failed') {
     // Said where the composer is closed: see chatDisabledReason.
@@ -234,7 +232,7 @@ function workspaceSyncNotice(state: WorkspacePresentationState, workspacePrepari
   if (workspacePreparing) {
     return WORKSPACE_RELEASE_NOTICE;
   }
-  return state === 'reconnecting' ? 'Reconnecting to your workspace…' : 'Loading project files…';
+  return state === 'reconnecting' ? WORKSPACE_MESSAGES.reconnecting : WORKSPACE_MESSAGES.loading;
 }
 
 const CLOSED_CONVERSATION_REASON = 'A newer chat continues this project. Open the newest chat to keep working.';
@@ -259,7 +257,7 @@ function chatDisabledReason(
     return (
       <span className="inline-flex flex-wrap items-center gap-2">
         <span>
-          {WORKSPACE_FAILED_HEADING} {failure}
+          {WORKSPACE_MESSAGES.failed} {failure}
         </span>
         <Button variant="neutral" size="xs" onClick={onRetry}>
           Try again
@@ -270,7 +268,9 @@ function chatDisabledReason(
   if (state === 'unavailable') {
     return (
       <span className="inline-flex flex-wrap items-center gap-2">
-        <span>CloudChef could not reach your workspace. Chat is paused until it reconnects.</span>
+        <span>
+          {WORKSPACE_MESSAGES.unavailable} {WORKSPACE_MESSAGES.unavailableDetail}
+        </span>
         <Button variant="neutral" size="xs" onClick={onRetry}>
           Reconnect
         </Button>

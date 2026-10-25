@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { BuilderWorkspaceApi } from './builder-workspace-api';
 import type { BuilderWorkspaceState } from '@cloudchef/user-workspace-runtime/protocol';
-import { parentBuilderWorkspaceSeedId, seedBuilderWorkspace } from './builder-workspace-seed';
+import { seedBuilderWorkspace } from './builder-workspace-seed';
 
 const emptyState: BuilderWorkspaceState = {
   initialized: false,
@@ -13,11 +13,6 @@ const emptyState: BuilderWorkspaceState = {
 };
 
 describe('seedBuilderWorkspace', () => {
-  it('uses the stable parent snapshot revision as its resumable seed identity', () => {
-    expect(parentBuilderWorkspaceSeedId(42)).toBe('parent_42');
-    expect(() => parentBuilderWorkspaceSeedId(-1)).toThrow('revision is invalid');
-  });
-
   it('replays an interrupted durable seed instead of leaving the workspace stuck', async () => {
     const ready = { ...emptyState, initialized: true, seeding: false, revision: 3, fileCount: 1, totalBytes: 5 };
     const workspace = seedWorkspace({ status: 'seeding', state: emptyState }, ready);

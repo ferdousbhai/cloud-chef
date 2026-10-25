@@ -59,6 +59,18 @@ const registeredImportSchema = z.object({
 });
 
 const errorSchema = z.object({ error: z.string() });
+const refusalSchema = z.object({ error: z.string(), code: z.string().optional() });
+
+/**
+ * Thrown when the control plane refuses what was asked, in words for the person: a 4xx, or an answer naming
+ * why (an import GitHub refused). Trying again unchanged gets the same answer, unlike an outage.
+ */
+export class ProjectRefusalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProjectRefusalError';
+  }
+}
 
 /** Thrown when the control plane refuses a project: no access (403), or no such project (404). */
 export class ProjectAccessError extends Error {
@@ -120,7 +132,7 @@ async function reportProjectImported(
 ): Promise<void> {
   const response = await postRuntimeRoute(env, identity, 'runtime-projects/imported', body, OPEN_TIMEOUT_MS);
   if (!response.ok) {
-    throw new Error(await failureMessage(response, 'CloudChef could not record the imported project.'));
+    throw await failure(response, 'CloudChef could not record the imported project.');
   }
   await response.body?.cancel().catch(() => undefined);
 }
@@ -194,7 +206,9 @@ export async function ensureProjectRepository(
     return project.repo;
   }
   if (!project.importSource) {
-    throw new Error("This project's code isn't in CloudChef yet, and there is nothing to import it from.");
+    throw new ProjectRefusalError(
+      "This project's code isn't in CloudChef yet, and there is nothing to import it from.",
+    );
   }
   const repo = importedProjectRepo(project.orgProjectId);
   const { commit } = await repositories.importFromUrl({
@@ -209,7 +223,7 @@ export async function ensureProjectRepository(
 
 async function readAnswer<T>(response: Response, schema: z.ZodType<T>, fallback: string): Promise<T> {
   if (!response.ok) {
-    throw new Error(await failureMessage(response, fallback));
+    throw await failure(response, fallback);
   }
   return schema.parse(await readJsonBodyWithLimit(response, MAX_JSON_RESPONSE_BYTES, 'Project response'));
 }
@@ -217,4 +231,13 @@ async function readAnswer<T>(response: Response, schema: z.ZodType<T>, fallback:
 async function failureMessage(response: Response, fallback: string): Promise<string> {
   const parsed = errorSchema.safeParse(await response.json().catch(() => null));
   return parsed.success ? parsed.data.error : fallback;
+}
+
+/** A refused answer as a refusal; a server error with no reason of its own as an outage, worth retrying. */
+async function failure(response: Response, fallback: string): Promise<Error> {
+  const parsed = refusalSchema.safeParse(await response.json().catch(() => null));
+  if (parsed.success && (response.status < 500 || parsed.data.code !== undefined)) {
+    return new ProjectRefusalError(parsed.data.error);
+  }
+  return new Error(parsed.success ? parsed.data.error : fallback);
 }

@@ -23,20 +23,17 @@ const READY_STATE = {
 };
 
 describe("a new workspace's seed", () => {
-  it('does not run while the agent starts, and its failure is what preparing the workspace reports', async () => {
+  it('does not run while the agent starts, and a failing workspace is thrown so the browser tries again', async () => {
     const beginSeed = vi.fn(async (): Promise<BuilderWorkspaceSeedStartResult> => {
-      throw new Error('The project download from GitHub ended early. Open the project again.');
+      throw new Error('The workspace stopped answering.');
     });
     const harness = await builderAgentHarness({
       workspace: { refresh: async () => ({ ...READY_STATE, initialized: false }), beginSeed },
     });
     expect(beginSeed).not.toHaveBeenCalled();
 
-    // Answered, not thrown: a thrown failure reads in the browser as a lost connection, which it retries.
-    await expect(harness.agent.prepareWorkspace()).resolves.toEqual({
-      initialized: false,
-      failure: 'The project download from GitHub ended early. Open the project again.',
-    });
+    // Thrown, not answered: the browser reads it as a lost connection and reconnects, which seeds again.
+    await expect(harness.agent.prepareWorkspace()).rejects.toThrow('The workspace stopped answering.');
     expect(beginSeed).toHaveBeenCalledOnce();
   });
 
@@ -97,6 +94,21 @@ describe("a new workspace's seed", () => {
     );
 
     await expect(harness.agent.prepareWorkspace()).resolves.toEqual({ initialized: false, failure });
+    expect(beginSeed).not.toHaveBeenCalled();
+  });
+
+  it('throws an outage while opening a team project, so the browser reconnects and tries again', async () => {
+    const beginSeed = vi.fn(async (): Promise<BuilderWorkspaceSeedStartResult> => {
+      throw new Error('Nothing is seeded from a project that did not open.');
+    });
+    const harness = await builderAgentHarness({
+      workspace: { refresh: async () => ({ ...READY_STATE, initialized: false }), beginSeed },
+      cloudflareIdentity: true,
+    });
+    harness.database.prepare(`UPDATE chats SET org_project_id = ?`).run(TEAM_PROJECT_ID);
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('unavailable', { status: 503 }));
+
+    await expect(harness.agent.prepareWorkspace()).rejects.toThrow('CloudChef could not open the project.');
     expect(beginSeed).not.toHaveBeenCalled();
   });
 

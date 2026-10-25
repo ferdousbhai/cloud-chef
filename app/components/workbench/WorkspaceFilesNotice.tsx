@@ -1,5 +1,6 @@
 import { Button } from '@ui/Button';
 import type { WorkspaceFilesStatus } from '~/lib/stores/workbench.client';
+import { WORKSPACE_MESSAGES } from '~/lib/workspace-messages';
 
 /**
  * What the code view says while it has no files to show: that they are on their way, or why they are not
@@ -13,23 +14,23 @@ export function WorkspaceFilesNotice({ status, hasFiles }: { status: WorkspaceFi
     return (
       <div className="absolute inset-0 z-10 flex items-center justify-center bg-bolt-elements-background-depth-2 p-6">
         <p className="text-center text-sm text-content-secondary" role="status">
-          {status.state === 'connecting' ? 'Loading project files…' : 'Reconnecting to your workspace…'}
+          {status.state === 'connecting' ? WORKSPACE_MESSAGES.loading : WORKSPACE_MESSAGES.reconnecting}
         </p>
       </div>
     );
   }
   const { heading, detail, action } =
     status.state === 'failed'
-      ? { heading: 'CloudChef could not open this project.', detail: status.failure, action: 'Try again' }
+      ? { heading: WORKSPACE_MESSAGES.failed, detail: status.failure, action: 'Try again' }
       : status.state === 'unavailable'
         ? {
-            heading: 'CloudChef could not reach your workspace.',
-            detail: 'Chat is paused until it reconnects.',
+            heading: WORKSPACE_MESSAGES.unavailable,
+            detail: WORKSPACE_MESSAGES.unavailableDetail,
             action: 'Reconnect',
           }
         : {
-            heading: "The editor could not load this project's files.",
-            detail: 'Chat, builds, and previews still work.',
+            heading: WORKSPACE_MESSAGES.editorFailed,
+            detail: WORKSPACE_MESSAGES.editorFailedDetail,
             action: 'Try again',
           };
   return (

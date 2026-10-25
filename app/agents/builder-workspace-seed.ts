@@ -76,13 +76,6 @@ export async function readWholeSyncFeed(
   return null;
 }
 
-export function parentBuilderWorkspaceSeedId(targetRevision: number): string {
-  if (!Number.isSafeInteger(targetRevision) || targetRevision < 0) {
-    throw new Error('The parent workspace revision is invalid.');
-  }
-  return `parent_${targetRevision}`;
-}
-
 /**
  * Seed a workspace from the beginning. Replaying every batch is intentional:
  * Computer writes are replacements, so the same durable seed can resume after
@@ -120,9 +113,8 @@ export type WorkspaceSeedFailure = { initialized: false; failure: string };
 const SEED_FAILED_MESSAGE = "CloudChef could not copy the project's files into your workspace.";
 
 /**
- * A new workspace's seed failed. Its message is the cause's own, which CloudChef's project and repository
- * errors write for the person (a GitHub import refused, no access to the project), except a parse error's
- * dump of fields, or no message at all.
+ * A new workspace's seed was refused (see `isSeedRefusal` in builder-agent.ts). Its message is the cause's
+ * own, which those refusals write for the person, except a parse error's dump of fields, or no message.
  */
 export class WorkspaceSeedError extends Error {
   constructor(cause: unknown) {

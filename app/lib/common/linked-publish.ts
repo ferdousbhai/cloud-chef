@@ -164,8 +164,9 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
     case 'none':
       return unknown(
         committed,
-        "Your change is saved, but nothing was built: this project isn't connected to Workers Builds, the Cloudflare " +
-          'service that builds and publishes it. Ask a team admin to connect it.',
+        'Your change is saved, but Cloudflare reported no build for it. Workers Builds, the Cloudflare service that ' +
+          'builds and publishes this project, may have skipped it or may not be connected. A team admin can check in ' +
+          'the Cloudflare dashboard.',
         links,
       );
     case 'timed_out':

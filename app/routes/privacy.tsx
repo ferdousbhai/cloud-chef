@@ -106,11 +106,11 @@ function PrivacyPage() {
           which also deletes their workspace from the team&apos;s account and declines their open production requests;
           applications they deployed stay there. An admin can rename the team or delete it. Deleting a team deletes
           every member&apos;s workspace from its Cloudflare account, revokes CloudChef&apos;s authorization there unless
-          your own space or another of your teams still builds in that account, and removes the team&apos;s records from
-          CloudChef: its members, invites, usage counts, GitHub connections, projects, and production requests. The
-          projects&apos; code and history in the account&apos;s Artifacts, and applications deployed from it with their
-          databases and storage, stay in the Cloudflare account; repositories imported from GitHub and CloudChef&apos;s
-          GitHub App stay on GitHub until removed there.
+          another space, a person&apos;s own or another team&apos;s, still builds in that account, and removes the
+          team&apos;s records from CloudChef: its members, invites, usage counts, GitHub connections, projects, and
+          production requests. The projects&apos; code and history in the account&apos;s Artifacts, and applications
+          deployed from it with their databases and storage, stay in the Cloudflare account; repositories imported from
+          GitHub and CloudChef&apos;s GitHub App stay on GitHub until removed there.
         </p>
         <p>
           Every project&apos;s code and history is a git repository in Cloudflare Artifacts, in the Cloudflare account
@@ -307,13 +307,15 @@ function PrivacyPage() {
         <p>
           It also deletes your workspace in each team&apos;s Cloudflare account, as leaving the team would, and says
           which it could not reach. If you connected a Cloudflare account of your own, it asks Cloudflare to revoke
-          CloudChef’s authorization, and tells you when Cloudflare did not confirm that revocation so you can remove it
-          yourself. Because erasure is irreversible it requires a sign-in completed in the last ten minutes, an exact
-          typed confirmation, and an explicit acknowledgement of what is retained. Erasure leaves a team&apos;s
-          Cloudflare authorization alone while others still build in it; if you are its only remaining member, the team
-          is removed and its authorization revoked too. If you are the only admin of a team others belong to, make
-          someone else an admin first. Repeating it is harmless. If you sign in with Cloudflare and have already revoked
-          CloudChef’s authorization, you can no longer sign in that way, so use the request path below instead.
+          CloudChef’s authorization unless a team still builds in that account (it then says which team keeps it), and
+          tells you when Cloudflare did not confirm a revocation so you can remove it yourself. Because erasure is
+          irreversible it requires a sign-in completed in the last ten minutes, an exact typed confirmation, and an
+          explicit acknowledgement of what is retained. Erasure leaves a team&apos;s Cloudflare authorization alone
+          while others still build in it; if you are its only remaining member, the team is removed, and its
+          authorization is revoked unless another space still builds in that account. If you are the only admin of a
+          team others belong to, make someone else an admin first. Repeating it is harmless. If you sign in with
+          Cloudflare and have already revoked CloudChef’s authorization, you can no longer sign in that way, so use the
+          request path below instead.
         </p>
         <p>
           Settings also contains a self-service export of those same operator-held records. It saves a JSON file,
