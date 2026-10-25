@@ -49,6 +49,7 @@ const migrationPolicies = [
       '0031_drop_ai_billing_enabled.sql': '759babf4f25026871c9b86d77e8a3dae707e0309184dabb81f213dac287b902c',
       '0032_drop_oauth_grant_columns.sql': '4a5d586765bae8eb120962aaed96ef487a74f4cb69cb7d9b6a6a5fe69bb3824a',
       '0033_artifact_projects.sql': '90c7a266c7e4b92d045c1072eaa32c7bf7cdb6323423f497abff3fd64ce5866f',
+      '0034_github_installations_per_account.sql': '048d63a3efd77be1f33b81241c841abf7176b49145338ea6655b734ae4343618',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -86,6 +87,9 @@ const migrationPolicies = [
       // request and GitHub tables are rebuilt with every row copied. The access grants and requests step
       // aside first so dropping the projects can't cascade to them.
       '0033_artifact_projects.sql',
+      // A connection's GitHub App installations become one row per GitHub account: SQLite can't change a
+      // primary key in place, so the table is rebuilt with every row copied, without the unnamed org_id.
+      '0034_github_installations_per_account.sql',
     ],
   },
   {

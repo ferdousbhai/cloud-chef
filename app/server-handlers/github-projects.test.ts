@@ -7,13 +7,15 @@ import { createGitHubAppJwt } from '~/lib/.server/github/app-jwt';
 import { GitHubApp } from '~/lib/.server/github/github-app';
 import { bytesToBase64 } from '~/lib/hex-digest';
 import { createOrganizationAction, listOrganizationsAction, updateMemberAction } from './organizations';
-import { completeGitHubInstallAction, startGitHubInstallAction } from './github-projects';
+import { completeGitHubInstallAction, disconnectGitHubAction, startGitHubInstallAction } from './github-projects';
 import { listMyProjectsAction, registerGitHubImport, removeProjectAction, setProjectAccessAction } from './projects';
 import { answeringOrganizationErrors } from './signed-in';
 import { requireProjectScope } from '~/lib/cloudflare/data/org-projects.server';
 
 const ORIGIN = 'https://cloudchef.build';
 const INSTALLATION_ID = 4242;
+/** The App's installation on ada-labs, a GitHub organization ada owns. */
+const LABS_INSTALLATION_ID = 4343;
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -22,6 +24,7 @@ const REPOSITORIES = [
   { id: 11, full_name: 'ada/site', default_branch: 'main', private: true },
   { id: 12, full_name: 'ada/blog', default_branch: 'trunk', private: false },
 ];
+const LABS_REPOSITORIES = [{ id: 21, full_name: 'ada-labs/tools', default_branch: 'main', private: true }];
 
 async function pkcs8Pem(): Promise<{ pem: string; publicKey: CryptoKey }> {
   const pair = await crypto.subtle.generateKey(
@@ -36,7 +39,10 @@ async function pkcs8Pem(): Promise<{ pem: string; publicKey: CryptoKey }> {
   };
 }
 
-/** GitHub as CloudChef sees it: the App's one installation, on `ada`'s account, and what was asked of it. */
+/**
+ * GitHub as CloudChef sees it: the App's installations on `ada`'s account and on ada-labs, an organization
+ * ada owns, and what was asked of it.
+ */
 function fakeGitHub(pem: string, login = 'ada') {
   const calls: { url: string; body: string | null }[] = [];
   const request: typeof fetch = async (input, init) => {
@@ -61,11 +67,23 @@ function fakeGitHub(pem: string, login = 'ada') {
     if (url === `https://api.github.com/app/installations/${INSTALLATION_ID}`) {
       return Response.json({ id: INSTALLATION_ID, account: { login: 'ada', type: 'User' } });
     }
+    if (url === `https://api.github.com/app/installations/${LABS_INSTALLATION_ID}`) {
+      return Response.json({ id: LABS_INSTALLATION_ID, account: { login: 'ada-labs', type: 'Organization' } });
+    }
+    if (url === 'https://api.github.com/user/memberships/orgs/ada-labs') {
+      return Response.json({ role: 'admin', state: 'active' });
+    }
     if (url === `https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens`) {
       return Response.json({ token: 'installation-token', expires_at: '2026-10-19T12:00:00Z' }, { status: 201 });
     }
+    if (url === `https://api.github.com/app/installations/${LABS_INSTALLATION_ID}/access_tokens`) {
+      return Response.json({ token: 'labs-token', expires_at: '2026-10-19T12:00:00Z' }, { status: 201 });
+    }
     if (url.startsWith('https://api.github.com/installation/repositories')) {
-      return Response.json({ total_count: REPOSITORIES.length, repositories: REPOSITORIES });
+      const repositories = new Headers(init?.headers).get('authorization')?.endsWith('labs-token')
+        ? LABS_REPOSITORIES
+        : REPOSITORIES;
+      return Response.json({ total_count: repositories.length, repositories });
     }
     return new Response('not found', { status: 404 });
   };
@@ -420,8 +438,8 @@ describe('GitHub projects', () => {
       .run(admin.userId);
     const installed = await install(env, app, admin.cookie, undefined);
     expect(githubMessage(installed)).toBe('Connected GitHub.');
-    expect(database.prepare('SELECT connection_id, org_id FROM github_installations').all()).toEqual([
-      { connection_id: 'ada-own', org_id: null },
+    expect(database.prepare('SELECT connection_id FROM github_installations').all()).toEqual([
+      { connection_id: 'ada-own' },
     ]);
   });
 });
@@ -487,7 +505,7 @@ describe('projects', () => {
       .object({
         organizations: z.array(
           z.object({
-            github: z.object({ accountLogin: z.string() }).nullable(),
+            github: z.array(z.object({ accountLogin: z.string() })),
             projects: z.array(
               z.object({
                 importRepoFullName: z.string().nullable(),
@@ -499,7 +517,7 @@ describe('projects', () => {
         ),
       })
       .parse(await listed.json());
-    expect(view.organizations[0].github?.accountLogin).toBe('ada');
+    expect(view.organizations[0].github.map((account) => account.accountLogin)).toEqual(['ada']);
     expect(view.organizations[0].projects.find((project) => project.importRepoFullName === 'ada/site')).toEqual({
       importRepoFullName: 'ada/site',
       repo: null,
@@ -508,6 +526,34 @@ describe('projects', () => {
 
     expect((await role(admin.cookie, null)).status).toBe(204);
     expect(await myProjects(env, member.cookie)).toEqual([]);
+  });
+
+  it('imports from every GitHub account the team connected, and disconnects one without the other', async () => {
+    const { database, env, orgId, admin, app } = await setup();
+    await install(env, app, admin.cookie, orgId);
+    const labs = await install(env, app, admin.cookie, orgId, LABS_INSTALLATION_ID);
+    expect(githubMessage(labs)).toBe('Connected GitHub.');
+    expect(database.prepare('SELECT account_login FROM github_installations ORDER BY account_login').all()).toEqual([
+      { account_login: 'ada' },
+      { account_login: 'ada-labs' },
+    ]);
+    const imported = (repoId: number) => register(env, admin.userId, { orgId, repoId, name: `Repo ${repoId}` }, app);
+    expect((await imported(21)).status).toBe(201);
+    expect((await imported(11)).status).toBe(201);
+
+    const disconnected = await disconnectGitHubAction({
+      request: post(admin.cookie, '/api/organizations/github/disconnect', {
+        orgId,
+        installationId: LABS_INSTALLATION_ID,
+      }),
+      env,
+    });
+    expect(disconnected.status).toBe(204);
+    expect(database.prepare('SELECT account_login FROM github_installations').all()).toEqual([
+      { account_login: 'ada' },
+    ]);
+    expect((await imported(12)).status).toBe(201);
+    expect((await imported(99)).status).toBe(404);
   });
 
   it('takes projects away from a member who is paused or removed', async () => {

@@ -14,7 +14,7 @@ import {
 } from '~/lib/.server/cloudflare/workers-builds';
 import {
   findAccessibleProject,
-  findGitHubInstallation,
+  listGitHubInstallations,
   recordImportedRepo,
   recordProjectSiteUrl,
   recordWorkersBuildsScriptTag,
@@ -128,7 +128,11 @@ async function importSourceFor(
     return { url, branch: source.branch, authorization: null };
   }
   const app = args.app === undefined ? gitHubAppFromEnv(args.env) : args.app;
-  const installation = await findGitHubInstallation(args.env.DB, project.connectionId);
+  // The App's installation on the account that owns the repository is the one that reaches it.
+  const owner = source.fullName.split('/')[0].toLowerCase();
+  const installation = (await listGitHubInstallations(args.env.DB, project.connectionId)).find(
+    (candidate) => candidate.accountLogin.toLowerCase() === owner,
+  );
   if (!app || !installation) {
     return json(
       { code: 'github_disconnected', error: 'Connect GitHub again in Settings to import this project.' },

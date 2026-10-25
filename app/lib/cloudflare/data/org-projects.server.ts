@@ -4,7 +4,7 @@ import {
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import { OrganizationError, requireAdmin } from './organizations.server';
 
-/** Where a connection's GitHub App is installed: the account whose repositories it may import. */
+/** One GitHub account a connection's GitHub App is installed on, whose repositories it may import. */
 type GitHubInstallationSummary = {
   installationId: number;
   accountLogin: string;
@@ -68,19 +68,26 @@ export async function requireProjectScope(
   return { connectionId: connection.id, orgId: orgId ?? null };
 }
 
-export async function findGitHubInstallation(
+/** The GitHub accounts a connection's GitHub App is installed on, by account name. */
+export async function listGitHubInstallations(
   db: D1Database,
   connectionId: string,
-): Promise<GitHubInstallationSummary | null> {
-  const row = await db
-    .prepare('SELECT installation_id, account_login, account_type FROM github_installations WHERE connection_id = ?')
+): Promise<GitHubInstallationSummary[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT installation_id, account_login, account_type FROM github_installations WHERE connection_id = ?
+       ORDER BY account_login COLLATE NOCASE`,
+    )
     .bind(connectionId)
-    .first<{ installation_id: number; account_login: string; account_type: 'User' | 'Organization' }>();
-  return row
-    ? { installationId: row.installation_id, accountLogin: row.account_login, accountType: row.account_type }
-    : null;
+    .all<{ installation_id: number; account_login: string; account_type: 'User' | 'Organization' }>();
+  return results.map((row) => ({
+    installationId: row.installation_id,
+    accountLogin: row.account_login,
+    accountType: row.account_type,
+  }));
 }
 
+/** Records an installation for the scope, alongside any on other GitHub accounts. */
 export async function saveGitHubInstallation(
   db: D1Database,
   args: { scope: ProjectScope; userId: string; installation: GitHubInstallationSummary },
@@ -90,7 +97,7 @@ export async function saveGitHubInstallation(
     .prepare(
       `INSERT INTO github_installations (connection_id, installation_id, account_login, account_type, connected_by, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
-       ON CONFLICT(connection_id) DO UPDATE SET installation_id = ?2, account_login = ?3, account_type = ?4,
+       ON CONFLICT(connection_id, installation_id) DO UPDATE SET account_login = ?3, account_type = ?4,
          connected_by = ?5, updated_at = ?6`,
     )
     .bind(
@@ -104,9 +111,19 @@ export async function saveGitHubInstallation(
     .run();
 }
 
-/** Disconnects GitHub. Projects already imported are unaffected; ones still to be imported wait for it. */
-export async function removeGitHubInstallation(db: D1Database, scope: ProjectScope): Promise<void> {
-  await db.prepare('DELETE FROM github_installations WHERE connection_id = ?').bind(scope.connectionId).run();
+/**
+ * Disconnects one GitHub account. Projects already imported are unaffected; ones still to be imported from it
+ * wait for it.
+ */
+export async function removeGitHubInstallation(
+  db: D1Database,
+  scope: ProjectScope,
+  installationId: number,
+): Promise<void> {
+  await db
+    .prepare('DELETE FROM github_installations WHERE connection_id = ? AND installation_id = ?')
+    .bind(scope.connectionId, installationId)
+    .run();
 }
 
 type ProjectRow = {

@@ -46,7 +46,10 @@ describe('OrgProjectsSection', () => {
       root?.render(
         <OrgProjectsSection
           orgId="org-1"
-          github={{ accountLogin: 'acme', accountType: 'Organization' }}
+          github={[
+            { installationId: 1, accountLogin: 'acme', accountType: 'Organization' },
+            { installationId: 2, accountLogin: 'grace', accountType: 'User' },
+          ]}
           projects={[
             {
               id: 'project-1',
@@ -77,6 +80,7 @@ describe('OrgProjectsSection', () => {
       ),
     );
 
+    expect(container.textContent).toContain('Imports can read repositories from github.com/acme and github.com/grace.');
     expect(mislabelledButtons()).toEqual([]);
     await click('Remove');
     await click('Decline');
@@ -101,7 +105,7 @@ describe('OrgProjectsSection', () => {
       root?.render(
         <OrgProjectsSection
           orgId="org-1"
-          github={null}
+          github={[]}
           projects={[
             {
               id: 'project-1',

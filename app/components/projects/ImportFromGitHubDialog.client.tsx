@@ -175,7 +175,8 @@ export function ImportFromGitHubDialog({
             <div className="grid gap-2">
               <p>
                 Public repositories import from their address. For a private repository, install the CloudChef GitHub
-                App on its account and give it that repository; it only reads, and only for the import.
+                App on the account that holds it and give it that repository; it can be installed on several accounts.
+                It only reads, and only for the import.
               </p>
               <Button
                 className="justify-self-start"
@@ -184,7 +185,7 @@ export function ImportFromGitHubDialog({
                 loading={installing}
                 onClick={() => void install()}
               >
-                {installed.length > 0 ? 'Change repositories on GitHub' : 'Install the CloudChef GitHub App'}
+                {installed.length > 0 ? 'Add an account or repositories on GitHub' : 'Install the CloudChef GitHub App'}
               </Button>
             </div>
           )}

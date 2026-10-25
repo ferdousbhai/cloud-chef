@@ -20,8 +20,8 @@ import {
   updateMember,
 } from '~/lib/cloudflare/data/organizations.server';
 import {
-  findGitHubInstallation,
   listAccessibleProjects,
+  listGitHubInstallations,
   listOwnProductionRequests,
   listPendingProductionRequests,
   listScopeProjects,
@@ -74,7 +74,7 @@ const WORKSPACE_DELETION_CONCURRENCY = 4;
 export function listOrganizationsAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const organizations = await listOrganizations(env.DB, session.user.id);
-    // With each, its GitHub installation and projects: all of them, with who may view or edit each, for an
+    // With each, the GitHub accounts its App is installed on and its projects: all of them, with who may view or edit each, for an
     // admin; the ones they may view or edit, with their role, for a member.
     const withProjects = await Promise.all(
       organizations.map(async (organization) => {
@@ -82,7 +82,7 @@ export function listOrganizationsAction({ request, env }: { request: Request; en
         const connection = await findCloudflareConnectionForOrganization(env.DB, organization.orgId);
         const scope = connection ? { connectionId: connection.id, orgId: organization.orgId } : null;
         const [github, projects, productionRequests, ownRequests] = await Promise.all([
-          scope ? findGitHubInstallation(env.DB, scope.connectionId) : null,
+          scope ? listGitHubInstallations(env.DB, scope.connectionId) : [],
           !scope
             ? []
             : admin
@@ -95,7 +95,7 @@ export function listOrganizationsAction({ request, env }: { request: Request; en
         ]);
         return {
           ...organization,
-          github: github ? { accountLogin: github.accountLogin, accountType: github.accountType } : null,
+          github,
           projects: projects.map(({ id, name, repo, origin, importSource, access }) => ({
             id,
             name,

@@ -14,7 +14,10 @@ import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feed
 import { noContentSchema, postJson, runRequest } from '~/lib/json-request';
 import { MoreMenu, StatusBadge } from './SettingsLayout';
 
-export const orgGitHubSchema = z.object({ accountLogin: z.string(), accountType: z.string() }).nullable();
+/** The GitHub accounts CloudChef's App is installed on for the team: imports read from all of them. */
+export const orgGitHubSchema = z.array(
+  z.object({ installationId: z.number(), accountLogin: z.string(), accountType: z.string() }),
+);
 export const orgProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -50,10 +53,11 @@ const WORKERS_BUILDS_CREATE_URL = 'https://dash.cloudflare.com/?to=/:account/wor
 type OrgProject = z.infer<typeof orgProjectSchema>;
 
 const installStartedSchema = z.object({ installUrl: z.string() });
+const LIST_FORMAT = new Intl.ListFormat('en', { type: 'conjunction' });
 
 /**
  * An admin's view of a team's projects: each one's repository and who may view or edit it, the members'
- * requests to make a draft a project, and the GitHub account CloudChef's App reads when importing.
+ * requests to make a draft a project, and the GitHub accounts CloudChef's App reads when importing.
  */
 export function OrgProjectsSection({
   orgId,
@@ -70,7 +74,7 @@ export function OrgProjectsSection({
   productionRequests: ProductionRequest[];
   onChanged: () => Promise<void>;
 }) {
-  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+  const [disconnecting, setDisconnecting] = useState<z.infer<typeof orgGitHubSchema>[number] | null>(null);
   const [importing, setImporting] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const onError = (message: string | null) => setFeedback(errorFeedback(message));
@@ -88,10 +92,10 @@ export function OrgProjectsSection({
       window.location.assign(installUrl);
     }, onError);
 
-  const disconnect = () =>
+  const disconnect = (installationId: number) =>
     void runRequest(async () => {
-      await postJson('/api/organizations/github/disconnect', { orgId }, noContentSchema);
-      setConfirmingDisconnect(false);
+      await postJson('/api/organizations/github/disconnect', { orgId, installationId }, noContentSchema);
+      setDisconnecting(null);
       await onChanged();
     }, onError);
 
@@ -108,23 +112,26 @@ export function OrgProjectsSection({
             </Button>
           ) : null}
           <MoreMenu title="GitHub for this team">
-            {github === null ? (
+            {github.length === 0 ? (
               <MenuItem action={connect}>Connect GitHub</MenuItem>
             ) : (
               <>
+                <MenuItem action={connect}>Connect another GitHub account</MenuItem>
                 <MenuItem action={connect}>Change GitHub repositories</MenuItem>
-                <MenuItem danger action={() => setConfirmingDisconnect(true)}>
-                  Disconnect GitHub
-                </MenuItem>
+                {github.map((account) => (
+                  <MenuItem key={account.installationId} danger action={() => setDisconnecting(account)}>
+                    Disconnect {account.accountLogin}
+                  </MenuItem>
+                ))}
               </>
             )}
           </MoreMenu>
         </span>
       </div>
       <p className="text-xs text-content-tertiary [overflow-wrap:anywhere]">
-        {github === null
+        {github.length === 0
           ? 'Public repositories import from their address. Connect GitHub to import private ones.'
-          : `Imports can read repositories from github.com/${github.accountLogin}.`}
+          : `Imports can read repositories from ${LIST_FORMAT.format(github.map((account) => `github.com/${account.accountLogin}`))}.`}
         {workingHere ? null : ' Open this team to import.'}
       </p>
       {productionRequests.length > 0 ? (
@@ -158,13 +165,13 @@ export function OrgProjectsSection({
       {importing ? (
         <ImportFromGitHubDialog orgId={orgId} onOpenProject={openProjectChat} onClose={() => setImporting(false)} />
       ) : null}
-      {confirmingDisconnect ? (
+      {disconnecting ? (
         <ConfirmationDialog
-          dialogTitle="Disconnect GitHub?"
-          dialogBody="Projects already imported stay as they are. Private repositories can't be imported until it's connected again."
-          confirmText="Disconnect GitHub"
-          onClose={() => setConfirmingDisconnect(false)}
-          onConfirm={disconnect}
+          dialogTitle={`Disconnect ${disconnecting.accountLogin}?`}
+          dialogBody={`Projects already imported stay as they are. Private repositories from github.com/${disconnecting.accountLogin} can't be imported until it's connected again.`}
+          confirmText="Disconnect"
+          onClose={() => setDisconnecting(null)}
+          onConfirm={() => disconnect(disconnecting.installationId)}
         />
       ) : null}
     </div>

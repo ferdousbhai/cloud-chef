@@ -7,7 +7,7 @@ import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-ap
 import { readCookie, readJsonRequest, safeReturnTo, serializeCookie } from '~/lib/.server/request-guards';
 import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
 import {
-  findGitHubInstallation,
+  listGitHubInstallations,
   removeGitHubInstallation,
   requireProjectScope,
   saveGitHubInstallation,
@@ -17,7 +17,8 @@ import { signedIn } from './signed-in';
 
 /**
  * GitHub, for importing projects from private repositories: a team's admin, or a person for their own
- * projects, installs CloudChef's GitHub App on the GitHub account holding them. Public repositories are
+ * projects, installs CloudChef's GitHub App on each GitHub account holding them (their own, and organizations
+ * they own); imports read from all of them. Public repositories are
  * imported by their address, without it (`./projects.ts`).
  */
 export const GITHUB_RETURN_PATH = '/github/return';
@@ -27,11 +28,15 @@ const STATE_TTL_MS = 15 * 60_000;
 /** A team's projects with `orgId`, else the person's own. */
 const scopeFields = { orgId: z.string().uuid().optional() };
 const scopeSchema = z.strictObject(scopeFields);
+const disconnectSchema = z.strictObject({ ...scopeFields, installationId: z.number().int().positive() });
 const startSchema = z.strictObject({ ...scopeFields, callbackURL: z.string().max(2_048).optional() });
 
 const UNAVAILABLE = 'GitHub is not configured for this environment.';
 
-/** Starts installing the App for a team (by one of its admins) or for a person's own projects. */
+/**
+ * Starts installing the App on a GitHub account for a team (by one of its admins) or for a person's own
+ * projects. GitHub has them choose the account, so the same start connects another one.
+ */
 export function startGitHubInstallAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const app = gitHubAppFromEnv(env);
@@ -132,10 +137,10 @@ async function completeInstallation(args: {
     return back('install_expired');
   }
   if (!code && url.searchParams.get('setup_action') === 'update') {
-    // Changing the repositories of the installation this connection already has returns without a code:
+    // Changing the repositories of an installation this connection already has returns without a code:
     // there is nothing new to record, and nothing is recorded for any other installation.
-    const current = await findGitHubInstallation(env.DB, pending.connection_id);
-    if (current && current.installationId === installationId) {
+    const current = await listGitHubInstallations(env.DB, pending.connection_id);
+    if (current.some((installation) => installation.installationId === installationId)) {
       return back('repositories_updated');
     }
   }
@@ -197,7 +202,7 @@ async function managedScope(db: D1Database, connectionId: string, userId: string
     : null;
 }
 
-/** The repositories the installation reaches, for choosing one to import. */
+/** The repositories the scope's installations reach, for choosing one to import. */
 export function listGitHubRepositoriesAction({
   request,
   env,
@@ -233,26 +238,48 @@ export function listGitHubRepositoriesAction({
 
 export function disconnectGitHubAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, scopeSchema, 'Choose a team.');
+    const body = await readJsonRequest(request, disconnectSchema, 'Choose a GitHub account.');
     if ('response' in body) {
       return body.response;
     }
-    await removeGitHubInstallation(env.DB, await requireProjectScope(env.DB, session.user.id, body.data.orgId));
+    await removeGitHubInstallation(
+      env.DB,
+      await requireProjectScope(env.DB, session.user.id, body.data.orgId),
+      body.data.installationId,
+    );
     return new Response(null, { status: 204 });
   });
 }
 
 /**
- * The repositories the scope's installation reaches; the response saying what's missing or what GitHub
- * refused otherwise.
+ * The repositories the scope's installations reach, across every GitHub account it connected; the response
+ * saying what's missing or what GitHub refused otherwise. An account that has since uninstalled the App is
+ * passed over.
  */
 export async function installedRepositories(db: D1Database, scope: ProjectScope, app: GitHubApp | null) {
-  const installation = await findGitHubInstallation(db, scope.connectionId);
-  if (!app || !installation) {
+  const installations = await listGitHubInstallations(db, scope.connectionId);
+  if (!app || installations.length === 0) {
     return Response.json({ error: app ? 'Connect GitHub first.' : UNAVAILABLE }, { status: 409 });
   }
   return withGitHubFailure(
-    () => app.installationRepositories(installation.installationId),
+    async () => {
+      const reached = await Promise.all(
+        installations.map(async (installation) => {
+          try {
+            return await app.installationRepositories(installation.installationId);
+          } catch (error) {
+            if (error instanceof GitHubError && error.status === 404) {
+              return null;
+            }
+            throw error;
+          }
+        }),
+      );
+      if (reached.every((repositories) => repositories === null)) {
+        throw new GitHubError('GitHub no longer has those installations.', 404);
+      }
+      return reached.flatMap((repositories) => repositories ?? []);
+    },
     (error) =>
       Response.json(
         {
