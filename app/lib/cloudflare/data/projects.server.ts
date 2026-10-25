@@ -114,7 +114,7 @@ export async function projectCloneAccess(
   const project = await resolveProject(env, args.sessionId, args);
   const store = repositories(env);
   if (!project.repo || !(await store.head(project.repo))) {
-    throw new DataNotFoundError('This project has no commits yet.');
+    throw new DataNotFoundError('This project has no saved versions yet.');
   }
   const access = await cloneToken(env.DB, store, {
     repo: project.repo,
@@ -149,7 +149,7 @@ export async function forkProject(
   const head = project.repo ? await store.head(project.repo) : null;
   const commit = head && project.repo ? await store.resolve(project.repo, args.commit) : null;
   if (!project.repo || !head || !commit) {
-    throw new DataNotFoundError('That commit is not in the project.');
+    throw new DataNotFoundError('That version is not in the project.');
   }
   const initialId = crypto.randomUUID();
   await store.fork(project.repo, nativeProjectRepo(initialId), commit.hash === head ? {} : { commit: commit.hash });
@@ -226,11 +226,11 @@ export async function userRuntimeProjectArchiveAction(
     );
     const store = repositories(args.env);
     if (!project.repo || !(await store.head(project.repo))) {
-      throw new DataNotFoundError('This project has no commits yet.');
+      throw new DataNotFoundError('This project has no saved versions yet.');
     }
     const commit = await store.resolve(project.repo, ref);
     if (!commit) {
-      throw new DataNotFoundError('That commit is not in the project.');
+      throw new DataNotFoundError('That version is not in the project.');
     }
     const folder = `${folderName(project.name)}-${commit.hash.slice(0, 7)}`;
     const { stream } = await store.archiveZip(project.repo, commit.hash, folder);

@@ -225,7 +225,7 @@ describe('downloading a commit', () => {
     expect((await archive(`chat=${CHAT}&ref=HEAD~1`)).status).toBe(400);
     const empty = await archive(`chat=${CHAT}`);
     expect(empty.status).toBe(404);
-    expect(await empty.json()).toEqual({ error: 'This project has no commits yet.' });
+    expect(await empty.json()).toEqual({ error: 'This project has no saved versions yet.' });
     expect((await archive(`chat=${CHAT}`, 'someone-else')).status).toBe(404);
   });
 });

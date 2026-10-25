@@ -121,30 +121,30 @@ describe('ProjectHistoryDialog', () => {
     projectRevertStore.set(revert);
     await render({ canRevert: true, canFork: false });
 
-    await act(async () => labelled('Revert to aaaaaaa').click());
+    await act(async () => labelled('Restore aaaaaaa').click());
     expect(revert).not.toHaveBeenCalled();
     // The confirmation's own button, in the dialog opened over the list.
     const confirm = [...document.querySelectorAll<HTMLButtonElement>('button')].filter(
-      (candidate) => candidate.textContent?.trim() === 'Revert' && !candidate.hasAttribute('aria-label'),
+      (candidate) => candidate.textContent?.trim() === 'Restore' && !candidate.hasAttribute('aria-label'),
     );
     await act(async () => confirm.at(-1)?.click());
 
     expect(revert).toHaveBeenCalledWith(FIRST);
-    expect(document.querySelector('button[aria-label^="Fork"]')).toBeNull();
+    expect(document.querySelector('button[aria-label^="Make a copy"]')).toBeNull();
   });
 
   it('points to the project for reverting when it is not open here', async () => {
     await render({ canRevert: true, canFork: true });
 
-    expect(document.querySelector('button[aria-label^="Revert"]')).toBeNull();
-    expect(document.body.textContent).toContain('Open the project to revert');
+    expect(document.querySelector('button[aria-label^="Restore"]')).toBeNull();
+    expect(document.body.textContent).toContain('Open the project to go back to a version');
   });
 
   it('forks from a commit and opens the new project', async () => {
     const onOpenProject = vi.fn();
     await render({ canRevert: false, canFork: true, onOpenProject });
 
-    await act(async () => labelled('Fork from bbbbbbb').click());
+    await act(async () => labelled('Make a copy from bbbbbbb').click());
 
     await vi.waitFor(() => expect(onOpenProject).toHaveBeenCalledWith('chat-2'));
     expect(dataRequests.at(-1)).toEqual({ path: 'projects.fork', args: { chatInitialId: 'chat-1', commit: SECOND } });

@@ -108,7 +108,7 @@ test('lists the signed-in person’s projects below the prompt, with their histo
   await page.getByRole('menuitem', { name: 'History' }).click();
   const history = page.getByRole('dialog', { name: 'History' });
   await expect(history.getByText('Add a booking form')).toBeVisible();
-  await expect(history.getByRole('button', { name: 'Fork from 0f9e8d7' })).toBeVisible();
+  await expect(history.getByRole('button', { name: 'Make a copy from 0f9e8d7' })).toBeVisible();
   await expect(history.getByRole('button', { name: 'Download ZIP of a1b2c3d' })).toBeVisible();
   await history.getByRole('button', { name: 'Close dialog' }).click();
 

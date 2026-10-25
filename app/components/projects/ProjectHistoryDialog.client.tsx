@@ -82,7 +82,7 @@ export function ProjectHistoryDialog({
       setCommits([...commits, ...page]);
       setHasOlder(page.length === HISTORY_PAGE_SIZE);
     } catch (error) {
-      toast.error(messageOf(error, 'Older commits could not be loaded.'));
+      toast.error(messageOf(error, 'Older versions could not be loaded.'));
     } finally {
       setLoadingOlder(false);
     }
@@ -106,7 +106,7 @@ export function ProjectHistoryDialog({
     }
     void run(commit, 'revert', async () => {
       await revert(commit.hash);
-      toast.success(`The files now match commit ${shortCommit(commit.hash)}. Publish to put them live.`);
+      toast.success(`The project is back to version ${shortCommit(commit.hash)}. Publish to put it live.`);
       onClose();
     });
   };
@@ -143,14 +143,14 @@ export function ProjectHistoryDialog({
           </p>
         ) : commits.length === 0 ? (
           <p className="text-sm text-content-secondary">
-            No commits yet. Each time this project is published, its files are committed here.
+            No saved versions yet. A version is saved here each time this project is published.
           </p>
         ) : (
           <>
             {canRevert && !revert ? (
-              <p className="mb-3 text-xs text-content-tertiary">Open the project to revert it to a commit.</p>
+              <p className="mb-3 text-xs text-content-tertiary">Open the project to go back to a version.</p>
             ) : null}
-            <ol className="grid gap-2" aria-label="Commits">
+            <ol className="grid gap-2" aria-label="Versions">
               {commits.map((commit) => {
                 const title = commitTitle(commit.message);
                 const pending = busy?.hash === commit.hash ? busy.action : null;
@@ -174,24 +174,24 @@ export function ProjectHistoryDialog({
                         <Button
                           size="xs"
                           variant="neutral"
-                          aria-label={`Revert to ${shortCommit(commit.hash)}`}
+                          aria-label={`Restore ${shortCommit(commit.hash)}`}
                           disabled={busy !== null}
                           loading={pending === 'revert'}
                           onClick={() => setConfirmingRevert(commit)}
                         >
-                          Revert
+                          Restore
                         </Button>
                       ) : null}
                       {canFork ? (
                         <Button
                           size="xs"
                           variant="neutral"
-                          aria-label={`Fork from ${shortCommit(commit.hash)}`}
+                          aria-label={`Make a copy from ${shortCommit(commit.hash)}`}
                           disabled={busy !== null}
                           loading={pending === 'fork'}
                           onClick={() => fork(commit)}
                         >
-                          Fork
+                          Make a copy
                         </Button>
                       ) : null}
                       <Button
@@ -217,7 +217,7 @@ export function ProjectHistoryDialog({
                 loading={loadingOlder}
                 onClick={() => void loadOlder()}
               >
-                Show older commits
+                Show older versions
               </Button>
             ) : null}
           </>
@@ -227,14 +227,14 @@ export function ProjectHistoryDialog({
         <ConfirmationDialog
           onClose={() => setConfirmingRevert(null)}
           onConfirm={() => confirmRevert(confirmingRevert)}
-          confirmText="Revert"
-          dialogTitle={`Revert to ${shortCommit(confirmingRevert.hash)}?`}
+          confirmText="Restore"
+          dialogTitle={`Restore ${shortCommit(confirmingRevert.hash)}?`}
           dialogBody={
             <div className="grid gap-2">
               <p className="[overflow-wrap:anywhere]">{commitTitle(confirmingRevert.message)}</p>
               <p>
-                The workspace&apos;s files change to match this commit, and files added since are removed. Nothing goes
-                live until you publish, and the history keeps every commit.
+                The project&apos;s files go back to this version, and files added since are removed. Nothing goes live
+                until you publish, and every version stays in the history.
               </p>
             </div>
           }
