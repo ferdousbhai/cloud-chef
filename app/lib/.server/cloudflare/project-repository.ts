@@ -9,8 +9,10 @@ import {
   BUILDER_WORKSPACE_MAX_FILES,
   BUILDER_WORKSPACE_MAX_TOTAL_BYTES,
 } from '@cloudchef/user-workspace-runtime/protocol';
+import { fetchSourcePack, GitSourceError, readSourceBranch, type GitSource } from './repository-source';
 import {
   concatBytes,
+  readRemoteAdvertisement,
   readRemoteRefs,
   tokenSecret,
   updateRemoteRef,
@@ -23,9 +25,10 @@ import { zipStream, type ZipEntry } from './zip-archive';
 /**
  * A project's code and history, kept in Cloudflare Artifacts in the account the project belongs to
  * (`env.ARTIFACTS`, namespace `cloudchef`). The binding reads (log, trees, blobs) and makes repositories,
- * forks, imports and tokens; everything that writes a commit is done here, since Artifacts has no
- * server-side commit or merge: objects are written with isomorphic-git into an in-memory store (memfs,
- * never the workspace's files, which hold no `.git`) and pushed over git's smart HTTP.
+ * forks and tokens; everything that writes a commit is done here, since Artifacts has no server-side
+ * commit or merge: objects are written with isomorphic-git into an in-memory store (memfs, never the
+ * workspace's files, which hold no `.git`) and pushed over git's smart HTTP. An import is a push too: the
+ * source's pack, streamed through from it (`repository-source.ts`).
  */
 
 /** The one production branch Artifacts supports. */
@@ -34,6 +37,11 @@ const MAIN_REF = `refs/heads/${MAIN_BRANCH}`;
 const PUSH_TOKEN_TTL_SECONDS = 10 * 60;
 /** A person's clone token lasts as long as Artifacts allows, a year, so their clone keeps pulling. */
 const CLONE_TOKEN_TTL_SECONDS = 365 * 24 * 60 * 60;
+/** An import's push is one request, as long as the whole history takes to copy; its token lasts as long. */
+const IMPORT_TIMEOUT_MS = 30 * 60_000;
+const IMPORT_TOKEN_TTL_SECONDS = 35 * 60;
+/** The most history an import copies: what a repository in Artifacts may hold. */
+const IMPORT_MAX_PACK_BYTES = 1024 * 1024 * 1024;
 /** A fork or import is ready within seconds to minutes; it is followed this long. */
 const READY_WAIT_MS = 5 * 60_000;
 const READY_POLL_MS = 1_000;
@@ -518,11 +526,13 @@ export class ProjectRepositories {
   }
 
   /**
-   * Imports a repository from elsewhere with its history, its `branch` becoming main of `repo`. A public
-   * one is fetched by Artifacts itself; one that needs `authorization` (the control plane's short-lived,
-   * read-only credential) is cloned here and pushed. An import already made (another member's, or a
-   * retry) is reused; one cut off before any history arrived, which leaves the repository empty, is made
-   * again. Returns main's head.
+   * Imports a repository from elsewhere with its branch's whole history, that branch becoming main of
+   * `repo`: the source's pack is streamed from it into the repository's push as it arrives (see
+   * `repository-source.ts`), so no size of repository is held in memory. `authorization` is the control
+   * plane's short-lived, read-only credential for a private one, sent only as a header. The repository
+   * checks the pack whole before main exists, so an import cut off partway leaves it empty, and an empty
+   * one is imported again. An import already made (another member's, or a retry) is reused. Returns main's
+   * head.
    */
   async importFromUrl(args: {
     url: string;
@@ -531,42 +541,18 @@ export class ProjectRepositories {
     repo: string;
   }): Promise<{ commit: string }> {
     if (!(await this.#holdsHistory(args.repo))) {
-      if (args.authorization) {
-        await this.#cloneAndPush({ ...args, authorization: args.authorization });
-      } else {
-        // Artifacts imports only into a new repository.
-        await this.deleteRepo(args.repo);
-        const source: Parameters<Artifacts['import']>[0]['source'] = { url: args.url };
-        if (args.branch) {
-          source.branch = args.branch;
-        }
-        try {
-          const imported = await this.#artifacts.import({
-            source,
-            target: { name: args.repo },
-          });
-          await this.#revokeInitialToken(args.repo, imported.token);
-        } catch (error) {
-          const code = artifactsErrorCode(artifactsErrorSchema.parse(error));
-          if (code === 'REMOTE_AUTH_REQUIRED') {
-            throw new ProjectRepositoryError(
-              'That repository is private: connect it through GitHub to import it.',
-              'auth_required',
-            );
-          }
-          if (code !== 'ALREADY_EXISTS') {
-            throw error;
-          }
-        }
+      try {
+        await this.#copyHistory({ ...args, authorization: args.authorization ?? null, branch: args.branch ?? null });
+      } catch (error) {
+        throw error instanceof GitSourceError ? importError(error, Boolean(args.authorization)) : error;
       }
     }
-    await this.#waitUntilReady(args.repo);
     const main = await this.resolve(args.repo, MAIN_BRANCH);
     if (main) {
       return { commit: main.hash };
     }
-    // Artifacts imported the source's own branch (`master`, say), which HEAD names, though the repository's
-    // info still says `main`: main starts there.
+    // Artifacts' own import (an earlier runtime's) kept the source's branch (`master`, say), which HEAD
+    // names, though the repository's info still says `main`: main starts there.
     const head = args.branch
       ? await this.resolve(args.repo, args.branch)
       : await this.#withRepo(args.repo, async (handle) => {
@@ -580,45 +566,46 @@ export class ProjectRepositories {
     return { commit: head.hash };
   }
 
-  async #cloneAndPush(args: {
+  /** Streams the source branch's history into `repo` as main, which must not be there yet. */
+  async #copyHistory(args: {
     url: string;
-    authorization: string;
-    branch?: string | null;
+    authorization: string | null;
+    branch: string | null;
     repo: string;
   }): Promise<void> {
-    const fs = memoryFs();
-    const http = httpClient(this.#fetch);
-    const clone: Parameters<typeof isogit.clone>[0] = {
-      fs,
-      http,
-      dir: '/source',
-      url: args.url,
-      singleBranch: true,
-      noCheckout: true,
-      noTags: true,
-      headers: { authorization: args.authorization },
-    };
-    if (args.branch) {
-      clone.ref = args.branch;
-    }
-    await isogit.clone(clone);
-    const branch = args.branch || (await isogit.currentBranch({ fs, dir: '/source' }));
-    if (!branch) {
-      throw new ProjectRepositoryError('The repository to import has no branch.', 'not_found');
-    }
-    const remote = await this.#pushRemote(args.repo);
+    const source: GitSource = { url: args.url, authorization: args.authorization };
+    const branch = await readSourceBranch(this.#fetch, source, args.branch);
+    const remote = await this.#pushRemote(args.repo, IMPORT_TOKEN_TTL_SECONDS);
     try {
-      const result = await isogit.push({
-        fs,
-        http,
-        dir: '/source',
-        url: remote.url,
-        ref: branch,
-        remoteRef: MAIN_REF,
-        onAuth: () => ({ username: 'x', password: remote.secret }),
+      const { refs, capabilities } = await readRemoteAdvertisement(this.#fetch, remote);
+      const pack = await fetchSourcePack(this.#fetch, source, branch.oid, {
+        ofsDelta: capabilities.has('ofs-delta'),
+        maxBytes: IMPORT_MAX_PACK_BYTES,
+        timeoutMs: IMPORT_TIMEOUT_MS,
       });
-      if (!result.ok) {
-        throw new Error(`The imported history could not be stored (${result.error ?? 'refused'}).`);
+      let result: Awaited<ReturnType<typeof updateRemoteRef>>;
+      try {
+        result = await updateRemoteRef(
+          this.#fetch,
+          remote,
+          { ref: MAIN_REF, oldOid: refs.get(MAIN_REF) ?? ZERO_OID, newOid: branch.oid },
+          pack.stream,
+          { timeoutMs: IMPORT_TIMEOUT_MS },
+        );
+      } catch (error) {
+        // The push broke because the source did: its reason is the one to give.
+        throw pack.failure() ?? error;
+      }
+      const failure = pack.failure();
+      if (failure) {
+        throw failure;
+      }
+      // Another member's import of the same project that got there first is as good as this one.
+      if (!result.ok && !(await this.#holdsHistory(args.repo))) {
+        throw new ProjectRepositoryError(
+          `Cloudflare Artifacts did not keep the imported history (${result.reason.slice(0, 200)}). Try again.`,
+          'unavailable',
+        );
       }
     } finally {
       await this.#revokePushToken(args.repo, remote);
@@ -626,9 +613,9 @@ export class ProjectRepositories {
   }
 
   /** The repository's remote with a write token for one push, which `#revokePushToken` ends once it is done. */
-  async #pushRemote(repo: string): Promise<GitRemote & { tokenId: string }> {
+  async #pushRemote(repo: string, ttlSeconds = PUSH_TOKEN_TTL_SECONDS): Promise<GitRemote & { tokenId: string }> {
     const { remote } = await this.ensureRepo(repo);
-    const token = await this.#withRepo(repo, (handle) => handle.createToken('write', PUSH_TOKEN_TTL_SECONDS));
+    const token = await this.#withRepo(repo, (handle) => handle.createToken('write', ttlSeconds));
     return { url: remote.replace(/\/$/, ''), secret: tokenSecret(token.plaintext), tokenId: token.id };
   }
 
@@ -932,42 +919,27 @@ async function mergeText(
   return new TextEncoder().encode(merged);
 }
 
-/** isomorphic-git's HTTP client over `fetch`: each request's body sent whole, the answer streamed back. */
-function httpClient(fetchGit: GitFetch): isogit.HttpClient {
-  return {
-    async request({ url, method = 'GET', headers = {}, body }) {
-      const chunks: Uint8Array[] = [];
-      if (body) {
-        for await (const chunk of body) {
-          chunks.push(chunk);
-        }
-      }
-      const init: RequestInit = { method, headers };
-      if (chunks.length) {
-        init.body = concatBytes(chunks);
-      }
-      const response = await fetchGit(url, init);
-      const reader = response.body?.getReader();
-      async function* read(): AsyncGenerator<Uint8Array> {
-        if (!reader) {
-          return;
-        }
-        for (;;) {
-          const next = await reader.read();
-          if (next.done) {
-            return;
-          }
-          yield next.value;
-        }
-      }
-      return {
-        url: response.url || url,
-        method,
-        statusCode: response.status,
-        statusMessage: response.statusText,
-        headers: Object.fromEntries(response.headers),
-        body: read(),
-      };
-    },
-  };
+/** Why an import could not read its source, in words for the person importing. */
+function importError(error: GitSourceError, authorized: boolean): ProjectRepositoryError {
+  switch (error.reason) {
+    case 'auth_required':
+      return new ProjectRepositoryError(
+        authorized
+          ? 'GitHub refused CloudChef access to that repository. Connect GitHub again in Settings, then try again.'
+          : 'That repository is private: connect it through GitHub to import it.',
+        'auth_required',
+      );
+    case 'not_found':
+      return new ProjectRepositoryError(`The repository could not be imported: ${error.message}.`, 'not_found');
+    case 'too_large':
+      return new ProjectRepositoryError(
+        `That repository's history is larger than a project may hold (${IMPORT_MAX_PACK_BYTES / 1024 / 1024 / 1024} GB).`,
+        'too_large',
+      );
+    default:
+      return new ProjectRepositoryError(
+        `The repository could not be imported: ${error.message}. Try again.`,
+        'unavailable',
+      );
+  }
 }

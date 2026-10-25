@@ -30,4 +30,17 @@ describe('project repositories in workerd', () => {
     const { stream } = await repositories.archiveZip('t-1', 'main', 'site');
     expect((await new Response(stream).arrayBuffer()).byteLength).toBeGreaterThan(22);
   });
+
+  it('imports a private repository, streaming its history from the source into the push', async () => {
+    const artifacts = fakeArtifacts();
+    const repositories = new ProjectRepositories(artifacts, { fetch: artifacts.fetch });
+    const url = 'https://github.com/acme/private.git';
+    await artifacts.addSource(url, { 'a.txt': 'one' }, 'main', { authorization: 'Basic short-lived' });
+    const head = await artifacts.commitSource(url, { 'a.txt': 'two', 'b/c.txt': 'three' });
+    expect(
+      await repositories.importFromUrl({ url, authorization: 'Basic short-lived', branch: 'main', repo: 't-1' }),
+    ).toEqual({ commit: head });
+    expect(artifacts.streamedPushes).toHaveLength(1);
+    expect(await artifacts.filesAt('t-1', 'main')).toEqual({ 'a.txt': 'two', 'b/c.txt': 'three' });
+  });
 });

@@ -261,6 +261,82 @@ describe('ProjectRepositories', () => {
     expect(await artifacts.filesAt('t-9', 'main')).toEqual({ 'index.html': 'hi' });
   });
 
+  it('imports a private repository with its whole history, streaming it through and its credential as a header', async () => {
+    const { artifacts, repositories } = setup();
+    const url = 'https://github.com/acme/private.git';
+    const authorization = `Basic ${btoa('x-access-token:ghs_short_lived')}`;
+    const first = await artifacts.addSource(url, { 'a.txt': 'one' }, 'trunk', { authorization });
+    // Big enough that its pack goes over in many pieces: random text, which compresses only so far.
+    const big = () => Array.from({ length: 16_384 }, () => crypto.randomUUID()).join('');
+    await artifacts.commitSource(url, { 'a.txt': 'two', 'big.txt': big() });
+    const head = await artifacts.commitSource(url, { 'a.txt': 'three', 'big.txt': big(), 'more/big.txt': big() });
+    const sent: string[] = [];
+    const watched = new ProjectRepositories(artifacts, {
+      fetch: (input, init) => {
+        sent.push(input);
+        return artifacts.fetch(input, init);
+      },
+    });
+    expect(await watched.importFromUrl({ url, authorization, branch: 'trunk', repo: 't-9' })).toEqual({ commit: head });
+    expect((await repositories.log('t-9', { limit: 10 })).map((commit) => commit.hash).at(-1)).toBe(first);
+    expect(await repositories.log('t-9', { limit: 10 })).toHaveLength(3);
+    expect((await artifacts.filesAt('t-9', 'main'))['a.txt']).toBe('three');
+    expect(artifacts.streamedPushes).toEqual([{ repo: 't-9', packBytes: expect.any(Number) }]);
+    expect(artifacts.streamedPushes[0]!.packBytes).toBeGreaterThan(512 * 1024);
+    expect(sent.every((address) => !address.includes('ghs_') && !address.includes('art_v2'))).toBe(true);
+    // The push's write token is ended once the import is done.
+    const writes = artifacts.tokens.filter((token) => token.scope === 'write').map((token) => token.id);
+    expect(artifacts.revoked).toEqual(expect.arrayContaining(writes));
+  });
+
+  it('says a private repository needs GitHub, or that GitHub refused, without the credential to read it', async () => {
+    const { artifacts, repositories } = setup();
+    const url = 'https://github.com/acme/private.git';
+    await artifacts.addSource(url, { 'a.txt': 'one' }, 'main', { authorization: 'Basic right' });
+    await expect(repositories.importFromUrl({ url, branch: 'main', repo: 't-9' })).rejects.toMatchObject({
+      code: 'auth_required',
+      message: 'That repository is private: connect it through GitHub to import it.',
+    });
+    await expect(
+      repositories.importFromUrl({ url, authorization: 'Basic wrong', branch: 'main', repo: 't-9' }),
+    ).rejects.toMatchObject({ code: 'auth_required', message: expect.stringContaining('Connect GitHub again') });
+  });
+
+  it('says so when the source has no such branch', async () => {
+    const { artifacts, repositories } = setup();
+    await artifacts.addSource('https://github.com/acme/site.git', { 'a.txt': 'one' });
+    await expect(
+      repositories.importFromUrl({ url: 'https://github.com/acme/site.git', branch: 'gone', repo: 't-9' }),
+    ).rejects.toMatchObject({ code: 'not_found', message: expect.stringContaining('no branch gone') });
+  });
+
+  it('leaves the repository empty when the copy is cut off partway, and the next import completes it', async () => {
+    const { artifacts, repositories } = setup();
+    const url = 'https://github.com/acme/site.git';
+    await artifacts.addSource(url, { 'a.txt': 'one' });
+    const head = await artifacts.commitSource(url, {
+      'a.txt': 'two',
+      'b.txt': Array.from({ length: 4000 }, (_, index) => `line ${index}\n`).join(''),
+    });
+    artifacts.cutSource(url, 300);
+    await expect(repositories.importFromUrl({ url, branch: 'main', repo: 't-9' })).rejects.toMatchObject({
+      code: 'unavailable',
+      message: expect.stringContaining('stopped before the whole history arrived'),
+    });
+    expect(await repositories.head('t-9')).toBeNull();
+    artifacts.cutSource(url, Number.MAX_SAFE_INTEGER);
+    expect(await repositories.importFromUrl({ url, branch: 'main', repo: 't-9' })).toEqual({ commit: head });
+  });
+
+  it('imports the branch HEAD names when none is given', async () => {
+    const { artifacts, repositories } = setup();
+    const head = await artifacts.addSource('https://github.com/acme/site', { 'a.txt': 'a' }, 'develop');
+    expect(await repositories.importFromUrl({ url: 'https://github.com/acme/site/', repo: 't-9' })).toEqual({
+      commit: head,
+    });
+    expect(await artifacts.head('t-9')).toBe(head);
+  });
+
   it('revokes the write token Artifacts makes with a new or forked repository', async () => {
     const { artifacts, repositories } = setup();
     await repositories.ensureRepo('p-1');
