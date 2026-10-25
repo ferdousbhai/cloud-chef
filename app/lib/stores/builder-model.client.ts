@@ -234,7 +234,8 @@ function requestBuilderModelCatalog(init: RequestInit): Promise<void> {
  * admin chose while it is still offered, is one of its models.
  */
 export function installBuilderModelCatalog(payload: BuilderModelCatalogPayload): void {
-  const previousModels = builderModelsStore.get();
+  // Before the first catalog of this page, the list held only the built-in default, not anything this account offered.
+  const previousModels = catalogInstalled ? builderModelsStore.get() : [];
   builderModelsStore.set(payload.models);
   builderDefaultModelStore.set(payload.defaultModelId);
   catalogInstalled = true;
@@ -252,8 +253,10 @@ type UnavailableBuilderModel = { label: string; replacementLabel: string };
 export const builderModelUnavailableStore = atom<UnavailableBuilderModel | null>(null);
 
 /**
- * Says so when the saved model is one the catalog no longer offers, so the switch to the default is not
- * silent. Its name comes from the catalog this browser last had, where it was still offered.
+ * Says so when the saved model is one the catalog stopped offering while this page was open (a refused turn
+ * or Settings reloads the list), so that switch to the default is not silent. Its name comes from the list
+ * this page had before, where it was still offered. On a fresh page there is no earlier list of this
+ * account's to compare with, so nothing is said.
  */
 function applyUnavailableModelNotice(saved: string | null, previousModels: readonly BuilderModel[]): void {
   const models = builderModelsStore.get();

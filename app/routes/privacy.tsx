@@ -105,11 +105,11 @@ function PrivacyPage() {
           which also deletes their workspace from the team&apos;s account and declines their open team project requests;
           applications they deployed stay there. An admin can rename the team or delete it. Deleting a team deletes
           every member&apos;s workspace from its Cloudflare account, revokes CloudChef&apos;s authorization there unless
-          someone else still builds in that account, on their own or in another team, and removes the team&apos;s
-          records from CloudChef: its members, invites, usage counts, GitHub connections, projects, and team project
-          requests. The projects&apos; code and history in the account&apos;s Artifacts, and applications deployed from
-          it with their databases and storage, stay in the Cloudflare account; repositories imported from GitHub and
-          CloudChef&apos;s GitHub App stay on GitHub until removed there.
+          anyone, you included, still builds in that account on their own or in another team, and removes the
+          team&apos;s records from CloudChef: its members, invites, usage counts, GitHub connections, projects, and team
+          project requests. The projects&apos; code and history in the account&apos;s Artifacts, and applications
+          deployed from it with their databases and storage, stay in the Cloudflare account; repositories imported from
+          GitHub and CloudChef&apos;s GitHub App stay on GitHub until removed there.
         </p>
         <p>
           Every project&apos;s code and history is a git repository in Cloudflare Artifacts, in the Cloudflare account
