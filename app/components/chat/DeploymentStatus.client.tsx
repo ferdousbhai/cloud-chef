@@ -22,7 +22,7 @@ const SENT_MESSAGES = {
  * team's projects, where approving it makes the draft a team project.
  */
 const ADMIN_SENT_MESSAGES = {
-  requested: "Added to your team's requests. Approve it in Settings to make it a team project.",
+  requested: 'Added to your team project requests. Approve it in Settings to make it a team project.',
   updated: 'Updated your request: Settings now shows this version to approve.',
   unchanged: 'Settings already shows this version to approve.',
 } as const satisfies Record<ProductionRequestOutcome, string>;

@@ -92,10 +92,11 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
   if (conflict) {
     return {
       kind: 'conflict',
-      title: 'Saved, but not live',
+      title: 'Not published',
       detail:
-        'Someone changed the same parts of the live project since this chat started, so your change was not put ' +
-        'live. It is still saved. Start a new chat, which opens the latest version, and ask for the change again.',
+        'Someone changed the same part of the live project since this chat opened it, so your change was not put ' +
+        'live. To make it on the latest version, delete this chat, open the project again from Projects, and ask ' +
+        'for the change again.',
       building: false,
       followDeadline: null,
       previewUrl: null,
@@ -145,7 +146,10 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
         title: data.live ? 'Published' : 'Preview ready',
         detail: data.live
           ? 'Your change is live.'
-          : "Open the preview to check the change. The live site hasn't changed.",
+          : links.previewUrl
+            ? "Open the preview to check the change. The live site hasn't changed."
+            : "The preview was built, but Cloudflare didn't give a link for it. A team admin can find it in the " +
+              "Cloudflare dashboard. The live site hasn't changed.",
         building: false,
         followDeadline: null,
         ...links,
@@ -165,8 +169,8 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
       return unknown(
         committed,
         'Your change is saved, but Cloudflare reported no build for it. Workers Builds, the Cloudflare service that ' +
-          'builds and publishes this project, may have skipped it or may not be connected. A team admin can check in ' +
-          'the Cloudflare dashboard.',
+          'builds and publishes this project, may have skipped it, or may not be set up for this project yet. A team ' +
+          'admin can check in the Cloudflare dashboard.',
         links,
       );
     case 'timed_out':

@@ -52,6 +52,8 @@ export function ProjectHistoryDialog({
   // Reverting goes through the open chat's builder agent; a project not open here has none.
   const revert = useStore(projectRevertStore);
   const ref = 'chatInitialId' in project ? project.chatInitialId : project.orgProjectId;
+  /** One of the person's own apps, as opposed to a team project. */
+  const ownApp = 'chatInitialId' in project;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -106,7 +108,11 @@ export function ProjectHistoryDialog({
     }
     void run(commit, 'revert', async () => {
       await revert(commit.hash);
-      toast.success(`The project is back to version ${shortCommit(commit.hash)}. Publish to put it live.`);
+      toast.success(
+        ownApp
+          ? `Restored version ${shortCommit(commit.hash)}. Your app is being published with it.`
+          : `This chat's copy is back to version ${shortCommit(commit.hash)}. Ask the agent to publish it to put it live.`,
+      );
       onClose();
     });
   };
@@ -143,7 +149,7 @@ export function ProjectHistoryDialog({
           </p>
         ) : commits.length === 0 ? (
           <p className="text-sm text-content-secondary">
-            {'chatInitialId' in project
+            {ownApp
               ? "No saved versions yet. When you're happy with a change, ask the agent to save a version."
               : 'No saved versions yet. A version is saved each time a change is published.'}
           </p>
@@ -235,8 +241,9 @@ export function ProjectHistoryDialog({
             <div className="grid gap-2">
               <p className="[overflow-wrap:anywhere]">{commitTitle(confirmingRevert.message)}</p>
               <p>
-                The project&apos;s files go back to this version, and files added since are removed. Nothing goes live
-                until you publish, and every version stays in the history.
+                {ownApp
+                  ? 'The project goes back to this version, and files added since are removed. It is saved as a new version and published, so your live app shows it. Every version stays in the history.'
+                  : "This chat's copy of the project goes back to this version, and files added since are removed. Nothing goes live until you ask the agent to publish, and every version stays in the history."}
               </p>
             </div>
           }

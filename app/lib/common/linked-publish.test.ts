@@ -64,7 +64,7 @@ describe('linkedPublishView', () => {
         publish(toolFailure('x', { branch: 'cloudchef/sara', commit: 'c'.repeat(40), conflict: true }), 'publish'),
         NOW,
       ),
-    ).toMatchObject({ kind: 'conflict', title: 'Saved, but not live' });
+    ).toMatchObject({ kind: 'conflict', title: 'Not published' });
     expect(linkedPublishView(publish(toolFailure('Nothing has changed.'), 'publish'), NOW)).toMatchObject({
       kind: 'not_sent',
       title: 'Not published',

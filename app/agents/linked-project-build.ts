@@ -54,8 +54,8 @@ export function linkedHeldBackNote(heldBack: readonly string[] | undefined): str
   const named = heldBack.slice(0, 5).join(', ');
   const more = heldBack.length > 5 ? ` and ${heldBack.length - 5} more` : '';
   return (
-    ` Not sent, as local secrets CloudChef never publishes: ${named}${more}. The repository keeps its own version` +
-    ' of any it has; tell the user if they meant to change them.'
+    ` Secret settings files are never sent: ${named}${more}. The project keeps its own copy of any it already` +
+    ' has, so a change to them here does not reach it.'
   );
 }
 

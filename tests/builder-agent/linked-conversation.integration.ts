@@ -360,14 +360,14 @@ describe("a team project's publish", () => {
     const pushes = controlPlane();
     const nothing = await publishTool(unchanged)({ message: 'Ship it', live: false }, { toolCallId: 'call-1' });
     expect(nothing).toMatchObject({ ok: false });
-    expect(nothing.summary).toContain('Nothing has changed');
-    expect(nothing.summary).toContain('never publishes: .env.production.');
+    expect(nothing.summary).toContain('There are no new changes');
+    expect(nothing.summary).toContain('never sent: .env.production.');
     expect(pushes).toEqual([]);
 
     const changed = await harnessWith(await withSecretEdited(true));
     const result = await publishTool(changed)({ message: 'Ship it', live: false }, { toolCallId: 'call-2' });
     expect(result).toMatchObject({ ok: true, data: { build: 'pending' } });
-    expect(result.summary).toContain('never publishes: .env.production.');
+    expect(result.summary).toContain('never sent: .env.production.');
     expect(Object.keys(await artifacts.filesAt(REPO, 'cloudchef/sara-owner0-k3y4chat0001'))).toEqual(['README.md']);
   });
 });

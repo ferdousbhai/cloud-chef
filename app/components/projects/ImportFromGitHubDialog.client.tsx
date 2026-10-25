@@ -185,7 +185,7 @@ export function ImportFromGitHubDialog({
                 loading={installing}
                 onClick={() => void install()}
               >
-                {installed.length > 0 ? 'Add an account or repositories on GitHub' : 'Install the CloudChef GitHub App'}
+                {installed.length > 0 ? 'Add GitHub accounts or repositories' : 'Install the CloudChef GitHub App'}
               </Button>
             </div>
           )}
@@ -236,7 +236,7 @@ function ImportedProject({
         ),
       );
     } catch (cause) {
-      setError(messageOf(cause, "That couldn't be changed. Try again."));
+      setError(messageOf(cause, "The site couldn't be switched to go live from CloudChef. Try again."));
     } finally {
       setSwitching(false);
     }

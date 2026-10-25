@@ -1729,11 +1729,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           message: `${message}\n\nCloudChef-Revision: ${checkpoint.revision}`,
         });
         if (!commit) {
-          return toolFailure('The project changed while it was being committed. Commit again.');
+          return toolFailure('The project changed while it was being saved. Save again.');
         }
         return commit.unchanged
-          ? toolSuccess(`Nothing to commit: main (${commit.hash.slice(0, 7)}) already has these files.`, commit)
-          : toolSuccess(`Committed ${commit.hash.slice(0, 7)} to main.`, commit);
+          ? toolSuccess(`This version is already saved (${commit.hash.slice(0, 7)}).`, commit)
+          : toolSuccess(`Saved version ${commit.hash.slice(0, 7)}.`, commit);
       },
     };
   }
@@ -1798,9 +1798,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const repo = project.repo;
     const { changes, manifest, heldBack } = await linkedWorkspaceChanges(this.workspace, linked);
     if (changes.length === 0) {
-      return toolFailure(
-        `Nothing has changed in ${name} yet, so there was nothing to send.` + linkedHeldBackNote(heldBack),
-      );
+      return toolFailure(`There are no new changes to ${name} to send.` + linkedHeldBackNote(heldBack));
     }
     const repositories = this.repositories();
     const author = project.member ?? (await this.commitAuthor());
@@ -1840,8 +1838,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if ('conflict' in merged) {
         return toolFailure(
           `${linked.defaultBranch} changed since this workspace was opened, and the changes overlap. Nothing went ` +
-            `live. The work is saved on the branch ${branch} of ${name}. A new chat for this project opens the ` +
-            'latest version: tell the person to start one and ask for the change again.',
+            `live. The work is saved on the branch ${branch} of ${name}, but this chat's workspace stays on its old ` +
+            'base, and so do its new conversations. Tell the person that to make the change on the latest version ' +
+            'they delete this chat, open the project again from Projects, and ask for it again.',
           { branch, commit: committed.commit, conflict: true, defaultBranch: linked.defaultBranch },
         );
       }

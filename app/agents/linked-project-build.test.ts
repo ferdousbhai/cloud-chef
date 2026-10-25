@@ -134,11 +134,9 @@ describe("a team project's publish", () => {
       }),
       linkedBuildUnfollowedResult(withSecrets),
     ]) {
-      expect(result.summary).toContain(
-        'Not sent, as local secrets CloudChef never publishes: .env, config/.env.production.',
-      );
+      expect(result.summary).toContain('Secret settings files are never sent: .env, config/.env.production.');
     }
-    expect(linkedBuildStartedResult(watch).summary).not.toContain('Not sent');
+    expect(linkedBuildStartedResult(watch).summary).not.toContain('never sent');
     expect(linkedHeldBackNote(['a', 'b', 'c', 'd', 'e', 'f', 'g'])).toContain(': a, b, c, d, e and 2 more.');
   });
 

@@ -115,7 +115,7 @@ export function OrgProjectsSection({
               <MenuItem action={connect}>Connect GitHub</MenuItem>
             ) : (
               <>
-                <MenuItem action={connect}>Add or change GitHub accounts</MenuItem>
+                <MenuItem action={connect}>Add GitHub accounts or repositories</MenuItem>
                 {github.map((account) => (
                   <MenuItem key={account.installationId} danger action={() => setDisconnecting(account)}>
                     Disconnect {account.accountLogin}

@@ -41,16 +41,16 @@ function PrivacyPage() {
             on, used only to import repositories
           </li>
           <li>
-            production requests: a draft&apos;s title, note, preview URL, and which saved version of it was sent, and
-            then the decision
+            team project requests (asking for a draft to become a team project): its title, note, preview URL, and which
+            saved version of it was sent, and then the decision
           </li>
           <li>
             when you sent each team invite and created each team, kept for 30 days because they count toward the limits
             on invites and teams, even after the invite is revoked or the team deleted
           </li>
           <li>
-            each account&apos;s model settings (the model new chats start on) and your choice whether AI Gateway logs
-            your model requests
+            each account&apos;s model settings (the model new chats start on, and which models the picker offers) and
+            your choice whether AI Gateway logs your model requests
           </li>
           <li>hashed authentication sessions and emailed sign-in links</li>
           <li>encrypted OAuth credentials</li>
@@ -103,12 +103,12 @@ function PrivacyPage() {
           Admins see each member&apos;s name, email, role, and this month&apos;s count of model turns and tokens in the
           team&apos;s account. Those counts contain no prompt, response, or project content. An admin can pause a
           member, who then cannot open their workspace or use the team&apos;s Cloudflare authorization, or remove them,
-          which also deletes their workspace from the team&apos;s account and declines their open production requests;
+          which also deletes their workspace from the team&apos;s account and declines their open team project requests;
           applications they deployed stay there. An admin can rename the team or delete it. Deleting a team deletes
           every member&apos;s workspace from its Cloudflare account, revokes CloudChef&apos;s authorization there unless
           another space, a person&apos;s own or another team&apos;s, still builds in that account, and removes the
-          team&apos;s records from CloudChef: its members, invites, usage counts, GitHub connections, projects, and
-          production requests. The projects&apos; code and history in the account&apos;s Artifacts, and applications
+          team&apos;s records from CloudChef: its members, invites, usage counts, GitHub connections, projects, and team
+          project requests. The projects&apos; code and history in the account&apos;s Artifacts, and applications
           deployed from it with their databases and storage, stay in the Cloudflare account; repositories imported from
           GitHub and CloudChef&apos;s GitHub App stay on GitHub until removed there.
         </p>
@@ -196,17 +196,17 @@ function PrivacyPage() {
           account’s AI Gateway to that provider, which bills that key and handles the content under the account’s
           agreement with it. The key is kept in the account’s Cloudflare Secrets Store and attached to its AI Gateway;
           CloudChef passes a pasted key to Cloudflare once and never stores, logs, or reads it, and removing a key
-          CloudChef added deletes it from the Secrets Store. A team’s admins also choose the model new chats start on.
-          Every request goes through the account’s default AI Gateway. Unless you turn it off, the gateway logs each
-          request in that account: what was sent (the prompt, conversation context, and project files) and the model’s
-          reply, labelled with the conversation and the person who sent it, so the account can review what a
-          conversation did. The logs follow AI Gateway’s retention settings in that account, and anyone with access to
-          the account can read them, which for a team includes its admins; CloudChef’s operator receives no copy. You
-          can turn this logging off under AI request logs in Settings. It is your own choice, wherever you build, and it
-          applies to your later requests: they still go through the gateway but are not logged and carry no conversation
-          or person label. Logs already recorded stay in the account until its AI Gateway retention removes them or
-          someone with access deletes them in the Cloudflare dashboard. AI Gateway caching is skipped for every request.
-          Cloudflare describes its handling of Workers AI content in its{' '}
+          CloudChef added deletes it from the Secrets Store. A team’s admins also choose the model new chats start on
+          and which models the picker offers. Every request goes through the account’s default AI Gateway. Unless you
+          turn it off, the gateway logs each request in that account: what was sent (the prompt, conversation context,
+          and project files) and the model’s reply, labelled with the conversation and the person who sent it, so the
+          account can review what a conversation did. The logs follow AI Gateway’s retention settings in that account,
+          and anyone with access to the account can read them, which for a team includes its admins; CloudChef’s
+          operator receives no copy. You can turn this logging off under AI request logs in Settings. It is your own
+          choice, wherever you build, and it applies to your later requests: they still go through the gateway but are
+          not logged and carry no conversation or person label. Logs already recorded stay in the account until its AI
+          Gateway retention removes them or someone with access deletes them in the Cloudflare dashboard. AI Gateway
+          caching is skipped for every request. Cloudflare describes its handling of Workers AI content in its{' '}
           <a href="https://developers.cloudflare.com/workers-ai/platform/data-usage/">Workers AI data-usage notice</a>.
           CloudChef does not use AI to make decisions that produce legal or similarly significant effects about you.
         </p>
@@ -298,7 +298,7 @@ function PrivacyPage() {
           <li>encrypted Cloudflare credentials</li>
           <li>connection metadata, granted scopes, and model settings</li>
           <li>your runtime locators and team memberships</li>
-          <li>your production requests, and GitHub connections and approvals you started</li>
+          <li>your team project requests, and GitHub connections and approvals you started</li>
           <li>
             the records of when you sent team invites and created teams, so a team&apos;s daily invite limit stops
             counting the invites you sent
@@ -328,7 +328,7 @@ function PrivacyPage() {
           <li>your runtime locators</li>
           <li>your team memberships, invites addressed to you, and your daily usage counts</li>
           <li>when you sent each team invite and created each team, while those records are kept</li>
-          <li>your own projects and the team projects you were given, and the production requests you sent</li>
+          <li>your own projects and the team projects you were given, and the team project requests you sent</li>
           <li>GitHub connections and approvals you started, and sign-in links emailed to you</li>
           <li>your authentication-session and OAuth-state records</li>
         </ul>
