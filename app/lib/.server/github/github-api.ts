@@ -8,6 +8,8 @@ export class GitHubError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** GitHub limiting how often it is asked (a 429, or a 403 with no requests left or a wait): it passes. */
+    readonly rateLimited = false,
   ) {
     super(message);
   }
@@ -67,7 +69,11 @@ export async function withGitHubFailure<T>(
 async function parseGitHubResponse<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
   if (!response.ok) {
     await response.body?.cancel();
-    throw new GitHubError(`GitHub refused the request (${response.status}).`, response.status);
+    const rateLimited =
+      response.status === 429 ||
+      (response.status === 403 &&
+        (response.headers.get('x-ratelimit-remaining') === '0' || response.headers.has('retry-after')));
+    throw new GitHubError(`GitHub refused the request (${response.status}).`, response.status, rateLimited);
   }
   const parsed = schema.safeParse(await response.json().catch(() => null));
   if (!parsed.success) {

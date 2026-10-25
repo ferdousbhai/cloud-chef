@@ -590,8 +590,8 @@ export class ProjectRepositories {
         const passing = /^HTTP 5\d\d\b/.test(result.reason);
         throw new ProjectRepositoryError(
           passing
-            ? 'Cloudflare did not accept the copied history just now, so nothing was imported. Try again.'
-            : 'Cloudflare did not accept the copied history, so nothing was imported.',
+            ? "Cloudflare did not accept the copied history just now, so the code wasn't copied. Try again."
+            : "Cloudflare did not accept the copied history, so the code wasn't copied.",
           passing ? 'unavailable' : 'refused',
         );
       }

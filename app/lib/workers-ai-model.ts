@@ -271,8 +271,8 @@ export function modelIdLabel(modelId: string): string {
   return (
     modelId
       .slice(modelId.lastIndexOf('/') + 1)
-      // A version written with dashes (claude-opus-5-5) reads as one number (5.5).
-      .replace(/(?<=\d)-(?=\d+(?:-|$))/g, '.')
+      // A version written with dashes (claude-opus-5-5) reads as one number (5.5); a date after it stays apart.
+      .replace(/(?<=(?:^|-)\d{1,2})-(?=\d{1,2}(?:-|$))/g, '.')
       .split('-')
       .map((part) => (/^\d/.test(part) ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
       .join(' ')

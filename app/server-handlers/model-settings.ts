@@ -225,7 +225,7 @@ export function updateDefaultModelAction({ request, env }: RequestArgs) {
           'The default model has to be one the picker offers. Allow it under "Models in the picker" first.',
         );
       }
-      return modelsResponse(await readBuilderModelSettings(env.DB, connection.id));
+      return settingsResponse(await readBuilderModelSettings(env.DB, connection.id));
     },
     { manage: true },
   );
@@ -264,7 +264,7 @@ export function updateAllowedModelsAction({ request, env }: RequestArgs) {
             'out, choose another default model first.',
         );
       }
-      return modelsResponse(await readBuilderModelSettings(env.DB, connection.id));
+      return settingsResponse(await readBuilderModelSettings(env.DB, connection.id));
     },
     { manage: true },
   );
@@ -375,15 +375,11 @@ async function gatewayKeysStatus(api: GatewayKeyAccountApi): Promise<GatewayKeys
   }
 }
 
-function settingsResponse(body: BuilderModelSettings & { canManage: boolean; keys: GatewayKeysStatus }): Response {
+/** Settings as Settings reads them: the whole card's, or only the model choices after a change. */
+function settingsResponse(body: BuilderModelSettings & { canManage?: boolean; keys?: GatewayKeysStatus }): Response {
   return Response.json(body, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
-function modelsResponse(models: BuilderModelSettings): Response {
-  return Response.json(models, { headers: { 'Cache-Control': 'private, no-store' } });
-}
-
-/** A change refused because it would leave the default model out of the picker, with the settings as they are. */
 /** A choice the default model rules out; the card reloads the settings to show what stands. */
 function modelsRefused(error: string): Response {
   return Response.json({ error }, { status: 409, headers: { 'Cache-Control': 'private, no-store' } });

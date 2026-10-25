@@ -14,7 +14,6 @@ import {
 } from '~/lib/stores/builder-model.client';
 import {
   CLOUDFLARE_WORKERS_AI_MODEL,
-  isBuilderModelAllowed,
   type BuilderModel,
   GATEWAY_PROVIDERS,
   GATEWAY_PROVIDER_SLUGS,
@@ -236,12 +235,12 @@ export function ModelsCard() {
               disabled={!settings.canManage || busy}
               onChange={(event) => void chooseDefault(event.target.value)}
             >
-              <option
-                value={CLOUDCHEF_DEFAULT}
-                disabled={!isBuilderModelAllowed(settings, CLOUDFLARE_WORKERS_AI_MODEL)}
-              >
-                CloudChef’s default ({modelIdLabel(CLOUDFLARE_WORKERS_AI_MODEL)})
-              </option>
+              {/* While models are chosen one by one the default is a model on the list, by name. */}
+              {settings.allowedModelIds === null ? (
+                <option value={CLOUDCHEF_DEFAULT}>
+                  CloudChef’s default ({modelIdLabel(CLOUDFLARE_WORKERS_AI_MODEL)})
+                </option>
+              ) : null}
               {choices.map((model) => {
                 const provider = isBuilderModelId(model.id) ? gatewayModelProvider(model.id) : null;
                 return (

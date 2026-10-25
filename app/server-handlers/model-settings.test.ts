@@ -1014,8 +1014,9 @@ describe('the models the picker offers', () => {
     ).toMatchObject({ allowedModelIds: [CLOUDFLARE_WORKERS_AI_MODEL, OPUS] });
 
     const everything = await allowed(admin.cookie, null, env);
-    expect(await everything.json()).toEqual({ defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, allowedModelIds: null });
-    expect(stored(database)).toEqual({ model: CLOUDFLARE_WORKERS_AI_MODEL, allowed: null });
+    // Back to every model, the pin's default follows CloudChef's pin again.
+    expect(await everything.json()).toEqual({ defaultModelId: null, allowedModelIds: null });
+    expect(stored(database)).toEqual({ model: null, allowed: null });
   });
 
   it('always include the default model: a list without it, or a default not on the list, is refused', async () => {

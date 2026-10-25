@@ -170,10 +170,10 @@ function RequestProduction({
           description={
             admin
               ? sent
-                ? 'Your request waiting in Settings is replaced with this version, unless approving it has started.'
+                ? 'Your request waiting in Settings is replaced with this version, unless it has already been approved.'
                 : 'Make this app a team project, so you can share it with others on your team. You approve it in Settings.'
               : sent
-                ? 'Your request waiting for review is replaced with this version, unless an admin has started approving it.'
+                ? 'Your request waiting for review is replaced with this version, unless an admin has already approved it.'
                 : "Ask your team's admins to make this app a team project. Once they approve it, you can keep working on it and they can share it with others on your team."
           }
           onClose={close}

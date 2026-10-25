@@ -195,14 +195,14 @@ export function AccountDataCard() {
           <details className="text-xs text-content-secondary">
             <summary className="cursor-pointer text-content-secondary">What’s included?</summary>
             <p className="mt-1">
-              Your identity and email and your AI request logs setting; your own Cloudflare connection (its permissions
-              and default model) and when CloudChef stored and last renewed its access to that Cloudflare account, which
-              everyone building there shares, so someone else may have given it; your workspaces; your teams, the
-              invites sent to you, your model use there, and the team projects you were given; the requests you made to
-              publish a team project, with which saved version of it was sent; GitHub connections and approvals you
-              started; emailed sign-in links; and sign-in and authorization session records. Credentials, credential
-              handles, encryption vectors, session tokens, and the hashes links and invites are checked against are
-              excluded.
+              Your identity and email and your AI request logs setting; your own Cloudflare connection (its permissions,
+              default model, and which models the picker offers) and when CloudChef stored and last renewed its access
+              to that Cloudflare account, which everyone building there shares, so someone else may have given it; your
+              workspaces; your teams, the invites sent to you, your model use there, and the team projects you were
+              given; the requests you made to publish a team project, with which saved version of it was sent; GitHub
+              connections and approvals you started; emailed sign-in links; and sign-in and authorization session
+              records. Credentials, credential handles, encryption vectors, session tokens, and the hashes links and
+              invites are checked against are excluded.
             </p>
             <p className="mt-2">
               Chats, transcripts, project files, and deployment records are not included. They live in the Cloudflare
@@ -318,8 +318,9 @@ export function AccountDataCard() {
         <Modal title="Delete your CloudChef account data?" onClose={phase === 'deleting' ? undefined : cancelDeletion}>
           <div className="grid gap-3 text-sm text-content-secondary">
             <p>
-              Permanently erases your CloudChef account record, sessions, and stored credentials, and requests
-              revocation of CloudChef’s access. Signing in again creates an empty account.
+              Permanently erases your CloudChef account record and sessions, and asks Cloudflare to revoke CloudChef’s
+              access, unless others still build in that Cloudflare account with it: then the access and its stored
+              credentials are kept for them. Signing in again creates an empty account.
             </p>
             <ul className="grid list-disc gap-1.5 pl-5">
               <li>

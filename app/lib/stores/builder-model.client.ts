@@ -190,8 +190,10 @@ function requestBuilderModelCatalog(init: RequestInit): Promise<void> {
   const requestNumber = ++catalogRequests;
   const superseded = () => requestNumber !== catalogRequests;
   builderModelCatalogStatusStore.set('loading');
+  let answered = false;
   const operation: Promise<void> = fetchUserRuntime('/v1/models', { ...init, headers: { Accept: 'application/json' } })
     .then(async (response) => {
+      answered = true;
       const body: unknown = await response.json().catch(() => null);
       const parsed = builderModelCatalogPayloadSchema.safeParse(body);
       const payload = parsed.success ? validateBuilderModelCatalogPayload(parsed.data) : null;
@@ -210,6 +212,10 @@ function requestBuilderModelCatalog(init: RequestInit): Promise<void> {
     })
     .catch(() => {
       if (!superseded()) {
+        // A fetch that never answered says nothing about an earlier refusal, which may be fixed by now.
+        if (!answered) {
+          builderModelCatalogRefusalStore.set(null);
+        }
         builderModelCatalogStatusStore.set(catalogInstalled ? 'stale' : 'error');
       }
     })

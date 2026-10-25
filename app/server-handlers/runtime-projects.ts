@@ -154,15 +154,14 @@ async function importSourceFor(
   } catch (error) {
     // GitHub saying no about this repository. A 401 is CloudChef's own App failing to sign in, which the
     // person can't fix, so it is treated as an outage below.
-    if (error instanceof GitHubError && [403, 404, 422].includes(error.status)) {
+    if (error instanceof GitHubError && !error.rateLimited && [403, 404, 422].includes(error.status)) {
       return json(
         {
           code: 'github_refused',
           error:
             error.status === 403
-              ? "GitHub refused CloudChef's GitHub App access to this repository. On GitHub, check that the App may " +
-                'read it, then try again.'
-              : "CloudChef's GitHub App can no longer reach this repository. Give it access on GitHub, then try again.",
+              ? `GitHub refused CloudChef's GitHub App access to this repository. To fix it, ${GITHUB_ACCESS_FIX}, then try again.`
+              : `CloudChef's GitHub App can no longer reach this repository. To fix it, ${GITHUB_ACCESS_FIX}, then try again.`,
         },
         502,
       );
@@ -290,8 +289,12 @@ export async function runtimeAbandonImportAction(args: { request: Request; env: 
   if (authenticated instanceof Response) {
     return authenticated;
   }
-  const { body, identity } = authenticated;
-  const removed = await abandonImport(args.env.DB, body.orgProjectId, identity.userId);
+  const { body, identity, connection } = authenticated;
+  const removed = await abandonImport(args.env.DB, {
+    projectId: body.orgProjectId,
+    userId: identity.userId,
+    connectionId: connection.id,
+  });
   return json({ removed }, 200);
 }
 

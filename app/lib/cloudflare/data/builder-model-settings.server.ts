@@ -96,7 +96,9 @@ export async function setAllowedBuilderModels(
     .prepare(
       `UPDATE cloudflare_connections
        SET allowed_builder_models_json = ?1,
-           default_builder_model = CASE WHEN ?1 IS NULL THEN default_builder_model
+           -- Back to every model, a default that is the pin again follows CloudChef's pin from then on.
+           default_builder_model = CASE
+             WHEN ?1 IS NULL THEN NULLIF(default_builder_model, ?3)
              ELSE COALESCE(default_builder_model, ?3) END
        WHERE id = ?2
          AND (?1 IS NULL

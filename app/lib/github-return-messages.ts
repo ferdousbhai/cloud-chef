@@ -25,4 +25,4 @@ export function gitHubReturnMessageText(code: string): string | null {
 
 /** Where a person gives CloudChef's GitHub App another account or repository, said in errors that need it. */
 export const GITHUB_ACCESS_FIX =
-  "give CloudChef's GitHub App access from Import from GitHub, or for a team in Settings, in the menu beside the team's projects";
+  "give CloudChef's GitHub App access from Import from GitHub (in a team, an admin does this in Settings, from the menu beside the team's projects)";

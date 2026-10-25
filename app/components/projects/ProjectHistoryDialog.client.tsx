@@ -110,7 +110,7 @@ export function ProjectHistoryDialog({
       const { changed } = await revert(commit.hash);
       toast.success(
         !changed
-          ? `The project already matches version ${shortCommit(commit.hash)}, so nothing changed.`
+          ? `${ownApp ? 'The project' : "This chat's copy"} already matches version ${shortCommit(commit.hash)}, so nothing changed.`
           : ownApp
             ? `Restored version ${shortCommit(commit.hash)}. Your app is being published with it.`
             : `This chat's copy is back to version ${shortCommit(commit.hash)}. Ask the agent to publish it to put it live.`,
@@ -158,7 +158,7 @@ export function ProjectHistoryDialog({
         ) : (
           <>
             {canRevert && !revert ? (
-              <p className="mb-3 text-xs text-content-tertiary">Open the project to go back to a version.</p>
+              <p className="mb-3 text-xs text-content-tertiary">Open the project to restore a version.</p>
             ) : null}
             <ol className="grid gap-2" aria-label="Versions">
               {commits.map((commit) => {

@@ -42,7 +42,7 @@ function PrivacyPage() {
           </li>
           <li>
             team project requests (asking for a draft to become a team project): its title, note, preview URL, and which
-            saved version of it was sent, and then the decision
+            saved version of it was sent; once an admin decides, only its title, that version and the decision are kept
           </li>
           <li>
             when you sent each team invite and created each team, kept for 30 days because they count toward the limits

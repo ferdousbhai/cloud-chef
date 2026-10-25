@@ -9,6 +9,7 @@ import {
   registerProjectImport,
 } from '~/lib/.server/cloudflare/linked-project-client';
 import {
+  importedProjectRepo,
   MAIN_BRANCH,
   nativeProjectRepo,
   ProjectRepositories,
@@ -18,6 +19,7 @@ import type { DataOperationResult, ProjectCloneAccess, ProjectCommit } from '~/l
 import { ensureInitialChat, findChat, openLinkedChat } from './chat-repository.server';
 import { cloneToken } from './clone-tokens.server';
 import { DataNotFoundError, ProjectForbiddenError, ProjectRepositoryFailureError } from './errors';
+import { GITHUB_ACCESS_FIX } from '~/lib/github-return-messages';
 
 /**
  * A project's history and its ways out, for the browser: its commits, a clone command, a ZIP of any
@@ -209,7 +211,7 @@ export async function importProject(
     });
   } catch (error) {
     // The project is registered already, so importing the address again is refused. A copy that may pass is
-    // finished by opening the project; one that never will leaves the project to remove.
+    // finished by opening the project; one that never will is taken back, with what it left in Artifacts.
     const permanent =
       error instanceof ProjectRefusalError || (error instanceof ProjectRepositoryError && error.code !== 'unavailable');
     const reason =
@@ -218,13 +220,28 @@ export async function importProject(
       error instanceof ProjectUnavailableError
         ? error.message.replace(/ Try again\.$/, '')
         : "Copying the project's code stopped partway.";
-    if (permanent && (await abandonProjectImport(env, identity, registered.projectId))) {
-      throw new ProjectRepositoryFailureError(`${reason} Nothing was added.`, 409);
+    if (!permanent) {
+      throw new ProjectRepositoryFailureError(
+        `${reason} The project was added: open it from your projects to finish copying it.`,
+        503,
+      );
     }
-    throw new ProjectRepositoryFailureError(
-      `${reason} The project was added: open it from your projects to finish copying it.`,
-      permanent ? 409 : 503,
-    );
+    if (await abandonProjectImport(env, identity, registered.projectId)) {
+      await repositories(env)
+        .deleteRepo(importedProjectRepo(registered.projectId))
+        .catch(() => undefined);
+      // A repository no longer public is imported again through GitHub; nothing is left to remove first.
+      const noLongerPublic =
+        error instanceof ProjectRepositoryError && (error.code === 'auth_required' || error.code === 'not_found');
+      throw new ProjectRepositoryFailureError(
+        noLongerPublic
+          ? "That repository wasn't found: it was removed, or it isn't public. To import a private repository, " +
+              `${GITHUB_ACCESS_FIX} first. Nothing was added.`
+          : `${reason} Nothing was added.`,
+        409,
+      );
+    }
+    throw new ProjectRepositoryFailureError(`${reason} The project was added, but its code can't be copied.`, 409);
   }
   const { initialId } = await openLinkedChat(env.DB, {
     sessionId: args.sessionId,

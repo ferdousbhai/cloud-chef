@@ -25,8 +25,8 @@ export function NewModelsNotice() {
       {unavailable ? (
         <Notice onDismiss={dismissUnavailableBuilderModel}>
           <span className="font-semibold text-content-warning">Model changed:</span> {unavailable.label} isn’t offered
-          in this account any more, so new messages use {unavailable.replacementLabel}. An admin chooses the models in
-          Settings, under Models.
+          in this account any more, so new messages use {unavailable.replacementLabel}. The models are chosen in
+          Settings, under Models, by a team admin, or by you in your own space.
         </Notice>
       ) : null}
       {newModels.length > 0 ? (

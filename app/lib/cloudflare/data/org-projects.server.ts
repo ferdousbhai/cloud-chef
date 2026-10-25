@@ -348,14 +348,25 @@ export async function recordImportedRepo(db: D1Database, projectId: string, repo
   return row?.artifact_repo === repo;
 }
 
+/** How long after registering an import its importer may still take it back. */
+const ABANDON_IMPORT_WINDOW_MS = 60 * 60_000;
+
 /**
- * Takes back an import its importer just registered whose code can never be copied, so importing the address
- * again starts afresh. Only theirs, and only while it has no repository.
+ * Takes back an import its importer just registered, in the connection they register from, whose code can
+ * never be copied, so importing the address again starts afresh. Only theirs, only an import made within the
+ * hour, and only while it has no repository.
  */
-export async function abandonImport(db: D1Database, projectId: string, userId: string): Promise<boolean> {
+export async function abandonImport(
+  db: D1Database,
+  args: { projectId: string; userId: string; connectionId: string },
+): Promise<boolean> {
   const removed = await db
-    .prepare('DELETE FROM org_projects WHERE id = ? AND created_by = ? AND artifact_repo IS NULL')
-    .bind(projectId, userId)
+    .prepare(
+      `DELETE FROM org_projects
+       WHERE id = ? AND created_by = ? AND connection_id = ? AND origin = 'imported' AND artifact_repo IS NULL
+         AND created_at > ?`,
+    )
+    .bind(args.projectId, args.userId, args.connectionId, Date.now() - ABANDON_IMPORT_WINDOW_MS)
     .run();
   return removed.meta.changes === 1;
 }

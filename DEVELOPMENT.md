@@ -62,8 +62,10 @@ license diligence but do not replace legal review.
 Vite plugin and deployed with the `cf` CLI. It contains one D1 binding (`DB`, schema in `migrations/`) holding:
 
 - people, sign-in sessions, and sign-in state (Cloudflare OAuth, Google, and emailed-link tokens);
-- Cloudflare connections: each one's OAuth grant (its access and refresh tokens encrypted as the connection's
-  credential, beside the requested and granted scopes) and default builder model (`default_builder_model`);
+- Cloudflare connections, one per space (a person's own, or a team's), with its generation, default builder model
+  (`default_builder_model`) and the models its picker offers (`allowed_builder_models_json`); and one OAuth
+  authorization per Cloudflare account (`cloudflare_authorizations`: its access and refresh tokens encrypted as a
+  credential, beside the granted scopes), shared by every space building in that account;
 - teams (organizations), their members and invites, daily per-member model usage (`organization_usage_daily`), and
   the invites sent and teams created that count toward their limits (`organization_quota_events`);
 - projects (each a connection's, personal or a team's): their Artifacts repository or the GitHub repository they

@@ -1242,7 +1242,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       throw new Response('Invalid commit.', { status: 400 });
     }
     if (this.state.activeTurn || this.startingTurns > 0) {
-      throw new Response('Stop the builder before reverting.', { status: 409 });
+      throw new Response('Stop the agent before restoring a version.', { status: 409 });
     }
     await this.refuseIfClosed();
     const linked = await this.workspace.linkedProject();
@@ -1824,7 +1824,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     });
     if ('conflict' in committed) {
       return toolFailure(
-        'Another save of these changes happened at the same moment, so nothing was sent. Publish again.',
+        `Another save of these changes happened at the same moment, so nothing was sent. ${input.live ? 'Publish' : 'Ask for the preview'} again.`,
       );
     }
     let published = committed.commit;

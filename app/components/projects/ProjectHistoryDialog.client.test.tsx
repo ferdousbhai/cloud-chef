@@ -137,7 +137,7 @@ describe('ProjectHistoryDialog', () => {
     await render({ canRevert: true, canFork: true });
 
     expect(document.querySelector('button[aria-label^="Restore"]')).toBeNull();
-    expect(document.body.textContent).toContain('Open the project to go back to a version');
+    expect(document.body.textContent).toContain('Open the project to restore a version');
   });
 
   it('forks from a commit and opens the new project', async () => {

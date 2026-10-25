@@ -310,7 +310,10 @@ describe('ProjectRepositories', () => {
     await artifacts.addSource('https://github.com/acme/site.git', { 'a.txt': 'one' });
     await expect(
       repositories.importFromUrl({ url: 'https://github.com/acme/site.git', branch: 'gone', repo: 't-9' }),
-    ).rejects.toMatchObject({ code: 'not_found', message: expect.stringContaining('no branch gone') });
+    ).rejects.toMatchObject({
+      code: 'not_found',
+      message: expect.stringContaining('its main version (gone) is gone from GitHub'),
+    });
   });
 
   it('leaves the repository empty when the copy is cut off partway, and the next import completes it', async () => {

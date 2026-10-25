@@ -40,7 +40,7 @@ export async function readSourceBranch(fetchGit: GitFetch, source: GitSource, br
   const advertisement = await sourceRequest(fetchGit, source, '/info/refs?service=git-upload-pack', {});
   const lines = [...readPktLines(await sourceBytes(advertisement, MAX_ADVERTISEMENT_BYTES))].map(text);
   if (!lines.includes('version 2')) {
-    throw new GitSourceError('refused', "the repository's host does not speak git's protocol version 2");
+    throw new GitSourceError('refused', "the repository's host answered in a way CloudChef can't read");
   }
   const wanted = `refs/heads/${branch}`;
   const body = concatBytes([pktLine('command=ls-refs\n'), delimiter(), pktLine(`ref-prefix ${wanted}\n`), flush()]);
@@ -51,7 +51,8 @@ export async function readSourceBranch(fetchGit: GitFetch, source: GitSource, br
       return oid;
     }
   }
-  throw new GitSourceError('not_found', `the repository has no branch ${branch.slice(0, 256)}`);
+  // The branch is the one GitHub showed as the repository's default when the project was added.
+  throw new GitSourceError('not_found', `its main version (${branch.slice(0, 256)}) is gone from GitHub`);
 }
 
 /** A source's small answer, read within its bound; a read that breaks off or runs over is the source's failure. */
