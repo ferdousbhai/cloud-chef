@@ -143,7 +143,7 @@ export function ProjectHistoryDialog({
           </p>
         ) : commits.length === 0 ? (
           <p className="text-sm text-content-secondary">
-            No saved versions yet. A version is saved here each time this project is published.
+            No saved versions yet. When you&apos;re happy with a change, ask the agent to save a version.
           </p>
         ) : (
           <>
