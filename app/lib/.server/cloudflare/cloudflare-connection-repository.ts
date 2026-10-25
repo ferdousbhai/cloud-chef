@@ -126,28 +126,28 @@ export async function findCloudflareAuthorization(
 
 /**
  * Whether `userId` runs every space building in `accountId` other than `owner`'s (the one they are
- * connecting): each is their own or a team they are an active admin of. Only then may they replace the
- * account's working authorization, which all of those spaces use; one that no longer works anyone
- * connecting there may replace.
+ * connecting): each is their own or a team they are an active admin of. Only then may they bring a space
+ * into that account while its authorization, which all of those spaces use, still works. `userId` is null
+ * for someone signing in with Cloudflare for the first time, who runs no space yet.
  */
 export async function runsEveryOtherSpaceInAccount(
   db: D1Database,
-  args: { userId: string; owner: CloudflareConnectionOwner; accountId: string },
+  args: { userId: string | null; owner: CloudflareConnectionOwner | null; accountId: string },
 ): Promise<boolean> {
+  const notTheirs = args.owner ? `AND connections.${ownerColumn(args.owner)} IS NOT ?2` : '';
   const row = await db
     .prepare(
       `SELECT COUNT(*) AS others
        FROM cloudflare_connections AS connections
-       WHERE connections.account_id = ?1 AND connections.status = 'active'
-         AND connections.${ownerColumn(args.owner)} IS NOT ?2
-         AND (connections.user_id IS NULL OR connections.user_id <> ?3)
+       WHERE connections.account_id = ?1 AND connections.status = 'active' ${notTheirs}
+         AND connections.user_id IS NOT ?3
          AND NOT EXISTS (
            SELECT 1 FROM organization_members AS members
            WHERE members.org_id = connections.org_id AND members.user_id = ?3
              AND members.role = 'admin' AND members.paused_at IS NULL
          )`,
     )
-    .bind(args.accountId, ownerId(args.owner), args.userId)
+    .bind(args.accountId, args.owner ? ownerId(args.owner) : null, args.userId)
     .first<{ others: number }>();
   return (row?.others ?? 0) === 0;
 }
@@ -181,13 +181,9 @@ export function deleteUnusedCloudflareAuthorization(db: D1Database, accountId: s
     .bind(accountId);
 }
 
-/**
- * No authorization names the stored credential whose handle is `handle`, an SQL expression. The second clause
- * covers the per-space credential column the release before this one wrote, until the release after drops it.
- */
+/** No authorization names the stored credential whose handle is `handle`, an SQL expression. */
 export function credentialUnreferenced(handle: string): string {
-  return `NOT EXISTS (SELECT 1 FROM cloudflare_authorizations WHERE credential_handle = ${handle})
-         AND NOT EXISTS (SELECT 1 FROM cloudflare_connections WHERE credential_handle = ${handle})`;
+  return `NOT EXISTS (SELECT 1 FROM cloudflare_authorizations WHERE credential_handle = ${handle})`;
 }
 
 /** No authorization names the stored credential the handle bound as `?1` names. */
@@ -196,9 +192,11 @@ export const CREDENTIAL_UNREFERENCED = credentialUnreferenced('?1');
 /**
  * Connects `owner`'s space to the account, or reconnects it, with a new authorization: the space advances
  * its own generation (expected to still be `expectedGeneration`, null for a first connection), and the
- * account's authorization, which every space building in that account uses, becomes this one. Both are
- * written together or not at all. Other spaces keep their generation, so their workspaces carry on and
- * use the new authorization from their next call.
+ * account's authorization, which every space building in that account uses, becomes this one in place of
+ * `replacedCredentialHandle`, the one the caller read (null when the account had none). All of it is
+ * written together or not at all: when the space or the account's authorization changed in between,
+ * nothing is, and `CloudflareConnectionChangedError` says so. Other spaces keep their generation, so their
+ * workspaces carry on and use the new authorization from their next call.
  */
 export async function activateCloudflareConnection(args: {
   db: D1Database;
@@ -208,45 +206,72 @@ export async function activateCloudflareConnection(args: {
   credentialHandle: string;
   grantedOAuthScopes: string[];
   expectedGeneration: number | null;
+  replacedCredentialHandle: string | null;
 }): Promise<void> {
   const now = Date.now();
   const connectionId = crypto.randomUUID();
   const grantedScopesJson = JSON.stringify(args.grantedOAuthScopes);
   const intendedGeneration = args.expectedGeneration === null ? 1 : args.expectedGeneration + 1;
   const owner = ownerColumn(args.owner);
+  // The account's authorization first, only while the space is as the caller read it and the account still
+  // has the authorization they read (compare-and-set).
+  const spaceAsRead =
+    args.expectedGeneration === null
+      ? `NOT EXISTS (SELECT 1 FROM cloudflare_connections WHERE ${owner} = ?1)`
+      : `EXISTS (SELECT 1 FROM cloudflare_connections WHERE ${owner} = ?1 AND connection_generation = ?7)`;
+  const authorization = args.db
+    .prepare(
+      `INSERT INTO cloudflare_authorizations (account_id, credential_handle, granted_oauth_scopes_json, created_at, updated_at)
+       SELECT ?2, ?5, ?6, ?4, ?4 WHERE ${spaceAsRead}
+       ON CONFLICT(account_id) DO UPDATE SET
+         credential_handle = excluded.credential_handle,
+         granted_oauth_scopes_json = excluded.granted_oauth_scopes_json,
+         updated_at = excluded.updated_at
+       WHERE cloudflare_authorizations.credential_handle IS ?3`,
+    )
+    .bind(
+      ownerId(args.owner),
+      args.accountId,
+      args.replacedCredentialHandle,
+      now,
+      args.credentialHandle,
+      grantedScopesJson,
+      ...(args.expectedGeneration === null ? [] : [args.expectedGeneration]),
+    );
+  // Then the space, only once the account's authorization is this one: the batch is one transaction. Its own
+  // credential column, which only the release before 0035 wrote, is left empty.
+  const authorized =
+    'EXISTS (SELECT 1 FROM cloudflare_authorizations WHERE account_id = ?2 AND credential_handle = ?3)';
   const space =
     args.expectedGeneration === null
       ? args.db
           .prepare(
             `INSERT INTO cloudflare_connections (
                id, ${owner}, account_id, account_name, status, connected_at, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
+             ) SELECT ?4, ?1, ?2, ?5, 'active', ?6, ?6, ?6 WHERE ${authorized}
              ON CONFLICT(${owner}) DO NOTHING`,
           )
-          .bind(connectionId, ownerId(args.owner), args.accountId, args.accountName, now, now, now)
+          .bind(ownerId(args.owner), args.accountId, args.credentialHandle, connectionId, args.accountName, now)
       : args.db
           .prepare(
             `UPDATE cloudflare_connections
-             SET account_id = ?, account_name = ?, status = 'active', connected_at = ?,
-                 connection_generation = connection_generation + 1, updated_at = ?
-             WHERE ${owner} = ? AND connection_generation = ?`,
+             SET account_id = ?2, account_name = ?5, status = 'active', connected_at = ?6, credential_handle = NULL,
+                 connection_generation = connection_generation + 1, updated_at = ?6
+             WHERE ${owner} = ?1 AND connection_generation = ?4 AND ${authorized}`,
           )
-          .bind(args.accountId, args.accountName, now, now, ownerId(args.owner), args.expectedGeneration);
-  // Written only when the space's own write above was: the batch is one transaction.
+          .bind(
+            ownerId(args.owner),
+            args.accountId,
+            args.credentialHandle,
+            args.expectedGeneration,
+            args.accountName,
+            now,
+          );
+  // Written only when the space's own write above was.
   const written = `EXISTS (
     SELECT 1 FROM cloudflare_connections
     WHERE ${owner} = ?1 AND account_id = ?2 AND connection_generation = ?3 AND connected_at = ?4
   )`;
-  const authorization = args.db
-    .prepare(
-      `INSERT INTO cloudflare_authorizations (account_id, credential_handle, granted_oauth_scopes_json, created_at, updated_at)
-       SELECT ?2, ?5, ?6, ?4, ?4 WHERE ${written}
-       ON CONFLICT(account_id) DO UPDATE SET
-         credential_handle = excluded.credential_handle,
-         granted_oauth_scopes_json = excluded.granted_oauth_scopes_json,
-         updated_at = excluded.updated_at`,
-    )
-    .bind(ownerId(args.owner), args.accountId, intendedGeneration, now, args.credentialHandle, grantedScopesJson);
   const accountName = args.db
     .prepare(`UPDATE cloudflare_connections SET account_name = ?5 WHERE account_id = ?2 AND ${written}`)
     .bind(ownerId(args.owner), args.accountId, intendedGeneration, now, args.accountName);
@@ -254,7 +279,7 @@ export async function activateCloudflareConnection(args: {
     isExactActivatedCloudflareConnection({ ...args, connectionId, grantedScopesJson, now }).catch(() => false);
   let committed: boolean;
   try {
-    const [result] = await args.db.batch([space, authorization, accountName]);
+    const [, result] = await args.db.batch([authorization, space, accountName]);
     committed = result.meta.changes === 1;
   } catch (error) {
     if (await verifyCommitted()) {

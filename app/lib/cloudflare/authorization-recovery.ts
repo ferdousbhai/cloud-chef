@@ -18,7 +18,11 @@ const CLOUDFLARE_CONNECT_MESSAGES = {
   admin_only: "Only a team's admin can connect its Cloudflare account.",
   account_in_use:
     'Someone else already builds in this Cloudflare account with CloudChef, on their own or in a team you ' +
-    "don't run. Ask them to reconnect it, or connect another Cloudflare account.",
+    "don't run, and connecting it here would replace the access they use. If it's a team, ask whoever runs " +
+    'it to make you one of its admins, then connect again. Otherwise, connect a different Cloudflare account.',
+  changed_meanwhile:
+    'Cloudflare was connected from somewhere else at the same moment, so CloudChef left everything as it was. ' +
+    'Connect Cloudflare again.',
   login_linked_elsewhere:
     'This Cloudflare login already belongs to another CloudChef account, or yours is linked to a different ' +
     'Cloudflare login. Sign in with Cloudflare to use it.',

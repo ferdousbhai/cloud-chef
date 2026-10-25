@@ -7,6 +7,13 @@ const AES_256_KEY_BYTES = 32;
 const OAUTH_REQUEST_TIMEOUT_MS = 30_000;
 const OAUTH_TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token';
 const OAUTH_REVOKE_URL = 'https://dash.cloudflare.com/oauth2/revoke';
+/** Answers any working OAuth access token: how a current one is checked without refreshing it. */
+const CLOUDFLARE_USER_URL = 'https://api.cloudflare.com/client/v4/user';
+/**
+ * How long a refused refresh waits for a concurrent one to land before deciding the grant ended. Cloudflare
+ * rotates refresh tokens, so of two refreshes made with one token at once, the later is refused.
+ */
+const CONCURRENT_REFRESH_SETTLE_MS = 2_000;
 /**
  * A forced refresh of a credential rotated more recently than this returns the token it was rotated
  * to: the token is minutes old, and a caller asking again and again must not refresh with Cloudflare
@@ -34,6 +41,7 @@ export class D1CloudflareCredentialVault {
     private readonly db: D1Database,
     private readonly encryptionKeyBase64: string,
     private readonly oauth: { clientId: string; clientSecret: string },
+    private readonly concurrentRefreshSettleMs = CONCURRENT_REFRESH_SETTLE_MS,
   ) {}
 
   static fromEnv(env: Env): D1CloudflareCredentialVault {
@@ -101,17 +109,42 @@ export class D1CloudflareCredentialVault {
   }
 
   /**
-   * Whether the credential still works, asked of Cloudflare with a refresh: false once it is gone or
-   * Cloudflare refuses its grant (revoked, or its refresh expired). A refresh that couldn't reach
-   * Cloudflare, or that Cloudflare failed to answer, says nothing about the grant and counts as working.
+   * Whether the credential still works: false once it is gone or Cloudflare refuses its grant (revoked, or
+   * its refresh expired). It never refreshes a token that is still good, which would rotate the grant under
+   * the workspaces using it: a current access token is shown to Cloudflare as it is, and only an expired one
+   * is refreshed, as the next workspace call would. Anything that says nothing about the grant (Cloudflare
+   * unreachable or failing, or another refresh rotating the token meanwhile) counts as working.
    */
   async stillAuthorizes(credentialHandle: string): Promise<boolean> {
-    try {
-      await this.resolve(credentialHandle, { forceRefresh: true });
-      return true;
-    } catch (error) {
-      return !(error instanceof CloudflareAuthorizationEndedError);
+    const row = await this.readCredentialRow(credentialHandle);
+    if (!row) {
+      return false;
     }
+    const credential = parseStoredOAuthCredential(await this.decryptCredentialRow(row));
+    if (credential.expiresAt <= Date.now() + 60_000) {
+      try {
+        await this.refreshOAuthCredential(credentialHandle, credential, row);
+        return true;
+      } catch (error) {
+        return !(error instanceof CloudflareAuthorizationEndedError);
+      }
+    }
+    let response: Response;
+    try {
+      response = await fetch(CLOUDFLARE_USER_URL, {
+        headers: { authorization: `Bearer ${credential.accessToken}` },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(OAUTH_REQUEST_TIMEOUT_MS),
+      });
+    } catch {
+      return true;
+    }
+    await response.body?.cancel().catch(() => undefined);
+    if (response.status !== 401) {
+      return true;
+    }
+    // Refused: ended, unless a refresh elsewhere rotated the token just now.
+    return (await this.rotatedSince(credentialHandle, row)) || this.rotatedAfterSettling(credentialHandle, row);
   }
 
   /**
@@ -186,12 +219,19 @@ export class D1CloudflareCredentialVault {
       if (concurrent) {
         return concurrent;
       }
-      // Cloudflare answers a revoked or expired grant with 400 (invalid_grant); anything else, such as an outage,
-      // says nothing about the grant.
+      // Cloudflare answers a revoked or expired grant with 400 (invalid_grant), and also a refresh token another
+      // refresh has just rotated: that one is given time to land first. Anything else, such as an outage, says
+      // nothing about the grant.
+      const refused = response.status === 400 || response.status === 401;
+      if (refused) {
+        await sleep(this.concurrentRefreshSettleMs);
+        const settled = await this.readConcurrentRefreshSafely(credentialHandle, stored);
+        if (settled) {
+          return settled;
+        }
+      }
       const message = 'Cloudflare authorization expired; reconnect Cloudflare.';
-      throw response.status === 400 || response.status === 401
-        ? new CloudflareAuthorizationEndedError(message)
-        : new Error(message);
+      throw refused ? new CloudflareAuthorizationEndedError(message) : new Error(message);
     }
     const refreshed: OAuthCredential = {
       version: 1,
@@ -248,6 +288,21 @@ export class D1CloudflareCredentialVault {
       return concurrent;
     }
     throw new Error('Cloudflare credential changed while its OAuth token was being refreshed.');
+  }
+
+  /** Whether the stored credential changed since `previous` was read: another refresh rotated it. */
+  private async rotatedSince(credentialHandle: string, previous: CredentialRow): Promise<boolean> {
+    const current = await this.readCredentialRow(credentialHandle).catch(() => null);
+    return (
+      current !== null &&
+      current.created_at === previous.created_at &&
+      (current.ciphertext_base64 !== previous.ciphertext_base64 || current.iv_base64 !== previous.iv_base64)
+    );
+  }
+
+  private async rotatedAfterSettling(credentialHandle: string, previous: CredentialRow): Promise<boolean> {
+    await sleep(this.concurrentRefreshSettleMs);
+    return this.rotatedSince(credentialHandle, previous);
   }
 
   private readConcurrentRefreshSafely(
@@ -362,6 +417,10 @@ export function parseStoredOAuthCredential(value: string): OAuthCredential {
     throw new Error('Stored Cloudflare OAuth credential is invalid.');
   }
   return credential.data;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function importEncryptionKey(value: string, usages: KeyUsage[]): Promise<CryptoKey> {

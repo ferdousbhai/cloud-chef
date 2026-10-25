@@ -57,6 +57,7 @@ const reconnectOwn = {
   credentialHandle: 'credential-new',
   grantedOAuthScopes: ['workers-scripts.write', 'ai.read'],
   expectedGeneration: 5,
+  replacedCredentialHandle: 'credential-old',
 } as const;
 
 describe('activateCloudflareConnection', () => {
@@ -111,6 +112,7 @@ describe('activateCloudflareConnection', () => {
       accountId: 'account-2',
       accountName: 'Other',
       grantedOAuthScopes: ['workers-scripts.write'],
+      replacedCredentialHandle: null,
     });
 
     expect(await findCloudflareConnectionForUser(db, 'owner')).toMatchObject({
@@ -125,6 +127,55 @@ describe('activateCloudflareConnection', () => {
       credentialHandle: 'credential-old',
     });
     expect(authorization(database)).toHaveLength(2);
+  });
+
+  it('writes nothing when the account was connected by someone else after its authorization was read', async () => {
+    const { database, db } = sharedAccount();
+    // Another connection into the account landed between reading its authorization and this one finishing.
+    database.exec(`UPDATE cloudflare_authorizations SET credential_handle = 'credential-loser'`);
+
+    await expect(
+      activateCloudflareConnection({ db, ...reconnectOwn, grantedOAuthScopes: ['workers-scripts.write'] }),
+    ).rejects.toBeInstanceOf(CloudflareConnectionChangedError);
+
+    expect(authorization(database)[0]).toMatchObject({ credential_handle: 'credential-loser' });
+    expect(await findCloudflareConnectionForUser(db, 'owner')).toMatchObject({
+      generation: 5,
+      credentialHandle: 'credential-loser',
+    });
+  });
+
+  it("writes nothing for a team's first connection when the account gained an authorization meanwhile", async () => {
+    const { database, db } = sharedAccount();
+    database.exec(`DELETE FROM cloudflare_connections WHERE id = 'team'`);
+
+    await expect(
+      activateCloudflareConnection({
+        db,
+        ...reconnectOwn,
+        owner: { kind: 'organization', orgId: 'sites' },
+        grantedOAuthScopes: ['workers-scripts.write'],
+        expectedGeneration: null,
+        replacedCredentialHandle: null,
+      }),
+    ).rejects.toBeInstanceOf(CloudflareConnectionChangedError);
+
+    expect(await findCloudflareConnectionForOrganization(db, 'sites')).toBeNull();
+    expect(authorization(database)[0]).toMatchObject({ credential_handle: 'credential-old' });
+  });
+
+  it('empties the per-space credential column the release before 0035 filled', async () => {
+    const { database, db } = sharedAccount();
+    // As production has it: each space still names the credential it was connected with.
+    database.exec(`UPDATE cloudflare_connections SET credential_handle = 'credential-old'`);
+
+    await activateCloudflareConnection({ db, ...reconnectOwn, grantedOAuthScopes: ['workers-scripts.write'] });
+
+    expect(database.prepare(`SELECT credential_handle FROM cloudflare_connections WHERE id = 'own'`).get()).toEqual({
+      credential_handle: null,
+    });
+    // 0035's temporary trigger skips an emptied column, so it doesn't put the old credential back.
+    expect(authorization(database)[0]).toMatchObject({ credential_handle: 'credential-new' });
   });
 
   it('adopts the exact committed write when its D1 acknowledgement is lost', async () => {
@@ -167,6 +218,7 @@ describe('activateCloudflareConnection', () => {
       credentialHandle: 'credential-new',
       grantedOAuthScopes: ['workers-scripts.write'],
       expectedGeneration: null,
+      replacedCredentialHandle: null,
     });
 
     expect(await findCloudflareConnectionForUser(db, 'new')).toMatchObject({
@@ -254,6 +306,12 @@ describe('runsEveryOtherSpaceInAccount', () => {
         accountId: 'account-1',
       }),
     ).toBe(false);
+  });
+
+  it('keeps someone signing in for the first time, who runs no space yet, out of an account others build in', async () => {
+    const { db } = sharedAccount();
+    expect(await runsEveryOtherSpaceInAccount(db, { userId: null, owner: null, accountId: 'account-1' })).toBe(false);
+    expect(await runsEveryOtherSpaceInAccount(db, { userId: null, owner: null, accountId: 'account-2' })).toBe(true);
   });
 
   it('lets anyone connect an account no other space builds in', async () => {

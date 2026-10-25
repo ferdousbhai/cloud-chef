@@ -192,6 +192,46 @@ describe('CloudChef control-plane D1 schema', () => {
     ).toEqual({ credential_handle: 'fresh', granted_oauth_scopes_json: '["fresh"]' });
   });
 
+  test("empties each space's own credential column, so a credential no authorization names can be deleted", () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    const migrations = readdirSync('migrations')
+      .filter((file) => file.endsWith('.sql'))
+      .sort();
+    const cleared = migrations.indexOf('0037_clear_space_credential_handles.sql');
+    for (const migration of migrations.slice(0, cleared)) {
+      db.exec(readFileSync(`migrations/${migration}`, 'utf8'));
+    }
+    // Production's shape after 0035: the owner's own space and their team in one account, each space still
+    // naming the credential it was connected with, and the account's authorization the owner's.
+    db.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES
+        ('owner', 'Owner', 'owner@example.com', 1, 1, 1);
+      INSERT INTO organizations (id, name, created_by, created_at, updated_at) VALUES ('sites', 'Sites', 'owner', 1, 1);
+      INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, created_at) VALUES
+        ('own-grant', 'x', 'y', 20), ('team-grant', 'x', 'y', 10);
+      INSERT INTO cloudflare_connections (id, user_id, org_id, account_id, status, credential_handle,
+        granted_oauth_scopes_json, connected_at, created_at, updated_at, connection_generation) VALUES
+        ('own', 'owner', NULL, 'account-1', 'active', 'own-grant', '["own"]', 20, 1, 20, 5),
+        ('team', NULL, 'sites', 'account-1', 'active', 'team-grant', '["team"]', 10, 2, 10, 4);
+      UPDATE cloudflare_authorizations SET credential_handle = 'own-grant', granted_oauth_scopes_json = '["own"]';
+    `);
+    // The space's own column keeps the team's replaced credential from being deleted.
+    expect(() => db.exec(`DELETE FROM cloudflare_credentials WHERE handle = 'team-grant'`)).toThrow(/foreign key/i);
+
+    db.exec(readFileSync(`migrations/${migrations[cleared]}`, 'utf8'));
+
+    expect(db.prepare('SELECT id, credential_handle FROM cloudflare_connections ORDER BY id').all()).toEqual([
+      { id: 'own', credential_handle: null },
+      { id: 'team', credential_handle: null },
+    ]);
+    expect(db.prepare('SELECT account_id, credential_handle FROM cloudflare_authorizations').all()).toEqual([
+      { account_id: 'account-1', credential_handle: 'own-grant' },
+    ]);
+    db.exec(`DELETE FROM cloudflare_credentials WHERE handle = 'team-grant'`);
+    expect(db.prepare('SELECT handle FROM cloudflare_credentials').all()).toEqual([{ handle: 'own-grant' }]);
+  });
+
   test('ends with only the current control-plane and Computer locator schema', () => {
     const db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys = ON');

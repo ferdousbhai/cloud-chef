@@ -287,7 +287,7 @@ describe('D1CloudflareCredentialVault', () => {
         return Response.json({ error: 'invalid_grant' }, { status: 400 });
       });
       vi.stubGlobal('fetch', request);
-      const vault = new D1CloudflareCredentialVault(db, key, OAUTH);
+      const vault = new D1CloudflareCredentialVault(db, key, OAUTH, 0);
       handle = await vault.storeOAuthCredential({
         accessToken: 'expired-access',
         refreshToken: 'single-use-refresh',
@@ -297,6 +297,120 @@ describe('D1CloudflareCredentialVault', () => {
       await expect(vault.resolve(handle)).rejects.toThrow('authorization expired');
     },
   );
+
+  it('waits for a refresh made at the same moment to land before deciding a refused grant ended', async () => {
+    const { db } = createDb();
+    const key = encryptionKey();
+    const winnerVault = new D1CloudflareCredentialVault(db, key, OAUTH);
+    const loserVault = new D1CloudflareCredentialVault(db, key, OAUTH, 50);
+    let handle = '';
+    // Cloudflare refuses the loser's refresh token, rotated by the winner's refresh, which lands only afterwards.
+    const request = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async () => {
+        setTimeout(() => void winnerVault.resolve(handle), 0);
+        return Response.json({ error: 'invalid_grant' }, { status: 400 });
+      })
+      .mockImplementationOnce(async () =>
+        Response.json({ access_token: 'winner-access', refresh_token: 'winner-refresh', expires_in: 3600 }),
+      );
+    vi.stubGlobal('fetch', request);
+    handle = await loserVault.storeOAuthCredential({
+      accessToken: 'expired-access',
+      refreshToken: 'single-use-refresh',
+      expiresAt: 1,
+    });
+
+    await expect(loserVault.stillAuthorizes(handle)).resolves.toBe(true);
+    await expect(loserVault.resolve(handle)).resolves.toBe('winner-access');
+  });
+
+  describe('stillAuthorizes', () => {
+    it('shows Cloudflare a current access token as it is, never rotating the grant the workspaces use', async () => {
+      const { db, rows } = createDb();
+      const request = vi.fn<typeof fetch>(async () => Response.json({ success: true }));
+      vi.stubGlobal('fetch', request);
+      const vault = new D1CloudflareCredentialVault(db, encryptionKey(), OAUTH, 0);
+      const handle = await vault.storeOAuthCredential(grant('current-access'));
+      const stored = { ...rows.get(handle) };
+
+      await expect(vault.stillAuthorizes(handle)).resolves.toBe(true);
+
+      expect(request).toHaveBeenCalledTimes(1);
+      const [url, init] = request.mock.calls[0];
+      expect(url).toBe('https://api.cloudflare.com/client/v4/user');
+      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer current-access');
+      expect(rows.get(handle)).toEqual(stored);
+    });
+
+    it('says a grant ended once Cloudflare refuses its current access token and nothing rotated it', async () => {
+      const { db } = createDb();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn<typeof fetch>(async () => Response.json({ success: false }, { status: 401 })),
+      );
+      const vault = new D1CloudflareCredentialVault(db, encryptionKey(), OAUTH, 0);
+      const handle = await vault.storeOAuthCredential(grant('revoked-access'));
+
+      await expect(vault.stillAuthorizes(handle)).resolves.toBe(false);
+    });
+
+    it('counts a refused access token as working when a refresh elsewhere rotates it meanwhile', async () => {
+      const { db, rows } = createDb();
+      let handle = '';
+      vi.stubGlobal(
+        'fetch',
+        vi.fn<typeof fetch>(async () => {
+          // A workspace's refresh lands just after Cloudflare refused the token it replaced.
+          setTimeout(() => {
+            const current = rows.get(handle);
+            if (current) {
+              rows.set(handle, { ...current, ciphertext_base64: `${current.ciphertext_base64}x`, rotated_at: 2 });
+            }
+          }, 0);
+          return Response.json({ success: false }, { status: 401 });
+        }),
+      );
+      const vault = new D1CloudflareCredentialVault(db, encryptionKey(), OAUTH, 50);
+      handle = await vault.storeOAuthCredential(grant('rotated-access'));
+
+      await expect(vault.stillAuthorizes(handle)).resolves.toBe(true);
+    });
+
+    it.each([
+      ['Cloudflare failing', async () => new Response('unavailable', { status: 503 })],
+      [
+        'Cloudflare unreachable',
+        async () => {
+          throw new TypeError('network');
+        },
+      ],
+    ] as const)('counts %s as working', async (_case, answer) => {
+      const { db } = createDb();
+      vi.stubGlobal('fetch', vi.fn<typeof fetch>(answer));
+      const vault = new D1CloudflareCredentialVault(db, encryptionKey(), OAUTH, 0);
+      const handle = await vault.storeOAuthCredential(grant('current-access'));
+
+      await expect(vault.stillAuthorizes(handle)).resolves.toBe(true);
+    });
+
+    it('refreshes only an expired access token, as the next workspace call would, and is false once refused', async () => {
+      const { db } = createDb();
+      const request = vi.fn<typeof fetch>(async () => Response.json({ error: 'invalid_grant' }, { status: 400 }));
+      vi.stubGlobal('fetch', request);
+      const vault = new D1CloudflareCredentialVault(db, encryptionKey(), OAUTH, 0);
+      const handle = await vault.storeOAuthCredential({ accessToken: 'old', refreshToken: 'ended', expiresAt: 1 });
+
+      await expect(vault.stillAuthorizes(handle)).resolves.toBe(false);
+      expect(request.mock.calls[0][0]).toBe('https://dash.cloudflare.com/oauth2/token');
+    });
+
+    it('is false for a credential that is gone', async () => {
+      const { db } = createDb();
+      const vault = new D1CloudflareCredentialVault(db, encryptionKey(), OAUTH, 0);
+      await expect(vault.stillAuthorizes('missing')).resolves.toBe(false);
+    });
+  });
 
   it('deletes only an unreferenced credential in the same D1 statement', async () => {
     const { db, prepare, referencedHandles, rows } = createDb();

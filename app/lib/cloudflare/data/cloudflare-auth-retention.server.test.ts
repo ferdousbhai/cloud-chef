@@ -37,20 +37,11 @@ describe('Cloudflare authorization retention', () => {
     const insertCredential = database.prepare(
       'INSERT INTO cloudflare_credentials (handle, created_at, rotated_at) VALUES (?, ?, ?)',
     );
-    for (const handle of [
-      'credential-1',
-      'credential-2',
-      'credential-3',
-      'credential-referenced',
-      'credential-shared',
-    ]) {
+    for (const handle of ['credential-1', 'credential-2', 'credential-3', 'credential-shared']) {
       insertCredential.run(handle, 1, null);
     }
     insertCredential.run('credential-fresh', now, null);
     insertCredential.run('credential-recently-rotated', 1, now);
-    database
-      .prepare('INSERT INTO cloudflare_connections (id, credential_handle) VALUES (?, ?)')
-      .run('connection-1', 'credential-referenced');
     database
       .prepare('INSERT INTO cloudflare_authorizations (account_id, credential_handle) VALUES (?, ?)')
       .run('account-1', 'credential-shared');
@@ -86,12 +77,11 @@ describe('Cloudflare authorization retention', () => {
     expect(values(database, 'cloudflare_credentials', 'handle')).toEqual([
       'credential-fresh',
       'credential-recently-rotated',
-      'credential-referenced',
       'credential-shared',
     ]);
 
     await expect(pruneAt(db, now)).resolves.toBeUndefined();
-    expect(values(database, 'cloudflare_credentials', 'handle')).toContain('credential-referenced');
+    expect(values(database, 'cloudflare_credentials', 'handle')).toContain('credential-shared');
   });
 
   it('keeps deleting while a table still has a full batch, up to a bound per sweep', async () => {
@@ -175,10 +165,6 @@ function retentionDatabase(): { database: DatabaseSyncInstance; db: D1Database }
       handle TEXT PRIMARY KEY,
       created_at INTEGER NOT NULL,
       rotated_at INTEGER
-    );
-    CREATE TABLE cloudflare_connections (
-      id TEXT PRIMARY KEY,
-      credential_handle TEXT REFERENCES cloudflare_credentials(handle)
     );
     CREATE TABLE cloudflare_authorizations (
       account_id TEXT PRIMARY KEY,
