@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest';
 
 const controlPlaneTables = [
   'cloudflare_auth_sessions',
+  'cloudflare_authorizations',
   'cloudflare_connections',
   'cloudflare_credentials',
   'cloudflare_oauth_states',
@@ -102,6 +103,93 @@ describe('CloudChef control-plane D1 schema', () => {
     expect(db.prepare('SELECT COUNT(*) AS count FROM organization_quota_events').get()?.count).toBe(2);
     db.exec(`DELETE FROM "user" WHERE id = 'user-1'`);
     expect(db.prepare('SELECT COUNT(*) AS count FROM organization_quota_events').get()?.count).toBe(0);
+  });
+
+  test("gives a person's own space and their team in the same Cloudflare account one authorization, changing no workspace", () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    const migrations = readdirSync('migrations')
+      .filter((file) => file.endsWith('.sql'))
+      .sort();
+    const authorizations = migrations.indexOf('0035_cloudflare_authorizations.sql');
+    for (const migration of migrations.slice(0, authorizations)) {
+      db.exec(readFileSync(`migrations/${migration}`, 'utf8'));
+    }
+    // Production's shape: the owner's own connection and their team's, both in one account, each with its own
+    // grant and generation; the owner has a workspace in each, Sara (a member only) in the team's; and a team
+    // in another account, untouched.
+    db.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES
+        ('owner', 'Owner', 'owner@example.com', 1, 1, 1),
+        ('sara', 'Sara', 'sara@example.com', 1, 1, 1);
+      INSERT INTO organizations (id, name, created_by, created_at, updated_at) VALUES
+        ('sites', 'Sara''s sites', 'owner', 1, 1),
+        ('elsewhere', 'Elsewhere', 'owner', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+        ('sites', 'owner', 'admin', 1), ('sites', 'sara', 'member', 1), ('elsewhere', 'owner', 'admin', 1);
+      INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, created_at) VALUES
+        ('own-grant', 'x', 'y', 20), ('team-grant', 'x', 'y', 10), ('other-grant', 'x', 'y', 5);
+      INSERT INTO cloudflare_connections (id, user_id, org_id, account_id, status, credential_handle,
+        granted_oauth_scopes_json, connected_at, created_at, updated_at, connection_generation) VALUES
+        ('own', 'owner', NULL, 'account-1', 'active', 'own-grant', '["own"]', 20, 1, 20, 5),
+        ('team', NULL, 'sites', 'account-1', 'active', 'team-grant', '["team"]', 10, 2, 10, 4),
+        ('other', NULL, 'elsewhere', 'account-2', 'active', 'other-grant', '["other"]', 5, 3, 5, 1);
+      INSERT INTO user_computer_runtimes (user_id, connection_id, connection_generation, worker_name, endpoint,
+        runtime_version, status, created_at, updated_at) VALUES
+        ('owner', 'own', 5, 'worker-own', 'https://own.example', 'v', 'ready', 1, 1),
+        ('owner', 'team', 4, 'worker-owner-team', 'https://owner-team.example', 'v', 'ready', 1, 1),
+        ('sara', 'team', 4, 'worker-sara-team', 'https://sara-team.example', 'v', 'ready', 1, 1);
+    `);
+    const spaces = () =>
+      db
+        .prepare(
+          'SELECT id, user_id, org_id, account_id, status, connection_generation FROM cloudflare_connections ORDER BY id',
+        )
+        .all();
+    const before = spaces();
+
+    db.exec(readFileSync(`migrations/${migrations[authorizations]}`, 'utf8'));
+
+    // One authorization per account: the owner's own grant for the shared account.
+    expect(
+      db
+        .prepare(
+          'SELECT account_id, credential_handle, granted_oauth_scopes_json FROM cloudflare_authorizations ORDER BY account_id',
+        )
+        .all(),
+    ).toEqual([
+      { account_id: 'account-1', credential_handle: 'own-grant', granted_oauth_scopes_json: '["own"]' },
+      { account_id: 'account-2', credential_handle: 'other-grant', granted_oauth_scopes_json: '["other"]' },
+    ]);
+    // Each space keeps its id, account, status and generation, so every workspace stays as it is.
+    expect(spaces()).toEqual(before);
+    expect(
+      db
+        .prepare(
+          'SELECT user_id, connection_id, connection_generation FROM user_computer_runtimes ORDER BY worker_name',
+        )
+        .all(),
+    ).toEqual([
+      { user_id: 'owner', connection_id: 'own', connection_generation: 5 },
+      { user_id: 'owner', connection_id: 'team', connection_generation: 4 },
+      { user_id: 'sara', connection_id: 'team', connection_generation: 4 },
+    ]);
+    expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+
+    // The Worker still serving while this applies writes a reconnect into the space's own row; the account's
+    // authorization follows it.
+    db.exec(`
+      INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, created_at) VALUES ('fresh', 'x', 'y', 30);
+      UPDATE cloudflare_connections SET credential_handle = 'fresh', granted_oauth_scopes_json = '["fresh"]',
+        connection_generation = 5, updated_at = 30 WHERE id = 'team';
+    `);
+    expect(
+      db
+        .prepare(
+          `SELECT credential_handle, granted_oauth_scopes_json FROM cloudflare_authorizations WHERE account_id = 'account-1'`,
+        )
+        .get(),
+    ).toEqual({ credential_handle: 'fresh', granted_oauth_scopes_json: '["fresh"]' });
   });
 
   test('ends with only the current control-plane and Computer locator schema', () => {

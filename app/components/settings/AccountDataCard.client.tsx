@@ -17,6 +17,7 @@ import { postJson, RequestError } from '~/lib/json-request';
 /** What erasing the account reports about what it could not do itself. */
 const accountDeletionSchema = z.looseObject({
   cloudflareAuthorizationRevoked: z.boolean().optional().catch(undefined),
+  cloudflareAuthorizationKeptFor: z.array(z.string()).optional().catch(undefined),
   workspacesLeftIn: z.array(z.string()).optional().catch(undefined),
 });
 
@@ -37,6 +38,7 @@ export function AccountDataCard() {
   // Known before erasure ends the session: whether there was a Cloudflare grant of their own to revoke.
   const [hadOwnAccount, setHadOwnAccount] = useState(false);
   const [workspacesLeftIn, setWorkspacesLeftIn] = useState<string[]>([]);
+  const [keptFor, setKeptFor] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [exportPhase, setExportPhase] = useState<ExportPhase>('idle');
   const [exportError, setExportError] = useState<string | null>(null);
@@ -85,6 +87,7 @@ export function AccountDataCard() {
       setHadOwnAccount(session?.contexts.some((option) => option.kind === 'personal') ?? false);
       setRevoked(deleted.cloudflareAuthorizationRevoked === true);
       setWorkspacesLeftIn(deleted.workspacesLeftIn ?? []);
+      setKeptFor(deleted.cloudflareAuthorizationKeptFor ?? []);
       setPhase('deleted');
     } catch (failure) {
       const reauthenticate = failure instanceof RequestError && failure.code === 'reauthentication_required';
@@ -263,7 +266,13 @@ export function AccountDataCard() {
                 ask its admins to remove it there.
               </p>
             ) : null}
-            {!hadOwnAccount ? null : revoked ? (
+            {!hadOwnAccount ? null : keptFor.length > 0 ? (
+              <p>
+                CloudChef kept its Cloudflare authorization for your account, because {keptFor.join(', ')} still
+                {keptFor.length === 1 ? ' builds' : ' build'} in it. An admin there can reconnect it with their own
+                Cloudflare login.
+              </p>
+            ) : revoked ? (
               <p>Cloudflare confirmed that CloudChef’s authorization was revoked.</p>
             ) : (
               <p>

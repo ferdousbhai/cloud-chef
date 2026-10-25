@@ -202,6 +202,28 @@ describe('AccountDataCard', () => {
     expect(document.body.textContent).toContain('still in the Cloudflare accounts they were deployed to');
   });
 
+  it('says the Cloudflare authorization was kept for a team still building in the account, not to revoke it', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          status: 'deleted',
+          cloudflareAuthorizationRevoked: false,
+          cloudflareAuthorizationKeptFor: ["Sara's sites"],
+          workspacesLeftIn: [],
+        }),
+        { status: 200 },
+      ),
+    );
+    await render();
+    await openDeletionPanel();
+    await fillConfirmation();
+
+    await act(async () => button('Permanently delete').click());
+
+    expect(document.body.textContent).toContain("because Sara's sites still builds in it");
+    expect(document.body.textContent).not.toContain('Cloudflare did not confirm the revocation');
+  });
+
   it('offers a Cloudflare reconnect when the session is not freshly re-authenticated', async () => {
     fetchMock.mockImplementation(
       async () =>

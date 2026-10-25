@@ -35,6 +35,9 @@ vi.mock('~/lib/.server/cloudflare/cloudflare-connection-repository', () => ({
   requireActiveCloudflareConnection: mocks.requireActiveConnection,
   activateCloudflareConnection: mocks.activateConnection,
   CloudflareConnectionChangedError: mocks.CloudflareConnectionChangedError,
+  // Whether the account's authorization may be replaced is the shared-account tests' question (cloudflare-reconnect).
+  mayReplaceCloudflareAuthorization: async () => true,
+  deleteUnusedCloudflareAuthorization: () => ({ run: async () => undefined }),
 }));
 vi.mock('~/lib/.server/cloudflare/cloudflare-credential-vault', () => ({
   D1CloudflareCredentialVault: class {

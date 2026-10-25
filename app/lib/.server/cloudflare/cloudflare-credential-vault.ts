@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { base64ToBytes, bytesToBase64 } from '~/lib/hex-digest';
+import { CREDENTIAL_UNREFERENCED } from './cloudflare-connection-repository';
 const AES_GCM_IV_BYTES = 12;
 const AES_256_KEY_BYTES = 32;
 /** Bounds both client-authenticated OAuth calls: the refresh and the revocation. */
@@ -122,13 +123,10 @@ export class D1CloudflareCredentialVault {
     const result = await this.db
       .prepare(
         `DELETE FROM cloudflare_credentials
-         WHERE handle = ?
-           AND NOT EXISTS (
-             SELECT 1 FROM cloudflare_connections
-             WHERE credential_handle = ?
-           )`,
+         WHERE handle = ?1
+           AND ${CREDENTIAL_UNREFERENCED}`,
       )
-      .bind(credentialHandle, credentialHandle)
+      .bind(credentialHandle)
       .run();
     return result.meta.changes === 1;
   }
