@@ -3,7 +3,7 @@ import { readAiGatewayContentLogging } from '~/lib/cloudflare/data/ai-gateway-lo
 import { z } from 'zod';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import { linkedGatewayKeys } from '~/lib/.server/cloudflare/ai-gateway-keys';
-import { readDefaultBuilderModel } from '~/lib/cloudflare/data/builder-model-settings.server';
+import { readBuilderModelSettings } from '~/lib/cloudflare/data/builder-model-settings.server';
 import { credentialResponse, readAuthenticatedRuntimeRequest } from './runtime-authentication';
 import { memberIdentity } from './runtime-projects';
 
@@ -117,10 +117,10 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
 }
 
 /**
- * A workspace runtime asking about its account's models, for the picker's catalog and before a
- * gateway provider's turn: the default its admin chose, and the provider keys its default AI Gateway
- * holds (each provider's, with the alias its requests name), asked of Cloudflare each time so a key
- * removed in the dashboard stops its provider's models at once.
+ * A workspace runtime asking about its account's models, for the picker's catalog and before every
+ * turn: the default its admin chose, the models its admin allows (null for every compatible one), and
+ * the provider keys its default AI Gateway holds (each provider's, with the alias its requests name),
+ * asked of Cloudflare each time so a key removed in the dashboard stops its provider's models at once.
  */
 export async function runtimeModelsAction(args: {
   request: Request;
@@ -136,9 +136,9 @@ export async function runtimeModelsAction(args: {
     return authenticated;
   }
   const { connection } = authenticated;
-  const [defaultModelId, gatewayKeys] = await Promise.all([
-    readDefaultBuilderModel(args.env.DB, connection.id),
+  const [{ defaultModelId, allowedModelIds }, gatewayKeys] = await Promise.all([
+    readBuilderModelSettings(args.env.DB, connection.id),
     (args.gatewayKeys ?? linkedGatewayKeys)(args.env, connection),
   ]);
-  return Response.json({ defaultModelId, gatewayKeys }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ defaultModelId, gatewayKeys, allowedModelIds }, { headers: { 'Cache-Control': 'no-store' } });
 }

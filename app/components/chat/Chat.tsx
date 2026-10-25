@@ -35,7 +35,11 @@ import { LinkButton } from '~/components/ui/LinkButton';
 import { buttonClassNames } from '~/components/ui/primitives/Button';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { WORKERS_PAID_URL } from '~/lib/workers-paid.client';
-import { loadBuilderModelCatalog, loadBuilderModelPreference } from '~/lib/stores/builder-model.client';
+import {
+  loadBuilderModelCatalog,
+  loadBuilderModelPreference,
+  reloadBuilderModelCatalog,
+} from '~/lib/stores/builder-model.client';
 import { messageOf } from '~/lib/json-request';
 
 const logger = createScopedLogger('Chat');
@@ -352,6 +356,13 @@ const AuthenticatedChat = memo(
       transcript,
     });
     const parsedMessages = useProcessedMessages(messages);
+    // A turn refused for its model (one the account's admin no longer allows, or whose key was removed)
+    // is followed by a fresh catalog, so the picker moves to a model the account offers and says so.
+    useEffect(() => {
+      if (error) {
+        void reloadBuilderModelCatalog();
+      }
+    }, [error]);
     // The code view says why it has no files from this, rather than sitting empty.
     useEffect(() => {
       workbenchStore.workspaceFiles.set({

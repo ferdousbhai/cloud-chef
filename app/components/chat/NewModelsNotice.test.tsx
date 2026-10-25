@@ -4,7 +4,11 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type BuilderModel } from '~/lib/workers-ai-model';
-import { builderNewModelsStore, installBuilderModelCatalog } from '~/lib/stores/builder-model.client';
+import {
+  builderModelStore,
+  builderNewModelsStore,
+  installBuilderModelCatalog,
+} from '~/lib/stores/builder-model.client';
 import { NewModelsNotice } from './NewModelsNotice.client';
 
 const SEEN_KEY = 'cloudchef_seen_builder_models_v1';
@@ -62,6 +66,35 @@ describe('NewModelsNotice', () => {
       defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
       models: [DEFAULT_WORKERS_AI_MODEL, deepseek],
     });
+    await act(async () => undefined);
+    expect(document.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it('says when the saved model is no longer offered and the default stands in, until dismissed', async () => {
+    values.set(SEEN_KEY, JSON.stringify([CLOUDFLARE_WORKERS_AI_MODEL, deepseek.id]));
+    values.set('cloudchef_builder_model_v2', deepseek.id);
+    installBuilderModelCatalog({
+      defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
+      models: [DEFAULT_WORKERS_AI_MODEL, deepseek],
+    });
+    expect(builderModelStore.get()).toBe(deepseek.id);
+    await render();
+    expect(document.querySelector('[role="status"]')).toBeNull();
+
+    // The account's admin no longer allows it: the catalog leaves it out.
+    installBuilderModelCatalog({ defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] });
+    await act(async () => undefined);
+    expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+    const notice = document.querySelector('[role="status"]');
+    expect(notice?.textContent).toContain(
+      'Model changed: DeepSeek V4.1 Flash 1017 isn’t offered in this account any more, so new messages use GLM 5.3 Flash.',
+    );
+
+    await act(async () => notice?.querySelector('button')?.click());
+    expect(document.querySelector('[role="status"]')).toBeNull();
+    // The default is now the saved model, so the next load says nothing.
+    expect(values.get('cloudchef_builder_model_v2')).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+    installBuilderModelCatalog({ defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] });
     await act(async () => undefined);
     expect(document.querySelector('[role="status"]')).toBeNull();
   });

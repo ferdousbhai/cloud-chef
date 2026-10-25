@@ -1,5 +1,11 @@
 import { useStore } from '@nanostores/react';
-import { builderNewModelsStore, markBuilderModelsSeen } from '~/lib/stores/builder-model.client';
+import type { ReactNode } from 'react';
+import {
+  builderModelUnavailableStore,
+  builderNewModelsStore,
+  dismissUnavailableBuilderModel,
+  markBuilderModelsSeen,
+} from '~/lib/stores/builder-model.client';
 import type { BuilderModel } from '~/lib/workers-ai-model';
 
 /** Beyond this the line stops being a line, so the rest is counted instead of named. */
@@ -8,13 +14,32 @@ const MAX_NAMED_MODELS = 2;
 /**
  * Cloudflare adds models to Workers AI on its own schedule, an admin may link a provider key, and the
  * picker refreshes every session — so the only thing missing was being told. This says it once, quietly, next to the
- * picker that acts on it, and disappears for good as soon as the list has been seen.
+ * picker that acts on it, and disappears for good as soon as the list has been seen. It also says when
+ * the model this browser saved is no longer offered, so the switch to the default is never silent.
  */
 export function NewModelsNotice() {
   const newModels = useStore(builderNewModelsStore);
-  if (newModels.length === 0) {
-    return null;
-  }
+  const unavailable = useStore(builderModelUnavailableStore);
+  return (
+    <>
+      {unavailable ? (
+        <Notice onDismiss={dismissUnavailableBuilderModel}>
+          <span className="font-semibold text-content-warning">Model changed:</span> {unavailable.label} isn’t offered
+          in this account any more, so new messages use {unavailable.replacementLabel}. An admin chooses the models in
+          Settings, under Models.
+        </Notice>
+      ) : null}
+      {newModels.length > 0 ? (
+        <Notice onDismiss={markBuilderModelsSeen}>
+          <span className="font-semibold text-content-accent">New models:</span> {describeNewModels(newModels)} —
+          available in the model picker.
+        </Notice>
+      ) : null}
+    </>
+  );
+}
+
+function Notice({ children, onDismiss }: { children: ReactNode; onDismiss: () => void }) {
   return (
     <div
       role="status"
@@ -23,13 +48,10 @@ export function NewModelsNotice() {
       <span aria-hidden="true" className="shrink-0 text-content-tertiary">
         {'//'}
       </span>
-      <p className="min-w-0 grow">
-        <span className="font-semibold text-content-accent">New models:</span> {describeNewModels(newModels)} —
-        available in the model picker.
-      </p>
+      <p className="min-w-0 grow">{children}</p>
       <button
         type="button"
-        onClick={() => markBuilderModelsSeen()}
+        onClick={() => onDismiss()}
         className="shrink-0 rounded px-1 text-[11px] font-semibold text-content-tertiary transition-colors hover:text-content-primary"
       >
         Dismiss
