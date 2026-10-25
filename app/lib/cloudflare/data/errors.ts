@@ -19,3 +19,14 @@ export class SubchatLimitError extends Error {
     this.name = 'SubchatLimitError';
   }
 }
+
+/** A project's repository that could not do what was asked, for a reason the person can act on (413, 503). */
+export class ProjectRepositoryFailureError extends Error {
+  constructor(
+    message: string,
+    readonly status: 413 | 503,
+  ) {
+    super(message);
+    this.name = 'ProjectRepositoryFailureError';
+  }
+}

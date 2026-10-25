@@ -30,8 +30,22 @@ class FakeArtifactsError extends Error {
 
 export type FakeArtifacts = Artifacts & {
   fetch: (input: string, init?: RequestInit) => Promise<Response>;
-  /** A repository elsewhere (GitHub) that `import` copies from, by URL. */
-  addSource(url: string, files: Record<string, string>, branch?: string): Promise<string>;
+  /**
+   * A repository elsewhere (GitHub) an import copies from, by URL, which `fetch` serves as git's upload-pack
+   * (protocol version 2); a private one answers only requests sent with its `authorization` header.
+   */
+  addSource(
+    url: string,
+    files: Record<string, string>,
+    branch?: string,
+    options?: { authorization?: string },
+  ): Promise<string>;
+  /** Commits `files` (the whole tree) on top of the source's branch, so it has history. */
+  commitSource(url: string, files: Record<string, string>, message?: string): Promise<string>;
+  /** The source's connection drops after sending this many bytes of its pack. */
+  cutSource(url: string, afterBytes: number): void;
+  /** Pushes whose pack came as a stream rather than whole, and the bytes of pack each sent. */
+  streamedPushes: { repo: string; packBytes: number }[];
   /** Commits `files` (the whole tree) on top of `branch` directly, as another member's push would. */
   commitDirect(name: string, branch: string, files: Record<string, string>, message?: string): Promise<string>;
   head(name: string, branch?: string): Promise<string | null>;
@@ -48,8 +62,12 @@ export type FakeArtifacts = Artifacts & {
 
 export function fakeArtifacts(): FakeArtifacts {
   const repos = new Map<string, FakeRepo>();
-  const sources = new Map<string, FakeRepo>();
+  const sources = new Map<
+    string,
+    { repo: FakeRepo; branch: string; authorization: string | null; cutAfter: number | null }
+  >();
   const pushes: FakeArtifacts['pushes'] = [];
+  const streamedPushes: FakeArtifacts['streamedPushes'] = [];
   const tokens: FakeArtifacts['tokens'] = [];
   const revoked: string[] = [];
   let pending = 0;
@@ -249,8 +267,9 @@ export function fakeArtifacts(): FakeArtifacts {
     return repo;
   }
 
-  async function receivePack(name: string, request: Request): Promise<Response> {
+  async function receivePack(name: string, request: Request, streamed: boolean): Promise<Response> {
     const repo = lookup(name);
+    // A pack sent as a stream that breaks fails the request, as it does over the network.
     const body = new Uint8Array(await request.arrayBuffer());
     const length = Number.parseInt(new TextDecoder().decode(body.subarray(0, 4)), 16);
     const command = new TextDecoder().decode(body.subarray(4, length)).split('\0')[0]!.trim();
@@ -260,11 +279,21 @@ export function fakeArtifacts(): FakeArtifacts {
       offset += Number.parseInt(new TextDecoder().decode(body.subarray(offset, offset + 4)), 16);
     }
     const pack = body.subarray(offset + 4);
+    if (streamed) {
+      streamedPushes.push({ repo: name, packBytes: pack.length });
+    }
     if (pack.length > 32) {
       const file = `objects/pack/pack-${crypto.randomUUID()}.pack`;
       await repo.fs.promises.mkdir(`${repo.gitdir}/objects/pack`, { recursive: true }).catch(() => undefined);
       await repo.fs.promises.writeFile(`${repo.gitdir}/${file}`, pack);
-      await isogit.indexPack({ fs: repo.fs, dir: repo.gitdir, gitdir: repo.gitdir, filepath: file });
+      try {
+        await isogit.indexPack({ fs: repo.fs, dir: repo.gitdir, gitdir: repo.gitdir, filepath: file });
+      } catch {
+        // A pack cut short is refused whole: no object of it is kept, and no ref moves.
+        await repo.fs.promises.unlink(`${repo.gitdir}/${file}`).catch(() => undefined);
+        await repo.fs.promises.unlink(`${repo.gitdir}/${file.replace(/\.pack$/, '.idx')}`).catch(() => undefined);
+        return new Response(`${pkt('unpack index-pack failed\n')}${pkt(`ng ${ref} unpacker error\n`)}0000`);
+      }
     }
     const current = (await resolve(repo, ref)) ?? ZERO;
     const lines: string[] = ['unpack ok\n'];
@@ -313,14 +342,14 @@ export function fakeArtifacts(): FakeArtifacts {
       return handle(name, lookup(name));
     },
     async import({ source, target }) {
-      const from = sources.get(source.url);
-      if (!from) {
+      const from = sources.get(sourceKey(source.url));
+      if (!from || from.authorization) {
         throw new FakeArtifactsError('REMOTE_AUTH_REQUIRED');
       }
       if (repos.has(target.name)) {
         throw new FakeArtifactsError('ALREADY_EXISTS');
       }
-      const copy = copyRepo(from);
+      const copy = copyRepo(from.repo);
       copy.pendingCode = 'IMPORT_IN_PROGRESS';
       repos.set(target.name, copy);
       return {
@@ -338,7 +367,7 @@ export function fakeArtifacts(): FakeArtifacts {
     async delete(name) {
       return repos.delete(name);
     },
-    async addSource(url, files, branch = 'main') {
+    async addSource(url, files, branch = 'main', options = {}) {
       const repo = await newRepo();
       const commit = await writeFiles(repo, files, [], 'Initial commit');
       await isogit.writeRef({
@@ -358,8 +387,19 @@ export function fakeArtifacts(): FakeArtifacts {
           force: true,
         });
       }
-      sources.set(url, repo);
+      sources.set(sourceKey(url), { repo, branch, authorization: options.authorization ?? null, cutAfter: null });
       return commit;
+    },
+    async commitSource(url, files, message = 'More') {
+      const source = sources.get(sourceKey(url))!;
+      const ref = `refs/heads/${source.branch}`;
+      const head = await resolve(source.repo, ref);
+      const commit = await writeFiles(source.repo, files, head ? [head] : [], message);
+      await isogit.writeRef({ fs: source.repo.fs, gitdir: source.repo.gitdir, ref, value: commit, force: true });
+      return commit;
+    },
+    cutSource(url, afterBytes) {
+      sources.get(sourceKey(url))!.cutAfter = afterBytes;
     },
     async commitDirect(name, branch, files, message = 'Elsewhere') {
       const repo = lookup(name);
@@ -399,6 +439,17 @@ export function fakeArtifacts(): FakeArtifacts {
     async fetch(input, init) {
       const request = new Request(input, init);
       const url = new URL(request.url);
+      const service = /^(.*)\/(info\/refs|git-upload-pack)$/.exec(`${url.origin}${url.pathname}`);
+      const source = service ? sources.get(sourceKey(service[1]!)) : undefined;
+      if (service && source) {
+        if (source.authorization && request.headers.get('authorization') !== source.authorization) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+        if (request.headers.get('git-protocol') !== 'version=2') {
+          return new Response('Only protocol version 2 here', { status: 400 });
+        }
+        return service[2] === 'info/refs' ? uploadPackAdvertisement() : uploadPack(source, request);
+      }
       const match = /^\/git\/cloudchef\/([^/]+)\.git\/(info\/refs|git-receive-pack)$/.exec(url.pathname);
       if (url.origin !== HOST || !match) {
         return new Response('Not found', { status: 404 });
@@ -406,10 +457,123 @@ export function fakeArtifacts(): FakeArtifacts {
       if (request.headers.get('authorization') !== `Basic ${btoa(`x:${SECRET}`)}`) {
         return new Response('Unauthorized', { status: 401 });
       }
-      return match[2] === 'info/refs' ? advertise(match[1]!) : receivePack(match[1]!, request);
+      return match[2] === 'info/refs'
+        ? advertise(match[1]!)
+        : receivePack(match[1]!, request, init?.body instanceof ReadableStream);
     },
+    streamedPushes,
   };
+
+  /** Every object `oid` (a commit) reaches: its history, their trees and blobs. */
+  async function reachable(repo: FakeRepo, oid: string): Promise<string[]> {
+    const seen = new Set<string>();
+    const walkTree = async (tree: string) => {
+      if (seen.has(tree)) {
+        return;
+      }
+      seen.add(tree);
+      for (const entry of (await isogit.readTree({ fs: repo.fs, gitdir: repo.gitdir, oid: tree })).tree) {
+        if (entry.type === 'tree') {
+          await walkTree(entry.oid);
+        } else {
+          seen.add(entry.oid);
+        }
+      }
+    };
+    const commits = [oid];
+    while (commits.length) {
+      const next = commits.pop()!;
+      if (seen.has(next)) {
+        continue;
+      }
+      seen.add(next);
+      const { commit } = await isogit.readCommit({ fs: repo.fs, gitdir: repo.gitdir, oid: next });
+      await walkTree(commit.tree);
+      commits.push(...commit.parent);
+    }
+    return [...seen];
+  }
+
+  /** Git's upload-pack, protocol version 2: `ls-refs`, and `fetch` answered with the whole history. */
+  async function uploadPack(
+    source: { repo: FakeRepo; branch: string; cutAfter: number | null },
+    request: Request,
+  ): Promise<Response> {
+    const lines = readPkts(new Uint8Array(await request.arrayBuffer()));
+    const { repo } = source;
+    if (lines[0] === 'command=ls-refs') {
+      const prefixes = lines.filter((line) => line.startsWith('ref-prefix ')).map((line) => line.slice(11));
+      const head = await resolve(repo, `refs/heads/${source.branch}`);
+      const refs = [`${head} HEAD symref-target:refs/heads/${source.branch}`, `${head} refs/heads/${source.branch}`];
+      const listed = refs.filter((line) => prefixes.some((prefix) => line.split(' ')[1]!.startsWith(prefix)));
+      return new Response(`${listed.map((line) => pkt(`${line}\n`)).join('')}0000`);
+    }
+    const want = lines.find((line) => line.startsWith('want '))?.slice(5);
+    if (lines[0] !== 'command=fetch' || !want || !lines.includes('done')) {
+      return new Response(`${pkt('ERR unexpected request\n')}0000`);
+    }
+    const { packfile } = await isogit.packObjects({
+      fs: repo.fs,
+      gitdir: repo.gitdir,
+      oids: await reachable(repo, want),
+    });
+    const pack = packfile!;
+    const cut = source.cutAfter;
+    const encoder = new TextEncoder();
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(pkt('packfile\n')));
+          controller.enqueue(encoder.encode(pkt('\u0002Counting objects\n')));
+          // Small bands, so a pkt-line is split across reads as the network splits it.
+          for (let offset = 0; offset < pack.length; offset += 1000) {
+            const end = Math.min(pack.length, offset + 1000, cut ?? Infinity);
+            if (end <= offset) {
+              controller.close();
+              return;
+            }
+            const band = new Uint8Array(end - offset + 5);
+            band.set(encoder.encode(band.length.toString(16).padStart(4, '0')));
+            band[4] = 1;
+            band.set(pack.subarray(offset, end), 5);
+            controller.enqueue(band.subarray(0, 7));
+            controller.enqueue(band.subarray(7));
+          }
+          controller.enqueue(encoder.encode('0000'));
+          controller.close();
+        },
+      }),
+    );
+  }
+
   return artifacts;
+}
+
+function uploadPackAdvertisement(): Response {
+  return new Response(
+    `${pkt('# service=git-upload-pack\n')}0000${pkt('version 2\n')}${pkt('ls-refs\n')}${pkt('fetch\n')}0000`,
+  );
+}
+
+/** A source's address however it is written: with or without `.git` and a trailing slash. */
+function sourceKey(url: string): string {
+  return url.replace(/\/+$/, '').replace(/\.git$/, '');
+}
+
+/** The text of each pkt-line; flush and delimiter lines are skipped. */
+function readPkts(bytes: Uint8Array): string[] {
+  const lines: string[] = [];
+  let offset = 0;
+  while (offset + 4 <= bytes.length) {
+    const length = Number.parseInt(new TextDecoder().decode(bytes.subarray(offset, offset + 4)), 16);
+    if (length < 4) {
+      offset += 4;
+      continue;
+    }
+    lines.push(new TextDecoder().decode(bytes.subarray(offset + 4, offset + length)).replace(/\n$/, ''));
+    offset += length;
+  }
+  return lines;
 }
 
 function pkt(line: string): string {

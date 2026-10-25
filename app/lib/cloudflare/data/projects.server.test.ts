@@ -3,7 +3,7 @@ import { ProjectRepositories } from '~/lib/.server/cloudflare/project-repository
 import { envWith, userWorkspaceDatabase } from '~/test/control-plane-d1';
 import { fakeArtifacts } from '~/test/fake-artifacts';
 import { getAllChats } from './chat-service.server';
-import { DataNotFoundError, ProjectForbiddenError } from './errors';
+import { DataNotFoundError, ProjectForbiddenError, ProjectRepositoryFailureError } from './errors';
 import {
   forkProject,
   importProject,
@@ -177,6 +177,24 @@ describe('importing a repository', () => {
     expect(database.prepare('SELECT org_project_id FROM chats WHERE initial_id = ?').get(result.initialId)).toEqual({
       org_project_id: TEAM_PROJECT,
     });
+  });
+});
+
+describe('an import that breaks off', () => {
+  it('answers with why, records nothing, and leaves the repository to import again', async () => {
+    const { env, artifacts, store } = await setup();
+    await artifacts.addSource('https://github.com/acme/site', {
+      'a.txt': Array.from({ length: 100 }, () => crypto.randomUUID()).join(''),
+    });
+    artifacts.cutSource('https://github.com/acme/site', 100);
+    const calls = controlPlane('edit', null);
+    const attempt = withRepositoryErrors(
+      importProject(env, { sessionId: OWNER, url: 'https://github.com/acme/site' }, store),
+    );
+    await expect(attempt).rejects.toBeInstanceOf(ProjectRepositoryFailureError);
+    await expect(attempt).rejects.toMatchObject({ status: 503, message: expect.stringContaining('Try again') });
+    expect(calls.map((call) => call.route)).toEqual(['runtime-projects/register-import']);
+    expect(await store().head(`t-${TEAM_PROJECT}`)).toBeNull();
   });
 });
 

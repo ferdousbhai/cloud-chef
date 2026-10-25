@@ -14,7 +14,7 @@ import {
 import type { DataOperationResult, ProjectCloneAccess, ProjectCommit } from '~/lib/cloudflare/data-api';
 import { ensureInitialChat, findChat, openLinkedChat } from './chat-repository.server';
 import { cloneToken } from './clone-tokens.server';
-import { DataNotFoundError, ProjectForbiddenError } from './errors';
+import { DataNotFoundError, ProjectForbiddenError, ProjectRepositoryFailureError } from './errors';
 
 /**
  * A project's history and its ways out, for the browser: its commits, a clone command, a ZIP of any
@@ -253,18 +253,27 @@ export async function userRuntimeProjectArchiveAction(
   }
 }
 
-/** A data operation's repository failure in the words the data API answers with: missing, or not allowed. */
+/**
+ * A data operation's repository failure in the words the data API answers with: missing, not allowed, too
+ * large, or not possible just now (an import that broke off), each with its message for the person.
+ */
 export async function withRepositoryErrors<T>(operation: Promise<T>): Promise<T> {
   try {
     return await operation;
   } catch (error) {
-    if (error instanceof ProjectRepositoryError && error.code === 'not_found') {
-      throw new DataNotFoundError(error.message);
+    if (!(error instanceof ProjectRepositoryError)) {
+      throw error;
     }
-    if (error instanceof ProjectRepositoryError && error.code === 'auth_required') {
-      throw new ProjectForbiddenError(error.message);
+    switch (error.code) {
+      case 'not_found':
+        throw new DataNotFoundError(error.message);
+      case 'auth_required':
+        throw new ProjectForbiddenError(error.message);
+      case 'too_large':
+        throw new ProjectRepositoryFailureError(error.message, 413);
+      default:
+        throw new ProjectRepositoryFailureError(error.message, 503);
     }
-    throw error;
   }
 }
 
