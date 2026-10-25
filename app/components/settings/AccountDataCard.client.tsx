@@ -263,7 +263,12 @@ export function AccountDataCard() {
         {phase === 'deleted' ? (
           <div className="grid gap-2 text-sm text-content-secondary" role="status">
             <p>
-              CloudChef erased your account identity, sessions, {kept.length > 0 ? '' : 'encrypted credentials, '}
+              CloudChef erased your account identity, sessions,{' '}
+              {kept.length === 0
+                ? 'encrypted credentials, '
+                : revoked === null
+                  ? ''
+                  : 'the encrypted credentials it no longer uses, '}
               connection metadata, team memberships, and workspace addresses from its own database.
             </p>
             {workspacesLeftIn.length > 0 ? (
@@ -282,7 +287,8 @@ export function AccountDataCard() {
             ))}
             {revoked === false ? (
               <p>
-                Cloudflare did not confirm that CloudChef’s access was removed. If that access was given with your
+                Cloudflare did not confirm that CloudChef’s access was removed
+                {kept.length > 0 ? ' from your other Cloudflare accounts' : ''}. If that access was given with your
                 Cloudflare login, remove it in the Cloudflare dashboard under{' '}
                 <strong>Profile → Manage OAuth authorizations</strong> (
                 <a className="underline" href={CLOUDFLARE_OAUTH_AUTHORIZATIONS_URL}>
@@ -291,7 +297,10 @@ export function AccountDataCard() {
                 ).
               </p>
             ) : revoked === true ? (
-              <p>Cloudflare confirmed that CloudChef’s access was removed.</p>
+              <p>
+                Cloudflare confirmed that CloudChef’s access was removed
+                {kept.length > 0 ? ' from your other Cloudflare accounts' : ''}.
+              </p>
             ) : null}
             <p>
               Resources CloudChef deployed are still in the Cloudflare accounts they were deployed to, and still billed

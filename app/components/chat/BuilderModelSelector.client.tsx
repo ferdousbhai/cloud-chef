@@ -20,6 +20,7 @@ import {
   setBuilderProvider,
   olderBuilderModelIds,
   builderModelFor,
+  builderModelCatalogRefusalStore,
   builderModelCatalogStatusStore,
   builderModelsStore,
   builderModelStore,
@@ -68,6 +69,7 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
   const models = useStore(builderModelsStore);
   const newModels = useStore(builderNewModelsStore);
   const catalogStatus = useStore(builderModelCatalogStatusStore);
+  const catalogRefusal = useStore(builderModelCatalogRefusalStore);
   const reasoningChoices = useStore(builderReasoningChoicesStore);
   const model = builderModelFor(modelId, models, reasoningChoices, catalogStatus);
   // A saved model the catalog has not described (still loading, or failed to load) is the one turns
@@ -385,9 +387,11 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
           )}
           {catalogStatus === 'error' && (
             <p role="status" className="mx-2 mb-1 mt-2 text-xs leading-5 text-content-tertiary">
-              {standingIn
-                ? `Catalog unavailable. Turns still use your saved model, ${model.label}, which is checked when a turn starts; choose the default model to switch.`
-                : 'Catalog unavailable. Only the default model is available.'}
+              {catalogRefusal
+                ? catalogRefusal
+                : standingIn
+                  ? `Catalog unavailable. Turns still use your saved model, ${model.label}, which is checked when a turn starts; choose the default model to switch.`
+                  : 'Catalog unavailable. Only the default model is available.'}
             </p>
           )}
           {catalogStatus === 'stale' && (

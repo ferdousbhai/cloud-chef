@@ -202,7 +202,7 @@ function requestBuilderModelCatalog(init: RequestInit): Promise<void> {
       }
       // A refusal that says why (none of the allowed models can run) is kept to show, not only a failure.
       builderModelCatalogRefusalStore.set(
-        response.ok ? null : (z.object({ error: z.string().max(500) }).safeParse(body).data?.error ?? null),
+        response.status === 409 ? (z.object({ error: z.string().max(500) }).safeParse(body).data?.error ?? null) : null,
       );
       if (!response.ok || payload === null) {
         throw new Error('The Workers AI model catalog response is invalid.');

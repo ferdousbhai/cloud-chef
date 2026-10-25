@@ -125,7 +125,7 @@ settings:
   `CLOUDFLARE_OAUTH_CLIENT_ID`
 
 Runtime secrets remain on the Worker and are not build variables. User workspace and generated-application resources
-are provisioned with the connected user's authorization.
+are provisioned with the authorization of the Cloudflare account they are in, which everyone building there shares.
 
 Cloudflare Workers Builds runs the full `pnpm run validate` on every non-production branch
 (`scripts/workers-builds-checks.mjs`), checks its build identity and clean checkout but not the production branch

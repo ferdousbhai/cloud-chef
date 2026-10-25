@@ -7,9 +7,9 @@ const GITHUB_RETURN_MESSAGES = {
   returned: 'Back from GitHub. Repository access you changed there applies to what you can import.',
   install_expired: 'That GitHub connection expired or was already finished. Connect GitHub again.',
   install_cancelled: 'GitHub was not connected: the installation was cancelled. Connect GitHub again.',
-  install_other_admin: 'Only the admin who started connecting GitHub can finish it.',
+  install_other_admin: 'Sign in as the person who started connecting GitHub, then connect it again.',
   install_not_owner: 'Only the owner of that GitHub account or organization can connect it.',
-  install_failed: 'GitHub refused the connection. Connect GitHub again.',
+  install_failed: "GitHub couldn't be connected just now. Connect GitHub again.",
   connected: 'Connected GitHub.',
   repositories_updated: 'Updated which repositories CloudChef can reach on GitHub.',
 } as const;

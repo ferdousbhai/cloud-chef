@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronDownIcon } from '@radix-ui/react-icons';
 import { z } from 'zod';
 import { Button } from '@ui/Button';
@@ -8,6 +8,7 @@ import { TextInput } from '@ui/TextInput';
 import { authClient } from '~/lib/auth-client';
 import { projectRoleSchema } from '~/lib/cloudflare/org-projects.client';
 import { ImportFromGitHubDialog } from '~/components/projects/ImportFromGitHubDialog.client';
+import { IMPORT_RETURN_PARAM, isImportReturn } from '~/lib/github-app.client';
 import { ProjectAccessList, type ProjectMember } from '~/components/projects/ProjectAccessList.client';
 import { openProjectChat } from '~/lib/cloudflare/projects.client';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
@@ -80,6 +81,17 @@ export function OrgProjectsSection({
   // Importing acts in the account the person is working in now, so it's offered for that team only.
   const { data: session } = authClient.useSession();
   const workingHere = session?.context?.kind === 'organization' && session.context.orgId === orgId;
+
+  // Back from GitHub to the import dialog started here: it opens again, listing what was just connected.
+  useEffect(() => {
+    if (workingHere && isImportReturn(window.location.search)) {
+      setImporting(true);
+      const url = new URL(window.location.href);
+      url.searchParams.delete(IMPORT_RETURN_PARAM);
+      url.searchParams.delete('github_message');
+      window.history.replaceState(window.history.state, '', url);
+    }
+  }, [workingHere]);
 
   const connect = () =>
     void runRequest(async () => {

@@ -95,8 +95,9 @@ export async function completeGitHubInstallAction({
   app?: GitHubApp | null;
 }): Promise<Response> {
   const url = new URL(request.url);
-  // This is a browser coming back from GitHub. A connection made returns to where it started (the import dialog
-  // then lists the new repositories); anything else, and an unexpected failure, goes to Settings, which says why.
+  // This is a browser coming back from GitHub. A connection made returns to where it started (an import dialog,
+  // on the home page or in Settings, opens again with the new repositories); anything else, and an unexpected
+  // failure, goes to Settings, which says why.
   const back = (message: GitHubReturnMessage, returnTo: string | null = null) =>
     redirect(returnLocation(url.origin, returnTo, message), request);
   try {
