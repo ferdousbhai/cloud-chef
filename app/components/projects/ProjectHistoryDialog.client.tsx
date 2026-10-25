@@ -107,11 +107,13 @@ export function ProjectHistoryDialog({
       return;
     }
     void run(commit, 'revert', async () => {
-      await revert(commit.hash);
+      const { changed } = await revert(commit.hash);
       toast.success(
-        ownApp
-          ? `Restored version ${shortCommit(commit.hash)}. Your app is being published with it.`
-          : `This chat's copy is back to version ${shortCommit(commit.hash)}. Ask the agent to publish it to put it live.`,
+        !changed
+          ? `The project already matches version ${shortCommit(commit.hash)}, so nothing changed.`
+          : ownApp
+            ? `Restored version ${shortCommit(commit.hash)}. Your app is being published with it.`
+            : `This chat's copy is back to version ${shortCommit(commit.hash)}. Ask the agent to publish it to put it live.`,
       );
       onClose();
     });

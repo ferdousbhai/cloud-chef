@@ -348,6 +348,18 @@ export async function recordImportedRepo(db: D1Database, projectId: string, repo
   return row?.artifact_repo === repo;
 }
 
+/**
+ * Takes back an import its importer just registered whose code can never be copied, so importing the address
+ * again starts afresh. Only theirs, and only while it has no repository.
+ */
+export async function abandonImport(db: D1Database, projectId: string, userId: string): Promise<boolean> {
+  const removed = await db
+    .prepare('DELETE FROM org_projects WHERE id = ? AND created_by = ? AND artifact_repo IS NULL')
+    .bind(projectId, userId)
+    .run();
+  return removed.meta.changes === 1;
+}
+
 /** Remembers which Worker Workers Builds builds a project into, once found. */
 export async function recordProjectSiteUrl(db: D1Database, projectId: string, siteUrl: string): Promise<void> {
   await db.prepare('UPDATE org_projects SET site_url = ? WHERE id = ?').bind(siteUrl, projectId).run();

@@ -1,3 +1,4 @@
+import { GITHUB_ACCESS_FIX } from '~/lib/github-return-messages';
 import * as isogit from 'isomorphic-git';
 import { createFsFromVolume, Volume } from 'memfs';
 import diff3Merge from 'diff3';
@@ -912,8 +913,10 @@ function importError(error: GitSourceError, authorized: boolean): ProjectReposit
     case 'auth_required':
       return new ProjectRepositoryError(
         authorized
-          ? 'GitHub refused CloudChef access to that repository. Connect GitHub again in Settings, then try again.'
-          : 'That repository is private: connect it through GitHub to import it.',
+          ? `GitHub refused CloudChef access to that repository. To fix it, ${GITHUB_ACCESS_FIX}, then try again.`
+          : // Imported as a public repository, so it isn't read through GitHub's App: it went private since.
+            "That repository isn't public any more. To import it while it's private, remove this project and import " +
+              'it again after connecting GitHub.',
         'auth_required',
       );
     case 'no_repository':
@@ -921,7 +924,8 @@ function importError(error: GitSourceError, authorized: boolean): ProjectReposit
       return new ProjectRepositoryError(
         authorized
           ? `The repository could not be imported: ${error.message}.`
-          : "That repository wasn't found, or it is private: connect it through GitHub to import it.",
+          : "That repository wasn't found: it was removed, or it isn't public any more. To import it while it's " +
+              'private, remove this project and import it again after connecting GitHub.',
         'not_found',
       );
     case 'not_found':

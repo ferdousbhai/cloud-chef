@@ -268,14 +268,18 @@ export function getBuilderModel(modelId: BuilderModelId, models: readonly Builde
 
 /** A readable name made from a model's id (its last part, words capitalized), for a model no catalog names now. */
 export function modelIdLabel(modelId: string): string {
-  return modelId
-    .slice(modelId.lastIndexOf('/') + 1)
-    .split('-')
-    .map((part) => (/^\d/.test(part) ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
-    .join(' ')
-    .replace(/\bGlm\b/g, 'GLM')
-    .replace(/\bDeepseek\b/g, 'DeepSeek')
-    .replace(/\bGpt\b/g, 'GPT')
-    .replace(/\bOss\b/g, 'OSS')
-    .replace(/\bFp8\b/g, 'FP8');
+  return (
+    modelId
+      .slice(modelId.lastIndexOf('/') + 1)
+      // A version written with dashes (claude-opus-5-5) reads as one number (5.5).
+      .replace(/(?<=\d)-(?=\d+(?:-|$))/g, '.')
+      .split('-')
+      .map((part) => (/^\d/.test(part) ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
+      .join(' ')
+      .replace(/\bGlm\b/g, 'GLM')
+      .replace(/\bDeepseek\b/g, 'DeepSeek')
+      .replace(/\bGpt\b/g, 'GPT')
+      .replace(/\bOss\b/g, 'OSS')
+      .replace(/\bFp8\b/g, 'FP8')
+  );
 }

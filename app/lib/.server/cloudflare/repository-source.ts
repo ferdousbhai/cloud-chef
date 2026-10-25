@@ -187,9 +187,14 @@ function demultiplexPack(body: ReadableStream<Uint8Array>, maxBytes: number): So
             }
           }
         } catch (error) {
-          // The source's connection broke or timed out.
+          // The source's connection broke, or the copy ran out of its time: a copy that long would only run out
+          // again, so that one isn't retried.
           console.warn({ event: 'project_import_source_broke', error: error instanceof Error ? error.name : 'error' });
-          fail(new GitSourceError('unavailable', 'the copy stopped before the whole history arrived'));
+          fail(
+            error instanceof Error && error.name === 'TimeoutError'
+              ? new GitSourceError('refused', 'copying its history took longer than the 30 minutes an import may take')
+              : new GitSourceError('unavailable', 'the copy stopped before the whole history arrived'),
+          );
         }
       },
       cancel(reason) {

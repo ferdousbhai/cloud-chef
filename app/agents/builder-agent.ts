@@ -1839,8 +1839,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         return toolFailure(
           `${linked.defaultBranch} changed since this workspace was opened, and the changes overlap. Nothing went ` +
             `live. The work is saved on the branch ${branch} of ${name}, but this chat's workspace stays on its old ` +
-            'base, and so do its new conversations. Tell the person that to make the change on the latest version ' +
-            'they delete this chat, open the project again from Projects, and ask for it again.',
+            'base, and so do its new conversations, and CloudChef cannot move it onto the latest version yet: ' +
+            'publishing again will meet the same overlap. Tell the person, and that the live version keeps the other change.',
           { branch, commit: committed.commit, conflict: true, defaultBranch: linked.defaultBranch },
         );
       }

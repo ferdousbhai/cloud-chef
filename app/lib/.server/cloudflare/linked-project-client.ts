@@ -144,6 +144,23 @@ async function reportProjectImported(
   await response.body?.cancel().catch(() => undefined);
 }
 
+/** Takes back an import this person just registered whose code can never be copied; best effort. */
+export async function abandonProjectImport(
+  env: RuntimeEnv,
+  identity: Identity,
+  orgProjectId: string,
+): Promise<boolean> {
+  try {
+    const response = await postRuntimeRoute(env, identity, 'runtime-projects/abandon-import', { orgProjectId });
+    const parsed = z
+      .object({ removed: z.boolean() })
+      .safeParse(await readJsonBodyWithLimit(response, MAX_JSON_RESPONSE_BYTES, 'Import abandonment response'));
+    return response.ok && parsed.success && parsed.data.removed;
+  } catch {
+    return false;
+  }
+}
+
 /** Asks the control plane to keep a repository from elsewhere as one of this person's projects. */
 export async function registerProjectImport(
   env: RuntimeEnv,

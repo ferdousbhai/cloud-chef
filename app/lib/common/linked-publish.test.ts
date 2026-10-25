@@ -54,7 +54,7 @@ describe('linkedPublishView', () => {
       followDeadline: null,
       detail:
         "Your change is saved. CloudChef stopped checking on the build, so it can't say whether it worked. " +
-        'A team admin can see the result in the Cloudflare dashboard.',
+        "The result is in the Cloudflare dashboard of the project's account.",
     });
   });
 

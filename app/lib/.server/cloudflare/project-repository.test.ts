@@ -295,11 +295,14 @@ describe('ProjectRepositories', () => {
     await artifacts.addSource(url, { 'a.txt': 'one' }, 'main', { authorization: 'Basic right' });
     await expect(repositories.importFromUrl({ url, branch: 'main', repo: 't-9' })).rejects.toMatchObject({
       code: 'auth_required',
-      message: 'That repository is private: connect it through GitHub to import it.',
+      message: expect.stringContaining("That repository isn't public any more."),
     });
     await expect(
       repositories.importFromUrl({ url, authorization: 'Basic wrong', branch: 'main', repo: 't-9' }),
-    ).rejects.toMatchObject({ code: 'auth_required', message: expect.stringContaining('Connect GitHub again') });
+    ).rejects.toMatchObject({
+      code: 'auth_required',
+      message: expect.stringContaining('GitHub refused CloudChef access to that repository. To fix it,'),
+    });
   });
 
   it('says so when the source has no such branch', async () => {

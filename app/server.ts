@@ -30,6 +30,7 @@ import {
 import { completeGoogleSignInAction, GOOGLE_RETURN_PATH, startGoogleSignInAction } from './server-handlers/google-auth';
 import {
   runtimeOpenProjectAction,
+  runtimeAbandonImportAction,
   runtimeProjectImportedAction,
   runtimeRegisterImportAction,
   runtimeProjectSiteAction,
@@ -147,6 +148,7 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     [PROJECT_WORKERS_BUILDS_SWITCH_ROUTE]: ['POST', switchProjectWorkersBuildsAction],
     '/api/cloudflare/runtime-projects/open': ['POST', runtimeOpenProjectAction],
     '/api/cloudflare/runtime-projects/imported': ['POST', runtimeProjectImportedAction],
+    '/api/cloudflare/runtime-projects/abandon-import': ['POST', runtimeAbandonImportAction],
     '/api/cloudflare/runtime-projects/register-import': ['POST', runtimeRegisterImportAction],
     '/api/cloudflare/runtime-projects/status': ['POST', runtimeProjectStatusAction],
     '/api/cloudflare/runtime-projects/site': ['POST', runtimeProjectSiteAction],

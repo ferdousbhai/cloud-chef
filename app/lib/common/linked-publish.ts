@@ -64,7 +64,8 @@ export type LinkedPublishView = {
 };
 
 /** Where a build's result can still be found when CloudChef can't say it: the account's Cloudflare dashboard. */
-const ADMIN_CAN_SEE = 'A team admin can see the result in the Cloudflare dashboard.';
+/** Said for a team's project and a person's own alike: whoever runs the Cloudflare account can look. */
+const ADMIN_CAN_SEE = "The result is in the Cloudflare dashboard of the project's account.";
 
 const webUrlSchema = z.url({ protocol: /^https?$/ });
 
@@ -95,8 +96,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
       title: 'Not published',
       detail:
         'Someone changed the same part of the live project since this chat opened it, so your change was not put ' +
-        'live. To make it on the latest version, delete this chat, open the project again from Projects, and ask ' +
-        'for the change again.',
+        "live. It's saved, but this chat can't take in their change yet, so publishing it again won't work.",
       building: false,
       followDeadline: null,
       previewUrl: null,
@@ -148,8 +148,8 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
           ? 'Your change is live.'
           : links.previewUrl
             ? "Open the preview to check the change. The live site hasn't changed."
-            : "The preview was built, but Cloudflare didn't give a link for it. A team admin can find it in the " +
-              "Cloudflare dashboard. The live site hasn't changed.",
+            : "The preview was built, but Cloudflare didn't give a link for it. It's in the Cloudflare dashboard of " +
+              "the project's account. The live site hasn't changed.",
         building: false,
         followDeadline: null,
         ...links,
@@ -169,8 +169,8 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
       return unknown(
         committed,
         'Your change is saved, but Cloudflare reported no build for it. Workers Builds, the Cloudflare service that ' +
-          'builds and publishes this project, may have skipped it, or may not be set up for this project yet. A team ' +
-          'admin can check in the Cloudflare dashboard.',
+          'builds and publishes this project, may have skipped it, or may not be set up for this project yet. ' +
+          "Whoever runs the project's Cloudflare account can check in its dashboard.",
         links,
       );
     case 'timed_out':

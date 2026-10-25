@@ -1002,7 +1002,11 @@ describe('the models the picker offers', () => {
 
     const chosen = await allowed(admin.cookie, [CLOUDFLARE_WORKERS_AI_MODEL, OPUS, OPUS], env);
     expect(chosen.status).toBe(200);
-    expect(await chosen.json()).toEqual({ defaultModelId: null, allowedModelIds: [CLOUDFLARE_WORKERS_AI_MODEL, OPUS] });
+    // The default CloudChef pins is kept by its id once a list is chosen, so a later pin can't fall off the list.
+    expect(await chosen.json()).toEqual({
+      defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
+      allowedModelIds: [CLOUDFLARE_WORKERS_AI_MODEL, OPUS],
+    });
     expect(
       await (
         await modelSettingsAction({ request: get(admin.cookie), env, openAccountApi: cloudflare.openAccountApi })
@@ -1010,8 +1014,8 @@ describe('the models the picker offers', () => {
     ).toMatchObject({ allowedModelIds: [CLOUDFLARE_WORKERS_AI_MODEL, OPUS] });
 
     const everything = await allowed(admin.cookie, null, env);
-    expect(await everything.json()).toEqual({ defaultModelId: null, allowedModelIds: null });
-    expect(stored(database)).toEqual({ model: null, allowed: null });
+    expect(await everything.json()).toEqual({ defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, allowedModelIds: null });
+    expect(stored(database)).toEqual({ model: CLOUDFLARE_WORKERS_AI_MODEL, allowed: null });
   });
 
   it('always include the default model: a list without it, or a default not on the list, is refused', async () => {
@@ -1020,11 +1024,8 @@ describe('the models the picker offers', () => {
     // CloudChef's pinned model is the default while none is chosen.
     const withoutPin = await allowed(admin.cookie, [OPUS], env);
     expect(withoutPin.status).toBe(409);
-    expect(await withoutPin.json()).toMatchObject({
-      code: 'default_model_not_allowed',
-      error: expect.stringContaining('has to stay allowed. To leave it out, choose another default model first.'),
-      defaultModelId: null,
-      allowedModelIds: null,
+    expect(await withoutPin.json()).toEqual({
+      error: expect.stringContaining('GLM 5.3 Flash, has to stay allowed. To leave it out, choose another default'),
     });
     // Nothing at all would leave the default out too.
     expect((await allowed(admin.cookie, [], env)).status).toBe(409);
@@ -1039,11 +1040,7 @@ describe('the models the picker offers', () => {
     for (const modelId of [null, 'openai/gpt-5']) {
       const refused = await updateDefaultModelAction({ request: post(admin.cookie, '/default', { modelId }), env });
       expect(refused.status).toBe(409);
-      expect(await refused.json()).toMatchObject({
-        code: 'default_model_not_allowed',
-        defaultModelId: OPUS,
-        allowedModelIds: [OPUS],
-      });
+      expect(await refused.json()).toEqual({ error: expect.stringContaining('Allow it under') });
     }
     expect(stored(database)).toEqual({ model: OPUS, allowed: JSON.stringify([OPUS]) });
   });

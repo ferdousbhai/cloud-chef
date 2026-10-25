@@ -8,6 +8,7 @@ import { CloudflareAccountApiError, type WorkersBuild } from '~/lib/.server/clou
 import {
   runtimeOpenProjectAction,
   runtimeProjectImportedAction,
+  runtimeAbandonImportAction,
   runtimeRegisterImportAction,
   runtimeRequestProductionAction,
   runtimeProjectSiteAction,
@@ -406,6 +407,38 @@ describe('a runtime importing a GitHub repository as a new project', () => {
         .prepare('SELECT connection_id, name, artifact_repo FROM org_projects WHERE id = ?')
         .get(answer.projectId),
     ).toEqual({ connection_id: 'sara-own', name: 'public', artifact_repo: null });
+  });
+
+  it('takes back an import whose code was never copied, for the person who registered it only', async () => {
+    const { env, runtime, database } = await setup();
+    const registered = await runtimeRegisterImportAction({
+      request: await runtime(
+        '/api/cloudflare/runtime-projects/register-import',
+        { url: 'https://github.com/ada/public' },
+        { connection: 'own' },
+      ),
+      env,
+      app: null,
+      gitRequest,
+    });
+    const { projectId } = z.object({ projectId: z.string() }).parse(await registered.json());
+    const abandon = async (orgProjectId: string) =>
+      (
+        await runtimeAbandonImportAction({
+          request: await runtime(
+            '/api/cloudflare/runtime-projects/abandon-import',
+            { orgProjectId },
+            {
+              connection: 'own',
+            },
+          ),
+          env,
+        })
+      ).json();
+    // A project that already holds its code, or isn't this person's, stays.
+    expect(await abandon(BLOG)).toEqual({ removed: false });
+    expect(await abandon(projectId)).toEqual({ removed: true });
+    expect(database.prepare('SELECT COUNT(*) AS n FROM org_projects WHERE id = ?').get(projectId)).toEqual({ n: 0 });
   });
 
   it("takes a team's admin in a team, and refuses a private repository the App doesn't reach", async () => {

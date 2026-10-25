@@ -27,6 +27,7 @@ import {
   effectiveDefaultModelId,
   GATEWAY_PROVIDER_SLUGS,
   isCloudChefKeyAlias,
+  modelIdLabel,
   type GatewayProviderSlug,
 } from '~/lib/workers-ai-model';
 import { sessionConnection } from './cloudflare-integration';
@@ -222,7 +223,6 @@ export function updateDefaultModelAction({ request, env }: RequestArgs) {
       if (!(await setDefaultBuilderModel(env.DB, connection.id, body.data.modelId))) {
         return modelsRefused(
           'The default model has to be one the picker offers. Allow it under "Models in the picker" first.',
-          await readBuilderModelSettings(env.DB, connection.id),
         );
       }
       return modelsResponse(await readBuilderModelSettings(env.DB, connection.id));
@@ -260,9 +260,8 @@ export function updateAllowedModelsAction({ request, env }: RequestArgs) {
         // Another admin may have changed the default meanwhile: the answer names the one that stands now.
         const current = await readBuilderModelSettings(env.DB, connection.id);
         return modelsRefused(
-          `The default model, ${effectiveDefaultModelId(current.defaultModelId)}, has to stay allowed. To leave it ` +
+          `The default model, ${modelIdLabel(effectiveDefaultModelId(current.defaultModelId))}, has to stay allowed. To leave it ` +
             'out, choose another default model first.',
-          current,
         );
       }
       return modelsResponse(await readBuilderModelSettings(env.DB, connection.id));
@@ -385,11 +384,9 @@ function modelsResponse(models: BuilderModelSettings): Response {
 }
 
 /** A change refused because it would leave the default model out of the picker, with the settings as they are. */
-function modelsRefused(error: string, models: BuilderModelSettings): Response {
-  return Response.json(
-    { error, code: 'default_model_not_allowed', ...models },
-    { status: 409, headers: { 'Cache-Control': 'private, no-store' } },
-  );
+/** A choice the default model rules out; the card reloads the settings to show what stands. */
+function modelsRefused(error: string): Response {
+  return Response.json({ error }, { status: 409, headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 function keysResponse(

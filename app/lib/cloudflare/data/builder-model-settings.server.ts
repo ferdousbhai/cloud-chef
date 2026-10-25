@@ -60,7 +60,8 @@ function parseAllowedModelIds(stored: string | null): string[] | null {
 /**
  * Sets the model the account's builders start on, while the account's allowed models include it (the
  * pinned model standing for null), in one statement, so no other change can slip between the check
- * and the write. False when the allowed models do not include it.
+ * and the write. False when the allowed models do not include it. While a list is chosen the pinned model
+ * is stored by its id, so a release that pins another model can't leave the default off the list.
  */
 export async function setDefaultBuilderModel(
   db: D1Database,
@@ -69,7 +70,8 @@ export async function setDefaultBuilderModel(
 ): Promise<boolean> {
   const result = await db
     .prepare(
-      `UPDATE cloudflare_connections SET default_builder_model = ?1
+      `UPDATE cloudflare_connections
+       SET default_builder_model = CASE WHEN allowed_builder_models_json IS NULL THEN ?1 ELSE COALESCE(?1, ?3) END
        WHERE id = ?2
          AND (allowed_builder_models_json IS NULL
            OR EXISTS (SELECT 1 FROM json_each(allowed_builder_models_json) WHERE value = COALESCE(?1, ?3)))`,
@@ -81,7 +83,8 @@ export async function setDefaultBuilderModel(
 
 /**
  * Sets the models the account's picker offers (null for every compatible one) while they include the
- * account's default (the pinned model when none is chosen), in one statement. False when they do not.
+ * account's default (the pinned model when none is chosen), in one statement. False when they do not. A
+ * chosen list stores the default by its id, so a release that pins another model can't leave it off the list.
  */
 export async function setAllowedBuilderModels(
   db: D1Database,
@@ -91,7 +94,10 @@ export async function setAllowedBuilderModels(
   const stored = modelIds === null ? null : JSON.stringify([...new Set(modelIds)]);
   const result = await db
     .prepare(
-      `UPDATE cloudflare_connections SET allowed_builder_models_json = ?1
+      `UPDATE cloudflare_connections
+       SET allowed_builder_models_json = ?1,
+           default_builder_model = CASE WHEN ?1 IS NULL THEN default_builder_model
+             ELSE COALESCE(default_builder_model, ?3) END
        WHERE id = ?2
          AND (?1 IS NULL
            OR EXISTS (SELECT 1 FROM json_each(?1) WHERE value = COALESCE(default_builder_model, ?3)))`,

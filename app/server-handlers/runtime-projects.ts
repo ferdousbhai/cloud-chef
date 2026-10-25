@@ -1,3 +1,4 @@
+import { GITHUB_ACCESS_FIX } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import { GitHubError } from '~/lib/.server/github/github-api';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
@@ -13,6 +14,7 @@ import {
   type WorkersBuildsAccountApi,
 } from '~/lib/.server/cloudflare/workers-builds';
 import {
+  abandonImport,
   findAccessibleProject,
   listGitHubInstallations,
   recordImportedRepo,
@@ -45,6 +47,7 @@ const projectFields = { orgProjectId: z.string().uuid() };
 const projectSchema = z.strictObject(projectFields);
 const importedSchema = z.strictObject({ ...projectFields, repo: REPO, commit: COMMIT });
 const statusSchema = z.strictObject({ ...projectFields, commit: COMMIT });
+const abandonSchema = z.strictObject(projectFields);
 const registerImportSchema = z.strictObject({
   url: z.string().min(1).max(2_048),
   name: z.string().trim().max(80).optional(),
@@ -109,7 +112,7 @@ export async function runtimeOpenProjectAction(args: {
 /** Where git imports a project from: its address, and git's authorization for a private one. */
 type ImportSource = { url: string; branch: string; authorization: string | null };
 
-/** A GitHub import the runtime registered: the new project, and where to import it from when it has a source. */
+/** A GitHub import the runtime registered: the new project, and where to import it from. */
 type RegisteredImport = { projectId: string; importSource: ImportSource; workersBuildsFromGitHub: boolean };
 
 /**
@@ -136,7 +139,12 @@ async function importSourceFor(
   );
   if (!app || !installation) {
     return json(
-      { code: 'github_disconnected', error: 'Connect GitHub again in Settings to import this project.' },
+      {
+        code: 'github_disconnected',
+        error:
+          "CloudChef's GitHub App isn't connected to the GitHub account that holds this repository. To fix it, " +
+          `${GITHUB_ACCESS_FIX}, then try again.`,
+      },
       409,
     );
   }
@@ -213,10 +221,13 @@ export async function runtimeRegisterImportAction(args: {
       await removeProject(args.env.DB, { scope, projectId: project.id });
       throw error;
     }
-    if (importSource instanceof Response || !importSource) {
+    if (importSource instanceof Response) {
       // Nothing can be imported yet, so the project isn't kept: importing again starts afresh.
       await removeProject(args.env.DB, { scope, projectId: project.id });
-      return importSource ?? json({ error: 'There is nothing to import this project from.' }, 500);
+      return importSource;
+    }
+    if (importSource === null) {
+      throw new Error('A project registered from GitHub always has a source.');
     }
     const answer: RegisteredImport = {
       projectId: project.id,
@@ -267,6 +278,21 @@ export async function runtimeProjectImportedAction(args: { request: Request; env
     return json({ code: 'already_imported', error: 'This project was already imported somewhere else.' }, 409);
   }
   return json({ orgProjectId: project.id, repo: body.repo }, 200);
+}
+
+/** The runtime taking back an import it registered whose code can never be copied (see `abandonImport`). */
+export async function runtimeAbandonImportAction(args: { request: Request; env: Env }): Promise<Response> {
+  const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, abandonSchema, {
+    maxBytes: MAX_REQUEST_BYTES,
+    label: 'Workspace runtime import abandonment',
+    invalid: INVALID_REQUEST,
+  });
+  if (authenticated instanceof Response) {
+    return authenticated;
+  }
+  const { body, identity } = authenticated;
+  const removed = await abandonImport(args.env.DB, body.orgProjectId, identity.userId);
+  return json({ removed }, 200);
 }
 
 /** What Workers Builds reports for a commit of the project: none yet, queued, building, succeeded or failed. */

@@ -56,6 +56,9 @@ const toolProgressPartSchema = z.object({
 const AGENT_SEND_READY_TIMEOUT_MS = 10_000;
 const AGENT_CANCEL_SETTLE_TIMEOUT_MS = 5 * 60 * 1000;
 
+/** What restoring a version answers: which files it changed, none when they already matched. */
+const revertResultSchema = z.object({ changedPaths: z.array(z.string()) });
+
 /**
  * Preparing the durable workspace can legitimately take minutes: after a container restart it
  * waits on the toolchain bootstrap, whose ceiling is CONTAINER_CONNECT_TIMEOUT_MS in
@@ -479,7 +482,11 @@ export function useBuilderAgentChat(args: {
     const agentRpc: BuilderWorkspaceAgent = builderAgent;
     projectRevertStore.set(async (commit) => {
       await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
-      await agentRpc.call('revertToCommit', [commit], { timeout: 2 * 60_000 });
+      const result = revertResultSchema.safeParse(
+        await agentRpc.call('revertToCommit', [commit], { timeout: 2 * 60_000 }),
+      );
+      // Unreadable answers are reported as a change, the restore having been asked for and not refused.
+      return { changed: !result.success || result.data.changedPaths.length > 0 };
     });
     return () => projectRevertStore.set(null);
   }, [builderAgent]);

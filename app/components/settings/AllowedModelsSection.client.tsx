@@ -147,8 +147,9 @@ export function AllowedModelsSection({
           ))}
           {unavailable.length > 0 ? (
             <p className="text-xs text-content-tertiary">
-              {unavailable.length === 1 ? '1 allowed model isn’t' : `${unavailable.length} allowed models aren’t`}{' '}
-              available in this account right now, for example because its provider key was removed. It stays allowed.
+              {unavailable.length === 1
+                ? '1 allowed model isn’t available in this account right now, for example because its provider key was removed. It stays allowed.'
+                : `${unavailable.length} allowed models aren’t available in this account right now, for example because their provider key was removed. They stay allowed.`}
             </p>
           ) : null}
         </div>

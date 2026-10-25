@@ -209,7 +209,11 @@ export async function requireWorkersAiBuilderModel(
   if (modelId === CLOUDFLARE_WORKERS_AI_MODEL) {
     const allowed = models.filter(({ id }) => isBuilderModelAllowed(settings, id));
     if (allowed.length === 0 && settings.allowedModelIds !== null) {
-      throw new Response(NO_ALLOWED_MODEL_MESSAGE, { status: 409 });
+      // Only Workers AI models stand in for the pin; other allowed models may still run, picked by the person.
+      throw new Response(
+        "CloudChef's default model isn't offered any more. Choose another model in the model picker.",
+        { status: 409 },
+      );
     }
     return resolveBuilderDefaultModel(allowed);
   }

@@ -22,3 +22,7 @@ const messages = new Map<string, string>(Object.entries(GITHUB_RETURN_MESSAGES))
 export function gitHubReturnMessageText(code: string): string | null {
   return messages.get(code) ?? null;
 }
+
+/** Where a person gives CloudChef's GitHub App another account or repository, said in errors that need it. */
+export const GITHUB_ACCESS_FIX =
+  "give CloudChef's GitHub App access from Import from GitHub, or for a team in Settings, in the menu beside the team's projects";

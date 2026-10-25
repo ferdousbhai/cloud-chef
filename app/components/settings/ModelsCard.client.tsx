@@ -5,6 +5,7 @@ import { Button } from '~/components/ui/primitives/Button';
 import type { CloudflareAuthSession } from '~/lib/.server/auth';
 import { authClient, createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
 import {
+  builderModelCatalogRefusalStore,
   builderModelCatalogStatusStore,
   builderModelsStore,
   fetchCompatibleBuilderModels,
@@ -19,6 +20,7 @@ import {
   GATEWAY_PROVIDER_SLUGS,
   gatewayModelProvider,
   isBuilderModelId,
+  modelIdLabel,
   type GatewayProviderSlug,
 } from '~/lib/workers-ai-model';
 import { AllowedModelsSection } from './AllowedModelsSection.client';
@@ -68,10 +70,10 @@ const AUTHENTICATION_TURNED_ON_NOTE =
   'Authentication is now on for this account’s default AI Gateway. CloudChef is unaffected; your own apps calling this gateway over HTTP now need a gateway token.';
 
 /**
- * The models of the Cloudflare account the person builds in: the one everyone starts on, and each AI
- * Gateway provider's, which run with the account's own key for that provider. A team's admins (or
- * the person whose own account it is) change both; everyone can still pick another model in the
- * builder.
+ * The models of the Cloudflare account the person builds in: the one everyone starts on, which of them the
+ * picker offers, and each AI Gateway provider's key, with which that provider's models run. A team's admins
+ * (or the person whose own account it is) change them; everyone can still pick among the allowed models in
+ * the builder.
  */
 export function ModelsCard() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -79,6 +81,7 @@ export function ModelsCard() {
   const [busy, setBusy] = useState(false);
   const models = useStore(builderModelsStore);
   const catalogStatus = useStore(builderModelCatalogStatusStore);
+  const catalogRefusal = useStore(builderModelCatalogRefusalStore);
   const { data: session } = authClient.useSession();
   const accountLabel = workspaceLabel(session?.context ?? null);
 
@@ -167,17 +170,20 @@ export function ModelsCard() {
     );
 
   const chooseDefault = (value: string) =>
-    act(async () => {
-      const choices = await postJson(
-        `${PATH}/default`,
-        { modelId: value === CLOUDCHEF_DEFAULT ? null : value },
-        modelChoicesSchema,
-      );
-      setSettings((current) => (current ? { ...current, ...choices } : current));
-      // The catalog names the default, and new chats in this browser start on the one it names.
-      void reloadBuilderModelCatalog();
-      return 'Saved. New chats start on this model; anyone can still switch.';
-    });
+    act(
+      async () => {
+        const choices = await postJson(
+          `${PATH}/default`,
+          { modelId: value === CLOUDCHEF_DEFAULT ? null : value },
+          modelChoicesSchema,
+        );
+        setSettings((current) => (current ? { ...current, ...choices } : current));
+        // The catalog names the default, and new chats in this browser start on the one it names.
+        void reloadBuilderModelCatalog();
+        return 'Saved. New chats start on this model; anyone can still switch.';
+      },
+      { refreshOnFailure: true },
+    );
 
   const chooseAllowed = (modelIds: string[] | null) =>
     act(
@@ -188,7 +194,7 @@ export function ModelsCard() {
         void reloadBuilderModelCatalog();
         return modelIds === null
           ? 'Saved. The model picker offers every compatible model, including ones added later.'
-          : `Saved. The model picker offers ${modelIds.length === 1 ? 'this 1 model' : `these ${modelIds.length} models`}. A chat on a model left out moves to an allowed one the next time it's opened or sends a message.`;
+          : `Saved. The model picker offers ${modelIds.length === 1 ? 'this 1 model' : `these ${modelIds.length} models`}. A chat already open on a model left out moves to an allowed one when it's reopened, or after its next message is refused.`;
       },
       { refreshOnFailure: true },
     );
@@ -198,7 +204,9 @@ export function ModelsCard() {
     ? models
     : [
         ...models,
-        ...(settings?.defaultModelId ? [{ id: settings.defaultModelId, label: settings.defaultModelId }] : []),
+        ...(settings?.defaultModelId
+          ? [{ id: settings.defaultModelId, label: modelIdLabel(settings.defaultModelId) }]
+          : []),
       ];
 
   return (
@@ -232,7 +240,7 @@ export function ModelsCard() {
                 value={CLOUDCHEF_DEFAULT}
                 disabled={!isBuilderModelAllowed(settings, CLOUDFLARE_WORKERS_AI_MODEL)}
               >
-                CloudChef’s default ({CLOUDFLARE_WORKERS_AI_MODEL})
+                CloudChef’s default ({modelIdLabel(CLOUDFLARE_WORKERS_AI_MODEL)})
               </option>
               {choices.map((model) => {
                 const provider = isBuilderModelId(model.id) ? gatewayModelProvider(model.id) : null;
@@ -245,13 +253,15 @@ export function ModelsCard() {
               })}
             </select>
             <p className="text-xs text-content-tertiary">
-              {catalogStatus === 'error'
-                ? 'The account’s model list could not be loaded just now.'
-                : catalogStatus === 'stale'
-                  ? 'The account’s model list could not be refreshed just now, so these are the models it last listed.'
-                  : settings.canManage
-                    ? 'New chats start on this model. Anyone can switch in the builder.'
-                    : 'Chosen by this team’s admins. You can switch in the builder.'}
+              {catalogRefusal
+                ? catalogRefusal
+                : catalogStatus === 'error'
+                  ? 'The account’s model list could not be loaded just now.'
+                  : catalogStatus === 'stale'
+                    ? 'The account’s model list could not be refreshed just now, so these are the models it last listed.'
+                    : settings.canManage
+                      ? 'New chats start on this model. Anyone can switch in the builder.'
+                      : 'Chosen by this team’s admins. You can switch in the builder.'}
             </p>
           </div>
 

@@ -60,6 +60,8 @@ export const builderModelsStore = atom<readonly BuilderModel[]>([DEFAULT_WORKERS
  */
 type BuilderModelCatalogStatus = 'idle' | 'loading' | 'ready' | 'stale' | 'error';
 export const builderModelCatalogStatusStore = atom<BuilderModelCatalogStatus>('idle');
+/** Why the account's catalog was refused, when it said: the admin's allowed models can't run. Null otherwise. */
+export const builderModelCatalogRefusalStore = atom<string | null>(null);
 
 /** The reasoning effort chosen per model id, as this browser keeps it. */
 type BuilderReasoningChoices = Readonly<Record<string, BuilderReasoningLevel>>;
@@ -190,11 +192,16 @@ function requestBuilderModelCatalog(init: RequestInit): Promise<void> {
   builderModelCatalogStatusStore.set('loading');
   const operation: Promise<void> = fetchUserRuntime('/v1/models', { ...init, headers: { Accept: 'application/json' } })
     .then(async (response) => {
-      const parsed = builderModelCatalogPayloadSchema.safeParse(await response.json().catch(() => null));
+      const body: unknown = await response.json().catch(() => null);
+      const parsed = builderModelCatalogPayloadSchema.safeParse(body);
       const payload = parsed.success ? validateBuilderModelCatalogPayload(parsed.data) : null;
       if (superseded()) {
         return;
       }
+      // A refusal that says why (none of the allowed models can run) is kept to show, not only a failure.
+      builderModelCatalogRefusalStore.set(
+        response.ok ? null : (z.object({ error: z.string().max(500) }).safeParse(body).data?.error ?? null),
+      );
       if (!response.ok || payload === null) {
         throw new Error('The Workers AI model catalog response is invalid.');
       }

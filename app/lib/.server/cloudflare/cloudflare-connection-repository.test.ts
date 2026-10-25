@@ -164,20 +164,6 @@ describe('activateCloudflareConnection', () => {
     expect(authorization(database)[0]).toMatchObject({ credential_handle: 'credential-old' });
   });
 
-  it('empties the per-space credential column the release before 0035 filled', async () => {
-    const { database, db } = sharedAccount();
-    // As production has it: each space still names the credential it was connected with.
-    database.exec(`UPDATE cloudflare_connections SET credential_handle = 'credential-old'`);
-
-    await activateCloudflareConnection({ db, ...reconnectOwn, grantedOAuthScopes: ['workers-scripts.write'] });
-
-    expect(database.prepare(`SELECT credential_handle FROM cloudflare_connections WHERE id = 'own'`).get()).toEqual({
-      credential_handle: null,
-    });
-    // 0035's temporary trigger skips an emptied column, so it doesn't put the old credential back.
-    expect(authorization(database)[0]).toMatchObject({ credential_handle: 'credential-new' });
-  });
-
   it('adopts the exact committed write when its D1 acknowledgement is lost', async () => {
     const { db } = sharedAccount();
     const acknowledgementLost = new Error('D1 acknowledgement lost');
@@ -312,6 +298,13 @@ describe('runsEveryOtherSpaceInAccount', () => {
     const { db } = sharedAccount();
     expect(await runsEveryOtherSpaceInAccount(db, { userId: null, owner: null, accountId: 'account-1' })).toBe(false);
     expect(await runsEveryOtherSpaceInAccount(db, { userId: null, owner: null, accountId: 'account-2' })).toBe(true);
+  });
+
+  it('keeps someone signing in for the first time out of an account only a team builds in', async () => {
+    const { database, db } = sharedAccount();
+    // No one's own space is in the account: only the team's.
+    database.exec(`UPDATE cloudflare_connections SET status = 'revoked' WHERE id = 'own'`);
+    expect(await runsEveryOtherSpaceInAccount(db, { userId: null, owner: null, accountId: 'account-1' })).toBe(false);
   });
 
   it('lets anyone connect an account no other space builds in', async () => {

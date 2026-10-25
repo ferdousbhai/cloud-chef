@@ -117,7 +117,7 @@ describe('ProjectHistoryDialog', () => {
   });
 
   it('reverts the open workspace only after confirming', async () => {
-    const revert = vi.fn(async () => undefined);
+    const revert = vi.fn(async () => ({ changed: true }));
     projectRevertStore.set(revert);
     await render({ canRevert: true, canFork: false });
 

@@ -1,5 +1,6 @@
 import { runtimeConnectionIdentity } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
 import {
+  abandonProjectImport,
   ensureProjectRepository,
   openProject,
   ProjectAccessError,
@@ -185,7 +186,21 @@ export async function importProject(
       .at(-1)
       ?.replace(/\.git$/, '') ??
     'project';
-  const registered = await registerProjectImport(env, identity, { url: args.url, name });
+  let registered: Awaited<ReturnType<typeof registerProjectImport>>;
+  try {
+    registered = await registerProjectImport(env, identity, { url: args.url, name });
+  } catch (error) {
+    if (error instanceof ProjectRefusalError || error instanceof ProjectUnavailableError) {
+      // The control plane answered, and keeps no project when it can't say how to read it.
+      throw error;
+    }
+    // The answer never arrived, and the project may have been added before it broke off.
+    throw new ProjectRepositoryFailureError(
+      "CloudChef couldn't tell whether the project was added. If it's in your projects, open it to finish copying " +
+        'its code; if not, import it again.',
+      503,
+    );
+  }
   try {
     await ensureProjectRepository(env, identity, repositories(env), {
       orgProjectId: registered.projectId,
@@ -193,17 +208,22 @@ export async function importProject(
       importSource: registered.importSource,
     });
   } catch (error) {
-    // The project is registered already, so importing the address again is refused: opening the project
-    // is what finishes its copy. CloudChef's own errors say what went wrong; anything else is said generally.
+    // The project is registered already, so importing the address again is refused. A copy that may pass is
+    // finished by opening the project; one that never will leaves the project to remove.
+    const permanent =
+      error instanceof ProjectRefusalError || (error instanceof ProjectRepositoryError && error.code !== 'unavailable');
     const reason =
       error instanceof ProjectRepositoryError ||
       error instanceof ProjectRefusalError ||
       error instanceof ProjectUnavailableError
         ? error.message.replace(/ Try again\.$/, '')
         : "Copying the project's code stopped partway.";
+    if (permanent && (await abandonProjectImport(env, identity, registered.projectId))) {
+      throw new ProjectRepositoryFailureError(`${reason} Nothing was added.`, 409);
+    }
     throw new ProjectRepositoryFailureError(
       `${reason} The project was added: open it from your projects to finish copying it.`,
-      503,
+      permanent ? 409 : 503,
     );
   }
   const { initialId } = await openLinkedChat(env.DB, {

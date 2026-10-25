@@ -140,7 +140,8 @@ export async function runsEveryOtherSpaceInAccount(
       `SELECT COUNT(*) AS others
        FROM cloudflare_connections AS connections
        WHERE connections.account_id = ?1 AND connections.status = 'active' ${notTheirs}
-         AND connections.user_id IS NOT ?3
+         -- Without a person (?3 null) nothing is their own: comparing to NULL would drop every team's space.
+         AND (?3 IS NULL OR connections.user_id IS NOT ?3)
          AND NOT EXISTS (
            SELECT 1 FROM organization_members AS members
            WHERE members.org_id = connections.org_id AND members.user_id = ?3
@@ -238,8 +239,7 @@ export async function activateCloudflareConnection(args: {
       grantedScopesJson,
       ...(args.expectedGeneration === null ? [] : [args.expectedGeneration]),
     );
-  // Then the space, only once the account's authorization is this one: the batch is one transaction. Its own
-  // credential column, which only the release before 0035 wrote, is left empty.
+  // Then the space, only once the account's authorization is this one: the batch is one transaction.
   const authorized =
     'EXISTS (SELECT 1 FROM cloudflare_authorizations WHERE account_id = ?2 AND credential_handle = ?3)';
   const space =
@@ -255,7 +255,7 @@ export async function activateCloudflareConnection(args: {
       : args.db
           .prepare(
             `UPDATE cloudflare_connections
-             SET account_id = ?2, account_name = ?5, status = 'active', connected_at = ?6, credential_handle = NULL,
+             SET account_id = ?2, account_name = ?5, status = 'active', connected_at = ?6,
                  connection_generation = connection_generation + 1, updated_at = ?6
              WHERE ${owner} = ?1 AND connection_generation = ?4 AND ${authorized}`,
           )
