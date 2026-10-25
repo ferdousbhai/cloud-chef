@@ -308,7 +308,8 @@ export function markBuilderModelsSeen(): void {
     return;
   }
   builderNewModelsStore.set([]);
-  writeSeenModelIds(builderModelsStore.get().map(({ id }) => id));
+  // Added to what was seen before, not in its place: models an admin leaves out for now were still seen.
+  writeSeenModelIds([...new Set([...builderModelsStore.get().map(({ id }) => id), ...(readSeenModelIds() ?? [])])]);
 }
 
 /** Keep the default first. */

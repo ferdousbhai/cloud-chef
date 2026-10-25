@@ -396,7 +396,7 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
           )}
           {catalogStatus === 'stale' && (
             <p role="status" className="mx-2 mb-1 mt-2 text-xs leading-5 text-content-tertiary">
-              The catalog could not be refreshed just now, so these are the models it last listed.
+              {catalogRefusal ?? 'The catalog could not be refreshed just now, so these are the models it last listed.'}
             </p>
           )}
         </DropdownMenu.Content>
