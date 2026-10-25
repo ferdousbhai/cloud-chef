@@ -144,6 +144,14 @@ export const builderModelCatalogPayloadSchema = z.object({
   models: z.array(builderModelSchema).min(1).max(MAX_BUILDER_CATALOG_MODELS),
 });
 
+/**
+ * Every model the account could offer, whatever its admin allows, for Settings to show what there is
+ * to allow: Workers AI's compatible models, and those of each provider the account has a key for.
+ */
+export const compatibleBuilderModelsPayloadSchema = z.object({
+  models: z.array(builderModelSchema).max(MAX_BUILDER_CATALOG_MODELS),
+});
+
 export type BuilderModelCatalogPayload = {
   defaultModelId: BuilderModelId;
   models: BuilderModel[];
@@ -200,10 +208,39 @@ export type AccountModelSettings = {
   defaultModelId: string | null;
   /** The provider keys on the account's default AI Gateway, one per provider: those providers' models can run. */
   gatewayKeys: GatewayKey[];
+  /**
+   * The models the account's admin allows in the model picker; null while the admin has not chosen,
+   * which offers every compatible model, including ones added later. Once chosen, a model not listed
+   * (one added later among them) is neither offered nor run.
+   */
+  allowedModelIds: string[] | null;
 };
 
-/** Nothing learned: no chosen default, and no provider keys, so only Workers AI models run. */
-export const NO_ACCOUNT_MODEL_SETTINGS: AccountModelSettings = { defaultModelId: null, gatewayKeys: [] };
+/** Nothing chosen: no default, no provider keys (so only Workers AI models run), and every model allowed. */
+export const NO_ACCOUNT_MODEL_SETTINGS: AccountModelSettings = {
+  defaultModelId: null,
+  gatewayKeys: [],
+  allowedModelIds: null,
+};
+
+/** The models an admin allows, as Settings saves them: null for every compatible model. */
+export const allowedBuilderModelIdsSchema = z.array(builderModelIdSchema).max(MAX_BUILDER_CATALOG_MODELS).nullable();
+
+/** Whether the account's admin allows `modelId`, in the picker and for a turn. */
+export function isBuilderModelAllowed(
+  settings: Pick<AccountModelSettings, 'allowedModelIds'>,
+  modelId: string,
+): boolean {
+  return settings.allowedModelIds === null || settings.allowedModelIds.includes(modelId);
+}
+
+/**
+ * The model new chats start on: the one the admin chose, or else CloudChef's pinned model. The
+ * models an admin allows always include it.
+ */
+export function effectiveDefaultModelId(defaultModelId: string | null): string {
+  return defaultModelId ?? CLOUDFLARE_WORKERS_AI_MODEL;
+}
 
 export function validateBuilderModelCatalogPayload(
   payload: BuilderModelCatalogPayload,

@@ -8,6 +8,7 @@ import {
   validateBuilderModelCatalogPayload,
   builderModelCatalogPayloadSchema,
   builderReasoningLevelSchema,
+  compatibleBuilderModelsPayloadSchema,
   getBuilderModel,
   gatewayModelProvider,
   GATEWAY_PROVIDER_SLUGS,
@@ -220,11 +221,68 @@ function requestBuilderModelCatalog(init: RequestInit): Promise<void> {
  * admin chose while it is still offered, is one of its models.
  */
 export function installBuilderModelCatalog(payload: BuilderModelCatalogPayload): void {
+  const previousModels = builderModelsStore.get();
   builderModelsStore.set(payload.models);
   builderDefaultModelStore.set(payload.defaultModelId);
   catalogInstalled = true;
   applyStoredModelPreference();
+  applyUnavailableModelNotice(readSavedModelId(), previousModels);
   applyUnseenModels(payload.models);
+}
+
+/**
+ * The saved model the catalog no longer offers — its admin no longer allows it, its provider's key was
+ * removed, or Cloudflare retired it — which new turns have stopped using for the catalog's default.
+ */
+type UnavailableBuilderModel = { label: string; replacementLabel: string };
+
+export const builderModelUnavailableStore = atom<UnavailableBuilderModel | null>(null);
+
+/**
+ * Says so when the saved model is one the catalog no longer offers, so the switch to the default is not
+ * silent. Its name comes from the catalog this browser last had, where it was still offered.
+ */
+function applyUnavailableModelNotice(saved: string | null, previousModels: readonly BuilderModel[]): void {
+  const models = builderModelsStore.get();
+  if (!isBuilderModelId(saved) || models.some(({ id }) => id === saved)) {
+    builderModelUnavailableStore.set(null);
+    return;
+  }
+  const replacement = models.find(({ id }) => id === builderModelStore.get());
+  builderModelUnavailableStore.set({
+    label: previousModels.find(({ id }) => id === saved)?.label ?? saved,
+    replacementLabel: replacement?.label ?? builderModelStore.get(),
+  });
+}
+
+/** The person has read the notice: the model now in use becomes the saved one, so it is not said again. */
+export function dismissUnavailableBuilderModel(): void {
+  builderModelUnavailableStore.set(null);
+  setBuilderModel(builderModelStore.get());
+}
+
+function readSavedModelId(): string | null {
+  try {
+    return localStorage.getItem(BUILDER_MODEL_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every model the account could offer, whatever its admin allows, for Settings to show what there is to
+ * allow. Asked fresh each time, since it follows a key just linked.
+ */
+export async function fetchCompatibleBuilderModels(): Promise<BuilderModel[]> {
+  const response = await fetchUserRuntime('/v1/models/compatible', {
+    cache: 'reload',
+    headers: { Accept: 'application/json' },
+  });
+  const parsed = compatibleBuilderModelsPayloadSchema.safeParse(await response.json().catch(() => null));
+  if (!response.ok || !parsed.success) {
+    throw new Error('The account’s models could not be listed just now.');
+  }
+  return parsed.data.models;
 }
 
 /**
@@ -260,6 +318,7 @@ export function setBuilderModel(modelId: BuilderModelId): void {
     );
   }
   builderModelStore.set(modelId);
+  builderModelUnavailableStore.set(null);
   try {
     localStorage.setItem(BUILDER_MODEL_STORAGE_KEY, modelId);
     localStorage.setItem(BUILDER_RECENTS_STORAGE_KEY, JSON.stringify(builderRecentModelsStore.get()));

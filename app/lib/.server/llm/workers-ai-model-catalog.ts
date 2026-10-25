@@ -4,6 +4,7 @@ import {
   DEFAULT_WORKERS_AI_MODEL,
   GATEWAY_PROVIDERS,
   gatewayModelProvider,
+  isBuilderModelAllowed,
   isWorkersAiModelId,
   MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS,
   NO_ACCOUNT_MODEL_SETTINGS,
@@ -27,6 +28,20 @@ export class WorkersAiModelCatalogUnavailableError extends Error {
     this.name = 'WorkersAiModelCatalogUnavailableError';
   }
 }
+
+/** The account's admin allows models, but none of them can run in the account now. */
+export class NoAllowedBuilderModelError extends Error {
+  constructor() {
+    super(
+      'None of the models allowed in this account can run right now. An admin can allow others in Settings, under Models.',
+    );
+    this.name = 'NoAllowedBuilderModelError';
+  }
+}
+
+/** The account's model settings, which a turn cannot be checked without. */
+const UNCHECKED_SETTINGS_MESSAGE =
+  'CloudChef could not check which models this account allows just now. Try again in a moment.';
 
 /**
  * Read the current account-visible catalog through its AI binding, never control-plane credentials,
@@ -85,39 +100,49 @@ export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalog
 }
 
 /**
- * The model a builder turn runs on, confirmed against what the account can serve now: a Workers AI
- * model against the account's live catalog; a gateway provider's model against Pi's catalog and the
- * account's keys on its default gateway, which are asked about only for such a turn. A gateway model
- * comes with the alias of the account's key for its provider, which its requests name.
+ * The model a builder turn runs on, confirmed against what the account allows and can serve now: the
+ * account's admin must allow it; a Workers AI model is checked against the account's live catalog; a
+ * gateway provider's model against Pi's catalog and the account's keys on its default gateway. A
+ * gateway model comes with the alias of the account's key for its provider, which its requests name.
+ *
+ * Fail closed: settings that could not be learned (null, or a lookup that threw) say nothing about
+ * what the admin allows or which keys are there, so the turn is refused as a check that could not be
+ * made — retryable — rather than run on a model the admin may have taken out of the picker. A model
+ * the admin does not allow is refused, as a retired one is, rather than swapped for another the
+ * person did not choose: the picker no longer lists it, and starts on the account's default instead.
  */
 export async function requireBuilderModel(
   binding: WorkersAiCatalogBinding,
   modelId: BuilderModelId,
-  gatewayKeys: () => Promise<GatewayKey[]>,
+  accountSettings: () => Promise<AccountModelSettings | null>,
 ): Promise<{ model: BuilderModel; gatewayKeyAlias?: string; gatewayKeyRevision?: string }> {
+  let settings: AccountModelSettings | null;
+  try {
+    settings = await accountSettings();
+  } catch (error) {
+    console.warn({ event: 'account_model_settings_lookup_failed', error: String(error) });
+    settings = null;
+  }
+  if (settings === null) {
+    throw new Response(UNCHECKED_SETTINGS_MESSAGE, { status: 503, headers: { 'retry-after': '5' } });
+  }
+  if (!isBuilderModelAllowed(settings, modelId)) {
+    throw new Response(
+      `${knownModelLabel(modelId)} isn't allowed in this account. Choose another model in the model picker; an admin chooses which models it offers in Settings, under Models.`,
+      { status: 403 },
+    );
+  }
   const provider = gatewayModelProvider(modelId);
   if (provider === null) {
-    return { model: await requireWorkersAiBuilderModel(binding, modelId) };
+    return { model: await requireWorkersAiBuilderModel(binding, modelId, settings) };
   }
   const model = piGatewayModel(modelId)?.builderModel;
   if (!model) {
     throw new Response('The selected model is not compatible with the CloudChef builder.', { status: 400 });
   }
-  // Fail closed: a provider's model is sent only while the account's gateway holds its own key for it.
-  // A lookup that failed says nothing about whether the key is there, so it is reported as a check
-  // that could not be made — retryable — rather than as a key an admin has to go and link.
+  // A provider's model is sent only while the account's gateway holds its own key for it.
   const { label } = GATEWAY_PROVIDERS[provider];
-  let keys: GatewayKey[];
-  try {
-    keys = await gatewayKeys();
-  } catch (error) {
-    console.warn({ event: 'gateway_key_lookup_failed', provider, error: String(error) });
-    throw new Response(`CloudChef could not check this account's ${label} key just now. Try again in a moment.`, {
-      status: 503,
-      headers: { 'retry-after': '5' },
-    });
-  }
-  const key = keys.find((candidate) => candidate.provider === provider);
+  const key = settings.gatewayKeys.find((candidate) => candidate.provider === provider);
   if (!key) {
     throw new Response(
       `${label} is not set up for this account. An admin can link a ${label} key in Settings, under Models.`,
@@ -150,9 +175,15 @@ export function requireBuilderReasoningLevel(
   return level;
 }
 
+/**
+ * A Workers AI model confirmed against the account's live catalog. `settings` is the account's, for a
+ * turn the person chose a model for: when the pinned model has been retired, the model that takes its
+ * place is one the admin allows.
+ */
 export async function requireWorkersAiBuilderModel(
   binding: WorkersAiCatalogBinding,
   modelId: BuilderModelId,
+  settings: Pick<AccountModelSettings, 'allowedModelIds'> = NO_ACCOUNT_MODEL_SETTINGS,
 ): Promise<BuilderModel> {
   let models: BuilderModel[];
   try {
@@ -174,7 +205,14 @@ export async function requireWorkersAiBuilderModel(
   // literal here would send every build to a model the account can no longer serve, and the first
   // sign of it would be an invoke-time failure in every user's build at once.
   if (modelId === CLOUDFLARE_WORKERS_AI_MODEL) {
-    return resolveBuilderDefaultModel(models);
+    if (settings.allowedModelIds === null) {
+      return resolveBuilderDefaultModel(models);
+    }
+    const allowed = models.filter(({ id }) => isBuilderModelAllowed(settings, id));
+    if (allowed.length === 0) {
+      throw new Response(new NoAllowedBuilderModelError().message, { status: 409 });
+    }
+    return resolveBuilderDefaultModel(allowed);
   }
   throw new Response('The selected Workers AI model is not compatible with the CloudChef builder.', {
     status: 400,
@@ -213,24 +251,81 @@ export function resolveBuilderDefaultModel(models: readonly BuilderModel[]): Bui
 }
 
 /**
- * The picker's catalog: the account's Workers AI models, and Pi's models of each gateway provider
- * the account's default gateway holds a key for. The default is the one the account's admin chose
- * while it is still offered, and otherwise the pinned model.
+ * Every model the account could offer, whatever its admin allows: its Workers AI models, and Pi's
+ * models of each gateway provider the account's default gateway holds a key for.
+ */
+export function compatibleBuilderModels(
+  workersAiModels: readonly BuilderModel[],
+  gatewayKeys: readonly Pick<GatewayKey, 'provider'>[],
+): BuilderModel[] {
+  return [...workersAiModels, ...gatewayBuilderModels(gatewayKeys.map(({ provider }) => provider))];
+}
+
+/**
+ * The picker's catalog: the compatible models (see `compatibleBuilderModels`) the account's admin
+ * allows. The default is the one the admin chose while it is still offered, and otherwise the pinned
+ * model; with an allowlist, the pinned model only while it is allowed, and else the first allowed
+ * model. Throws `NoAllowedBuilderModelError` when the admin allows none the account can run.
  */
 export function builderModelCatalogPayload(
   workersAiModels: BuilderModel[],
   settings: AccountModelSettings = NO_ACCOUNT_MODEL_SETTINGS,
 ): BuilderModelCatalogPayload {
-  const offered = [...workersAiModels, ...gatewayBuilderModels(settings.gatewayKeys.map(({ provider }) => provider))];
+  const offered = compatibleBuilderModels(workersAiModels, settings.gatewayKeys).filter(({ id }) =>
+    isBuilderModelAllowed(settings, id),
+  );
   // The default's label, window, and capabilities are Cloudflare's current truth about it, not a
   // hand-written copy that drifts. It stays first so the picker's top row does not move whenever
   // Cloudflare publishes something newer.
   const defaultModel =
-    offered.find(({ id }) => id === settings.defaultModelId) ?? resolveBuilderDefaultModel(workersAiModels);
+    offered.find(({ id }) => id === settings.defaultModelId) ??
+    (settings.allowedModelIds === null
+      ? resolveBuilderDefaultModel(workersAiModels)
+      : (offered.find(({ id }) => id === CLOUDFLARE_WORKERS_AI_MODEL) ?? offered.at(0)));
+  if (defaultModel === undefined) {
+    throw new NoAllowedBuilderModelError();
+  }
   return {
     defaultModelId: defaultModel.id,
     models: [defaultModel, ...offered.filter(({ id }) => id !== defaultModel.id)],
   };
+}
+
+/**
+ * The runtime's `/v1/models`, the picker's catalog of the models the account's admin allows, and,
+ * with `compatible`, `/v1/models/compatible`: every model the account could offer, for Settings to
+ * show the admin what there is to allow. Settings that cannot be learned fail the request (what the
+ * admin allows is unknown, so nothing is offered on a guess), as does a catalog Cloudflare cannot list.
+ */
+export async function builderModelCatalogResponse(
+  binding: WorkersAiCatalogBinding,
+  accountSettings: () => Promise<AccountModelSettings | null>,
+  { compatible = false }: { compatible?: boolean } = {},
+): Promise<Response> {
+  let models: BuilderModel[];
+  let settings: AccountModelSettings | null;
+  try {
+    [models, settings] = await Promise.all([readWorkersAiBuilderModelCatalog(binding), accountSettings()]);
+  } catch (error) {
+    console.warn('Workers AI model catalog could not be loaded', error);
+    return Response.json({ error: 'The Workers AI model catalog is temporarily unavailable.' }, { status: 503 });
+  }
+  if (settings === null) {
+    return Response.json({ error: UNCHECKED_SETTINGS_MESSAGE }, { status: 503, headers: { 'retry-after': '5' } });
+  }
+  // Short, so a newly linked key, chosen default, or allowed model reaches open tabs soon.
+  const headers = { 'Cache-Control': 'private, max-age=60' };
+  if (compatible) {
+    return Response.json({ models: compatibleBuilderModels(models, settings.gatewayKeys) }, { headers });
+  }
+  try {
+    return Response.json(builderModelCatalogPayload(models, settings), { headers });
+  } catch (error) {
+    if (error instanceof NoAllowedBuilderModelError) {
+      return Response.json({ error: error.message }, { status: 409 });
+    }
+    throw error;
+  }
 }
 
 /**
@@ -242,6 +337,14 @@ const catalogEntryDateSchema = z.looseObject({ created_at: z.string().min(1).max
 function catalogEntryCreatedAt(entry: AiModelsSearchObject): string | undefined {
   const parsed = catalogEntryDateSchema.safeParse(entry).data?.created_at;
   return parsed !== undefined && !Number.isNaN(Date.parse(parsed)) ? new Date(parsed).toISOString() : undefined;
+}
+
+/** A model's name as Pi lists it, for a message about a model that may not be in the account's catalog. */
+function knownModelLabel(modelId: BuilderModelId): string {
+  if (gatewayModelProvider(modelId) !== null) {
+    return piGatewayModel(modelId)?.builderModel.label ?? modelId;
+  }
+  return isWorkersAiModelId(modelId) ? workersAiModelLabel(modelId) : modelId;
 }
 
 function numericProperty(value: string | undefined): number {

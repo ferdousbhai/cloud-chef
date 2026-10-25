@@ -6,13 +6,19 @@ import { createOrganization } from '~/lib/cloudflare/data/organizations.server';
 import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { linkedGatewayKeys } from '~/lib/.server/cloudflare/ai-gateway-keys';
 import { CORE_CLOUDFLARE_OAUTH_SCOPES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
-import { GATEWAY_PROVIDER_SLUGS, type GatewayKey, type GatewayProviderSlug } from '~/lib/workers-ai-model';
+import {
+  CLOUDFLARE_WORKERS_AI_MODEL,
+  GATEWAY_PROVIDER_SLUGS,
+  type GatewayKey,
+  type GatewayProviderSlug,
+} from '~/lib/workers-ai-model';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import { runtimeIdentityHeaders } from '~/lib/.server/cloudflare/runtime-identity-headers';
 import {
   linkGatewayKeyAction,
   modelSettingsAction,
   unlinkGatewayKeyAction,
+  updateAllowedModelsAction,
   updateDefaultModelAction,
 } from './model-settings';
 import { runtimeModelsAction } from './runtime-credential';
@@ -274,7 +280,10 @@ function get(cookie: string): Request {
   return new Request(`${ORIGIN}/api/settings/models`, { headers: { cookie } });
 }
 
-function post(cookie: string, path: string, body: Record<string, string | null>, origin = ORIGIN): Request {
+/** A field of a Settings request body, as a test sends it, well-formed or not. */
+type BodyField = string | number | null | undefined | readonly (string | number)[];
+
+function post(cookie: string, path: string, body: Record<string, BodyField>, origin = ORIGIN): Request {
   return new Request(`${ORIGIN}/api/settings/models${path}`, {
     method: 'POST',
     headers: { Origin: origin, 'Content-Type': 'application/json', cookie },
@@ -317,7 +326,12 @@ describe('Settings: models', () => {
 
     const before = await modelSettingsAction({ request: get(admin.cookie), env, openAccountApi });
     expect(before.headers.get('Cache-Control')).toBe('private, no-store');
-    expect(await before.json()).toEqual({ canManage: true, defaultModelId: null, keys: NO_KEYS });
+    expect(await before.json()).toEqual({
+      canManage: true,
+      defaultModelId: null,
+      allowedModelIds: null,
+      keys: NO_KEYS,
+    });
 
     const linked = await linkGatewayKeyAction({
       request: post(admin.cookie, '/keys/link', { provider: 'anthropic', apiKey: PASTED_KEY }),
@@ -811,6 +825,7 @@ describe('Settings: models', () => {
     expect(await (await modelSettingsAction({ request: get(member.cookie), env, openAccountApi })).json()).toEqual({
       canManage: false,
       defaultModelId: null,
+      allowedModelIds: null,
       keys: NO_KEYS,
     });
     const attempts = [
@@ -826,6 +841,10 @@ describe('Settings: models', () => {
       }),
       updateDefaultModelAction({
         request: post(member.cookie, '/default', { modelId: 'anthropic/claude-opus-5-5' }),
+        env,
+      }),
+      updateAllowedModelsAction({
+        request: post(member.cookie, '/allowed', { modelIds: [CLOUDFLARE_WORKERS_AI_MODEL] }),
         env,
       }),
     ];
@@ -894,7 +913,7 @@ describe("the team's default model", () => {
       request: post(admin.cookie, '/default', { modelId: 'anthropic/claude-opus-5-5' }),
       env,
     });
-    expect(await chosen.json()).toEqual({ defaultModelId: 'anthropic/claude-opus-5-5' });
+    expect(await chosen.json()).toEqual({ defaultModelId: 'anthropic/claude-opus-5-5', allowedModelIds: null });
     expect(database.prepare('SELECT default_builder_model AS model FROM cloudflare_connections').get()).toEqual({
       model: 'anthropic/claude-opus-5-5',
     });
@@ -905,7 +924,7 @@ describe("the team's default model", () => {
       ).toBe(400);
     }
     const cleared = await updateDefaultModelAction({ request: post(admin.cookie, '/default', { modelId: null }), env });
-    expect(await cleared.json()).toEqual({ defaultModelId: null });
+    expect(await cleared.json()).toEqual({ defaultModelId: null, allowedModelIds: null });
   });
 
   it("reaches the member's runtime with the account's provider keys and their aliases, for its catalog", async () => {
@@ -944,12 +963,111 @@ describe("the team's default model", () => {
     expect(await (await ask(keys)).json()).toEqual({
       defaultModelId: 'anthropic/claude-opus-5-5',
       gatewayKeys: keys,
+      allowedModelIds: null,
+    });
+    await updateAllowedModelsAction({
+      request: post(admin.cookie, '/allowed', { modelIds: ['anthropic/claude-opus-5-5', CLOUDFLARE_WORKERS_AI_MODEL] }),
+      env,
+    });
+    expect(await (await ask(keys)).json()).toMatchObject({
+      allowedModelIds: ['anthropic/claude-opus-5-5', CLOUDFLARE_WORKERS_AI_MODEL],
     });
     expect((await ask(keys, 'b'.repeat(43))).status).toBe(401);
 
     // A paused member's runtime learns nothing.
     database.prepare('UPDATE organization_members SET paused_at = 1 WHERE user_id = ?').run(member.userId);
     expect((await ask(keys)).status).toBe(401);
+  });
+});
+
+describe('the models the picker offers', () => {
+  const OPUS = 'anthropic/claude-opus-5-5';
+  const allowed = (cookie: string, modelIds: BodyField, env: Env) =>
+    updateAllowedModelsAction({ request: post(cookie, '/allowed', { modelIds }), env });
+  const stored = (database: Awaited<ReturnType<typeof setup>>['database']) =>
+    database
+      .prepare(
+        'SELECT default_builder_model AS model, allowed_builder_models_json AS allowed FROM cloudflare_connections',
+      )
+      .get();
+
+  it('are every compatible model until an admin chooses, then only those chosen, and every one again with null', async () => {
+    const { env, admin, database, cloudflare } = await setup();
+
+    const chosen = await allowed(admin.cookie, [CLOUDFLARE_WORKERS_AI_MODEL, OPUS, OPUS], env);
+    expect(chosen.status).toBe(200);
+    expect(await chosen.json()).toEqual({ defaultModelId: null, allowedModelIds: [CLOUDFLARE_WORKERS_AI_MODEL, OPUS] });
+    expect(
+      await (
+        await modelSettingsAction({ request: get(admin.cookie), env, openAccountApi: cloudflare.openAccountApi })
+      ).json(),
+    ).toMatchObject({ allowedModelIds: [CLOUDFLARE_WORKERS_AI_MODEL, OPUS] });
+
+    const everything = await allowed(admin.cookie, null, env);
+    expect(await everything.json()).toEqual({ defaultModelId: null, allowedModelIds: null });
+    expect(stored(database)).toEqual({ model: null, allowed: null });
+  });
+
+  it('always include the default model: a list without it, or a default not on the list, is refused', async () => {
+    const { env, admin, database } = await setup();
+
+    // CloudChef's pinned model is the default while none is chosen.
+    const withoutPin = await allowed(admin.cookie, [OPUS], env);
+    expect(withoutPin.status).toBe(409);
+    expect(await withoutPin.json()).toMatchObject({
+      code: 'default_model_not_allowed',
+      error: expect.stringContaining('default model has to stay allowed'),
+      defaultModelId: null,
+      allowedModelIds: null,
+    });
+    // Nothing at all would leave the default out too.
+    expect((await allowed(admin.cookie, [], env)).status).toBe(409);
+    expect(stored(database)).toEqual({ model: null, allowed: null });
+
+    // Choosing the default first lets the pin be left out.
+    await updateDefaultModelAction({ request: post(admin.cookie, '/default', { modelId: OPUS }), env });
+    expect((await allowed(admin.cookie, [OPUS], env)).status).toBe(200);
+    expect(stored(database)).toEqual({ model: OPUS, allowed: JSON.stringify([OPUS]) });
+
+    // Now neither the pin (null) nor another model left out can become the default.
+    for (const modelId of [null, 'openai/gpt-5']) {
+      const refused = await updateDefaultModelAction({ request: post(admin.cookie, '/default', { modelId }), env });
+      expect(refused.status).toBe(409);
+      expect(await refused.json()).toMatchObject({
+        code: 'default_model_not_allowed',
+        defaultModelId: OPUS,
+        allowedModelIds: [OPUS],
+      });
+    }
+    expect(stored(database)).toEqual({ model: OPUS, allowed: JSON.stringify([OPUS]) });
+  });
+
+  it('refuses what is not a list of model ids, changing nothing', async () => {
+    const { env, admin, database } = await setup();
+
+    for (const modelIds of [undefined, 'all', ['gpt-4'], [7], [CLOUDFLARE_WORKERS_AI_MODEL, '@cf/../x']]) {
+      expect((await allowed(admin.cookie, modelIds, env)).status).toBe(400);
+    }
+    const extra = await updateAllowedModelsAction({
+      request: post(admin.cookie, '/allowed', { modelIds: null, defaultModelId: OPUS }),
+      env,
+    });
+    expect(extra.status).toBe(400);
+    expect(stored(database)).toEqual({ model: null, allowed: null });
+  });
+
+  it("takes a list as long as the catalog, which a small form's limit would refuse", async () => {
+    const { env, admin } = await setup();
+    const many = [
+      CLOUDFLARE_WORKERS_AI_MODEL,
+      ...Array.from({ length: 999 }, (_, index) => `openrouter/vendor-${index}/a-model-with-a-long-name-${index}`),
+    ];
+    const saved = await allowed(admin.cookie, many, env);
+    expect(saved.status).toBe(200);
+    expect(z.object({ allowedModelIds: z.array(z.string()) }).parse(await saved.json()).allowedModelIds).toHaveLength(
+      1_000,
+    );
+    expect((await allowed(admin.cookie, [...many, 'openai/one-too-many'], env)).status).toBe(400);
   });
 });
 

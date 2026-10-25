@@ -15,10 +15,13 @@ import { missingCoreOAuthScopes } from '~/lib/.server/cloudflare/cloudflare-oaut
 import { CloudflareAccountApiError } from '~/lib/.server/cloudflare/user-account-api';
 import {
   canManageModels,
-  readDefaultBuilderModel,
+  readBuilderModelSettings,
+  setAllowedBuilderModels,
   setDefaultBuilderModel,
+  type BuilderModelSettings,
 } from '~/lib/cloudflare/data/builder-model-settings.server';
 import {
+  allowedBuilderModelIdsSchema,
   builderModelIdSchema,
   CLOUDCHEF_KEY_ALIASES,
   GATEWAY_PROVIDER_SLUGS,
@@ -29,10 +32,11 @@ import { sessionConnection } from './cloudflare-integration';
 import { signedIn } from './signed-in';
 
 /**
- * Settings, under Models: the model an account's builders start on, and the account's own keys for
- * the AI Gateway providers whose models it offers (Anthropic, OpenAI, …), stored in the account's
- * own Secrets Store and attached to its default AI Gateway. A team's admins (or the person whose own
- * account it is) choose both; everyone else sees them and can still switch models in the picker.
+ * Settings, under Models: the model an account's builders start on, which models its picker offers,
+ * and the account's own keys for the AI Gateway providers whose models it offers (Anthropic, OpenAI,
+ * …), stored in the account's own Secrets Store and attached to its default AI Gateway. A team's
+ * admins (or the person whose own account it is) choose all three; everyone else sees them and can
+ * still switch among the allowed models in the picker.
  * Which keys are there is read from the account each time, whoever added them; a pasted key goes
  * from the browser to Cloudflare once and is never kept, logged, or returned by CloudChef.
  */
@@ -93,17 +97,17 @@ function withContext(
 /** The account's models as Settings shows them. */
 export function modelSettingsAction({ request, env, openAccountApi = openGatewayKeyAccountApi }: RequestArgs & Deps) {
   return withContext(request, env, async ({ connection, canManage }) => {
-    const defaultModelId = await readDefaultBuilderModel(env.DB, connection.id);
+    const models = await readBuilderModelSettings(env.DB, connection.id);
     if (missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0) {
-      return settingsResponse({ canManage, defaultModelId, keys: { status: 'reauthorization_required' } });
+      return settingsResponse({ canManage, ...models, keys: { status: 'reauthorization_required' } });
     }
     let api: GatewayKeyAccountApi;
     try {
       api = await openAccountApi(env, connection);
     } catch {
-      return settingsResponse({ canManage, defaultModelId, keys: { status: 'unknown' } });
+      return settingsResponse({ canManage, ...models, keys: { status: 'unknown' } });
     }
-    return settingsResponse({ canManage, defaultModelId, keys: await gatewayKeysStatus(api) });
+    return settingsResponse({ canManage, ...models, keys: await gatewayKeysStatus(api) });
   });
 }
 
@@ -201,8 +205,9 @@ export function unlinkGatewayKeyAction({
 const defaultModelSchema = z.strictObject({ modelId: builderModelIdSchema.nullable() });
 
 /**
- * Chooses the model the account's builders start on (null for CloudChef's default). Not checked against
- * a catalog here: a workspace offers it while the account can run it, and starts elsewhere otherwise.
+ * Chooses the model the account's builders start on (null for CloudChef's default), which must be one
+ * the account allows. Not checked against a catalog here: a workspace offers it while the account can
+ * run it, and starts elsewhere otherwise.
  */
 export function updateDefaultModelAction({ request, env }: RequestArgs) {
   return withContext(
@@ -213,11 +218,50 @@ export function updateDefaultModelAction({ request, env }: RequestArgs) {
       if ('response' in body) {
         return body.response;
       }
-      await setDefaultBuilderModel(env.DB, connection.id, body.data.modelId);
-      return Response.json(
-        { defaultModelId: await readDefaultBuilderModel(env.DB, connection.id) },
-        { headers: { 'Cache-Control': 'private, no-store' } },
+      if (!(await setDefaultBuilderModel(env.DB, connection.id, body.data.modelId))) {
+        return modelsRefused(
+          'The default model has to be one the picker offers. Allow it under "Models in the picker" first.',
+          await readBuilderModelSettings(env.DB, connection.id),
+        );
+      }
+      return modelsResponse(await readBuilderModelSettings(env.DB, connection.id));
+    },
+    { manage: true },
+  );
+}
+
+const allowedModelsSchema = z.strictObject({ modelIds: allowedBuilderModelIdsSchema });
+
+/** Room for every model the catalog can hold, each id up to the longest a model id can be. */
+const MAX_ALLOWED_MODELS_REQUEST_BYTES = 256 * 1024;
+
+/**
+ * Chooses the models the account's picker offers: null for every compatible model, including ones
+ * added later, or a list, after which a model not on it (a new one among them) is neither offered nor
+ * run. The list must include the account's default model (CloudChef's pinned one when none is chosen),
+ * so new chats always start on a model the picker offers; it is refused otherwise, changing nothing.
+ */
+export function updateAllowedModelsAction({ request, env }: RequestArgs) {
+  return withContext(
+    request,
+    env,
+    async ({ connection }) => {
+      const body = await readJsonRequest(
+        request,
+        allowedModelsSchema,
+        'Choose the models to allow.',
+        MAX_ALLOWED_MODELS_REQUEST_BYTES,
       );
+      if ('response' in body) {
+        return body.response;
+      }
+      if (!(await setAllowedBuilderModels(env.DB, connection.id, body.data.modelIds))) {
+        return modelsRefused(
+          'The default model has to stay allowed. Choose another default model first, then leave this one out.',
+          await readBuilderModelSettings(env.DB, connection.id),
+        );
+      }
+      return modelsResponse(await readBuilderModelSettings(env.DB, connection.id));
     },
     { manage: true },
   );
@@ -328,12 +372,20 @@ async function gatewayKeysStatus(api: GatewayKeyAccountApi): Promise<GatewayKeys
   }
 }
 
-function settingsResponse(body: {
-  canManage: boolean;
-  defaultModelId: string | null;
-  keys: GatewayKeysStatus;
-}): Response {
+function settingsResponse(body: BuilderModelSettings & { canManage: boolean; keys: GatewayKeysStatus }): Response {
   return Response.json(body, { headers: { 'Cache-Control': 'private, no-store' } });
+}
+
+function modelsResponse(models: BuilderModelSettings): Response {
+  return Response.json(models, { headers: { 'Cache-Control': 'private, no-store' } });
+}
+
+/** A change refused because it would leave the default model out of the picker, with the settings as they are. */
+function modelsRefused(error: string, models: BuilderModelSettings): Response {
+  return Response.json(
+    { error, code: 'default_model_not_allowed', ...models },
+    { status: 409, headers: { 'Cache-Control': 'private, no-store' } },
+  );
 }
 
 function keysResponse(

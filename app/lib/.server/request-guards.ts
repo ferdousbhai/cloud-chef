@@ -65,14 +65,18 @@ export function readCookie(request: Request, name: string): string | null {
   return null;
 }
 
-/** The request body checked against `schema`, or the response that refuses it. */
+/**
+ * The request body checked against `schema`, or the response that refuses it. `maxBytes` is for the
+ * few bodies that carry a list, which a small form's limit would refuse.
+ */
 export async function readJsonRequest<T>(
   request: Request,
   schema: z.ZodType<T>,
   invalidMessage: string,
+  maxBytes = MAX_REQUEST_BYTES,
 ): Promise<{ data: T } | { response: Response }> {
   try {
-    const parsed = schema.safeParse(await readJsonBodyWithLimit(request, MAX_REQUEST_BYTES, 'Request'));
+    const parsed = schema.safeParse(await readJsonBodyWithLimit(request, maxBytes, 'Request'));
     return parsed.success
       ? { data: parsed.data }
       : { response: Response.json({ error: invalidMessage }, { status: 400 }) };

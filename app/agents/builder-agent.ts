@@ -700,7 +700,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const { model, gatewayKeyAlias, gatewayKeyRevision } = await requireBuilderModel(
       accountCredentials.binding,
       modelId,
-      async () => (await readAccountModelSettings(this.env)).gatewayKeys,
+      () => readAccountModelSettings(this.env),
     );
     const chosenReasoningLevel = requireBuilderReasoningLevel(model, reasoningLevel);
     // Refused before anything is stopped or recorded: a turn that never starts must not hold anything.

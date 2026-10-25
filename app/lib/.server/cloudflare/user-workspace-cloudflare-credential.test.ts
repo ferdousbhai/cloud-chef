@@ -67,7 +67,7 @@ describe('confirmUserWorkspaceAccess', () => {
 });
 
 describe('readAccountModelSettings', () => {
-  it("reads the account's chosen default and its gateway's provider keys, and anything unlearnable as neither", async () => {
+  it("reads the account's chosen default, allowed models and its gateway's provider keys, and anything unlearnable as unknown", async () => {
     const respond = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>();
     vi.stubGlobal('fetch', respond);
 
@@ -75,10 +75,14 @@ describe('readAccountModelSettings', () => {
       { provider: 'anthropic', alias: 'sg', revision: 'key-sg@1' },
       { provider: 'openrouter', alias: 'default', revision: 'key-default@1' },
     ];
-    respond.mockResolvedValueOnce(Response.json({ defaultModelId: 'anthropic/claude-opus-5-5', gatewayKeys }));
+    const allowedModelIds = ['anthropic/claude-opus-5-5', '@cf/zai-org/glm-5.3-flash'];
+    respond.mockResolvedValueOnce(
+      Response.json({ defaultModelId: 'anthropic/claude-opus-5-5', gatewayKeys, allowedModelIds }),
+    );
     expect(await readAccountModelSettings(runtimeEnv())).toEqual({
       defaultModelId: 'anthropic/claude-opus-5-5',
       gatewayKeys,
+      allowedModelIds,
     });
     const [url, init] = respond.mock.calls[0] ?? [];
     expect(String(url)).toBe('https://cloudchef.build/api/cloudflare/runtime-models');
@@ -86,19 +90,38 @@ describe('readAccountModelSettings', () => {
     expect(init?.headers).toMatchObject({ 'X-CloudChef-User-Id': 'user-1', 'X-CloudChef-Connection-Generation': '3' });
     expect(JSON.parse(String(init?.body))).toEqual({});
 
+    // Every model allowed, said so.
+    respond.mockResolvedValueOnce(Response.json({ defaultModelId: null, gatewayKeys: [], allowedModelIds: null }));
+    expect(await readAccountModelSettings(runtimeEnv())).toEqual(NO_ACCOUNT_MODEL_SETTINGS);
     // A provider CloudChef does not know, or an alias that cannot be one, is no key at all.
     respond.mockResolvedValueOnce(
-      Response.json({ defaultModelId: 7, gatewayKeys: [{ provider: 'fireworks', alias: 'default' }] }),
+      Response.json({
+        defaultModelId: 7,
+        gatewayKeys: [{ provider: 'fireworks', alias: 'default' }],
+        allowedModelIds: null,
+      }),
     );
     expect(await readAccountModelSettings(runtimeEnv())).toEqual(NO_ACCOUNT_MODEL_SETTINGS);
-    respond.mockResolvedValueOnce(Response.json({ gatewayKeys: [{ provider: 'openai', alias: '' }] }));
-    expect(await readAccountModelSettings(runtimeEnv())).toEqual(NO_ACCOUNT_MODEL_SETTINGS);
-    respond.mockResolvedValueOnce(new Response(null, { status: 404 }));
-    expect(await readAccountModelSettings(runtimeEnv())).toEqual(NO_ACCOUNT_MODEL_SETTINGS);
-    respond.mockRejectedValueOnce(new Error('unreachable'));
-    expect(await readAccountModelSettings(runtimeEnv())).toEqual(NO_ACCOUNT_MODEL_SETTINGS);
+    // In a team's account, what its admins allow, missing or unreadable, is unknown rather than
+    // "everything"; in a person's own, it reads as nothing chosen and no keys, as before there was a list.
+    const team = runtimeEnv({ CLOUDCHEF_SHARED_ACCOUNT: '1' });
+    const unlearnable = [
+      () => respond.mockResolvedValueOnce(Response.json({ defaultModelId: null, gatewayKeys })),
+      () => respond.mockResolvedValueOnce(Response.json({ defaultModelId: null, gatewayKeys, allowedModelIds: 'all' })),
+      () => respond.mockResolvedValueOnce(new Response(null, { status: 404 })),
+      () => respond.mockRejectedValueOnce(new Error('unreachable')),
+    ];
+    for (const answer of unlearnable) {
+      answer();
+      expect(await readAccountModelSettings(team)).toBeNull();
+      answer();
+      expect(await readAccountModelSettings(runtimeEnv())).toEqual(NO_ACCOUNT_MODEL_SETTINGS);
+    }
     // No runtime identity: nothing to ask with.
     respond.mockClear();
+    expect(
+      await readAccountModelSettings(runtimeEnv({ CLOUDCHEF_USER_ID: '', CLOUDCHEF_SHARED_ACCOUNT: '1' })),
+    ).toBeNull();
     expect(await readAccountModelSettings(runtimeEnv({ CLOUDCHEF_USER_ID: '' }))).toEqual(NO_ACCOUNT_MODEL_SETTINGS);
     expect(respond).not.toHaveBeenCalled();
   });

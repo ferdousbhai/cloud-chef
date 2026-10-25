@@ -56,10 +56,7 @@ import { userRuntimeProjectArchiveAction } from '../../app/lib/cloudflare/data/p
 import { verifyRuntimeCapability } from '../../app/lib/cloudflare/runtime-capability';
 import { userRuntimeDeploymentAction } from '../../app/server-handlers/deployments';
 import { userRuntimeEnhancePromptAction } from '../../app/server-handlers/enhance-prompt';
-import {
-  builderModelCatalogPayload,
-  readWorkersAiBuilderModelCatalog,
-} from '../../app/lib/.server/llm/workers-ai-model-catalog';
+import { builderModelCatalogResponse } from '../../app/lib/.server/llm/workers-ai-model-catalog';
 import { readAccountModelSettings } from '../../app/lib/.server/cloudflare/user-workspace-cloudflare-credential';
 import {
   isCloudChefToolResult,
@@ -2974,22 +2971,10 @@ async function handleUserRequest(
   const agentResponse = await routeUserRuntimeAgentRequest(request, sharedEnv, capability.subject);
   if (agentResponse) {
     response = agentResponse;
-  } else if (request.method === 'GET' && url.pathname === '/v1/models') {
-    try {
-      // The account's own settings (its chosen default, and whether Claude has a key) never fail the
-      // catalog: unlearnable, they read as no chosen default and no Claude.
-      const [models, settings] = await Promise.all([
-        readWorkersAiBuilderModelCatalog(env.AI),
-        readAccountModelSettings(sharedEnv),
-      ]);
-      response = Response.json(builderModelCatalogPayload(models, settings), {
-        // Short, so a newly linked key or chosen default reaches open tabs soon.
-        headers: { 'Cache-Control': 'private, max-age=60' },
-      });
-    } catch (error) {
-      console.warn('Workers AI model catalog could not be loaded', error);
-      response = Response.json({ error: 'The Workers AI model catalog is temporarily unavailable.' }, { status: 503 });
-    }
+  } else if (request.method === 'GET' && (url.pathname === '/v1/models' || url.pathname === '/v1/models/compatible')) {
+    response = await builderModelCatalogResponse(env.AI, () => readAccountModelSettings(sharedEnv), {
+      compatible: url.pathname === '/v1/models/compatible',
+    });
   } else if (request.method === 'POST' && url.pathname === '/v1/data') {
     response = await userRuntimeDataAction({
       request,

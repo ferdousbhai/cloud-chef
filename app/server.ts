@@ -66,6 +66,7 @@ import {
   linkGatewayKeyAction,
   modelSettingsAction,
   unlinkGatewayKeyAction,
+  updateAllowedModelsAction,
   updateDefaultModelAction,
 } from './server-handlers/model-settings';
 import { clientTelemetryAction } from './server-handlers/client-telemetry';
@@ -169,6 +170,7 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/settings/ai-gateway-logging/update': ['POST', updateAiGatewayLoggingAction],
     '/api/settings/models': ['GET', modelSettingsAction],
     '/api/settings/models/default': ['POST', updateDefaultModelAction],
+    '/api/settings/models/allowed': ['POST', updateAllowedModelsAction],
     '/api/settings/models/keys/link': ['POST', linkGatewayKeyAction],
     '/api/settings/models/keys/unlink': ['POST', unlinkGatewayKeyAction],
     '/api/cloudflare/connection': ['GET', cloudflareConnectionStatusAction],
