@@ -166,7 +166,7 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
                 reloadKey={previewReloadKey}
                 requesting={controller.publishRequesting}
                 onPublish={() => void controller.onPublishRequest()}
-                linkedRepository={controller.linkedProject?.repository ?? null}
+                linked={Boolean(controller.linkedProject)}
               />
             </Suspense>
           ) : (

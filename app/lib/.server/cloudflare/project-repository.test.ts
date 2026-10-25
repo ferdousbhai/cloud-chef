@@ -328,15 +328,6 @@ describe('ProjectRepositories', () => {
     expect(await repositories.importFromUrl({ url, branch: 'main', repo: 't-9' })).toEqual({ commit: head });
   });
 
-  it('imports the branch HEAD names when none is given', async () => {
-    const { artifacts, repositories } = setup();
-    const head = await artifacts.addSource('https://github.com/acme/site', { 'a.txt': 'a' }, 'develop');
-    expect(await repositories.importFromUrl({ url: 'https://github.com/acme/site/', repo: 't-9' })).toEqual({
-      commit: head,
-    });
-    expect(await artifacts.head('t-9')).toBe(head);
-  });
-
   it('revokes the write token Artifacts makes with a new or forked repository', async () => {
     const { artifacts, repositories } = setup();
     await repositories.ensureRepo('p-1');

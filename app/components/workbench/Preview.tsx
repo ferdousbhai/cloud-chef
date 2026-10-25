@@ -11,19 +11,19 @@ export function Preview({
   reloadKey,
   requesting,
   onPublish,
-  linkedRepository = null,
+  linked = false,
 }: {
   presentation: AppSitePresentation;
   publication: BuilderPublicationState | null;
   reloadKey: number;
   requesting: boolean;
   onPublish: () => void;
-  /** A team project's name: its previews are built by Workers Builds and linked in the chat, not framed here. */
-  linkedRepository?: string | null;
+  /** A team project: its previews are built by Workers Builds and linked in the chat, not framed here. */
+  linked?: boolean;
 }) {
   const { url, revision, status, error } = presentation;
 
-  if (linkedRepository) {
+  if (linked) {
     return <LinkedPreviewNotice />;
   }
 

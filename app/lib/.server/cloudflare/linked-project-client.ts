@@ -19,7 +19,7 @@ type Identity = Pick<RuntimeConnectionIdentity, 'userId' | 'connectionId' | 'con
 
 const importSourceSchema = z.object({
   url: z.string().url(),
-  branch: z.string().min(1).max(256).nullable().optional(),
+  branch: z.string().min(1).max(256),
   /** An `Authorization` header value for git over HTTPS (read-only, short-lived); none for a public repository. */
   authorization: z.string().min(1).max(4096).nullable().optional(),
 });
@@ -53,12 +53,11 @@ const productionRequestSentSchema = z.object({ outcome: z.enum(['requested', 'up
 
 const registeredImportSchema = z.object({
   projectId: z.string().min(1),
-  importSource: importSourceSchema.optional(),
+  importSource: importSourceSchema,
   /** Whether the project's site already builds in Workers Builds from the GitHub repository. */
   workersBuildsFromGitHub: z.boolean().optional(),
 });
 
-const errorSchema = z.object({ error: z.string() });
 const refusalSchema = z.object({ error: z.string(), code: z.string().optional() });
 
 /**
@@ -214,7 +213,7 @@ export async function ensureProjectRepository(
   const { commit } = await repositories.importFromUrl({
     url: project.importSource.url,
     authorization: project.importSource.authorization ?? null,
-    branch: project.importSource.branch ?? null,
+    branch: project.importSource.branch,
     repo,
   });
   await reportProjectImported(env, identity, { orgProjectId: project.orgProjectId, repo, commit });
@@ -229,7 +228,7 @@ async function readAnswer<T>(response: Response, schema: z.ZodType<T>, fallback:
 }
 
 async function failureMessage(response: Response, fallback: string): Promise<string> {
-  const parsed = errorSchema.safeParse(await response.json().catch(() => null));
+  const parsed = refusalSchema.safeParse(await response.json().catch(() => null));
   return parsed.success ? parsed.data.error : fallback;
 }
 

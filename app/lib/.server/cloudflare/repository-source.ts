@@ -34,35 +34,32 @@ const BAND_DATA = 1;
 const BAND_PROGRESS = 2;
 const BAND_ERROR = 3;
 
-/** The commit a branch of the source is at; without a branch, the one its HEAD names. */
-export async function readSourceBranch(fetchGit: GitFetch, source: GitSource, branch: string | null): Promise<string> {
+/** The commit a branch of the source is at. */
+export async function readSourceBranch(fetchGit: GitFetch, source: GitSource, branch: string): Promise<string> {
   const advertisement = await sourceRequest(fetchGit, source, '/info/refs?service=git-upload-pack', {});
-  const lines = [...readPktLines(await boundedBytes(advertisement, MAX_ADVERTISEMENT_BYTES))].map(text);
+  const lines = [...readPktLines(await sourceBytes(advertisement, MAX_ADVERTISEMENT_BYTES))].map(text);
   if (!lines.includes('version 2')) {
     throw new GitSourceError('unavailable', "the repository's host does not speak git's protocol version 2");
   }
-  const wanted = branch ? `refs/heads/${branch}` : null;
-  const body = concatBytes([
-    pktLine('command=ls-refs\n'),
-    delimiter(),
-    pktLine(wanted ? `ref-prefix ${wanted}\n` : 'ref-prefix HEAD\n'),
-    flush(),
-  ]);
+  const wanted = `refs/heads/${branch}`;
+  const body = concatBytes([pktLine('command=ls-refs\n'), delimiter(), pktLine(`ref-prefix ${wanted}\n`), flush()]);
   const response = await sourceRequest(fetchGit, source, '/git-upload-pack', { body });
-  for (const line of readPktLines(await boundedBytes(response, MAX_LS_REFS_BYTES))) {
+  for (const line of readPktLines(await sourceBytes(response, MAX_LS_REFS_BYTES))) {
     const [oid = '', name = ''] = text(line).split(' ');
-    if (!/^[0-9a-f]{40}$/.test(oid)) {
-      continue;
-    }
-    // HEAD counts whether it names a branch or is detached: only the commit is copied.
-    if (name === (wanted ?? 'HEAD')) {
+    if (/^[0-9a-f]{40}$/.test(oid) && name === wanted) {
       return oid;
     }
   }
-  throw new GitSourceError(
-    'not_found',
-    branch ? `the repository has no branch ${branch.slice(0, 256)}` : 'the repository has no commits',
-  );
+  throw new GitSourceError('not_found', `the repository has no branch ${branch.slice(0, 256)}`);
+}
+
+/** A source's small answer, read within its bound; a read that breaks off or runs over is the source's failure. */
+async function sourceBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
+  try {
+    return await boundedBytes(response, maxBytes);
+  } catch {
+    throw new GitSourceError('unavailable', "the repository's host stopped answering partway");
+  }
 }
 
 /** A pack as it arrives from the source, and why it broke off, once it has. */
@@ -168,7 +165,7 @@ function demultiplexPack(body: ReadableStream<Uint8Array>, maxBytes: number): So
             if (band === BAND_DATA) {
               sent += payload.length - 1;
               if (sent > maxBytes) {
-                fail(new GitSourceError('too_large', 'the history is larger than a project holds'));
+                fail(new GitSourceError('too_large', 'too large'));
                 return;
               }
               controller.enqueue(payload.subarray(1));

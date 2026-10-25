@@ -25,8 +25,8 @@ const OWN = '66666666-6666-4666-8666-666666666666';
 const COMMIT = 'a'.repeat(40);
 const TAG = 'f'.repeat(32);
 
-/** CloudChef's GitHub App, minting tokens from a GitHub that records what it was asked. */
-async function gitHubApp() {
+/** CloudChef's GitHub App, minting tokens from a GitHub that records what it was asked (or answers `status`). */
+async function gitHubApp(status = 201) {
   const pair = await crypto.subtle.generateKey(
     { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
     true,
@@ -36,7 +36,9 @@ async function gitHubApp() {
   const asked: { url: string; body: string | null }[] = [];
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     asked.push({ url: String(input), body: init?.body ? String(init.body) : null });
-    return Response.json({ token: 'one-repo-token', expires_at: 'soon' }, { status: 201 });
+    return status === 201
+      ? Response.json({ token: 'one-repo-token', expires_at: 'soon' }, { status })
+      : Response.json({ message: 'unavailable' }, { status });
   });
   const app = new GitHubApp({
     clientId: 'Iv1.test',
@@ -102,6 +104,18 @@ describe('a runtime opening a project', () => {
     expect(asked).toHaveLength(1);
     expect(asked[0].url).toBe('https://api.github.com/app/installations/7/access_tokens');
     expect(JSON.parse(asked[0].body ?? '{}')).toEqual({ permissions: { contents: 'read' }, repository_ids: [11] });
+  });
+
+  it('answers a GitHub outage without a refusal code, so the workspace tries again', async () => {
+    const { env, runtime } = await setup();
+    const { app } = await gitHubApp(503);
+    const opened = await runtimeOpenProjectAction({
+      request: await runtime('/api/cloudflare/runtime-projects/open', { orgProjectId: SITE }),
+      env,
+      app,
+    });
+    expect(opened.status).toBe(503);
+    expect(await opened.json()).toEqual({ error: 'GitHub could not be reached just now. Try again in a moment.' });
   });
 
   it('answers a project in Artifacts with its repository and the role, and no import', async () => {

@@ -183,9 +183,23 @@ export function concatBytes(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffe
 }
 
 export async function boundedBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.length > maxBytes) {
-    throw new Error('The repository answered with more than expected.');
+  const reader = response.body?.getReader();
+  if (!reader) {
+    return new Uint8Array();
   }
-  return bytes;
+  // Read up to the limit and no further: a larger answer is cut off rather than held whole.
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      return concatBytes(chunks);
+    }
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error('The repository answered with more than expected.');
+    }
+    chunks.push(value);
+  }
 }

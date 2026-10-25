@@ -58,7 +58,7 @@ it('reports the latest validation failure rather than an earlier success', async
   };
   await act(async () => root.render(<ActivityPanel messages={[failed]} isStreaming={false} compact={false} />));
   expect(container.textContent).toContain('Checks failed');
-  expect(container.textContent).not.toContain('Validation passed');
+  expect(container.textContent).not.toContain('Checks passed');
 });
 
 it('keeps compact activity closed until requested', async () => {

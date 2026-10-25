@@ -5,6 +5,7 @@ import type {
   RepositoryFileInput,
   RepositoryTreeFile,
 } from '~/lib/.server/cloudflare/project-repository';
+import { ProjectRefusalError } from '~/lib/.server/cloudflare/linked-project-client';
 import { MAIN_BRANCH } from '~/lib/.server/cloudflare/project-repository';
 import type { BuilderWorkspaceApi } from './builder-workspace-api';
 import { readWholeSyncFeed, seedBatches } from './builder-workspace-seed';
@@ -69,7 +70,7 @@ export async function seedLinkedWorkspace(
   if (started.status === 'initialized') {
     // Seeded and linked together: a seeded workspace without its link would quietly lose its project.
     if (!(await workspace.linkedProject())) {
-      throw new Error('This workspace lost track of its project. Open the project again from the menu.');
+      throw new ProjectRefusalError('This workspace lost track of its project. Open the project again from the menu.');
     }
     return started.state;
   }

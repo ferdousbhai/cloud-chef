@@ -24,7 +24,7 @@ export class SubchatLimitError extends Error {
 export class ProjectRepositoryFailureError extends Error {
   constructor(
     message: string,
-    readonly status: 413 | 503,
+    readonly status: 409 | 413 | 503,
   ) {
     super(message);
     this.name = 'ProjectRepositoryFailureError';

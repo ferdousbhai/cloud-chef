@@ -1,4 +1,6 @@
+import { useStore } from '@nanostores/react';
 import { Button } from '@ui/Button';
+import { userWorkspacePreparingStore } from '~/lib/cloudflare/runtime-session';
 import type { WorkspaceFilesStatus } from '~/lib/stores/workbench.client';
 import { WORKSPACE_MESSAGES } from '~/lib/workspace-messages';
 
@@ -7,6 +9,7 @@ import { WORKSPACE_MESSAGES } from '~/lib/workspace-messages';
  * coming and what to do. Null once there is nothing to say, so the editor shows as it is.
  */
 export function WorkspaceFilesNotice({ status, hasFiles }: { status: WorkspaceFilesStatus; hasFiles: boolean }) {
+  const workspacePreparing = useStore(userWorkspacePreparingStore);
   if (hasFiles || status.state === 'ready') {
     return null;
   }
@@ -14,7 +17,11 @@ export function WorkspaceFilesNotice({ status, hasFiles }: { status: WorkspaceFi
     return (
       <div className="absolute inset-0 z-10 flex items-center justify-center bg-bolt-elements-background-depth-2 p-6">
         <p className="text-center text-sm text-content-secondary" role="status">
-          {status.state === 'connecting' ? WORKSPACE_MESSAGES.loading : WORKSPACE_MESSAGES.reconnecting}
+          {workspacePreparing
+            ? WORKSPACE_MESSAGES.preparingRelease
+            : status.state === 'connecting'
+              ? WORKSPACE_MESSAGES.loading
+              : WORKSPACE_MESSAGES.reconnecting}
         </p>
       </div>
     );

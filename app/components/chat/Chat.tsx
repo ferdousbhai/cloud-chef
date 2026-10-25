@@ -210,9 +210,6 @@ function WorkspaceRuntimeConnectionError({
   );
 }
 
-/** Said when a release is re-provisioning the runtime a chat is already sitting in. */
-const WORKSPACE_RELEASE_NOTICE = 'Preparing your workspace — a new release is rolling out.';
-
 /**
  * What the composer says while the workbench file sync is not yet live. A wait the browser is
  * still working through reads as a wait; a wait it has given up on says so and offers the retry,
@@ -230,7 +227,7 @@ function workspaceSyncNotice(state: WorkspacePresentationState, workspacePrepari
     return null;
   }
   if (workspacePreparing) {
-    return WORKSPACE_RELEASE_NOTICE;
+    return WORKSPACE_MESSAGES.preparingRelease;
   }
   return state === 'reconnecting' ? WORKSPACE_MESSAGES.reconnecting : WORKSPACE_MESSAGES.loading;
 }

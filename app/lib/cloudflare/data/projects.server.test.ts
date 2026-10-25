@@ -68,7 +68,11 @@ function controlPlane(role: 'view' | 'edit', repo: string | null) {
       return Response.json({ orgProjectId: body.orgProjectId, name: 'Team Site', repo, defaultBranch: 'main', role });
     }
     if (url.endsWith('runtime-projects/register-import')) {
-      return Response.json({ projectId: TEAM_PROJECT, workersBuildsFromGitHub: true });
+      return Response.json({
+        projectId: TEAM_PROJECT,
+        importSource: { url: body.url, branch: 'main', authorization: null },
+        workersBuildsFromGitHub: true,
+      });
     }
     if (url.endsWith('runtime-projects/imported')) {
       return Response.json({ ok: true });
@@ -192,7 +196,10 @@ describe('an import that breaks off', () => {
       importProject(env, { sessionId: OWNER, url: 'https://github.com/acme/site' }, store),
     );
     await expect(attempt).rejects.toBeInstanceOf(ProjectRepositoryFailureError);
-    await expect(attempt).rejects.toMatchObject({ status: 503, message: expect.stringContaining('Try again') });
+    await expect(attempt).rejects.toMatchObject({
+      status: 503,
+      message: expect.stringContaining('The project was added: open it from your projects to finish copying it.'),
+    });
     expect(calls.map((call) => call.route)).toEqual(['runtime-projects/register-import']);
     expect(await store().head(`t-${TEAM_PROJECT}`)).toBeNull();
   });
