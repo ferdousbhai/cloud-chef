@@ -5,7 +5,6 @@ import {
   DEFAULT_WORKERS_AI_MODEL,
   isBuilderModelId,
   MAX_BUILDER_CATALOG_MODELS,
-  modelIdLabel,
   validateBuilderModelCatalogPayload,
   builderModelCatalogPayloadSchema,
   builderReasoningLevelSchema,
@@ -258,13 +257,16 @@ export const builderModelUnavailableStore = atom<UnavailableBuilderModel | null>
  */
 function applyUnavailableModelNotice(saved: string | null, previousModels: readonly BuilderModel[]): void {
   const models = builderModelsStore.get();
-  if (!isBuilderModelId(saved) || models.some(({ id }) => id === saved)) {
+  // Said only when this account's own list offered the saved model and no longer does. The saved model is the
+  // browser's, so one picked in Personal is simply not offered in a team, which is no change worth saying.
+  const previous = previousModels.find(({ id }) => id === saved);
+  if (!isBuilderModelId(saved) || models.some(({ id }) => id === saved) || !previous) {
     builderModelUnavailableStore.set(null);
     return;
   }
   const replacement = models.find(({ id }) => id === builderModelStore.get());
   builderModelUnavailableStore.set({
-    label: previousModels.find(({ id }) => id === saved)?.label ?? modelIdLabel(saved),
+    label: previous.label,
     replacementLabel: replacement?.label ?? builderModelStore.get(),
   });
 }
