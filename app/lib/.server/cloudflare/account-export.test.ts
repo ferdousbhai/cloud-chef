@@ -62,7 +62,12 @@ describe('control-plane account export', () => {
     });
     expect(exported.sections.encryptedCredential).toEqual({
       status: 'exported',
-      encryptedCredential: { keyVersion: 3, storedAt: '1970-01-01T00:00:00.001Z', rotatedAt: null },
+      encryptedCredential: {
+        about: expect.stringContaining('someone else may have given it'),
+        keyVersion: 3,
+        storedAt: '1970-01-01T00:00:00.001Z',
+        rotatedAt: null,
+      },
     });
     expect(exported.sections.computerRuntimes).toMatchObject({
       status: 'exported',

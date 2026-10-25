@@ -684,7 +684,7 @@ describe('Cloudflare-only authentication', () => {
   });
 
   it('fails a competing callback and cleans up only through a reference-aware credential delete', async () => {
-    const database = oauthDatabase();
+    const database = oauthDatabase({ knownCloudflareUser: 'user-1' });
     const start = await startCloudflareConnectionAction({
       request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
@@ -720,7 +720,7 @@ describe('Cloudflare-only authentication', () => {
       orchestrator: fakeOrchestrator(),
     });
 
-    expect(returnFailure(response)).toBe('Cloudflare couldn’t be connected just now. Try again.');
+    expect(returnFailure(response)).toBe(cloudflareConnectMessageText('changed_meanwhile'));
     expect(mocks.activateConnection).toHaveBeenCalledWith(expect.objectContaining({ expectedGeneration: 4 }));
     expect(mocks.vault.deleteIfUnreferenced).toHaveBeenCalledWith('credential-1');
     expect(mocks.vault.deleteIfUnreferenced).not.toHaveBeenCalledWith('credential-old');
@@ -746,7 +746,8 @@ describe('Cloudflare-only authentication', () => {
       email: 'person@example.com',
       image: null,
     });
-    mocks.findConnection.mockResolvedValueOnce(null).mockResolvedValueOnce({
+    // A Cloudflare login CloudChef doesn't know yet has no space to look up: the only read is of the winner.
+    mocks.findConnection.mockResolvedValueOnce({
       id: 'connection-winner',
       userId: 'user-1',
       accountId: ACCOUNT_ID,
@@ -776,7 +777,7 @@ describe('Cloudflare-only authentication', () => {
   });
 
   it('cleans up a superseded callback credential only after the new handle is active', async () => {
-    const database = oauthDatabase();
+    const database = oauthDatabase({ knownCloudflareUser: 'user-1' });
     const start = await startCloudflareConnectionAction({
       request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
         method: 'POST',
@@ -932,7 +933,8 @@ function fakeOrchestrator(): Pick<CloudflareOAuthOrchestrator, 'startConnection'
   };
 }
 
-function oauthDatabase(options: { rateLimitSuccess?: boolean } = {}) {
+/** `knownCloudflareUser`: the user whose Cloudflare login the callback comes back with, if CloudChef has one. */
+function oauthDatabase(options: { rateLimitSuccess?: boolean; knownCloudflareUser?: string } = {}) {
   type State = {
     id: string;
     providerSessionId: string;
@@ -950,6 +952,9 @@ function oauthDatabase(options: { rateLimitSuccess?: boolean } = {}) {
         bind(...values: unknown[]) {
           return {
             first: async () => {
+              if (sql.includes('FROM "user" WHERE cloudflare_subject')) {
+                return options.knownCloudflareUser ? { id: options.knownCloudflareUser } : null;
+              }
               if (!sql.includes('FROM cloudflare_oauth_states') || !state) {
                 return null;
               }

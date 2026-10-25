@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { controlPlaneDatabase, envWith, sessionCookieSignedInBefore } from '~/test/control-plane-d1';
+import { controlPlaneDatabase, envWith, sessionCookieSignedInBefore, withStatementHook } from '~/test/control-plane-d1';
 import { createAuthSession, getAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import type { CloudflareOAuthOrchestrator } from '~/lib/.server/cloudflare/cloudflare-oauth-orchestrator';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
@@ -201,11 +201,11 @@ describe("one Cloudflare account shared by a person's own space and their team",
   }
 
   /** Cloudflare's answer to reauthorizing `account-1` as `subject`, now with every scope CloudChef needs. */
-  function reauthorizedAs(subject: string) {
+  function reauthorizedAs(subject: string, email = 'sam@corp.com') {
     return {
       ...cloudflareAs(subject),
       completeConnection: vi.fn(async () => ({
-        user: { subject, email: 'sam@corp.com', name: 'Sam', picture: null },
+        user: { subject, email, name: 'Sam', picture: null },
         accountId: 'account-1',
         accountName: 'Sam',
         accessToken: 'access-token',
@@ -262,10 +262,10 @@ describe("one Cloudflare account shared by a person's own space and their team",
   });
 
   /**
-   * Gives `account-1` a stored authorization with every scope CloudChef needs, whose grant Cloudflare
-   * answers a refresh of with `refreshStatus`; its handle.
+   * Gives `account-1` a stored authorization with every scope CloudChef needs and a current access token,
+   * which Cloudflare answers with `apiStatus`; its handle, and every request made to Cloudflare.
    */
-  async function storedAuthorization(fixture: Awaited<ReturnType<typeof sharedAccount>>, refreshStatus: number) {
+  async function storedAuthorization(fixture: Awaited<ReturnType<typeof sharedAccount>>, apiStatus: number) {
     const handle = await D1CloudflareCredentialVault.fromEnv(fixture.env).storeOAuthCredential({
       accessToken: 'shared-access',
       refreshToken: 'shared-refresh',
@@ -278,15 +278,9 @@ describe("one Cloudflare account shared by a person's own space and their team",
       )
       .run(handle, JSON.stringify(CORE_CLOUDFLARE_OAUTH_SCOPES));
     fixture.database.prepare(`DELETE FROM cloudflare_credentials WHERE handle = 'old'`).run();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn<typeof fetch>(async () =>
-        refreshStatus === 200
-          ? Response.json({ access_token: 'refreshed-access', expires_in: 3600 })
-          : Response.json({ error: 'invalid_grant' }, { status: refreshStatus }),
-      ),
-    );
-    return handle;
+    const requests = vi.fn<typeof fetch>(async () => Response.json({}, { status: apiStatus }));
+    vi.stubGlobal('fetch', requests);
+    return { handle, requests };
   }
 
   /** Kim runs the team now, and Sam is only a member: Sam's own space is one Kim doesn't run. */
@@ -295,57 +289,144 @@ describe("one Cloudflare account shared by a person's own space and their team",
     database.prepare(`UPDATE organization_members SET role = 'admin' WHERE user_id = ?`).run(kim.id);
   }
 
+  function connectMessage(response: Response): string | null {
+    return new URL(response.headers.get('location') ?? '').searchParams.get('cloudflare_message');
+  }
+
+  function accountAuthorization(database: Awaited<ReturnType<typeof sharedAccount>>['database']) {
+    return database.prepare('SELECT credential_handle FROM cloudflare_authorizations').all();
+  }
+
   it("can't be taken over by a team member connecting their own space to it", async () => {
     const fixture = await sharedAccount();
     const { database, db, env, kim } = fixture;
-    const working = await storedAuthorization(fixture, 200);
+    const { handle: working, requests } = await storedAuthorization(fixture, 200);
     database.prepare('UPDATE "user" SET cloudflare_subject = ? WHERE id = ?').run('cf-kim', kim.id);
     const kimCookie = (await createAuthSession(env, kim.id, new Request(ORIGIN))).cookie.split(';')[0];
 
     const response = await connect(env, kimCookie, reauthorizedAs('cf-kim'));
-    expect(new URL(response.headers.get('location') ?? '').searchParams.get('cloudflare_message')).toBe(
-      'account_in_use',
-    );
+    expect(connectMessage(response)).toBe('account_in_use');
     expect(await findCloudflareConnectionForUser(db, kim.id)).toBeNull();
-    expect(database.prepare('SELECT credential_handle FROM cloudflare_authorizations').all()).toEqual([
-      { credential_handle: working },
-    ]);
+    expect(accountAuthorization(database)).toEqual([{ credential_handle: working }]);
+    // Asked of Cloudflare with the token as it is: the grant every space there uses was never refreshed.
+    expect(requests.mock.calls.map(([url]) => String(url))).toEqual(['https://api.cloudflare.com/client/v4/user']);
   });
 
-  it("can't be taken over from a team by its admin while it works for someone's own space there", async () => {
+  it("lets a person whose own space builds there sign in with Cloudflare, though they don't run the team", async () => {
     const fixture = await sharedAccount();
-    const { database, env, kim } = fixture;
-    const working = await storedAuthorization(fixture, 200);
+    const { database, db, env, user } = fixture;
+    const { handle: working } = await storedAuthorization(fixture, 200);
+    kimRunsTheTeam(fixture);
+
+    const response = await connect(env, '', reauthorizedAs('cf-sam'));
+    expect(connectMessage(response)).toBeNull();
+    expect(response.headers.get('set-cookie')).toContain('cloudchef_session=');
+    // Sam's own space reconnected the account it builds in, for the team there too.
+    const own = await findCloudflareConnectionForUser(db, user.id);
+    expect(own?.generation).toBe(6);
+    expect(own?.credentialHandle).not.toBe(working);
+    expect((await findCloudflareConnectionForOrganization(db, ORG))?.credentialHandle).toBe(own?.credentialHandle);
+    expect(database.prepare('SELECT handle FROM cloudflare_credentials WHERE handle = ?').get(working)).toBeUndefined();
+  });
+
+  it("lets a person reconnect their own space there while signed in, though they don't run the team", async () => {
+    const fixture = await sharedAccount();
+    const { db, env, user, cookie } = fixture;
+    await storedAuthorization(fixture, 200);
+    kimRunsTheTeam(fixture);
+
+    const response = await connect(env, cookie, reauthorizedAs('cf-sam'));
+    expect(connectMessage(response)).toBeNull();
+    expect((await findCloudflareConnectionForUser(db, user.id))?.generation).toBe(6);
+  });
+
+  it('refuses a first sign-in with Cloudflare into it before creating anyone', async () => {
+    const fixture = await sharedAccount();
+    const { database, env } = fixture;
+    const { handle: working } = await storedAuthorization(fixture, 200);
+    const users = database.prepare('SELECT COUNT(*) AS users FROM "user"').get();
+
+    const response = await connect(env, '', reauthorizedAs('cf-new', 'new@corp.com'));
+    expect(connectMessage(response)).toBe('account_in_use');
+    expect(response.headers.get('set-cookie')).not.toContain('cloudchef_session=');
+    expect(database.prepare('SELECT COUNT(*) AS users FROM "user"').get()).toEqual(users);
+    expect(database.prepare(`SELECT id FROM "user" WHERE cloudflare_subject = 'cf-new'`).get()).toBeUndefined();
+    expect(accountAuthorization(database)).toEqual([{ credential_handle: working }]);
+  });
+
+  it("is reconnected from the team by whoever runs it, even while it works for someone's own space there", async () => {
+    const fixture = await sharedAccount();
+    const { database, db, env, kim } = fixture;
+    const { handle: working } = await storedAuthorization(fixture, 200);
     kimRunsTheTeam(fixture);
     const kimCookie = (await createAuthSession(env, kim.id, new Request(ORIGIN))).cookie.split(';')[0];
 
     const response = await connect(env, kimCookie, reauthorizedAs('cf-kim'), { organizationId: ORG });
-    expect(new URL(response.headers.get('location') ?? '').searchParams.get('cloudflare_message')).toBe(
-      'account_in_use',
-    );
-    expect(database.prepare('SELECT credential_handle FROM cloudflare_authorizations').all()).toEqual([
-      { credential_handle: working },
-    ]);
+    expect(connectMessage(response)).toBeNull();
+    expect((await findCloudflareConnectionForOrganization(db, ORG))?.credentialHandle).not.toBe(working);
+    expect(accountAuthorization(database)).not.toEqual([{ credential_handle: working }]);
   });
 
-  it('is reauthorized by whoever runs the team once Cloudflare no longer accepts its grant', async () => {
+  it("can't be taken over by an admin bringing another team into it while it works for someone's own space there", async () => {
+    const fixture = await sharedAccount();
+    const { database, db, env, kim } = fixture;
+    const { handle: working } = await storedAuthorization(fixture, 200);
+    kimRunsTheTeam(fixture);
+    const other = '44444444-4444-4444-8444-444444444444';
+    database.exec(`
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('${other}', 'Kim''s other team', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('${other}', '${kim.id}', 'admin', 1);
+    `);
+    const kimCookie = (await createAuthSession(env, kim.id, new Request(ORIGIN))).cookie.split(';')[0];
+
+    const response = await connect(env, kimCookie, reauthorizedAs('cf-kim'), { organizationId: other });
+    expect(connectMessage(response)).toBe('account_in_use');
+    expect(await findCloudflareConnectionForOrganization(db, other)).toBeNull();
+    expect(accountAuthorization(database)).toEqual([{ credential_handle: working }]);
+  });
+
+  it('is connected by anyone once Cloudflare no longer accepts its grant', async () => {
     const fixture = await sharedAccount();
     const { database, db, env, user, kim } = fixture;
-    const broken = await storedAuthorization(fixture, 400);
-    // Sam handed the team to Kim, then the grant ended: Kim doesn't run Sam's own space, and Sam no longer
-    // runs the team, but the account isn't left with nobody able to reconnect it.
+    const { handle: broken } = await storedAuthorization(fixture, 401);
+    // Sam handed the team to Kim, then the grant ended: Kim's own space coming into the account replaces an
+    // authorization no one can use any more, so the account isn't left with nobody able to reconnect it.
     kimRunsTheTeam(fixture);
+    database.prepare('UPDATE "user" SET cloudflare_subject = ? WHERE id = ?').run('cf-kim', kim.id);
     const kimCookie = (await createAuthSession(env, kim.id, new Request(ORIGIN))).cookie.split(';')[0];
 
-    const response = await connect(env, kimCookie, reauthorizedAs('cf-kim'), { organizationId: ORG });
-    expect(new URL(response.headers.get('location') ?? '').searchParams.get('cloudflare_message')).toBeNull();
+    const response = await connect(env, kimCookie, reauthorizedAs('cf-kim'));
+    expect(connectMessage(response)).toBeNull();
 
     const own = await findCloudflareConnectionForUser(db, user.id);
-    const team = await findCloudflareConnectionForOrganization(db, ORG);
-    expect(own?.credentialHandle).toBe(team?.credentialHandle);
-    expect(team?.credentialHandle).not.toBe(broken);
+    const kims = await findCloudflareConnectionForUser(db, kim.id);
+    expect(own?.credentialHandle).toBe(kims?.credentialHandle);
+    expect(kims?.credentialHandle).not.toBe(broken);
     // The ended credential is gone.
     expect(database.prepare('SELECT handle FROM cloudflare_credentials WHERE handle = ?').get(broken)).toBeUndefined();
+  });
+
+  it('writes nothing, and asks to connect again, when another connection into the account lands first', async () => {
+    const fixture = await sharedAccount();
+    const { database, db, env, cookie } = fixture;
+    database.exec(
+      `INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, created_at) VALUES ('raced', 'x', 'y', 1)`,
+    );
+    // Someone else's connection into account-1 lands after this one read the account's authorization.
+    const racing = withStatementHook(db, (query) => {
+      if (query.includes('INSERT INTO cloudflare_authorizations')) {
+        database.exec(`UPDATE cloudflare_authorizations SET credential_handle = 'raced'`);
+      }
+    });
+    const credentials = () => database.prepare('SELECT handle FROM cloudflare_credentials ORDER BY handle').all();
+    const before = credentials();
+
+    const response = await connect(envWith({ ...env, DB: racing }), cookie, reauthorizedAs('cf-sam'));
+    expect(connectMessage(response)).toBe('changed_meanwhile');
+    expect(accountAuthorization(database)).toEqual([{ credential_handle: 'raced' }]);
+    expect((await findCloudflareConnectionForOrganization(db, ORG))?.generation).toBe(4);
+    // Its own new credential, which nothing names, is gone again.
+    expect(credentials()).toEqual(before);
   });
 
   it('removes the credential it replaces when a team first connects to the account', async () => {

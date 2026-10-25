@@ -17,11 +17,17 @@ import { postJson, RequestError } from '~/lib/json-request';
 /** What erasing the account reports about what it could not do itself. */
 const accountDeletionSchema = z.looseObject({
   cloudflareAuthorizationRevoked: z.boolean().nullable().optional().catch(undefined),
-  cloudflareAuthorizationKeptFor: z.array(z.string()).optional().catch(undefined),
+  cloudflareAuthorizationsKept: z
+    .array(z.object({ teams: z.array(z.string()), someoneElsesOwnSpace: z.boolean() }))
+    .optional()
+    .catch(undefined),
   workspacesLeftIn: z.array(z.string()).optional().catch(undefined),
 });
 
 const CLOUDFLARE_OAUTH_AUTHORIZATIONS_URL = 'https://dash.cloudflare.com/?to=/profile/access-management/authorization';
+
+/** Who still builds in a Cloudflare account whose authorization erasure kept for them. */
+type KeptAuthorization = { teams: string[]; someoneElsesOwnSpace: boolean };
 
 type DeletionPhase = 'idle' | 'confirming' | 'deleting' | 'reauthenticate' | 'deleted';
 type ExportPhase = 'idle' | 'downloading' | 'reauthenticate' | 'downloaded';
@@ -34,19 +40,15 @@ export function AccountDataCard() {
   const [phase, setPhase] = useState<DeletionPhase>('idle');
   const [confirmation, setConfirmation] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
-  // Whether Cloudflare confirmed every revocation erasure made; null when it made none.
+  // Whether Cloudflare confirmed every revocation erasure asked for; null when it asked for none.
   const [revoked, setRevoked] = useState<boolean | null>(null);
-  // Known before erasure ends the session: whether there was a Cloudflare grant of their own to revoke.
-  const [hadOwnAccount, setHadOwnAccount] = useState(false);
   const [workspacesLeftIn, setWorkspacesLeftIn] = useState<string[]>([]);
-  const [keptFor, setKeptFor] = useState<string[]>([]);
+  const [kept, setKept] = useState<KeptAuthorization[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [exportPhase, setExportPhase] = useState<ExportPhase>('idle');
   const [exportError, setExportError] = useState<string | null>(null);
   const [unavailableSections, setUnavailableSections] = useState<string[]>([]);
   const confirmed = confirmation.trim() === ACCOUNT_DELETION_CONFIRMATION && acknowledged;
-  // Their own account's authorization stayed, still used by the teams building there.
-  const keptOwnAuthorization = hadOwnAccount && keptFor.length > 0;
 
   const downloadAccountData = async () => {
     setExportPhase('downloading');
@@ -87,10 +89,9 @@ export function AccountDataCard() {
       );
       queryClient.clear();
       resetUserRuntimeSession();
-      setHadOwnAccount(session?.contexts.some((option) => option.kind === 'personal') ?? false);
       setRevoked(deleted.cloudflareAuthorizationRevoked ?? null);
       setWorkspacesLeftIn(deleted.workspacesLeftIn ?? []);
-      setKeptFor(deleted.cloudflareAuthorizationKeptFor ?? []);
+      setKept(deleted.cloudflareAuthorizationsKept ?? []);
       setPhase('deleted');
     } catch (failure) {
       const reauthenticate = failure instanceof RequestError && failure.code === 'reauthentication_required';
@@ -195,11 +196,13 @@ export function AccountDataCard() {
             <summary className="cursor-pointer text-content-secondary">What’s included?</summary>
             <p className="mt-1">
               Your identity and email and your AI request logs setting; your own Cloudflare connection (its permissions
-              and default model) and when its authorization was stored; your workspaces; your teams, the invites sent to
-              you, your model use there, and the team projects you were given; your team project requests, each with the
-              repository and commit it asks to publish; GitHub connections and approvals you started; emailed sign-in
-              links; and sign-in and authorization session records. Credentials, credential handles, encryption vectors,
-              session tokens, and the hashes links and invites are checked against are excluded.
+              and default model) and when CloudChef stored and last renewed its access to that Cloudflare account, which
+              everyone building there shares, so someone else may have given it; your workspaces; your teams, the
+              invites sent to you, your model use there, and the team projects you were given; the requests you made to
+              publish a team project, with which saved version of it was sent; GitHub connections and approvals you
+              started; emailed sign-in links; and sign-in and authorization session records. Credentials, credential
+              handles, encryption vectors, session tokens, and the hashes links and invites are checked against are
+              excluded.
             </p>
             <p className="mt-2">
               Chats, transcripts, project files, and deployment records are not included. They live in the Cloudflare
@@ -260,7 +263,7 @@ export function AccountDataCard() {
         {phase === 'deleted' ? (
           <div className="grid gap-2 text-sm text-content-secondary" role="status">
             <p>
-              CloudChef erased your account identity, sessions, {keptOwnAuthorization ? '' : 'encrypted credentials, '}
+              CloudChef erased your account identity, sessions, {kept.length > 0 ? '' : 'encrypted credentials, '}
               connection metadata, team memberships, and workspace addresses from its own database.
             </p>
             {workspacesLeftIn.length > 0 ? (
@@ -269,28 +272,25 @@ export function AccountDataCard() {
                 ask its admins to remove it there.
               </p>
             ) : null}
-            {keptOwnAuthorization ? (
-              <p>
-                Your Cloudflare authorization was kept, not erased, because {keptFor.join(', ')} still
-                {keptFor.length === 1 ? ' builds' : ' build'} in your account, and it keeps working for{' '}
-                {keptFor.length === 1 ? 'that team' : 'those teams'}. An admin there can reconnect it with their own
-                Cloudflare login.
+            {kept.map((account, index) => (
+              <p key={index}>
+                CloudChef kept its access to a Cloudflare account you built in, instead of removing it, because{' '}
+                {keptForText(account)} still {builders(account) === 1 ? 'builds' : 'build'} there with it. If that
+                access was given with your Cloudflare login and you remove it in the Cloudflare dashboard, they lose it
+                too until one of them connects Cloudflare again.
               </p>
-            ) : null}
-            {revoked === false || (hadOwnAccount && !keptOwnAuthorization && revoked === null) ? (
+            ))}
+            {revoked === false ? (
               <p>
-                Cloudflare did not confirm the revocation. Remove the CloudChef authorization yourself in the Cloudflare
+                Cloudflare did not confirm that CloudChef’s access was removed. Remove it yourself in the Cloudflare
                 dashboard under <strong>Profile → Manage OAuth authorizations</strong> (
                 <a className="underline" href={CLOUDFLARE_OAUTH_AUTHORIZATIONS_URL}>
                   open OAuth authorizations
                 </a>
                 ).
-                {keptOwnAuthorization
-                  ? ` Removing it there also ends the access ${keptFor.join(', ')} still ${keptFor.length === 1 ? 'uses' : 'use'}.`
-                  : null}
               </p>
-            ) : hadOwnAccount && !keptOwnAuthorization ? (
-              <p>Cloudflare confirmed that CloudChef’s authorization was revoked.</p>
+            ) : revoked === true ? (
+              <p>Cloudflare confirmed that CloudChef’s access was removed.</p>
             ) : null}
             <p>
               Resources CloudChef deployed are still in the Cloudflare accounts they were deployed to, and still billed
@@ -363,6 +363,19 @@ export function AccountDataCard() {
       ) : null}
     </SettingsCard>
   );
+}
+
+/** Who an authorization was kept for, in words: teams by name, and someone else's own space without saying whose. */
+function keptForText(account: KeptAuthorization): string {
+  const who = [
+    ...account.teams.map((team) => `the team ${team}`),
+    ...(account.someoneElsesOwnSpace ? ["someone else's own space"] : []),
+  ];
+  return who.length <= 1 ? (who[0] ?? 'someone else') : `${who.slice(0, -1).join(', ')} and ${who.at(-1)}`;
+}
+
+function builders(account: KeptAuthorization): number {
+  return account.teams.length + (account.someoneElsesOwnSpace ? 1 : 0);
 }
 
 const accountExportPayloadSchema = z.looseObject({

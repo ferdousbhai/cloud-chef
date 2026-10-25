@@ -448,26 +448,33 @@ export async function completeCloudflareConnectionAction(args: {
       providerSessionId: oauthState.provider_session_id,
       callbackUrl,
     });
+    const holder = await args.env.DB.prepare('SELECT id FROM "user" WHERE cloudflare_subject = ?')
+      .bind(result.user.subject)
+      .first<{ id: string }>();
     // A signed-in person who came back from Cloudflare with the login already on their account proved
     // who they are again, like a fresh sign-in: their session is replaced with a new one.
-    let reproved = false;
-    if (oauthState.linking_user_id) {
-      const holder = await args.env.DB.prepare('SELECT id FROM "user" WHERE cloudflare_subject = ?')
-        .bind(result.user.subject)
-        .first<{ id: string }>();
-      reproved = holder?.id === oauthState.linking_user_id;
-    }
+    const reproved = oauthState.linking_user_id !== null && holder?.id === oauthState.linking_user_id;
+    // Who is connecting, and which space: a team's, connected by one of its admins with their own Cloudflare
+    // login, or the person's own. Signing in with a Cloudflare login CloudChef doesn't know yet is no one so
+    // far: their user is created only once nothing refuses the connection.
+    const teamAdmin = orgId ? await requireTeamAdmin(args.env.DB, orgId, oauthState.linking_user_id) : null;
+    const connectingUserId = teamAdmin ?? oauthState.linking_user_id ?? holder?.id ?? null;
+    let owner: CloudflareConnectionOwner | null = orgId
+      ? { kind: 'organization', orgId }
+      : connectingUserId
+        ? { kind: 'user', userId: connectingUserId }
+        : null;
+    const previous = owner ? await findCloudflareConnectionForOwner(args.env.DB, owner) : null;
+    const vault = D1CloudflareCredentialVault.fromEnv(args.env);
+    const replaced = await authorizationToReplace(args.env.DB, vault, {
+      userId: connectingUserId,
+      owner,
+      previous,
+      accountId: result.accountId,
+    });
     let userId: string;
-    let owner: CloudflareConnectionOwner;
-    if (orgId) {
-      // The organization's account, connected by one of its admins with their own Cloudflare login.
-      const admin = oauthState.linking_user_id;
-      const membership = admin ? await findMembership(args.env.DB, orgId, admin) : null;
-      if (!admin || !isActiveAdmin(membership)) {
-        throw new ConnectReturnError('admin_only');
-      }
-      userId = admin;
-      owner = { kind: 'organization', orgId };
+    if (teamAdmin && owner) {
+      userId = teamAdmin;
     } else {
       const linkingUserId = oauthState.linking_user_id;
       const user = await (
@@ -482,20 +489,6 @@ export async function completeCloudflareConnectionAction(args: {
       userId = user.id;
       owner = { kind: 'user', userId };
     }
-    const vault = D1CloudflareCredentialVault.fromEnv(args.env);
-    // The account's authorization is shared by every space building in it: replacing one that works is for
-    // someone who runs each of them. One that no longer works (missing a permission CloudChef needs, or its
-    // grant gone) anyone connecting there may replace, so an account is never left with nobody able to.
-    const replaced = await findCloudflareAuthorization(args.env.DB, result.accountId);
-    if (
-      replaced &&
-      missingCoreOAuthScopes(replaced.grantedOAuthScopes).length === 0 &&
-      !(await runsEveryOtherSpaceInAccount(args.env.DB, { userId, owner, accountId: result.accountId })) &&
-      (await vault.stillAuthorizes(replaced.credentialHandle))
-    ) {
-      throw new ConnectReturnError('account_in_use');
-    }
-    const previous = await findCloudflareConnectionForOwner(args.env.DB, owner);
     const credentialHandle = await vault.storeOAuthCredential({
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
@@ -510,6 +503,7 @@ export async function completeCloudflareConnectionAction(args: {
         credentialHandle,
         grantedOAuthScopes: result.grantedOAuthScopes,
         expectedGeneration: previous?.generation ?? null,
+        replacedCredentialHandle: replaced,
       });
     } catch (error) {
       const racedConnection =
@@ -525,7 +519,9 @@ export async function completeCloudflareConnectionAction(args: {
         console.warn('Unable to clean up orphaned Cloudflare credential', cleanupError);
       });
       if (!canAdoptRace) {
-        throw error;
+        // Another connection changed this space or the account's authorization meanwhile: nothing was written,
+        // and connecting again decides afresh.
+        throw error instanceof CloudflareConnectionChangedError ? new ConnectReturnError('changed_meanwhile') : error;
       }
     }
     // A space that moved to another account leaves that account's authorization behind once nothing builds there.
@@ -538,7 +534,7 @@ export async function completeCloudflareConnectionAction(args: {
     }
     // The credentials this connection replaced, removed once nothing names them: the authorization the account
     // had (whoever connected it), and the one of the account this space built in before, if it moved.
-    const replacedHandles = new Set([previous?.credentialHandle, replaced?.credentialHandle]);
+    const replacedHandles = new Set([previous?.credentialHandle, replaced]);
     for (const handle of replacedHandles) {
       if (handle && handle !== credentialHandle) {
         await vault.deleteIfUnreferenced(handle).catch((cleanupError) => {
@@ -604,6 +600,47 @@ export async function completeCloudflareConnectionAction(args: {
     const unexpected = cloudflareIntegrationErrorResponse(error).status >= 500;
     return connectReturnFailure(args.request, returnTo, unexpected ? 'unavailable' : 'unreadable');
   }
+}
+
+/** The active admin of the team `orgId` who is connecting it; refuses anyone else. */
+async function requireTeamAdmin(db: D1Database, orgId: string, linkingUserId: string | null): Promise<string> {
+  const membership = linkingUserId ? await findMembership(db, orgId, linkingUserId) : null;
+  if (!linkingUserId || !isActiveAdmin(membership)) {
+    throw new ConnectReturnError('admin_only');
+  }
+  return linkingUserId;
+}
+
+/**
+ * The credential of the account's authorization as it is now, which this connection replaces (compare-and-set),
+ * or null when the account has none. It is shared by every space building in that account, so a space newly
+ * coming into the account while it works is refused (`account_in_use`) unless `userId` runs each of those
+ * spaces. A space reconnecting the account it already builds in is that space's own reconnect, made by someone
+ * with access to that Cloudflare account, and is never refused. One that no longer works (missing a permission
+ * CloudChef needs, or its grant gone) anyone connecting there may replace, so an account is never left with
+ * nobody able to.
+ */
+async function authorizationToReplace(
+  db: D1Database,
+  vault: D1CloudflareCredentialVault,
+  args: {
+    userId: string | null;
+    owner: CloudflareConnectionOwner | null;
+    previous: CloudflareConnection | null;
+    accountId: string;
+  },
+): Promise<string | null> {
+  const current = await findCloudflareAuthorization(db, args.accountId);
+  if (
+    current &&
+    args.previous?.accountId !== args.accountId &&
+    missingCoreOAuthScopes(current.grantedOAuthScopes).length === 0 &&
+    !(await runsEveryOtherSpaceInAccount(db, args)) &&
+    (await vault.stillAuthorizes(current.credentialHandle))
+  ) {
+    throw new ConnectReturnError('account_in_use');
+  }
+  return current?.credentialHandle ?? null;
 }
 
 /** A return from Cloudflare that cannot finish, with the code of what to tell the person. */
