@@ -421,13 +421,17 @@ describe('GitHub projects', () => {
     logged.mockRestore();
   });
 
-  it('returns to the page the installation started from, saying what happened', async () => {
+  it('returns to the page the installation started from once it is connected', async () => {
     const { env, orgId, admin, app } = await setup();
     const installed = await install(env, app, admin.cookie, orgId, INSTALLATION_ID, `${ORIGIN}/?import=github`);
     const location = new URL(installed.headers.get('location') ?? '/', ORIGIN);
     expect(location.pathname).toBe('/');
     expect(location.searchParams.get('import')).toBe('github');
     expect(githubMessage(installed)).toBe('Connected GitHub.');
+
+    // A refusal goes to Settings, the page that says why, wherever it started.
+    const refused = await install(env, app, admin.cookie, orgId, 999, `${ORIGIN}/?import=github`);
+    expect(new URL(refused.headers.get('location') ?? '/', ORIGIN).pathname).toBe('/settings');
   });
 
   it("doesn't let a member connect GitHub", async () => {

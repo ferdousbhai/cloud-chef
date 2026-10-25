@@ -95,8 +95,8 @@ export async function completeGitHubInstallAction({
   app?: GitHubApp | null;
 }): Promise<Response> {
   const url = new URL(request.url);
-  // This is a browser coming back from GitHub: every outcome returns to where it started (the import dialog, or
-  // Settings), or to Settings when that isn't known, saying what happened.
+  // This is a browser coming back from GitHub. A connection made returns to where it started (the import dialog
+  // then lists the new repositories); anything else, and an unexpected failure, goes to Settings, which says why.
   const back = (message: GitHubReturnMessage, returnTo: string | null = null) =>
     redirect(returnLocation(url.origin, returnTo, message), request);
   try {
@@ -293,9 +293,12 @@ export async function installedRepositories(db: D1Database, scope: ProjectScope,
     : Response.json({ error: 'GitHub could not be reached just now. Try again in a moment.' }, { status: 503 });
 }
 
-/** Where a return from GitHub goes: the page it started from on this origin, else Settings, with what it did. */
+/**
+ * Where a return from GitHub goes: after a connection is made, the page it started from on this origin; otherwise
+ * Settings, the one page that shows what a return did.
+ */
 function returnLocation(origin: string, returnTo: string | null, message: GitHubReturnMessage | null): URL {
-  if (returnTo) {
+  if (returnTo && (message === 'connected' || message === 'repositories_updated')) {
     try {
       const location = new URL(returnTo, origin);
       // A bare "/" is the default when nothing was asked for: Settings says what happened, the builder wouldn't.

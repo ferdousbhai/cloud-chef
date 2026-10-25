@@ -5,7 +5,7 @@ import { Button } from '@ui/Button';
 import { ConfirmationDialog } from '@ui/ConfirmationDialog';
 import { MenuItem } from '@ui/Menu';
 import { TextInput } from '@ui/TextInput';
-import { authClient, createCloudflareReturnURL } from '~/lib/auth-client';
+import { authClient } from '~/lib/auth-client';
 import { projectRoleSchema } from '~/lib/cloudflare/org-projects.client';
 import { ImportFromGitHubDialog } from '~/components/projects/ImportFromGitHubDialog.client';
 import { ProjectAccessList, type ProjectMember } from '~/components/projects/ProjectAccessList.client';
@@ -85,7 +85,8 @@ export function OrgProjectsSection({
     void runRequest(async () => {
       const { installUrl } = await postJson(
         '/api/organizations/github/start',
-        { orgId, callbackURL: createCloudflareReturnURL(window.location.href) },
+        // Back to this Settings page itself, which says what GitHub's return did.
+        { orgId, callbackURL: window.location.href },
         installStartedSchema,
       );
       window.location.assign(installUrl);

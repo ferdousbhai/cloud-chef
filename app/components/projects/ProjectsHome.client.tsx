@@ -53,6 +53,8 @@ export function ProjectsHome({ userId }: { userId: string }) {
       setDialog({ kind: 'import' });
       const url = new URL(window.location.href);
       url.searchParams.delete(IMPORT_RETURN_PARAM);
+      // A connection made: the dialog shows it in its list, so the return's note isn't kept in the address.
+      url.searchParams.delete('github_message');
       window.history.replaceState(window.history.state, '', url);
     }
   }, []);
