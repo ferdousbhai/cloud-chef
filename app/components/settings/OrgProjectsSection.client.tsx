@@ -53,7 +53,6 @@ const WORKERS_BUILDS_CREATE_URL = 'https://dash.cloudflare.com/?to=/:account/wor
 type OrgProject = z.infer<typeof orgProjectSchema>;
 
 const installStartedSchema = z.object({ installUrl: z.string() });
-const LIST_FORMAT = new Intl.ListFormat('en', { type: 'conjunction' });
 
 /**
  * An admin's view of a team's projects: each one's repository and who may view or edit it, the members'
@@ -128,12 +127,6 @@ export function OrgProjectsSection({
           </MoreMenu>
         </span>
       </div>
-      <p className="text-xs text-content-tertiary [overflow-wrap:anywhere]">
-        {github.length === 0
-          ? 'Public repositories import from their address. Connect GitHub to import private ones.'
-          : `Imports can read repositories from ${LIST_FORMAT.format(github.map((account) => `github.com/${account.accountLogin}`))}.`}
-        {workingHere ? null : ' Open this team to import.'}
-      </p>
       {productionRequests.length > 0 ? (
         <ul className="grid gap-2" aria-label="Production requests">
           {productionRequests.map((pending) => (

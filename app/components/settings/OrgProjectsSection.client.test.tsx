@@ -80,7 +80,6 @@ describe('OrgProjectsSection', () => {
       ),
     );
 
-    expect(container.textContent).toContain('Imports can read repositories from github.com/acme and github.com/grace.');
     expect(mislabelledButtons()).toEqual([]);
     await click('Remove');
     await click('Decline');
