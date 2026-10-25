@@ -94,8 +94,8 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
       kind: 'conflict',
       title: 'Saved, but not live',
       detail:
-        'The live project changed in the same places since you started, so your change was not put live. ' +
-        'It is saved separately, and a team admin can combine the two.',
+        'Someone changed the same parts of the live project since this chat started, so your change was not put ' +
+        'live. It is still saved. Start a new chat, which opens the latest version, and ask for the change again.',
       building: false,
       followDeadline: null,
       previewUrl: null,

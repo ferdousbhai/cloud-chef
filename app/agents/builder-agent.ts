@@ -1837,7 +1837,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       if ('conflict' in merged) {
         return toolFailure(
           `${linked.defaultBranch} changed since this workspace was opened, and the changes overlap. Nothing went ` +
-            `live. The work is saved on the branch ${branch} of ${name}; an admin can merge it there.`,
+            `live. The work is saved on the branch ${branch} of ${name}. A new chat for this project opens the ` +
+            'latest version: tell the person to start one and ask for the change again.',
           { branch, commit: committed.commit, conflict: true, defaultBranch: linked.defaultBranch },
         );
       }

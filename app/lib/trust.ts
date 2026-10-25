@@ -14,9 +14,9 @@ export const CLOUDCHEF_OPERATOR = {
   correspondenceAddress: '350 Bay Street, Suite 1300B, Toronto, Ontario M5H 2S6, Canada',
 } as const;
 
-export const TRUST_DOCUMENT_VERSION = '1.7 public beta';
-export const TRUST_DOCUMENT_EFFECTIVE_ISO_DATE = '2026-08-14';
-export const TRUST_DOCUMENT_EFFECTIVE_DATE = 'August 14, 2026';
+export const TRUST_DOCUMENT_VERSION = '1.8 public beta';
+export const TRUST_DOCUMENT_EFFECTIVE_ISO_DATE = '2026-10-25';
+export const TRUST_DOCUMENT_EFFECTIVE_DATE = 'October 25, 2026';
 // A response target is data. The sentence this replaced recited both channels' numbers on both
 // pages, next to each page's own restatement of its own number, so the same fact was on screen
 // three times. Each page now renders its own rows and shares only the caveat.

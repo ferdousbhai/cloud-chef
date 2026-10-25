@@ -33,12 +33,16 @@ function PrivacyPage() {
           </li>
           <li>per-day counts of model turns and tokens used in a team&apos;s account</li>
           <li>
-            a team&apos;s GitHub connection: the GitHub account CloudChef&apos;s GitHub App is installed on, the names
-            of the repositories linked as its projects, and who may work on each
+            projects: each one&apos;s name, which Artifacts repository in the Cloudflare account holds it, the GitHub
+            repository it was imported from (if it was), its live address, and who may view or edit it
           </li>
           <li>
-            production requests: a draft&apos;s title, note, preview URL, and its source files, kept with the request
-            until an admin approves or declines it, then only its title, how many files it had, and the decision
+            GitHub connections, yours or a team&apos;s: which GitHub accounts CloudChef&apos;s GitHub App is installed
+            on, used only to import repositories
+          </li>
+          <li>
+            production requests: a draft&apos;s title, note, preview URL, and which saved version of it was sent, and
+            then the decision
           </li>
           <li>
             when you sent each team invite and created each team, kept for 30 days because they count toward the limits
@@ -59,7 +63,7 @@ function PrivacyPage() {
         <p>The control-plane database does not store:</p>
         <ul>
           <li>prompt or transcript bodies</li>
-          <li>project source, except a draft sent as a production request, until it is decided</li>
+          <li>project source</li>
           <li>deployment plans</li>
           <li>generated application data</li>
           <li>raw AI responses</li>
@@ -101,20 +105,23 @@ function PrivacyPage() {
           member, who then cannot open their workspace or use the team&apos;s Cloudflare authorization, or remove them,
           which also deletes their workspace from the team&apos;s account and declines their open production requests;
           applications they deployed stay there. An admin can rename the team or delete it. Deleting a team deletes
-          every member&apos;s workspace from its Cloudflare account, revokes CloudChef&apos;s authorization there, and
-          removes the team&apos;s records from CloudChef: its members, invites, usage counts, GitHub connection, linked
-          projects, and production requests. Applications deployed from it, with their databases and storage, stay in
-          the Cloudflare account, and the repositories and CloudChef&apos;s GitHub App stay on GitHub until removed
-          there.
+          every member&apos;s workspace from its Cloudflare account, revokes CloudChef&apos;s authorization there unless
+          your own space or another of your teams still builds in that account, and removes the team&apos;s records from
+          CloudChef: its members, invites, usage counts, GitHub connections, projects, and production requests. The
+          projects&apos; code and history in the account&apos;s Artifacts, and applications deployed from it with their
+          databases and storage, stay in the Cloudflare account; repositories imported from GitHub and CloudChef&apos;s
+          GitHub App stay on GitHub until removed there.
         </p>
         <p>
-          A team can also work on apps kept in GitHub. An admin installs CloudChef&apos;s GitHub App on the GitHub
-          account that holds them and chooses which repositories it may reach. CloudChef stores the installation and
-          which repositories are its projects, not their contents or any GitHub token: it fetches a project&apos;s files
-          into the member&apos;s workspace and sends their changes back to GitHub as commits, with a short-lived token
-          limited to that repository. When a member asks for a draft to become a project, its files are kept with the
-          request until an admin approves it (and they go to the new GitHub repository) or declines it. GitHub&apos;s
-          own terms and privacy statement govern the repositories.
+          Every project&apos;s code and history is a git repository in Cloudflare Artifacts, in the Cloudflare account
+          it belongs to. An existing project can be imported from GitHub once: a public repository by its address, a
+          private one through CloudChef&apos;s GitHub App, which you or a team admin install on the GitHub accounts that
+          hold them, choosing which repositories it may read. CloudChef stores those installations and where each
+          project was imported from, not the repositories&apos; contents or any GitHub token: an import copies the
+          repository&apos;s history into Artifacts with a short-lived, read-only token limited to that repository, and
+          nothing is sent back to GitHub. When a member asks for a draft to become a team project, the draft&apos;s own
+          repository, already in the team&apos;s account, becomes the project if an admin approves it. GitHub&apos;s own
+          terms and privacy statement govern repositories on GitHub.
         </p>
       </TrustSection>
 
@@ -319,10 +326,7 @@ function PrivacyPage() {
           <li>your runtime locators</li>
           <li>your team memberships, invites addressed to you, and your daily usage counts</li>
           <li>when you sent each team invite and created each team, while those records are kept</li>
-          <li>
-            the GitHub projects you were given, and the production requests you sent, with a draft&apos;s source while
-            CloudChef still holds it
-          </li>
+          <li>your own projects and the team projects you were given, and the production requests you sent</li>
           <li>GitHub connections and approvals you started, and sign-in links emailed to you</li>
           <li>your authentication-session and OAuth-state records</li>
         </ul>

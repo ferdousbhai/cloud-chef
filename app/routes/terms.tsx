@@ -62,9 +62,9 @@ function TermsPage() {
         <p>
           A team&apos;s admin who connects its Cloudflare account authorizes CloudChef to act in that account for every
           member they invite, and the team is responsible for the charges its members incur there. Members build and
-          deploy in that account under its administrators&apos; control. An admin who installs CloudChef&apos;s GitHub
-          App authorizes CloudChef to read and commit to the repositories they choose, for the members they give those
-          projects to; changes members publish are merged into those repositories.
+          deploy in that account under its administrators&apos; control. Projects are kept in that account&apos;s
+          Cloudflare Artifacts. Whoever installs CloudChef&apos;s GitHub App authorizes CloudChef to read the
+          repositories they choose, only to import them as projects; CloudChef never writes to GitHub.
         </p>
       </TrustSection>
       <TrustSection title="Your inputs and generated output">
