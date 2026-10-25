@@ -274,9 +274,10 @@ export function modelIdLabel(modelId: string): string {
       // A version written with dashes (claude-opus-5-5) reads as one number (5.5); a date (2024-11-20) stays apart.
       .replace(/(?<=(?:^|-)\d{1,2})(?<!\d{4}-\d{1,2})-(?=\d{1,2}(?:-|$))/g, '.')
       .split('-')
-      // A size (120b, 16e) is written in capitals; any other part starting with a digit (4o) stays as it is.
+      // A size (120b, 16e, a4b) is written in capitals, and so is "it" (instruction-tuned); any other part
+      // starting with a digit (4o) stays as it is.
       .map((part) =>
-        /^\d+(?:\.\d+)?[bekmt]$/i.test(part)
+        /^a?\d+(?:\.\d+)?[bekmt]$/i.test(part) || part === 'it'
           ? part.toUpperCase()
           : /^\d/.test(part)
             ? part

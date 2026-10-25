@@ -297,7 +297,7 @@ function ModelRow({
   );
 }
 
-/** A context window in tokens, as "131K" or "1.3M". */
+/** A count written short, as "98K" or "1.3M". */
 function formatTokens(tokens: number): string {
   if (tokens >= 1_000_000) {
     return `${Number((tokens / 1_000_000).toFixed(1))}M`;

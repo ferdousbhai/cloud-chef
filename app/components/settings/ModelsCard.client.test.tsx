@@ -313,7 +313,9 @@ describe('ModelsCard', () => {
       await settle();
 
       expect(savedAllowed).toEqual([[CLOUDFLARE_WORKERS_AI_MODEL, claudeModel.id]]);
-      expect(document.body.textContent).toContain('Saved. The model picker offers these 2 models');
+      expect(document.body.textContent).toContain(
+        'Saved. 2 models are allowed, and the model picker offers the ones this account can run now.',
+      );
       expect(button('Save models')).toBeUndefined();
       // The picker's catalog is asked for again, so it lists only those.
       expect(fetchMock.mock.calls.filter(([url]) => url === `${RUNTIME}/v1/models`).length).toBeGreaterThan(1);

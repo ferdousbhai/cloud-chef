@@ -195,7 +195,7 @@ export function ModelsCard() {
         void reloadBuilderModelCatalog();
         return modelIds === null
           ? 'Saved. The model picker offers every compatible model, including ones added later.'
-          : `Saved. The model picker offers ${modelIds.length === 1 ? 'this 1 model' : `these ${modelIds.length} models`}. A chat already open on a model left out moves to an allowed one when it's reopened, or after its next message is refused.`;
+          : `Saved. ${modelIds.length === 1 ? '1 model is' : `${modelIds.length} models are`} allowed, and the model picker offers the ones this account can run now. A chat already open on a model left out moves to an allowed one when it's reopened, or after its next message is refused.`;
       },
       { refreshOnFailure: true },
     );

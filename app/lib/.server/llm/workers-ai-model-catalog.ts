@@ -344,10 +344,9 @@ function catalogEntryCreatedAt(entry: AiModelsSearchObject): string | undefined 
 
 /** A model's name as Pi lists it, for a message about a model that may not be in the account's catalog. */
 export function knownModelLabel(modelId: BuilderModelId): string {
-  if (gatewayModelProvider(modelId) !== null) {
-    return piGatewayModel(modelId)?.builderModel.label ?? modelId;
-  }
-  return isWorkersAiModelId(modelId) ? modelIdLabel(modelId) : modelId;
+  return gatewayModelProvider(modelId) !== null
+    ? (piGatewayModel(modelId)?.builderModel.label ?? modelIdLabel(modelId))
+    : modelIdLabel(modelId);
 }
 
 function numericProperty(value: string | undefined): number {
