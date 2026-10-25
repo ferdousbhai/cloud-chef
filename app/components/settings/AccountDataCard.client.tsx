@@ -371,7 +371,7 @@ export function AccountDataCard() {
 function keptForText(account: KeptAuthorization): string {
   const who = [
     ...account.teams.map((team) => `the team ${team}`),
-    ...(account.someoneElsesOwnSpace ? ["someone else's own account"] : []),
+    ...(account.someoneElsesOwnSpace ? ['another person working on their own'] : []),
   ];
   return who.length <= 1 ? (who[0] ?? 'someone else') : `${who.slice(0, -1).join(', ')} and ${who.at(-1)}`;
 }

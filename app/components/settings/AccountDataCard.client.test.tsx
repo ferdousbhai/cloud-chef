@@ -238,7 +238,7 @@ describe('AccountDataCard', () => {
       workspacesLeftIn: [],
     });
 
-    expect(text).toContain("because someone else's own account still builds there with it");
+    expect(text).toContain('because another person working on their own still builds there with it');
     expect(text).not.toContain('encrypted credentials');
     expect(text).not.toContain('Cloudflare did not confirm');
     expect(text).not.toContain('did not confirm');
@@ -252,7 +252,7 @@ describe('AccountDataCard', () => {
     });
 
     expect(text).toContain(
-      "because the team Acme, the team Sara's sites and someone else's own account still build there with it",
+      "because the team Acme, the team Sara's sites and another person working on their own still build there with it",
     );
     expect(text).toContain('Cloudflare did not confirm that CloudChef’s access was removed');
   });

@@ -31,7 +31,7 @@ export class WorkersAiModelCatalogUnavailableError extends Error {
 }
 
 const NO_ALLOWED_MODEL_MESSAGE =
-  'None of the models allowed in this account can run right now. Others can be allowed in Settings, under Models, by a team admin, or by you in your own account.';
+  'None of the models allowed in this account can run right now. Others can be allowed in Settings, under Models, by a team admin, or by you when you work in Personal.';
 
 /** The account's admin allows models, but none of them can run in the account now. */
 export class NoAllowedBuilderModelError extends Error {
@@ -130,7 +130,7 @@ export async function requireBuilderModel(
   }
   if (!isBuilderModelAllowed(settings, modelId)) {
     throw new Response(
-      `${knownModelLabel(modelId)} isn't allowed in this account. Choose another model in the model picker; the models it offers are chosen in Settings, under Models, by a team admin, or by you in your own account.`,
+      `${knownModelLabel(modelId)} isn't allowed in this account. Choose another model in the model picker; the models it offers are chosen in Settings, under Models, by a team admin, or by you when you work in Personal.`,
       { status: 403 },
     );
   }

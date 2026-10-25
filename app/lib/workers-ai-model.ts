@@ -268,26 +268,39 @@ export function getBuilderModel(modelId: BuilderModelId, models: readonly Builde
 
 /** A readable name made from a model's id (its last part, words capitalized), for a model no catalog names now. */
 export function modelIdLabel(modelId: string): string {
-  return (
-    modelId
-      .slice(modelId.lastIndexOf('/') + 1)
-      // A version written with dashes (claude-opus-5-5) reads as one number (5.5); a date (2024-11-20) stays apart.
-      .replace(/(?<=(?:^|-)\d{1,2})(?<!\d{4}-\d{1,2})-(?=\d{1,2}(?:-|$))/g, '.')
-      .split('-')
-      // A size (120b, 16e, a4b) is written in capitals, and so is "it" (instruction-tuned); any other part
-      // starting with a digit (4o) stays as it is.
-      .map((part) =>
-        /^a?\d+(?:\.\d+)?[bekmt]$/i.test(part) || part === 'it'
-          ? part.toUpperCase()
-          : /^\d/.test(part)
-            ? part
-            : part.charAt(0).toUpperCase() + part.slice(1),
-      )
-      .join(' ')
-      .replace(/\bGlm\b/g, 'GLM')
-      .replace(/\bDeepseek\b/g, 'DeepSeek')
-      .replace(/\bGpt\b/g, 'GPT')
-      .replace(/\bOss\b/g, 'OSS')
-      .replace(/\bFp8\b/g, 'FP8')
-  );
+  const name = modelId.slice(modelId.lastIndexOf('/') + 1);
+  // A variant after a colon (gemma-4-31b-it:free) reads in brackets, as the catalogs write it.
+  const [base = name, variant] = name.split(':');
+  const label = base
+    // A version written with dashes (claude-opus-5-5) reads as one number (5.5); a date (2024-11-20, or 02-15
+    // with its leading zero) stays apart.
+    .replace(/(?<=(?:^|-)[1-9]\d?)(?<!\d{4}-\d{1,2})-(?=[1-9]?\d(?:-|$))/g, '.')
+    .split('-')
+    .map(modelIdWord)
+    .join(' ')
+    .replace(/\bGlm\b/g, 'GLM')
+    .replace(/\bDeepseek\b/g, 'DeepSeek')
+    .replace(/\bMinimax\b/g, 'MiniMax')
+    .replace(/\bGpt\b/g, 'GPT')
+    .replace(/\bOss\b/g, 'OSS')
+    .replace(/\bFp8\b/g, 'FP8');
+  return variant ? `${label} (${variant})` : label;
+}
+
+/**
+ * One part of a model's id as a word: a size (120b, 16e, a4b, 8x22b), a version with a letter (4.5v), "it"
+ * (instruction-tuned) and "vl" (vision-language) in capitals; OpenAI's o-series (o3) and other parts starting with
+ * a digit (4o) as they are; anything else capitalized.
+ */
+function modelIdWord(part: string): string {
+  if (/^\d+x\d+[bekmt]$/i.test(part)) {
+    return part.slice(0, -1) + part.slice(-1).toUpperCase();
+  }
+  if (/^a?\d+(?:\.\d+)?[bekmt]$/i.test(part) || /^\d+(?:\.\d+)?v$/i.test(part) || /^(?:it|vl)$/i.test(part)) {
+    return part.toUpperCase();
+  }
+  if (/^\d/.test(part) || /^o\d/.test(part)) {
+    return part;
+  }
+  return part.charAt(0).toUpperCase() + part.slice(1);
 }

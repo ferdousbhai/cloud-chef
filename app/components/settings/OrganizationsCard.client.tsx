@@ -178,7 +178,7 @@ export function OrganizationsCard() {
         {personal && organizations?.length ? (
           <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-bolt-elements-borderColor px-3 py-2.5">
             <span className="min-w-0 flex-1 truncate text-sm" title={personal.accountName ?? undefined}>
-              Your own account
+              Personal
               {personal.accountName ? <span className="text-content-tertiary"> · {personal.accountName}</span> : null}
             </span>
             {session?.context?.kind === 'personal' ? (
