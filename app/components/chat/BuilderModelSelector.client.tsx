@@ -390,13 +390,14 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
               {catalogRefusal
                 ? catalogRefusal
                 : standingIn
-                  ? `Catalog unavailable. Turns still use your saved model, ${model.label}, which is checked when a turn starts; choose the default model to switch.`
-                  : 'Catalog unavailable. Only the default model is available.'}
+                  ? `The model list couldn't be loaded just now. New messages still use your saved model, ${model.label}, if it's still allowed when you send; choose the default model to switch.`
+                  : "The model list couldn't be loaded just now, so only the default model is available."}
             </p>
           )}
           {catalogStatus === 'stale' && (
             <p role="status" className="mx-2 mb-1 mt-2 text-xs leading-5 text-content-tertiary">
-              {catalogRefusal ?? 'The catalog could not be refreshed just now, so these are the models it last listed.'}
+              {catalogRefusal ??
+                "The model list couldn't be refreshed just now, so these are the models it last listed."}
             </p>
           )}
         </DropdownMenu.Content>

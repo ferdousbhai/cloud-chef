@@ -87,6 +87,27 @@ export async function listGitHubInstallations(
   }));
 }
 
+/**
+ * An installation `userId` connected for any space, having shown GitHub they control its account then: what lets
+ * them add it to another space, which GitHub returns to without that proof.
+ */
+export async function findInstallationConnectedBy(
+  db: D1Database,
+  installationId: number,
+  userId: string,
+): Promise<GitHubInstallationSummary | null> {
+  const row = await db
+    .prepare(
+      `SELECT installation_id, account_login, account_type FROM github_installations
+       WHERE installation_id = ? AND connected_by = ? LIMIT 1`,
+    )
+    .bind(installationId, userId)
+    .first<{ installation_id: number; account_login: string; account_type: 'User' | 'Organization' }>();
+  return row
+    ? { installationId: row.installation_id, accountLogin: row.account_login, accountType: row.account_type }
+    : null;
+}
+
 /** Records an installation for the scope, alongside any on other GitHub accounts. */
 export async function saveGitHubInstallation(
   db: D1Database,

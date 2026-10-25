@@ -107,6 +107,8 @@ function demultiplexPack(body: ReadableStream<Uint8Array>, maxBytes: number): So
   let inPack = false;
   let sent = 0;
   let failed: GitSourceError | null = null;
+  // Cancelled by the push (Artifacts answered early): what the source does then is not its failure.
+  let cancelled = false;
 
   /** Whether `length` bytes are buffered, reading more until they are or the answer ends. */
   async function fill(length: number): Promise<boolean> {
@@ -124,6 +126,9 @@ function demultiplexPack(body: ReadableStream<Uint8Array>, maxBytes: number): So
     {
       async pull(controller) {
         const fail = (error: GitSourceError) => {
+          if (cancelled) {
+            return;
+          }
           failed = error;
           controller.error(error);
           void reader.cancel(error).catch(() => undefined);
@@ -197,6 +202,7 @@ function demultiplexPack(body: ReadableStream<Uint8Array>, maxBytes: number): So
         }
       },
       cancel(reason) {
+        cancelled = true;
         return reader.cancel(reason);
       },
     },

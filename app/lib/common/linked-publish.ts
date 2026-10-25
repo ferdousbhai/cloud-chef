@@ -109,7 +109,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
     return output.ok
       ? {
           kind: 'unknown',
-          title: live ? 'Published' : 'Preview requested',
+          title: live ? 'Sent to go live' : 'Sent for a preview',
           detail: output.summary,
           building: false,
           followDeadline: null,

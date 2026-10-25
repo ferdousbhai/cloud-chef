@@ -4,8 +4,6 @@
  */
 export const WORKSPACE_MESSAGES = {
   loading: 'Loading project files…',
-  /** A release is re-preparing the workspace a chat is already sitting in. */
-  preparingRelease: 'Preparing your workspace — a new release is rolling out.',
   reconnecting: 'Reconnecting to your workspace…',
   /** Before the agent's own reason, which says what went wrong. */
   failed: 'CloudChef could not open this project.',

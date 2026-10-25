@@ -343,7 +343,7 @@ describe('BuilderModelSelector', () => {
 
     expect(document.querySelectorAll('#builder-provider-models [role="menuitemradio"]')).toHaveLength(2);
     const status = document.querySelector('[role="status"]')?.textContent;
-    expect(status).toContain('could not be refreshed just now, so these are the models it last listed');
+    expect(status).toContain("couldn't be refreshed just now, so these are the models it last listed");
     expect(status).not.toContain('Only the default model is available');
   });
 });
@@ -384,7 +384,7 @@ describe('BuilderModelSelector without a catalog', () => {
         expect.arrayContaining([[true, 'true']]),
       );
       expect(document.querySelector('[role="status"]')?.textContent).toContain(
-        `Turns still use your saved model, ${savedModel}`,
+        `New messages still use your saved model, ${savedModel}`,
       );
 
       const defaultItem = items.find((item) => item.textContent?.includes('GLM 5.3 Flash'));

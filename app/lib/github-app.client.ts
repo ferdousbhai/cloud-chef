@@ -9,6 +9,7 @@ import { getJson, postJson } from '~/lib/json-request';
  */
 const installStartedSchema = z.object({ installUrl: z.string() });
 const repositoriesSchema = z.object({
+  unreachable: z.array(z.string()).default([]),
   repositories: z.array(
     z.object({ id: z.number(), fullName: z.string(), defaultBranch: z.string(), private: z.boolean() }),
   ),
@@ -30,11 +31,16 @@ export async function startGitHubAppInstall(orgId: string | null, returnURL: str
   window.location.assign(installUrl);
 }
 
-/** The repositories the installed App can read; refused when it isn't installed for this account. */
-export async function listGitHubRepositories(orgId: string | null, signal?: AbortSignal): Promise<GitHubRepository[]> {
+/**
+ * The repositories the installed App can read, and the GitHub accounts it couldn't list just now; refused when it
+ * isn't installed for this account.
+ */
+export async function listGitHubRepositories(
+  orgId: string | null,
+  signal?: AbortSignal,
+): Promise<{ repositories: GitHubRepository[]; unreachable: string[] }> {
   const query = orgId ? `?orgId=${encodeURIComponent(orgId)}` : '';
-  return (await getJson(`/api/organizations/github/repositories${query}`, repositoriesSchema, undefined, signal))
-    .repositories;
+  return getJson(`/api/organizations/github/repositories${query}`, repositoriesSchema, undefined, signal);
 }
 
 /** Whether a page was opened on the way back from installing the App, to import a repository. */

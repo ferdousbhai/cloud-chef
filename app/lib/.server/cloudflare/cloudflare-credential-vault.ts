@@ -230,8 +230,9 @@ export class D1CloudflareCredentialVault {
           return settled;
         }
       }
-      const message = 'Cloudflare authorization expired; reconnect Cloudflare.';
-      throw refused ? new CloudflareAuthorizationEndedError(message) : new Error(message);
+      throw refused
+        ? new CloudflareAuthorizationEndedError('Cloudflare authorization expired. Connect Cloudflare again.')
+        : new Error("Cloudflare couldn't be reached just now. Try again.");
     }
     const refreshed: OAuthCredential = {
       version: 1,

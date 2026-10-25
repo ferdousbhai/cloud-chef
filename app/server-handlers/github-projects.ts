@@ -8,6 +8,7 @@ import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-ap
 import { readCookie, readJsonRequest, safeReturnTo, serializeCookie } from '~/lib/.server/request-guards';
 import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
 import {
+  findInstallationConnectedBy,
   listGitHubInstallations,
   removeGitHubInstallation,
   requireProjectScope,
@@ -150,6 +151,21 @@ async function completeInstallation(args: {
     if (current.some((installation) => installation.installationId === installationId)) {
       return back('repositories_updated');
     }
+    // GitHub has one installation per account: an account that has the App for another space comes back here,
+    // with no code to prove who controls it again. The person who proved it for that space may add it here too.
+    if (Number.isSafeInteger(installationId) && installationId > 0) {
+      const session = await getAuthSession(env, request);
+      const scope =
+        session?.user.id === pending.user_id
+          ? await managedScope(env.DB, pending.connection_id, session.user.id)
+          : null;
+      const proven = scope ? await findInstallationConnectedBy(env.DB, installationId, pending.user_id) : null;
+      if (!scope || !proven) {
+        return back(scope ? 'install_set_up_elsewhere' : 'install_other_admin');
+      }
+      await saveGitHubInstallation(env.DB, { scope, userId: pending.user_id, installation: proven });
+      return back('connected');
+    }
   }
   if (!code || !Number.isSafeInteger(installationId) || installationId <= 0) {
     return back('install_cancelled');
@@ -231,6 +247,8 @@ export function listGitHubRepositoriesAction({
     }
     return Response.json(
       {
+        // The GitHub accounts that couldn't be listed just now, so the picker can say some are missing.
+        unreachable: installed.unreachable,
         repositories: installed.repositories.map((repository) => ({
           id: repository.id,
           fullName: repository.full_name,

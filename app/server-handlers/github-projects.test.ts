@@ -330,10 +330,48 @@ describe('GitHub projects', () => {
     expect(githubMessage(await changeRepositories(INSTALLATION_ID))).toBe(
       'Updated which repositories CloudChef can reach on GitHub.',
     );
-    expect(githubMessage(await changeRepositories(INSTALLATION_ID + 1))).toMatch(/cancelled/);
+    // One someone else set up for another space is not theirs to add: nothing is recorded.
+    expect(githubMessage(await changeRepositories(INSTALLATION_ID + 1))).toMatch(/set up by someone else/);
     expect(await env.DB.prepare('SELECT installation_id FROM github_installations').all()).toMatchObject({
       results: [{ installation_id: INSTALLATION_ID }],
     });
+  });
+
+  it('adds an account the App is already on, for another space of the person who connected it', async () => {
+    const { database, env, orgId, admin, app } = await setup();
+    database
+      .prepare(
+        `INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+         VALUES ('ada-own', ?, 'account-ada', 'active', 1, 1)`,
+      )
+      .run(admin.userId);
+    // Connected first for the person's own projects, with GitHub's proof that they own the account.
+    await install(env, app, admin.cookie, undefined);
+    // GitHub sends the team's attempt on the same account to Configure, which returns without that proof.
+    const started = await startGitHubInstallAction({
+      request: post(admin.cookie, '/api/organizations/github/start', { orgId }),
+      env: envWith({
+        ...env,
+        GITHUB_APP_CLIENT_ID: 'Iv1.test',
+        GITHUB_APP_CLIENT_SECRET: 'secret',
+        GITHUB_APP_PRIVATE_KEY: 'unused',
+        GITHUB_APP_SLUG: 'cloudchef',
+      }),
+    });
+    const state = /cloudchef_github_state=([^;]+)/.exec(started.headers.get('set-cookie') ?? '')?.[1] ?? '';
+    const returned = await completeGitHubInstallAction({
+      request: new Request(
+        `${ORIGIN}/github/return?installation_id=${INSTALLATION_ID}&setup_action=update&state=${state}`,
+        { headers: { cookie: `${admin.cookie}; cloudchef_github_state=${state}` } },
+      ),
+      env,
+      app,
+    });
+    expect(githubMessage(returned)).toBe('Connected GitHub.');
+    expect(database.prepare('SELECT connection_id FROM github_installations ORDER BY connection_id').all()).toEqual([
+      { connection_id: 'acme-connection' },
+      { connection_id: 'ada-own' },
+    ]);
   });
 
   it("refuses an installation the admin can see but doesn't own", async () => {

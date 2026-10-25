@@ -49,12 +49,17 @@ export function ImportFromGitHubDialog({
   // Null until known; an empty list once the App is known not to reach anything here.
   const [installed, setInstalled] = useState<GitHubRepository[] | null>(null);
   const [installing, setInstalling] = useState(false);
+  // GitHub accounts the App is on whose repositories couldn't be listed just now.
+  const [unreachable, setUnreachable] = useState<string[]>([]);
   const repository = gitHubRepositoryName(address);
 
   useEffect(() => {
     const controller = new AbortController();
     listGitHubRepositories(orgId, controller.signal)
-      .then(setInstalled)
+      .then(({ repositories, unreachable }) => {
+        setInstalled(repositories);
+        setUnreachable(unreachable);
+      })
       .catch(() => {
         if (!controller.signal.aborted) {
           setInstalled([]);
@@ -140,6 +145,12 @@ export function ImportFromGitHubDialog({
         </label>
         {address.trim() !== '' && repository === null ? (
           <p className="text-xs text-bolt-elements-icon-error">Paste a github.com repository address.</p>
+        ) : null}
+        {unreachable.length > 0 ? (
+          <p className="text-xs text-content-secondary" role="status">
+            GitHub couldn&apos;t list the repositories of {unreachable.join(', ')} just now, so they aren&apos;t below.
+            Try again in a moment.
+          </p>
         ) : null}
         {installed !== null && installed.length > 0 ? (
           <label className="grid gap-1">

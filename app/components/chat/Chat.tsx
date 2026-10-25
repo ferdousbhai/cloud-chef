@@ -26,9 +26,14 @@ import {
   UserRuntimeSessionError,
   userRuntimeEndpointStore,
   userWorkspacePreparingStore,
+  userWorkspaceUpgradingStore,
   type UserRuntimeErrorCode,
 } from '~/lib/cloudflare/runtime-session';
-import { WorkspacePreparingLoading, WorkspacePreparingPanel } from '~/components/WorkspacePreparing';
+import {
+  workspacePreparingMessage,
+  WorkspacePreparingLoading,
+  WorkspacePreparingPanel,
+} from '~/components/WorkspacePreparing';
 import { Button } from '@ui/Button';
 import { Loading } from '~/components/Loading';
 import { LinkButton } from '~/components/ui/LinkButton';
@@ -219,7 +224,7 @@ function WorkspaceRuntimeConnectionError({
  * still working through reads as a wait; a wait it has given up on says so and offers the retry,
  * because an unexplained "Loading project files…" is indistinguishable from a hang.
  */
-function workspaceSyncNotice(state: WorkspacePresentationState, workspacePreparing: boolean): ReactNode {
+function workspaceSyncNotice(state: WorkspacePresentationState, preparingMessage: string | null): ReactNode {
   if (state === 'ready') {
     return null;
   }
@@ -230,8 +235,8 @@ function workspaceSyncNotice(state: WorkspacePresentationState, workspacePrepari
     // Said where the composer is closed: see chatDisabledReason.
     return null;
   }
-  if (workspacePreparing) {
-    return WORKSPACE_MESSAGES.preparingRelease;
+  if (preparingMessage) {
+    return preparingMessage;
   }
   return state === 'reconnecting' ? WORKSPACE_MESSAGES.reconnecting : WORKSPACE_MESSAGES.loading;
 }
@@ -299,6 +304,7 @@ const AuthenticatedChat = memo(
   }) => {
     const chatInitialId = useChatId();
     const workspacePreparing = useStore(userWorkspacePreparingStore);
+    const workspaceUpgrading = useStore(userWorkspaceUpgradingStore);
     const presentationId = workspacePresentationId(accountId, transcript.agentName);
     useLayoutEffect(() => {
       loadBuilderModelPreference();
@@ -459,7 +465,10 @@ const AuthenticatedChat = memo(
         runtimeNotice={
           upgradeWaiting
             ? 'Your workspace is being upgraded. Your message starts as soon as it finishes.'
-            : workspaceSyncNotice(workspacePresentationState, workspacePreparing)
+            : workspaceSyncNotice(
+                workspacePresentationState,
+                workspacePreparing ? workspacePreparingMessage(workspaceUpgrading) : null,
+              )
         }
         sendMessageInProgress={sendMessageInProgress}
         subchats={visibleSubchats}

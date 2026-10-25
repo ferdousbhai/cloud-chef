@@ -200,9 +200,9 @@ export function AccountDataCard() {
               to that Cloudflare account, which everyone building there shares, so someone else may have given it; your
               workspaces; your teams, the invites sent to you, your model use there, and the team projects you were
               given; the requests you made to publish a team project, with which saved version of it was sent; GitHub
-              connections you started; emailed sign-in links; and sign-in and authorization session records.
-              Credentials, credential handles, encryption vectors, session tokens, and the hashes links and invites are
-              checked against are excluded.
+              connections you started; emailed sign-in links; and sign-in and authorization session records. Secrets are
+              left out: CloudChef&apos;s stored keys to Cloudflare, sign-in tokens, and the codes used to check sign-in
+              links and invites.
             </p>
             <p className="mt-2">
               Chats, transcripts, project files, and deployment records are not included. They live in the Cloudflare
@@ -269,7 +269,8 @@ export function AccountDataCard() {
                 : revoked === null
                   ? ''
                   : 'the encrypted credentials it no longer uses, '}
-              connection metadata, team memberships, and workspace addresses from its own database.
+              your Cloudflare connection details, team memberships, and the addresses of your workspaces from its own
+              database.
             </p>
             {workspacesLeftIn.length > 0 ? (
               <p className="text-bolt-elements-icon-error">

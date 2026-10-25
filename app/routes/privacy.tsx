@@ -105,11 +105,11 @@ function PrivacyPage() {
           which also deletes their workspace from the team&apos;s account and declines their open team project requests;
           applications they deployed stay there. An admin can rename the team or delete it. Deleting a team deletes
           every member&apos;s workspace from its Cloudflare account, revokes CloudChef&apos;s authorization there unless
-          another space, a person&apos;s own or another team&apos;s, still builds in that account, and removes the
-          team&apos;s records from CloudChef: its members, invites, usage counts, GitHub connections, projects, and team
-          project requests. The projects&apos; code and history in the account&apos;s Artifacts, and applications
-          deployed from it with their databases and storage, stay in the Cloudflare account; repositories imported from
-          GitHub and CloudChef&apos;s GitHub App stay on GitHub until removed there.
+          someone else still builds in that account, on their own or in another team, and removes the team&apos;s
+          records from CloudChef: its members, invites, usage counts, GitHub connections, projects, and team project
+          requests. The projects&apos; code and history in the account&apos;s Artifacts, and applications deployed from
+          it with their databases and storage, stay in the Cloudflare account; repositories imported from GitHub and
+          CloudChef&apos;s GitHub App stay on GitHub until removed there.
         </p>
         <p>
           Every project&apos;s code and history is a git repository in Cloudflare Artifacts, in the Cloudflare account
@@ -312,10 +312,10 @@ function PrivacyPage() {
           irreversible it requires a sign-in completed in the last ten minutes, an exact typed confirmation, and an
           explicit acknowledgement of what is retained. Erasure leaves a team&apos;s Cloudflare authorization alone
           while others still build in it; if you are its only remaining member, the team is removed, and its
-          authorization is revoked unless another space still builds in that account. If you are the only admin of a
-          team others belong to, make someone else an admin first. Repeating it is harmless. If you sign in with
-          Cloudflare and have already revoked CloudChef’s authorization, you can no longer sign in that way, so use the
-          request path below instead.
+          authorization is revoked unless someone else still builds in that account. If you are the only admin of a team
+          others belong to, make someone else an admin first. Repeating it is harmless. If you sign in with Cloudflare
+          and have already revoked CloudChef’s authorization, you can no longer sign in that way, so use the request
+          path below instead.
         </p>
         <p>
           Settings also contains a self-service export of those same operator-held records. It saves a JSON file,

@@ -226,7 +226,11 @@ export async function importProject(
         503,
       );
     }
-    if (await abandonProjectImport(env, identity, registered.projectId)) {
+    // Asked twice: a passing failure of the first ask shouldn't leave a project whose code can't come.
+    const abandoned =
+      (await abandonProjectImport(env, identity, registered.projectId)) ||
+      (await abandonProjectImport(env, identity, registered.projectId));
+    if (abandoned) {
       await repositories(env)
         .deleteRepo(importedProjectRepo(registered.projectId))
         .catch(() => undefined);
@@ -247,7 +251,7 @@ export async function importProject(
     throw new ProjectRepositoryFailureError(
       noLongerPublicFailure(registered, error instanceof ProjectRepositoryError ? error.code : null)
         ? `${reason} The project was added: once the App can read it, open it under Imported projects in the menu (Team projects, in a team).`
-        : `${reason} The project was added, but its code can't be copied.`,
+        : `${reason} The project was added, but its code can't be copied, and CloudChef couldn't remove it just now. Ask for help through Support if it stays.`,
       409,
     );
   }
