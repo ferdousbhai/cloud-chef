@@ -67,7 +67,8 @@ const memberUpdatedSchema = z.object({ ok: z.literal(true), workspaceDeleted: z.
 const teamDeletedSchema = z.object({
   deleted: z.literal(true),
   workspacesLeft: z.number(),
-  cloudflareAuthorizationRevoked: z.boolean(),
+  cloudflareAuthorizationRevoked: z.boolean().nullable(),
+  cloudflareAuthorizationKept: z.boolean(),
 });
 
 /** Where a deleted team's outcome waits across the reload that follows it. */
@@ -771,11 +772,14 @@ function DeleteTeam({
               `${outcome.workspacesLeft} ${outcome.workspacesLeft === 1 ? 'workspace' : 'workspaces'} couldn't be deleted from its Cloudflare account; remove ${outcome.workspacesLeft === 1 ? 'it' : 'them'} in the Cloudflare dashboard.`,
             ]
           : []),
-        ...(outcome.cloudflareAuthorizationRevoked
-          ? []
-          : [
-              "CloudChef's access to its Cloudflare account couldn't be revoked; revoke it in the Cloudflare dashboard.",
-            ]),
+        ...(outcome.cloudflareAuthorizationRevoked === false
+          ? ["CloudChef's access to its Cloudflare account couldn't be revoked; revoke it in the Cloudflare dashboard."]
+          : []),
+        ...(outcome.cloudflareAuthorizationKept
+          ? [
+              'CloudChef kept its access to the Cloudflare account, because someone still builds in it outside this team.',
+            ]
+          : []),
       ].join(' ');
       try {
         window.sessionStorage.setItem(TEAM_DELETED_NOTICE_KEY, notice);
@@ -799,7 +803,8 @@ function DeleteTeam({
         <p>
           Everyone&apos;s workspace in its Cloudflare account, with their chats and project files there, is deleted. Its
           members, invites, projects, team project requests and usage are removed from CloudChef, and CloudChef&apos;s
-          access to the account is revoked. This can&apos;t be undone.
+          access to the Cloudflare account is revoked, unless someone still builds in it outside this team. This
+          can&apos;t be undone.
         </p>
         <p>
           What stays: deployed apps, with their databases and storage, and AI Gateway keys, in the Cloudflare account;

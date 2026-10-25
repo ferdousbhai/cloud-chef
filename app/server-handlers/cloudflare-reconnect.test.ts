@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { controlPlaneDatabase, envWith, sessionCookieSignedInBefore } from '~/test/control-plane-d1';
 import { createAuthSession, getAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import type { CloudflareOAuthOrchestrator } from '~/lib/.server/cloudflare/cloudflare-oauth-orchestrator';
+import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import {
   findCloudflareConnectionForOrganization,
   findCloudflareConnectionForUser,
@@ -39,6 +40,10 @@ function cloudflareAs(subject: string): Pick<CloudflareOAuthOrchestrator, 'start
     })),
   };
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 async function setup() {
   const { database, db } = controlPlaneDatabase();
@@ -256,8 +261,44 @@ describe("one Cloudflare account shared by a person's own space and their team",
     expect((await findCloudflareConnectionForUser(db, user.id))?.generation).toBe(6);
   });
 
+  /**
+   * Gives `account-1` a stored authorization with every scope CloudChef needs, whose grant Cloudflare
+   * answers a refresh of with `refreshStatus`; its handle.
+   */
+  async function storedAuthorization(fixture: Awaited<ReturnType<typeof sharedAccount>>, refreshStatus: number) {
+    const handle = await D1CloudflareCredentialVault.fromEnv(fixture.env).storeOAuthCredential({
+      accessToken: 'shared-access',
+      refreshToken: 'shared-refresh',
+      expiresAt: Date.now() + HOUR,
+    });
+    fixture.database
+      .prepare(
+        `UPDATE cloudflare_authorizations SET credential_handle = ?, granted_oauth_scopes_json = ?
+         WHERE account_id = 'account-1'`,
+      )
+      .run(handle, JSON.stringify(CORE_CLOUDFLARE_OAUTH_SCOPES));
+    fixture.database.prepare(`DELETE FROM cloudflare_credentials WHERE handle = 'old'`).run();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () =>
+        refreshStatus === 200
+          ? Response.json({ access_token: 'refreshed-access', expires_in: 3600 })
+          : Response.json({ error: 'invalid_grant' }, { status: refreshStatus }),
+      ),
+    );
+    return handle;
+  }
+
+  /** Kim runs the team now, and Sam is only a member: Sam's own space is one Kim doesn't run. */
+  function kimRunsTheTeam({ database, user, kim }: Awaited<ReturnType<typeof sharedAccount>>) {
+    database.prepare(`UPDATE organization_members SET role = 'member' WHERE user_id = ?`).run(user.id);
+    database.prepare(`UPDATE organization_members SET role = 'admin' WHERE user_id = ?`).run(kim.id);
+  }
+
   it("can't be taken over by a team member connecting their own space to it", async () => {
-    const { database, db, env, kim } = await sharedAccount();
+    const fixture = await sharedAccount();
+    const { database, db, env, kim } = fixture;
+    const working = await storedAuthorization(fixture, 200);
     database.prepare('UPDATE "user" SET cloudflare_subject = ? WHERE id = ?').run('cf-kim', kim.id);
     const kimCookie = (await createAuthSession(env, kim.id, new Request(ORIGIN))).cookie.split(';')[0];
 
@@ -267,7 +308,59 @@ describe("one Cloudflare account shared by a person's own space and their team",
     );
     expect(await findCloudflareConnectionForUser(db, kim.id)).toBeNull();
     expect(database.prepare('SELECT credential_handle FROM cloudflare_authorizations').all()).toEqual([
-      { credential_handle: 'old' },
+      { credential_handle: working },
     ]);
+  });
+
+  it("can't be taken over from a team by its admin while it works for someone's own space there", async () => {
+    const fixture = await sharedAccount();
+    const { database, env, kim } = fixture;
+    const working = await storedAuthorization(fixture, 200);
+    kimRunsTheTeam(fixture);
+    const kimCookie = (await createAuthSession(env, kim.id, new Request(ORIGIN))).cookie.split(';')[0];
+
+    const response = await connect(env, kimCookie, reauthorizedAs('cf-kim'), { organizationId: ORG });
+    expect(new URL(response.headers.get('location') ?? '').searchParams.get('cloudflare_message')).toBe(
+      'account_in_use',
+    );
+    expect(database.prepare('SELECT credential_handle FROM cloudflare_authorizations').all()).toEqual([
+      { credential_handle: working },
+    ]);
+  });
+
+  it('is reauthorized by whoever runs the team once Cloudflare no longer accepts its grant', async () => {
+    const fixture = await sharedAccount();
+    const { database, db, env, user, kim } = fixture;
+    const broken = await storedAuthorization(fixture, 400);
+    // Sam handed the team to Kim, then the grant ended: Kim doesn't run Sam's own space, and Sam no longer
+    // runs the team, but the account isn't left with nobody able to reconnect it.
+    kimRunsTheTeam(fixture);
+    const kimCookie = (await createAuthSession(env, kim.id, new Request(ORIGIN))).cookie.split(';')[0];
+
+    const response = await connect(env, kimCookie, reauthorizedAs('cf-kim'), { organizationId: ORG });
+    expect(new URL(response.headers.get('location') ?? '').searchParams.get('cloudflare_message')).toBeNull();
+
+    const own = await findCloudflareConnectionForUser(db, user.id);
+    const team = await findCloudflareConnectionForOrganization(db, ORG);
+    expect(own?.credentialHandle).toBe(team?.credentialHandle);
+    expect(team?.credentialHandle).not.toBe(broken);
+    // The ended credential is gone.
+    expect(database.prepare('SELECT handle FROM cloudflare_credentials WHERE handle = ?').get(broken)).toBeUndefined();
+  });
+
+  it('removes the credential it replaces when a team first connects to the account', async () => {
+    const { database, db, env, cookie } = await sharedAccount();
+    database.exec(`
+      DELETE FROM user_computer_runtimes WHERE connection_id = 'team';
+      DELETE FROM cloudflare_connections WHERE id = 'team';
+    `);
+
+    const response = await connect(env, cookie, reauthorizedAs('cf-sam'), { organizationId: ORG });
+    expect(new URL(response.headers.get('location') ?? '').searchParams.get('cloudflare_message')).toBeNull();
+
+    const team = await findCloudflareConnectionForOrganization(db, ORG);
+    expect(team?.generation).toBe(1);
+    expect(team?.credentialHandle).not.toBe('old');
+    expect(database.prepare(`SELECT handle FROM cloudflare_credentials WHERE handle = 'old'`).get()).toBeUndefined();
   });
 });

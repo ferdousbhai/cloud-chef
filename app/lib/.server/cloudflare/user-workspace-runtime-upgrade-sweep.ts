@@ -57,6 +57,7 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
     }
     try {
       const connection = await findActiveCloudflareConnection(args.env.DB, candidate.connectionId);
+      // The generation was the connection's own when listed: it differs only after a reconnect since.
       if (
         !connection ||
         !connectionProvisionsWorkspace(connection, candidate.connectionGeneration) ||
@@ -71,9 +72,15 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
         connectionId: candidate.connectionId,
         connectionGeneration: candidate.connectionGeneration,
         restartFailed,
+        // Current on this release's build, and prepared for the generation the upgrade was for: one left on an
+        // earlier generation still needs it, whatever build it runs.
         isCurrent: async () => {
           const runtime = await findUserWorkspaceRuntime(args.env.DB, candidate.userId, candidate.connectionId);
-          return runtime !== null && isCurrentUserWorkspaceRuntime(runtime);
+          return (
+            runtime !== null &&
+            runtime.connectionGeneration === candidate.connectionGeneration &&
+            isCurrentUserWorkspaceRuntime(runtime)
+          );
         },
       });
       summary[outcome] += 1;

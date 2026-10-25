@@ -28,15 +28,15 @@ export async function teamFixture() {
   database.exec(`
     INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('${ORG}', 'Sites', 1, 1);
     INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, created_at) VALUES ('cred', 'x', 'y', 1);
-    INSERT INTO cloudflare_connections (id, org_id, account_id, status, credential_handle, connection_generation,
-      granted_oauth_scopes_json, created_at, updated_at)
-      VALUES ('team-connection', '${ORG}', 'account-team', 'active', 'cred', 2, '[]', 1, 1);
+    INSERT INTO cloudflare_connections (id, org_id, account_id, status, connection_generation, created_at, updated_at)
+      VALUES ('team-connection', '${ORG}', 'account-team', 'active', 2, 1, 1);
+    INSERT INTO cloudflare_authorizations (account_id, credential_handle, created_at, updated_at)
+      VALUES ('account-team', 'cred', 1, 1), ('account-sara', 'cred', 1, 1);
   `);
   database
     .prepare(
-      `INSERT INTO cloudflare_connections (id, user_id, account_id, status, credential_handle, connection_generation,
-         created_at, updated_at)
-       VALUES ('sara-own', ?, 'account-sara', 'active', 'cred', 1, 1, 1)`,
+      `INSERT INTO cloudflare_connections (id, user_id, account_id, status, connection_generation, created_at, updated_at)
+       VALUES ('sara-own', ?, 'account-sara', 'active', 1, 1, 1)`,
     )
     .run(sara.userId);
   database

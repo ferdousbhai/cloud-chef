@@ -132,16 +132,18 @@ describe('control-plane account erasure', () => {
     `);
     database
       .prepare(
-        `INSERT INTO cloudflare_connections (id, org_id, account_id, status, credential_handle, created_at, updated_at)
-         VALUES (?, ?, 'org-account', 'active', ?, 1, 1)`,
+        `INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at)
+         VALUES (?, ?, 'org-account', 'active', 1, 1)`,
       )
-      .run('shared-connection', 'shared', shared);
+      .run('shared-connection', 'shared');
+    authorize(database, 'org-account', shared);
     database
       .prepare(
-        `INSERT INTO cloudflare_connections (id, org_id, account_id, status, credential_handle, created_at, updated_at)
-         VALUES (?, ?, 'side-account', 'active', ?, 1, 1)`,
+        `INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at)
+         VALUES (?, ?, 'side-account', 'active', 1, 1)`,
       )
-      .run('solo-connection', 'solo', solo);
+      .run('solo-connection', 'solo');
+    authorize(database, 'side-account', solo);
 
     await eraseControlPlaneAccount({ env, userId: 'user-1' });
 
@@ -179,7 +181,7 @@ describe('control-plane account erasure', () => {
 
     // Side goes with them, and their own space; Sites, which Sara still builds in, keeps the authorization.
     await expect(eraseControlPlaneAccount({ env, userId: 'user-1' })).resolves.toEqual({
-      cloudflareAuthorizationRevoked: false,
+      cloudflareAuthorizationRevoked: null,
       cloudflareAuthorizationKeptFor: ['Sites'],
       workspacesLeftIn: [],
     });
@@ -281,10 +283,11 @@ describe('control-plane account erasure', () => {
     for (const orgId of ['acme', 'side', 'idle']) {
       database
         .prepare(
-          `INSERT INTO cloudflare_connections (id, org_id, account_id, status, credential_handle, created_at, updated_at)
-           VALUES (?, ?, ?, 'active', ?, 1, 1)`,
+          `INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at)
+           VALUES (?, ?, ?, 'active', 1, 1)`,
         )
-        .run(`${orgId}-connection`, orgId, `${orgId}-account`, await storeGrant(env, orgId));
+        .run(`${orgId}-connection`, orgId, `${orgId}-account`);
+      authorize(database, `${orgId}-account`, await storeGrant(env, orgId));
     }
     for (const connectionId of ['acme-connection', 'side-connection']) {
       database
@@ -429,10 +432,11 @@ describe('control-plane account erasure', () => {
       ]) {
         database
           .prepare(
-            `INSERT INTO cloudflare_connections (id, org_id, account_id, status, credential_handle, created_at, updated_at)
-             VALUES (?, ?, ?, 'active', ?, 1, 1)`,
+            `INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at)
+             VALUES (?, ?, ?, 'active', 1, 1)`,
           )
-          .run(`${orgId}-connection`, orgId, `${orgId}-account`, handle);
+          .run(`${orgId}-connection`, orgId, `${orgId}-account`);
+        authorize(database, `${orgId}-account`, handle);
         insertRuntime(database, 'user-1', `${orgId}-connection`);
       }
 
@@ -483,6 +487,16 @@ function insertRuntime(database: DatabaseSyncInstance, userId: string, connectio
     .run(userId, connectionId);
 }
 
+/** Gives `accountId` its one authorization, the stored credential `credentialHandle`. */
+function authorize(database: DatabaseSyncInstance, accountId: string, credentialHandle: string): void {
+  database
+    .prepare(
+      `INSERT INTO cloudflare_authorizations (account_id, credential_handle, created_at, updated_at)
+       VALUES (?, ?, 1, 1)`,
+    )
+    .run(accountId, credentialHandle);
+}
+
 function seedAccount(database: DatabaseSyncInstance, credentialHandle: string | null, userId = 'user-1'): void {
   database
     .prepare(
@@ -493,10 +507,13 @@ function seedAccount(database: DatabaseSyncInstance, credentialHandle: string | 
   database
     .prepare(
       `INSERT INTO cloudflare_connections
-        (id, user_id, account_id, account_name, status, credential_handle, connected_at, created_at, updated_at)
-       VALUES (?, ?, ?, 'Account', 'active', ?, 1, 1, 1)`,
+        (id, user_id, account_id, account_name, status, connected_at, created_at, updated_at)
+       VALUES (?, ?, ?, 'Account', 'active', 1, 1, 1)`,
     )
-    .run(`connection-${userId}`, userId, `account-${userId}`, credentialHandle);
+    .run(`connection-${userId}`, userId, `account-${userId}`);
+  if (credentialHandle) {
+    authorize(database, `account-${userId}`, credentialHandle);
+  }
   database
     .prepare(
       `INSERT INTO cloudflare_auth_sessions (id, user_id, token_hash, expires_at, created_at, updated_at)

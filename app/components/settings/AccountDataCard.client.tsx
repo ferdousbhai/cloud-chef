@@ -16,7 +16,7 @@ import { postJson, RequestError } from '~/lib/json-request';
 
 /** What erasing the account reports about what it could not do itself. */
 const accountDeletionSchema = z.looseObject({
-  cloudflareAuthorizationRevoked: z.boolean().optional().catch(undefined),
+  cloudflareAuthorizationRevoked: z.boolean().nullable().optional().catch(undefined),
   cloudflareAuthorizationKeptFor: z.array(z.string()).optional().catch(undefined),
   workspacesLeftIn: z.array(z.string()).optional().catch(undefined),
 });
@@ -34,7 +34,8 @@ export function AccountDataCard() {
   const [phase, setPhase] = useState<DeletionPhase>('idle');
   const [confirmation, setConfirmation] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
-  const [revoked, setRevoked] = useState(false);
+  // Whether Cloudflare confirmed every revocation erasure made; null when it made none.
+  const [revoked, setRevoked] = useState<boolean | null>(null);
   // Known before erasure ends the session: whether there was a Cloudflare grant of their own to revoke.
   const [hadOwnAccount, setHadOwnAccount] = useState(false);
   const [workspacesLeftIn, setWorkspacesLeftIn] = useState<string[]>([]);
@@ -44,6 +45,8 @@ export function AccountDataCard() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [unavailableSections, setUnavailableSections] = useState<string[]>([]);
   const confirmed = confirmation.trim() === ACCOUNT_DELETION_CONFIRMATION && acknowledged;
+  // Their own account's authorization stayed, still used by the teams building there.
+  const keptOwnAuthorization = hadOwnAccount && keptFor.length > 0;
 
   const downloadAccountData = async () => {
     setExportPhase('downloading');
@@ -85,7 +88,7 @@ export function AccountDataCard() {
       queryClient.clear();
       resetUserRuntimeSession();
       setHadOwnAccount(session?.contexts.some((option) => option.kind === 'personal') ?? false);
-      setRevoked(deleted.cloudflareAuthorizationRevoked === true);
+      setRevoked(deleted.cloudflareAuthorizationRevoked ?? null);
       setWorkspacesLeftIn(deleted.workspacesLeftIn ?? []);
       setKeptFor(deleted.cloudflareAuthorizationKeptFor ?? []);
       setPhase('deleted');
@@ -193,8 +196,8 @@ export function AccountDataCard() {
             <p className="mt-1">
               Your identity and email and your AI request logs setting; your own Cloudflare connection (its permissions
               and default model) and when its authorization was stored; your workspaces; your teams, the invites sent to
-              you, your model use there, and the team projects you were given; your team project requests, with a
-              draft&apos;s source until it is decided; GitHub connections and approvals you started; emailed sign-in
+              you, your model use there, and the team projects you were given; your team project requests, each with the
+              repository and commit it asks to publish; GitHub connections and approvals you started; emailed sign-in
               links; and sign-in and authorization session records. Credentials, credential handles, encryption vectors,
               session tokens, and the hashes links and invites are checked against are excluded.
             </p>
@@ -257,8 +260,8 @@ export function AccountDataCard() {
         {phase === 'deleted' ? (
           <div className="grid gap-2 text-sm text-content-secondary" role="status">
             <p>
-              CloudChef erased your account identity, sessions, encrypted credentials, connection metadata, team
-              memberships, and workspace addresses from its own database.
+              CloudChef erased your account identity, sessions, {keptOwnAuthorization ? '' : 'encrypted credentials, '}
+              connection metadata, team memberships, and workspace addresses from its own database.
             </p>
             {workspacesLeftIn.length > 0 ? (
               <p className="text-bolt-elements-icon-error">
@@ -266,15 +269,15 @@ export function AccountDataCard() {
                 ask its admins to remove it there.
               </p>
             ) : null}
-            {!hadOwnAccount ? null : keptFor.length > 0 ? (
+            {keptOwnAuthorization ? (
               <p>
-                CloudChef kept its Cloudflare authorization for your account, because {keptFor.join(', ')} still
-                {keptFor.length === 1 ? ' builds' : ' build'} in it. An admin there can reconnect it with their own
+                Your Cloudflare authorization was kept, not erased, because {keptFor.join(', ')} still
+                {keptFor.length === 1 ? ' builds' : ' build'} in your account, and it keeps working for{' '}
+                {keptFor.length === 1 ? 'that team' : 'those teams'}. An admin there can reconnect it with their own
                 Cloudflare login.
               </p>
-            ) : revoked ? (
-              <p>Cloudflare confirmed that CloudChef’s authorization was revoked.</p>
-            ) : (
+            ) : null}
+            {revoked === false || (hadOwnAccount && !keptOwnAuthorization && revoked === null) ? (
               <p>
                 Cloudflare did not confirm the revocation. Remove the CloudChef authorization yourself in the Cloudflare
                 dashboard under <strong>Profile → Manage OAuth authorizations</strong> (
@@ -282,8 +285,13 @@ export function AccountDataCard() {
                   open OAuth authorizations
                 </a>
                 ).
+                {keptOwnAuthorization
+                  ? ` Removing it there also ends the access ${keptFor.join(', ')} still ${keptFor.length === 1 ? 'uses' : 'use'}.`
+                  : null}
               </p>
-            )}
+            ) : hadOwnAccount && !keptOwnAuthorization ? (
+              <p>Cloudflare confirmed that CloudChef’s authorization was revoked.</p>
+            ) : null}
             <p>
               Resources CloudChef deployed are still in the Cloudflare accounts they were deployed to, and still billed
               to them. Clear this browser’s site data to remove its cookie, preferences, and tab-session state.

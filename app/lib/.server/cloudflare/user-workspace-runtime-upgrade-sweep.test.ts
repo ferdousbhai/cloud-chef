@@ -64,8 +64,8 @@ function instance(id: string, status: Status, restart: () => void = () => undefi
 }
 
 /**
- * A control plane whose `add` gives each connection an owner, `owner-of-<id>`, and their ready runtime on
- * an earlier build, so it is outdated.
+ * A control plane whose `add` gives each connection an owner, `owner-of-<id>`, an account of its own,
+ * `account-<id>`, with its authorization, and their ready runtime on an earlier build, so it is outdated.
  */
 function controlPlane() {
   const { database, db } = controlPlaneDatabase();
@@ -96,11 +96,19 @@ function controlPlane() {
     }
     database
       .prepare(
-        `INSERT INTO cloudflare_connections (id, user_id, org_id, account_id, status, credential_handle,
-           granted_oauth_scopes_json, created_at, updated_at)
-         VALUES (?, ?, ?, 'account-1', 'active', ?, ?, 1, 1)`,
+        `INSERT INTO cloudflare_connections (id, user_id, org_id, account_id, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'active', 1, 1)`,
       )
-      .run(id, org ? null : userId, org ? 'org-1' : null, credentialHandle, JSON.stringify(scopes));
+      .run(id, org ? null : userId, org ? 'org-1' : null, `account-${id}`);
+    if (credentialHandle) {
+      database
+        .prepare(
+          `INSERT INTO cloudflare_authorizations (account_id, credential_handle, granted_oauth_scopes_json,
+             created_at, updated_at)
+           VALUES (?, ?, ?, 1, 1)`,
+        )
+        .run(`account-${id}`, credentialHandle, JSON.stringify(scopes));
+    }
     database
       .prepare(
         `INSERT INTO user_computer_runtimes
@@ -219,6 +227,19 @@ describe('scheduled workspace runtime upgrade sweep', () => {
       message: 'Workflow binding unavailable',
     });
     warn.mockRestore();
+  });
+
+  it('restarts a finished upgrade that left the runtime on an earlier generation, though on this build', async () => {
+    const plane = controlPlane();
+    plane.add('reconnected');
+    plane.makeCurrent('reconnected');
+    plane.reconnect('reconnected');
+    const workflow = workflows(() => 'complete');
+
+    await expect(
+      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0 }),
+    ).resolves.toMatchObject({ restarted: 1, left: 0 });
+    expect(workflow.restarts).toEqual(['owner-of-reconnected']);
   });
 
   it('asks whether the runtime became current before restarting a finished upgrade', async () => {

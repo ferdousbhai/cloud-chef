@@ -6,7 +6,7 @@ import {
   CloudflareConnectionChangedError,
   findCloudflareConnectionForOrganization,
   findCloudflareConnectionForUser,
-  mayReplaceCloudflareAuthorization,
+  runsEveryOtherSpaceInAccount,
 } from './cloudflare-connection-repository';
 
 /**
@@ -212,16 +212,14 @@ describe('activateCloudflareConnection', () => {
   });
 });
 
-describe('mayReplaceCloudflareAuthorization', () => {
+describe('runsEveryOtherSpaceInAccount', () => {
   it('lets the person who runs every space in the account reconnect it from any of them', async () => {
     const { db } = sharedAccount();
     for (const owner of [
       { kind: 'user', userId: 'owner' },
       { kind: 'organization', orgId: 'sites' },
     ] as const) {
-      expect(await mayReplaceCloudflareAuthorization(db, { userId: 'owner', owner, accountId: 'account-1' })).toBe(
-        true,
-      );
+      expect(await runsEveryOtherSpaceInAccount(db, { userId: 'owner', owner, accountId: 'account-1' })).toBe(true);
     }
   });
 
@@ -229,7 +227,7 @@ describe('mayReplaceCloudflareAuthorization', () => {
     const { database, db } = sharedAccount();
     // Sara connecting her own space to the owner's account would replace the owner's authorization.
     expect(
-      await mayReplaceCloudflareAuthorization(db, {
+      await runsEveryOtherSpaceInAccount(db, {
         userId: 'sara',
         owner: { kind: 'user', userId: 'sara' },
         accountId: 'account-1',
@@ -241,7 +239,7 @@ describe('mayReplaceCloudflareAuthorization', () => {
       INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('other', 'sara', 'admin', 1);
     `);
     expect(
-      await mayReplaceCloudflareAuthorization(db, {
+      await runsEveryOtherSpaceInAccount(db, {
         userId: 'sara',
         owner: { kind: 'organization', orgId: 'other' },
         accountId: 'account-1',
@@ -250,7 +248,7 @@ describe('mayReplaceCloudflareAuthorization', () => {
     // A paused admin no longer runs the team.
     database.exec(`UPDATE organization_members SET paused_at = 1 WHERE org_id = 'sites' AND user_id = 'owner'`);
     expect(
-      await mayReplaceCloudflareAuthorization(db, {
+      await runsEveryOtherSpaceInAccount(db, {
         userId: 'owner',
         owner: { kind: 'user', userId: 'owner' },
         accountId: 'account-1',
@@ -261,7 +259,7 @@ describe('mayReplaceCloudflareAuthorization', () => {
   it('lets anyone connect an account no other space builds in', async () => {
     const { db } = sharedAccount();
     expect(
-      await mayReplaceCloudflareAuthorization(db, {
+      await runsEveryOtherSpaceInAccount(db, {
         userId: 'sara',
         owner: { kind: 'user', userId: 'sara' },
         accountId: 'account-2',

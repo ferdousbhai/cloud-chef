@@ -270,7 +270,8 @@ async function revokeCloudflareGrant(env: Env, credentialHandle: string): Promis
  * An admin deleting their team, or its only member leaving it. Each member's workspace (chats and
  * project files) is deleted from the team's Cloudflare account first, best-effort, while its
  * authorization still works; then the connection is revoked, CloudChef's grant on the account is
- * revoked with Cloudflare, and the team's records are deleted, as erasing its last member would.
+ * revoked with Cloudflare unless another space still builds in that account, and the team's records are
+ * deleted, as erasing its last member would.
  * Apps deployed from those workspaces, and their databases and storage, stay in the account, and so
  * does CloudChef's GitHub App on the GitHub account it was installed on.
  */
@@ -317,9 +318,15 @@ export function deleteOrganizationAction({
     if (workspacesLeft > 0) {
       console.error('Unable to delete every workspace of a deleted team');
     }
-    const cloudflareAuthorizationRevoked =
-      (await deleteOrganization(env.DB, orgId, (credentialHandle) => revokeGrant(env, credentialHandle))) ?? true;
-    return Response.json({ deleted: true, workspacesLeft, cloudflareAuthorizationRevoked });
+    const grant = await deleteOrganization(env.DB, orgId, (credentialHandle) => revokeGrant(env, credentialHandle));
+    return Response.json({
+      deleted: true,
+      workspacesLeft,
+      // Whether Cloudflare confirmed CloudChef's access revoked; null when there was none to revoke, or it was
+      // kept because another space still builds in the account.
+      cloudflareAuthorizationRevoked: grant === 'kept' ? null : grant,
+      cloudflareAuthorizationKept: grant === 'kept',
+    });
   });
 }
 

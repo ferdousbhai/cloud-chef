@@ -393,11 +393,17 @@ function seedAccount(database: DatabaseSyncInstance, userId = 'user-1'): void {
   database
     .prepare(
       `INSERT INTO cloudflare_connections
-        (id, user_id, account_id, account_name, status, credential_handle, granted_oauth_scopes_json,
-         connected_at, created_at, updated_at)
-       VALUES (?, ?, 'account-1', 'Account', 'active', ?, '["workers-scripts.write","ai.read"]', 1, 1, 1)`,
+        (id, user_id, account_id, account_name, status, connected_at, created_at, updated_at)
+       VALUES (?, ?, 'account-1', 'Account', 'active', 1, 1, 1)`,
     )
-    .run(`connection-${userId}`, userId, `${CREDENTIAL_HANDLE}-${userId}`);
+    .run(`connection-${userId}`, userId);
+  database
+    .prepare(
+      `INSERT INTO cloudflare_authorizations (account_id, credential_handle, granted_oauth_scopes_json, created_at,
+         updated_at)
+       VALUES ('account-1', ?, '["workers-scripts.write","ai.read"]', 1, 1)`,
+    )
+    .run(`${CREDENTIAL_HANDLE}-${userId}`);
   database
     .prepare(
       `INSERT INTO cloudflare_auth_sessions (id, user_id, token_hash, expires_at, created_at, updated_at)

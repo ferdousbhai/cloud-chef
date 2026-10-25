@@ -262,11 +262,17 @@ async function setup({
   );
   database
     .prepare(
-      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, credential_handle,
-         granted_oauth_scopes_json, created_at, updated_at)
-       VALUES ('acme-connection', ?, ?, 'Acme', 'active', 'credential-1', ?, 1, 1)`,
+      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
+       VALUES ('acme-connection', ?, ?, 'Acme', 'active', 1, 1)`,
     )
-    .run(orgId, ACCOUNT_ID, JSON.stringify(scopes));
+    .run(orgId, ACCOUNT_ID);
+  database
+    .prepare(
+      `INSERT INTO cloudflare_authorizations (account_id, credential_handle, granted_oauth_scopes_json, created_at,
+         updated_at)
+       VALUES (?, 'credential-1', ?, 1, 1)`,
+    )
+    .run(ACCOUNT_ID, JSON.stringify(scopes));
   return { database, env, admin, member, cloudflare };
 }
 
@@ -954,9 +960,15 @@ describe("the team's default model", () => {
 });
 
 function connectionOf(database: ReturnType<typeof controlPlaneDatabase>['database']) {
-  const row = z
-    .object({ id: z.string(), account_id: z.string(), granted_oauth_scopes_json: z.string() })
-    .parse(database.prepare('SELECT id, account_id, granted_oauth_scopes_json FROM cloudflare_connections').get());
+  const row = z.object({ id: z.string(), account_id: z.string(), granted_oauth_scopes_json: z.string() }).parse(
+    database
+      .prepare(
+        `SELECT connections.id, connections.account_id, authorizations.granted_oauth_scopes_json
+           FROM cloudflare_connections AS connections
+           JOIN cloudflare_authorizations AS authorizations ON authorizations.account_id = connections.account_id`,
+      )
+      .get(),
+  );
   return {
     id: row.id,
     userId: null,
