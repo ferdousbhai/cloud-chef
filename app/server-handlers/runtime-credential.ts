@@ -27,7 +27,7 @@ export async function runtimeCredentialAction(args: { request: Request; env: Env
     const membership = await findMembership(args.env.DB, authenticated.connection.orgId, identity.userId);
     if (!membership?.draftsAllowed) {
       return credentialResponse(
-        { code: 'cloudflare_token_withheld', error: 'Your team lets you work on its GitHub projects only.' },
+        { code: 'cloudflare_token_withheld', error: 'Your team lets you work on its team projects only.' },
         403,
       );
     }

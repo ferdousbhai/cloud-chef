@@ -43,7 +43,7 @@ afterEach(async () => {
 
 it('collapses finished tool history into an accurate summary without duplicating the narrative', async () => {
   await act(async () => root.render(<ActivityPanel messages={[message]} isStreaming={false} compact={false} />));
-  expect(container.textContent).toContain('3 tool steps · 1 file changed · Validation passed');
+  expect(container.textContent).toContain('3 tool steps · 1 file changed · Checks passed');
   expect(container.textContent).not.toContain('Your app is ready.');
   expect(container.querySelector('.tool-call-card')).toBeNull();
   await act(async () => container.querySelector('button')?.click());
@@ -57,7 +57,7 @@ it('reports the latest validation failure rather than an earlier success', async
     parts: [...message.parts, { ...tool('validate', 'validate-2'), output: { validation: toolFailure('Type error') } }],
   };
   await act(async () => root.render(<ActivityPanel messages={[failed]} isStreaming={false} compact={false} />));
-  expect(container.textContent).toContain('Validation failed');
+  expect(container.textContent).toContain('Checks failed');
   expect(container.textContent).not.toContain('Validation passed');
 });
 

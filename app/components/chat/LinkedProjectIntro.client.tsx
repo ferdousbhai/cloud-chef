@@ -7,7 +7,7 @@ import { DisabledChatMessageSheet } from './DisabledChatMessageSheet';
 import { MessageInput } from './MessageInput';
 
 /**
- * The first thing a GitHub project's chat shows: which repository this is and how changes reach it,
+ * The first thing a team project's chat shows: which project this is and how a change goes live,
  * instead of the homepage's invitation to describe a new app.
  */
 export function LinkedProjectIntro({
@@ -25,7 +25,7 @@ export function LinkedProjectIntro({
   onStop: () => void;
   sendMessageInProgress: boolean;
 }) {
-  const { repository, defaultBranch } = linkedProject;
+  const { repository } = linkedProject;
   return (
     <div className="cloudchef-home-shell grow p-4 sm:px-6 lg:px-8">
       <section className="cloudchef-home-copy min-w-0" aria-labelledby="linked-intro">
@@ -35,9 +35,8 @@ export function LinkedProjectIntro({
               Working on {repository}
             </h1>
             <p className="mt-3 max-w-xl text-balance text-sm text-content-secondary">
-              Ask for a change. The agent edits a copy of {defaultBranch}. Ask for a preview and it commits the change
-              to your own branch, where the repository&apos;s pipeline builds a preview; ask it to publish and it merges
-              the change into {defaultBranch}, which the pipeline puts live.
+              Ask for a change. To check it first, ask for a preview: a copy of the site with your change, at its own
+              link. When it looks right, ask to publish and the live site updates.
             </p>
             <Button
               className="mt-3"

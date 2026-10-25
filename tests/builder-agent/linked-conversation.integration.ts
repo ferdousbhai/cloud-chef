@@ -325,7 +325,7 @@ describe("a team project's publish", () => {
     );
     const result = await publishTool(harness)({ message: 'Ship it', live: true }, { toolCallId: 'call-1' });
     expect(result).toMatchObject({ ok: false });
-    expect(result.summary).toContain('view the project but not change it');
+    expect(result.summary).toContain('Your access to this project is view only');
     expect(artifacts.pushes).toEqual([]);
   });
 

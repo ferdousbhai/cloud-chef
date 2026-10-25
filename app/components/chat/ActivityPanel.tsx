@@ -138,7 +138,7 @@ function ActivityRun({
   const summary = [
     `${tools.length} tool step${tools.length === 1 ? '' : 's'}`,
     ...(changedFiles.size ? [`${changedFiles.size} file${changedFiles.size === 1 ? '' : 's'} changed`] : []),
-    ...(validation ? [validationFailed(validation) ? 'Validation failed' : 'Validation passed'] : []),
+    ...(validation ? [validationFailed(validation) ? 'Checks failed' : 'Checks passed'] : []),
   ].join(' · ');
   return (
     <section ref={sectionRef} className="min-w-0 border-b border-bolt-elements-borderColor last:border-0">

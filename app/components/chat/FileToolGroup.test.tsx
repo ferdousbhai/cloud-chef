@@ -153,7 +153,7 @@ describe('AssistantMessage file grouping', () => {
     );
 
     expect(container.textContent).toContain('Read 1 file, wrote 1 file');
-    expect(container.textContent).toContain('Validated the project');
+    expect(container.textContent).toContain('Checked the project');
     expect(container.textContent).not.toContain('Read src/a.css');
 
     await act(async () => container.querySelector('button')?.click());

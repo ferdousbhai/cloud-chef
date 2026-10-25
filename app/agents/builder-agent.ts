@@ -1193,7 +1193,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const durableIdentity = await this.requireDurableIdentity('request_production');
     const identity = runtimeConnectionIdentity(this.env);
     if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1' || !identity) {
-      throw new Error("Production requests are for drafts in a team's account.");
+      throw new Error("Only a team's drafts can be sent to become team projects.");
     }
     if (await this.workspace.linkedProject()) {
       throw new Error("This is already one of the team's projects: ask the agent to publish it.");
@@ -1262,7 +1262,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       const checkpoint = await this.workspace.checkpoint();
       await this.commitWorkspaceToHistory({
         revision: checkpoint.revision,
-        message: `Revert to ${parsed.data.slice(0, 7)}\n\nCloudChef-Revision: ${checkpoint.revision}`,
+        message: `Restore version ${parsed.data.slice(0, 7)}\n\nCloudChef-Revision: ${checkpoint.revision}`,
       }).catch(() => logger.warn('Unable to commit the revert to the project history'));
       this.setState({ ...this.state, publicationPending: true });
       this.ctx.waitUntil(
@@ -1375,7 +1375,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     await this.requireDurableIdentity('deploy_validated_revision');
     await this.refuseIfClosed();
     if (await this.workspace.linkedProject()) {
-      throw new Error('This project deploys through Workers Builds: ask the agent to publish it.');
+      throw new Error('Ask the agent to publish this project.');
     }
     // The deployment builds the revision first when nothing has validated it yet.
     const snapshot = await this.workspace.checkpoint();
@@ -1775,7 +1775,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const closed = await this.closedConversationMessage();
     if (closed) {
-      return toolFailure(`${closed} Nothing was committed.`);
+      return toolFailure(`${closed} Nothing was sent.`);
     }
     const name = linked.name ?? linked.repository;
     // Asked each time: access can be taken away, and the control plane names the project's repository.
@@ -1788,15 +1788,15 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (project.role !== 'edit' || !project.repo) {
       return toolFailure(
         project.role !== 'edit'
-          ? 'This person can view the project but not change it, so nothing was committed.'
-          : "The project's repository isn't ready yet. Open the project again.",
+          ? 'Your access to this project is view only, so nothing was sent.'
+          : "This project isn't ready yet. Open the project again.",
       );
     }
     const repo = project.repo;
     const { changes, manifest, heldBack } = await linkedWorkspaceChanges(this.workspace, linked);
     if (changes.length === 0) {
       return toolFailure(
-        `Nothing has changed since this workspace was opened from ${name}.` + linkedHeldBackNote(heldBack),
+        `Nothing has changed in ${name} yet, so there was nothing to send.` + linkedHeldBackNote(heldBack),
       );
     }
     const repositories = this.repositories();
@@ -1822,7 +1822,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       author,
     });
     if ('conflict' in committed) {
-      return toolFailure(`The branch ${branch} changed while this was being committed. Publish again.`);
+      return toolFailure(
+        'Another save of these changes happened at the same moment, so nothing was sent. Publish again.',
+      );
     }
     let published = committed.commit;
     if (input.live) {

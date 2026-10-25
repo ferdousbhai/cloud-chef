@@ -31,7 +31,7 @@ export const ToolUseContents = memo(function ToolUseContents({
   progress?: unknown;
   cloudflareExecution?: CloudflareExecutionPublicState;
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
-  /** A GitHub publish's view as of now (useLinkedPublishView), or null for any other call. */
+  /** A team project's publish, as of now (useLinkedPublishView), or null for any other call. */
   publish: LinkedPublishView | null;
 }) {
   // A stopped or finished call keeps whatever invocation state the provider last streamed, so the
@@ -432,7 +432,7 @@ function ValidationToolContents({ invocation }: { invocation: CloudChefToolInvoc
     <ToolResultFrame>
       <div className="space-y-2">
         <div className={result.ok ? 'text-content-primary' : 'text-bolt-elements-icon-error'}>
-          {result.ok ? 'Validation passed.' : 'Validation failed.'}
+          {result.ok ? 'Checks passed.' : 'Checks failed.'}
           {report?.durationMs === undefined ? null : (
             <span className="ml-2 text-xs text-content-tertiary">{Math.round(report.durationMs / 1_000)}s</span>
           )}
@@ -502,7 +502,7 @@ function StructuredResultTool({ invocation }: { invocation: CloudChefToolInvocat
   );
 }
 
-/** What became of a GitHub publish, in the person's words, with the links its pipeline reported. */
+/** What became of a team project's publish, in the person's words, with the links its build reported. */
 function PublishContents({ view }: { view: LinkedPublishView }) {
   return (
     <ToolResultFrame>
@@ -514,7 +514,7 @@ function PublishContents({ view }: { view: LinkedPublishView }) {
   );
 }
 
-/** Only web links the pipeline reported are offered (the view keeps nothing else). */
+/** Only web links the build reported are offered (the view keeps nothing else). */
 export function PublishLinks({ view }: { view: LinkedPublishView }) {
   if (!view.previewUrl && !view.detailsUrl) {
     return null;
@@ -528,7 +528,7 @@ export function PublishLinks({ view }: { view: LinkedPublishView }) {
       ) : null}
       {view.detailsUrl ? (
         <a className="underline" href={view.detailsUrl} target="_blank" rel="noopener noreferrer">
-          Build details
+          Details in Cloudflare
         </a>
       ) : null}
     </div>

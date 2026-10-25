@@ -267,7 +267,7 @@ describe('reverting to a commit', () => {
     ]);
     expect(harness.agent.state.publicationPending).toBe(true);
     const [entry] = await repositories(harness.artifacts).log(REPO, { limit: 1 });
-    expect(entry?.message).toBe(`Revert to ${old.slice(0, 7)}\n\nCloudChef-Revision: ${CHECKPOINT.revision}`);
+    expect(entry?.message).toBe(`Restore version ${old.slice(0, 7)}\n\nCloudChef-Revision: ${CHECKPOINT.revision}`);
   });
 
   it('is refused while a turn runs, and for a commit that is not one', async () => {

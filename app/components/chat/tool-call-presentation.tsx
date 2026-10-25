@@ -23,18 +23,19 @@ const STOPPED_TOOL_TITLES = new Map<string, string>([
   ['write', 'File write stopped'],
   ['edit', 'File edit stopped'],
   ['exec', 'Command stopped'],
-  ['validate', 'Validation stopped'],
+  ['validate', 'Checks stopped'],
   ['search_cloudflare_docs', 'Cloudflare docs search stopped'],
   ['cloudflare_request', 'Cloudflare API request stopped'],
-  ['publish_preview', 'GitHub preview stopped'],
+  ['publish_preview', 'Preview stopped'],
   ['publish', 'Publishing stopped'],
+  ['commit', 'Saving stopped'],
   ['fetch_site', 'Site read stopped'],
   ['history', 'History search stopped'],
 ]);
 
 const cloudflareRequestMethodSchema = cloudflareApiRequestDisplaySchema.pick({ method: true });
 
-/** A publish that did not reach GitHub, or whose pipeline failed or hit a conflict. */
+/** A team project's publish that was not sent, or whose build failed or hit a conflict. */
 function publishFailed(publish: LinkedPublishView): boolean {
   return publish.kind === 'not_sent' || publish.kind === 'failed' || publish.kind === 'conflict';
 }
@@ -97,17 +98,23 @@ export function toolTitle(
         args.success
           ? `${status === 'running' ? 'Running' : 'Ran'} ${compactToolLabel(args.data.command)}`
           : status === 'running'
-            ? 'Running a workspace command'
-            : 'Ran a workspace command',
+            ? 'Running a command'
+            : 'Ran a command',
         <FileIcon />,
       );
     }
     case 'validate':
       return isToolActivityStatusActive(status)
-        ? titleRow('Validating the project')
+        ? titleRow('Checking the project')
         : validationFailed(invocation)
-          ? titleRow('Validation failed', <Cross2Icon className="text-content-secondary" />)
-          : titleRow('Validated the project', <CheckIcon className="text-content-secondary" />);
+          ? titleRow('Checks failed', <Cross2Icon className="text-content-secondary" />)
+          : titleRow('Checked the project', <CheckIcon className="text-content-secondary" />);
+    case 'commit':
+      return isToolActivityStatusActive(status)
+        ? titleRow('Saving a version')
+        : isErrorResult(invocation)
+          ? titleRow('Version not saved', <Cross2Icon className="text-content-secondary" />)
+          : titleRow('Saved a version', <CheckIcon className="text-content-secondary" />);
     case 'search_cloudflare_docs':
       return titleRow(
         status === 'running' ? 'Searching Cloudflare docs' : 'Searched Cloudflare docs',
@@ -140,7 +147,7 @@ export function toolTitle(
         );
       }
       return titleRow(
-        invocation.toolName === 'publish' ? 'Publishing to GitHub' : 'Sending a preview to GitHub',
+        invocation.toolName === 'publish' ? 'Publishing' : 'Making a preview',
         <Pencil1Icon className="text-content-secondary" />,
       );
     case 'history':

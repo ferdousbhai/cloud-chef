@@ -53,12 +53,12 @@ describe('LinkedPublishStatus', () => {
 
   it('shows the build above the composer, then its preview link when the result lands after the turn', async () => {
     await act(async () => root.render(<LinkedPublishStatus messages={transcript('pending', null)} />));
-    expect(container.querySelector('[role="status"]')?.textContent).toContain('Building a preview of cloudchef/sara');
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('Making a preview…');
 
     await act(async () =>
       root.render(<LinkedPublishStatus messages={transcript('success', 'https://abc.ada.workers.dev')} />),
     );
-    expect(container.textContent).toContain('Preview ready on cloudchef/sara');
+    expect(container.textContent).toContain('Preview ready');
     expect(container.querySelector('a')?.getAttribute('href')).toBe('https://abc.ada.workers.dev');
   });
 

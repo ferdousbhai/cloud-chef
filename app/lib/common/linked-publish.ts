@@ -63,6 +63,9 @@ export type LinkedPublishView = {
   detailsUrl: string | null;
 };
 
+/** Where a build's result can still be found when CloudChef can't say it: the account's Cloudflare dashboard. */
+const ADMIN_CAN_SEE = 'A team admin can see the result in the Cloudflare dashboard.';
+
 const webUrlSchema = z.url({ protocol: /^https?$/ });
 
 function webUrl(value: string | null | undefined): string | null {
@@ -79,7 +82,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
   }
   const live = invocation.toolName === 'publish';
   if (invocation.state === 'output-error') {
-    return notSent(live, invocation.errorText ?? 'The call stopped before anything reached the repository.');
+    return notSent(live, invocation.errorText ?? 'It stopped before anything was sent.');
   }
   if (invocation.state !== 'output-available' || !isCloudChefToolResult(invocation.output)) {
     return null;
@@ -87,13 +90,12 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
   const output = invocation.output;
   const conflict = linkedPublishConflictDataSchema.safeParse(output.data).data;
   if (conflict) {
-    const target = conflict.defaultBranch ?? 'the default branch';
     return {
       kind: 'conflict',
-      title: `Saved on ${conflict.branch}, not merged`,
+      title: 'Saved, but not live',
       detail:
-        `${capitalize(target)} changed since this workspace was opened and overlaps these changes, so nothing ` +
-        `went live. The work is saved on the branch ${conflict.branch}; an admin can merge it there.`,
+        'The live project changed in the same places since you started, so your change was not put live. ' +
+        'It is saved separately, and a team admin can combine the two.',
       building: false,
       followDeadline: null,
       previewUrl: null,
@@ -105,7 +107,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
     return output.ok
       ? {
           kind: 'unknown',
-          title: live ? 'Published' : 'Sent a preview',
+          title: live ? 'Published' : 'Preview requested',
           detail: output.summary,
           building: false,
           followDeadline: null,
@@ -114,8 +116,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
         }
       : notSent(live, output.summary);
   }
-  const target = data.defaultBranch ?? 'the default branch';
-  const committed = data.live ? `Merged into ${target}` : `Committed to ${data.branch}`;
+  const committed = data.live ? 'Sent to go live' : 'Sent for a preview';
   const links = { previewUrl: webUrl(data.previewUrl), detailsUrl: webUrl(data.detailsUrl) };
   // An output saved before `startedAt` existed can't say whether its build is still followed, so it isn't.
   const followDeadline = data.startedAt === undefined ? null : data.startedAt + LINKED_BUILD_FOLLOW_MS;
@@ -124,10 +125,10 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
       if (followDeadline !== null && now < followDeadline) {
         return {
           kind: 'building',
-          title: data.live ? `Merged into ${target}; deploying` : `Building a preview of ${data.branch}`,
-          detail:
-            "The repository's pipeline is building it, usually in about two minutes. The result " +
-            `${data.live ? '' : 'and its preview link '}will show here.`,
+          title: data.live ? 'Publishing…' : 'Making a preview…',
+          detail: data.live
+            ? 'Cloudflare is building the site with your change and will put it live, usually in about two minutes.'
+            : 'Cloudflare is building a copy of the site with your change, usually in about two minutes. Its link will show here.',
           building: true,
           followDeadline,
           ...links,
@@ -135,16 +136,16 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
       }
       return unknown(
         committed,
-        "CloudChef stopped following the repository's pipeline. Its result is in Workers Builds.",
+        `Your change is saved. CloudChef stopped checking on the build, so it can't say whether it worked. ${ADMIN_CAN_SEE}`,
         links,
       );
     case 'success':
       return {
         kind: 'built',
-        title: data.live ? `Live: merged into ${target}` : `Preview ready on ${data.branch}`,
+        title: data.live ? 'Published' : 'Preview ready',
         detail: data.live
-          ? "The repository's pipeline built and deployed it."
-          : `The repository's pipeline built ${data.branch}.`,
+          ? 'Your change is live.'
+          : "Open the preview to check the change. The live site hasn't changed.",
         building: false,
         followDeadline: null,
         ...links,
@@ -152,27 +153,32 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
     case 'failure':
       return {
         kind: 'failed',
-        title: data.live ? `Merged into ${target}; deploy failed` : `Committed to ${data.branch}; build failed`,
-        detail:
-          `The commit is in the repository, but the repository's pipeline ${failedVerb(data.conclusion)}` +
-          `${data.live ? ', so the change is not live yet' : ''}.`,
+        title: data.live ? 'Publishing failed' : 'Preview failed',
+        detail: data.live
+          ? "The build stopped with an error, so your change isn't live. It's saved, and the site still shows the last version."
+          : "The preview's build stopped with an error. Your change is saved, and the live site hasn't changed.",
         building: false,
         followDeadline: null,
         ...links,
       };
     case 'none':
-      return unknown(committed, 'The repository reported no pipeline for this commit.', links);
+      return unknown(
+        committed,
+        "Your change is saved, but nothing was built: this project isn't connected to Workers Builds, the Cloudflare " +
+          'service that builds and publishes it. Ask a team admin to connect it.',
+        links,
+      );
     case 'timed_out':
       return unknown(
         committed,
-        "The repository's pipeline was still building after 15 minutes. Its result is in Workers Builds.",
+        `Your change is saved. The build was still running after 15 minutes, so CloudChef stopped checking. ${ADMIN_CAN_SEE}`,
         links,
       );
     case 'unfollowed':
     default:
       return unknown(
         committed,
-        "CloudChef could not follow the repository's pipeline. Its result is in Workers Builds.",
+        `Your change is saved, but CloudChef couldn't check on the build. ${ADMIN_CAN_SEE}`,
         links,
       );
   }
@@ -198,7 +204,7 @@ export function latestLinkedPublishView(messages: readonly CloudChefMessage[], n
 function notSent(live: boolean, detail: string): LinkedPublishView {
   return {
     kind: 'not_sent',
-    title: live ? 'Not published' : 'Preview not sent',
+    title: live ? 'Not published' : 'Preview not made',
     detail,
     building: false,
     followDeadline: null,
@@ -213,23 +219,4 @@ function unknown(
   links: { previewUrl: string | null; detailsUrl: string | null },
 ): LinkedPublishView {
   return { kind: 'unknown', title, detail, building: false, followDeadline: null, ...links };
-}
-
-function failedVerb(conclusion: string | null | undefined): string {
-  switch (conclusion) {
-    case 'cancelled':
-      return 'build was cancelled';
-    case 'timed_out':
-      return 'build timed out';
-    case 'action_required':
-      return 'build is waiting for an action';
-    case 'startup_failure':
-      return 'build could not start';
-    default:
-      return 'build failed';
-  }
-}
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }

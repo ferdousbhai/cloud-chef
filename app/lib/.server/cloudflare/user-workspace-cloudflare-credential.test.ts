@@ -198,20 +198,20 @@ describe('resolveUserWorkspaceCloudflareAccessToken', () => {
     );
   });
 
-  it('says why a team withholds its authorization from a member who works on its GitHub projects only', async () => {
+  it('says why a team withholds its authorization from a member who works on its team projects only', async () => {
     vi.stubGlobal(
       'fetch',
       vi
         .fn<typeof fetch>()
         .mockResolvedValue(
           Response.json(
-            { code: 'cloudflare_token_withheld', error: 'Your team lets you work on its GitHub projects only.' },
+            { code: 'cloudflare_token_withheld', error: 'Your team lets you work on its team projects only.' },
             { status: 403, headers: { 'Cache-Control': 'no-store' } },
           ),
         ),
     );
     await expect(resolveUserWorkspaceCloudflareAccessToken(runtimeEnv(), identity)).rejects.toThrow(
-      'Your team lets you work on its GitHub projects only.',
+      'Your team lets you work on its team projects only.',
     );
   });
 });

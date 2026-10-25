@@ -29,14 +29,12 @@ describe('linkedPublishView', () => {
       publish(toolFailure('model text', data({ live: true, build: 'failure', conclusion: 'cancelled' })), 'publish'),
       NOW,
     );
-    expect(live).toMatchObject({ kind: 'failed', title: 'Merged into main; deploy failed', building: false });
-    expect(live?.detail).toContain('was cancelled');
-    expect(linkedPublishView(publish(toolFailure('x', data({ build: 'failure' }))), NOW)?.title).toBe(
-      'Committed to cloudchef/sara; build failed',
-    );
+    expect(live).toMatchObject({ kind: 'failed', title: 'Publishing failed', building: false });
+    expect(live?.detail).toContain("The build stopped with an error, so your change isn't live");
+    expect(linkedPublishView(publish(toolFailure('x', data({ build: 'failure' }))), NOW)?.title).toBe('Preview failed');
   });
 
-  it('builds only while the pipeline is still followed, then says the result is in Workers Builds', () => {
+  it('builds only while the pipeline is still followed, then says where an admin can see the result', () => {
     const building = linkedPublishView(publish(toolSuccess("Don't wait or poll", data({}))), NOW);
     expect(building).toMatchObject({
       kind: 'building',
@@ -54,7 +52,9 @@ describe('linkedPublishView', () => {
       kind: 'unknown',
       building: false,
       followDeadline: null,
-      detail: "CloudChef stopped following the repository's pipeline. Its result is in Workers Builds.",
+      detail:
+        "Your change is saved. CloudChef stopped checking on the build, so it can't say whether it worked. " +
+        'A team admin can see the result in the Cloudflare dashboard.',
     });
   });
 
@@ -64,7 +64,7 @@ describe('linkedPublishView', () => {
         publish(toolFailure('x', { branch: 'cloudchef/sara', commit: 'c'.repeat(40), conflict: true }), 'publish'),
         NOW,
       ),
-    ).toMatchObject({ kind: 'conflict', title: 'Saved on cloudchef/sara, not merged' });
+    ).toMatchObject({ kind: 'conflict', title: 'Saved, but not live' });
     expect(linkedPublishView(publish(toolFailure('Nothing has changed.'), 'publish'), NOW)).toMatchObject({
       kind: 'not_sent',
       title: 'Not published',
@@ -95,7 +95,7 @@ describe('latestLinkedPublishView', () => {
         ],
       },
     ];
-    expect(latestLinkedPublishView(messages, NOW)?.title).toBe('Preview ready on cloudchef/sara');
+    expect(latestLinkedPublishView(messages, NOW)?.title).toBe('Preview ready');
     expect(latestLinkedPublishView([], NOW)).toBeNull();
   });
 });

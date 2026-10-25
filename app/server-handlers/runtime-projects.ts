@@ -181,7 +181,7 @@ export async function runtimeRegisterImportAction(args: {
   return answeringOrganizationErrors(async () => {
     const scope = await requireProjectScope(args.env.DB, identity.userId, connection.orgId ?? undefined);
     if (scope.connectionId !== connection.id) {
-      return json({ error: 'This runtime does not work in that account.' }, 403);
+      return json({ error: "This workspace can't open projects in that account." }, 403);
     }
     const app = args.app === undefined ? gitHubAppFromEnv(args.env) : args.app;
     const registered = await registerGitHubImport(args.env, {
@@ -251,7 +251,7 @@ export async function runtimeProjectImportedAction(args: { request: Request; env
     return json({ error: 'That is not where this project is imported to.' }, 409);
   }
   if (!(await recordImportedRepo(args.env.DB, project.id, body.repo))) {
-    return json({ code: 'already_imported', error: 'This project was imported into another repository.' }, 409);
+    return json({ code: 'already_imported', error: 'This project was already imported somewhere else.' }, 409);
   }
   return json({ orgProjectId: project.id, repo: body.repo }, 200);
 }
@@ -351,7 +351,7 @@ export async function runtimeRequestProductionAction(args: { request: Request; e
   }
   const orgId = authenticated.connection.orgId;
   if (!orgId) {
-    return json({ error: "Production requests are for a team's drafts." }, 409);
+    return json({ error: "Only a team's drafts can be sent to become team projects." }, 409);
   }
   // A member limited to the team's projects has no drafts of their own to send.
   const membership = await findMembership(args.env.DB, orgId, authenticated.identity.userId);
@@ -361,7 +361,7 @@ export async function runtimeRequestProductionAction(args: { request: Request; e
   // The repository named is the draft's own (its chat's), never another app's.
   const { draftId, repo } = authenticated.body;
   if (repo !== nativeProjectRepo(draftId)) {
-    return json({ error: "That is not this draft's repository." }, 400);
+    return json({ error: "That isn't this draft." }, 400);
   }
   return sendProductionRequest(
     args.env.DB,

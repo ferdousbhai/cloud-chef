@@ -25,10 +25,10 @@ const toolLabels = {
   validate: 'Validate project',
   search_cloudflare_docs: 'Search Cloudflare docs',
   cloudflare_request: 'Cloudflare API request',
-  publish_preview: 'Preview a branch',
+  publish_preview: 'Make a preview',
   fetch_site: 'Read the live site',
   publish: 'Publish',
-  commit: 'Commit',
+  commit: 'Save a version',
 } satisfies Record<ModelToolName, string>;
 
 /** Adapt the canonical model tools to Pi's validated tool contract. */

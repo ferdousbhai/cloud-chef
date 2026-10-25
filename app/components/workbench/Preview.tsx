@@ -18,13 +18,13 @@ export function Preview({
   reloadKey: number;
   requesting: boolean;
   onPublish: () => void;
-  /** A GitHub project's repository: its previews come from its own pipeline, not from CloudChef. */
+  /** A team project's name: its previews are built by Workers Builds and linked in the chat, not framed here. */
   linkedRepository?: string | null;
 }) {
   const { url, revision, status, error } = presentation;
 
   if (linkedRepository) {
-    return <LinkedPreviewNotice repository={linkedRepository} />;
+    return <LinkedPreviewNotice />;
   }
 
   return (
@@ -116,15 +116,15 @@ function PreviewEmpty({
   );
 }
 
-/** A GitHub project's previews are built by its repository's pipeline from the branch the agent publishes. */
-function LinkedPreviewNotice({ repository }: { repository: string }) {
+/** A team project's previews are built by Workers Builds from the branch the agent publishes, and linked in the chat. */
+function LinkedPreviewNotice() {
   return (
     <div className="flex size-full flex-col overflow-y-auto bg-bolt-elements-background-depth-1 p-6 text-center">
       <div className="m-auto w-full max-w-sm shrink-0 break-words">
-        <p className="font-medium text-content-primary">Previews come from your branch&apos;s pipeline</p>
+        <p className="font-medium text-content-primary">Previews open in a new tab</p>
         <p className="mt-2 text-sm text-content-secondary">
-          Ask the agent to publish a preview: it sends your changes to a branch of {repository} and shares the link its
-          pipeline builds.
+          Ask the agent for a preview: a copy of the site with your changes, at its own link. When it&apos;s ready, the
+          link shows in the chat. The live site doesn&apos;t change until you publish.
         </p>
       </div>
     </div>
