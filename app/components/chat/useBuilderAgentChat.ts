@@ -363,7 +363,7 @@ export function useBuilderAgentChat(args: {
             // `409 workspace_preparing` while a runtime that cannot serve this browser is prepared,
             // and this poll publishes that and hands the agent a usable capability afterwards. A
             // runtime merely from an earlier release keeps answering while its upgrade waits.
-            await refreshUserRuntimeSession().catch((sessionError: unknown) => {
+            await refreshUserRuntimeSession().catch((sessionError: Error) => {
               logger.warn('Unable to refresh the user-owned runtime session while reconnecting', sessionError);
               // Reconnecting can't fix a refusal only the person can act on, such as Cloudflare permissions
               // to approve again: dropping the session puts the chat's own explanation of it in its place.

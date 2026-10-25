@@ -59,7 +59,7 @@ export class UserRuntimeSessionError extends Error {
  * Whether a session refusal waits on the person (approving Cloudflare's permissions again, or enabling the
  * Workers plan), which no number of reconnects gets past.
  */
-export function runtimeSessionNeedsAction(error: unknown): boolean {
+export function runtimeSessionNeedsAction(error: Error): boolean {
   return (
     error instanceof UserRuntimeSessionError &&
     (error.code === 'cloudflare_reauthorization_required' || error.code === 'workspace_plan_required')

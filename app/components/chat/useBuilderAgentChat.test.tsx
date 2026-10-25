@@ -45,7 +45,7 @@ const mocks = vi.hoisted(() => {
     waitForSocket: vi.fn(async () => undefined),
     workbench,
     workspacePreparing: { value: false },
-    refreshRuntimeSession: vi.fn(async (): Promise<unknown> => ({})),
+    refreshRuntimeSession: vi.fn(async () => ({})),
     resetRuntimeSession: vi.fn(),
     /** The refusal the double of `runtimeSessionNeedsAction` says waits on the person. */
     refusalNeedingAction: new Error('CloudChef needs updated Cloudflare permissions for this workspace.'),
@@ -67,7 +67,7 @@ vi.mock('~/lib/cloudflare/runtime-session', () => ({
   requireUserRuntimeEndpoint: () => 'https://runtime.example.com',
   refreshUserRuntimeSession: mocks.refreshRuntimeSession,
   resetUserRuntimeSession: mocks.resetRuntimeSession,
-  runtimeSessionNeedsAction: (error: unknown) => error === mocks.refusalNeedingAction,
+  runtimeSessionNeedsAction: (error: Error) => error === mocks.refusalNeedingAction,
 }));
 vi.mock('~/lib/stores/builder-workspace-sync.client', () => ({
   BuilderWorkspaceSyncController: { initialize: mocks.initializeWorkspace },
@@ -297,10 +297,11 @@ describe('useBuilderAgentChat workspace preparation', () => {
     vi.useFakeTimers();
     try {
       const failure = 'Connect GitHub again in Settings to import this project.';
-      let answer: { initialized: boolean; failure?: string } = { initialized: false, failure };
+      // The agent's first answer, then the one the person's retry gets.
+      const answers = [{ initialized: false, failure }, { initialized: true }];
       mocks.agent.call.mockImplementation(async (method: string) => {
         if (method === 'prepareWorkspace') {
-          return answer;
+          return answers.shift();
         }
         throw new Error(`Unexpected agent call: ${method}`);
       });
@@ -331,7 +332,6 @@ describe('useBuilderAgentChat workspace preparation', () => {
         currentChat!.sendMessage({ role: 'user', parts: [{ type: 'text', text: 'build it' }] }),
       ).rejects.toThrow(failure);
 
-      answer = { initialized: true };
       await act(async () => currentChat!.retryWorkspacePresentation());
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);

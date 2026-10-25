@@ -1328,7 +1328,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       state = await this.initializeWorkspace(this.transcriptBinding);
     } catch (error) {
       if (error instanceof WorkspaceSeedError) {
-        logger.warn('The new workspace could not be seeded', { error: error.message });
+        logger.warn('The new workspace could not be seeded');
         return { initialized: false, failure: error.message };
       }
       throw error;
@@ -1663,7 +1663,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     // Seeding writes the whole project into the workspace: a redeploy partway would leave it half seeded.
     this.workspaceSeed ??= this.runtimeActivity
       .run(() =>
-        this.seedNewWorkspace(binding).catch((error: unknown) => {
+        this.seedNewWorkspace(binding).catch((error: Error) => {
           throw new WorkspaceSeedError(error);
         }),
       )
