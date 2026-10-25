@@ -225,9 +225,10 @@ function workersBuilds(
     listWorkerPreviews: async () => [
       { names: ['cloudchef/sara-a-key'], urls: ['https://cloudchef-sara-a-key-blog.team.workers.dev'] },
     ],
-    workerServedOnWorkersDev: async () => true,
-    listWorkerCustomDomains: async () => ['blog.example.com'],
-    getWorkersSubdomain: async () => 'team',
+    workerAddresses: async () => ({
+      customDomains: ['blog.example.com'],
+      workersDevUrl: 'https://blog.team.workers.dev',
+    }),
   };
   return { api, calls, openAccount: async () => api };
 }

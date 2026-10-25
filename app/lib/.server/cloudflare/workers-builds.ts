@@ -21,9 +21,7 @@ export type WorkersBuildsAccountApi = Pick<
   | 'listWorkersBuilds'
   | 'listWorkersBuildTriggers'
   | 'listWorkerPreviews'
-  | 'workerServedOnWorkersDev'
-  | 'listWorkerCustomDomains'
-  | 'getWorkersSubdomain'
+  | 'workerAddresses'
 >;
 
 export type OpenWorkersBuildsAccountApi = (
@@ -156,13 +154,11 @@ function buildLogUrl(accountId: string, workerName: string, buildId: string): st
 
 /** The Worker's production origins: its custom domains, then its workers.dev address when it is served there. */
 export async function productionOrigins(api: WorkersBuildsAccountApi, worker: ProjectWorker): Promise<string[]> {
-  const [domains, workersDev] = await Promise.all([
-    api.listWorkerCustomDomains(worker.name),
-    api.workerServedOnWorkersDev(worker.name),
-  ]);
-  const origins = domains.map((hostname) => `https://${hostname}`);
+  const { customDomains, workersDevUrl } = await api.workerAddresses(worker.tag);
+  const origins = customDomains.map((hostname) => `https://${hostname}`);
+  const workersDev = workersDevUrl ? originOf(workersDevUrl) : null;
   if (workersDev) {
-    origins.push(`https://${worker.name}.${await api.getWorkersSubdomain()}.workers.dev`);
+    origins.push(workersDev);
   }
   return origins;
 }

@@ -319,7 +319,10 @@ async function withWorkersBuilds(
     }
     if (worker && (!project.siteUrl || worker.tag !== project.workersBuildsScriptTag)) {
       // The projects home shows the site; a site that can't be read now is looked for on the next call.
-      const [siteUrl] = await productionOrigins(api, worker).catch(() => []);
+      const [siteUrl] = await productionOrigins(api, worker).catch((error: Error) => {
+        console.warn({ event: 'project_site_unreadable', message: error.message });
+        return [];
+      });
       if (siteUrl) {
         await recordProjectSiteUrl(args.env.DB, project.id, siteUrl);
       }

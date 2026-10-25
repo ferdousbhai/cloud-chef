@@ -26,9 +26,7 @@ function workersBuilds(repository: WorkersBuildRepository) {
       },
     ],
     listWorkerPreviews: async () => [],
-    workerServedOnWorkersDev: async () => false,
-    listWorkerCustomDomains: async () => [],
-    getWorkersSubdomain: async () => 'team',
+    workerAddresses: async () => ({ customDomains: [], workersDevUrl: null }),
   };
   return async () => api;
 }

@@ -1583,28 +1583,29 @@ export class UserCloudflareAccountApi {
     return listed.success ? listed.data.flatMap((preview) => (preview ? [workerPreview(preview)] : [])) : [];
   }
 
-  /** Whether a Worker is served on the account's workers.dev subdomain. */
-  async workerServedOnWorkersDev(workerName: string): Promise<boolean> {
-    requireWorkerName(workerName);
-    const state = await this.callOptional<WorkerSubdomainState>(
-      `/workers/scripts/${encodeURIComponent(workerName)}/subdomain`,
-      { method: 'GET' },
-    );
-    return state?.enabled === true;
-  }
-
-  /** The custom domains a Worker serves. */
-  async listWorkerCustomDomains(workerName: string): Promise<string[]> {
-    requireWorkerName(workerName);
-    const listed = z
-      .array(z.looseObject({ hostname: z.string().min(1).max(253) }))
-      .safeParse(
-        await this.call<unknown>(`/workers/domains?service=${encodeURIComponent(workerName)}`, { method: 'GET' }),
-      );
-    if (!listed.success) {
-      throw new CloudflareAccountApiError('Cloudflare returned invalid Worker domains.');
+  /**
+   * Where a Worker is served: its custom domains, and its workers.dev address when that is on. One request to
+   * the Workers API, which Workers Admin may read (the older domains list takes Workers Scripts Read or Write,
+   * which OAuth clients can no longer ask for).
+   */
+  async workerAddresses(tag: string): Promise<{ customDomains: string[]; workersDevUrl: string | null }> {
+    requireScriptTag(tag);
+    const worker = z
+      .looseObject({
+        references: z
+          .looseObject({ domains: z.array(z.looseObject({ hostname: z.string().min(1).max(253) })).optional() })
+          .optional(),
+        subdomain: z.looseObject({ enabled: z.boolean(), url: z.string().url().optional() }).optional(),
+      })
+      .safeParse(await this.call<unknown>(`/workers/workers/${tag}`, { method: 'GET' }));
+    if (!worker.success) {
+      throw new CloudflareAccountApiError('Cloudflare returned an invalid Worker.');
     }
-    return listed.data.map((domain) => domain.hostname);
+    const { references, subdomain } = worker.data;
+    return {
+      customDomains: (references?.domains ?? []).map((domain) => domain.hostname),
+      workersDevUrl: subdomain?.enabled && subdomain.url ? subdomain.url : null,
+    };
   }
 
   async enableWorkerSubdomain(workerName: string): Promise<void> {

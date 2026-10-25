@@ -44,6 +44,33 @@ afterEach(() => {
 });
 
 describe('UserCloudflareAccountApi', () => {
+  test("reads a Worker's custom domains and its workers.dev address, only when served there, in one request", async () => {
+    const tag = 'd367538bf2e84573a30d43ffceaaaa0e';
+    const worker = (subdomainEnabled: boolean) =>
+      Response.json({
+        success: true,
+        result: {
+          id: tag,
+          name: 'site',
+          references: { domains: [{ id: 'd1', hostname: 'example.com', zone_name: 'example.com' }] },
+          subdomain: { enabled: subdomainEnabled, url: 'https://site.acme.workers.dev' },
+        },
+      });
+    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(worker(false)).mockResolvedValueOnce(worker(true));
+    const api = accountApi('account-1', 'user-token', request);
+
+    await expect(api.workerAddresses(tag)).resolves.toEqual({ customDomains: ['example.com'], workersDevUrl: null });
+    await expect(api.workerAddresses(tag)).resolves.toEqual({
+      customDomains: ['example.com'],
+      workersDevUrl: 'https://site.acme.workers.dev',
+    });
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledWith(
+      `https://api.cloudflare.com/client/v4/accounts/account-1/workers/workers/${tag}`,
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
   test('reads the workspace Containers entitlement from the account capability endpoint', async () => {
     const request = vi
       .fn<typeof fetch>()
