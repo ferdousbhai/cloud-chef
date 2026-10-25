@@ -13,7 +13,7 @@ import {
   startGitHubAppInstall,
   type GitHubRepository,
 } from '~/lib/github-app.client';
-import { messageOf, postJson } from '~/lib/json-request';
+import { messageOf, postJson, RequestError } from '~/lib/json-request';
 
 /** What switching a project's Workers Builds to its Artifacts repository answered. */
 const switchedSchema = z.union([
@@ -51,6 +51,7 @@ export function ImportFromGitHubDialog({
   const [installing, setInstalling] = useState(false);
   // GitHub accounts the App is on whose repositories couldn't be listed just now.
   const [unreachable, setUnreachable] = useState<string[]>([]);
+  const [listError, setListError] = useState<string | null>(null);
   const repository = gitHubRepositoryName(address);
 
   useEffect(() => {
@@ -60,8 +61,12 @@ export function ImportFromGitHubDialog({
         setInstalled(repositories);
         setUnreachable(unreachable);
       })
-      .catch(() => {
+      .catch((cause: Error) => {
         if (!controller.signal.aborted) {
+          // Only "not connected yet" (409) means installing the App; anything else is GitHub failing just now.
+          if (!(cause instanceof RequestError && cause.status === 409)) {
+            setListError(messageOf(cause, 'GitHub could not be reached just now. Try again in a moment.'));
+          }
           setInstalled([]);
         }
       });
@@ -146,6 +151,11 @@ export function ImportFromGitHubDialog({
         {address.trim() !== '' && repository === null ? (
           <p className="text-xs text-bolt-elements-icon-error">Paste a github.com repository address.</p>
         ) : null}
+        {listError !== null ? (
+          <p className="text-xs text-content-secondary" role="status">
+            {listError} Public repositories still import from their address.
+          </p>
+        ) : null}
         {unreachable.length > 0 ? (
           <p className="text-xs text-content-secondary" role="status">
             GitHub couldn&apos;t list the repositories of {unreachable.join(', ')} just now, so they aren&apos;t below.
@@ -196,7 +206,9 @@ export function ImportFromGitHubDialog({
                 loading={installing}
                 onClick={() => void install()}
               >
-                {installed.length > 0 ? 'Add GitHub accounts or repositories' : 'Install the CloudChef GitHub App'}
+                {installed.length > 0 || unreachable.length > 0 || listError !== null
+                  ? 'Add GitHub accounts or repositories'
+                  : 'Install the CloudChef GitHub App'}
               </Button>
             </div>
           )}

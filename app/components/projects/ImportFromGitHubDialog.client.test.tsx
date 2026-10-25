@@ -21,7 +21,7 @@ async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   if (url.startsWith('/api/organizations/github/repositories')) {
     return installed
       ? Response.json({ repositories: installed })
-      : Response.json({ error: 'GitHub is not connected.' }, { status: 404 });
+      : Response.json({ error: 'Connect GitHub first.' }, { status: 409 });
   }
   if (url === '/api/organizations/github/start') {
     // A fragment, which the test document can follow without leaving the page.

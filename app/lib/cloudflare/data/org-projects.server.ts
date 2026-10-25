@@ -389,7 +389,12 @@ export async function abandonImport(
     )
     .bind(args.projectId, args.userId, args.connectionId, Date.now() - ABANDON_IMPORT_WINDOW_MS)
     .run();
-  return removed.meta.changes === 1;
+  if (removed.meta.changes === 1) {
+    return true;
+  }
+  // Asked again after an answer that never arrived: a project already gone is taken back.
+  const remaining = await db.prepare('SELECT 1 FROM org_projects WHERE id = ?').bind(args.projectId).first();
+  return remaining === null;
 }
 
 /** Remembers which Worker Workers Builds builds a project into, once found. */
