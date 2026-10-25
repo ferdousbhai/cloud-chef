@@ -286,19 +286,25 @@ export async function installedRepositories(db: D1Database, scope: ProjectScope,
   if (listed.length > 0) {
     return {
       repositories: listed.flat(),
-      // Accounts that failed for a passing reason, not because the App was uninstalled there (404).
+      // Accounts that failed for a passing reason: not the App uninstalled (404) or suspended (a 403 that isn't a
+      // rate limit) there.
       unreachable: installations.flatMap((installation, index) => {
         const result = reached[index];
-        return result instanceof GitHubError && result.status !== 404 ? [installation.accountLogin] : [];
+        return result instanceof GitHubError && passingGitHubFailure(result) ? [installation.accountLogin] : [];
       }),
     };
   }
-  return reached.every((result) => result instanceof GitHubError && result.status === 404)
+  return reached.every((result) => result instanceof GitHubError && !passingGitHubFailure(result))
     ? Response.json(
-        { error: `GitHub no longer has CloudChef's GitHub App installed there. To fix it, ${GITHUB_ACCESS_FIX}.` },
+        { error: `CloudChef's GitHub App was removed or suspended on GitHub. To fix it, ${GITHUB_ACCESS_FIX}.` },
         { status: 502 },
       )
     : Response.json({ error: GITHUB_UNREACHABLE }, { status: 503 });
+}
+
+/** A GitHub failure that may pass on its own: anything but the App gone (404) or suspended (403, not a rate limit). */
+function passingGitHubFailure(error: GitHubError): boolean {
+  return error.status !== 404 && !(error.status === 403 && !error.rateLimited);
 }
 
 /**

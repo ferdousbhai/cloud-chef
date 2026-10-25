@@ -360,14 +360,14 @@ describe('GitHub projects', () => {
     });
     const unsaved = await install(failingD1, app, admin.cookie, orgId);
     expect(unsaved.status).toBe(303);
-    expect(githubMessage(unsaved)).toBe("GitHub couldn't be connected just now. Connect GitHub again.");
+    expect(githubMessage(unsaved)).toBe("GitHub couldn't be connected just now. Try again.");
 
     vi.stubGlobal('fetch', async () => {
       throw new TypeError('Network connection lost.');
     });
     const unreached = await install(env, app, admin.cookie, orgId);
     expect(unreached.status).toBe(303);
-    expect(githubMessage(unreached)).toBe("GitHub couldn't be connected just now. Connect GitHub again.");
+    expect(githubMessage(unreached)).toBe("GitHub couldn't be connected just now. Try again.");
     expect(logged).toHaveBeenCalledWith('A CloudChef installation failed', 'TypeError: Network connection lost.');
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM github_installations').first()).toEqual({ n: 0 });
     logged.mockRestore();
@@ -412,7 +412,7 @@ describe('GitHub projects', () => {
     ]) {
       const returned = await returnFailing(failing ?? '', query ?? '');
       expect(returned.status).toBe(303);
-      expect(githubMessage(returned)).toBe("GitHub couldn't be connected just now. Connect GitHub again.");
+      expect(githubMessage(returned)).toBe("GitHub couldn't be connected just now. Try again.");
     }
     expect(logged).toHaveBeenCalledWith(
       'A CloudChef installation failed',

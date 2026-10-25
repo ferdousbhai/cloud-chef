@@ -38,7 +38,7 @@ export function Preview({
             {error ?? 'Publishing the latest changes failed.'} The site still shows the last version that published.
           </span>
           <Button size="xs" variant="neutral" disabled={requesting} onClick={onPublish}>
-            Retry
+            Try again
           </Button>
         </div>
       )}
@@ -108,7 +108,7 @@ function PreviewEmpty({
         )}
         {!publishing && (
           <Button className="mt-4" size="sm" disabled={disabled} onClick={onPublish}>
-            {status === 'failed' ? 'Retry' : 'Publish'}
+            {status === 'failed' ? 'Try again' : 'Publish'}
           </Button>
         )}
       </div>

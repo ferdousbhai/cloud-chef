@@ -29,6 +29,7 @@ export function ProjectDialogs() {
         name={name}
         canRevert={!conversationClosed}
         canFork={linkedProject === null}
+        teamProject={linkedProject !== null}
         onOpenProject={openProjectChat}
         onClose={close}
       />

@@ -254,7 +254,8 @@ async function routeApplicationRequest(request: Request, env: Env, nonce: string
         pathname,
         error instanceof Error ? `${error.name}: ${error.message}` : 'not an Error',
       );
-      return Response.json({ error: 'Something went wrong. Try again.' }, { status: 500 });
+      // `internal` tells a runtime this is a crash to retry, not an answer with words of its own.
+      return Response.json({ error: 'Something went wrong. Try again.', code: 'internal' }, { status: 500 });
     }
   }
 

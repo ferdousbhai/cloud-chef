@@ -200,9 +200,9 @@ export function AccountDataCard() {
               to that Cloudflare account, which everyone building there shares, so someone else may have given it; your
               workspaces; your teams, the invites sent to you, your model use there, and the team projects you were
               given; the requests you made to publish a team project, with which saved version of it was sent; GitHub
-              connections and approvals you started; emailed sign-in links; and sign-in and authorization session
-              records. Credentials, credential handles, encryption vectors, session tokens, and the hashes links and
-              invites are checked against are excluded.
+              connections you started; emailed sign-in links; and sign-in and authorization session records.
+              Credentials, credential handles, encryption vectors, session tokens, and the hashes links and invites are
+              checked against are excluded.
             </p>
             <p className="mt-2">
               Chats, transcripts, project files, and deployment records are not included. They live in the Cloudflare

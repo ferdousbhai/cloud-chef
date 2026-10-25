@@ -216,7 +216,7 @@ export function ModelsCard() {
         feedback ? (
           <div className="mt-2">
             <Button size="sm" variant="neutral" disabled={busy} onClick={() => void retry()}>
-              Retry
+              Try again
             </Button>
           </div>
         ) : (
@@ -300,7 +300,7 @@ export function ModelsCard() {
                 Cloudflare couldn’t be asked just now which keys this account has.
               </p>
               <Button size="sm" variant="neutral" disabled={busy} onClick={() => void retry()}>
-                Retry
+                Try again
               </Button>
             </div>
           ) : settings.canManage ? (
@@ -441,7 +441,7 @@ function workspaceLabel(context: CloudflareAuthSession['context']): string | nul
   if (context.kind === 'organization') {
     return `the ${context.orgName} team${context.accountName ? ` (Cloudflare account ${context.accountName})` : ''}`;
   }
-  return context.accountName ? `your Cloudflare account ${context.accountName}` : 'your own Cloudflare account';
+  return context.accountName ? `Personal (Cloudflare account ${context.accountName})` : 'Personal';
 }
 
 /**

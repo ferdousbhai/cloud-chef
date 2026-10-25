@@ -196,7 +196,13 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-5">
           <OrgProjectsList
             userId={accountUserId}
-            inTeam={session?.context?.kind === 'organization'}
+            heading={
+              session?.context?.kind !== 'organization'
+                ? 'Imported projects'
+                : session.context.role === 'admin'
+                  ? 'Team projects'
+                  : 'Shared with me'
+            }
             query={searchQuery}
             onNavigate={onClose}
           />

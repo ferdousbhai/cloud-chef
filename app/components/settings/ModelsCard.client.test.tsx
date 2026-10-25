@@ -360,7 +360,7 @@ describe('ModelsCard', () => {
       expect(document.body.textContent).toContain('The account’s models could not be listed just now.');
 
       compatibleModels = [DEFAULT_WORKERS_AI_MODEL];
-      const retry = [...document.querySelectorAll('button')].find((candidate) => candidate.textContent === 'Retry');
+      const retry = [...document.querySelectorAll('button')].find((candidate) => candidate.textContent === 'Try again');
       await act(async () => retry?.click());
       await settle();
       expect(checkboxOf('GLM 5.3 Flash').checked).toBe(true);

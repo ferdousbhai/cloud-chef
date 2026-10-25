@@ -22,11 +22,27 @@ export async function publicRepositoryDefaultBranch(
   fullName: string,
   request: typeof fetch = fetch,
 ): Promise<string | null> {
-  const response = await request(`https://github.com/${fullName}.git/info/refs?service=git-upload-pack`, {
-    headers: { 'User-Agent': 'git/2.47.0 (CloudChef)', 'Git-Protocol': 'version=1' },
-    redirect: 'manual',
-    signal: AbortSignal.timeout(10_000),
-  });
+  // A renamed or moved repository's old address redirects to its new one on github.com: that is followed, a
+  // few times at most, and nowhere else.
+  let url = `https://github.com/${fullName}.git/info/refs?service=git-upload-pack`;
+  let response: Response;
+  for (let redirects = 0; ; redirects += 1) {
+    response = await request(url, {
+      headers: { 'User-Agent': 'git/2.47.0 (CloudChef)', 'Git-Protocol': 'version=1' },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(10_000),
+    });
+    const location = response.headers.get('location');
+    if (response.status < 300 || response.status >= 400 || !location || redirects >= 3) {
+      break;
+    }
+    const next = new URL(location, url);
+    await response.body?.cancel().catch(() => undefined);
+    if (next.origin !== 'https://github.com') {
+      return null;
+    }
+    url = next.href;
+  }
   if (response.status === 429 || response.status >= 500) {
     // github.com busy or failing says nothing about whether the repository is public.
     await response.body?.cancel().catch(() => undefined);

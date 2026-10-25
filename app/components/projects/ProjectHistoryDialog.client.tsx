@@ -28,6 +28,7 @@ export function ProjectHistoryDialog({
   name,
   canRevert,
   canFork,
+  teamProject = false,
   onOpenProject,
   onClose,
 }: {
@@ -38,6 +39,8 @@ export function ProjectHistoryDialog({
   canRevert: boolean;
   /** Forking makes a new project of the person's own, from one of their own. */
   canFork: boolean;
+  /** A chat working on a team project: its restores change only the chat's copy and aren't published. */
+  teamProject?: boolean;
   /** Opens a project made here, such as a fork. */
   onOpenProject: (initialId: string) => void;
   onClose: () => void;
@@ -52,8 +55,8 @@ export function ProjectHistoryDialog({
   // Reverting goes through the open chat's builder agent; a project not open here has none.
   const revert = useStore(projectRevertStore);
   const ref = 'chatInitialId' in project ? project.chatInitialId : project.orgProjectId;
-  /** One of the person's own apps, as opposed to a team project. */
-  const ownApp = 'chatInitialId' in project;
+  /** One of the person's own apps, as opposed to a team project (opened from Projects, or its chat). */
+  const ownApp = 'chatInitialId' in project && !teamProject;
 
   useEffect(() => {
     const controller = new AbortController();

@@ -15,13 +15,14 @@ type OrgProject = TeamProject;
  */
 export function OrgProjectsList({
   userId,
-  inTeam = false,
+  heading = 'Imported projects',
   query,
   onNavigate,
 }: {
   userId: string | null;
-  /** Whether the person works in a team now; in their own space these are the projects they imported. */
-  inTeam?: boolean;
+  /** The list's name, as the projects home names it: Imported projects in Personal; in a team, Team projects for its
+   * admins and Shared with me for a member. */
+  heading?: string;
   /** The sidebar's search, matched against the project's name and repository. */
   query: string;
   onNavigate: () => void;
@@ -53,8 +54,6 @@ export function OrgProjectsList({
   if (!userId) {
     return null;
   }
-  // In a person's own space these are the projects they imported, not a team's.
-  const heading = inTeam ? 'Team projects' : 'Imported projects';
   if (loadFailed) {
     return (
       <section aria-label={heading} className="pb-3">

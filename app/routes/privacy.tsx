@@ -71,8 +71,7 @@ function PrivacyPage() {
         <p>
           Chat catalogs, transcripts, generated files, workspace state, deployment records, and generated Cloudflare
           resources are stored in the connected Cloudflare account. CloudChef accesses them to perform your requests,
-          but does not copy them into the operator control-plane database; the one copy it keeps is a production
-          request&apos;s draft, described under Teams.
+          but does not copy them into the operator control-plane database.
         </p>
       </TrustSection>
 
@@ -196,17 +195,17 @@ function PrivacyPage() {
           Gateway to that provider, which bills that key and handles the content under the account’s agreement with it.
           The key is kept in the account’s Cloudflare Secrets Store and attached to its AI Gateway; CloudChef passes a
           pasted key to Cloudflare once and never stores, logs, or reads it, and removing a key CloudChef added deletes
-          it from the Secrets Store. A team’s admins also choose the model new chats start on and which models the
-          picker offers. Every request goes through the account’s default AI Gateway. Unless you turn it off, the
-          gateway logs each request in that account: what was sent (the prompt, conversation context, and project files)
-          and the model’s reply, labelled with the conversation and the person who sent it, so the account can review
-          what a conversation did. The logs follow AI Gateway’s retention settings in that account, and anyone with
-          access to the account can read them, which for a team includes its admins; CloudChef’s operator receives no
-          copy. You can turn this logging off under AI request logs in Settings. It is your own choice, wherever you
-          build, and it applies to your later requests: they still go through the gateway but are not logged and carry
-          no conversation or person label. Logs already recorded stay in the account until its AI Gateway retention
-          removes them or someone with access deletes them in the Cloudflare dashboard. AI Gateway caching is skipped
-          for every request. Cloudflare describes its handling of Workers AI content in its{' '}
+          it from the Secrets Store. A team’s admins, or you in Personal, also choose the model new chats start on and
+          which models the picker offers. Every request goes through the account’s default AI Gateway. Unless you turn
+          it off, the gateway logs each request in that account: what was sent (the prompt, conversation context, and
+          project files) and the model’s reply, labelled with the conversation and the person who sent it, so the
+          account can review what a conversation did. The logs follow AI Gateway’s retention settings in that account,
+          and anyone with access to the account can read them, which for a team includes its admins; CloudChef’s
+          operator receives no copy. You can turn this logging off under AI request logs in Settings. It is your own
+          choice, wherever you build, and it applies to your later requests: they still go through the gateway but are
+          not logged and carry no conversation or person label. Logs already recorded stay in the account until its AI
+          Gateway retention removes them or someone with access deletes them in the Cloudflare dashboard. AI Gateway
+          caching is skipped for every request. Cloudflare describes its handling of Workers AI content in its{' '}
           <a href="https://developers.cloudflare.com/workers-ai/platform/data-usage/">Workers AI data-usage notice</a>.
           CloudChef does not use AI to make decisions that produce legal or similarly significant effects about you.
         </p>
@@ -298,7 +297,7 @@ function PrivacyPage() {
           <li>encrypted Cloudflare credentials</li>
           <li>connection metadata, granted scopes, and model settings</li>
           <li>your runtime locators and team memberships</li>
-          <li>your team project requests, and GitHub connections and approvals you started</li>
+          <li>your team project requests, and GitHub connections you started</li>
           <li>
             the records of when you sent team invites and created teams, so a team&apos;s daily invite limit stops
             counting the invites you sent
@@ -308,14 +307,15 @@ function PrivacyPage() {
           It also deletes your workspace in each team&apos;s Cloudflare account, as leaving the team would, and says
           which it could not reach. If you connected a Cloudflare account of your own, it asks Cloudflare to revoke
           CloudChef’s authorization unless someone else still builds in that account with it, in a team or on their own
-          (it then says which teams, or that another person working on their own, still use it), and tells you when
-          Cloudflare did not confirm a revocation so you can remove it yourself. Because erasure is irreversible it
-          requires a sign-in completed in the last ten minutes, an exact typed confirmation, and an explicit
-          acknowledgement of what is retained. Erasure leaves a team&apos;s Cloudflare authorization alone while others
-          still build in it; if you are its only remaining member, the team is removed, and its authorization is revoked
-          unless another space still builds in that account. If you are the only admin of a team others belong to, make
-          someone else an admin first. Repeating it is harmless. If you sign in with Cloudflare and have already revoked
-          CloudChef’s authorization, you can no longer sign in that way, so use the request path below instead.
+          (it then names the teams that still use it, or says that another person working on their own does), and tells
+          you when Cloudflare did not confirm a revocation so you can remove it yourself. Because erasure is
+          irreversible it requires a sign-in completed in the last ten minutes, an exact typed confirmation, and an
+          explicit acknowledgement of what is retained. Erasure leaves a team&apos;s Cloudflare authorization alone
+          while others still build in it; if you are its only remaining member, the team is removed, and its
+          authorization is revoked unless another space still builds in that account. If you are the only admin of a
+          team others belong to, make someone else an admin first. Repeating it is harmless. If you sign in with
+          Cloudflare and have already revoked CloudChef’s authorization, you can no longer sign in that way, so use the
+          request path below instead.
         </p>
         <p>
           Settings also contains a self-service export of those same operator-held records. It saves a JSON file,
@@ -323,13 +323,15 @@ function PrivacyPage() {
         </p>
         <ul>
           <li>your identity and profile, and whether your model requests are logged in AI Gateway</li>
-          <li>your Cloudflare connection metadata, requested and granted scopes, and its default model</li>
+          <li>
+            your Cloudflare connection metadata, granted scopes, its default model, and which models the picker offers
+          </li>
           <li>the existence, storage time, and key version of your encrypted credential record</li>
           <li>your runtime locators</li>
           <li>your team memberships, invites addressed to you, and your daily usage counts</li>
           <li>when you sent each team invite and created each team, while those records are kept</li>
           <li>your own projects and the team projects you were given, and the team project requests you sent</li>
-          <li>GitHub connections and approvals you started, and sign-in links emailed to you</li>
+          <li>GitHub connections you started, and sign-in links emailed to you</li>
           <li>your authentication-session and OAuth-state records</li>
         </ul>
         <p>

@@ -40,7 +40,7 @@ export async function readSourceBranch(fetchGit: GitFetch, source: GitSource, br
   const advertisement = await sourceRequest(fetchGit, source, '/info/refs?service=git-upload-pack', {});
   const lines = [...readPktLines(await sourceBytes(advertisement, MAX_ADVERTISEMENT_BYTES))].map(text);
   if (!lines.includes('version 2')) {
-    throw new GitSourceError('refused', "the repository's host answered in a way CloudChef can't read");
+    throw new GitSourceError('refused', "GitHub sent something CloudChef couldn't read");
   }
   const wanted = `refs/heads/${branch}`;
   const body = concatBytes([pktLine('command=ls-refs\n'), delimiter(), pktLine(`ref-prefix ${wanted}\n`), flush()]);
@@ -54,7 +54,7 @@ export async function readSourceBranch(fetchGit: GitFetch, source: GitSource, br
   // The branch is the one GitHub showed as the repository's default when the project was added.
   throw new GitSourceError(
     'not_found',
-    `its main version (${branch.slice(0, 256)}) has no code yet, or is gone from GitHub`,
+    `the branch GitHub showed as its default (${branch.slice(0, 256)}) is empty or was removed`,
   );
 }
 
@@ -63,7 +63,7 @@ async function sourceBytes(response: Response, maxBytes: number): Promise<Uint8A
   try {
     return await boundedBytes(response, maxBytes);
   } catch {
-    throw new GitSourceError('unavailable', "the repository's host stopped answering partway");
+    throw new GitSourceError('unavailable', 'GitHub stopped answering partway');
   }
 }
 
@@ -92,7 +92,7 @@ export async function fetchSourcePack(
   ]);
   const response = await sourceRequest(fetchGit, source, '/git-upload-pack', { body, timeoutMs: options.timeoutMs });
   if (!response.body) {
-    throw new GitSourceError('unavailable', "the repository's host sent no history");
+    throw new GitSourceError('unavailable', 'GitHub sent no history');
   }
   return demultiplexPack(response.body, options.maxBytes);
 }
@@ -136,7 +136,7 @@ function demultiplexPack(body: ReadableStream<Uint8Array>, maxBytes: number): So
             }
             const length = Number.parseInt(new TextDecoder().decode(buffer.subarray(0, 4)), 16);
             if (!Number.isFinite(length) || length === 3) {
-              fail(new GitSourceError('unavailable', "the repository's host answered with something other than git"));
+              fail(new GitSourceError('unavailable', "GitHub sent something CloudChef couldn't read"));
               return;
             }
             if (length < 4) {
@@ -145,7 +145,7 @@ function demultiplexPack(body: ReadableStream<Uint8Array>, maxBytes: number): So
                 if (inPack) {
                   controller.close();
                 } else {
-                  fail(new GitSourceError('unavailable', "the repository's host sent no history"));
+                  fail(new GitSourceError('unavailable', 'GitHub sent no history'));
                 }
                 return;
               }
@@ -160,7 +160,7 @@ function demultiplexPack(body: ReadableStream<Uint8Array>, maxBytes: number): So
             if (!inPack) {
               const line = text(payload);
               if (line.startsWith('ERR ')) {
-                fail(new GitSourceError('refused', `the repository's host refused: ${line.slice(4, 204)}`));
+                fail(new GitSourceError('refused', `GitHub refused: ${line.slice(4, 204)}`));
                 return;
               }
               inPack = line === 'packfile';
@@ -177,16 +177,11 @@ function demultiplexPack(body: ReadableStream<Uint8Array>, maxBytes: number): So
               return;
             }
             if (band === BAND_ERROR) {
-              fail(
-                new GitSourceError(
-                  'unavailable',
-                  `the repository's host stopped: ${text(payload.subarray(1)).slice(0, 200)}`,
-                ),
-              );
+              fail(new GitSourceError('unavailable', `GitHub stopped: ${text(payload.subarray(1)).slice(0, 200)}`));
               return;
             }
             if (band !== BAND_PROGRESS) {
-              fail(new GitSourceError('unavailable', "the repository's host answered with something other than git"));
+              fail(new GitSourceError('unavailable', "GitHub sent something CloudChef couldn't read"));
               return;
             }
           }
@@ -246,14 +241,14 @@ async function sourceRequest(
         event: 'project_import_source_unreachable',
         error: error instanceof Error ? error.name : 'error',
       });
-      throw new GitSourceError('unavailable', "the repository's host could not be reached");
+      throw new GitSourceError('unavailable', 'GitHub could not be reached');
     }
     const location = response.headers.get('location');
     if (response.status >= 300 && response.status < 400 && location) {
       await response.body?.cancel().catch(() => undefined);
       const next = new URL(location, url);
       if (next.origin !== origin || redirects >= MAX_REDIRECTS) {
-        throw new GitSourceError('refused', "the repository's address moves somewhere CloudChef does not follow");
+        throw new GitSourceError('refused', "GitHub sent it to an address CloudChef doesn't follow");
       }
       url = next.href;
       continue;
@@ -263,12 +258,12 @@ async function sourceRequest(
     }
     await response.body?.cancel().catch(() => undefined);
     if (response.status === 401 || response.status === 403) {
-      throw new GitSourceError('auth_required', `the repository's host refused access (HTTP ${response.status})`);
+      throw new GitSourceError('auth_required', 'GitHub refused access');
     }
     if (response.status === 404) {
       throw new GitSourceError('no_repository', 'the repository was not found');
     }
-    throw new GitSourceError('unavailable', `the repository's host answered HTTP ${response.status}`);
+    throw new GitSourceError('unavailable', `GitHub didn't answer properly (error ${response.status})`);
   }
 }
 

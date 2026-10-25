@@ -124,7 +124,7 @@ export function AllowedModelsSection({
           <div className="mt-3 grid justify-items-start gap-2">
             <p className="text-sm text-content-primary">{compatibleError}</p>
             <Button size="sm" variant="neutral" disabled={busy} onClick={onRetry}>
-              Retry
+              Try again
             </Button>
           </div>
         ) : (
