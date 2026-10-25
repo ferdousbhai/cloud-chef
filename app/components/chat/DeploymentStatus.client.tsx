@@ -19,10 +19,10 @@ const SENT_MESSAGES = {
 
 /**
  * An admin approves requests themselves, so theirs isn't "sent to your admins": it waits in Settings, under the
- * team's GitHub projects, where approving it creates the repository.
+ * team's projects, where approving it makes the draft a team project.
  */
 const ADMIN_SENT_MESSAGES = {
-  requested: "Added to your team's production requests. Approve it in Settings to create its repository.",
+  requested: "Added to your team's requests. Approve it in Settings to make it a team project.",
   updated: 'Updated your request: Settings now shows this version to approve.',
   unchanged: 'Settings already shows this version to approve.',
 } as const satisfies Record<ProductionRequestOutcome, string>;
@@ -58,7 +58,7 @@ export function DeploymentStatus({
     >
       {deployment.status === 'succeeded' ? (
         <p className="text-bolt-elements-icon-success">
-          Deployed.
+          Published.
           {deployment.productionUrl ? (
             <a className="ml-1 underline" href={deployment.productionUrl} target="_blank" rel="noreferrer">
               View app
@@ -75,13 +75,13 @@ export function DeploymentStatus({
       ) : null}
       {deployment.status === 'succeeded' ? null : deployment.status === 'failed' ? (
         <>
-          <h3 className="text-content-primary font-medium">Deployment failed</h3>
+          <h3 className="text-content-primary font-medium">Publishing failed</h3>
           {deployment.error ? <p className="text-bolt-elements-icon-error">{deployment.error}</p> : null}
           <RetryDeployment onRetry={onRetry} />
         </>
       ) : (
         <p className="text-content-secondary" role="status" aria-live="polite">
-          {stage ?? 'Deploying…'}
+          {stage ?? 'Publishing…'}
         </p>
       )}
     </section>
@@ -98,7 +98,7 @@ function RetryDeployment({ onRetry }: { onRetry: () => Promise<BuilderDeployment
     try {
       await onRetry();
     } catch (failure) {
-      setError(messageOf(failure, 'The deployment could not be started again.'));
+      setError(messageOf(failure, "Publishing couldn't be started again."));
     } finally {
       setRetrying(false);
     }
@@ -118,7 +118,7 @@ function RetryDeployment({ onRetry }: { onRetry: () => Promise<BuilderDeployment
 }
 
 /**
- * Sends a deployed draft to the organization's admins, who can make it a real project on GitHub. The
+ * Sends a deployed draft to the organization's admins, who can make it a team project. The
  * form opens in a dialog: in the composer's dock it pushed the composer off a short phone screen. Sent
  * again from the same chat, the draft replaces its request while it waits, so admins see the latest.
  */
@@ -162,19 +162,19 @@ function RequestProduction({
         </p>
       ) : null}
       <Button size="sm" variant="neutral" onClick={() => setOpen(true)}>
-        {sent ? 'Update request' : 'Request production'}
+        {sent ? 'Update request' : 'Make it a team project'}
       </Button>
       {open ? (
         <Modal
-          title="Request production"
+          title="Make it a team project"
           description={
             admin
               ? sent
                 ? 'Your request waiting in Settings is replaced with this version, unless approving it has started.'
-                : 'Make this app a real project: its own GitHub repository, deployed by its own pipeline. You approve it in Settings.'
+                : 'Make this app a team project, so you can share it with others on your team. You approve it in Settings.'
               : sent
                 ? 'Your request waiting for review is replaced with this version, unless an admin has started approving it.'
-                : 'Your admins can make this app a real project: its own GitHub repository, deployed by its own pipeline.'
+                : "Ask your team's admins to make this app a team project. Once they approve it, you can keep working on it and they can share it with others on your team."
           }
           onClose={close}
         >

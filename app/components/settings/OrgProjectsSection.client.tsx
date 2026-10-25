@@ -128,7 +128,7 @@ export function OrgProjectsSection({
         </span>
       </div>
       {productionRequests.length > 0 ? (
-        <ul className="grid gap-2" aria-label="Production requests">
+        <ul className="grid gap-2" aria-label="Team project requests">
           {productionRequests.map((pending) => (
             <ProductionRequestRow
               key={pending.id}
@@ -258,7 +258,7 @@ function projectSource(project: OrgProject): string | null {
 function WorkersBuildsInstruction() {
   return (
     <p className="text-xs text-content-secondary">
-      To deploy it, connect its repository in{' '}
+      To put it live, connect it in{' '}
       <a className="underline" href={WORKERS_BUILDS_CREATE_URL} target="_blank" rel="noopener noreferrer">
         Workers Builds
       </a>
@@ -292,7 +292,9 @@ function ProductionRequestRow({
         approvedSchema,
       );
       onFeedback(
-        noteFeedback(`Approved ${pending.title}. It's a team project now; connect it to Workers Builds to deploy it.`),
+        noteFeedback(
+          `Approved ${pending.title}. It's a team project now. To put it live, connect it in Workers Builds.`,
+        ),
       );
       await onChanged();
     }, onError);
@@ -311,7 +313,7 @@ function ProductionRequestRow({
   return (
     <li className="grid min-w-0 gap-1.5 rounded-md border border-accent-500/40 bg-bolt-elements-background-depth-2 p-3 [overflow-wrap:anywhere]">
       <span className="flex min-w-0 flex-wrap items-center gap-2">
-        <StatusBadge tone="warning">Production request</StatusBadge>
+        <StatusBadge tone="warning">Team project request</StatusBadge>
         <strong className="min-w-0">{pending.title}</strong>
         <span className="text-xs text-content-tertiary">
           from {pending.requesterName || pending.requesterEmail}
@@ -383,7 +385,7 @@ export function MyOrgProjects({
         </p>
       ) : null}
       {requests.length > 0 ? (
-        <ul className="mt-2 grid gap-1.5 text-sm [overflow-wrap:anywhere]" aria-label="Your production requests">
+        <ul className="mt-2 grid gap-1.5 text-sm [overflow-wrap:anywhere]" aria-label="Your team project requests">
           {requests.map((request) => (
             <li key={request.id} className="flex min-w-0 flex-wrap items-center gap-2">
               <span className="min-w-0">{request.title}</span>

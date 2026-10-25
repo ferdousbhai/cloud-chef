@@ -236,7 +236,7 @@ function ImportedProject({
         ),
       );
     } catch (cause) {
-      setError(messageOf(cause, 'Workers Builds could not be changed. Try again.'));
+      setError(messageOf(cause, "That couldn't be changed. Try again."));
     } finally {
       setSwitching(false);
     }
@@ -249,8 +249,8 @@ function ImportedProject({
         {answer === null ? (
           <>
             <p>
-              Workers Builds deploys this site from GitHub. Build it from the project&apos;s repository instead, so the
-              commits made here go live.
+              This site still goes live from GitHub. Switch it to go live from CloudChef, so the changes you publish
+              here reach it.
             </p>
             <Button
               className="justify-self-start"
@@ -259,11 +259,11 @@ function ImportedProject({
               loading={switching}
               onClick={() => void switchBuilds()}
             >
-              Build from Artifacts instead of GitHub
+              Go live from CloudChef
             </Button>
           </>
         ) : 'switched' in answer ? (
-          <p role="status">Workers Builds now builds this site from the project&apos;s repository.</p>
+          <p role="status">This site now goes live from CloudChef.</p>
         ) : (
           <p role="status" className="[overflow-wrap:anywhere]">
             {answer.instruction}{' '}

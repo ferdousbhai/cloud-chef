@@ -193,7 +193,7 @@ export function AccountDataCard() {
             <p className="mt-1">
               Your identity and email and your AI request logs setting; your own Cloudflare connection (its permissions
               and default model) and when its authorization was stored; your workspaces; your teams, the invites sent to
-              you, your model use there, and the team projects you were given; your production requests, with a
+              you, your model use there, and the team projects you were given; your team project requests, with a
               draft&apos;s source until it is decided; GitHub connections and approvals you started; emailed sign-in
               links; and sign-in and authorization session records. Credentials, credential handles, encryption vectors,
               session tokens, and the hashes links and invites are checked against are excluded.

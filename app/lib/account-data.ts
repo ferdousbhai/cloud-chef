@@ -19,7 +19,7 @@ export const ACCOUNT_EXPORT_SECTION_LABELS = {
   organizationQuotaEvents: 'the invites you sent and teams you created, as counted toward their limits',
   organizationUsage: 'your model use in teams',
   organizationProjects: 'your projects, and the team projects you were given',
-  productionRequests: 'your production requests',
+  productionRequests: 'your team project requests',
   githubConnections: 'your GitHub connections in progress',
   emailSignInLinks: 'your emailed sign-in links',
   authSessions: 'your sign-in sessions',

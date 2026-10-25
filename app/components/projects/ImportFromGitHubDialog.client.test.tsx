@@ -136,10 +136,10 @@ describe('ImportFromGitHubDialog', () => {
 
     await typeAddress('github.com/acme/storefront');
     await submit();
-    await vi.waitFor(() => expect(buttonWithText('Build from Artifacts instead of GitHub')).toBeDefined());
+    await vi.waitFor(() => expect(buttonWithText('Go live from CloudChef')).toBeDefined());
     expect(onOpenProject).not.toHaveBeenCalled();
 
-    await act(async () => buttonWithText('Build from Artifacts instead of GitHub')?.click());
+    await act(async () => buttonWithText('Go live from CloudChef')?.click());
 
     await vi.waitFor(() => expect(document.body.textContent).toContain('Connect the repository in the dashboard.'));
     expect(document.querySelector('a[href="https://dash.cloudflare.com/"]')).not.toBeNull();

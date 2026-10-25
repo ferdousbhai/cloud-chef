@@ -798,7 +798,7 @@ function DeleteTeam({
         {intro ? <p className="text-content-primary">{intro}</p> : null}
         <p>
           Everyone&apos;s workspace in its Cloudflare account, with their chats and project files there, is deleted. Its
-          members, invites, projects, production requests and usage are removed from CloudChef, and CloudChef&apos;s
+          members, invites, projects, team project requests and usage are removed from CloudChef, and CloudChef&apos;s
           access to the account is revoked. This can&apos;t be undone.
         </p>
         <p>
