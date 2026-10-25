@@ -3,6 +3,7 @@ import {
   ensureProjectRepository,
   openProject,
   ProjectAccessError,
+  ProjectRefusalError,
   registerProjectImport,
 } from '~/lib/.server/cloudflare/linked-project-client';
 import {
@@ -184,11 +185,23 @@ export async function importProject(
       ?.replace(/\.git$/, '') ??
     'project';
   const registered = await registerProjectImport(env, identity, { url: args.url, name });
-  await ensureProjectRepository(env, identity, repositories(env), {
-    orgProjectId: registered.projectId,
-    repo: null,
-    importSource: registered.importSource ?? { url: args.url },
-  });
+  try {
+    await ensureProjectRepository(env, identity, repositories(env), {
+      orgProjectId: registered.projectId,
+      repo: null,
+      importSource: registered.importSource,
+    });
+  } catch (error) {
+    // The project is registered already, so importing the address again is refused: opening the project
+    // is what finishes its copy.
+    if (error instanceof ProjectRepositoryError && error.code === 'unavailable') {
+      throw new ProjectRepositoryFailureError(
+        `${error.message.replace(/ Try again\.$/, '')} The project was added: open it from your projects to finish copying it.`,
+        503,
+      );
+    }
+    throw error;
+  }
   const { initialId } = await openLinkedChat(env.DB, {
     sessionId: args.sessionId,
     id: crypto.randomUUID(),
@@ -261,6 +274,9 @@ export async function withRepositoryErrors<T>(operation: Promise<T>): Promise<T>
   try {
     return await operation;
   } catch (error) {
+    if (error instanceof ProjectRefusalError) {
+      throw new ProjectRepositoryFailureError(error.message, 409);
+    }
     if (!(error instanceof ProjectRepositoryError)) {
       throw error;
     }

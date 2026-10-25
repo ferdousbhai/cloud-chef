@@ -133,7 +133,8 @@ describe('BuilderAgent runtime activity', () => {
 
   it('a chat turn is recorded busy and waits out an upgrade window before any model work', async () => {
     const asked: string[] = [];
-    // The first thing a turn does after admission is ask the control plane for model access.
+    // Before admission a turn asks which models the account allows; the first thing it does after
+    // admission is ask the control plane for model access.
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       asked.push(String(input instanceof Request ? input.url : input));
       return new Response('unavailable', { status: 503 });
@@ -158,11 +159,12 @@ describe('BuilderAgent runtime activity', () => {
     expect(harness.agent.state.activeTurn).toMatchObject({ status: 'accepted' });
     // The browser shows that the workspace is upgrading.
     expect(harness.agent.state.upgradeWaiting).toBe(true);
-    expect(asked).toEqual([]);
+    // Only the check of which models the account allows, made before the turn is admitted.
+    expect(asked).toEqual([`${CONTROL_PLANE}/api/cloudflare/runtime-models`]);
 
     harness.closeUpgradeWindow();
-    await eventually(() => asked.length > 0);
-    expect(asked[0]).toContain('/api/cloudflare/runtime-access');
+    await eventually(() => asked.length > 1);
+    expect(asked[1]).toContain('/api/cloudflare/runtime-access');
     expect(harness.agent.state.upgradeWaiting).toBe(false);
     await Promise.resolve(turn).catch(() => undefined);
   });
@@ -198,9 +200,12 @@ describe('BuilderAgent runtime activity', () => {
     await expect(turn).rejects.toThrow('Cancelled by the project owner');
     expect(harness.agent.state.activeTurn).toBeNull();
     expect(harness.agent.state.upgradeWaiting).toBe(false);
-    expect(asked).toEqual([]);
+    // Nothing past the check of which models the account allows.
+    expect(asked).toEqual([`${CONTROL_PLANE}/api/cloudflare/runtime-models`]);
   });
 });
+
+const CONTROL_PLANE = 'https://control-plane.test';
 
 const READY_STATE = {
   initialized: true,

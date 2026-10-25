@@ -7,17 +7,21 @@ import { authClient, createCloudflareReturnURL, signInWithCloudflare } from '~/l
 import {
   builderModelCatalogStatusStore,
   builderModelsStore,
+  fetchCompatibleBuilderModels,
   loadBuilderModelCatalog,
   reloadBuilderModelCatalog,
 } from '~/lib/stores/builder-model.client';
 import {
   CLOUDFLARE_WORKERS_AI_MODEL,
+  isBuilderModelAllowed,
+  type BuilderModel,
   GATEWAY_PROVIDERS,
   GATEWAY_PROVIDER_SLUGS,
   gatewayModelProvider,
   isBuilderModelId,
   type GatewayProviderSlug,
 } from '~/lib/workers-ai-model';
+import { AllowedModelsSection } from './AllowedModelsSection.client';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
 import { SettingsCard, StatusBadge } from './SettingsLayout';
 import { getJson, messageOf, postJson } from '~/lib/json-request';
@@ -33,9 +37,13 @@ const keysSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('unknown') }),
 ]);
 
-const settingsSchema = z.object({
-  canManage: z.boolean(),
+const modelChoicesSchema = z.object({
   defaultModelId: z.string().nullable(),
+  allowedModelIds: z.array(z.string()).nullable(),
+});
+
+const settingsSchema = modelChoicesSchema.extend({
+  canManage: z.boolean(),
   keys: keysSchema,
 });
 
@@ -45,7 +53,6 @@ const linkResponseSchema = z.object({
   authenticationTurnedOn: z.boolean(),
   previousKeysRemain: z.boolean().catch(false),
 });
-const defaultResponseSchema = z.object({ defaultModelId: z.string().nullable() });
 
 type Settings = z.infer<typeof settingsSchema>;
 type ProviderKey = z.infer<typeof providerKeySchema>;
@@ -75,8 +82,22 @@ export function ModelsCard() {
   const { data: session } = authClient.useSession();
   const accountLabel = workspaceLabel(session?.context ?? null);
 
+  const [compatibleModels, setCompatibleModels] = useState<BuilderModel[] | null>(null);
+  const [compatibleError, setCompatibleError] = useState<string | null>(null);
+
   const refresh = useCallback(async () => {
     setSettings(await getJson(PATH, settingsSchema));
+  }, []);
+
+  /** Every model the account could offer, which follows the provider keys it has. */
+  const refreshCompatible = useCallback(async () => {
+    setCompatibleError(null);
+    try {
+      setCompatibleModels(await fetchCompatibleBuilderModels());
+    } catch (failure) {
+      setCompatibleModels(null);
+      setCompatibleError(messageOf(failure, 'The account’s models could not be listed just now.'));
+    }
   }, []);
 
   useEffect(() => {
@@ -84,7 +105,8 @@ export function ModelsCard() {
       setFeedback(errorFeedback(messageOf(failure, 'Unable to load models.')));
     });
     void loadBuilderModelCatalog();
-  }, [refresh]);
+    void refreshCompatible();
+  }, [refresh, refreshCompatible]);
 
   /** Runs one change and says how it went (a null note says nothing); true when it went through. */
   const act = async (operation: () => Promise<string | null>, { refreshOnFailure = false } = {}): Promise<boolean> => {
@@ -122,6 +144,7 @@ export function ModelsCard() {
         );
         setSettings((current) => (current ? { ...current, keys } : current));
         void reloadBuilderModelCatalog();
+        void refreshCompatible();
         return [
           `${GATEWAY_PROVIDERS[provider].label} is linked. Its models appear in the model picker within a minute.`,
           ...(previousKeysRemain ? [PREVIOUS_KEYS_REMAIN_NOTE] : []),
@@ -137,6 +160,7 @@ export function ModelsCard() {
         const { keys } = await postJson(`${PATH}/keys/unlink`, { provider }, keysResponseSchema);
         setSettings((current) => (current ? { ...current, keys } : current));
         void reloadBuilderModelCatalog();
+        void refreshCompatible();
         return `CloudChef’s ${GATEWAY_PROVIDERS[provider].label} key is removed, and deleted from your Secrets Store.`;
       },
       { refreshOnFailure: true },
@@ -144,15 +168,26 @@ export function ModelsCard() {
 
   const chooseDefault = (value: string) =>
     act(async () => {
-      const { defaultModelId } = await postJson(
+      const choices = await postJson(
         `${PATH}/default`,
         { modelId: value === CLOUDCHEF_DEFAULT ? null : value },
-        defaultResponseSchema,
+        modelChoicesSchema,
       );
-      setSettings((current) => (current ? { ...current, defaultModelId } : current));
+      setSettings((current) => (current ? { ...current, ...choices } : current));
       // The catalog names the default, and new chats in this browser start on the one it names.
       void reloadBuilderModelCatalog();
       return 'Saved. New chats start on this model; anyone can still switch.';
+    });
+
+  const chooseAllowed = (modelIds: string[] | null) =>
+    act(async () => {
+      const choices = await postJson(`${PATH}/allowed`, { modelIds }, modelChoicesSchema);
+      setSettings((current) => (current ? { ...current, ...choices } : current));
+      // The picker's catalog lists only the allowed models.
+      void reloadBuilderModelCatalog();
+      return modelIds === null
+        ? 'Saved. The model picker offers every compatible model, including ones added later.'
+        : `Saved. The model picker offers ${modelIds.length === 1 ? 'this 1 model' : `these ${modelIds.length} models`}; open chats switch within a minute.`;
     });
 
   // The chosen default may be a model the account no longer offers (its key removed since): still shown.
@@ -190,7 +225,12 @@ export function ModelsCard() {
               disabled={!settings.canManage || busy}
               onChange={(event) => void chooseDefault(event.target.value)}
             >
-              <option value={CLOUDCHEF_DEFAULT}>CloudChef’s default ({CLOUDFLARE_WORKERS_AI_MODEL})</option>
+              <option
+                value={CLOUDCHEF_DEFAULT}
+                disabled={!isBuilderModelAllowed(settings, CLOUDFLARE_WORKERS_AI_MODEL)}
+              >
+                CloudChef’s default ({CLOUDFLARE_WORKERS_AI_MODEL})
+              </option>
               {choices.map((model) => {
                 const provider = isBuilderModelId(model.id) ? gatewayModelProvider(model.id) : null;
                 return (
@@ -211,6 +251,17 @@ export function ModelsCard() {
                     : 'Chosen by this team’s admins. You can switch in the builder.'}
             </p>
           </div>
+
+          <AllowedModelsSection
+            allowedModelIds={settings.allowedModelIds}
+            defaultModelId={settings.defaultModelId}
+            compatibleModels={compatibleModels}
+            compatibleError={compatibleError}
+            canManage={settings.canManage}
+            busy={busy}
+            onSave={chooseAllowed}
+            onRetry={() => void refreshCompatible()}
+          />
 
           <h3 className="mt-6 text-sm font-medium text-content-primary">Provider keys</h3>
           <p className="mt-1 text-xs text-content-tertiary">

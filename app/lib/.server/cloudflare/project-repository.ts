@@ -534,12 +534,12 @@ export class ProjectRepositories {
   async importFromUrl(args: {
     url: string;
     authorization?: string | null;
-    branch?: string | null;
+    branch: string;
     repo: string;
   }): Promise<{ commit: string }> {
     if (!(await this.#holdsHistory(args.repo))) {
       try {
-        await this.#copyHistory({ ...args, authorization: args.authorization ?? null, branch: args.branch ?? null });
+        await this.#copyHistory({ ...args, authorization: args.authorization ?? null });
       } catch (error) {
         throw error instanceof GitSourceError ? importError(error, Boolean(args.authorization)) : error;
       }
@@ -552,12 +552,7 @@ export class ProjectRepositories {
   }
 
   /** Streams the source branch's history into `repo` as main, which must not be there yet. */
-  async #copyHistory(args: {
-    url: string;
-    authorization: string | null;
-    branch: string | null;
-    repo: string;
-  }): Promise<void> {
+  async #copyHistory(args: { url: string; authorization: string | null; branch: string; repo: string }): Promise<void> {
     const source: GitSource = { url: args.url, authorization: args.authorization };
     const head = await readSourceBranch(this.#fetch, source, args.branch);
     const remote = await this.#pushRemote(args.repo, IMPORT_TOKEN_TTL_SECONDS);
@@ -587,8 +582,10 @@ export class ProjectRepositories {
       }
       // Another member's import of the same project that got there first is as good as this one.
       if (!result.ok && !(await this.#holdsHistory(args.repo))) {
+        // Git's own reason is for the logs; the person gets words.
+        console.warn({ event: 'project_import_refused', reason: result.reason.slice(0, 200) });
         throw new ProjectRepositoryError(
-          `Cloudflare Artifacts did not keep the imported history (${result.reason.slice(0, 200)}). Try again.`,
+          'Cloudflare did not accept the copied history, so nothing was imported. Try again.',
           'unavailable',
         );
       }

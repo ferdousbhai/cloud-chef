@@ -109,7 +109,7 @@ export async function runtimeOpenProjectAction(args: {
 type ImportSource = { url: string; branch: string; authorization: string | null };
 
 /** A GitHub import the runtime registered: the new project, and where to import it from when it has a source. */
-type RegisteredImport = { projectId: string; importSource?: ImportSource; workersBuildsFromGitHub: boolean };
+type RegisteredImport = { projectId: string; importSource: ImportSource; workersBuildsFromGitHub: boolean };
 
 /**
  * Where a project still to be imported comes from: its GitHub address, and for a private repository a fresh
@@ -143,7 +143,7 @@ async function importSourceFor(
     const token = await app.installationToken(installation.installationId, { contents: 'read' }, [source.repoId]);
     return { url, branch: source.branch, authorization: `Basic ${btoa(`x-access-token:${token}`)}` };
   } catch (error) {
-    if (error instanceof GitHubError) {
+    if (error instanceof GitHubError && [401, 403, 404, 422].includes(error.status)) {
       return json(
         {
           code: 'github_refused',
@@ -154,6 +154,10 @@ async function importSourceFor(
         },
         502,
       );
+    }
+    if (error instanceof GitHubError) {
+      // An outage or a rate limit, not a refusal: answered without a code, so the workspace tries again.
+      return json({ error: 'GitHub could not be reached just now. Try again in a moment.' }, 503);
     }
     throw error;
   }
@@ -202,14 +206,14 @@ export async function runtimeRegisterImportAction(args: {
     if (importSource instanceof Response) {
       return importSource;
     }
-    // A project with no source (none yet) is imported from nowhere: the runtime is told only its id.
+    if (!importSource) {
+      throw new Error('A registered import has no source to import from.');
+    }
     const answer: RegisteredImport = {
       projectId: project.id,
+      importSource,
       workersBuildsFromGitHub: await buildsFromGitHub(args.env, connection, project),
     };
-    if (importSource) {
-      answer.importSource = importSource;
-    }
     return json(answer, 201);
   });
 }

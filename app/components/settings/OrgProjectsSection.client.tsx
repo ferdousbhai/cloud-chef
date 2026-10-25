@@ -126,6 +126,9 @@ export function OrgProjectsSection({
           </MoreMenu>
         </span>
       </div>
+      {workingHere ? null : (
+        <p className="text-xs text-content-tertiary">To import a project from GitHub, open this team first.</p>
+      )}
       {productionRequests.length > 0 ? (
         <ul className="grid gap-2" aria-label="Team project requests">
           {productionRequests.map((pending) => (

@@ -7,7 +7,12 @@ import {
   type RuntimeConnectionIdentity,
 } from './cloudflare-api-runtime-identity';
 import type { ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
-import { gatewayKeysSchema, NO_ACCOUNT_MODEL_SETTINGS, type AccountModelSettings } from '~/lib/workers-ai-model';
+import {
+  gatewayKeysSchema,
+  MAX_BUILDER_CATALOG_MODELS,
+  NO_ACCOUNT_MODEL_SETTINGS,
+  type AccountModelSettings,
+} from '~/lib/workers-ai-model';
 import { runtimeIdentityHeaders } from './runtime-identity-headers';
 import { CLOUDCHEF_CONTROL_PLANE_ENDPOINT } from './user-workspace-runtime-policy';
 
@@ -162,36 +167,45 @@ export async function modelRequestAccess(
   };
 }
 
+/** Room for an allowlist of every model the catalog can hold. */
+const MAX_ACCOUNT_MODEL_SETTINGS_RESPONSE_BYTES = 256 * 1024;
+
 const accountModelSettingsSchema = z.object({
   defaultModelId: z.string().min(1).max(256).nullable().catch(null),
   gatewayKeys: gatewayKeysSchema.catch([]),
+  // No fallback for a malformed list: it is not read as "every model allowed".
+  allowedModelIds: z.array(z.string().min(1).max(256)).max(MAX_BUILDER_CATALOG_MODELS).nullable(),
 });
 
 /**
- * The account's model settings, asked by the runtime for the picker's catalog and before a gateway
- * provider's turn: the default its admin chose, and the provider keys its default AI Gateway holds.
- * Anything unlearnable (no runtime identity, an unreachable control plane, a refusal) reads as no
- * chosen default and no keys: a provider's model runs only with a key the control plane confirmed.
+ * The account's model settings, asked by the runtime for the picker's catalog and before every turn:
+ * the default its admin chose, the provider keys its default AI Gateway holds, and the models its
+ * admin allows. When they cannot be learned (no runtime identity, an unreachable control plane, a
+ * refusal, an answer it cannot read), a team's account reads as null: what its admins allow is
+ * unknown, so callers fail closed. A person's own account, whose only admin is that person, reads
+ * as nothing chosen and no keys, as `modelRequestAccess` lets it build without the control plane:
+ * Workers AI models run, and a provider's model only with a key the control plane confirmed.
  */
 export async function readAccountModelSettings(
   env: RuntimeCredentialEnv & CloudflareApiRuntimeEnv,
-): Promise<AccountModelSettings> {
+): Promise<AccountModelSettings | null> {
+  const unlearned = env.CLOUDCHEF_SHARED_ACCOUNT === '1' ? null : NO_ACCOUNT_MODEL_SETTINGS;
   const identity = runtimeConnectionIdentity(env);
   if (!identity) {
-    return NO_ACCOUNT_MODEL_SETTINGS;
+    return unlearned;
   }
   try {
     const response = await postRuntimeRoute(env, identity, 'runtime-models');
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
-      return NO_ACCOUNT_MODEL_SETTINGS;
+      return unlearned;
     }
     const parsed = accountModelSettingsSchema.safeParse(
-      await readJsonBodyWithLimit(response, MAX_RUNTIME_CREDENTIAL_RESPONSE_BYTES, 'Account model settings'),
+      await readJsonBodyWithLimit(response, MAX_ACCOUNT_MODEL_SETTINGS_RESPONSE_BYTES, 'Account model settings'),
     );
-    return parsed.success ? parsed.data : NO_ACCOUNT_MODEL_SETTINGS;
+    return parsed.success ? parsed.data : unlearned;
   } catch {
-    return NO_ACCOUNT_MODEL_SETTINGS;
+    return unlearned;
   }
 }
 

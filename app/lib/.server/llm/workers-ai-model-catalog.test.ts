@@ -2,15 +2,20 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   builderModelCatalogPayloadSchema,
   CLOUDFLARE_WORKERS_AI_MODEL,
+  compatibleBuilderModelsPayloadSchema,
   DEFAULT_WORKERS_AI_MODEL,
   GATEWAY_PROVIDER_SLUGS,
   gatewayModelProvider,
   NO_ACCOUNT_MODEL_SETTINGS,
   validateBuilderModelCatalogPayload,
+  type AccountModelSettings,
   type GatewayKey,
 } from '~/lib/workers-ai-model';
 import {
   builderModelCatalogPayload,
+  builderModelCatalogResponse,
+  compatibleBuilderModels,
+  NoAllowedBuilderModelError,
   readWorkersAiBuilderModelCatalog,
   requireBuilderModel,
   requireBuilderReasoningLevel,
@@ -206,6 +211,7 @@ describe('the builder catalog an account is offered', () => {
       { provider: 'grok', alias: 'default', revision: 'key@1' },
     ];
     const linked = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro], {
+      ...NO_ACCOUNT_MODEL_SETTINGS,
       defaultModelId: null,
       gatewayKeys: keys,
     });
@@ -233,7 +239,10 @@ describe('the builder catalog an account is offered', () => {
 
   it('offers every provider at once in a catalog the browser accepts', () => {
     const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'default', revision: 'key@1' }));
-    const all = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], { defaultModelId: null, gatewayKeys: everyKey });
+    const all = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], {
+      ...NO_ACCOUNT_MODEL_SETTINGS,
+      gatewayKeys: everyKey,
+    });
 
     expect(new Set(all.models.map(({ id }) => gatewayModelProvider(id)))).toEqual(
       new Set([null, ...GATEWAY_PROVIDER_SLUGS]),
@@ -247,6 +256,7 @@ describe('the builder catalog an account is offered', () => {
   it('offers no batch-only variant, model router, audio or image model, search-only model, or classifier', () => {
     const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'default', revision: 'key@1' }));
     const ids = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], {
+      ...NO_ACCOUNT_MODEL_SETTINGS,
       defaultModelId: null,
       gatewayKeys: everyKey,
     }).models.map(({ id }) => id);
@@ -271,6 +281,7 @@ describe('the builder catalog an account is offered', () => {
   it("offers each reasoning model the efforts Pi lists for it, never off, and none to a model that doesn't reason", () => {
     const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'default', revision: 'key@1' }));
     const { models } = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], {
+      ...NO_ACCOUNT_MODEL_SETTINGS,
       defaultModelId: null,
       gatewayKeys: everyKey,
     });
@@ -301,6 +312,7 @@ describe('the builder catalog an account is offered', () => {
 
   it("defaults to the model the account's admin chose while it is offered, and to the pin otherwise", () => {
     const chosen = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro], {
+      ...NO_ACCOUNT_MODEL_SETTINGS,
       defaultModelId: pro.id,
       gatewayKeys: [],
     });
@@ -308,6 +320,7 @@ describe('the builder catalog an account is offered', () => {
     expect(chosen.models[0]?.id).toBe(pro.id);
 
     const claudeChosen = {
+      ...NO_ACCOUNT_MODEL_SETTINGS,
       defaultModelId: 'anthropic/claude-opus-5-5',
       gatewayKeys: [{ provider: 'anthropic' as const, alias: 'default', revision: 'key@1' }],
     };
@@ -319,17 +332,22 @@ describe('the builder catalog an account is offered', () => {
       defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
     });
     expect(
-      builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], { defaultModelId: '@cf/example/gone', gatewayKeys: [] })
-        .defaultModelId,
+      builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], {
+        ...NO_ACCOUNT_MODEL_SETTINGS,
+        defaultModelId: '@cf/example/gone',
+      }).defaultModelId,
     ).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
   });
 
   it("runs a provider's turn only on a model Pi lists, only while its key is there, with that key's alias", async () => {
     const binding = { models: vi.fn(async () => [model(CLOUDFLARE_WORKERS_AI_MODEL)]) };
-    const linked = vi.fn(async (): Promise<GatewayKey[]> => [
-      { provider: 'openai', alias: 'default', revision: 'key@1' },
-      { provider: 'anthropic', alias: 'sg', revision: 'config-sg@2026-10-01' },
-    ]);
+    const linked = vi.fn(async (): Promise<AccountModelSettings> => ({
+      ...NO_ACCOUNT_MODEL_SETTINGS,
+      gatewayKeys: [
+        { provider: 'openai', alias: 'default', revision: 'key@1' },
+        { provider: 'anthropic', alias: 'sg', revision: 'config-sg@2026-10-01' },
+      ],
+    }));
 
     await expect(requireBuilderModel(binding, 'anthropic/claude-opus-5-5', linked)).resolves.toEqual({
       model: expect.objectContaining({ id: 'anthropic/claude-opus-5-5' }),
@@ -343,21 +361,173 @@ describe('the builder catalog an account is offered', () => {
     await expect(requireBuilderModel(binding, 'openrouter/openai/gpt-5', linked)).rejects.toMatchObject({
       status: 409,
     });
-    // A lookup that failed is a check that could not be made — retryable, and still no request sent —
-    // not a key the admin has to link.
-    const unchecked = requireBuilderModel(binding, 'anthropic/claude-opus-5-5', async () =>
-      Promise.reject(new Error('unreachable')),
-    );
-    await expect(unchecked).rejects.toMatchObject({ status: 503 });
-    await expect(unchecked.catch((response: Response) => response.text())).resolves.toContain('could not check');
     await expect(requireBuilderModel(binding, 'anthropic/claude-imaginary-9', linked)).rejects.toMatchObject({
       status: 400,
     });
-    // A Workers AI turn never asks about the keys.
-    linked.mockClear();
     await expect(requireBuilderModel(binding, CLOUDFLARE_WORKERS_AI_MODEL, linked)).resolves.toEqual({
       model: expect.objectContaining({ id: CLOUDFLARE_WORKERS_AI_MODEL }),
     });
-    expect(linked).not.toHaveBeenCalled();
+  });
+
+  it('runs no turn, on any model, while what the account allows cannot be learned', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const binding = { models: vi.fn(async () => [model(CLOUDFLARE_WORKERS_AI_MODEL)]) };
+    // Unlearnable (the control plane unreachable or refusing), or a lookup that threw: a check that
+    // could not be made — retryable — and no request sent.
+    for (const unknown of [async () => null, async () => Promise.reject(new Error('unreachable'))]) {
+      for (const modelId of [CLOUDFLARE_WORKERS_AI_MODEL, 'anthropic/claude-opus-5-5'] as const) {
+        const unchecked = requireBuilderModel(binding, modelId, unknown);
+        await expect(unchecked).rejects.toMatchObject({ status: 503 });
+        await expect(unchecked.catch((response: Response) => response.text())).resolves.toContain('could not check');
+      }
+    }
+    expect(binding.models).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("refuses a turn on a model the account's admin doesn't allow, naming it, before asking Cloudflare", async () => {
+    const binding = {
+      models: vi.fn(async () => [model(CLOUDFLARE_WORKERS_AI_MODEL), model('@cf/deepseek-ai/deepseek-v4-pro-0813')]),
+    };
+    const settings = async (): Promise<AccountModelSettings> => ({
+      ...NO_ACCOUNT_MODEL_SETTINGS,
+      gatewayKeys: [{ provider: 'anthropic', alias: 'default', revision: 'key@1' }],
+      allowedModelIds: [CLOUDFLARE_WORKERS_AI_MODEL, 'anthropic/claude-opus-5-5'],
+    });
+
+    await expect(requireBuilderModel(binding, 'anthropic/claude-opus-5-5', settings)).resolves.toMatchObject({
+      model: { id: 'anthropic/claude-opus-5-5' },
+    });
+    await expect(requireBuilderModel(binding, CLOUDFLARE_WORKERS_AI_MODEL, settings)).resolves.toMatchObject({
+      model: { id: CLOUDFLARE_WORKERS_AI_MODEL },
+    });
+    binding.models.mockClear();
+    // Compatible, and its key is there, but left out by the admin: refused, not swapped for another.
+    const fable = requireBuilderModel(binding, 'anthropic/claude-fable-5', settings);
+    await expect(fable).rejects.toMatchObject({ status: 403 });
+    await expect(fable.catch((response: Response) => response.text())).resolves.toMatch(
+      /^Claude Fable 5 isn't allowed in this account\. Choose another model in the model picker/,
+    );
+    const pro = requireBuilderModel(binding, '@cf/deepseek-ai/deepseek-v4-pro-0813', settings);
+    await expect(pro).rejects.toMatchObject({ status: 403 });
+    await expect(pro.catch((response: Response) => response.text())).resolves.toContain('DeepSeek V4 Pro 0813');
+    expect(binding.models).not.toHaveBeenCalled();
+    // An empty list allows nothing, the pinned model included.
+    await expect(
+      requireBuilderModel(binding, CLOUDFLARE_WORKERS_AI_MODEL, async () => ({
+        ...NO_ACCOUNT_MODEL_SETTINGS,
+        allowedModelIds: [],
+      })),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('replaces a retired pin only with a model the admin allows', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const binding = {
+      models: vi.fn(async () => [model('@cf/openai/gpt-oss-120b'), model('@cf/deepseek-ai/deepseek-v4-pro-0813')]),
+    };
+    const allowing = (allowedModelIds: string[]) => async () => ({ ...NO_ACCOUNT_MODEL_SETTINGS, allowedModelIds });
+
+    await expect(
+      requireBuilderModel(
+        binding,
+        CLOUDFLARE_WORKERS_AI_MODEL,
+        allowing([CLOUDFLARE_WORKERS_AI_MODEL, '@cf/deepseek-ai/deepseek-v4-pro-0813']),
+      ),
+    ).resolves.toMatchObject({ model: { id: '@cf/deepseek-ai/deepseek-v4-pro-0813' } });
+    await expect(
+      requireBuilderModel(binding, CLOUDFLARE_WORKERS_AI_MODEL, allowing([CLOUDFLARE_WORKERS_AI_MODEL])),
+    ).rejects.toMatchObject({ status: 409 });
+    warn.mockRestore();
+  });
+});
+
+describe("the models an account's admin allows", () => {
+  const pro = { ...DEFAULT_WORKERS_AI_MODEL, id: '@cf/deepseek-ai/deepseek-v4-pro-0813' as const, label: 'Pro' };
+  const oss = { ...DEFAULT_WORKERS_AI_MODEL, id: '@cf/openai/gpt-oss-120b' as const, label: 'GPT OSS' };
+  const anthropicKey: GatewayKey[] = [{ provider: 'anthropic', alias: 'default', revision: 'key@1' }];
+
+  it('offers every compatible model while the admin has chosen none', () => {
+    const settings = { ...NO_ACCOUNT_MODEL_SETTINGS, gatewayKeys: anthropicKey };
+    const { models } = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro, oss], settings);
+    expect(models.map(({ id }) => id)).toEqual(
+      compatibleBuilderModels([DEFAULT_WORKERS_AI_MODEL, pro, oss], anthropicKey).map(({ id }) => id),
+    );
+    expect(models.map(({ id }) => id)).toContain('anthropic/claude-fable-5');
+  });
+
+  it('lists only the allowed models, so one added later is not offered until allowed', () => {
+    const settings = {
+      ...NO_ACCOUNT_MODEL_SETTINGS,
+      gatewayKeys: anthropicKey,
+      allowedModelIds: [CLOUDFLARE_WORKERS_AI_MODEL, 'anthropic/claude-opus-5-5', '@cf/example/retired'],
+    };
+    const before = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro], settings);
+    expect(before).toEqual({
+      defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
+      models: [DEFAULT_WORKERS_AI_MODEL, expect.objectContaining({ id: 'anthropic/claude-opus-5-5' })],
+    });
+    // Cloudflare publishes another model: still not offered.
+    const after = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro, oss], settings);
+    expect(after.models.map(({ id }) => id)).toEqual([CLOUDFLARE_WORKERS_AI_MODEL, 'anthropic/claude-opus-5-5']);
+    expect(validateBuilderModelCatalogPayload(builderModelCatalogPayloadSchema.parse(after))).toEqual(after);
+  });
+
+  it("keeps the admin's default first, and otherwise falls to an allowed model", () => {
+    const chosen = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro], {
+      ...NO_ACCOUNT_MODEL_SETTINGS,
+      gatewayKeys: anthropicKey,
+      defaultModelId: 'anthropic/claude-opus-5-5',
+      allowedModelIds: ['anthropic/claude-opus-5-5', pro.id],
+    });
+    expect(chosen.defaultModelId).toBe('anthropic/claude-opus-5-5');
+    expect(chosen.models.map(({ id }) => id)).toEqual(['anthropic/claude-opus-5-5', pro.id]);
+
+    // The default's key was removed since, and the pin isn't allowed: the first allowed model leads.
+    const keyRemoved = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro], {
+      ...NO_ACCOUNT_MODEL_SETTINGS,
+      defaultModelId: 'anthropic/claude-opus-5-5',
+      allowedModelIds: ['anthropic/claude-opus-5-5', pro.id],
+    });
+    expect(keyRemoved).toEqual({ defaultModelId: pro.id, models: [pro] });
+  });
+
+  it('offers nothing, saying why, when no allowed model can run in the account', () => {
+    const settings = { ...NO_ACCOUNT_MODEL_SETTINGS, allowedModelIds: ['anthropic/claude-opus-5-5'] };
+    expect(() => builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], settings)).toThrow(NoAllowedBuilderModelError);
+  });
+
+  it("serves the picker's catalog and Settings' full list, failing closed while the settings are unknown", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const binding = { models: vi.fn(async () => [model(CLOUDFLARE_WORKERS_AI_MODEL), model(pro.id)]) };
+    const settings = async (): Promise<AccountModelSettings> => ({
+      ...NO_ACCOUNT_MODEL_SETTINGS,
+      allowedModelIds: [CLOUDFLARE_WORKERS_AI_MODEL],
+    });
+
+    const picker = await builderModelCatalogResponse(binding, settings);
+    expect(picker.status).toBe(200);
+    expect(builderModelCatalogPayloadSchema.parse(await picker.json()).models.map(({ id }) => id)).toEqual([
+      CLOUDFLARE_WORKERS_AI_MODEL,
+    ]);
+    const everything = await builderModelCatalogResponse(binding, settings, { compatible: true });
+    expect(compatibleBuilderModelsPayloadSchema.parse(await everything.json()).models.map(({ id }) => id)).toEqual([
+      CLOUDFLARE_WORKERS_AI_MODEL,
+      pro.id,
+    ]);
+
+    for (const compatible of [false, true]) {
+      const unknown = await builderModelCatalogResponse(binding, async () => null, { compatible });
+      expect(unknown.status).toBe(503);
+      expect(await unknown.json()).toEqual({ error: expect.stringContaining('could not check') });
+    }
+    const none = await builderModelCatalogResponse(binding, async () => ({
+      ...NO_ACCOUNT_MODEL_SETTINGS,
+      allowedModelIds: [],
+    }));
+    expect(none.status).toBe(409);
+    const down = await builderModelCatalogResponse({ models: async () => Promise.reject(new Error('down')) }, settings);
+    expect(down.status).toBe(503);
+    warn.mockRestore();
   });
 });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AccountExportSectionName } from '~/lib/account-data';
+import { readBuilderModelSettings } from '~/lib/cloudflare/data/builder-model-settings.server';
 import { findCloudflareConnectionForUser } from './cloudflare-connection-repository';
 import {
   draftsAllowed,
@@ -80,6 +81,8 @@ type ExportedCloudflareConnection = {
   grantedOAuthScopes: string[];
   /** The model builders in this account start on, as its owner chose; null for CloudChef's default. */
   defaultBuilderModel: string | null;
+  /** The models the account's picker offers; null for every compatible model. */
+  allowedBuilderModels: string[] | null;
   connectedAt: string | null;
   updatedAt: string;
   generation: number;
@@ -349,12 +352,7 @@ async function readCloudflareConnection(
   userId: string,
 ): Promise<{ connection: ExportedCloudflareConnection | null }> {
   const connection = await findCloudflareConnectionForUser(db, userId);
-  const model = connection
-    ? await db
-        .prepare('SELECT default_builder_model FROM cloudflare_connections WHERE id = ?')
-        .bind(connection.id)
-        .first<{ default_builder_model: string | null }>()
-    : null;
+  const models = connection ? await readBuilderModelSettings(db, connection.id) : null;
   return {
     // The credential handle resolves the stored ciphertext, so it is dropped here
     // rather than carried into a file the user keeps and forwards.
@@ -364,7 +362,8 @@ async function readCloudflareConnection(
       accountName: connection.accountName,
       status: connection.status,
       grantedOAuthScopes: connection.grantedOAuthScopes,
-      defaultBuilderModel: model?.default_builder_model ?? null,
+      defaultBuilderModel: models?.defaultModelId ?? null,
+      allowedBuilderModels: models?.allowedModelIds ?? null,
       connectedAt: optionalIsoTimestamp(connection.connectedAt),
       updatedAt: isoTimestamp(connection.updatedAt),
       generation: connection.generation,

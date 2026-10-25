@@ -54,6 +54,7 @@ describe('control-plane account export', () => {
         status: 'active',
         grantedOAuthScopes: ['workers-scripts.write', 'ai.read'],
         defaultBuilderModel: null,
+        allowedBuilderModels: null,
         connectedAt: '1970-01-01T00:00:00.001Z',
         updatedAt: '1970-01-01T00:00:00.001Z',
         generation: 1,
@@ -245,7 +246,8 @@ describe('control-plane account export', () => {
     seedAccount(database);
     database.exec(`
       UPDATE "user" SET email_proven_at = 5 WHERE id = 'user-1';
-      UPDATE cloudflare_connections SET default_builder_model = 'anthropic/claude-sonnet-4-5';
+      UPDATE cloudflare_connections SET default_builder_model = 'anthropic/claude-sonnet-4-5',
+        allowed_builder_models_json = '["anthropic/claude-sonnet-4-5"]';
       UPDATE user_computer_runtimes SET image_digest = 'sha256:abc', protocol_version = 7, last_session_at = 9;
       INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('acme', 'Acme', 1, 1);
       INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed) VALUES ('acme', 'user-1', 'member', 2, 0);
@@ -279,6 +281,7 @@ describe('control-plane account export', () => {
     expect(exported.sections.cloudflareConnection).toMatchObject({
       connection: {
         defaultBuilderModel: 'anthropic/claude-sonnet-4-5',
+        allowedBuilderModels: ['anthropic/claude-sonnet-4-5'],
       },
     });
     expect(exported.sections.computerRuntimes).toMatchObject({

@@ -128,7 +128,9 @@ test('keeps account details discoverable and clears a cancelled deletion', async
   );
   // Every card a signed-in member's settings load, answered as for a member with no teams and no keys yet.
   await page.route('**/api/settings/models', (route) =>
-    route.fulfill({ json: { canManage: true, defaultModelId: null, keys: { status: 'ready', providers: [] } } }),
+    route.fulfill({
+      json: { canManage: true, defaultModelId: null, allowedModelIds: null, keys: { status: 'ready', providers: [] } },
+    }),
   );
   await page.route('**/api/settings/ai-gateway-logging', (route) => route.fulfill({ json: { contentLogging: true } }));
   await page.route('**/api/organizations', (route) => route.fulfill({ json: { organizations: [] } }));
@@ -140,6 +142,9 @@ test('keeps account details discoverable and clears a cancelled deletion', async
   );
   await page.route(`${runtimeOrigin}/v1/models`, (route) =>
     route.fulfill({ json: { defaultModelId: DEFAULT_WORKERS_AI_MODEL.id, models: [DEFAULT_WORKERS_AI_MODEL] } }),
+  );
+  await page.route(`${runtimeOrigin}/v1/models/compatible`, (route) =>
+    route.fulfill({ json: { models: [DEFAULT_WORKERS_AI_MODEL] } }),
   );
   let deletionRequests = 0;
   await page.route('**/api/account/delete', (route) => {

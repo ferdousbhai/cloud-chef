@@ -10,7 +10,7 @@ import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
 import { formatStreamedSize, streamedToolInput } from './streaming-tool-input';
 import { z } from 'zod';
 import { cloudflareApiRequestDisplaySchema, cloudflareApiRequestIsRead } from 'cloudchef-agent/cloudflare-api';
-import { toolResultSucceeded } from 'cloudchef-agent/tool-result';
+import { isCloudChefToolResult, toolResultSucceeded } from 'cloudchef-agent/tool-result';
 import type { LinkedPublishView } from '~/lib/common/linked-publish';
 import { validationFailed } from './validation-verdict';
 
@@ -114,7 +114,10 @@ export function toolTitle(
         ? titleRow('Saving a version')
         : isErrorResult(invocation)
           ? titleRow('Version not saved', <Cross2Icon className="text-content-secondary" />)
-          : titleRow('Saved a version', <CheckIcon className="text-content-secondary" />);
+          : titleRow(
+              alreadySaved(invocation) ? 'Already saved' : 'Saved a version',
+              <CheckIcon className="text-content-secondary" />,
+            );
     case 'search_cloudflare_docs':
       return titleRow(
         status === 'running' ? 'Searching Cloudflare docs' : 'Searched Cloudflare docs',
@@ -192,6 +195,15 @@ function siteAddressLabel(value: string): string {
 
 function icon(content: ReactNode, color: string): ReactNode {
   return <div className={classNames('text-base', color)}>{content}</div>;
+}
+
+/** A save that found the project's latest version already holds these files, so nothing new was saved. */
+function alreadySaved(invocation: CloudChefToolInvocation): boolean {
+  return (
+    invocation.state === 'output-available' &&
+    isCloudChefToolResult(invocation.output) &&
+    z.object({ unchanged: z.literal(true) }).safeParse(invocation.output.data).success
+  );
 }
 
 export function isErrorResult(invocation: CloudChefToolInvocation): boolean {

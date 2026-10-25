@@ -703,7 +703,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const { model, gatewayKeyAlias, gatewayKeyRevision } = await requireBuilderModel(
       accountCredentials.binding,
       modelId,
-      async () => (await readAccountModelSettings(this.env)).gatewayKeys,
+      () => readAccountModelSettings(this.env),
     );
     const chosenReasoningLevel = requireBuilderReasoningLevel(model, reasoningLevel);
     // Refused before anything is stopped or recorded: a turn that never starts must not hold anything.
@@ -1683,11 +1683,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (orgProjectId) {
       const identity = runtimeConnectionIdentity(this.env);
       if (!identity) {
-        throw new Error('This workspace is not connected to CloudChef, so it cannot open the project.');
+        throw new ProjectRefusalError('This workspace is not connected to CloudChef, so it cannot open the project.');
       }
       const project = await openProject(this.env, identity, orgProjectId);
       if (project.role !== 'edit') {
-        throw new Error('You can view this project but not edit it.');
+        throw new ProjectRefusalError('You can view this project but not edit it.');
       }
       // Named to the browser at once, not minutes later when the workspace is seeded.
       this.showLinkedProject({ repository: project.name, defaultBranch: MAIN_BRANCH });
