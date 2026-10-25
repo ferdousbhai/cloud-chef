@@ -2,6 +2,7 @@ import { D1CloudflareCredentialVault } from './cloudflare-credential-vault';
 import {
   CREDENTIAL_UNREFERENCED,
   deleteUnusedCloudflareAuthorization,
+  findCloudflareAuthorization,
   unusedCloudflareAuthorization,
 } from './cloudflare-connection-repository';
 import { deleteTeamWorkspace } from './team-workspace';
@@ -20,7 +21,8 @@ import { deleteTeamWorkspace } from './team-workspace';
  * left behind with nobody in it.
  */
 export async function eraseControlPlaneAccount(args: { env: Env; userId: string }): Promise<{
-  cloudflareAuthorizationRevoked: boolean;
+  /** Whether Cloudflare confirmed every revocation; null when there was none to make. */
+  cloudflareAuthorizationRevoked: boolean | null;
   /** The teams still building in their own account, for which its authorization was kept, not revoked. */
   cloudflareAuthorizationKeptFor: string[];
   workspacesLeftIn: string[];
@@ -54,7 +56,7 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
   // their membership, which goes with the team.
   for (const orgId of await soleMemberOrganizations(db, args.userId)) {
     const revoked = await deleteOrganization(db, orgId, revokeGrant);
-    if (revoked !== null) {
+    if (revoked !== null && revoked !== 'kept') {
       revocations.push(revoked);
     }
   }
@@ -66,7 +68,7 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
     revocations.push(await revokeOrWarn(revokeGrant, credentialHandle));
   }
   const cloudflareAuthorizationKeptFor = accountId ? await teamsBuildingIn(db, accountId) : [];
-  const cloudflareAuthorizationRevoked = revocations.length > 0 && revocations.every(Boolean);
+  const cloudflareAuthorizationRevoked = revocations.length > 0 ? revocations.every(Boolean) : null;
 
   await db.batch([
     db.prepare('DELETE FROM cloudflare_oauth_states WHERE authenticated_user_id = ?').bind(args.userId),
@@ -100,15 +102,15 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
  * then the team's records go: the team, and with it (by their foreign keys) its
  * memberships, invites, usage counts, GitHub installation and connection states, linked projects and
  * who may work on each, production requests and their drafts, its Cloudflare connection and every
- * workspace locator in it, and the account's stored authorization once nothing uses it. Whether the
- * grant was revoked; null when the team had none or it is still in use. A connection an earlier,
- * interrupted deletion already revoked is revoked again.
+ * workspace locator in it, and the account's stored authorization once nothing uses it. Whether
+ * Cloudflare confirmed the grant revoked; 'kept' when another space still builds with it, null when the
+ * team had none. A connection an earlier, interrupted deletion already revoked is revoked again.
  */
 export async function deleteOrganization(
   db: D1Database,
   orgId: string,
   revokeGrant: (credentialHandle: string) => Promise<boolean>,
-): Promise<boolean | null> {
+): Promise<boolean | 'kept' | null> {
   const revoked = await db
     .prepare(
       `UPDATE cloudflare_connections SET status = 'revoked', updated_at = ? WHERE org_id = ?
@@ -118,7 +120,11 @@ export async function deleteOrganization(
     .first<{ account_id: string }>();
   const accountId = revoked?.account_id ?? null;
   const credentialHandle = accountId ? await unusedCloudflareAuthorization(db, accountId) : null;
-  const grantRevoked = credentialHandle ? await revokeOrWarn(revokeGrant, credentialHandle) : null;
+  const grantRevoked = credentialHandle
+    ? await revokeOrWarn(revokeGrant, credentialHandle)
+    : accountId && (await findCloudflareAuthorization(db, accountId))
+      ? 'kept'
+      : null;
   await db.batch([
     db.prepare('DELETE FROM organizations WHERE id = ?').bind(orgId),
     ...(accountId ? [deleteUnusedCloudflareAuthorization(db, accountId)] : []),

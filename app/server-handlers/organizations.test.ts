@@ -889,7 +889,8 @@ describe('a team’s name and deletion', () => {
     database.exec(
       `INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, key_version, created_at)
        VALUES ('acme-credential', 'x', 'y', 1, 1);
-       UPDATE cloudflare_connections SET credential_handle = 'acme-credential' WHERE id = 'acme-connection';`,
+       INSERT INTO cloudflare_authorizations (account_id, credential_handle, created_at, updated_at)
+       VALUES ('account-acme', 'acme-credential', 1, 1);`,
     );
     return { ...context, admin, sam, orgId };
   }
@@ -997,6 +998,7 @@ describe('a team’s name and deletion', () => {
       deleted: true,
       workspacesLeft: 1,
       cloudflareAuthorizationRevoked: true,
+      cloudflareAuthorizationKept: false,
     });
     expect(deleted).toEqual([admin.userId]);
     expect(revoked).toEqual(['acme-credential']);
@@ -1018,6 +1020,28 @@ describe('a team’s name and deletion', () => {
     expect(database.prepare('SELECT COUNT(*) AS count FROM "user"').get()).toEqual({ count: 2 });
     const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
     expect(session?.context).toBeNull();
+  });
+
+  it("keeps CloudChef's access to the account while someone's own space still builds in it, and says so", async () => {
+    const { database, env, admin, orgId } = await team();
+    database
+      .prepare(
+        `INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+         VALUES ('ada-own', ?, 'account-acme', 'active', 1, 1)`,
+      )
+      .run(admin.userId);
+
+    const { response, revoked } = remove(env, admin.cookie, orgId);
+    expect(await (await response).json()).toEqual({
+      deleted: true,
+      workspacesLeft: 0,
+      cloudflareAuthorizationRevoked: null,
+      cloudflareAuthorizationKept: true,
+    });
+    expect(revoked).toEqual([]);
+    expect(database.prepare('SELECT credential_handle FROM cloudflare_authorizations').all()).toEqual([
+      { credential_handle: 'acme-credential' },
+    ]);
   });
 
   it('is deleted, not left, when its only member leaves', async () => {
@@ -1043,7 +1067,9 @@ describe('a team’s name and deletion', () => {
     expect(await (await response).json()).toEqual({
       deleted: true,
       workspacesLeft: 0,
-      cloudflareAuthorizationRevoked: true,
+      // Its account was never authorized: there was nothing to revoke.
+      cloudflareAuthorizationRevoked: null,
+      cloudflareAuthorizationKept: false,
     });
     // They never opened a workspace there, so there was none to delete.
     expect(deleted).toEqual([]);
