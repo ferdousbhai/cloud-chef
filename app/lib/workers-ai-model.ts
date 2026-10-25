@@ -271,10 +271,17 @@ export function modelIdLabel(modelId: string): string {
   return (
     modelId
       .slice(modelId.lastIndexOf('/') + 1)
-      // A version written with dashes (claude-opus-5-5) reads as one number (5.5); a date after it stays apart.
-      .replace(/(?<=(?:^|-)\d{1,2})-(?=\d{1,2}(?:-|$))/g, '.')
+      // A version written with dashes (claude-opus-5-5) reads as one number (5.5); a date (2024-11-20) stays apart.
+      .replace(/(?<=(?:^|-)\d{1,2})(?<!\d{4}-\d{1,2})-(?=\d{1,2}(?:-|$))/g, '.')
       .split('-')
-      .map((part) => (/^\d/.test(part) ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
+      // A size (120b, 16e) is written in capitals; any other part starting with a digit (4o) stays as it is.
+      .map((part) =>
+        /^\d+(?:\.\d+)?[bekmt]$/i.test(part)
+          ? part.toUpperCase()
+          : /^\d/.test(part)
+            ? part
+            : part.charAt(0).toUpperCase() + part.slice(1),
+      )
       .join(' ')
       .replace(/\bGlm\b/g, 'GLM')
       .replace(/\bDeepseek\b/g, 'DeepSeek')

@@ -26,7 +26,7 @@ import {
   type ProjectRole,
 } from '~/lib/cloudflare/data/org-projects.server';
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
-import { nativeProjectRepo } from '~/lib/.server/cloudflare/project-repository';
+import { importedProjectRepo, nativeProjectRepo } from '~/lib/.server/cloudflare/project-repository';
 import { registerGitHubImport } from './projects';
 import { answeringOrganizationErrors } from './signed-in';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
@@ -65,11 +65,6 @@ const productionRequestSchema = z.strictObject({
   /** The draft's deployment, which admins open: only a workers.dev address over https. */
   previewUrl: z.url().max(2_048).refine(isWorkersDevUrl).nullable().default(null),
 });
-
-/** The Artifacts repository an imported project is given. */
-function importedRepoName(projectId: string): string {
-  return `t-${projectId}`;
-}
 
 /**
  * What the runtime may do with a project: its repository (null until imported), the member's role, and,
@@ -270,7 +265,7 @@ export async function runtimeProjectImportedAction(args: { request: Request; env
   if (project.role !== 'edit') {
     return json({ error: 'Only someone who may edit this project can import it.' }, 403);
   }
-  if (body.repo !== importedRepoName(project.id)) {
+  if (body.repo !== importedProjectRepo(project.id)) {
     return json({ error: 'That is not where this project is imported to.' }, 409);
   }
   if (!(await recordImportedRepo(args.env.DB, project.id, body.repo))) {

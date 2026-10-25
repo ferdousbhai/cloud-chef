@@ -312,7 +312,7 @@ describe('ProjectRepositories', () => {
       repositories.importFromUrl({ url: 'https://github.com/acme/site.git', branch: 'gone', repo: 't-9' }),
     ).rejects.toMatchObject({
       code: 'not_found',
-      message: expect.stringContaining('its main version (gone) is gone from GitHub'),
+      message: expect.stringContaining('its main version (gone) has no code yet, or is gone from GitHub'),
     });
   });
 

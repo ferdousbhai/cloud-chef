@@ -148,7 +148,9 @@ export function ModelsCard() {
         void reloadBuilderModelCatalog();
         void refreshCompatible();
         return [
-          `${GATEWAY_PROVIDERS[provider].label} is linked. Its models appear in the model picker within a minute.`,
+          settings?.allowedModelIds === null || settings === null
+            ? `${GATEWAY_PROVIDERS[provider].label} is linked. Its models appear in the model picker within a minute.`
+            : `${GATEWAY_PROVIDERS[provider].label} is linked. Its models are listed under Models in the picker: tick the ones to offer.`,
           ...(previousKeysRemain ? [PREVIOUS_KEYS_REMAIN_NOTE] : []),
           ...(authenticationTurnedOn ? [AUTHENTICATION_TURNED_ON_NOTE] : []),
         ].join(' ');

@@ -52,7 +52,10 @@ export async function readSourceBranch(fetchGit: GitFetch, source: GitSource, br
     }
   }
   // The branch is the one GitHub showed as the repository's default when the project was added.
-  throw new GitSourceError('not_found', `its main version (${branch.slice(0, 256)}) is gone from GitHub`);
+  throw new GitSourceError(
+    'not_found',
+    `its main version (${branch.slice(0, 256)}) has no code yet, or is gone from GitHub`,
+  );
 }
 
 /** A source's small answer, read within its bound; a read that breaks off or runs over is the source's failure. */

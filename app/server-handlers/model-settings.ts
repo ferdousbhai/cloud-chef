@@ -1,3 +1,4 @@
+import { knownModelLabel } from '~/lib/.server/llm/workers-ai-model-catalog';
 import { z } from 'zod';
 import type { CloudflareAuthSession } from '~/lib/.server/auth';
 import { readJsonRequest } from '~/lib/.server/request-guards';
@@ -26,6 +27,7 @@ import {
   CLOUDCHEF_KEY_ALIASES,
   effectiveDefaultModelId,
   GATEWAY_PROVIDER_SLUGS,
+  isBuilderModelId,
   isCloudChefKeyAlias,
   modelIdLabel,
   type GatewayProviderSlug,
@@ -260,7 +262,7 @@ export function updateAllowedModelsAction({ request, env }: RequestArgs) {
         // Another admin may have changed the default meanwhile: the answer names the one that stands now.
         const current = await readBuilderModelSettings(env.DB, connection.id);
         return modelsRefused(
-          `The default model, ${modelIdLabel(effectiveDefaultModelId(current.defaultModelId))}, has to stay allowed. To leave it ` +
+          `The default model, ${defaultModelLabel(effectiveDefaultModelId(current.defaultModelId))}, has to stay allowed. To leave it ` +
             'out, choose another default model first.',
         );
       }
@@ -378,6 +380,11 @@ async function gatewayKeysStatus(api: GatewayKeyAccountApi): Promise<GatewayKeys
 /** Settings as Settings reads them: the whole card's, or only the model choices after a change. */
 function settingsResponse(body: BuilderModelSettings & { canManage?: boolean; keys?: GatewayKeysStatus }): Response {
   return Response.json(body, { headers: { 'Cache-Control': 'private, no-store' } });
+}
+
+/** A model's name for a message: Pi's for a model it lists, else one made from the id. */
+function defaultModelLabel(modelId: string): string {
+  return isBuilderModelId(modelId) ? knownModelLabel(modelId) : modelIdLabel(modelId);
 }
 
 /** A choice the default model rules out; the card reloads the settings to show what stands. */

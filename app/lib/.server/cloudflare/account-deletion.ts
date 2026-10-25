@@ -8,7 +8,8 @@ import {
 import { deleteTeamWorkspace } from './team-workspace';
 
 /**
- * Erase operator-held account data and revoke the OAuth grant. Resources deployed into the user's
+ * Erase operator-held account data and revoke the OAuth grant, unless another space still builds in that
+ * account with it. Resources deployed into the user's
  * Cloudflare account remain theirs. Their workspace in each team's account (chats and project files
  * there) is deleted first, best-effort, as removing them from the team would; the names of teams
  * where it couldn't be are returned. Revoking the connection first also makes any in-flight
@@ -35,7 +36,8 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
   // revoked here, so it cannot be drained from the control plane: the project GC receipts live in
   // the workspace database, which this erasure deliberately never touches. The settings UI names
   // the ordering this implies — delete projects and let their scheduled cleanup finish first.
-  // Organizations nobody else belongs to go with their last member, their Cloudflare grant revoked.
+  // Organizations nobody else belongs to go with their last member, their Cloudflare grant revoked unless another
+  // space still builds in their account.
   // A member's own erasure never touches the grant of an organization others still build in.
   // An erasure that must be refused is refused here, before anything changes. Leaving checks again
   // as it writes: only another admin stepping down in between can still refuse it there, after the
@@ -174,7 +176,8 @@ async function revokeOrWarn(
  * The teams this person has a workspace in, found from their runtime rows rather than their
  * memberships, so a retry after they've already left still finds them. A team whose connection isn't
  * active has a workspace CloudChef can't reach: it's named as left behind, unless only this person
- * belongs to it (it goes with them, in their own team account, its grant revoked by this erasure).
+ * belongs to it (it goes with them, in their own team account, its grant revoked by this erasure unless another
+ * space still builds there).
  */
 async function teamsWithWorkspaces(
   db: D1Database,
@@ -297,7 +300,7 @@ async function soleMemberOrganizations(db: D1Database, userId: string): Promise<
 
 /**
  * Revokes their own connection: the account it builds in, and the credential of that account's
- * authorization when no team still builds there with it, for its grant to be revoked with Cloudflare.
+ * authorization when no other space still builds there with it, for its grant to be revoked with Cloudflare.
  */
 async function revokeConnection(
   db: D1Database,

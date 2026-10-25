@@ -1,3 +1,4 @@
+import { GITHUB_ACCESS_FIX } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import type { GitHubApp } from '~/lib/.server/github/github-app';
 import { gitHubRepositoryFromUrl, publicRepositoryDefaultBranch } from '~/lib/.server/github/public-repository';
@@ -112,12 +113,22 @@ export async function registerGitHubImport(
     if (!fullName) {
       return Response.json({ error: 'Paste the address of a repository on github.com.' }, { status: 400 });
     }
-    const branch = await publicRepositoryDefaultBranch(fullName, args.gitRequest ?? fetch).catch(() => null);
+    let branch: string | null;
+    try {
+      branch = await publicRepositoryDefaultBranch(fullName, args.gitRequest ?? fetch);
+    } catch {
+      // github.com not answering says nothing about whether the repository is public: try again later.
+      return Response.json({ error: 'GitHub could not be reached just now. Try again in a moment.' }, { status: 503 });
+    }
     if (branch) {
       source = { repoId: null, fullName, branch };
     } else {
       // A private repository by its address: one the App reaches, whatever case GitHub's name is given in.
       const repositories = args.app ? await installedRepositories(env.DB, scope, args.app) : null;
+      // GitHub failing to list them (an outage, a rate limit) is said as such; only "not connected" (409) isn't.
+      if (repositories instanceof Response && repositories.status !== 409) {
+        return repositories;
+      }
       const repository = Array.isArray(repositories)
         ? repositories.find((candidate) => candidate.full_name.toLowerCase() === fullName.toLowerCase())
         : undefined;
@@ -125,7 +136,7 @@ export async function registerGitHubImport(
         return Response.json(
           {
             code: 'not_public',
-            error: `${fullName} isn't a public repository with code in it. For a private one, connect GitHub first.`,
+            error: `${fullName} isn't a public repository with code in it. For a private one, ${GITHUB_ACCESS_FIX} first.`,
           },
           { status: 404 },
         );

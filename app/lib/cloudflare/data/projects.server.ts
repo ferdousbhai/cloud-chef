@@ -232,7 +232,9 @@ export async function importProject(
         .catch(() => undefined);
       // A repository no longer public is imported again through GitHub; nothing is left to remove first.
       const noLongerPublic =
-        error instanceof ProjectRepositoryError && (error.code === 'auth_required' || error.code === 'not_found');
+        registered.importSource.authorization === null &&
+        error instanceof ProjectRepositoryError &&
+        (error.code === 'auth_required' || error.code === 'not_found');
       throw new ProjectRepositoryFailureError(
         noLongerPublic
           ? "That repository wasn't found: it was removed, or it isn't public. To import a private repository, " +

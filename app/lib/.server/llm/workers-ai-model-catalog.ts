@@ -343,7 +343,7 @@ function catalogEntryCreatedAt(entry: AiModelsSearchObject): string | undefined 
 }
 
 /** A model's name as Pi lists it, for a message about a model that may not be in the account's catalog. */
-function knownModelLabel(modelId: BuilderModelId): string {
+export function knownModelLabel(modelId: BuilderModelId): string {
   if (gatewayModelProvider(modelId) !== null) {
     return piGatewayModel(modelId)?.builderModel.label ?? modelId;
   }
