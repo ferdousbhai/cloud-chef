@@ -94,12 +94,20 @@ function pruneBatch(db: D1Database, now: number, limit: number): Promise<D1Resul
            WHERE credential.created_at <= ?
              AND (credential.rotated_at IS NULL OR credential.rotated_at <= ?)
              AND NOT EXISTS (
+               SELECT 1 FROM cloudflare_authorizations AS authorization
+               WHERE authorization.credential_handle = credential.handle
+             )
+             AND NOT EXISTS (
                SELECT 1 FROM cloudflare_connections AS connection
                WHERE connection.credential_handle = credential.handle
              )
            ORDER BY credential.created_at, credential.handle
            LIMIT ?
          )
+           AND NOT EXISTS (
+             SELECT 1 FROM cloudflare_authorizations AS authorization
+             WHERE authorization.credential_handle = cloudflare_credentials.handle
+           )
            AND NOT EXISTS (
              SELECT 1 FROM cloudflare_connections AS connection
              WHERE connection.credential_handle = cloudflare_credentials.handle

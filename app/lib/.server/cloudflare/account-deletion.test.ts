@@ -1,6 +1,7 @@
 import type { DatabaseSync as DatabaseSyncInstance } from 'node:sqlite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  deleteOrganization,
   eraseControlPlaneAccount,
   OrganizationAdminRequiredError,
   organizationsNeedingAnotherAdmin,
@@ -77,6 +78,7 @@ describe('control-plane account erasure', () => {
 
     await expect(eraseControlPlaneAccount({ env, userId: 'user-1' })).resolves.toEqual({
       cloudflareAuthorizationRevoked: true,
+      cloudflareAuthorizationKeptFor: [],
       workspacesLeftIn: [],
     });
     expect(cloudflare.revoked).toHaveLength(1);
@@ -148,6 +150,53 @@ describe('control-plane account erasure', () => {
       { id: 'shared-connection', status: 'active' },
     ]);
     expect(database.prepare('SELECT id FROM organizations').all()).toEqual([{ id: 'shared' }]);
+  });
+
+  it("keeps an account's shared authorization while a team or a person's own space still builds there with it", async () => {
+    const { database, db } = controlPlaneDatabase();
+    const env = vaultEnv(db);
+    const cloudflare = stubCloudflare();
+    const shared = await storeGrant(env, 'shared');
+    seedAccount(database, null, 'user-1');
+    seedAccount(database, null, 'sara');
+    // user-1's own space and their teams Sites (with Sara) and Side (only them) all build in account-1.
+    database.exec(`
+      DELETE FROM cloudflare_connections WHERE user_id = 'user-1';
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('sites', 'Sites', 1, 1), ('side', 'Side', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+        ('sites', 'user-1', 'admin', 1), ('sites', 'sara', 'admin', 1), ('side', 'user-1', 'admin', 1);
+      INSERT INTO cloudflare_connections (id, user_id, org_id, account_id, status, created_at, updated_at) VALUES
+        ('own', 'user-1', NULL, 'account-1', 'active', 1, 1),
+        ('sites-connection', NULL, 'sites', 'account-1', 'active', 1, 1),
+        ('side-connection', NULL, 'side', 'account-1', 'active', 1, 1);
+    `);
+    database
+      .prepare(
+        `INSERT INTO cloudflare_authorizations (account_id, credential_handle, created_at, updated_at)
+         VALUES ('account-1', ?, 1, 1)`,
+      )
+      .run(shared);
+
+    // Side goes with them, and their own space; Sites, which Sara still builds in, keeps the authorization.
+    await expect(eraseControlPlaneAccount({ env, userId: 'user-1' })).resolves.toEqual({
+      cloudflareAuthorizationRevoked: false,
+      cloudflareAuthorizationKeptFor: ['Sites'],
+      workspacesLeftIn: [],
+    });
+    expect(cloudflare.revoked).toEqual([]);
+    expect(database.prepare('SELECT id FROM cloudflare_connections WHERE account_id = ?').all('account-1')).toEqual([
+      { id: 'sites-connection' },
+    ]);
+    expect(database.prepare('SELECT credential_handle FROM cloudflare_authorizations').all()).toEqual([
+      { credential_handle: shared },
+    ]);
+
+    // The last space in the account goes: the grant is revoked with Cloudflare and nothing of it is kept.
+    const vault = D1CloudflareCredentialVault.fromEnv(env);
+    await expect(deleteOrganization(db, 'sites', (handle) => vault.revokeOAuthCredential(handle))).resolves.toBe(true);
+    expect(cloudflare.revoked).toHaveLength(1);
+    expect(rowCount(database, 'cloudflare_authorizations')).toBe(0);
+    expect(database.prepare('SELECT handle FROM cloudflare_credentials WHERE handle = ?').get(shared)).toBeUndefined();
   });
 
   it('never lets the last active admins both leave an organization others still belong to', async () => {
@@ -393,7 +442,11 @@ describe('control-plane account erasure', () => {
       cloudflare.deletedIn.length = 0;
       const erasure = await eraseControlPlaneAccount({ env, userId: 'user-1' });
 
-      expect(erasure).toEqual({ cloudflareAuthorizationRevoked: true, workspacesLeftIn: [] });
+      expect(erasure).toEqual({
+        cloudflareAuthorizationRevoked: true,
+        cloudflareAuthorizationKeptFor: [],
+        workspacesLeftIn: [],
+      });
       expect(cloudflare.deletedIn).toEqual(retriedWorkspaces.map((orgId) => `${orgId}-account`));
       expect(database.prepare('SELECT id FROM "user"').all()).toEqual([{ id: 'admin' }]);
       expect(database.prepare('SELECT id FROM organizations').all()).toEqual([{ id: 'acme' }]);
@@ -441,9 +494,9 @@ function seedAccount(database: DatabaseSyncInstance, credentialHandle: string | 
     .prepare(
       `INSERT INTO cloudflare_connections
         (id, user_id, account_id, account_name, status, credential_handle, connected_at, created_at, updated_at)
-       VALUES (?, ?, 'account-1', 'Account', 'active', ?, 1, 1, 1)`,
+       VALUES (?, ?, ?, 'Account', 'active', ?, 1, 1, 1)`,
     )
-    .run(`connection-${userId}`, userId, credentialHandle);
+    .run(`connection-${userId}`, userId, `account-${userId}`, credentialHandle);
   database
     .prepare(
       `INSERT INTO cloudflare_auth_sessions (id, user_id, token_hash, expires_at, created_at, updated_at)

@@ -37,7 +37,13 @@ describe('Cloudflare authorization retention', () => {
     const insertCredential = database.prepare(
       'INSERT INTO cloudflare_credentials (handle, created_at, rotated_at) VALUES (?, ?, ?)',
     );
-    for (const handle of ['credential-1', 'credential-2', 'credential-3', 'credential-referenced']) {
+    for (const handle of [
+      'credential-1',
+      'credential-2',
+      'credential-3',
+      'credential-referenced',
+      'credential-shared',
+    ]) {
       insertCredential.run(handle, 1, null);
     }
     insertCredential.run('credential-fresh', now, null);
@@ -45,6 +51,9 @@ describe('Cloudflare authorization retention', () => {
     database
       .prepare('INSERT INTO cloudflare_connections (id, credential_handle) VALUES (?, ?)')
       .run('connection-1', 'credential-referenced');
+    database
+      .prepare('INSERT INTO cloudflare_authorizations (account_id, credential_handle) VALUES (?, ?)')
+      .run('account-1', 'credential-shared');
     const insertEmailToken = database.prepare(
       'INSERT INTO email_sign_in_tokens (token_hash, created_at) VALUES (?, ?)',
     );
@@ -78,6 +87,7 @@ describe('Cloudflare authorization retention', () => {
       'credential-fresh',
       'credential-recently-rotated',
       'credential-referenced',
+      'credential-shared',
     ]);
 
     await expect(pruneAt(db, now)).resolves.toBeUndefined();
@@ -169,6 +179,10 @@ function retentionDatabase(): { database: DatabaseSyncInstance; db: D1Database }
     CREATE TABLE cloudflare_connections (
       id TEXT PRIMARY KEY,
       credential_handle TEXT REFERENCES cloudflare_credentials(handle)
+    );
+    CREATE TABLE cloudflare_authorizations (
+      account_id TEXT PRIMARY KEY,
+      credential_handle TEXT NOT NULL REFERENCES cloudflare_credentials(handle)
     );
     CREATE TABLE email_sign_in_tokens (
       token_hash TEXT PRIMARY KEY,

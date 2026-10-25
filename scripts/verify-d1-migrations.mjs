@@ -50,6 +50,7 @@ const migrationPolicies = [
       '0032_drop_oauth_grant_columns.sql': '4a5d586765bae8eb120962aaed96ef487a74f4cb69cb7d9b6a6a5fe69bb3824a',
       '0033_artifact_projects.sql': '90c7a266c7e4b92d045c1072eaa32c7bf7cdb6323423f497abff3fd64ce5866f',
       '0034_github_installations_per_account.sql': '048d63a3efd77be1f33b81241c841abf7176b49145338ea6655b734ae4343618',
+      '0035_cloudflare_authorizations.sql': '85af7ceb277998492e72fc73524960b7ff1250fd5a3aa39324639a7eea6d25be',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this

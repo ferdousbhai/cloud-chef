@@ -21,8 +21,10 @@ import { canUseConnection, findMembership, isActiveAdmin } from '~/lib/cloudflar
 import {
   activateCloudflareConnection,
   CloudflareConnectionChangedError,
+  deleteUnusedCloudflareAuthorization,
   findActiveCloudflareConnection,
   findCloudflareConnectionForOwner,
+  mayReplaceCloudflareAuthorization,
   type CloudflareConnectionOwner,
   type CloudflareConnection,
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
@@ -479,6 +481,11 @@ export async function completeCloudflareConnectionAction(args: {
       userId = user.id;
       owner = { kind: 'user', userId };
     }
+    // The account's authorization is shared by every space building in it: replacing it is for someone who
+    // runs each of them.
+    if (!(await mayReplaceCloudflareAuthorization(args.env.DB, { userId, owner, accountId: result.accountId }))) {
+      throw new ConnectReturnError('account_in_use');
+    }
     const previous = await findCloudflareConnectionForOwner(args.env.DB, owner);
     const vault = D1CloudflareCredentialVault.fromEnv(args.env);
     const credentialHandle = await vault.storeOAuthCredential({
@@ -512,6 +519,14 @@ export async function completeCloudflareConnectionAction(args: {
       if (!canAdoptRace) {
         throw error;
       }
+    }
+    // A space that moved to another account leaves that account's authorization behind once nothing builds there.
+    if (previous && previous.accountId !== result.accountId) {
+      await deleteUnusedCloudflareAuthorization(args.env.DB, previous.accountId)
+        .run()
+        .catch((cleanupError: Error) => {
+          console.warn('Unable to clean up an unused Cloudflare authorization', cleanupError.message);
+        });
     }
     if (previous?.credentialHandle && previous.credentialHandle !== credentialHandle) {
       await vault.deleteIfUnreferenced(previous.credentialHandle).catch((cleanupError) => {

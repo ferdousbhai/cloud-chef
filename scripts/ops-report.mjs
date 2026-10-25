@@ -326,9 +326,11 @@ export function coreStatements(now) {
         SUM(CASE WHEN createdAt >= ${now - WEEK} THEN 1 ELSE 0 END) AS joined_this_week,
         SUM(CASE WHEN createdAt >= ${now - 2 * WEEK} AND createdAt < ${now - WEEK} THEN 1 ELSE 0 END) AS joined_last_week
       FROM "user"`,
-    `SELECT status, COUNT(*) AS count,
-        SUM(CASE WHEN credential_handle IS NULL THEN 1 ELSE 0 END) AS missing_credential
-      FROM cloudflare_connections GROUP BY status`,
+    `SELECT connections.status AS status, COUNT(*) AS count,
+        SUM(CASE WHEN authorizations.credential_handle IS NULL THEN 1 ELSE 0 END) AS missing_credential
+      FROM cloudflare_connections AS connections
+      LEFT JOIN cloudflare_authorizations AS authorizations ON authorizations.account_id = connections.account_id
+      GROUP BY connections.status`,
     `SELECT COUNT(*) AS unexpired FROM cloudflare_auth_sessions WHERE expires_at > ${now}`,
     // A runtime is one person's in one connection: their own, or that of each organization they belong to.
     `SELECT users.email AS email, organizations.name AS organization, runtimes.status AS status,

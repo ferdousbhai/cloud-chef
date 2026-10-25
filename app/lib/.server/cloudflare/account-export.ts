@@ -382,7 +382,8 @@ async function readEncryptedCredential(
     .prepare(
       `SELECT credentials.key_version, credentials.created_at, credentials.rotated_at
        FROM cloudflare_connections AS connections
-       JOIN cloudflare_credentials AS credentials ON credentials.handle = connections.credential_handle
+       JOIN cloudflare_authorizations AS authorizations ON authorizations.account_id = connections.account_id
+       JOIN cloudflare_credentials AS credentials ON credentials.handle = authorizations.credential_handle
        WHERE connections.user_id = ?`,
     )
     .bind(userId)

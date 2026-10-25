@@ -1,321 +1,271 @@
+import type { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
+import { controlPlaneDatabase } from '~/test/control-plane-d1';
 import {
   activateCloudflareConnection,
   CloudflareConnectionChangedError,
+  findCloudflareConnectionForOrganization,
   findCloudflareConnectionForUser,
+  mayReplaceCloudflareAuthorization,
 } from './cloudflare-connection-repository';
 
+/**
+ * Owner's own space and their team "Sites" both build in `account-1` with one authorization (`credential-old`);
+ * Sara is a member of Sites only. Generations 5 and 4, as each space was reconnected separately before.
+ */
+function sharedAccount() {
+  const { database, db } = controlPlaneDatabase();
+  database.exec(`
+    INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES
+      ('owner', 'Owner', 'owner@example.com', 1, 1, 1), ('sara', 'Sara', 'sara@example.com', 1, 1, 1);
+    INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('sites', 'Sites', 1, 1);
+    INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+      ('sites', 'owner', 'admin', 1), ('sites', 'sara', 'member', 1);
+    INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, created_at) VALUES
+      ('credential-old', 'x', 'y', 1), ('credential-new', 'x', 'y', 2), ('credential-loser', 'x', 'y', 2);
+    INSERT INTO cloudflare_connections (id, user_id, org_id, account_id, account_name, status, connected_at,
+      created_at, updated_at, connection_generation) VALUES
+      ('own', 'owner', NULL, 'account-1', 'Account', 'active', 1, 1, 1, 5),
+      ('team', NULL, 'sites', 'account-1', 'Account', 'active', 1, 1, 1, 4);
+    INSERT INTO cloudflare_authorizations (account_id, credential_handle, granted_oauth_scopes_json, created_at, updated_at)
+      VALUES ('account-1', 'credential-old', '["workers-scripts.write"]', 1, 1);
+  `);
+  return { database, db };
+}
+
+/** `db` with its batches run by `batch` instead: one whose answer is lost, or that never reaches D1. */
+function withBatch(db: D1Database, batch: (statements: D1PreparedStatement[]) => Promise<never>): D1Database {
+  return {
+    prepare: (query) => db.prepare(query),
+    batch,
+    exec: (query) => db.exec(query),
+    withSession: (constraintOrBookmark) => db.withSession(constraintOrBookmark),
+    dump: () => db.dump(),
+  };
+}
+
+function authorization(database: DatabaseSync) {
+  return database
+    .prepare('SELECT account_id, credential_handle, granted_oauth_scopes_json FROM cloudflare_authorizations')
+    .all();
+}
+
+const reconnectOwn = {
+  owner: { kind: 'user', userId: 'owner' },
+  accountId: 'account-1',
+  accountName: 'Account',
+  credentialHandle: 'credential-new',
+  grantedOAuthScopes: ['workers-scripts.write', 'ai.read'],
+  expectedGeneration: 5,
+} as const;
+
 describe('activateCloudflareConnection', () => {
-  it('rejects a stale OAuth completion instead of overwriting the winning credential handle', async () => {
-    const database = connectionDatabase({ generation: 5, credentialHandle: 'credential-winner' });
+  it("reconnecting a person's own space updates the authorization their team in the same account uses", async () => {
+    const { database, db } = sharedAccount();
+
+    await activateCloudflareConnection({
+      db,
+      ...reconnectOwn,
+      grantedOAuthScopes: [...reconnectOwn.grantedOAuthScopes],
+    });
+
+    const own = await findCloudflareConnectionForUser(db, 'owner');
+    const team = await findCloudflareConnectionForOrganization(db, 'sites');
+    expect(own).toMatchObject({ id: 'own', credentialHandle: 'credential-new', generation: 6 });
+    expect(own?.grantedOAuthScopes).toEqual(['workers-scripts.write', 'ai.read']);
+    // The team's space reads the same authorization, and keeps its generation: its workspaces carry on.
+    expect(team).toMatchObject({ id: 'team', credentialHandle: 'credential-new', generation: 4 });
+    expect(team?.grantedOAuthScopes).toEqual(['workers-scripts.write', 'ai.read']);
+    expect(authorization(database)).toHaveLength(1);
+  });
+
+  it('rejects a stale OAuth completion instead of overwriting the winning authorization', async () => {
+    const { database, db } = sharedAccount();
 
     await expect(
       activateCloudflareConnection({
-        db: database.db,
-        owner: { kind: 'user', userId: 'user-1' },
-        accountId: 'account-1',
-        accountName: 'Account',
+        db,
+        ...reconnectOwn,
         credentialHandle: 'credential-loser',
         grantedOAuthScopes: ['workers-scripts.write'],
         expectedGeneration: 4,
       }),
     ).rejects.toBeInstanceOf(CloudflareConnectionChangedError);
 
-    expect(database.credentialHandle).toBe('credential-winner');
-    expect(database.generation).toBe(5);
+    expect(authorization(database)).toEqual([
+      {
+        account_id: 'account-1',
+        credential_handle: 'credential-old',
+        granted_oauth_scopes_json: '["workers-scripts.write"]',
+      },
+    ]);
+    expect((await findCloudflareConnectionForUser(db, 'owner'))?.generation).toBe(5);
   });
 
-  it('advances the generation when the observed connection is still current', async () => {
-    const database = connectionDatabase({ generation: 5, credentialHandle: 'credential-old' });
+  it('moves a space to another account without touching the authorization the others there use', async () => {
+    const { database, db } = sharedAccount();
+
+    await activateCloudflareConnection({
+      db,
+      ...reconnectOwn,
+      accountId: 'account-2',
+      accountName: 'Other',
+      grantedOAuthScopes: ['workers-scripts.write'],
+    });
+
+    expect(await findCloudflareConnectionForUser(db, 'owner')).toMatchObject({
+      accountId: 'account-2',
+      accountName: 'Other',
+      credentialHandle: 'credential-new',
+      generation: 6,
+    });
+    expect(await findCloudflareConnectionForOrganization(db, 'sites')).toMatchObject({
+      accountId: 'account-1',
+      accountName: 'Account',
+      credentialHandle: 'credential-old',
+    });
+    expect(authorization(database)).toHaveLength(2);
+  });
+
+  it('adopts the exact committed write when its D1 acknowledgement is lost', async () => {
+    const { db } = sharedAccount();
+    const acknowledgementLost = new Error('D1 acknowledgement lost');
+    const lossy = withBatch(db, async (statements) => {
+      await db.batch(statements);
+      throw acknowledgementLost;
+    });
 
     await expect(
-      activateCloudflareConnection({
-        db: database.db,
-        owner: { kind: 'user', userId: 'user-1' },
-        accountId: 'account-2',
-        accountName: 'New account',
-        credentialHandle: 'credential-new',
-        grantedOAuthScopes: ['workers-scripts.write', 'ai.read'],
-        expectedGeneration: 5,
-      }),
+      activateCloudflareConnection({ db: lossy, ...reconnectOwn, grantedOAuthScopes: ['workers-scripts.write'] }),
     ).resolves.toBeUndefined();
-
-    expect(database.credentialHandle).toBe('credential-new');
-    expect(database.generation).toBe(6);
+    expect((await findCloudflareConnectionForUser(db, 'owner'))?.credentialHandle).toBe('credential-new');
   });
 
-  it('commits the CAS update without a fallible follow-up read', async () => {
-    const database = connectionDatabase({ generation: 2, credentialHandle: 'credential-old' }, { failSelect: true });
+  it('preserves the D1 error when nothing was written', async () => {
+    const { database, db } = sharedAccount();
+    const unavailable = new Error('D1 unavailable');
+    const failing = withBatch(db, async () => Promise.reject(unavailable));
 
     await expect(
-      activateCloudflareConnection({
-        db: database.db,
-        owner: { kind: 'user', userId: 'user-1' },
-        accountId: 'account-2',
-        accountName: 'New account',
-        credentialHandle: 'credential-committed',
-        grantedOAuthScopes: ['workers-scripts.write'],
-        expectedGeneration: 2,
-      }),
-    ).resolves.toBeUndefined();
-
-    expect(database.selects).toBe(0);
-    expect(database.credentialHandle).toBe('credential-committed');
+      activateCloudflareConnection({ db: failing, ...reconnectOwn, grantedOAuthScopes: ['workers-scripts.write'] }),
+    ).rejects.toBe(unavailable);
+    expect(authorization(database)[0]).toMatchObject({ credential_handle: 'credential-old' });
   });
 
-  it('adopts the exact committed update when its D1 acknowledgement is lost', async () => {
-    const acknowledgementError = new Error('D1 acknowledgement lost');
-    const database = connectionDatabase(
-      { generation: 2, credentialHandle: 'credential-old' },
-      { updateErrorAfterCommit: acknowledgementError },
-    );
+  it('connects a new space to an account no one has connected yet', async () => {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('new', 'New', 'new@example.com', 1, 1, 1);
+      INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, created_at) VALUES ('credential-new', 'x', 'y', 1);
+    `);
 
-    await expect(
-      activateCloudflareConnection({
-        db: database.db,
-        owner: { kind: 'user', userId: 'user-1' },
-        accountId: 'account-2',
-        accountName: 'New account',
-        credentialHandle: 'credential-committed',
-        grantedOAuthScopes: ['workers-scripts.write', 'ai.read'],
-        expectedGeneration: 2,
-      }),
-    ).resolves.toBeUndefined();
+    await activateCloudflareConnection({
+      db,
+      owner: { kind: 'user', userId: 'new' },
+      accountId: 'account-new',
+      accountName: null,
+      credentialHandle: 'credential-new',
+      grantedOAuthScopes: ['workers-scripts.write'],
+      expectedGeneration: null,
+    });
 
-    expect(database.selects).toBe(1);
+    expect(await findCloudflareConnectionForUser(db, 'new')).toMatchObject({
+      accountId: 'account-new',
+      credentialHandle: 'credential-new',
+      generation: 1,
+      status: 'active',
+    });
   });
 
-  it('preserves the D1 error when reconciliation observes a competing connection', async () => {
-    const acknowledgementError = new Error('D1 unavailable');
-    const database = connectionDatabase(
-      { generation: 6, credentialHandle: 'credential-winner' },
-      { updateErrorWithoutCommit: acknowledgementError },
-    );
-
-    await expect(
-      activateCloudflareConnection({
-        db: database.db,
-        owner: { kind: 'user', userId: 'user-1' },
-        accountId: 'account-2',
-        accountName: 'New account',
-        credentialHandle: 'credential-loser',
-        grantedOAuthScopes: ['workers-scripts.write'],
-        expectedGeneration: 5,
-      }),
-    ).rejects.toBe(acknowledgementError);
-
-    expect(database.credentialHandle).toBe('credential-winner');
-    expect(database.generation).toBe(6);
-  });
-
-  it('inserts a new connection atomically', async () => {
-    const db = newConnectionDatabase();
+  it('rejects a second first connection for the same space', async () => {
+    const { db } = sharedAccount();
 
     await expect(
       activateCloudflareConnection({
         db,
-        owner: { kind: 'user', userId: 'user-new' },
-        accountId: 'account-new',
-        accountName: null,
-        credentialHandle: 'credential-new',
+        ...reconnectOwn,
         grantedOAuthScopes: ['workers-scripts.write'],
         expectedGeneration: null,
       }),
-    ).resolves.toBeUndefined();
-  });
-
-  it('adopts the exact committed insert when its D1 acknowledgement is lost', async () => {
-    const acknowledgementError = new Error('D1 acknowledgement lost');
-    const db = newConnectionDatabase({ insertErrorAfterCommit: acknowledgementError });
-
-    await expect(
-      activateCloudflareConnection({
-        db,
-        owner: { kind: 'user', userId: 'user-new' },
-        accountId: 'account-new',
-        accountName: null,
-        credentialHandle: 'credential-new',
-        grantedOAuthScopes: ['workers-scripts.write'],
-        expectedGeneration: null,
-      }),
-    ).resolves.toBeUndefined();
+    ).rejects.toBeInstanceOf(CloudflareConnectionChangedError);
   });
 
   it('rejects corrupt persisted scopes instead of silently removing them', async () => {
-    const row = {
-      id: 'connection-1',
-      user_id: 'user-1',
-      account_id: 'account-1',
-      account_name: 'Account',
-      status: 'active',
-      credential_handle: 'credential-1',
-      granted_oauth_scopes_json: '{invalid',
-      connected_at: 1,
-      updated_at: 1,
-      connection_generation: 1,
-    };
-    const db = {
-      prepare: () => ({ bind: () => ({ first: async () => row }) }),
-    } as unknown as D1Database;
+    const { database, db } = sharedAccount();
+    database.exec(
+      `UPDATE cloudflare_authorizations SET granted_oauth_scopes_json = '{invalid' WHERE account_id = 'account-1'`,
+    );
 
-    await expect(findCloudflareConnectionForUser(db, 'user-1')).rejects.toThrow(
+    await expect(findCloudflareConnectionForUser(db, 'owner')).rejects.toThrow(
       'Stored Cloudflare connection scopes are invalid',
     );
   });
+
+  it('reads a space whose account has no authorization as having none, so it asks to reconnect', async () => {
+    const { database, db } = sharedAccount();
+    database.exec(`DELETE FROM cloudflare_authorizations`);
+
+    expect(await findCloudflareConnectionForOrganization(db, 'sites')).toMatchObject({
+      credentialHandle: null,
+      grantedOAuthScopes: [],
+    });
+  });
 });
 
-type FakeConnectionState = {
-  generation: number;
-  credentialHandle: string;
-  accountId: string;
-  accountName: string | null;
-  grantedScopes: string[];
-  connectedAt: number;
-  updatedAt: number;
-};
-
-function connectionDatabase(
-  initial: { generation: number; credentialHandle: string },
-  options: {
-    failSelect?: boolean;
-    updateErrorAfterCommit?: Error;
-    updateErrorWithoutCommit?: Error;
-  } = {},
-) {
-  const state: FakeConnectionState = {
-    generation: initial.generation,
-    credentialHandle: initial.credentialHandle,
-    accountId: 'account-1',
-    accountName: 'Account',
-    grantedScopes: ['workers-scripts.write'],
-    connectedAt: 1,
-    updatedAt: 1,
-  };
-  let selects = 0;
-  const row = () => ({
-    id: 'connection-1',
-    user_id: 'user-1',
-    account_id: state.accountId,
-    account_name: state.accountName,
-    status: 'active' as const,
-    credential_handle: state.credentialHandle,
-    granted_oauth_scopes_json: JSON.stringify(state.grantedScopes),
-    connected_at: state.connectedAt,
-    updated_at: state.updatedAt,
-    connection_generation: state.generation,
-  });
-  const applyUpdate = (values: unknown[]) => {
-    // SAFETY: mirrors the exact bind order of the repository's UPDATE statement, which the
-    // assertions on the fake's observable state prove end to end.
-    const [accountId, accountName, credentialHandle, grantedScopesJson, connectedAt, updatedAt, , expectedGeneration] =
-      values as [string, string | null, string, string, number, number, string, number];
-    if (expectedGeneration !== state.generation) {
-      return false;
+describe('mayReplaceCloudflareAuthorization', () => {
+  it('lets the person who runs every space in the account reconnect it from any of them', async () => {
+    const { db } = sharedAccount();
+    for (const owner of [
+      { kind: 'user', userId: 'owner' },
+      { kind: 'organization', orgId: 'sites' },
+    ] as const) {
+      expect(await mayReplaceCloudflareAuthorization(db, { userId: 'owner', owner, accountId: 'account-1' })).toBe(
+        true,
+      );
     }
-    state.accountId = accountId;
-    state.accountName = accountName;
-    state.credentialHandle = credentialHandle;
-    state.grantedScopes = JSON.parse(grantedScopesJson);
-    state.connectedAt = connectedAt;
-    state.updatedAt = updatedAt;
-    state.generation++;
-    return true;
-  };
-  const db = {
-    prepare(query: string) {
-      return {
-        bind(...values: unknown[]) {
-          return {
-            run: async () => {
-              if (!query.includes('UPDATE cloudflare_connections')) {
-                return changed(0);
-              }
-              return changed(applyUpdate(values) ? 1 : 0);
-            },
-            first: async () => {
-              if (query.includes('UPDATE cloudflare_connections')) {
-                if (options.updateErrorWithoutCommit) {
-                  throw options.updateErrorWithoutCommit;
-                }
-                const committed = applyUpdate(values);
-                if (committed && options.updateErrorAfterCommit) {
-                  throw options.updateErrorAfterCommit;
-                }
-                return committed ? row() : null;
-              }
-              if (query.includes('SELECT')) {
-                selects++;
-                if (options.failSelect) {
-                  throw new Error('follow-up read failed');
-                }
-                return row();
-              }
-              return null;
-            },
-          };
-        },
-      };
-    },
-  } as unknown as D1Database;
-  return {
-    db,
-    get generation() {
-      return state.generation;
-    },
-    get credentialHandle() {
-      return state.credentialHandle;
-    },
-    get selects() {
-      return selects;
-    },
-  };
-}
+  });
 
-function newConnectionDatabase(options: { insertErrorAfterCommit?: Error } = {}): D1Database {
-  let committed: ReturnType<typeof insertedConnectionRow> | null = null;
-  return {
-    prepare(query: string) {
-      return {
-        bind(...values: unknown[]) {
-          return {
-            first: async () => {
-              if (query.includes('INSERT INTO cloudflare_connections')) {
-                expect(query).toContain('RETURNING');
-                committed = insertedConnectionRow(values);
-                if (options.insertErrorAfterCommit) {
-                  throw options.insertErrorAfterCommit;
-                }
-                return committed;
-              }
-              expect(query).toContain('FROM cloudflare_connections');
-              return committed;
-            },
-          };
-        },
-      };
-    },
-  } as unknown as D1Database;
-}
+  it("keeps a member, or anyone else, from replacing an authorization someone else's space uses", async () => {
+    const { database, db } = sharedAccount();
+    // Sara connecting her own space to the owner's account would replace the owner's authorization.
+    expect(
+      await mayReplaceCloudflareAuthorization(db, {
+        userId: 'sara',
+        owner: { kind: 'user', userId: 'sara' },
+        accountId: 'account-1',
+      }),
+    ).toBe(false);
+    // An admin of another team, too.
+    database.exec(`
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('other', 'Other', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('other', 'sara', 'admin', 1);
+    `);
+    expect(
+      await mayReplaceCloudflareAuthorization(db, {
+        userId: 'sara',
+        owner: { kind: 'organization', orgId: 'other' },
+        accountId: 'account-1',
+      }),
+    ).toBe(false);
+    // A paused admin no longer runs the team.
+    database.exec(`UPDATE organization_members SET paused_at = 1 WHERE org_id = 'sites' AND user_id = 'owner'`);
+    expect(
+      await mayReplaceCloudflareAuthorization(db, {
+        userId: 'owner',
+        owner: { kind: 'user', userId: 'owner' },
+        accountId: 'account-1',
+      }),
+    ).toBe(false);
+  });
 
-function insertedConnectionRow(values: unknown[]) {
-  // SAFETY: mirrors the exact bind order of the repository's INSERT statement, which the
-  // returning-row assertions in the tests above prove end to end.
-  const [id, userId, accountId, accountName, credentialHandle, grantedScopesJson, connectedAt, , updatedAt] =
-    values as [string, string, string, string | null, string, string, number, number, number];
-  return {
-    id,
-    user_id: userId,
-    account_id: accountId,
-    account_name: accountName,
-    status: 'active' as const,
-    credential_handle: credentialHandle,
-    granted_oauth_scopes_json: grantedScopesJson,
-    connected_at: connectedAt,
-    updated_at: updatedAt,
-    connection_generation: 1,
-  };
-}
-
-function changed(changes: number) {
-  return { success: true, meta: { changes } } as D1Result;
-}
+  it('lets anyone connect an account no other space builds in', async () => {
+    const { db } = sharedAccount();
+    expect(
+      await mayReplaceCloudflareAuthorization(db, {
+        userId: 'sara',
+        owner: { kind: 'user', userId: 'sara' },
+        accountId: 'account-2',
+      }),
+    ).toBe(true);
+  });
+});

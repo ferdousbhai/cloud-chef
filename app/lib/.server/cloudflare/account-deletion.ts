@@ -1,4 +1,9 @@
 import { D1CloudflareCredentialVault } from './cloudflare-credential-vault';
+import {
+  CREDENTIAL_UNREFERENCED,
+  deleteUnusedCloudflareAuthorization,
+  unusedCloudflareAuthorization,
+} from './cloudflare-connection-repository';
 import { deleteTeamWorkspace } from './team-workspace';
 
 /**
@@ -14,10 +19,12 @@ import { deleteTeamWorkspace } from './team-workspace';
  * A team only they belong to is deleted with their membership in it, in one write, so no team is ever
  * left behind with nobody in it.
  */
-export async function eraseControlPlaneAccount(args: {
-  env: Env;
-  userId: string;
-}): Promise<{ cloudflareAuthorizationRevoked: boolean; workspacesLeftIn: string[] }> {
+export async function eraseControlPlaneAccount(args: { env: Env; userId: string }): Promise<{
+  cloudflareAuthorizationRevoked: boolean;
+  /** The teams still building in their own account, for which its authorization was kept, not revoked. */
+  cloudflareAuthorizationKeptFor: string[];
+  workspacesLeftIn: string[];
+}> {
   const db = args.env.DB;
   // Project resource cleanup runs in the user workspace and needs the Cloudflare authorization
   // revoked here, so it cannot be drained from the control plane: the project GC receipts live in
@@ -52,11 +59,13 @@ export async function eraseControlPlaneAccount(args: {
     }
   }
   await leaveOrganizations(db, args.userId);
-  // Their own connection stays in place until the last write, so a retry finds its grant again.
-  const credentialHandle = await revokeConnection(db, args.userId);
+  // Their own connection stays in place until the last write, so a retry finds its grant again. The grant is
+  // the account's, shared with any team still building there: it is revoked only once none is.
+  const { accountId, credentialHandle } = await revokeConnection(db, args.userId);
   if (credentialHandle) {
     revocations.push(await revokeOrWarn(revokeGrant, credentialHandle));
   }
+  const cloudflareAuthorizationKeptFor = accountId ? await teamsBuildingIn(db, accountId) : [];
   const cloudflareAuthorizationRevoked = revocations.length > 0 && revocations.every(Boolean);
 
   await db.batch([
@@ -76,22 +85,24 @@ export async function eraseControlPlaneAccount(args: {
     db.prepare('DELETE FROM user_computer_runtimes WHERE user_id = ?').bind(args.userId),
     db.prepare('DELETE FROM cloudflare_auth_sessions WHERE user_id = ?').bind(args.userId),
     db.prepare('DELETE FROM cloudflare_connections WHERE user_id = ?').bind(args.userId),
+    ...(accountId ? [deleteUnusedCloudflareAuthorization(db, accountId)] : []),
     ...(credentialHandle ? [deleteUnusedCredential(db, credentialHandle)] : []),
     db.prepare('DELETE FROM "user" WHERE id = ?').bind(args.userId),
   ]);
 
-  return { cloudflareAuthorizationRevoked, workspacesLeftIn };
+  return { cloudflareAuthorizationRevoked, cloudflareAuthorizationKeptFor, workspacesLeftIn };
 }
 
 /**
  * Deletes a team, as its admin deleting it or its last member's erasure does. Its connection is
  * revoked first, so nothing builds there, then CloudChef's grant on the account is revoked with
- * Cloudflare, then the team's records go: the team, and with it (by their foreign keys) its
+ * Cloudflare, unless a person's own space or another team still builds in that account with it,
+ * then the team's records go: the team, and with it (by their foreign keys) its
  * memberships, invites, usage counts, GitHub installation and connection states, linked projects and
  * who may work on each, production requests and their drafts, its Cloudflare connection and every
- * workspace locator in it, and the connection's stored authorization. Whether the grant was revoked;
- * null when the team had none. A connection an earlier, interrupted deletion already revoked is
- * revoked again.
+ * workspace locator in it, and the account's stored authorization once nothing uses it. Whether the
+ * grant was revoked; null when the team had none or it is still in use. A connection an earlier,
+ * interrupted deletion already revoked is revoked again.
  */
 export async function deleteOrganization(
   db: D1Database,
@@ -101,26 +112,25 @@ export async function deleteOrganization(
   const revoked = await db
     .prepare(
       `UPDATE cloudflare_connections SET status = 'revoked', updated_at = ? WHERE org_id = ?
-       RETURNING credential_handle`,
+       RETURNING account_id`,
     )
     .bind(Date.now(), orgId)
-    .first<{ credential_handle: string | null }>();
-  const credentialHandle = revoked?.credential_handle ?? null;
+    .first<{ account_id: string }>();
+  const accountId = revoked?.account_id ?? null;
+  const credentialHandle = accountId ? await unusedCloudflareAuthorization(db, accountId) : null;
   const grantRevoked = credentialHandle ? await revokeOrWarn(revokeGrant, credentialHandle) : null;
   await db.batch([
     db.prepare('DELETE FROM organizations WHERE id = ?').bind(orgId),
+    ...(accountId ? [deleteUnusedCloudflareAuthorization(db, accountId)] : []),
     ...(credentialHandle ? [deleteUnusedCredential(db, credentialHandle)] : []),
   ]);
   return grantRevoked;
 }
 
-/** Deletes a stored authorization once no connection names it. */
+/** Deletes a stored credential once no authorization names it. */
 function deleteUnusedCredential(db: D1Database, credentialHandle: string): D1PreparedStatement {
   return db
-    .prepare(
-      `DELETE FROM cloudflare_credentials
-       WHERE handle = ?1 AND NOT EXISTS (SELECT 1 FROM cloudflare_connections WHERE credential_handle = ?1)`,
-    )
+    .prepare(`DELETE FROM cloudflare_credentials WHERE handle = ?1 AND ${CREDENTIAL_UNREFERENCED}`)
     .bind(credentialHandle);
 }
 
@@ -259,22 +269,44 @@ async function soleMemberOrganizations(db: D1Database, userId: string): Promise<
   return results.map((row) => row.org_id);
 }
 
-async function revokeConnection(db: D1Database, userId: string): Promise<string | null> {
+/**
+ * Revokes their own connection: the account it builds in, and the credential of that account's
+ * authorization when no team still builds there with it, for its grant to be revoked with Cloudflare.
+ */
+async function revokeConnection(
+  db: D1Database,
+  userId: string,
+): Promise<{ accountId: string | null; credentialHandle: string | null }> {
   const revoked = await db
     .prepare(
       `UPDATE cloudflare_connections SET status = 'revoked', updated_at = ?
        WHERE user_id = ? AND status = 'active'
-       RETURNING credential_handle`,
+       RETURNING account_id`,
     )
     .bind(Date.now(), userId)
-    .first<{ credential_handle: string | null }>();
+    .first<{ account_id: string }>();
   const connection =
     revoked ??
     (await db
-      .prepare('SELECT credential_handle FROM cloudflare_connections WHERE user_id = ?')
+      .prepare('SELECT account_id FROM cloudflare_connections WHERE user_id = ?')
       .bind(userId)
-      .first<{ credential_handle: string | null }>());
-  return connection?.credential_handle ?? null;
+      .first<{ account_id: string }>());
+  const accountId = connection?.account_id ?? null;
+  return { accountId, credentialHandle: accountId ? await unusedCloudflareAuthorization(db, accountId) : null };
+}
+
+/** The names of the teams with an active connection to `accountId`. */
+async function teamsBuildingIn(db: D1Database, accountId: string): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT organizations.name FROM cloudflare_connections AS connections
+       JOIN organizations ON organizations.id = connections.org_id
+       WHERE connections.account_id = ? AND connections.status = 'active'
+       ORDER BY organizations.name`,
+    )
+    .bind(accountId)
+    .all<{ name: string }>();
+  return results.map((row) => row.name);
 }
 
 function safeCredentialVault(env: Env): D1CloudflareCredentialVault | null {
