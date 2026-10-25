@@ -273,7 +273,7 @@ async function revokeCloudflareGrant(env: Env, credentialHandle: string): Promis
  * revoked with Cloudflare unless another space still builds in that account, and the team's records are
  * deleted, as erasing its last member would.
  * Apps deployed from those workspaces, and their databases and storage, stay in the account, and so
- * does CloudChef's GitHub App on the GitHub account it was installed on.
+ * does CloudChef's GitHub App on the GitHub accounts it was installed on.
  */
 export function deleteOrganizationAction({
   request,

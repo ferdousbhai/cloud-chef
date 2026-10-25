@@ -122,7 +122,7 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
  * revoked first, so nothing builds there, then CloudChef's grant on the account is revoked with
  * Cloudflare, unless a person's own space or another team still builds in that account with it,
  * then the team's records go: the team, and with it (by their foreign keys) its
- * memberships, invites, usage counts, GitHub installation and connection states, linked projects and
+ * memberships, invites, usage counts, GitHub installations and connection states, linked projects and
  * who may work on each, production requests and their drafts, its Cloudflare connection and every
  * workspace locator in it, and the account's stored authorization once nothing uses it. Whether
  * Cloudflare confirmed the grant revoked; 'kept' when another space still builds with it, null when the

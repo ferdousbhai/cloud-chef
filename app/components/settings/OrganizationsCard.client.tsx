@@ -773,7 +773,10 @@ function DeleteTeam({
             ]
           : []),
         ...(outcome.cloudflareAuthorizationRevoked === false
-          ? ["CloudChef's access to its Cloudflare account couldn't be revoked; revoke it in the Cloudflare dashboard."]
+          ? [
+              "CloudChef's access to its Cloudflare account couldn't be revoked. Whoever last connected that account " +
+                'to CloudChef can remove it in the Cloudflare dashboard, under Profile, Manage OAuth authorizations.',
+            ]
           : []),
         ...(outcome.cloudflareAuthorizationKept
           ? [
@@ -808,8 +811,7 @@ function DeleteTeam({
         </p>
         <p>
           What stays: deployed apps, with their databases and storage, and AI Gateway keys, in the Cloudflare account;
-          imported repositories, and CloudChef&apos;s GitHub App, on GitHub. To stop CloudChef using the account but
-          keep the team, revoke its access in the Cloudflare dashboard instead.
+          imported repositories, and CloudChef&apos;s GitHub App, on GitHub.
         </p>
         {reauthenticate ? (
           <ReauthenticatePrompt

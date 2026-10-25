@@ -282,8 +282,9 @@ export function AccountDataCard() {
             ))}
             {revoked === false ? (
               <p>
-                Cloudflare did not confirm that CloudChef’s access was removed. Remove it yourself in the Cloudflare
-                dashboard under <strong>Profile → Manage OAuth authorizations</strong> (
+                Cloudflare did not confirm that CloudChef’s access was removed. If that access was given with your
+                Cloudflare login, remove it in the Cloudflare dashboard under{' '}
+                <strong>Profile → Manage OAuth authorizations</strong> (
                 <a className="underline" href={CLOUDFLARE_OAUTH_AUTHORIZATIONS_URL}>
                   open OAuth authorizations
                 </a>
