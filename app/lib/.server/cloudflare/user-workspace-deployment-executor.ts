@@ -140,7 +140,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
       executionGeneration: args.executionGeneration,
     });
     phase = 'provisioning';
-    await activity(args, 10, 'Preparing Cloudflare resources');
+    await activity(args, 10, 'Getting Cloudflare ready');
     const accountApi = await createUserAccountApi(args.env);
     const reference = requireApprovedWorkspaceReference(deployment);
     const workspace = args.env.PROJECT_WORKSPACE.get(args.env.PROJECT_WORKSPACE.idFromName(reference.projectId));
@@ -160,7 +160,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     providerChangesPossible = Boolean(resourcePlan.d1 || resourcePlan.agentD1 || resourcePlan.r2 || resourcePlan.kv);
     const resources = await ensurePublicationResources({ db: args.env.DB, deployment, accountApi, resourcePlan });
     abortSignal?.throwIfAborted();
-    await activity(args, 20, 'Cloudflare resources ready');
+    await activity(args, 20, 'Cloudflare is ready');
     await transitionDeployment({
       db: args.env.DB,
       deploymentId: deployment.id,
@@ -186,10 +186,10 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     await workspace.assertDeploymentSession({ sessionId: session.sessionId });
     // The last point at which stopping leaves production as it was.
     abortSignal?.throwIfAborted();
-    await activity(args, 40, 'Applying database migrations');
+    await activity(args, 40, 'Updating your database');
     await applyProductionMigrations(accountApi, resources, artifact);
     providerChangesPossible = true;
-    await activity(args, 50, 'Uploading assets and publishing Worker');
+    await activity(args, 50, 'Uploading your app');
     const published = await accountApi.deployManagedWorker(
       managedWorkerVersionArgs({ workerName, profile, reference, artifact, resources }),
     );
@@ -209,7 +209,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
       .catch(recordPromotion)
       .catch(() => console.error('Unable to record the promoted production version'));
     const followUps = new PublicationFollowUps();
-    await followUps.run('recording the route step', () => activity(args, 60, 'Configuring public Cloudflare route'));
+    await followUps.run('recording the route step', () => activity(args, 60, 'Setting up your web address'));
     await followUps.run("setting the Worker's schedule", () =>
       accountApi.configureManagedWorkerSchedule(workerName, profile.bindings.appAgent),
     );
@@ -230,7 +230,7 @@ export async function executeUserOwnedDeployment(args: UserOwnedDeploymentArgs):
     phase = 'succeeded';
     // Production is promoted and recorded: what follows is bookkeeping, and its failure must not
     // report a live deployment as failed.
-    await activity(args, 80, 'Deployment complete').catch(() =>
+    await activity(args, 80, 'Finishing up').catch(() =>
       console.error('Unable to record the completed deployment activity'),
     );
     await session

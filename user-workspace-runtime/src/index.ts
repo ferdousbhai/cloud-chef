@@ -2017,7 +2017,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       const canReuse = preparedMatchesRevision && (await this.exists(PREPARED_VALIDATION_ARTIFACT_ROOT)).exists;
       let artifact: PreparedDeploymentArtifact;
       if (canReuse) {
-        await activity(31, 'Reusing validated build artifact');
+        await activity(31, 'Using the version that passed its checks');
         artifact = await this.collectDeploymentArtifact({
           revision,
           isolatedRoot: PREPARED_VALIDATION_ROOT,
@@ -2031,13 +2031,13 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         const expectedDigest = preparedMatchesRevision ? prepared.artifact_digest : null;
         let cleanupAllowed = true;
         try {
-          await activity(31, 'Restoring validated source artifact');
+          await activity(31, 'Loading the version that passed its checks');
           await this.discardPreparedValidationArtifact();
           // A recycled container loses only this cache. Rebuilding is allowed, but the resulting
           // inventory must equal validation's durable digest when one survived the recycle.
           await this.copyProjectToIsolatedRoot(PREPARED_VALIDATION_ROOT);
           await this.assertDeploymentSession({ sessionId });
-          await activity(32, 'Installing app dependencies');
+          await activity(32, 'Installing what your app needs');
           await this.runTransientCommand(PREPARED_VALIDATION_ROOT, INSTALL_COMMAND, INSTALL_TIMEOUT_MS);
           artifact = await this.buildDeploymentArtifact({
             revision,
@@ -2202,7 +2202,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     liveness?: OperationLiveness;
     activity?: (sequence: number, message: string) => Promise<void>;
   }): Promise<PreparedDeploymentArtifact> {
-    await args.activity?.(33, 'Building production app');
+    await args.activity?.(33, 'Building your app');
     await this.runTransientCommand(args.isolatedRoot, 'pnpm run build', 5 * 60_000, args.cancellation);
     args.liveness?.observed();
     args.cancellation?.requireActive();
@@ -2216,7 +2216,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     if (!configWrite.success) {
       throw new Error('The isolated deployment configuration could not be written.');
     }
-    await args.activity?.(34, 'Checking Cloudflare deployment package');
+    await args.activity?.(34, 'Checking the build');
     await this.runTransientCommand(
       args.isolatedRoot,
       // The project's own pinned cf, run directly rather than paying a pnpm start-up.
@@ -2229,7 +2229,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     // Collapse the built Worker to one module so the later versions API upload cannot acknowledge a
     // multipart request while omitting a generated module.
     const builtMainPath = `${args.isolatedRoot}/${CF_BUILT_WORKER_MODULE}`;
-    await args.activity?.(35, 'Bundling Worker modules');
+    await args.activity?.(35, 'Packing up your app');
     await this.runTransientCommand(
       args.isolatedRoot,
       [
@@ -2241,7 +2241,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       args.cancellation,
     );
     args.liveness?.observed();
-    await args.activity?.(36, 'Build artifact ready');
+    await args.activity?.(36, 'Build ready');
     return this.collectDeploymentArtifact(args);
   }
 

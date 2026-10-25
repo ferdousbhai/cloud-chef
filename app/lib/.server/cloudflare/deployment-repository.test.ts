@@ -122,7 +122,7 @@ describe('deployment repository', () => {
       deploymentId: approved.id,
       executionGeneration: approved.executionGeneration,
       sequence: 20,
-      message: 'Cloudflare resources ready',
+      message: 'Cloudflare is ready',
     });
     vi.setSystemTime(21);
     await recordDeploymentActivity({
@@ -130,12 +130,12 @@ describe('deployment repository', () => {
       deploymentId: approved.id,
       executionGeneration: approved.executionGeneration,
       sequence: 10,
-      message: 'Preparing Cloudflare resources',
+      message: 'Getting Cloudflare ready',
     });
 
     await expect(listDeploymentActivity(db, approved.id, approved.executionGeneration)).resolves.toEqual([
-      { sequence: 10, message: 'Preparing Cloudflare resources', createdAt: 21 },
-      { sequence: 20, message: 'Cloudflare resources ready', createdAt: 22 },
+      { sequence: 10, message: 'Getting Cloudflare ready', createdAt: 21 },
+      { sequence: 20, message: 'Cloudflare is ready', createdAt: 22 },
     ]);
     await expect(listDeploymentActivity(db, approved.id, approved.executionGeneration + 1)).resolves.toEqual([]);
   });
@@ -148,7 +148,7 @@ describe('deployment repository', () => {
       deploymentId: approved.id,
       executionGeneration: approved.executionGeneration,
       sequence: 10,
-      message: 'Preparing Cloudflare resources',
+      message: 'Getting Cloudflare ready',
     });
     vi.setSystemTime(30);
     await recordDeploymentActivity({
@@ -156,7 +156,7 @@ describe('deployment repository', () => {
       deploymentId: approved.id,
       executionGeneration: approved.executionGeneration,
       sequence: 50,
-      message: 'Uploading assets and publishing Worker',
+      message: 'Uploading your app',
     });
     // A step recorded by the attempt before this one must never be shown as this attempt's progress.
     vi.setSystemTime(40);
@@ -165,12 +165,12 @@ describe('deployment repository', () => {
       deploymentId: approved.id,
       executionGeneration: approved.executionGeneration + 1,
       sequence: 80,
-      message: 'Deployment complete',
+      message: 'Finishing up',
     });
 
     await expect(latestDeploymentActivity(db, approved.id)).resolves.toEqual({
       sequence: 50,
-      message: 'Uploading assets and publishing Worker',
+      message: 'Uploading your app',
       createdAt: 30,
     });
   });
@@ -342,7 +342,7 @@ describe('deployment repository', () => {
       deploymentId: earlier.id,
       executionGeneration: earlier.executionGeneration,
       sequence: 50,
-      message: 'Uploading assets and publishing Worker',
+      message: 'Uploading your app',
     });
     await expect(find()).resolves.toMatchObject({ lastActiveAt: 30 });
     vi.setSystemTime(45);
@@ -351,7 +351,7 @@ describe('deployment repository', () => {
       deploymentId: holding.id,
       executionGeneration: holding.executionGeneration,
       sequence: 40,
-      message: 'Applying database migrations',
+      message: 'Updating your database',
     });
     await expect(find()).resolves.toMatchObject({ lastActiveAt: 45 });
 

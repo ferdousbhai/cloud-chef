@@ -5,12 +5,12 @@ describe('publicationProgress', () => {
   it('reports the recorded step, its message and when it was recorded', () => {
     const progress = publicationProgress({
       sequence: 33,
-      message: 'Building production app',
+      message: 'Building your app',
       createdAt: 30,
     });
 
     expect(progress).toEqual({
-      message: 'Building production app',
+      message: 'Building your app',
       percent: expect.any(Number),
       updatedAt: 30,
     });
@@ -19,10 +19,10 @@ describe('publicationProgress', () => {
   it('places each recorded step in the ladder', () => {
     const uploading = publicationProgress({
       sequence: 50,
-      message: 'Uploading assets and publishing Worker',
+      message: 'Uploading your app',
       createdAt: 5,
     });
-    const complete = publicationProgress({ sequence: 80, message: 'Deployment complete', createdAt: 6 });
+    const complete = publicationProgress({ sequence: 80, message: 'Finishing up', createdAt: 6 });
 
     expect(uploading.percent).toBe(83);
     expect(complete.percent).toBe(100);
