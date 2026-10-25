@@ -11,7 +11,8 @@ import { boundedBytes, concatBytes, pktLine, readPktLines, type GitFetch } from 
 /** Where to read from: an https address, and an `Authorization` header value for a private repository. */
 export type GitSource = { url: string; authorization: string | null };
 
-type GitSourceFailure = 'auth_required' | 'not_found' | 'too_large' | 'unavailable';
+/** `no_repository`: the host has no repository at that address, or (GitHub, for a private one) won't say. */
+type GitSourceFailure = 'auth_required' | 'no_repository' | 'not_found' | 'too_large' | 'unavailable';
 
 export class GitSourceError extends Error {
   constructor(
@@ -269,7 +270,7 @@ async function sourceRequest(
       throw new GitSourceError('auth_required', `the repository's host refused access (HTTP ${response.status})`);
     }
     if (response.status === 404) {
-      throw new GitSourceError('not_found', 'the repository was not found');
+      throw new GitSourceError('no_repository', 'the repository was not found');
     }
     throw new GitSourceError('unavailable', `the repository's host answered HTTP ${response.status}`);
   }

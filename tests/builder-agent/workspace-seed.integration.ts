@@ -74,7 +74,7 @@ describe("a new workspace's seed", () => {
           role: 'edit',
           importSource: { url: 'https://github.com/ada/site.git', branch: 'main', authorization: null },
         }),
-      'That repository is private: connect it through GitHub to import it.',
+      "That repository wasn't found, or it is private: connect it through GitHub to import it.",
     ],
     [
       'the control plane answers what the runtime cannot read',

@@ -929,6 +929,14 @@ function importError(error: GitSourceError, authorized: boolean): ProjectReposit
           : 'That repository is private: connect it through GitHub to import it.',
         'auth_required',
       );
+    case 'no_repository':
+      // GitHub answers a private repository it isn't shown as not found.
+      return new ProjectRepositoryError(
+        authorized
+          ? `The repository could not be imported: ${error.message}.`
+          : "That repository wasn't found, or it is private: connect it through GitHub to import it.",
+        'not_found',
+      );
     case 'not_found':
       return new ProjectRepositoryError(`The repository could not be imported: ${error.message}.`, 'not_found');
     case 'too_large':
