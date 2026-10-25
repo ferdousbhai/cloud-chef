@@ -78,7 +78,7 @@ describe('control-plane account erasure', () => {
 
     await expect(eraseControlPlaneAccount({ env, userId: 'user-1' })).resolves.toEqual({
       cloudflareAuthorizationRevoked: true,
-      cloudflareAuthorizationKeptFor: [],
+      cloudflareAuthorizationsKept: [],
       workspacesLeftIn: [],
     });
     expect(cloudflare.revoked).toHaveLength(1);
@@ -182,7 +182,7 @@ describe('control-plane account erasure', () => {
     // Side goes with them, and their own space; Sites, which Sara still builds in, keeps the authorization.
     await expect(eraseControlPlaneAccount({ env, userId: 'user-1' })).resolves.toEqual({
       cloudflareAuthorizationRevoked: null,
-      cloudflareAuthorizationKeptFor: ['Sites'],
+      cloudflareAuthorizationsKept: [{ teams: ['Sites'], someoneElsesOwnSpace: false }],
       workspacesLeftIn: [],
     });
     expect(cloudflare.revoked).toEqual([]);
@@ -199,6 +199,55 @@ describe('control-plane account erasure', () => {
     expect(cloudflare.revoked).toHaveLength(1);
     expect(rowCount(database, 'cloudflare_authorizations')).toBe(0);
     expect(database.prepare('SELECT handle FROM cloudflare_credentials WHERE handle = ?').get(shared)).toBeUndefined();
+  });
+
+  it("keeps their account's authorization for someone else's own space there, saying so without saying whose", async () => {
+    const { database, db } = controlPlaneDatabase();
+    const env = vaultEnv(db);
+    const cloudflare = stubCloudflare();
+    const shared = await storeGrant(env, 'shared');
+    seedAccount(database, shared, 'user-1');
+    seedAccount(database, null, 'sara');
+    // Sara's own space builds in user-1's account too, and no team does.
+    database.exec(`UPDATE cloudflare_connections SET account_id = 'account-user-1' WHERE user_id = 'sara'`);
+
+    await expect(eraseControlPlaneAccount({ env, userId: 'user-1' })).resolves.toEqual({
+      cloudflareAuthorizationRevoked: null,
+      cloudflareAuthorizationsKept: [{ teams: [], someoneElsesOwnSpace: true }],
+      workspacesLeftIn: [],
+    });
+    expect(cloudflare.revoked).toEqual([]);
+    expect(database.prepare('SELECT credential_handle FROM cloudflare_authorizations').all()).toEqual([
+      { credential_handle: shared },
+    ]);
+  });
+
+  it('reports the authorization kept for others in the account of a team that went with them', async () => {
+    const { database, db } = controlPlaneDatabase();
+    const env = vaultEnv(db);
+    const cloudflare = stubCloudflare();
+    const own = await storeGrant(env, 'own');
+    const theirs = await storeGrant(env, 'theirs');
+    seedAccount(database, own, 'user-1');
+    seedAccount(database, theirs, 'sara');
+    // user-1's team Side, only them, builds in Sara's account, where Sara's own space builds too.
+    database.exec(`
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('side', 'Side', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('side', 'user-1', 'admin', 1);
+      INSERT INTO cloudflare_connections (id, user_id, org_id, account_id, status, created_at, updated_at) VALUES
+        ('side-connection', NULL, 'side', 'account-sara', 'active', 1, 1);
+    `);
+
+    await expect(eraseControlPlaneAccount({ env, userId: 'user-1' })).resolves.toEqual({
+      cloudflareAuthorizationRevoked: true,
+      cloudflareAuthorizationsKept: [{ teams: [], someoneElsesOwnSpace: true }],
+      workspacesLeftIn: [],
+    });
+    // Only their own account's grant was revoked; Sara's stays.
+    expect(cloudflare.revoked).toHaveLength(1);
+    expect(database.prepare('SELECT credential_handle FROM cloudflare_authorizations').all()).toEqual([
+      { credential_handle: theirs },
+    ]);
   });
 
   it('never lets the last active admins both leave an organization others still belong to', async () => {
@@ -448,7 +497,7 @@ describe('control-plane account erasure', () => {
 
       expect(erasure).toEqual({
         cloudflareAuthorizationRevoked: true,
-        cloudflareAuthorizationKeptFor: [],
+        cloudflareAuthorizationsKept: [],
         workspacesLeftIn: [],
       });
       expect(cloudflare.deletedIn).toEqual(retriedWorkspaces.map((orgId) => `${orgId}-account`));

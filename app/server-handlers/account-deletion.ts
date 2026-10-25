@@ -50,7 +50,7 @@ export async function deleteAccountAction({ request, env }: { request: Request; 
     {
       status: 'deleted',
       cloudflareAuthorizationRevoked: erasure.cloudflareAuthorizationRevoked,
-      cloudflareAuthorizationKeptFor: erasure.cloudflareAuthorizationKeptFor,
+      cloudflareAuthorizationsKept: erasure.cloudflareAuthorizationsKept,
       workspacesLeftIn: erasure.workspacesLeftIn,
     },
     { headers: { 'Set-Cookie': clearAuthSessionCookie(request), 'Cache-Control': 'no-store' } },

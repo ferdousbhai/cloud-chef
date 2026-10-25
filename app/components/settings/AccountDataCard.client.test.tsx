@@ -198,54 +198,70 @@ describe('AccountDataCard', () => {
     });
     expect(clearQueries).toHaveBeenCalledOnce();
     expect(mocks.resetUserRuntimeSession).toHaveBeenCalledOnce();
-    expect(document.body.textContent).toContain('Cloudflare did not confirm the revocation');
+    expect(document.body.textContent).toContain('Cloudflare did not confirm that CloudChef’s access was removed');
     expect(document.body.textContent).toContain('still in the Cloudflare accounts they were deployed to');
   });
 
-  it('says the Cloudflare authorization was kept for a team still building in the account, not to revoke it', async () => {
-    fetchMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          status: 'deleted',
-          cloudflareAuthorizationRevoked: null,
-          cloudflareAuthorizationKeptFor: ["Sara's sites"],
-          workspacesLeftIn: [],
-        }),
-        { status: 200 },
-      ),
-    );
+  /** What the server answers an erasure with. */
+  type DeletionAnswer = {
+    cloudflareAuthorizationRevoked: boolean | null;
+    cloudflareAuthorizationsKept?: { teams: string[]; someoneElsesOwnSpace: boolean }[];
+    workspacesLeftIn: string[];
+  };
+
+  async function deleteAnswering(answer: DeletionAnswer) {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ status: 'deleted', ...answer }), { status: 200 }));
     await render();
     await openDeletionPanel();
     await fillConfirmation();
-
     await act(async () => button('Permanently delete').click());
+    return document.body.textContent ?? '';
+  }
 
-    expect(document.body.textContent).toContain("because Sara's sites still builds in your account");
-    expect(document.body.textContent).not.toContain('encrypted credentials');
-    expect(document.body.textContent).not.toContain('Cloudflare did not confirm the revocation');
+  it('says the Cloudflare access was kept for a team still building in the account, not that it was removed', async () => {
+    const text = await deleteAnswering({
+      cloudflareAuthorizationRevoked: null,
+      cloudflareAuthorizationsKept: [{ teams: ["Sara's sites"], someoneElsesOwnSpace: false }],
+      workspacesLeftIn: [],
+    });
+
+    expect(text).toContain("because the team Sara's sites still builds there with it");
+    expect(text).not.toContain('encrypted credentials');
+    expect(text).not.toContain('Cloudflare did not confirm');
+    expect(text).not.toContain('Cloudflare confirmed');
   });
 
-  it('says both when the authorization was kept for a team and another revocation went unconfirmed', async () => {
-    fetchMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          status: 'deleted',
-          cloudflareAuthorizationRevoked: false,
-          cloudflareAuthorizationKeptFor: ["Sara's sites"],
-          workspacesLeftIn: [],
-        }),
-        { status: 200 },
-      ),
+  it("says the access was kept for someone else's own space without saying whose, and asks nothing of the person", async () => {
+    const text = await deleteAnswering({
+      cloudflareAuthorizationRevoked: null,
+      cloudflareAuthorizationsKept: [{ teams: [], someoneElsesOwnSpace: true }],
+      workspacesLeftIn: [],
+    });
+
+    expect(text).toContain("because someone else's own space still builds there with it");
+    expect(text).not.toContain('encrypted credentials');
+    expect(text).not.toContain('Cloudflare did not confirm');
+    expect(text).not.toContain('Remove it yourself');
+  });
+
+  it('says both when access was kept in one account and removing it from another went unconfirmed', async () => {
+    const text = await deleteAnswering({
+      cloudflareAuthorizationRevoked: false,
+      cloudflareAuthorizationsKept: [{ teams: ['Acme', "Sara's sites"], someoneElsesOwnSpace: true }],
+      workspacesLeftIn: [],
+    });
+
+    expect(text).toContain(
+      "because the team Acme, the team Sara's sites and someone else's own space still build there with it",
     );
-    await render();
-    await openDeletionPanel();
-    await fillConfirmation();
+    expect(text).toContain('Cloudflare did not confirm that CloudChef’s access was removed');
+  });
 
-    await act(async () => button('Permanently delete').click());
+  it('says Cloudflare confirmed the access was removed when it did', async () => {
+    const text = await deleteAnswering({ cloudflareAuthorizationRevoked: true, workspacesLeftIn: [] });
 
-    expect(document.body.textContent).toContain("because Sara's sites still builds in your account");
-    expect(document.body.textContent).toContain('Cloudflare did not confirm the revocation');
-    expect(document.body.textContent).toContain("also ends the access Sara's sites still uses");
+    expect(text).toContain('encrypted credentials');
+    expect(text).toContain('Cloudflare confirmed that CloudChef’s access was removed');
   });
 
   it('offers a Cloudflare reconnect when the session is not freshly re-authenticated', async () => {

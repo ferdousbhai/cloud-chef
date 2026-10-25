@@ -21,10 +21,13 @@ import { deleteTeamWorkspace } from './team-workspace';
  * left behind with nobody in it.
  */
 export async function eraseControlPlaneAccount(args: { env: Env; userId: string }): Promise<{
-  /** Whether Cloudflare confirmed every revocation; null when there was none to make. */
+  /** Whether Cloudflare confirmed every revocation erasure asked for; null when it asked for none. */
   cloudflareAuthorizationRevoked: boolean | null;
-  /** The teams still building in their own account, for which its authorization was kept, not revoked. */
-  cloudflareAuthorizationKeptFor: string[];
+  /**
+   * Each Cloudflare account they built in (their own, or a team's that went with them) whose authorization
+   * was kept, not revoked, because others still build there with it.
+   */
+  cloudflareAuthorizationsKept: KeptCloudflareAuthorization[];
   workspacesLeftIn: string[];
 }> {
   const db = args.env.DB;
@@ -54,7 +57,15 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
   const revocations: boolean[] = [];
   // Each team only they belong to goes with them, as deleting it would; a retry finds any left from
   // their membership, which goes with the team.
+  const accountsBuiltIn = new Set<string>();
   for (const orgId of await soleMemberOrganizations(db, args.userId)) {
+    const teamAccount = await db
+      .prepare('SELECT account_id FROM cloudflare_connections WHERE org_id = ?')
+      .bind(orgId)
+      .first<{ account_id: string }>();
+    if (teamAccount) {
+      accountsBuiltIn.add(teamAccount.account_id);
+    }
     const revoked = await deleteOrganization(db, orgId, revokeGrant);
     if (revoked !== null && revoked !== 'kept') {
       revocations.push(revoked);
@@ -67,7 +78,16 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
   if (credentialHandle) {
     revocations.push(await revokeOrWarn(revokeGrant, credentialHandle));
   }
-  const cloudflareAuthorizationKeptFor = accountId ? await teamsBuildingIn(db, accountId) : [];
+  if (accountId) {
+    accountsBuiltIn.add(accountId);
+  }
+  const cloudflareAuthorizationsKept: KeptCloudflareAuthorization[] = [];
+  for (const account of accountsBuiltIn) {
+    const kept = await keptCloudflareAuthorization(db, account, args.userId);
+    if (kept) {
+      cloudflareAuthorizationsKept.push(kept);
+    }
+  }
   const cloudflareAuthorizationRevoked = revocations.length > 0 ? revocations.every(Boolean) : null;
 
   await db.batch([
@@ -92,7 +112,7 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
     db.prepare('DELETE FROM "user" WHERE id = ?').bind(args.userId),
   ]);
 
-  return { cloudflareAuthorizationRevoked, cloudflareAuthorizationKeptFor, workspacesLeftIn };
+  return { cloudflareAuthorizationRevoked, cloudflareAuthorizationsKept, workspacesLeftIn };
 }
 
 /**
@@ -301,18 +321,35 @@ async function revokeConnection(
   return { accountId, credentialHandle: accountId ? await unusedCloudflareAuthorization(db, accountId) : null };
 }
 
-/** The names of the teams with an active connection to `accountId`. */
-async function teamsBuildingIn(db: D1Database, accountId: string): Promise<string[]> {
+/**
+ * Who still builds in a Cloudflare account with its authorization, which was therefore kept: the teams by
+ * name, and whether someone else's own space does, never saying whose.
+ */
+type KeptCloudflareAuthorization = { teams: string[]; someoneElsesOwnSpace: boolean };
+
+/** Who still builds in `accountId` with its authorization other than `userId`; null when no one does. */
+async function keptCloudflareAuthorization(
+  db: D1Database,
+  accountId: string,
+  userId: string,
+): Promise<KeptCloudflareAuthorization | null> {
   const { results } = await db
     .prepare(
-      `SELECT organizations.name FROM cloudflare_connections AS connections
-       JOIN organizations ON organizations.id = connections.org_id
-       WHERE connections.account_id = ? AND connections.status = 'active'
+      `SELECT organizations.name AS team FROM cloudflare_connections AS connections
+       JOIN cloudflare_authorizations AS authorizations ON authorizations.account_id = connections.account_id
+       LEFT JOIN organizations ON organizations.id = connections.org_id
+       WHERE connections.account_id = ?1 AND connections.status = 'active' AND connections.user_id IS NOT ?2
        ORDER BY organizations.name`,
     )
-    .bind(accountId)
-    .all<{ name: string }>();
-  return results.map((row) => row.name);
+    .bind(accountId, userId)
+    .all<{ team: string | null }>();
+  if (results.length === 0) {
+    return null;
+  }
+  return {
+    teams: results.flatMap((row) => (row.team === null ? [] : [row.team])),
+    someoneElsesOwnSpace: results.some((row) => row.team === null),
+  };
 }
 
 function safeCredentialVault(env: Env): D1CloudflareCredentialVault | null {

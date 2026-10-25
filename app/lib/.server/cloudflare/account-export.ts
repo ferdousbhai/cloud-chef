@@ -88,7 +88,12 @@ type ExportedCloudflareConnection = {
   generation: number;
 };
 
+/**
+ * The stored authorization of the Cloudflare account their own connection builds in. Everyone building in that
+ * account with CloudChef shares it, so whoever connected or reconnected it last, possibly someone else, gave it.
+ */
 type ExportedEncryptedCredential = {
+  about: string;
   keyVersion: number;
   storedAt: string;
   rotatedAt: string | null;
@@ -371,6 +376,9 @@ async function readCloudflareConnection(
   };
 }
 
+const ENCRYPTED_CREDENTIAL_ABOUT =
+  'CloudChef’s stored access to the Cloudflare account your own connection builds in: when it was stored and last renewed. Everyone who builds in that account with CloudChef shares this one access, so someone else may have given it. The access itself is never exported.';
+
 type CredentialMetadataRow = { key_version: number; created_at: number; rotated_at: number | null };
 
 async function readEncryptedCredential(
@@ -391,6 +399,7 @@ async function readEncryptedCredential(
     // That a credential record exists, when it was stored, and which key version
     // wraps it are portable facts. The ciphertext and its IV are not, at any size.
     encryptedCredential: row && {
+      about: ENCRYPTED_CREDENTIAL_ABOUT,
       keyVersion: row.key_version,
       storedAt: isoTimestamp(row.created_at),
       rotatedAt: optionalIsoTimestamp(row.rotated_at),

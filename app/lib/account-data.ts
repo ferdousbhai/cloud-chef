@@ -12,7 +12,7 @@ export const ACCOUNT_DELETION_CONFIRMATION = 'delete my CloudChef account';
 export const ACCOUNT_EXPORT_SECTION_LABELS = {
   account: 'your account record',
   cloudflareConnection: 'your Cloudflare connection',
-  encryptedCredential: 'your stored Cloudflare authorization',
+  encryptedCredential: 'CloudChef’s stored access to the Cloudflare account you build in',
   computerRuntimes: 'your workspaces',
   organizations: 'your team memberships',
   organizationInvites: 'invites sent to you',
