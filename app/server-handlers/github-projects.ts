@@ -151,17 +151,19 @@ async function completeInstallation(args: {
     if (current.some((installation) => installation.installationId === installationId)) {
       return back('repositories_updated');
     }
-    // GitHub has one installation per account: an account that has the App for another space comes back here,
-    // with no code to prove who controls it again. The person who proved it for that space may add it here too.
+    // GitHub has one installation per account: an account that has the App already comes back here, with no code
+    // to prove who controls it again. A personal GitHub account its owner proved for another space may be added
+    // here too, since who owns it can't change; an organization's owners can, so that needs a fresh install.
     if (Number.isSafeInteger(installationId) && installationId > 0) {
       const session = await getAuthSession(env, request);
       const scope =
         session?.user.id === pending.user_id
           ? await managedScope(env.DB, pending.connection_id, session.user.id)
           : null;
-      const proven = scope ? await findInstallationConnectedBy(env.DB, installationId, pending.user_id) : null;
+      const found = scope ? await findInstallationConnectedBy(env.DB, installationId, pending.user_id) : null;
+      const proven = found?.accountType === 'User' ? found : null;
       if (!scope || !proven) {
-        return back(scope ? 'install_set_up_elsewhere' : 'install_other_admin');
+        return back(scope ? 'install_already_there' : 'install_other_admin');
       }
       await saveGitHubInstallation(env.DB, { scope, userId: pending.user_id, installation: proven });
       return back('connected');

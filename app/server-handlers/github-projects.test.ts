@@ -331,7 +331,7 @@ describe('GitHub projects', () => {
       'Updated which repositories CloudChef can reach on GitHub.',
     );
     // One someone else set up for another space is not theirs to add: nothing is recorded.
-    expect(githubMessage(await changeRepositories(INSTALLATION_ID + 1))).toMatch(/set up by someone else/);
+    expect(githubMessage(await changeRepositories(INSTALLATION_ID + 1))).toMatch(/already has CloudChef's GitHub App/);
     expect(await env.DB.prepare('SELECT installation_id FROM github_installations').all()).toMatchObject({
       results: [{ installation_id: INSTALLATION_ID }],
     });

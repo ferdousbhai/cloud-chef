@@ -8,8 +8,8 @@ const GITHUB_RETURN_MESSAGES = {
   install_expired: 'That GitHub connection expired or was already finished. Try again.',
   install_cancelled: 'GitHub was not connected: the installation was cancelled. Try again.',
   install_other_admin: 'Sign in as the person who started connecting GitHub, then connect it again.',
-  install_set_up_elsewhere:
-    "That GitHub account already has CloudChef's GitHub App, set up by someone else. Ask them to add it here, or choose another account.",
+  install_already_there:
+    "That GitHub account already has CloudChef's GitHub App, so GitHub didn't ask its owner to confirm it. If someone else set it up, ask them to add it here. If you did, uninstall CloudChef's App on GitHub (Settings, Applications), then connect it again.",
   install_not_owner: 'Only the owner of that GitHub account or organization can connect it.',
   install_failed: "GitHub couldn't be connected just now. Try again.",
   connected: 'Connected GitHub.',
