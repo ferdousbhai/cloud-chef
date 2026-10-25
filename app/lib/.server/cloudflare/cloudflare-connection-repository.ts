@@ -107,13 +107,30 @@ function ownerId(owner: CloudflareConnectionOwner): string {
   return owner.kind === 'user' ? owner.userId : owner.orgId;
 }
 
+/** The account's one authorization, which every space building in it uses; null when it has none. */
+export async function findCloudflareAuthorization(
+  db: D1Database,
+  accountId: string,
+): Promise<{ credentialHandle: string; grantedOAuthScopes: string[] } | null> {
+  const row = await db
+    .prepare('SELECT credential_handle, granted_oauth_scopes_json FROM cloudflare_authorizations WHERE account_id = ?')
+    .bind(accountId)
+    .first<{ credential_handle: string; granted_oauth_scopes_json: string }>();
+  return row
+    ? {
+        credentialHandle: row.credential_handle,
+        grantedOAuthScopes: parseStoredStringArray(row.granted_oauth_scopes_json),
+      }
+    : null;
+}
+
 /**
- * Whether `userId` may replace the authorization of `accountId`, which every space building there uses:
- * only when each of those spaces other than `owner`'s (the one they are connecting) is theirs to run, their
- * own or a team they are an active admin of. A Cloudflare account another person builds in, alone or with a
- * team they run, keeps that person's authorization.
+ * Whether `userId` runs every space building in `accountId` other than `owner`'s (the one they are
+ * connecting): each is their own or a team they are an active admin of. Only then may they replace the
+ * account's working authorization, which all of those spaces use; one that no longer works anyone
+ * connecting there may replace.
  */
-export async function mayReplaceCloudflareAuthorization(
+export async function runsEveryOtherSpaceInAccount(
   db: D1Database,
   args: { userId: string; owner: CloudflareConnectionOwner; accountId: string },
 ): Promise<boolean> {
@@ -165,11 +182,16 @@ export function deleteUnusedCloudflareAuthorization(db: D1Database, accountId: s
 }
 
 /**
- * No authorization names the stored credential `handle` binds (as `?1` in `sql`). The second clause covers the
- * per-space credential column the release before this one wrote, until the release after drops it.
+ * No authorization names the stored credential whose handle is `handle`, an SQL expression. The second clause
+ * covers the per-space credential column the release before this one wrote, until the release after drops it.
  */
-export const CREDENTIAL_UNREFERENCED = `NOT EXISTS (SELECT 1 FROM cloudflare_authorizations WHERE credential_handle = ?1)
-         AND NOT EXISTS (SELECT 1 FROM cloudflare_connections WHERE credential_handle = ?1)`;
+export function credentialUnreferenced(handle: string): string {
+  return `NOT EXISTS (SELECT 1 FROM cloudflare_authorizations WHERE credential_handle = ${handle})
+         AND NOT EXISTS (SELECT 1 FROM cloudflare_connections WHERE credential_handle = ${handle})`;
+}
+
+/** No authorization names the stored credential the handle bound as `?1` names. */
+export const CREDENTIAL_UNREFERENCED = credentialUnreferenced('?1');
 
 /**
  * Connects `owner`'s space to the account, or reconnects it, with a new authorization: the space advances

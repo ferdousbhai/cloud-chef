@@ -23,8 +23,9 @@ import {
   CloudflareConnectionChangedError,
   deleteUnusedCloudflareAuthorization,
   findActiveCloudflareConnection,
+  findCloudflareAuthorization,
   findCloudflareConnectionForOwner,
-  mayReplaceCloudflareAuthorization,
+  runsEveryOtherSpaceInAccount,
   type CloudflareConnectionOwner,
   type CloudflareConnection,
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
@@ -481,13 +482,20 @@ export async function completeCloudflareConnectionAction(args: {
       userId = user.id;
       owner = { kind: 'user', userId };
     }
-    // The account's authorization is shared by every space building in it: replacing it is for someone who
-    // runs each of them.
-    if (!(await mayReplaceCloudflareAuthorization(args.env.DB, { userId, owner, accountId: result.accountId }))) {
+    const vault = D1CloudflareCredentialVault.fromEnv(args.env);
+    // The account's authorization is shared by every space building in it: replacing one that works is for
+    // someone who runs each of them. One that no longer works (missing a permission CloudChef needs, or its
+    // grant gone) anyone connecting there may replace, so an account is never left with nobody able to.
+    const replaced = await findCloudflareAuthorization(args.env.DB, result.accountId);
+    if (
+      replaced &&
+      missingCoreOAuthScopes(replaced.grantedOAuthScopes).length === 0 &&
+      !(await runsEveryOtherSpaceInAccount(args.env.DB, { userId, owner, accountId: result.accountId })) &&
+      (await vault.stillAuthorizes(replaced.credentialHandle))
+    ) {
       throw new ConnectReturnError('account_in_use');
     }
     const previous = await findCloudflareConnectionForOwner(args.env.DB, owner);
-    const vault = D1CloudflareCredentialVault.fromEnv(args.env);
     const credentialHandle = await vault.storeOAuthCredential({
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
@@ -528,10 +536,15 @@ export async function completeCloudflareConnectionAction(args: {
           console.warn('Unable to clean up an unused Cloudflare authorization', cleanupError.message);
         });
     }
-    if (previous?.credentialHandle && previous.credentialHandle !== credentialHandle) {
-      await vault.deleteIfUnreferenced(previous.credentialHandle).catch((cleanupError) => {
-        console.warn('Unable to clean up previous Cloudflare credential', cleanupError);
-      });
+    // The credentials this connection replaced, removed once nothing names them: the authorization the account
+    // had (whoever connected it), and the one of the account this space built in before, if it moved.
+    const replacedHandles = new Set([previous?.credentialHandle, replaced?.credentialHandle]);
+    for (const handle of replacedHandles) {
+      if (handle && handle !== credentialHandle) {
+        await vault.deleteIfUnreferenced(handle).catch((cleanupError) => {
+          console.warn('Unable to clean up a replaced Cloudflare credential', cleanupError);
+        });
+      }
     }
     // Signing in with Cloudflare starts a session. Connecting while already signed in (your own account,
     // or an organization's) doesn't: the session that asked keeps going, now in the account just

@@ -14,6 +14,14 @@ const OAUTH_REVOKE_URL = 'https://dash.cloudflare.com/oauth2/revoke';
  */
 const FORCED_REFRESH_INTERVAL_MS = 60_000;
 
+/** The credential no longer authorizes anything: it is gone, or Cloudflare refuses to refresh its grant. */
+class CloudflareAuthorizationEndedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CloudflareAuthorizationEndedError';
+  }
+}
+
 type CredentialRow = {
   ciphertext_base64: string;
   iv_base64: string;
@@ -81,7 +89,7 @@ export class D1CloudflareCredentialVault {
   async resolve(credentialHandle: string, options: { forceRefresh?: boolean } = {}): Promise<string> {
     const row = await this.readCredentialRow(credentialHandle);
     if (!row) {
-      throw new Error('Cloudflare credential is unavailable.');
+      throw new CloudflareAuthorizationEndedError('Cloudflare credential is unavailable.');
     }
     const oauthCredential = parseStoredOAuthCredential(await this.decryptCredentialRow(row));
     const now = Date.now();
@@ -90,6 +98,20 @@ export class D1CloudflareCredentialVault {
       return oauthCredential.accessToken;
     }
     return this.refreshOAuthCredential(credentialHandle, oauthCredential, row);
+  }
+
+  /**
+   * Whether the credential still works, asked of Cloudflare with a refresh: false once it is gone or
+   * Cloudflare refuses its grant (revoked, or its refresh expired). A refresh that couldn't reach
+   * Cloudflare, or that Cloudflare failed to answer, says nothing about the grant and counts as working.
+   */
+  async stillAuthorizes(credentialHandle: string): Promise<boolean> {
+    try {
+      await this.resolve(credentialHandle, { forceRefresh: true });
+      return true;
+    } catch (error) {
+      return !(error instanceof CloudflareAuthorizationEndedError);
+    }
   }
 
   /**
@@ -164,7 +186,12 @@ export class D1CloudflareCredentialVault {
       if (concurrent) {
         return concurrent;
       }
-      throw new Error('Cloudflare authorization expired; reconnect Cloudflare.');
+      // Cloudflare answers a revoked or expired grant with 400 (invalid_grant); anything else, such as an outage,
+      // says nothing about the grant.
+      const message = 'Cloudflare authorization expired; reconnect Cloudflare.';
+      throw response.status === 400 || response.status === 401
+        ? new CloudflareAuthorizationEndedError(message)
+        : new Error(message);
     }
     const refreshed: OAuthCredential = {
       version: 1,
