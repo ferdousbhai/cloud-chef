@@ -4,6 +4,7 @@ import {
   openProject,
   ProjectAccessError,
   ProjectRefusalError,
+  ProjectUnavailableError,
   registerProjectImport,
 } from '~/lib/.server/cloudflare/linked-project-client';
 import {
@@ -193,14 +194,17 @@ export async function importProject(
     });
   } catch (error) {
     // The project is registered already, so importing the address again is refused: opening the project
-    // is what finishes its copy.
-    if (error instanceof ProjectRepositoryError && error.code === 'unavailable') {
-      throw new ProjectRepositoryFailureError(
-        `${error.message.replace(/ Try again\.$/, '')} The project was added: open it from your projects to finish copying it.`,
-        503,
-      );
-    }
-    throw error;
+    // is what finishes its copy. CloudChef's own errors say what went wrong; anything else is said generally.
+    const reason =
+      error instanceof ProjectRepositoryError ||
+      error instanceof ProjectRefusalError ||
+      error instanceof ProjectUnavailableError
+        ? error.message.replace(/ Try again\.$/, '')
+        : "Copying the project's code stopped partway.";
+    throw new ProjectRepositoryFailureError(
+      `${reason} The project was added: open it from your projects to finish copying it.`,
+      503,
+    );
   }
   const { initialId } = await openLinkedChat(env.DB, {
     sessionId: args.sessionId,
@@ -277,6 +281,9 @@ export async function withRepositoryErrors<T>(operation: Promise<T>): Promise<T>
     if (error instanceof ProjectRefusalError) {
       throw new ProjectRepositoryFailureError(error.message, 409);
     }
+    if (error instanceof ProjectUnavailableError) {
+      throw new ProjectRepositoryFailureError(error.message, 503);
+    }
     if (!(error instanceof ProjectRepositoryError)) {
       throw error;
     }
@@ -287,6 +294,8 @@ export async function withRepositoryErrors<T>(operation: Promise<T>): Promise<T>
         throw new ProjectForbiddenError(error.message);
       case 'too_large':
         throw new ProjectRepositoryFailureError(error.message, 413);
+      case 'refused':
+        throw new ProjectRepositoryFailureError(error.message, 409);
       default:
         throw new ProjectRepositoryFailureError(error.message, 503);
     }

@@ -20,7 +20,7 @@ export class SubchatLimitError extends Error {
   }
 }
 
-/** A project's repository that could not do what was asked, for a reason the person can act on (413, 503). */
+/** A project's repository that could not do what was asked, for a reason the person can act on (409, 413, 503). */
 export class ProjectRepositoryFailureError extends Error {
   constructor(
     message: string,

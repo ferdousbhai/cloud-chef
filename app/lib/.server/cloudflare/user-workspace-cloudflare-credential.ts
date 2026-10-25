@@ -173,7 +173,8 @@ const MAX_ACCOUNT_MODEL_SETTINGS_RESPONSE_BYTES = 256 * 1024;
 const accountModelSettingsSchema = z.object({
   defaultModelId: z.string().min(1).max(256).nullable().catch(null),
   gatewayKeys: gatewayKeysSchema.catch([]),
-  // No fallback for a malformed list: it is not read as "every model allowed".
+  // No fallback for a malformed list: for a team account an unreadable answer fails closed rather than reading as
+  // "every model allowed" (a personal account falls back to today's behaviour, see readAccountModelSettings).
   allowedModelIds: z.array(z.string().min(1).max(256)).max(MAX_BUILDER_CATALOG_MODELS).nullable(),
 });
 

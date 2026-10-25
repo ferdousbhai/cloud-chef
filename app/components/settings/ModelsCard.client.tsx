@@ -180,15 +180,18 @@ export function ModelsCard() {
     });
 
   const chooseAllowed = (modelIds: string[] | null) =>
-    act(async () => {
-      const choices = await postJson(`${PATH}/allowed`, { modelIds }, modelChoicesSchema);
-      setSettings((current) => (current ? { ...current, ...choices } : current));
-      // The picker's catalog lists only the allowed models.
-      void reloadBuilderModelCatalog();
-      return modelIds === null
-        ? 'Saved. The model picker offers every compatible model, including ones added later.'
-        : `Saved. The model picker offers ${modelIds.length === 1 ? 'this 1 model' : `these ${modelIds.length} models`}; open chats switch within a minute.`;
-    });
+    act(
+      async () => {
+        const choices = await postJson(`${PATH}/allowed`, { modelIds }, modelChoicesSchema);
+        setSettings((current) => (current ? { ...current, ...choices } : current));
+        // The picker's catalog lists only the allowed models.
+        void reloadBuilderModelCatalog();
+        return modelIds === null
+          ? 'Saved. The model picker offers every compatible model, including ones added later.'
+          : `Saved. The model picker offers ${modelIds.length === 1 ? 'this 1 model' : `these ${modelIds.length} models`}. A chat on a model left out moves to an allowed one the next time it's opened or sends a message.`;
+      },
+      { refreshOnFailure: true },
+    );
 
   // The chosen default may be a model the account no longer offers (its key removed since): still shown.
   const choices = models.some(({ id }) => id === settings?.defaultModelId)

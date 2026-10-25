@@ -265,3 +265,17 @@ export function builderModelPublishedTime(model: BuilderModel): number {
 export function getBuilderModel(modelId: BuilderModelId, models: readonly BuilderModel[]): BuilderModel {
   return models.find(({ id }) => id === modelId) ?? DEFAULT_WORKERS_AI_MODEL;
 }
+
+/** A readable name made from a model's id (its last part, words capitalized), for a model no catalog names now. */
+export function modelIdLabel(modelId: string): string {
+  return modelId
+    .slice(modelId.lastIndexOf('/') + 1)
+    .split('-')
+    .map((part) => (/^\d/.test(part) ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join(' ')
+    .replace(/\bGlm\b/g, 'GLM')
+    .replace(/\bDeepseek\b/g, 'DeepSeek')
+    .replace(/\bGpt\b/g, 'GPT')
+    .replace(/\bOss\b/g, 'OSS')
+    .replace(/\bFp8\b/g, 'FP8');
+}

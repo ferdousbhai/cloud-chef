@@ -18,6 +18,7 @@ import {
   recordImportedRepo,
   recordProjectSiteUrl,
   recordWorkersBuildsScriptTag,
+  removeProject,
   requireProjectScope,
   type Project,
   type ProjectRole,
@@ -143,14 +144,17 @@ async function importSourceFor(
     const token = await app.installationToken(installation.installationId, { contents: 'read' }, [source.repoId]);
     return { url, branch: source.branch, authorization: `Basic ${btoa(`x-access-token:${token}`)}` };
   } catch (error) {
-    if (error instanceof GitHubError && [401, 403, 404, 422].includes(error.status)) {
+    // GitHub saying no about this repository. A 401 is CloudChef's own App failing to sign in, which the
+    // person can't fix, so it is treated as an outage below.
+    if (error instanceof GitHubError && [403, 404, 422].includes(error.status)) {
       return json(
         {
           code: 'github_refused',
           error:
-            error.status === 404 || error.status === 422
-              ? "CloudChef's GitHub App can no longer reach this repository. Give it access on GitHub, then try again."
-              : error.message,
+            error.status === 403
+              ? "GitHub refused CloudChef's GitHub App access to this repository. On GitHub, check that the App may " +
+                'read it, then try again.'
+              : "CloudChef's GitHub App can no longer reach this repository. Give it access on GitHub, then try again.",
         },
         502,
       );
@@ -202,12 +206,17 @@ export async function runtimeRegisterImportAction(args: {
     if (!project) {
       return json({ error: 'This project is not available to you.' }, 403);
     }
-    const importSource = await importSourceFor({ env: args.env, app }, project);
-    if (importSource instanceof Response) {
-      return importSource;
+    let importSource: Awaited<ReturnType<typeof importSourceFor>>;
+    try {
+      importSource = await importSourceFor({ env: args.env, app }, project);
+    } catch (error) {
+      await removeProject(args.env.DB, { scope, projectId: project.id });
+      throw error;
     }
-    if (!importSource) {
-      throw new Error('A registered import has no source to import from.');
+    if (importSource instanceof Response || !importSource) {
+      // Nothing can be imported yet, so the project isn't kept: importing again starts afresh.
+      await removeProject(args.env.DB, { scope, projectId: project.id });
+      return importSource ?? json({ error: 'There is nothing to import this project from.' }, 500);
     }
     const answer: RegisteredImport = {
       projectId: project.id,

@@ -74,6 +74,8 @@ export async function userRuntimeEnhancePromptAction({
     // catalog rather than Pi's static entry alone: the live catalog says whether the account still
     // serves the pin and gives the window and capabilities Cloudflare reports for it now, so the two
     // paths stay the same model, and refinement inherits the pin's retirement failover for free.
+    // It is CloudChef's own helper, not a choice from the picker, so the account's allowed models don't apply
+    // (as with chat titles): the owner chose this, since it is a small Workers AI model run once per draft.
     const model = await requireWorkersAiBuilderModel(accountCredentials.binding, CLOUDFLARE_WORKERS_AI_MODEL);
     // The draft goes to the model, so it is logged in the account's AI Gateway only if the person allows it.
     const handle = getPiModel(accountCredentials, model.id, {

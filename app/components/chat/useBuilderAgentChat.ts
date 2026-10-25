@@ -62,9 +62,11 @@ const AGENT_CANCEL_SETTLE_TIMEOUT_MS = 5 * 60 * 1000;
  * user-workspace-runtime/src/container-toolchain.ts (bootstrap + computerd download + connect
  * margin, pinned by test there). The agents SDK otherwise applies a 30-second default RPC
  * timeout, which turned a recovering workspace into an unresumable chat. Kept above that
- * ceiling by the pinning test in useBuilderAgentChat.test.tsx.
+ * ceiling by the pinning test in useBuilderAgentChat.test.tsx. A team project's first open also imports
+ * its history, which may take the import's own 30 minutes (`IMPORT_TIMEOUT_MS` in project-repository.ts),
+ * so this waits longer than that.
  */
-export const WORKSPACE_PREPARE_TIMEOUT_MS = 20 * 60 * 1000;
+export const WORKSPACE_PREPARE_TIMEOUT_MS = 35 * 60 * 1000;
 
 /**
  * How long the browser waits between attempts to re-reach a workspace it could not open. A

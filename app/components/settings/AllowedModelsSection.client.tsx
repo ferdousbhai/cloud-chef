@@ -52,7 +52,8 @@ export function AllowedModelsSection({
   const defaultId = effectiveDefaultModelId(defaultModelId);
   const allIds = (compatibleModels ?? []).map(({ id }) => id);
   const isAllowed = (id: string) => current.mode === 'all' || current.ids.has(id);
-  const disabled = !canManage || busy;
+  // Until the account's models are listed, a change would be made against an empty list and save only the default.
+  const disabled = !canManage || busy || compatibleModels === null;
 
   /** Ticks or unticks `ids`; the default always stays ticked, and the first change chooses models one by one. */
   const change = (ids: readonly string[], allowed: boolean) => {

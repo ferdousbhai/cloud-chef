@@ -5,6 +5,7 @@ import {
   DEFAULT_WORKERS_AI_MODEL,
   isBuilderModelId,
   MAX_BUILDER_CATALOG_MODELS,
+  modelIdLabel,
   validateBuilderModelCatalogPayload,
   builderModelCatalogPayloadSchema,
   builderReasoningLevelSchema,
@@ -250,7 +251,7 @@ function applyUnavailableModelNotice(saved: string | null, previousModels: reado
   }
   const replacement = models.find(({ id }) => id === builderModelStore.get());
   builderModelUnavailableStore.set({
-    label: previousModels.find(({ id }) => id === saved)?.label ?? saved,
+    label: previousModels.find(({ id }) => id === saved)?.label ?? modelIdLabel(saved),
     replacementLabel: replacement?.label ?? builderModelStore.get(),
   });
 }

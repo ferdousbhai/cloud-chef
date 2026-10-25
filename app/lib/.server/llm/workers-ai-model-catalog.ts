@@ -7,6 +7,7 @@ import {
   isBuilderModelAllowed,
   isWorkersAiModelId,
   MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS,
+  modelIdLabel,
   NO_ACCOUNT_MODEL_SETTINGS,
   type AccountModelSettings,
   type BuilderModel,
@@ -29,12 +30,13 @@ export class WorkersAiModelCatalogUnavailableError extends Error {
   }
 }
 
+const NO_ALLOWED_MODEL_MESSAGE =
+  'None of the models allowed in this account can run right now. An admin can allow others in Settings, under Models.';
+
 /** The account's admin allows models, but none of them can run in the account now. */
 export class NoAllowedBuilderModelError extends Error {
   constructor() {
-    super(
-      'None of the models allowed in this account can run right now. An admin can allow others in Settings, under Models.',
-    );
+    super(NO_ALLOWED_MODEL_MESSAGE);
     this.name = 'NoAllowedBuilderModelError';
   }
 }
@@ -79,7 +81,7 @@ export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalog
     const reasoning = properties.get('reasoning') === 'true';
     const model: BuilderModel = {
       id: entry.name,
-      label: workersAiModelLabel(entry.name),
+      label: modelIdLabel(entry.name),
       description: boundedDescription(entry.description),
       contextTokens,
       requiresPaid: properties.get('require_workers_paid') === 'true',
@@ -205,12 +207,9 @@ export async function requireWorkersAiBuilderModel(
   // literal here would send every build to a model the account can no longer serve, and the first
   // sign of it would be an invoke-time failure in every user's build at once.
   if (modelId === CLOUDFLARE_WORKERS_AI_MODEL) {
-    if (settings.allowedModelIds === null) {
-      return resolveBuilderDefaultModel(models);
-    }
     const allowed = models.filter(({ id }) => isBuilderModelAllowed(settings, id));
-    if (allowed.length === 0) {
-      throw new Response(new NoAllowedBuilderModelError().message, { status: 409 });
+    if (allowed.length === 0 && settings.allowedModelIds !== null) {
+      throw new Response(NO_ALLOWED_MODEL_MESSAGE, { status: 409 });
     }
     return resolveBuilderDefaultModel(allowed);
   }
@@ -344,7 +343,7 @@ function knownModelLabel(modelId: BuilderModelId): string {
   if (gatewayModelProvider(modelId) !== null) {
     return piGatewayModel(modelId)?.builderModel.label ?? modelId;
   }
-  return isWorkersAiModelId(modelId) ? workersAiModelLabel(modelId) : modelId;
+  return isWorkersAiModelId(modelId) ? modelIdLabel(modelId) : modelId;
 }
 
 function numericProperty(value: string | undefined): number {
@@ -355,17 +354,4 @@ function numericProperty(value: string | undefined): number {
 function boundedDescription(value: string): string {
   const description = value.replace(/\s+/g, ' ').trim().slice(0, 1_000);
   return description || 'Cloudflare-hosted model with function calling support.';
-}
-
-function workersAiModelLabel(modelId: WorkersAiModelId): string {
-  return modelId
-    .slice(modelId.lastIndexOf('/') + 1)
-    .split('-')
-    .map((part) => (/^\d/.test(part) ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
-    .join(' ')
-    .replace(/\bGlm\b/g, 'GLM')
-    .replace(/\bDeepseek\b/g, 'DeepSeek')
-    .replace(/\bGpt\b/g, 'GPT')
-    .replace(/\bOss\b/g, 'OSS')
-    .replace(/\bFp8\b/g, 'FP8');
 }

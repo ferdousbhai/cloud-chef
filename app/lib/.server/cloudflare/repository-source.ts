@@ -12,7 +12,8 @@ import { boundedBytes, concatBytes, pktLine, readPktLines, type GitFetch } from 
 export type GitSource = { url: string; authorization: string | null };
 
 /** `no_repository`: the host has no repository at that address, or (GitHub, for a private one) won't say. */
-type GitSourceFailure = 'auth_required' | 'no_repository' | 'not_found' | 'too_large' | 'unavailable';
+/** `refused`: the source answered in a way that trying again won't change. */
+type GitSourceFailure = 'auth_required' | 'no_repository' | 'not_found' | 'refused' | 'too_large' | 'unavailable';
 
 export class GitSourceError extends Error {
   constructor(
@@ -39,7 +40,7 @@ export async function readSourceBranch(fetchGit: GitFetch, source: GitSource, br
   const advertisement = await sourceRequest(fetchGit, source, '/info/refs?service=git-upload-pack', {});
   const lines = [...readPktLines(await sourceBytes(advertisement, MAX_ADVERTISEMENT_BYTES))].map(text);
   if (!lines.includes('version 2')) {
-    throw new GitSourceError('unavailable', "the repository's host does not speak git's protocol version 2");
+    throw new GitSourceError('refused', "the repository's host does not speak git's protocol version 2");
   }
   const wanted = `refs/heads/${branch}`;
   const body = concatBytes([pktLine('command=ls-refs\n'), delimiter(), pktLine(`ref-prefix ${wanted}\n`), flush()]);
@@ -155,7 +156,7 @@ function demultiplexPack(body: ReadableStream<Uint8Array>, maxBytes: number): So
             if (!inPack) {
               const line = text(payload);
               if (line.startsWith('ERR ')) {
-                fail(new GitSourceError('unavailable', `the repository's host refused: ${line.slice(4, 204)}`));
+                fail(new GitSourceError('refused', `the repository's host refused: ${line.slice(4, 204)}`));
                 return;
               }
               inPack = line === 'packfile';
@@ -187,12 +188,8 @@ function demultiplexPack(body: ReadableStream<Uint8Array>, maxBytes: number): So
           }
         } catch (error) {
           // The source's connection broke or timed out.
-          fail(
-            new GitSourceError(
-              'unavailable',
-              `the copy stopped before the whole history arrived (${error instanceof Error ? error.name : 'error'})`,
-            ),
-          );
+          console.warn({ event: 'project_import_source_broke', error: error instanceof Error ? error.name : 'error' });
+          fail(new GitSourceError('unavailable', 'the copy stopped before the whole history arrived'));
         }
       },
       cancel(reason) {
@@ -236,17 +233,18 @@ async function sourceRequest(
         signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS),
       });
     } catch (error) {
-      throw new GitSourceError(
-        'unavailable',
-        `the repository's host could not be reached (${error instanceof Error ? error.name : 'error'})`,
-      );
+      console.warn({
+        event: 'project_import_source_unreachable',
+        error: error instanceof Error ? error.name : 'error',
+      });
+      throw new GitSourceError('unavailable', "the repository's host could not be reached");
     }
     const location = response.headers.get('location');
     if (response.status >= 300 && response.status < 400 && location) {
       await response.body?.cancel().catch(() => undefined);
       const next = new URL(location, url);
       if (next.origin !== origin || redirects >= MAX_REDIRECTS) {
-        throw new GitSourceError('unavailable', "the repository's address moves somewhere CloudChef does not follow");
+        throw new GitSourceError('refused', "the repository's address moves somewhere CloudChef does not follow");
       }
       url = next.href;
       continue;

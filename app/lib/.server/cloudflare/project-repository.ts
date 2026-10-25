@@ -77,7 +77,8 @@ type RepositoryReadAccess = { remote: string; tokenId: string; token: string; ex
 export class ProjectRepositoryError extends Error {
   constructor(
     message: string,
-    readonly code: 'not_found' | 'too_large' | 'unavailable' | 'auth_required',
+    /** `refused`: trying again won't change the answer; `unavailable`: it may. */
+    readonly code: 'not_found' | 'too_large' | 'unavailable' | 'auth_required' | 'refused',
   ) {
     super(message);
     this.name = 'ProjectRepositoryError';
@@ -584,9 +585,13 @@ export class ProjectRepositories {
       if (!result.ok && !(await this.#holdsHistory(args.repo))) {
         // Git's own reason is for the logs; the person gets words.
         console.warn({ event: 'project_import_refused', reason: result.reason.slice(0, 200) });
+        // Only a server error may pass on its own; any other refusal comes back the same, so it isn't retried.
+        const passing = /^HTTP 5\d\d\b/.test(result.reason);
         throw new ProjectRepositoryError(
-          'Cloudflare did not accept the copied history, so nothing was imported. Try again.',
-          'unavailable',
+          passing
+            ? 'Cloudflare did not accept the copied history just now, so nothing was imported. Try again.'
+            : 'Cloudflare did not accept the copied history, so nothing was imported.',
+          passing ? 'unavailable' : 'refused',
         );
       }
     } finally {
@@ -921,6 +926,8 @@ function importError(error: GitSourceError, authorized: boolean): ProjectReposit
       );
     case 'not_found':
       return new ProjectRepositoryError(`The repository could not be imported: ${error.message}.`, 'not_found');
+    case 'refused':
+      return new ProjectRepositoryError(`The repository could not be imported: ${error.message}.`, 'refused');
     case 'too_large':
       return new ProjectRepositoryError(
         `That repository's history is larger than a project may hold (${IMPORT_MAX_PACK_BYTES / 1024 / 1024 / 1024} GB).`,

@@ -1022,7 +1022,7 @@ describe('the models the picker offers', () => {
     expect(withoutPin.status).toBe(409);
     expect(await withoutPin.json()).toMatchObject({
       code: 'default_model_not_allowed',
-      error: expect.stringContaining('default model has to stay allowed'),
+      error: expect.stringContaining('has to stay allowed. To leave it out, choose another default model first.'),
       defaultModelId: null,
       allowedModelIds: null,
     });

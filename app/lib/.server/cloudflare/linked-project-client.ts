@@ -71,6 +71,14 @@ export class ProjectRefusalError extends Error {
   }
 }
 
+/** Thrown when the control plane can't answer just now, with its words for the person: trying again may work. */
+export class ProjectUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProjectUnavailableError';
+  }
+}
+
 /** Thrown when the control plane refuses a project: no access (403), or no such project (404). */
 export class ProjectAccessError extends Error {
   constructor(
@@ -238,5 +246,5 @@ async function failure(response: Response, fallback: string): Promise<Error> {
   if (parsed.success && (response.status < 500 || parsed.data.code !== undefined)) {
     return new ProjectRefusalError(parsed.data.error);
   }
-  return new Error(parsed.success ? parsed.data.error : fallback);
+  return new ProjectUnavailableError(parsed.success ? parsed.data.error : fallback);
 }

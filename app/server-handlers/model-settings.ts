@@ -24,6 +24,7 @@ import {
   allowedBuilderModelIdsSchema,
   builderModelIdSchema,
   CLOUDCHEF_KEY_ALIASES,
+  effectiveDefaultModelId,
   GATEWAY_PROVIDER_SLUGS,
   isCloudChefKeyAlias,
   type GatewayProviderSlug,
@@ -256,9 +257,12 @@ export function updateAllowedModelsAction({ request, env }: RequestArgs) {
         return body.response;
       }
       if (!(await setAllowedBuilderModels(env.DB, connection.id, body.data.modelIds))) {
+        // Another admin may have changed the default meanwhile: the answer names the one that stands now.
+        const current = await readBuilderModelSettings(env.DB, connection.id);
         return modelsRefused(
-          'The default model has to stay allowed. Choose another default model first, then leave this one out.',
-          await readBuilderModelSettings(env.DB, connection.id),
+          `The default model, ${effectiveDefaultModelId(current.defaultModelId)}, has to stay allowed. To leave it ` +
+            'out, choose another default model first.',
+          current,
         );
       }
       return modelsResponse(await readBuilderModelSettings(env.DB, connection.id));
