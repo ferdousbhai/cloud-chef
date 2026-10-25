@@ -35,11 +35,7 @@ const BAND_PROGRESS = 2;
 const BAND_ERROR = 3;
 
 /** The commit a branch of the source is at; without a branch, the one its HEAD names. */
-export async function readSourceBranch(
-  fetchGit: GitFetch,
-  source: GitSource,
-  branch: string | null,
-): Promise<{ ref: string; oid: string }> {
+export async function readSourceBranch(fetchGit: GitFetch, source: GitSource, branch: string | null): Promise<string> {
   const advertisement = await sourceRequest(fetchGit, source, '/info/refs?service=git-upload-pack', {});
   const lines = [...readPktLines(await boundedBytes(advertisement, MAX_ADVERTISEMENT_BYTES))].map(text);
   if (!lines.includes('version 2')) {
@@ -49,22 +45,18 @@ export async function readSourceBranch(
   const body = concatBytes([
     pktLine('command=ls-refs\n'),
     delimiter(),
-    pktLine('symrefs\n'),
     pktLine(wanted ? `ref-prefix ${wanted}\n` : 'ref-prefix HEAD\n'),
     flush(),
   ]);
   const response = await sourceRequest(fetchGit, source, '/git-upload-pack', { body });
   for (const line of readPktLines(await boundedBytes(response, MAX_LS_REFS_BYTES))) {
-    const [oid = '', name = '', ...attributes] = text(line).split(' ');
+    const [oid = '', name = ''] = text(line).split(' ');
     if (!/^[0-9a-f]{40}$/.test(oid)) {
       continue;
     }
-    if (wanted && name === wanted) {
-      return { ref: wanted, oid };
-    }
-    const target = attributes.find((attribute) => attribute.startsWith('symref-target:'));
-    if (!wanted && name === 'HEAD' && target) {
-      return { ref: target.slice('symref-target:'.length), oid };
+    // HEAD counts whether it names a branch or is detached: only the commit is copied.
+    if (name === (wanted ?? 'HEAD')) {
+      return oid;
     }
   }
   throw new GitSourceError(

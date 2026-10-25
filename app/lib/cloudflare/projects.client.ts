@@ -7,9 +7,9 @@ export type ProjectRef = { chatInitialId: string } | { orgProjectId: string };
 
 export const HISTORY_PAGE_SIZE = 30;
 
-/** Importing copies the whole history of the source repository, which can take minutes for a large one: as long
- * as the runtime gives its copy (`IMPORT_TIMEOUT_MS` in project-repository.ts). */
-const IMPORT_TIMEOUT_MS = 30 * 60_000;
+/** Importing copies the whole history of the source repository, which can take minutes for a large one: the
+ * runtime's copy (`IMPORT_TIMEOUT_MS` in project-repository.ts, 30 minutes) plus its steps before and after. */
+const IMPORT_TIMEOUT_MS = 35 * 60_000;
 /** A fork copies the repository inside Artifacts and then seeds a new workspace from it. */
 const FORK_TIMEOUT_MS = 2 * 60_000;
 

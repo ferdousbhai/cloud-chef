@@ -42,7 +42,7 @@ const IMPORT_TIMEOUT_MS = 30 * 60_000;
 const IMPORT_TOKEN_TTL_SECONDS = 35 * 60;
 /** The most history an import copies: what a repository in Artifacts may hold. */
 const IMPORT_MAX_PACK_BYTES = 1024 * 1024 * 1024;
-/** A fork or import is ready within seconds to minutes; it is followed this long. */
+/** A new repository or fork is ready within seconds to minutes; it is followed this long. */
 const READY_WAIT_MS = 5 * 60_000;
 const READY_POLL_MS = 1_000;
 /** How far back a merge looks for where a branch left main; past that, the two are unrelated. */
@@ -111,16 +111,13 @@ function artifactsErrorCode(error: ArtifactsErrorReport): string | null {
     return error.code;
   }
   const message = error?.message ?? '';
-  const code =
-    /\b(ALREADY_EXISTS|NOT_FOUND|CREATE_IN_PROGRESS|IMPORT_IN_PROGRESS|FORK_IN_PROGRESS|REMOTE_AUTH_REQUIRED|INVALID_URL|UPSTREAM_UNAVAILABLE|MEMORY_LIMIT)\b/.exec(
-      message,
-    )?.[1];
+  const code = /\b(ALREADY_EXISTS|NOT_FOUND|CREATE_IN_PROGRESS|FORK_IN_PROGRESS)\b/.exec(message)?.[1];
   // Workers RPC may carry only the message, in words: a missing repository must not read as an outage,
   // or every new chat (which first asks whether its own repository exists) would fail to open.
   return code ?? (/\b(not found|does not exist|no such repo)/i.test(message) ? 'NOT_FOUND' : null);
 }
 
-const IN_PROGRESS = new Set(['CREATE_IN_PROGRESS', 'IMPORT_IN_PROGRESS', 'FORK_IN_PROGRESS']);
+const IN_PROGRESS = new Set(['CREATE_IN_PROGRESS', 'FORK_IN_PROGRESS']);
 
 /** Git's mode for a workspace file: executable or not. */
 function gitFileMode(mode: number): string {
@@ -548,22 +545,10 @@ export class ProjectRepositories {
       }
     }
     const main = await this.resolve(args.repo, MAIN_BRANCH);
-    if (main) {
-      return { commit: main.hash };
-    }
-    // Artifacts' own import (an earlier runtime's) kept the source's branch (`master`, say), which HEAD
-    // names, though the repository's info still says `main`: main starts there.
-    const head = args.branch
-      ? await this.resolve(args.repo, args.branch)
-      : await this.#withRepo(args.repo, async (handle) => {
-          const [commit] = await handle.log({ limit: 1 });
-          return commit ? toCommit(commit) : null;
-        });
-    if (!head) {
+    if (!main) {
       throw new ProjectRepositoryError('The imported repository has no commits.', 'not_found');
     }
-    await this.resetMain(args.repo, head.hash);
-    return { commit: head.hash };
+    return { commit: main.hash };
   }
 
   /** Streams the source branch's history into `repo` as main, which must not be there yet. */
@@ -574,11 +559,11 @@ export class ProjectRepositories {
     repo: string;
   }): Promise<void> {
     const source: GitSource = { url: args.url, authorization: args.authorization };
-    const branch = await readSourceBranch(this.#fetch, source, args.branch);
+    const head = await readSourceBranch(this.#fetch, source, args.branch);
     const remote = await this.#pushRemote(args.repo, IMPORT_TOKEN_TTL_SECONDS);
     try {
       const { refs, capabilities } = await readRemoteAdvertisement(this.#fetch, remote);
-      const pack = await fetchSourcePack(this.#fetch, source, branch.oid, {
+      const pack = await fetchSourcePack(this.#fetch, source, head, {
         ofsDelta: capabilities.has('ofs-delta'),
         maxBytes: IMPORT_MAX_PACK_BYTES,
         timeoutMs: IMPORT_TIMEOUT_MS,
@@ -588,7 +573,7 @@ export class ProjectRepositories {
         result = await updateRemoteRef(
           this.#fetch,
           remote,
-          { ref: MAIN_REF, oldOid: refs.get(MAIN_REF) ?? ZERO_OID, newOid: branch.oid },
+          { ref: MAIN_REF, oldOid: refs.get(MAIN_REF) ?? ZERO_OID, newOid: head },
           pack.stream,
           { timeoutMs: IMPORT_TIMEOUT_MS },
         );

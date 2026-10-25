@@ -289,37 +289,45 @@ export async function runtimeProjectSiteAction(args: {
     return opened;
   }
   const { project, connection } = opened;
-  return withWorkersBuilds(args, connection, project, async (api, worker) => {
+  return withWorkersBuilds(args, connection, project, async (api, worker, readProduction) => {
     if (!worker) {
       return json({ origins: [] }, 200);
     }
     const [production, previews] = await Promise.all([
-      productionOrigins(api, worker),
+      readProduction(worker),
       previewOrigins(api, worker).catch(() => []),
     ]);
     return json({ origins: [...new Set([...production, ...previews])] }, 200);
   });
 }
 
+type ProjectWorker = NonNullable<Awaited<ReturnType<typeof findProjectWorker>>>;
+
 /**
- * The project's Worker in Workers Builds (found once, then remembered), and the account's API to ask
- * about it. Cloudflare refusing answers 502 with what it said.
+ * The project's Worker in Workers Builds (found once, then remembered), the account's API to ask about it,
+ * and its production origins, read at most once per call. Cloudflare refusing answers 502 with what it said.
  */
 async function withWorkersBuilds(
   args: { env: Env; openAccount?: OpenWorkersBuildsAccountApi },
   connection: CloudflareConnection,
   project: Project,
-  answer: (api: WorkersBuildsAccountApi, worker: Awaited<ReturnType<typeof findProjectWorker>>) => Promise<Response>,
+  answer: (
+    api: WorkersBuildsAccountApi,
+    worker: ProjectWorker | null,
+    readProduction: (worker: ProjectWorker) => Promise<string[]>,
+  ) => Promise<Response>,
 ): Promise<Response> {
   try {
     const api = await (args.openAccount ?? openWorkersBuildsAccountApi)(args.env, connection);
     const worker = await findProjectWorker(api, project);
+    let production: Promise<string[]> | undefined;
+    const readProduction = (found: ProjectWorker) => (production ??= productionOrigins(api, found));
     if (worker && worker.tag !== project.workersBuildsScriptTag) {
       await recordWorkersBuildsScriptTag(args.env.DB, project.id, worker.tag);
     }
     if (worker && (!project.siteUrl || worker.tag !== project.workersBuildsScriptTag)) {
       // The projects home shows the site; a site that can't be read now is looked for on the next call.
-      const [siteUrl] = await productionOrigins(api, worker).catch((error: Error) => {
+      const [siteUrl] = await readProduction(worker).catch((error: Error) => {
         console.warn({ event: 'project_site_unreadable', message: error.message });
         return [];
       });
@@ -327,7 +335,7 @@ async function withWorkersBuilds(
         await recordProjectSiteUrl(args.env.DB, project.id, siteUrl);
       }
     }
-    return await answer(api, worker);
+    return await answer(api, worker, readProduction);
   } catch (error) {
     if (error instanceof CloudflareAccountApiError) {
       return json({ error: `Workers Builds could not be read: ${error.message}` }, 502);

@@ -341,25 +341,9 @@ export function fakeArtifacts(): FakeArtifacts {
     async get(name) {
       return handle(name, lookup(name));
     },
-    async import({ source, target }) {
-      const from = sources.get(sourceKey(source.url));
-      if (!from || from.authorization) {
-        throw new FakeArtifactsError('REMOTE_AUTH_REQUIRED');
-      }
-      if (repos.has(target.name)) {
-        throw new FakeArtifactsError('ALREADY_EXISTS');
-      }
-      const copy = copyRepo(from.repo);
-      copy.pendingCode = 'IMPORT_IN_PROGRESS';
-      repos.set(target.name, copy);
-      return {
-        id: target.name,
-        name: target.name,
-        description: null,
-        defaultBranch: 'main',
-        remote: remote(target.name),
-        token: SECRET,
-      };
+    // Artifacts' type requires it; CloudChef imports by streaming a push instead.
+    async import() {
+      throw new Error('CloudChef does not use Artifacts import.');
     },
     async list() {
       return { repos: [], total: repos.size };
