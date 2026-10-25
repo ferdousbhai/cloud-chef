@@ -2,8 +2,13 @@ import { expect, test } from '@playwright/test';
 import { HOME_HEADING, TRUST_PAGE_HEADINGS } from '~/lib/trust';
 import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
 import { DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
+import { TRANSCRIPT_HISTORY_FORMAT_VERSION } from 'cloudchef-agent/transcript';
+import { z } from 'zod';
 import { authSession } from './auth-session';
 import { collectBrowserDiagnostics } from './browser-diagnostics';
+
+/** A builder agent call as the browser sends it over the agent's socket. */
+const rpcRequestSchema = z.object({ type: z.literal('rpc'), id: z.string(), method: z.string() });
 
 test('hydrates the built landing page without replacing meaningful SSR content', async ({ page }, testInfo) => {
   const assertClean = collectBrowserDiagnostics(page, testInfo);
@@ -202,5 +207,68 @@ test('keeps account details discoverable and clears a cancelled deletion', async
       ).toBe(true);
     }
   }
+  await assertClean();
+});
+
+// A contract fixture: the runtime and its builder agent are doubles, answering as a runtime whose team
+// project could not be imported.
+test("says why a team project's workspace could not open, in the chat and the code view", async ({
+  page,
+}, testInfo) => {
+  const failure = 'Connect GitHub again in Settings to import this project.';
+  const assertClean = collectBrowserDiagnostics(page, testInfo);
+  const runtimeOrigin = 'https://e2e-team-project-fixture.workers.dev';
+  await page.route('**/api/auth/session', (route) => route.fulfill({ json: authSession }));
+  await page.route('**/api/cloudflare/runtime-session', (route) =>
+    route.fulfill({ json: { endpoint: runtimeOrigin, token: 'e2e-capability', expiresAt: Date.now() + 600_000 } }),
+  );
+  await page.route(`${runtimeOrigin}/v1/chats/messages`, (route) =>
+    route.fulfill({
+      json: {
+        status: 'ready',
+        version: TRANSCRIPT_HISTORY_FORMAT_VERSION,
+        initialId: 'team-project-chat',
+        description: 'Ada site',
+        transcript: { agentName: 'agent-team-project', subchatIndex: 0 },
+        checkpoint: null,
+        messages: [],
+      },
+    }),
+  );
+  await page.route(`${runtimeOrigin}/v1/models`, (route) =>
+    route.fulfill({ json: { defaultModelId: DEFAULT_WORKERS_AI_MODEL.id, models: [DEFAULT_WORKERS_AI_MODEL] } }),
+  );
+  await page.route(`${runtimeOrigin}/v1/data`, (route) => route.fulfill({ json: { result: [] } }));
+  let preparations = 0;
+  await page.routeWebSocket(new RegExp(`^wss://${new URL(runtimeOrigin).host}/`), (socket) => {
+    socket.send(
+      JSON.stringify({
+        type: 'cf_agent_state',
+        state: { linkedProject: { repository: 'Ada site', defaultBranch: 'main' } },
+      }),
+    );
+    socket.onMessage((raw) => {
+      const message = rpcRequestSchema.safeParse(JSON.parse(String(raw)));
+      if (!message.success) {
+        return;
+      }
+      const preparing = message.data.method === 'prepareWorkspace';
+      preparations += preparing ? 1 : 0;
+      const result = preparing ? { initialized: false, failure } : null;
+      socket.send(JSON.stringify({ type: 'rpc', id: message.data.id, success: true, result, done: true }));
+    });
+  });
+
+  await page.goto('/chat/team-project-chat');
+
+  await expect(page.getByText(`CloudChef could not open this project. ${failure}`)).toBeVisible();
+  await page.getByRole('button', { name: 'Browse the code' }).click();
+  const codeView = page.getByRole('complementary', { name: 'Project workbench' });
+  await expect(codeView.getByRole('heading', { name: 'CloudChef could not open this project.' })).toBeVisible();
+  await expect(codeView.getByRole('alert')).toHaveText(failure);
+  // Answered once and not reconnected to: only the person's retry asks again.
+  expect(preparations).toBe(1);
+  await codeView.getByRole('button', { name: 'Try again' }).click();
+  await expect.poll(() => preparations).toBe(2);
   await assertClean();
 });

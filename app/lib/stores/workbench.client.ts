@@ -4,6 +4,7 @@ import type { AbsolutePath } from 'cloudchef-agent/utils/workDir';
 import { getAbsolutePath } from 'cloudchef-agent/utils/workDir';
 import type { BuilderWorkspaceSyncEntry } from '@cloudchef/user-workspace-runtime/protocol';
 import type { BuilderLinkedProjectSummary } from '~/agents/builder-agent';
+import type { WorkspacePresentationState } from '~/components/chat/useBuilderAgentChat';
 import { downloadProject } from '~/lib/download/download-project';
 import { description } from './description';
 import { EditorStore } from './editor';
@@ -14,6 +15,16 @@ import { AppSiteStore } from './app-site';
 type UnsavedTextFiles = Record<AbsolutePath, File>;
 
 export type WorkbenchViewType = 'code' | 'preview';
+
+/** Where the active workspace's files stand, as the chat loading them reports it, with its retry. */
+export type WorkspaceFilesStatus = {
+  state: WorkspacePresentationState;
+  /** Why, when the agent could not put the project's files in the workspace. */
+  failure: string | null;
+  retry: (() => void) | null;
+};
+
+const CONNECTING_WORKSPACE_FILES: WorkspaceFilesStatus = { state: 'connecting', failure: null, retry: null };
 
 export class WorkbenchStore {
   #appSiteStore = new AppSiteStore();
@@ -40,6 +51,8 @@ export class WorkbenchStore {
   linkedProject: WritableAtom<BuilderLinkedProjectSummary | null> = atom(null);
   /** A newer conversation in the chat continues the project: this one's files are shown to read only. */
   conversationClosed: WritableAtom<boolean> = atom(false);
+  /** How the active workspace's files are reaching the browser, which the code view says while it has none. */
+  workspaceFiles: WritableAtom<WorkspaceFilesStatus> = atom(CONNECTING_WORKSPACE_FILES);
 
   constructor() {
     if (import.meta.hot) {
@@ -125,6 +138,7 @@ export class WorkbenchStore {
     this.#appSiteStore.reset();
     this.linkedProject.set(null);
     this.conversationClosed.set(false);
+    this.workspaceFiles.set(CONNECTING_WORKSPACE_FILES);
     this.currentView.set('code');
     this.showWorkbench.set(false);
   }

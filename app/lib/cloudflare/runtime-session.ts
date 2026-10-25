@@ -55,6 +55,17 @@ export class UserRuntimeSessionError extends Error {
   }
 }
 
+/**
+ * Whether a session refusal waits on the person (approving Cloudflare's permissions again, or enabling the
+ * Workers plan), which no number of reconnects gets past.
+ */
+export function runtimeSessionNeedsAction(error: unknown): boolean {
+  return (
+    error instanceof UserRuntimeSessionError &&
+    (error.code === 'cloudflare_reauthorization_required' || error.code === 'workspace_plan_required')
+  );
+}
+
 const REFRESH_SKEW_MS = 30_000;
 const PREPARATION_RETRY_DELAY_MS = 5_000;
 let pending: Promise<UserRuntimeSession> | null = null;
@@ -236,7 +247,7 @@ async function pollUserRuntimeSession(
     ) {
       const code = userRuntimeErrorCodeSchema.safeParse(payload?.code);
       throw new UserRuntimeSessionError(
-        payload?.error ?? 'The user-owned CloudChef runtime is unavailable.',
+        payload?.error ?? 'CloudChef could not reach your workspace. Try again in a moment.',
         code.success ? code.data : null,
         cloudflareDashboardUrl(payload?.upgradeUrl),
       );

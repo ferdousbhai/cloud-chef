@@ -11,6 +11,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const TEAM_PROJECT_ID = '11111111-1111-4111-8111-111111111111';
+
 const READY_STATE = {
   initialized: true,
   revision: 3,
@@ -30,8 +32,72 @@ describe("a new workspace's seed", () => {
     });
     expect(beginSeed).not.toHaveBeenCalled();
 
-    await expect(harness.agent.prepareWorkspace()).rejects.toThrow('The project download from GitHub ended early.');
+    // Answered, not thrown: a thrown failure reads in the browser as a lost connection, which it retries.
+    await expect(harness.agent.prepareWorkspace()).resolves.toEqual({
+      initialized: false,
+      failure: 'The project download from GitHub ended early. Open the project again.',
+    });
     expect(beginSeed).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [
+      'GitHub is no longer connected',
+      () =>
+        Response.json(
+          { code: 'github_disconnected', error: 'Connect GitHub again in Settings to import this project.' },
+          { status: 409 },
+        ),
+      'Connect GitHub again in Settings to import this project.',
+    ],
+    [
+      "GitHub refuses CloudChef's App",
+      () =>
+        Response.json(
+          {
+            code: 'github_refused',
+            error:
+              "CloudChef's GitHub App can no longer reach this repository. Give it access on GitHub, then try again.",
+          },
+          { status: 502 },
+        ),
+      "CloudChef's GitHub App can no longer reach this repository. Give it access on GitHub, then try again.",
+    ],
+    [
+      'the import itself fails',
+      () =>
+        Response.json({
+          orgProjectId: TEAM_PROJECT_ID,
+          name: 'Ada site',
+          repo: null,
+          defaultBranch: 'main',
+          role: 'edit',
+          importSource: { url: 'https://github.com/ada/site.git', branch: 'main', authorization: null },
+        }),
+      'That repository is private: connect it through GitHub to import it.',
+    ],
+    [
+      'the control plane answers what the runtime cannot read',
+      () => Response.json({ orgProjectId: TEAM_PROJECT_ID }),
+      "CloudChef could not copy the project's files into your workspace.",
+    ],
+  ])("answers why a team project's workspace could not open when %s", async (_case, open, failure) => {
+    const beginSeed = vi.fn(async (): Promise<BuilderWorkspaceSeedStartResult> => {
+      throw new Error('Nothing is seeded from a project that did not open.');
+    });
+    const harness = await builderAgentHarness({
+      workspace: { refresh: async () => ({ ...READY_STATE, initialized: false }), beginSeed },
+      cloudflareIdentity: true,
+    });
+    harness.database.prepare(`UPDATE chats SET org_project_id = ?`).run(TEAM_PROJECT_ID);
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+      String(input instanceof Request ? input.url : input).includes('runtime-projects/open')
+        ? open()
+        : new Response('unavailable', { status: 503 }),
+    );
+
+    await expect(harness.agent.prepareWorkspace()).resolves.toEqual({ initialized: false, failure });
+    expect(beginSeed).not.toHaveBeenCalled();
   });
 
   it('runs once for callers that need it at the same time, and each gets the seeded workspace', async () => {
