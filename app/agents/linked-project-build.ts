@@ -90,9 +90,6 @@ function linkedBuildData(
     startedAt: watch.startedAt,
     defaultBranch: watch.defaultBranch,
   };
-  if (build === 'failure') {
-    data.conclusion = 'failure';
-  }
   return data;
 }
 

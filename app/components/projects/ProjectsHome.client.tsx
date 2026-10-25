@@ -242,7 +242,7 @@ function TeamProjects({
       </SectionHeading>
       {loadFailed ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-content-secondary">
-          <span>Team projects could not be loaded.</span>
+          <span>{heading} could not be loaded.</span>
           <Button size="xs" variant="neutral" onClick={() => setAttempt((count) => count + 1)}>
             Try again
           </Button>

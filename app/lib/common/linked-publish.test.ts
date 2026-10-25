@@ -26,11 +26,11 @@ function data(overrides: Record<string, string | number | boolean | null>) {
 describe('linkedPublishView', () => {
   it('names a failed build by what already landed in the repository, not as an unsent publish', () => {
     const live = linkedPublishView(
-      publish(toolFailure('model text', data({ live: true, build: 'failure', conclusion: 'cancelled' })), 'publish'),
+      publish(toolFailure('model text', data({ live: true, build: 'failure' })), 'publish'),
       NOW,
     );
     expect(live).toMatchObject({ kind: 'failed', title: 'Publishing failed', building: false });
-    expect(live?.detail).toContain("The build was cancelled, so your change isn't live");
+    expect(live?.detail).toContain("The build didn't finish, so your change isn't live");
     expect(linkedPublishView(publish(toolFailure('x', data({ build: 'failure' }))), NOW)?.title).toBe('Preview failed');
   });
 

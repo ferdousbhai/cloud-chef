@@ -289,7 +289,7 @@ describe("a team project's publish", () => {
       previewUrl: null,
       detailsUrl: 'https://d/2',
     });
-    expect(cancelled).toMatchObject({ ok: false, data: { build: 'failure', conclusion: 'failure' } });
+    expect(cancelled).toMatchObject({ ok: false, data: { build: 'failure' } });
     expect(cancelled.summary).toContain('did not succeed, so the change is not live');
     expect(linkedBuildUnfollowedResult(watch)).toMatchObject({ ok: true, data: { build: 'unfollowed' } });
   });

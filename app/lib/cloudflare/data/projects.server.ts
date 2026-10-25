@@ -19,7 +19,7 @@ import type { DataOperationResult, ProjectCloneAccess, ProjectCommit } from '~/l
 import { ensureInitialChat, findChat, openLinkedChat } from './chat-repository.server';
 import { cloneToken } from './clone-tokens.server';
 import { DataNotFoundError, ProjectForbiddenError, ProjectRepositoryFailureError } from './errors';
-import { GITHUB_ACCESS_FIX } from '~/lib/github-return-messages';
+import { IMPORT_DIALOG_ACCESS_FIX } from '~/lib/github-return-messages';
 
 /**
  * A project's history and its ways out, for the browser: its commits, a clone command, a ZIP of any
@@ -242,7 +242,7 @@ export async function importProject(
       throw new ProjectRepositoryFailureError(
         noLongerPublic
           ? "That repository wasn't found: it was removed, or it isn't public. To import a private repository, " +
-              `${GITHUB_ACCESS_FIX} first. Nothing was added.`
+              `${IMPORT_DIALOG_ACCESS_FIX} first. Nothing was added.`
           : `${reason} Nothing was added.`,
         409,
       );

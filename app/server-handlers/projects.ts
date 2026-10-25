@@ -1,4 +1,4 @@
-import { GITHUB_ACCESS_FIX, GITHUB_UNREACHABLE } from '~/lib/github-return-messages';
+import { GITHUB_UNREACHABLE, IMPORT_DIALOG_ACCESS_FIX } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import type { GitHubApp } from '~/lib/.server/github/github-app';
 import { gitHubRepositoryFromUrl, publicRepositoryDefaultBranch } from '~/lib/.server/github/public-repository';
@@ -128,7 +128,7 @@ export async function registerGitHubImport(
       return Response.json(
         {
           code: 'not_public',
-          error: `${fullName} isn't a public repository with code in it. For a private one, ${GITHUB_ACCESS_FIX} first.`,
+          error: `${fullName} isn't a public repository with code in it. For a private one, ${IMPORT_DIALOG_ACCESS_FIX} first.`,
         },
         { status: 404 },
       );

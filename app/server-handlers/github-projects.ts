@@ -1,4 +1,4 @@
-import { GITHUB_ACCESS_FIX, GITHUB_UNREACHABLE } from '~/lib/github-return-messages';
+import { GITHUB_UNREACHABLE, IMPORT_DIALOG_ACCESS_FIX } from '~/lib/github-return-messages';
 import { z } from 'zod';
 import type { GitHubReturnMessage } from '~/lib/github-return-messages';
 import { getAuthSession } from '~/lib/.server/auth';
@@ -162,8 +162,12 @@ async function completeInstallation(args: {
           : null;
       const found = scope ? await findInstallationConnectedBy(env.DB, installationId, pending.user_id) : null;
       const proven = found?.accountType === 'User' ? found : null;
-      if (!scope || !proven) {
-        return back(scope ? 'install_already_there' : 'install_other_admin');
+      if (!scope) {
+        return back('install_other_admin');
+      }
+      if (!proven) {
+        // Their own organization's installation, proven for another space: GitHub won't prove it again here.
+        return back(found ? 'install_organization_elsewhere' : 'install_already_there');
       }
       await saveGitHubInstallation(env.DB, { scope, userId: pending.user_id, installation: proven });
       return back('connected');
@@ -316,7 +320,7 @@ export async function installedRepositories(db: D1Database, scope: ProjectScope,
   }
   return reached.every((result) => result instanceof GitHubError && !passingGitHubFailure(result))
     ? Response.json(
-        { error: `CloudChef's GitHub App was removed or suspended on GitHub. To fix it, ${GITHUB_ACCESS_FIX}.` },
+        { error: `CloudChef's GitHub App was removed or suspended on GitHub. To fix it, ${IMPORT_DIALOG_ACCESS_FIX}.` },
         { status: 502 },
       )
     : Response.json({ error: GITHUB_UNREACHABLE }, { status: 503 });

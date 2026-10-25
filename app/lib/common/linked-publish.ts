@@ -36,8 +36,6 @@ export const linkedPublishDataSchema = z.looseObject({
   /** When the commit landed (epoch ms): a `pending` build without it, or older than LINKED_BUILD_FOLLOW_MS, isn't followed. */
   startedAt: z.number().optional(),
   defaultBranch: z.string().optional(),
-  /** The pipeline's conclusion when it failed (`failure`, `cancelled`, `timed_out`, …). */
-  conclusion: z.string().nullable().optional(),
 });
 export type LinkedPublishData = z.infer<typeof linkedPublishDataSchema>;
 
@@ -63,9 +61,11 @@ export type LinkedPublishView = {
   detailsUrl: string | null;
 };
 
-/** Where a build's result can still be found when CloudChef can't say it: the account's Cloudflare dashboard. */
-/** Said for a team's project and a person's own alike: whoever runs the Cloudflare account can look. */
-const ADMIN_CAN_SEE = "The result is in the Cloudflare dashboard of the project's account.";
+/**
+ * Where a build's result can still be found when CloudChef can't say it: the project's Cloudflare dashboard,
+ * for a team's project and a person's own alike.
+ */
+const RESULT_IN_DASHBOARD = "The result is in the Cloudflare dashboard of the project's account.";
 
 const webUrlSchema = z.url({ protocol: /^https?$/ });
 
@@ -138,7 +138,7 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
       }
       return unknown(
         committed,
-        `Your change is saved. CloudChef stopped checking on the build, so it can't say whether it worked. ${ADMIN_CAN_SEE}`,
+        `Your change is saved. CloudChef stopped checking on the build, so it can't say whether it worked. ${RESULT_IN_DASHBOARD}`,
         links,
       );
     case 'success':
@@ -160,8 +160,8 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
         kind: 'failed',
         title: data.live ? 'Publishing failed' : 'Preview failed',
         detail: data.live
-          ? `The build ${buildEnding(data.conclusion)}, so your change isn't live. It's saved, and the site still shows the last version.`
-          : `The preview's build ${buildEnding(data.conclusion)}. Your change is saved, and the live site hasn't changed.`,
+          ? "The build didn't finish, so your change isn't live. It's saved, and the site still shows the last version."
+          : "The preview's build didn't finish. Your change is saved, and the live site hasn't changed.",
         building: false,
         followDeadline: null,
         ...links,
@@ -177,14 +177,14 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
     case 'timed_out':
       return unknown(
         committed,
-        `Your change is saved. The build was still running after 15 minutes, so CloudChef stopped checking. ${ADMIN_CAN_SEE}`,
+        `Your change is saved. The build was still running after 15 minutes, so CloudChef stopped checking. ${RESULT_IN_DASHBOARD}`,
         links,
       );
     case 'unfollowed':
     default:
       return unknown(
         committed,
-        `Your change is saved, but CloudChef couldn't check on the build. ${ADMIN_CAN_SEE}`,
+        `Your change is saved, but CloudChef couldn't check on the build. ${RESULT_IN_DASHBOARD}`,
         links,
       );
   }
@@ -225,13 +225,4 @@ function unknown(
   links: { previewUrl: string | null; detailsUrl: string | null },
 ): LinkedPublishView {
   return { kind: 'unknown', title, detail, building: false, followDeadline: null, ...links };
-}
-
-/** How a build that didn't succeed ended, as Workers Builds reports it. */
-function buildEnding(conclusion: string | null | undefined): string {
-  return conclusion === 'cancelled'
-    ? 'was cancelled'
-    : conclusion === 'timed_out'
-      ? 'ran out of time'
-      : 'stopped with an error';
 }
