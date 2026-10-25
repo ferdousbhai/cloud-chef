@@ -160,8 +160,8 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
         kind: 'failed',
         title: data.live ? 'Publishing failed' : 'Preview failed',
         detail: data.live
-          ? "The build stopped with an error, so your change isn't live. It's saved, and the site still shows the last version."
-          : "The preview's build stopped with an error. Your change is saved, and the live site hasn't changed.",
+          ? `The build ${buildEnding(data.conclusion)}, so your change isn't live. It's saved, and the site still shows the last version.`
+          : `The preview's build ${buildEnding(data.conclusion)}. Your change is saved, and the live site hasn't changed.`,
         building: false,
         followDeadline: null,
         ...links,
@@ -225,4 +225,13 @@ function unknown(
   links: { previewUrl: string | null; detailsUrl: string | null },
 ): LinkedPublishView {
   return { kind: 'unknown', title, detail, building: false, followDeadline: null, ...links };
+}
+
+/** How a build that didn't succeed ended, as Workers Builds reports it. */
+function buildEnding(conclusion: string | null | undefined): string {
+  return conclusion === 'cancelled'
+    ? 'was cancelled'
+    : conclusion === 'timed_out'
+      ? 'ran out of time'
+      : 'stopped with an error';
 }

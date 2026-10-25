@@ -30,7 +30,7 @@ describe('linkedPublishView', () => {
       NOW,
     );
     expect(live).toMatchObject({ kind: 'failed', title: 'Publishing failed', building: false });
-    expect(live?.detail).toContain("The build stopped with an error, so your change isn't live");
+    expect(live?.detail).toContain("The build was cancelled, so your change isn't live");
     expect(linkedPublishView(publish(toolFailure('x', data({ build: 'failure' }))), NOW)?.title).toBe('Preview failed');
   });
 

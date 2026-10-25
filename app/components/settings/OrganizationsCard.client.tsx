@@ -810,8 +810,8 @@ function DeleteTeam({
           can&apos;t be undone.
         </p>
         <p>
-          What stays: deployed apps, with their databases and storage, and AI Gateway keys, in the Cloudflare account;
-          imported repositories, and CloudChef&apos;s GitHub App, on GitHub.
+          What stays: each project&apos;s code and history, deployed apps with their databases and storage, and AI
+          Gateway keys, in the Cloudflare account; imported repositories, and CloudChef&apos;s GitHub App, on GitHub.
         </p>
         {reauthenticate ? (
           <ReauthenticatePrompt
