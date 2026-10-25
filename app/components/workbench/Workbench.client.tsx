@@ -16,6 +16,7 @@ import type { WorkbenchViewType } from '~/lib/stores/workbench.client';
 import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
 import { EditorPanel } from './EditorPanel';
+import { WorkspaceFilesNotice } from './WorkspaceFilesNotice';
 import { Cross2Icon, ReloadIcon } from '@radix-ui/react-icons';
 import { useWorkbenchController } from './useWorkbenchController';
 import { useStore } from '@nanostores/react';
@@ -93,6 +94,8 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
   const [previewReloadKey, setPreviewReloadKey] = useState(0);
   const presentation = appSitePresentation(controller.siteState);
   const publication = useStore(workbenchStore.publicationState);
+  const workspaceFiles = useStore(workbenchStore.workspaceFiles);
+  const hasFiles = Object.values(controller.files).some((dirent) => dirent?.type === 'file');
 
   return (
     <WorkbenchFrame
@@ -134,22 +137,25 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
     >
       <>
         <View {...slidingPosition({ view: 'code', selectedView: controller.selectedView })}>
-          <EditorPanel
-            projectId={controller.projectId}
-            editorDocument={controller.currentDocument}
-            isStreaming={isStreaming}
-            readOnly={controller.conversationClosed}
-            scrollToDocAppend={controller.scrollToDocAppend}
-            selectedFile={controller.selectedFile}
-            files={controller.files}
-            unsavedFiles={controller.unsavedFiles}
-            onFileSelect={controller.onFileSelect}
-            onEditorScroll={controller.onEditorScroll}
-            onEditorWheel={controller.onEditorWheel}
-            onEditorChange={controller.onEditorChange}
-            onFileSave={controller.onFileSave}
-            onFileReset={controller.onFileReset}
-          />
+          <div className="relative size-full">
+            <WorkspaceFilesNotice status={workspaceFiles} hasFiles={hasFiles} />
+            <EditorPanel
+              projectId={controller.projectId}
+              editorDocument={controller.currentDocument}
+              isStreaming={isStreaming}
+              readOnly={controller.conversationClosed}
+              scrollToDocAppend={controller.scrollToDocAppend}
+              selectedFile={controller.selectedFile}
+              files={controller.files}
+              unsavedFiles={controller.unsavedFiles}
+              onFileSelect={controller.onFileSelect}
+              onEditorScroll={controller.onEditorScroll}
+              onEditorWheel={controller.onEditorWheel}
+              onEditorChange={controller.onEditorChange}
+              onFileSave={controller.onFileSave}
+              onFileReset={controller.onFileReset}
+            />
+          </div>
         </View>
         <View {...slidingPosition({ view: 'preview', selectedView: controller.selectedView })}>
           {controller.hasLoadedPreview ? (

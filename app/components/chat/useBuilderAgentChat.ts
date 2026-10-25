@@ -32,7 +32,12 @@ import { projectRevertStore } from '~/lib/stores/project-actions.client';
 import { useQueryClient } from '@tanstack/react-query';
 import { subchatQueryKey } from '~/lib/cloudflare/data-hooks';
 import { settleBuilderStop } from './builder-stop';
-import { refreshUserRuntimeSession, requireUserRuntimeEndpoint } from '~/lib/cloudflare/runtime-session';
+import {
+  refreshUserRuntimeSession,
+  requireUserRuntimeEndpoint,
+  resetUserRuntimeSession,
+  runtimeSessionNeedsAction,
+} from '~/lib/cloudflare/runtime-session';
 import { builderModelRequestFields, builderModelStore } from '~/lib/stores/builder-model.client';
 import { builderModelIdSchema } from '~/lib/workers-ai-model';
 import { loadAuthoritativeTranscriptSnapshot, reconcileMessagesForSend } from './chat-send-reconciliation';
@@ -84,8 +89,11 @@ export const WORKSPACE_RECONNECT_ATTEMPTS = 10;
  * - `ready`: files are synced.
  * - `presentation-error`: the agent is reachable but the browser file cache did not load.
  * - `unavailable`: the retry budget is spent; only a deliberate retry continues.
+ * - `failed`: the agent answered that the project's files could not be put in the workspace (a team
+ *   project's import refused, say); reconnecting would only repeat it, so only a deliberate retry continues.
  */
-export type WorkspacePresentationState = 'connecting' | 'reconnecting' | 'ready' | 'presentation-error' | 'unavailable';
+export type WorkspacePresentationState =
+  'connecting' | 'reconnecting' | 'ready' | 'presentation-error' | 'unavailable' | 'failed';
 
 function workspaceReconnectDelayMs(attempt: number): number {
   return WORKSPACE_RECONNECT_DELAYS_MS[Math.min(attempt, WORKSPACE_RECONNECT_DELAYS_MS.length - 1)] ?? 30_000;
@@ -121,6 +129,8 @@ export function useBuilderAgentChat(args: {
   const [workspacePresentation, setWorkspacePresentation] = useState<{
     gate: AsyncGate;
     state: Exclude<WorkspacePresentationState, 'connecting'>;
+    /** Why, when `failed`: the agent's own words. */
+    failure?: string;
   } | null>(null);
   /** Bumped by a deliberate retry, which restarts the effect below with a fresh budget. */
   const [workspaceAttemptId, setWorkspaceAttemptId] = useState(0);
@@ -298,6 +308,13 @@ export function useBuilderAgentChat(args: {
               return;
             }
             const state = await builderAgent.call('prepareWorkspace', [], { timeout: WORKSPACE_PREPARE_TIMEOUT_MS });
+            if ('failure' in state) {
+              if (isCurrentPresentation()) {
+                gate.error = new Error(state.failure);
+                setWorkspacePresentation({ gate, state: 'failed', failure: state.failure });
+              }
+              return;
+            }
             if (!state.initialized) {
               throw new Error('The durable project workspace was not initialized.');
             }
@@ -346,9 +363,14 @@ export function useBuilderAgentChat(args: {
             // `409 workspace_preparing` while a runtime that cannot serve this browser is prepared,
             // and this poll publishes that and hands the agent a usable capability afterwards. A
             // runtime merely from an earlier release keeps answering while its upgrade waits.
-            await refreshUserRuntimeSession().catch((sessionError) =>
-              logger.warn('Unable to refresh the user-owned runtime session while reconnecting', sessionError),
-            );
+            await refreshUserRuntimeSession().catch((sessionError: Error) => {
+              logger.warn('Unable to refresh the user-owned runtime session while reconnecting', sessionError);
+              // Reconnecting can't fix a refusal only the person can act on, such as Cloudflare permissions
+              // to approve again: dropping the session puts the chat's own explanation of it in its place.
+              if (runtimeSessionNeedsAction(sessionError)) {
+                resetUserRuntimeSession();
+              }
+            });
             if (!isCurrentPresentation()) {
               return;
             }
@@ -376,8 +398,9 @@ export function useBuilderAgentChat(args: {
   }, [args.presentationId, builderAgent, workspaceAttemptId, workspaceGateRef]);
 
   const retryWorkspacePresentation = useCallback(() => setWorkspaceAttemptId((id) => id + 1), []);
-  const workspacePresentationState: WorkspacePresentationState =
-    workspacePresentation?.gate === workspaceGateRef.current ? workspacePresentation.state : 'connecting';
+  const currentPresentation = workspacePresentation?.gate === workspaceGateRef.current ? workspacePresentation : null;
+  const workspacePresentationState: WorkspacePresentationState = currentPresentation?.state ?? 'connecting';
+  const workspaceFailure = currentPresentation?.failure ?? null;
 
   const assertCurrentPresentation = useCallback(
     (gate: AsyncGate) => {
@@ -578,6 +601,7 @@ export function useBuilderAgentChat(args: {
     cloudflareExecutions: builderAgent.state?.cloudflareExecutions ?? [],
     decideCloudflareExecution,
     workspacePresentationState,
+    workspaceFailure,
     retryWorkspacePresentation,
   };
 }

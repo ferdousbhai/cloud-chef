@@ -3,6 +3,7 @@ import {
   fetchUserRuntime,
   getUserRuntimeSession,
   resetUserRuntimeSession,
+  runtimeSessionNeedsAction,
   UserRuntimeSessionError,
   userRuntimeEndpointStore,
   userWorkspacePreparingStore,
@@ -52,6 +53,26 @@ describe('user runtime session', () => {
 
     await expect(getUserRuntimeSession()).rejects.toThrow('Unable to deploy the workspace.');
     expect(userRuntimeEndpointStore.get()).toBeNull();
+  });
+
+  it('says in plain words that the workspace could not be reached when the answer says nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('Internal Server Error', { status: 500 })));
+
+    await expect(getUserRuntimeSession()).rejects.toThrow(
+      'CloudChef could not reach your workspace. Try again in a moment.',
+    );
+  });
+
+  it('tells the refusals only the person can act on from those reconnecting may get past', () => {
+    expect(
+      runtimeSessionNeedsAction(new UserRuntimeSessionError('Approve again.', 'cloudflare_reauthorization_required')),
+    ).toBe(true);
+    expect(runtimeSessionNeedsAction(new UserRuntimeSessionError('Enable it.', 'workspace_plan_required'))).toBe(true);
+    expect(runtimeSessionNeedsAction(new UserRuntimeSessionError('Failed.', 'workspace_preparation_failed'))).toBe(
+      false,
+    );
+    expect(runtimeSessionNeedsAction(new UserRuntimeSessionError('Unknown.', null))).toBe(false);
+    expect(runtimeSessionNeedsAction(new Error('Connection closed'))).toBe(false);
   });
 
   it('preserves a stable recovery code without exposing provider details', async () => {

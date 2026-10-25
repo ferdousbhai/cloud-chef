@@ -46,6 +46,9 @@ const mocks = vi.hoisted(() => {
     workbench,
     workspacePreparing: { value: false },
     refreshRuntimeSession: vi.fn(async () => ({})),
+    resetRuntimeSession: vi.fn(),
+    /** The refusal the double of `runtimeSessionNeedsAction` says waits on the person. */
+    refusalNeedingAction: new Error('CloudChef needs updated Cloudflare permissions for this workspace.'),
   };
 });
 
@@ -63,6 +66,8 @@ vi.mock('@tanstack/react-query', () => ({
 vi.mock('~/lib/cloudflare/runtime-session', () => ({
   requireUserRuntimeEndpoint: () => 'https://runtime.example.com',
   refreshUserRuntimeSession: mocks.refreshRuntimeSession,
+  resetUserRuntimeSession: mocks.resetRuntimeSession,
+  runtimeSessionNeedsAction: (error: Error) => error === mocks.refusalNeedingAction,
 }));
 vi.mock('~/lib/stores/builder-workspace-sync.client', () => ({
   BuilderWorkspaceSyncController: { initialize: mocks.initializeWorkspace },
@@ -146,7 +151,9 @@ beforeEach(() => {
   mocks.waitForSocket.mockReset();
   mocks.waitForSocket.mockResolvedValue(undefined);
   mocks.workbench.connectSite.mockClear();
-  mocks.refreshRuntimeSession.mockClear();
+  mocks.refreshRuntimeSession.mockReset();
+  mocks.refreshRuntimeSession.mockResolvedValue({});
+  mocks.resetRuntimeSession.mockClear();
 });
 
 afterEach(async () => {
@@ -281,6 +288,106 @@ describe('useBuilderAgentChat workspace preparation', () => {
 
       expect(prepareWorkspaceCalls()).toHaveLength(WORKSPACE_RECONNECT_ATTEMPTS);
       expect(container.textContent).toBe('unavailable');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows why a project's files could not be put in the workspace, and retries only when asked", async () => {
+    vi.useFakeTimers();
+    try {
+      const failure = 'Connect GitHub again in Settings to import this project.';
+      // The agent's first answer, then the one the person's retry gets.
+      const answers = [{ initialized: false, failure }, { initialized: true }];
+      mocks.agent.call.mockImplementation(async (method: string) => {
+        if (method === 'prepareWorkspace') {
+          return answers.shift();
+        }
+        throw new Error(`Unexpected agent call: ${method}`);
+      });
+
+      let currentChat: ReturnType<typeof useBuilderAgentChat> | undefined;
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      root = createRoot(container);
+      function Harness() {
+        currentChat = useBuilderAgentChat(chatArgs('workspace-import-refused'));
+        return (
+          <span>
+            {currentChat.workspacePresentationState}: {currentChat.workspaceFailure}
+          </span>
+        );
+      }
+      await act(async () => root?.render(<Harness />));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(WORKSPACE_RECONNECT_ATTEMPTS * 30_000);
+      });
+
+      // Said at once and not retried: reconnecting would only get the same answer.
+      expect(container.textContent).toBe(`failed: ${failure}`);
+      expect(prepareWorkspaceCalls()).toHaveLength(1);
+      expect(mocks.refreshRuntimeSession).not.toHaveBeenCalled();
+      expect(mocks.initializeWorkspace).not.toHaveBeenCalled();
+      await expect(
+        currentChat!.sendMessage({ role: 'user', parts: [{ type: 'text', text: 'build it' }] }),
+      ).rejects.toThrow(failure);
+
+      await act(async () => currentChat!.retryWorkspacePresentation());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(prepareWorkspaceCalls()).toHaveLength(2);
+      expect(container.textContent).toBe('ready: ');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('hands a session refusal only the person can act on back to the chat instead of reconnecting', async () => {
+    mocks.agent.call.mockImplementation(async (method: string) => {
+      if (method === 'prepareWorkspace') {
+        throw new Error('Connection closed');
+      }
+      throw new Error(`Unexpected agent call: ${method}`);
+    });
+    mocks.refreshRuntimeSession.mockRejectedValue(mocks.refusalNeedingAction);
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    function Harness() {
+      return <span>{useBuilderAgentChat(chatArgs('workspace-reauthorize')).workspacePresentationState}</span>;
+    }
+    await act(async () => root?.render(<Harness />));
+
+    await vi.waitFor(() => expect(mocks.resetRuntimeSession).toHaveBeenCalledOnce());
+  });
+
+  it('keeps reconnecting through a session refusal that may pass', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.agent.call.mockImplementation(async (method: string) => {
+        if (method === 'prepareWorkspace') {
+          throw new Error('Connection closed');
+        }
+        throw new Error(`Unexpected agent call: ${method}`);
+      });
+      mocks.refreshRuntimeSession.mockRejectedValue(new Error('CloudChef could not reach your workspace.'));
+
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      root = createRoot(container);
+      function Harness() {
+        return <span>{useBuilderAgentChat(chatArgs('workspace-flaky')).workspacePresentationState}</span>;
+      }
+      await act(async () => root?.render(<Harness />));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(WORKSPACE_RECONNECT_DELAYS_MS[0]);
+      });
+
+      expect(prepareWorkspaceCalls()).toHaveLength(2);
+      expect(mocks.resetRuntimeSession).not.toHaveBeenCalled();
+      expect(container.textContent).toBe('reconnecting');
     } finally {
       vi.useRealTimers();
     }

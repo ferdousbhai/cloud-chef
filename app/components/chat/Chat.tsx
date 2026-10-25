@@ -209,6 +209,9 @@ function WorkspaceRuntimeConnectionError({
   );
 }
 
+/** Said wherever a workspace's project could not be put in it, before the agent's own reason. */
+const WORKSPACE_FAILED_HEADING = 'CloudChef could not open this project.';
+
 /** Said when a release is re-provisioning the runtime a chat is already sitting in. */
 const WORKSPACE_RELEASE_NOTICE = 'Preparing your workspace — a new release is rolling out.';
 
@@ -224,7 +227,7 @@ function workspaceSyncNotice(state: WorkspacePresentationState, workspacePrepari
   if (state === 'presentation-error') {
     return 'Editor unavailable. Chat, builds, and previews still work.';
   }
-  if (state === 'unavailable') {
+  if (state === 'unavailable' || state === 'failed') {
     // Said where the composer is closed: see chatDisabledReason.
     return null;
   }
@@ -244,12 +247,25 @@ function chatDisabledReason(
   conversationClosed: boolean,
   hasUnsavedFiles: boolean,
   state: WorkspacePresentationState,
+  failure: string | null,
   onRetry: () => void,
 ): ReactNode | null {
   if (conversationClosed) {
     return hasUnsavedFiles
       ? `${CLOSED_CONVERSATION_REASON} Editor changes you had not saved can't be saved here.`
       : CLOSED_CONVERSATION_REASON;
+  }
+  if (state === 'failed') {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-2">
+        <span>
+          {WORKSPACE_FAILED_HEADING} {failure}
+        </span>
+        <Button variant="neutral" size="xs" onClick={onRetry}>
+          Try again
+        </Button>
+      </span>
+    );
   }
   if (state === 'unavailable') {
     return (
@@ -327,6 +343,7 @@ const AuthenticatedChat = memo(
       cloudflareExecutions,
       decideCloudflareExecution,
       workspacePresentationState,
+      workspaceFailure,
       retryWorkspacePresentation,
       upgradeWaiting,
     } = useBuilderAgentChat({
@@ -338,6 +355,14 @@ const AuthenticatedChat = memo(
       transcript,
     });
     const parsedMessages = useProcessedMessages(messages);
+    // The code view says why it has no files from this, rather than sitting empty.
+    useEffect(() => {
+      workbenchStore.workspaceFiles.set({
+        state: workspacePresentationState,
+        failure: workspaceFailure,
+        retry: retryWorkspacePresentation,
+      });
+    }, [workspacePresentationState, workspaceFailure, retryWorkspacePresentation]);
 
     useEffect(() => {
       chatStore.setKey('started', chatStarted);
@@ -414,6 +439,7 @@ const AuthenticatedChat = memo(
           conversationClosed,
           hasUnsavedFiles,
           workspacePresentationState,
+          workspaceFailure,
           retryWorkspacePresentation,
         )}
         deployment={deployment}

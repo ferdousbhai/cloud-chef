@@ -7,6 +7,7 @@ import {
   type BuilderWorkspaceSyncEntry,
   type BuilderWorkspaceSyncPage,
 } from '@cloudchef/user-workspace-runtime/protocol';
+import { z } from 'zod';
 import { builderTemplateTotals } from './builder-template';
 
 /** How many times reading a workspace's whole sync feed starts over because the workspace changed. */
@@ -107,5 +108,30 @@ export async function seedBuilderWorkspace(
   } catch (error) {
     await workspace.abortSeed(seedId).catch(() => undefined);
     throw error;
+  }
+}
+
+/**
+ * What preparing a workspace answers when its project's files could not be put in it: a failure the person
+ * reads and retries, which reconnecting would only repeat.
+ */
+export type WorkspaceSeedFailure = { initialized: false; failure: string };
+
+const SEED_FAILED_MESSAGE = "CloudChef could not copy the project's files into your workspace.";
+
+/**
+ * A new workspace's seed failed. Its message is the cause's own, which CloudChef's project and repository
+ * errors write for the person (a GitHub import refused, no access to the project), except a parse error's
+ * dump of fields, or no message at all.
+ */
+export class WorkspaceSeedError extends Error {
+  constructor(cause: unknown) {
+    super(
+      cause instanceof Error && !(cause instanceof z.ZodError) && cause.message.trim()
+        ? cause.message
+        : SEED_FAILED_MESSAGE,
+      { cause },
+    );
+    this.name = 'WorkspaceSeedError';
   }
 }

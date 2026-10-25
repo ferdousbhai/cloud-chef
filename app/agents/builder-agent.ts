@@ -104,7 +104,7 @@ import type {
   BuilderWorkspaceSyncPage,
 } from '@cloudchef/user-workspace-runtime/protocol';
 import { builderTemplateSeedId, loadBuilderTemplate } from './builder-template';
-import { seedBuilderWorkspace } from './builder-workspace-seed';
+import { seedBuilderWorkspace, WorkspaceSeedError, type WorkspaceSeedFailure } from './builder-workspace-seed';
 import {
   isExcludedProjectPath,
   linkedCommitTree,
@@ -1313,12 +1313,26 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return this.workspace.refresh();
   }
 
+  /**
+   * The workspace, seeded first when it is new. A seed that failed (a team project's import refused, say)
+   * is answered as a failure for the browser to show: thrown, the browser would take it for a lost
+   * connection and keep reconnecting.
+   */
   @callable()
-  async prepareWorkspace(): Promise<BuilderWorkspaceState> {
+  async prepareWorkspace(): Promise<BuilderWorkspaceState | WorkspaceSeedFailure> {
     if (!this.transcriptBinding) {
       throw new Response('Agent authentication is required.', { status: 401 });
     }
-    const state = await this.initializeWorkspace(this.transcriptBinding);
+    let state: BuilderWorkspaceState;
+    try {
+      state = await this.initializeWorkspace(this.transcriptBinding);
+    } catch (error) {
+      if (error instanceof WorkspaceSeedError) {
+        logger.warn('The new workspace could not be seeded');
+        return { initialized: false, failure: error.message };
+      }
+      throw error;
+    }
     await this.publishWorkspaceSummary();
     // Not awaited. The browser blocks its send gate on this call, and the point of warming is to
     // overlap the container's cold start with the user composing their first message — awaiting it
@@ -1648,7 +1662,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     // Seeding writes the whole project into the workspace: a redeploy partway would leave it half seeded.
     this.workspaceSeed ??= this.runtimeActivity
-      .run(() => this.seedNewWorkspace(binding))
+      .run(() =>
+        this.seedNewWorkspace(binding).catch((error: Error) => {
+          throw new WorkspaceSeedError(error);
+        }),
+      )
       .finally(() => {
         this.workspaceSeed = null;
       });
