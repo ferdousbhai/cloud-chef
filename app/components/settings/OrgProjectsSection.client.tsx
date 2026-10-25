@@ -249,12 +249,9 @@ function ProjectRow({
 
 /** Where a project's code came from, while that still matters: an import not yet made. */
 function projectSource(project: OrgProject): string | null {
-  if (!project.importRepoFullName) {
-    return null;
-  }
-  return project.repo === null
+  return project.importRepoFullName && project.repo === null
     ? `imports from github.com/${project.importRepoFullName} when first opened`
-    : `imported from github.com/${project.importRepoFullName}`;
+    : null;
 }
 
 /** How an admin has Workers Builds deploy a project approved from a draft: the dashboard does it, once. */
