@@ -5,7 +5,7 @@ import type { Tool } from 'cloudchef-agent/tool';
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   createWorkersAiTools: vi.fn(),
-  toolNames: ['read', 'ls', 'grep', 'write', 'edit', 'exec', 'search_cloudflare_docs'] as const,
+  toolNames: ['read', 'ls', 'grep', 'write', 'edit', 'exec', 'validate'] as const,
 }));
 
 vi.mock('./workers-ai-tools', () => ({

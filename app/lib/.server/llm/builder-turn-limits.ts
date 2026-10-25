@@ -41,15 +41,12 @@ export const BUILDER_TOOL_DEADLINES_MS = {
   edit: BUILDER_MUTATION_TOOL_TIMEOUT_MS,
   exec: BUILDER_MUTATION_TOOL_TIMEOUT_MS,
   validate: BUILDER_MUTATION_TOOL_TIMEOUT_MS,
-  search_cloudflare_docs: 60_000,
   // Reads are one bounded API request; writes only persist an approval proposal. An approved
   // write runs later in its own durable fiber under the client's own deadline.
   cloudflare_request: 90_000,
   // A commit, under its own two-minute request deadline; the pipeline's build is watched in the background.
   publish_preview: 4 * 60_000,
   publish: 4 * 60_000,
-  // A control-plane lookup of the site's addresses, then one bounded GET (with a few redirects).
-  fetch_site: 60_000,
   // Reads the workspace's files and pushes one commit to the app's repository.
   commit: 2 * 60_000,
 } as const satisfies Record<ModelToolName, number>;

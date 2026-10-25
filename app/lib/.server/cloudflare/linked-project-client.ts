@@ -189,8 +189,13 @@ export async function projectBuildStatus(
 }
 
 /** The project's live site, as the https origins the control plane reports: its production and preview URLs. */
-export async function projectSiteOrigins(env: RuntimeEnv, identity: Identity, orgProjectId: string): Promise<string[]> {
-  const response = await postRuntimeRoute(env, identity, 'runtime-projects/site', { orgProjectId }, STATUS_TIMEOUT_MS);
+export async function projectSiteOrigins(
+  env: RuntimeEnv,
+  identity: Identity,
+  orgProjectId: string,
+  timeoutMs = STATUS_TIMEOUT_MS,
+): Promise<string[]> {
+  const response = await postRuntimeRoute(env, identity, 'runtime-projects/site', { orgProjectId }, timeoutMs);
   return (await readAnswer(response, siteOriginsSchema, "CloudChef could not look up the project's site.")).origins;
 }
 

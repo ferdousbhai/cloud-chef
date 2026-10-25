@@ -24,12 +24,10 @@ const STOPPED_TOOL_TITLES = new Map<string, string>([
   ['edit', 'File edit stopped'],
   ['exec', 'Command stopped'],
   ['validate', 'Checks stopped'],
-  ['search_cloudflare_docs', 'Cloudflare docs search stopped'],
   ['cloudflare_request', 'Cloudflare API request stopped'],
   ['publish_preview', 'Preview stopped'],
   ['publish', 'Publishing stopped'],
   ['commit', 'Saving stopped'],
-  ['fetch_site', 'Site read stopped'],
   ['history', 'History search stopped'],
 ]);
 
@@ -118,11 +116,6 @@ export function toolTitle(
               alreadySaved(invocation) ? 'Already saved' : 'Saved a version',
               <CheckIcon className="text-content-secondary" />,
             );
-    case 'search_cloudflare_docs':
-      return titleRow(
-        status === 'running' ? 'Searching Cloudflare docs' : 'Searched Cloudflare docs',
-        <MagnifyingGlassIcon className="text-content-secondary" />,
-      );
     case 'cloudflare_request': {
       const request = cloudflareRequestMethodSchema.safeParse(invocation.input).data;
       return request && cloudflareApiRequestIsRead(request)
@@ -155,14 +148,6 @@ export function toolTitle(
       );
     case 'history':
       return historyTitle(invocation, status);
-    case 'fetch_site': {
-      const args = MODEL_TOOL_INPUT_SCHEMAS.fetch_site.safeParse(invocation.input);
-      const address = args.success ? siteAddressLabel(args.data.url) : 'the live site';
-      return titleRow(
-        `${status === 'running' ? 'Reading' : 'Read'} ${compactToolLabel(address)}`,
-        <MagnifyingGlassIcon className="text-content-secondary" />,
-      );
-    }
     default:
       return invocation.toolName;
   }
@@ -181,16 +166,6 @@ function historyTitle(invocation: CloudChefToolInvocation, status: ToolActivityS
         ? `${running ? 'Reading' : 'Read'} an earlier message`
         : `${running ? 'Searching' : 'Searched'} the conversation`;
   return titleRow(title, <MagnifyingGlassIcon className="text-content-secondary" />);
-}
-
-/** A site address as a person reads it: host and path, without the scheme. */
-function siteAddressLabel(value: string): string {
-  try {
-    const url = new URL(value);
-    return `${url.host}${url.pathname === '/' ? '' : url.pathname}`;
-  } catch {
-    return value;
-  }
 }
 
 function icon(content: ReactNode, color: string): ReactNode {

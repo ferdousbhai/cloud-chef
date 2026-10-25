@@ -36,7 +36,6 @@ describe('operation lease policy', () => {
     // avoid.
     expect(Object.keys(BUILDER_TOOL_DEADLINES_MS).filter((tool) => !governed.has(tool as never))).toEqual([
       ...WORKSPACE_READ_ONLY_TOOL_NAMES,
-      'search_cloudflare_docs',
       // cloudflare_request is sent by the runtime Worker directly and must never take a
       // workspace lane, so it belongs with the other ungoverned tools.
       'cloudflare_request',
@@ -44,8 +43,6 @@ describe('operation lease policy', () => {
       // repository; they hold no lane.
       'publish_preview',
       'publish',
-      // Reading the live site is one GET from the runtime Worker; it never touches the workspace.
-      'fetch_site',
       'commit',
     ]);
   });

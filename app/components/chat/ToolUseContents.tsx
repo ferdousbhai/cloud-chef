@@ -64,9 +64,7 @@ export const ToolUseContents = memo(function ToolUseContents({
     invocation.toolName === 'read' ||
     invocation.toolName === 'write' ||
     invocation.toolName === 'edit' ||
-    invocation.toolName === 'exec' ||
-    invocation.toolName === 'search_cloudflare_docs' ||
-    invocation.toolName === 'fetch_site'
+    invocation.toolName === 'exec'
   ) {
     return <StructuredResultTool invocation={invocation} />;
   }

@@ -13,7 +13,7 @@ const MAX_BUILDER_SKILL_PROMPT_CHARS = 16_000;
  * References bundled into this Worker and served read-only under /__skills__/: CloudChef's own (only what
  * is specific to its starter app), and Cloudflare's official skills, vendored at a pinned commit by
  * scripts/sync-cloudflare-skills.mjs so they stay Cloudflare's current guidance. The rest of Cloudflare's
- * documentation is retrieved live through search_cloudflare_docs. The catalog must never point at
+ * documentation is retrieved live with `cf docs search` in the workspace. The catalog must never point at
  * workspace files: the model reads them through the Computer VFS, which a fresh seed does not populate
  * beyond the template sources.
  */
@@ -100,7 +100,7 @@ function renderPrompt(skills: readonly BundledSkill[], linkedProject: boolean): 
     '',
     ...skills.map(({ name, description }) => `- ${BUILDER_SKILL_ROOT}/${name}/SKILL.md — ${description}`),
     '',
-    'llms.txt and llms-full.txt files are too large to read whole; use search_cloudflare_docs instead.',
+    'llms.txt and llms-full.txt files are too large to read whole; use `cf docs search "<question>"` instead.',
     "Where a skill's advice conflicts with this workspace, the workspace wins: `cf` is installed and has no credential here, so it plans requests (`--dry-run`) and cloudflare_request, when you have it, sends them; `cf auth` is refused, and nothing outside the container can reach a dev server" +
       (linkedProject ? '.' : '; and project-stack describes this project.'),
     '</builder_skills>',

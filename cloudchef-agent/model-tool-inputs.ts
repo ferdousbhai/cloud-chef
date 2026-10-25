@@ -25,7 +25,7 @@ const CLOUDFLARE_API_MODEL_TOOL_NAMES = ['cloudflare_request'] as const;
 export type CloudflareApiModelToolName = (typeof CLOUDFLARE_API_MODEL_TOOL_NAMES)[number];
 
 /** Tools for a workspace opened from a team project: changes are committed to its repository. */
-const LINKED_PROJECT_MODEL_TOOL_NAMES = ['publish_preview', 'publish', 'fetch_site'] as const;
+const LINKED_PROJECT_MODEL_TOOL_NAMES = ['publish_preview', 'publish'] as const;
 export type LinkedProjectModelToolName = (typeof LINKED_PROJECT_MODEL_TOOL_NAMES)[number];
 
 /** Tools for a CloudChef app's workspace: its history is a repository the agent commits to. */
@@ -34,7 +34,6 @@ export type AppProjectModelToolName = (typeof APP_PROJECT_MODEL_TOOL_NAMES)[numb
 
 export const MODEL_TOOL_NAMES = [
   ...WORKSPACE_TOOL_NAMES,
-  'search_cloudflare_docs',
   ...CLOUDFLARE_API_MODEL_TOOL_NAMES,
   ...LINKED_PROJECT_MODEL_TOOL_NAMES,
   ...APP_PROJECT_MODEL_TOOL_NAMES,
@@ -79,7 +78,6 @@ export const MODEL_TOOL_INPUT_SCHEMAS = {
     cwd: z.string().optional(),
   }),
   validate: z.object({}),
-  search_cloudflare_docs: z.object({ query: z.string() }),
   // The model passes `cf <command> --dry-run` output through unchanged. The account is fixed by the
   // connection, so a URL naming any other account is rejected before a credential is resolved.
   cloudflare_request: cloudflareApiRequestInputSchema,
@@ -103,22 +101,5 @@ export const MODEL_TOOL_INPUT_SCHEMAS = {
       .min(1)
       .max(500)
       .describe('A short commit message saying what changed, for the project history.'),
-  }),
-  fetch_site: z.object({
-    url: z
-      .string()
-      .min(1)
-      .max(2_048)
-      .describe("An https address on the project's live site or one of its preview links, with any path and query."),
-    format: z
-      .enum(['text', 'html'])
-      .optional()
-      .describe('text (the default) strips an HTML page to its readable text; html returns the markup as served.'),
-    offset: z
-      .number()
-      .int()
-      .min(0)
-      .optional()
-      .describe("Character offset to continue a long response from: the previous result's nextCursor."),
   }),
 } as const satisfies Record<ModelToolName, ZodType>;

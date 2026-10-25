@@ -152,7 +152,6 @@ import { WORK_DIR } from 'cloudchef-agent/constants';
 import { bytesToBase64 } from '~/lib/hex-digest';
 import type { LinkedProjectModelToolContext } from '~/lib/.server/llm/linked-project-model-tools';
 import type { AppProjectModelToolContext } from '~/lib/.server/llm/app-project-model-tools';
-import { fetchLinkedSitePage, type LinkedSiteFetchInput } from '~/lib/.server/llm/linked-site-fetch';
 import { BUILDER_TURN_WALL_CLOCK_MS } from '~/lib/.server/llm/builder-turn-limits';
 import { deriveProvisionalTitle, shouldGenerateConversationTitle, type TitleSubject } from '~/lib/title-generation';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
@@ -709,6 +708,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     const chosenReasoningLevel = requireBuilderReasoningLevel(model, reasoningLevel);
     // Refused before anything is stopped or recorded: a turn that never starts must not hold anything.
     const requestedTurnContext = parseTurnContext(body.turnContext);
+    const siteNote = this.linkedSiteNote();
     // From the stop until the turn is recorded active, no automatic publication may start: this turn's
     // end publishes.
     this.startingTurns += 1;
@@ -739,7 +739,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         this.publishAfterInterruptedTurn();
       }
     }
-    const turnContext = withPublicationFailure(requestedTurnContext, this.publicationFailure());
+    const publicationFailure = this.publicationFailure();
+    const turnContext = withNotes(requestedTurnContext, [
+      publicationFailure &&
+        `CloudChef publication status: ${publicationFailure.slice(-MAX_PUBLICATION_FAILURE_CHARACTERS)}`,
+      await siteNote,
+    ]);
     const userMessages = messages.filter((message: { role?: string }) => message.role === 'user');
     const firstUserMessage = !options?.continuation && userMessages.length === 1;
     const latestPrompt = !options?.continuation ? userMessages.at(-1) : undefined;
@@ -1750,7 +1755,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       defaultBranch: linked.defaultBranch,
       publish: (input, options) =>
         this.trackLinkedPublish(this.keepAliveWhile(() => this.publishLinkedProject(input, options))),
-      fetchSite: (input, options) => this.fetchLinkedSite(input, options),
     };
   }
 
@@ -1969,20 +1973,22 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
   }
 
-  /** Reads a page of the project's own live site: only addresses the control plane reports for it. */
-  private async fetchLinkedSite(
-    input: LinkedSiteFetchInput,
-    options: { abortSignal?: AbortSignal },
-  ): Promise<CloudChefToolResult> {
+  /**
+   * A team project's live addresses, for the turn's context: the agent reads its site with curl, and these
+   * are where it is. Null when there are none, or they can't be learned quickly, so a turn never waits on it.
+   */
+  private async linkedSiteNote(): Promise<string | null> {
     const linked = await this.workspace.linkedProject();
     const identity = runtimeConnectionIdentity(this.env);
     if (!linked || !identity) {
-      return toolFailure("This workspace is not one of the team's projects.");
+      return null;
     }
-    return fetchLinkedSitePage(input, {
-      origins: () => projectSiteOrigins(this.env, identity, linked.orgProjectId),
-      signal: options.abortSignal,
-    });
+    try {
+      const origins = await projectSiteOrigins(this.env, identity, linked.orgProjectId, SITE_NOTE_TIMEOUT_MS);
+      return origins.length > 0 ? `The project's live site and preview links: ${origins.join(', ')}` : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Whether this person is now an active admin of the organization whose account this runtime uses. */
@@ -2976,17 +2982,22 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 }
 
 const MAX_PUBLICATION_FAILURE_CHARACTERS = 4_000;
+/** How long a turn's start waits for a team project's addresses before going on without them. */
+const SITE_NOTE_TIMEOUT_MS = 5_000;
 
-/** Tells the model, in the next turn's workspace context, that the last automatic publication failed. */
-function withPublicationFailure(
+/**
+ * Puts CloudChef's own notes for this turn (the last automatic publication's failure, a team project's
+ * addresses) ahead of the turn's workspace context.
+ */
+function withNotes(
   turnContext: ChatTurnContext | undefined,
-  failure: string | null,
+  notes: readonly (string | null)[],
 ): ChatTurnContext | undefined {
-  if (!failure) {
+  const written = notes.filter((note): note is string => Boolean(note));
+  if (written.length === 0) {
     return turnContext;
   }
-  const note = `CloudChef publication status: ${failure.slice(-MAX_PUBLICATION_FAILURE_CHARACTERS)}`;
-  const content = turnContext?.content ? `${note}\n\n${turnContext.content}` : note;
+  const content = [...written, ...(turnContext?.content ? [turnContext.content] : [])].join('\n\n');
   return { version: 1, content: content.slice(0, MAX_EPHEMERAL_CONTEXT_CHARACTERS) };
 }
 

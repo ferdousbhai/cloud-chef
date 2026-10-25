@@ -23,10 +23,8 @@ const toolLabels = {
   edit: 'Edit file',
   exec: 'Run command',
   validate: 'Validate project',
-  search_cloudflare_docs: 'Search Cloudflare docs',
   cloudflare_request: 'Cloudflare API request',
   publish_preview: 'Make a preview',
-  fetch_site: 'Read the live site',
   publish: 'Publish',
   commit: 'Save a version',
 } satisfies Record<ModelToolName, string>;

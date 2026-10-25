@@ -333,17 +333,6 @@ describe('ToolCall', () => {
     };
     await act(async () => root.render(<ToolCall partId={makePartId('message-11', 0)} invocation={live} />));
     expect(container.textContent).toContain('Publishing…');
-
-    const read: CloudChefToolInvocation = {
-      type: 'dynamic-tool',
-      state: 'output-available',
-      toolCallId: 'fetch-site-1',
-      toolName: 'fetch_site',
-      input: { url: 'https://example.com/about?lang=en' },
-      output: { version: 1, ok: true, summary: 'GET https://example.com/about: 200, text/html.' },
-    };
-    await act(async () => root.render(<ToolCall partId={makePartId('message-12', 0)} invocation={read} />));
-    expect(container.textContent).toContain('Read example.com/about');
   });
 
   it("stops spinning on a team project's build CloudChef no longer follows", async () => {

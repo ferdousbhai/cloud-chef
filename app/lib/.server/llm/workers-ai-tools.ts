@@ -19,7 +19,6 @@ import { isWorkspaceToolOperationIndeterminateError, type BuilderWorkspaceApi } 
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import type { Tool } from 'cloudchef-agent/tool';
 import { type BuilderSkillReader, isBuilderSkillPath } from './builder-skills';
-import { cloudflareDocsSearchTool } from './cloudflare-docs-search';
 import { sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 import { linkedProjectModelTools, type LinkedProjectModelToolContext } from './linked-project-model-tools';
@@ -58,8 +57,6 @@ export function createWorkersAiTools(
     edit: fileEditTool(workspace),
     exec: streamingExecTool(workspace),
     validate: canonicalValidationTool(linkedProject !== undefined),
-    // Stateless and remote: it must not take the workspace operation lane.
-    search_cloudflare_docs: cloudflareDocsSearchTool(),
   };
 
   if (cloudflareApi) {

@@ -1,7 +1,6 @@
 import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import { MODEL_TOOL_INPUT_SCHEMAS, type LinkedProjectModelToolName } from 'cloudchef-agent/model-tool-inputs';
 import type { Tool } from 'cloudchef-agent/tool';
-import type { LinkedSiteFetchInput } from './linked-site-fetch';
 
 /**
  * A turn working on a team project. Its changes are committed to the project's repository, and Workers
@@ -19,8 +18,6 @@ export type LinkedProjectModelToolContext = {
     input: { message: string; live: boolean },
     options: { toolCallId: string; abortSignal?: AbortSignal },
   ): Promise<CloudChefToolResult>;
-  /** Reads a page of the project's own live site or one of its preview links. */
-  fetchSite(input: LinkedSiteFetchInput, options: { abortSignal?: AbortSignal }): Promise<CloudChefToolResult>;
 };
 
 /** The tools a team project's turn adds. */
@@ -48,15 +45,6 @@ export function linkedProjectModelTools(context: LinkedProjectModelToolContext) 
       inputSchema: MODEL_TOOL_INPUT_SCHEMAS.publish,
       execute: (input, options) =>
         context.publish({ message: MODEL_TOOL_INPUT_SCHEMAS.publish.parse(input).message, live: true }, options),
-    },
-    fetch_site: {
-      description:
-        `Read a page or API response from ${context.repository}'s own live site: its production address or a ` +
-        "preview link Workers Builds reported, with the site's current content, including copy kept in its " +
-        'database or CMS and served by its pages or JSON endpoints. Read-only GET; text formats only; long ' +
-        'responses come in pages.',
-      inputSchema: MODEL_TOOL_INPUT_SCHEMAS.fetch_site,
-      execute: (input, options) => context.fetchSite(MODEL_TOOL_INPUT_SCHEMAS.fetch_site.parse(input), options),
     },
   } satisfies Record<LinkedProjectModelToolName, Tool>;
 }

@@ -206,8 +206,8 @@ control plane reads what it reports with the connection's own authorization (`wo
 a team's token to a member (`app/lib/.server/cloudflare/workers-builds.ts`): the project's Worker is found by the
 repository its latest build came from (its Artifacts repository, or the GitHub one it was imported from, until
 its builds are switched) and remembered (`workers_builds_script_tag`); `/runtime-projects/status` matches a
-commit to its build, and `/runtime-projects/site` reports the Worker's production and Preview origins, the only
-addresses the agent's `fetch_site` reaches. Workers Builds' API names no Artifacts provider for a repository
+commit to its build, and `/runtime-projects/site` reports the Worker's production and Preview origins, which each
+turn's context names so the agent can read the live site with `curl`. Workers Builds' API names no Artifacts provider for a repository
 connection, so moving an imported project's builds from GitHub to Artifacts is done in Cloudflare's dashboard;
 `/api/projects/<id>/workers-builds/switch` says when it is done, and otherwise how.
 
@@ -311,9 +311,9 @@ stall or inject into the container. Both tools are bounded in the spirit of Comp
 `truncated` so the model narrows the path or the pattern instead of paging blindly. A recursive walk shows
 `node_modules` and build output but does not descend into them, unless one of them is the requested path; that is how
 the model still reads the framework version the project installed.
-Reference guidance is mostly retrieved rather than mirrored. Cloudflare's documentation is searched live through the
-`search_cloudflare_docs` tool, one stateless request to the public `docs.mcp.cloudflare.com` endpoint that returns
-ranked excerpts with their source URLs; a full page is read by appending `/index.md` to any documentation URL.
+Reference guidance is mostly retrieved rather than mirrored. Cloudflare's documentation is searched live with
+`cf docs search` in the workspace, which needs no login and returns ranked pages; a page is read as markdown with
+`curl -H 'Accept: text/markdown'`.
 Framework references are read from the packages the project itself installed, so they always match the version it
 builds against. The builder's skills (`app/lib/.server/llm/builder-skills.ts`) are bundled into the Worker: CloudChef's
 own `project-stack`, which covers only what is specific to its starter app, and Cloudflare's official skills, vendored
