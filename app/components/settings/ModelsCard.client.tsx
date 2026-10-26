@@ -29,7 +29,9 @@ import { getJson, messageOf, postJson } from '~/lib/json-request';
 
 const providerKeySchema = z.object({
   provider: z.enum(GATEWAY_PROVIDER_SLUGS),
-  key: z.object({ alias: z.string(), secretPreview: z.string().nullable(), addedByCloudChef: z.boolean() }).nullable(),
+  key: z.object({ secretPreview: z.string().nullable() }).nullable(),
+  /** The provider's keys on the gateway under another name, which CloudChef can't use. */
+  otherAliases: z.array(z.string()).catch([]),
 });
 
 const keysSchema = z.discriminatedUnion('status', [
@@ -52,7 +54,6 @@ const keysResponseSchema = z.object({ keys: keysSchema });
 const linkResponseSchema = z.object({
   keys: keysSchema,
   authenticationTurnedOn: z.boolean(),
-  previousKeysRemain: z.boolean().catch(false),
 });
 
 type Settings = z.infer<typeof settingsSchema>;
@@ -61,9 +62,6 @@ type ProviderKey = z.infer<typeof providerKeySchema>;
 const PATH = '/api/settings/models';
 /** The select's value for "no choice": CloudChef's own default. */
 const CLOUDCHEF_DEFAULT = '';
-
-const PREVIOUS_KEYS_REMAIN_NOTE =
-  'The key it replaced could not be removed just now; remove it from the default AI Gateway in the Cloudflare dashboard, or save the key here again.';
 
 const AUTHENTICATION_TURNED_ON_NOTE =
   'Authentication is now on for this account’s default AI Gateway. CloudChef is unaffected; your own apps calling this gateway over HTTP now need a gateway token.';
@@ -139,7 +137,7 @@ export function ModelsCard() {
   const link = (provider: GatewayProviderSlug, apiKey: string) =>
     act(
       async () => {
-        const { keys, authenticationTurnedOn, previousKeysRemain } = await postJson(
+        const { keys, authenticationTurnedOn } = await postJson(
           `${PATH}/keys/link`,
           { provider, apiKey },
           linkResponseSchema,
@@ -151,7 +149,6 @@ export function ModelsCard() {
           settings?.allowedModelIds === null || settings === null
             ? `${GATEWAY_PROVIDERS[provider].label} is linked. Its models appear in the model picker within a minute.`
             : `${GATEWAY_PROVIDERS[provider].label} is linked. Its models are now listed above, under "Models in the picker": tick the ones to offer.`,
-          ...(previousKeysRemain ? [PREVIOUS_KEYS_REMAIN_NOTE] : []),
           ...(authenticationTurnedOn ? [AUTHENTICATION_TURNED_ON_NOTE] : []),
         ].join(' ');
       },
@@ -323,7 +320,7 @@ export function ModelsCard() {
 }
 
 function ProviderKeyRow({
-  providerKey: { provider, key },
+  providerKey: { provider, key, otherAliases },
   canManage,
   busy,
   onLink,
@@ -339,13 +336,8 @@ function ProviderKeyRow({
   const [replacing, setReplacing] = useState(false);
   const { label } = GATEWAY_PROVIDERS[provider];
   const secretTail = key?.secretPreview?.replace(/^\*+/, '');
-  const details = key
-    ? [
-        secretTail ? `Key ending ${secretTail}` : 'Key linked',
-        key.alias === 'default' ? 'default alias' : `alias ${key.alias}`,
-        key.addedByCloudChef ? 'added in CloudChef' : 'added in Cloudflare',
-      ].join(' · ')
-    : null;
+  const details = key ? (secretTail ? `Key ending ${secretTail}` : 'Key linked') : null;
+  const otherNames = otherAliases.map((alias) => `“${alias}”`).join(', ');
   const form = (
     <form
       className="flex min-w-0 flex-1 basis-64 flex-wrap items-center gap-2"
@@ -404,17 +396,15 @@ function ProviderKeyRow({
             <Button size="xs" variant="neutral" disabled={busy} onClick={() => setReplacing(true)}>
               Replace key
             </Button>
-            {key.addedByCloudChef ? (
-              <Button
-                size="xs"
-                variant="subtle"
-                className="!text-content-error"
-                disabled={busy}
-                onClick={() => void onUnlink()}
-              >
-                Remove {label} key
-              </Button>
-            ) : null}
+            <Button
+              size="xs"
+              variant="subtle"
+              className="!text-content-error"
+              disabled={busy}
+              onClick={() => void onUnlink()}
+            >
+              Remove {label} key
+            </Button>
           </div>
         ) : null}
       </div>
@@ -424,9 +414,13 @@ function ProviderKeyRow({
           <span> · stored in your Cloudflare account</span>
         </p>
       ) : null}
-      {key && replacing && !key.addedByCloudChef ? (
-        <p className="text-xs text-content-tertiary">
-          Saving a key here replaces the one added in Cloudflare (alias {key.alias}) on the gateway.
+      {!key && otherAliases.length > 0 ? (
+        // Cloudflare uses only a provider's key named "default" for CloudChef's requests.
+        <p className="text-xs leading-5 text-content-secondary">
+          {`This account’s AI Gateway has the ${label} ${otherAliases.length === 1 ? 'key' : 'keys'} ${otherNames}, but CloudChef can only use a key named “default”. `}
+          {canManage
+            ? `Paste the key here and CloudChef saves it under that name; ${otherNames} stays as it is.`
+            : 'An admin can paste the key here to fix it.'}
         </p>
       ) : null}
     </li>

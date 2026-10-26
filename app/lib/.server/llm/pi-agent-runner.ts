@@ -98,9 +98,7 @@ export interface PiAgentOptions {
   sessionAffinity: string;
   /** Whether the turn's model requests are logged in the account's AI Gateway, and under what. */
   gatewayLogging: WorkersAiGatewayLogging;
-  /** For a gateway provider's model: the alias of the account's key for that provider. */
-  gatewayKeyAlias?: string;
-  /** Which key that alias names, as Cloudflare last changed it: a different key forgets what the old one was refused. */
+  /** For a gateway provider's model: which of the account's keys for it, as Cloudflare last changed it; a different key forgets what the old one was refused. */
   gatewayKeyRevision?: string;
   workspace: BuilderWorkspaceApi;
   cloudflareApi?: CloudflareApiModelToolContext;
@@ -180,7 +178,6 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
     accountCredentials,
     sessionAffinity,
     gatewayLogging,
-    gatewayKeyAlias,
     gatewayKeyRevision,
     workspace,
     cloudflareApi,
@@ -198,7 +195,6 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
     model,
     sessionAffinity,
     gatewayLogging,
-    gatewayKeyAlias,
     gatewayKeyRevision,
   });
   // Real signals, so an in-flight model stream is bounded too — not just the gaps between turns.

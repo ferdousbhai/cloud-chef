@@ -72,8 +72,8 @@ describe('readAccountModelSettings', () => {
     vi.stubGlobal('fetch', respond);
 
     const gatewayKeys = [
-      { provider: 'anthropic', alias: 'sg', revision: 'key-sg@1' },
-      { provider: 'openrouter', alias: 'default', revision: 'key-default@1' },
+      { provider: 'anthropic', revision: 'key-sg@1' },
+      { provider: 'openrouter', revision: 'key-default@1' },
     ];
     const allowedModelIds = ['anthropic/claude-opus-5-5', '@cf/zai-org/glm-5.3-flash'];
     respond.mockResolvedValueOnce(
@@ -93,11 +93,11 @@ describe('readAccountModelSettings', () => {
     // Every model allowed, said so.
     respond.mockResolvedValueOnce(Response.json({ defaultModelId: null, gatewayKeys: [], allowedModelIds: null }));
     expect(await readAccountModelSettings(runtimeEnv())).toEqual(NO_ACCOUNT_MODEL_SETTINGS);
-    // A provider CloudChef does not know, or an alias that cannot be one, is no key at all.
+    // A provider CloudChef does not know, or a key without its revision, is no key at all.
     respond.mockResolvedValueOnce(
       Response.json({
         defaultModelId: 7,
-        gatewayKeys: [{ provider: 'fireworks', alias: 'default' }],
+        gatewayKeys: [{ provider: 'fireworks' }],
         allowedModelIds: null,
       }),
     );

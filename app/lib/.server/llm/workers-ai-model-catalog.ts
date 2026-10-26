@@ -118,7 +118,7 @@ export async function readWorkersAiBuilderModelCatalog(
  * The model a builder turn runs on, confirmed against what the account allows and can serve now: the
  * account's admin must allow it; a Workers AI model is checked against the account's live catalog; a
  * gateway provider's model against Pi's catalog and the account's keys on its default gateway. A
- * gateway model comes with the alias of the account's key for its provider, which its requests name.
+ * gateway model comes with which of the account's keys for its provider it runs with.
  *
  * Fail closed: settings that could not be learned (null, or a lookup that threw) say nothing about
  * what the admin allows or which keys are there, so the turn is refused as a check that could not be
@@ -130,7 +130,7 @@ export async function requireBuilderModel(
   binding: WorkersAiCatalogBinding,
   modelId: BuilderModelId,
   accountSettings: () => Promise<AccountModelSettings | null>,
-): Promise<{ model: BuilderModel; gatewayKeyAlias?: string; gatewayKeyRevision?: string }> {
+): Promise<{ model: BuilderModel; gatewayKeyRevision?: string }> {
   let settings: AccountModelSettings | null;
   try {
     settings = await accountSettings();
@@ -164,7 +164,7 @@ export async function requireBuilderModel(
       { status: 409 },
     );
   }
-  return { model, gatewayKeyAlias: key.alias, gatewayKeyRevision: key.revision };
+  return { model, gatewayKeyRevision: key.revision };
 }
 
 /**

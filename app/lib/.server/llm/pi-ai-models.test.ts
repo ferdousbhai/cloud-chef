@@ -272,7 +272,7 @@ describe("a gateway provider's model", () => {
   async function streamOnce(
     credentials: WorkersAiAccountCredentials,
     modelId: BuilderModelId,
-    settings: { gatewayLogging?: WorkersAiGatewayLogging; gatewayKeyAlias?: string; gatewayKeyRevision?: string } = {},
+    settings: { gatewayLogging?: WorkersAiGatewayLogging; gatewayKeyRevision?: string } = {},
     { reasoning }: { reasoning?: 'high' } = {},
   ) {
     const handle = getPiModel(credentials, modelId, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED, ...settings });
@@ -335,7 +335,7 @@ describe("a gateway provider's model", () => {
     expect(headerNames(call)).not.toContain('x-api-key');
     expect(headerNames(call)).not.toContain('authorization');
     expect(headerNames(call)).not.toContain('cf-aig-authorization');
-    // The provider's default key needs no alias.
+    // The gateway uses the provider's key named default; it ignores any other on binding requests.
     expect(headerNames(call)).not.toContain('cf-aig-byok-alias');
     expect(call?.request.headers).toMatchObject({
       'anthropic-version': expect.any(String),
@@ -383,14 +383,11 @@ describe("a gateway provider's model", () => {
       answer: () => anthropicStream('Hello', 'anthropic/claude-fable-5'),
     },
   ])(
-    'sends $modelId to the gateway as a $provider request at $endpoint, under the account key alias it was given',
+    'sends $modelId to the gateway as a $provider request at $endpoint, for the account key to be added',
     async ({ modelId, provider, endpoint, model, answer }) => {
       const { calls, credentials } = gatewayBinding(answer);
 
-      const message = await streamOnce(credentials, modelId, {
-        gatewayLogging: workersAiGatewayLogging(false),
-        gatewayKeyAlias: 'team-key',
-      });
+      const message = await streamOnce(credentials, modelId, { gatewayLogging: workersAiGatewayLogging(false) });
 
       expect(message.stopReason).toBe('stop');
       expect(message.content).toEqual([expect.objectContaining({ type: 'text', text: 'Hello' })]);
@@ -398,7 +395,7 @@ describe("a gateway provider's model", () => {
       const [call] = calls;
       expect(call).toMatchObject({ gatewayId: 'default', request: { provider, endpoint } });
       expect(call?.request.query).toMatchObject({ model, stream: true });
-      expect(call?.request.headers).toMatchObject({ 'cf-aig-byok-alias': 'team-key', 'cf-aig-collect-log': 'false' });
+      expect(call?.request.headers).toMatchObject({ 'cf-aig-collect-log': 'false' });
       for (const credential of ['authorization', 'x-api-key', 'cf-aig-authorization', 'api-key']) {
         expect(headerNames(call)).not.toContain(credential);
       }
@@ -437,19 +434,19 @@ describe("a gateway provider's model", () => {
       request.query.reasoning?.summary === undefined ? openaiResponsesStream('Hello', 'gpt-5') : unverified(),
     );
 
-    const first = await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyAlias: 'cloudchef' });
+    const first = await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyRevision: 'key-1' });
 
     expect(first.stopReason).toBe('stop');
     expect(calls.map(({ request }) => request.query.reasoning?.summary)).toEqual(['auto', undefined]);
     // The rest of the request is unchanged.
     expect(calls[1]?.request.query).toEqual({ ...calls[0]?.request.query, reasoning: undefined });
 
-    await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyAlias: 'cloudchef' });
+    await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyRevision: 'key-1' });
     expect(calls).toHaveLength(3);
     expect(calls[2]?.request.query.reasoning?.summary).toBeUndefined();
 
     // Another key on the same account is asked afresh.
-    await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyAlias: 'cloudchef-2' });
+    await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyRevision: 'key-2' });
     expect(calls.slice(3).map(({ request }) => request.query.reasoning?.summary)).toEqual(['auto', undefined]);
   });
 
@@ -457,13 +454,13 @@ describe("a gateway provider's model", () => {
     const { calls, credentials } = gatewayBinding((request) =>
       request.query.reasoning?.summary === undefined ? openaiResponsesStream('Hello', 'gpt-5') : unverified(),
     );
-    await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyAlias: 'cloudchef' });
+    await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyRevision: 'key-1' });
     expect(calls).toHaveLength(2);
 
     const chosen = await streamOnce(
       credentials,
       'openai/gpt-5',
-      { gatewayKeyAlias: 'cloudchef' },
+      { gatewayKeyRevision: 'key-1' },
       { reasoning: 'high' },
     );
 
@@ -473,11 +470,11 @@ describe("a gateway provider's model", () => {
     expect(calls[2]?.request.query.reasoning).toEqual({ effort: 'high' });
   });
 
-  it('asks a different key put under the same alias for reasoning summaries afresh', async () => {
+  it('asks a different key put in its place for reasoning summaries afresh', async () => {
     const { calls, credentials } = gatewayBinding((request) =>
       request.query.reasoning?.summary === undefined ? openaiResponsesStream('Hello', 'gpt-5') : unverified(),
     );
-    const key = (gatewayKeyRevision: string) => ({ gatewayKeyAlias: 'cloudchef', gatewayKeyRevision });
+    const key = (gatewayKeyRevision: string) => ({ gatewayKeyRevision });
 
     await streamOnce(credentials, 'openai/gpt-5', key('key-1@2026-10-01'));
     await streamOnce(credentials, 'openai/gpt-5', key('key-1@2026-10-01'));
@@ -491,26 +488,6 @@ describe("a gateway provider's model", () => {
       undefined,
     ]);
   });
-
-  it.each([400, 404])(
-    "reports the first key's refusal when the gateway answers CloudChef's other alias with %i",
-    async (status) => {
-      const { calls, credentials } = gatewayBinding((request) =>
-        request.headers['cf-aig-byok-alias'] === 'cloudchef-2'
-          ? Response.json({ error: { message: 'Provider key not found' } }, { status })
-          : Response.json(
-              { type: 'error', error: { type: 'authentication_error', message: 'no key' } },
-              { status: 401 },
-            ),
-      );
-
-      const message = await streamOnce(credentials, opus, { gatewayKeyAlias: 'cloudchef' });
-
-      expect(calls).toHaveLength(2);
-      expect(message.stopReason).toBe('error');
-      expect(message.errorMessage).toContain(gatewayKeyRejectedMessage('anthropic'));
-    },
-  );
 
   it('keeps reasoning summaries for a verified organization, and retries no other refusal', async () => {
     const verified = gatewayBinding(() => openaiResponsesStream('Hello', 'gpt-5'));
@@ -528,45 +505,13 @@ describe("a gateway provider's model", () => {
     expect(other.calls).toHaveLength(1);
   });
 
-  it("uses a key's replacement under CloudChef's other alias when the turn's alias is refused, for the rest of the turn", async () => {
-    const { calls, credentials } = gatewayBinding((request) =>
-      request.headers['cf-aig-byok-alias'] === 'cloudchef-2'
-        ? anthropicStream('Hello')
-        : Response.json({ type: 'error', error: { type: 'authentication_error', message: 'no key' } }, { status: 401 }),
+  it('sends a refused key’s request once, and reports the refusal', async () => {
+    const { calls, credentials } = gatewayBinding(() =>
+      Response.json({ type: 'error', error: { type: 'authentication_error', message: 'no key' } }, { status: 401 }),
     );
-    const handle = getPiModel(credentials, opus, {
-      gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED,
-      gatewayKeyAlias: 'cloudchef',
-    });
-    const context = normalizeContext({
-      systemPrompt: 'You are a builder.',
-      tools: [READ_FILE_TOOL],
-      messages: [{ role: 'user', content: 'Build a todo app.', timestamp: 1 }],
-    });
-
-    const first = await handle.stream(handle.model, context, { toolChoice: 'auto' }).result();
-    const second = await handle.stream(handle.model, context, { toolChoice: 'auto' }).result();
-
-    expect([first.stopReason, second.stopReason]).toEqual(['stop', 'stop']);
-    expect(calls.map(({ request }) => request.headers['cf-aig-byok-alias'])).toEqual([
-      'cloudchef',
-      'cloudchef-2',
-      'cloudchef-2',
-    ]);
-  });
-
-  it('tries no other alias for a key CloudChef did not link, nor more than once for its own', async () => {
-    const refused = () =>
-      Response.json({ type: 'error', error: { type: 'authentication_error', message: 'no key' } }, { status: 401 });
-    const dashboard = gatewayBinding(refused);
-    const theirs = await streamOnce(dashboard.credentials, opus, { gatewayKeyAlias: 'team-key' });
-    expect(theirs.errorMessage).toContain(gatewayKeyRejectedMessage('anthropic'));
-    expect(dashboard.calls).toHaveLength(1);
-
-    const own = gatewayBinding(refused);
-    const ours = await streamOnce(own.credentials, opus, { gatewayKeyAlias: 'cloudchef' });
-    expect(ours.errorMessage).toContain(gatewayKeyRejectedMessage('anthropic'));
-    expect(own.calls.map(({ request }) => request.headers['cf-aig-byok-alias'])).toEqual(['cloudchef', 'cloudchef-2']);
+    const refused = await streamOnce(credentials, opus);
+    expect(refused.errorMessage).toContain(gatewayKeyRejectedMessage('anthropic'));
+    expect(calls).toHaveLength(1);
   });
 
   it('reports a missing or rejected key as one the account must fix in Settings, naming the provider', async () => {

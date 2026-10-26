@@ -26,7 +26,6 @@ import { z } from 'zod';
 import {
   GATEWAY_PROVIDERS,
   gatewayModelProvider,
-  otherCloudChefKeyAlias,
   type BuilderModel,
   type BuilderModelId,
   type GatewayProviderSlug,
@@ -157,16 +156,13 @@ export function getPiModel(
     model?: BuilderModel;
     sessionAffinity?: string;
     gatewayLogging: WorkersAiGatewayLogging;
-    /** For a gateway provider's model: the alias of the account's key for that provider. */
-    gatewayKeyAlias?: string;
-    /** Which key that alias names, as Cloudflare last changed it. */
+    /** For a gateway provider's model: which of the account's keys for the provider it is, as Cloudflare last changed it. */
     gatewayKeyRevision?: string;
   },
 ): ModelHandle {
   if (gatewayModelProvider(modelId) !== null) {
     return getGatewayPiModel(accountCredentials, modelId, {
       gatewayLogging: settings.gatewayLogging,
-      keyAlias: settings.gatewayKeyAlias ?? DEFAULT_GATEWAY_KEY_ALIAS,
       keyRevision: settings.gatewayKeyRevision,
       sessionAffinity: settings.sessionAffinity,
     });
@@ -229,8 +225,6 @@ export function getPiModel(
 
 /** The account's own gateway, the one every CloudChef model request goes through. */
 const GATEWAY_ID = 'default';
-/** The alias a provider's default key answers to without naming it. */
-const DEFAULT_GATEWAY_KEY_ALIAS = 'default';
 /**
  * Pi's clients require a credential before they send; this placeholder satisfies them, and the
  * gateway transport forwards no credential header at all. It starts `sk-` because Pi's OpenAI
@@ -359,10 +353,9 @@ function getGatewayPiModel(
   modelId: BuilderModelId,
   {
     gatewayLogging,
-    keyAlias,
     keyRevision,
     sessionAffinity,
-  }: { gatewayLogging: WorkersAiGatewayLogging; keyAlias: string; keyRevision?: string; sessionAffinity?: string },
+  }: { gatewayLogging: WorkersAiGatewayLogging; keyRevision?: string; sessionAffinity?: string },
 ): ModelHandle {
   const entry = piGatewayModel(modelId);
   if (!entry) {
@@ -374,8 +367,7 @@ function getGatewayPiModel(
     endpoint: `${new URL(entry.model.baseUrl).pathname}/${transport.endpoint}`.replace(/^\/+/, ''),
     forwardedHeaders: transport.forwardedHeaders,
     gatewayLogging,
-    // Shared by every request of this turn: a replacement key found by one is used by the rest.
-    key: { alias: keyAlias, revision: keyRevision },
+    keyRevision,
   };
   const handle: ModelHandle = {
     model: entry.model,
@@ -407,22 +399,18 @@ function getGatewayPiModel(
 }
 
 /** Everything a gateway request carries: no provider credential of any kind. */
-type GatewayRequestHeaders = WorkersAiGatewayHeaders &
-  Record<string, string> & { 'content-type': 'application/json'; 'cf-aig-byok-alias'?: string };
+type GatewayRequestHeaders = WorkersAiGatewayHeaders & Record<string, string> & { 'content-type': 'application/json' };
 
 /**
  * Sends the SDK's request through `env.AI.gateway('default')` as a universal request to the model's
  * provider, at the one endpoint the builder uses. The body goes as the SDK wrote it; the headers are
- * the provider API's own (its version and betas), plus the gateway's: which of the account's keys
- * for the provider to use when it is not the default one, whether to log the request, filed under the
- * chat and person when logged, as the person chose in Settings, and never cached.
+ * the provider API's own (its version and betas), plus the gateway's: whether to log the request,
+ * filed under the chat and person when logged, as the person chose in Settings, and never cached. The
+ * gateway adds the account's `default` key for the provider, the only one it uses on binding requests.
  *
- * Two refusals are answered once each by a corrected request. OpenAI refuses reasoning summaries to
- * an organization it hasn't verified, so that request goes again without one, and requests with that
- * key ask for none from then on. And a key CloudChef linked is replaced by linking the new one under
- * its other alias and then removing the old: a turn that looked its key up before that sends the old
- * alias, which is refused once it's gone, so the request goes again under the other alias, and the
- * rest of the turn uses it.
+ * One refusal is answered once by a corrected request: OpenAI refuses reasoning summaries to an
+ * organization it hasn't verified, so that request goes again without one, and requests with that key
+ * ask for none from then on.
  */
 function createGatewayFetch(
   binding: Ai,
@@ -431,8 +419,8 @@ function createGatewayFetch(
     endpoint: string;
     forwardedHeaders: readonly string[];
     gatewayLogging: WorkersAiGatewayLogging;
-    /** The key's alias, and which key it named when the turn looked it up (unknown once replaced). */
-    key: { alias: string; revision?: string };
+    /** Which of the account's keys for the provider the turn looked up. */
+    keyRevision?: string;
     /** The model this request is for, and whether it asked for a reasoning level. */
     reasoning: { model: Model<Api>; requested: boolean; summaries: boolean };
   },
@@ -452,23 +440,19 @@ function createGatewayFetch(
         forwarded[name] = value;
       }
     }
-    const send = (alias: string, query: ProviderRequestBody | WrittenBody) => {
+    const send = (query: ProviderRequestBody | WrittenBody) => {
       const headers: GatewayRequestHeaders = {
         'content-type': 'application/json',
         ...workersAiGatewayHeaders(route.gatewayLogging),
         ...forwarded,
       };
-      if (alias !== DEFAULT_GATEWAY_KEY_ALIAS) {
-        headers['cf-aig-byok-alias'] = alias;
-      }
       return binding
         .gateway(GATEWAY_ID)
         .run({ provider: route.provider, endpoint, headers, query }, { signal: request.signal });
     };
-    let { alias, revision } = route.key;
-    // Which key a refusal of reasoning summaries is remembered against: the alias, and which key it
-    // named, so a key put under the same alias since starts afresh.
-    const refusalKey = () => `${route.provider}:${alias}:${revision ?? ''}`;
+    // Which key a refusal of reasoning summaries is remembered against, so a key put in its place since
+    // starts afresh.
+    const refusalKey = `${route.provider}:${route.keyRevision ?? ''}`;
     const summariesRefused = refusedSummaryKeys(binding);
     // A body whose reasoning fields are not shaped as Pi writes them goes exactly as written.
     const body = await request.json();
@@ -476,49 +460,27 @@ function createGatewayFetch(
     const query = parsed.success
       ? withProviderDefaultReasoning(route.reasoning.model, parsed.data, {
           requested: route.reasoning.requested,
-          summaries: summariesRefused.has(refusalKey()) ? 'refused' : route.reasoning.summaries,
+          summaries: summariesRefused.has(refusalKey) ? 'refused' : route.reasoning.summaries,
         })
       : writtenBodySchema.parse(body);
-    let response = await send(alias, query);
-    let keyRefusal: number | null = null;
-    // Whether `response` answers the request sent again under the other alias.
-    let answersOtherAlias = false;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const otherAlias = otherCloudChefKeyAlias(alias);
-      if (
-        response.status === 400 &&
-        parsed.success &&
-        parsed.data.reasoning?.summary !== undefined &&
-        refusesReasoningSummaries(await readText(response.clone()))
-      ) {
-        summariesRefused.add(refusalKey());
-        delete parsed.data.reasoning.summary;
-        if (Object.keys(parsed.data.reasoning).length === 0) {
-          delete parsed.data.reasoning;
-        }
-        answersOtherAlias = false;
-      } else if ((response.status === 401 || response.status === 403) && otherAlias && keyRefusal === null) {
-        keyRefusal = response.status;
-        alias = otherAlias;
-        revision = undefined;
-        answersOtherAlias = true;
-      } else {
-        break;
+    let response = await send(query);
+    if (
+      response.status === 400 &&
+      parsed.success &&
+      parsed.data.reasoning?.summary !== undefined &&
+      refusesReasoningSummaries(await readText(response.clone()))
+    ) {
+      summariesRefused.add(refusalKey);
+      delete parsed.data.reasoning.summary;
+      if (Object.keys(parsed.data.reasoning).length === 0) {
+        delete parsed.data.reasoning;
       }
       await response.body?.cancel().catch(() => undefined);
       request.signal.throwIfAborted();
       recordPiStage('gateway_corrected_retry', route.reasoning.model.id);
-      response = await send(alias, query);
+      response = await send(query);
     }
-    // A gateway may answer an alias it holds no key under with a 400 or 404 rather than a refusal:
-    // then there was no replacement, and the first key's refusal is what the person needs to see.
-    const otherAliasMissing = answersOtherAlias && (response.status === 400 || response.status === 404);
-    const refused = response.status === 401 || response.status === 403 || otherAliasMissing;
-    if (keyRefusal !== null && !refused) {
-      route.key.alias = alias;
-      route.key.revision = undefined;
-    }
-    if (refused) {
+    if (response.status === 401 || response.status === 403) {
       await response.body?.cancel().catch(() => undefined);
       // `error.message` is where both Anthropic's and OpenAI's SDKs read a refusal, so each reports
       // this message rather than a bare status.
@@ -526,10 +488,7 @@ function createGatewayFetch(
       const error = { type: 'authentication_error', message };
       return Response.json(
         { type: 'error', message, error },
-        {
-          status: otherAliasMissing ? (keyRefusal ?? 401) : response.status,
-          headers: { 'content-type': 'application/json' },
-        },
+        { status: response.status, headers: { 'content-type': 'application/json' } },
       );
     }
     return response;
@@ -537,7 +496,7 @@ function createGatewayFetch(
 }
 
 /**
- * The keys (`provider:alias`) each account's AI binding found refused reasoning summaries, so later
+ * The keys (`provider:revision`) each account's AI binding found refused reasoning summaries, so later
  * requests with them ask for none. Held as long as the binding is, in this isolate.
  */
 const SUMMARIES_REFUSED = new WeakMap<Ai, Set<string>>();

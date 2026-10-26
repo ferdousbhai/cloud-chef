@@ -5,9 +5,9 @@ import { readJsonRequest } from '~/lib/.server/request-guards';
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import {
   AI_GATEWAY_ID,
-  cloudchefKeySecretName,
+  defaultKeySecretName,
   findGatewayKeys,
-  gatewayKeyInUse,
+  isDefaultAlias,
   openGatewayKeyAccountApi,
   type GatewayKeyAccountApi,
   type OpenGatewayKeyAccountApi,
@@ -24,11 +24,10 @@ import {
 import {
   allowedBuilderModelIdsSchema,
   builderModelIdSchema,
-  CLOUDCHEF_KEY_ALIASES,
   effectiveDefaultModelId,
+  GATEWAY_KEY_ALIAS,
   GATEWAY_PROVIDER_SLUGS,
   isBuilderModelId,
-  isCloudChefKeyAlias,
   modelIdLabel,
   type GatewayProviderSlug,
 } from '~/lib/workers-ai-model';
@@ -48,13 +47,13 @@ import { signedIn } from './signed-in';
 /** One provider's key on the account's default gateway, as Settings shows it: never the key itself. */
 type ProviderKeyStatus = {
   provider: GatewayProviderSlug;
+  /** The key CloudChef uses, the provider's `default` one. */
   key: {
-    alias: string;
     /** Cloudflare's masked preview of the key. */
     secretPreview: string | null;
-    /** Linked from Settings under CloudChef's alias, rather than added in Cloudflare. */
-    addedByCloudChef: boolean;
   } | null;
+  /** The aliases of the provider's other keys on the gateway, which CloudChef can't use. */
+  otherAliases: string[];
 };
 
 type GatewayKeysStatus =
@@ -127,8 +126,9 @@ const unlinkSchema = z.strictObject({ provider: providerSchema });
 
 /**
  * Links a pasted key for one provider to the account's default gateway, which Cloudflare stores in
- * the account's Secrets Store (Cloudflare's own BYOK flow), replacing every key the gateway held for
- * that provider, including one added in Cloudflare: Settings says so before an admin links. The
+ * the account's Secrets Store (Cloudflare's own BYOK flow), as the provider's `default` key, the one
+ * CloudChef uses: it replaces the key under that alias, including one added in Cloudflare (Settings
+ * says so before an admin links), and leaves the provider's keys under other aliases as they are. The
  * gateway is readied first: Cloudflare takes a key only on a gateway with authentication on and a
  * Secrets Store linked, so one without either gets them, with every other setting kept. Turning
  * authentication on is reported, since the account's own apps calling the gateway over HTTP then
@@ -157,22 +157,15 @@ export function linkGatewayKeyAction({ request, env, openAccountApi = openGatewa
           );
         }
         const { authenticationTurnedOn } = await api.prepareAiGatewayForKeys(AI_GATEWAY_ID, firstStore.id);
-        const alias = await freeCloudChefAlias(api, provider);
-        // The new key goes on first, so a key Cloudflare refuses leaves the provider's keys as they were.
-        const added = await api.addAiGatewayProviderKey(AI_GATEWAY_ID, {
+        // Cloudflare refuses a key under an alias, or a secret name, already taken: the provider's
+        // `default` key goes first, and the new one takes its place. Keys under other aliases stay.
+        await removeDefaultKey(api, provider);
+        await api.addAiGatewayProviderKey(AI_GATEWAY_ID, {
           providerSlug: provider,
-          alias,
+          alias: GATEWAY_KEY_ALIAS,
           secret: apiKey,
         });
-        let previousKeysRemain = false;
-        try {
-          await removeProviderKeys(api, provider, { keep: added.id });
-        } catch {
-          // The new key is on and is the provider's default; the replaced ones only linger.
-          console.warn('Unable to remove a replaced provider key from the account’s AI Gateway');
-          previousKeysRemain = true;
-        }
-        return keysResponse(await gatewayKeysStatus(api), { authenticationTurnedOn, previousKeysRemain });
+        return keysResponse(await gatewayKeysStatus(api), { authenticationTurnedOn });
       });
     },
     { manage: 'keys' },
@@ -180,9 +173,9 @@ export function linkGatewayKeyAction({ request, env, openAccountApi = openGatewa
 }
 
 /**
- * Removes the key CloudChef linked for one provider from the account's default gateway, and the
- * secret Cloudflare kept it in. A key added in Cloudflare is left as it is: an admin removes that one
- * there. The gateway's settings stay as linking left them.
+ * Removes the key CloudChef uses for one provider (its `default` one) from the account's default
+ * gateway, and the secret Cloudflare kept it in. Keys under other aliases are left as they are. The
+ * gateway's settings stay as linking left them.
  */
 export function unlinkGatewayKeyAction({
   request,
@@ -198,7 +191,7 @@ export function unlinkGatewayKeyAction({
         return body.response;
       }
       return withAccountApi(env, connection, openAccountApi, async (api) => {
-        await removeProviderKeys(api, body.data.provider, { onlyCloudChefs: true });
+        await removeDefaultKey(api, body.data.provider);
         return keysResponse(await gatewayKeysStatus(api));
       });
     },
@@ -293,56 +286,19 @@ async function withAccountApi(
 }
 
 /**
- * The CloudChef alias a new key for `provider` goes under: one no key of the provider has. When both
- * are taken (a replacement interrupted before its cleanup), the one the provider's requests do not
- * use is removed first, so the key in use stays until its replacement is on. A secret left under the
- * free alias without its key is deleted too, since Cloudflare refuses a key whose secret name is taken.
+ * Removes the provider's `default` key from the gateway (the one CloudChef uses, whoever added it) and the secret
+ * Cloudflare kept it in, which a new key under the same alias needs free. No other key or secret is touched.
  */
-async function freeCloudChefAlias(api: GatewayKeyAccountApi, provider: GatewayProviderSlug): Promise<string> {
-  const listed = await api.listAiGatewayProviderKeys(AI_GATEWAY_ID);
-  const keys = listed.filter(({ providerSlug }) => providerSlug === provider);
-  // The key the runtimes send, picked exactly as they pick it.
-  const inUse = gatewayKeyInUse(listed, provider);
-  const alias =
-    CLOUDCHEF_KEY_ALIASES.find((candidate) => !keys.some((key) => key.alias === candidate)) ??
-    CLOUDCHEF_KEY_ALIASES.find((candidate) => candidate !== inUse?.alias) ??
-    CLOUDCHEF_KEY_ALIASES[0];
-  for (const key of keys) {
-    if (key.alias === alias) {
-      await api.deleteAiGatewayProviderKey(AI_GATEWAY_ID, key.id);
-    }
-  }
-  await deleteCloudChefSecrets(api, [cloudchefKeySecretName(provider, alias)]);
-  return alias;
-}
-
-/**
- * Removes one provider's keys from the gateway (CloudChef's own, or every one but `keep`), then the
- * secrets Cloudflare kept CloudChef's removed ones in: those names are CloudChef's, and a new key
- * under the same alias cannot be stored while one is there. Unlinking also clears a CloudChef secret
- * left without its key. No other secret is touched, whoever made it.
- */
-async function removeProviderKeys(
-  api: GatewayKeyAccountApi,
-  provider: GatewayProviderSlug,
-  scope: { onlyCloudChefs: true } | { keep: string },
-): Promise<void> {
-  const removedAliases = new Set<string>();
+async function removeDefaultKey(api: GatewayKeyAccountApi, provider: GatewayProviderSlug): Promise<void> {
   for (const key of await api.listAiGatewayProviderKeys(AI_GATEWAY_ID)) {
-    const removed = 'keep' in scope ? key.id !== scope.keep : isCloudChefKeyAlias(key.alias);
-    if (key.providerSlug === provider && removed) {
+    if (key.providerSlug === provider && isDefaultAlias(key.alias)) {
       await api.deleteAiGatewayProviderKey(AI_GATEWAY_ID, key.id);
-      removedAliases.add(key.alias);
     }
   }
-  const cleared = CLOUDCHEF_KEY_ALIASES.filter((alias) => !('keep' in scope) || removedAliases.has(alias));
-  await deleteCloudChefSecrets(
-    api,
-    cleared.map((alias) => cloudchefKeySecretName(provider, alias)),
-  );
+  await deleteSecrets(api, [defaultKeySecretName(provider)]);
 }
 
-async function deleteCloudChefSecrets(api: GatewayKeyAccountApi, names: readonly string[]): Promise<void> {
+async function deleteSecrets(api: GatewayKeyAccountApi, names: readonly string[]): Promise<void> {
   if (names.length === 0) {
     return;
   }
@@ -355,20 +311,18 @@ async function deleteCloudChefSecrets(api: GatewayKeyAccountApi, names: readonly
 
 async function gatewayKeysStatus(api: GatewayKeyAccountApi): Promise<GatewayKeysStatus> {
   try {
-    const keys = await findGatewayKeys(api);
+    const listed = await api.listAiGatewayProviderKeys(AI_GATEWAY_ID);
+    const keys = await findGatewayKeys({ listAiGatewayProviderKeys: async () => listed });
     return {
       status: 'ready',
       providers: GATEWAY_PROVIDER_SLUGS.map((provider) => {
         const key = keys.get(provider);
         return {
           provider,
-          key: key
-            ? {
-                alias: key.alias || 'default',
-                secretPreview: key.secretPreview,
-                addedByCloudChef: isCloudChefKeyAlias(key.alias),
-              }
-            : null,
+          key: key ? { secretPreview: key.secretPreview } : null,
+          otherAliases: listed
+            .filter(({ providerSlug, alias }) => providerSlug === provider && !isDefaultAlias(alias))
+            .map(({ alias }) => alias),
         };
       }),
     };
@@ -392,10 +346,7 @@ function modelsRefused(error: string): Response {
   return Response.json({ error }, { status: 409, headers: { 'Cache-Control': 'private, no-store' } });
 }
 
-function keysResponse(
-  keys: GatewayKeysStatus,
-  extra: { authenticationTurnedOn?: boolean; previousKeysRemain?: boolean } = {},
-): Response {
+function keysResponse(keys: GatewayKeysStatus, extra: { authenticationTurnedOn?: boolean } = {}): Response {
   return Response.json({ keys, ...extra }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 

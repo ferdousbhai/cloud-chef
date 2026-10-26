@@ -699,10 +699,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       durableIdentity.transcript,
     );
     const accountCredentials = await getUserWorkersAiCredentials(this.env, durableIdentity.userId);
-    const { model, gatewayKeyAlias, gatewayKeyRevision } = await requireBuilderModel(
-      accountCredentials.binding,
-      modelId,
-      () => readAccountModelSettings(this.env),
+    const { model, gatewayKeyRevision } = await requireBuilderModel(accountCredentials.binding, modelId, () =>
+      readAccountModelSettings(this.env),
     );
     const chosenReasoningLevel = requireBuilderReasoningLevel(model, reasoningLevel);
     // Refused before anything is stopped or recorded: a turn that never starts must not hold anything.
@@ -813,7 +811,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           user: durableIdentity.userId,
           agent: transcript.agentName,
         }),
-        gatewayKeyAlias,
         gatewayKeyRevision,
         workspace: this.workspace,
         cloudflareApi,

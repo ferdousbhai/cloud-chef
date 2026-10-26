@@ -171,33 +171,22 @@ export function gatewayModelProvider(modelId: BuilderModelId): GatewayProviderSl
 }
 
 /**
- * A provider key on the account's default gateway, as a runtime needs it: which provider, and the
- * alias it is stored under, which a request names unless it is the provider's default, and which key
- * that is, as Cloudflare last changed it (its id and modification time), so what one key was refused
- * isn't held against another put under the same alias.
+ * A provider key on the account's default gateway, as a runtime needs it: which provider, and which key it is, as
+ * Cloudflare last changed it (its id and modification time), so what one key was refused isn't held against
+ * another put in its place.
  */
-export type GatewayKey = { provider: GatewayProviderSlug; alias: string; revision: string };
+export type GatewayKey = { provider: GatewayProviderSlug; revision: string };
 
 /**
- * The aliases CloudChef links a pasted key under; any other alias is a key added outside CloudChef.
- * There are two so a replacement goes on under the one not in use before the key it replaces is
- * removed: a key Cloudflare refuses never leaves the provider without one.
+ * The only alias a provider key is used under. CloudChef's runtimes reach the gateway through their Workers AI
+ * binding, and on those requests Cloudflare uses the provider's key aliased `default` and ignores
+ * `cf-aig-byok-alias`; a key under any other alias stays on the gateway, unused by CloudChef.
  */
-export const CLOUDCHEF_KEY_ALIASES = ['cloudchef', 'cloudchef-2'] as const;
-
-export function isCloudChefKeyAlias(alias: string): boolean {
-  return CLOUDCHEF_KEY_ALIASES.some((candidate) => candidate === alias);
-}
-
-/** The CloudChef alias a replacement for a key under `alias` goes on under; null for any other alias. */
-export function otherCloudChefKeyAlias(alias: string): string | null {
-  return isCloudChefKeyAlias(alias) ? (CLOUDCHEF_KEY_ALIASES.find((candidate) => candidate !== alias) ?? null) : null;
-}
+export const GATEWAY_KEY_ALIAS = 'default';
 
 export const gatewayKeysSchema = z.array(
   z.object({
     provider: gatewayProviderSlugSchema,
-    alias: z.string().min(1).max(128),
     revision: z.string().max(256),
   }),
 );
