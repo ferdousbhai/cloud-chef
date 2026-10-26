@@ -196,6 +196,8 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
   #deployToken: { deploymentId: string; token: string; at: number } | null = null;
   /** When the last step ended, so one scheduled call runs only one step even if several calls fall due at once. */
   #lastStepEndedAt = 0;
+  /** The deploy proxy's requests in the running Wrangler command, summed up in the log when it ends. */
+  #requests: RequestTally = emptyRequestTally();
 
   constructor(ctx: DurableObjectState<{}>, env: BuilderEnv) {
     super(ctx, env);
@@ -367,7 +369,9 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       if (job.restarts > MAX_RESTARTS) {
         throw new StepFailure('interrupted', 'Publishing kept stopping partway.');
       }
+      const started = Date.now();
       outcome = await this.runStep(job);
+      this.appendLog(job, `[${job.step}: ${seconds(Date.now() - started)}]\n`);
     } catch (error) {
       await this.endJob(
         job,
@@ -465,7 +469,9 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       job.deploymentId,
     );
     await this.whileReporting(job, 'building', async () => {
+      const started = Date.now();
       await this.prepareContainer();
+      this.appendLog(job, `[build machine set up: ${seconds(Date.now() - started)}]\n`);
       await this.asBuildUser(job, 'install', fetchCommand(job), SHORT_TIMEOUT_MS);
       await this.command(`touch ${jobMarker(job)}`, SHORT_TIMEOUT_MS);
     });
@@ -852,10 +858,13 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       GIT_CEILING_DIRECTORIES: '/',
       CI: '1',
     };
+    this.#requests = emptyRequestTally();
     try {
       const output = await this.command(`cd ${WORK_DIR} && ${WRANGLER} ${args}`, DEPLOY_TIMEOUT_MS, env);
       this.appendLog(job, `${output.stdout}${output.stderr}`);
+      this.appendLog(job, requestTallyLine(this.#requests));
     } catch (error) {
+      this.appendLog(job, requestTallyLine(this.#requests));
       this.appendLog(job, `${error instanceof Error ? error.message : String(error)}\n`);
       const details = await this.command(
         [
@@ -916,6 +925,19 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
    * of the gate's Worker may make; outside a deploy step, nothing. The token stays here.
    */
   async forwardDeployApi(request: Request, proxyKey: string): Promise<Response> {
+    const started = Date.now();
+    const response = await this.decideDeployApi(request, proxyKey);
+    const ms = Date.now() - started;
+    const tally = this.#requests;
+    tally.count += 1;
+    tally.ms += ms;
+    if (!tally.slowest || ms > tally.slowest.ms) {
+      tally.slowest = { line: `${request.method} ${new URL(request.url).pathname} → ${response.status}`, ms };
+    }
+    return response;
+  }
+
+  private async decideDeployApi(request: Request, proxyKey: string): Promise<Response> {
     const gate = this.gate();
     if (!gate || !this.isProxyKey(proxyKey)) {
       return DEPLOY_REFUSED('No deploy is running.');
@@ -1187,6 +1209,22 @@ function parseJson<T>(text: string, schema: z.ZodType<T>): T | undefined {
   } catch {
     return undefined;
   }
+}
+
+type RequestTally = { count: number; ms: number; slowest: { line: string; ms: number } | null };
+
+function emptyRequestTally(): RequestTally {
+  return { count: 0, ms: 0, slowest: null };
+}
+
+function seconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** How many requests Wrangler sent Cloudflare through the deploy proxy, how long they took, and the slowest. */
+function requestTallyLine(tally: RequestTally): string {
+  const slowest = tally.slowest ? `, slowest ${tally.slowest.line} in ${seconds(tally.slowest.ms)}` : '';
+  return `[${tally.count} requests to Cloudflare, ${seconds(tally.ms)} in all${slowest}]\n`;
 }
 
 /** A request's body read in full, or null for none. */
