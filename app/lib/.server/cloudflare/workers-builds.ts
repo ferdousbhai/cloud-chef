@@ -5,6 +5,8 @@ import {
 } from '~/lib/cloudflare/data/org-projects.server';
 import type { CloudflareConnection } from './cloudflare-connection-repository';
 import { openConnectionAccountApi } from './connection-account-api';
+import { CANONICAL_ORIGIN } from '~/lib/.server/public-origin';
+import { siteAllowsFraming } from '~/lib/.server/site-framing';
 import type {
   UserCloudflareAccountApi,
   WorkerScriptSummary,
@@ -261,14 +263,16 @@ export async function recordProjectWorker(
   if (worker.tag !== project.workersBuildsScriptTag) {
     await recordWorkersBuildsScriptTag(db, project.id, worker.tag);
   }
-  if (!project.siteUrl || worker.tag !== project.workersBuildsScriptTag) {
+  if (!project.siteUrl || project.siteFrameable === null || worker.tag !== project.workersBuildsScriptTag) {
     const [siteUrl] = await readProduction(worker).catch((error: Error) => {
       console.warn({ event: 'project_site_unreadable', message: error.message });
       return [];
     });
     if (siteUrl) {
-      await recordProjectSiteUrl(db, project.id, siteUrl);
+      const frameable = await siteAllowsFraming(siteUrl, CANONICAL_ORIGIN);
+      await recordProjectSiteUrl(db, project.id, { url: siteUrl, frameable });
       project.siteUrl = siteUrl;
+      project.siteFrameable = frameable;
     }
   }
   return worker;

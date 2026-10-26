@@ -160,6 +160,7 @@ describe('production requests', () => {
           origin: 'promoted',
           importRepoFullName: null,
           siteUrl: null,
+          siteFrameable: null,
         },
       ],
     });

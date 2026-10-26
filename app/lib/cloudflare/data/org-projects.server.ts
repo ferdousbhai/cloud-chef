@@ -39,6 +39,8 @@ export type Project = {
   workersBuildsScriptTag: string | null;
   /** The live site's address, once its Worker has been found. */
   siteUrl: string | null;
+  /** Whether the live site lets CloudChef show it in a frame; null until checked. */
+  siteFrameable: boolean | null;
 };
 
 /** A team project as its admins manage it: who else may view or edit it. */
@@ -158,13 +160,14 @@ type ProjectRow = {
   artifact_repo: string | null;
   workers_builds_script_tag: string | null;
   site_url: string | null;
+  site_frameable: number | null;
   default_branch: string;
   origin: 'imported' | 'promoted';
 };
 
 const PROJECT_COLUMNS = `projects.id, projects.connection_id, projects.org_id, projects.name, projects.import_repo_id,
   projects.import_repo_full_name, projects.import_branch, projects.artifact_repo, projects.workers_builds_script_tag,
-  projects.site_url, projects.default_branch, projects.origin`;
+  projects.site_url, projects.site_frameable, projects.default_branch, projects.origin`;
 
 /** Every project of a scope, with who else may view or edit it: an admin's or owner's view. */
 export async function listScopeProjects(db: D1Database, scope: ProjectScope): Promise<ManagedProject[]> {
@@ -398,8 +401,15 @@ export async function abandonImport(
 }
 
 /** Remembers which Worker Workers Builds builds a project into, once found. */
-export async function recordProjectSiteUrl(db: D1Database, projectId: string, siteUrl: string): Promise<void> {
-  await db.prepare('UPDATE org_projects SET site_url = ? WHERE id = ?').bind(siteUrl, projectId).run();
+export async function recordProjectSiteUrl(
+  db: D1Database,
+  projectId: string,
+  site: { url: string; frameable: boolean | null },
+): Promise<void> {
+  await db
+    .prepare('UPDATE org_projects SET site_url = ?, site_frameable = ? WHERE id = ?')
+    .bind(site.url, site.frameable === null ? null : site.frameable ? 1 : 0, projectId)
+    .run();
 }
 
 export async function recordWorkersBuildsScriptTag(db: D1Database, projectId: string, tag: string): Promise<void> {
@@ -421,6 +431,7 @@ function toProject(row: ProjectRow): Project {
         : null,
     workersBuildsScriptTag: row.workers_builds_script_tag,
     siteUrl: row.site_url,
+    siteFrameable: row.site_frameable === null ? null : row.site_frameable === 1,
   };
 }
 

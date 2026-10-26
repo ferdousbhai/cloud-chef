@@ -56,7 +56,21 @@ async function gitHubApp(status = 201) {
  * from a public one and in Artifacts already; and a promoted draft. Sara views Blog and edits Site; she also
  * has a project of her own. The team connected two GitHub accounts: ada, which owns the repositories, and acme.
  */
+/**
+ * The projects' own sites, as the projects home checks whether they may be shown in a frame: they refuse,
+ * as many do. Anything else goes on as it would.
+ */
+function stubSites() {
+  const passOn = globalThis.fetch;
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) =>
+    new URL(input instanceof Request ? input.url : input).hostname.endsWith('example.com')
+      ? new Response('', { headers: { 'x-frame-options': 'DENY' } })
+      : passOn(input, init),
+  );
+}
+
 async function setup() {
+  stubSites();
   const fixture = await teamFixture();
   const { database, sara } = fixture;
   database.exec(`
@@ -506,15 +520,20 @@ describe('the projects home', () => {
         openAccount,
       });
       return z
-        .object({ projects: z.array(z.object({ id: z.string(), siteUrl: z.string().nullable() })) })
+        .object({
+          projects: z.array(
+            z.object({ id: z.string(), siteUrl: z.string().nullable(), siteFrameable: z.boolean().nullable() }),
+          ),
+        })
         .parse(await response.json())
         .projects.find((project) => project.id === OWN);
     };
-    expect(await list()).toEqual({ id: OWN, siteUrl: 'https://blog.example.com' });
+    expect(await list()).toEqual({ id: OWN, siteUrl: 'https://blog.example.com', siteFrameable: false });
     // Remembered: a later list doesn't ask Cloudflare again.
     expect(await list(workersBuilds({ failing: true }).openAccount)).toEqual({
       id: OWN,
       siteUrl: 'https://blog.example.com',
+      siteFrameable: false,
     });
   });
 });

@@ -267,6 +267,7 @@ function TeamProjects({
                 title={project.name}
                 updatedAt={project.lastCommitAt ?? null}
                 siteUrl={project.siteUrl ?? null}
+                siteFramed={project.siteFrameable !== false}
                 badge={admin ? 'Owner' : canEdit ? 'Can edit' : 'Can view'}
                 primary={
                   canEdit ? (

@@ -17,6 +17,8 @@ const teamProjectsSchema = z.object({
       repo: z.string().nullable(),
       /** The live site's address, when Workers Builds has deployed it. */
       siteUrl: z.url({ protocol: /^https$/ }).nullish(),
+      /** Whether the site lets CloudChef show it in a frame; unknown until checked. */
+      siteFrameable: z.boolean().nullish(),
       lastCommitAt: z.iso.datetime().nullish(),
     }),
   ),

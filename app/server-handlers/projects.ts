@@ -71,7 +71,7 @@ export function listMyProjectsAction({
     }
     return Response.json(
       {
-        projects: projects.map(({ id, name, repo, role, origin, importSource, siteUrl }) => ({
+        projects: projects.map(({ id, name, repo, role, origin, importSource, siteUrl, siteFrameable }) => ({
           id,
           name,
           repo,
@@ -79,6 +79,7 @@ export function listMyProjectsAction({
           origin,
           importRepoFullName: importSource?.fullName ?? null,
           siteUrl,
+          siteFrameable,
         })),
       },
       { headers: { 'Cache-Control': 'private, no-store' } },
@@ -99,7 +100,9 @@ async function findMissingSites(
   connectionId: string,
   projects: Project[],
 ): Promise<void> {
-  const missing = projects.filter((project) => project.repo !== null && !project.siteUrl);
+  const missing = projects.filter(
+    (project) => project.repo !== null && (!project.siteUrl || project.siteFrameable === null),
+  );
   if (missing.length === 0) {
     return;
   }

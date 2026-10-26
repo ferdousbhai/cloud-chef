@@ -11,6 +11,7 @@ export function ProjectCard({
   title,
   updatedAt,
   siteUrl,
+  siteFramed = true,
   badge,
   primary,
   menuItems,
@@ -18,6 +19,8 @@ export function ProjectCard({
   title: string;
   updatedAt: string | null;
   siteUrl: string | null;
+  /** Whether the site may be shown live in the card; one that refuses is shown by its address. */
+  siteFramed?: boolean;
   /** A short note beside the time, such as the person's access. */
   badge?: string;
   /** The main action: Edit, or nothing for a project the person may only view. */
@@ -26,8 +29,13 @@ export function ProjectCard({
 }) {
   return (
     <li className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 shadow-sm">
-      {siteUrl ? (
+      {siteUrl && siteFramed ? (
         <SiteThumbnail url={siteUrl} />
+      ) : siteUrl ? (
+        // A site that refuses to be shown in a frame (as many do, against clickjacking) is named instead.
+        <div className="flex aspect-[16/10] items-center justify-center bg-bolt-elements-background-depth-2 px-4 text-center text-sm text-content-secondary">
+          <span className="truncate">{siteHost(siteUrl)}</span>
+        </div>
       ) : (
         <div className="flex aspect-[16/10] items-center justify-center bg-bolt-elements-background-depth-2 text-xs text-content-tertiary">
           Not published yet
@@ -79,4 +87,12 @@ export function ProjectCard({
       </div>
     </li>
   );
+}
+
+function siteHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
