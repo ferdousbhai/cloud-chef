@@ -191,7 +191,8 @@ const DEPLOY_REFUSED = (message: string) =>
   Response.json({ success: false, errors: [{ code: 10000, message }] }, { status: 403 });
 
 export class ProjectBuilder extends Sandbox<BuilderEnv> {
-  override sleepAfter = '5m';
+  // Kept a while after a publish, so the project's next one finds its tools and package downloads in place.
+  override sleepAfter = '15m';
   private readonly processes = createExtensionProcessSandbox(this);
   #deployToken: { deploymentId: string; token: string; at: number } | null = null;
   /** When the last step ended, so one scheduled call runs only one step even if several calls fall due at once. */
@@ -395,7 +396,6 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
         "DELETE FROM builder_jobs WHERE status = 'done' AND deployment_id != ?",
         job.deploymentId,
       );
-      await this.destroy().catch(() => undefined);
       await this.schedule(1, 'runNext', {});
       return;
     }
@@ -748,10 +748,17 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
     return buildPlan(contents);
   }
 
-  /** A fresh container with the build user, CloudChef's Wrangler, and the two proxies it reaches the world through. */
+  /**
+   * The container with the build user, CloudChef's Wrangler, and the two proxies it reaches the world through: the
+   * one the project's last publish left, if it is still running, else a fresh one. Only what tools and package
+   * managers downloaded carries over; nothing of the last publish's own is left running or in the work folder.
+   * Anyone who can publish a branch of the project can publish its main too, so this lets no one do anything new.
+   */
   private async prepareContainer(): Promise<void> {
-    await this.destroy().catch(() => undefined);
-    await this.start();
+    if (!this.ctx.container?.running) {
+      await this.destroy().catch(() => undefined);
+      await this.start();
+    }
     const exports = builderExports(this.ctx.exports);
     // Only the proxies made for this container hold the key; anything else that reaches this builder (a Worker
     // binding it, say) can neither read the source nor send through the deploy proxy.
@@ -768,6 +775,8 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       [
         'set -eu',
         `id -u ${BUILD_USER} >/dev/null 2>&1 || useradd --uid ${BUILD_UID} --create-home ${BUILD_USER}`,
+        `pkill -KILL -u ${BUILD_USER} || true`,
+        `rm -rf ${WORK_DIR} ${WRANGLER_OUTPUT} ${WRANGLER_LOG_DIR} /opt/cloudchef/job-*`,
         `mkdir -p ${WORK_DIR} && chown ${BUILD_USER}:${BUILD_USER} ${WORK_DIR}`,
         `[ -x ${WRANGLER} ] || npm install --prefix ${WRANGLER_ROOT} wrangler@${WRANGLER_VERSION} --ignore-scripts --no-audit --no-fund --loglevel=error`,
         'command -v pnpm >/dev/null 2>&1 || npm install --global pnpm --ignore-scripts --no-audit --no-fund --loglevel=error',

@@ -11,7 +11,8 @@ export const BUILD_UID = 1001;
 export function asBuildUserCommand(command: string): string {
   return (
     `setpriv --reuid=${BUILD_UID} --regid=${BUILD_UID} --clear-groups --no-new-privs -- ` +
-    `env -i HOME=/home/${BUILD_USER} PATH=/usr/local/bin:/usr/bin:/bin CI=1 ` +
+    // Package managers use what an earlier publish in this container downloaded without asking the registry again.
+    `env -i HOME=/home/${BUILD_USER} PATH=/usr/local/bin:/usr/bin:/bin CI=1 npm_config_prefer_offline=true ` +
     `sh -c ${shellQuote(`cd ${WORK_DIR} && ${command}`)}`
   );
 }
