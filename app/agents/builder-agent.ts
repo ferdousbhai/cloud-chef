@@ -781,6 +781,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       const { contentLogging } = await this.requireModelAccess();
       // The browser prepares the workspace before it sends, but nothing else seeds a new one.
       await this.initializeWorkspace(durableIdentity.transcript);
+      await this.nameGitRepository(chatInitialId);
       const cloudflareApi = await this.createCloudflareApiToolContext(durableIdentity.transcript);
       const linkedProject = await this.createLinkedProjectToolContext();
       if (shouldGenerateTitle) {
@@ -1723,6 +1724,19 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const template = await loadBuilderTemplate();
     return seedBuilderWorkspace(this.workspace, builderTemplateSeedId(), template);
+  }
+
+  /**
+   * Tells the workspace which repository git in its container reaches through the git proxy: a team
+   * project's, or this CloudChef app's own. Each turn, so a workspace seeded before the proxy existed learns it.
+   */
+  private async nameGitRepository(chatInitialId: string): Promise<void> {
+    const linked = await this.workspace.linkedProject();
+    await this.workspace.setGitRepository(
+      linked
+        ? { repo: linked.repository, orgProjectId: linked.orgProjectId }
+        : { repo: nativeProjectRepo(chatInitialId), orgProjectId: null },
+    );
   }
 
   /** The commit tool for a CloudChef app; a team project's publish tools commit instead. */

@@ -36,7 +36,11 @@ import {
 } from '../../app/lib/.server/cloudflare/deployment-config';
 import { recordDeploymentActivity } from '../../app/lib/.server/cloudflare/deployment-repository';
 import type { BuilderValidationStage } from '../../app/lib/common/builder-validation-progress';
-import type { WorkspaceValidationStageReporter } from '../../app/agents/builder-workspace-api';
+import type { RefUpdate } from '../../app/lib/.server/cloudflare/git-proxy';
+import type {
+  BuilderWorkspaceGitRepository,
+  WorkspaceValidationStageReporter,
+} from '../../app/agents/builder-workspace-api';
 import { deploymentProjectProfileFromProject } from '../../app/lib/.server/cloudflare/deployment-project-profile';
 import type { DeploymentProjectProfile } from '../../app/lib/.server/cloudflare/deployment-project-profile';
 import { WORK_DIR } from '../../cloudchef-agent/constants';
@@ -156,6 +160,7 @@ import { createContainerDirectoryCommand, ISOLATED_PROJECT_ROOT, relativeIsolate
 import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 
 export { WorkspaceProxy };
+export { GitProxy } from './git-proxy';
 
 interface RuntimeEnv {
   PROJECT_WORKSPACE: DurableObjectNamespace<ProjectWorkspace>;
@@ -182,6 +187,15 @@ const PROJECT_ROOT = WORK_DIR;
 /** The scripts a team project's validation runs, when its package.json has them. */
 const LINKED_PROJECT_SCRIPTS = ['typecheck', 'lint', 'test', 'build'] as const;
 const LINKED_PROJECT_SCRIPT_TIMEOUT_MS = 10 * 60_000;
+const gitRepositorySchema = z.object({
+  repo: z.string().min(1).max(256),
+  orgProjectId: z.string().min(1).max(256).nullable(),
+});
+const gitPushSchema = z.object({
+  ref: z.string().min(1).max(1024),
+  oldOid: z.string().regex(/^[0-9a-f]{40}$/),
+  newOid: z.string().regex(/^[0-9a-f]{40}$/),
+});
 const linkedPackageSchema = z.looseObject({ scripts: z.record(z.string(), z.string()).optional() });
 const READINESS_ROOT = '/home/.cloudchef-readiness';
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
@@ -432,6 +446,24 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     addMissingColumn(this.ctx.storage.sql, 'cloudchef_linked_project', 'branch_key', 'TEXT');
     addMissingColumn(this.ctx.storage.sql, 'cloudchef_linked_project', 'workspace_modes', 'INTEGER NOT NULL DEFAULT 0');
     addMissingColumn(this.ctx.storage.sql, 'cloudchef_linked_project', 'project_name', 'TEXT');
+    // The repository git in the container reaches through the git proxy, and the pushes it has made there.
+    this.ctx.storage.sql.exec(
+      `CREATE TABLE IF NOT EXISTS cloudchef_git_repository (
+         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+         repo TEXT NOT NULL,
+         org_project_id TEXT,
+         updated_at INTEGER NOT NULL
+       )`,
+    );
+    this.ctx.storage.sql.exec(
+      `CREATE TABLE IF NOT EXISTS cloudchef_git_pushes (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         ref TEXT NOT NULL,
+         old_oid TEXT NOT NULL,
+         new_oid TEXT NOT NULL,
+         pushed_at INTEGER NOT NULL
+       )`,
+    );
     // Its files at the base commit, a row each: a repository's whole list is too large for one value.
     this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS cloudchef_linked_manifest (
@@ -2079,6 +2111,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_prepared_validation');
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_linked_project');
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_linked_manifest');
+      this.ctx.storage.sql.exec('DELETE FROM cloudchef_git_repository');
+      this.ctx.storage.sql.exec('DELETE FROM cloudchef_git_pushes');
       this.ctx.storage.sql.exec(
         `UPDATE cloudchef_workspace_state
          SET initialized = 0, seed_id = NULL, reset_revision = ?
@@ -2127,6 +2161,41 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         );
       }
     });
+  }
+
+  setGitRepository(value: BuilderWorkspaceGitRepository): void {
+    // Parsed again here: an RPC argument is only as typed as its caller.
+    const parsed = gitRepositorySchema.parse(value);
+    this.ctx.storage.sql.exec(
+      `INSERT INTO cloudchef_git_repository (singleton, repo, org_project_id, updated_at) VALUES (1, ?, ?, ?)
+       ON CONFLICT(singleton) DO UPDATE SET repo = excluded.repo, org_project_id = excluded.org_project_id,
+         updated_at = excluded.updated_at`,
+      parsed.repo,
+      parsed.orgProjectId,
+      Date.now(),
+    );
+  }
+
+  /** The repository the git proxy serves this workspace, or null before the agent has named one. */
+  gitRepository(): BuilderWorkspaceGitRepository | null {
+    const row = first(
+      this.ctx.storage.sql.exec<{ repo: string; org_project_id: string | null }>(
+        'SELECT repo, org_project_id FROM cloudchef_git_repository WHERE singleton = 1',
+      ),
+    );
+    return row ? { repo: row.repo, orgProjectId: row.org_project_id } : null;
+  }
+
+  /** A ref the git proxy saw updated by a push from this workspace's container. */
+  recordGitPush(value: RefUpdate): void {
+    const update = gitPushSchema.parse(value);
+    this.ctx.storage.sql.exec(
+      'INSERT INTO cloudchef_git_pushes (ref, old_oid, new_oid, pushed_at) VALUES (?, ?, ?, ?)',
+      update.ref,
+      update.oldOid,
+      update.newOid,
+      Date.now(),
+    );
   }
 
   linkedProject(): BuilderWorkspaceLinkedProject | null {

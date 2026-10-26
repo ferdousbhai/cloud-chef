@@ -23,6 +23,7 @@ import {
   type TrackedSandboxProcess,
 } from './tracked-command';
 import { first } from './sql-rows';
+import { GIT_PROXY_HOST } from '../../app/lib/.server/cloudflare/git-proxy';
 
 export const COMPUTERD_PROCESS_ROLE = 'computerd';
 const WORKSPACE_CONTAINER_SLEEP_AFTER = '10m';
@@ -43,6 +44,7 @@ export const COMPUTERD_ENV = {
 
 type WorkspaceRuntimeExports = {
   WorkspaceProxy(options: { props: WorkspaceRef }): Fetcher;
+  GitProxy(options: { props: { workspaceId: string } }): Fetcher;
 };
 
 /** The runtime binding every workspace sandbox reads; the container never receives a credential. */
@@ -194,9 +196,22 @@ export class ComputerSandboxBase<Env extends ComputerSandboxEnv = ComputerSandbo
     this.ctx.storage.sql.exec('DELETE FROM cloudchef_sandbox_processes WHERE role = ?', role);
   }
 
-  interceptWorkspaceOutbound(host: string, ref: WorkspaceRef): Promise<void> {
+  /**
+   * Computer asks for its own host once each time the container starts; git's host is intercepted with it,
+   * so git in the container reaches the project's repository only through the GitProxy. That one failing
+   * leaves git without its remote, never the workspace without its container.
+   */
+  async interceptWorkspaceOutbound(host: string, ref: WorkspaceRef): Promise<void> {
     const exports = workspaceRuntimeExports(this.ctx.exports);
-    return this.ctx.container!.interceptOutboundHttp(host, exports.WorkspaceProxy({ props: ref }));
+    await this.ctx.container!.interceptOutboundHttp(host, exports.WorkspaceProxy({ props: ref }));
+    try {
+      await this.ctx.container!.interceptOutboundHttp(
+        GIT_PROXY_HOST,
+        exports.GitProxy({ props: { workspaceId: this.ctx.id.toString() } }),
+      );
+    } catch (error) {
+      console.error('Unable to intercept the workspace git remote', error);
+    }
   }
 
   fetchComputerPort(port: number, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -221,8 +236,8 @@ export class ComputerSandboxBase<Env extends ComputerSandboxEnv = ComputerSandbo
 }
 
 function workspaceRuntimeExports(exports: Cloudflare.Exports): WorkspaceRuntimeExports {
-  if (!('WorkspaceProxy' in exports)) {
-    throw new Error('The workspace runtime is missing its WorkspaceProxy export.');
+  if (!('WorkspaceProxy' in exports) || !('GitProxy' in exports)) {
+    throw new Error('The workspace runtime is missing its WorkspaceProxy or GitProxy export.');
   }
   // `ctx.exports.WorkspaceProxy` is the loopback binding for the WorkspaceProxy WorkerEntrypoint,
   // which is callable as `WorkspaceProxy({ props })` to mint a Fetcher but is a native binding, not
@@ -232,6 +247,7 @@ function workspaceRuntimeExports(exports: Cloudflare.Exports): WorkspaceRuntimeE
   // entrypoint binding, whose call signature is exactly WorkspaceRuntimeExports['WorkspaceProxy'].
   return {
     WorkspaceProxy: exports.WorkspaceProxy as WorkspaceRuntimeExports['WorkspaceProxy'],
+    GitProxy: exports.GitProxy as WorkspaceRuntimeExports['GitProxy'],
   };
 }
 

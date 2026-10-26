@@ -301,7 +301,14 @@ export interface ProjectWorkspaceRpc extends Rpc.DurableObjectBranded {
   deleteProject(): Promise<void>;
   setLinkedProject(value: BuilderWorkspaceLinkedProject): Promise<void>;
   linkedProject(): Promise<BuilderWorkspaceLinkedProject | null>;
+  setGitRepository(value: BuilderWorkspaceGitRepository): Promise<void>;
 }
+
+/**
+ * The project repository git in the workspace reaches through its git proxy: a CloudChef app's own, or a
+ * team project's, with the team project it belongs to.
+ */
+export type BuilderWorkspaceGitRepository = { repo: string; orgProjectId: string | null };
 
 /**
  * Project workspace operations available to the CloudChef control plane.
@@ -353,6 +360,8 @@ export interface BuilderWorkspaceApi {
   setLinkedProject(value: BuilderWorkspaceLinkedProject): Promise<void>;
   /** The GitHub project this workspace works on, or null for a CloudChef app. */
   linkedProject(): Promise<BuilderWorkspaceLinkedProject | null>;
+  /** Records the repository git in the workspace pushes to and fetches from. */
+  setGitRepository(value: BuilderWorkspaceGitRepository): Promise<void>;
   prepareDeployment(revision: string): Promise<BuilderWorkspaceDeploymentPlan>;
   deleteProject(): Promise<void>;
 }

@@ -173,6 +173,7 @@ function fakeWorkspace(overrides: Partial<BuilderWorkspaceApi> = {}): Partial<Bu
     getState: () => READY_WORKSPACE,
     warmContainer: async () => undefined,
     linkedProject: async () => null,
+    setGitRepository: async () => undefined,
     checkpoint: async () => VALIDATED_CHECKPOINT,
     hasSuccessfulValidation: async () => true,
     cancelActiveValidation: async () => undefined,

@@ -11,6 +11,7 @@ import {
   type BuilderWorkspaceApi,
   type BuilderWorkspaceCheckpoint,
   type BuilderWorkspaceFileMetadata,
+  type BuilderWorkspaceGitRepository,
   type ProjectWorkspaceRpc,
   type ToolOperationBeginRequest,
   type ToolOperationStartResult,
@@ -680,6 +681,10 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
 
   async linkedProject(): Promise<BuilderWorkspaceLinkedProject | null> {
     return (await this.#stub()).linkedProject();
+  }
+
+  async setGitRepository(value: BuilderWorkspaceGitRepository): Promise<void> {
+    await (await this.#stub()).setGitRepository(value);
   }
 
   hasSuccessfulValidation(revision: string): Promise<boolean> {

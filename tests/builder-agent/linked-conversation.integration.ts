@@ -54,6 +54,7 @@ async function linkedWorkspace(
   return {
     linkedProject: async () => linked,
     setLinkedProject: async (value) => setLinkedProject(value),
+    setGitRepository: async () => undefined,
     listFiles: () => [file],
     readFile: async (path) => {
       const bytes = new TextEncoder().encode('changed');

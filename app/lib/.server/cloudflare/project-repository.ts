@@ -600,10 +600,23 @@ export class ProjectRepositories {
     }
   }
 
+  /**
+   * The repository's remote with a token for one git request from the workspace's git proxy: `write` for a
+   * push, `read` otherwise. The repository is made (empty, `main`) when there is none yet; the caller revokes
+   * the token once the request is done.
+   */
+  async gitAccess(repo: string, scope: 'read' | 'write'): Promise<GitRemote & { tokenId: string }> {
+    return this.#pushRemote(repo, PUSH_TOKEN_TTL_SECONDS, scope);
+  }
+
   /** The repository's remote with a write token for one push, which `#revokePushToken` ends once it is done. */
-  async #pushRemote(repo: string, ttlSeconds = PUSH_TOKEN_TTL_SECONDS): Promise<GitRemote & { tokenId: string }> {
+  async #pushRemote(
+    repo: string,
+    ttlSeconds = PUSH_TOKEN_TTL_SECONDS,
+    scope: 'read' | 'write' = 'write',
+  ): Promise<GitRemote & { tokenId: string }> {
     const { remote } = await this.ensureRepo(repo);
-    const token = await this.#withRepo(repo, (handle) => handle.createToken('write', ttlSeconds));
+    const token = await this.#withRepo(repo, (handle) => handle.createToken(scope, ttlSeconds));
     return { url: remote.replace(/\/$/, ''), secret: tokenSecret(token.plaintext), tokenId: token.id };
   }
 
