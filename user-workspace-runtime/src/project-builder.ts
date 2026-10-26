@@ -32,6 +32,14 @@ import {
   readRuntimeUpgradeWindow,
   recordRuntimeActivity,
 } from '../../app/lib/.server/cloudflare/user-workspace-runtime-activity';
+import {
+  asBuildUserCommand,
+  BUILD_USER,
+  BUILD_UID,
+  endBuildPhase,
+  fetchCommand,
+  WORK_DIR,
+} from './project-builder-scripts';
 import { runTrackedSandboxCommand } from './tracked-command';
 import { shellQuote } from './shell-quote';
 import { first } from './sql-rows';
@@ -63,9 +71,6 @@ import { CONTAINER_TOOL_ENV } from './computer-sandbox';
 const WRANGLER_VERSION = '4.151.3';
 const WRANGLER_ROOT = '/opt/cloudchef/wrangler';
 const WRANGLER = `${WRANGLER_ROOT}/node_modules/.bin/wrangler`;
-const WORK_DIR = '/work';
-const BUILD_USER = 'build';
-const BUILD_UID = 1001;
 /** The deploy's own address for Cloudflare's API, which the deploy proxy answers. */
 const DEPLOY_API_HOST = 'cloudflare-api.internal';
 const CLOUDFLARE_API = 'https://api.cloudflare.com';
@@ -774,10 +779,7 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
   }
 
   private async asBuildUser(job: Job, stage: 'install' | 'build', command: string, timeout: number): Promise<void> {
-    const wrapped =
-      `setpriv --reuid=${BUILD_UID} --regid=${BUILD_UID} --clear-groups --no-new-privs -- ` +
-      `env -i HOME=/home/${BUILD_USER} PATH=/usr/local/bin:/usr/bin:/bin CI=1 ` +
-      `sh -c ${shellQuote(`cd ${WORK_DIR} && ${command}`)}`;
+    const wrapped = asBuildUserCommand(command);
     this.appendLog(job, `\n$ ${command}\n`);
     await this.logged(job, stage, wrapped, timeout);
   }
@@ -1178,35 +1180,6 @@ function withBody(init: RequestInit & { duplex?: 'half' }, body: BodyInit | null
 /** A file only the job's own container has, marking that its earlier steps ran there. */
 function jobMarker(job: Job): string {
   return `/opt/cloudchef/job-${job.deploymentId}`;
-}
-
-/** Fetches exactly the commit into the work folder, through the read-only source proxy. */
-function fetchCommand(job: Job): string {
-  return [
-    'git init -q .',
-    `git fetch -q --depth=1 http://${GIT_PROXY_HOST}/project.git ${job.commit} 2>/dev/null ||`,
-    `  git fetch -q --depth=1 http://${GIT_PROXY_HOST}/project.git ${shellQuote(job.branch)}`,
-    `[ "$(git rev-parse FETCH_HEAD)" = ${job.commit} ] || { echo 'The branch moved on since this commit.' >&2; exit 1; }`,
-    'git checkout -q FETCH_HEAD',
-  ].join(' ');
-}
-
-/**
- * Stops every process the build left, checks none is left, removes the history and local secrets (they never go to
- * Cloudflare, and Wrangler would read them), and takes the files away from the build user.
- */
-function endBuildPhase(): string {
-  return [
-    'set -eu',
-    `pkill -KILL -u ${BUILD_USER} || true`,
-    'sleep 1',
-    `if pgrep -u ${BUILD_USER} >/dev/null; then echo 'The build left processes running.' >&2; exit 1; fi`,
-    `rm -rf ${WORK_DIR}/.git`,
-    // A link out of the project would let the deploy read, and upload, a file of the container's.
-    `find ${WORK_DIR} -type l -print0 | while IFS= read -r -d '' link; do case "$(realpath -m -- "$link")" in ${WORK_DIR}/*) ;; *) rm -f -- "$link" ;; esac; done`,
-    `find ${WORK_DIR} -name node_modules -prune -o \\( -name '.env' -o -name '.env.*' -o -name '.dev.vars' -o -name '.dev.vars.*' \\) -print0 | xargs -0 rm -rf --`,
-    `chown -R root:root ${WORK_DIR}`,
-  ].join('\n');
 }
 
 /** A preview alias Cloudflare accepts: the branch's words, lowercase, short enough for a hostname. */
