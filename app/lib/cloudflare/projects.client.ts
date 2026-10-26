@@ -1,5 +1,6 @@
+import { z } from 'zod';
 import { executeDataOperation, runtimeFailureSchema, UserRuntimeRequestError } from './client';
-import { api, type ProjectCommit } from './data-api';
+import { api, type ProjectCommit, type ProjectImportResult } from './data-api';
 import { fetchUserRuntime } from './runtime-session';
 
 /** Which project a history, clone or download names: one of the person's own chats, or a team project. */
@@ -10,6 +11,8 @@ export const HISTORY_PAGE_SIZE = 30;
 /** Importing copies the whole history of the source repository, which can take minutes for a large one: the
  * runtime's copy (`IMPORT_TIMEOUT_MS` in project-repository.ts, 30 minutes) plus its steps before and after. */
 const IMPORT_TIMEOUT_MS = 35 * 60_000;
+/** An upload sends the ZIP, then the runtime unpacks it and writes the project's first version. */
+const UPLOAD_TIMEOUT_MS = 10 * 60_000;
 /** A fork copies the repository inside Artifacts and then seeds a new workspace from it. */
 const FORK_TIMEOUT_MS = 2 * 60_000;
 
@@ -28,6 +31,28 @@ export function forkProject(chatInitialId: string, commit: string) {
 export function importProject(args: { url: string; name?: string }) {
   return executeDataOperation(api.projects.import, args, { timeoutMs: IMPORT_TIMEOUT_MS });
 }
+
+/** Makes a new project from a ZIP of its code: the workspace runtime unpacks it into the project's first version. */
+export async function uploadProject(file: Blob, name: string): Promise<ProjectImportResult> {
+  const response = await fetchUserRuntime(`/v1/projects/upload?${new URLSearchParams({ name })}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/zip' },
+    body: file,
+    signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+  });
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const failure = runtimeFailureSchema.safeParse(body);
+    throw new UserRuntimeRequestError(
+      (failure.success ? failure.data.error : undefined) ?? 'The ZIP could not be uploaded. Try again.',
+      response.status,
+      failure.success ? failure.data.retryable : undefined,
+    );
+  }
+  return uploadedSchema.parse(body);
+}
+
+const uploadedSchema = z.object({ projectId: z.string(), initialId: z.string() });
 
 /** The first line of a commit message, which is its title. */
 export function commitTitle(message: string): string {

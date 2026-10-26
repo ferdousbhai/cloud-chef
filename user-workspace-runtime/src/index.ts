@@ -52,7 +52,10 @@ import {
 import { addRequestedDependencies } from '../../app/lib/runtime/action-runner/dependency-manifest';
 import { stableJson } from '../../app/lib/stable-json';
 import { userRuntimeDataAction, userRuntimeInitialMessagesAction } from '../../app/lib/cloudflare/data.server';
-import { userRuntimeProjectArchiveAction } from '../../app/lib/cloudflare/data/projects.server';
+import {
+  userRuntimeProjectArchiveAction,
+  userRuntimeProjectUploadAction,
+} from '../../app/lib/cloudflare/data/projects.server';
 import { verifyRuntimeCapability } from '../../app/lib/cloudflare/runtime-capability';
 import { userRuntimeDeploymentAction } from '../../app/server-handlers/deployments';
 import { userRuntimeEnhancePromptAction } from '../../app/server-handlers/enhance-prompt';
@@ -2984,6 +2987,8 @@ async function handleUserRequest(
     });
   } else if (request.method === 'GET' && url.pathname === '/v1/projects/archive') {
     response = await userRuntimeProjectArchiveAction({ url, env: sharedEnv, userId: capability.subject });
+  } else if (request.method === 'POST' && url.pathname === '/v1/projects/upload') {
+    response = await userRuntimeProjectUploadAction({ request, url, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/chats/messages') {
     response = await userRuntimeInitialMessagesAction({
       request,

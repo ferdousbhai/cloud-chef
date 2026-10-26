@@ -53,6 +53,7 @@ const migrationPolicies = [
       '0035_cloudflare_authorizations.sql': '85af7ceb277998492e72fc73524960b7ff1250fd5a3aa39324639a7eea6d25be',
       '0036_allowed_builder_models.sql': '4ab08907c7b295feab5ff1f375f2ae979b3ea16bf3648d29c0c00d8a37f1cb48',
       '0037_clear_space_credential_handles.sql': 'ed6c3ba2543744b3e0e9245e6dbffde25b2c507f461bf4494b959f0cca4ec3c6',
+      '0038_uploaded_projects.sql': '9db56560dc05d9fcd6b53dc00fa5551fbc96163b8727fc05dac4a435d9b7b585',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -93,6 +94,11 @@ const migrationPolicies = [
       // A connection's GitHub App installations become one row per GitHub account: SQLite can't change a
       // primary key in place, so the table is rebuilt with every row copied, without the unnamed org_id.
       '0034_github_installations_per_account.sql',
+      // Projects record what they were made from (`created_from`: github, zip or draft) in place of `origin`,
+      // which must stop being required: SQLite can't relax NOT NULL or a CHECK in place, so the project table
+      // is rebuilt with every row copied. The access grants and production requests step aside first, as in
+      // 0033, so dropping it can't cascade to them.
+      '0038_uploaded_projects.sql',
     ],
   },
   {

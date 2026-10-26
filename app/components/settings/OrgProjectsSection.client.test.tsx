@@ -54,7 +54,7 @@ describe('OrgProjectsSection', () => {
             {
               id: 'project-1',
               name: 'Storefront',
-              origin: 'imported',
+              createdFrom: 'github',
               repo: 't-project-1',
               importRepoFullName: 'acme/storefront',
               access: [{ userId: 'user-2', role: 'view' }],
@@ -81,6 +81,8 @@ describe('OrgProjectsSection', () => {
     );
 
     expect(mislabelledButtons()).toEqual([]);
+    // A project from GitHub has its own way to go live; only one that didn't come from there is told to connect it.
+    expect(document.body.textContent).not.toContain('Continue with Artifacts');
     await click('Remove');
     await click('Decline');
     expect(document.querySelector('button[aria-label="Decline request: Todo app"]')).not.toBeNull();
@@ -109,7 +111,7 @@ describe('OrgProjectsSection', () => {
             {
               id: 'project-1',
               name: 'Storefront',
-              origin: 'promoted',
+              createdFrom: 'draft',
               repo: 'p-draft',
               importRepoFullName: null,
               access: [{ userId: 'user-2', role: 'view' }],

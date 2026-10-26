@@ -20,11 +20,14 @@ export class SubchatLimitError extends Error {
   }
 }
 
-/** A project's repository that could not do what was asked, for a reason the person can act on (409, 413, 503). */
+/**
+ * A project's repository that could not do what was asked, for a reason the person can act on (400 for an
+ * upload it can't read, 409, 413, 503).
+ */
 export class ProjectRepositoryFailureError extends Error {
   constructor(
     message: string,
-    readonly status: 409 | 413 | 503,
+    readonly status: 400 | 409 | 413 | 503,
   ) {
     super(message);
     this.name = 'ProjectRepositoryFailureError';

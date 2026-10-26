@@ -570,12 +570,15 @@ export async function collectSession(target, { cf, controlPlaneDatabaseId, now =
   };
 }
 
+/** What a project was made from (`org_projects.created_from`), in words. */
+const CREATED_FROM = { github: 'imported from GitHub', zip: 'uploaded as a ZIP', draft: 'an approved draft' };
+
 async function readProject({ cf, controlPlaneDatabaseId, projectId, owner, accountId, note }) {
   const project = (
     await select(
       cf,
       controlPlaneDatabaseId,
-      `SELECT id, name, origin, artifact_repo, import_repo_full_name, import_branch, workers_builds_script_tag
+      `SELECT id, name, created_from, artifact_repo, import_repo_full_name, import_branch, workers_builds_script_tag
        FROM org_projects WHERE id = ?1`,
       [projectId],
     )
@@ -720,7 +723,8 @@ export function renderSession(session) {
       const repository = project.artifact_repo
         ? `Artifacts repository ${project.artifact_repo}`
         : `not imported yet (from ${project.import_repo_full_name ?? 'unknown'} ${project.import_branch ?? ''})`.trimEnd();
-      push(`Project ${project.name} (${project.origin}): ${repository}; member branch ${branch ?? 'unknown'}`);
+      const source = CREATED_FROM[project.created_from] ?? `made from ${project.created_from ?? 'unknown'}`;
+      push(`Project ${project.name} (${source}): ${repository}; member branch ${branch ?? 'unknown'}`);
       if (!project.workers_builds_script_tag) {
         push('  no Workers Builds Worker found for it yet');
       }

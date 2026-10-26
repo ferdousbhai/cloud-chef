@@ -8,6 +8,7 @@ import {
   GitHubLogoIcon,
   Pencil1Icon,
   PersonIcon,
+  UploadIcon,
 } from '@radix-ui/react-icons';
 import { Button, buttonClassNames } from '@ui/Button';
 import { MenuItem } from '@ui/Menu';
@@ -26,12 +27,14 @@ import { ImportFromGitHubDialog } from './ImportFromGitHubDialog.client';
 import { ProjectCard } from './ProjectCard';
 import { archiveName, ProjectHistoryDialog } from './ProjectHistoryDialog.client';
 import { ShareProjectDialog } from './ShareProjectDialog.client';
+import { UploadZipDialog } from './UploadZipDialog.client';
 
 type OpenDialog =
   | { kind: 'history'; project: ProjectRef; name: string; canRevert: boolean; canFork: boolean }
   | { kind: 'clone'; project: ProjectRef; name: string }
   | { kind: 'share'; orgId: string; project: { id: string; name: string } }
-  | { kind: 'import' };
+  | { kind: 'import' }
+  | { kind: 'upload' };
 
 /**
  * The signed-in home's projects, below the prompt that starts a new one: the person's own projects in the
@@ -62,9 +65,12 @@ export function ProjectsHome({ userId }: { userId: string }) {
   return (
     <div className="mx-auto mt-8 grid w-full max-w-6xl gap-8 pb-10">
       {canImport ? (
-        <div className="flex justify-center">
+        <div className="flex flex-wrap justify-center gap-2">
           <Button variant="neutral" size="sm" icon={<GitHubLogoIcon />} onClick={() => setDialog({ kind: 'import' })}>
             Import from GitHub
+          </Button>
+          <Button variant="neutral" size="sm" icon={<UploadIcon />} onClick={() => setDialog({ kind: 'upload' })}>
+            Upload a ZIP
           </Button>
         </div>
       ) : null}
@@ -99,6 +105,9 @@ export function ProjectsHome({ userId }: { userId: string }) {
           onOpenProject={openProjectChat}
           onClose={() => setDialog(null)}
         />
+      ) : null}
+      {dialog?.kind === 'upload' ? (
+        <UploadZipDialog onOpenProject={openProjectChat} onClose={() => setDialog(null)} />
       ) : null}
     </div>
   );

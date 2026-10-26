@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { ProjectRepositories } from '~/lib/.server/cloudflare/project-repository';
 import { envWith, userWorkspaceDatabase } from '~/test/control-plane-d1';
 import { fakeArtifacts } from '~/test/fake-artifacts';
@@ -10,8 +11,10 @@ import {
   projectCloneAccess,
   projectHistory,
   userRuntimeProjectArchiveAction,
+  userRuntimeProjectUploadAction,
   withRepositoryErrors,
 } from './projects.server';
+import { zipStream } from '~/lib/.server/cloudflare/zip-archive';
 
 const OWNER = 'owner-1';
 const CHAT = '6f1c2a7e-0000-4000-8000-000000000001';
@@ -234,5 +237,80 @@ describe('downloading a commit', () => {
     expect(empty.status).toBe(404);
     expect(await empty.json()).toEqual({ error: 'This project has no saved versions yet.' });
     expect((await archive(`chat=${CHAT}`, 'someone-else')).status).toBe(404);
+  });
+});
+
+describe('uploading a ZIP as a new project', () => {
+  async function upload(env: Env, store: () => ProjectRepositories, body: BodyInit) {
+    const url = new URL('https://runtime.test/v1/projects/upload?name=Bakery');
+    return userRuntimeProjectUploadAction(
+      { request: new Request(url, { method: 'POST', body }), url, env, userId: OWNER },
+      store,
+    );
+  }
+
+  /** The control plane, answering the upload's registration with `status`. */
+  function registration(status: number) {
+    const calls: { route: string; body: Record<string, string> }[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      const route = url.slice(url.indexOf('/api/cloudflare/') + 16);
+      calls.push({ route, body: JSON.parse(String(init?.body ?? '{}')) });
+      if (route === 'runtime-projects/register-upload') {
+        return status === 201
+          ? Response.json({ projectId: calls.at(-1)?.body.orgProjectId }, { status })
+          : Response.json({ error: 'Only an admin of the team can add projects.' }, { status });
+      }
+      return new Response('unavailable', { status: 503 });
+    });
+    return calls;
+  }
+
+  const archive = async () =>
+    new Response(
+      zipStream(
+        [
+          { path: 'bakery-main/index.html', mode: 0o644, read: async () => new TextEncoder().encode('<h1>Bread</h1>') },
+          { path: 'bakery-main/run.sh', mode: 0o755, read: async () => new TextEncoder().encode('echo') },
+        ],
+        new Date('2026-10-26T00:00:00Z'),
+      ),
+    ).arrayBuffer();
+
+  it('commits its files to a new repository, adds the project, and opens a chat on it', async () => {
+    const { env, artifacts, database, store } = await setup();
+    const calls = registration(201);
+    const response = await upload(env, store, await archive());
+    expect(response.status).toBe(201);
+    const result = z.object({ projectId: z.string(), initialId: z.string() }).parse(await response.json());
+    const repo = `t-${result.projectId}`;
+    expect(calls.find((call) => call.route === 'runtime-projects/register-upload')?.body).toEqual({
+      orgProjectId: result.projectId,
+      name: 'Bakery',
+      repo,
+    });
+    expect(await artifacts.filesAt(repo, 'main')).toEqual({ 'index.html': '<h1>Bread</h1>', 'run.sh': 'echo' });
+    expect((await store().readTreeAt(repo, 'main')).files.find((file) => file.path === 'run.sh')?.mode).toBe('100755');
+    expect(database.prepare('SELECT org_project_id FROM chats WHERE initial_id = ?').get(result.initialId)).toEqual({
+      org_project_id: result.projectId,
+    });
+  });
+
+  it('deletes the repository again when the project is not added, and says why', async () => {
+    const { env, artifacts, store } = await setup();
+    const calls = registration(403);
+    const response = await upload(env, store, await archive());
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'Only an admin of the team can add projects.' });
+    const repo = calls.find((call) => call.route === 'runtime-projects/register-upload')?.body.repo ?? '';
+    expect(await artifacts.get(repo).catch(() => null)).toBeFalsy();
+  });
+
+  it("refuses a file that isn't a ZIP before anything is made", async () => {
+    const { env, store } = await setup();
+    const calls = registration(201);
+    const response = await upload(env, store, 'plain text');
+    expect(response.status).toBe(400);
+    expect(calls).toEqual([]);
   });
 });

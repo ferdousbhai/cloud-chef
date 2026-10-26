@@ -354,7 +354,7 @@ export function coreStatements(now) {
  * only this check unknown.
  */
 export const PROJECTS_STATEMENT = `SELECT projects.name AS name, organizations.name AS organization, owners.email AS owner,
-    projects.origin AS origin, projects.artifact_repo AS artifact_repo,
+    projects.artifact_repo AS artifact_repo,
     projects.import_repo_full_name AS import_repo_full_name,
     projects.workers_builds_script_tag AS workers_builds_script_tag
   FROM org_projects AS projects
@@ -755,7 +755,6 @@ function buildProjectsCheck(projects) {
   const entries = rows.map((row) => ({
     name: String(row.name ?? ''),
     owner: row.organization ? String(row.organization) : row.owner ? String(row.owner) : null,
-    origin: String(row.origin ?? ''),
     repository: row.artifact_repo ? String(row.artifact_repo) : null,
     importFrom: row.artifact_repo ? null : (row.import_repo_full_name ?? null),
     workersBuildsScriptTag: row.workers_builds_script_tag ?? null,
