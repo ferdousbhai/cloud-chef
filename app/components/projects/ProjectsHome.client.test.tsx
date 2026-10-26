@@ -152,6 +152,20 @@ describe('ProjectsHome', () => {
     expect(await addChoices()).toEqual(['Import from GitHub', 'Upload a ZIP']);
   });
 
+  it("lists a project uploaded to the person's own account among their projects, with how its publishing went", async () => {
+    context = personal;
+    ownProjects = [{ id: 'chat-1', initialId: 'chat-1', description: 'Draft', timestamp: '2026-10-01T00:00:00.000Z' }];
+    teamProjects = [{ ...uploaded({ state: 'building' }), lastCommitAt: '2026-10-20T00:00:00.000Z' }];
+    await render('user-personal-upload');
+    await vi.waitFor(() => card('Storefront'));
+
+    expect(document.querySelector('#team-projects')).toBeNull();
+    expect(card('Storefront').textContent).toContain('Publishing…');
+    // Newest first, and with no team to share it with.
+    expect([...document.querySelectorAll('li h3')].map((title) => title.textContent)).toEqual(['Storefront', 'Draft']);
+    expect(card('Storefront').textContent).not.toMatch(/Owner|Can edit/);
+  });
+
   it('says in one line that a person has no projects yet', async () => {
     context = personal;
     await render('user-empty');

@@ -171,7 +171,10 @@ function OwnProjects({
   onDialog,
 }: {
   userId: string;
-  /** In a team, where its projects come first, the person's own show only once they have some. */
+  /**
+   * In a team, where its projects come first, the person's own show only once they have some. Outside one, the
+   * projects added to the person's own account (imported or uploaded) are listed with them.
+   */
   hideWhenEmpty: boolean;
   action: ReactNode;
   onDialog: (dialog: OpenDialog) => void;
@@ -179,40 +182,72 @@ function OwnProjects({
   const history = useChatHistory(userId);
   const workspacePreparing = useStore(userWorkspacePreparingStore);
   const workspaceUpgrading = useStore(userWorkspaceUpgradingStore);
-  const projects = history.projects;
+  const added = useConnectionProjects(!hideWhenEmpty);
+  const chats = history.projects;
+  const addedProjects = added.projects ?? [];
+  const empty = chats.length === 0 && addedProjects.length === 0;
+  const failed = history.error != null || added.loadFailed;
 
-  if (hideWhenEmpty && projects.length === 0 && history.error == null) {
+  if (hideWhenEmpty && chats.length === 0 && history.error == null) {
     return null;
   }
+
+  const cards = [
+    ...chats.map((chat) => ({
+      key: chat.initialId,
+      at: chat.timestamp,
+      card: <OwnProjectCard key={chat.initialId} project={chat} onDialog={onDialog} />,
+    })),
+    ...addedProjects.map((project) => ({
+      key: project.id,
+      at: project.lastCommitAt ?? '',
+      card: (
+        <ConnectionProjectCard
+          key={project.id}
+          project={project}
+          canEdit={project.role === 'edit'}
+          badge={null}
+          orgId={null}
+          connection={added}
+          onDialog={onDialog}
+        />
+      ),
+    })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
 
   return (
     <section aria-labelledby="my-projects" className="grid gap-4">
       <SectionHeading id="my-projects" action={action}>
         My projects
       </SectionHeading>
-      {history.error != null ? (
+      {failed ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-content-secondary">
           <span>Projects could not be loaded.</span>
-          <Button size="xs" variant="neutral" onClick={history.retry}>
+          <Button
+            size="xs"
+            variant="neutral"
+            onClick={() => {
+              if (history.error != null) {
+                history.retry();
+              }
+              if (added.loadFailed) {
+                added.reload();
+              }
+            }}
+          >
             Try again
           </Button>
         </div>
       ) : null}
-      {history.isLoading && projects.length === 0 ? (
+      {history.isLoading && empty ? (
         <p className="text-sm text-content-tertiary" role="status">
           {workspacePreparing ? workspacePreparingMessage(workspaceUpgrading) : 'Loading projects…'}
         </p>
-      ) : !history.isLoading && history.error == null && projects.length === 0 ? (
+      ) : !history.isLoading && !failed && empty && (hideWhenEmpty || added.projects !== null) ? (
         <p className="text-sm text-content-secondary">No projects yet. Describe an app above to start one.</p>
       ) : null}
-      {projects.length > 0 ? (
-        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[...projects]
-            .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
-            .map((project) => (
-              <OwnProjectCard key={project.initialId} project={project} onDialog={onDialog} />
-            ))}
-        </ul>
+      {cards.length > 0 ? (
+        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{cards.map(({ card }) => card)}</ul>
       ) : null}
     </section>
   );
@@ -263,19 +298,18 @@ function OwnProjectCard({
   );
 }
 
-function TeamProjects({
-  orgId,
-  admin,
-  heading,
-  action,
-  onDialog,
-}: {
-  orgId: string;
-  admin: boolean;
-  heading: string;
-  action: ReactNode;
-  onDialog: (dialog: OpenDialog) => void;
-}) {
+/** The projects of the account the person works in, kept fresh while one is being published. */
+type ConnectionProjects = {
+  projects: TeamProject[] | null;
+  loadFailed: boolean;
+  reload: () => void;
+  opening: string | null;
+  open: (project: TeamProject) => Promise<void>;
+  retrying: string | null;
+  retry: (project: TeamProject, deploymentId: string) => Promise<void>;
+};
+
+function useConnectionProjects(enabled: boolean, orgId: string | null = null): ConnectionProjects {
   const [projects, setProjects] = useState<TeamProject[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -284,6 +318,9 @@ function TeamProjects({
   const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
+    if (!enabled) {
+      return undefined;
+    }
     const controller = new AbortController();
     setLoadFailed(false);
     loadTeamProjects(controller.signal)
@@ -294,7 +331,7 @@ function TeamProjects({
         }
       });
     return () => controller.abort();
-  }, [orgId, attempt]);
+  }, [enabled, orgId, attempt]);
 
   // While any project is being published, the list is asked for again until none is.
   const publishing = projects?.some((project) => isCloudChef(project) && deployInProgress(project.deployment?.state));
@@ -342,24 +379,6 @@ function TeamProjects({
     }
   };
 
-  const deployOf = (project: TeamProject, canEdit: boolean): CardDeploy | undefined => {
-    if (!isCloudChef(project)) {
-      return undefined;
-    }
-    const deployment = project.deployment ?? null;
-    if (deployment?.state !== 'failed') {
-      return { state: deployment?.state ?? null, reason: deployment?.reason ?? null };
-    }
-    return {
-      state: deployment.state,
-      reason: deployment.reason ?? null,
-      onRetry: canEdit ? () => void retry(project, deployment.id) : undefined,
-      retrying: retrying === project.id,
-      onShowLog: () =>
-        onDialog({ kind: 'deploy-log', orgProjectId: project.id, deploymentId: deployment.id, name: project.name }),
-    };
-  };
-
   const open = async (project: TeamProject) => {
     setOpening(project.id);
     try {
@@ -372,15 +391,128 @@ function TeamProjects({
     }
   };
 
+  return {
+    projects,
+    loadFailed,
+    reload: () => setAttempt((count) => count + 1),
+    opening,
+    open,
+    retrying,
+    retry,
+  };
+}
+
+function ConnectionProjectCard({
+  project,
+  canEdit,
+  badge,
+  orgId,
+  connection,
+  onDialog,
+}: {
+  project: TeamProject;
+  canEdit: boolean;
+  badge: string | null;
+  /** The team whose project it is, for sharing; null for a project of the person's own account. */
+  orgId: string | null;
+  connection: ConnectionProjects;
+  onDialog: (dialog: OpenDialog) => void;
+}) {
+  const ref = { orgProjectId: project.id };
+  const deployment = project.deployment ?? null;
+  const deploy: CardDeploy | undefined = !isCloudChef(project)
+    ? undefined
+    : deployment?.state !== 'failed'
+      ? { state: deployment?.state ?? null, reason: deployment?.reason ?? null }
+      : {
+          state: deployment.state,
+          reason: deployment.reason ?? null,
+          onRetry: canEdit ? () => void connection.retry(project, deployment.id) : undefined,
+          retrying: connection.retrying === project.id,
+          onShowLog: () =>
+            onDialog({ kind: 'deploy-log', orgProjectId: project.id, deploymentId: deployment.id, name: project.name }),
+        };
+  return (
+    <ProjectCard
+      title={project.name}
+      updatedAt={project.lastCommitAt ?? null}
+      siteUrl={project.siteUrl ?? null}
+      siteFramed={project.siteFrameable !== false}
+      badge={badge ?? undefined}
+      deploy={deploy}
+      primary={
+        canEdit ? (
+          <Button
+            size="xs"
+            icon={<Pencil1Icon />}
+            aria-label={`Edit ${project.name}`}
+            disabled={connection.opening !== null}
+            loading={connection.opening === project.id}
+            onClick={() => void connection.open(project)}
+          >
+            Edit
+          </Button>
+        ) : null
+      }
+      menuItems={
+        <>
+          <MenuItem
+            action={() =>
+              onDialog({ kind: 'history', project: ref, name: project.name, canRevert: canEdit, canFork: false })
+            }
+          >
+            <CounterClockwiseClockIcon />
+            History
+          </MenuItem>
+          {canEdit ? (
+            <MenuItem action={() => onDialog({ kind: 'clone', project: ref, name: project.name })}>
+              <CodeIcon />
+              Clone
+            </MenuItem>
+          ) : null}
+          <MenuItem action={() => download(ref, project.name)}>
+            <DownloadIcon />
+            Download ZIP
+          </MenuItem>
+          {orgId ? (
+            <MenuItem
+              action={() => onDialog({ kind: 'share', orgId, project: { id: project.id, name: project.name } })}
+            >
+              <PersonIcon />
+              Share
+            </MenuItem>
+          ) : null}
+        </>
+      }
+    />
+  );
+}
+
+function TeamProjects({
+  orgId,
+  admin,
+  heading,
+  action,
+  onDialog,
+}: {
+  orgId: string;
+  admin: boolean;
+  heading: string;
+  action: ReactNode;
+  onDialog: (dialog: OpenDialog) => void;
+}) {
+  const connection = useConnectionProjects(true, orgId);
+  const { projects } = connection;
+
   return (
     <section aria-labelledby="team-projects" className="grid gap-4">
       <SectionHeading id="team-projects" action={action}>
         {heading}
       </SectionHeading>
-      {loadFailed ? (
+      {connection.loadFailed ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-content-secondary">
           <span>{heading} could not be loaded.</span>
-          <Button size="xs" variant="neutral" onClick={() => setAttempt((count) => count + 1)}>
+          <Button size="xs" variant="neutral" onClick={connection.reload}>
             Try again
           </Button>
         </div>
@@ -395,70 +527,17 @@ function TeamProjects({
       ) : (
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {projects.map((project) => {
-            const ref = { orgProjectId: project.id };
             // Admins own every team project, so they can always edit it.
             const canEdit = admin || project.role === 'edit';
             return (
-              <ProjectCard
+              <ConnectionProjectCard
                 key={project.id}
-                title={project.name}
-                updatedAt={project.lastCommitAt ?? null}
-                siteUrl={project.siteUrl ?? null}
-                siteFramed={project.siteFrameable !== false}
+                project={project}
+                canEdit={canEdit}
                 badge={admin ? 'Owner' : canEdit ? 'Can edit' : 'Can view'}
-                deploy={deployOf(project, canEdit)}
-                primary={
-                  canEdit ? (
-                    <Button
-                      size="xs"
-                      icon={<Pencil1Icon />}
-                      aria-label={`Edit ${project.name}`}
-                      disabled={opening !== null}
-                      loading={opening === project.id}
-                      onClick={() => void open(project)}
-                    >
-                      Edit
-                    </Button>
-                  ) : null
-                }
-                menuItems={
-                  <>
-                    <MenuItem
-                      action={() =>
-                        onDialog({
-                          kind: 'history',
-                          project: ref,
-                          name: project.name,
-                          canRevert: canEdit,
-                          canFork: false,
-                        })
-                      }
-                    >
-                      <CounterClockwiseClockIcon />
-                      History
-                    </MenuItem>
-                    {canEdit ? (
-                      <MenuItem action={() => onDialog({ kind: 'clone', project: ref, name: project.name })}>
-                        <CodeIcon />
-                        Clone
-                      </MenuItem>
-                    ) : null}
-                    <MenuItem action={() => download(ref, project.name)}>
-                      <DownloadIcon />
-                      Download ZIP
-                    </MenuItem>
-                    {admin ? (
-                      <MenuItem
-                        action={() =>
-                          onDialog({ kind: 'share', orgId, project: { id: project.id, name: project.name } })
-                        }
-                      >
-                        <PersonIcon />
-                        Share
-                      </MenuItem>
-                    ) : null}
-                  </>
-                }
+                orgId={admin ? orgId : null}
+                connection={connection}
+                onDialog={onDialog}
               />
             );
           })}
