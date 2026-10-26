@@ -1,6 +1,5 @@
 export const CLIENT_TELEMETRY_EVENTS = [
   'Builder connection was not ready before send',
-  'Failed to enhance prompt',
   'Failed to process chat request',
   'Failed to start Cloudflare authorization',
   'Failed to submit chat message',

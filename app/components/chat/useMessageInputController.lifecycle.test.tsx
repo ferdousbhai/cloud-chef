@@ -3,7 +3,6 @@
 import { act, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchUserRuntime } from '~/lib/cloudflare/runtime-session';
 import { messageInputStore, setMessageInput } from '~/lib/stores/messageInput';
 import { useMessageInputController } from './useMessageInputController';
 
@@ -11,12 +10,7 @@ vi.mock('@tanstack/react-router', () => ({
   useSearch: () => ({ prefill: undefined }),
 }));
 
-vi.mock('~/lib/cloudflare/runtime-session', () => ({
-  fetchUserRuntime: vi.fn(),
-}));
-
 vi.mock('~/lib/stores/userId', async () => ({
-  isAuthenticated: () => true,
   useCloudChefAuthKind: () => 'fullyLoggedIn',
   userIdStore: (await import('nanostores')).atom('user'),
 }));
@@ -89,56 +83,5 @@ describe('useMessageInputController lifecycle', () => {
     );
 
     expect(messageInputStore.get()).toBe('');
-  });
-
-  it('does not install refinement questions after prompt ownership changes while the request is pending', async () => {
-    let resolveRequest!: (response: Response) => void;
-    vi.mocked(fetchUserRuntime).mockReturnValueOnce(
-      new Promise<Response>((resolve) => {
-        resolveRequest = resolve;
-      }),
-    );
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    root = createRoot(container);
-
-    await act(async () => root?.render(<Harness onSend={vi.fn(async () => true)} />));
-    await act(async () => setMessageInput('original prompt'));
-
-    let enhancement!: Promise<void>;
-    await act(async () => {
-      enhancement = controller!.enhancePrompt();
-      await Promise.resolve();
-    });
-    expect(fetchUserRuntime).toHaveBeenCalledOnce();
-
-    await act(async () => {
-      setMessageInput('new draft');
-      setMessageInput('original prompt');
-    });
-    await act(async () => {
-      resolveRequest(
-        Response.json({
-          kind: 'questions',
-          questions: [
-            {
-              id: 'audience',
-              header: 'Audience',
-              question: 'Who is this for?',
-              options: [
-                { id: 'team', label: 'Team', description: 'Internal collaborators.' },
-                { id: 'public', label: 'Public', description: 'Anyone can use it.' },
-              ],
-              multi: false,
-              recommendedOptionId: 'team',
-            },
-          ],
-        }),
-      );
-      await enhancement;
-    });
-
-    expect(messageInputStore.get()).toBe('original prompt');
-    expect(controller?.refinement).toBeNull();
   });
 });

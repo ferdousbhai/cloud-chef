@@ -141,7 +141,7 @@ function availableOutputTokens(model: Model<Api>, context: TranscriptContext): n
 
 /**
  * A caller that asked for nothing gets everything left, lifted to `MINIMUM_OUTPUT_TOKENS`. A caller
- * that asked for a specific output size (the context summarizer, prompt refinement, a title) keeps
+ * that asked for a specific output size (the context summarizer, a title) keeps
  * it, clamped to what physically fits — but the floor never raises a small request above what the
  * caller asked for, so a 64-token title stays a 64-token title. Neither is ever omitted or zero.
  */

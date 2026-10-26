@@ -14,8 +14,3 @@ export function useCloudChefAuthKind(): 'loading' | 'unauthenticated' | 'fullyLo
 }
 
 export const userIdStore = atom<CloudChefUserId | null | undefined>(undefined);
-
-export function isAuthenticated(): boolean {
-  const userId = userIdStore.get();
-  return userId !== null && userId !== undefined;
-}

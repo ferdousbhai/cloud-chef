@@ -24,7 +24,6 @@ vi.mock('~/lib/cloudflare/runtime-session', () => ({
 }));
 
 vi.mock('~/lib/stores/userId', () => ({
-  isAuthenticated: () => true,
   useCloudChefAuthKind: () => session.kind,
 }));
 

@@ -11,7 +11,7 @@ describe('AI Gateway routing', () => {
       skipCache: true,
       metadata: conversation,
     });
-    // Title and prompt-enhancement requests have no conversation to file under, and are logged all the same.
+    // Title requests have no conversation to file under, and are logged all the same.
     expect(workersAiGatewayOptions(workersAiGatewayLogging(true))).toEqual({
       id: 'default',
       collectLog: true,
