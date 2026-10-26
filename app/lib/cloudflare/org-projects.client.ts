@@ -7,6 +7,18 @@ import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
 export const projectRoleSchema = z.enum(['view', 'edit']);
 export type ProjectRole = z.infer<typeof projectRoleSchema>;
 
+const deploymentSchema = z.object({
+  id: z.string(),
+  state: z.enum(['queued', 'building', 'deploying', 'succeeded', 'failed', 'superseded', 'not_deployable']),
+  failureStage: z.enum(['config', 'install', 'build', 'migrations', 'deploy', 'interrupted']).nullish(),
+  /** CloudChef's own short sentence on why it failed or can't be published. */
+  reason: z.string().nullish(),
+  updatedAt: z.number(),
+});
+
+export type ProjectDeployment = z.infer<typeof deploymentSchema>;
+export type ProjectDeploymentState = ProjectDeployment['state'];
+
 const teamProjectsSchema = z.object({
   projects: z.array(
     z.object({
@@ -20,6 +32,10 @@ const teamProjectsSchema = z.object({
       /** Whether the site lets CloudChef show it in a frame; unknown until checked. */
       siteFrameable: z.boolean().nullish(),
       lastCommitAt: z.iso.datetime().nullish(),
+      /** Who builds and publishes it: Workers Builds (imported from GitHub), or CloudChef itself (uploaded). */
+      deploysWith: z.enum(['workers_builds', 'cloudchef']).nullish(),
+      /** For a project CloudChef publishes, its newest publish of main, however it went; null before the first. */
+      deployment: deploymentSchema.nullish(),
     }),
   ),
 });
