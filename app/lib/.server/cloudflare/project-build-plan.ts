@@ -192,6 +192,11 @@ export function withoutJsonComments(text: string): string {
   return out.replace(/,(\s*[}\]])/g, '$1');
 }
 
+/** A name CloudChef's own Workers use, which a project never deploys as. */
+export function isCloudChefWorkerName(name: string): boolean {
+  return name === 'cloudchef' || name.startsWith('cloudchef-');
+}
+
 /** The Worker a deploy goes to, and whether that is a name made up because the config's was taken. */
 type DeployWorker = { name: string; nameTaken: boolean };
 
@@ -210,7 +215,7 @@ export function deployWorkerName(args: {
   if (args.recorded) {
     return { name: args.recorded, nameTaken: false };
   }
-  const reserved = args.configName === 'cloudchef' || args.configName.startsWith('cloudchef-');
+  const reserved = isCloudChefWorkerName(args.configName);
   if (!args.configNameTaken && !reserved) {
     return { name: args.configName, nameTaken: false };
   }

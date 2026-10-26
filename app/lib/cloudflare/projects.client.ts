@@ -70,11 +70,15 @@ async function runtimeFailure(response: Response, fallback: string): Promise<Use
 }
 
 /** Publishes a team project again after its publish `deploymentId` failed. Answers the new publish's id. */
-export async function retryProjectDeploy(orgProjectId: string, deploymentId: string): Promise<string> {
+export async function retryProjectDeploy(
+  orgProjectId: string,
+  deploymentId: string,
+  options: { toWantedWorker?: true } = {},
+): Promise<string> {
   const response = await fetchUserRuntime('/v1/projects/deploy', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ orgProjectId, deploymentId }),
+    body: JSON.stringify({ orgProjectId, deploymentId, ...options }),
   });
   if (!response.ok) {
     throw await runtimeFailure(response, 'It could not be published again. Try again.');

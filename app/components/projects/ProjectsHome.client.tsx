@@ -12,6 +12,7 @@ import {
   UploadIcon,
 } from '@radix-ui/react-icons';
 import { Button, buttonClassNames } from '@ui/Button';
+import { ConfirmationDialog } from '@ui/ConfirmationDialog';
 import { Menu, MenuItem } from '@ui/Menu';
 import { Link } from '@tanstack/react-router';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
@@ -42,7 +43,14 @@ type OpenDialog =
   | { kind: 'share'; orgId: string; project: { id: string; name: string } }
   | { kind: 'import' }
   | { kind: 'upload' }
-  | { kind: 'deploy-log'; orgProjectId: string; deploymentId: string; name: string };
+  | { kind: 'deploy-log'; orgProjectId: string; deploymentId: string; name: string }
+  | {
+      kind: 'use-wanted-worker';
+      project: TeamProject;
+      deploymentId: string;
+      workerName: string;
+      connection: ConnectionProjects;
+    };
 
 /**
  * The signed-in home's projects, below the prompt that starts a new one: the person's own projects in the
@@ -122,6 +130,22 @@ export function ProjectsHome({ userId }: { userId: string }) {
           deploymentId={dialog.deploymentId}
           name={dialog.name}
           onClose={() => setDialog(null)}
+        />
+      ) : null}
+      {dialog?.kind === 'use-wanted-worker' ? (
+        <ConfirmationDialog
+          onClose={() => setDialog(null)}
+          onConfirm={() => {
+            setDialog(null);
+            void dialog.connection.retry(dialog.project, dialog.deploymentId, { toWantedWorker: true });
+          }}
+          confirmText="Replace it"
+          dialogTitle={`Publish ${dialog.project.name} to ${dialog.workerName}?`}
+          dialogBody={
+            <p>
+              {`Whatever the Worker named ${dialog.workerName} runs now is replaced with this project, and the project publishes there from then on. The copy it published under the other name stays in your Cloudflare account until you delete it there.`}
+            </p>
+          }
         />
       ) : null}
       {dialog?.kind === 'upload' ? (
@@ -306,7 +330,7 @@ type ConnectionProjects = {
   opening: string | null;
   open: (project: TeamProject) => Promise<void>;
   retrying: string | null;
-  retry: (project: TeamProject, deploymentId: string) => Promise<void>;
+  retry: (project: TeamProject, deploymentId: string, options?: { toWantedWorker?: true }) => Promise<void>;
 };
 
 function useConnectionProjects(enabled: boolean, orgId: string | null = null): ConnectionProjects {
@@ -356,10 +380,10 @@ function useConnectionProjects(enabled: boolean, orgId: string | null = null): C
     };
   }, [publishing, projects, refresh]);
 
-  const retry = async (project: TeamProject, deploymentId: string) => {
+  const retry = async (project: TeamProject, deploymentId: string, options: { toWantedWorker?: true } = {}) => {
     setRetrying(project.id);
     try {
-      const id = await retryProjectDeploy(project.id, deploymentId);
+      const id = await retryProjectDeploy(project.id, deploymentId, options);
       // Shown as publishing at once; the refresh while it is brings its progress.
       setProjects(
         (current) =>
@@ -420,18 +444,40 @@ function ConnectionProjectCard({
 }) {
   const ref = { orgProjectId: project.id };
   const deployment = project.deployment ?? null;
+  const wantedWorker = deployment?.state === 'succeeded' ? deployment.wantedWorkerName : null;
   const deploy: CardDeploy | undefined = !isCloudChef(project)
     ? undefined
-    : deployment?.state !== 'failed'
-      ? { state: deployment?.state ?? null, reason: deployment?.reason ?? null }
-      : {
+    : deployment && wantedWorker && wantedWorker !== deployment.workerName
+      ? {
           state: deployment.state,
           reason: deployment.reason ?? null,
-          onRetry: canEdit ? () => void connection.retry(project, deployment.id) : undefined,
           retrying: connection.retrying === project.id,
-          onShowLog: () =>
-            onDialog({ kind: 'deploy-log', orgProjectId: project.id, deploymentId: deployment.id, name: project.name }),
-        };
+          onUseWantedWorker: canEdit
+            ? () =>
+                onDialog({
+                  kind: 'use-wanted-worker',
+                  project,
+                  deploymentId: deployment.id,
+                  workerName: wantedWorker,
+                  connection,
+                })
+            : undefined,
+        }
+      : deployment?.state !== 'failed'
+        ? { state: deployment?.state ?? null, reason: deployment?.reason ?? null }
+        : {
+            state: deployment.state,
+            reason: deployment.reason ?? null,
+            onRetry: canEdit ? () => void connection.retry(project, deployment.id) : undefined,
+            retrying: connection.retrying === project.id,
+            onShowLog: () =>
+              onDialog({
+                kind: 'deploy-log',
+                orgProjectId: project.id,
+                deploymentId: deployment.id,
+                name: project.name,
+              }),
+          };
   return (
     <ProjectCard
       title={project.name}

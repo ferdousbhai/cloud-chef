@@ -15,6 +15,7 @@ import {
   BUILD_PLAN_FILES,
   buildPlan,
   deployWorkerName,
+  isCloudChefWorkerName,
   type BuildPlan,
 } from '../../app/lib/.server/cloudflare/project-build-plan';
 import { ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
@@ -153,8 +154,12 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
     return { queued: true };
   }
 
-  /** Starts a failed deploy again, as a new attempt of the same commit. */
-  async retry(value: { orgProjectId: string; deploymentId: string }): Promise<{ deploymentId: string }> {
+  /** Starts a failed deploy again, or one that went to a derived name again to its config's Worker, as a new attempt. */
+  async retry(value: {
+    orgProjectId: string;
+    deploymentId: string;
+    toWantedWorker?: true;
+  }): Promise<{ deploymentId: string }> {
     const identity = this.identity();
     const retried = await retryProjectDeployment(this.env, identity, value);
     const claimed = await claimProjectDeployment(this.env, identity, {
@@ -288,8 +293,11 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       if (url) {
         succeeded.url = url;
       }
-      if (worker.nameTaken) {
+      if (worker.nameTaken && isCloudChefWorkerName(plan.workerName)) {
+        succeeded.reason = `${plan.workerName} is a name CloudChef uses itself, so this went to ${worker.name}.`;
+      } else if (worker.nameTaken) {
         succeeded.reason = `A Worker named ${plan.workerName} was already in the account, so this went to ${worker.name}.`;
+        succeeded.wantedWorkerName = plan.workerName;
       }
       await report(succeeded);
     } catch (error) {

@@ -339,7 +339,7 @@ const retriedDeploymentSchema = z.object({
 export async function retryProjectDeployment(
   env: RuntimeEnv,
   identity: Identity,
-  body: { orgProjectId: string; deploymentId: string },
+  body: { orgProjectId: string; deploymentId: string; toWantedWorker?: true },
 ): Promise<z.infer<typeof retriedDeploymentSchema>> {
   const response = await postRuntimeRoute(env, identity, 'runtime-projects/deployments/retry', body, STATUS_TIMEOUT_MS);
   return readAnswer(response, retriedDeploymentSchema, 'CloudChef could not start the deploy again.');
@@ -357,6 +357,7 @@ export async function reportProjectDeployment(
     reason?: string;
     url?: string;
     workerName?: string;
+    wantedWorkerName?: string;
   },
 ): Promise<'recorded' | 'superseded' | 'refused'> {
   const response = await postRuntimeRoute(

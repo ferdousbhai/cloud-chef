@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
+import { isCloudChefWorkerName } from '~/lib/.server/cloudflare/project-build-plan';
 import { CANONICAL_ORIGIN } from '~/lib/.server/public-origin';
 import { siteAllowsFraming } from '~/lib/.server/site-framing';
 import { recordProjectSiteUrl } from '~/lib/cloudflare/data/org-projects.server';
 import {
   claimDeployment,
   DEPLOYMENT_LEASE_MS,
+  deployToWantedWorker,
   reportDeployment,
   retryDeployment,
 } from '~/lib/cloudflare/data/project-deployments.server';
@@ -25,7 +27,13 @@ const DEPLOYMENT = z.string().uuid();
 const projectFields = { orgProjectId: z.string().uuid() };
 
 const claimSchema = z.strictObject({ ...projectFields, branch: BRANCH, commit: COMMIT });
-const retrySchema = z.strictObject({ ...projectFields, deploymentId: DEPLOYMENT });
+const retrySchema = z.strictObject({
+  ...projectFields,
+  deploymentId: DEPLOYMENT,
+  /** Deploy it again to the Worker its config names, which was taken, replacing what that Worker runs. */
+  toWantedWorker: z.literal(true).optional(),
+});
+const WORKER_NAME = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/);
 const reportSchema = z.strictObject({
   ...projectFields,
   deploymentId: DEPLOYMENT,
@@ -33,10 +41,8 @@ const reportSchema = z.strictObject({
   failureStage: z.enum(['config', 'install', 'build', 'migrations', 'deploy', 'interrupted']).optional(),
   reason: z.string().max(1_000).optional(),
   url: z.url({ protocol: /^https$/ }).optional(),
-  workerName: z
-    .string()
-    .regex(/^[a-z0-9][a-z0-9-]{0,62}$/)
-    .optional(),
+  workerName: WORKER_NAME.optional(),
+  wantedWorkerName: WORKER_NAME.refine((name) => !isCloudChefWorkerName(name)).optional(),
 });
 const credentialSchema = z.strictObject({
   ...projectFields,
@@ -93,18 +99,28 @@ export async function runtimeDeploymentClaimAction(args: { request: Request; env
   );
 }
 
-/** `runtime-projects/deployments/retry`: a failed deployment, started again as a new attempt. */
+/**
+ * `runtime-projects/deployments/retry`: a failed deployment, started again as a new attempt; or a succeeded one that
+ * went to a derived Worker name, deployed again to the Worker its config names.
+ */
 export async function runtimeDeploymentRetryAction(args: { request: Request; env: Env }): Promise<Response> {
   const opened = await openDeployableProject(args, retrySchema);
   if (opened instanceof Response) {
     return opened;
   }
-  const deployment = await retryDeployment(args.env.DB, {
-    id: opened.body.deploymentId,
-    userId: opened.identity.userId,
-  });
-  if (!deployment || deployment.projectId !== opened.project.id) {
-    return json({ error: 'Only the newest failed deploy can be tried again.' }, 409);
+  const { body, project, identity } = opened;
+  const deployment = body.toWantedWorker
+    ? await deployToWantedWorker(args.env.DB, { id: body.deploymentId, projectId: project.id, userId: identity.userId })
+    : await retryDeployment(args.env.DB, { id: body.deploymentId, userId: identity.userId });
+  if (!deployment || deployment.projectId !== project.id) {
+    return json(
+      {
+        error: body.toWantedWorker
+          ? 'That Worker can’t be used: another project publishes to it, or a newer version is being published.'
+          : 'Only the newest failed deploy can be tried again.',
+      },
+      409,
+    );
   }
   return json(
     {
@@ -145,6 +161,7 @@ export async function runtimeDeploymentReportAction(args: { request: Request; en
     reason: body.reason,
     url: body.url,
     workerName: body.workerName,
+    wantedWorkerName: body.wantedWorkerName,
   });
   if (outcome === 'recorded' && body.state === 'succeeded' && deployment.kind === 'production') {
     if (body.workerName) {

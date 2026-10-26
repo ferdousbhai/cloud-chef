@@ -266,7 +266,11 @@ export class WorkspaceToolOperationIndeterminateError extends Error {
  */
 export interface ProjectBuilderRpc extends Rpc.DurableObjectBranded {
   enqueue(value: { orgProjectId: string; branch: string; commit: string }): Promise<{ queued: boolean }>;
-  retry(value: { orgProjectId: string; deploymentId: string }): Promise<{ deploymentId: string }>;
+  retry(value: {
+    orgProjectId: string;
+    deploymentId: string;
+    toWantedWorker?: true;
+  }): Promise<{ deploymentId: string }>;
   log(deploymentId: string): string | null | Promise<string | null>;
 }
 

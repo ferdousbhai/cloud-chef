@@ -20,6 +20,8 @@ type ProjectDeployment = {
   reason: string | null;
   url: string | null;
   workerName: string | null;
+  /** The Worker the commit's config names, when that name was taken and the deploy went to `workerName`. */
+  wantedWorkerName: string | null;
   attempt: number;
   createdAt: number;
   updatedAt: number;
@@ -44,13 +46,14 @@ type DeploymentRow = {
   reason: string | null;
   url: string | null;
   worker_name: string | null;
+  wanted_worker_name: string | null;
   attempt: number;
   created_at: number;
   updated_at: number;
 };
 
-const COLUMNS = `id, project_id, kind, branch, commit_sha, state, failure_stage, reason, url, worker_name, attempt,
-  created_at, updated_at`;
+const COLUMNS = `id, project_id, kind, branch, commit_sha, state, failure_stage, reason, url, worker_name,
+  wanted_worker_name, attempt, created_at, updated_at`;
 
 function toDeployment(row: DeploymentRow): ProjectDeployment {
   return {
@@ -64,6 +67,7 @@ function toDeployment(row: DeploymentRow): ProjectDeployment {
     reason: row.reason,
     url: row.url,
     workerName: row.worker_name,
+    wantedWorkerName: row.wanted_worker_name,
     attempt: row.attempt,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -149,6 +153,61 @@ export async function retryDeployment(
   return updated.meta.changes === 1 ? readDeployment(db, args.id) : null;
 }
 
+/**
+ * Deploys a production deployment that went to a derived Worker name again, to the Worker its config names: the
+ * project deploys as that Worker from then on. Only the newest production deployment, once it succeeded; refused
+ * (null) when another project of the connection already deploys as that Worker.
+ */
+export async function deployToWantedWorker(
+  db: D1Database,
+  args: { id: string; projectId: string; userId: string; now?: number },
+): Promise<ProjectDeployment | null> {
+  const now = args.now ?? Date.now();
+  const current = await readDeployment(db, args.id);
+  if (
+    current?.projectId !== args.projectId ||
+    current.kind !== 'production' ||
+    current.state !== 'succeeded' ||
+    !current.wantedWorkerName ||
+    current.wantedWorkerName === current.workerName
+  ) {
+    return null;
+  }
+  // One transaction: the deployment starts again only if the project takes the Worker, and the project takes it only
+  // while it is still free; the unique Worker index refuses it when another project of the connection deploys as it.
+  try {
+    const [requeued, renamed] = await db.batch([
+      db
+        .prepare(
+          `UPDATE project_deployments
+           SET state = 'queued', failure_stage = NULL, reason = NULL, url = NULL, worker_name = NULL,
+               wanted_worker_name = NULL, attempt = attempt + 1, claimed_by = ?, lease_expires_at = ?, updated_at = ?
+           WHERE id = ? AND state = 'succeeded'
+             AND NOT EXISTS (
+               SELECT 1 FROM project_deployments newer
+               WHERE newer.project_id = project_deployments.project_id AND newer.branch = project_deployments.branch
+                 AND newer.created_at > project_deployments.created_at
+             )
+             AND EXISTS (SELECT 1 FROM org_projects WHERE id = ? AND deploy_worker_name IS ?)`,
+        )
+        .bind(args.userId, now + DEPLOYMENT_LEASE_MS, now, args.id, args.projectId, current.workerName),
+      db
+        .prepare(
+          `UPDATE org_projects SET deploy_worker_name = ?
+           WHERE id = ? AND deploy_worker_name IS ?
+             AND EXISTS (SELECT 1 FROM project_deployments WHERE id = ? AND state = 'queued' AND updated_at = ?)`,
+        )
+        .bind(current.wantedWorkerName, args.projectId, current.workerName, args.id, now),
+    ]);
+    if (requeued?.meta.changes !== 1 || renamed?.meta.changes !== 1) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return readDeployment(db, args.id);
+}
+
 /** What a report did: written, the work was superseded (stop it), or refused (not this runtime's to report). */
 type DeploymentReportOutcome = 'recorded' | 'superseded' | 'refused';
 
@@ -167,6 +226,7 @@ export async function reportDeployment(
     reason?: string;
     url?: string;
     workerName?: string;
+    wantedWorkerName?: string;
     now?: number;
   },
 ): Promise<DeploymentReportOutcome> {
@@ -186,7 +246,7 @@ export async function reportDeployment(
     .prepare(
       `UPDATE project_deployments
        SET state = ?, failure_stage = ?, reason = ?, url = COALESCE(?, url), worker_name = COALESCE(?, worker_name),
-           lease_expires_at = ?, updated_at = ?
+           wanted_worker_name = COALESCE(?, wanted_worker_name), lease_expires_at = ?, updated_at = ?
        WHERE id = ? AND claimed_by = ? AND state IN ('queued', 'building', 'deploying')
          AND (? != 'deploying' OR NOT EXISTS (
            SELECT 1 FROM project_deployments other
@@ -200,6 +260,7 @@ export async function reportDeployment(
       args.reason?.slice(0, MAX_REASON_CHARACTERS) ?? null,
       args.url ?? null,
       args.workerName ?? null,
+      args.wantedWorkerName ?? null,
       finished ? null : now + DEPLOYMENT_LEASE_MS,
       now,
       args.id,

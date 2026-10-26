@@ -294,6 +294,34 @@ describe('ProjectsHome', () => {
     );
   });
 
+  it('offers to publish to the Worker the project names when that name was taken, after saying what it replaces', async () => {
+    context = teamAdmin;
+    deployRoutes = { log: '' };
+    teamProjects = [
+      {
+        ...uploaded({
+          state: 'succeeded',
+          reason: 'A Worker named storefront was already in the account, so this went to storefront-1111.',
+          workerName: 'storefront-1111',
+          wantedWorkerName: 'storefront',
+        }),
+        siteUrl: 'https://storefront-1111.example.workers.dev',
+      },
+    ];
+    await render('user-wanted-worker');
+    await vi.waitFor(() => card('Storefront'));
+
+    expect(card('Storefront').textContent).toContain('A Worker named storefront was already in the account');
+    await click(card('Storefront'), 'Use the existing Worker instead');
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      'Whatever the Worker named storefront runs now is replaced',
+    );
+    expect(deployRequests).toEqual([]);
+    await click(document.querySelector<HTMLElement>('[role="dialog"]')!, 'Replace it');
+    await vi.waitFor(() => expect(card('Storefront').textContent).toContain('Updating…'));
+    expect(deployRequests).toEqual([{ orgProjectId: 'project-1', deploymentId: 'deployment-1', toWantedWorker: true }]);
+  });
+
   it("says an uploaded project is code only, or isn't published yet", async () => {
     context = teamAdmin;
     teamProjects = [

@@ -13,6 +13,9 @@ const deploymentSchema = z.object({
   failureStage: z.enum(['config', 'install', 'build', 'migrations', 'deploy', 'interrupted']).nullish(),
   /** CloudChef's own short sentence on why it failed or can't be published. */
   reason: z.string().nullish(),
+  /** The Worker it went to, and the one its config names when that one was taken and it went to another. */
+  workerName: z.string().nullish(),
+  wantedWorkerName: z.string().nullish(),
   updatedAt: z.number(),
 });
 

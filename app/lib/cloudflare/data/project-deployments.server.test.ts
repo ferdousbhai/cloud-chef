@@ -3,6 +3,7 @@ import { controlPlaneDatabase } from '~/test/control-plane-d1';
 import {
   claimDeployment,
   DEPLOYMENT_LEASE_MS,
+  deployToWantedWorker,
   latestDeployments,
   reportDeployment,
   retryDeployment,
@@ -115,5 +116,39 @@ describe('project deployments', () => {
     await reportDeployment(db, { id: main.id, userId: 'ada', state: 'failed', failureStage: 'build' });
     await claim(db, 'main', TWO, 9_000);
     expect(await retryDeployment(db, { id: main.id, userId: 'ada' })).toBeNull();
+  });
+
+  it('deploys a project that went to a derived name again to the Worker its config names, once that is free', async () => {
+    const { database, db } = setup();
+    const { deployment } = await claim(db, 'main', ONE, 1_000);
+    await reportDeployment(db, { id: deployment.id, userId: 'ada', state: 'deploying', now: 2_000 });
+    await reportDeployment(db, {
+      id: deployment.id,
+      userId: 'ada',
+      state: 'succeeded',
+      workerName: 'glossary-1111',
+      wantedWorkerName: 'glossary',
+      now: 3_000,
+    });
+    database.exec(`UPDATE org_projects SET deploy_worker_name = 'glossary-1111' WHERE id = '${PROJECT}'`);
+    // Another project of the account already deploys as that Worker: refused, and nothing changes.
+    database.exec(`INSERT INTO org_projects (id, connection_id, name, artifact_repo, created_from, created_at,
+      deploy_worker_name) VALUES ('other', 'own', 'Other', 't-other', 'zip', 2, 'glossary')`);
+    expect(await deployToWantedWorker(db, { id: deployment.id, projectId: PROJECT, userId: 'ada', now: 4_000 })).toBe(
+      null,
+    );
+    expect((await latestDeployments(db, PROJECT))[0]).toMatchObject({ state: 'succeeded', attempt: 1 });
+
+    database.exec(`DELETE FROM org_projects WHERE id = 'other'`);
+    expect(
+      await deployToWantedWorker(db, { id: deployment.id, projectId: PROJECT, userId: 'ada', now: 5_000 }),
+    ).toMatchObject({ state: 'queued', attempt: 2, workerName: null, wantedWorkerName: null });
+    expect(database.prepare('SELECT deploy_worker_name FROM org_projects WHERE id = ?').get(PROJECT)).toEqual({
+      deploy_worker_name: 'glossary',
+    });
+    // Once switched, it isn't offered again.
+    expect(await deployToWantedWorker(db, { id: deployment.id, projectId: PROJECT, userId: 'ada', now: 6_000 })).toBe(
+      null,
+    );
   });
 });

@@ -25,6 +25,8 @@ CREATE TABLE project_deployments (
   reason TEXT,
   url TEXT,
   worker_name TEXT,
+  -- The Worker the commit's config names, kept when that name was taken and the deploy went to `worker_name`.
+  wanted_worker_name TEXT,
   claimed_by TEXT REFERENCES "user"(id) ON DELETE SET NULL,
   lease_expires_at INTEGER,
   attempt INTEGER NOT NULL DEFAULT 1,

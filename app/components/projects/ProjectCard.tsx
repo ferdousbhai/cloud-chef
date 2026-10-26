@@ -17,6 +17,8 @@ export type CardDeploy = {
   onRetry?: () => void;
   retrying?: boolean;
   onShowLog?: () => void;
+  /** Publishes to the Worker the project's config names, which was taken, instead of the one it went to. */
+  onUseWantedWorker?: () => void;
 };
 
 /**
@@ -162,6 +164,20 @@ function DeployNote({ deploy, siteShown, title }: { deploy: CardDeploy; siteShow
             </Button>
           ) : null}
         </div>
+      </div>
+    );
+  }
+  if (deploy.state === 'succeeded' && deploy.reason) {
+    return (
+      <div className="grid gap-2 text-xs">
+        <p className="text-content-secondary">{deploy.reason}</p>
+        {deploy.onUseWantedWorker ? (
+          <div>
+            <Button size="xs" variant="neutral" loading={deploy.retrying} onClick={deploy.onUseWantedWorker}>
+              Use the existing Worker instead
+            </Button>
+          </div>
+        ) : null}
       </div>
     );
   }

@@ -103,6 +103,8 @@ export function listMyProjectsAction({
                   state: deployment.state,
                   failureStage: deployment.failureStage,
                   reason: deployment.reason,
+                  workerName: deployment.workerName,
+                  wantedWorkerName: deployment.wantedWorkerName,
                   updatedAt: deployment.updatedAt,
                 }
               : null,

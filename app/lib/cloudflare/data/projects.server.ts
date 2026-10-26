@@ -502,9 +502,16 @@ function folderName(name: string): string {
   );
 }
 
-const deployRetrySchema = z.object({ orgProjectId: z.string().uuid(), deploymentId: z.string().uuid() });
+const deployRetrySchema = z.object({
+  orgProjectId: z.string().uuid(),
+  deploymentId: z.string().uuid(),
+  toWantedWorker: z.literal(true).optional(),
+});
 
-/** `POST /v1/projects/deploy`: a failed deploy of a project CloudChef deploys, started again. */
+/**
+ * `POST /v1/projects/deploy`: a failed deploy of a project CloudChef deploys, started again; or, with
+ * `toWantedWorker`, one that went to a derived Worker name, deployed again to the Worker its config names.
+ */
 export async function userRuntimeProjectDeployRetryAction(args: { request: Request; env: Env }): Promise<Response> {
   const parsed = deployRetrySchema.safeParse(await args.request.json().catch(() => null));
   if (!parsed.success) {
