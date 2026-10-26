@@ -184,4 +184,20 @@ describe('project deployments', () => {
     expect(stale.claimed).toBe(false);
     expect((await latestDeployments(db, PROJECT)).map((row) => row.commit)).toEqual([TWO]);
   });
+
+  it('keeps the step a deployment is on and since when, until it ends', async () => {
+    const { db } = setup();
+    const { deployment } = await claim(db, 'main', ONE, 1_000);
+    const report = (state: 'building' | 'deploying' | 'succeeded', now: number, step?: 'installing' | 'building') =>
+      reportDeployment(db, { id: deployment.id, userId: 'ada', state, step, now });
+    await report('building', 2_000, 'installing');
+    // A heartbeat names no step: the step and its start stay.
+    await report('building', 3_000);
+    expect((await latestDeployments(db, PROJECT))[0]).toMatchObject({ step: 'installing', stepStartedAt: 2_000 });
+    await report('building', 4_000, 'building');
+    expect((await latestDeployments(db, PROJECT))[0]).toMatchObject({ step: 'building', stepStartedAt: 4_000 });
+    await report('deploying', 5_000);
+    await report('succeeded', 6_000);
+    expect((await latestDeployments(db, PROJECT))[0]).toMatchObject({ step: null, stepStartedAt: null });
+  });
 });

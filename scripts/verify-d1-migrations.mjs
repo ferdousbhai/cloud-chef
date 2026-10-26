@@ -56,6 +56,7 @@ const migrationPolicies = [
       '0038_project_site_frameable.sql': 'd0f8115dc856d919efac78055c02a00b6c046d3aee22df751f3cdfa8462918cd',
       '0039_uploaded_projects.sql': '6834dac950369636d41a810841816b817f78e387c270cda8d0d1ff4c8aaae76e',
       '0040_cloudchef_deploys.sql': '998feb5f942e5a9f2a74357ff9d67525e0ab2fdb3e9645eb3b12fa32abdce31b',
+      '0041_deployment_steps.sql': '4d1c4b47b31c56d9c91cfbcec195a4c0144ad160c6bae65fa265c89176cd64c5',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this

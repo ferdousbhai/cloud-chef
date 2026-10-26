@@ -16,6 +16,9 @@ const deploymentSchema = z.object({
   /** The Worker it went to, and the one its config names when that one was taken and it went to another. */
   workerName: z.string().nullish(),
   wantedWorkerName: z.string().nullish(),
+  /** What a running publish is doing now, and since when. */
+  step: z.enum(['preparing', 'installing', 'building', 'migrating', 'publishing']).nullish(),
+  stepStartedAt: z.number().nullish(),
   updatedAt: z.number(),
 });
 

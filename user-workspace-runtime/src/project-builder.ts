@@ -75,6 +75,7 @@ const WRANGLER = `${WRANGLER_ROOT}/node_modules/.bin/wrangler`;
 const DEPLOY_API_HOST = 'cloudflare-api.internal';
 const CLOUDFLARE_API = 'https://api.cloudflare.com';
 const WRANGLER_OUTPUT = '/tmp/wrangler-output.ndjson';
+const WRANGLER_LOG_DIR = '/tmp/wrangler-logs';
 /** The config the deploy uses, written next to the one it comes from. */
 const DEPLOY_CONFIG_NAME = 'cloudchef.deploy.json';
 
@@ -425,6 +426,7 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
     }
     switch (job.step) {
       case 'install':
+        await this.expectRecorded(this.report(job, { state: 'building', step: 'installing' }));
         await this.whileReporting(job, 'building', () =>
           this.asBuildUser(job, 'install', plan.install, INSTALL_TIMEOUT_MS),
         );
@@ -433,6 +435,7 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       case 'config-build': {
         const command = job.step === 'build' ? plan.build : plan.configBuild;
         if (command) {
+          await this.expectRecorded(this.report(job, { state: 'building', step: 'building' }));
           await this.whileReporting(job, 'building', () => this.asBuildUser(job, 'build', command, BUILD_TIMEOUT_MS));
         }
         return { next: job.step === 'build' ? 'config-build' : 'seal' };
@@ -454,7 +457,7 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       await this.report(job, { state: 'not_deployable', reason: plan.reason });
       return 'done';
     }
-    await this.expectRecorded(this.report(job, { state: 'building' }));
+    await this.expectRecorded(this.report(job, { state: 'building', step: 'preparing' }));
     this.ctx.storage.sql.exec(
       `UPDATE builder_jobs SET plan = ?, worker_name = NULL, name_taken = 0, deploy_config = NULL, migrated = 0
        WHERE deployment_id = ?`,
@@ -581,7 +584,7 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
     if (!database) {
       return { next: 'deploy' };
     }
-    await this.expectRecorded(this.report(job, { state: 'deploying', workerName: job.workerName }));
+    await this.expectRecorded(this.report(job, { state: 'deploying', workerName: job.workerName, step: 'migrating' }));
     this.openGate(job, job.workerName);
     await this.whileReporting(job, 'deploying', async () => {
       this.appendLog(job, `\n$ wrangler d1 migrations apply ${database.databaseName} --remote\n`);
@@ -604,7 +607,7 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
     if (!workerName || !job.deployConfig) {
       throw new StepFailure('interrupted', 'Publishing lost its place.');
     }
-    await this.expectRecorded(this.report(job, { state: 'deploying', workerName }));
+    await this.expectRecorded(this.report(job, { state: 'deploying', workerName, step: 'publishing' }));
     this.openGate(job, workerName);
     const config = ` --config ${shellQuote(job.deployConfig)}`;
     const command =
@@ -841,6 +844,9 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       CLOUDFLARE_ACCOUNT_ID: this.env.CLOUDFLARE_ACCOUNT_ID,
       WRANGLER_SEND_METRICS: 'false',
       WRANGLER_OUTPUT_FILE_PATH: WRANGLER_OUTPUT,
+      // Wrangler's own debug log, read into the deploy's log when it fails without saying why on screen.
+      WRANGLER_LOG_PATH: WRANGLER_LOG_DIR,
+      WRANGLER_LOG: 'debug',
       // The project's history is gone; no git Wrangler runs finds any other.
       GIT_DIR: '/nonexistent',
       GIT_CEILING_DIRECTORIES: '/',
@@ -851,6 +857,18 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       this.appendLog(job, `${output.stdout}${output.stderr}`);
     } catch (error) {
       this.appendLog(job, `${error instanceof Error ? error.message : String(error)}\n`);
+      const details = await this.command(
+        [
+          `grep -h '"type":"error"' ${WRANGLER_OUTPUT} 2>/dev/null | tail -n 5`,
+          `latest=$(ls -t ${WRANGLER_LOG_DIR}/*.log 2>/dev/null | head -n 1)`,
+          `[ -n "$latest" ] && grep -iE 'error|✘|fail|refus|status|code' "$latest" | tail -n 40`,
+          'true',
+        ].join('\n'),
+        SHORT_TIMEOUT_MS,
+      ).catch(() => null);
+      if (details?.stdout.trim()) {
+        this.appendLog(job, `\nWhat Wrangler recorded:\n${details.stdout.trim()}\n`);
+      }
       throw new StepFailure(stage, failureSentence(stage));
     }
   }

@@ -468,7 +468,12 @@ function ConnectionProjectCard({
             : undefined,
         }
       : deployment?.state !== 'failed'
-        ? { state: deployment?.state ?? null, reason: deployment?.reason ?? null }
+        ? {
+            state: deployment?.state ?? null,
+            reason: deployment?.reason ?? null,
+            step: deployment?.step ?? null,
+            stepStartedAt: deployment?.stepStartedAt ?? null,
+          }
         : {
             state: deployment.state,
             reason: deployment.reason ?? null,

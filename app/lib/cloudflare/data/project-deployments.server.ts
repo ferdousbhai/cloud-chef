@@ -8,6 +8,8 @@
 type DeploymentKind = 'production' | 'preview';
 type DeploymentState = 'queued' | 'building' | 'deploying' | 'succeeded' | 'failed' | 'superseded' | 'not_deployable';
 type DeploymentFailureStage = 'config' | 'install' | 'build' | 'migrations' | 'deploy' | 'interrupted';
+/** What a running deployment is doing now. */
+type DeploymentStep = 'preparing' | 'installing' | 'building' | 'migrating' | 'publishing';
 
 type ProjectDeployment = {
   id: string;
@@ -22,6 +24,9 @@ type ProjectDeployment = {
   workerName: string | null;
   /** The Worker the commit's config names, when that name was taken and the deploy went to `workerName`. */
   wantedWorkerName: string | null;
+  step: DeploymentStep | null;
+  /** When the current step began, in milliseconds. */
+  stepStartedAt: number | null;
   attempt: number;
   createdAt: number;
   updatedAt: number;
@@ -52,13 +57,15 @@ type DeploymentRow = {
   url: string | null;
   worker_name: string | null;
   wanted_worker_name: string | null;
+  step: DeploymentStep | null;
+  step_started_at: number | null;
   attempt: number;
   created_at: number;
   updated_at: number;
 };
 
 const COLUMNS = `id, project_id, kind, branch, commit_sha, state, failure_stage, reason, url, worker_name,
-  wanted_worker_name, attempt, created_at, updated_at`;
+  wanted_worker_name, step, step_started_at, attempt, created_at, updated_at`;
 
 function toDeployment(row: DeploymentRow): ProjectDeployment {
   return {
@@ -73,6 +80,8 @@ function toDeployment(row: DeploymentRow): ProjectDeployment {
     url: row.url,
     workerName: row.worker_name,
     wantedWorkerName: row.wanted_worker_name,
+    step: row.step,
+    stepStartedAt: row.step_started_at,
     attempt: row.attempt,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -157,7 +166,7 @@ export async function claimDeployment(
   const takenOver = await db
     .prepare(
       `UPDATE project_deployments
-       SET state = 'queued', failure_stage = NULL, reason = NULL, attempt = attempt + 1, claimed_by = ?,
+       SET state = 'queued', failure_stage = NULL, reason = NULL, step = NULL, step_started_at = NULL, attempt = attempt + 1, claimed_by = ?,
            lease_expires_at = ?, updated_at = ?
        WHERE project_id = ? AND branch = ? AND commit_sha = ?
          AND (
@@ -195,7 +204,7 @@ export async function retryDeployment(
   const updated = await db
     .prepare(
       `UPDATE project_deployments
-       SET state = 'queued', failure_stage = NULL, reason = NULL, attempt = attempt + 1, claimed_by = ?,
+       SET state = 'queued', failure_stage = NULL, reason = NULL, step = NULL, step_started_at = NULL, attempt = attempt + 1, claimed_by = ?,
            lease_expires_at = ?, updated_at = ?
        WHERE id = ? AND state = 'failed'
          AND NOT EXISTS (
@@ -236,7 +245,8 @@ export async function deployToWantedWorker(
       db
         .prepare(
           `UPDATE project_deployments
-           SET state = 'queued', failure_stage = NULL, reason = NULL, url = NULL, worker_name = NULL,
+           SET state = 'queued', failure_stage = NULL, reason = NULL, step = NULL, step_started_at = NULL, url = NULL,
+               worker_name = NULL,
                wanted_worker_name = NULL, attempt = attempt + 1, claimed_by = ?, lease_expires_at = ?, updated_at = ?
            WHERE id = ? AND state = 'succeeded'
              AND NOT EXISTS (
@@ -286,6 +296,8 @@ export async function reportDeployment(
     url?: string;
     workerName?: string;
     wantedWorkerName?: string;
+    /** The step it is on now; a report without one keeps the step it had, and a finished deployment has none. */
+    step?: DeploymentStep;
     now?: number;
   },
 ): Promise<DeploymentReportOutcome> {
@@ -312,7 +324,10 @@ export async function reportDeployment(
     .prepare(
       `UPDATE project_deployments
        SET state = ?, failure_stage = ?, reason = ?, url = COALESCE(?, url), worker_name = COALESCE(?, worker_name),
-           wanted_worker_name = COALESCE(?, wanted_worker_name), lease_expires_at = ?, updated_at = ?
+           wanted_worker_name = COALESCE(?, wanted_worker_name),
+           step_started_at = CASE WHEN ? IS NULL THEN NULL WHEN step IS ? THEN step_started_at ELSE ? END,
+           step = CASE WHEN ? IS NULL THEN NULL ELSE ? END,
+           lease_expires_at = ?, updated_at = ?
        WHERE id = ? AND claimed_by = ? AND state IN ('queued', 'building', 'deploying')
          AND (? != 'deploying' OR NOT EXISTS (
            SELECT 1 FROM project_deployments other
@@ -327,6 +342,7 @@ export async function reportDeployment(
       args.url ?? null,
       args.workerName ?? null,
       args.wantedWorkerName ?? null,
+      ...stepBindings(finished ? null : (args.step ?? current.step), now),
       finished ? null : now + DEPLOYMENT_LEASE_MS,
       now,
       args.id,
@@ -348,6 +364,11 @@ export async function reportDeployment(
   return args.state === 'deploying' && after?.claimed_by === args.userId && UNFINISHED.includes(after.state)
     ? 'busy'
     : 'refused';
+}
+
+/** The values the step columns are set from: the step, compared, its start if new, and the step again. */
+function stepBindings(step: DeploymentStep | null, now: number): (string | number | null)[] {
+  return [step, step, now, step, step];
 }
 
 /** The project's newest deployments, newest first. */

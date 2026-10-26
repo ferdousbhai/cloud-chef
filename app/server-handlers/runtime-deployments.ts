@@ -50,6 +50,7 @@ const reportSchema = z.strictObject({
   url: z.url({ protocol: /^https$/ }).optional(),
   workerName: WORKER_NAME.optional(),
   wantedWorkerName: WORKER_NAME.refine((name) => !isCloudChefWorkerName(name)).optional(),
+  step: z.enum(['preparing', 'installing', 'building', 'migrating', 'publishing']).optional(),
 });
 const credentialSchema = z.strictObject({
   ...projectFields,
@@ -177,6 +178,7 @@ export async function runtimeDeploymentReportAction(args: { request: Request; en
     url: body.url,
     workerName: body.workerName,
     wantedWorkerName: body.wantedWorkerName,
+    step: body.step,
   });
   // The Worker a deploy is about to write is the project's from then on, held before anything is written: another
   // CloudChef project of the connection that deploys as it already (the unique index) stops this deploy instead.

@@ -105,6 +105,8 @@ export function listMyProjectsAction({
                   reason: deployment.reason,
                   workerName: deployment.workerName,
                   wantedWorkerName: deployment.wantedWorkerName,
+                  step: deployment.step,
+                  stepStartedAt: deployment.stepStartedAt,
                   updatedAt: deployment.updatedAt,
                 }
               : null,

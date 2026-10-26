@@ -273,7 +273,7 @@ describe('ProjectsHome', () => {
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Close dialog"]')?.click());
 
     await click(card('Storefront'), 'Try again');
-    await vi.waitFor(() => expect(card('Storefront').textContent).toContain('Publishing…'));
+    await vi.waitFor(() => expect(card('Storefront').textContent).toContain('Waiting to start…'));
     expect(deployRequests).toEqual([{ orgProjectId: 'project-1', deploymentId: 'deployment-1' }]);
     expect(card('Storefront').textContent).not.toContain("Didn't publish");
   });

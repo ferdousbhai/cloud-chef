@@ -1,11 +1,11 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { DotsHorizontalIcon, ExternalLinkIcon, ReloadIcon } from '@radix-ui/react-icons';
 import { Button, buttonClassNames } from '@ui/Button';
 import { Menu } from '@ui/Menu';
 import { Spinner } from '@ui/Spinner';
 import { ProjectTitle } from '~/components/ProjectTitle';
-import type { ProjectDeploymentState } from '~/lib/cloudflare/org-projects.client';
+import type { ProjectDeployment, ProjectDeploymentState } from '~/lib/cloudflare/org-projects.client';
 import { SiteThumbnail } from './SiteThumbnail.client';
 
 /** How a project CloudChef publishes itself is doing: its newest publish, and what can be done about it. */
@@ -13,6 +13,9 @@ export type CardDeploy = {
   /** The newest publish's state; null before the first. */
   state: ProjectDeploymentState | null;
   reason: string | null;
+  /** What a running publish is doing now, and since when (milliseconds). */
+  step?: ProjectDeployment['step'];
+  stepStartedAt?: number | null;
   /** Publishes again after a failure; left out for someone who may only view the project. */
   onRetry?: () => void;
   retrying?: boolean;
@@ -69,7 +72,7 @@ export function ProjectCard({
             className="flex aspect-[16/10] items-center justify-center gap-2 bg-bolt-elements-background-depth-2 text-xs text-content-secondary"
           >
             <Spinner />
-            Publishing…
+            <PublishProgress deploy={deploy} />
           </div>
         ) : (
           <div className="flex aspect-[16/10] items-center justify-center bg-bolt-elements-background-depth-2 text-xs text-content-tertiary">
@@ -83,7 +86,7 @@ export function ProjectCard({
             className="absolute left-2 top-2 flex items-center gap-1.5 rounded-full border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 py-0.5 text-xs text-content-secondary shadow-sm"
           >
             <Spinner className="size-3" />
-            Updating…
+            {deploy?.step ? <PublishProgress deploy={deploy} /> : 'Updating…'}
           </span>
         ) : null}
       </div>
@@ -133,6 +136,37 @@ export function ProjectCard({
         </div>
       </div>
     </li>
+  );
+}
+
+const STEP_LABELS = {
+  preparing: 'Getting ready',
+  installing: 'Installing packages',
+  building: 'Building',
+  migrating: 'Updating the database',
+  publishing: 'Publishing to Cloudflare',
+} as const;
+
+/** What a running publish is doing, and for how long it has been doing it. */
+function PublishProgress({ deploy }: { deploy: CardDeploy }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  if (!deploy.step) {
+    return <>{deploy.state === 'queued' ? 'Waiting to start…' : 'Publishing…'}</>;
+  }
+  const seconds = deploy.stepStartedAt ? Math.max(0, Math.floor((now - deploy.stepStartedAt) / 1_000)) : null;
+  return (
+    <>
+      {STEP_LABELS[deploy.step]}…{' '}
+      {seconds === null ? null : (
+        <span className="tabular-nums text-content-tertiary">
+          {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
+        </span>
+      )}
+    </>
   );
 }
 

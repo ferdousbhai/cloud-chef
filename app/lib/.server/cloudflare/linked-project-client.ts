@@ -364,6 +364,7 @@ export async function reportProjectDeployment(
     url?: string;
     workerName?: string;
     wantedWorkerName?: string;
+    step?: 'preparing' | 'installing' | 'building' | 'migrating' | 'publishing';
   },
 ): Promise<DeploymentReport> {
   const response = await postRuntimeRoute(

@@ -37,11 +37,26 @@ describe('a project card', () => {
 });
 
 describe('a project card for a project CloudChef publishes', () => {
-  it.each(['queued', 'building', 'deploying', 'superseded'] as const)('says it is publishing while %s', (state) => {
+  it.each(['building', 'deploying', 'superseded'] as const)('says it is publishing while %s', (state) => {
     const markup = published({ state, reason: null });
     expect(markup).toContain('Publishing…');
     expect(markup).toContain('animate-spin');
     expect(markup).not.toContain('Not published yet');
+  });
+
+  it('says what a publish is doing and for how long, and that one not started yet is waiting', () => {
+    expect(published({ state: 'queued', reason: null })).toContain('Waiting to start…');
+    const building = published({
+      state: 'building',
+      reason: null,
+      step: 'installing',
+      stepStartedAt: Date.now() - 83_000,
+    });
+    expect(building).toContain('Installing packages…');
+    expect(building).toMatch(/1:2[34]/);
+    expect(published({ state: 'deploying', reason: null, step: 'publishing' }, 'https://shop.example.com')).toContain(
+      'Publishing to Cloudflare…',
+    );
   });
 
   it('keeps the site in view while a new version is published, with a note that it is updating', () => {
