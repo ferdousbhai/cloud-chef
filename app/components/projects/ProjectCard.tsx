@@ -20,6 +20,8 @@ export type CardDeploy = {
   onRetry?: () => void;
   retrying?: boolean;
   onShowLog?: () => void;
+  /** Shows the publish's log as it runs. */
+  onShowProgress?: () => void;
   /** Publishes to the Worker the project's config names, which was taken, instead of the one it went to. */
   onUseWantedWorker?: () => void;
 };
@@ -140,11 +142,11 @@ export function ProjectCard({
 }
 
 const STEP_LABELS = {
-  preparing: 'Getting ready',
-  installing: 'Installing packages',
-  building: 'Building',
+  preparing: 'Setting up a build machine',
+  installing: 'Installing the project’s packages',
+  building: 'Building the site',
   migrating: 'Updating the database',
-  publishing: 'Publishing to Cloudflare',
+  publishing: 'Putting it live on Cloudflare',
 } as const;
 
 /** What a running publish is doing, and for how long it has been doing it. */
@@ -172,6 +174,15 @@ function PublishProgress({ deploy }: { deploy: CardDeploy }) {
 
 /** Below the title, what went wrong with the newest publish, or why the project can't be published. */
 function DeployNote({ deploy, siteShown, title }: { deploy: CardDeploy; siteShown: boolean; title: string }) {
+  if (deployInProgress(deploy.state) && deploy.onShowProgress) {
+    return (
+      <div className="text-xs">
+        <Button size="xs" variant="subtle" onClick={deploy.onShowProgress}>
+          Show progress
+        </Button>
+      </div>
+    );
+  }
   if (deploy.state === 'failed') {
     return (
       <div role="alert" className="grid gap-2 text-xs">

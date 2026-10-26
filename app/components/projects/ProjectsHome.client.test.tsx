@@ -9,6 +9,7 @@ import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
 import type { TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { refreshSession } from '~/lib/auth-client';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
+import { toast } from 'sonner';
 import { ProjectsHome, PUBLISHING_REFRESH_MS } from './ProjectsHome.client';
 
 const RUNTIME = 'https://runtime.example.workers.dev';
@@ -249,13 +250,33 @@ describe('ProjectsHome', () => {
     expect(card('Storefront').textContent).toContain('Updating…');
     expect(card('Storefront').textContent).toContain('Open site');
 
+    const announced = vi.spyOn(toast, 'success');
     teamProjects = [{ ...uploaded({ state: 'succeeded' }), siteUrl: 'https://storefront.example.com' }];
     await act(async () => vi.advanceTimersByTimeAsync(PUBLISHING_REFRESH_MS));
     expect(listed()).toBe(before + 2);
     expect(card('Storefront').textContent).not.toContain('Updating…');
+    // Once it ends, it is said once, wherever the person is looking.
+    expect(announced).toHaveBeenCalledTimes(1);
+    expect(announced).toHaveBeenCalledWith(
+      'Storefront is live.',
+      expect.objectContaining({ action: expect.objectContaining({ label: 'Open site' }) }),
+    );
 
     await act(async () => vi.advanceTimersByTimeAsync(PUBLISHING_REFRESH_MS * 3));
     expect(listed()).toBe(before + 2);
+  });
+
+  it('shows a running publish’s step, and its progress as it happens', async () => {
+    context = teamAdmin;
+    deployRoutes = { log: '$ npm ci\nadded 312 packages' };
+    teamProjects = [uploaded({ state: 'building', step: 'installing', stepStartedAt: Date.now() - 5_000 })];
+    await render('user-progress');
+    await vi.waitFor(() => card('Storefront'));
+
+    expect(card('Storefront').textContent).toContain('Installing the project’s packages…');
+    await click(card('Storefront'), 'Show progress');
+    await vi.waitFor(() => expect(document.querySelector('pre')?.textContent).toContain('added 312 packages'));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Progress');
   });
 
   it("says an uploaded project didn't publish, tries again, and shows what happened", async () => {

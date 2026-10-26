@@ -52,10 +52,10 @@ describe('a project card for a project CloudChef publishes', () => {
       step: 'installing',
       stepStartedAt: Date.now() - 83_000,
     });
-    expect(building).toContain('Installing packages…');
+    expect(building).toContain('Installing the project’s packages…');
     expect(building).toMatch(/1:2[34]/);
     expect(published({ state: 'deploying', reason: null, step: 'publishing' }, 'https://shop.example.com')).toContain(
-      'Publishing to Cloudflare…',
+      'Putting it live on Cloudflare…',
     );
   });
 

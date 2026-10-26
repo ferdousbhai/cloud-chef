@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
   CodeIcon,
@@ -43,7 +43,7 @@ type OpenDialog =
   | { kind: 'share'; orgId: string; project: { id: string; name: string } }
   | { kind: 'import' }
   | { kind: 'upload' }
-  | { kind: 'deploy-log'; orgProjectId: string; deploymentId: string; name: string }
+  | { kind: 'deploy-log'; orgProjectId: string; deploymentId: string; name: string; live?: boolean }
   | {
       kind: 'use-wanted-worker';
       project: TeamProject;
@@ -129,6 +129,7 @@ export function ProjectsHome({ userId }: { userId: string }) {
           orgProjectId={dialog.orgProjectId}
           deploymentId={dialog.deploymentId}
           name={dialog.name}
+          live={dialog.live}
           onClose={() => setDialog(null)}
         />
       ) : null}
@@ -206,7 +207,7 @@ function OwnProjects({
   const history = useChatHistory(userId);
   const workspacePreparing = useStore(userWorkspacePreparingStore);
   const workspaceUpgrading = useStore(userWorkspaceUpgradingStore);
-  const added = useConnectionProjects(!hideWhenEmpty);
+  const added = useConnectionProjects(!hideWhenEmpty, onDialog);
   const chats = history.projects;
   const addedProjects = added.projects ?? [];
   const empty = chats.length === 0 && addedProjects.length === 0;
@@ -334,13 +335,20 @@ type ConnectionProjects = {
   retry: (project: TeamProject, deploymentId: string, options?: { toWantedWorker?: true }) => Promise<void>;
 };
 
-function useConnectionProjects(enabled: boolean, orgId: string | null = null): ConnectionProjects {
+function useConnectionProjects(
+  enabled: boolean,
+  onDialog: (dialog: OpenDialog) => void,
+  orgId: string | null = null,
+): ConnectionProjects {
   const [projects, setProjects] = useState<TeamProject[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [opening, setOpening] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
+  // The list the last refresh showed, so a publish that ends since is announced once.
+  const shown = useRef<TeamProject[] | null>(null);
+  shown.current = projects;
 
   useEffect(() => {
     if (!enabled) {
@@ -367,7 +375,10 @@ function useConnectionProjects(enabled: boolean, orgId: string | null = null): C
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       loadTeamProjects(controller.signal)
-        .then(setProjects)
+        .then((next) => {
+          announceFinishedPublishes(shown.current ?? [], next, onDialog);
+          setProjects(next);
+        })
         .catch(() => {
           // A missed refresh is tried again on the next round.
           if (!controller.signal.aborted) {
@@ -379,7 +390,7 @@ function useConnectionProjects(enabled: boolean, orgId: string | null = null): C
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [publishing, projects, refresh]);
+  }, [publishing, projects, refresh, onDialog]);
 
   const retry = async (project: TeamProject, deploymentId: string, options: { toWantedWorker?: true } = {}) => {
     setRetrying(project.id);
@@ -473,6 +484,16 @@ function ConnectionProjectCard({
             reason: deployment?.reason ?? null,
             step: deployment?.step ?? null,
             stepStartedAt: deployment?.stepStartedAt ?? null,
+            onShowProgress: deployment
+              ? () =>
+                  onDialog({
+                    kind: 'deploy-log',
+                    orgProjectId: project.id,
+                    deploymentId: deployment.id,
+                    name: project.name,
+                    live: true,
+                  })
+              : undefined,
           }
         : {
             state: deployment.state,
@@ -556,7 +577,7 @@ function TeamProjects({
   action: ReactNode;
   onDialog: (dialog: OpenDialog) => void;
 }) {
-  const connection = useConnectionProjects(true, orgId);
+  const connection = useConnectionProjects(true, onDialog, orgId);
   const { projects } = connection;
 
   return (
@@ -601,6 +622,38 @@ function TeamProjects({
       )}
     </section>
   );
+}
+
+/**
+ * Says once when a publish that was running has ended, wherever on the page the person is looking: live, with
+ * its site to open, or not, with what happened.
+ */
+function announceFinishedPublishes(
+  before: readonly TeamProject[],
+  after: readonly TeamProject[],
+  onDialog: (dialog: OpenDialog) => void,
+): void {
+  for (const project of after) {
+    const was = before.find(({ id }) => id === project.id)?.deployment;
+    const now = project.deployment;
+    if (!was || !now || was.id !== now.id || !deployInProgress(was.state) || deployInProgress(now.state)) {
+      continue;
+    }
+    const siteUrl = project.siteUrl;
+    if (now.state === 'succeeded') {
+      toast.success(`${project.name} is live.`, {
+        action: siteUrl ? { label: 'Open site', onClick: () => window.open(siteUrl, '_blank', 'noopener') } : undefined,
+      });
+    } else if (now.state === 'failed') {
+      toast.error(`${project.name} didn’t publish.`, {
+        action: {
+          label: 'Show what happened',
+          onClick: () =>
+            onDialog({ kind: 'deploy-log', orgProjectId: project.id, deploymentId: now.id, name: project.name }),
+        },
+      });
+    }
+  }
 }
 
 /** A project CloudChef builds and publishes itself, rather than Workers Builds. */
