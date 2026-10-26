@@ -22,6 +22,7 @@ const teamMember: WorkspaceContext = {
   role: 'member',
   draftsAllowed: false,
 };
+const teamAdmin: WorkspaceContext = { ...teamMember, connectionId: 'connection-3', role: 'admin', draftsAllowed: true };
 
 let context: WorkspaceContext = personal;
 let ownProjects: ChatHistorySummary[] = [];
@@ -99,6 +100,17 @@ function card(title: string): HTMLElement {
   return found;
 }
 
+const ADD = 'button[aria-label="Add an existing project"]';
+
+/** Opens the "Add an existing project" menu and returns its choices. */
+async function addChoices(): Promise<string[]> {
+  const trigger = document.querySelector<HTMLButtonElement>(ADD);
+  await act(async () => {
+    trigger?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+  });
+  return [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent ?? '');
+}
+
 describe('ProjectsHome', () => {
   it("lists the person's own projects, with Open site only once published", async () => {
     context = personal;
@@ -121,8 +133,49 @@ describe('ProjectsHome', () => {
     expect(card('Booking site').querySelector('a[href="https://booking.example.workers.dev"]')).not.toBeNull();
     expect(card('Draft').textContent).toContain('Not published yet');
     expect(card('Draft').textContent).not.toContain('Open site');
-    expect(document.body.textContent).toContain('Import from GitHub');
-    expect(document.body.textContent).toContain('Upload a ZIP');
+    // Adding code made elsewhere is one control beside the projects' heading, with no count or divider.
+    expect(document.querySelector('#my-projects')?.parentElement?.querySelector(ADD)).not.toBeNull();
+    expect(document.body.textContent).not.toMatch(/\d+ projects?\b/);
+    expect(await addChoices()).toEqual(['Import from GitHub', 'Upload a ZIP']);
+  });
+
+  it('says in one line that a person has no projects yet', async () => {
+    context = personal;
+    await render('user-empty');
+    await vi.waitFor(() => expect(document.body.textContent).toContain('No projects yet.'));
+
+    expect(document.querySelector('#my-projects')?.textContent).toBe('My projects');
+    expect(document.querySelector(ADD)).not.toBeNull();
+  });
+
+  it("shows a team admin the team's projects first, with no empty section of their own", async () => {
+    context = teamAdmin;
+    teamProjects = [{ id: 'project-1', name: 'Storefront', role: 'edit', repo: 't-project-1' }];
+    await render('user-admin');
+    await vi.waitFor(() => card('Storefront'));
+    // The admin's own list, empty, has finished loading too.
+    await vi.waitFor(() =>
+      expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url) === `${RUNTIME}/v1/data`)).toBe(true),
+    );
+    await act(async () => undefined);
+
+    expect(document.querySelector('#team-projects')?.textContent).toBe('Team projects');
+    expect(document.querySelector('#my-projects')).toBeNull();
+    expect(document.querySelector('#team-projects')?.parentElement?.querySelector(ADD)).not.toBeNull();
+    expect(card('Storefront').textContent).toContain('Owner');
+    expect(await addChoices()).toEqual(['Import from GitHub', 'Upload a ZIP']);
+  });
+
+  it("lists a team admin's own projects after the team's once they have some", async () => {
+    context = teamAdmin;
+    teamProjects = [{ id: 'project-1', name: 'Storefront', role: 'edit', repo: 't-project-1' }];
+    ownProjects = [{ id: 'chat-3', initialId: 'chat-3', description: 'Sketch', timestamp: new Date().toISOString() }];
+    await render('user-admin-drafts');
+    await vi.waitFor(() => card('Sketch'));
+
+    const headings = [...document.querySelectorAll('h2')].map((heading) => heading.textContent);
+    expect(headings).toEqual(['Team projects', 'My projects']);
+    expect(document.querySelectorAll(ADD)).toHaveLength(1);
   });
 
   it('shows a member the team projects shared with them, with Edit only where they can edit', async () => {
@@ -137,8 +190,7 @@ describe('ProjectsHome', () => {
     expect(document.querySelector('#team-projects')?.textContent).toBe('Shared with me');
     // A member limited to the team's projects has none of their own, and imports none.
     expect(document.querySelector('#my-projects')).toBeNull();
-    expect(document.body.textContent).not.toContain('Import from GitHub');
-    expect(document.body.textContent).not.toContain('Upload a ZIP');
+    expect(document.querySelector(ADD)).toBeNull();
     expect(card('Storefront').querySelector('button[aria-label="Edit Storefront"]')).not.toBeNull();
     expect(card('Storefront').textContent).toContain('Can edit');
     expect(card('Docs').querySelector('button[aria-label="Edit Docs"]')).toBeNull();
