@@ -68,6 +68,14 @@ export function deployApiDecision(
   if (method === 'POST' && rest === '/workers/assets/upload') {
     return 'as_sent';
   }
+  // Custom domains and routes could claim any hostname of the account, a teammate's site's among them.
+  if (/\/(domains|routes)(\/|$)/.test(rest)) {
+    return 'refused';
+  }
+  // Cron triggers are a list of schedules, and nothing else.
+  if (method === 'PUT' && rest === `/workers/scripts/${context.workerName}/schedules`) {
+    return 'with_token';
+  }
   if (new RegExp(`^${self}$`).test(rest)) {
     return 'check_bindings';
   }
@@ -80,7 +88,10 @@ export function deployApiDecision(
   return 'refused';
 }
 
-/** The binding types a project's Worker may have; anything else (Secrets Store, dispatch, unsafe) is refused. */
+/**
+ * The binding types a project's Worker may have; anything else is refused: Secrets Store (CloudChef keeps keys
+ * there), Hyperdrive (another project's database credentials), dispatch namespaces, unsafe bindings.
+ */
 const BINDING_TYPES = new Set([
   'plain_text',
   'secret_text',
@@ -101,7 +112,6 @@ const BINDING_TYPES = new Set([
   'media',
   'version_metadata',
   'vectorize',
-  'hyperdrive',
   'send_email',
   'ratelimit',
   'pipelines',

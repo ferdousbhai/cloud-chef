@@ -29,6 +29,11 @@ type ProjectDeployment = {
 
 /** How long a claim or a step holds without a heartbeat before another runtime may take the work over. */
 export const DEPLOYMENT_LEASE_MS = 3 * 60_000;
+/**
+ * How long a deployment may wait queued, renewed by nothing, before another runtime takes it over: longer than the
+ * jobs ahead of it in its runtime's queue can take, so a runtime that is still working is never overtaken.
+ */
+const QUEUED_TAKEOVER_MS = 2 * 60 * 60_000;
 /** Rows kept per project; older finished ones are pruned as new ones arrive. */
 const KEPT_DEPLOYMENTS = 20;
 const MAX_REASON_CHARACTERS = 300;
@@ -154,10 +159,22 @@ export async function claimDeployment(
       `UPDATE project_deployments
        SET state = 'queued', failure_stage = NULL, reason = NULL, attempt = attempt + 1, claimed_by = ?,
            lease_expires_at = ?, updated_at = ?
-       WHERE project_id = ? AND branch = ? AND commit_sha = ? AND state IN ('queued', 'building', 'deploying')
-         AND (lease_expires_at IS NULL OR lease_expires_at <= ?)`,
+       WHERE project_id = ? AND branch = ? AND commit_sha = ?
+         AND (
+           (state IN ('building', 'deploying') AND (lease_expires_at IS NULL OR lease_expires_at <= ?))
+           OR (state = 'queued' AND updated_at <= ?)
+         )`,
     )
-    .bind(args.userId, now + DEPLOYMENT_LEASE_MS, now, args.projectId, args.branch, args.commit, now)
+    .bind(
+      args.userId,
+      now + DEPLOYMENT_LEASE_MS,
+      now,
+      args.projectId,
+      args.branch,
+      args.commit,
+      now,
+      now - QUEUED_TAKEOVER_MS,
+    )
     .run();
   const deployment = await existing();
   if (!deployment) {

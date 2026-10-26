@@ -20,6 +20,7 @@ import {
   runtimeDeploymentClaimAction,
   runtimeDeploymentCredentialAction,
   runtimeDeploymentReportAction,
+  runtimeDeploymentRetryAction,
 } from './runtime-deployments';
 
 afterEach(() => {
@@ -622,6 +623,32 @@ describe('a runtime deploying a project CloudChef deploys itself', () => {
     return { status: response.status, body: z.record(z.string(), z.unknown()).parse(await response.json()) };
   };
 
+  it("lets only the account's owners publish over a Worker already in the account", async () => {
+    const { env, runtime, database } = await uploaded();
+    const claimed = await call(runtimeDeploymentClaimAction, runtime, env, 'claim', {
+      orgProjectId: UPLOAD,
+      branch: 'main',
+      commit: COMMIT,
+    });
+    const deploymentId = String(claimed.body.deploymentId);
+    database
+      .prepare(
+        `UPDATE project_deployments SET state = 'succeeded', worker_name = 'glossary-1111',
+           wanted_worker_name = 'glossary' WHERE id = ?`,
+      )
+      .run(deploymentId);
+    // The runtime here is a member's, who may edit the project but doesn't own the account.
+    const refused = await call(runtimeDeploymentRetryAction, runtime, env, 'retry', {
+      orgProjectId: UPLOAD,
+      deploymentId,
+      toWantedWorker: true,
+    });
+    expect(refused.status).toBe(403);
+    expect(database.prepare('SELECT state FROM project_deployments WHERE id = ?').get(deploymentId)).toEqual({
+      state: 'succeeded',
+    });
+  });
+
   it('stops a deploy whose Worker another project of the account publishes to, before anything is written', async () => {
     const { env, runtime, database } = await uploaded();
     database.exec(`
@@ -640,7 +667,10 @@ describe('a runtime deploying a project CloudChef deploys itself', () => {
       call(runtimeDeploymentReportAction, runtime, env, 'report', { orgProjectId: UPLOAD, deploymentId, ...body });
     await report({ state: 'building' });
     await report({ state: 'deploying' });
-    expect((await report({ state: 'deploying', workerName: 'glossary' })).body).toEqual({ outcome: 'worker_taken' });
+    expect((await report({ state: 'deploying', workerName: 'glossary' })).body).toEqual({
+      outcome: 'worker_taken',
+      workerName: null,
+    });
     expect(database.prepare('SELECT state, reason FROM project_deployments WHERE id = ?').get(deploymentId)).toEqual({
       state: 'failed',
       reason: 'Another project publishes to the Worker named glossary.',
@@ -676,7 +706,7 @@ describe('a runtime deploying a project CloudChef deploys itself', () => {
             state,
           })
         ).body,
-      ).toEqual({ outcome: 'recorded' });
+      ).toMatchObject({ outcome: 'recorded' });
     }
     // The Worker it deploys as is the project's before anything is written to it.
     const held = await call(runtimeDeploymentReportAction, runtime, env, 'report', {
@@ -685,7 +715,7 @@ describe('a runtime deploying a project CloudChef deploys itself', () => {
       state: 'deploying',
       workerName: 'glossary',
     });
-    expect(held.body).toEqual({ outcome: 'recorded' });
+    expect(held.body).toEqual({ outcome: 'recorded', workerName: 'glossary' });
     expect(database.prepare('SELECT deploy_worker_name FROM org_projects WHERE id = ?').get(UPLOAD)).toEqual({
       deploy_worker_name: 'glossary',
     });
@@ -696,7 +726,7 @@ describe('a runtime deploying a project CloudChef deploys itself', () => {
       url: 'https://glossary.team.workers.dev',
       workerName: 'glossary',
     });
-    expect(done.body).toEqual({ outcome: 'recorded' });
+    expect(done.body).toMatchObject({ outcome: 'recorded' });
     expect(
       database
         .prepare('SELECT site_url, site_frameable, deploy_worker_name FROM org_projects WHERE id = ?')

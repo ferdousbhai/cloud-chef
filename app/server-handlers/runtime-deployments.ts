@@ -11,6 +11,7 @@ import {
   reportDeployment,
   retryDeployment,
 } from '~/lib/cloudflare/data/project-deployments.server';
+import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
 import { json, openProject } from './runtime-projects';
 
 /**
@@ -115,7 +116,17 @@ export async function runtimeDeploymentRetryAction(args: { request: Request; env
   if (opened instanceof Response) {
     return opened;
   }
-  const { body, project, identity } = opened;
+  const { body, project, identity, connection } = opened;
+  // Publishing over a Worker already in the account is for whoever owns the account (the person, or the team's
+  // admins), since that Worker may be any of its projects' or apps'.
+  if (body.toWantedWorker) {
+    const owner = connection.orgId
+      ? isActiveAdmin(await findMembership(args.env.DB, connection.orgId, identity.userId))
+      : connection.userId === identity.userId;
+    if (!owner) {
+      return json({ error: 'Only the team’s admins can publish over a Worker already in the account.' }, 403);
+    }
+  }
   const deployment = body.toWantedWorker
     ? await deployToWantedWorker(args.env.DB, { id: body.deploymentId, projectId: project.id, userId: identity.userId })
     : await retryDeployment(args.env.DB, { id: body.deploymentId, userId: identity.userId });
@@ -124,7 +135,7 @@ export async function runtimeDeploymentRetryAction(args: { request: Request; env
       {
         error: body.toWantedWorker
           ? 'That Worker can’t be used: another project publishes to it, or a newer version is being published.'
-          : 'Only the newest failed deploy can be tried again.',
+          : 'Only the newest publish that didn’t work can be tried again.',
       },
       409,
     );
@@ -170,14 +181,22 @@ export async function runtimeDeploymentReportAction(args: { request: Request; en
   // The Worker a deploy is about to write is the project's from then on, held before anything is written: another
   // CloudChef project of the connection that deploys as it already (the unique index) stops this deploy instead.
   if (outcome === 'recorded' && body.state === 'deploying' && body.workerName) {
-    const reserved = await args.env.DB.prepare(
-      `UPDATE org_projects SET deploy_worker_name = ?
-       WHERE id = ? AND (deploy_worker_name IS NULL OR deploy_worker_name = ?)`,
-    )
-      .bind(body.workerName, project.id, body.workerName)
-      .run()
-      .then((result) => result.meta.changes === 1)
-      .catch(() => false);
+    let reserved: boolean;
+    try {
+      const result = await args.env.DB.prepare(
+        `UPDATE org_projects SET deploy_worker_name = ?
+         WHERE id = ? AND (deploy_worker_name IS NULL OR deploy_worker_name = ?)`,
+      )
+        .bind(body.workerName, project.id, body.workerName)
+        .run();
+      reserved = result.meta.changes === 1;
+    } catch (error) {
+      // Only the unique Worker index means another project has it; anything else is tried again.
+      if (!(error instanceof Error && error.message.includes('UNIQUE'))) {
+        throw error;
+      }
+      reserved = false;
+    }
     if (!reserved) {
       await reportDeployment(args.env.DB, {
         id: body.deploymentId,
@@ -186,7 +205,7 @@ export async function runtimeDeploymentReportAction(args: { request: Request; en
         failureStage: 'deploy',
         reason: `Another project publishes to the Worker named ${body.workerName}.`,
       });
-      return json({ outcome: 'worker_taken' }, 200);
+      return json({ outcome: 'worker_taken', workerName: null }, 200);
     }
   }
   if (outcome === 'recorded' && body.state === 'succeeded' && deployment.kind === 'production') {
@@ -197,7 +216,11 @@ export async function runtimeDeploymentReportAction(args: { request: Request; en
       });
     }
   }
-  return json({ outcome }, 200);
+  // The Worker the project deploys as now, which a deploy that just started (or started over) uses.
+  const held = await args.env.DB.prepare('SELECT deploy_worker_name FROM org_projects WHERE id = ?')
+    .bind(project.id)
+    .first<{ deploy_worker_name: string | null }>();
+  return json({ outcome, workerName: held?.deploy_worker_name ?? null }, 200);
 }
 
 /**

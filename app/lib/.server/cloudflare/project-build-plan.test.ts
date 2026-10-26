@@ -132,6 +132,12 @@ describe("what a deploy may ask of Cloudflare's API", () => {
     expect(deployApiDecision({ method: 'GET', pathname: '/memberships' }, context)).toBe('refused');
   });
 
+  it('sets its cron schedules, but claims no hostname through custom domains or routes', () => {
+    expect(decide('PUT', '/accounts/acc/workers/scripts/glossary/schedules')).toBe('with_token');
+    expect(decide('PUT', '/accounts/acc/workers/scripts/glossary/domains/records')).toBe('refused');
+    expect(decide('PUT', '/accounts/acc/workers/scripts/glossary/routes')).toBe('refused');
+  });
+
   it('sends asset uploads on with their own authorization', () => {
     expect(decide('POST', '/accounts/acc/workers/assets/upload')).toBe('as_sent');
   });
@@ -168,6 +174,7 @@ describe("a deployed Worker's bindings", () => {
       { type: 'workflow', name: 'X', workflow_name: 'cloudchef-project-deletion' },
       { type: 'secrets_store_secret', name: 'X', store_id: 's', secret_name: 'k' },
       { type: 'dispatch_namespace', name: 'X', namespace: 'n' },
+      { type: 'hyperdrive', name: 'X', id: 'h' },
     ]) {
       expect(check({ bindings: [binding] })).toHaveProperty('refusal');
     }

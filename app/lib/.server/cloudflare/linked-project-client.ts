@@ -365,7 +365,7 @@ export async function reportProjectDeployment(
     workerName?: string;
     wantedWorkerName?: string;
   },
-): Promise<DeploymentReportOutcome> {
+): Promise<DeploymentReport> {
   const response = await postRuntimeRoute(
     env,
     identity,
@@ -373,14 +373,17 @@ export async function reportProjectDeployment(
     body,
     STATUS_TIMEOUT_MS,
   );
-  return (
-    await readAnswer(
-      response,
-      z.object({ outcome: z.enum(['recorded', 'superseded', 'refused', 'busy', 'worker_taken']) }),
-      'CloudChef could not record the deploy.',
-    )
-  ).outcome;
+  return readAnswer(response, deploymentReportSchema, 'CloudChef could not record the deploy.');
 }
+
+const deploymentReportSchema = z.object({
+  outcome: z.enum(['recorded', 'superseded', 'refused', 'busy', 'worker_taken']),
+  /** The Worker the project deploys as now, once one is held. */
+  workerName: z.string().nullable(),
+});
+
+/** What a report did, and the Worker the project deploys as now. */
+type DeploymentReport = z.infer<typeof deploymentReportSchema>;
 
 /** The account's authorization, for the deploy step of a deployment this runtime is deploying, and only then. */
 export async function projectDeploymentCredential(

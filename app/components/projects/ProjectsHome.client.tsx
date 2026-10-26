@@ -230,6 +230,7 @@ function OwnProjects({
           key={project.id}
           project={project}
           canEdit={project.role === 'edit'}
+          ownsAccount
           badge={null}
           orgId={null}
           connection={added}
@@ -429,6 +430,7 @@ function useConnectionProjects(enabled: boolean, orgId: string | null = null): C
 function ConnectionProjectCard({
   project,
   canEdit,
+  ownsAccount,
   badge,
   orgId,
   connection,
@@ -436,6 +438,8 @@ function ConnectionProjectCard({
 }: {
   project: TeamProject;
   canEdit: boolean;
+  /** Whether the person owns the account (theirs, or a team they administer): only they publish over its Workers. */
+  ownsAccount: boolean;
   badge: string | null;
   /** The team whose project it is, for sharing; null for a project of the person's own account. */
   orgId: string | null;
@@ -452,7 +456,7 @@ function ConnectionProjectCard({
           state: deployment.state,
           reason: deployment.reason ?? null,
           retrying: connection.retrying === project.id,
-          onUseWantedWorker: canEdit
+          onUseWantedWorker: ownsAccount
             ? () =>
                 onDialog({
                   kind: 'use-wanted-worker',
@@ -580,6 +584,7 @@ function TeamProjects({
                 key={project.id}
                 project={project}
                 canEdit={canEdit}
+                ownsAccount={admin}
                 badge={admin ? 'Owner' : canEdit ? 'Can edit' : 'Can view'}
                 orgId={admin ? orgId : null}
                 connection={connection}
