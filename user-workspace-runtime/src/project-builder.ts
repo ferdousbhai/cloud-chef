@@ -934,10 +934,14 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
     switch (decision) {
       case 'refused':
         return DEPLOY_REFUSED('CloudChef does not let a deploy make this request.');
+      // Bodies go on whole, with their length: Cloudflare's asset upload answers a streamed one with a 500.
       case 'as_sent':
-        return fetch(upstream, withBody({ method: request.method, headers, redirect: 'manual' }, request.body));
+        return fetch(
+          upstream,
+          withBody({ method: request.method, headers, redirect: 'manual' }, await wholeBody(request)),
+        );
       case 'with_token':
-        return this.sendWithToken(job, upstream, request.method, headers, request.body);
+        return this.sendWithToken(job, upstream, request.method, headers, await wholeBody(request));
       case 'check_database': {
         const databaseId = url.pathname.split('/').at(-2) ?? '';
         const refusal = await this.resourceRefusal(job, { databases: [databaseId], namespaces: [] });
@@ -1185,12 +1189,14 @@ function parseJson<T>(text: string, schema: z.ZodType<T>): T | undefined {
   }
 }
 
-function withBody(init: RequestInit & { duplex?: 'half' }, body: BodyInit | null): RequestInit {
+/** A request's body read in full, or null for none. */
+async function wholeBody(request: Request): Promise<ArrayBuffer | null> {
+  return request.body ? request.arrayBuffer() : null;
+}
+
+function withBody(init: RequestInit, body: BodyInit | null): RequestInit {
   if (body !== null) {
     init.body = body;
-    if (body instanceof ReadableStream) {
-      init.duplex = 'half';
-    }
   }
   return init;
 }
