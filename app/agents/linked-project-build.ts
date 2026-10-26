@@ -41,7 +41,7 @@ export function linkedBuildStatus(status: ProjectBuildStatus, live: boolean): Li
 }
 
 /** How many held-back paths a watch keeps; the summary names fewer. */
-export const LINKED_HELD_BACK_LIMIT = 20;
+const LINKED_HELD_BACK_LIMIT = 20;
 
 /**
  * What a publish's summary adds when it left out local secrets the workspace changed, so the model can

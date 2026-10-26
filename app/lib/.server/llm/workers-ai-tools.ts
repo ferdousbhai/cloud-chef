@@ -21,8 +21,6 @@ import type { Tool } from 'cloudchef-agent/tool';
 import { type BuilderSkillReader, isBuilderSkillPath } from './builder-skills';
 import { sha256Hex } from '~/lib/hex-digest';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
-import { linkedProjectModelTools, type LinkedProjectModelToolContext } from './linked-project-model-tools';
-import { appProjectModelTools, type AppProjectModelToolContext } from './app-project-model-tools';
 import { isRecord } from 'cloudchef-agent/utils/isRecord';
 
 /** What a builder turn lends its workspace tools: validation progress, and keeping the turn alive while one runs. */
@@ -50,8 +48,8 @@ export function createWorkersAiTools(
   operationContext: BuilderOperationContext,
   skillReader: BuilderSkillReader,
   cloudflareApi?: CloudflareApiModelToolContext,
-  linkedProject?: LinkedProjectModelToolContext,
-  appProject?: AppProjectModelToolContext,
+  /** Whether the workspace is one of a team's projects, which has checks of its own. */
+  linked = false,
 ): CloudChefToolSet {
   const coordinateStatefulTool = createTurnStatefulToolCoordinator(operationContext.runWithKeepAlive);
   const tools: CloudChefToolSet = {
@@ -61,7 +59,7 @@ export function createWorkersAiTools(
     write: abortAwareWriteTool(workspace),
     edit: fileEditTool(workspace),
     exec: streamingExecTool(workspace, operationContext),
-    validate: canonicalValidationTool(linkedProject !== undefined),
+    validate: canonicalValidationTool(linked),
   };
 
   if (cloudflareApi) {
@@ -71,14 +69,6 @@ export function createWorkersAiTools(
       execute: async (input, options) =>
         cloudflareApi.request(MODEL_TOOL_INPUT_SCHEMAS.cloudflare_request.parse(input), options),
     };
-  }
-
-  if (linkedProject) {
-    Object.assign(tools, linkedProjectModelTools(linkedProject));
-  }
-
-  if (appProject) {
-    Object.assign(tools, appProjectModelTools(appProject));
   }
 
   for (const toolName of WORKSPACE_TOOL_NAMES) {

@@ -107,22 +107,17 @@ import { builderTemplateSeedId, loadBuilderTemplate } from './builder-template';
 import { seedBuilderWorkspace, WorkspaceSeedError, type WorkspaceSeedFailure } from './builder-workspace-seed';
 import {
   isExcludedProjectPath,
-  linkedCommitTree,
-  linkedWorkspaceChanges,
-  memberBranch,
   revertChanges,
   seedLinkedWorkspace,
   workspaceCommitFiles,
 } from './linked-project-workspace';
 import { LINKED_BUILD_WATCH_MS } from '~/lib/common/linked-publish';
 import {
-  LINKED_HELD_BACK_LIMIT,
   linkedBuildSettledResult,
   linkedBuildStartedResult,
   linkedBuildStatus,
   linkedBuildUnfollowedResult,
   linkedBuildWatchSchema,
-  linkedHeldBackNote,
   watchLinkedBuild,
   withLinkedBuildResult,
   type LinkedBuildWatch,
@@ -137,7 +132,6 @@ import {
   projectSiteOrigins,
   commitAuthor,
   requestProductionReview,
-  type OpenedProject,
   type ProductionRequestOutcome,
 } from '~/lib/.server/cloudflare/linked-project-client';
 import {
@@ -151,8 +145,6 @@ import {
 import { ZERO_OID } from '~/lib/.server/cloudflare/repository-wire';
 import { WORK_DIR } from 'cloudchef-agent/constants';
 import { bytesToBase64 } from '~/lib/hex-digest';
-import type { LinkedProjectModelToolContext } from '~/lib/.server/llm/linked-project-model-tools';
-import type { AppProjectModelToolContext } from '~/lib/.server/llm/app-project-model-tools';
 import { BUILDER_TURN_WALL_CLOCK_MS } from '~/lib/.server/llm/builder-turn-limits';
 import { deriveProvisionalTitle, shouldGenerateConversationTitle, type TitleSubject } from '~/lib/title-generation';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
@@ -160,7 +152,7 @@ import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
 import type { DeploymentExecution } from '~/server-handlers/deployments';
-import { toolFailure, toolSuccess, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
+import { toolSuccess, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import {
   BuilderCloudflareExecutionRepository,
   CLOUDFLARE_EXECUTION_RISK_NOTE,
@@ -468,7 +460,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   /** Chat requests between stopping the automatic publications and recording their turn as active. */
   private startingTurns = 0;
   /** Publishes to the project's repository under way: a closed conversation waits for them before the newer one starts. */
-  private readonly runningLinkedPublishes = new Set<Promise<CloudChefToolResult>>();
   /** Whether the running turn pushed this CloudChef app's main, which its end then publishes. */
   private mainPushedInTurn = false;
   /** Editor saves under way, from before their closed check: a closed conversation waits for them too. */
@@ -793,7 +784,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.initializeWorkspace(durableIdentity.transcript);
       await this.nameGitRepository(chatInitialId);
       const cloudflareApi = await this.createCloudflareApiToolContext(durableIdentity.transcript);
-      const linkedProject = await this.createLinkedProjectToolContext();
+      const linkedProject = await this.linkedProjectSummary();
       if (shouldGenerateTitle) {
         await this.scheduleTitleGeneration(
           {
@@ -825,7 +816,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         workspace: this.workspace,
         cloudflareApi,
         linkedProject,
-        appProject: linkedProject ? undefined : this.appProjectToolContext(),
         onValidationStage: (toolCallId, stage) => this.setValidationProgress(toolCallId, stage),
         pushResult: (toolCallId) => this.gitPushResult(toolCallId),
         runWithKeepAlive: (operation) => this.keepAliveWhile(operation),
@@ -1182,7 +1172,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   /** Whether every publish to the repository and editor save under way settled within `timeoutMs`. */
   private async waitForWorkspaceWrites(timeoutMs: number): Promise<boolean> {
-    return settledWithin([...this.runningLinkedPublishes, ...this.runningSaves], timeoutMs);
+    return settledWithin([...this.runningSaves], timeoutMs);
   }
 
   /**
@@ -1751,154 +1741,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     );
   }
 
-  /** The commit tool for a CloudChef app; a team project's publish tools commit instead. */
-  private appProjectToolContext(): AppProjectModelToolContext {
-    return {
-      commit: async ({ message }) => {
-        const checkpoint = await this.workspace.checkpoint();
-        const commit = await this.commitWorkspaceToHistory({
-          revision: checkpoint.revision,
-          message: `${message}\n\nCloudChef-Revision: ${checkpoint.revision}`,
-        });
-        if (!commit) {
-          return toolFailure('The project changed while it was being saved. Save again.');
-        }
-        return commit.unchanged
-          ? toolSuccess(`This version is already saved (${commit.hash.slice(0, 7)}).`, commit)
-          : toolSuccess(`Saved version ${commit.hash.slice(0, 7)}.`, commit);
-      },
-    };
-  }
-
-  /** The publish tools for a workspace opened from a team project; none otherwise. */
-  private async createLinkedProjectToolContext(): Promise<LinkedProjectModelToolContext | undefined> {
+  /** A team project's name and default branch, for the prompt; none for a CloudChef app. */
+  private async linkedProjectSummary(): Promise<{ repository: string; defaultBranch: string } | undefined> {
     const linked = await this.workspace.linkedProject();
-    if (!linked) {
-      return undefined;
-    }
-    return {
-      repository: linked.name ?? linked.repository,
-      defaultBranch: linked.defaultBranch,
-      publish: (input, options) =>
-        this.trackLinkedPublish(this.keepAliveWhile(() => this.publishLinkedProject(input, options))),
-    };
-  }
-
-  private async trackLinkedPublish(publish: Promise<CloudChefToolResult>): Promise<CloudChefToolResult> {
-    this.runningLinkedPublishes.add(publish);
-    try {
-      return await publish;
-    } finally {
-      this.runningLinkedPublishes.delete(publish);
-    }
-  }
-
-  /**
-   * Commits the workspace to the project's repository: a commit on the chat's own branch, merged
-   * into main when it should go live. It returns once the commit is there; Workers Builds is watched in the
-   * background, and its result and preview link replace this output when it reports.
-   */
-  private async publishLinkedProject(
-    input: { message: string; live: boolean },
-    options: { toolCallId: string; abortSignal?: AbortSignal },
-  ): Promise<CloudChefToolResult> {
-    const linked = await this.workspace.linkedProject();
-    const identity = runtimeConnectionIdentity(this.env);
-    if (!linked || !identity || !this.userId) {
-      return toolFailure("This workspace is not one of the team's projects.");
-    }
-    const closed = await this.closedConversationMessage();
-    if (closed) {
-      return toolFailure(`${closed} Nothing was sent.`);
-    }
-    const name = linked.name ?? linked.repository;
-    // Asked each time: access can be taken away, and the control plane names the project's repository.
-    let project: OpenedProject;
-    try {
-      project = await openProject(this.env, identity, linked.orgProjectId);
-    } catch (error) {
-      return toolFailure(error instanceof Error ? error.message : 'CloudChef could not open the project.');
-    }
-    if (project.role !== 'edit' || !project.repo) {
-      return toolFailure(
-        project.role !== 'edit'
-          ? 'Your access to this project is view only, so nothing was sent.'
-          : "This project isn't ready yet. Open the project again.",
-      );
-    }
-    const repo = project.repo;
-    const { changes, manifest, heldBack } = await linkedWorkspaceChanges(this.workspace, linked);
-    if (changes.length === 0) {
-      return toolFailure(`There are no new changes to ${name} to send.` + linkedHeldBackNote(heldBack));
-    }
-    const repositories = this.repositories();
-    const author = project.member ?? (await commitAuthor(this.env));
-    const branch = memberBranch(project.member?.email ?? null, this.userId, linked.branchKey);
-    const [{ files: base }, head] = await Promise.all([
-      repositories.readTreeAt(repo, linked.baseCommit),
-      repositories.head(repo, branch),
-    ]);
-    // The last moment a Stop or the tool's deadline can call it off. Once the repository has the commit (and
-    // the merge), there's no taking it back: everything below runs to the end, and its result is the real one
-    // even if the turn ended meanwhile; the build watch then puts it in place of the stopped call's error.
-    options.abortSignal?.throwIfAborted();
-    // One commit on top of the base, replacing the branch's last one, so the branch always shows exactly the
-    // workspace.
-    const committed = await repositories.commitFiles({
-      repo,
-      branch,
-      parent: linked.baseCommit,
-      replaces: head,
-      files: linkedCommitTree(base, changes),
-      message: input.message,
-      author,
-    });
-    if ('conflict' in committed) {
-      return toolFailure(
-        `Another save of these changes happened at the same moment, so nothing was sent. ${input.live ? 'Publish' : 'Ask for the preview'} again.`,
-      );
-    }
-    let published = committed.commit;
-    if (input.live) {
-      const merged = await repositories.mergeIntoMain({
-        repo,
-        branch,
-        author,
-        message: `Publish from CloudChef: ${input.message.split('\n')[0]}`,
-      });
-      if ('conflict' in merged) {
-        return toolFailure(
-          `${linked.defaultBranch} changed since this workspace was opened, and the changes overlap. Nothing went ` +
-            `live. The work is saved on the branch ${branch} of ${name}, but this chat's workspace stays on its old ` +
-            'base, and so do its new conversations, and CloudChef cannot move it onto the latest version yet: ' +
-            'publishing again will meet the same overlap. Tell the person, and that the live version keeps the other change.',
-          { branch, commit: committed.commit, conflict: true, defaultBranch: linked.defaultBranch },
-        );
-      }
-      published = merged.commit;
-      // The branch's commit becomes the base: its tree is exactly this workspace, so later changes are
-      // measured from it, and merging them keeps whatever else main gained meanwhile.
-      await this.workspace.setLinkedProject({
-        ...linked,
-        repository: repo,
-        baseCommit: committed.commit,
-        baseManifest: manifest,
-      });
-    }
-    const watch: LinkedBuildWatch = {
-      toolCallId: options.toolCallId,
-      orgProjectId: linked.orgProjectId,
-      sha: published,
-      branch,
-      where: input.live ? `merged into ${linked.defaultBranch}` : `on the branch ${branch}`,
-      live: input.live,
-      startedAt: Date.now(),
-      defaultBranch: linked.defaultBranch,
-    };
-    if (heldBack.length) {
-      watch.heldBack = heldBack.slice(0, LINKED_HELD_BACK_LIMIT);
-    }
-    return this.followLinkedBuild(watch);
+    return linked ? { repository: linked.name ?? linked.repository, defaultBranch: linked.defaultBranch } : undefined;
   }
 
   /** Whether this CloudChef app's workspace holds exactly what main of its repository does. */

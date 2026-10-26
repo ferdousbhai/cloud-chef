@@ -87,32 +87,28 @@ function repositories(artifacts: FakeArtifacts) {
   return new ProjectRepositories(artifacts, { fetch: artifacts.fetch });
 }
 
-/** The agent's commit tool, as a CloudChef app's turn gets it. */
-function commitTool(harness: BuilderAgentHarness) {
+/** CloudChef saving the workspace as a version on main, as restoring one and a production request do. */
+function saveVersion(harness: BuilderAgentHarness, message: string) {
   // eslint-disable-next-line dot-notation
-  return harness.agent['appProjectToolContext']();
+  return harness.agent['commitWorkspaceToHistory']({ revision: CHECKPOINT.revision, message });
 }
 
 describe("a CloudChef app's history", () => {
-  it("commits the workspace to main when the agent commits, with the agent's message", async () => {
+  it('saves the workspace to main as a version, with its message', async () => {
     noControlPlane();
     const harness = await publishedHarness(holding({ 'index.html': '<h1>Hi</h1>', '.dev.vars': 'TOKEN=1' }));
 
-    const result = await commitTool(harness).commit({ message: 'Add a greeting' });
+    const result = await saveVersion(harness, 'Add a greeting');
 
-    expect(result).toMatchObject({ ok: true });
     const head = await harness.artifacts.head(REPO);
-    expect(result.data).toEqual({ hash: head, unchanged: false });
+    expect(result).toEqual({ hash: head, unchanged: false });
     // Local secrets never go into a commit.
     expect(await harness.artifacts.filesAt(REPO, 'main')).toEqual({ 'index.html': '<h1>Hi</h1>' });
     const [entry] = await repositories(harness.artifacts).log(REPO, { limit: 5 });
-    expect(entry?.message).toBe(`Add a greeting\n\nCloudChef-Revision: ${CHECKPOINT.revision}`);
+    expect(entry?.message).toBe('Add a greeting');
     expect(entry?.author).toEqual({ name: 'CloudChef member', email: 'owner-1@users.noreply.cloudchef.build' });
 
-    await expect(commitTool(harness).commit({ message: 'Again' })).resolves.toMatchObject({
-      ok: true,
-      data: { hash: head, unchanged: true },
-    });
+    await expect(saveVersion(harness, 'Again')).resolves.toEqual({ hash: head, unchanged: true });
     expect(await repositories(harness.artifacts).log(REPO, { limit: 5 })).toHaveLength(1);
   });
 
@@ -123,7 +119,7 @@ describe("a CloudChef app's history", () => {
         : new Response('unavailable', { status: 503 }),
     );
     const harness = await publishedHarness(holding({ 'index.html': 'hi' }));
-    await commitTool(harness).commit({ message: 'Hi' });
+    await saveVersion(harness, 'Hi');
     const [entry] = await repositories(harness.artifacts).log(REPO, { limit: 1 });
     expect(entry?.author).toEqual({ name: 'Sara', email: 'sara@example.com' });
   });
@@ -137,15 +133,12 @@ describe("a CloudChef app's history", () => {
     expect(harness.artifacts.repos.has(REPO)).toBe(false);
   });
 
-  it('commits nothing when the workspace moves while it is read', async () => {
+  it('commits nothing when the workspace moved on from the version asked for', async () => {
     noControlPlane();
-    let reads = 0;
     const harness = await publishedHarness(
-      holding({ 'index.html': 'hi' }, () =>
-        (reads += 1) > 1 ? { workspaceRevision: 4, revision: 'b'.repeat(64) } : CHECKPOINT,
-      ),
+      holding({ 'index.html': 'hi' }, () => ({ workspaceRevision: 4, revision: 'b'.repeat(64) })),
     );
-    await expect(commitTool(harness).commit({ message: 'Hi' })).resolves.toMatchObject({ ok: false });
+    await expect(saveVersion(harness, 'Hi')).resolves.toBeNull();
     expect(harness.artifacts.repos.has(REPO)).toBe(false);
   });
 

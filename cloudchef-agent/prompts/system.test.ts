@@ -20,6 +20,8 @@ describe('builder system prompt', () => {
     expect(prompt).not.toContain('hosted preview');
     expect(prompt).toContain('You do not deploy it yourself.');
     expect(prompt).toContain('onto the same address and the resources cloudflare.project.json declares each time');
+    expect(prompt).toContain('Production serves main.');
+    expect(prompt).toContain('git push origin main');
     expect(prompt).not.toContain('publish_preview');
   });
 
@@ -27,10 +29,10 @@ describe('builder system prompt', () => {
     const prompt = systemPrompt('', { repository: 'Ada site', defaultBranch: 'main' });
 
     expect(prompt).toContain('A copy of Ada site');
-    expect(prompt).toContain('publish_preview commits them to your branch');
-    expect(prompt).toContain('publish merges them into main');
+    expect(prompt).toContain('commit and push a branch of your own');
+    expect(prompt).toContain('Pushing main puts the change live');
     expect(prompt).toContain('only when the person wants the change live');
-    expect(prompt).toContain('Workers Builds deploys to production');
+    expect(prompt).toContain('Workers Builds deploys it to production');
     expect(prompt).not.toContain('GitHub');
     expect(prompt).not.toContain('CloudChef app');
   });

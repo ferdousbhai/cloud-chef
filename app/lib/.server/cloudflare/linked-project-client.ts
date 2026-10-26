@@ -41,7 +41,7 @@ const openedProjectSchema = z.object({
   /** Who is asking, for the commits made in their name and their branch. */
   member: memberSchema.nullable().optional().catch(null),
 });
-export type OpenedProject = z.infer<typeof openedProjectSchema>;
+type OpenedProject = z.infer<typeof openedProjectSchema>;
 
 const buildStatusSchema = z.object({
   state: z.enum(['none', 'queued', 'building', 'succeeded', 'failed']),

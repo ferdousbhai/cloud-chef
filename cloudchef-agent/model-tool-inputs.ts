@@ -24,25 +24,9 @@ type WorkspaceReadOnlyToolName = (typeof WORKSPACE_READ_ONLY_TOOL_NAMES)[number]
 const CLOUDFLARE_API_MODEL_TOOL_NAMES = ['cloudflare_request'] as const;
 export type CloudflareApiModelToolName = (typeof CLOUDFLARE_API_MODEL_TOOL_NAMES)[number];
 
-/** Tools for a workspace opened from a team project: changes are committed to its repository. */
-const LINKED_PROJECT_MODEL_TOOL_NAMES = ['publish_preview', 'publish'] as const;
-export type LinkedProjectModelToolName = (typeof LINKED_PROJECT_MODEL_TOOL_NAMES)[number];
-
-/** Tools for a CloudChef app's workspace: its history is a repository the agent commits to. */
-const APP_PROJECT_MODEL_TOOL_NAMES = ['commit'] as const;
-export type AppProjectModelToolName = (typeof APP_PROJECT_MODEL_TOOL_NAMES)[number];
-
-export const MODEL_TOOL_NAMES = [
-  ...WORKSPACE_TOOL_NAMES,
-  ...CLOUDFLARE_API_MODEL_TOOL_NAMES,
-  ...LINKED_PROJECT_MODEL_TOOL_NAMES,
-  ...APP_PROJECT_MODEL_TOOL_NAMES,
-] as const;
+export const MODEL_TOOL_NAMES = [...WORKSPACE_TOOL_NAMES, ...CLOUDFLARE_API_MODEL_TOOL_NAMES] as const;
 export type ModelToolName = (typeof MODEL_TOOL_NAMES)[number];
-export type AlwaysAvailableModelToolName = Exclude<
-  ModelToolName,
-  CloudflareApiModelToolName | LinkedProjectModelToolName | AppProjectModelToolName
->;
+export type AlwaysAvailableModelToolName = Exclude<ModelToolName, CloudflareApiModelToolName>;
 
 export function isWorkspaceReadOnlyToolName(name: string): name is WorkspaceReadOnlyToolName {
   return (WORKSPACE_READ_ONLY_TOOL_NAMES as readonly string[]).includes(name);
@@ -81,25 +65,4 @@ export const MODEL_TOOL_INPUT_SCHEMAS = {
   // The model passes `cf <command> --dry-run` output through unchanged. The account is fixed by the
   // connection, so a URL naming any other account is rejected before a credential is resolved.
   cloudflare_request: cloudflareApiRequestInputSchema,
-  commit: z.object({
-    message: z
-      .string()
-      .min(1)
-      .max(500)
-      .describe('A commit message saying what changed and why, for the project history.'),
-  }),
-  publish_preview: z.object({
-    message: z
-      .string()
-      .min(1)
-      .max(500)
-      .describe('A short commit message saying what changed, for the project history.'),
-  }),
-  publish: z.object({
-    message: z
-      .string()
-      .min(1)
-      .max(500)
-      .describe('A short commit message saying what changed, for the project history.'),
-  }),
 } as const satisfies Record<ModelToolName, ZodType>;

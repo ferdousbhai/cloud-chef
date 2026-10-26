@@ -31,19 +31,13 @@ describe('operation lease policy', () => {
   it('maps every model tool that can hold the workspace to a lane', () => {
     const governed = new Set(Object.values(OPERATION_LANE_TOOLS).flat());
 
-    // The VFS-only workspace tools and the remote docs search never take a lane; everything else
-    // must. A discovery tool that slipped into a lane would wait on the container it exists to
+    // The VFS-only workspace tools never take a lane; everything else must. A discovery tool that slipped into a lane would wait on the container it exists to
     // avoid.
     expect(Object.keys(BUILDER_TOOL_DEADLINES_MS).filter((tool) => !governed.has(tool as never))).toEqual([
       ...WORKSPACE_READ_ONLY_TOOL_NAMES,
       // cloudflare_request is sent by the runtime Worker directly and must never take a
       // workspace lane, so it belongs with the other ungoverned tools.
       'cloudflare_request',
-      // Publishing a team project and committing an app read the workspace's files and push to its
-      // repository; they hold no lane.
-      'publish_preview',
-      'publish',
-      'commit',
     ]);
   });
 

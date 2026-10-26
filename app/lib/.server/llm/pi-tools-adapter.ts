@@ -12,8 +12,6 @@ import {
 } from './builder-turn-limits';
 import { createWorkersAiTools, type BuilderOperationContext } from './workers-ai-tools';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
-import type { LinkedProjectModelToolContext } from './linked-project-model-tools';
-import type { AppProjectModelToolContext } from './app-project-model-tools';
 
 const toolLabels = {
   read: 'Read file',
@@ -24,9 +22,6 @@ const toolLabels = {
   exec: 'Run command',
   validate: 'Validate project',
   cloudflare_request: 'Cloudflare API request',
-  publish_preview: 'Make a preview',
-  publish: 'Publish',
-  commit: 'Save a version',
 } satisfies Record<ModelToolName, string>;
 
 /** Adapt the canonical model tools to Pi's validated tool contract. */
@@ -35,17 +30,9 @@ export function createPiToolBundle(
   operationContext: BuilderOperationContext,
   skillReader: BuilderSkillReader,
   cloudflareApi?: CloudflareApiModelToolContext,
-  linkedProject?: LinkedProjectModelToolContext,
-  appProject?: AppProjectModelToolContext,
+  linked = false,
 ): Record<string, AgentTool> {
-  const canonicalTools = createWorkersAiTools(
-    workspace,
-    operationContext,
-    skillReader,
-    cloudflareApi,
-    linkedProject,
-    appProject,
-  );
+  const canonicalTools = createWorkersAiTools(workspace, operationContext, skillReader, cloudflareApi, linked);
   const tools: Record<string, AgentTool> = Object.fromEntries(
     MODEL_TOOL_NAMES.flatMap((name) => {
       const definition = canonicalTools[name];

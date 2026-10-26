@@ -230,17 +230,23 @@ conflict, never an overwrite. A commit writes the whole tree (a file left out is
 parent lacks; installed and built output, local secrets (`.env*`, `.dev.vars*`) and what the project's
 `.gitignore` files ignore never go in.
 
-A CloudChef app keeps its exact-revision deployment. Once a production deployment succeeds, a background fiber
-commits that exact checkpoint to main (the conversation's title, then `CloudChef-Revision: <revision>`, authored as
-the member) and records the commit on the deployment row; a workspace that moved on first is left to its own
-publish, and a failed commit never fails the publish, since the next one carries the whole tree. `revertToCommit`
-applies an earlier commit's files as one compare-and-swap change set (refused while a turn runs) and the ordinary
-publication follows, its commit starting `Revert to <short commit>`. A fork copies the repository to the new chat's
-own `p-<id>` (main moved back to the chosen commit) and the new chat's workspace seeds from it. A team project's
-workspace seeds from its main (importing it first, when the control plane gives an import source); `publish_preview`
-replaces the chat's branch with one commit on top of the workspace's base, `publish` then merges it into
-main (fast-forward, or a three-way merge by file and by line, where overlapping changes are a conflict), and the
-watch reads Workers Builds' status for the commit from the control plane (`runtime-projects/status`). The browser
+The agent works on a project's history with plain git in its workspace container. The history lives on the
+container's own disk (`GIT_DIR=/opt/cloudchef/git/project.git`, the worktree `/home/project`), outside the durably
+stored `/home`, and is set up again from the repository on first use in each container
+(`user-workspace-runtime/src/container-toolchain.ts`): based on the commit the workspace's files match, so others'
+later commits never show as changes undone, with secret files and build output excluded and hooks that refuse
+committing `.env`/`.dev.vars` and rewriting main. Its remote is `http://git.internal/project.git`, which the
+runtime's `GitProxy` (`user-workspace-runtime/src/git-proxy.ts`, `app/lib/.server/cloudflare/git-proxy.ts`) answers:
+it checks the person's access on each request, adds a short-lived Artifacts token the container never sees, refuses
+deleting main or pushing anything but branches and tags, and records the refs a push updated. A CloudChef app's
+production serves main: a turn that pushed main publishes it, with its exact-revision deployment, and only while the
+workspace holds exactly what main does. `revertToCommit` applies an earlier commit's files as one compare-and-swap
+change set (refused while a turn runs), commits them as `Revert to <short commit>`, and the ordinary publication
+follows. A fork copies the repository to the new chat's own `p-<id>` (main moved back to the chosen commit) and the
+new chat's workspace seeds from it. A team project's workspace seeds from its main (importing it first, when the
+control plane gives an import source); a push of a branch makes a preview and a push of main publishes, each shown
+in the pushing command's card while a background watch reads Workers Builds' status for the commit from the control
+plane (`runtime-projects/status`). The browser
 reads history, a clone command, a fork and a ZIP of any commit through the runtime (`projects.*` data operations and
 `GET /v1/projects/archive`), with a chat's creator alone for a CloudChef app and the control plane's role (view or
 edit) for a team project.

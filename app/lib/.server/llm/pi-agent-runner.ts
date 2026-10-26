@@ -72,8 +72,6 @@ import { logProviderFailure } from './provider-error-logging';
 import { ProviderStopError, providerStopDiagnosticCode } from './provider-stop-error';
 import type { PiSteeringQueue } from './pi-steering';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
-import type { LinkedProjectModelToolContext } from './linked-project-model-tools';
-import type { AppProjectModelToolContext } from './app-project-model-tools';
 import { isRecord } from 'cloudchef-agent/utils/isRecord';
 
 type Messages = CloudChefMessage[];
@@ -106,10 +104,8 @@ export interface PiAgentOptions {
   gatewayKeyRevision?: string;
   workspace: BuilderWorkspaceApi;
   cloudflareApi?: CloudflareApiModelToolContext;
-  /** Set when the workspace is one of a team's projects. */
-  linkedProject?: LinkedProjectModelToolContext;
-  /** Set when the workspace is a CloudChef app. */
-  appProject?: AppProjectModelToolContext;
+  /** Set when the workspace is one of a team's projects: its name and default branch, for the prompt. */
+  linkedProject?: { repository: string; defaultBranch: string };
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
   pushResult?: BuilderOperationContext['pushResult'];
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
@@ -189,7 +185,6 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
     workspace,
     cloudflareApi,
     linkedProject,
-    appProject,
     onValidationStage,
     pushResult,
     runWithKeepAlive,
@@ -235,8 +230,7 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
         { onValidationStage, pushResult, runWithKeepAlive },
         skillContext.reader,
         cloudflareApi,
-        linkedProject,
-        appProject,
+        linkedProject !== undefined,
       ),
     };
   });
