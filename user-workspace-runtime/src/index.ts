@@ -36,7 +36,12 @@ import {
 } from '../../app/lib/.server/cloudflare/deployment-config';
 import { recordDeploymentActivity } from '../../app/lib/.server/cloudflare/deployment-repository';
 import type { BuilderValidationStage } from '../../app/lib/common/builder-validation-progress';
-import type { GitWorkspaceRepository, RefUpdate } from '../../app/lib/.server/cloudflare/git-proxy';
+import {
+  workspaceRefsPrefix,
+  type GitWorkspaceRepository,
+  type RefUpdate,
+} from '../../app/lib/.server/cloudflare/git-proxy';
+import { ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
 import type {
   BuilderWorkspaceGitRepository,
   WorkspaceValidationStageReporter,
@@ -2120,6 +2125,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   async deleteProject() {
+    const repository = this.gitRepository();
     await this.withStatefulOperation('delete', 'delete:project', async () => {
       await this.withComputer((workspace) => workspace.fs.rm(PROJECT_ROOT, { recursive: true, force: true }));
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_validations');
@@ -2136,6 +2142,12 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       );
     });
     await this.destroy().catch(() => undefined);
+    // The branches its container saved go with it, once the container can no longer save them again.
+    if (repository) {
+      await new ProjectRepositories(this.env.ARTIFACTS)
+        .deleteRefs(repository.repo, workspaceRefsPrefix(this.ctx.id.toString()))
+        .catch((error: Error) => console.warn({ event: 'workspace_refs_not_deleted', message: error.message }));
+    }
   }
 
   setLinkedProject(value: BuilderWorkspaceLinkedProject): void {

@@ -1,5 +1,13 @@
 import type { BuilderWorkspaceGitRepository } from '~/agents/builder-workspace-api';
-import { concatBytes, pktLine, readPktLines, ZERO_OID, type GitFetch, type GitRemote } from './repository-wire';
+import {
+  boundedBytes,
+  concatBytes,
+  pktLine,
+  readPktLines,
+  ZERO_OID,
+  type GitFetch,
+  type GitRemote,
+} from './repository-wire';
 
 /**
  * git in the workspace container reaches the project's repository only through this address. The
@@ -14,10 +22,22 @@ const WORKSPACE_PATH = '/_cloudchef/workspace';
 /** Where the container's git wrapper says which branch and commit it has checked out, after a push. */
 export const GIT_BASE_PATH = '/_cloudchef/base';
 const MAIN_REF = 'refs/heads/main';
+/** Every workspace's saved branches sit under here, each workspace's in its own folder. */
+const WORKSPACE_REFS_ROOT = 'refs/cloudchef/workspaces';
 /** A push's command section is a few lines per ref; anything larger is not a push git sends. */
 const MAX_COMMAND_BYTES = 64 * 1024;
 /** The push's answer is its report and progress lines; past this only the report's absence is known. */
 const MAX_REPORT_BYTES = 256 * 1024;
+/** A ref list is read whole to leave out other workspaces' refs; one larger than this isn't a project's. */
+const MAX_REF_LIST_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Where a workspace's container keeps its branches in the project's repository, `<prefix>/<branch>`, so its
+ * commits outlive the container before they are pushed. Only that workspace may write or see them.
+ */
+export function workspaceRefsPrefix(workspaceId: string): string {
+  return `${WORKSPACE_REFS_ROOT}/${workspaceId}`;
+}
 
 type GitService = 'git-upload-pack' | 'git-receive-pack';
 
@@ -121,12 +141,20 @@ function parseCommands(bytes: Uint8Array): { updates: RefUpdate[]; capabilities:
   return null;
 }
 
+/** Whether `ref` is one of the workspace's saved branches, under `workspaceRefs`. */
+function isWorkspaceRef(ref: string, workspaceRefs: string): boolean {
+  return ref.startsWith(`${workspaceRefs}/`) && ref.length > workspaceRefs.length + 1;
+}
+
 /**
  * Why a push's ref updates are refused, or null. Only branches and tags may be pushed, and `main`, which
- * is what people see, may not be deleted.
+ * is what people see, may not be deleted; the workspace's own saved branches may be set or removed freely.
  */
-function refusedRefUpdate(updates: readonly RefUpdate[]): string | null {
+function refusedRefUpdate(updates: readonly RefUpdate[], workspaceRefs: string): string | null {
   for (const update of updates) {
+    if (isWorkspaceRef(update.ref, workspaceRefs)) {
+      continue;
+    }
     if (!/^refs\/(heads|tags)\/\S+$/.test(update.ref)) {
       return `Only branches and tags can be pushed, not ${update.ref}.`;
     }
@@ -285,6 +313,9 @@ export type GitProxyDependencies = {
   refusal(target: BuilderWorkspaceGitRepository, write: boolean): Promise<string | null>;
   access(repo: string, scope: 'read' | 'write'): Promise<GitRemote & { tokenId: string }>;
   revoke(repo: string, tokenId: string): Promise<void>;
+  /** The workspace's saved branches' prefix (`workspaceRefsPrefix`): the only refs besides branches and tags it may write or see. */
+  workspaceRefs: string;
+  /** A branch or tag a push updated; never one of the workspace's saved branches. */
   recordPush(update: RefUpdate): Promise<void>;
   /** Where git in the next container starts: the branch and commit this one has checked out. */
   recordBase(base: { branch: string; commit: string }): Promise<void>;
@@ -317,6 +348,8 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
 
   let body: { stream: ReadableStream<Uint8Array>; decoded: boolean } | null = null;
   let updates: RefUpdate[] = [];
+  // An advertisement, or protocol v2's ls-refs, lists refs: other workspaces' are left out of it.
+  let listsRefs = route.advertisement;
   if (write && !route.advertisement) {
     const decoded = decodedRequestBody(request);
     if (!decoded) {
@@ -325,7 +358,7 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
     try {
       const commands = await readReceivePackCommands(decoded);
       updates = commands.updates;
-      const refused = refusal ?? refusedRefUpdate(updates);
+      const refused = refusal ?? refusedRefUpdate(updates, deps.workspaceRefs);
       if (refused) {
         await commands.body.cancel().catch(() => undefined);
         return gitRefusalReport(updates, commands.capabilities, refused);
@@ -339,8 +372,13 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
     }
   } else if (refusal) {
     return new Response(refusal, { status: 403 });
-  } else if (request.body) {
-    body = { stream: request.body, decoded: false };
+  } else if (!route.advertisement) {
+    const decoded = decodedRequestBody(request);
+    if (decoded) {
+      const first = await readFirstPktLine(decoded);
+      listsRefs = first.line === 'command=ls-refs';
+      body = { stream: first.body, decoded: true };
+    }
   }
 
   // Past the refusals above, `target` is known.
@@ -358,6 +396,13 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
     deps.waitUntil(revoke());
     return response;
   }
+  if (listsRefs) {
+    try {
+      return await filteredRefList(response, deps.workspaceRefs);
+    } finally {
+      deps.waitUntil(revoke());
+    }
+  }
   return observedResponse(response, async (answer) => {
     deps.waitUntil(revoke());
     if (updates.length === 0 || !response.ok) {
@@ -366,6 +411,10 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
     try {
       const report = readPushReport(answer);
       for (const update of updates) {
+        // Saving the workspace's branches publishes nothing.
+        if (isWorkspaceRef(update.ref, deps.workspaceRefs)) {
+          continue;
+        }
         if (report.unpack === 'ok' && report.refs.get(update.ref)?.ok) {
           await deps.recordPush(update);
         }
@@ -416,7 +465,8 @@ async function baseReport(request: Request, deps: GitProxyDependencies): Promise
 
 /**
  * What git in a new container sets itself up from, as lines its shell setup reads: the branch and commit
- * the workspace's files match (`-` for none yet), then the author's name and email.
+ * the workspace's files match (`-` for none yet), the author's name and email, then where the workspace's
+ * branches are saved in the repository.
  */
 async function workspaceAnswer(deps: GitProxyDependencies): Promise<Response> {
   const target = await deps.repository();
@@ -430,9 +480,99 @@ async function workspaceAnswer(deps: GitProxyDependencies): Promise<Response> {
     `${line(target.base.branch)} ${target.base.commit ?? '-'}`,
     line(author.name),
     line(author.email),
+    deps.workspaceRefs,
     '',
   ].join('\n');
   return new Response(body, { headers: { 'content-type': 'text/plain; charset=utf-8' } });
+}
+
+/** A request's first pkt-line, where protocol v2 names its command (null when it has none), and the whole body again. */
+type FirstPktLine = { line: string | null; body: ReadableStream<Uint8Array> };
+
+async function readFirstPktLine(body: ReadableStream<Uint8Array>): Promise<FirstPktLine> {
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let buffered = new Uint8Array();
+  for (;;) {
+    if (buffered.length >= 4) {
+      const length = Number.parseInt(new TextDecoder().decode(buffered.subarray(0, 4)), 16);
+      if (!Number.isFinite(length) || length < 4) {
+        return { line: null, body: prefixed(buffered, reader) };
+      }
+      if (buffered.length >= length) {
+        const line = new TextDecoder().decode(buffered.subarray(4, length)).replace(/\n$/, '');
+        return { line, body: prefixed(buffered, reader) };
+      }
+    }
+    const { done, value } = await reader.read();
+    if (done) {
+      return { line: null, body: prefixed(buffered, reader) };
+    }
+    chunks.push(value);
+    buffered = concatBytes(chunks);
+  }
+}
+
+/** Whether a listed ref is shown to the workspace: HEAD, branches, tags, and its own saved branches. */
+function visibleRef(ref: string, workspaceRefs: string): boolean {
+  return (
+    ref === 'HEAD' ||
+    ref === 'capabilities^{}' ||
+    /^refs\/(heads|tags)\//.test(ref) ||
+    isWorkspaceRef(ref, workspaceRefs)
+  );
+}
+
+/**
+ * `response`'s ref list (an advertisement, or v2's ls-refs) with only the refs the workspace is shown, so no
+ * member sees another workspace's saved branches. Capabilities a left-out v0 ref carried move to the next
+ * ref kept, or to a `capabilities^{}` line when none is.
+ */
+async function filteredRefList(response: Response, workspaceRefs: string): Promise<Response> {
+  if (!response.ok) {
+    return response;
+  }
+  const bytes = await boundedBytes(response, MAX_REF_LIST_BYTES);
+  const kept: Uint8Array[] = [];
+  let capabilities: string | null = null;
+  let offset = 0;
+  while (offset + 4 <= bytes.length) {
+    const length = Number.parseInt(new TextDecoder().decode(bytes.subarray(offset, offset + 4)), 16);
+    if (!Number.isFinite(length)) {
+      break;
+    }
+    if (length < 4) {
+      if (capabilities !== null) {
+        kept.push(pktLine(`${ZERO_OID} capabilities^{}\0${capabilities}\n`));
+        capabilities = null;
+      }
+      kept.push(bytes.subarray(offset, offset + 4));
+      offset += 4;
+      continue;
+    }
+    const packet = bytes.subarray(offset, offset + length);
+    offset += length;
+    const text = new TextDecoder().decode(packet.subarray(4)).replace(/\n$/, '');
+    const ref = /^[0-9a-f]{40} ([^ \0]+)/.exec(text)?.[1];
+    if (ref === undefined) {
+      kept.push(packet);
+      continue;
+    }
+    const [listed = '', offered] = text.split('\0');
+    if (!visibleRef(ref, workspaceRefs)) {
+      capabilities = offered ?? capabilities;
+    } else if (capabilities !== null && offered === undefined) {
+      kept.push(pktLine(`${listed}\0${capabilities}\n`));
+      capabilities = null;
+    } else {
+      kept.push(packet);
+    }
+  }
+  kept.push(bytes.subarray(offset));
+  const headers = new Headers(response.headers);
+  headers.delete('content-length');
+  headers.delete('content-encoding');
+  return new Response(concatBytes(kept), { status: response.status, headers });
 }
 
 /** `head`, then what `reader` gives, read only as fast as it is sent on. */

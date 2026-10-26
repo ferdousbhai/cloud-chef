@@ -7,6 +7,7 @@ const OLD = 'a'.repeat(40);
 const NEW = 'b'.repeat(40);
 const PACK = new TextEncoder().encode('PACK-bytes');
 const FLUSH = new TextEncoder().encode('0000');
+const SAVED = 'refs/cloudchef/workspaces/w1';
 
 type Sent = { url: string; headers: Headers; body: Uint8Array | null };
 
@@ -20,6 +21,7 @@ function harness(options: { refusal?: string | null; answer?: (sent: Sent) => Re
     repository: async () => ({ repo: 'chat-1', orgProjectId: null, base: { branch: 'main', commit: OLD } }),
     author: async () => ({ name: 'Ada\nLovelace', email: 'ada@example.com' }),
     refusal: async () => options.refusal ?? null,
+    workspaceRefs: SAVED,
     access: async (_repo, scope) => ({
       url: 'https://artifacts.example/cloudchef/chat-1.git',
       secret: `secret-${scope}`,
@@ -92,7 +94,7 @@ describe('the workspace git proxy', () => {
   it('tells the container git setup its base commit and author, one per line', async () => {
     const { deps } = harness();
     const response = await handleGitProxyRequest(new Request('http://git.internal/_cloudchef/workspace'), deps);
-    expect(await text(response)).toBe(`main ${OLD}\nAda Lovelace\nada@example.com\n`);
+    expect(await text(response)).toBe(`main ${OLD}\nAda Lovelace\nada@example.com\n${SAVED}\n`);
     const refused = harness({ refusal: 'You no longer have access to this workspace.' });
     const answer = await handleGitProxyRequest(new Request('http://git.internal/_cloudchef/workspace'), refused.deps);
     expect(answer.status).toBe(403);
@@ -227,5 +229,93 @@ describe('the workspace git proxy', () => {
     await (await handleGitProxyRequest(push([`${OLD} ${NEW} refs/heads/main`]), deps)).arrayBuffer();
     await settled();
     expect(recorded).toHaveLength(0);
+  });
+
+  it("saves the workspace's own branches freely, without recording them as pushed", async () => {
+    const { deps, sent, recorded, settled } = harness({
+      answer: () => report(['unpack ok', `ok ${SAVED}/main`, `ok ${SAVED}/feature`]),
+    });
+    const response = await handleGitProxyRequest(
+      push([`${OLD} ${NEW} ${SAVED}/main`, `${OLD} ${ZERO_OID} ${SAVED}/feature`]),
+      deps,
+    );
+    await response.arrayBuffer();
+    await settled();
+    expect(sent).toHaveLength(1);
+    expect(recorded).toEqual([]);
+  });
+
+  it("refuses writing another workspace's saved branches, or anything else of CloudChef's", async () => {
+    for (const ref of ['refs/cloudchef/workspaces/w2/main', 'refs/cloudchef/workspaces/w1', 'refs/cloudchef/other']) {
+      const { deps, sent } = harness();
+      const response = await handleGitProxyRequest(push([`${OLD} ${NEW} ${ref}`]), deps);
+      expect(await text(response)).toContain(`ng ${ref} Only branches and tags can be pushed`);
+      expect(sent).toHaveLength(0);
+    }
+  });
+
+  it("leaves other workspaces' saved branches out of what the repository lists, keeping its capabilities", async () => {
+    const refs = (lines: string[]) =>
+      new Response(
+        concatBytes([pktLine('# service=git-upload-pack\n'), FLUSH, ...lines.map((line) => pktLine(line)), FLUSH]),
+      );
+    const advertise = new Request('http://git.internal/project.git/info/refs?service=git-upload-pack');
+    const listed = harness({
+      answer: () =>
+        refs([
+          `${OLD} refs/cloudchef/workspaces/w2/main\0multi_ack side-band-64k\n`,
+          `${NEW} ${SAVED}/main\n`,
+          `${OLD} refs/heads/main\n`,
+          `${OLD} refs/notes/commits\n`,
+          `${NEW} refs/tags/v1^{}\n`,
+        ]),
+    });
+    expect(await text(await handleGitProxyRequest(advertise, listed.deps))).toBe(
+      new TextDecoder().decode(
+        concatBytes([
+          pktLine('# service=git-upload-pack\n'),
+          FLUSH,
+          pktLine(`${NEW} ${SAVED}/main\0multi_ack side-band-64k\n`),
+          pktLine(`${OLD} refs/heads/main\n`),
+          pktLine(`${NEW} refs/tags/v1^{}\n`),
+          FLUSH,
+        ]),
+      ),
+    );
+    await listed.settled();
+    expect(listed.revoked).toEqual(['token-read']);
+
+    const hidden = harness({ answer: () => refs([`${OLD} refs/cloudchef/workspaces/w2/main\0multi_ack\n`]) });
+    expect(await text(await handleGitProxyRequest(advertise, hidden.deps))).toContain(
+      `${ZERO_OID} capabilities^{}\0multi_ack\n`,
+    );
+  });
+
+  it("leaves other workspaces' saved branches out of protocol v2's ref list, and passes a fetch on as it is", async () => {
+    const v2 = (command: string) =>
+      new Request('http://git.internal/project.git/git-upload-pack', {
+        method: 'POST',
+        headers: { 'git-protocol': 'version=2', 'content-type': 'application/x-git-upload-pack-request' },
+        body: concatBytes([
+          pktLine(`command=${command}\n`),
+          new TextEncoder().encode('0001'),
+          pktLine('peel\n'),
+          FLUSH,
+        ]),
+      });
+    const lines = [
+      `${OLD} HEAD symref-target:refs/heads/main\n`,
+      `${NEW} refs/cloudchef/workspaces/w2/x\n`,
+      `${OLD} refs/heads/main\n`,
+    ];
+    const answer = () => new Response(concatBytes([...lines.map((line) => pktLine(line)), FLUSH]));
+    const listing = harness({ answer });
+    const listed = await text(await handleGitProxyRequest(v2('ls-refs'), listing.deps));
+    expect(listed).not.toContain('workspaces/w2');
+    expect(listed).toContain(`${OLD} refs/heads/main`);
+    expect(new TextDecoder().decode(listing.sent[0]?.body ?? new Uint8Array())).toContain('command=ls-refs');
+
+    const fetching = harness({ answer });
+    expect(await text(await handleGitProxyRequest(v2('fetch'), fetching.deps))).toContain('workspaces/w2');
   });
 });

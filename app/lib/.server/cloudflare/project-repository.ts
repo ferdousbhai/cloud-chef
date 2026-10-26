@@ -421,6 +421,33 @@ export class ProjectRepositories {
     }
   }
 
+  /** Deletes every ref under `prefix/` (a deleted workspace's saved branches); a repository already gone has none. */
+  async deleteRefs(repo: string, prefix: string): Promise<void> {
+    if (!(await this.exists(repo))) {
+      return;
+    }
+    const remote = await this.#pushRemote(repo);
+    try {
+      for (const [ref, oid] of await readRemoteRefs(this.#fetch, remote)) {
+        if (!ref.startsWith(`${prefix}/`)) {
+          continue;
+        }
+        // Only deletes: git sends no pack with them.
+        const result = await updateRemoteRef(
+          this.#fetch,
+          remote,
+          { ref, oldOid: oid, newOid: ZERO_OID },
+          new Uint8Array(),
+        );
+        if (!result.ok) {
+          throw new Error(`The repository refused to delete ${ref} (${result.reason}).`);
+        }
+      }
+    } finally {
+      await this.#revokePushToken(repo, remote);
+    }
+  }
+
   /** The commit `ref` names, as a streamed ZIP whose files sit under `folder/`. */
   async archiveZip(
     repo: string,

@@ -11,7 +11,7 @@ import {
   workerSettingsSchema,
   type BindingLookups,
 } from '../../app/lib/.server/cloudflare/deploy-api-policy';
-import { GIT_PROXY_HOST, handleGitProxyRequest } from '../../app/lib/.server/cloudflare/git-proxy';
+import { GIT_PROXY_HOST, handleGitProxyRequest, workspaceRefsPrefix } from '../../app/lib/.server/cloudflare/git-proxy';
 import {
   claimProjectDeployment,
   projectDeploymentCredential,
@@ -1287,6 +1287,8 @@ export class BuilderSourceProxy extends WorkerEntrypoint<BuilderEnv, BuilderProx
       refusal: async (_target, write) => (write ? 'Building reads the project; it never changes it.' : null),
       access: (repo, scope) => repositories.gitAccess(repo, scope),
       revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
+      // A namespace no workspace has: the build sees branches and tags only.
+      workspaceRefs: workspaceRefsPrefix(this.ctx.props.builderId),
       recordPush: async () => undefined,
       recordBase: async () => undefined,
       fetch: (input, init) => fetch(input, init),
