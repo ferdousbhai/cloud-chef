@@ -7,7 +7,7 @@
 
 type DeploymentKind = 'production' | 'preview';
 type DeploymentState = 'queued' | 'building' | 'deploying' | 'succeeded' | 'failed' | 'superseded' | 'not_deployable';
-export type DeploymentFailureStage = 'config' | 'install' | 'build' | 'migrations' | 'deploy' | 'interrupted';
+type DeploymentFailureStage = 'config' | 'install' | 'build' | 'migrations' | 'deploy' | 'interrupted';
 
 type ProjectDeployment = {
   id: string;
