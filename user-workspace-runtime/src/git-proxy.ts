@@ -61,6 +61,7 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
       access: (repo, scope) => repositories.gitAccess(repo, scope),
       revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
       recordPush: (update) => workspace.recordGitPush(update),
+      recordBase: (base) => workspace.setGitBase(base),
       fetch: (input, init) => fetch(input, init),
       waitUntil: (promise) => this.ctx.waitUntil(promise),
     });

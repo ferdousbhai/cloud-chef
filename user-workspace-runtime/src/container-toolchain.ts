@@ -4,7 +4,7 @@ import templatePackage from '../../template/package.json' with { type: 'json' };
 import { CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS } from './operation-lease-policy';
 import { shellQuote } from './shell-quote';
 import { abortableSleep } from '../../app/lib/abortable-sleep';
-import { GIT_PROXY_HOST } from '../../app/lib/.server/cloudflare/git-proxy';
+import { GIT_BASE_PATH, GIT_PROXY_HOST } from '../../app/lib/.server/cloudflare/git-proxy';
 import { ZERO_OID } from '../../app/lib/.server/cloudflare/repository-wire';
 
 /**
@@ -174,8 +174,12 @@ const SECRETS_ADVICE =
 /**
  * Inside the project, git uses the project's history and sets it up first when the container has none. A
  * directory with its own `.git`, such as a repository cloned for reference, is left to plain git.
+ *
+ * After a push, the branch and commit checked out are told to the git proxy when the repository holds that
+ * commit: it is where git in the next container starts, so the files there show no changes it didn't make.
  */
 export function gitWrapperScript(): string {
+  const real = shellQuote(REAL_GIT);
   return [
     '#!/bin/sh',
     'case "$PWD/" in',
@@ -183,10 +187,22 @@ export function gitWrapperScript(): string {
     '    if [ -z "${GIT_DIR:-}" ] && [ ! -e "$PWD/.git" ]; then',
     `      export GIT_DIR=${shellQuote(GIT_DIR)} GIT_WORK_TREE=${shellQuote(WORK_DIR)}`,
     `      [ -f "$GIT_DIR/HEAD" ] || ${shellQuote(GIT_SETUP)} || exit 1`,
+    '      if [ "${1:-}" = push ]; then',
+    `        ${real} "$@"`,
+    '        status=$?',
+    '        if [ "$status" -eq 0 ]; then',
+    `          branch="$(${real} symbolic-ref -q --short HEAD 2>/dev/null)"`,
+    `          commit="$(${real} rev-parse -q --verify HEAD 2>/dev/null)"`,
+    `          if [ -n "$branch" ] && [ -n "$commit" ] && [ "$(${real} rev-parse -q --verify "refs/remotes/origin/$branch" 2>/dev/null)" = "$commit" ]; then`,
+    `            curl -fsS -o /dev/null -X POST --data-binary "$branch $commit" ${shellQuote(`http://${GIT_PROXY_HOST}${GIT_BASE_PATH}`)} >/dev/null 2>&1 || true`,
+    '          fi',
+    '        fi',
+    '        exit "$status"',
+    '      fi',
     '    fi',
     '    ;;',
     'esac',
-    `exec ${shellQuote(REAL_GIT)} "$@"`,
+    `exec ${real} "$@"`,
     '',
   ].join('\n');
 }
@@ -229,6 +245,8 @@ export function gitSetupScript(): string {
     'g fetch -q origin',
     'if [ "$commit" != - ] && g cat-file -e "$commit^{commit}" 2>/dev/null; then',
     '  start="$commit"',
+    'elif start="$(g rev-parse -q --verify "refs/remotes/origin/$branch")"; then',
+    '  :',
     'elif start="$(g rev-parse -q --verify refs/remotes/origin/main)"; then',
     '  branch=main',
     'else',

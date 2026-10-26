@@ -11,6 +11,8 @@ export const GIT_PROXY_HOST = 'git.internal';
 const REPOSITORY_PATH = '/project.git';
 /** Asked by the container's git setup, never by git itself. */
 const WORKSPACE_PATH = '/_cloudchef/workspace';
+/** Where the container's git wrapper says which branch and commit it has checked out, after a push. */
+export const GIT_BASE_PATH = '/_cloudchef/base';
 const MAIN_REF = 'refs/heads/main';
 /** A push's command section is a few lines per ref; anything larger is not a push git sends. */
 const MAX_COMMAND_BYTES = 64 * 1024;
@@ -284,6 +286,8 @@ export type GitProxyDependencies = {
   access(repo: string, scope: 'read' | 'write'): Promise<GitRemote & { tokenId: string }>;
   revoke(repo: string, tokenId: string): Promise<void>;
   recordPush(update: RefUpdate): Promise<void>;
+  /** Where git in the next container starts: the branch and commit this one has checked out. */
+  recordBase(base: { branch: string; commit: string }): Promise<void>;
   fetch: GitFetch;
   waitUntil(promise: Promise<unknown>): void;
 };
@@ -296,6 +300,9 @@ export type GitProxyDependencies = {
 export async function handleGitProxyRequest(request: Request, deps: GitProxyDependencies): Promise<Response> {
   if (isWorkspaceRequest(request)) {
     return workspaceAnswer(deps);
+  }
+  if (isBaseReport(request)) {
+    return baseReport(request, deps);
   }
   const route = gitProxyRoute(request);
   if (!route) {
@@ -383,6 +390,28 @@ async function gitRefusal(
 function isWorkspaceRequest(request: Request): boolean {
   const url = new URL(request.url);
   return url.hostname === GIT_PROXY_HOST && request.method === 'GET' && url.pathname === WORKSPACE_PATH;
+}
+
+function isBaseReport(request: Request): boolean {
+  const url = new URL(request.url);
+  return url.hostname === GIT_PROXY_HOST && request.method === 'POST' && url.pathname === GIT_BASE_PATH;
+}
+
+/**
+ * The branch and commit git in the container has checked out, told after a push that left the repository
+ * holding that commit: where git in the next container starts. Only someone who may push says it.
+ */
+async function baseReport(request: Request, deps: GitProxyDependencies): Promise<Response> {
+  const target = await deps.repository();
+  if (await gitRefusal(deps, target, true)) {
+    return new Response(null, { status: 403 });
+  }
+  const match = /^([A-Za-z0-9._/-]{1,255}) ([0-9a-f]{40})$/.exec((await request.text()).trim());
+  if (!match || match[1]!.includes('..')) {
+    return new Response(null, { status: 400 });
+  }
+  await deps.recordBase({ branch: match[1]!, commit: match[2]! });
+  return new Response(null, { status: 204 });
 }
 
 /**

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -88,6 +88,7 @@ function answerWith(base: string | null): void {
     join(root, 'bin', 'curl'),
     [
       '#!/bin/sh',
+      `printf '%s\\n' "$*" >> '${join(root, 'curl.log')}'`,
       'while [ $# -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done',
       `printf 'main ${base ?? '-'}\\nAda Lovelace\\nada@example.com\\n' > "$out"`,
       'printf 200',
@@ -192,6 +193,11 @@ describe.skipIf(!hasTools)("the workspace container's git", () => {
     run(wrapped, ['add', 'b.txt'], project);
     expect(run(wrapped, ['commit', '-q', '-m', 'b'], project).status).toBe(0);
     expect(run(wrapped, ['push', '-q', 'origin', 'main'], project).status).toBe(0);
+    // Where git in the next container starts: the branch checked out, at the commit just pushed.
+    const head = run(wrapped, ['rev-parse', 'HEAD'], project).stdout;
+    expect(readFileSync(join(root, 'curl.log'), 'utf8')).toContain(
+      `--data-binary main ${head} http://git.internal/_cloudchef/base`,
+    );
 
     run(wrapped, ['reset', '-q', '--soft', 'HEAD~2'], project);
     expect(run(wrapped, ['commit', '-q', '-m', 'squashed'], project).status).toBe(0);

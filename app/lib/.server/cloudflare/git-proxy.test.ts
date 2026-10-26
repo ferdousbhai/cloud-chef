@@ -14,6 +14,7 @@ function harness(options: { refusal?: string | null; answer?: (sent: Sent) => Re
   const sent: Sent[] = [];
   const revoked: string[] = [];
   const recorded: RefUpdate[] = [];
+  const bases: { branch: string; commit: string }[] = [];
   const pending: Promise<unknown>[] = [];
   const deps: GitProxyDependencies = {
     repository: async () => ({ repo: 'chat-1', orgProjectId: null, base: { branch: 'main', commit: OLD } }),
@@ -30,6 +31,9 @@ function harness(options: { refusal?: string | null; answer?: (sent: Sent) => Re
     recordPush: async (update) => {
       recorded.push(update);
     },
+    recordBase: async (base) => {
+      bases.push(base);
+    },
     fetch: async (url, init) => {
       const body = init?.body ? new Uint8Array(await new Response(init.body).arrayBuffer()) : null;
       const request = { url, headers: new Headers(init?.headers), body };
@@ -43,7 +47,7 @@ function harness(options: { refusal?: string | null; answer?: (sent: Sent) => Re
   const settled = async () => {
     await Promise.all(pending);
   };
-  return { deps, sent, revoked, recorded, settled };
+  return { deps, sent, revoked, recorded, bases, settled };
 }
 
 function push(commands: string[], init: { gzip?: boolean } = {}): Request {
@@ -92,6 +96,19 @@ describe('the workspace git proxy', () => {
     const refused = harness({ refusal: 'You no longer have access to this workspace.' });
     const answer = await handleGitProxyRequest(new Request('http://git.internal/_cloudchef/workspace'), refused.deps);
     expect(answer.status).toBe(403);
+  });
+
+  it('records where git in the next container starts, as one who may push says it', async () => {
+    const say = (body: string) => new Request('http://git.internal/_cloudchef/base', { method: 'POST', body });
+    const { deps, bases } = harness();
+    expect((await handleGitProxyRequest(say(`feature/x ${NEW}`), deps)).status).toBe(204);
+    expect(bases).toEqual([{ branch: 'feature/x', commit: NEW }]);
+    for (const bad of ['main', `../main ${NEW}`, `main ${NEW.slice(1)}`]) {
+      expect((await handleGitProxyRequest(say(bad), deps)).status).toBe(400);
+    }
+    const viewer = harness({ refusal: 'You can view this project but not change it.' });
+    expect((await handleGitProxyRequest(say(`main ${NEW}`), viewer.deps)).status).toBe(403);
+    expect(viewer.bases).toEqual([]);
   });
 
   it('answers only git for the project repository', async () => {

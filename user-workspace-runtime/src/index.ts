@@ -37,7 +37,6 @@ import {
 import { recordDeploymentActivity } from '../../app/lib/.server/cloudflare/deployment-repository';
 import type { BuilderValidationStage } from '../../app/lib/common/builder-validation-progress';
 import type { GitWorkspaceRepository, RefUpdate } from '../../app/lib/.server/cloudflare/git-proxy';
-import { ZERO_OID } from '../../app/lib/.server/cloudflare/repository-wire';
 import type {
   BuilderWorkspaceGitRepository,
   WorkspaceValidationStageReporter,
@@ -194,6 +193,10 @@ const LINKED_PROJECT_SCRIPT_TIMEOUT_MS = 10 * 60_000;
 const gitRepositorySchema = z.object({
   repo: z.string().min(1).max(256),
   orgProjectId: z.string().min(1).max(256).nullable(),
+});
+const gitBaseSchema = z.object({
+  branch: z.string().regex(/^[A-Za-z0-9._/-]{1,255}$/),
+  commit: z.string().regex(/^[0-9a-f]{40}$/),
 });
 const gitPushSchema = z.object({
   ref: z.string().min(1).max(1024),
@@ -2194,25 +2197,26 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     };
   }
 
-  /** A ref the git proxy saw updated by a push from this workspace's container: a branch becomes its base. */
+  /** A ref the git proxy saw updated by a push from this workspace's container. */
   recordGitPush(value: RefUpdate): void {
     const update = gitPushSchema.parse(value);
-    this.ctx.storage.transactionSync(() => {
-      this.ctx.storage.sql.exec(
-        'INSERT INTO cloudchef_git_pushes (ref, old_oid, new_oid, pushed_at) VALUES (?, ?, ?, ?)',
-        update.ref,
-        update.oldOid,
-        update.newOid,
-        Date.now(),
-      );
-      if (update.ref.startsWith('refs/heads/') && update.newOid !== ZERO_OID) {
-        this.ctx.storage.sql.exec(
-          'UPDATE cloudchef_git_repository SET base_branch = ?, base_commit = ? WHERE singleton = 1',
-          update.ref.slice('refs/heads/'.length),
-          update.newOid,
-        );
-      }
-    });
+    this.ctx.storage.sql.exec(
+      'INSERT INTO cloudchef_git_pushes (ref, old_oid, new_oid, pushed_at) VALUES (?, ?, ?, ?)',
+      update.ref,
+      update.oldOid,
+      update.newOid,
+      Date.now(),
+    );
+  }
+
+  /** The branch and commit git in the container has checked out, which the repository holds: the next one starts there. */
+  setGitBase(value: { branch: string; commit: string }): void {
+    const base = gitBaseSchema.parse(value);
+    this.ctx.storage.sql.exec(
+      'UPDATE cloudchef_git_repository SET base_branch = ?, base_commit = ? WHERE singleton = 1',
+      base.branch,
+      base.commit,
+    );
   }
 
   /** The refs the container's pushes updated since this was last asked, oldest first; each is given once. */
