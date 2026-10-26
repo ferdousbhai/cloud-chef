@@ -55,7 +55,7 @@ export function deployApiDecision(
     return 'refused';
   }
   const rest = path.slice(account.length);
-  const self = `/workers/(scripts|services)/${context.workerName}(/[^]*)?`;
+  const self = `/workers/(scripts|services|workers)/${context.workerName}(/[^]*)?`;
   if (READ_METHODS.has(method)) {
     return new RegExp(
       `^(/workers/subdomain|${self}|/d1/database|/d1/database/${UUID}|/storage/kv/namespaces|` +

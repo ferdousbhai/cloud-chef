@@ -115,6 +115,9 @@ describe("what a deploy may ask of Cloudflare's API", () => {
   it('reads its own Worker and the resources by name, but no stored data, other Workers, nor another account', () => {
     expect(decide('GET', '/accounts/acc/workers/subdomain')).toBe('with_token');
     expect(decide('GET', '/accounts/acc/workers/services/glossary')).toBe('with_token');
+    // Wrangler reads its Worker's workers.dev settings through the newer Workers API.
+    expect(decide('GET', '/accounts/acc/workers/workers/glossary')).toBe('with_token');
+    expect(decide('GET', '/accounts/acc/workers/workers/other-site')).toBe('refused');
     expect(decide('GET', '/memberships')).toBe('with_token');
     expect(decide('GET', '/accounts/acc/storage/kv/namespaces')).toBe('with_token');
     expect(decide('GET', '/accounts/acc/r2/buckets/glossary-files')).toBe('with_token');
