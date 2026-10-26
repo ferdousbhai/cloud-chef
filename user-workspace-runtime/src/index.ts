@@ -59,6 +59,8 @@ import { userRuntimeDataAction, userRuntimeInitialMessagesAction } from '../../a
 import {
   userRuntimeProjectArchiveAction,
   userRuntimeProjectUploadAction,
+  userRuntimeProjectDeployLogAction,
+  userRuntimeProjectDeployRetryAction,
 } from '../../app/lib/cloudflare/data/projects.server';
 import { verifyRuntimeCapability } from '../../app/lib/cloudflare/runtime-capability';
 import { userRuntimeDeploymentAction } from '../../app/server-handlers/deployments';
@@ -163,9 +165,12 @@ import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 
 export { WorkspaceProxy };
 export { GitProxy } from './git-proxy';
+export { BuilderSourceProxy, DeployApiProxy, ProjectBuilder } from './project-builder';
+import type { ProjectBuilder } from './project-builder';
 
 interface RuntimeEnv {
   PROJECT_WORKSPACE: DurableObjectNamespace<ProjectWorkspace>;
+  PROJECT_BUILDER: DurableObjectNamespace<ProjectBuilder>;
   BuilderAgent: DurableObjectNamespace<BuilderAgent>;
   DB: D1Database;
   AI: Ai;
@@ -3074,6 +3079,10 @@ async function handleUserRequest(
     response = await userRuntimeProjectArchiveAction({ url, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/upload') {
     response = await userRuntimeProjectUploadAction({ request, url, env: sharedEnv, userId: capability.subject });
+  } else if (request.method === 'POST' && url.pathname === '/v1/projects/deploy') {
+    response = await userRuntimeProjectDeployRetryAction({ request, env: sharedEnv });
+  } else if (request.method === 'GET' && url.pathname === '/v1/projects/deploy-log') {
+    response = await userRuntimeProjectDeployLogAction({ url, env: sharedEnv });
   } else if (request.method === 'POST' && url.pathname === '/v1/chats/messages') {
     response = await userRuntimeInitialMessagesAction({
       request,

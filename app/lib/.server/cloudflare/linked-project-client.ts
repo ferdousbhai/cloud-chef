@@ -40,6 +40,8 @@ const openedProjectSchema = z.object({
   importSource: importSourceSchema.optional(),
   /** Who is asking, for the commits made in their name and their branch. */
   member: memberSchema.nullable().optional().catch(null),
+  /** Who builds and deploys it: Workers Builds, or CloudChef itself (an upload). */
+  deploysWith: z.enum(['workers_builds', 'cloudchef']).optional().catch(undefined),
 });
 type OpenedProject = z.infer<typeof openedProjectSchema>;
 
@@ -301,4 +303,96 @@ async function failure(response: Response, fallback: string): Promise<Error> {
   }
   // Words of its own (GitHub can't be reached) are said to the person.
   return new ProjectUnavailableError(parsed.data.error);
+}
+
+/** A build and deploy of one commit, as the control plane hands it to this runtime. */
+const claimedDeploymentSchema = z.object({
+  deploymentId: z.string().uuid(),
+  claimed: z.boolean(),
+  kind: z.enum(['production', 'preview']),
+  state: z.string(),
+  attempt: z.number().int().positive(),
+  repo: z.string().min(1),
+  workerName: z.string().nullable(),
+});
+type ClaimedDeployment = z.infer<typeof claimedDeploymentSchema>;
+
+/** Claims building and deploying `commit` of `branch` of a project CloudChef deploys: once per commit. */
+export async function claimProjectDeployment(
+  env: RuntimeEnv,
+  identity: Identity,
+  body: { orgProjectId: string; branch: string; commit: string },
+): Promise<ClaimedDeployment> {
+  const response = await postRuntimeRoute(env, identity, 'runtime-projects/deployments/claim', body, STATUS_TIMEOUT_MS);
+  return readAnswer(response, claimedDeploymentSchema, 'CloudChef could not start the deploy.');
+}
+
+const retriedDeploymentSchema = z.object({
+  deploymentId: z.string().uuid(),
+  kind: z.enum(['production', 'preview']),
+  branch: z.string().min(1),
+  commit: z.string().regex(/^[0-9a-f]{40}$/),
+  attempt: z.number().int().positive(),
+});
+
+/** Starts a failed deploy again, as a new attempt of the same commit. */
+export async function retryProjectDeployment(
+  env: RuntimeEnv,
+  identity: Identity,
+  body: { orgProjectId: string; deploymentId: string },
+): Promise<z.infer<typeof retriedDeploymentSchema>> {
+  const response = await postRuntimeRoute(env, identity, 'runtime-projects/deployments/retry', body, STATUS_TIMEOUT_MS);
+  return readAnswer(response, retriedDeploymentSchema, 'CloudChef could not start the deploy again.');
+}
+
+/** What a report did: recorded, superseded by a newer commit (stop), or refused (not this runtime's). */
+export async function reportProjectDeployment(
+  env: RuntimeEnv,
+  identity: Identity,
+  body: {
+    orgProjectId: string;
+    deploymentId: string;
+    state: 'building' | 'deploying' | 'succeeded' | 'failed' | 'not_deployable';
+    failureStage?: 'config' | 'install' | 'build' | 'migrations' | 'deploy' | 'interrupted';
+    reason?: string;
+    url?: string;
+    workerName?: string;
+  },
+): Promise<'recorded' | 'superseded' | 'refused'> {
+  const response = await postRuntimeRoute(
+    env,
+    identity,
+    'runtime-projects/deployments/report',
+    body,
+    STATUS_TIMEOUT_MS,
+  );
+  return (
+    await readAnswer(
+      response,
+      z.object({ outcome: z.enum(['recorded', 'superseded', 'refused']) }),
+      'CloudChef could not record the deploy.',
+    )
+  ).outcome;
+}
+
+/** The account's authorization, for the deploy step of a deployment this runtime is deploying, and only then. */
+export async function projectDeploymentCredential(
+  env: RuntimeEnv,
+  identity: Identity,
+  body: { orgProjectId: string; deploymentId: string; forceRefresh?: boolean },
+): Promise<string> {
+  const response = await postRuntimeRoute(
+    env,
+    identity,
+    'runtime-projects/deployments/credential',
+    body,
+    STATUS_TIMEOUT_MS,
+  );
+  return (
+    await readAnswer(
+      response,
+      z.object({ accessToken: z.string().min(1) }),
+      'CloudChef could not authorize the deploy.',
+    )
+  ).accessToken;
 }

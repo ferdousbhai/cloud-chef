@@ -1263,7 +1263,7 @@ export class UserCloudflareAccountApi {
     endpoint: string;
     /** An organization's account, shared with the other members' workspaces. */
     sharedAccount: boolean;
-  }): Promise<{ namespaceId: string }> {
+  }): Promise<{ namespaceId: string; builderNamespaceId: string }> {
     requireWorkerName(args.workerName);
     if (!/^[a-f0-9]{64}$/.test(args.runtimeVersion) || args.controlPlaneSecret.length < 32) {
       throw new CloudflareAccountApiError('The workspace runtime identity is invalid.');
@@ -1275,9 +1275,11 @@ export class UserCloudflareAccountApi {
       main_module: 'workspace-runtime.mjs',
       compatibility_date: '2026-07-27',
       compatibility_flags: ['nodejs_compat'],
-      containers: [{ class_name: 'ProjectWorkspace' }],
+      containers: [{ class_name: 'ProjectWorkspace' }, { class_name: 'ProjectBuilder' }],
       bindings: [
         { type: 'durable_object_namespace', name: 'PROJECT_WORKSPACE', class_name: 'ProjectWorkspace' },
+        // Builds and deploys each project CloudChef deploys itself, in a container of its own.
+        { type: 'durable_object_namespace', name: 'PROJECT_BUILDER', class_name: 'ProjectBuilder' },
         { type: 'durable_object_namespace', name: 'BuilderAgent', class_name: 'BuilderAgent' },
         { type: 'd1', name: 'DB', id: args.databaseId },
         { type: 'ai', name: 'AI' },
@@ -1307,6 +1309,10 @@ export class UserCloudflareAccountApi {
           type: 'durable-object',
           storage: 'sqlite',
         },
+        ProjectBuilder: {
+          type: 'durable-object',
+          storage: 'sqlite',
+        },
       },
       observability: { enabled: true, logs: { enabled: true, head_sampling_rate: 0.6 } },
       annotations: {
@@ -1326,17 +1332,20 @@ export class UserCloudflareAccountApi {
       '/workers/durable_objects/namespaces?per_page=1000',
       { method: 'GET' },
     );
-    const namespace = namespaces.find(
-      (candidate) =>
-        candidate.script === args.workerName &&
-        candidate.class === 'ProjectWorkspace' &&
-        candidate.use_sqlite === true &&
-        candidate.id,
-    );
-    if (!namespace?.id) {
-      throw new CloudflareAccountApiError('Cloudflare did not provision the Computer workspace namespace.');
+    const namespaceOf = (className: string) =>
+      namespaces.find(
+        (candidate) =>
+          candidate.script === args.workerName &&
+          candidate.class === className &&
+          candidate.use_sqlite === true &&
+          candidate.id,
+      )?.id;
+    const namespaceId = namespaceOf('ProjectWorkspace');
+    const builderNamespaceId = namespaceOf('ProjectBuilder');
+    if (!namespaceId || !builderNamespaceId) {
+      throw new CloudflareAccountApiError('Cloudflare did not provision the workspace runtime’s namespaces.');
     }
-    return { namespaceId: namespace.id };
+    return { namespaceId, builderNamespaceId };
   }
 
   /** Upload and deploy in one request; the only path that creates a Worker or applies DO lifecycle. */

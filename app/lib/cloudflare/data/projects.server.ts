@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { runtimeConnectionIdentity } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
 import {
   abandonProjectImport,
@@ -311,6 +312,7 @@ export async function userRuntimeProjectUploadAction(
     await withRepositoryErrors(
       (async () => {
         await store.ensureRepo(repo);
+        let commit: string;
         try {
           const committed = await store.commitFiles({
             repo,
@@ -327,12 +329,24 @@ export async function userRuntimeProjectUploadAction(
               'unavailable',
             );
           }
+          commit = committed.commit;
         } catch (error) {
           await store.deleteRepo(repo).catch(() => undefined);
           throw error;
         }
         try {
           await registerUploadedProject(args.env, identity, { orgProjectId: projectId, name, repo });
+          // Built and deployed by CloudChef from the start; a project that can't be is said to be code only. Not
+          // starting it never fails the upload: opening the project starts it again.
+          try {
+            await args.env.PROJECT_BUILDER.get(args.env.PROJECT_BUILDER.idFromName(projectId)).enqueue({
+              orgProjectId: projectId,
+              branch: MAIN_BRANCH,
+              commit,
+            });
+          } catch (error) {
+            console.warn({ event: 'upload_deploy_not_started', message: String(error) });
+          }
         } catch (error) {
           if (error instanceof ProjectRefusalError) {
             // Refused, so not kept as a project, and its code isn't kept either.
@@ -486,4 +500,36 @@ function folderName(name: string): string {
       .replace(/^-+|-+$/g, '')
       .slice(0, 60) || 'project'
   );
+}
+
+const deployRetrySchema = z.object({ orgProjectId: z.string().uuid(), deploymentId: z.string().uuid() });
+
+/** `POST /v1/projects/deploy`: a failed deploy of a project CloudChef deploys, started again. */
+export async function userRuntimeProjectDeployRetryAction(args: { request: Request; env: Env }): Promise<Response> {
+  const parsed = deployRetrySchema.safeParse(await args.request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ error: 'Name the project and the deploy.' }, { status: 400 });
+  }
+  try {
+    const builder = args.env.PROJECT_BUILDER.get(args.env.PROJECT_BUILDER.idFromName(parsed.data.orgProjectId));
+    return Response.json(await builder.retry(parsed.data), { status: 202, headers: { 'cache-control': 'no-store' } });
+  } catch (error) {
+    return internalErrorResponse(error, "The deploy couldn't start again. Try again.");
+  }
+}
+
+/** `GET /v1/projects/deploy-log?project=<id>&deployment=<id>`: the end of a deploy's log, as this workspace kept it. */
+export async function userRuntimeProjectDeployLogAction(args: { url: URL; env: Env }): Promise<Response> {
+  const parsed = deployRetrySchema.safeParse({
+    orgProjectId: args.url.searchParams.get('project'),
+    deploymentId: args.url.searchParams.get('deployment'),
+  });
+  if (!parsed.success) {
+    return Response.json({ error: 'Name the project and the deploy.' }, { status: 400 });
+  }
+  const builder = args.env.PROJECT_BUILDER.get(args.env.PROJECT_BUILDER.idFromName(parsed.data.orgProjectId));
+  const log = await builder.log(parsed.data.deploymentId);
+  return log === null
+    ? Response.json({ error: 'This workspace didn’t run that deploy, so it has no log of it.' }, { status: 409 })
+    : new Response(log, { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
 }

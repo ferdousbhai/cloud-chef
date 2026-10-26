@@ -1073,6 +1073,12 @@ describe('UserCloudflareAccountApi', () => {
               script: 'cloudchef-workspace-user',
               use_sqlite: true,
             },
+            {
+              id: 'fedcba9876543210fedcba9876543210',
+              class: 'ProjectBuilder',
+              script: 'cloudchef-workspace-user',
+              use_sqlite: true,
+            },
           ],
         }),
       );
@@ -1091,7 +1097,10 @@ describe('UserCloudflareAccountApi', () => {
         sharedAccount: false,
         endpoint: 'https://cloudchef-workspace-user.example.workers.dev',
       }),
-    ).resolves.toEqual({ namespaceId: '0123456789abcdef0123456789abcdef' });
+    ).resolves.toEqual({
+      namespaceId: '0123456789abcdef0123456789abcdef',
+      builderNamespaceId: 'fedcba9876543210fedcba9876543210',
+    });
 
     const [scriptUrl, scriptInit] = request.mock.calls[0];
     expect(scriptUrl).toBe(
@@ -1109,7 +1118,7 @@ describe('UserCloudflareAccountApi', () => {
       observability: unknown;
     };
     expect(metadata.compatibility_flags).toEqual(['nodejs_compat']);
-    expect(metadata.containers).toEqual([{ class_name: 'ProjectWorkspace' }]);
+    expect(metadata.containers).toEqual([{ class_name: 'ProjectWorkspace' }, { class_name: 'ProjectBuilder' }]);
     expect(metadata.bindings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

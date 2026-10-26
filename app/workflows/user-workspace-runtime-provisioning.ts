@@ -103,7 +103,8 @@ export type UserWorkspaceRuntimeProvisioningStep = {
  * as inspected.
  */
 type DeployAttempt =
-  { status: 'deployed'; namespaceId: string; windowed?: false } | { status: 'busy'; checkedAt: number; waitMs: number };
+  | { status: 'deployed'; namespaceId: string; builderNamespaceId?: string; windowed?: false }
+  | { status: 'busy'; checkedAt: number; waitMs: number };
 
 /**
  * What a step that needs the upgrade window found: done, or work started while the window had lapsed
@@ -364,6 +365,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
       return live && live.endpoint === endpoint ? Date.now() : null;
     });
     let namespaceId: string;
+    let builderNamespaceId: string | null = null;
     let windowed = upgradeStartedAt !== null;
     for (let attempt = 0; ; attempt += 1) {
       const outcome: DeployAttempt = await args.step.do(
@@ -408,13 +410,13 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
             endpoint,
             sharedAccount: connection.orgId !== null,
           });
-          return windowedAttempt
-            ? { status: 'deployed', namespaceId: deployed.namespaceId }
-            : { status: 'deployed', namespaceId: deployed.namespaceId, windowed: false };
+          const ids = { namespaceId: deployed.namespaceId, builderNamespaceId: deployed.builderNamespaceId };
+          return windowedAttempt ? { status: 'deployed', ...ids } : { status: 'deployed', ...ids, windowed: false };
         },
       );
       if (outcome.status === 'deployed') {
         namespaceId = outcome.namespaceId;
+        builderNamespaceId = outcome.builderNamespaceId ?? null;
         windowed &&= outcome.windowed !== false;
         redeployed = true;
         break;
@@ -493,6 +495,17 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         image: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
       });
     });
+    const builderNamespace = builderNamespaceId;
+    if (builderNamespace) {
+      // The container CloudChef builds and deploys uploaded projects in, apart from the agent's.
+      await heldStep('deploy builder container', LONG_STEP_CONFIG, async () => {
+        await accountApi.ensureWorkspaceRuntimeContainer({
+          applicationName: `${workerName}-builder`,
+          namespaceId: builderNamespace,
+          image: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+        });
+      });
+    }
     await heldStep('wait for workspace', LONG_STEP_CONFIG, async () => {
       await dependencies.waitForReadiness({
         endpoint,

@@ -1,11 +1,13 @@
 import type { BuilderAgent } from './agents/builder-agent';
-import type { ProjectWorkspaceRpc } from './agents/builder-workspace-api';
+import type { ProjectBuilderRpc, ProjectWorkspaceRpc } from './agents/builder-workspace-api';
 
 declare global {
   /** Bindings that exist only inside the generated, user-owned runtime bundle. */
   interface Env {
     BuilderAgent: DurableObjectNamespace<BuilderAgent>;
     PROJECT_WORKSPACE: DurableObjectNamespace<ProjectWorkspaceRpc>;
+    /** Each project CloudChef builds and deploys itself, one builder per project. */
+    PROJECT_BUILDER: DurableObjectNamespace<ProjectBuilderRpc>;
     /** Every project's git repository, in this account's `cloudchef` namespace. */
     ARTIFACTS: Artifacts;
     CLOUDCHEF_USER_RUNTIME: string;

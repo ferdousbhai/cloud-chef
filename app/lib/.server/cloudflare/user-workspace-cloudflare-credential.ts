@@ -258,7 +258,11 @@ type RuntimeRoute =
   | 'runtime-projects/register-upload'
   | 'runtime-projects/status'
   | 'runtime-projects/site'
-  | 'runtime-projects/request-production';
+  | 'runtime-projects/request-production'
+  | 'runtime-projects/deployments/claim'
+  | 'runtime-projects/deployments/retry'
+  | 'runtime-projects/deployments/report'
+  | 'runtime-projects/deployments/credential';
 
 function runtimeRouteEndpoint(value: string, route: RuntimeRoute): URL {
   let endpoint: URL;

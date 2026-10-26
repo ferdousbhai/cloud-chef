@@ -260,6 +260,16 @@ export class WorkspaceToolOperationIndeterminateError extends Error {
   }
 }
 
+/**
+ * A project's builder in the runtime (`user-workspace-runtime/src/project-builder.ts`): CloudChef's own build and
+ * deploy of a project it deploys itself, one commit at a time.
+ */
+export interface ProjectBuilderRpc extends Rpc.DurableObjectBranded {
+  enqueue(value: { orgProjectId: string; branch: string; commit: string }): Promise<{ queued: boolean }>;
+  retry(value: { orgProjectId: string; deploymentId: string }): Promise<{ deploymentId: string }>;
+  log(deploymentId: string): string | null | Promise<string | null>;
+}
+
 export interface ProjectWorkspaceRpc extends Rpc.DurableObjectBranded {
   initializeProjectIdentity(value: { projectId: string; userId: string }): void | Promise<void>;
   beginToolOperation(value: ToolOperationBeginRequest): Promise<ToolOperationStartResult>;

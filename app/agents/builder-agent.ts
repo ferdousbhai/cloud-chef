@@ -1347,8 +1347,36 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     // overlap the container's cold start with the user composing their first message — awaiting it
     // here would just move the wait rather than remove it. `warmContainer` never rejects.
     this.ctx.waitUntil(this.workspace.warmContainer());
+    this.ctx.waitUntil(this.startUndeployedVersion());
     await this.refreshDeploymentReadiness();
     return state;
+  }
+
+  /**
+   * For a project CloudChef deploys itself, the deploy of its latest version when none was started: an upload whose
+   * deploy didn't start, or a push from a workspace that hadn't been upgraded yet. Asking for one already claimed
+   * does nothing.
+   */
+  private async startUndeployedVersion(): Promise<void> {
+    try {
+      const linked = await this.workspace.linkedProject();
+      const identity = runtimeConnectionIdentity(this.env);
+      if (!linked || !identity || !this.env.PROJECT_BUILDER) {
+        return;
+      }
+      const project = await openProject(this.env, identity, linked.orgProjectId);
+      const head =
+        project.deploysWith === 'cloudchef' && project.repo ? await this.repositories().head(project.repo) : null;
+      if (head) {
+        await this.env.PROJECT_BUILDER.get(this.env.PROJECT_BUILDER.idFromName(linked.orgProjectId)).enqueue({
+          orgProjectId: linked.orgProjectId,
+          branch: MAIN_BRANCH,
+          commit: head,
+        });
+      }
+    } catch {
+      logger.warn('Unable to start the deploy of the latest version');
+    }
   }
 
   @callable()
