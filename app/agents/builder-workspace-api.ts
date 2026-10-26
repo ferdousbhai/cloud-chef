@@ -265,7 +265,12 @@ export class WorkspaceToolOperationIndeterminateError extends Error {
  * deploy of a project it deploys itself, one commit at a time.
  */
 export interface ProjectBuilderRpc extends Rpc.DurableObjectBranded {
-  enqueue(value: { orgProjectId: string; branch: string; commit: string }): Promise<{ queued: boolean }>;
+  enqueue(value: {
+    orgProjectId: string;
+    branch: string;
+    commit: string;
+    headReadAt?: number;
+  }): Promise<{ queued: boolean }>;
   retry(value: {
     orgProjectId: string;
     deploymentId: string;

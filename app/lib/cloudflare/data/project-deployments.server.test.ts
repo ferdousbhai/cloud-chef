@@ -65,9 +65,8 @@ describe('project deployments', () => {
     const main = (await claim(db, 'main', ONE, 1_000)).deployment;
     const preview = (await claim(db, 'feature', TWO, 1_000)).deployment;
     expect(await reportDeployment(db, { id: main.id, userId: 'ada', state: 'deploying', now: 2_000 })).toBe('recorded');
-    expect(await reportDeployment(db, { id: preview.id, userId: 'ada', state: 'deploying', now: 2_500 })).toBe(
-      'refused',
-    );
+    // The other waits its turn.
+    expect(await reportDeployment(db, { id: preview.id, userId: 'ada', state: 'deploying', now: 2_500 })).toBe('busy');
     // Once the first deploy's lease has run out, the other may go.
     expect(
       await reportDeployment(db, {
@@ -150,5 +149,39 @@ describe('project deployments', () => {
     expect(await deployToWantedWorker(db, { id: deployment.id, projectId: PROJECT, userId: 'ada', now: 6_000 })).toBe(
       null,
     );
+  });
+
+  it('lets a superseded deploy finish before the newer one deploys, and takes over work whose runtime stopped', async () => {
+    const { db } = setup();
+    const older = (await claim(db, 'main', ONE, 1_000)).deployment;
+    await reportDeployment(db, { id: older.id, userId: 'ada', state: 'deploying', now: 2_000 });
+    const newer = (await claim(db, 'main', TWO, 3_000)).deployment;
+    expect(await reportDeployment(db, { id: newer.id, userId: 'ada', state: 'deploying', now: 4_000 })).toBe('busy');
+    // Once the older one stops, the newer goes ahead at once.
+    expect(await reportDeployment(db, { id: older.id, userId: 'ada', state: 'failed', now: 5_000 })).toBe('superseded');
+    expect(await reportDeployment(db, { id: newer.id, userId: 'ada', state: 'deploying', now: 6_000 })).toBe(
+      'recorded',
+    );
+
+    // Its runtime stops: a claim after the lease ran out takes it over, as a new attempt.
+    expect((await claim(db, 'main', TWO, 7_000)).claimed).toBe(false);
+    const taken = await claim(db, 'main', TWO, 6_000 + DEPLOYMENT_LEASE_MS + 1);
+    expect(taken).toMatchObject({ claimed: true, deployment: { state: 'queued', attempt: 2 } });
+  });
+
+  it('refuses the claim of a head read before a newer commit was claimed', async () => {
+    const { db } = setup();
+    await claim(db, 'main', TWO, 2_000);
+    const stale = await claimDeployment(db, {
+      projectId: PROJECT,
+      branch: 'main',
+      commit: ONE,
+      defaultBranch: 'main',
+      userId: 'ada',
+      notBefore: 1_500,
+      now: 3_000,
+    });
+    expect(stale.claimed).toBe(false);
+    expect((await latestDeployments(db, PROJECT)).map((row) => row.commit)).toEqual([TWO]);
   });
 });

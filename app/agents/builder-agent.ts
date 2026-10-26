@@ -1365,6 +1365,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         return;
       }
       const project = await openProject(this.env, identity, linked.orgProjectId);
+      // A push that lands after the head is read claims its own commit, and wins over this one.
+      const headReadAt = Date.now();
       const head =
         project.deploysWith === 'cloudchef' && project.repo ? await this.repositories().head(project.repo) : null;
       if (head) {
@@ -1372,6 +1374,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
           orgProjectId: linked.orgProjectId,
           branch: MAIN_BRANCH,
           commit: head,
+          headReadAt,
         });
       }
     } catch {

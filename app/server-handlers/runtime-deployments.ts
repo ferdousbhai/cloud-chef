@@ -26,7 +26,13 @@ const BRANCH = z
 const DEPLOYMENT = z.string().uuid();
 const projectFields = { orgProjectId: z.string().uuid() };
 
-const claimSchema = z.strictObject({ ...projectFields, branch: BRANCH, commit: COMMIT });
+const claimSchema = z.strictObject({
+  ...projectFields,
+  branch: BRANCH,
+  commit: COMMIT,
+  /** For a head read earlier (on opening a project): when it was read, so a newer push's claim wins. */
+  headReadAt: z.number().int().positive().optional(),
+});
 const retrySchema = z.strictObject({
   ...projectFields,
   deploymentId: DEPLOYMENT,
@@ -51,7 +57,7 @@ const credentialSchema = z.strictObject({
 });
 
 /** The project as a runtime may build and deploy it, or the refusal to answer. */
-async function openDeployableProject<T extends z.infer<typeof retrySchema> | z.infer<typeof claimSchema>>(
+async function openDeployableProject<T extends { orgProjectId: string }>(
   args: { request: Request; env: Env },
   schema: z.ZodType<T>,
 ) {
@@ -84,6 +90,7 @@ export async function runtimeDeploymentClaimAction(args: { request: Request; env
     commit: body.commit,
     defaultBranch: project.defaultBranch,
     userId: identity.userId,
+    notBefore: body.headReadAt,
   });
   return json(
     {
@@ -139,14 +146,11 @@ export async function runtimeDeploymentRetryAction(args: { request: Request; env
  * succeeded is the project's live site from then on, and the Worker it went to is the one it deploys as.
  */
 export async function runtimeDeploymentReportAction(args: { request: Request; env: Env }): Promise<Response> {
-  const opened = await openProject(args, reportSchema);
+  const opened = await openDeployableProject(args, reportSchema);
   if (opened instanceof Response) {
     return opened;
   }
   const { project, body, identity } = opened;
-  if (project.deploysWith !== 'cloudchef') {
-    return json({ error: 'Workers Builds publishes this project, not CloudChef.', code: 'workers_builds' }, 409);
-  }
   const deployment = await args.env.DB.prepare('SELECT project_id, kind FROM project_deployments WHERE id = ?')
     .bind(body.deploymentId)
     .first<{ project_id: string; kind: 'production' | 'preview' }>();
@@ -163,15 +167,29 @@ export async function runtimeDeploymentReportAction(args: { request: Request; en
     workerName: body.workerName,
     wantedWorkerName: body.wantedWorkerName,
   });
-  if (outcome === 'recorded' && body.state === 'succeeded' && deployment.kind === 'production') {
-    if (body.workerName) {
-      await args.env.DB.prepare(
-        'UPDATE org_projects SET deploy_worker_name = ? WHERE id = ? AND deploy_worker_name IS NULL',
-      )
-        .bind(body.workerName, project.id)
-        .run()
-        .catch(() => undefined);
+  // The Worker a deploy is about to write is the project's from then on, held before anything is written: another
+  // CloudChef project of the connection that deploys as it already (the unique index) stops this deploy instead.
+  if (outcome === 'recorded' && body.state === 'deploying' && body.workerName) {
+    const reserved = await args.env.DB.prepare(
+      `UPDATE org_projects SET deploy_worker_name = ?
+       WHERE id = ? AND (deploy_worker_name IS NULL OR deploy_worker_name = ?)`,
+    )
+      .bind(body.workerName, project.id, body.workerName)
+      .run()
+      .then((result) => result.meta.changes === 1)
+      .catch(() => false);
+    if (!reserved) {
+      await reportDeployment(args.env.DB, {
+        id: body.deploymentId,
+        userId: identity.userId,
+        state: 'failed',
+        failureStage: 'deploy',
+        reason: `Another project publishes to the Worker named ${body.workerName}.`,
+      });
+      return json({ outcome: 'worker_taken' }, 200);
     }
+  }
+  if (outcome === 'recorded' && body.state === 'succeeded' && deployment.kind === 'production') {
     if (body.url) {
       await recordProjectSiteUrl(args.env.DB, project.id, {
         url: body.url,

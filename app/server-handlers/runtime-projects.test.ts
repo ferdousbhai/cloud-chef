@@ -622,6 +622,34 @@ describe('a runtime deploying a project CloudChef deploys itself', () => {
     return { status: response.status, body: z.record(z.string(), z.unknown()).parse(await response.json()) };
   };
 
+  it('stops a deploy whose Worker another project of the account publishes to, before anything is written', async () => {
+    const { env, runtime, database } = await uploaded();
+    database.exec(`
+      INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, deploys_with,
+        deploy_worker_name, created_at)
+        VALUES ('44444444-4444-4444-8444-444444444444', 'team-connection', '33333333-3333-4333-8333-333333333333',
+          'Shop', 't-shop', 'zip', 'cloudchef', 'glossary', 1);
+    `);
+    const claimed = await call(runtimeDeploymentClaimAction, runtime, env, 'claim', {
+      orgProjectId: UPLOAD,
+      branch: 'main',
+      commit: COMMIT,
+    });
+    const deploymentId = String(claimed.body.deploymentId);
+    const report = (body: Record<string, string>) =>
+      call(runtimeDeploymentReportAction, runtime, env, 'report', { orgProjectId: UPLOAD, deploymentId, ...body });
+    await report({ state: 'building' });
+    await report({ state: 'deploying' });
+    expect((await report({ state: 'deploying', workerName: 'glossary' })).body).toEqual({ outcome: 'worker_taken' });
+    expect(database.prepare('SELECT state, reason FROM project_deployments WHERE id = ?').get(deploymentId)).toEqual({
+      state: 'failed',
+      reason: 'Another project publishes to the Worker named glossary.',
+    });
+    expect(database.prepare('SELECT deploy_worker_name FROM org_projects WHERE id = ?').get(UPLOAD)).toEqual({
+      deploy_worker_name: null,
+    });
+  });
+
   it('claims each commit once, reports its steps, and records a live deploy of main as the site', async () => {
     const { env, runtime, database } = await uploaded();
     stubSites();
@@ -650,6 +678,17 @@ describe('a runtime deploying a project CloudChef deploys itself', () => {
         ).body,
       ).toEqual({ outcome: 'recorded' });
     }
+    // The Worker it deploys as is the project's before anything is written to it.
+    const held = await call(runtimeDeploymentReportAction, runtime, env, 'report', {
+      orgProjectId: UPLOAD,
+      deploymentId,
+      state: 'deploying',
+      workerName: 'glossary',
+    });
+    expect(held.body).toEqual({ outcome: 'recorded' });
+    expect(database.prepare('SELECT deploy_worker_name FROM org_projects WHERE id = ?').get(UPLOAD)).toEqual({
+      deploy_worker_name: 'glossary',
+    });
     const done = await call(runtimeDeploymentReportAction, runtime, env, 'report', {
       orgProjectId: UPLOAD,
       deploymentId,

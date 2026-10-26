@@ -84,15 +84,44 @@ async function readDeployment(db: D1Database, id: string): Promise<ProjectDeploy
 
 /**
  * Claims building and deploying `commit` of `branch` for `userId`'s runtime: a new row the first time (`claimed`),
- * and the existing one after, which another runtime may already be working on. A new commit of the default branch
- * supersedes that branch's unfinished older ones.
+ * and the existing one after, which another runtime may already be working on; one whose runtime stopped (its lease
+ * ran out unfinished) is taken over, as a new attempt. A new commit of a branch supersedes that branch's unfinished
+ * older ones; one already deploying keeps its lease until it stops, so no two deploys overlap. `notBefore` is for a
+ * claim of a head read earlier: refused when the branch has a newer row since, which is a newer commit.
  */
 export async function claimDeployment(
   db: D1Database,
-  args: { projectId: string; branch: string; commit: string; defaultBranch: string; userId: string; now?: number },
+  args: {
+    projectId: string;
+    branch: string;
+    commit: string;
+    defaultBranch: string;
+    userId: string;
+    notBefore?: number;
+    now?: number;
+  },
 ): Promise<{ deployment: ProjectDeployment; claimed: boolean }> {
   const now = args.now ?? Date.now();
   const kind: DeploymentKind = args.branch === args.defaultBranch ? 'production' : 'preview';
+  const existing = () =>
+    db
+      .prepare(`SELECT ${COLUMNS} FROM project_deployments WHERE project_id = ? AND branch = ? AND commit_sha = ?`)
+      .bind(args.projectId, args.branch, args.commit)
+      .first<DeploymentRow>()
+      .then((row) => (row ? toDeployment(row) : null));
+  if (args.notBefore !== undefined) {
+    const newer = await db
+      .prepare(
+        `SELECT ${COLUMNS} FROM project_deployments
+         WHERE project_id = ? AND branch = ? AND commit_sha != ? AND created_at >= ?
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+      .bind(args.projectId, args.branch, args.commit, args.notBefore)
+      .first<DeploymentRow>();
+    if (newer) {
+      return { deployment: (await existing()) ?? toDeployment(newer), claimed: false };
+    }
+  }
   const id = crypto.randomUUID();
   const inserted = await db
     .prepare(
@@ -103,28 +132,38 @@ export async function claimDeployment(
     )
     .bind(id, args.projectId, kind, args.branch, args.commit, args.userId, now + DEPLOYMENT_LEASE_MS, now, now)
     .run();
-  const claimed = inserted.meta.changes === 1;
-  if (claimed) {
+  if (inserted.meta.changes === 1) {
     await db
       .prepare(
-        `UPDATE project_deployments SET state = 'superseded', lease_expires_at = NULL, updated_at = ?
+        `UPDATE project_deployments
+         SET state = 'superseded', updated_at = ?,
+             lease_expires_at = CASE WHEN state = 'deploying' THEN lease_expires_at ELSE NULL END
          WHERE project_id = ? AND branch = ? AND id != ? AND state IN ('queued', 'building', 'deploying')`,
       )
       .bind(now, args.projectId, args.branch, id)
       .run();
     await pruneDeployments(db, args.projectId);
+    const deployment = await readDeployment(db, id);
+    if (!deployment) {
+      throw new Error('The deployment could not be recorded.');
+    }
+    return { deployment, claimed: true };
   }
-  const deployment = claimed
-    ? await readDeployment(db, id)
-    : await db
-        .prepare(`SELECT ${COLUMNS} FROM project_deployments WHERE project_id = ? AND branch = ? AND commit_sha = ?`)
-        .bind(args.projectId, args.branch, args.commit)
-        .first<DeploymentRow>()
-        .then((row) => (row ? toDeployment(row) : null));
+  const takenOver = await db
+    .prepare(
+      `UPDATE project_deployments
+       SET state = 'queued', failure_stage = NULL, reason = NULL, attempt = attempt + 1, claimed_by = ?,
+           lease_expires_at = ?, updated_at = ?
+       WHERE project_id = ? AND branch = ? AND commit_sha = ? AND state IN ('queued', 'building', 'deploying')
+         AND (lease_expires_at IS NULL OR lease_expires_at <= ?)`,
+    )
+    .bind(args.userId, now + DEPLOYMENT_LEASE_MS, now, args.projectId, args.branch, args.commit, now)
+    .run();
+  const deployment = await existing();
   if (!deployment) {
     throw new Error('The deployment could not be recorded.');
   }
-  return { deployment, claimed };
+  return { deployment, claimed: takenOver.meta.changes === 1 };
 }
 
 /**
@@ -208,8 +247,11 @@ export async function deployToWantedWorker(
   return readDeployment(db, args.id);
 }
 
-/** What a report did: written, the work was superseded (stop it), or refused (not this runtime's to report). */
-type DeploymentReportOutcome = 'recorded' | 'superseded' | 'refused';
+/**
+ * What a report did: written; the work was superseded (stop it); refused (not this runtime's to report); or, for a
+ * move to `deploying`, busy: another deploy of the project is still running, so try again shortly.
+ */
+type DeploymentReportOutcome = 'recorded' | 'superseded' | 'refused' | 'busy';
 
 /**
  * Records a step of `userId`'s claimed deployment, renewing its lease: building, deploying, or how it ended. Moving
@@ -236,6 +278,13 @@ export async function reportDeployment(
     return 'refused';
   }
   if (current.state === 'superseded') {
+    // A superseded deploy that stopped lets the newer one go ahead at once.
+    if (!UNFINISHED.includes(args.state)) {
+      await db
+        .prepare(`UPDATE project_deployments SET lease_expires_at = NULL WHERE id = ? AND claimed_by = ?`)
+        .bind(args.id, args.userId)
+        .run();
+    }
     return 'superseded';
   }
   if (!UNFINISHED.includes(current.state)) {
@@ -251,7 +300,7 @@ export async function reportDeployment(
          AND (? != 'deploying' OR NOT EXISTS (
            SELECT 1 FROM project_deployments other
            WHERE other.project_id = project_deployments.project_id AND other.id != project_deployments.id
-             AND other.state = 'deploying' AND other.lease_expires_at > ?
+             AND other.state IN ('deploying', 'superseded') AND other.lease_expires_at > ?
          ))`,
     )
     .bind(
@@ -272,7 +321,16 @@ export async function reportDeployment(
   if (updated.meta.changes === 1) {
     return 'recorded';
   }
-  return (await readDeployment(db, args.id))?.state === 'superseded' ? 'superseded' : 'refused';
+  const after = await db
+    .prepare('SELECT state, claimed_by FROM project_deployments WHERE id = ?')
+    .bind(args.id)
+    .first<{ state: DeploymentState; claimed_by: string | null }>();
+  if (after?.state === 'superseded') {
+    return 'superseded';
+  }
+  return args.state === 'deploying' && after?.claimed_by === args.userId && UNFINISHED.includes(after.state)
+    ? 'busy'
+    : 'refused';
 }
 
 /** The project's newest deployments, newest first. */

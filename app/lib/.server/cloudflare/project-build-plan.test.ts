@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deployApiDecision } from './deploy-api-policy';
+import { deployApiDecision, deployBindingsCheck } from './deploy-api-policy';
 import { buildPlan, deployWorkerName, withoutJsonComments } from './project-build-plan';
 
 const PACKAGE = JSON.stringify({ scripts: { build: 'vite build' } });
@@ -96,29 +96,88 @@ describe('the Worker an uploaded project deploys as', () => {
 
 describe("what a deploy may ask of Cloudflare's API", () => {
   const context = { accountId: 'acc', workerName: 'glossary' };
-  const decide = (method: string, path: string) => deployApiDecision({ method, path }, context);
+  const decide = (method: string, path: string) =>
+    deployApiDecision({ method, pathname: `/client/v4${path}` }, context);
 
-  it('writes only its own Worker, and makes the resources its config asks for', () => {
-    expect(decide('PUT', '/accounts/acc/workers/scripts/glossary')).toBe('with_token');
-    expect(decide('POST', '/accounts/acc/workers/scripts/glossary/assets-upload-session')).toBe('with_token');
-    expect(decide('POST', '/accounts/acc/workers/scripts/glossary/versions')).toBe('with_token');
-    expect(decide('POST', '/accounts/acc/d1/database')).toBe('with_token');
-    expect(decide('POST', '/accounts/acc/d1/database/11111111-1111-4111-8111-111111111111/query')).toBe('with_token');
+  it('writes only its own Worker, once its bindings are checked, and makes the resources its config asks for', () => {
+    expect(decide('PUT', '/accounts/acc/workers/scripts/glossary')).toBe('check_bindings');
+    expect(decide('POST', '/accounts/acc/workers/scripts/glossary/assets-upload-session')).toBe('check_bindings');
+    expect(decide('POST', '/accounts/acc/workers/scripts/glossary/versions')).toBe('check_bindings');
+    expect(decide('POST', '/accounts/acc/d1/database')).toBe('check_new_resource');
+    expect(decide('POST', '/accounts/acc/d1/database/11111111-1111-4111-8111-111111111111/query')).toBe(
+      'check_database',
+    );
     expect(decide('PUT', '/accounts/acc/workers/scripts/cloudchef')).toBe('refused');
     expect(decide('PUT', '/accounts/acc/workers/scripts/other-site')).toBe('refused');
     expect(decide('DELETE', '/accounts/acc/workers/scripts/glossary')).toBe('refused');
   });
 
-  it('reads the account’s Workers and resources but not stored values, nor another account', () => {
+  it('reads its own Worker and the resources by name, but no stored data, other Workers, nor another account', () => {
     expect(decide('GET', '/accounts/acc/workers/subdomain')).toBe('with_token');
+    expect(decide('GET', '/accounts/acc/workers/services/glossary')).toBe('with_token');
     expect(decide('GET', '/memberships')).toBe('with_token');
     expect(decide('GET', '/accounts/acc/storage/kv/namespaces')).toBe('with_token');
+    expect(decide('GET', '/accounts/acc/r2/buckets/glossary-files')).toBe('with_token');
+    expect(decide('GET', '/accounts/acc/r2/buckets/glossary-files/objects/secret')).toBe('refused');
     expect(decide('GET', '/accounts/acc/storage/kv/namespaces/ns/values/secret')).toBe('refused');
+    expect(decide('GET', '/accounts/acc/workers/scripts/other-site/settings')).toBe('refused');
     expect(decide('GET', '/accounts/acc/secrets_store/stores')).toBe('refused');
     expect(decide('GET', '/accounts/other/workers/scripts')).toBe('refused');
   });
 
+  it('refuses encoded or dotted paths, and paths outside the API', () => {
+    expect(decide('PUT', '/accounts/acc/workers/scripts/glossary/..%2fcloudchef')).toBe('refused');
+    expect(decide('PUT', '/accounts/acc/workers/scripts/glossary/../cloudchef')).toBe('refused');
+    expect(decide('PUT', '/accounts/acc/workers/scripts/glossary//x')).toBe('refused');
+    expect(deployApiDecision({ method: 'GET', pathname: '/memberships' }, context)).toBe('refused');
+  });
+
   it('sends asset uploads on with their own authorization', () => {
     expect(decide('POST', '/accounts/acc/workers/assets/upload')).toBe('as_sent');
+  });
+});
+
+describe("a deployed Worker's bindings", () => {
+  const check = (settings: Parameters<typeof deployBindingsCheck>[0]) => deployBindingsCheck(settings, 'glossary');
+
+  it('may use the account’s own resources, which D1 and KV are looked up by id first', () => {
+    expect(
+      check({
+        bindings: [
+          { type: 'd1', name: 'DB', id: 'db-1' },
+          { type: 'kv_namespace', name: 'CACHE', namespace_id: 'kv-1' },
+          { type: 'r2_bucket', name: 'FILES', bucket_name: 'glossary-files' },
+          { type: 'durable_object_namespace', name: 'ROOMS', class_name: 'Room' },
+          { type: 'assets', name: 'ASSETS' },
+        ],
+      }),
+    ).toEqual({ lookups: { databases: ['db-1'], namespaces: ['kv-1'] } });
+  });
+
+  it('never reaches CloudChef’s own Workers, Durable Objects, Secrets Store or resources', () => {
+    for (const binding of [
+      {
+        type: 'durable_object_namespace',
+        name: 'X',
+        class_name: 'ProjectBuilder',
+        script_name: 'cloudchef-workspace-a1',
+      },
+      { type: 'durable_object_namespace', name: 'X', namespace_id: 'abc' },
+      { type: 'service', name: 'X', service: 'cloudchef-workspace-a1', entrypoint: 'DeployApiProxy' },
+      { type: 'r2_bucket', name: 'X', bucket_name: 'cloudchef-files' },
+      { type: 'workflow', name: 'X', workflow_name: 'cloudchef-project-deletion' },
+      { type: 'secrets_store_secret', name: 'X', store_id: 's', secret_name: 'k' },
+      { type: 'dispatch_namespace', name: 'X', namespace: 'n' },
+    ]) {
+      expect(check({ bindings: [binding] })).toHaveProperty('refusal');
+    }
+    expect(check({ tail_consumers: [{ service: 'cloudchef' }] })).toHaveProperty('refusal');
+    expect(
+      check({
+        migrations: {
+          steps: [{ transferred_classes: [{ from: 'A', from_script: 'cloudchef-workspace-a1', to: 'B' }] }],
+        },
+      }),
+    ).toHaveProperty('refusal');
   });
 });

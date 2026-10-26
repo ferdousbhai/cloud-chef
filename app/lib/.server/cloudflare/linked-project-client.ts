@@ -321,7 +321,7 @@ type ClaimedDeployment = z.infer<typeof claimedDeploymentSchema>;
 export async function claimProjectDeployment(
   env: RuntimeEnv,
   identity: Identity,
-  body: { orgProjectId: string; branch: string; commit: string },
+  body: { orgProjectId: string; branch: string; commit: string; headReadAt?: number },
 ): Promise<ClaimedDeployment> {
   const response = await postRuntimeRoute(env, identity, 'runtime-projects/deployments/claim', body, STATUS_TIMEOUT_MS);
   return readAnswer(response, claimedDeploymentSchema, 'CloudChef could not start the deploy.');
@@ -345,7 +345,13 @@ export async function retryProjectDeployment(
   return readAnswer(response, retriedDeploymentSchema, 'CloudChef could not start the deploy again.');
 }
 
-/** What a report did: recorded, superseded by a newer commit (stop), or refused (not this runtime's). */
+/**
+ * What a report did: recorded; superseded by a newer commit (stop); refused (not this runtime's); busy (another
+ * deploy of the project still runs: try the move to deploying again shortly); or worker_taken (another project
+ * publishes to that Worker, and the deploy was recorded as failed).
+ */
+export type DeploymentReportOutcome = 'recorded' | 'superseded' | 'refused' | 'busy' | 'worker_taken';
+
 export async function reportProjectDeployment(
   env: RuntimeEnv,
   identity: Identity,
@@ -359,7 +365,7 @@ export async function reportProjectDeployment(
     workerName?: string;
     wantedWorkerName?: string;
   },
-): Promise<'recorded' | 'superseded' | 'refused'> {
+): Promise<DeploymentReportOutcome> {
   const response = await postRuntimeRoute(
     env,
     identity,
@@ -370,7 +376,7 @@ export async function reportProjectDeployment(
   return (
     await readAnswer(
       response,
-      z.object({ outcome: z.enum(['recorded', 'superseded', 'refused']) }),
+      z.object({ outcome: z.enum(['recorded', 'superseded', 'refused', 'busy', 'worker_taken']) }),
       'CloudChef could not record the deploy.',
     )
   ).outcome;

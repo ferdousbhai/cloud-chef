@@ -1,24 +1,37 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Sandbox, type SandboxCommand } from '@cloudflare/sandbox';
 import { createExtensionProcessSandbox } from '@cloudflare/sandbox/extensions';
+import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
 import { runtimeConnectionIdentity } from '../../app/lib/.server/cloudflare/cloudflare-api-runtime-identity';
-import { deployApiDecision } from '../../app/lib/.server/cloudflare/deploy-api-policy';
+import {
+  deployApiDecision,
+  deployBindingsCheck,
+  isCloudChefResourceName,
+  workerSettingsSchema,
+  type BindingLookups,
+} from '../../app/lib/.server/cloudflare/deploy-api-policy';
 import { GIT_PROXY_HOST, handleGitProxyRequest } from '../../app/lib/.server/cloudflare/git-proxy';
 import {
   claimProjectDeployment,
   projectDeploymentCredential,
   reportProjectDeployment,
   retryProjectDeployment,
+  type DeploymentReportOutcome,
 } from '../../app/lib/.server/cloudflare/linked-project-client';
 import {
   BUILD_PLAN_FILES,
   buildPlan,
   deployWorkerName,
   isCloudChefWorkerName,
+  withoutJsonComments,
   type BuildPlan,
 } from '../../app/lib/.server/cloudflare/project-build-plan';
 import { ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
+import {
+  readRuntimeUpgradeWindow,
+  recordRuntimeActivity,
+} from '../../app/lib/.server/cloudflare/user-workspace-runtime-activity';
 import { runTrackedSandboxCommand } from './tracked-command';
 import { shellQuote } from './shell-quote';
 import { first } from './sql-rows';
@@ -32,10 +45,18 @@ import { CONTAINER_TOOL_ENV } from './computer-sandbox';
  *   1. read how the commit builds from its own files (`buildPlan`), in the Worker;
  *   2. fetch that commit through a read-only git proxy, install its packages and build it, as an unprivileged user
  *      that holds no credential;
- *   3. stop every process of that user, then deploy with CloudChef's own Wrangler through a proxy that adds the
- *      account's authorization only while the control plane says this deploy is running, and only to requests a
- *      deploy of this one Worker makes (`deployApiDecision`);
- *   4. report how it went, keeping the log here, in the person's own account.
+ *   3. stop every process of that user, take the files from it, and write the Wrangler config the deploy uses
+ *      without any build command, so nothing of the project runs from then on;
+ *   4. apply its D1 migrations and deploy with CloudChef's own Wrangler, whose every request to Cloudflare this
+ *      builder sends on itself, with the account's authorization, only while the control plane says this deploy is
+ *      running and only if it is one a deploy of this one Worker may make (`deployApiDecision`): the token never
+ *      leaves this object;
+ *   5. report how it went, keeping the log here, in the person's own account.
+ *
+ * Each step runs in a scheduled call of its own, so none outlasts the time one may run; between them the job's
+ * step is kept here, and a job whose container was lost starts over, a few times at most. While a step runs, a
+ * heartbeat renews the deploy's lease and stops the work as soon as a newer commit supersedes it; and the runtime
+ * counts as busy, so an upgrade never cuts a deploy off.
  */
 
 /** CloudChef's own Wrangler, which deploys; the project's own copy only ever builds. */
@@ -47,18 +68,32 @@ const BUILD_USER = 'build';
 const BUILD_UID = 1001;
 /** The deploy's own address for Cloudflare's API, which the deploy proxy answers. */
 const DEPLOY_API_HOST = 'cloudflare-api.internal';
+const CLOUDFLARE_API = 'https://api.cloudflare.com';
 const WRANGLER_OUTPUT = '/tmp/wrangler-output.ndjson';
+/** The config the deploy uses, written next to the one it comes from. */
+const DEPLOY_CONFIG_NAME = 'cloudchef.deploy.json';
 
-const INSTALL_TIMEOUT_MS = 15 * 60_000;
-const BUILD_TIMEOUT_MS = 15 * 60_000;
+/** Each under the time one scheduled call may run, with room for the step around it. */
+const INSTALL_TIMEOUT_MS = 12 * 60_000;
+const BUILD_TIMEOUT_MS = 12 * 60_000;
 const DEPLOY_TIMEOUT_MS = 10 * 60_000;
 const SHORT_TIMEOUT_MS = 2 * 60_000;
+const HEARTBEAT_MS = 45_000;
+/** How long a deploy waits for another of the project to finish, in rounds of `BUSY_WAIT_SECONDS`. */
+const BUSY_WAIT_SECONDS = 20;
+const MAX_BUSY_WAITS = 40;
+/** How often a job whose container was lost starts over before it counts as failed. */
+const MAX_RESTARTS = 2;
+const UPGRADE_WAIT_SECONDS = 60;
+/** The account's token is asked for again this often while a deploy runs, so a stopped one loses it soon. */
+const TOKEN_REUSE_MS = 20_000;
 const MAX_LOG_CHARACTERS = 64 * 1024;
 const KEPT_LOGS = 10;
 
 type BuilderEnv = {
   PROJECT_BUILDER: DurableObjectNamespace<ProjectBuilder>;
   ARTIFACTS: Artifacts;
+  DB: D1Database;
   CONTROL_PLANE_SECRET: string;
   CLOUDCHEF_CONTROL_PLANE_ENDPOINT: string;
   CLOUDFLARE_ACCOUNT_ID: string;
@@ -68,6 +103,10 @@ type BuilderEnv = {
   CLOUDCHEF_USER_RUNTIME: string;
 };
 
+type Step = 'prepare' | 'install' | 'build' | 'config-build' | 'seal' | 'migrate' | 'deploy';
+type DeployablePlan = Extract<BuildPlan, { deployable: true }>;
+type WorkerSettings = z.infer<typeof workerSettingsSchema>;
+
 type Job = {
   deploymentId: string;
   orgProjectId: string;
@@ -76,13 +115,53 @@ type Job = {
   commit: string;
   kind: 'production' | 'preview';
   recordedWorker: string | null;
+  step: Step;
+  restarts: number;
+  waits: number;
+  plan: DeployablePlan | null;
+  workerName: string | null;
+  nameTaken: boolean;
+  deployConfig: string | null;
+};
+
+type JobRow = {
+  deployment_id: string;
+  org_project_id: string;
+  repo: string;
+  branch: string;
+  commit_sha: string;
+  kind: 'production' | 'preview';
+  recorded_worker: string | null;
+  status: 'pending' | 'running' | 'done';
+  step: Step;
+  restarts: number;
+  waits: number;
+  plan: string | null;
+  worker_name: string | null;
+  name_taken: number;
+  deploy_config: string | null;
 };
 
 const jobSchema = z.object({
   orgProjectId: z.string().uuid(),
   branch: z.string().regex(/^[A-Za-z0-9._/-]{1,255}$/),
   commit: z.string().regex(/^[0-9a-f]{40}$/),
+  headReadAt: z.number().int().positive().optional(),
 });
+
+const planSchema = z.looseObject({
+  deployable: z.literal(true),
+  packageManager: z.enum(['npm', 'pnpm', 'yarn', 'bun']),
+  install: z.string(),
+  build: z.string().nullable(),
+  configBuild: z.string().nullable(),
+  configFile: z.enum(['wrangler.json', 'wrangler.jsonc', 'wrangler.toml']),
+  workerName: z.string(),
+  migrations: z.array(z.object({ binding: z.string(), databaseName: z.string() })),
+});
+
+/** What a step leads to: the next step, a wait before this one is tried again, or the end of the job. */
+type StepOutcome = { next: Step } | { waitSeconds: number } | 'done';
 
 /** A step that failed, with where it failed and what to tell the person. */
 class StepFailure extends Error {
@@ -98,11 +177,15 @@ class StepFailure extends Error {
 /** The work was superseded by a newer commit, or isn't this runtime's any more: stop quietly. */
 class StepAbandoned extends Error {}
 
+const DEPLOY_REFUSED = (message: string) =>
+  Response.json({ success: false, errors: [{ code: 10000, message }] }, { status: 403 });
+
 export class ProjectBuilder extends Sandbox<BuilderEnv> {
   override sleepAfter = '5m';
   private readonly processes = createExtensionProcessSandbox(this);
-  /** The deploy proxy's token, fetched once per deploy step. */
-  #deployToken: { deploymentId: string; token: string } | null = null;
+  #deployToken: { deploymentId: string; token: string; at: number } | null = null;
+  /** When the last step ended, so one scheduled call runs only one step even if several calls fall due at once. */
+  #lastStepEndedAt = 0;
 
   constructor(ctx: DurableObjectState<{}>, env: BuilderEnv) {
     super(ctx, env);
@@ -115,6 +198,13 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       kind TEXT NOT NULL,
       recorded_worker TEXT,
       status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'done')),
+      step TEXT NOT NULL DEFAULT 'prepare',
+      restarts INTEGER NOT NULL DEFAULT 0,
+      waits INTEGER NOT NULL DEFAULT 0,
+      plan TEXT,
+      worker_name TEXT,
+      name_taken INTEGER NOT NULL DEFAULT 0,
+      deploy_config TEXT,
       created_at INTEGER NOT NULL
     )`);
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS builder_logs (
@@ -122,27 +212,33 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       log TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     )`);
-    // Which deploy, of which Worker, may send requests through the deploy proxy now: none, outside a deploy step.
+    // Which deploy, of which Worker, may send requests to Cloudflare now: none, outside a deploy step.
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS builder_gate (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
       deployment_id TEXT NOT NULL,
       org_project_id TEXT NOT NULL,
       worker_name TEXT NOT NULL
     )`);
+    // A fresh instance runs no step yet, so a gate the last one left open is closed.
+    ctx.storage.sql.exec('DELETE FROM builder_gate');
   }
 
   /**
    * Builds and deploys `commit` of `branch` once the control plane hands it to this runtime: the first time it is
-   * asked for that commit. A later ask for a commit already claimed does nothing.
+   * asked for that commit, or when the runtime that had it stopped. A later ask for a commit claimed does nothing.
    */
-  async enqueue(value: { orgProjectId: string; branch: string; commit: string }): Promise<{ queued: boolean }> {
+  async enqueue(value: {
+    orgProjectId: string;
+    branch: string;
+    commit: string;
+    headReadAt?: number;
+  }): Promise<{ queued: boolean }> {
     const request = jobSchema.parse(value);
-    const identity = this.identity();
-    const claimed = await claimProjectDeployment(this.env, identity, request);
+    const claimed = await claimProjectDeployment(this.env, this.identity(), request);
     if (!claimed.claimed) {
       return { queued: false };
     }
-    this.addJob({
+    await this.addJob({
       deploymentId: claimed.deploymentId,
       orgProjectId: request.orgProjectId,
       repo: claimed.repo,
@@ -167,8 +263,7 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       branch: retried.branch,
       commit: retried.commit,
     });
-    this.ctx.storage.sql.exec('DELETE FROM builder_jobs WHERE deployment_id = ?', retried.deploymentId);
-    this.addJob({
+    await this.addJob({
       deploymentId: retried.deploymentId,
       orgProjectId: value.orgProjectId,
       repo: claimed.repo,
@@ -192,12 +287,17 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
     );
   }
 
-  private addJob(job: Job): void {
+  /** A job from its first step, replacing any earlier run of the same deployment. */
+  private async addJob(
+    job: Pick<Job, 'deploymentId' | 'orgProjectId' | 'repo' | 'branch' | 'commit' | 'kind' | 'recordedWorker'>,
+  ): Promise<void> {
     this.ctx.storage.sql.exec(
       `INSERT INTO builder_jobs (deployment_id, org_project_id, repo, branch, commit_sha, kind, recorded_worker, status,
          created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
-       ON CONFLICT(deployment_id) DO NOTHING`,
+       ON CONFLICT(deployment_id) DO UPDATE SET repo = excluded.repo, recorded_worker = excluded.recorded_worker,
+         status = 'pending', step = 'prepare', restarts = 0, waits = 0, plan = NULL, worker_name = NULL,
+         name_taken = 0, deploy_config = NULL, created_at = excluded.created_at`,
       job.deploymentId,
       job.orgProjectId,
       job.repo,
@@ -207,121 +307,362 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       job.recordedWorker,
       Date.now(),
     );
-    this.ctx.waitUntil(this.schedule(0, 'runNext', {}));
+    await this.schedule(0, 'runNext', {});
   }
 
-  /** Runs the oldest waiting job, then the next: one at a time, each in a fresh container. */
+  /** Runs one step of the oldest unfinished job, then schedules the next. */
   async runNext(): Promise<void> {
-    // A job left running by an eviction starts over from a fresh container; each step can be repeated.
-    this.ctx.storage.sql.exec("UPDATE builder_jobs SET status = 'pending' WHERE status = 'running'");
+    this.closeGate();
+    if (Date.now() - this.#lastStepEndedAt < 900) {
+      // Another call already ran a step in this scheduled run; the next goes in a run of its own.
+      await this.schedule(1, 'runNext', {});
+      return;
+    }
     const row = first(
-      this.ctx.storage.sql.exec<{
-        deployment_id: string;
-        org_project_id: string;
-        repo: string;
-        branch: string;
-        commit_sha: string;
-        kind: 'production' | 'preview';
-        recorded_worker: string | null;
-      }>(
-        `SELECT deployment_id, org_project_id, repo, branch, commit_sha, kind, recorded_worker FROM builder_jobs
-         WHERE status = 'pending' ORDER BY created_at LIMIT 1`,
+      this.ctx.storage.sql.exec<JobRow>(
+        `SELECT * FROM builder_jobs WHERE status IN ('pending', 'running') ORDER BY created_at LIMIT 1`,
       ),
     );
     if (!row) {
+      await this.markBusy(false);
       return;
     }
-    const job: Job = {
-      deploymentId: row.deployment_id,
-      orgProjectId: row.org_project_id,
-      repo: row.repo,
-      branch: row.branch,
-      commit: row.commit_sha,
-      kind: row.kind,
-      recordedWorker: row.recorded_worker,
-    };
-    this.ctx.storage.sql.exec("UPDATE builder_jobs SET status = 'running' WHERE deployment_id = ?", job.deploymentId);
+    if (!(await this.mayStart())) {
+      await this.schedule(UPGRADE_WAIT_SECONDS, 'runNext', {});
+      return;
+    }
+    const job = toJob(row);
+    if (row.status === 'running') {
+      // The last step stopped partway (its container or this object went away): the job starts over.
+      job.restarts += 1;
+      job.step = 'prepare';
+    }
+    this.ctx.storage.sql.exec(
+      "UPDATE builder_jobs SET status = 'running', step = ?, restarts = ? WHERE deployment_id = ?",
+      job.step,
+      job.restarts,
+      job.deploymentId,
+    );
+    let outcome: StepOutcome;
     try {
-      await this.run(job);
+      if (job.restarts > MAX_RESTARTS) {
+        throw new StepFailure('interrupted', 'The deploy kept stopping partway.');
+      }
+      outcome = await this.runStep(job);
+    } catch (error) {
+      await this.endJob(
+        job,
+        error instanceof StepAbandoned || error instanceof StepFailure
+          ? error
+          : new StepFailure('interrupted', 'The deploy stopped partway.'),
+      );
+      outcome = 'done';
     } finally {
       this.closeGate();
+      this.#lastStepEndedAt = Date.now();
+    }
+    if (outcome === 'done') {
       this.ctx.storage.sql.exec("UPDATE builder_jobs SET status = 'done' WHERE deployment_id = ?", job.deploymentId);
       this.ctx.storage.sql.exec(
         `DELETE FROM builder_logs WHERE deployment_id NOT IN (
            SELECT deployment_id FROM builder_logs ORDER BY updated_at DESC LIMIT ?)`,
         KEPT_LOGS,
       );
+      this.ctx.storage.sql.exec(
+        "DELETE FROM builder_jobs WHERE status = 'done' AND deployment_id != ?",
+        job.deploymentId,
+      );
       await this.destroy().catch(() => undefined);
-      await this.schedule(0, 'runNext', {});
+      await this.schedule(1, 'runNext', {});
+      return;
+    }
+    if ('waitSeconds' in outcome) {
+      this.ctx.storage.sql.exec(
+        "UPDATE builder_jobs SET status = 'pending', waits = waits + 1 WHERE deployment_id = ?",
+        job.deploymentId,
+      );
+      await this.schedule(outcome.waitSeconds, 'runNext', {});
+      return;
+    }
+    this.ctx.storage.sql.exec(
+      "UPDATE builder_jobs SET status = 'pending', step = ? WHERE deployment_id = ?",
+      outcome.next,
+      job.deploymentId,
+    );
+    await this.schedule(1, 'runNext', {});
+  }
+
+  private async runStep(job: Job): Promise<StepOutcome> {
+    if (job.step === 'prepare') {
+      return this.prepare(job);
+    }
+    const plan = job.plan;
+    if (!plan || !(await this.containerHasJob(job))) {
+      // The container went away between steps: start over from a fresh one.
+      this.ctx.storage.sql.exec(
+        'UPDATE builder_jobs SET restarts = restarts + 1 WHERE deployment_id = ?',
+        job.deploymentId,
+      );
+      return { next: 'prepare' };
+    }
+    switch (job.step) {
+      case 'install':
+        await this.whileReporting(job, 'building', () =>
+          this.asBuildUser(job, 'install', plan.install, INSTALL_TIMEOUT_MS),
+        );
+        return { next: 'build' };
+      case 'build':
+      case 'config-build': {
+        const command = job.step === 'build' ? plan.build : plan.configBuild;
+        if (command) {
+          await this.whileReporting(job, 'building', () => this.asBuildUser(job, 'build', command, BUILD_TIMEOUT_MS));
+        }
+        return { next: job.step === 'build' ? 'config-build' : 'seal' };
+      }
+      case 'seal':
+        await this.whileReporting(job, 'building', () => this.seal(job, plan));
+        return { next: 'migrate' };
+      case 'migrate':
+        return this.migrate(job, plan);
+      case 'deploy':
+        return this.deployStep(job, plan);
     }
   }
 
-  private async run(job: Job): Promise<void> {
-    const report = (state: Parameters<typeof reportProjectDeployment>[2]) =>
-      reportProjectDeployment(this.env, this.identity(), state);
+  /** How the commit builds, read in the Worker; then a fresh container with the commit fetched into it. */
+  private async prepare(job: Job): Promise<StepOutcome> {
     const plan = await this.plan(job);
     if (!plan.deployable) {
-      await report({
-        orgProjectId: job.orgProjectId,
-        deploymentId: job.deploymentId,
-        state: 'not_deployable',
-        reason: plan.reason,
+      await this.report(job, { state: 'not_deployable', reason: plan.reason });
+      return 'done';
+    }
+    await this.expectRecorded(this.report(job, { state: 'building' }));
+    this.ctx.storage.sql.exec(
+      'UPDATE builder_jobs SET plan = ?, worker_name = NULL, name_taken = 0, deploy_config = NULL WHERE deployment_id = ?',
+      JSON.stringify(plan),
+      job.deploymentId,
+    );
+    await this.whileReporting(job, 'building', async () => {
+      await this.prepareContainer();
+      await this.asBuildUser(job, 'install', fetchCommand(job), SHORT_TIMEOUT_MS);
+      await this.command(`touch ${jobMarker(job)}`, SHORT_TIMEOUT_MS);
+    });
+    return { next: 'install' };
+  }
+
+  /**
+   * Ends the build: every process of the build user is stopped, the files are taken from it, the history and local
+   * secrets are removed, and the Wrangler config the deploy uses is written from the one the build left (its own,
+   * or the one a build tool such as the Cloudflare Vite plugin points to), without any build command.
+   */
+  private async seal(job: Job, plan: DeployablePlan): Promise<void> {
+    await this.root(job, 'build', endBuildPhase(), SHORT_TIMEOUT_MS);
+    const source = await this.effectiveConfigPath(plan);
+    const text = (await this.command(`cat ${shellQuote(source)}`, SHORT_TIMEOUT_MS)).stdout;
+    const config = readWranglerConfig(source, text);
+    if (!config) {
+      throw new StepFailure('config', `CloudChef couldn’t read the Wrangler config the build left (${source}).`);
+    }
+    delete config.build;
+    const target = `${source.slice(0, source.lastIndexOf('/'))}/${DEPLOY_CONFIG_NAME}`;
+    const encoded = base64(new TextEncoder().encode(JSON.stringify(config)));
+    await this.command(
+      `printf %s ${shellQuote(encoded)} | base64 -d > ${shellQuote(target)} && rm -rf ${WORK_DIR}/.wrangler/deploy`,
+      SHORT_TIMEOUT_MS,
+    );
+    this.ctx.storage.sql.exec(
+      'UPDATE builder_jobs SET deploy_config = ? WHERE deployment_id = ?',
+      target,
+      job.deploymentId,
+    );
+  }
+
+  /** The config the build left: the redirect a build tool writes, kept inside the project, or the project's own. */
+  private async effectiveConfigPath(plan: DeployablePlan): Promise<string> {
+    const redirect = (
+      await this.command(`cat ${WORK_DIR}/.wrangler/deploy/config.json 2>/dev/null || true`, SHORT_TIMEOUT_MS)
+    ).stdout.trim();
+    let wanted = `${WORK_DIR}/${plan.configFile}`;
+    if (redirect) {
+      const configPath = parseJson(redirect, z.object({ configPath: z.string().min(1) }))?.configPath;
+      if (!configPath) {
+        throw new StepFailure('config', 'The build left a Wrangler config redirect CloudChef couldn’t read.');
+      }
+      wanted = configPath.startsWith('/') ? configPath : `${WORK_DIR}/.wrangler/deploy/${configPath}`;
+    }
+    const resolved = (await this.command(`realpath -e ${shellQuote(wanted)}`, SHORT_TIMEOUT_MS)).stdout.trim();
+    if (!resolved.startsWith(`${WORK_DIR}/`) || !/\.(json|jsonc|toml)$/.test(resolved)) {
+      throw new StepFailure('config', 'The build pointed to a Wrangler config outside the project.');
+    }
+    return resolved;
+  }
+
+  /**
+   * Moves the deployment to deploying (waiting while another deploy of the project runs), picks and holds its
+   * Worker, and applies the config's D1 migrations, before the new code goes live.
+   */
+  private async migrate(job: Job, plan: DeployablePlan): Promise<StepOutcome> {
+    const outcome = await this.report(job, { state: 'deploying' });
+    if (outcome === 'busy') {
+      if (job.waits >= MAX_BUSY_WAITS) {
+        throw new StepFailure('deploy', 'Another deploy of this project took too long to finish.');
+      }
+      // Its lease is renewed while it waits, as building.
+      await this.expectRecorded(this.report(job, { state: 'building' }));
+      return { waitSeconds: BUSY_WAIT_SECONDS };
+    }
+    await this.expectRecorded(Promise.resolve(outcome));
+    const worker = job.workerName
+      ? { name: job.workerName, nameTaken: job.nameTaken }
+      : await this.chooseWorker(job, plan);
+    const held = await this.report(job, { state: 'deploying', workerName: worker.name });
+    if (held === 'worker_taken') {
+      this.appendLog(job, `\nAnother project publishes to the Worker named ${worker.name}.\n`);
+      return 'done';
+    }
+    await this.expectRecorded(Promise.resolve(held));
+    this.ctx.storage.sql.exec(
+      'UPDATE builder_jobs SET worker_name = ?, name_taken = ? WHERE deployment_id = ?',
+      worker.name,
+      worker.nameTaken ? 1 : 0,
+      job.deploymentId,
+    );
+    if (job.kind === 'production' && plan.migrations.length > 0) {
+      this.openGate(job, worker.name);
+      await this.whileReporting(job, 'deploying', async () => {
+        for (const database of plan.migrations) {
+          this.appendLog(job, `\n$ wrangler d1 migrations apply ${database.databaseName} --remote\n`);
+          await this.runWrangler(
+            job,
+            'migrations',
+            `d1 migrations apply ${shellQuote(database.databaseName)} --remote --config ${shellQuote(job.deployConfig!)}`,
+          );
+        }
       });
+    }
+    return { next: 'deploy' };
+  }
+
+  /** Deploys (main) or uploads a preview (another branch), then reports where it went. */
+  private async deployStep(job: Job, plan: DeployablePlan): Promise<StepOutcome> {
+    const workerName = job.workerName;
+    if (!workerName || !job.deployConfig) {
+      return { next: 'migrate' };
+    }
+    await this.expectRecorded(this.report(job, { state: 'deploying', workerName }));
+    this.openGate(job, workerName);
+    const config = ` --config ${shellQuote(job.deployConfig)}`;
+    const command =
+      job.kind === 'production'
+        ? `deploy --name ${workerName}${config}`
+        : `versions upload --name ${workerName} --preview-alias ${previewAlias(job.branch)}${config}`;
+    const url = await this.whileReporting(job, 'deploying', async () => {
+      this.appendLog(job, `\n$ wrangler ${command}\n`);
+      await this.runWrangler(job, 'deploy', command);
+      const output = await this.command(`cat ${WRANGLER_OUTPUT} 2>/dev/null || true`, SHORT_TIMEOUT_MS);
+      return deployedUrl(output.stdout, job.kind);
+    });
+    const succeeded: Parameters<typeof reportProjectDeployment>[2] = {
+      orgProjectId: job.orgProjectId,
+      deploymentId: job.deploymentId,
+      state: 'succeeded',
+      workerName,
+    };
+    if (url) {
+      succeeded.url = url;
+    }
+    if (job.nameTaken && isCloudChefWorkerName(plan.workerName)) {
+      succeeded.reason = `${plan.workerName} is a name CloudChef uses itself, so this went to ${workerName}.`;
+    } else if (job.nameTaken) {
+      succeeded.reason = `A Worker named ${plan.workerName} was already in the account, so this went to ${workerName}.`;
+      succeeded.wantedWorkerName = plan.workerName;
+    }
+    await reportProjectDeployment(this.env, this.identity(), succeeded);
+    return 'done';
+  }
+
+  /** Records how a job ended that didn't succeed: quietly when it was superseded, else with its stage and reason. */
+  private async endJob(job: Job, error: StepAbandoned | StepFailure): Promise<void> {
+    if (error instanceof StepAbandoned) {
+      // A superseded deploy that stopped lets the newer one go ahead at once.
+      await this.report(job, { state: 'failed', failureStage: 'interrupted' }).catch(() => undefined);
       return;
     }
-    try {
-      await this.step(report({ orgProjectId: job.orgProjectId, deploymentId: job.deploymentId, state: 'building' }));
-      await this.prepareContainer();
-      await this.asBuildUser(job, 'install', fetchCommand(job), SHORT_TIMEOUT_MS, 'install');
-      await this.asBuildUser(job, 'install', plan.install, INSTALL_TIMEOUT_MS, 'install');
-      for (const command of [plan.build, plan.configBuild]) {
-        if (command) {
-          await this.asBuildUser(job, 'build', command, BUILD_TIMEOUT_MS, 'build');
-        }
-      }
-      await this.root(job, 'build', endBuildPhase(), SHORT_TIMEOUT_MS);
-      await this.step(report({ orgProjectId: job.orgProjectId, deploymentId: job.deploymentId, state: 'deploying' }));
-      const worker = await this.chooseWorker(job, plan);
-      this.openGate(job, worker.name);
-      const url = await this.deploy(job, plan, worker.name);
-      const succeeded: Parameters<typeof reportProjectDeployment>[2] = {
-        orgProjectId: job.orgProjectId,
-        deploymentId: job.deploymentId,
-        state: 'succeeded',
-        workerName: worker.name,
-      };
-      if (url) {
-        succeeded.url = url;
-      }
-      if (worker.nameTaken && isCloudChefWorkerName(plan.workerName)) {
-        succeeded.reason = `${plan.workerName} is a name CloudChef uses itself, so this went to ${worker.name}.`;
-      } else if (worker.nameTaken) {
-        succeeded.reason = `A Worker named ${plan.workerName} was already in the account, so this went to ${worker.name}.`;
-        succeeded.wantedWorkerName = plan.workerName;
-      }
-      await report(succeeded);
-    } catch (error) {
-      if (error instanceof StepAbandoned) {
-        return;
-      }
-      const failure =
-        error instanceof StepFailure ? error : new StepFailure('interrupted', 'The deploy stopped partway.');
-      this.appendLog(job, `\n${failure.message}\n`);
-      await report({
-        orgProjectId: job.orgProjectId,
-        deploymentId: job.deploymentId,
-        state: 'failed',
-        failureStage: failure.stage,
-        reason: failure.message,
-      }).catch(() => undefined);
-    }
+    this.appendLog(job, `\n${error.message}\n`);
+    await this.report(job, { state: 'failed', failureStage: error.stage, reason: error.message }).catch(
+      () => undefined,
+    );
+  }
+
+  private report(
+    job: Job,
+    fields: Omit<Parameters<typeof reportProjectDeployment>[2], 'orgProjectId' | 'deploymentId'>,
+  ): Promise<DeploymentReportOutcome> {
+    return reportProjectDeployment(this.env, this.identity(), {
+      orgProjectId: job.orgProjectId,
+      deploymentId: job.deploymentId,
+      ...fields,
+    });
   }
 
   /** A report that says to stop (superseded, or not this runtime's) ends the job quietly. */
-  private async step(outcome: Promise<'recorded' | 'superseded' | 'refused'>): Promise<void> {
+  private async expectRecorded(outcome: Promise<DeploymentReportOutcome>): Promise<void> {
     if ((await outcome) !== 'recorded') {
       throw new StepAbandoned();
     }
+  }
+
+  /**
+   * Runs `work` while renewing the deploy's lease and the runtime's busy mark; a heartbeat that finds the deploy
+   * superseded (or no longer this runtime's) stops the container, so the work ends at once, abandoned.
+   */
+  private async whileReporting<T>(job: Job, state: 'building' | 'deploying', work: () => Promise<T>): Promise<T> {
+    let stopped = false;
+    const timer = setInterval(() => {
+      void this.markBusy(true).catch(() => undefined);
+      void this.report(job, { state })
+        .then((outcome) => {
+          if (outcome === 'superseded' || outcome === 'refused') {
+            stopped = true;
+            this.closeGate();
+            void this.destroy().catch(() => undefined);
+          }
+        })
+        .catch(() => undefined);
+    }, HEARTBEAT_MS);
+    try {
+      const result = await work();
+      if (stopped) {
+        throw new StepAbandoned();
+      }
+      return result;
+    } catch (error) {
+      throw stopped ? new StepAbandoned() : error;
+    } finally {
+      clearInterval(timer);
+    }
+  }
+
+  /** Whether a step may start: never while an upgrade holds the runtime's window; the runtime is busy from then on. */
+  private async mayStart(): Promise<boolean> {
+    if (await readRuntimeUpgradeWindow(this.env.DB, Date.now())) {
+      return false;
+    }
+    await this.markBusy(true);
+    // An upgrade that claimed the window just before this was marked busy goes first.
+    if (await readRuntimeUpgradeWindow(this.env.DB, Date.now())) {
+      await this.markBusy(false);
+      return false;
+    }
+    return true;
+  }
+
+  private markBusy(busy: boolean): Promise<void> {
+    return recordRuntimeActivity(this.env.DB, {
+      agentName: `project-builder:${this.ctx.id.toString()}`,
+      busy,
+      now: Date.now(),
+    });
   }
 
   /** How the commit builds, from its own files, read in the Worker before anything runs. */
@@ -362,47 +703,36 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
     );
   }
 
-  private async asBuildUser(
-    job: Job,
-    stage: 'install' | 'build',
-    command: string,
-    timeout: number,
-    label: string,
-  ): Promise<void> {
+  /** Whether this container is the one the job's earlier steps ran in. */
+  private async containerHasJob(job: Job): Promise<boolean> {
+    try {
+      await this.command(`test -f ${jobMarker(job)}`, SHORT_TIMEOUT_MS);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async asBuildUser(job: Job, stage: 'install' | 'build', command: string, timeout: number): Promise<void> {
     const wrapped =
       `setpriv --reuid=${BUILD_UID} --regid=${BUILD_UID} --clear-groups --no-new-privs -- ` +
       `env -i HOME=/home/${BUILD_USER} PATH=/usr/local/bin:/usr/bin:/bin CI=1 ` +
       `sh -c ${shellQuote(`cd ${WORK_DIR} && ${command}`)}`;
-    await this.logged(job, stage, wrapped, timeout, `$ ${command}`, label);
+    this.appendLog(job, `\n$ ${command}\n`);
+    await this.logged(job, stage, wrapped, timeout);
   }
 
-  private async root(
-    job: Job,
-    stage: 'build' | 'deploy' | 'migrations',
-    command: string,
-    timeout: number,
-  ): Promise<void> {
-    await this.logged(job, stage, command, timeout, null, stage);
+  private async root(job: Job, stage: 'build', command: string, timeout: number): Promise<void> {
+    await this.logged(job, stage, command, timeout);
   }
 
-  private async logged(
-    job: Job,
-    stage: 'install' | 'build' | 'deploy' | 'migrations',
-    command: string,
-    timeout: number,
-    heading: string | null,
-    label: string,
-  ): Promise<string> {
-    if (heading) {
-      this.appendLog(job, `\n${heading}\n`);
-    }
+  private async logged(job: Job, stage: 'install' | 'build', command: string, timeout: number): Promise<void> {
     try {
       const output = await this.command(command, timeout);
       this.appendLog(job, `${output.stdout}${output.stderr}`);
-      return output.stdout;
     } catch (error) {
       this.appendLog(job, `${error instanceof Error ? error.message : String(error)}\n`);
-      throw new StepFailure(stage, failureSentence(label));
+      throw new StepFailure(stage, failureSentence(stage));
     }
   }
 
@@ -416,17 +746,19 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
     });
   }
 
-  /** The Worker this deploy goes to: the one it went to before, else its config's name if free, else a free one. */
-  private async chooseWorker(job: Job, plan: Extract<BuildPlan, { deployable: true }>) {
+  /**
+   * The Worker this deploy goes to: the one it went to before, else its config's name if the account has no Worker
+   * of that name, else a free one derived from it. Only Cloudflare's "not found" counts as free.
+   */
+  private async chooseWorker(job: Job, plan: DeployablePlan): Promise<{ name: string; nameTaken: boolean }> {
     if (job.recordedWorker) {
       return { name: job.recordedWorker, nameTaken: false };
     }
-    const token = await this.deployToken(job);
-    const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${this.env.CLOUDFLARE_ACCOUNT_ID}/workers/services/${plan.workerName}`,
-      { headers: { authorization: `Bearer ${token}` } },
-    );
+    const response = await this.cloudflare(job, `/workers/services/${plan.workerName}`);
     await response.body?.cancel().catch(() => undefined);
+    if (response.status !== 200 && response.status !== 404) {
+      throw new StepFailure('deploy', `CloudChef couldn’t check whether a Worker named ${plan.workerName} exists.`);
+    }
     return deployWorkerName({
       recorded: null,
       configName: plan.workerName,
@@ -435,54 +767,19 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
     });
   }
 
-  /** Applies the config's D1 migrations, then deploys (main) or uploads a preview (another branch). */
-  private async deploy(
-    job: Job,
-    plan: Extract<BuildPlan, { deployable: true }>,
-    workerName: string,
-  ): Promise<string | null> {
+  private async runWrangler(job: Job, stage: 'deploy' | 'migrations', args: string): Promise<void> {
     const env = {
       CLOUDFLARE_API_BASE_URL: `http://${DEPLOY_API_HOST}/client/v4`,
-      // Wrangler needs a token to run unattended; the deploy proxy puts the real one in place of this.
+      // Wrangler needs a token to run unattended; this builder puts the real one in place of this.
       CLOUDFLARE_API_TOKEN: 'cloudchef-deploy-proxy',
       CLOUDFLARE_ACCOUNT_ID: this.env.CLOUDFLARE_ACCOUNT_ID,
       WRANGLER_SEND_METRICS: 'false',
       WRANGLER_OUTPUT_FILE_PATH: WRANGLER_OUTPUT,
+      // The project's history is gone; no git Wrangler runs finds any other.
+      GIT_DIR: '/nonexistent',
+      GIT_CEILING_DIRECTORIES: '/',
       CI: '1',
     };
-    const config = plan.configBuild ? 'wrangler.cloudchef.json' : null;
-    if (config) {
-      // The build command already ran as the build user; the deploy runs none.
-      await this.root(job, 'deploy', withoutBuildCommand(plan.configFile, config), SHORT_TIMEOUT_MS);
-    }
-    const configFlag = config ? ` --config ${config}` : '';
-    if (job.kind === 'production') {
-      for (const database of plan.migrations) {
-        this.appendLog(job, `\n$ wrangler d1 migrations apply ${database.databaseName} --remote\n`);
-        await this.runWrangler(
-          job,
-          'migrations',
-          `d1 migrations apply ${shellQuote(database.databaseName)} --remote${configFlag}`,
-          env,
-        );
-      }
-    }
-    const command =
-      job.kind === 'production'
-        ? `deploy --name ${workerName}${configFlag}`
-        : `versions upload --name ${workerName} --preview-alias ${previewAlias(job.branch)}${configFlag}`;
-    this.appendLog(job, `\n$ wrangler ${command}\n`);
-    await this.runWrangler(job, 'deploy', command, env);
-    const output = await this.command(`cat ${WRANGLER_OUTPUT} 2>/dev/null || true`, SHORT_TIMEOUT_MS);
-    return deployedUrl(output.stdout, job.kind);
-  }
-
-  private async runWrangler(
-    job: Job,
-    stage: 'deploy' | 'migrations',
-    args: string,
-    env: Record<string, string>,
-  ): Promise<void> {
     try {
       const output = await this.command(`cd ${WORK_DIR} && ${WRANGLER} ${args}`, DEPLOY_TIMEOUT_MS, env);
       this.appendLog(job, `${output.stdout}${output.stderr}`);
@@ -519,54 +816,193 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
     this.#deployToken = null;
   }
 
-  /** What the deploy proxy may send now: nothing outside a deploy step. */
-  deployGate(): { deploymentId: string; orgProjectId: string; workerName: string; accountId: string } | null {
+  private gate(): { deploymentId: string; orgProjectId: string; workerName: string } | null {
     const gate = first(
       this.ctx.storage.sql.exec<{ deployment_id: string; org_project_id: string; worker_name: string }>(
         'SELECT deployment_id, org_project_id, worker_name FROM builder_gate WHERE singleton = 1',
       ),
     );
     return gate
-      ? {
-          deploymentId: gate.deployment_id,
-          orgProjectId: gate.org_project_id,
-          workerName: gate.worker_name,
-          accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
-        }
+      ? { deploymentId: gate.deployment_id, orgProjectId: gate.org_project_id, workerName: gate.worker_name }
       : null;
   }
 
-  /** The account's token for the running deploy step, which the control plane gives only while it runs. */
-  async deployTokenFor(deploymentId: string, forceRefresh = false): Promise<string | null> {
-    const gate = this.deployGate();
-    if (!gate || gate.deploymentId !== deploymentId) {
-      return null;
+  /**
+   * One request of the deploy step's Wrangler, sent on to Cloudflare with the account's token if it is one a deploy
+   * of the gate's Worker may make; outside a deploy step, nothing. The token stays here.
+   */
+  async forwardDeployApi(request: Request): Promise<Response> {
+    const gate = this.gate();
+    if (!gate) {
+      return DEPLOY_REFUSED('No deploy is running.');
     }
-    if (!forceRefresh && this.#deployToken?.deploymentId === deploymentId) {
-      return this.#deployToken.token;
+    const url = new URL(request.url);
+    const decision = deployApiDecision(
+      { method: request.method, pathname: url.pathname },
+      { accountId: this.env.CLOUDFLARE_ACCOUNT_ID, workerName: gate.workerName },
+    );
+    const job = { deploymentId: gate.deploymentId, orgProjectId: gate.orgProjectId };
+    const headers = new Headers(request.headers);
+    for (const name of ['host', 'content-length', 'cf-connecting-ip', 'x-forwarded-for']) {
+      headers.delete(name);
     }
-    const token = await projectDeploymentCredential(this.env, this.identity(), {
-      orgProjectId: gate.orgProjectId,
-      deploymentId,
-      forceRefresh,
-    });
-    this.#deployToken = { deploymentId, token };
-    return token;
+    const upstream = `${CLOUDFLARE_API}${url.pathname}${url.search}`;
+    switch (decision) {
+      case 'refused':
+        return DEPLOY_REFUSED('CloudChef does not let a deploy make this request.');
+      case 'as_sent':
+        return fetch(upstream, withBody({ method: request.method, headers, redirect: 'manual' }, request.body));
+      case 'with_token':
+        return this.sendWithToken(job, upstream, request.method, headers, request.body);
+      case 'check_database': {
+        const databaseId = url.pathname.split('/').at(-2) ?? '';
+        const refusal = await this.resourceRefusal(job, { databases: [databaseId], namespaces: [] });
+        return refusal
+          ? DEPLOY_REFUSED(refusal)
+          : this.sendWithToken(job, upstream, request.method, headers, await request.arrayBuffer());
+      }
+      case 'check_new_resource': {
+        const text = await request.text();
+        const named = parseJson(text, z.looseObject({ name: z.string().optional(), title: z.string().optional() }));
+        if (!named || isCloudChefResourceName(named.name ?? named.title ?? '')) {
+          return DEPLOY_REFUSED('A project can’t make resources with CloudChef’s names.');
+        }
+        return this.sendWithToken(job, upstream, request.method, headers, text);
+      }
+      case 'check_bindings': {
+        const checked = await this.checkedWorkerUpload(job, request, gate.workerName);
+        if ('refusal' in checked) {
+          return DEPLOY_REFUSED(checked.refusal);
+        }
+        if (checked.body instanceof FormData) {
+          // Sent again as form data, with a boundary of its own.
+          headers.delete('content-type');
+        }
+        return this.sendWithToken(job, upstream, request.method, headers, checked.body);
+      }
+    }
   }
 
-  private async deployToken(job: Job): Promise<string> {
+  /** A Worker upload's settings, checked against `deployBindingsCheck` and the resources it binds by id. */
+  private async checkedWorkerUpload(
+    job: Pick<Job, 'deploymentId' | 'orgProjectId'>,
+    request: Request,
+    workerName: string,
+  ): Promise<{ refusal: string } | { body: BodyInit | null }> {
+    const type = request.headers.get('content-type') ?? '';
+    const settings: WorkerSettings[] = [];
+    let body: BodyInit | null;
+    if (type.startsWith('multipart/form-data')) {
+      const form = await request.formData();
+      for (const part of ['metadata', 'settings']) {
+        const value = form.get(part);
+        if (value !== null) {
+          const parsed = parseJson(value instanceof File ? await value.text() : value, workerSettingsSchema);
+          if (parsed === undefined) {
+            return { refusal: 'CloudChef couldn’t read the Worker’s settings.' };
+          }
+          settings.push(parsed);
+        }
+      }
+      body = form;
+    } else if (type.includes('json')) {
+      const text = await request.text();
+      const parsed = parseJson(text, workerSettingsSchema);
+      if (parsed === undefined) {
+        return { refusal: 'CloudChef couldn’t read the Worker’s settings.' };
+      }
+      settings.push(parsed);
+      body = text;
+    } else {
+      body = request.body ? await request.arrayBuffer() : null;
+    }
+    const lookups: BindingLookups = { databases: [], namespaces: [] };
+    for (const value of settings) {
+      const checked = deployBindingsCheck(value, workerName);
+      if ('refusal' in checked) {
+        return checked;
+      }
+      lookups.databases.push(...checked.lookups.databases);
+      lookups.namespaces.push(...checked.lookups.namespaces);
+    }
+    const refusal = await this.resourceRefusal(job, lookups);
+    return refusal ? { refusal } : { body };
+  }
+
+  /** Why a D1 database or KV namespace, by id, can't be used: it is CloudChef's, or couldn't be looked up. */
+  private async resourceRefusal(
+    job: Pick<Job, 'deploymentId' | 'orgProjectId'>,
+    lookups: BindingLookups,
+  ): Promise<string | null> {
+    const checks = [
+      ...lookups.databases.map((id) => ({ path: `/d1/database/${id}`, field: 'name' as const })),
+      ...lookups.namespaces.map((id) => ({ path: `/storage/kv/namespaces/${id}`, field: 'title' as const })),
+    ];
+    for (const check of checks) {
+      if (!/^\/[a-z0-9/-]+$/i.test(check.path)) {
+        return 'CloudChef couldn’t look up a resource the Worker uses.';
+      }
+      const response = await this.cloudflare(job, check.path);
+      const found = parseJson(
+        await response.text().catch(() => ''),
+        z.object({ result: z.looseObject({ name: z.string().optional(), title: z.string().optional() }) }),
+      );
+      const name = found?.result[check.field];
+      if (!response.ok || name === undefined) {
+        return 'CloudChef couldn’t look up a resource the Worker uses.';
+      }
+      if (isCloudChefResourceName(name)) {
+        return 'The project’s Worker can’t use CloudChef’s own databases or storage.';
+      }
+    }
+    return null;
+  }
+
+  /** A read of the account's API with the deploy's token, by its path below the account. */
+  private async cloudflare(job: Pick<Job, 'deploymentId' | 'orgProjectId'>, path: string): Promise<Response> {
+    const token = await this.deployToken(job);
+    return fetch(`${CLOUDFLARE_API}/client/v4/accounts/${this.env.CLOUDFLARE_ACCOUNT_ID}${path}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+  }
+
+  private async sendWithToken(
+    job: Pick<Job, 'deploymentId' | 'orgProjectId'>,
+    upstream: string,
+    method: string,
+    headers: Headers,
+    body: BodyInit | null,
+  ): Promise<Response> {
+    let token: string;
+    try {
+      token = await this.deployToken(job);
+    } catch {
+      return DEPLOY_REFUSED('This deploy may not publish any more.');
+    }
+    headers.set('authorization', `Bearer ${token}`);
+    return fetch(upstream, withBody({ method, headers, redirect: 'manual' }, body));
+  }
+
+  /** The account's token for the running deploy step, which the control plane gives only while it runs. */
+  private async deployToken(job: Pick<Job, 'deploymentId' | 'orgProjectId'>): Promise<string> {
+    const cached = this.#deployToken;
+    if (cached?.deploymentId === job.deploymentId && Date.now() - cached.at < TOKEN_REUSE_MS) {
+      return cached.token;
+    }
     const token = await projectDeploymentCredential(this.env, this.identity(), {
       orgProjectId: job.orgProjectId,
       deploymentId: job.deploymentId,
     });
-    this.#deployToken = { deploymentId: job.deploymentId, token };
+    this.#deployToken = { deploymentId: job.deploymentId, token, at: Date.now() };
     return token;
   }
 
   /** The repository the running job's source proxy reads. */
   sourceRepository(): { repo: string } | null {
     const row = first(
-      this.ctx.storage.sql.exec<{ repo: string }>("SELECT repo FROM builder_jobs WHERE status = 'running' LIMIT 1"),
+      this.ctx.storage.sql.exec<{ repo: string }>(
+        "SELECT repo FROM builder_jobs WHERE status = 'running' AND step = 'prepare' LIMIT 1",
+      ),
     );
     return row ?? null;
   }
@@ -580,6 +1016,73 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
   }
 }
 
+function toJob(row: JobRow): Job {
+  const plan = row.plan ? parseJson(row.plan, planSchema) : undefined;
+  return {
+    deploymentId: row.deployment_id,
+    orgProjectId: row.org_project_id,
+    repo: row.repo,
+    branch: row.branch,
+    commit: row.commit_sha,
+    kind: row.kind,
+    recordedWorker: row.recorded_worker,
+    step: row.step,
+    restarts: row.restarts,
+    waits: row.waits,
+    plan: plan ?? null,
+    workerName: row.worker_name,
+    nameTaken: row.name_taken === 1,
+    deployConfig: row.deploy_config,
+  };
+}
+
+function base64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(binary);
+}
+
+const wranglerConfigSchema = z.looseObject({ build: z.unknown().optional() });
+
+/** A Wrangler config's contents, from TOML or JSON with comments, or undefined when it can't be read. */
+function readWranglerConfig(path: string, text: string) {
+  try {
+    const parsed = wranglerConfigSchema.safeParse(
+      path.endsWith('.toml') ? parseToml(text) : JSON.parse(withoutJsonComments(text)),
+    );
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `text` as JSON of `schema`'s shape, or undefined when it is neither. */
+function parseJson<T>(text: string, schema: z.ZodType<T>): T | undefined {
+  try {
+    const parsed = schema.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function withBody(init: RequestInit & { duplex?: 'half' }, body: BodyInit | null): RequestInit {
+  if (body !== null) {
+    init.body = body;
+    if (body instanceof ReadableStream) {
+      init.duplex = 'half';
+    }
+  }
+  return init;
+}
+
+/** A file only the job's own container has, marking that its earlier steps ran there. */
+function jobMarker(job: Job): string {
+  return `/opt/cloudchef/job-${job.deploymentId}`;
+}
+
 /** Fetches exactly the commit into the work folder, through the read-only source proxy. */
 function fetchCommand(job: Job): string {
   return [
@@ -591,31 +1094,20 @@ function fetchCommand(job: Job): string {
   ].join(' ');
 }
 
-/** Stops every process the build left, checks none is left, and takes the files away from the build user. */
+/**
+ * Stops every process the build left, checks none is left, removes the history and local secrets (they never go to
+ * Cloudflare, and Wrangler would read them), and takes the files away from the build user.
+ */
 function endBuildPhase(): string {
   return [
     'set -eu',
     `pkill -KILL -u ${BUILD_USER} || true`,
     'sleep 1',
     `if pgrep -u ${BUILD_USER} >/dev/null; then echo 'The build left processes running.' >&2; exit 1; fi`,
-    // Local secrets never go to Cloudflare, and Wrangler would read them.
-    `find ${WORK_DIR} -maxdepth 1 \\( -name '.env' -o -name '.env.*' -o -name '.dev.vars' -o -name '.dev.vars.*' \\) -delete`,
+    `rm -rf ${WORK_DIR}/.git`,
+    `find ${WORK_DIR} -name node_modules -prune -o \\( -name '.env' -o -name '.env.*' -o -name '.dev.vars' -o -name '.dev.vars.*' \\) -print0 | xargs -0 rm -rf --`,
     `chown -R root:root ${WORK_DIR}`,
   ].join('\n');
-}
-
-/** The project's Wrangler config without its build command, for a deploy that runs none. */
-function withoutBuildCommand(configFile: string, out: string): string {
-  const script = [
-    "const fs = require('fs');",
-    `const text = fs.readFileSync(${JSON.stringify(configFile)}, 'utf8');`,
-    `const config = ${JSON.stringify(configFile)}.endsWith('.toml')`,
-    `  ? require(${JSON.stringify(`${WRANGLER_ROOT}/node_modules/smol-toml`)}).parse(text)`,
-    "  : JSON.parse(text.replace(/\\/\\*[\\s\\S]*?\\*\\/|(^|[^:\\\\])\\/\\/.*$/gm, '$1').replace(/,(\\s*[}\\]])/g, '$1'));",
-    'delete config.build;',
-    `fs.writeFileSync(${JSON.stringify(out)}, JSON.stringify(config));`,
-  ].join('\n');
-  return `cd ${WORK_DIR} && node -e ${shellQuote(script)}`;
 }
 
 /** A preview alias Cloudflare accepts: the branch's words, lowercase, short enough for a hostname. */
@@ -655,16 +1147,16 @@ const wranglerEventSchema = z.looseObject({
 /** The address a deploy reports in Wrangler's output: production's first target, or the preview's. */
 function deployedUrl(ndjson: string, kind: 'production' | 'preview'): string | null {
   for (const line of ndjson.split('\n').reverse()) {
-    try {
-      const event = wranglerEventSchema.parse(JSON.parse(line));
-      if (kind === 'production' && event.type === 'deploy' && event.targets?.[0]) {
-        return event.targets[0].startsWith('http') ? event.targets[0] : `https://${event.targets[0]}`;
-      }
-      if (kind === 'preview' && event.type === 'version-upload') {
-        return event.preview_alias_url ?? event.preview_url ?? null;
-      }
-    } catch {
-      // Not every line is an event.
+    const event = parseJson(line, wranglerEventSchema);
+    if (!event) {
+      continue;
+    }
+    if (kind === 'production' && event.type === 'deploy' && event.targets?.[0]) {
+      const target = event.targets[0];
+      return target.startsWith('http') ? target : `https://${target}`;
+    }
+    if (kind === 'preview' && event.type === 'version-upload') {
+      return event.preview_alias_url ?? event.preview_url ?? null;
     }
   }
   return null;
@@ -706,49 +1198,10 @@ export class BuilderSourceProxy extends WorkerEntrypoint<BuilderEnv, { builderId
   }
 }
 
-/**
- * Cloudflare's API for the build container's deploy step: what a deploy of the gate's Worker may ask, sent on with the
- * account's token in place of the placeholder Wrangler holds; outside a deploy step, nothing.
- */
+/** Cloudflare's API for the build container's deploy step: every request goes to the builder, which decides. */
 export class DeployApiProxy extends WorkerEntrypoint<BuilderEnv, { builderId: string }> {
-  override async fetch(request: Request): Promise<Response> {
+  override fetch(request: Request): Promise<Response> {
     const namespace = this.env.PROJECT_BUILDER;
-    const builder = namespace.get(namespace.idFromString(this.ctx.props.builderId));
-    const gate = await builder.deployGate();
-    const url = new URL(request.url);
-    const path = url.pathname.replace(/^\/client\/v4/, '');
-    const decision = gate
-      ? deployApiDecision({ method: request.method, path }, { accountId: gate.accountId, workerName: gate.workerName })
-      : 'refused';
-    if (!gate || decision === 'refused') {
-      return Response.json(
-        { success: false, errors: [{ code: 10000, message: 'CloudChef does not let a deploy make this request.' }] },
-        { status: 403 },
-      );
-    }
-    const headers = new Headers(request.headers);
-    headers.delete('host');
-    const send = async (token: string | null) => {
-      if (token) {
-        headers.set('authorization', `Bearer ${token}`);
-      }
-      const init: RequestInit & { duplex?: 'half' } = { method: request.method, headers, redirect: 'manual' };
-      if (request.body) {
-        init.body = request.body;
-        init.duplex = 'half';
-      }
-      return fetch(`https://api.cloudflare.com${url.pathname}${url.search}`, init);
-    };
-    if (decision === 'as_sent') {
-      return send(null);
-    }
-    const token = await builder.deployTokenFor(gate.deploymentId);
-    if (!token) {
-      return Response.json(
-        { success: false, errors: [{ code: 10000, message: 'No deploy is running.' }] },
-        { status: 403 },
-      );
-    }
-    return send(token);
+    return namespace.get(namespace.idFromString(this.ctx.props.builderId)).forwardDeployApi(request);
   }
 }
