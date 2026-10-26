@@ -19,13 +19,19 @@ import { authClient } from '~/lib/auth-client';
 import { useChatHistory } from '~/lib/cloudflare/chat-history-db';
 import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
 import { loadTeamProjects, openTeamProject, type TeamProject } from '~/lib/cloudflare/org-projects.client';
-import { downloadProjectArchive, openProjectChat, type ProjectRef } from '~/lib/cloudflare/projects.client';
+import {
+  downloadProjectArchive,
+  openProjectChat,
+  retryProjectDeploy,
+  type ProjectRef,
+} from '~/lib/cloudflare/projects.client';
 import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
 import { isImportReturn, IMPORT_RETURN_PARAM } from '~/lib/github-app.client';
 import { messageOf } from '~/lib/json-request';
 import { CloneDialog } from './CloneDialog.client';
+import { DeployLogDialog } from './DeployLogDialog.client';
 import { ImportFromGitHubDialog } from './ImportFromGitHubDialog.client';
-import { ProjectCard } from './ProjectCard';
+import { deployInProgress, ProjectCard, type CardDeploy } from './ProjectCard';
 import { archiveName, ProjectHistoryDialog } from './ProjectHistoryDialog.client';
 import { ShareProjectDialog } from './ShareProjectDialog.client';
 import { UploadZipDialog } from './UploadZipDialog.client';
@@ -35,7 +41,8 @@ type OpenDialog =
   | { kind: 'clone'; project: ProjectRef; name: string }
   | { kind: 'share'; orgId: string; project: { id: string; name: string } }
   | { kind: 'import' }
-  | { kind: 'upload' };
+  | { kind: 'upload' }
+  | { kind: 'deploy-log'; orgProjectId: string; deploymentId: string; name: string };
 
 /**
  * The signed-in home's projects, below the prompt that starts a new one: the person's own projects in the
@@ -109,6 +116,14 @@ export function ProjectsHome({ userId }: { userId: string }) {
           onClose={() => setDialog(null)}
         />
       ) : null}
+      {dialog?.kind === 'deploy-log' ? (
+        <DeployLogDialog
+          orgProjectId={dialog.orgProjectId}
+          deploymentId={dialog.deploymentId}
+          name={dialog.name}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
       {dialog?.kind === 'upload' ? (
         <UploadZipDialog onOpenProject={openProjectChat} onClose={() => setDialog(null)} />
       ) : null}
@@ -139,6 +154,9 @@ function AddProjectMenu({ onDialog }: { onDialog: (dialog: OpenDialog) => void }
     </Menu>
   );
 }
+
+/** How often the team's projects are asked for again while one of them is being published. */
+export const PUBLISHING_REFRESH_MS = 5_000;
 
 function download(project: ProjectRef, name: string) {
   downloadProjectArchive(project, archiveName(name)).catch((error) =>
@@ -262,6 +280,8 @@ function TeamProjects({
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [opening, setOpening] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -275,6 +295,70 @@ function TeamProjects({
       });
     return () => controller.abort();
   }, [orgId, attempt]);
+
+  // While any project is being published, the list is asked for again until none is.
+  const publishing = projects?.some((project) => isCloudChef(project) && deployInProgress(project.deployment?.state));
+  useEffect(() => {
+    if (!publishing) {
+      return undefined;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      loadTeamProjects(controller.signal)
+        .then(setProjects)
+        .catch(() => {
+          // A missed refresh is tried again on the next round.
+          if (!controller.signal.aborted) {
+            setRefresh((count) => count + 1);
+          }
+        });
+    }, PUBLISHING_REFRESH_MS);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [publishing, projects, refresh]);
+
+  const retry = async (project: TeamProject, deploymentId: string) => {
+    setRetrying(project.id);
+    try {
+      const id = await retryProjectDeploy(project.id, deploymentId);
+      // Shown as publishing at once; the refresh while it is brings its progress.
+      setProjects(
+        (current) =>
+          current?.map((listed) =>
+            listed.id === project.id
+              ? {
+                  ...listed,
+                  deployment: { id, state: 'queued', failureStage: null, reason: null, updatedAt: Date.now() },
+                }
+              : listed,
+          ) ?? null,
+      );
+    } catch (error) {
+      toast.error(messageOf(error, `${project.name} could not be published again. Try again.`));
+    } finally {
+      setRetrying(null);
+    }
+  };
+
+  const deployOf = (project: TeamProject, canEdit: boolean): CardDeploy | undefined => {
+    if (!isCloudChef(project)) {
+      return undefined;
+    }
+    const deployment = project.deployment ?? null;
+    if (deployment?.state !== 'failed') {
+      return { state: deployment?.state ?? null, reason: deployment?.reason ?? null };
+    }
+    return {
+      state: deployment.state,
+      reason: deployment.reason ?? null,
+      onRetry: canEdit ? () => void retry(project, deployment.id) : undefined,
+      retrying: retrying === project.id,
+      onShowLog: () =>
+        onDialog({ kind: 'deploy-log', orgProjectId: project.id, deploymentId: deployment.id, name: project.name }),
+    };
+  };
 
   const open = async (project: TeamProject) => {
     setOpening(project.id);
@@ -322,6 +406,7 @@ function TeamProjects({
                 siteUrl={project.siteUrl ?? null}
                 siteFramed={project.siteFrameable !== false}
                 badge={admin ? 'Owner' : canEdit ? 'Can edit' : 'Can view'}
+                deploy={deployOf(project, canEdit)}
                 primary={
                   canEdit ? (
                     <Button
@@ -381,6 +466,11 @@ function TeamProjects({
       )}
     </section>
   );
+}
+
+/** A project CloudChef builds and publishes itself, rather than Workers Builds. */
+function isCloudChef(project: TeamProject): boolean {
+  return project.deploysWith === 'cloudchef';
 }
 
 function SectionHeading({ id, action, children }: { id: string; action: ReactNode; children: string }) {

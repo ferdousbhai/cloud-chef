@@ -54,6 +54,50 @@ export async function uploadProject(file: Blob, name: string): Promise<ProjectIm
 
 const uploadedSchema = z.object({ projectId: z.string(), initialId: z.string() });
 
+/** What a runtime route answers before the workspace runtime has been upgraded to have it. */
+const WORKSPACE_UPDATING = 'Your workspace is being updated. Try again in a few minutes.';
+
+async function runtimeFailure(response: Response, fallback: string): Promise<UserRuntimeRequestError> {
+  if (response.status === 404) {
+    return new UserRuntimeRequestError(WORKSPACE_UPDATING, response.status, true);
+  }
+  const failure = runtimeFailureSchema.safeParse(await response.json().catch(() => null));
+  return new UserRuntimeRequestError(
+    (failure.success ? failure.data.error : undefined) ?? fallback,
+    response.status,
+    failure.success ? failure.data.retryable : undefined,
+  );
+}
+
+/** Publishes a team project again after its publish `deploymentId` failed. Answers the new publish's id. */
+export async function retryProjectDeploy(orgProjectId: string, deploymentId: string): Promise<string> {
+  const response = await fetchUserRuntime('/v1/projects/deploy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orgProjectId, deploymentId }),
+  });
+  if (!response.ok) {
+    throw await runtimeFailure(response, 'It could not be published again. Try again.');
+  }
+  return retriedSchema.parse(await response.json()).deploymentId;
+}
+
+const retriedSchema = z.object({ deploymentId: z.string() });
+
+/** The last part of what happened while a team project's publish ran, as plain text. */
+export async function loadProjectDeployLog(
+  orgProjectId: string,
+  deploymentId: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const query = new URLSearchParams({ project: orgProjectId, deployment: deploymentId });
+  const response = await fetchUserRuntime(`/v1/projects/deploy-log?${query}`, { signal });
+  if (!response.ok) {
+    throw await runtimeFailure(response, 'What happened could not be loaded. Try again.');
+  }
+  return response.text();
+}
+
 /** The first line of a commit message, which is its title. */
 export function commitTitle(message: string): string {
   return message.split('\n', 1)[0]?.trim() || 'No message';

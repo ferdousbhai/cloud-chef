@@ -9,7 +9,7 @@ import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
 import type { TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { refreshSession } from '~/lib/auth-client';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
-import { ProjectsHome } from './ProjectsHome.client';
+import { ProjectsHome, PUBLISHING_REFRESH_MS } from './ProjectsHome.client';
 
 const RUNTIME = 'https://runtime.example.workers.dev';
 const personal: WorkspaceContext = { kind: 'personal', connectionId: 'connection-1', accountName: null };
@@ -27,9 +27,12 @@ const teamAdmin: WorkspaceContext = { ...teamMember, connectionId: 'connection-3
 let context: WorkspaceContext = personal;
 let ownProjects: ChatHistorySummary[] = [];
 let teamProjects: TeamProject[] = [];
+/** The workspace runtime's publish routes, or null where it hasn't been upgraded to have them. */
+let deployRoutes: { log: string } | null = null;
+const deployRequests: unknown[] = [];
 
 /** CloudChef's routes and the workspace runtime, as the home reaches them. */
-async function server(input: RequestInfo | URL): Promise<Response> {
+async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const url = String(input);
   if (url === '/api/auth/session') {
     const session: CloudflareAuthSession = {
@@ -49,6 +52,13 @@ async function server(input: RequestInfo | URL): Promise<Response> {
   if (url === `${RUNTIME}/v1/data`) {
     return Response.json({ result: ownProjects });
   }
+  if (deployRoutes && url === `${RUNTIME}/v1/projects/deploy` && init?.method === 'POST') {
+    deployRequests.push(JSON.parse(String(init.body)));
+    return Response.json({ deploymentId: 'deployment-2' }, { status: 202 });
+  }
+  if (deployRoutes && url === `${RUNTIME}/v1/projects/deploy-log?project=project-1&deployment=deployment-1`) {
+    return new Response(deployRoutes.log, { headers: { 'Content-Type': 'text/plain' } });
+  }
   return Response.json({ error: 'Not here.' }, { status: 404 });
 }
 
@@ -67,9 +77,12 @@ beforeEach(() => {
   resetUserRuntimeSession();
   ownProjects = [];
   teamProjects = [];
+  deployRoutes = null;
+  deployRequests.length = 0;
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   if (root) {
     await act(async () => root?.unmount());
     root = undefined;
@@ -197,4 +210,113 @@ describe('ProjectsHome', () => {
     expect(card('Docs').textContent).toContain('Can view');
     expect(card('Docs').textContent).toContain('Open site');
   });
+
+  it('shows an uploaded project being published, asks again every few seconds, and stops once it is done', async () => {
+    context = teamAdmin;
+    teamProjects = [
+      uploaded({ state: 'building' }),
+      { id: 'project-2', name: 'Docs', role: 'edit', repo: 't-project-2', deploysWith: 'workers_builds' },
+    ];
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await render('user-publishing');
+    await vi.waitFor(() => card('Storefront'));
+
+    expect(card('Storefront').textContent).toContain('Publishing…');
+    // A project Workers Builds publishes says nothing of CloudChef's publishing.
+    expect(card('Docs').textContent).toContain('Not published yet');
+    expect(card('Docs').textContent).not.toContain('Publishing');
+
+    const listed = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === '/api/org-projects').length;
+    const before = listed();
+    teamProjects = [{ ...uploaded({ state: 'deploying' }), siteUrl: 'https://storefront.example.com' }];
+    await act(async () => vi.advanceTimersByTimeAsync(PUBLISHING_REFRESH_MS));
+    expect(listed()).toBe(before + 1);
+    // The site stays in view while its next version is published.
+    expect(card('Storefront').textContent).toContain('Updating…');
+    expect(card('Storefront').textContent).toContain('Open site');
+
+    teamProjects = [{ ...uploaded({ state: 'succeeded' }), siteUrl: 'https://storefront.example.com' }];
+    await act(async () => vi.advanceTimersByTimeAsync(PUBLISHING_REFRESH_MS));
+    expect(listed()).toBe(before + 2);
+    expect(card('Storefront').textContent).not.toContain('Updating…');
+
+    await act(async () => vi.advanceTimersByTimeAsync(PUBLISHING_REFRESH_MS * 3));
+    expect(listed()).toBe(before + 2);
+  });
+
+  it("says an uploaded project didn't publish, tries again, and shows what happened", async () => {
+    context = teamAdmin;
+    deployRoutes = { log: 'npm run build\nError: Cannot find module "./missing"' };
+    teamProjects = [uploaded({ state: 'failed', failureStage: 'build', reason: 'The build stopped with an error.' })];
+    await render('user-failed');
+    await vi.waitFor(() => card('Storefront'));
+
+    expect(card('Storefront').textContent).toContain("Didn't publish. The build stopped with an error.");
+
+    await click(card('Storefront'), 'Show what happened');
+    await vi.waitFor(() => expect(document.querySelector('pre')?.textContent).toContain('Cannot find module'));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('What happened');
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Close dialog"]')?.click());
+
+    await click(card('Storefront'), 'Try again');
+    await vi.waitFor(() => expect(card('Storefront').textContent).toContain('Publishing…'));
+    expect(deployRequests).toEqual([{ orgProjectId: 'project-1', deploymentId: 'deployment-1' }]);
+    expect(card('Storefront').textContent).not.toContain("Didn't publish");
+  });
+
+  it('says the workspace is being updated when its runtime has no publish log yet', async () => {
+    context = teamMember;
+    teamProjects = [{ ...uploaded({ state: 'failed', reason: null }), role: 'view' }];
+    await render('user-old-runtime');
+    await vi.waitFor(() => card('Storefront'));
+
+    // Someone who may only view the project can see what happened, but not publish it again.
+    expect(buttons(card('Storefront'))).not.toContain('Try again');
+    await click(card('Storefront'), 'Show what happened');
+    await vi.waitFor(() =>
+      expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
+        'Your workspace is being updated. Try again in a few minutes.',
+      ),
+    );
+  });
+
+  it("says an uploaded project is code only, or isn't published yet", async () => {
+    context = teamAdmin;
+    teamProjects = [
+      uploaded({ state: 'not_deployable', reason: 'There is no app here to publish.' }),
+      { ...uploaded(null), id: 'project-2', name: 'Notes' },
+    ];
+    await render('user-code-only');
+    await vi.waitFor(() => card('Notes'));
+
+    expect(card('Storefront').textContent).toContain('Code only');
+    expect(card('Storefront').textContent).toContain('There is no app here to publish.');
+    expect(card('Notes').textContent).toContain('Not published yet');
+  });
 });
+
+/** A team project CloudChef publishes itself, with its newest publish. */
+function uploaded(deployment: Partial<NonNullable<TeamProject['deployment']>> | null): TeamProject {
+  return {
+    id: 'project-1',
+    name: 'Storefront',
+    role: 'edit',
+    repo: 't-project-1',
+    deploysWith: 'cloudchef',
+    deployment: deployment
+      ? { id: 'deployment-1', state: 'queued', failureStage: null, reason: null, updatedAt: Date.now(), ...deployment }
+      : null,
+  };
+}
+
+function buttons(within: HTMLElement): string[] {
+  return [...within.querySelectorAll('button')].map((button) => button.textContent ?? '');
+}
+
+async function click(within: HTMLElement, label: string) {
+  const button = [...within.querySelectorAll('button')].find((candidate) => candidate.textContent === label);
+  if (!button) {
+    throw new Error(`No ${label} button`);
+  }
+  await act(async () => button.click());
+}
