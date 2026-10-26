@@ -81,12 +81,20 @@ export class ProjectRepositoryError extends Error {
   }
 }
 
+/*
+ * Repository names: `p-<chat id>` for a project started in a chat, `t-<project id>` for one made from outside
+ * (imported from GitHub, or uploaded as a ZIP). The letters are historical and mean nothing now: a team project
+ * approved from a draft keeps its `p-` repository, and a person's own imports get `t-`. They stay because a
+ * repository can't be renamed in place, and live sites build from these names. Never read what a project is
+ * from its prefix; the control plane's row says that.
+ */
+
 /** A CloudChef app's own repository, named after the chat that made it, whose conversations all work on it. */
 export function nativeProjectRepo(chatInitialId: string): string {
   return `p-${repoNamePart(chatInitialId)}`;
 }
 
-/** The repository a project imported from elsewhere (GitHub) is given. */
+/** The repository a project made from outside (a GitHub import, or a ZIP upload) is given. */
 export function importedProjectRepo(projectId: string): string {
   return `t-${repoNamePart(projectId)}`;
 }

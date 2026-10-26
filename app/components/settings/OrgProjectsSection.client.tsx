@@ -22,10 +22,10 @@ export const orgGitHubSchema = z.array(
 export const orgProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
-  origin: z.enum(['imported', 'promoted']),
   /** The project's Artifacts repository; null until the first person to open it has imported it. */
   repo: z.string().nullable(),
   /** The GitHub repository it was imported from, for an imported project. */
+  createdFrom: z.enum(['github', 'zip', 'draft']),
   importRepoFullName: z.string().nullable(),
   access: z.array(z.object({ userId: z.string(), role: projectRoleSchema })),
 });
@@ -230,7 +230,7 @@ function ProjectRow({
             onChanged={onChanged}
             onError={onError}
           />
-          {project.origin === 'promoted' ? <WorkersBuildsInstruction /> : null}
+          {project.createdFrom !== 'github' ? <WorkersBuildsInstruction /> : null}
           <div className="flex flex-wrap items-center justify-end gap-2">
             {confirmingRemove ? (
               <>
@@ -269,7 +269,10 @@ function projectSource(project: OrgProject): string | null {
     : null;
 }
 
-/** How an admin has Workers Builds deploy a project approved from a draft: the dashboard does it, once. */
+/**
+ * How an admin has Workers Builds deploy a project that didn't come from GitHub (an approved draft, or a ZIP
+ * upload), so has no Worker building it yet: the dashboard does it, once.
+ */
 function WorkersBuildsInstruction() {
   return (
     <p className="text-xs text-content-secondary">

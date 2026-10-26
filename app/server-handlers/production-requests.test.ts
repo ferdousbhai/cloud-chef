@@ -111,7 +111,7 @@ describe('production requests', () => {
     expect(
       database
         .prepare(
-          'SELECT id, connection_id, org_id, name, artifact_repo, origin, import_repo_full_name FROM org_projects',
+          'SELECT id, connection_id, org_id, name, created_from, artifact_repo, import_repo_full_name FROM org_projects',
         )
         .all(),
     ).toEqual([
@@ -120,8 +120,8 @@ describe('production requests', () => {
         connection_id: 'team-connection',
         org_id: ORG,
         name: 'Recipe box',
+        created_from: 'draft',
         artifact_repo: 'p-recipe-chat',
-        origin: 'promoted',
         import_repo_full_name: null,
       },
     ]);
@@ -157,7 +157,6 @@ describe('production requests', () => {
           name: 'Recipe box',
           repo: 'p-recipe-chat',
           role: 'edit',
-          origin: 'promoted',
           importRepoFullName: null,
           siteUrl: null,
           siteFrameable: null,

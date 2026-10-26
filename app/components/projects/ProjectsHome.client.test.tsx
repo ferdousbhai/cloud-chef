@@ -122,6 +122,7 @@ describe('ProjectsHome', () => {
     expect(card('Draft').textContent).toContain('Not published yet');
     expect(card('Draft').textContent).not.toContain('Open site');
     expect(document.body.textContent).toContain('Import from GitHub');
+    expect(document.body.textContent).toContain('Upload a ZIP');
   });
 
   it('shows a member the team projects shared with them, with Edit only where they can edit', async () => {
@@ -137,6 +138,7 @@ describe('ProjectsHome', () => {
     // A member limited to the team's projects has none of their own, and imports none.
     expect(document.querySelector('#my-projects')).toBeNull();
     expect(document.body.textContent).not.toContain('Import from GitHub');
+    expect(document.body.textContent).not.toContain('Upload a ZIP');
     expect(card('Storefront').querySelector('button[aria-label="Edit Storefront"]')).not.toBeNull();
     expect(card('Storefront').textContent).toContain('Can edit');
     expect(card('Docs').querySelector('button[aria-label="Edit Docs"]')).toBeNull();

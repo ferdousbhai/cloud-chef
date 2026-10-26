@@ -24,6 +24,8 @@ export type ProjectScope = { connectionId: string; orgId: string | null };
  * A project: an Artifacts repository in the account of the connection it belongs to, and where it was
  * imported from on GitHub, if it was.
  */
+export type ProjectCreatedFrom = 'github' | 'zip' | 'draft';
+
 export type Project = {
   id: string;
   connectionId: string;
@@ -33,8 +35,9 @@ export type Project = {
   /** The Artifacts repository in the `cloudchef` namespace; null until it has been imported. */
   repo: string | null;
   defaultBranch: string;
-  origin: 'imported' | 'promoted';
-  /** The GitHub repository it was (or is still to be) imported from. */
+  /** What it was made from: a GitHub import, a ZIP upload, or a team member's draft an admin approved. */
+  createdFrom: ProjectCreatedFrom;
+  /** The GitHub repository it was (or is still to be) imported from; null unless made from GitHub. */
   importSource: { repoId: number | null; fullName: string; branch: string } | null;
   workersBuildsScriptTag: string | null;
   /** The live site's address, once its Worker has been found. */
@@ -162,12 +165,12 @@ type ProjectRow = {
   site_url: string | null;
   site_frameable: number | null;
   default_branch: string;
-  origin: 'imported' | 'promoted';
+  created_from: ProjectCreatedFrom;
 };
 
 const PROJECT_COLUMNS = `projects.id, projects.connection_id, projects.org_id, projects.name, projects.import_repo_id,
   projects.import_repo_full_name, projects.import_branch, projects.artifact_repo, projects.workers_builds_script_tag,
-  projects.site_url, projects.site_frameable, projects.default_branch, projects.origin`;
+  projects.site_url, projects.site_frameable, projects.default_branch, projects.created_from`;
 
 /** Every project of a scope, with who else may view or edit it: an admin's or owner's view. */
 export async function listScopeProjects(db: D1Database, scope: ProjectScope): Promise<ManagedProject[]> {
@@ -266,8 +269,8 @@ export async function importProject(
   const inserted = await db
     .prepare(
       `INSERT INTO org_projects (id, connection_id, org_id, name, import_repo_id, import_repo_full_name, import_branch,
-         origin, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'imported', ?, ?)
+         created_from, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'github', ?, ?)
        ON CONFLICT DO NOTHING`,
     )
     .bind(
@@ -286,6 +289,27 @@ export async function importProject(
     throw new OrganizationError(`${args.source.fullName} is already a project here.`, 409);
   }
   return id;
+}
+
+/**
+ * A project whose code was uploaded as a ZIP: the runtime has written it to its Artifacts repository already,
+ * so it is recorded with that repository and no source. Refused when the id is taken.
+ */
+export async function addUploadedProject(
+  db: D1Database,
+  args: { scope: ProjectScope; actorId: string; projectId: string; name: string; repo: string },
+): Promise<void> {
+  const inserted = await db
+    .prepare(
+      `INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, 'zip', ?, ?)
+       ON CONFLICT DO NOTHING`,
+    )
+    .bind(args.projectId, args.scope.connectionId, args.scope.orgId, args.name, args.repo, args.actorId, Date.now())
+    .run();
+  if (inserted.meta.changes !== 1) {
+    throw new OrganizationError('That project is here already.', 409);
+  }
 }
 
 /** Removes a project from CloudChef. Its Artifacts repository and its Worker stay in the account. */
@@ -387,7 +411,7 @@ export async function abandonImport(
   const removed = await db
     .prepare(
       `DELETE FROM org_projects
-       WHERE id = ? AND created_by = ? AND connection_id = ? AND origin = 'imported' AND artifact_repo IS NULL
+       WHERE id = ? AND created_by = ? AND connection_id = ? AND created_from = 'github' AND artifact_repo IS NULL
          AND created_at > ?`,
     )
     .bind(args.projectId, args.userId, args.connectionId, Date.now() - ABANDON_IMPORT_WINDOW_MS)
@@ -424,7 +448,7 @@ function toProject(row: ProjectRow): Project {
     name: row.name,
     repo: row.artifact_repo,
     defaultBranch: row.default_branch,
-    origin: row.origin,
+    createdFrom: row.created_from,
     importSource:
       row.import_repo_full_name !== null && row.import_branch !== null
         ? { repoId: row.import_repo_id, fullName: row.import_repo_full_name, branch: row.import_branch }
@@ -578,8 +602,8 @@ export async function approveProductionRequest(
       .bind(args.requestId, args.actorId, now, args.orgId),
     db
       .prepare(
-        `INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, origin, created_by, created_at)
-         SELECT ?4, ${connection}, ?3, title, repo, 'promoted', ?5, ?2 FROM production_requests
+        `INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_by, created_at)
+         SELECT ?4, ${connection}, ?3, title, repo, 'draft', ?5, ?2 FROM production_requests
          WHERE id = ?1 AND ${approvedNow}
          ON CONFLICT DO NOTHING`,
       )

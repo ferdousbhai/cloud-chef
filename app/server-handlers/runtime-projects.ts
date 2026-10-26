@@ -16,6 +16,7 @@ import {
 } from '~/lib/.server/cloudflare/workers-builds';
 import {
   abandonImport,
+  addUploadedProject,
   findAccessibleProject,
   listGitHubInstallations,
   recordImportedRepo,
@@ -39,7 +40,7 @@ import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
  */
 const MAX_REQUEST_BYTES = 8 * 1024;
 const COMMIT = z.string().regex(/^[0-9a-f]{40}$/);
-/** An Artifacts repository name as CloudChef makes them: `p-<chat>` for a draft, `t-<project>` for an import. */
+/** An Artifacts repository name as CloudChef makes them: `p-<chat>` for a draft, `t-<project>` for an import or upload. */
 const REPO = z.string().regex(/^[pt]-[A-Za-z0-9_-]{1,120}$/);
 
 const projectFields = { orgProjectId: z.string().uuid() };
@@ -50,6 +51,11 @@ const abandonSchema = z.strictObject(projectFields);
 const registerImportSchema = z.strictObject({
   url: z.string().min(1).max(2_048),
   name: z.string().trim().max(80).optional(),
+});
+const registerUploadSchema = z.strictObject({
+  ...projectFields,
+  name: z.string().trim().min(1).max(80),
+  repo: REPO,
 });
 const MAX_PENDING_REQUESTS_PER_MEMBER = 5;
 const productionRequestSchema = z.strictObject({
@@ -265,6 +271,40 @@ export async function runtimeRegisterImportAction(args: {
       workersBuildsFromGitHub: await buildsFromGitHub(args.env, connection, project),
     };
     return json(answer, 201);
+  });
+}
+
+/**
+ * The runtime has written a ZIP someone uploaded to a new Artifacts repository (`t-<project id>`, the id the
+ * runtime chose): record it as a project of its account. In a team it takes one of the team's admins, as an
+ * import does.
+ */
+export async function runtimeRegisterUploadAction(args: { request: Request; env: Env }): Promise<Response> {
+  const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, registerUploadSchema, {
+    maxBytes: MAX_REQUEST_BYTES,
+    label: 'Workspace runtime project upload',
+    invalid: INVALID_REQUEST,
+  });
+  if (authenticated instanceof Response) {
+    return authenticated;
+  }
+  const { body, identity, connection } = authenticated;
+  if (body.repo !== importedProjectRepo(body.orgProjectId)) {
+    return json({ error: 'That is not where this project is kept.' }, 409);
+  }
+  return answeringOrganizationErrors(async () => {
+    const scope = await requireProjectScope(args.env.DB, identity.userId, connection.orgId ?? undefined);
+    if (scope.connectionId !== connection.id) {
+      return json({ error: "This workspace can't add projects in that account." }, 403);
+    }
+    await addUploadedProject(args.env.DB, {
+      scope,
+      actorId: identity.userId,
+      projectId: body.orgProjectId,
+      name: body.name,
+      repo: body.repo,
+    });
+    return json({ projectId: body.orgProjectId }, 201);
   });
 }
 

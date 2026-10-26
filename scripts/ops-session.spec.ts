@@ -100,7 +100,7 @@ function fakeProduction() {
           {
             id: 'project-1',
             name: 'Site',
-            origin: 'imported',
+            created_from: 'github',
             artifact_repo: 't-project-1',
             import_repo_full_name: 'acme/site',
             import_branch: 'master',
@@ -294,7 +294,7 @@ describe('ops:session reconstruction', () => {
     expect(text).toContain('[assistant] Done now.');
     expect(text).toContain('WARN log [BuilderAgent] Recovering interrupted CloudChef chat turn');
     expect(text).toContain(
-      'Project Site (imported): Artifacts repository t-project-1; member branch cloudchef/sara-b86c65',
+      'Project Site (imported from GitHub): Artifacts repository t-project-1; member branch cloudchef/sara-b86c65',
     );
     expect(text).toContain('da130d3 2026-10-20T13:40:15Z cloudchef/sara-b86c65-k3y4chat0001: success Bold the intro');
     expect(text).not.toContain('system prompt');

@@ -71,12 +71,11 @@ export function listMyProjectsAction({
     }
     return Response.json(
       {
-        projects: projects.map(({ id, name, repo, role, origin, importSource, siteUrl, siteFrameable }) => ({
+        projects: projects.map(({ id, name, repo, role, importSource, siteUrl, siteFrameable }) => ({
           id,
           name,
           repo,
           role,
-          origin,
           importRepoFullName: importSource?.fullName ?? null,
           siteUrl,
           siteFrameable,

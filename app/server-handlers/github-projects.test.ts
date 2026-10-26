@@ -183,7 +183,6 @@ const myProjectsSchema = z.object({
       name: z.string(),
       repo: z.string().nullable(),
       role: z.enum(['view', 'edit']),
-      origin: z.enum(['imported', 'promoted']),
       importRepoFullName: z.string().nullable(),
     }),
   ),
@@ -541,11 +540,11 @@ describe('projects', () => {
     // Imported on first open: no Artifacts repository yet, and the branch that is GitHub's default.
     expect(
       database
-        .prepare('SELECT import_repo_full_name, import_branch, artifact_repo, origin FROM org_projects ORDER BY name')
+        .prepare('SELECT import_repo_full_name, import_branch, artifact_repo FROM org_projects ORDER BY name')
         .all(),
     ).toEqual([
-      { import_repo_full_name: 'ada/site', import_branch: 'main', artifact_repo: null, origin: 'imported' },
-      { import_repo_full_name: 'ada/blog', import_branch: 'trunk', artifact_repo: null, origin: 'imported' },
+      { import_repo_full_name: 'ada/site', import_branch: 'main', artifact_repo: null },
+      { import_repo_full_name: 'ada/blog', import_branch: 'trunk', artifact_repo: null },
     ]);
 
     // Admins own every project; a member has none until given one.

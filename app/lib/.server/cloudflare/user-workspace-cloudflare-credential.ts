@@ -255,6 +255,7 @@ type RuntimeRoute =
   | 'runtime-projects/imported'
   | 'runtime-projects/abandon-import'
   | 'runtime-projects/register-import'
+  | 'runtime-projects/register-upload'
   | 'runtime-projects/status'
   | 'runtime-projects/site'
   | 'runtime-projects/request-production';

@@ -6,7 +6,9 @@ import {
   ProjectAccessError,
   ProjectRefusalError,
   ProjectUnavailableError,
+  commitAuthor,
   registerProjectImport,
+  registerUploadedProject,
 } from '~/lib/.server/cloudflare/linked-project-client';
 import {
   importedProjectRepo,
@@ -18,7 +20,15 @@ import {
 import type { DataOperationResult, ProjectCloneAccess, ProjectCommit } from '~/lib/cloudflare/data-api';
 import { ensureInitialChat, findChat, openLinkedChat } from './chat-repository.server';
 import { cloneToken } from './clone-tokens.server';
+import { extractZip, ZipReadError } from '~/lib/.server/cloudflare/zip-extract';
+import { PayloadTooLargeError, readBodyBytesWithLimit } from '~/lib/bounded-body';
+import {
+  BUILDER_WORKSPACE_MAX_FILE_BYTES,
+  BUILDER_WORKSPACE_MAX_FILES,
+  BUILDER_WORKSPACE_MAX_TOTAL_BYTES,
+} from '@cloudchef/user-workspace-runtime/protocol';
 import { DataNotFoundError, ProjectForbiddenError, ProjectRepositoryFailureError } from './errors';
+import { internalErrorResponse } from './http.server';
 import { IMPORT_DIALOG_ACCESS_FIX } from '~/lib/github-return-messages';
 
 /**
@@ -268,6 +278,97 @@ export async function importProject(
     result.workersBuildsFromGitHub = registered.workersBuildsFromGitHub;
   }
   return result;
+}
+
+/** The largest ZIP that may be uploaded: what a project's files may add up to in a workspace. */
+const MAX_UPLOAD_BYTES = BUILDER_WORKSPACE_MAX_TOTAL_BYTES;
+
+/**
+ * `POST /v1/projects/upload?name=<project name>`, the body a ZIP of a codebase: a new project of the account
+ * this runtime deploys into (a team's, for one of its admins), whose first commit on main is the ZIP's files.
+ * The runtime writes the repository (`t-<new id>`) first and only then asks the control plane to keep the
+ * project, so a failure on either side leaves no project without code; a repository written for a project
+ * that wasn't kept is deleted again.
+ */
+export async function userRuntimeProjectUploadAction(
+  args: { request: Request; url: URL; env: Env; userId: string },
+  repositories: ProjectRepositoriesFactory = accountRepositories,
+): Promise<Response> {
+  try {
+    const name = args.url.searchParams.get('name')?.trim().slice(0, 80) || 'Uploaded project';
+    const identity = runtimeConnectionIdentity(args.env);
+    if (!identity) {
+      throw new ProjectForbiddenError('This workspace is not connected to CloudChef.');
+    }
+    const files = await readUploadedFiles(args.request);
+    const projectId = crypto.randomUUID();
+    const repo = importedProjectRepo(projectId);
+    const store = repositories(args.env);
+    await withRepositoryErrors(
+      (async () => {
+        await store.ensureRepo(repo);
+        try {
+          const committed = await store.commitFiles({
+            repo,
+            branch: MAIN_BRANCH,
+            parent: null,
+            replaces: null,
+            files,
+            message: `Upload ${name}`,
+            author: await commitAuthor(args.env),
+          });
+          if ('conflict' in committed) {
+            throw new ProjectRepositoryError(
+              'The new project was changed while it was being made. Try again.',
+              'unavailable',
+            );
+          }
+          await registerUploadedProject(args.env, identity, { orgProjectId: projectId, name, repo });
+        } catch (error) {
+          // Not kept as a project, so its code isn't kept either.
+          await store.deleteRepo(repo).catch(() => undefined);
+          throw error;
+        }
+      })(),
+    );
+    const { initialId } = await openLinkedChat(args.env.DB, {
+      sessionId: args.userId,
+      id: crypto.randomUUID(),
+      orgProjectId: projectId,
+    });
+    const result: DataOperationResult<'projects.import'> = { projectId, initialId };
+    return Response.json(result, { status: 201, headers: { 'cache-control': 'no-store' } });
+  } catch (error) {
+    return internalErrorResponse(error, 'The ZIP could not be uploaded. Try again.');
+  }
+}
+
+/** The uploaded ZIP's files, within a workspace's limits; anything else is said to the person. */
+async function readUploadedFiles(request: Request) {
+  let archive: Uint8Array;
+  try {
+    archive = await readBodyBytesWithLimit(request, MAX_UPLOAD_BYTES, 'The ZIP');
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) {
+      throw new ProjectRepositoryFailureError(
+        `The ZIP is larger than ${MAX_UPLOAD_BYTES / 1024 / 1024} MB. Leave out folders that can be made again, such as node_modules.`,
+        413,
+      );
+    }
+    throw error;
+  }
+  try {
+    return await extractZip(archive, {
+      maxFiles: BUILDER_WORKSPACE_MAX_FILES,
+      maxFileBytes: BUILDER_WORKSPACE_MAX_FILE_BYTES,
+      maxTotalBytes: BUILDER_WORKSPACE_MAX_TOTAL_BYTES,
+    });
+  } catch (error) {
+    if (error instanceof ZipReadError) {
+      throw new ProjectRepositoryFailureError(error.message, error.code === 'too_large' ? 413 : 400);
+    }
+    throw error;
+  }
 }
 
 /**

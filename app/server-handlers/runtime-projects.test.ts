@@ -10,6 +10,7 @@ import {
   runtimeProjectImportedAction,
   runtimeAbandonImportAction,
   runtimeRegisterImportAction,
+  runtimeRegisterUploadAction,
   runtimeRequestProductionAction,
   runtimeProjectSiteAction,
   runtimeProjectStatusAction,
@@ -481,6 +482,54 @@ describe('a runtime importing a GitHub repository as a new project', () => {
     });
     expect(privateOne.status).toBe(404);
     expect(await privateOne.json()).toMatchObject({ code: 'not_public' });
+  });
+});
+
+describe('a runtime adding a project uploaded as a ZIP', () => {
+  const UPLOADED = '77777777-7777-4777-8777-777777777777';
+
+  it("records the repository the runtime wrote as a project of the person's own account, once", async () => {
+    const { env, runtime, database } = await setup();
+    const register = async (body: Record<string, string>) =>
+      runtimeRegisterUploadAction({
+        request: await runtime('/api/cloudflare/runtime-projects/register-upload', body, { connection: 'own' }),
+        env,
+      });
+    const body = { orgProjectId: UPLOADED, name: 'Bakery', repo: `t-${UPLOADED}` };
+    const added = await register(body);
+    expect(added.status).toBe(201);
+    expect(await added.json()).toEqual({ projectId: UPLOADED });
+    expect(
+      database
+        .prepare(
+          'SELECT connection_id, org_id, name, created_from, artifact_repo, import_repo_full_name FROM org_projects WHERE id = ?',
+        )
+        .get(UPLOADED),
+    ).toEqual({
+      connection_id: 'sara-own',
+      org_id: null,
+      name: 'Bakery',
+      created_from: 'zip',
+      artifact_repo: `t-${UPLOADED}`,
+      import_repo_full_name: null,
+    });
+    expect((await register(body)).status).toBe(409);
+    // Only the repository named after the project.
+    expect((await register({ ...body, orgProjectId: OWN, repo: `t-${UPLOADED}` })).status).toBe(409);
+  });
+
+  it("takes a team's admin in a team", async () => {
+    const { env, runtime, database } = await setup();
+    const asMember = await runtimeRegisterUploadAction({
+      request: await runtime('/api/cloudflare/runtime-projects/register-upload', {
+        orgProjectId: UPLOADED,
+        name: 'Bakery',
+        repo: `t-${UPLOADED}`,
+      }),
+      env,
+    });
+    expect(asMember.status).toBe(403);
+    expect(database.prepare('SELECT COUNT(*) AS n FROM org_projects WHERE id = ?').get(UPLOADED)).toEqual({ n: 0 });
   });
 });
 

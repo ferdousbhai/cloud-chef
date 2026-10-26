@@ -182,6 +182,19 @@ export async function registerProjectImport(
   return readAnswer(response, registeredImportSchema, 'CloudChef could not import that repository.');
 }
 
+/**
+ * Asks the control plane to keep an uploaded project, whose code this runtime has already written to
+ * `repo` (`t-<orgProjectId>`), as one of this person's projects (or their team's).
+ */
+export async function registerUploadedProject(
+  env: RuntimeEnv,
+  identity: Identity,
+  body: { orgProjectId: string; name: string; repo: string },
+): Promise<void> {
+  const response = await postRuntimeRoute(env, identity, 'runtime-projects/register-upload', body, OPEN_TIMEOUT_MS);
+  await readAnswer(response, z.object({ projectId: z.string() }), 'CloudChef could not add the project.');
+}
+
 /** What Workers Builds reports for a commit of the project so far. */
 export async function projectBuildStatus(
   env: RuntimeEnv,
