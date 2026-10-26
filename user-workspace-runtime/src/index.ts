@@ -36,7 +36,8 @@ import {
 } from '../../app/lib/.server/cloudflare/deployment-config';
 import { recordDeploymentActivity } from '../../app/lib/.server/cloudflare/deployment-repository';
 import type { BuilderValidationStage } from '../../app/lib/common/builder-validation-progress';
-import type { RefUpdate } from '../../app/lib/.server/cloudflare/git-proxy';
+import type { GitWorkspaceRepository, RefUpdate } from '../../app/lib/.server/cloudflare/git-proxy';
+import { ZERO_OID } from '../../app/lib/.server/cloudflare/repository-wire';
 import type {
   BuilderWorkspaceGitRepository,
   WorkspaceValidationStageReporter,
@@ -455,6 +456,10 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
          updated_at INTEGER NOT NULL
        )`,
     );
+    // The commit the workspace's files were last known to match, and its branch: what git in a fresh
+    // container is based on, so others' later commits never show as changes undone here.
+    addMissingColumn(this.ctx.storage.sql, 'cloudchef_git_repository', 'base_branch', 'TEXT');
+    addMissingColumn(this.ctx.storage.sql, 'cloudchef_git_repository', 'base_commit', 'TEXT');
     this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS cloudchef_git_pushes (
          id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2176,26 +2181,53 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     );
   }
 
-  /** The repository the git proxy serves this workspace, or null before the agent has named one. */
-  gitRepository(): BuilderWorkspaceGitRepository | null {
+  /**
+   * The repository the git proxy serves this workspace, and the commit git in its container starts from,
+   * or null before the agent has named one. Until a push from here, a team project's is the commit it was
+   * opened at; a CloudChef app's is none, and git starts from its `main`.
+   */
+  gitRepository(): GitWorkspaceRepository | null {
     const row = first(
-      this.ctx.storage.sql.exec<{ repo: string; org_project_id: string | null }>(
-        'SELECT repo, org_project_id FROM cloudchef_git_repository WHERE singleton = 1',
-      ),
+      this.ctx.storage.sql.exec<{
+        repo: string;
+        org_project_id: string | null;
+        base_branch: string | null;
+        base_commit: string | null;
+      }>('SELECT repo, org_project_id, base_branch, base_commit FROM cloudchef_git_repository WHERE singleton = 1'),
     );
-    return row ? { repo: row.repo, orgProjectId: row.org_project_id } : null;
+    if (!row) {
+      return null;
+    }
+    const linked = row.base_commit === null && row.org_project_id !== null ? this.linkedProject() : null;
+    return {
+      repo: row.repo,
+      orgProjectId: row.org_project_id,
+      base: {
+        branch: row.base_branch ?? 'main',
+        commit: row.base_commit ?? (linked?.repository === row.repo ? linked.baseCommit : null),
+      },
+    };
   }
 
-  /** A ref the git proxy saw updated by a push from this workspace's container. */
+  /** A ref the git proxy saw updated by a push from this workspace's container: a branch becomes its base. */
   recordGitPush(value: RefUpdate): void {
     const update = gitPushSchema.parse(value);
-    this.ctx.storage.sql.exec(
-      'INSERT INTO cloudchef_git_pushes (ref, old_oid, new_oid, pushed_at) VALUES (?, ?, ?, ?)',
-      update.ref,
-      update.oldOid,
-      update.newOid,
-      Date.now(),
-    );
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        'INSERT INTO cloudchef_git_pushes (ref, old_oid, new_oid, pushed_at) VALUES (?, ?, ?, ?)',
+        update.ref,
+        update.oldOid,
+        update.newOid,
+        Date.now(),
+      );
+      if (update.ref.startsWith('refs/heads/') && update.newOid !== ZERO_OID) {
+        this.ctx.storage.sql.exec(
+          'UPDATE cloudchef_git_repository SET base_branch = ?, base_commit = ? WHERE singleton = 1',
+          update.ref.slice('refs/heads/'.length),
+          update.newOid,
+        );
+      }
+    });
   }
 
   linkedProject(): BuilderWorkspaceLinkedProject | null {

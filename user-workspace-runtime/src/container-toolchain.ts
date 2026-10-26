@@ -4,6 +4,8 @@ import templatePackage from '../../template/package.json' with { type: 'json' };
 import { CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS } from './operation-lease-policy';
 import { shellQuote } from './shell-quote';
 import { abortableSleep } from '../../app/lib/abortable-sleep';
+import { GIT_PROXY_HOST } from '../../app/lib/.server/cloudflare/git-proxy';
+import { ZERO_OID } from '../../app/lib/.server/cloudflare/repository-wire';
 
 /**
  * Where the bootstrap installs computerd on the stock Sandbox image. `/opt` rather than `/tmp` so
@@ -136,7 +138,173 @@ export function containerToolchainBootstrapCommand(accountId: string): string {
     `test "$(pnpm --version)" = ${expectedVersion}`,
     `printf %s ${shellQuote(cfCliLauncherScript(accountId))} > ${shellQuote(CF_CLI_WRAPPER)}`,
     `chmod 0755 ${shellQuote(CF_CLI_WRAPPER)}`,
+    `test -x ${shellQuote(REAL_GIT)}`,
+    `mkdir -p ${shellQuote(GIT_HOOKS)}`,
+    ...[
+      [GIT_WRAPPER, gitWrapperScript()],
+      [GIT_SETUP, gitSetupScript()],
+      [`${GIT_HOOKS}/pre-commit`, gitPreCommitHook()],
+      [`${GIT_HOOKS}/pre-push`, gitPrePushHook()],
+    ].flatMap(([path, script]) => [
+      `printf %s ${shellQuote(script)} > ${shellQuote(path)}`,
+      `chmod 0755 ${shellQuote(path)}`,
+    ]),
   ]);
+}
+
+/**
+ * git for the project. Its history lives on the container's own disk, outside `/home`, which the
+ * workspace stores durably whole: the project's files are kept, and a new container sets up the history
+ * again from the project's repository on first use. The remote is the runtime's git proxy, so nothing
+ * here holds a credential.
+ */
+export const GIT_WRAPPER = '/usr/local/bin/git';
+const REAL_GIT = '/usr/bin/git';
+const GIT_ROOT = '/opt/cloudchef/git';
+const GIT_DIR = `${GIT_ROOT}/project.git`;
+const GIT_SETUP = `${GIT_ROOT}/setup`;
+const GIT_HOOKS = `${GIT_ROOT}/hooks`;
+const GIT_REMOTE = `http://${GIT_PROXY_HOST}/project.git`;
+/** `.env`, `.env.*` and `.dev.vars`, `.dev.vars.*` at any depth, as files git refuses to save. */
+const SECRET_FILE_PATTERN = '(^|/)(\\.env|\\.dev\\.vars)(\\.[^/]*)?$';
+const SECRET_EXAMPLE_PATTERN = '(^|/)\\.env\\.(example|sample|template)$';
+const SECRETS_ADVICE =
+  "Secrets belong in Cloudflare (the Worker's secrets or Secrets Store, set with cf), never in the project's files.";
+
+/**
+ * Inside the project, git uses the project's history and sets it up first when the container has none. A
+ * directory with its own `.git`, such as a repository cloned for reference, is left to plain git.
+ */
+export function gitWrapperScript(): string {
+  return [
+    '#!/bin/sh',
+    'case "$PWD/" in',
+    `  ${WORK_DIR}/*)`,
+    '    if [ -z "${GIT_DIR:-}" ] && [ ! -e "$PWD/.git" ]; then',
+    `      export GIT_DIR=${shellQuote(GIT_DIR)} GIT_WORK_TREE=${shellQuote(WORK_DIR)}`,
+    `      [ -f "$GIT_DIR/HEAD" ] || ${shellQuote(GIT_SETUP)} || exit 1`,
+    '    fi',
+    '    ;;',
+    'esac',
+    `exec ${shellQuote(REAL_GIT)} "$@"`,
+    '',
+  ].join('\n');
+}
+
+/**
+ * Sets up the project's history once per container, under a lock: fetched through the proxy and based on
+ * the commit the workspace's files match, so `git status` shows exactly what changed since. Only the index
+ * is written; the files are already there.
+ */
+export function gitSetupScript(): string {
+  return [
+    '#!/bin/sh',
+    'set -eu',
+    `root=${shellQuote(GIT_ROOT)}`,
+    'mkdir -p "$root"',
+    'exec 9>"$root/.lock"',
+    'flock 9',
+    `[ -f ${shellQuote(`${GIT_DIR}/HEAD`)} ] && exit 0`,
+    'answer="$(mktemp)"',
+    `status="$(curl -sS -o "$answer" -w '%{http_code}' ${shellQuote(`http://${GIT_PROXY_HOST}/_cloudchef/workspace`)} || true)"`,
+    'if [ "$status" != 200 ]; then',
+    '  cat "$answer" >&2 2>/dev/null || true',
+    `  echo ${shellQuote('git could not be set up for this project just now. Try again.')} >&2`,
+    '  exit 1',
+    'fi',
+    'base="$(sed -n 1p "$answer")"',
+    'branch="${base%% *}"',
+    'commit="${base#* }"',
+    'name="$(sed -n 2p "$answer")"',
+    'email="$(sed -n 3p "$answer")"',
+    'staging="$(mktemp -d "$root/.setup.XXXXXX")"',
+    `g() { GIT_DIR="$staging" GIT_WORK_TREE=${shellQuote(WORK_DIR)} ${shellQuote(REAL_GIT)} "$@"; }`,
+    'g init -q -b main',
+    `g remote add origin ${shellQuote(GIT_REMOTE)}`,
+    'g config user.name "$name"',
+    'g config user.email "$email"',
+    `g config core.hooksPath ${shellQuote(GIT_HOOKS)}`,
+    'g config pull.rebase true',
+    'g config push.autoSetupRemote true',
+    'g fetch -q origin',
+    'if [ "$commit" != - ] && g cat-file -e "$commit^{commit}" 2>/dev/null; then',
+    '  start="$commit"',
+    'elif start="$(g rev-parse -q --verify refs/remotes/origin/main)"; then',
+    '  branch=main',
+    'else',
+    '  start=""',
+    '  branch=main',
+    'fi',
+    'g symbolic-ref HEAD "refs/heads/$branch"',
+    'if [ -n "$start" ]; then',
+    '  g update-ref "refs/heads/$branch" "$start"',
+    '  g read-tree HEAD',
+    '  if g rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then',
+    '    g branch -q --set-upstream-to="origin/$branch" "$branch"',
+    '  fi',
+    'fi',
+    `printf '%s\\n' ${gitExcludes().map(shellQuote).join(' ')} > "$staging/info/exclude"`,
+    `mv -T "$staging" ${shellQuote(GIT_DIR)}`,
+    '',
+  ].join('\n');
+}
+
+/** Never saved, whatever the project's own `.gitignore` says: local secrets and build output. */
+function gitExcludes(): string[] {
+  return [
+    '.env',
+    '.env.*',
+    '!.env.example',
+    '!.env.sample',
+    '!.env.template',
+    '.dev.vars',
+    '.dev.vars.*',
+    ...['node_modules', 'dist', '.output', '.tanstack', '.wrangler', '.cloudflare', '.venv'].map((root) => `/${root}/`),
+  ];
+}
+
+/** Refuses a commit that adds, changes or removes a secret file, even one the repository already has. */
+export function gitPreCommitHook(): string {
+  return [
+    '#!/bin/sh',
+    `found="$(git diff --cached --name-only | grep -E ${shellQuote(SECRET_FILE_PATTERN)} | grep -vE ${shellQuote(SECRET_EXAMPLE_PATTERN)} || true)"`,
+    '[ -z "$found" ] && exit 0',
+    `printf 'Not saved, a secret file: %s\\n%s Take it out of this commit with git rm --cached <file>.\\n' "$found" ${shellQuote(SECRETS_ADVICE)} >&2`,
+    'exit 1',
+    '',
+  ].join('\n');
+}
+
+/**
+ * Refuses rewriting `main`, which would erase versions others rely on (a refused push is rebased with
+ * `git pull`, then pushed again), and pushing a secret file a commit somehow holds.
+ */
+export function gitPrePushHook(): string {
+  return [
+    '#!/bin/sh',
+    `zero=${ZERO_OID}`,
+    'refused=0',
+    'while read -r local_ref local_oid remote_ref remote_oid; do',
+    '  [ "$local_oid" = "$zero" ] && continue',
+    '  if [ "$remote_ref" = refs/heads/main ] && [ "$remote_oid" != "$zero" ] && ! git merge-base --is-ancestor "$remote_oid" "$local_oid" 2>/dev/null; then',
+    `    echo ${shellQuote("main can't be rewritten. Run git pull, then push again.")} >&2`,
+    '    refused=1',
+    '    continue',
+    '  fi',
+    '  if [ "$remote_oid" = "$zero" ]; then',
+    '    files="$(git log --format= --name-only "$local_oid" --not --remotes=origin)"',
+    '  else',
+    '    files="$(git log --format= --name-only "$remote_oid..$local_oid")"',
+    '  fi',
+    `  found="$(printf '%s\\n' "$files" | grep -E ${shellQuote(SECRET_FILE_PATTERN)} | grep -vE ${shellQuote(SECRET_EXAMPLE_PATTERN)} | sort -u || true)"`,
+    '  if [ -n "$found" ]; then',
+    `    printf 'Not pushed, a commit holds a secret file: %s\\n%s\\n' "$found" ${shellQuote(SECRETS_ADVICE)} >&2`,
+    '    refused=1',
+    '  fi',
+    'done',
+    'exit "$refused"',
+    '',
+  ].join('\n');
 }
 
 /**

@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
-import type { RuntimeConnectionIdentity } from './cloudflare-api-runtime-identity';
-import { importedProjectRepo, type ProjectRepositories } from './project-repository';
+import {
+  runtimeConnectionIdentity,
+  type RuntimeConnectionEnv,
+  type RuntimeConnectionIdentity,
+} from './cloudflare-api-runtime-identity';
+import { importedProjectRepo, type ProjectRepositories, type RepositoryAuthor } from './project-repository';
 import { postRuntimeRoute } from './user-workspace-cloudflare-credential';
 
 /**
@@ -112,7 +116,7 @@ const accessMemberSchema = z.object({ member: memberSchema.nullable().optional()
  * Who this runtime's person is, as their commits name them: what the control plane's access answer
  * says, or null when it says nothing (or can't be reached), which a commit then names by user id.
  */
-export async function readMemberIdentity(
+async function readMemberIdentity(
   env: RuntimeEnv,
   identity: Identity,
 ): Promise<{ name: string; email: string } | null> {
@@ -129,6 +133,13 @@ export async function readMemberIdentity(
   } catch {
     return null;
   }
+}
+
+/** Who commits made in this runtime are by: the person as the control plane names them, else by user id. */
+export async function commitAuthor(env: RuntimeEnv & RuntimeConnectionEnv): Promise<RepositoryAuthor> {
+  const identity = runtimeConnectionIdentity(env);
+  const member = identity ? await readMemberIdentity(env, identity) : null;
+  return member ?? { name: 'CloudChef member', email: `${env.CLOUDCHEF_USER_ID}@users.noreply.cloudchef.build` };
 }
 
 /** Records that the project's repository now exists (idempotent); refused if another one is recorded. */

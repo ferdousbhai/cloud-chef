@@ -16,7 +16,8 @@ function harness(options: { refusal?: string | null; answer?: (sent: Sent) => Re
   const recorded: RefUpdate[] = [];
   const pending: Promise<unknown>[] = [];
   const deps: GitProxyDependencies = {
-    repository: async () => ({ repo: 'chat-1', orgProjectId: null }),
+    repository: async () => ({ repo: 'chat-1', orgProjectId: null, base: { branch: 'main', commit: OLD } }),
+    author: async () => ({ name: 'Ada\nLovelace', email: 'ada@example.com' }),
     refusal: async () => options.refusal ?? null,
     access: async (_repo, scope) => ({
       url: 'https://artifacts.example/cloudchef/chat-1.git',
@@ -84,6 +85,15 @@ async function text(response: Response): Promise<string> {
 }
 
 describe('the workspace git proxy', () => {
+  it('tells the container git setup its base commit and author, one per line', async () => {
+    const { deps } = harness();
+    const response = await handleGitProxyRequest(new Request('http://git.internal/_cloudchef/workspace'), deps);
+    expect(await text(response)).toBe(`main ${OLD}\nAda Lovelace\nada@example.com\n`);
+    const refused = harness({ refusal: 'You no longer have access to this workspace.' });
+    const answer = await handleGitProxyRequest(new Request('http://git.internal/_cloudchef/workspace'), refused.deps);
+    expect(answer.status).toBe(403);
+  });
+
   it('answers only git for the project repository', async () => {
     const { deps, sent } = harness();
     expect(

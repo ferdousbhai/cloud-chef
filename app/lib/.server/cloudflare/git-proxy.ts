@@ -9,6 +9,8 @@ import { concatBytes, pktLine, readPktLines, ZERO_OID, type GitFetch, type GitRe
 export const GIT_PROXY_HOST = 'git.internal';
 
 const REPOSITORY_PATH = '/project.git';
+/** Asked by the container's git setup, never by git itself. */
+const WORKSPACE_PATH = '/_cloudchef/workspace';
 const MAIN_REF = 'refs/heads/main';
 /** A push's command section is a few lines per ref; anything larger is not a push git sends. */
 const MAX_COMMAND_BYTES = 64 * 1024;
@@ -21,6 +23,11 @@ type GitService = 'git-upload-pack' | 'git-receive-pack';
 type GitProxyRoute = { service: GitService; advertisement: boolean };
 
 export type RefUpdate = { ref: string; oldOid: string; newOid: string };
+
+/** The workspace's repository, and the branch and commit its files match (none yet for a new CloudChef app). */
+export type GitWorkspaceRepository = BuilderWorkspaceGitRepository & {
+  base: { branch: string; commit: string | null };
+};
 
 /** What a push's report says of each ref: updated, or refused with the server's reason. */
 type PushReport = Map<string, { ok: true } | { ok: false; reason: string }>;
@@ -262,7 +269,9 @@ function decodedRequestBody(request: Request): ReadableStream<Uint8Array> | null
 
 /** What the proxy needs of the workspace it serves, the person's access, and the account's repositories. */
 export type GitProxyDependencies = {
-  repository(): Promise<BuilderWorkspaceGitRepository | null>;
+  repository(): Promise<GitWorkspaceRepository | null>;
+  /** Who commits made in the workspace are by: the person, as the project's history names them. */
+  author(): Promise<{ name: string; email: string }>;
   /** Why this person may not fetch (`write` false) or push to the repository now, or null when they may. */
   refusal(target: BuilderWorkspaceGitRepository, write: boolean): Promise<string | null>;
   access(repo: string, scope: 'read' | 'write'): Promise<GitRemote & { tokenId: string }>;
@@ -278,15 +287,16 @@ export type GitProxyDependencies = {
  * refs a push updated.
  */
 export async function handleGitProxyRequest(request: Request, deps: GitProxyDependencies): Promise<Response> {
+  if (isWorkspaceRequest(request)) {
+    return workspaceAnswer(deps);
+  }
   const route = gitProxyRoute(request);
   if (!route) {
     return new Response('Not found.', { status: 404 });
   }
   const write = route.service === 'git-receive-pack';
   const target = await deps.repository();
-  const refusal = target
-    ? await deps.refusal(target, write).catch(() => 'CloudChef could not confirm your access just now. Try again.')
-    : 'This workspace has no project repository yet. Send a message in the chat first.';
+  const refusal = await gitRefusal(deps, target, write);
   if (route.advertisement && refusal) {
     return gitRefusalAdvertisement(route.service, refusal);
   }
@@ -345,6 +355,43 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
       })().catch((error) => console.error('Unable to record a git push', error)),
     );
   });
+}
+
+async function gitRefusal(
+  deps: GitProxyDependencies,
+  target: GitWorkspaceRepository | null,
+  write: boolean,
+): Promise<string | null> {
+  if (!target) {
+    return 'This workspace has no project repository yet. Send a message in the chat first.';
+  }
+  return deps.refusal(target, write).catch(() => 'CloudChef could not confirm your access just now. Try again.');
+}
+
+function isWorkspaceRequest(request: Request): boolean {
+  const url = new URL(request.url);
+  return url.hostname === GIT_PROXY_HOST && request.method === 'GET' && url.pathname === WORKSPACE_PATH;
+}
+
+/**
+ * What git in a new container sets itself up from, as lines its shell setup reads: the branch and commit
+ * the workspace's files match (`-` for none yet), then the author's name and email.
+ */
+async function workspaceAnswer(deps: GitProxyDependencies): Promise<Response> {
+  const target = await deps.repository();
+  const refusal = await gitRefusal(deps, target, false);
+  if (refusal || !target) {
+    return new Response(`${refusal}\n`, { status: 403 });
+  }
+  const author = await deps.author();
+  const line = (value: string) => value.replace(/[\r\n]/g, ' ');
+  const body = [
+    `${line(target.base.branch)} ${target.base.commit ?? '-'}`,
+    line(author.name),
+    line(author.email),
+    '',
+  ].join('\n');
+  return new Response(body, { headers: { 'content-type': 'text/plain; charset=utf-8' } });
 }
 
 /** `head`, then what `reader` gives, read only as fast as it is sent on. */

@@ -135,7 +135,7 @@ import {
   ProjectUnavailableError,
   projectBuildStatus,
   projectSiteOrigins,
-  readMemberIdentity,
+  commitAuthor,
   requestProductionReview,
   type OpenedProject,
   type ProductionRequestOutcome,
@@ -146,7 +146,6 @@ import {
   ProjectRepositories,
   ProjectRepositoryError,
   workspaceFileMode,
-  type RepositoryAuthor,
 } from '~/lib/.server/cloudflare/project-repository';
 import { WORK_DIR } from 'cloudchef-agent/constants';
 import { bytesToBase64 } from '~/lib/hex-digest';
@@ -1820,7 +1819,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return toolFailure(`There are no new changes to ${name} to send.` + linkedHeldBackNote(heldBack));
     }
     const repositories = this.repositories();
-    const author = project.member ?? (await this.commitAuthor());
+    const author = project.member ?? (await commitAuthor(this.env));
     const branch = memberBranch(project.member?.email ?? null, this.userId, linked.branchKey);
     const [{ files: base }, head] = await Promise.all([
       repositories.readTreeAt(repo, linked.baseCommit),
@@ -1901,14 +1900,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return linkedBuildUnfollowedResult(watch);
     }
     return linkedBuildStartedResult(watch);
-  }
-
-  /** Who this person's commits name: the control plane's answer, or their user id when it has none. */
-  private async commitAuthor(): Promise<RepositoryAuthor> {
-    const identity = runtimeConnectionIdentity(this.env);
-    const member = identity ? await readMemberIdentity(this.env, identity) : null;
-    const userId = this.userId ?? this.env.CLOUDCHEF_USER_ID;
-    return member ?? { name: 'CloudChef member', email: `${userId}@users.noreply.cloudchef.build` };
   }
 
   /**
@@ -2793,7 +2784,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const repositories = this.repositories();
     const repo = nativeProjectRepo(transcript.chatInitialId);
-    const author = await this.commitAuthor();
+    const author = await commitAuthor(this.env);
     // Two commits can race for main (a publish's and a production request's): the loser goes again on top.
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const parent = await repositories.head(repo);
