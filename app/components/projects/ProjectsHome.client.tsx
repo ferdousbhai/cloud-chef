@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
   CodeIcon,
@@ -8,10 +8,11 @@ import {
   GitHubLogoIcon,
   Pencil1Icon,
   PersonIcon,
+  PlusIcon,
   UploadIcon,
 } from '@radix-ui/react-icons';
 import { Button, buttonClassNames } from '@ui/Button';
-import { MenuItem } from '@ui/Menu';
+import { Menu, MenuItem } from '@ui/Menu';
 import { Link } from '@tanstack/react-router';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
 import { authClient } from '~/lib/auth-client';
@@ -38,7 +39,8 @@ type OpenDialog =
 
 /**
  * The signed-in home's projects, below the prompt that starts a new one: the person's own projects in the
- * account they're working in, and in a team, the team projects they may view or edit.
+ * account they're working in, and in a team, the team projects they may view or edit. In a team its projects
+ * come first, and the person's own appear only once there are some.
  */
 export function ProjectsHome({ userId }: { userId: string }) {
   const { data: session } = authClient.useSession();
@@ -62,24 +64,25 @@ export function ProjectsHome({ userId }: { userId: string }) {
     }
   }, []);
 
+  // Beside the first section's heading: the team's in a team, the person's own otherwise.
+  const addProject = canImport ? <AddProjectMenu onDialog={setDialog} /> : null;
+
   return (
-    <div className="mx-auto mt-8 grid w-full max-w-6xl gap-8 pb-10">
-      {canImport ? (
-        <div className="flex flex-wrap justify-center gap-2">
-          <Button variant="neutral" size="sm" icon={<GitHubLogoIcon />} onClick={() => setDialog({ kind: 'import' })}>
-            Import from GitHub
-          </Button>
-          <Button variant="neutral" size="sm" icon={<UploadIcon />} onClick={() => setDialog({ kind: 'upload' })}>
-            Upload a ZIP
-          </Button>
-        </div>
-      ) : null}
-      {draftsAllowed ? <OwnProjects userId={userId} onDialog={setDialog} /> : null}
+    <div className="mx-auto mt-8 grid w-full max-w-6xl gap-10 pb-10">
       {team ? (
         <TeamProjects
           orgId={team.orgId}
           admin={team.role === 'admin'}
           heading={team.role === 'admin' ? 'Team projects' : 'Shared with me'}
+          action={addProject}
+          onDialog={setDialog}
+        />
+      ) : null}
+      {draftsAllowed ? (
+        <OwnProjects
+          userId={userId}
+          hideWhenEmpty={team !== null}
+          action={team ? null : addProject}
           onDialog={setDialog}
         />
       ) : null}
@@ -113,21 +116,60 @@ export function ProjectsHome({ userId }: { userId: string }) {
   );
 }
 
+/** One quiet control for bringing in code made elsewhere: from GitHub, or a ZIP. */
+function AddProjectMenu({ onDialog }: { onDialog: (dialog: OpenDialog) => void }) {
+  return (
+    <Menu
+      buttonProps={{
+        variant: 'neutral',
+        size: 'xs',
+        title: 'Add an existing project',
+        icon: <PlusIcon />,
+        children: 'Add an existing project',
+      }}
+    >
+      <MenuItem action={() => onDialog({ kind: 'import' })}>
+        <GitHubLogoIcon />
+        Import from GitHub
+      </MenuItem>
+      <MenuItem action={() => onDialog({ kind: 'upload' })}>
+        <UploadIcon />
+        Upload a ZIP
+      </MenuItem>
+    </Menu>
+  );
+}
+
 function download(project: ProjectRef, name: string) {
   downloadProjectArchive(project, archiveName(name)).catch((error) =>
     toast.error(messageOf(error, 'The ZIP could not be downloaded. Try again.')),
   );
 }
 
-function OwnProjects({ userId, onDialog }: { userId: string; onDialog: (dialog: OpenDialog) => void }) {
+function OwnProjects({
+  userId,
+  hideWhenEmpty,
+  action,
+  onDialog,
+}: {
+  userId: string;
+  /** In a team, where its projects come first, the person's own show only once they have some. */
+  hideWhenEmpty: boolean;
+  action: ReactNode;
+  onDialog: (dialog: OpenDialog) => void;
+}) {
   const history = useChatHistory(userId);
   const workspacePreparing = useStore(userWorkspacePreparingStore);
   const workspaceUpgrading = useStore(userWorkspaceUpgradingStore);
   const projects = history.projects;
 
+  if (hideWhenEmpty && projects.length === 0 && history.error == null) {
+    return null;
+  }
+
   return (
-    <section aria-labelledby="my-projects" className="grid gap-3">
-      <SectionHeading id="my-projects" count={history.isLoading ? null : projects.length}>
+    <section aria-labelledby="my-projects" className="grid gap-4">
+      <SectionHeading id="my-projects" action={action}>
         My projects
       </SectionHeading>
       {history.error != null ? (
@@ -207,11 +249,13 @@ function TeamProjects({
   orgId,
   admin,
   heading,
+  action,
   onDialog,
 }: {
   orgId: string;
   admin: boolean;
   heading: string;
+  action: ReactNode;
   onDialog: (dialog: OpenDialog) => void;
 }) {
   const [projects, setProjects] = useState<TeamProject[] | null>(null);
@@ -245,8 +289,8 @@ function TeamProjects({
   };
 
   return (
-    <section aria-labelledby="team-projects" className="grid gap-3">
-      <SectionHeading id="team-projects" count={projects?.length ?? null}>
+    <section aria-labelledby="team-projects" className="grid gap-4">
+      <SectionHeading id="team-projects" action={action}>
         {heading}
       </SectionHeading>
       {loadFailed ? (
@@ -339,17 +383,13 @@ function TeamProjects({
   );
 }
 
-function SectionHeading({ id, count, children }: { id: string; count: number | null; children: string }) {
+function SectionHeading({ id, action, children }: { id: string; action: ReactNode; children: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-bolt-elements-borderColor pb-2">
+    <div className="flex min-h-7 flex-wrap items-center justify-between gap-3">
       <h2 id={id} className="text-sm font-semibold text-content-primary">
         {children}
       </h2>
-      {count !== null ? (
-        <span className="text-xs tabular-nums text-content-tertiary">
-          {count} {count === 1 ? 'project' : 'projects'}
-        </span>
-      ) : null}
+      {action}
     </div>
   );
 }
